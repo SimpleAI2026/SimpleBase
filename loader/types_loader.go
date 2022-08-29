@@ -15,18 +15,16 @@ import (
 
 var (
 	xtypeTypeNames = make(map[string]*types.Basic)
-)
 
-var (
 	TypesDummyStruct    = types.NewStruct(nil, nil)
 	TypesDummySig       = types.NewSignature(nil, nil, nil, false)
 	TypesDummySlice     = types.NewSlice(TypesDummyStruct)
 	TypesError          = types.Universe.Lookup("error").Type()
 	TypesEmptyInterface = types.NewInterfaceType(nil, nil)
-	TyEmptyFunc         = reflect.TypeOf((*func())(nil)).Elem()
+	TypesEmptyFunc      = reflect.TypeOf((*func())(nil)).Elem()
 
-	TyEmptyInterface = reflect.TypeOf((*interface{})(nil)).Elem()
-	TyErrorInterface = reflect.TypeOf((*error)(nil)).Elem()
+	TypesEmptyInterfaceV2 = reflect.TypeOf((*interface{})(nil)).Elem()
+	TypesErrorInterfaceV2 = reflect.TypeOf((*error)(nil)).Elem()
 )
 
 func init() {
@@ -34,6 +32,16 @@ func init() {
 		typ := types.Typ[i]
 		xtypeTypeNames[typ.String()] = typ
 	}
+}
+
+// Loader types loader interface
+type Loader interface {
+	Import(path string) (*types.Package, error)
+	Installed(path string) (*Package, bool)
+	Packages() []*types.Package
+	LookupReflect(typ types.Type) (reflect.Type, bool)
+	LookupTypes(typ reflect.Type) (types.Type, bool)
+	SetImport(path string, pkg *types.Package, load func() error) error
 }
 
 type TypesLoader struct {
@@ -58,8 +66,8 @@ func NewTypesLoader(mode Mode) Loader {
 		mode:      mode,
 	}
 	r.packages["unsafe"] = types.Unsafe
-	r.rcache[TyErrorInterface] = TypesError
-	r.rcache[TyEmptyInterface] = TypesEmptyInterface
+	r.rcache[TypesErrorInterfaceV2] = TypesError
+	r.rcache[TypesEmptyInterfaceV2] = TypesEmptyInterface
 	r.importer = importer.Default()
 	return r
 }
@@ -489,7 +497,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 				if im.Type != nil {
 					sig = r.toMethod(pkg, recv, 1, im.Type)
 				} else {
-					sig = r.toMethod(pkg, recv, 0, TyEmptyFunc)
+					sig = r.toMethod(pkg, recv, 0, TypesEmptyFunc)
 				}
 				skip[im.Name] = true
 				named.AddMethod(types.NewFunc(token.NoPos, pkg, im.Name, sig))
@@ -505,7 +513,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 				if im.Type != nil {
 					sig = r.toMethod(pkg, precv, 1, im.Type)
 				} else {
-					sig = r.toMethod(pkg, precv, 0, TyEmptyFunc)
+					sig = r.toMethod(pkg, precv, 0, TypesEmptyFunc)
 				}
 				named.AddMethod(types.NewFunc(token.NoPos, pkg, im.Name, sig))
 			}

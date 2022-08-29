@@ -12,6 +12,8 @@ func TestNewInterp(t *testing.T) {
 	sources := `
 	package test
 
+	import "fmt"
+
 	func fib(i int) int {
 		if i < 2 {
 			return i
@@ -23,8 +25,10 @@ func TestNewInterp(t *testing.T) {
 	}
 	
 	func main() {
-		test(37)
-	}`
+		fmt.Println("====", test(37))
+	}
+	
+	`
 	c := loader.NewContext(loader.EnableDumpImports)
 	p, err := c.LoadFile("__main__.go", sources)
 	fmt.Println("p: ", p, ", err: ", err)

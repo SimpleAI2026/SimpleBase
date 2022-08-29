@@ -19,6 +19,7 @@ func Test_LoadFile(t *testing.T) {
 		}
 		return fib(i - 1) + fib(i - 2)
 	}
+	
 	func test(i int) int {
 		return fib(i)
 	}

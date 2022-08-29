@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/types"
 	"reflect"
+	"runtime"
 	"sync/atomic"
 	"unsafe"
 
@@ -23,7 +24,8 @@ type runtimeError string
 func (e runtimeError) RuntimeError() {}
 
 func (e runtimeError) Error() string {
-	return "runtime error: " + string(e)
+	pc, _, _, _ := runtime.Caller(2)
+	return "runtime error: " + string(e) + ", FuncForPC: " + runtime.FuncForPC(pc).Name()
 }
 
 var (

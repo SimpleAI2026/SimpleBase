@@ -96,15 +96,16 @@ type function struct {
 	pool      *sync.Pool           // create frame pool
 	index     map[ssa.Value]uint32 // stack index
 	Instrs    []func(fr *frame)    // main instrs
-	Recover   []func(fr *frame)    // recover instrs
-	Blocks    []int                // block offset
-	stack     []value              // results args envs datas
-	ssaInstrs []ssa.Instruction    // org ssa instr
-	nres      int                  // results count
-	narg      int                  // arguments count
-	nenv      int                  // closure free vars count
-	used      int32                // function used count
-	cached    int32                // enable cached by pool
+	InstrsLen int
+	Recover   []func(fr *frame) // recover instrs
+	Blocks    []int             // block offset
+	stack     []value           // results args envs datas
+	ssaInstrs []ssa.Instruction // org ssa instr
+	nres      int               // results count
+	narg      int               // arguments count
+	nenv      int               // closure free vars count
+	used      int32             // function used count
+	cached    int32             // enable cached by pool
 }
 
 func (p *function) initPool() {
@@ -242,10 +243,9 @@ func findExternFunc(interp *Interp, fn *ssa.Function) (ext reflect.Value, ok boo
 	}
 	if fn.Pkg != nil {
 		if recv := fn.Signature.Recv(); recv == nil {
-			// TODO:
-			// if pkg, found := interp.Installed(fn.Pkg.Pkg.Path()); found {
-			// 	ext, ok = pkg.Funcs[fn.Name()]
-			// }
+			if pkg, found := interp.ctx.Loader.Installed(fn.Pkg.Pkg.Path()); found {
+				ext, ok = pkg.Funcs[fn.Name()]
+			}
 		} else if typ, found := interp.ctx.Loader.LookupReflect(recv.Type()); found {
 			if m, found := typ.MethodByName(fn.Name()); found {
 				ext, ok = m.Func, true
@@ -364,7 +364,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ir := pfn.regIndex(instr)
 		ix, kx, vx := pfn.regIndex3(instr.X)
 		if kx.isStatic() {
-			if typ == cloader.TyEmptyInterface {
+			if typ == cloader.TypesEmptyInterfaceV2 {
 				return func(fr *frame) {
 					fr.setReg(ir, vx)
 				}
@@ -378,7 +378,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 				fr.setReg(ir, vx)
 			}
 		}
-		if typ == cloader.TyEmptyInterface {
+		if typ == cloader.TypesEmptyInterfaceV2 {
 			return func(fr *frame) {
 				fr.setReg(ir, fr.reg(ix))
 			}
@@ -1037,12 +1037,6 @@ func makeCallInstr(pfn *function, interp *Interp, instr ssa.Value, call *ssa.Cal
 	}
 }
 
-// makeFuncVal sync with Interp.makeFunc
-// func (i *Interp) makeFunc(typ reflect.Type, pfn *Function, env []value) reflect.Value {
-// 	return reflect.MakeFunc(typ, func(args []reflect.Value) []reflect.Value {
-// 		return i.callFunctionByReflect(i.tryDeferFrame(), typ, pfn, args, env)
-// 	})
-// }
 type makeFuncVal struct {
 	funcval.FuncVal
 	interp *Interp

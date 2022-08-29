@@ -27,16 +27,6 @@ const (
 	ExperimentFuncForPC                  // Experiment hook (reflect.Value).Pointer and runtime.FuncForPC
 )
 
-// Loader types loader interface
-type Loader interface {
-	Import(path string) (*types.Package, error)
-	Installed(path string) (*Package, bool)
-	Packages() []*types.Package
-	LookupReflect(typ types.Type) (reflect.Type, bool)
-	LookupTypes(typ reflect.Type) (types.Type, bool)
-	SetImport(path string, pkg *types.Package, load func() error) error
-}
-
 // Context ssa context
 type Context struct {
 	Loader       Loader         // types loader
@@ -133,36 +123,26 @@ func (ctx *Context) ClearOverrideFunction(key string) {
 }
 
 func (ctx *Context) AddImportFile(path string, filename string, src interface{}) (err error) {
-	_, err = ctx.addImportFile(path, filename, src)
-	return
+	tp, err := ctx.loadPackageFile(path, filename, src)
+	if err != nil {
+		return err
+	}
+	ctx.Loader.SetImport(path, tp.Package, tp.Load)
+	return nil
 }
 
 func (ctx *Context) AddImport(path string, dir string) (err error) {
-	_, err = ctx.addImport(path, dir)
-	return
-}
-
-func (ctx *Context) addImportFile(path string, filename string, src interface{}) (*sourcePackage, error) {
-	tp, err := ctx.loadPackageFile(path, filename, src)
-	if err != nil {
-		return nil, err
-	}
-	ctx.Loader.SetImport(path, tp.Package, tp.Load)
-	return tp, nil
-}
-
-func (ctx *Context) addImport(path string, dir string) (*sourcePackage, error) {
 	bp, err := ctx.BuildContext.ImportDir(dir, 0)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	bp.ImportPath = path
 	tp, err := ctx.loadPackage(bp, path, dir)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	ctx.Loader.SetImport(path, tp.Package, tp.Load)
-	return tp, nil
+	return nil
 }
 
 func (ctx *Context) loadPackageFile(path string, filename string, src interface{}) (*sourcePackage, error) {
@@ -244,27 +224,6 @@ func (ctx *Context) LoadAstFile(path string, file *ast.File) (*ssa.Package, erro
 	return ctx.buildPackage(sp)
 }
 
-func (ctx *Context) LoadAstPackage(path string, apkg *ast.Package) (*ssa.Package, error) {
-	var files []*ast.File
-	for _, f := range apkg.Files {
-		files = append(files, f)
-	}
-	sp := &sourcePackage{
-		Context: ctx,
-		Package: types.NewPackage(path, apkg.Name),
-		Files:   files,
-	}
-	err := sp.Load()
-	if err != nil {
-		return nil, err
-	}
-	return ctx.buildPackage(sp)
-}
-
-func IsMainPkg(pkg *ssa.Package) bool {
-	return pkg.Pkg.Name() == "main" && pkg.Func("main") != nil
-}
-
 func (ctx *Context) buildPackage(sp *sourcePackage) (pkg *ssa.Package, err error) {
 	defer func() {
 		if e := recover(); e != nil {
@@ -323,13 +282,6 @@ func (ctx *Context) buildPackage(sp *sourcePackage) (pkg *ssa.Package, err error
 		createAll(addin)
 	}
 	createAll(sp.Package.Imports())
-	if ctx.Mode&EnableDumpImports != 0 {
-		if sp.Dir != "" {
-			fmt.Println("# package", sp.Package.Path(), sp.Dir)
-		} else {
-			fmt.Println("# package", sp.Package.Path(), "<source>")
-		}
-	}
 	// Create and build the primary package.
 	pkg = prog.CreatePackage(sp.Package, sp.Files, sp.Info, false)
 	pkg.Build()

@@ -48,7 +48,7 @@ func emptyType(kind reflect.Kind) reflect.Type {
 	case reflect.Func:
 		return tyEmptyFunc
 	case reflect.Interface:
-		return cloader.TyEmptyInterface
+		return cloader.TypesEmptyInterfaceV2
 	case reflect.Map:
 		return tyEmptyMap
 	case reflect.Ptr:
@@ -94,7 +94,7 @@ func toMockType(typ types.Type) reflect.Type {
 	case *types.Named:
 		return toMockType(typ.Underlying())
 	case *types.Interface:
-		return cloader.TyEmptyInterface
+		return cloader.TypesEmptyInterfaceV2
 	case *types.Signature:
 		in := t.Params().Len()
 		out := t.Results().Len()
@@ -258,7 +258,7 @@ type _tuple struct{}
 func (r *TypesRecord) toInterfaceType(t *types.Interface) reflect.Type {
 	n := t.NumMethods()
 	if n == 0 {
-		return cloader.TyEmptyInterface
+		return cloader.TypesEmptyInterfaceV2
 	}
 	ms := make([]reflect.Method, n)
 	for i := 0; i < n; i++ {
@@ -280,7 +280,7 @@ func (r *TypesRecord) toNamedType(t *types.Named) reflect.Type {
 	name := t.Obj()
 	if name.Pkg() == nil {
 		if name.Name() == "error" {
-			return cloader.TyErrorInterface
+			return cloader.TypesErrorInterfaceV2
 		}
 		return r.ToType(ut)
 	}

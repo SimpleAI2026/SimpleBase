@@ -338,7 +338,7 @@ func (i *Interp) callFunctionByStackNoRecover0(caller *frame, pfn *function, ir 
 	for i := 0; i < len(ia); i++ {
 		fr.stack[i] = caller.reg(ia[i])
 	}
-	for fr.pc != -1 {
+	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
 		fn := fr.pfn.Instrs[fr.pc]
 		fr.pc++
 		fn(fr)
@@ -351,7 +351,7 @@ func (i *Interp) callFunctionByStackNoRecover1(caller *frame, pfn *function, ir 
 	for i := 0; i < len(ia); i++ {
 		fr.stack[i+1] = caller.reg(ia[i])
 	}
-	for fr.pc != -1 {
+	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
 		fn := fr.pfn.Instrs[fr.pc]
 		fr.pc++
 		fn(fr)
@@ -365,7 +365,7 @@ func (i *Interp) callFunctionByStackNoRecoverN(caller *frame, pfn *function, ir 
 	for i := 0; i < len(ia); i++ {
 		fr.stack[i+pfn.nres] = caller.reg(ia[i])
 	}
-	for fr.pc != -1 {
+	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
 		fn := fr.pfn.Instrs[fr.pc]
 		fr.pc++
 		fn(fr)
@@ -399,7 +399,7 @@ func (i *Interp) callFunctionByStackNoRecoverWithEnv(caller *frame, pfn *functio
 	for i := 0; i < pfn.nenv; i++ {
 		fr.stack[pfn.narg+i+pfn.nres] = env[i]
 	}
-	for fr.pc != -1 {
+	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
 		fn := fr.pfn.Instrs[fr.pc]
 		fr.pc++
 		fn(fr)
@@ -567,7 +567,7 @@ func (fr *frame) run() {
 		}()
 	}
 
-	for fr.pc != -1 {
+	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
 		fn := fr.pfn.Instrs[fr.pc]
 		fr.pc++
 		fn(fr)
