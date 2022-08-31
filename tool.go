@@ -1,4 +1,4 @@
-package gongx
+package main
 
 import (
 	"fmt"
@@ -18,7 +18,6 @@ var importPkgs = map[string][]string{
 	"encoding/hex":    []string{},
 	"encoding/xml":    []string{},
 	"errors":          []string{},
-	"fmt":             []string{},
 	"html":            []string{},
 	"math":            []string{},
 	"math/rand":       []string{},
@@ -45,12 +44,18 @@ var importPkgs = map[string][]string{
 	"crypto/des":      []string{},
 	"crypto/cipher":   []string{},
 	"crypto/tls":      []string{},
+	"fmt":             []string{},
 }
 
 func builtinImportPkgs() error {
 	for path, _ := range importPkgs {
+		fmt.Println("=============> ", path)
+		if path != "fmt" {
+			continue
+		}
 		pkg, err := importer.ForCompiler(token.NewFileSet(), "source", nil).Import(path)
 		if err != nil {
+			fmt.Println("err: ", err)
 			return err
 		}
 		scope := pkg.Scope()
@@ -77,4 +82,8 @@ func builtinImportPkgs() error {
 		}
 	}
 	return nil
+}
+
+func main() {
+	builtinImportPkgs()
 }

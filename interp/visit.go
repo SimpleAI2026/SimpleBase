@@ -2,8 +2,6 @@ package interp
 
 import (
 	"fmt"
-	"go/token"
-	"log"
 	"reflect"
 
 	"github.com/linkxzhou/gongx/loader"
@@ -111,7 +109,7 @@ func (visit *visitor) function(fn *ssa.Function) {
 	for _, p := range fn.FreeVars {
 		pfn.regIndex(p)
 	}
-	var buf [32]*ssa.Value // avoid alloc in common case
+	var opbuf [32]*ssa.Value // avoid alloc in common case
 	for _, b := range fn.Blocks {
 		instrs := make([]func(*frame), len(b.Instrs))
 		ssaInstrs := make([]ssa.Instruction, len(b.Instrs))
@@ -119,7 +117,7 @@ func (visit *visitor) function(fn *ssa.Function) {
 		n := len(b.Instrs)
 		for i := 0; i < n; i++ {
 			instr := b.Instrs[i]
-			ops := instr.Operands(buf[:0])
+			ops := instr.Operands(opbuf[:0])
 			switch instr := instr.(type) {
 			case *ssa.Alloc:
 				visit.intp.loadType(instr.Type())
@@ -161,48 +159,6 @@ func (visit *visitor) function(fn *ssa.Function) {
 			if ifn == nil {
 				continue
 			}
-			if visit.intp.ctx.Mode&loader.EnableTracing != 0 {
-				ofn := ifn
-				ifn = func(fr *frame) {
-					if v, ok := instr.(ssa.Value); ok {
-						log.Printf("\t%-20T %v = %-40v\t%v\n", instr, v.Name(), instr, v.Type())
-					} else {
-						log.Printf("\t%-20T %v\n", instr, instr)
-					}
-					ofn(fr)
-				}
-				if index == 0 {
-					ofn := ifn
-					bi := b.Index
-					ifn = func(fr *frame) {
-						log.Printf(".%v\n", bi)
-						ofn(fr)
-					}
-				}
-				if index == 0 && b.Index == 0 {
-					ofn := ifn
-					ifn = func(fr *frame) {
-						log.Printf("Entering %v%v.", fr.pfn.Fn, loc(fr.pfn.Interp.ctx.FileSet, fr.pfn.Fn.Pos()))
-						ofn(fr)
-					}
-				}
-				if _, ok := instr.(*ssa.Return); ok {
-					ofn := ifn
-					ifn = func(fr *frame) {
-						ofn(fr)
-						var caller ssa.Instruction
-						if fr.caller != nil {
-							caller = fr.caller.pfn.InstrForPC(fr.caller.pc - 1)
-						}
-						if caller == nil {
-							log.Printf("Leaving %v.\n", fr.pfn.Fn)
-						} else {
-							log.Printf("Leaving %v, resuming %v call %v%v.\n",
-								fr.pfn.Fn, fr.caller.pfn.Fn, caller, loc(fr.pfn.Interp.ctx.FileSet, caller.Pos()))
-						}
-					}
-				}
-			}
 			instrs[index] = ifn
 			ssaInstrs[index] = instr
 			index++
@@ -218,11 +174,4 @@ func (visit *visitor) function(fn *ssa.Function) {
 		}
 	}
 	pfn.initPool()
-}
-
-func loc(fset *token.FileSet, pos token.Pos) string {
-	if pos == token.NoPos {
-		return ""
-	}
-	return " at " + fset.Position(pos).String()
 }

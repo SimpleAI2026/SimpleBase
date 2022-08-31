@@ -10,10 +10,9 @@ import (
 	"unsafe"
 
 	"github.com/goplus/reflectx"
+	"github.com/linkxzhou/gongx/loader"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types/typeutil"
-
-	cloader "github.com/linkxzhou/gongx/loader"
 )
 
 var (
@@ -48,7 +47,7 @@ func emptyType(kind reflect.Kind) reflect.Type {
 	case reflect.Func:
 		return tyEmptyFunc
 	case reflect.Interface:
-		return cloader.TypesEmptyInterfaceV2
+		return loader.TypesEmptyInterfaceV2
 	case reflect.Map:
 		return tyEmptyMap
 	case reflect.Ptr:
@@ -94,7 +93,7 @@ func toMockType(typ types.Type) reflect.Type {
 	case *types.Named:
 		return toMockType(typ.Underlying())
 	case *types.Interface:
-		return cloader.TypesEmptyInterfaceV2
+		return loader.TypesEmptyInterfaceV2
 	case *types.Signature:
 		in := t.Params().Len()
 		out := t.Results().Len()
@@ -156,13 +155,13 @@ type FindMethod interface {
 }
 
 type TypesRecord struct {
-	loader cloader.Loader
+	loader loader.Loader
 	finder FindMethod
 	rcache map[reflect.Type]types.Type
 	tcache *typeutil.Map
 }
 
-func NewTypesRecord(loader cloader.Loader, finder FindMethod) *TypesRecord {
+func NewTypesRecord(loader loader.Loader, finder FindMethod) *TypesRecord {
 	return &TypesRecord{
 		loader: loader,
 		finder: finder,
@@ -258,7 +257,7 @@ type _tuple struct{}
 func (r *TypesRecord) toInterfaceType(t *types.Interface) reflect.Type {
 	n := t.NumMethods()
 	if n == 0 {
-		return cloader.TypesEmptyInterfaceV2
+		return loader.TypesEmptyInterfaceV2
 	}
 	ms := make([]reflect.Method, n)
 	for i := 0; i < n; i++ {
@@ -280,7 +279,7 @@ func (r *TypesRecord) toNamedType(t *types.Named) reflect.Type {
 	name := t.Obj()
 	if name.Pkg() == nil {
 		if name.Name() == "error" {
-			return cloader.TypesErrorInterfaceV2
+			return loader.TypesErrorInterfaceV2
 		}
 		return r.ToType(ut)
 	}

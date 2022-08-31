@@ -8,4 +8,5 @@ require (
 	github.com/visualfc/funcval v0.1.3 // indirect
 	github.com/visualfc/xtype v0.1.0 // indirect
 	golang.org/x/tools v0.1.12 // indirect
+	honnef.co/go/tools v0.0.1-2020.1.4 // indirect
 )

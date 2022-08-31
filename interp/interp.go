@@ -3,7 +3,6 @@ package interp
 import (
 	"fmt"
 	"go/constant"
-	"go/token"
 	"go/types"
 	"reflect"
 	"runtime"
@@ -12,13 +11,13 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	cloader "github.com/linkxzhou/gongx/loader"
+	"github.com/linkxzhou/gongx/loader"
 	"github.com/petermattis/goid"
 	"golang.org/x/tools/go/ssa"
 )
 
 type Interp struct {
-	ctx          *cloader.Context
+	ctx          *loader.Context
 	mainpkg      *ssa.Package                                // the SSA main package
 	record       *TypesRecord                                // lookup type and ToType
 	globals      map[ssa.Value]value                         // addresses of global variables (immutable)
@@ -138,7 +137,6 @@ func SetValue(v reflect.Value, x reflect.Value) {
 // prepareCall determines the function value and argument values for a
 // function call in a Call, Go or Defer instruction, performing
 // interface method lookup if needed.
-//
 func (i *Interp) prepareCall(fr *frame, call *ssa.CallCommon, iv register, ia []register, ib []register) (fv value, args []value) {
 	if call.Method == nil {
 		switch f := call.Value.(type) {
@@ -201,7 +199,6 @@ func (i *Interp) prepareCall(fr *frame, call *ssa.CallCommon, iv register, ia []
 // call interprets a call to a function (function, builtin or closure)
 // fn with arguments args, returning its result.
 // callpos is the position of the callsite.
-//
 func (i *Interp) call(caller *frame, fn value, args []value, ssaArgs []ssa.Value) value {
 	switch fn := fn.(type) {
 	case *ssa.Function:
@@ -220,7 +217,6 @@ func (i *Interp) call(caller *frame, fn value, args []value, ssaArgs []ssa.Value
 // call interprets a call to a function (function, builtin or closure)
 // fn with arguments args, returning its result.
 // callpos is the position of the callsite.
-//
 func (i *Interp) callDiscardsResult(caller *frame, fn value, args []value, ssaArgs []ssa.Value) {
 	switch fn := fn.(type) {
 	case *ssa.Function:
@@ -374,44 +370,6 @@ func (i *Interp) callFunctionByStackNoRecoverN(caller *frame, pfn *function, ir 
 	pfn.deleteFrame(fr)
 }
 
-func (i *Interp) callFunctionByStackWithEnv(caller *frame, pfn *function, ir register, ia []register, env []value) {
-	fr := pfn.allocFrame(caller)
-	for i := 0; i < pfn.narg; i++ {
-		fr.stack[i+pfn.nres] = caller.reg(ia[i])
-	}
-	for i := 0; i < pfn.nenv; i++ {
-		fr.stack[pfn.narg+i+pfn.nres] = env[i]
-	}
-	fr.run()
-	if pfn.nres == 1 {
-		caller.setReg(ir, fr.stack[0])
-	} else if pfn.nres > 1 {
-		caller.setReg(ir, tuple(fr.stack[0:pfn.nres]))
-	}
-	pfn.deleteFrame(fr)
-}
-
-func (i *Interp) callFunctionByStackNoRecoverWithEnv(caller *frame, pfn *function, ir register, ia []register, env []value) {
-	fr := pfn.allocFrame(caller)
-	for i := 0; i < pfn.narg; i++ {
-		fr.stack[i+pfn.nres] = caller.reg(ia[i])
-	}
-	for i := 0; i < pfn.nenv; i++ {
-		fr.stack[pfn.narg+i+pfn.nres] = env[i]
-	}
-	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
-		fn := fr.pfn.Instrs[fr.pc]
-		fr.pc++
-		fn(fr)
-	}
-	if pfn.nres == 1 {
-		caller.setReg(ir, fr.stack[0])
-	} else if pfn.nres > 1 {
-		caller.setReg(ir, tuple(fr.stack[0:pfn.nres]))
-	}
-	pfn.deleteFrame(fr)
-}
-
 func (i *Interp) callExternal(caller *frame, fn reflect.Value, args []value, env []value) value {
 	if caller != nil && caller.deferid != 0 {
 		i.deferMap.Store(caller.deferid, caller)
@@ -552,7 +510,6 @@ func (i *Interp) callExternalByStack(caller *frame, fn reflect.Value, ir registe
 // After a recovered panic in a function with NRPs, fr.result is
 // undefined and fr.block contains the block at which to resume
 // control.
-//
 func (fr *frame) run() {
 	if fr.pfn.Recover != nil {
 		defer func() {
@@ -580,7 +537,7 @@ func doRecover(caller *frame) value {
 	// function (two levels beneath the panicking function) to
 	// have any effect.  Thus we ignore both "defer recover()" and
 	// "defer f() -> g() -> recover()".
-	if caller.pfn.Interp.ctx.Mode&cloader.DisableRecover == 0 &&
+	if caller.pfn.Interp.ctx.Mode&loader.DisableRecover == 0 &&
 		caller.panicking == nil &&
 		caller.caller != nil && caller.caller.panicking != nil {
 		p := caller.caller.panicking.value
@@ -616,13 +573,11 @@ func doRecover(caller *frame) value {
 // gc does), or the argument to os.Exit for normal termination.
 //
 // The SSA program must include the "runtime" package.
-//
-
-func NewInterp(ctx *cloader.Context, mainpkg *ssa.Package) (*Interp, error) {
+func NewInterp(ctx *loader.Context, mainpkg *ssa.Package) (*Interp, error) {
 	return newInterp(ctx, mainpkg, nil)
 }
 
-func newInterp(ctx *cloader.Context, mainpkg *ssa.Package, globals map[string]interface{}) (*Interp, error) {
+func newInterp(ctx *loader.Context, mainpkg *ssa.Package, globals map[string]interface{}) (*Interp, error) {
 	i := &Interp{
 		ctx:          ctx,
 		mainpkg:      mainpkg,
@@ -636,9 +591,6 @@ func newInterp(ctx *cloader.Context, mainpkg *ssa.Package, globals map[string]in
 	}
 	i.record = NewTypesRecord(i.ctx.Loader, i)
 	i.record.Load(mainpkg)
-	if i.ctx.Mode&cloader.ExperimentFuncForPC != 0 {
-		i.registerFuncForPC()
-	}
 
 	var pkgs []*ssa.Package
 	for _, pkg := range mainpkg.Prog.AllPackages() {
@@ -699,7 +651,7 @@ func (i *Interp) toType(typ types.Type) reflect.Type {
 
 func (i *Interp) RunFunc(name string, args ...Value) (r Value, err error) {
 	defer func() {
-		if i.ctx.Mode&cloader.DisableRecover != 0 {
+		if i.ctx.Mode&loader.DisableRecover != 0 {
 			return
 		}
 		switch p := recover().(type) {
@@ -711,7 +663,7 @@ func (i *Interp) RunFunc(name string, args ...Value) (r Value, err error) {
 		case goexitPanic:
 			// check goroutines
 			if atomic.LoadInt32(&i.goroutines) == 1 {
-				err = cloader.ErrGoexitDeadlock
+				err = loader.ErrGoexitDeadlock
 			} else {
 				i.exitCode = <-i.chexit
 				atomic.StoreInt32(&i.exited, 1)
@@ -759,6 +711,14 @@ func (i *Interp) RunMain() (exitCode int, err error) {
 	if atomic.LoadInt32(&i.exited) == 1 {
 		exitCode = i.exitCode
 	}
+	return
+}
+
+func (i *Interp) RunAny(fn string, args ...Value) (r interface{}, err error) {
+	if atomic.LoadInt32(&i.exited) == 1 {
+		return i.exitCode, nil
+	}
+	r, err = i.RunFunc(fn, args...)
 	return
 }
 
@@ -869,44 +829,4 @@ func deref(typ types.Type) types.Type {
 
 func goroutineID() int64 {
 	return goid.Get()
-}
-
-func (i *Interp) registerFuncForPC() {
-	registerExternal("runtime.FuncForPC", i.FuncForPC)
-}
-
-// TODO: go1.18
-type funcinl struct {
-	ones  uint32  // set to ^0 to distinguish from _func
-	entry uintptr // entry of the real (the "outermost") frame
-	name  string
-	file  string
-	line  int
-}
-
-func inlineFunc(entry uintptr) *funcinl {
-	return &funcinl{ones: ^uint32(0), entry: entry}
-}
-
-func (i *Interp) FuncForPC(pc uintptr) *runtime.Func {
-	if v, ok := i.rfuncMap.Load(pc); ok {
-		fn := v.(*function).Fn
-		f := inlineFunc(pc)
-		if fn.Pkg != nil {
-			if pkgName := fn.Pkg.Pkg.Name(); pkgName == "main" {
-				f.name = "main." + fn.Name()
-			} else {
-				f.name = fn.Pkg.Pkg.Path() + "." + fn.Name()
-			}
-		} else {
-			f.name = fn.String()
-		}
-		if pos := fn.Pos(); pos != token.NoPos {
-			fpos := i.ctx.FileSet.Position(pos)
-			f.file = fpos.Filename
-			f.line = fpos.Line
-		}
-		return (*runtime.Func)(unsafe.Pointer(f))
-	}
-	return runtime.FuncForPC(pc)
 }

@@ -10,10 +10,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
-	cloader "github.com/linkxzhou/gongx/loader"
-	"github.com/visualfc/funcval"
+	"github.com/linkxzhou/gongx/loader"
 	"github.com/visualfc/xtype"
 	"golang.org/x/tools/go/ssa"
 )
@@ -149,20 +147,6 @@ func (p *function) deleteFrame(fr *frame) {
 	fr = nil
 }
 
-func (p *function) InstrForPC(pc int) ssa.Instruction {
-	if pc >= 0 && pc < len(p.ssaInstrs) {
-		return p.ssaInstrs[pc]
-	}
-	return nil
-}
-
-func (p *function) PosForPC(pc int) token.Pos {
-	if instr := p.InstrForPC(pc); instr != nil {
-		return instr.Pos()
-	}
-	return token.NoPos
-}
-
 func (p *function) regIndex3(v ssa.Value) (register, kind, value) {
 	instr := p.regInstr(v)
 	index := int(instr & 0xffffff)
@@ -194,8 +178,7 @@ func (p *function) regInstr(v ssa.Value) uint32 {
 			pfn := p.Interp.loadFunction(v)
 			vs = p.Interp.makeFunction(typ, pfn, nil).Interface()
 		} else {
-			ext, ok := findExternFunc(p.Interp, v)
-			if !ok {
+			if ext, ok := findExternFunc(p.Interp, v); !ok {
 				if v.Name() != "init" {
 					panic(fmt.Errorf("no code for function: %v", v))
 				}
@@ -212,7 +195,8 @@ func (p *function) regInstr(v ssa.Value) uint32 {
 
 func findExternFunc(interp *Interp, fn *ssa.Function) (ext reflect.Value, ok bool) {
 	fnName := fn.String()
-	if fnName == "os.Exit" {
+	switch fnName {
+	case "os.Exit":
 		return reflect.ValueOf(func(code int) {
 			if atomic.LoadInt32(&interp.goexited) == 1 {
 				interp.chexit <- code
@@ -220,7 +204,7 @@ func findExternFunc(interp *Interp, fn *ssa.Function) (ext reflect.Value, ok boo
 				panic(exitPanic(code))
 			}
 		}), true
-	} else if fnName == "runtime.Goexit" {
+	case "runtime.Goexit":
 		return reflect.ValueOf(func() {
 			// main goroutine use panic
 			if goroutineID() == interp.mainid {
@@ -230,15 +214,15 @@ func findExternFunc(interp *Interp, fn *ssa.Function) (ext reflect.Value, ok boo
 				runtime.Goexit()
 			}
 		}), true
+	default:
+		// pass
 	}
 	// check override func
-	ext, ok = interp.ctx.Override[fnName]
-	if ok {
+	if ext, ok = interp.ctx.Override[fnName]; ok {
 		return
 	}
 	// check extern func
-	ext, ok = externValues[fnName]
-	if ok {
+	if ext, ok = externValues[fnName]; ok {
 		return
 	}
 	if fn.Pkg != nil {
@@ -364,7 +348,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ir := pfn.regIndex(instr)
 		ix, kx, vx := pfn.regIndex3(instr.X)
 		if kx.isStatic() {
-			if typ == cloader.TypesEmptyInterfaceV2 {
+			if typ == loader.TypesEmptyInterfaceV2 {
 				return func(fr *frame) {
 					fr.setReg(ir, vx)
 				}
@@ -378,7 +362,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 				fr.setReg(ir, vx)
 			}
 		}
-		if typ == cloader.TypesEmptyInterfaceV2 {
+		if typ == loader.TypesEmptyInterfaceV2 {
 			return func(fr *frame) {
 				fr.setReg(ir, fr.reg(ix))
 			}
@@ -471,7 +455,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ir := pfn.regIndex(instr)
 		ix := pfn.regIndex(instr.X)
 		return func(fr *frame) {
-			v, err := cloader.FieldAddrX(fr.reg(ix), instr.Field)
+			v, err := loader.FieldAddrX(fr.reg(ix), instr.Field)
 			if err != nil {
 				panic(runtimeError(err.Error()))
 			}
@@ -481,7 +465,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ir := pfn.regIndex(instr)
 		ix := pfn.regIndex(instr.X)
 		return func(fr *frame) {
-			v, err := cloader.FieldX(fr.reg(ix), instr.Field)
+			v, err := loader.FieldX(fr.reg(ix), instr.Field)
 			if err != nil {
 				panic(runtimeError(err.Error()))
 			}
@@ -882,7 +866,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		if v, ok := instr.Object().(*types.Var); ok {
 			ix := pfn.regIndex(instr.X)
 			return func(fr *frame) {
-				ref := &cloader.DebugInfo{DebugRef: instr, FSet: interp.ctx.FileSet}
+				ref := &loader.DebugInfo{DebugRef: instr, FSet: interp.ctx.FileSet}
 				ref.ToValue = func() (*types.Var, interface{}, bool) {
 					return v, fr.reg(ix), true
 				}
@@ -890,7 +874,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 			}
 		}
 		return func(fr *frame) {
-			ref := &cloader.DebugInfo{DebugRef: instr, FSet: interp.ctx.FileSet}
+			ref := &loader.DebugInfo{DebugRef: instr, FSet: interp.ctx.FileSet}
 			ref.ToValue = func() (*types.Var, interface{}, bool) {
 				return nil, nil, false
 			}
@@ -1014,35 +998,11 @@ func makeCallInstr(pfn *function, interp *Interp, instr ssa.Value, call *ssa.Cal
 	if typ.Kind() != reflect.Func {
 		panic("unsupport")
 	}
-	if !funcval.IsSupport {
-		return func(fr *frame) {
-			fn := fr.reg(iv)
-			v := reflect.ValueOf(fn)
-			interp.callExternalByStack(fr, v, ir, ia)
-		}
-	}
 	return func(fr *frame) {
 		fn := fr.reg(iv)
-		if fv, n := funcval.Get(fn); n == 1 {
-			c := (*makeFuncVal)(unsafe.Pointer(fv))
-			if c.pfn.Recover == nil {
-				interp.callFunctionByStackNoRecoverWithEnv(fr, c.pfn, ir, ia, c.env)
-			} else {
-				interp.callFunctionByStackWithEnv(fr, c.pfn, ir, ia, c.env)
-			}
-		} else {
-			v := reflect.ValueOf(fn)
-			interp.callExternalByStack(fr, v, ir, ia)
-		}
+		v := reflect.ValueOf(fn)
+		interp.callExternalByStack(fr, v, ir, ia)
 	}
-}
-
-type makeFuncVal struct {
-	funcval.FuncVal
-	interp *Interp
-	typ    reflect.Type
-	pfn    *function
-	env    []interface{}
 }
 
 func findUserMethod(typ reflect.Type, name string) (ext reflect.Value, ok bool) {

@@ -19,12 +19,10 @@ import (
 type Mode uint
 
 const (
-	DisableRecover      Mode = 1 << iota // Disable recover() in target programs; show interpreter crash instead.
-	EnableDumpImports                    // print import packages
-	EnableDumpInstr                      // Print packages & SSA instruction code
-	EnableTracing                        // Print a trace of all instructions as they are interpreted.
-	EnablePrintAny                       // Enable builtin print for any type ( struct/array )
-	ExperimentFuncForPC                  // Experiment hook (reflect.Value).Pointer and runtime.FuncForPC
+	DisableRecover    Mode = 1 << iota // Disable recover() in target programs; show interpreter crash instead.
+	EnableDumpImports                  // print import packages
+	EnableDumpInstr                    // Print packages & SSA instruction code
+	EnablePrintAny                     // Enable builtin print for any type ( struct/array )
 )
 
 // Context ssa context
