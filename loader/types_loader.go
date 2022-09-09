@@ -73,9 +73,10 @@ func NewTypesLoader(mode Mode) Loader {
 }
 
 func (r *TypesLoader) SetImport(path string, pkg *types.Package, load func() error) error {
-	r.packages[path] = pkg
 	if load != nil {
 		r.pkgloads[path] = load
+	} else {
+		r.packages[path] = pkg
 	}
 	return nil
 }
@@ -160,11 +161,6 @@ func (r *TypesLoader) installPackage(pkg *Package) (err error) {
 	}
 	for name, typ := range pkg.NamedTypes {
 		if typ.Kind() == reflect.Struct {
-			r.InsertNamedType(p, name, typ)
-		}
-	}
-	for name, typ := range pkg.NamedTypes {
-		if typ.Kind() != reflect.Struct {
 			r.InsertNamedType(p, name, typ)
 		}
 	}
@@ -421,8 +417,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 		pkg := r.GetPackage(rt.PkgPath())
 		for i := 0; i < n; i++ {
 			im := rt.Method(i)
-			sig := TypesDummySig
-			imethods[i] = types.NewFunc(token.NoPos, pkg, im.Name, sig)
+			imethods[i] = types.NewFunc(token.NoPos, pkg, im.Name, TypesDummySig)
 		}
 		typ = types.NewInterfaceType(imethods, nil)
 	case reflect.Map:
@@ -444,7 +439,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 		pkg := r.GetPackage(rt.PkgPath())
 		for i := 0; i < n; i++ {
 			f := rt.Field(i)
-			ft := types.Typ[types.UnsafePointer] //r.ToType(f.Type)
+			ft := types.Typ[types.UnsafePointer] // r.ToType(f.Type)
 			fields[i] = types.NewVar(token.NoPos, pkg, f.Name, ft)
 			tags[i] = string(f.Tag)
 		}

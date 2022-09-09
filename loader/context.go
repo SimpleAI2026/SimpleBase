@@ -121,12 +121,12 @@ func (ctx *Context) ClearOverrideFunction(key string) {
 }
 
 func (ctx *Context) AddImportFile(path string, filename string, src interface{}) (err error) {
-	tp, err := ctx.loadPackageFile(path, filename, src)
-	if err != nil {
+	if tp, err := ctx.loadPackageFile(path, filename, src); err != nil {
 		return err
+	} else {
+		ctx.Loader.SetImport(path, tp.Package, tp.Load)
+		return nil
 	}
-	ctx.Loader.SetImport(path, tp.Package, tp.Load)
-	return nil
 }
 
 func (ctx *Context) AddImport(path string, dir string) (err error) {
