@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/linkxzhou/gongx/interp"
-	"github.com/linkxzhou/gongx/loader"
+	"github.com/linkxzhou/gongx/interp/loader"
 )
 
 func TestNewInterp(t *testing.T) {
@@ -28,7 +28,6 @@ func TestNewInterp(t *testing.T) {
 	func main() {
 		fmt.Println("====", test(37))
 	}
-	
 	`
 	c := loader.NewContext(loader.EnableDumpImports)
 	p, err := c.LoadFile("__main__.go", sources)

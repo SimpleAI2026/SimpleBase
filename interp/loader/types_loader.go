@@ -34,7 +34,6 @@ func init() {
 	}
 }
 
-// Loader types loader interface
 type Loader interface {
 	Import(path string) (*types.Package, error)
 	Installed(path string) (*Package, bool)

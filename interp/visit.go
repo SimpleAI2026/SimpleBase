@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/linkxzhou/gongx/loader"
+	"github.com/linkxzhou/gongx/interp/loader"
 	"golang.org/x/tools/go/ssa"
 )
 

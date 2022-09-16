@@ -29,3 +29,7 @@ func main() {
 
 # benchmark
 （1）测试用例
+
+# 架构设计
+（1）server整个服务
+（2）
