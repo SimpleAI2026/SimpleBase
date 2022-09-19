@@ -42,11 +42,8 @@ type (
 		AutoTLSManager   autocert.Manager
 		DisableHTTP2     bool
 		Debug            bool
-		HideBanner       bool
 		HidePort         bool
 		HTTPErrorHandler HTTPErrorHandler
-		Binder           Binder
-		Validator        Validator
 		Renderer         Renderer
 		ListenerNetwork  string
 		PrivateData      interface{}
@@ -90,21 +87,6 @@ type (
 
 	// Common struct for Echo & Group.
 	common struct{}
-)
-
-// HTTP methods
-// NOTE: Deprecated, please use the stdlib constants directly instead.
-const (
-	CONNECT = http.MethodConnect
-	DELETE  = http.MethodDelete
-	GET     = http.MethodGet
-	HEAD    = http.MethodHead
-	OPTIONS = http.MethodOptions
-	PATCH   = http.MethodPatch
-	POST    = http.MethodPost
-	// PROPFIND = "PROPFIND"
-	PUT   = http.MethodPut
-	TRACE = http.MethodTrace
 )
 
 // MIME types
@@ -260,7 +242,6 @@ func New() (e *HttpServer) {
 	e.Server.Handler = e
 	e.TLSServer.Handler = e
 	e.HTTPErrorHandler = e.DefaultHTTPErrorHandler
-	e.Binder = &DefaultBinder{}
 	e.pool.New = func() interface{} {
 		return e.NewContext(nil, nil)
 	}
@@ -592,10 +573,6 @@ func (e *HttpServer) StartServer(s *http.Server) (err error) {
 	s.Handler = e
 	if e.Debug {
 		// pass
-	}
-
-	if !e.HideBanner {
-		log.Debug(banner, "Version: v"+Version+"\nwebsite: "+website)
 	}
 
 	if s.TLSConfig == nil {

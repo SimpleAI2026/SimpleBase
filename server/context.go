@@ -46,7 +46,6 @@ type (
 		Cookies() []*http.Cookie
 		Get(key string) interface{}
 		Set(key string, val interface{})
-		Bind(i interface{}) error
 		Validate(i interface{}) error
 		Render(code int, name string, data interface{}) error
 		HTML(code int, html string) error
@@ -277,17 +276,6 @@ func (c *context) Set(key string, val interface{}) {
 		c.store = make(Map)
 	}
 	c.store[key] = val
-}
-
-func (c *context) Bind(i interface{}) error {
-	return c.httpServer.Binder.Bind(i, c)
-}
-
-func (c *context) Validate(i interface{}) error {
-	if c.httpServer.Validator == nil {
-		return ErrValidatorNotRegistered
-	}
-	return c.httpServer.Validator.Validate(i)
 }
 
 func (c *context) Render(code int, name string, data interface{}) (err error) {
