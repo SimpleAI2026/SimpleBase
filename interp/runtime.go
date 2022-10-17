@@ -416,6 +416,8 @@ func slice(fr *frame, instr *ssa.Slice, makesliceCheck bool, ix, ih, il, im regi
 				panic(runtimeError(fmt.Sprintf("slice bounds out of range [%v:]", lo)))
 			} else if lo > hi {
 				panic(runtimeError(fmt.Sprintf("slice bounds out of range [%v:%v]", lo, hi)))
+			} else {
+				//
 			}
 		}
 	}

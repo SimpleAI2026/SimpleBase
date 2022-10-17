@@ -39,7 +39,6 @@ func getLogMsgf(format string, args ...interface{}) string {
 	return msg
 }
 
-// SetLogger 设置默认logger
 func SetLogger(logger *zap.Logger) {
 	defaultLogger = logger
 }

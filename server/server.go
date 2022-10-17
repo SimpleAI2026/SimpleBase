@@ -219,16 +219,6 @@ var (
 	ErrSignInvalid                 = errors.New("invalid sign")
 )
 
-var (
-	NotFoundHandler = func(c Context) error {
-		return ErrNotFound
-	}
-
-	MethodNotAllowedHandler = func(c Context) error {
-		return ErrMethodNotAllowed
-	}
-)
-
 func New() (e *HttpServer) {
 	e = &HttpServer{
 		Server:    new(http.Server),

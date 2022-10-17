@@ -98,7 +98,7 @@ func (r *Response) reset(w http.ResponseWriter) {
 	r.Status = http.StatusOK
 	r.Committed = false
 	if r.WriteBytes != nil {
-		r.WriteBytes.Reset()
+		r.WriteBytes.Reset() // reset
 	} else {
 		r.WriteBytes = new(bytes.Buffer)
 		r.WriteBytes.Grow(defaultWriteBytesSize)

@@ -46,7 +46,6 @@ type (
 		Cookies() []*http.Cookie
 		Get(key string) interface{}
 		Set(key string, val interface{})
-		Validate(i interface{}) error
 		Render(code int, name string, data interface{}) error
 		HTML(code int, html string) error
 		HTMLBlob(code int, b []byte) error
@@ -91,6 +90,16 @@ const (
 	defaultMemory = 32 << 20 // 32 MB
 	indexPage     = "index.html"
 	defaultIndent = "  "
+)
+
+var (
+	NotFoundHandler = func(c Context) error {
+		return ErrNotFound
+	}
+
+	MethodNotAllowedHandler = func(c Context) error {
+		return ErrMethodNotAllowed
+	}
 )
 
 func (c *context) writeContentType(value string) {
