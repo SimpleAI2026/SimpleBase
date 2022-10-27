@@ -4,30 +4,26 @@ module.exports = {
         "es6": true,
         "node": true
     },
+    "parser": "babel-eslint",
     "extends": "eslint:recommended",
     "parserOptions": {
-        "ecmaVersion": 2015,
+        "ecmaVersion": 2018,
         "sourceType": "module"
     },
     "rules": {
         // 缩进
         "indent": [
             "error",
-            4 //我的是编辑器自动格式化，不是使用tabs，而是四个空格
+            2 //我的是编辑器自动格式化，不是使用tabs，而是四个空格
         ],
         "linebreak-style": [
             "error",
-            "windows"
+            "unix"
         ],
         // 引号
         "quotes": [
             1,
             "single"
-        ],
-        // 分号结尾
-        "semi": [
-            "error",
-            "always"
         ],
         "no-unused-vars": [2, {
             // 允许声明未使用变量

@@ -44,7 +44,6 @@ func init() {
 	}
 }
 
-// RegisterExternal is register external function for no function body
 func registerExternal(key string, i interface{}) {
 	externValues[key] = reflect.ValueOf(i)
 }
