@@ -600,10 +600,6 @@ func (e *HttpServer) StartH2CServer(address string, h2s *http2.Server) (err erro
 		// paas
 	}
 
-	if !e.HideBanner {
-		log.Debug(banner, "v"+Version, website)
-	}
-
 	if e.Listener == nil {
 		e.Listener, err = newListener(s.Addr, e.ListenerNetwork)
 		if err != nil {

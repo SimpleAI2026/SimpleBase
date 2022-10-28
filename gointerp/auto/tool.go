@@ -6,6 +6,7 @@ import (
 	"go/importer"
 	"go/token"
 	"go/types"
+	"strings"
 )
 
 var importPkgs = map[string][]string{
@@ -61,6 +62,10 @@ func builtinImportPkgs() error {
 		vars := ""
 		funcs := ""
 		importStr += "\n" + `"` + path + `"`
+		pkgName := path
+		if arr := strings.Split(pkgName, "/"); len(arr) > 0 {
+			pkgName = arr[len(arr)-1]
+		}
 		for _, declName := range pkg.Scope().Names() {
 			if ast.IsExported(declName) {
 				object := scope.Lookup(declName)
@@ -73,7 +78,9 @@ func builtinImportPkgs() error {
 				case *types.Var:
 					switch object.Type().Underlying().(type) {
 					case *types.Interface:
-						vars = vars + fmt.Sprintf(`"%s": reflect.ValueOf(func (%s){}),`+"\n", object.Name(), object.Type().String())
+						if !strings.Contains(object.Type().String(), "/") {
+							vars = vars + fmt.Sprintf(`"%s": reflect.ValueOf(func (%s){}),`+"\n", object.Name(), object.Type().String())
+						}
 					default:
 						vars = vars + fmt.Sprintf(`"%s": reflect.ValueOf(%s),`+"\n", object.Name(), name)
 					}
@@ -84,7 +91,7 @@ func builtinImportPkgs() error {
 		}
 		builtinStr += `
 		RegisterPackage(&Package{
-			Name:       "` + path + `",
+			Name:       "` + pkgName + `",
 			Path:       "` + path + `",
 			Deps:       make(map[string]string),
 			Interfaces: map[string]reflect.Type{},

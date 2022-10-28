@@ -1,4 +1,4 @@
-package interp
+package gointerp
 
 import (
 	"reflect"
