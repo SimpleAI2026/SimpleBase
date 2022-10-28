@@ -6,15 +6,15 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func makeBinOpEQL(pfn *function, instr *ssa.BinOp) func(fr *frame) {
+func makeBinOpEQL(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
 	iy, ky, vy := pfn.regIndex3(instr.Y)
 	xtyp := pfn.Interp.preToType(instr.X.Type())
 	ytyp := pfn.Interp.preToType(instr.Y.Type())
 	if xtyp == nil && ytyp == nil {
-		return func(fr *frame) {
-			fr.setReg(ir, true)
+		return func(vm *goVm) {
+			vm.setReg(ir, true)
 		}
 	}
 	switch xtyp.Kind() {
@@ -26,92 +26,92 @@ func makeBinOpEQL(pfn *function, instr *ssa.BinOp) func(fr *frame) {
 		reflect.String:
 		if kx == kindConst && ky == kindConst {
 			v := vx == vy
-			return func(fr *frame) {
-				fr.setReg(ir, v)
+			return func(vm *goVm) {
+				vm.setReg(ir, v)
 			}
 		} else if kx == kindConst {
-			return func(fr *frame) {
-				fr.setReg(ir, vx == fr.reg(iy))
+			return func(vm *goVm) {
+				vm.setReg(ir, vx == vm.reg(iy))
 			}
 		} else if ky == kindConst {
-			return func(fr *frame) {
-				fr.setReg(ir, fr.reg(ix) == vy)
+			return func(vm *goVm) {
+				vm.setReg(ir, vm.reg(ix) == vy)
 			}
 		}
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) == fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) == vm.reg(iy))
 		}
 	case reflect.Interface:
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) == fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) == vm.reg(iy))
 		}
 	case reflect.Array:
 		if xtyp == ytyp {
-			return func(fr *frame) {
-				fr.setReg(ir, fr.reg(ix) == fr.reg(iy))
+			return func(vm *goVm) {
+				vm.setReg(ir, vm.reg(ix) == vm.reg(iy))
 			}
 		}
-		return func(fr *frame) {
-			x := fr.reg(ix)
-			y := fr.reg(iy)
-			fr.setReg(ir, x == reflect.ValueOf(y).Convert(xtyp).Interface())
+		return func(vm *goVm) {
+			x := vm.reg(ix)
+			y := vm.reg(iy)
+			vm.setReg(ir, x == reflect.ValueOf(y).Convert(xtyp).Interface())
 		}
 	case reflect.Struct:
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) == fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) == vm.reg(iy))
 		}
 	case reflect.UnsafePointer:
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) == fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) == vm.reg(iy))
 		}
 	case reflect.Chan:
 		xdir := xtyp.ChanDir()
 		ydir := ytyp.ChanDir()
 		if xdir != ydir {
 			if xdir == reflect.BothDir {
-				return func(fr *frame) {
-					x := fr.reg(ix)
+				return func(vm *goVm) {
+					x := vm.reg(ix)
 					x = reflect.ValueOf(x).Convert(ytyp).Interface()
-					fr.setReg(ir, x == fr.reg(iy))
+					vm.setReg(ir, x == vm.reg(iy))
 				}
 			} else if ydir == reflect.BothDir {
-				return func(fr *frame) {
-					y := fr.reg(iy)
+				return func(vm *goVm) {
+					y := vm.reg(iy)
 					y = reflect.ValueOf(y).Convert(xtyp).Interface()
-					fr.setReg(ir, fr.reg(ix) == y)
+					vm.setReg(ir, vm.reg(ix) == y)
 				}
 			}
 		}
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) == fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) == vm.reg(iy))
 		}
 	case reflect.Ptr:
-		return func(fr *frame) {
-			x := fr.reg(ix)
-			y := fr.reg(iy)
-			fr.setReg(ir, reflect.ValueOf(x).Pointer() == reflect.ValueOf(y).Pointer())
+		return func(vm *goVm) {
+			x := vm.reg(ix)
+			y := vm.reg(iy)
+			vm.setReg(ir, reflect.ValueOf(x).Pointer() == reflect.ValueOf(y).Pointer())
 		}
 	case reflect.Slice, reflect.Map, reflect.Func:
-		return func(fr *frame) {
-			x := fr.reg(ix)
-			y := fr.reg(iy)
+		return func(vm *goVm) {
+			x := vm.reg(ix)
+			y := vm.reg(iy)
 			b := reflect.ValueOf(x).IsNil() && reflect.ValueOf(y).IsNil()
-			fr.setReg(ir, b)
+			vm.setReg(ir, b)
 		}
 	default:
 		panic("unreachable")
 	}
 }
 
-func makeBinOpNEQ(pfn *function, instr *ssa.BinOp) func(fr *frame) {
+func makeBinOpNEQ(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
 	iy, ky, vy := pfn.regIndex3(instr.Y)
 	xtyp := pfn.Interp.preToType(instr.X.Type())
 	ytyp := pfn.Interp.preToType(instr.Y.Type())
 	if xtyp == nil && ytyp == nil {
-		return func(fr *frame) {
-			fr.setReg(ir, false)
+		return func(vm *goVm) {
+			vm.setReg(ir, false)
 		}
 	}
 	switch xtyp.Kind() {
@@ -123,77 +123,77 @@ func makeBinOpNEQ(pfn *function, instr *ssa.BinOp) func(fr *frame) {
 		reflect.String:
 		if kx == kindConst && ky == kindConst {
 			v := vx != vy
-			return func(fr *frame) {
-				fr.setReg(ir, v)
+			return func(vm *goVm) {
+				vm.setReg(ir, v)
 			}
 		} else if kx == kindConst {
-			return func(fr *frame) {
-				fr.setReg(ir, vx != fr.reg(iy))
+			return func(vm *goVm) {
+				vm.setReg(ir, vx != vm.reg(iy))
 			}
 		} else if ky == kindConst {
-			return func(fr *frame) {
-				fr.setReg(ir, fr.reg(ix) != vy)
+			return func(vm *goVm) {
+				vm.setReg(ir, vm.reg(ix) != vy)
 			}
 		}
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) != fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) != vm.reg(iy))
 		}
 	case reflect.Interface:
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) != fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) != vm.reg(iy))
 		}
 	case reflect.Array:
 		if xtyp == ytyp {
-			return func(fr *frame) {
-				fr.setReg(ir, fr.reg(ix) != fr.reg(iy))
+			return func(vm *goVm) {
+				vm.setReg(ir, vm.reg(ix) != vm.reg(iy))
 			}
 		}
-		return func(fr *frame) {
-			x := fr.reg(ix)
-			y := fr.reg(iy)
-			fr.setReg(ir, x != reflect.ValueOf(y).Convert(xtyp).Interface())
+		return func(vm *goVm) {
+			x := vm.reg(ix)
+			y := vm.reg(iy)
+			vm.setReg(ir, x != reflect.ValueOf(y).Convert(xtyp).Interface())
 		}
 	case reflect.Struct:
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) != fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) != vm.reg(iy))
 		}
 	case reflect.UnsafePointer:
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) != fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) != vm.reg(iy))
 		}
 	case reflect.Chan:
 		xdir := xtyp.ChanDir()
 		ydir := ytyp.ChanDir()
 		if xdir != ydir {
 			if xdir == reflect.BothDir {
-				return func(fr *frame) {
-					x := fr.reg(ix)
+				return func(vm *goVm) {
+					x := vm.reg(ix)
 					x = reflect.ValueOf(x).Convert(ytyp).Interface()
-					fr.setReg(ir, x != fr.reg(iy))
+					vm.setReg(ir, x != vm.reg(iy))
 				}
 			} else if ydir == reflect.BothDir {
-				return func(fr *frame) {
-					y := fr.reg(iy)
+				return func(vm *goVm) {
+					y := vm.reg(iy)
 					y = reflect.ValueOf(y).Convert(xtyp).Interface()
-					fr.setReg(ir, fr.reg(ix) != y)
+					vm.setReg(ir, vm.reg(ix) != y)
 				}
 			}
 		}
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix) != fr.reg(iy))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix) != vm.reg(iy))
 		}
 	case reflect.Ptr:
-		return func(fr *frame) {
-			x := fr.reg(ix)
-			y := fr.reg(iy)
-			fr.setReg(ir, reflect.ValueOf(x).Pointer() != reflect.ValueOf(y).Pointer())
+		return func(vm *goVm) {
+			x := vm.reg(ix)
+			y := vm.reg(iy)
+			vm.setReg(ir, reflect.ValueOf(x).Pointer() != reflect.ValueOf(y).Pointer())
 		}
 	case reflect.Slice, reflect.Map, reflect.Func:
-		return func(fr *frame) {
-			x := fr.reg(ix)
-			y := fr.reg(iy)
+		return func(vm *goVm) {
+			x := vm.reg(ix)
+			y := vm.reg(iy)
 			b := reflect.ValueOf(x).IsNil() && reflect.ValueOf(y).IsNil()
-			fr.setReg(ir, !b)
+			vm.setReg(ir, !b)
 		}
 	default:
 		panic("unreachable")

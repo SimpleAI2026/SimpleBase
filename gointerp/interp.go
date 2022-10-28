@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/linkxzhou/gongx/interp/loader"
+	"github.com/linkxzhou/gongx/gointerp/loader"
 	"github.com/petermattis/goid"
 	"golang.org/x/tools/go/ssa"
 )
@@ -68,10 +68,10 @@ func (i *Interp) findType(rt reflect.Type, local bool) (types.Type, bool) {
 	}
 }
 
-func (i *Interp) tryDeferFrame() *frame {
+func (i *Interp) tryDeferFrame() *goVm {
 	if atomic.LoadInt32(&i.deferCount) != 0 {
 		if f, ok := i.deferMap.Load(goroutineID()); ok {
-			return f.(*frame)
+			return f.(*goVm)
 		}
 	}
 	return nil
@@ -137,7 +137,7 @@ func SetValue(v reflect.Value, x reflect.Value) {
 // prepareCall determines the function value and argument values for a
 // function call in a Call, Go or Defer instruction, performing
 // interface method lookup if needed.
-func (i *Interp) prepareCall(fr *frame, call *ssa.CallCommon, iv register, ia []register, ib []register) (fv value, args []value) {
+func (i *Interp) prepareCall(vm *goVm, call *ssa.CallCommon, iv register, ia []register, ib []register) (fv value, args []value) {
 	if call.Method == nil {
 		switch f := call.Value.(type) {
 		case *ssa.Builtin:
@@ -160,14 +160,14 @@ func (i *Interp) prepareCall(fr *frame, call *ssa.CallCommon, iv register, ia []
 		case *ssa.MakeClosure:
 			var bindings []value
 			for i := range f.Bindings {
-				bindings = append(bindings, fr.reg(ib[i]))
+				bindings = append(bindings, vm.reg(ib[i]))
 			}
 			fv = &closure{i.funcs[f.Fn.(*ssa.Function)], bindings}
 		default:
-			fv = fr.reg(iv)
+			fv = vm.reg(iv)
 		}
 	} else {
-		v := fr.reg(iv)
+		v := vm.reg(iv)
 		rtype := reflect.TypeOf(v)
 		mname := call.Method.Name()
 		if mset, ok := i.msets[rtype]; ok {
@@ -190,7 +190,7 @@ func (i *Interp) prepareCall(fr *frame, call *ssa.CallCommon, iv register, ia []
 		args = append(args, v)
 	}
 	for i := range call.Args {
-		v := fr.reg(ia[i])
+		v := vm.reg(ia[i])
 		args = append(args, v)
 	}
 	return
@@ -199,7 +199,7 @@ func (i *Interp) prepareCall(fr *frame, call *ssa.CallCommon, iv register, ia []
 // call interprets a call to a function (function, builtin or closure)
 // fn with arguments args, returning its result.
 // callpos is the position of the callsite.
-func (i *Interp) call(caller *frame, fn value, args []value, ssaArgs []ssa.Value) value {
+func (i *Interp) call(caller *goVm, fn value, args []value, ssaArgs []ssa.Value) value {
 	switch fn := fn.(type) {
 	case *ssa.Function:
 		return i.callFunction(caller, i.funcs[fn], args, nil)
@@ -217,7 +217,7 @@ func (i *Interp) call(caller *frame, fn value, args []value, ssaArgs []ssa.Value
 // call interprets a call to a function (function, builtin or closure)
 // fn with arguments args, returning its result.
 // callpos is the position of the callsite.
-func (i *Interp) callDiscardsResult(caller *frame, fn value, args []value, ssaArgs []ssa.Value) {
+func (i *Interp) callDiscardsResult(caller *goVm, fn value, args []value, ssaArgs []ssa.Value) {
 	switch fn := fn.(type) {
 	case *ssa.Function:
 		i.callFunctionDiscardsResult(caller, i.funcs[fn], args, nil)
@@ -232,37 +232,37 @@ func (i *Interp) callDiscardsResult(caller *frame, fn value, args []value, ssaAr
 	}
 }
 
-func (i *Interp) callFunction(caller *frame, pfn *function, args []value, env []value) (result value) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunction(caller *goVm, pfn *function, args []value, env []value) (result value) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < pfn.narg; i++ {
-		fr.stack[i+pfn.nres] = args[i]
+		vm.stack[i+pfn.nres] = args[i]
 	}
 	for i := 0; i < pfn.nenv; i++ {
-		fr.stack[pfn.narg+i+pfn.nres] = env[i]
+		vm.stack[pfn.narg+i+pfn.nres] = env[i]
 	}
-	fr.run()
+	vm.run()
 	if pfn.nres == 1 {
-		result = fr.stack[0]
+		result = vm.stack[0]
 	} else if pfn.nres > 1 {
-		result = tuple(fr.stack[0:pfn.nres])
+		result = tuple(vm.stack[0:pfn.nres])
 	}
-	pfn.deleteFrame(fr)
+	pfn.deleteFrame(vm)
 	return
 }
 
-func (i *Interp) callFunctionByReflect(caller *frame, typ reflect.Type, pfn *function, args []reflect.Value, env []value) (results []reflect.Value) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionByReflect(caller *goVm, typ reflect.Type, pfn *function, args []reflect.Value, env []value) (results []reflect.Value) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < pfn.narg; i++ {
-		fr.stack[i+pfn.nres] = args[i].Interface()
+		vm.stack[i+pfn.nres] = args[i].Interface()
 	}
 	for i := 0; i < pfn.nenv; i++ {
-		fr.stack[pfn.narg+i+pfn.nres] = env[i]
+		vm.stack[pfn.narg+i+pfn.nres] = env[i]
 	}
-	fr.run()
+	vm.run()
 	if pfn.nres > 0 {
 		results = make([]reflect.Value, pfn.nres)
 		for i := 0; i < pfn.nres; i++ {
-			v := fr.stack[i]
+			v := vm.stack[i]
 			if v == nil {
 				results[i] = reflect.New(typ.Out(i)).Elem()
 			} else {
@@ -270,107 +270,107 @@ func (i *Interp) callFunctionByReflect(caller *frame, typ reflect.Type, pfn *fun
 			}
 		}
 	}
-	pfn.deleteFrame(fr)
+	pfn.deleteFrame(vm)
 	return
 }
 
-func (i *Interp) callFunctionDiscardsResult(caller *frame, pfn *function, args []value, env []value) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionDiscardsResult(caller *goVm, pfn *function, args []value, env []value) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < pfn.narg; i++ {
-		fr.stack[i+pfn.nres] = args[i]
+		vm.stack[i+pfn.nres] = args[i]
 	}
 	for i := 0; i < pfn.nenv; i++ {
-		fr.stack[pfn.narg+i+pfn.nres] = env[i]
+		vm.stack[pfn.narg+i+pfn.nres] = env[i]
 	}
-	fr.run()
-	pfn.deleteFrame(fr)
+	vm.run()
+	pfn.deleteFrame(vm)
 }
 
-func (i *Interp) callFunctionByStack0(caller *frame, pfn *function, ir register, ia []register) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionByStack0(caller *goVm, pfn *function, ir register, ia []register) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < len(ia); i++ {
-		fr.stack[i] = caller.reg(ia[i])
+		vm.stack[i] = caller.reg(ia[i])
 	}
-	fr.run()
-	pfn.deleteFrame(fr)
+	vm.run()
+	pfn.deleteFrame(vm)
 }
 
-func (i *Interp) callFunctionByStack1(caller *frame, pfn *function, ir register, ia []register) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionByStack1(caller *goVm, pfn *function, ir register, ia []register) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < len(ia); i++ {
-		fr.stack[i+1] = caller.reg(ia[i])
+		vm.stack[i+1] = caller.reg(ia[i])
 	}
-	fr.run()
-	caller.setReg(ir, fr.stack[0])
-	pfn.deleteFrame(fr)
+	vm.run()
+	caller.setReg(ir, vm.stack[0])
+	pfn.deleteFrame(vm)
 }
 
-func (i *Interp) callFunctionByStackN(caller *frame, pfn *function, ir register, ia []register) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionByStackN(caller *goVm, pfn *function, ir register, ia []register) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < len(ia); i++ {
-		fr.stack[i+pfn.nres] = caller.reg(ia[i])
+		vm.stack[i+pfn.nres] = caller.reg(ia[i])
 	}
-	fr.run()
-	caller.setReg(ir, tuple(fr.stack[0:pfn.nres]))
-	pfn.deleteFrame(fr)
+	vm.run()
+	caller.setReg(ir, tuple(vm.stack[0:pfn.nres]))
+	pfn.deleteFrame(vm)
 }
 
-func (i *Interp) callFunctionByStack(caller *frame, pfn *function, ir register, ia []register) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionByStack(caller *goVm, pfn *function, ir register, ia []register) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < len(ia); i++ {
-		fr.stack[i+pfn.nres] = caller.reg(ia[i])
+		vm.stack[i+pfn.nres] = caller.reg(ia[i])
 	}
-	fr.run()
+	vm.run()
 	if pfn.nres == 1 {
-		caller.setReg(ir, fr.stack[0])
+		caller.setReg(ir, vm.stack[0])
 	} else if pfn.nres > 1 {
-		caller.setReg(ir, tuple(fr.stack[0:pfn.nres]))
+		caller.setReg(ir, tuple(vm.stack[0:pfn.nres]))
 	}
-	pfn.deleteFrame(fr)
+	pfn.deleteFrame(vm)
 }
 
-func (i *Interp) callFunctionByStackNoRecover0(caller *frame, pfn *function, ir register, ia []register) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionByStackNoRecover0(caller *goVm, pfn *function, ir register, ia []register) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < len(ia); i++ {
-		fr.stack[i] = caller.reg(ia[i])
+		vm.stack[i] = caller.reg(ia[i])
 	}
-	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
-		fn := fr.pfn.Instrs[fr.pc]
-		fr.pc++
-		fn(fr)
+	for vm.pc != -1 && vm.pc < vm.pfn.InstrsLen {
+		fn := vm.pfn.Instrs[vm.pc]
+		vm.pc++
+		fn(vm)
 	}
-	pfn.deleteFrame(fr)
+	pfn.deleteFrame(vm)
 }
 
-func (i *Interp) callFunctionByStackNoRecover1(caller *frame, pfn *function, ir register, ia []register) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionByStackNoRecover1(caller *goVm, pfn *function, ir register, ia []register) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < len(ia); i++ {
-		fr.stack[i+1] = caller.reg(ia[i])
+		vm.stack[i+1] = caller.reg(ia[i])
 	}
-	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
-		fn := fr.pfn.Instrs[fr.pc]
-		fr.pc++
-		fn(fr)
+	for vm.pc != -1 && vm.pc < vm.pfn.InstrsLen {
+		fn := vm.pfn.Instrs[vm.pc]
+		vm.pc++
+		fn(vm)
 	}
-	caller.setReg(ir, fr.stack[0])
-	pfn.deleteFrame(fr)
+	caller.setReg(ir, vm.stack[0])
+	pfn.deleteFrame(vm)
 }
 
-func (i *Interp) callFunctionByStackNoRecoverN(caller *frame, pfn *function, ir register, ia []register) {
-	fr := pfn.allocFrame(caller)
+func (i *Interp) callFunctionByStackNoRecoverN(caller *goVm, pfn *function, ir register, ia []register) {
+	vm := pfn.allocFrame(caller)
 	for i := 0; i < len(ia); i++ {
-		fr.stack[i+pfn.nres] = caller.reg(ia[i])
+		vm.stack[i+pfn.nres] = caller.reg(ia[i])
 	}
-	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
-		fn := fr.pfn.Instrs[fr.pc]
-		fr.pc++
-		fn(fr)
+	for vm.pc != -1 && vm.pc < vm.pfn.InstrsLen {
+		fn := vm.pfn.Instrs[vm.pc]
+		vm.pc++
+		fn(vm)
 	}
-	caller.setReg(ir, tuple(fr.stack[0:pfn.nres]))
-	pfn.deleteFrame(fr)
+	caller.setReg(ir, tuple(vm.stack[0:pfn.nres]))
+	pfn.deleteFrame(vm)
 }
 
-func (i *Interp) callExternal(caller *frame, fn reflect.Value, args []value, env []value) value {
+func (i *Interp) callExternal(caller *goVm, fn reflect.Value, args []value, env []value) value {
 	if caller != nil && caller.deferid != 0 {
 		i.deferMap.Store(caller.deferid, caller)
 	}
@@ -416,7 +416,7 @@ func (i *Interp) callExternal(caller *frame, fn reflect.Value, args []value, env
 	}
 }
 
-func (i *Interp) callExternalDiscardsResult(caller *frame, fn reflect.Value, args []value, env []value) {
+func (i *Interp) callExternalDiscardsResult(caller *goVm, fn reflect.Value, args []value, env []value) {
 	if caller != nil && caller.deferid != 0 {
 		i.deferMap.Store(caller.deferid, caller)
 	}
@@ -446,7 +446,7 @@ func (i *Interp) callExternalDiscardsResult(caller *frame, fn reflect.Value, arg
 	}
 }
 
-func (i *Interp) callExternalByStack(caller *frame, fn reflect.Value, ir register, ia []register) {
+func (i *Interp) callExternalByStack(caller *goVm, fn reflect.Value, ir register, ia []register) {
 	if caller.deferid != 0 {
 		i.deferMap.Store(caller.deferid, caller)
 	}
@@ -510,7 +510,7 @@ func (i *Interp) callExternalByStack(caller *frame, fn reflect.Value, ir registe
 // After a recovered panic in a function with NRPs, fr.result is
 // undefined and fr.block contains the block at which to resume
 // control.
-func (fr *frame) run() {
+func (fr *goVm) run() {
 	if fr.pfn.Recover != nil {
 		defer func() {
 			if fr.pc == -1 {
@@ -532,7 +532,7 @@ func (fr *frame) run() {
 }
 
 // doRecover implements the recover() built-in.
-func doRecover(caller *frame) value {
+func doRecover(caller *goVm) value {
 	// recover() must be exactly one level beneath the deferred
 	// function (two levels beneath the panicking function) to
 	// have any effect.  Thus we ignore both "defer recover()" and

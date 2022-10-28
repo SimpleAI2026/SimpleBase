@@ -11,7 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/linkxzhou/gongx/interp/loader"
+	"github.com/linkxzhou/gongx/gointerp/loader"
 	"github.com/visualfc/xtype"
 	"golang.org/x/tools/go/ssa"
 )
@@ -93,9 +93,9 @@ type function struct {
 	Main      *ssa.BasicBlock      // Fn.Blocks[0]
 	pool      *sync.Pool           // create frame pool
 	index     map[ssa.Value]uint32 // stack index
-	Instrs    []func(fr *frame)    // main instrs
+	Instrs    []func(vm *goVm)     // main instrs
 	InstrsLen int
-	Recover   []func(fr *frame) // recover instrs
+	Recover   []func(vm *goVm)  // recover instrs
 	Blocks    []int             // block offset
 	stack     []value           // results args envs datas
 	ssaInstrs []ssa.Instruction // org ssa instr
@@ -109,42 +109,42 @@ type function struct {
 func (p *function) initPool() {
 	p.pool = &sync.Pool{}
 	p.pool.New = func() interface{} {
-		fr := &frame{pfn: p, block: p.Main}
-		fr.stack = append([]value{}, p.stack...)
-		return fr
+		vm := &goVm{pfn: p, block: p.Main}
+		vm.stack = append([]value{}, p.stack...)
+		return vm
 	}
 }
 
-func (p *function) allocFrame(caller *frame) *frame {
-	var fr *frame
+func (p *function) allocFrame(caller *goVm) *goVm {
+	var vm *goVm
 	if atomic.LoadInt32(&p.cached) == 1 {
-		fr = p.pool.Get().(*frame)
+		vm = p.pool.Get().(*goVm)
 	} else {
 		if atomic.AddInt32(&p.used, 1) > int32(p.Interp.ctx.CallForPool) {
 			atomic.StoreInt32(&p.cached, 1)
 		}
-		fr = &frame{pfn: p, block: p.Main}
-		fr.stack = append([]value{}, p.stack...)
+		vm = &goVm{pfn: p, block: p.Main}
+		vm.stack = append([]value{}, p.stack...)
 	}
-	fr.caller = caller
+	vm.caller = caller
 	if caller != nil {
-		fr.deferid = caller.deferid
+		vm.deferid = caller.deferid
 	}
-	if fr.pc == -1 {
-		fr.block = p.Main
-		fr.defers = nil
-		fr.panicking = nil
-		fr.pc = 0
-		fr.pred = 0
+	if vm.pc == -1 {
+		vm.block = p.Main
+		vm.defers = nil
+		vm.panicking = nil
+		vm.pc = 0
+		vm.pred = 0
 	}
-	return fr
+	return vm
 }
 
-func (p *function) deleteFrame(fr *frame) {
+func (p *function) deleteFrame(vm *goVm) {
 	if atomic.LoadInt32(&p.cached) == 1 {
-		p.pool.Put(fr)
+		p.pool.Put(vm)
 	}
-	fr = nil
+	vm = nil
 }
 
 func (p *function) regIndex3(v ssa.Value) (register, kind, value) {
@@ -239,7 +239,7 @@ func findExternFunc(interp *Interp, fn *ssa.Function) (ext reflect.Value, ok boo
 	return
 }
 
-func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *frame) {
+func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(vm *goVm) {
 	switch instr := instr.(type) {
 	case *ssa.Alloc:
 		if instr.Heap {
@@ -247,8 +247,8 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 			ir := pfn.regIndex(instr)
 			t := xtype.TypeOfType(typ.Elem())
 			pt := xtype.TypeOfType(typ)
-			return func(fr *frame) {
-				fr.setReg(ir, xtype.New(t, pt))
+			return func(vm *goVm) {
+				vm.setReg(ir, xtype.New(t, pt))
 			}
 		}
 		typ := interp.preToType(instr.Type())
@@ -256,11 +256,11 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		t := xtype.TypeOfType(typ.Elem())
 		pt := xtype.TypeOfType(typ)
 		elem := reflect.New(typ.Elem()).Elem()
-		return func(fr *frame) {
-			if v := fr.reg(ir); v != nil {
+		return func(vm *goVm) {
+			if v := vm.reg(ir); v != nil {
 				reflect.ValueOf(v).Elem().Set(elem)
 			} else {
-				fr.setReg(ir, xtype.New(t, pt))
+				vm.setReg(ir, xtype.New(t, pt))
 			}
 		}
 	case *ssa.Phi:
@@ -269,10 +269,10 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		for i, v := range instr.Edges {
 			ie[i] = pfn.regIndex(v)
 		}
-		return func(fr *frame) {
+		return func(vm *goVm) {
 			for i, pred := range instr.Block().Preds {
-				if fr.pred == pred.Index {
-					fr.setReg(ir, fr.reg(ie[i]))
+				if vm.pred == pred.Index {
+					vm.setReg(ir, vm.reg(ie[i]))
 					break
 				}
 			}
@@ -336,8 +336,8 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 	case *ssa.ChangeInterface:
 		ir := pfn.regIndex(instr)
 		ix := pfn.regIndex(instr.X)
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ix))
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ix))
 		}
 	case *ssa.ChangeType:
 		return makeTypeChangeInstr(pfn, instr)
@@ -349,8 +349,8 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ix, kx, vx := pfn.regIndex3(instr.X)
 		if kx.isStatic() {
 			if typ == loader.TypesEmptyInterfaceV2 {
-				return func(fr *frame) {
-					fr.setReg(ir, vx)
+				return func(vm *goVm) {
+					vm.setReg(ir, vx)
 				}
 			}
 			v := reflect.New(typ).Elem()
@@ -358,22 +358,22 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 				SetValue(v, reflect.ValueOf(vx))
 			}
 			vx = v.Interface()
-			return func(fr *frame) {
-				fr.setReg(ir, vx)
+			return func(vm *goVm) {
+				vm.setReg(ir, vx)
 			}
 		}
 		if typ == loader.TypesEmptyInterfaceV2 {
-			return func(fr *frame) {
-				fr.setReg(ir, fr.reg(ix))
+			return func(vm *goVm) {
+				vm.setReg(ir, vm.reg(ix))
 			}
 		}
-		return func(fr *frame) {
+		return func(vm *goVm) {
 			v := reflect.New(typ).Elem()
-			if x := fr.reg(ix); x != nil {
+			if x := vm.reg(ix); x != nil {
 				vx := reflect.ValueOf(x)
 				SetValue(v, vx)
 			}
-			fr.setReg(ir, v.Interface())
+			vm.setReg(ir, v.Interface())
 		}
 	case *ssa.MakeClosure:
 		fn := instr.Fn.(*ssa.Function)
@@ -384,55 +384,55 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 			ib[i] = pfn.regIndex(v)
 		}
 		pfn := interp.loadFunction(fn)
-		return func(fr *frame) {
+		return func(vm *goVm) {
 			var bindings []value
 			for i := range instr.Bindings {
-				bindings = append(bindings, fr.reg(ib[i]))
+				bindings = append(bindings, vm.reg(ib[i]))
 			}
 			v := interp.makeFunction(typ, pfn, bindings)
-			fr.setReg(ir, v.Interface())
+			vm.setReg(ir, v.Interface())
 		}
 	case *ssa.MakeChan:
 		typ := interp.preToType(instr.Type())
 		ir := pfn.regIndex(instr)
 		is := pfn.regIndex(instr.Size)
-		return func(fr *frame) {
-			size := fr.reg(is)
+		return func(vm *goVm) {
+			size := vm.reg(is)
 			buffer := asInt(size)
 			if buffer < 0 {
 				panic(runtimeError("makechan: size out of range"))
 			}
-			fr.setReg(ir, reflect.MakeChan(typ, buffer).Interface())
+			vm.setReg(ir, reflect.MakeChan(typ, buffer).Interface())
 		}
 	case *ssa.MakeMap:
 		typ := instr.Type()
 		rtyp := interp.preToType(typ)
 		ir := pfn.regIndex(instr)
 		if instr.Reserve == nil {
-			return func(fr *frame) {
-				fr.setReg(ir, reflect.MakeMap(rtyp).Interface())
+			return func(vm *goVm) {
+				vm.setReg(ir, reflect.MakeMap(rtyp).Interface())
 			}
 		}
 		iv := pfn.regIndex(instr.Reserve)
-		return func(fr *frame) {
-			reserve := asInt(fr.reg(iv))
-			fr.setReg(ir, reflect.MakeMapWithSize(rtyp, reserve).Interface())
+		return func(vm *goVm) {
+			reserve := asInt(vm.reg(iv))
+			vm.setReg(ir, reflect.MakeMapWithSize(rtyp, reserve).Interface())
 		}
 	case *ssa.MakeSlice:
 		typ := interp.preToType(instr.Type())
 		ir := pfn.regIndex(instr)
 		il := pfn.regIndex(instr.Len)
 		ic := pfn.regIndex(instr.Cap)
-		return func(fr *frame) {
-			Len := asInt(fr.reg(il))
+		return func(vm *goVm) {
+			Len := asInt(vm.reg(il))
 			if Len < 0 || Len >= maxMemLen {
 				panic(runtimeError("makeslice: len out of range"))
 			}
-			Cap := asInt(fr.reg(ic))
+			Cap := asInt(vm.reg(ic))
 			if Cap < 0 || Cap >= maxMemLen {
 				panic(runtimeError("makeslice: cap out of range"))
 			}
-			fr.setReg(ir, reflect.MakeSlice(typ, Len, Cap).Interface())
+			vm.setReg(ir, reflect.MakeSlice(typ, Len, Cap).Interface())
 		}
 	case *ssa.Slice:
 		typ := interp.preToType(instr.Type())
@@ -444,40 +444,40 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		il := pfn.regIndex(instr.Low)
 		im := pfn.regIndex(instr.Max)
 		if isNamed {
-			return func(fr *frame) {
-				fr.setReg(ir, slice(fr, instr, makesliceCheck, ix, ih, il, im).Convert(typ).Interface())
+			return func(vm *goVm) {
+				vm.setReg(ir, slice(vm, instr, makesliceCheck, ix, ih, il, im).Convert(typ).Interface())
 			}
 		}
-		return func(fr *frame) {
-			fr.setReg(ir, slice(fr, instr, makesliceCheck, ix, ih, il, im).Interface())
+		return func(vm *goVm) {
+			vm.setReg(ir, slice(vm, instr, makesliceCheck, ix, ih, il, im).Interface())
 		}
 	case *ssa.FieldAddr:
 		ir := pfn.regIndex(instr)
 		ix := pfn.regIndex(instr.X)
-		return func(fr *frame) {
-			v, err := loader.FieldAddrX(fr.reg(ix), instr.Field)
+		return func(vm *goVm) {
+			v, err := loader.FieldAddrX(vm.reg(ix), instr.Field)
 			if err != nil {
 				panic(runtimeError(err.Error()))
 			}
-			fr.setReg(ir, v)
+			vm.setReg(ir, v)
 		}
 	case *ssa.Field:
 		ir := pfn.regIndex(instr)
 		ix := pfn.regIndex(instr.X)
-		return func(fr *frame) {
-			v, err := loader.FieldX(fr.reg(ix), instr.Field)
+		return func(vm *goVm) {
+			v, err := loader.FieldX(vm.reg(ix), instr.Field)
 			if err != nil {
 				panic(runtimeError(err.Error()))
 			}
-			fr.setReg(ir, v)
+			vm.setReg(ir, v)
 		}
 	case *ssa.IndexAddr:
 		ir := pfn.regIndex(instr)
 		ix := pfn.regIndex(instr.X)
 		ii := pfn.regIndex(instr.Index)
-		return func(fr *frame) {
-			x := fr.reg(ix)
-			idx := fr.reg(ii)
+		return func(vm *goVm) {
+			x := vm.reg(ix)
+			idx := vm.reg(ii)
 			v := reflect.ValueOf(x)
 			if v.Kind() == reflect.Ptr {
 				v = v.Elem()
@@ -496,17 +496,17 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 			} else if length := v.Len(); index >= length {
 				panic(runtimeError(fmt.Sprintf("index out of range [%v] with length %v", index, length)))
 			}
-			fr.setReg(ir, v.Index(index).Addr().Interface())
+			vm.setReg(ir, v.Index(index).Addr().Interface())
 		}
 	case *ssa.Index:
 		ir := pfn.regIndex(instr)
 		ix := pfn.regIndex(instr.X)
 		ii := pfn.regIndex(instr.Index)
-		return func(fr *frame) {
-			x := fr.reg(ix)
-			idx := fr.reg(ii)
+		return func(vm *goVm) {
+			x := vm.reg(ix)
+			idx := vm.reg(ii)
 			v := reflect.ValueOf(x)
-			fr.setReg(ir, v.Index(asInt(idx)).Interface())
+			vm.setReg(ir, v.Index(asInt(idx)).Interface())
 		}
 	case *ssa.Lookup:
 		typ := interp.preToType(instr.X.Type())
@@ -515,17 +515,17 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ii := pfn.regIndex(instr.Index)
 		switch typ.Kind() {
 		case reflect.String:
-			return func(fr *frame) {
-				v := fr.reg(ix)
-				idx := fr.reg(ii)
-				fr.setReg(ir, reflect.ValueOf(v).String()[asInt(idx)])
+			return func(vm *goVm) {
+				v := vm.reg(ix)
+				idx := vm.reg(ii)
+				vm.setReg(ir, reflect.ValueOf(v).String()[asInt(idx)])
 			}
 		case reflect.Map:
-			return func(fr *frame) {
-				m := fr.reg(ix)
-				idx := fr.reg(ii)
-				vm := reflect.ValueOf(m)
-				v := vm.MapIndex(reflect.ValueOf(idx))
+			return func(vm *goVm) {
+				m := vm.reg(ix)
+				idx := vm.reg(ii)
+				rval := reflect.ValueOf(m)
+				v := rval.MapIndex(reflect.ValueOf(idx))
 				ok := v.IsValid()
 				var rv value
 				if ok {
@@ -534,9 +534,9 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 					rv = reflect.New(typ.Elem()).Elem().Interface()
 				}
 				if instr.CommaOk {
-					fr.setReg(ir, tuple{rv, ok})
+					vm.setReg(ir, tuple{rv, ok})
 				} else {
-					fr.setReg(ir, rv)
+					vm.setReg(ir, rv)
 				}
 			}
 		default:
@@ -552,7 +552,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 				is[i] = pfn.regIndex(state.Send)
 			}
 		}
-		return func(fr *frame) {
+		return func(vm *goVm) {
 			var cases []reflect.SelectCase
 			if !instr.Blocking {
 				cases = append(cases, reflect.SelectCase{
@@ -566,10 +566,10 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 				} else {
 					dir = reflect.SelectSend
 				}
-				ch := reflect.ValueOf(fr.reg(ic[i]))
+				ch := reflect.ValueOf(vm.reg(ic[i]))
 				var send reflect.Value
 				if state.Send != nil {
-					v := fr.reg(is[i])
+					v := vm.reg(is[i])
 					if v == nil {
 						send = reflect.New(ch.Type().Elem()).Elem()
 					} else {
@@ -600,21 +600,21 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 					r = append(r, v)
 				}
 			}
-			fr.setReg(ir, r)
+			vm.setReg(ir, r)
 		}
 	case *ssa.SliceToArrayPointer:
 		typ := interp.preToType(instr.Type())
 		ir := pfn.regIndex(instr)
 		ix := pfn.regIndex(instr.X)
-		return func(fr *frame) {
-			x := fr.reg(ix)
+		return func(vm *goVm) {
+			x := vm.reg(ix)
 			v := reflect.ValueOf(x)
 			vLen := v.Len()
 			tLen := typ.Elem().Len()
 			if tLen > vLen {
 				panic(runtimeError(fmt.Sprintf("cannot convert slice with length %v to pointer to array with length %v", vLen, tLen)))
 			}
-			fr.setReg(ir, v.Convert(typ).Interface())
+			vm.setReg(ir, v.Convert(typ).Interface())
 		}
 	case *ssa.Range:
 		typ := interp.preToType(instr.X.Type())
@@ -622,14 +622,14 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ix := pfn.regIndex(instr.X)
 		switch typ.Kind() {
 		case reflect.String:
-			return func(fr *frame) {
-				v := fr.string(ix)
-				fr.setReg(ir, &stringIter{Reader: strings.NewReader(v)})
+			return func(vm *goVm) {
+				v := vm.string(ix)
+				vm.setReg(ir, &stringIter{Reader: strings.NewReader(v)})
 			}
 		case reflect.Map:
-			return func(fr *frame) {
-				v := fr.reg(ix)
-				fr.setReg(ir, &mapIter{iter: reflect.ValueOf(v).MapRange()})
+			return func(vm *goVm) {
+				v := vm.reg(ix)
+				vm.setReg(ir, &mapIter{iter: reflect.ValueOf(v).MapRange()})
 			}
 		default:
 			panic("unreachable")
@@ -638,25 +638,25 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ir := pfn.regIndex(instr)
 		ii := pfn.regIndex(instr.Iter)
 		if instr.IsString {
-			return func(fr *frame) {
-				fr.setReg(ir, fr.reg(ii).(*stringIter).next())
+			return func(vm *goVm) {
+				vm.setReg(ir, vm.reg(ii).(*stringIter).next())
 			}
 		}
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(ii).(*mapIter).next())
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(ii).(*mapIter).next())
 		}
 	case *ssa.TypeAssert:
 		typ := interp.preToType(instr.AssertedType)
 		ir := pfn.regIndex(instr)
 		ix, kx, vx := pfn.regIndex3(instr.X)
 		if kx.isStatic() {
-			return func(fr *frame) {
-				fr.setReg(ir, typeAssert(interp, instr, typ, vx))
+			return func(vm *goVm) {
+				vm.setReg(ir, typeAssert(interp, instr, typ, vx))
 			}
 		}
-		return func(fr *frame) {
-			v := fr.reg(ix)
-			fr.setReg(ir, typeAssert(interp, instr, typ, v))
+		return func(vm *goVm) {
+			v := vm.reg(ix)
+			vm.setReg(ir, typeAssert(interp, instr, typ, v))
 		}
 	case *ssa.Extract:
 		if *instr.Referrers() == nil {
@@ -664,123 +664,123 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		}
 		ir := pfn.regIndex(instr)
 		it := pfn.regIndex(instr.Tuple)
-		return func(fr *frame) {
-			fr.setReg(ir, fr.reg(it).(tuple)[instr.Index])
+		return func(vm *goVm) {
+			vm.setReg(ir, vm.reg(it).(tuple)[instr.Index])
 		}
 	// Instructions executed for effect
 	case *ssa.Jump:
-		return func(fr *frame) {
-			fr.pred, fr.block = fr.block.Index, fr.block.Succs[0]
-			fr.pc = fr.pfn.Blocks[fr.block.Index]
+		return func(vm *goVm) {
+			vm.pred, vm.block = vm.block.Index, vm.block.Succs[0]
+			vm.pc = vm.pfn.Blocks[vm.block.Index]
 		}
 	case *ssa.If:
 		ic, kc, vc := pfn.regIndex3(instr.Cond)
 		if kc == kindConst {
 			if xtype.Bool(vc) {
-				return func(fr *frame) {
-					fr.pred = fr.block.Index
-					fr.block = fr.block.Succs[0]
-					fr.pc = fr.pfn.Blocks[fr.block.Index]
+				return func(vm *goVm) {
+					vm.pred = vm.block.Index
+					vm.block = vm.block.Succs[0]
+					vm.pc = vm.pfn.Blocks[vm.block.Index]
 				}
 			}
-			return func(fr *frame) {
-				fr.pred = fr.block.Index
-				fr.block = fr.block.Succs[1]
-				fr.pc = fr.pfn.Blocks[fr.block.Index]
+			return func(vm *goVm) {
+				vm.pred = vm.block.Index
+				vm.block = vm.block.Succs[1]
+				vm.pc = vm.pfn.Blocks[vm.block.Index]
 			}
 		}
 		switch instr.Cond.Type().(type) {
 		case *types.Basic:
-			return func(fr *frame) {
-				fr.pred = fr.block.Index
-				if fr.reg(ic).(bool) {
-					fr.block = fr.block.Succs[0]
+			return func(vm *goVm) {
+				vm.pred = vm.block.Index
+				if vm.reg(ic).(bool) {
+					vm.block = vm.block.Succs[0]
 				} else {
-					fr.block = fr.block.Succs[1]
+					vm.block = vm.block.Succs[1]
 				}
-				fr.pc = fr.pfn.Blocks[fr.block.Index]
+				vm.pc = vm.pfn.Blocks[vm.block.Index]
 			}
 		default:
-			return func(fr *frame) {
-				fr.pred = fr.block.Index
-				if fr.bool(ic) {
-					fr.block = fr.block.Succs[0]
+			return func(vm *goVm) {
+				vm.pred = vm.block.Index
+				if vm.bool(ic) {
+					vm.block = vm.block.Succs[0]
 				} else {
-					fr.block = fr.block.Succs[1]
+					vm.block = vm.block.Succs[1]
 				}
-				fr.pc = fr.pfn.Blocks[fr.block.Index]
+				vm.pc = vm.pfn.Blocks[vm.block.Index]
 			}
 		}
 	case *ssa.Return:
 		switch n := pfn.nres; n {
 		case 0:
-			return func(fr *frame) {
-				fr.pc = -1
+			return func(vm *goVm) {
+				vm.pc = -1
 			}
 		case 1:
 			ir, ik, iv := pfn.regIndex3(instr.Results[0])
 			if ik.isStatic() {
-				return func(fr *frame) {
-					fr.stack[0] = iv
-					fr.pc = -1
+				return func(vm *goVm) {
+					vm.stack[0] = iv
+					vm.pc = -1
 				}
 			}
-			return func(fr *frame) {
-				fr.stack[0] = fr.reg(ir)
-				fr.pc = -1
+			return func(vm *goVm) {
+				vm.stack[0] = vm.reg(ir)
+				vm.pc = -1
 			}
 		case 2:
 			r1, k1, v1 := pfn.regIndex3(instr.Results[0])
 			r2, k2, v2 := pfn.regIndex3(instr.Results[1])
 			if k1.isStatic() && k2.isStatic() {
-				return func(fr *frame) {
-					fr.stack[0] = v1
-					fr.stack[1] = v2
-					fr.pc = -1
+				return func(vm *goVm) {
+					vm.stack[0] = v1
+					vm.stack[1] = v2
+					vm.pc = -1
 				}
 			} else if k1.isStatic() {
-				return func(fr *frame) {
-					fr.stack[0] = v1
-					fr.stack[1] = fr.reg(r2)
-					fr.pc = -1
+				return func(vm *goVm) {
+					vm.stack[0] = v1
+					vm.stack[1] = vm.reg(r2)
+					vm.pc = -1
 				}
 			} else if k2.isStatic() {
-				return func(fr *frame) {
-					fr.stack[0] = fr.reg(r1)
-					fr.stack[1] = v2
-					fr.pc = -1
+				return func(vm *goVm) {
+					vm.stack[0] = vm.reg(r1)
+					vm.stack[1] = v2
+					vm.pc = -1
 				}
 			}
-			return func(fr *frame) {
-				fr.stack[0] = fr.reg(r1)
-				fr.stack[1] = fr.reg(r2)
-				fr.pc = -1
+			return func(vm *goVm) {
+				vm.stack[0] = vm.reg(r1)
+				vm.stack[1] = vm.reg(r2)
+				vm.pc = -1
 			}
 		default:
 			ir := make([]register, n)
 			for i, v := range instr.Results {
 				ir[i] = pfn.regIndex(v)
 			}
-			return func(fr *frame) {
+			return func(vm *goVm) {
 				for i := 0; i < n; i++ {
-					fr.stack[i] = fr.reg(ir[i])
+					vm.stack[i] = vm.reg(ir[i])
 				}
-				fr.pc = -1
+				vm.pc = -1
 			}
 		}
 	case *ssa.RunDefers:
-		return func(fr *frame) {
-			fr.runDefers()
+		return func(vm *goVm) {
+			vm.runDefers()
 		}
 	case *ssa.Panic:
 		ix := pfn.regIndex(instr.X)
-		return func(fr *frame) {
-			panic(targetPanic{fr.reg(ix)})
+		return func(vm *goVm) {
+			panic(targetPanic{vm.reg(ix)})
 		}
 	case *ssa.Go:
 		iv, ia, ib := getCallIndex(pfn, &instr.Call)
-		return func(fr *frame) {
-			fn, args := interp.prepareCall(fr, &instr.Call, iv, ia, ib)
+		return func(vm *goVm) {
+			fn, args := interp.prepareCall(vm, &instr.Call, iv, ia, ib)
 			atomic.AddInt32(&interp.goroutines, 1)
 			go func() {
 				interp.callDiscardsResult(nil, fn, args, instr.Call.Args)
@@ -789,22 +789,22 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		}
 	case *ssa.Defer:
 		iv, ia, ib := getCallIndex(pfn, &instr.Call)
-		return func(fr *frame) {
-			fn, args := interp.prepareCall(fr, &instr.Call, iv, ia, ib)
-			fr.defers = &deferred{
+		return func(vm *goVm) {
+			fn, args := interp.prepareCall(vm, &instr.Call, iv, ia, ib)
+			vm.defers = &deferred{
 				fn:      fn,
 				args:    args,
 				ssaArgs: instr.Call.Args,
 				instr:   instr,
-				tail:    fr.defers,
+				tail:    vm.defers,
 			}
 		}
 	case *ssa.Send:
 		ic := pfn.regIndex(instr.Chan)
 		ix := pfn.regIndex(instr.X)
-		return func(fr *frame) {
-			c := fr.reg(ic)
-			x := fr.reg(ix)
+		return func(vm *goVm) {
+			c := vm.reg(ic)
+			x := vm.reg(ix)
 			ch := reflect.ValueOf(c)
 			if x == nil {
 				ch.Send(reflect.New(ch.Type().Elem()).Elem())
@@ -825,19 +825,19 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		iv, kv, vv := pfn.regIndex3(instr.Val)
 		if kv.isStatic() {
 			if vv == nil {
-				return func(fr *frame) {
-					x := reflect.ValueOf(fr.reg(ia))
+				return func(vm *goVm) {
+					x := reflect.ValueOf(vm.reg(ia))
 					SetValue(x.Elem(), reflect.New(x.Elem().Type()).Elem())
 				}
 			}
-			return func(fr *frame) {
-				x := reflect.ValueOf(fr.reg(ia))
+			return func(vm *goVm) {
+				x := reflect.ValueOf(vm.reg(ia))
 				SetValue(x.Elem(), reflect.ValueOf(vv))
 			}
 		}
-		return func(fr *frame) {
-			x := reflect.ValueOf(fr.reg(ia))
-			val := fr.reg(iv)
+		return func(vm *goVm) {
+			x := reflect.ValueOf(vm.reg(ia))
+			val := vm.reg(iv)
 			v := reflect.ValueOf(val)
 			if v.IsValid() {
 				SetValue(x.Elem(), v)
@@ -850,30 +850,30 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(fr *fr
 		ik := pfn.regIndex(instr.Key)
 		iv, kv, vv := pfn.regIndex3(instr.Value)
 		if kv.isStatic() {
-			return func(fr *frame) {
-				vm := reflect.ValueOf(fr.reg(im))
-				vk := reflect.ValueOf(fr.reg(ik))
-				vm.SetMapIndex(vk, reflect.ValueOf(vv))
+			return func(vm *goVm) {
+				rval := reflect.ValueOf(vm.reg(im))
+				vk := reflect.ValueOf(vm.reg(ik))
+				rval.SetMapIndex(vk, reflect.ValueOf(vv))
 			}
 		}
-		return func(fr *frame) {
-			vm := reflect.ValueOf(fr.reg(im))
-			vk := reflect.ValueOf(fr.reg(ik))
-			v := fr.reg(iv)
-			vm.SetMapIndex(vk, reflect.ValueOf(v))
+		return func(vm *goVm) {
+			rval := reflect.ValueOf(vm.reg(im))
+			vk := reflect.ValueOf(vm.reg(ik))
+			v := vm.reg(iv)
+			rval.SetMapIndex(vk, reflect.ValueOf(v))
 		}
 	case *ssa.DebugRef:
 		if v, ok := instr.Object().(*types.Var); ok {
 			ix := pfn.regIndex(instr.X)
-			return func(fr *frame) {
+			return func(vm *goVm) {
 				ref := &loader.DebugInfo{DebugRef: instr, FSet: interp.ctx.FileSet}
 				ref.ToValue = func() (*types.Var, interface{}, bool) {
-					return v, fr.reg(ix), true
+					return v, vm.reg(ix), true
 				}
 				interp.ctx.DebugFunc(ref)
 			}
 		}
-		return func(fr *frame) {
+		return func(vm *goVm) {
 			ref := &loader.DebugInfo{DebugRef: instr, FSet: interp.ctx.FileSet}
 			ref.ToValue = func() (*types.Var, interface{}, bool) {
 				return nil, nil, false
@@ -900,14 +900,14 @@ func getCallIndex(pfn *function, call *ssa.CallCommon) (iv register, ia []regist
 	return
 }
 
-func makeCallInstr(pfn *function, interp *Interp, instr ssa.Value, call *ssa.CallCommon) func(fr *frame) {
+func makeCallInstr(pfn *function, interp *Interp, instr ssa.Value, call *ssa.CallCommon) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	iv, ia, ib := getCallIndex(pfn, call)
 	switch fn := call.Value.(type) {
 	case *ssa.Builtin:
 		fname := fn.Name()
-		return func(fr *frame) {
-			interp.callBuiltinByStack(fr, fname, call.Args, ir, ia)
+		return func(vm *goVm) {
+			interp.callBuiltinByStack(vm, fname, call.Args, ir, ia)
 		}
 	case *ssa.MakeClosure:
 		ifn := interp.loadFunction(fn.Fn.(*ssa.Function))
@@ -915,31 +915,31 @@ func makeCallInstr(pfn *function, interp *Interp, instr ssa.Value, call *ssa.Cal
 		if ifn.Recover == nil {
 			switch ifn.nres {
 			case 0:
-				return func(fr *frame) {
-					interp.callFunctionByStackNoRecover0(fr, ifn, ir, ia)
+				return func(vm *goVm) {
+					interp.callFunctionByStackNoRecover0(vm, ifn, ir, ia)
 				}
 			case 1:
-				return func(fr *frame) {
-					interp.callFunctionByStackNoRecover1(fr, ifn, ir, ia)
+				return func(vm *goVm) {
+					interp.callFunctionByStackNoRecover1(vm, ifn, ir, ia)
 				}
 			default:
-				return func(fr *frame) {
-					interp.callFunctionByStackNoRecoverN(fr, ifn, ir, ia)
+				return func(vm *goVm) {
+					interp.callFunctionByStackNoRecoverN(vm, ifn, ir, ia)
 				}
 			}
 		}
 		switch ifn.nres {
 		case 0:
-			return func(fr *frame) {
-				interp.callFunctionByStack0(fr, ifn, ir, ia)
+			return func(vm *goVm) {
+				interp.callFunctionByStack0(vm, ifn, ir, ia)
 			}
 		case 1:
-			return func(fr *frame) {
-				interp.callFunctionByStack1(fr, ifn, ir, ia)
+			return func(vm *goVm) {
+				interp.callFunctionByStack1(vm, ifn, ir, ia)
 			}
 		default:
-			return func(fr *frame) {
-				interp.callFunctionByStackN(fr, ifn, ir, ia)
+			return func(vm *goVm) {
+				interp.callFunctionByStackN(vm, ifn, ir, ia)
 			}
 		}
 	case *ssa.Function:
@@ -953,39 +953,39 @@ func makeCallInstr(pfn *function, interp *Interp, instr ssa.Value, call *ssa.Cal
 				}
 				panic(fmt.Errorf("no code for function: %v", fn))
 			}
-			return func(fr *frame) {
-				interp.callExternalByStack(fr, ext, ir, ia)
+			return func(vm *goVm) {
+				interp.callExternalByStack(vm, ext, ir, ia)
 			}
 		}
 		ifn := interp.loadFunction(fn)
 		if ifn.Recover == nil {
 			switch ifn.nres {
 			case 0:
-				return func(fr *frame) {
-					interp.callFunctionByStackNoRecover0(fr, ifn, ir, ia)
+				return func(vm *goVm) {
+					interp.callFunctionByStackNoRecover0(vm, ifn, ir, ia)
 				}
 			case 1:
-				return func(fr *frame) {
-					interp.callFunctionByStackNoRecover1(fr, ifn, ir, ia)
+				return func(vm *goVm) {
+					interp.callFunctionByStackNoRecover1(vm, ifn, ir, ia)
 				}
 			default:
-				return func(fr *frame) {
-					interp.callFunctionByStackNoRecoverN(fr, ifn, ir, ia)
+				return func(vm *goVm) {
+					interp.callFunctionByStackNoRecoverN(vm, ifn, ir, ia)
 				}
 			}
 		}
 		switch ifn.nres {
 		case 0:
-			return func(fr *frame) {
-				interp.callFunctionByStack0(fr, ifn, ir, ia)
+			return func(vm *goVm) {
+				interp.callFunctionByStack0(vm, ifn, ir, ia)
 			}
 		case 1:
-			return func(fr *frame) {
-				interp.callFunctionByStack1(fr, ifn, ir, ia)
+			return func(vm *goVm) {
+				interp.callFunctionByStack1(vm, ifn, ir, ia)
 			}
 		default:
-			return func(fr *frame) {
-				interp.callFunctionByStackN(fr, ifn, ir, ia)
+			return func(vm *goVm) {
+				interp.callFunctionByStackN(vm, ifn, ir, ia)
 			}
 		}
 	}
@@ -998,10 +998,10 @@ func makeCallInstr(pfn *function, interp *Interp, instr ssa.Value, call *ssa.Cal
 	if typ.Kind() != reflect.Func {
 		panic("unsupport")
 	}
-	return func(fr *frame) {
-		fn := fr.reg(iv)
+	return func(vm *goVm) {
+		fn := vm.reg(iv)
 		v := reflect.ValueOf(fn)
-		interp.callExternalByStack(fr, v, ir, ia)
+		interp.callExternalByStack(vm, v, ir, ia)
 	}
 }
 
@@ -1026,18 +1026,18 @@ func (i *Interp) findMethod(typ reflect.Type, mname string) (fn *ssa.Function, o
 	return
 }
 
-func makeCallMethodInstr(interp *Interp, instr ssa.Value, call *ssa.CallCommon, ir register, iv register, ia []register) func(fr *frame) {
+func makeCallMethodInstr(interp *Interp, instr ssa.Value, call *ssa.CallCommon, ir register, iv register, ia []register) func(vm *goVm) {
 	mname := call.Method.Name()
 	ia = append([]register{iv}, ia...)
 	var found bool
 	var ext reflect.Value
-	return func(fr *frame) {
-		v := fr.reg(iv)
+	return func(vm *goVm) {
+		v := vm.reg(iv)
 		rtype := reflect.TypeOf(v)
 		// find user type method *ssa.Function
 		if mset, ok := interp.msets[rtype]; ok {
 			if fn, ok := mset[mname]; ok {
-				interp.callFunctionByStack(fr, interp.funcs[fn], ir, ia)
+				interp.callFunctionByStack(vm, interp.funcs[fn], ir, ia)
 				return
 			}
 			ext, found = findUserMethod(rtype, mname)
@@ -1047,7 +1047,7 @@ func makeCallMethodInstr(interp *Interp, instr ssa.Value, call *ssa.CallCommon, 
 		if !found {
 			panic(fmt.Errorf("no code for method: %v.%v", rtype, mname))
 		}
-		interp.callExternalByStack(fr, ext, ir, ia)
+		interp.callExternalByStack(vm, ext, ir, ia)
 	}
 }
 

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/linkxzhou/gongx/interp"
-	"github.com/linkxzhou/gongx/interp/loader"
+	interp "github.com/linkxzhou/gongx/gointerp"
+	"github.com/linkxzhou/gongx/gointerp/loader"
 )
 
 func TestNewInterp(t *testing.T) {

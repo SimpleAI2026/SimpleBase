@@ -10,7 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/goplus/reflectx"
-	"github.com/linkxzhou/gongx/interp/loader"
+	"github.com/linkxzhou/gongx/gointerp/loader"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types/typeutil"
 )

@@ -28,6 +28,19 @@ func (e runtimeError) Error() string {
 	return "runtime error: " + string(e) + ", FuncForPC: " + runtime.FuncForPC(pc).Name()
 }
 
+// If the target program panics, the interpreter panics with this type.
+type targetPanic struct {
+	v value
+}
+
+func (p targetPanic) Error() string {
+	return fmt.Sprintf("%v", p.v)
+}
+
+// If the target program calls exit, the interpreter panics with this type.
+type exitPanic int
+type goexitPanic int
+
 var (
 	maxMemLen    int
 	externValues = make(map[string]reflect.Value)
@@ -56,8 +69,8 @@ type deferred struct {
 	ssaArgs []ssa.Value
 }
 
-type frame struct {
-	caller    *frame
+type goVm struct {
+	caller    *goVm
 	pfn       *function
 	defers    *deferred
 	panicking *panicking
@@ -68,96 +81,96 @@ type frame struct {
 	deferid   int64
 }
 
-func (fr *frame) setReg(ir register, v value) {
-	fr.stack[ir] = v
+func (vm *goVm) setReg(ir register, v value) {
+	vm.stack[ir] = v
 }
 
-func (fr *frame) reg(ir register) value {
-	return fr.stack[ir]
+func (vm *goVm) reg(ir register) value {
+	return vm.stack[ir]
 }
 
-func (fr *frame) bytes(ir register) []byte {
-	return xtype.Bytes(fr.stack[ir])
+func (vm *goVm) bytes(ir register) []byte {
+	return xtype.Bytes(vm.stack[ir])
 }
 
-func (fr *frame) runes(ir register) []rune {
-	return xtype.Runes(fr.stack[ir])
+func (vm *goVm) runes(ir register) []rune {
+	return xtype.Runes(vm.stack[ir])
 }
 
-func (fr *frame) bool(ir register) bool {
-	return xtype.Bool(fr.stack[ir])
+func (vm *goVm) bool(ir register) bool {
+	return xtype.Bool(vm.stack[ir])
 }
 
-func (fr *frame) int(ir register) int {
-	return xtype.Int(fr.stack[ir])
+func (vm *goVm) int(ir register) int {
+	return xtype.Int(vm.stack[ir])
 }
 
-func (fr *frame) int8(ir register) int8 {
-	return xtype.Int8(fr.stack[ir])
+func (vm *goVm) int8(ir register) int8 {
+	return xtype.Int8(vm.stack[ir])
 }
 
-func (fr *frame) int16(ir register) int16 {
-	return xtype.Int16(fr.stack[ir])
+func (vm *goVm) int16(ir register) int16 {
+	return xtype.Int16(vm.stack[ir])
 }
 
-func (fr *frame) int32(ir register) int32 {
-	return xtype.Int32(fr.stack[ir])
+func (vm *goVm) int32(ir register) int32 {
+	return xtype.Int32(vm.stack[ir])
 }
 
-func (fr *frame) int64(ir register) int64 {
-	return xtype.Int64(fr.stack[ir])
+func (vm *goVm) int64(ir register) int64 {
+	return xtype.Int64(vm.stack[ir])
 }
 
-func (fr *frame) uint(ir register) uint {
-	return xtype.Uint(fr.stack[ir])
+func (vm *goVm) uint(ir register) uint {
+	return xtype.Uint(vm.stack[ir])
 }
 
-func (fr *frame) uint8(ir register) uint8 {
-	return xtype.Uint8(fr.stack[ir])
+func (vm *goVm) uint8(ir register) uint8 {
+	return xtype.Uint8(vm.stack[ir])
 }
 
-func (fr *frame) uint16(ir register) uint16 {
-	return xtype.Uint16(fr.stack[ir])
+func (vm *goVm) uint16(ir register) uint16 {
+	return xtype.Uint16(vm.stack[ir])
 }
 
-func (fr *frame) uint32(ir register) uint32 {
-	return xtype.Uint32(fr.stack[ir])
+func (vm *goVm) uint32(ir register) uint32 {
+	return xtype.Uint32(vm.stack[ir])
 }
 
-func (fr *frame) uint64(ir register) uint64 {
-	return xtype.Uint64(fr.stack[ir])
+func (vm *goVm) uint64(ir register) uint64 {
+	return xtype.Uint64(vm.stack[ir])
 }
 
-func (fr *frame) uintptr(ir register) uintptr {
-	return xtype.Uintptr(fr.stack[ir])
+func (vm *goVm) uintptr(ir register) uintptr {
+	return xtype.Uintptr(vm.stack[ir])
 }
 
-func (fr *frame) float32(ir register) float32 {
-	return xtype.Float32(fr.stack[ir])
+func (vm *goVm) float32(ir register) float32 {
+	return xtype.Float32(vm.stack[ir])
 }
 
-func (fr *frame) float64(ir register) float64 {
-	return xtype.Float64(fr.stack[ir])
+func (vm *goVm) float64(ir register) float64 {
+	return xtype.Float64(vm.stack[ir])
 }
 
-func (fr *frame) complex64(ir register) complex64 {
-	return xtype.Complex64(fr.stack[ir])
+func (vm *goVm) complex64(ir register) complex64 {
+	return xtype.Complex64(vm.stack[ir])
 }
 
-func (fr *frame) complex128(ir register) complex128 {
-	return xtype.Complex128(fr.stack[ir])
+func (vm *goVm) complex128(ir register) complex128 {
+	return xtype.Complex128(vm.stack[ir])
 }
 
-func (fr *frame) string(ir register) string {
-	return xtype.String(fr.stack[ir])
+func (vm *goVm) string(ir register) string {
+	return xtype.String(vm.stack[ir])
 }
 
-func (fr *frame) pointer(ir register) unsafe.Pointer {
-	return xtype.Pointer(fr.stack[ir])
+func (vm *goVm) pointer(ir register) unsafe.Pointer {
+	return xtype.Pointer(vm.stack[ir])
 }
 
-func (fr *frame) copyReg(dst register, src register) {
-	fr.stack[dst] = fr.stack[src]
+func (vm *goVm) copyReg(dst register, src register) {
+	vm.stack[dst] = vm.stack[src]
 }
 
 type panicking struct {
@@ -166,14 +179,14 @@ type panicking struct {
 
 // runDefer runs a deferred call d.
 // It always returns normally, but may set or clear fr.panic.
-func (fr *frame) runDefer(d *deferred) {
+func (vm *goVm) runDefer(d *deferred) {
 	var ok bool
 	defer func() {
 		if !ok {
-			fr.panicking = &panicking{recover()} // Deferred call created a new state of panic.
+			vm.panicking = &panicking{recover()} // Deferred call created a new state of panic.
 		}
 	}()
-	fr.pfn.Interp.callDiscardsResult(fr, d.fn, d.args, d.ssaArgs)
+	vm.pfn.Interp.callDiscardsResult(vm, d.fn, d.args, d.ssaArgs)
 	ok = true
 }
 
@@ -188,35 +201,21 @@ func (fr *frame) runDefer(d *deferred) {
 //
 // If there was no initial state of panic, or it was recovered from,
 // runDefers returns normally.
-func (fr *frame) runDefers() {
-	interp := fr.pfn.Interp
+func (vm *goVm) runDefers() {
+	interp := vm.pfn.Interp
 	atomic.AddInt32(&interp.deferCount, 1)
-	fr.deferid = goroutineID()
-	interp.deferMap.Store(fr.deferid, fr)
-	for d := fr.defers; d != nil; d = d.tail {
-		fr.runDefer(d)
+	vm.deferid = goroutineID()
+	interp.deferMap.Store(vm.deferid, vm)
+	for d := vm.defers; d != nil; d = d.tail {
+		vm.runDefer(d)
 	}
-	interp.deferMap.Delete(fr.deferid)
+	interp.deferMap.Delete(vm.deferid)
 	atomic.AddInt32(&interp.deferCount, -1)
-	fr.deferid = 0
-	if fr.panicking != nil {
-		panic(fr.panicking.value) // new panic, or still panicking
+	vm.deferid = 0
+	if vm.panicking != nil {
+		panic(vm.panicking.value) // new panic, or still panicking
 	}
 }
-
-// If the target program panics, the interpreter panics with this type.
-type targetPanic struct {
-	v value
-}
-
-func (p targetPanic) Error() string {
-	return fmt.Sprintf("%v", p.v)
-}
-
-// If the target program calls exit, the interpreter panics with this type.
-type exitPanic int
-
-type goexitPanic int
 
 func xtypeValue(c *ssa.Const, kind types.BasicKind) value {
 	switch kind {
@@ -289,7 +288,7 @@ func constToValue(i *Interp, c *ssa.Const) value {
 
 func globalToValue(i *Interp, key *ssa.Global) (interface{}, bool) {
 	if key.Pkg != nil {
-		// TODO:
+		// TODO: fix by linkxzhou
 		// pkgpath := key.Pkg.Pkg.Path()
 		// if pkg, ok := i.Installed(pkgpath); ok {
 		// 	if ext, ok := pkg.Vars[key.Name()]; ok {
@@ -342,8 +341,8 @@ func asInt(x value) int {
 }
 
 // slice returns x[lo:hi:max].  Any of lo, hi and max may be nil.
-func slice(fr *frame, instr *ssa.Slice, makesliceCheck bool, ix, ih, il, im register) reflect.Value {
-	x := fr.reg(ix)
+func slice(vm *goVm, instr *ssa.Slice, makesliceCheck bool, ix, ih, il, im register) reflect.Value {
+	x := vm.reg(ix)
 	var Len, Cap int
 	v := reflect.ValueOf(x)
 	// *array
@@ -365,15 +364,15 @@ func slice(fr *frame, instr *ssa.Slice, makesliceCheck bool, ix, ih, il, im regi
 	max := Cap
 	var slice3 bool
 	if instr.Low != nil {
-		lo = asInt(fr.reg(il))
+		lo = asInt(vm.reg(il))
 	}
 
 	if instr.High != nil {
-		hi = asInt(fr.reg(ih))
+		hi = asInt(vm.reg(ih))
 	}
 
 	if instr.Max != nil {
-		max = asInt(fr.reg(im))
+		max = asInt(vm.reg(im))
 		slice3 = true
 	}
 
@@ -486,7 +485,7 @@ func typeAssert(i *Interp, instr *ssa.TypeAssert, typ reflect.Type, iv interface
 
 // callBuiltin interprets a call to builtin fn with arguments args,
 // returning its result.
-func (inter *Interp) callBuiltin(caller *frame, fn *ssa.Builtin, args []value, ssaArgs []ssa.Value) value {
+func (inter *Interp) callBuiltin(caller *goVm, fn *ssa.Builtin, args []value, ssaArgs []ssa.Value) value {
 	switch fnName := fn.Name(); fnName {
 	case "append":
 		if len(args) == 1 {
@@ -536,7 +535,7 @@ func (inter *Interp) callBuiltin(caller *frame, fn *ssa.Builtin, args []value, s
 
 // callBuiltinDiscardsResult interprets a call to builtin fn with arguments args,
 // discards its result.
-func (inter *Interp) callBuiltinDiscardsResult(caller *frame, fn *ssa.Builtin, args []value, ssaArgs []ssa.Value) {
+func (inter *Interp) callBuiltinDiscardsResult(caller *goVm, fn *ssa.Builtin, args []value, ssaArgs []ssa.Value) {
 	switch fnName := fn.Name(); fnName {
 	case "append":
 		panic("discards result of " + fnName)
@@ -571,7 +570,7 @@ func (inter *Interp) callBuiltinDiscardsResult(caller *frame, fn *ssa.Builtin, a
 
 // callBuiltin interprets a call to builtin fn with arguments args,
 // returning its result.
-func (inter *Interp) callBuiltinByStack(caller *frame, fn string, ssaArgs []ssa.Value, ir register, ia []register) {
+func (inter *Interp) callBuiltinByStack(caller *goVm, fn string, ssaArgs []ssa.Value, ir register, ia []register) {
 	switch fn {
 	case "append":
 		if len(ia) == 1 {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/linkxzhou/gongx/interp/loader"
+	"github.com/linkxzhou/gongx/gointerp/loader"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -111,7 +111,7 @@ func (visit *visitor) function(fn *ssa.Function) {
 	}
 	var opbuf [32]*ssa.Value // avoid alloc in common case
 	for _, b := range fn.Blocks {
-		instrs := make([]func(*frame), len(b.Instrs))
+		instrs := make([]func(*goVm), len(b.Instrs))
 		ssaInstrs := make([]ssa.Instruction, len(b.Instrs))
 		var index int
 		n := len(b.Instrs)

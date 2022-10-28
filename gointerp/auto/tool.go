@@ -48,39 +48,67 @@ var importPkgs = map[string][]string{
 }
 
 func builtinImportPkgs() error {
+	var builtinStr = ""
+	var importStr = ""
 	for path, _ := range importPkgs {
-		fmt.Println("=============> ", path)
-		if path != "fmt" {
-			continue
-		}
 		pkg, err := importer.ForCompiler(token.NewFileSet(), "source", nil).Import(path)
 		if err != nil {
 			fmt.Println("err: ", err)
 			return err
 		}
 		scope := pkg.Scope()
+		namedTypes := ""
+		vars := ""
+		funcs := ""
+		importStr += "\n" + `"` + path + `"`
 		for _, declName := range pkg.Scope().Names() {
 			if ast.IsExported(declName) {
 				object := scope.Lookup(declName)
 				name := fmt.Sprintf("%s.%s", object.Pkg().Name(), object.Name())
 				switch object.(type) {
 				case *types.TypeName:
-					fmt.Printf(`register.NewType("%s", reflect.TypeOf(func(%s){}).In(0), "%s")`+"\n", object.Name(), name, "")
+					namedTypes = namedTypes + fmt.Sprintf(`"%s": reflect.TypeOf(func(%s){}).In(0),`+"\n", object.Name(), name)
 				case *types.Const:
-					fmt.Printf(`register.NewConst("%s", %s, "%s")`+"\n", object.Name(), name, "")
+					// TODO: fix by linkxzhou
 				case *types.Var:
 					switch object.Type().Underlying().(type) {
 					case *types.Interface:
-						fmt.Printf(`register.NewVar("%s", &%s, reflect.TypeOf(func (%s){}).In(0), "%s")`+"\n", object.Name(), name, object.Type().String(), "")
+						vars = vars + fmt.Sprintf(`"%s": reflect.ValueOf(func (%s){}),`+"\n", object.Name(), object.Type().String())
 					default:
-						fmt.Printf(`register.NewVar("%s", &%s, reflect.TypeOf(%s), "%s")`+"\n", object.Name(), name, name, "")
+						vars = vars + fmt.Sprintf(`"%s": reflect.ValueOf(%s),`+"\n", object.Name(), name)
 					}
 				case *types.Func:
-					fmt.Printf(`register.NewFunction("%s", %s, "%s")`+"\n", object.Name(), name, "")
+					funcs = funcs + fmt.Sprintf(`"%s": reflect.ValueOf(%s),`+"\n", object.Name(), name)
 				}
 			}
 		}
+		builtinStr += `
+		RegisterPackage(&Package{
+			Name:       "` + path + `",
+			Path:       "` + path + `",
+			Deps:       make(map[string]string),
+			Interfaces: map[string]reflect.Type{},
+			NamedTypes: map[string]reflect.Type{` + namedTypes + `},
+			AliasTypes: map[string]reflect.Type{},
+			Vars:       map[string]reflect.Value{` + vars + `},
+			Funcs: map[string]reflect.Value{` + funcs + `},
+			TypedConsts:   map[string]TypedConst{},
+			UntypedConsts: map[string]UntypedConst{},
+		})
+		`
 	}
+	fmt.Println(`
+package loader
+
+import (
+	"reflect"
+	` + importStr + `
+)
+
+func init() {
+	` + builtinStr + `
+}
+	`)
 	return nil
 }
 

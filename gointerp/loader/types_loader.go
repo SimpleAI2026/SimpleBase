@@ -438,7 +438,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 		pkg := r.GetPackage(rt.PkgPath())
 		for i := 0; i < n; i++ {
 			f := rt.Field(i)
-			ft := types.Typ[types.UnsafePointer] // r.ToType(f.Type)
+			ft := types.Typ[types.UnsafePointer]
 			fields[i] = types.NewVar(token.NoPos, pkg, f.Name, ft)
 			tags[i] = string(f.Tag)
 		}
