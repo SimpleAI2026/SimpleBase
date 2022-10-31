@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/linkxzhou/gongx/log"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -198,6 +199,7 @@ func (ctx *Context) parseGoFiles(dir string, filenames []string) ([]*ast.File, e
 func (ctx *Context) LoadFile(filename string, src interface{}) (*ssa.Package, error) {
 	file, err := ctx.ParseFile(filename, src)
 	if err != nil {
+		log.Error("LoadFile err: ", err, ", filename: ", filename)
 		return nil, err
 	}
 	root, _ := filepath.Split(filename)
@@ -217,6 +219,7 @@ func (ctx *Context) LoadAstFile(path string, file *ast.File) (*ssa.Package, erro
 		Files:   files,
 	}
 	if err := sp.Load(); err != nil {
+		log.Error("LoadAstFile err: ", err, ", path: ", path)
 		return nil, err
 	}
 	return ctx.buildPackage(sp)
@@ -228,9 +231,7 @@ func (ctx *Context) buildPackage(sp *sourcePackage) (pkg *ssa.Package, err error
 			err = fmt.Errorf("build SSA package error: %v", e)
 		}
 	}()
-
 	var createAll func(pkgs []*types.Package)
-
 	prog := ssa.NewProgram(ctx.FileSet, ctx.BuilderMode)
 	// Create SSA packages for all imports.
 	// Order is not significant.

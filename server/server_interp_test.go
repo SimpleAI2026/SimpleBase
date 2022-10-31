@@ -12,35 +12,6 @@ import (
 	"github.com/linkxzhou/gongx/server"
 )
 
-// func TestServerHttp(t *testing.T) {
-// 	sources := `
-// 	package test
-
-// 	func fib(i int) int {
-// 		if i < 2 {
-// 			return i
-// 		}
-// 		return fib(i - 1) + fib(i - 2)
-// 	}
-// 	`
-// 	c := loader.NewContext(loader.EnableDumpImports)
-// 	p, err := c.LoadFile("__main__.go", sources)
-// 	fmt.Println("p: ", p, ", err: ", err)
-// 	iv1, err1 := gointerp.NewInterp(c, p)
-// 	fmt.Println("NewInterp err: ", err1, ", iv1: ", iv1)
-
-// 	app := server.New()
-
-// 	app.GET("/", func(c server.Context) error {
-// 		log.Info("========= RealIP: ", c.RealIP())
-// 		iv2, err2 := iv1.RunAny("fib", 37)
-// 		log.Info("========= : ", iv2, err2)
-// 		return c.String(http.StatusOK, "Hello, World!")
-// 	})
-
-// 	app.Start(":3000")
-// }
-
 func TestServerInterp(t *testing.T) {
 	interpc := loader.NewContext(loader.EnableDumpImports)
 	app := server.New()
@@ -53,14 +24,9 @@ func TestServerInterp(t *testing.T) {
 		}
 		sources := string(buf)
 		fmt.Println("== sources: ", sources)
-		p, err := interpc.LoadFile("__main__.go", sources)
-		if err != nil {
-			return c.String(http.StatusOK, "err: "+err.Error())
-		}
-		fmt.Println("p: ", p, ", err: ", err)
-		iv1, err1 := gointerp.NewInterp(interpc, p)
+		iv1, err1 := gointerp.LoadWithCache(interpc, "__main__.go", sources)
 		if err1 != nil {
-			return c.String(http.StatusOK, "err1: "+err1.Error())
+			return c.String(http.StatusOK, "err: "+err1.Error())
 		}
 		fmt.Println("NewInterp err: ", err1, ", iv1: ", iv1)
 		iv2, err2 := iv1.RunMain()
@@ -79,12 +45,7 @@ func TestServerInterp(t *testing.T) {
 		}
 		sources := string(buf)
 		fmt.Println("== sources: ", sources)
-		p, err := interpc.LoadFile("__main__.go", sources)
-		if err != nil {
-			return c.String(http.StatusOK, "err: "+err.Error())
-		}
-		fmt.Println("p: ", p, ", err: ", err)
-		iv1, err1 := gointerp.NewInterp(interpc, p)
+		iv1, err1 := gointerp.LoadWithCache(interpc, "__main__.go", sources)
 		if err1 != nil {
 			return c.String(http.StatusOK, "err1: "+err1.Error())
 		}
