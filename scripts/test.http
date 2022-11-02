@@ -1,0 +1,52 @@
+### test1
+GET http://localhost:3000/
+
+
+### test2
+POST http://localhost:3001/
+
+package test
+
+import (
+    "fmt"
+)
+
+func fib(i int) int {
+    if i < 2 {
+        return i
+    }
+    return fib(i - 1) + fib(i - 2)
+}
+
+func main() {
+    fmt.Println("====", fib(37))
+}
+
+### test3
+POST http://localhost:3001/handle
+
+package test
+
+import (
+    "encoding/json"
+)
+
+func Handle() interface{} {
+    coronaVirusJSON := `{
+        "name" : "covid-11",
+        "country" : "China",
+        "city" : "Wuhan",
+        "reason" : "Non vedge Food"
+    }`
+    var result map[string]interface{}
+    json.Unmarshal([]byte(coronaVirusJSON), &result)
+    return result
+}
+
+
+### test3
+GET http://localhost:3001/default
+
+
+### test3
+GET http://localhost:3001/origincall
