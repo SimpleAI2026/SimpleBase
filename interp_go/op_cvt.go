@@ -86,6 +86,7 @@ func cvtInt(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.
 		}
 	}
 }
+
 func cvtInt8(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = int8
 	t := xtype.TypeOfType(typ)
@@ -166,6 +167,7 @@ func cvtInt8(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect
 		}
 	}
 }
+
 func cvtInt16(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = int16
 	t := xtype.TypeOfType(typ)
@@ -246,6 +248,7 @@ func cvtInt16(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflec
 		}
 	}
 }
+
 func cvtInt32(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = int32
 	t := xtype.TypeOfType(typ)
@@ -326,6 +329,7 @@ func cvtInt32(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflec
 		}
 	}
 }
+
 func cvtInt64(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = int64
 	t := xtype.TypeOfType(typ)
@@ -406,6 +410,7 @@ func cvtInt64(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflec
 		}
 	}
 }
+
 func cvtUint(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = uint
 	t := xtype.TypeOfType(typ)
@@ -486,6 +491,7 @@ func cvtUint(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect
 		}
 	}
 }
+
 func cvtUint8(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = uint8
 	t := xtype.TypeOfType(typ)
@@ -566,6 +572,7 @@ func cvtUint8(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflec
 		}
 	}
 }
+
 func cvtUint16(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = uint16
 	t := xtype.TypeOfType(typ)
@@ -646,6 +653,7 @@ func cvtUint16(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ refle
 		}
 	}
 }
+
 func cvtUint32(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = uint32
 	t := xtype.TypeOfType(typ)
@@ -726,6 +734,7 @@ func cvtUint32(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ refle
 		}
 	}
 }
+
 func cvtUint64(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = uint64
 	t := xtype.TypeOfType(typ)
@@ -806,6 +815,7 @@ func cvtUint64(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ refle
 		}
 	}
 }
+
 func cvtUintptr(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = uintptr
 	t := xtype.TypeOfType(typ)
@@ -886,6 +896,7 @@ func cvtUintptr(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ refl
 		}
 	}
 }
+
 func cvtFloat32(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = float32
 	t := xtype.TypeOfType(typ)
@@ -966,6 +977,7 @@ func cvtFloat32(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ refl
 		}
 	}
 }
+
 func cvtFloat64(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = float64
 	t := xtype.TypeOfType(typ)
@@ -1046,6 +1058,7 @@ func cvtFloat64(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ refl
 		}
 	}
 }
+
 func cvtComplex64(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = complex64
 	t := xtype.TypeOfType(typ)
@@ -1082,6 +1095,7 @@ func cvtComplex64(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ re
 		}
 	}
 }
+
 func cvtComplex128(ir, ix register, xkind reflect.Kind, xtyp reflect.Type, typ reflect.Type) func(vm *goVm) {
 	type T = complex128
 	t := xtype.TypeOfType(typ)

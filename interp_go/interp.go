@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/linkxzhou/gongx/gointerp/loader"
+	"github.com/linkxzhou/gongx/interp_go/loader"
 	"github.com/petermattis/goid"
 	"golang.org/x/tools/go/ssa"
 )
@@ -643,7 +643,6 @@ func (i *Interp) toType(typ types.Type) reflect.Type {
 	if t, ok := i.preloadTypes[typ]; ok {
 		return t
 	}
-	// log.Panicf("toType %v %p\n", typ, typ)
 	i.typesMutex.Lock()
 	defer i.typesMutex.Unlock()
 	return i.record.ToType(typ)
@@ -800,7 +799,7 @@ func (i *Interp) GetSymbol(key string) (m ssa.Member, v interface{}, ok bool) {
 	case *ssa.NamedConst:
 		v = p.Value.Value
 	case *ssa.Global:
-		v, ok = globalToValue(i, p)
+		v, ok = i.globalToValue(p)
 	case *ssa.Function:
 		typ := i.toType(p.Type())
 		v = i.makeFunction(typ, i.funcs[p], nil)
@@ -816,6 +815,43 @@ func (i *Interp) Exit(code int) {
 	} else {
 		panic(exitPanic(code))
 	}
+}
+
+// constValue returns the value of the constant with the
+// dynamic type tag appropriate for c.Type().
+func (i *Interp) constToValue(c *ssa.Const) value {
+	typ := c.Type()
+	if c.IsNil() {
+		if xtype, ok := typ.(*types.Basic); ok && xtype.Kind() == types.UntypedNil {
+			return nil
+		}
+		return reflect.Zero(i.preToType(typ)).Interface()
+	}
+	if xtype, ok := typ.(*types.Basic); ok {
+		return xtypeValue(c, xtype.Kind())
+	} else if xtype, ok := typ.Underlying().(*types.Basic); ok {
+		v := xtypeValue(c, xtype.Kind())
+		nv := reflect.New(i.preToType(typ)).Elem()
+		SetValue(nv, reflect.ValueOf(v))
+		return nv.Interface()
+	}
+	panic(fmt.Sprintf("unparser constValue: %s", c))
+}
+
+func (i *Interp) globalToValue(key *ssa.Global) (interface{}, bool) {
+	if key.Pkg != nil {
+		// TODO: fix by linkxzhou
+		// pkgpath := key.Pkg.Pkg.Path()
+		// if pkg, ok := i.Installed(pkgpath); ok {
+		// 	if ext, ok := pkg.Vars[key.Name()]; ok {
+		// 		return ext.Interface(), true
+		// 	}
+		// }
+	}
+	if v, ok := i.globals[key]; ok {
+		return v, true
+	}
+	return nil, false
 }
 
 // deref returns a pointer's element type; otherwise it returns typ.

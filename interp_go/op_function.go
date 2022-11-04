@@ -11,7 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/linkxzhou/gongx/gointerp/loader"
+	"github.com/linkxzhou/gongx/interp_go/loader"
 	"github.com/visualfc/xtype"
 	"golang.org/x/tools/go/ssa"
 )
@@ -165,10 +165,10 @@ func (p *function) regInstr(v ssa.Value) uint32 {
 	var vs interface{}
 	var vk kind
 	switch v := v.(type) {
-	case *ssa.Const:
+	case *ssa.Const: // find const var
 		vs = constToValue(p.Interp, v)
 		vk = kindConst
-	case *ssa.Global:
+	case *ssa.Global: // find global var
 		vs, _ = globalToValue(p.Interp, v)
 		vk = kindGlobal
 	case *ssa.Function:
@@ -188,8 +188,8 @@ func (p *function) regInstr(v ssa.Value) uint32 {
 		}
 	}
 	i := uint32(len(p.stack) | int(vk<<24))
-	p.stack = append(p.stack, vs)
-	p.index[v] = i
+	p.stack = append(p.stack, vs) // store stack value
+	p.index[v] = i                // store stack index
 	return i
 }
 
@@ -217,12 +217,10 @@ func findExternFunc(interp *Interp, fn *ssa.Function) (ext reflect.Value, ok boo
 	default:
 		// pass
 	}
-	// check override func
-	if ext, ok = interp.ctx.Override[fnName]; ok {
+	if ext, ok = interp.ctx.Override[fnName]; ok { // check override func
 		return
 	}
-	// check extern func
-	if ext, ok = externValues[fnName]; ok {
+	if ext, ok = externValues[fnName]; ok { // check extern func
 		return
 	}
 	if fn.Pkg != nil {

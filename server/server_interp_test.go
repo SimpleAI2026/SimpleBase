@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/linkxzhou/gongx/gointerp"
-	"github.com/linkxzhou/gongx/gointerp/loader"
+	"github.com/linkxzhou/gongx/interp_go"
+	"github.com/linkxzhou/gongx/interp_go/loader"
 	"github.com/linkxzhou/gongx/log"
 	"github.com/linkxzhou/gongx/server"
 )
@@ -44,7 +44,7 @@ func TestServerInterp(t *testing.T) {
 			return c.String(http.StatusOK, "buf err: "+err.Error())
 		}
 		sources := string(buf)
-		iv1, err1 := gointerp.LoadWithCache(interpc, "__main__.go", sources)
+		iv1, err1 := interp_go.LoadWithCache(interpc, "__main__.go", sources)
 		if err1 != nil {
 			return c.String(http.StatusOK, "err: "+err1.Error())
 		}
@@ -62,7 +62,7 @@ func TestServerInterp(t *testing.T) {
 			return c.String(http.StatusOK, "buf err: "+err.Error())
 		}
 		sources := string(buf)
-		iv1, err1 := gointerp.LoadWithCache(interpc, "__main__.go", sources)
+		iv1, err1 := interp_go.LoadWithCache(interpc, "__main__.go", sources)
 		if err1 != nil {
 			return c.String(http.StatusOK, "err1: "+err1.Error())
 		}
@@ -75,7 +75,7 @@ func TestServerInterp(t *testing.T) {
 	})
 
 	app.Any("/default", func(c server.Context) error {
-		iv1, err1 := gointerp.LoadWithCache(interpc, "__main__.go", defaultSources)
+		iv1, err1 := interp_go.LoadWithCache(interpc, "__main__.go", defaultSources)
 		if err1 != nil {
 			return c.String(http.StatusOK, "err1: "+err1.Error())
 		}

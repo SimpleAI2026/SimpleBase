@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/visualfc/xtype"
+	"github.com/linkxzhou/gongx/interp_go/ctype"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -90,83 +90,83 @@ func (vm *goVm) reg(ir register) value {
 }
 
 func (vm *goVm) bytes(ir register) []byte {
-	return xtype.Bytes(vm.stack[ir])
+	return ctype.Bytes(vm.stack[ir])
 }
 
 func (vm *goVm) runes(ir register) []rune {
-	return xtype.Runes(vm.stack[ir])
+	return ctype.Runes(vm.stack[ir])
 }
 
 func (vm *goVm) bool(ir register) bool {
-	return xtype.Bool(vm.stack[ir])
+	return ctype.Bool(vm.stack[ir])
 }
 
 func (vm *goVm) int(ir register) int {
-	return xtype.Int(vm.stack[ir])
+	return ctype.Int(vm.stack[ir])
 }
 
 func (vm *goVm) int8(ir register) int8 {
-	return xtype.Int8(vm.stack[ir])
+	return ctype.Int8(vm.stack[ir])
 }
 
 func (vm *goVm) int16(ir register) int16 {
-	return xtype.Int16(vm.stack[ir])
+	return ctype.Int16(vm.stack[ir])
 }
 
 func (vm *goVm) int32(ir register) int32 {
-	return xtype.Int32(vm.stack[ir])
+	return ctype.Int32(vm.stack[ir])
 }
 
 func (vm *goVm) int64(ir register) int64 {
-	return xtype.Int64(vm.stack[ir])
+	return ctype.Int64(vm.stack[ir])
 }
 
 func (vm *goVm) uint(ir register) uint {
-	return xtype.Uint(vm.stack[ir])
+	return ctype.Uint(vm.stack[ir])
 }
 
 func (vm *goVm) uint8(ir register) uint8 {
-	return xtype.Uint8(vm.stack[ir])
+	return ctype.Uint8(vm.stack[ir])
 }
 
 func (vm *goVm) uint16(ir register) uint16 {
-	return xtype.Uint16(vm.stack[ir])
+	return ctype.Uint16(vm.stack[ir])
 }
 
 func (vm *goVm) uint32(ir register) uint32 {
-	return xtype.Uint32(vm.stack[ir])
+	return ctype.Uint32(vm.stack[ir])
 }
 
 func (vm *goVm) uint64(ir register) uint64 {
-	return xtype.Uint64(vm.stack[ir])
+	return ctype.Uint64(vm.stack[ir])
 }
 
 func (vm *goVm) uintptr(ir register) uintptr {
-	return xtype.Uintptr(vm.stack[ir])
+	return ctype.Uintptr(vm.stack[ir])
 }
 
 func (vm *goVm) float32(ir register) float32 {
-	return xtype.Float32(vm.stack[ir])
+	return ctype.Float32(vm.stack[ir])
 }
 
 func (vm *goVm) float64(ir register) float64 {
-	return xtype.Float64(vm.stack[ir])
+	return ctype.Float64(vm.stack[ir])
 }
 
 func (vm *goVm) complex64(ir register) complex64 {
-	return xtype.Complex64(vm.stack[ir])
+	return ctype.Complex64(vm.stack[ir])
 }
 
 func (vm *goVm) complex128(ir register) complex128 {
-	return xtype.Complex128(vm.stack[ir])
+	return ctype.Complex128(vm.stack[ir])
 }
 
 func (vm *goVm) string(ir register) string {
-	return xtype.String(vm.stack[ir])
+	return ctype.String(vm.stack[ir])
 }
 
 func (vm *goVm) pointer(ir register) unsafe.Pointer {
-	return xtype.Pointer(vm.stack[ir])
+	return ctype.Pointer(vm.stack[ir])
 }
 
 func (vm *goVm) copyReg(dst register, src register) {
@@ -263,43 +263,6 @@ func xtypeValue(c *ssa.Const, kind types.BasicKind) value {
 		return unsafe.Pointer(uintptr(c.Uint64()))
 	}
 	panic("unreachable")
-}
-
-// constValue returns the value of the constant with the
-// dynamic type tag appropriate for c.Type().
-func constToValue(i *Interp, c *ssa.Const) value {
-	typ := c.Type()
-	if c.IsNil() {
-		if xtype, ok := typ.(*types.Basic); ok && xtype.Kind() == types.UntypedNil {
-			return nil
-		}
-		return reflect.Zero(i.preToType(typ)).Interface()
-	}
-	if xtype, ok := typ.(*types.Basic); ok {
-		return xtypeValue(c, xtype.Kind())
-	} else if xtype, ok := typ.Underlying().(*types.Basic); ok {
-		v := xtypeValue(c, xtype.Kind())
-		nv := reflect.New(i.preToType(typ)).Elem()
-		SetValue(nv, reflect.ValueOf(v))
-		return nv.Interface()
-	}
-	panic(fmt.Sprintf("unparser constValue: %s", c))
-}
-
-func globalToValue(i *Interp, key *ssa.Global) (interface{}, bool) {
-	if key.Pkg != nil {
-		// TODO: fix by linkxzhou
-		// pkgpath := key.Pkg.Pkg.Path()
-		// if pkg, ok := i.Installed(pkgpath); ok {
-		// 	if ext, ok := pkg.Vars[key.Name()]; ok {
-		// 		return ext.Interface(), true
-		// 	}
-		// }
-	}
-	if v, ok := i.globals[key]; ok {
-		return v, true
-	}
-	return nil, false
 }
 
 // asInt converts x, which must be an integer, to an int suitable for

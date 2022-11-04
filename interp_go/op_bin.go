@@ -438,6 +438,7 @@ func makeBinOpADD(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	}
 	panic("unreachable")
 }
+
 func makeBinOpSUB(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
@@ -843,6 +844,7 @@ func makeBinOpSUB(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	}
 	panic("unreachable")
 }
+
 func makeBinOpMUL(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
@@ -1248,6 +1250,7 @@ func makeBinOpMUL(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	}
 	panic("unreachable")
 }
+
 func makeBinOpQUO(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
@@ -1763,6 +1766,7 @@ func makeBinOpQUO(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	}
 	panic("unreachable")
 }
+
 func makeBinOpREM(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
@@ -2365,6 +2369,7 @@ func makeBinOpAND(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	}
 	panic("unreachable")
 }
+
 func makeBinOpOR(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
@@ -3268,6 +3273,7 @@ func makeBinOpANDNOT(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	}
 	panic("unreachable")
 }
+
 func makeBinOpLSS(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
@@ -3646,6 +3652,7 @@ func makeBinOpLSS(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	}
 	panic("unreachable")
 }
+
 func makeBinOpLEQ(pfn *function, instr *ssa.BinOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
