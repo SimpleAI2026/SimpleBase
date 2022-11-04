@@ -86,6 +86,7 @@
     & .el-submenu .el-menu-item {
       min-width: $sideBarWidth !important;
       background-color: $subMenuBg !important;
+
       &:hover {
         background-color: $subMenuHover !important;
       }
@@ -94,11 +95,11 @@
 
   .hideSidebar {
     .sidebar-container {
-      width: 54px !important;
+      width: 50px !important;
     }
 
     .main-container {
-      margin-left: 54px;
+      margin-left: 50px;
     }
 
     .submenu-title-noDropdown {
@@ -192,6 +193,7 @@
     .svg-icon {
       margin-right: 16px;
     }
+
     .sub-el-icon {
       margin-right: 12px;
       margin-left: -2px;

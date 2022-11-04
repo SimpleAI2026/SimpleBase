@@ -1,14 +1,13 @@
 <template>
   <div class="app-container">
     <div class="filter-container">
-      <el-button plain class="filter-item" type="default" icon="el-icon-search" @click="getList">
+      <el-button size="mini" class="filter-item" type="default" icon="el-icon-search" @click="getList">
         刷新
       </el-button>
-      <el-button plain class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">
+      <el-button size="mini" class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">
         新建文件桶(Bucket)
       </el-button>
-
-      <el-button plain class="filter-item" type="primary" :loading="acLoading" @click="handleUpdateAC()">
+      <el-button size="mini" class="filter-item" type="primary" :loading="acLoading" @click="handleUpdateAC()">
         获取服务账号
       </el-button>
 

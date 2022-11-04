@@ -6,21 +6,23 @@
           <img src="../../assets/logo.png">
         </a>
       </div>
-      <div class="title">{{ title }}</div>
+      <div class="title">GoEdge</div>
     </div>
     <div class="sep" />
     <div class="tags-view-container">
       <!-- <tags-view v-if="!hideTags" /> -->
     </div>
     <el-menu :default-active="activeIndex" router mode="horizontal" @select="handleSelect" class="right-menu">
-      <el-menu-item index="/index">首页</el-menu-item>
+      <el-menu-item index="/homepage">首页</el-menu-item>
       <el-menu-item index="/applications">应用列表</el-menu-item>
       <el-menu-item index="/app/demo/index">控制台</el-menu-item>
+      <el-menu-item index="/wiki">使用文档</el-menu-item>
       <el-submenu index="/">
         <template slot="title" class="user-name">{{ name }}</template>
         <el-menu-item index="/"><a href="https://github.com/labring/laf/" target="_blank">GitHub地址</a></el-menu-item>
-        <el-menu-item index="/">切换主题</el-menu-item>
         <el-menu-item index="/" @click.native="logout">退出登录</el-menu-item>
+        <el-switch v-model="themeColor" style="margin: 10px;" active-color="#13ce66" inactive-color="#ff4949"
+          active-text="默认" inactive-text="暗黑"></el-switch>
       </el-submenu>
     </el-menu>
   </div>
@@ -28,11 +30,10 @@
 
 <script>
 import Screenfull from '@/components/Screenfull'
-import TagsView from './TagsView'
 import { openSystemClient } from '@/api/console'
 export default {
   components: {
-    Screenfull, TagsView
+    Screenfull
   },
   props: {
     hideTags: {
@@ -43,6 +44,10 @@ export default {
       type: String,
       default: 'GoEdge'
     },
+    themeColor: {
+      type: Boolean,
+      default: true
+    }
   },
   computed: {
     name() {
@@ -55,7 +60,7 @@ export default {
       } else if (this.$route.path.indexOf("/app/") >= 0) {
         return "/app/demo/index"
       } else {
-        return "/index"
+        return "/homepage"
       }
     }
   },
@@ -92,18 +97,19 @@ export default {
     box-sizing: border-box;
 
     .logo {
-      width: 120px;
+      width: 40px;
       height: 40px;
+      margin: 0 0 0 10px;
 
       img {
-        width: 120px;
-        height: 40px;
+        width: 30px;
+        height: 30px;
       }
     }
 
     .title {
-      margin-left: 4px;
-      font-size: 14px;
+      margin-left: 10px;
+      font-size: 15px;
       font-weight: bold;
       overflow: hidden;
       text-overflow: ellipsis;

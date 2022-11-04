@@ -1,7 +1,8 @@
 import store from '@/store'
+import variables from '@/styles/variables.scss'
 
 const { body } = document
-const WIDTH = 992 // refer to Bootstrap's responsive design
+const WIDTH = 450 // refer to Bootstrap's responsive design
 
 export default {
   watch: {
@@ -22,6 +23,9 @@ export default {
     if (isMobile) {
       store.dispatch('settings/toggleDevice', 'mobile')
       store.dispatch('settings/closeSideBar', { withoutAnimation: true })
+      document.getElementsByTagName("body")[0].style.setProperty("--sideBarWidth", "50px");
+    } else {
+      document.getElementsByTagName("body")[0].style.setProperty("--sideBarWidth", "210px");
     }
   },
   methods: {
@@ -35,9 +39,11 @@ export default {
       if (!document.hidden) {
         const isMobile = this.$_isMobile()
         store.dispatch('settings/toggleDevice', isMobile ? 'mobile' : 'desktop')
-
         if (isMobile) {
           store.dispatch('settings/closeSideBar', { withoutAnimation: true })
+          document.getElementsByTagName("body")[0].style.setProperty("--sideBarWidth", "50px");
+        } else {
+          document.getElementsByTagName("body")[0].style.setProperty("--sideBarWidth", "210px");
         }
       }
     }

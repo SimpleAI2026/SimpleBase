@@ -49,20 +49,22 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-  .app-wrapper {
-    .sidebar {
-      box-shadow: 1 1px 3px 0 rgba(0, 0, 0, .12), 0 0 3px 0 rgba(0, 0, 0, .04);
-    }
-    .main {
-      padding-top: 50px;
-      display: flex;
-    }
+.app-wrapper {
+  .sidebar {
+    box-shadow: 1 1px 3px 0 rgba(0, 0, 0, .12), 0 0 3px 0 rgba(0, 0, 0, .04);
   }
-  .fixed-header {
-    position: fixed;
-    top: 0;
-    z-index: 9;
-    width: 100%;
-    transition: width 0.28s;
+
+  .main {
+    padding-top: 55px;
+    display: flex;
   }
+}
+
+.fixed-header {
+  position: fixed;
+  top: 0;
+  z-index: 9;
+  width: 100%;
+  transition: width 0.28s;
+}
 </style>

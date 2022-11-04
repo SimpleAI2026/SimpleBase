@@ -1,8 +1,8 @@
 <template>
   <div class="application-container">
     <div class="controls">
-      <el-button plain type="default" size="mini" icon="el-icon-refresh" @click="loadApps">刷新</el-button>
-      <el-button plain type="default" size="mini" icon="el-icon-plus" @click="showCreateForm">新建</el-button>
+      <el-button type="primary" size="mini" icon="el-icon-refresh" @click="loadApps">刷新</el-button>
+      <el-button type="primary" size="mini" icon="el-icon-plus" @click="showCreateForm">新建</el-button>
     </div>
 
     <!-- My created apps -->
@@ -10,20 +10,17 @@
       <div class="app-group-title">我创建的应用</div>
       <el-table v-loading="loading" empty-text="还没有创建应用" :data="applications.created"
         style="width: 100%;margin-top:10px;" stripe>
-        <el-table-column align="center" label="App ID" min-width="100">
+        <el-table-column align="center" label="应用名(App ID)" min-width="100">
           <template slot-scope="scope">
             <div class="table-row">
               <el-tooltip :content="scope.row.appid" effect="light" placement="top">
-                <div class="table-column-text"> {{ scope.row.appid }}</div>
+                <span class="link-type table-column-text" @click="showUpdateForm(scope.row)">{{ scope.row.name }}({{
+                    scope.row.appid
+                }})</span>
               </el-tooltip>
               <i v-clipboard:message="scope.row.appid" v-clipboard:success="onCopy"
                 class="el-icon-document-copy copy-btn" />
             </div>
-          </template>
-        </el-table-column>
-        <el-table-column align="center" label="应用名" min-width="120">
-          <template slot-scope="{row}">
-            <span class="link-type table-column-text" @click="showUpdateForm(row)">{{ row.name }}</span>
           </template>
         </el-table-column>
         <el-table-column align="center" label="应用规格" min-width="80">
@@ -43,33 +40,33 @@
         <el-table-column label="服务启停" align="center" width="240" class-name="small-padding">
           <template slot-scope="{row}">
             <el-button v-if="row.status === 'stopped' || row.status === 'created'" :loading="serviceLoading[row.appid]"
-              plain type="success" size="mini" @click="startApp(row)">
+              type="success" size="mini" @click="startApp(row)">
               启动
             </el-button>
-            <el-button v-if="row.status === 'prepared_start'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'prepared_start'" :loading="true" type="info" size="mini">
               准备启动
             </el-button>
-            <el-button v-if="row.status === 'starting'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'starting'" :loading="true" type="info" size="mini">
               正在启动
             </el-button>
-            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" plain type="danger"
-              size="mini" @click="stopApp(row)">
+            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="danger" size="mini"
+              @click="stopApp(row)">
               停止
             </el-button>
-            <el-button v-if="row.status === 'prepared_stop'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'prepared_stop'" :loading="true" type="info" size="mini">
               准备停止
             </el-button>
-            <el-button v-if="row.status === 'stopping'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'stopping'" :loading="true" type="info" size="mini">
               停止中
             </el-button>
-            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" plain type="default"
-              size="mini" @click="restartApp(row)">
+            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="default" size="mini"
+              @click="restartApp(row)">
               重启
             </el-button>
-            <el-button v-if="row.status === 'prepared_restart'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'prepared_restart'" :loading="true" type="info" size="mini">
               准备重启
             </el-button>
-            <el-button v-if="row.status === 'restarting'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'restarting'" :loading="true" type="info" size="mini">
               重启中
             </el-button>
           </template>
@@ -94,7 +91,7 @@
               导入
             </el-button>
             <el-tooltip content="释放即完全删除应用，暂不可恢复，谨慎操作，仅应用创建者可执行此操作!" effect="light" placement="left">
-              <el-button :disabled="row.status === 'running'" plain size="mini" type="default" @click="deleteApp(row)">
+              <el-button :disabled="row.status === 'running'" size="mini" type="default" @click="deleteApp(row)">
                 释放
               </el-button>
             </el-tooltip>
@@ -103,25 +100,21 @@
       </el-table>
     </div>
 
-    <!-- My joined apps -->
     <div class="app-group">
-      <div class="app-group-title">我加入的应用</div>
-      <el-table v-loading="loading" empty-text="还没有加入的应用" :data="applications.joined"
+      <div class="app-group-title">公共应用列表</div>
+      <el-table v-loading="loading" empty-text="还没有公共应用" :data="applications.joined"
         style="width: 100%;margin-top:10px;" stripe>
-        <el-table-column align="center" label="App ID" min-width="100">
+        <el-table-column align="center" label="应用名(App ID)" min-width="100">
           <template slot-scope="scope">
             <div class="table-row">
               <el-tooltip :content="scope.row.appid" effect="light" placement="top">
-                <div class="table-column-text"> {{ scope.row.appid }}</div>
+                <span class="link-type table-column-text" @click="showUpdateForm(scope.row)">{{ scope.row.name }}({{
+                    scope.row.appid
+                }})</span>
               </el-tooltip>
               <i v-clipboard:message="scope.row.appid" v-clipboard:success="onCopy"
                 class="el-icon-document-copy copy-btn" />
             </div>
-          </template>
-        </el-table-column>
-        <el-table-column align="center" label="应用名" min-width="120">
-          <template slot-scope="{row}">
-            <span class="link-type table-column-text" @click="showUpdateForm(row)">{{ row.name }}</span>
           </template>
         </el-table-column>
         <el-table-column align="center" label="规格" min-width="80">
@@ -141,33 +134,33 @@
         <el-table-column label="服务启停" align="center" width="240" class-name="small-padding">
           <template slot-scope="{row}">
             <el-button v-if="row.status === 'stopped' || row.status === 'created'" :loading="serviceLoading[row.appid]"
-              plain type="success" size="mini" @click="startApp(row)">
+              type="success" size="mini" @click="startApp(row)">
               启动
             </el-button>
-            <el-button v-if="row.status === 'prepared_start'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'prepared_start'" :loading="true" type="info" size="mini">
               准备启动
             </el-button>
-            <el-button v-if="row.status === 'starting'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'starting'" :loading="true" type="info" size="mini">
               正在启动
             </el-button>
-            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" plain type="danger"
-              size="mini" @click="stopApp(row)">
+            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="danger" size="mini"
+              @click="stopApp(row)">
               停止
             </el-button>
-            <el-button v-if="row.status === 'prepared_stop'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'prepared_stop'" :loading="true" type="info" size="mini">
               准备停止
             </el-button>
-            <el-button v-if="row.status === 'stopping'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'stopping'" :loading="true" type="info" size="mini">
               停止中
             </el-button>
-            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" plain type="default"
-              size="mini" @click="restartApp(row)">
+            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="default" size="mini"
+              @click="restartApp(row)">
               重启
             </el-button>
-            <el-button v-if="row.status === 'prepared_restart'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'prepared_restart'" :loading="true" type="info" size="mini">
               准备重启
             </el-button>
-            <el-button v-if="row.status === 'restarting'" :loading="true" plain type="info" size="mini">
+            <el-button v-if="row.status === 'restarting'" :loading="true" type="info" size="mini">
               重启中
             </el-button>
           </template>
@@ -192,7 +185,7 @@
               导入
             </el-button>
             <el-tooltip content="释放即完全删除应用，暂不可恢复，谨慎操作!" effect="light" placement="left">
-              <el-button :disabled="row.status === 'running'" plain size="mini" type="default" @click="deleteApp(row)">
+              <el-button :disabled="row.status === 'running'" size="mini" type="default" @click="deleteApp(row)">
                 释放
               </el-button>
             </el-tooltip>
@@ -238,7 +231,7 @@
         <el-form-item label="选择应用文件" prop="file">
           <el-upload ref="uploader" action="" :auto-upload="false" :multiple="false" :show-file-list="true"
             accept=".lapp" :limit="1" :on-change="onImportFileChanged">
-            <el-button slot="trigger" plain size="mini" type="primary">选取导入文件</el-button>
+            <el-button slot="trigger" size="mini" type="primary">选取导入文件</el-button>
           </el-upload>
         </el-form-item>
       </el-form>

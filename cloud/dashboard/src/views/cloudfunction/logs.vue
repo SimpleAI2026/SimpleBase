@@ -2,9 +2,9 @@
   <div class="app-container">
     <!-- 数据检索区 -->
     <div class="filter-container">
-      <el-input v-model="listQuery.keyword" size="small" placeholder="Request ID"
+      <el-input v-model="listQuery.keyword" size="mini" placeholder="Request ID"
         style="width: 320px;margin-right: 10px;" class="filter-item" @keyup.enter.native="handleFilter" />
-      <el-button size="small" class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
+      <el-button size="mini" class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
         搜索
       </el-button>
     </div>

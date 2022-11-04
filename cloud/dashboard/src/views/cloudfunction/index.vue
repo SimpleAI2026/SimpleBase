@@ -19,16 +19,14 @@
         @change="handleFilter">只看已启用</el-checkbox>
     </div>
 
-    <!-- 标签类别 -->
     <div class="tag-selector">
-      <div class="label">标签类别</div>
+      <div class="label">标签类别:</div>
       <el-radio-group v-model="listQuery.tag" size="mini" @change="getList">
         <el-radio-button :label="''" border>全部</el-radio-button>
         <el-radio-button v-for="tag in all_tags" :key="tag" :label="tag" border>{{ tag }}</el-radio-button>
       </el-radio-group>
     </div>
 
-    <!-- 表格 -->
     <el-table v-loading="listLoading" :data="list" border size="small" highlight-current-row style="width: 100%;">
       <el-table-column label="函数标识" min-width="200">
         <template slot-scope="{ row }">

@@ -7,24 +7,30 @@
             <span>详情</span>
           </div>
           <div class="text item">
-            <div class="label">使用文档：<a style="color: blue" target="_blank"
-                href="https://docs.lafyun.com/">https://docs.lafyun.com/</a></div>
             <div class="label">应用名：{{ app.name }}</div>
             <div class="label">应用ID：{{ app.appid }}</div>
             <div class="label">服务地址：{{ getAppUrl() }}</div>
+            <div class="label">使用文档：<a style="color: blue" target="_blank"
+                href="https://docs.lafyun.com/">https://docs.lafyun.com/</a></div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="12">
-        <v-chart class="chart" :option="option_req" />
+        <el-card class="chart">
+          <v-chart class="chart-v" :option="option_req" />
+        </el-card>
       </el-col>
     </el-row>
     <el-row>
       <el-col :span="12">
-        <v-chart class="chart" :option="option_error" />
+        <el-card class="chart">
+          <v-chart class="chart-v" :option="option_error" />
+        </el-card>
       </el-col>
       <el-col :span="12">
-        <v-chart class="chart" :option="option_location" />
+        <el-card class="chart">
+          <v-chart class="chart-v" :option="option_location" />
+        </el-card>
       </el-col>
     </el-row>
   </div>
@@ -159,13 +165,18 @@ export default {
 
 <style scoped>
 .application-container {
-  padding-top: 30px;
+  padding-top: 15px;
+}
+
+.clearfix span {
+  font-size: 18px;
+  font-weight: bold;
 }
 
 .label {
   color: rgb(82, 80, 80);
-  font-size: 16;
-  margin: 5px;
+  font-size: 16px;
+  margin: 10px;
 }
 
 .row .content {
@@ -181,7 +192,11 @@ export default {
 }
 
 .chart {
-  height: 300px;
-  margin: 10px;
+  height: 400px;
+  margin: 10px 10px;
+}
+
+.chart-v {
+  height: 400px;
 }
 </style>

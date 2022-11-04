@@ -2,10 +2,10 @@
   <div class="app-container">
 
     <div class="filter-container">
-      <el-button plain class="filter-item" type="default" icon="el-icon-search" @click="getWebsites">
+      <el-button size="mini" class="filter-item" type="default" icon="el-icon-search" @click="getWebsites">
         刷新
       </el-button>
-      <el-button plain class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">
+      <el-button size="mini" class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">
         创建网站托管
       </el-button>
     </div>
@@ -164,7 +164,7 @@ export default {
         showError(ret.error)
         return
       }
-           this.buckets = ret.data.filter(item => item.mode !== 'private')
+      this.buckets = ret.data.filter(item => item.mode !== 'private')
     },
     async createWebsite() {
       this.$refs.createForm.validate(async valid => {
@@ -198,7 +198,7 @@ export default {
         this.createFormVisible = false
       })
     },
-     async handleDelete(item) {
+    async handleDelete(item) {
       await this.$confirm('确认要删除此数据？', '删除确认')
 
       this.loading = true
@@ -234,7 +234,7 @@ export default {
           return showError('解析错误，请使用正确的 CNAME 解析值')
         }
 
-         if (ret.code === 'ALREADY_EXISTED') {
+        if (ret.code === 'ALREADY_EXISTED') {
           return showError('该域名已经被绑定')
         }
 

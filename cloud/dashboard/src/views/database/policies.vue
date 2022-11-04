@@ -2,16 +2,16 @@
   <div class="app-container">
     <!-- 数据检索区 -->
     <div class="filter-container">
-      <el-input v-model="listQuery.keyword" placeholder="搜索" style="width: 200px;margin-right: 10px;"
+      <el-input size="mini" v-model="listQuery.keyword" placeholder="搜索" style="width: 200px;margin-right: 10px;"
         class="filter-item" @keyup.enter.native="handleFilter" />
-      <el-button class="filter-item" type="default" icon="el-icon-search" @click="handleFilter">
+      <el-button size="mini" class="filter-item" type="default" icon="el-icon-search" @click="handleFilter">
         搜索
       </el-button>
-      <el-button plain class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">
+      <el-button size="mini" class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">
         新建
       </el-button>
       <el-tooltip content="发布策略：策略修改后需要发布才能生效" placement="bottom" effect="light">
-        <el-button plain class="filter-item" type="success" icon="el-icon-guide" @click="publish">
+        <el-button size="mini" class="filter-item" type="success" icon="el-icon-guide" @click="publish">
           发布策略
         </el-button>
       </el-tooltip>

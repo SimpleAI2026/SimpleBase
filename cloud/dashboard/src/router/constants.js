@@ -1,10 +1,5 @@
 import Layout from '@/layout'
 
-/**
- * constantRoutes
- * a base page that does not have permission requirements
- * all roles can be accessed
- */
 export const constantRoutes = [
   {
     path: '/redirect',
@@ -30,11 +25,24 @@ export const constantRoutes = [
   {
     path: '/',
     component: Layout,
-    redirect: '/applications',
+    redirect: "/homepage",
     hidden: true,
     children: [
       {
-        path: 'applications',
+        path: 'homepage',
+        component: () => import('@/views/homepage/index'),
+        name: 'Homepage',
+        meta: { title: '首页', icon: 'dashboard', noCache: true }
+      }
+    ]
+  },
+  {
+    path: '/applications',
+    component: Layout,
+    hidden: true,
+    children: [
+      {
+        path: '',
         component: () => import('@/views/application/index'),
         name: 'Application',
         meta: { title: '我的应用', icon: 'dashboard', noCache: true }
