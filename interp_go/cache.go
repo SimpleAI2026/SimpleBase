@@ -1,4 +1,4 @@
-package gointerp
+package interp_go
 
 import (
 	"bytes"
