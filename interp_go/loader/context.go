@@ -12,7 +12,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/linkxzhou/gongx/log"
+	"github.com/linkxzhou/gongx/packages/log"
 	"golang.org/x/tools/go/ssa"
 )
 

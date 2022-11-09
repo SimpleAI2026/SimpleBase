@@ -166,10 +166,10 @@ func (p *function) regInstr(v ssa.Value) uint32 {
 	var vk kind
 	switch v := v.(type) {
 	case *ssa.Const: // find const var
-		vs = constToValue(p.Interp, v)
+		vs = p.Interp.constToValue(v)
 		vk = kindConst
 	case *ssa.Global: // find global var
-		vs, _ = globalToValue(p.Interp, v)
+		vs, _ = p.Interp.globalToValue(v)
 		vk = kindGlobal
 	case *ssa.Function:
 		vk = kindFunction

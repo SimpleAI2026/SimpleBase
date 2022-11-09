@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/linkxzhou/gongx/interp_go/loader"
-	"github.com/linkxzhou/gongx/log"
+	"github.com/linkxzhou/gongx/packages/log"
 )
 
 // errGoexit indicates the runtime.Goexit was called in
