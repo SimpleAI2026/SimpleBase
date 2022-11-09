@@ -322,19 +322,17 @@ export async function stopApplicationInstance(appid) {
  * @param {*} app
  */
 export async function openAppConsole(app) {
-  // TODO: fix by linkxzhou
-  // const base_url = getCurrentBaseURL()
-  // const console_uri = process.env.VUE_APP_APP_CONSOLE_URI
+  setCurrentAppid(app.appid)
   const back_url = encodeURIComponent(window.location.href)
   let app_console_url = `/#/app/${app.appid}/dashboard/index?$back_url=${back_url}`
-
-  // TODO: fix by linkxzhou
-  // pass auth info when in CORS
-  // if (console_uri.startsWith('http')) {
-  //   app_console_url = app_console_url + `&access_token=${getToken()}&expire=${getTokenExpire()}&with_auth=true`
-  // } else {
-  //   app_console_url = base_url + app_console_url
-  // }
-  console.log(app_console_url, 'app_console_url')
+  console.log("app_console_url: ", app_console_url)
   window.open(app_console_url, '_self')
+}
+
+export function setCurrentAppid(appid) {
+  localStorage.setItem("current_appid", appid)
+}
+
+export function getCurrentAppid() {
+  return localStorage.getItem("current_appid")
 }

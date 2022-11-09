@@ -3,45 +3,25 @@
     <div v-if="func" class="header">
       <span style="font-size: 22px;line-height: 40px;">
         <b>{{ func.label }}</b>
-        <span v-if="saved_code_diff" style="margin-left: 8px; font-size: 18px; color: red; cursor: pointer" @click="diffSaved">
+        <span v-if="saved_code_diff" style="margin-left: 8px; font-size: 18px; color: red; cursor: pointer"
+          @click="diffSaved">
           [编辑中<i class="el-icon-hot-water" /> ]
         </span>
       </span>
-      <el-tag v-clipboard:message="func.name" v-clipboard:success="onCopy" style="margin-left: 14px; " size="mini" type="success">{{ func.name }}</el-tag>
+      <el-tag v-clipboard:message="func.name" v-clipboard:success="onCopy" style="margin-left: 14px; " size="mini"
+        type="success">{{ func.name }}</el-tag>
       <el-tooltip content="重新加载函数代码，将会丢弃当前未保存的编辑" effect="light" placement="bottom">
-        <el-button
-          style="margin-left: 20px"
-          icon="el-icon-refresh"
-          type="text"
-          size="default"
-          :loading="loading"
-          @click="getFunction"
-        >刷新</el-button>
+        <el-button style="margin-left: 20px" icon="el-icon-refresh" type="text" size="default" :loading="loading"
+          @click="getFunction">刷新</el-button>
       </el-tooltip>
-      <el-button
-        size="mini"
-        style="margin-left: 20px;"
-        :loading="loading"
-        :disabled="!saved_code_diff"
-        :type="saved_code_diff ? 'success' : 'success'"
-        @click="updateFunc"
-      >保存(S)</el-button>
-      <el-button
-        :type="published_version_diff ? 'default' : 'text'"
-        size="mini"
-        :loading="loading"
-        style="margin-left: 15px;"
-        :disabled="!published_version_diff"
-        @click="publishFunction"
-      >{{ published_version_diff ? '发布': '已发布' }}</el-button>
-      <el-button
-        v-if="published_func"
-        type="text"
-        size="mini"
-        :loading="loading"
-        style="margin-left: 10px;"
-        @click="diffPublished"
-      >对比已发布 (#{{ published_func.version }})</el-button>
+      <el-button size="mini" style="margin-left: 20px;" :loading="loading" :disabled="!saved_code_diff"
+        :type="saved_code_diff ? 'success' : 'success'" @click="updateFunc">保存(S)</el-button>
+      <el-button :type="published_version_diff ? 'default' : 'text'" size="mini" :loading="loading"
+        style="margin-left: 15px;" :disabled="!published_version_diff" @click="publishFunction">{{
+            published_version_diff ? '发布' : '已发布'
+        }}</el-button>
+      <el-button v-if="published_func" type="text" size="mini" :loading="loading" style="margin-left: 10px;"
+        @click="diffPublished">对比已发布 (#{{ published_func.version }})</el-button>
       <el-button size="small" style="float: right;" type="primary" @click="showDebugPanel = true">显示调试面板(J)</el-button>
     </div>
 
@@ -62,7 +42,8 @@
           </el-tab-pane>
           <el-tab-pane label="变更记录">
             <span slot="label">变更记录 <i class="el-icon-refresh" @click="getChangeHistory" /></span>
-            <div v-for="(item, index) in changeHistory" :key="item._id" class="history-item" @click="showChangeDiffEditor(index)">
+            <div v-for="(item, index) in changeHistory" :key="item._id" class="history-item"
+              @click="showChangeDiffEditor(index)">
               <span class="history-title">#{{ item.data.version }}</span>
               <span style="font-weight: bold;margin-left: 2px;"> {{ item.account.name }} </span>
               <span style="color:rgb(85, 84, 84);"> {{ item.created_at | parseTime('{y}-{m}-{d} {h}:{i}:{s}') }}</span>
@@ -72,42 +53,21 @@
       </div>
     </div>
 
-    <el-drawer
-      title="调试面板"
-      :visible="showDebugPanel"
-      direction="rtl"
-      size="40%"
-      :destroy-on-close="false"
-      :show-close="true"
-      :modal="true"
-      :wrapper-closable="true"
-      @close="showDebugPanel = false"
-    >
+    <el-drawer title="调试面板" :visible="showDebugPanel" direction="rtl" size="40%" :destroy-on-close="false"
+      :show-close="true" :modal="true" :wrapper-closable="true" @close="showDebugPanel = false">
       <div class="invoke-panel">
         <div class="title">
           调用参数
-          <el-button
-            size="mini"
-            type="success"
-            style="margin-left: 10px"
-            :loading="loading"
-            @click="launch"
-          >运行(B)</el-button>
+          <el-button size="mini" type="success" style="margin-left: 10px" :loading="loading" @click="launch">运行(B)
+          </el-button>
         </div>
         <div class="editor">
-          <json-editor
-            v-model="invokeParams"
-            :line-numbers="false"
-            :height="300"
-            :dark="false"
-          />
+          <json-editor v-model="invokeParams" :line-numbers="false" :height="300" :dark="false" />
         </div>
         <div v-if="invokeRequestId" class="invoke-result">
           <div class="title">
             执行日志
-            <span
-              v-if="invokeRequestId"
-            >（ RequestId: {{ invokeRequestId }} ）</span>
+            <span v-if="invokeRequestId">（ RequestId: {{ invokeRequestId }} ）</span>
           </div>
           <div v-if="invokeLogs" class="logs">
             <div v-for="(log, index) in invokeLogs" :key="index" class="log-item">
@@ -130,7 +90,8 @@
     </el-dialog>
 
     <!-- 代码对比编辑器对话框 -->
-    <el-dialog v-if="diffCode.modified" :visible.sync="isShowDiffEditor" :title="diffCode.title" width="80%" top="10vh" @close="onCloseDiffEditor">
+    <el-dialog v-if="diffCode.modified" :visible.sync="isShowDiffEditor" :title="diffCode.title" width="80%" top="10vh"
+      @close="onCloseDiffEditor">
       <diff-editor :original="diffCode.original" :modified="diffCode.modified" :height="editorHeight * 0.8" />
     </el-dialog>
   </div>
@@ -497,6 +458,7 @@ export default {
   padding-top: 6px;
   padding-bottom: 0;
 }
+
 .editor-container {
   position: relative;
   height: 100%;
@@ -514,7 +476,7 @@ export default {
     display: flex;
     justify-content: space-between;
 
-    .time{
+    .time {
       margin-left: 10px;
     }
   }
@@ -524,6 +486,7 @@ export default {
     font-size: 13px;
     padding: 3px 0;
     cursor: pointer;
+
     .history-title {
       color: rgb(79, 79, 235);
       font-size: 15px;
@@ -544,19 +507,23 @@ export default {
 
   .title {
     font-weight: bold;
+
     span {
       font-weight: normal;
       color: gray;
     }
   }
+
   .editor {
     margin-top: 10px;
     border: 1px dashed gray;
     margin-left: 2px;
     width: 100%;
   }
+
   .invoke-result {
     margin-top: 20px;
+
     .logs {
       margin-top: 10px;
       padding: 10px;
@@ -565,6 +532,7 @@ export default {
       border-radius: 10px;
       overflow-x: auto;
     }
+
     .result {
       margin-top: 10px;
       padding: 16px;

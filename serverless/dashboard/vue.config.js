@@ -56,7 +56,7 @@ module.exports = {
       '/sys-extension-api': {
         target: 'https://console.lafyun.com/',
         changeOrigin: true
-      },
+      }
     },
     disableHostCheck: true
   },

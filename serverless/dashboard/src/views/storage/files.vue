@@ -1,10 +1,11 @@
 <template>
   <div class="app-container">
     <div class="filter-container">
-      <el-button size="mini" plain class="filter-item" type="primary" icon="el-icon-refresh" @click="handleFilter">
+      <el-button size="mini" class="filter-item" type="primary" icon="el-icon-refresh" @click="handleFilter">
         刷新
       </el-button>
-      <el-dropdown trigger="click" size="mini" class="filter-item" style="margin-left: 10px; margin-right: 10px;" @command="handleUploadCommand">
+      <el-dropdown trigger="click" size="mini" class="filter-item" style="margin-left: 10px; margin-right: 10px;"
+        @command="handleUploadCommand">
         <el-button size="mini" plain type="primary">
           <i class="el-icon-upload el-icon--left" />上传<i class="el-icon-arrow-down el-icon--right" />
         </el-button>
@@ -28,16 +29,8 @@
     </div>
 
     <!-- 表格 -->
-    <el-table
-      :key="tableKey"
-      v-loading="listLoading"
-      :data="list"
-      border
-      fit
-      highlight-current-row
-      style="width: 100%;"
-      size="mini"
-    >
+    <el-table :key="tableKey" v-loading="listLoading" :data="list" border fit highlight-current-row style="width: 100%;"
+      size="mini">
       <el-table-column label="文件" align="center" width="140">
         <template slot-scope="{row}">
           <a v-if="!row.Prefix" :href="getFileUrl(row)" target="blank">
@@ -46,7 +39,8 @@
             <i v-else-if="row.Prefix" class="el-icon-folder-opened" style="font-size: 36px; color: orange" />
             <i v-else class="el-icon-paperclip" style="font-size: 40px" />
           </a>
-          <i v-if="row.Prefix" class="el-icon-folder-opened" style="cursor: pointer;font-size: 36px; color: orange" @click="changeDirectory(row)" />
+          <i v-if="row.Prefix" class="el-icon-folder-opened" style="cursor: pointer;font-size: 36px; color: orange"
+            @click="changeDirectory(row)" />
         </template>
       </el-table-column>
       <el-table-column label="文件名" width="330" align="left">
@@ -70,7 +64,7 @@
       </el-table-column>
       <el-table-column label="文件路径" align="center">
         <template slot-scope="{row}">
-          <span>  {{ row.Prefix ? '-' : row.Key }}</span>
+          <span> {{ row.Prefix ? '-' : row.Key }}</span>
         </template>
       </el-table-column>
       <el-table-column label="操作" align="center" width="160" class-name="small-padding fixed-width">
@@ -87,26 +81,14 @@
     </el-table>
 
     <!-- 分页 -->
-    <pagination
-      v-show="total>0"
-      :total="total"
-      :page.sync="listQuery.page"
-      :limit.sync="listQuery.limit"
-      @pagination="getList"
-    />
+    <pagination v-show="total > 0" :total="total" :page.sync="listQuery.page" :limit.sync="listQuery.limit"
+      @pagination="getList" />
 
     <!-- 表单对话框 -->
-    <el-dialog :title="uploadCommand === 'uploadFile' ? '上传文件' : '上传文件夹'" width="400px" :visible.sync="dialogFormVisible" @close="uploadFileList = []">
-      <el-upload
-        v-if="bucketDetail.credentials"
-        drag
-        multiple
-        action=""
-        :show-file-list="true"
-        :file-list="uploadFileList"
-        :auto-upload="true"
-        :http-request="handleUploadFile"
-      >
+    <el-dialog :title="uploadCommand === 'uploadFile' ? '上传文件' : '上传文件夹'" width="400px"
+      :visible.sync="dialogFormVisible" @close="uploadFileList = []">
+      <el-upload v-if="bucketDetail.credentials" drag multiple action="" :show-file-list="true"
+        :file-list="uploadFileList" :auto-upload="true" :http-request="handleUploadFile">
         <i class="el-icon-upload" />
         <div class="el-upload__text">
           {{ uploadCommand === 'uploadFile' ? '将文件拖到此处，或' : '' }} <em>点击上传</em>
@@ -186,7 +168,7 @@ export default {
       if (this.listLoading) return
       this.listLoading = true
 
-      const getList = async() => {
+      const getList = async () => {
         const res = await oss.getFilesByBucketName(this.bucket, {
           marker: undefined,
           prefix: this.currentPath,
@@ -252,7 +234,7 @@ export default {
         cancelButtonText: '取消',
         inputPattern: /^[^\\\/\:\*\?\"\<\>\|\.]+$/,
         inputErrorMessage: '文件夹不能包含 \\\ \/ : * ? \" < > | 这些非法字符'
-      }).then(async({ value }) => {
+      }).then(async ({ value }) => {
         this.currentPath = this.currentPath + value + '/'
         this.getList()
       })
@@ -335,7 +317,10 @@ export default {
 
 <style scoped>
 .filter-container .tips {
-  font-size: 14px; color: #333;position: absolute;right: 20px;
+  font-size: 14px;
+  color: #333;
+  position: absolute;
+  right: 20px;
 }
 
 .filter-container .tips span {

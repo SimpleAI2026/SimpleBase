@@ -2,7 +2,7 @@
   <div class="signup-container">
     <el-form ref="signupForm" :model="signupForm" :rules="loginRules" class="signup-form" label-position="top">
       <div class="title-container">
-        <h3 class="title">GoEdge账户注册</h3>
+        <h3 class="title">GoEdge&nbsp;&nbsp;账户注册</h3>
       </div>
 
       <el-form-item prop="username" label="用户名">
@@ -22,10 +22,9 @@
         <el-input ref="confirm_password" v-model="signupForm.confirm_password" type="password" placeholder="确认密码"
           name="confirm_password" tabindex="4" />
       </el-form-item>
-      <el-button :loading="loading" plain type="success" style="width:100%;margin-top: 30px;" @click="handleSignUp">注册
+      <el-button :loading="loading" type="primary" style="width:100%;margin-top: 30px;" @click="handleSignUp">注册
       </el-button>
     </el-form>
-
   </div>
 </template>
 

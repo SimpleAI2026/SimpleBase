@@ -15,14 +15,22 @@
     <el-menu :default-active="activeIndex" router mode="horizontal" @select="handleSelect" class="right-menu">
       <el-menu-item index="/homepage">首页</el-menu-item>
       <el-menu-item index="/applications">应用列表</el-menu-item>
-      <el-menu-item index="/app/demo/index">控制台</el-menu-item>
-      <el-menu-item index="/wiki">使用文档</el-menu-item>
-      <el-submenu index="/">
+      <el-menu-item :index="appidIndex">控制台</el-menu-item>
+      <el-menu-item index="/document">使用文档</el-menu-item>
+      <el-submenu index="/language">
+        <template slot="title" class="user-name">选择语言</template>
+        <el-menu-item index="/language/cn">中文</el-menu-item>
+        <el-menu-item index="/language/en">English</el-menu-item>
+      </el-submenu>
+      <el-submenu index="/user">
         <template slot="title" class="user-name">{{ name }}</template>
-        <el-menu-item index="/"><a href="https://github.com/labring/laf/" target="_blank">GitHub地址</a></el-menu-item>
-        <el-menu-item index="/" @click.native="logout">退出登录</el-menu-item>
-        <el-switch v-model="themeColor" style="margin: 10px;" active-color="#13ce66" inactive-color="#ff4949"
-          active-text="默认" inactive-text="暗黑"></el-switch>
+        <el-menu-item index="/user/logout" @click.native="logout">退出登录</el-menu-item>
+        <el-menu-item index="/user/github"><a href="https://github.com/labring/laf/" target="_blank">GitHub地址</a>
+        </el-menu-item>
+        <el-menu-item index="/user/theme">主题色
+          <el-switch v-model="themeColor" style="margin: 10px;" active-color="#13ce66" inactive-color="#ff4949">
+          </el-switch>
+        </el-menu-item>
       </el-submenu>
     </el-menu>
   </div>
@@ -31,6 +39,10 @@
 <script>
 import Screenfull from '@/components/Screenfull'
 import { openSystemClient } from '@/api/console'
+import { getCurrentAppid } from '@/api/application'
+
+const defaultIndex = "default"
+
 export default {
   components: {
     Screenfull
@@ -47,18 +59,24 @@ export default {
     themeColor: {
       type: Boolean,
       default: true
-    }
+    },
   },
   computed: {
     name() {
       const profile = this.$store.state.user.user_profile
       return profile?.username || profile?.name
     },
+    appidIndex() {
+      let appid = getCurrentAppid()
+      return appid ? `/app/${appid}/dashboard/index` : defaultIndex
+    },
     activeIndex() {
       if (this.$route.path.indexOf("/applications") >= 0) {
         return "/applications"
-      } else if (this.$route.path.indexOf("/app/") >= 0) {
-        return "/app/demo/index"
+      } else if (this.$route.path.indexOf("/dashboard") >= 0) {
+        return this.$route.path
+      } else if (this.$route.path.indexOf("/document") >= 0) {
+        return "/document"
       } else {
         return "/homepage"
       }
@@ -72,6 +90,7 @@ export default {
       openSystemClient()
     },
     handleSelect(key, keyPath) {
+      console.log("key: ", key, ", keyPath: ", keyPath)
     }
   }
 }

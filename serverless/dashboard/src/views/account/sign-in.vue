@@ -3,7 +3,7 @@
     <el-form ref="loginForm" :model="loginForm" :rules="loginRules" class="login-form" autocomplete="on"
       label-position="left">
       <div class="title-container">
-        <h3 class="title">GoEdge账户登录</h3>
+        <h3 class="title">GoEdge&nbsp;&nbsp;账户登录</h3>
       </div>
 
       <el-form-item prop="username" label="用户名">
@@ -20,10 +20,10 @@
       </el-tooltip>
 
       <div class="btn-row">
-        <el-button :loading="loading" type="success" plain style="width:80%;font-weight: bold;"
+        <el-button :loading="loading" type="success" style="width:50%;font-weight: bold;"
           @click.native.prevent="handleLogin">登录</el-button>
-
-        <el-button type="text" style="width:20%;font-weight: bold;text-align: right;" @click="toSignUp">去注册？</el-button>
+        <el-button type="primary" style="width:50%;font-weight: bold;" @click="toSignUp">注册
+        </el-button>
       </div>
     </el-form>
 
@@ -34,7 +34,7 @@
 
 export default {
   name: 'SignIn',
-  components: { },
+  components: {},
   data() {
     return {
       loginForm: {
@@ -57,7 +57,7 @@ export default {
   },
   watch: {
     $route: {
-      handler: function(route) {
+      handler: function (route) {
         const query = route.query
         if (query) {
           this.redirect = query.redirect

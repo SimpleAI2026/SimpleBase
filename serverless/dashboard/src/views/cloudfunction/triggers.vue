@@ -56,7 +56,7 @@
           <el-button type="primary" size="mini" @click="showUpdateForm(row)">
             编辑
           </el-button>
-          <el-button v-if="row.status!='deleted'" size="mini" type="danger" @click="handleDelete(row,$index)">
+          <el-button v-if="row.status != 'deleted'" size="mini" type="danger" @click="handleDelete(row, $index)">
             删除
           </el-button>
         </template>
@@ -86,14 +86,14 @@
           <el-switch v-model="form.status" :active-value="1" :inactive-value="0" />
         </el-form-item>
         <el-form-item label="描述" prop="desc">
-          <el-input v-model="form.desc" :autosize="{ minRows: 3, maxRows: 6}" type="textarea" placeholder="触发器描述" />
+          <el-input v-model="form.desc" :autosize="{ minRows: 3, maxRows: 6 }" type="textarea" placeholder="触发器描述" />
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button @click="dialogFormVisible = false">
           取消
         </el-button>
-        <el-button type="primary" @click="dialogStatus==='create'?handleCreate():handleUpdate()">
+        <el-button type="primary" @click="dialogStatus === 'create' ? handleCreate() : handleUpdate()">
           确定
         </el-button>
       </div>
@@ -129,7 +129,7 @@ const formRules = {
 
 export default {
   name: 'TriggerListPage',
-  directives: { },
+  directives: {},
   filters: {
     statusFilter(status) {
       status = status ?? 0
@@ -195,7 +195,7 @@ export default {
     },
     // 创建请求
     handleCreate() {
-      this.$refs['dataForm'].validate(async(valid) => {
+      this.$refs['dataForm'].validate(async (valid) => {
         if (!valid) { return }
 
         const params = { ...this.form }
@@ -240,7 +240,7 @@ export default {
     },
     // 更新请求
     handleUpdate() {
-      this.$refs['dataForm'].validate(async(valid) => {
+      this.$refs['dataForm'].validate(async (valid) => {
         if (!valid) { return }
 
         const r = await updateTrigger(this.funcId, this.form._id, {

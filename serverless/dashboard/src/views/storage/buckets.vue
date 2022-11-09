@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <div class="filter-container">
-      <el-button size="mini" class="filter-item" type="default" icon="el-icon-search" @click="getList">
+      <el-button size="mini" class="filter-item" type="default" icon="el-icon-refresh" @click="getList">
         刷新
       </el-button>
       <el-button size="mini" class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">

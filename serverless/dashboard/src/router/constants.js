@@ -37,6 +37,20 @@ export const constantRoutes = [
     ]
   },
   {
+    path: '/',
+    component: Layout,
+    redirect: "/document",
+    hidden: true,
+    children: [
+      {
+        path: 'document',
+        component: () => import('@/views/document/index'),
+        name: 'Document',
+        meta: { title: '文档', icon: 'dashboard', noCache: true }
+      }
+    ]
+  },
+  {
     path: '/applications',
     component: Layout,
     hidden: true,
