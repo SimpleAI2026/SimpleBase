@@ -10,7 +10,7 @@ import (
 	"github.com/linkxzhou/gongx/interp_go"
 	"github.com/linkxzhou/gongx/interp_go/loader"
 	"github.com/linkxzhou/gongx/packages/log"
-	"github.com/linkxzhou/gongx/server"
+	"github.com/linkxzhou/gongx/packages/server"
 )
 
 const defaultSources = `
@@ -18,6 +18,7 @@ package test
 
 import (
     "encoding/json"
+	"net/http"
 )
 
 func Handle() interface{} {
@@ -80,7 +81,7 @@ func TestServerInterp(t *testing.T) {
 			return c.String(http.StatusOK, "err1: "+err1.Error())
 		}
 		iv2, err2 := iv1.RunAny("Handle")
-		// log.Info("========= : ", iv2, err2)
+		log.Info("========= : ", iv2, err2)
 		if err2 != nil {
 			return c.String(http.StatusOK, "err2: "+err2.Error())
 		}
@@ -96,7 +97,7 @@ func TestServerInterp(t *testing.T) {
 		}`
 		var result map[string]interface{}
 		json.Unmarshal([]byte(coronaVirusJSON), &result)
-		// log.Info("========= : ", result)
+		log.Info("========= : ", result)
 		return c.String(http.StatusOK, fmt.Sprintf("result: %v", result))
 	})
 

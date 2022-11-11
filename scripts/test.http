@@ -50,3 +50,6 @@ GET http://localhost:3001/default
 
 ### test3
 GET http://localhost:3001/origincall
+
+### tests/gofile.go
+GET http://localhost:3001/tests/gofile.go

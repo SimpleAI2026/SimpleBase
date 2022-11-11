@@ -8,7 +8,7 @@ import (
 	"github.com/linkxzhou/gongx/interp_go"
 	"github.com/linkxzhou/gongx/interp_go/loader"
 	"github.com/linkxzhou/gongx/packages/log"
-	"github.com/linkxzhou/gongx/server"
+	"github.com/linkxzhou/gongx/packages/server"
 )
 
 func TestServerHttp(t *testing.T) {

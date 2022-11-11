@@ -66,9 +66,11 @@ func (r *Router) Add(method, path string, h HandlerFunc) {
 	if path == "" {
 		path = "/"
 	}
+
 	if path[0] != '/' {
 		path = "/" + path
 	}
+
 	pnames := []string{} // Param names
 	ppath := path        // Pristine path
 

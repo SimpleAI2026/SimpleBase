@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/linkxzhou/gongx/packages/log"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
@@ -128,6 +129,7 @@ func (r *TypesLoader) Import(path string) (*types.Package, error) {
 		r.Import(dep)
 	}
 	if err := r.installPackage(pkg); err != nil {
+		log.Error("installPackage err: ", err)
 		return nil, err
 	}
 	var list []*types.Package
@@ -144,6 +146,7 @@ func (r *TypesLoader) Import(path string) (*types.Package, error) {
 func (r *TypesLoader) installPackage(pkg *Package) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
+			log.Error("recover e: ", e)
 			err = e.(error)
 		}
 		r.curpkg = nil
@@ -169,9 +172,10 @@ func (r *TypesLoader) installPackage(pkg *Package) (err error) {
 	for name, fn := range pkg.Funcs {
 		r.InsertFunc(p, name, fn)
 	}
-	for name, v := range pkg.Vars {
-		r.InsertVar(p, name, v.Elem())
-	}
+	// TODO: fix by linkxzhou
+	// for name, v := range pkg.Vars {
+	// 	r.InsertVar(p, name, v.Elem())
+	// }
 	for name, c := range pkg.TypedConsts {
 		r.InsertTypedConst(p, name, c)
 	}

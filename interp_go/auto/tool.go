@@ -46,6 +46,7 @@ var importPkgs = map[string][]string{
 	"crypto/cipher":   []string{},
 	"crypto/tls":      []string{},
 	"fmt":             []string{},
+	"github.com/linkxzhou/gongx/packages/server": []string{},
 }
 
 func builtinImportPkgs() error {
