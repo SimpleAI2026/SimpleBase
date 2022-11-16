@@ -30,7 +30,7 @@ func TestServerHttp(t *testing.T) {
 
 	app.GET("/", func(c server.Context) error {
 		log.Info("========= RealIP: ", c.RealIP())
-		iv1, err1 := interp_go.LoadWithCache(interpc, "__main__.go", sources)
+		iv1, err1 := interp_go.LoadFileWithCache(interpc, "__main__.go", sources)
 		fmt.Println("NewInterp err: ", err1, ", iv1: ", iv1)
 		if err1 != nil {
 			return c.String(http.StatusBadRequest, "Hello, World![1]")

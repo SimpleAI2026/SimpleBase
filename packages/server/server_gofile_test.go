@@ -24,7 +24,7 @@ func initFileList() {
 	for _, file := range files {
 		fileName := rootPath + file.Name()
 		if s, err := ioutil.ReadFile(rootPath + file.Name()); err == nil {
-			initFileMap["/"+fileName], err = interp_go.LoadWithCache(interpc, fileName, string(s))
+			initFileMap["/"+fileName], err = interp_go.LoadFileWithCache(interpc, fileName, string(s))
 			fmt.Println("fileName: ", fileName, ", err: ", err)
 		}
 	}
@@ -38,7 +38,7 @@ func TestServerGofiles(t *testing.T) {
 			pathName := c.Path()
 			fmt.Println("pathName: ", pathName)
 			if iv, ok := initFileMap[pathName]; ok && iv != nil {
-				result, err2 := iv.RunAny("Handle", c)
+				result, err2 := iv.RunAny("Handle2")
 				if err2 != nil {
 					return c.String(http.StatusInternalServerError, "err2: "+err2.Error())
 				} else {

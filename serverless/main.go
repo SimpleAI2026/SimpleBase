@@ -25,7 +25,7 @@ func init() {
 	for _, file := range files {
 		fileName := rootPath + file.Name()
 		if s, err := ioutil.ReadFile(rootPath + file.Name()); err == nil {
-			initApiMap["/"+fileName], err = interp_go.LoadWithCache(interpc, fileName, string(s))
+			initApiMap["/"+fileName], err = interp_go.LoadDirWithCache(interpc, fileName, string(s))
 			log.Error("fileName: ", fileName, ", err: ", err)
 		}
 	}

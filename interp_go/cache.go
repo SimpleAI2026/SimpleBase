@@ -208,7 +208,7 @@ var (
 	gSingleflightGroup Group // define global group
 )
 
-func LoadWithCache(ctx *loader.Context, filename, sources string) (*Interp, error) {
+func LoadFileWithCache(ctx *loader.Context, filename, sources string) (*Interp, error) {
 	filemd5 := md5.Sum([]byte(sources))
 	filemd5_hex := hex.EncodeToString(filemd5[:])
 	v, err, _ := gSingleflightGroup.Do(filename+":"+filemd5_hex, func() (interface{}, error) {
@@ -224,7 +224,28 @@ func LoadWithCache(ctx *loader.Context, filename, sources string) (*Interp, erro
 	})
 
 	if err != nil {
-		log.Error("LoadWithCache err: ", err)
+		log.Error("LoadFileWithCache err: ", err)
+		return nil, err
+	}
+
+	return v.(*Interp), nil
+}
+
+func LoadDirWithCache(ctx *loader.Context, dir string) (*Interp, error) {
+	v, err, _ := gSingleflightGroup.Do(dir, func() (interface{}, error) {
+		if p, err := ctx.LoadDir(dir); err != nil {
+			return nil, err
+		} else {
+			if iv, err := NewInterp(ctx, p); err != nil {
+				return nil, err
+			} else {
+				return iv, nil
+			}
+		}
+	})
+
+	if err != nil {
+		log.Error("LoadDirWithCache err: ", err)
 		return nil, err
 	}
 
