@@ -234,6 +234,8 @@ func (i *Interp) callDiscardsResult(caller *goVm, fn value, args []value, ssaArg
 
 func (i *Interp) callFunction(caller *goVm, pfn *function, args []value, env []value) (result value) {
 	vm := pfn.allocFrame(caller)
+	defer pfn.deleteFrame(vm)
+
 	for i := 0; i < pfn.narg; i++ {
 		vm.stack[i+pfn.nres] = args[i]
 	}
@@ -246,7 +248,7 @@ func (i *Interp) callFunction(caller *goVm, pfn *function, args []value, env []v
 	} else if pfn.nres > 1 {
 		result = tuple(vm.stack[0:pfn.nres])
 	}
-	pfn.deleteFrame(vm)
+
 	return
 }
 
@@ -679,11 +681,13 @@ func (i *Interp) RunFunc(name string, args ...Value) (r Value, err error) {
 			err = fmt.Errorf("unexpected type: %T: %v", p, p)
 		}
 	}()
+
 	if fn := i.mainpkg.Func(name); fn != nil {
 		r = i.call(nil, fn, args, nil)
 	} else {
 		err = fmt.Errorf("no function %v", name)
 	}
+
 	return
 }
 
@@ -703,7 +707,7 @@ func (i *Interp) RunMain() (exitCode int, err error) {
 	if atomic.LoadInt32(&i.exited) == 1 {
 		return i.exitCode, nil
 	}
-	_, err = i.RunFunc("main")
+	_, err = i.RunFunc(loader.MainPkgPath)
 	if err != nil {
 		exitCode = 2
 	}

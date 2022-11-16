@@ -26,7 +26,7 @@ const (
 	EnablePrintAny                     // Enable builtin print for any type ( struct/array )
 )
 
-const mainPkgPath = "main"
+const MainPkgPath = "main"
 
 // Context ssa context
 type Context struct {
@@ -194,7 +194,7 @@ func (ctx *Context) LoadFile(filename string, src interface{}) (*ssa.Package, er
 	}
 	root, _ := filepath.Split(filename)
 	ctx.setRoot(root)
-	return ctx.LoadAstFiles(mainPkgPath, file)
+	return ctx.LoadAstFiles(MainPkgPath, file)
 }
 
 func (ctx *Context) LoadDir(dir string) (*ssa.Package, error) {
@@ -206,7 +206,7 @@ func (ctx *Context) LoadDir(dir string) (*ssa.Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ctx.LoadAstFiles(mainPkgPath, files...)
+	return ctx.LoadAstFiles(MainPkgPath, files...)
 }
 
 func (ctx *Context) LoadAstFiles(pkgPath string, file ...*ast.File) (*ssa.Package, error) {
