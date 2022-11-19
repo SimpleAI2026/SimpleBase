@@ -25,10 +25,9 @@ func main() {
 		iv := initApiV
 		app.Any(path, func(c server.Context) error {
 			fn := c.QueryParams().Get("fn")
-			result, err2 := iv.RunAny(fn, c)
-			fmt.Printf("======= result: %v\n", result)
-			if err2 != nil {
-				return c.String(http.StatusInternalServerError, "fn: "+fn+", err2: "+err2.Error())
+			result, err := iv.RunAny(fn, c)
+			if err != nil {
+				return c.String(http.StatusInternalServerError, "fn: "+fn+", err: "+err.Error())
 			} else {
 				return c.String(http.StatusOK, fmt.Sprintf("%v", result))
 			}

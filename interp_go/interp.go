@@ -26,7 +26,6 @@ type Interp struct {
 	msets        map[reflect.Type](map[string]*ssa.Function) // user defined type method sets
 	chexit       chan int                                    // call os.Exit code by chan for runtime.Goexit
 	deferMap     sync.Map                                    // defer goroutine id -> call frame
-	rfuncMap     sync.Map                                    // reflect.Value(fn).Pointer -> *function
 	typesMutex   sync.RWMutex                                // findType/toType mutex
 	mainid       int64                                       // main goroutine id
 	exitCode     int                                         // call os.Exit code
@@ -103,12 +102,6 @@ func (i *Interp) makeFunction(typ reflect.Type, pfn *function, env []value) refl
 	return reflect.MakeFunc(typ, func(args []reflect.Value) []reflect.Value {
 		return i.callFunctionByReflect(i.tryDeferFrame(), typ, pfn, args, env)
 	})
-}
-
-// lookupMethod returns the method set for type typ, which may be one
-// of the interpreter's fake types.
-func lookupMethod(i *Interp, typ types.Type, meth *types.Func) *ssa.Function {
-	return i.mainpkg.Prog.LookupMethod(typ, meth.Pkg(), meth.Name())
 }
 
 func SetValue(v reflect.Value, x reflect.Value) {

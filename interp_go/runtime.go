@@ -544,7 +544,6 @@ func (inter *Interp) callBuiltinByStack(caller *goVm, fn string, ssaArgs []ssa.V
 		arg1 := caller.reg(ia[1])
 		v0 := reflect.ValueOf(arg0)
 		v1 := reflect.ValueOf(arg1)
-		// append([]byte, ...string) []byte
 		if v1.Kind() == reflect.String {
 			v1 = reflect.ValueOf([]byte(v1.String()))
 		}
@@ -591,7 +590,7 @@ func (inter *Interp) callBuiltinByStack(caller *goVm, fn string, ssaArgs []ssa.V
 	}
 }
 
-//go:nocheckptr
+// go:nocheckptr
 func toUnsafePointer(v uintptr) unsafe.Pointer {
 	return unsafe.Pointer(v)
 }

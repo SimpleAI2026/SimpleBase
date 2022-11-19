@@ -77,6 +77,8 @@ export default {
         return this.$route.path
       } else if (this.$route.path.indexOf("/document") >= 0) {
         return "/document"
+      } else if (this.$route.path.indexOf("/app") >= 0) {
+        return this.$route.path
       } else {
         return "/homepage"
       }

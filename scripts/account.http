@@ -1,0 +1,10 @@
+### account login
+POST http://localhost:3001/api?fn=AccountLogin
+Content-Type: application/json
+X-Http-Method-Override: override
+
+{"username":"zhoulv","password":"zhoulv12345"}
+
+### account profile
+http://localhost:3001/api?fn=AccountProfile
+Content-Type: application/json
