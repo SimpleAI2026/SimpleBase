@@ -196,10 +196,10 @@ func (i *Interp) call(caller *goVm, fn value, args []value, ssaArgs []ssa.Value)
 	switch fn := fn.(type) {
 	case *ssa.Function:
 		return i.callFunction(caller, i.funcs[fn], args, nil)
-	case *closure:
-		return i.callFunction(caller, fn.pfn, args, fn.env)
 	case *ssa.Builtin:
 		return i.callBuiltin(caller, fn, args, ssaArgs)
+	case *closure:
+		return i.callFunction(caller, fn.pfn, args, fn.env)
 	case reflect.Value:
 		return i.callExternal(caller, fn, args, nil)
 	default:
@@ -505,24 +505,24 @@ func (i *Interp) callExternalByStack(caller *goVm, fn reflect.Value, ir register
 // After a recovered panic in a function with NRPs, fr.result is
 // undefined and fr.block contains the block at which to resume
 // control.
-func (fr *goVm) run() {
-	if fr.pfn.Recover != nil {
+func (vm *goVm) run() {
+	if vm.pfn.Recover != nil {
 		defer func() {
-			if fr.pc == -1 {
+			if vm.pc == -1 {
 				return // normal return
 			}
-			fr.panicking = &panicking{recover()}
-			fr.runDefers()
-			for _, fn := range fr.pfn.Recover {
-				fn(fr)
+			vm.panicking = &panicking{recover()}
+			vm.runDefers()
+			for _, fn := range vm.pfn.Recover {
+				fn(vm)
 			}
 		}()
 	}
 
-	for fr.pc != -1 && fr.pc < fr.pfn.InstrsLen {
-		fn := fr.pfn.Instrs[fr.pc]
-		fr.pc++
-		fn(fr)
+	for vm.pc != -1 && vm.pc < vm.pfn.InstrsLen {
+		fn := vm.pfn.Instrs[vm.pc]
+		vm.pc++
+		fn(vm)
 	}
 }
 
@@ -545,7 +545,6 @@ func doRecover(caller *goVm) value {
 		case runtime.Error:
 			// The interpreter encountered a runtime error.
 			return p
-			//return iface{caller.i.runtimeErrorString, p.Error()}
 		case string:
 			return p
 		case plainError:
@@ -556,6 +555,7 @@ func doRecover(caller *goVm) value {
 			panic(fmt.Sprintf("unexpected panic type %T in target call to recover()", p))
 		}
 	}
+
 	return nil //iface{}
 }
 

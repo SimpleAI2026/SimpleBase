@@ -25,7 +25,7 @@ export const constantRoutes = [
   {
     path: '/',
     component: Layout,
-    redirect: "/homepage",
+    redirect: '/homepage',
     hidden: true,
     children: [
       {
@@ -39,7 +39,7 @@ export const constantRoutes = [
   {
     path: '/',
     component: Layout,
-    redirect: "/document",
+    redirect: '/document',
     hidden: true,
     children: [
       {

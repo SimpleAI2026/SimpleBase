@@ -8,26 +8,26 @@
       </div>
       <div class="title">GoEdge</div>
     </div>
-    <div class="sep" />
-    <div class="tags-view-container">
-      <!-- <tags-view v-if="!hideTags" /> -->
-    </div>
+    <div class="tags-view-container"></div>
     <el-menu :default-active="activeIndex" router mode="horizontal" @select="handleSelect" class="right-menu">
       <el-menu-item index="/homepage">首页</el-menu-item>
       <el-menu-item index="/applications">应用列表</el-menu-item>
-      <el-menu-item :index="appidIndex">控制台</el-menu-item>
+      <el-menu-item :index="appIndex">控制台</el-menu-item>
       <el-menu-item index="/document">使用文档</el-menu-item>
       <el-submenu index="/language">
-        <template slot="title" class="user-name">选择语言</template>
+        <template slot="title" class="user-name">中文</template>
         <el-menu-item index="/language/cn">中文</el-menu-item>
         <el-menu-item index="/language/en">English</el-menu-item>
       </el-submenu>
       <el-submenu index="/user">
-        <template slot="title" class="user-name">{{ name }}</template>
-        <el-menu-item index="/user/logout" @click.native="logout">退出登录</el-menu-item>
-        <el-menu-item index="/user/github"><a href="https://github.com/labring/laf/" target="_blank">GitHub地址</a>
+        <template slot="title" class="user-name" v-if="isLogin">{{ name }}</template>
+        <template slot="title" class="user-name" v-else>未登录用户</template>
+        <el-menu-item index="/user/logout" @click.native="logout" v-if="isLogin">退出登录</el-menu-item>
+        <el-menu-item index="/user/signin" @click.native="logout" v-else>跳转登录</el-menu-item>
+        <el-menu-item index="/user/github" v-if="isLogin"><a href="https://github.com/labring/laf/"
+            target="_blank">GitHub地址</a>
         </el-menu-item>
-        <el-menu-item index="/user/theme">主题色
+        <el-menu-item index="/user/theme" v-if="isLogin">主题色
           <el-switch v-model="themeColor" style="margin: 10px;" active-color="#13ce66" inactive-color="#ff4949">
           </el-switch>
         </el-menu-item>
@@ -40,8 +40,6 @@
 import Screenfull from '@/components/Screenfull'
 import { openSystemClient } from '@/api/console'
 import { getCurrentAppid } from '@/api/application'
-
-const defaultIndex = "default"
 
 export default {
   components: {
@@ -66,21 +64,23 @@ export default {
       const profile = this.$store.state.user.user_profile
       return profile?.username || profile?.name
     },
-    appidIndex() {
+    isLogin() {
+      return this.$store.state.user.user_profile ? true : false
+    },
+    appIndex() {
       let appid = getCurrentAppid()
-      return appid ? `/app/${appid}/dashboard/index` : defaultIndex
+      return appid ? `/app/${appid}/dashboard/index` : "/applications"
     },
     activeIndex() {
       if (this.$route.path.indexOf("/applications") >= 0) {
         return "/applications"
-      } else if (this.$route.path.indexOf("/dashboard") >= 0) {
-        return this.$route.path
       } else if (this.$route.path.indexOf("/document") >= 0) {
         return "/document"
-      } else if (this.$route.path.indexOf("/app") >= 0) {
-        return this.$route.path
-      } else {
+      } else if (this.$route.path.indexOf("/homepage") >= 0) {
         return "/homepage"
+      } else {
+        let appid = getCurrentAppid()
+        return appid ? `/app/${appid}/dashboard/index` : "/applications"
       }
     }
   },
@@ -107,8 +107,8 @@ export default {
   align-items: center;
 
   .nav-leading {
-    width: 210px;
-    min-width: 210px;
+    min-width: 140px;
+    max-width: 210px;
     line-height: 60px;
     justify-content: flex-start;
     display: flex;
@@ -128,7 +128,7 @@ export default {
     }
 
     .title {
-      margin-left: 10px;
+      margin-left: 4px;
       font-size: 15px;
       font-weight: bold;
       overflow: hidden;
@@ -137,14 +137,8 @@ export default {
     }
   }
 
-  .sep {
-    height: 60px;
-    border-right: 1px solid rgba(196, 196, 196, 0.15);
-  }
-
   .tags-view-container {
     width: 100%;
-    padding: 0 10px;
     display: flex;
   }
 
