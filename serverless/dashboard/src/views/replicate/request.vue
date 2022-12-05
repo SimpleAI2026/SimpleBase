@@ -1,80 +1,30 @@
 <template>
   <div class="app-container">
     <!-- 数据列表 -->
-    <el-table
-      :data="list"
-      :loading="listLoading"
-      border
-      style="width: 100%;"
-    >
-      <el-table-column
-        prop="source_appid"
-        label="源应用"
-        width="180"
-        align="center"
-      />
-      <el-table-column
-        prop="target_appid"
-        label="目标应用"
-        align="center"
-      />
-      <el-table-column
-        prop="created_at"
-        label="创建时间"
-        width="180"
-        align="center"
-      />
-      <el-table-column
-        prop="updated_at"
-        label="更新时间"
-        width="180"
-        align="center"
-      />
-      <el-table-column
-        prop="status"
-        label="状态"
-        width="100"
-        align="center"
-      >
+    <el-table :data="list" :loading="listLoading" border style="width: 100%;">
+      <el-table-column prop="source_appid" label="源应用" width="180" align="center" />
+      <el-table-column prop="target_appid" label="目标应用" align="center" />
+      <el-table-column prop="created_at" label="创建时间" width="180" align="center" />
+      <el-table-column prop="updated_at" label="更新时间" width="180" align="center" />
+      <el-table-column prop="status" label="状态" width="100" align="center">
         <template slot-scope="scope">
-          <el-tag
-            :type="scope.row.status === 'accepted' ? 'success' : 'warning'"
-          >
+          <el-tag :type="scope.row.status === 'accepted' ? 'success' : 'warning'">
             {{ scope.row.status }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column
-        label="操作"
-        width="200"
-        align="center"
-      >
+      <el-table-column label="操作" width="200" align="center">
         <template slot-scope="scope">
-          <el-button
-            v-if="scope.row.status !== 'accepted'"
-            size="mini"
-            plain
-            type="primary"
-            @click="handleUpdateRequest(scope.row)"
-          >接受</el-button>
-          <el-button
-            size="mini"
-            plain
-            type="danger"
-            @click="handleDeleteRequest(scope.row)"
-          >删除</el-button>
+          <el-button v-if="scope.row.status !== 'accepted'" size="mini" plain type="primary"
+            @click="handleUpdateRequest(scope.row)">接受</el-button>
+          <el-button size="mini" plain type="danger" @click="handleDeleteRequest(scope.row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
 
     <!-- 分页 -->
-    <pagination
-      v-show="total>0"
-      :total="total"
-      :page.sync="listQuery.page"
-      :limit.sync="listQuery.limit"
-      @pagination="getReplicateRequests"
-    />
+    <pagination v-show="total > 0" :total="total" :page.sync="listQuery.page" :limit.sync="listQuery.limit"
+      @pagination="getReplicateRequests" />
   </div>
 </template>
 
@@ -146,7 +96,7 @@ export default {
       this.listLoading = false
     },
     async handleCreateRequest() {
-      this.$refs['createForm'].validate(async(valid) => {
+      this.$refs['createForm'].validate(async (valid) => {
         if (!valid) { return }
 
         const params = {

@@ -20,18 +20,17 @@
       </el-tooltip>
 
       <div class="btn-row">
-        <el-button :loading="loading" type="success" style="width:50%;font-weight: bold;"
-          @click.native.prevent="handleLogin">登录</el-button>
-        <el-button type="primary" style="width:50%;font-weight: bold;" @click="toSignUp">注册
+        <el-button :loading="loading" type="primary" style="width:50%;font-weight: bold;"
+          @click.native.prevent="handleLogin">登录
+        </el-button>
+        <el-button style="width:50%;font-weight: bold;" @click="toSignUp">注册
         </el-button>
       </div>
     </el-form>
-
   </div>
 </template>
 
 <script>
-
 export default {
   name: 'SignIn',
   components: {},
@@ -84,11 +83,9 @@ export default {
         if (!valid) {
           return this.$message.error('请输入正确的账户密码')
         }
-
         this.loading = true
         try {
           await this.$store.dispatch('user/login', this.loginForm)
-
           this.$router.push({
             path: this.redirect || '/',
             query: this.otherQuery
@@ -120,8 +117,10 @@ export default {
 <style lang="scss" scoped>
 .login-container {
   .login-form {
-    width: 500px;
+    min-width: 300px;
+    max-width: 500px;
     margin: 0 auto;
+    padding: 15px;
 
     .title-container {
       text-align: center;

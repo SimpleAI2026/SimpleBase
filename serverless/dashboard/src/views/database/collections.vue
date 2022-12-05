@@ -2,29 +2,31 @@
   <div class="app-container">
     <!-- 记录 -->
     <div style="margin: 10px 0;">
-      <el-input v-model.trim="listQuery._id" size="mini" placeholder="请输入_id查找" style="width:200px" :disabled="!collectionName" @keyup.enter.native="handleFilter" />
-      <el-button size="mini" plain type="default" style="margin-left: 10px" icon="el-icon-search" :disabled="!collectionName" @click="handleFilter">搜索</el-button>
-      <el-button size="mini" plain type="primary" style="margin-left: 10px" @click="showCreateCollectionForm = true">新建集合</el-button>
-      <el-button size="mini" plain type="default" style="margin-left: 10px" :disabled="!collectionName" @click="showIndexesList = true">索引管理</el-button>
-      <el-button size="mini" plain type="default" style="margin-left: 10px" :disabled="!collectionName" @click="handleShowCollectinoSchema">集合结构</el-button>
-      <el-button size="mini" plain type="success" style="margin-left: 10px" icon="el-icon-plus" :disabled="!collectionName" @click="handleCreateRecord">添加记录</el-button>
-      <el-button v-clipboard:message="collectionName" v-clipboard:success="onCopy" size="mini" plain type="default" style="margin-left: 10px" :disabled="!collectionName">复制名称</el-button>
+      <el-input v-model.trim="listQuery._id" size="mini" placeholder="请输入_id查找" style="width:200px"
+        :disabled="!collectionName" @keyup.enter.native="handleFilter" />
+      <el-button size="mini" plain type="default" style="margin-left: 10px" icon="el-icon-search"
+        :disabled="!collectionName" @click="handleFilter">搜索</el-button>
+      <el-button size="mini" plain type="primary" style="margin-left: 10px" @click="showCreateCollectionForm = true">
+        新建集合</el-button>
+      <el-button size="mini" plain type="default" style="margin-left: 10px" :disabled="!collectionName"
+        @click="showIndexesList = true">索引管理</el-button>
+      <el-button size="mini" plain type="default" style="margin-left: 10px" :disabled="!collectionName"
+        @click="handleShowCollectinoSchema">集合结构</el-button>
+      <el-button size="mini" plain type="success" style="margin-left: 10px" icon="el-icon-plus"
+        :disabled="!collectionName" @click="handleCreateRecord">添加记录</el-button>
+      <el-button v-clipboard:message="collectionName" v-clipboard:success="onCopy" size="mini" plain type="default"
+        style="margin-left: 10px" :disabled="!collectionName">复制名称</el-button>
     </div>
     <el-container style="height: calc(100vh - 140px); border: 1px solid #eee">
       <el-aside width="240px" class="collection-list">
         <div class="label">
           选择集合
-          <el-button :loading="loading" size="medium" circle type="text" style="margin-left: 10px" icon="el-icon-refresh" @click="getCollections" />
+          <el-button :loading="loading" size="medium" circle type="text" style="margin-left: 10px"
+            icon="el-icon-refresh" @click="getCollections" />
         </div>
         <el-radio-group v-model="collectionName" class="radio-group">
-          <el-radio
-            v-for="item in collections"
-            :key="item.name"
-            class="collection-radio"
-            border
-            size="medium"
-            :label="item.name"
-          />
+          <el-radio v-for="item in collections" :key="item.name" class="collection-radio" border size="medium"
+            :label="item.name" />
         </el-radio-group>
       </el-aside>
 
@@ -39,28 +41,18 @@
           </div>
         </div>
         <div style="text-align: center;">
-          <MiniPagination
-            v-show="total>0"
-            layout="prev, pager, next"
-            :total="total"
-            :background="true"
-            :page.sync="listQuery.page"
-            :limit.sync="listQuery.limit"
-            @pagination="getList"
-          />
+          <MiniPagination v-show="total > 0" layout="prev, pager, next" :total="total" :background="true"
+            :page.sync="listQuery.page" :limit.sync="listQuery.limit" @pagination="getList" />
         </div>
       </el-container>
     </el-container>
 
     <!-- 索引管理 -->
-    <el-drawer
-      title="索引管理"
-      size="50%"
-      :visible.sync="showIndexesList"
-    >
+    <el-drawer title="索引管理" size="50%" :visible.sync="showIndexesList">
       <div>
         <div style="margin: 10px 0;">
-          <el-button size="mini" plain type="primary" style="margin-left: 10px" icon="el-icon-plus" :disabled="!collectionName" @click="handleCreateIndex">创建索引</el-button>
+          <el-button size="mini" plain type="primary" style="margin-left: 10px" icon="el-icon-plus"
+            :disabled="!collectionName" @click="handleCreateIndex">创建索引</el-button>
         </div>
         <el-table :data="indexes" border style="width: 100%">
           <el-table-column prop="name" label="索引名称" align="center" />
@@ -84,27 +76,22 @@
     </el-drawer>
 
     <!-- 编辑集合数据结构 -->
-    <el-drawer
-      :title="'集合数据结构:' + collectionName"
-      size="50%"
-      :visible.sync="showCollectionSchemaForm"
-    >
+    <el-drawer :title="'集合数据结构:' + collectionName" size="50%" :visible.sync="showCollectionSchemaForm">
       <el-header>
-        <el-button :loading="loading" size="mini" type="primary" :disabled="!collectionName" @click="updateCollectionSchema">保存</el-button>
+        <el-button :loading="loading" size="mini" type="primary" :disabled="!collectionName"
+          @click="updateCollectionSchema">保存</el-button>
       </el-header>
       <el-main>
-        <json-editor v-model="collectionSchemaForm.schema" class="db-editor" :line-numbers="true" :dark="false" :height="600" />
+        <json-editor v-model="collectionSchemaForm.schema" class="db-editor" :line-numbers="true" :dark="false"
+          :height="600" />
       </el-main>
     </el-drawer>
 
     <!-- 添加/编辑文档表单 -->
-    <el-drawer
-      :title="formMode === 'edit' ? '编辑文档' : '添加文档'"
-      size="50%"
-      :visible.sync="showDocEditorForm"
-    >
+    <el-drawer :title="formMode === 'edit' ? '编辑文档' : '添加文档'" size="50%" :visible.sync="showDocEditorForm">
       <el-header>
-        <el-button size="mini" type="primary" :disabled="!collectionName" @click="formMode === 'edit' ? updateDocument() : addDocument()">保存</el-button>
+        <el-button size="mini" type="primary" :disabled="!collectionName"
+          @click="formMode === 'edit' ? updateDocument() : addDocument()">保存</el-button>
       </el-header>
       <el-main>
         <json-editor v-model="record" class="db-editor" :line-numbers="true" :dark="false" :height="600" />
@@ -119,11 +106,7 @@
         </el-form-item>
       </el-form>
       <div style="text-align:right;">
-        <el-button
-          size="mini"
-          type="default"
-          @click="showCreateCollectionForm = false"
-        >
+        <el-button size="mini" type="default" @click="showCreateCollectionForm = false">
           取消
         </el-button>
         <el-button size="mini" type="primary" @click="handleCreateCollection">确认</el-button>
@@ -147,10 +130,7 @@
         </el-form-item>
       </el-form>
       <div style="text-align:right;">
-        <el-button
-          type="info"
-          @click="showCreateIndexDialog = false"
-        >
+        <el-button type="info" @click="showCreateIndexDialog = false">
           取消
         </el-button>
         <el-button type="primary" @click="createIndex">确认</el-button>
@@ -449,75 +429,77 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-  .el-header {
-    background-color: #B3C0D1;
-    color: #333;
-    line-height: 60px;
+.el-header {
+  background-color: #B3C0D1;
+  color: #333;
+  line-height: 60px;
+}
+
+.collection-list {
+  background-color: #fff;
+  padding: 8px;
+  box-sizing: border-box;
+
+  .label {
+    font-size: 14px;
+    color: gray;
+    margin-bottom: 10px;
   }
 
-  .collection-list {
-      background-color: #fff;
-      padding: 8px;
-      box-sizing: border-box;
-
-    .label {
-      font-size: 14px;
-      color: gray;
-      margin-bottom: 10px;
-    }
-
-    .radio-group {
-      width: 100%;
-      overflow-y: scroll;
-      overflow-x: hidden;
-    }
-
-    .radio-group::-webkit-scrollbar {
-        display: none;
-    }
-
-    .collection-radio {
-      width: 90%;
-      margin-bottom: 8px;
-      margin-left: 0 !important;
-    }
-  }
-
-  .record-list {
-    display: flex;
-    flex-direction: column;
-    padding: 3px;
+  .radio-group {
     width: 100%;
     overflow-y: scroll;
+    overflow-x: hidden;
+  }
 
-    .record-item {
-      display: flex;
-      justify-content: space-between;
-      border: 1px solid #eee;
-      margin-bottom: 10px;
-      padding: 0 8px;
-      border-radius: 3px;
-      .doc {
-        flex: 1;
-        max-width: 85%;
+  .radio-group::-webkit-scrollbar {
+    display: none;
+  }
 
-        pre {
-          width: 100%;
-          text-overflow: ellipsis;
-          overflow-x: hidden;
-          overflow-y: auto;
-          max-height: 200px;
-        }
-      }
-      .tools {
-        width: 15%;
-        text-align: right;
-        padding-top: 15px;
+  .collection-radio {
+    width: 90%;
+    margin-bottom: 8px;
+    margin-left: 0 !important;
+  }
+}
+
+.record-list {
+  display: flex;
+  flex-direction: column;
+  padding: 3px;
+  width: 100%;
+  overflow-y: scroll;
+
+  .record-item {
+    display: flex;
+    justify-content: space-between;
+    border: 1px solid #eee;
+    margin-bottom: 10px;
+    padding: 0 8px;
+    border-radius: 3px;
+
+    .doc {
+      flex: 1;
+      max-width: 85%;
+
+      pre {
+        width: 100%;
+        text-overflow: ellipsis;
+        overflow-x: hidden;
+        overflow-y: auto;
+        max-height: 200px;
       }
     }
 
-    .record-item.active {
-      border: 1px solid rgb(232, 180, 10);
+    .tools {
+      width: 15%;
+      text-align: right;
+      padding-top: 15px;
     }
   }
+
+  .record-item.active {
+    border: 1px solid rgb(232, 180, 10);
+  }
+}
 </style>

@@ -39,11 +39,6 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <!-- <el-table-column label="调用者ID" class-name="status-col" width="240">
-        <template slot-scope="{row}">
-          {{ row.created_by || '-' }}
-        </template>
-      </el-table-column> -->
       <el-table-column label="操作" align="center" width="80" class-name="small-padding fixed-width">
         <template slot-scope="{row}">
           <el-button type="info" size="mini" @click="handleShowDetail(row)">

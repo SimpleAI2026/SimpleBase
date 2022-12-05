@@ -126,8 +126,10 @@ export default {
 <style lang="scss" scoped>
 .signup-container {
   .signup-form {
-    width: 500px;
+    max-width: 500px;
+    min-width: 300px;
     margin: 0 auto;
+    padding: 15px;
 
     .title-container {
       text-align: center;

@@ -1,6 +1,5 @@
 <template>
   <div class="app-container">
-
     <div class="filter-container">
       <el-input v-model="listQuery.keyword" placeholder="搜索" size="mini" style="width: 200px;margin-right: 10px;"
         class="filter-item" @keyup.enter.native="handleFilter" />
@@ -54,16 +53,6 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <!-- <el-table-column label="HTTP" class-name="status-col" min-width="60">
-        <template slot-scope="{ row }">
-          <el-tag v-if="row.enableHTTP" type="success" size="mini" style="font-weight: bold">
-            可
-          </el-tag>
-          <el-tag v-else type="info" size="mini" style="font-weight: bold">
-            不
-          </el-tag>
-        </template>
-      </el-table-column> -->
       <el-table-column label="状态" class-name="status-col" min-width="60">
         <template slot-scope="{ row }">
           <el-tag v-if="row.status === 1" type="success" size="mini" style="font-weight: bold">

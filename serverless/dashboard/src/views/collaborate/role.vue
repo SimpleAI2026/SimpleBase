@@ -30,7 +30,6 @@
           </el-tag>
         </template>
       </el-table-column>
-
       <el-table-column align="center" label="操作">
         <template slot-scope="scope">
           <el-button v-permission="'role.edit'" type="primary" size="small" @click="handleEdit(scope)">修改</el-button>
@@ -69,7 +68,6 @@
 
 <script>
 import { deepClone } from '@/utils'
-// import { mergeMap2ArrayByKeyArray, array2map } from '@/utils/array'
 
 const defaultForm = {
   _id: undefined,

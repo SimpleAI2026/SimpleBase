@@ -9,7 +9,8 @@
       <div class="title">GoEdge</div>
     </div>
     <div class="tags-view-container"></div>
-    <el-menu :default-active="activeIndex" router mode="horizontal" @select="handleSelect" class="right-menu">
+    <el-menu :default-active="activeIndex" router mode="horizontal" @select="handleSelect" class="right-menu"
+      active-text-color="#1890ff">
       <el-menu-item index="/homepage">首页</el-menu-item>
       <el-menu-item index="/applications">应用列表</el-menu-item>
       <el-menu-item :index="appIndex">控制台</el-menu-item>
@@ -19,7 +20,7 @@
         <el-menu-item index="/language/cn">中文</el-menu-item>
         <el-menu-item index="/language/en">English</el-menu-item>
       </el-submenu>
-      <el-submenu index="/user">
+      <el-submenu index="/user" text-color="#1890ff">
         <template slot="title" class="user-name" v-if="isLogin">{{ name }}</template>
         <template slot="title" class="user-name" v-else>未登录用户</template>
         <el-menu-item index="/user/logout" @click.native="logout" v-if="isLogin">退出登录</el-menu-item>

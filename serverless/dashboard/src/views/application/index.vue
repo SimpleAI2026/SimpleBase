@@ -4,8 +4,6 @@
       <el-button type="primary" size="mini" icon="el-icon-refresh" @click="loadApps">刷新</el-button>
       <el-button type="primary" size="mini" icon="el-icon-plus" @click="showCreateForm">新建</el-button>
     </div>
-
-    <!-- My created apps -->
     <div class="app-group">
       <div class="app-group-title">我创建的应用</div>
       <el-table v-loading="loading" empty-text="还没有创建应用" :data="applications.created"
@@ -37,38 +35,40 @@
             {{ getRuntimeVersion(scope.row) }}
           </template>
         </el-table-column>
-        <el-table-column label="服务启停" align="center" width="240" class-name="small-padding">
+        <el-table-column label="服务启停" align="center" max-width="240" min-width="80" class-name="small-padding">
           <template slot-scope="{row}">
-            <el-button v-if="row.status === 'stopped' || row.status === 'created'" :loading="serviceLoading[row.appid]"
-              type="success" size="mini" @click="startApp(row)">
-              启动
-            </el-button>
-            <el-button v-if="row.status === 'prepared_start'" :loading="true" type="info" size="mini">
-              准备启动
-            </el-button>
-            <el-button v-if="row.status === 'starting'" :loading="true" type="info" size="mini">
-              正在启动
-            </el-button>
-            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="danger" size="mini"
-              @click="stopApp(row)">
-              停止
-            </el-button>
-            <el-button v-if="row.status === 'prepared_stop'" :loading="true" type="info" size="mini">
-              准备停止
-            </el-button>
-            <el-button v-if="row.status === 'stopping'" :loading="true" type="info" size="mini">
-              停止中
-            </el-button>
-            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="default" size="mini"
-              @click="restartApp(row)">
-              重启
-            </el-button>
-            <el-button v-if="row.status === 'prepared_restart'" :loading="true" type="info" size="mini">
-              准备重启
-            </el-button>
-            <el-button v-if="row.status === 'restarting'" :loading="true" type="info" size="mini">
-              重启中
-            </el-button>
+            <el-button-group>
+              <el-button v-if="row.status === 'stopped' || row.status === 'created'"
+                :loading="serviceLoading[row.appid]" type="success" size="mini" @click="startApp(row)">
+                启动
+              </el-button>
+              <el-button v-if="row.status === 'prepared_start'" :loading="true" type="info" size="mini">
+                准备启动
+              </el-button>
+              <el-button v-if="row.status === 'starting'" :loading="true" type="info" size="mini">
+                正在启动
+              </el-button>
+              <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="danger" size="mini"
+                @click="stopApp(row)">
+                停止
+              </el-button>
+              <el-button v-if="row.status === 'prepared_stop'" :loading="true" type="info" size="mini">
+                准备停止
+              </el-button>
+              <el-button v-if="row.status === 'stopping'" :loading="true" type="info" size="mini">
+                停止中
+              </el-button>
+              <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="default" size="mini"
+                @click="restartApp(row)">
+                重启
+              </el-button>
+              <el-button v-if="row.status === 'prepared_restart'" :loading="true" type="info" size="mini">
+                准备重启
+              </el-button>
+              <el-button v-if="row.status === 'restarting'" :loading="true" type="info" size="mini">
+                重启中
+              </el-button>
+            </el-button-group>
           </template>
         </el-table-column>
         <el-table-column label="创建时间" align="center" min-width="80">
@@ -77,24 +77,14 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column fixed="right" label="操作" align="center" width="280" class-name="small-padding">
+        <el-table-column fixed="right" label="操作" align="center" max-width="280" min-width="80"
+          class-name="small-padding">
           <template slot-scope="{row}">
-            <el-tooltip content="编写云函数、查看日志、管理数据库、文件、成员协作等" effect="light" placement="top">
-              <el-button type="default" size="mini" @click="toDetail(row)">
-                开发
-              </el-button>
-            </el-tooltip>
-            <el-button type="default" size="mini" @click="exportApp(row)">
-              导出
-            </el-button>
-            <el-button type="default" size="mini" @click="showImportForm(row)">
-              导入
-            </el-button>
-            <el-tooltip content="释放即完全删除应用，暂不可恢复，谨慎操作，仅应用创建者可执行此操作!" effect="light" placement="left">
-              <el-button :disabled="row.status === 'running'" size="mini" type="default" @click="deleteApp(row)">
-                释放
-              </el-button>
-            </el-tooltip>
+            <el-button-group>
+              <el-button type="default" size="mini" @click="toDetail(row)">开发</el-button>
+              <el-button :disabled="row.status === 'running'" size="mini" type="default"
+                @click="deleteApp(row)">释放</el-button>
+            </el-button-group>
           </template>
         </el-table-column>
       </el-table>
@@ -131,38 +121,40 @@
             {{ getRuntimeVersion(scope.row) }}
           </template>
         </el-table-column>
-        <el-table-column label="服务启停" align="center" width="240" class-name="small-padding">
+        <el-table-column label="服务启停" align="center" max-width="240" min-width="80" class-name="small-padding">
           <template slot-scope="{row}">
-            <el-button v-if="row.status === 'stopped' || row.status === 'created'" :loading="serviceLoading[row.appid]"
-              type="success" size="mini" @click="startApp(row)">
-              启动
-            </el-button>
-            <el-button v-if="row.status === 'prepared_start'" :loading="true" type="info" size="mini">
-              准备启动
-            </el-button>
-            <el-button v-if="row.status === 'starting'" :loading="true" type="info" size="mini">
-              正在启动
-            </el-button>
-            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="danger" size="mini"
-              @click="stopApp(row)">
-              停止
-            </el-button>
-            <el-button v-if="row.status === 'prepared_stop'" :loading="true" type="info" size="mini">
-              准备停止
-            </el-button>
-            <el-button v-if="row.status === 'stopping'" :loading="true" type="info" size="mini">
-              停止中
-            </el-button>
-            <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="default" size="mini"
-              @click="restartApp(row)">
-              重启
-            </el-button>
-            <el-button v-if="row.status === 'prepared_restart'" :loading="true" type="info" size="mini">
-              准备重启
-            </el-button>
-            <el-button v-if="row.status === 'restarting'" :loading="true" type="info" size="mini">
-              重启中
-            </el-button>
+            <el-button-group>
+              <el-button v-if="row.status === 'stopped' || row.status === 'created'"
+                :loading="serviceLoading[row.appid]" type="success" size="mini" @click="startApp(row)">
+                启动
+              </el-button>
+              <el-button v-if="row.status === 'prepared_start'" :loading="true" type="info" size="mini">
+                准备启动
+              </el-button>
+              <el-button v-if="row.status === 'starting'" :loading="true" type="info" size="mini">
+                正在启动
+              </el-button>
+              <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="danger" size="mini"
+                @click="stopApp(row)">
+                停止
+              </el-button>
+              <el-button v-if="row.status === 'prepared_stop'" :loading="true" type="info" size="mini">
+                准备停止
+              </el-button>
+              <el-button v-if="row.status === 'stopping'" :loading="true" type="info" size="mini">
+                停止中
+              </el-button>
+              <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="default" size="mini"
+                @click="restartApp(row)">
+                重启
+              </el-button>
+              <el-button v-if="row.status === 'prepared_restart'" :loading="true" type="info" size="mini">
+                准备重启
+              </el-button>
+              <el-button v-if="row.status === 'restarting'" :loading="true" type="info" size="mini">
+                重启中
+              </el-button>
+            </el-button-group>
           </template>
         </el-table-column>
         <el-table-column label="创建时间" align="center" min-width="120">
@@ -171,24 +163,14 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column fixed="right" label="操作" align="center" width="280" class-name="small-padding">
+        <el-table-column fixed="right" label="操作" align="center" max-width="280" min-width="80"
+          class-name="small-padding">
           <template slot-scope="{row}">
-            <el-tooltip content="编写云函数、查看日志、管理数据库、文件、成员协作等" effect="light" placement="top">
-              <el-button type="success" size="mini" @click="toDetail(row)">
-                开发
-              </el-button>
-            </el-tooltip>
-            <el-button type="default" size="mini" @click="exportApp(row)">
-              导出
-            </el-button>
-            <el-button type="default" size="mini" @click="showImportForm(row)">
-              导入
-            </el-button>
-            <el-tooltip content="释放即完全删除应用，暂不可恢复，谨慎操作!" effect="light" placement="left">
-              <el-button :disabled="row.status === 'running'" size="mini" type="default" @click="deleteApp(row)">
-                释放
-              </el-button>
-            </el-tooltip>
+            <el-button-group>
+              <el-button type="success" size="mini" @click="toDetail(row)">开发</el-button>
+              <el-button :disabled="row.status === 'running'" size="mini" type="default"
+                @click="deleteApp(row)">释放</el-button>
+            </el-button-group>
           </template>
         </el-table-column>
       </el-table>
@@ -220,38 +202,12 @@
         </el-button>
       </div>
     </el-dialog>
-
-    <!-- 导入应用对话框 -->
-    <el-dialog v-if="importForm.app" title="导入应用" :visible.sync="dialogImportVisible">
-      <el-form ref="importForm" :rules="importFormRules" :model="importForm" label-position="left" label-width="120px"
-        style="width: 300px; margin-left:20px;">
-        <el-form-item label="应用" prop="app">
-          {{ importForm.app.name }}
-        </el-form-item>
-        <el-form-item label="选择应用文件" prop="file">
-          <el-upload ref="uploader" action="" :auto-upload="false" :multiple="false" :show-file-list="true"
-            accept=".lapp" :limit="1" :on-change="onImportFileChanged">
-            <el-button slot="trigger" size="mini" type="primary">选取导入文件</el-button>
-          </el-upload>
-        </el-form-item>
-      </el-form>
-      <div slot="footer" class="dialog-footer">
-        <el-button @click="dialogImportVisible = false">
-          取消
-        </el-button>
-        <el-button :loading="loading" type="primary" @click="handleImportApp">
-          确定
-        </el-button>
-      </div>
-    </el-dialog>
   </div>
 </template>
 
 <script>
-import { createApplication, getMyApplications, startApplicationInstance, stopApplicationInstance, restartApplicationInstance, updateApplication, removeApplication, exportApplication, importApplication, openAppConsole, getSpecs } from '@/api/application'
+import { createApplication, getMyApplications, startApplicationInstance, stopApplicationInstance, restartApplicationInstance, updateApplication, removeApplication, importApplication, openAppConsole, getSpecs } from '@/api/application'
 import { showError, showInfo, showSuccess } from '@/utils/show'
-import { exportRawBlob } from '@/utils/file'
-import { parseTime } from '@/utils'
 
 // 默认化创建表单的值
 function getDefaultFormValue() {
@@ -266,11 +222,6 @@ function getDefaultFormValue() {
 const formRules = {
   name: [{ required: true, message: '应用名不可为空', trigger: 'blur' }],
   spec: [{ required: true, message: '请选择应用规格', trigger: 'blur' }]
-}
-
-const importFormRules = {
-  app: [{ required: true, message: '没选择应用', trigger: 'blur' }],
-  file: [{ required: true, message: '请选择导入文件', trigger: 'blur' }]
 }
 
 export default {
@@ -292,7 +243,6 @@ export default {
         create: '创建'
       },
       rules: formRules,
-      importFormRules,
       dialogImportVisible: false,
       importForm: {
         app: null,
@@ -348,11 +298,9 @@ export default {
       this.$refs['dataForm'].validate(async (valid) => {
         if (!valid) { return }
         const data = Object.assign({}, this.form)
-
         // 执行创建请求
         this.loading = true
-        const res = await createApplication({ name: data.name, spec: data.spec })
-          .finally(() => { this.loading = false })
+        const res = await createApplication({ name: data.name, spec: data.spec }).finally(() => { this.loading = false })
         if (!res.data?.appid) {
           this.$notify({
             type: 'error',
@@ -366,7 +314,6 @@ export default {
           title: '操作成功',
           message: '创建成功！'
         })
-
         this.$set(this.serviceLoading, res.data.appid, true)
         this.startApp(res.data)
         this.dialogFormVisible = false
@@ -398,9 +345,7 @@ export default {
           })
           return
         }
-
         showSuccess('更新成功！')
-
         this.loadApps()
         this.dialogFormVisible = false
       })
@@ -409,10 +354,7 @@ export default {
       await this.$confirm('应用被删除后，暂不可恢复，确定释放？', '确认释放应用？')
       if (row.status === 'running') { return showError('请先停止该应用服务') }
       this.loading = true
-
-      const res = await removeApplication(row.appid)
-        .finally(() => { this.loading = false })
-
+      const res = await removeApplication(row.appid).finally(() => { this.loading = false })
       if (res.error) showError(res.error)
       showSuccess('应用已释放: ' + row.name)
       this.loadApps()
@@ -422,8 +364,7 @@ export default {
     },
     async startApp(app) {
       this.$set(this.serviceLoading, app.appid, true)
-      const res = await startApplicationInstance(app.appid)
-        .finally(() => { this.$set(this.serviceLoading, app.appid, false) })
+      const res = await startApplicationInstance(app.appid).finally(() => { this.$set(this.serviceLoading, app.appid, false) })
       if (res.data) {
         this.loadApps()
         return
@@ -432,8 +373,7 @@ export default {
     async stopApp(app) {
       await this.$confirm('确认要停止实例服务？', '实例操作确认')
       this.$set(this.serviceLoading, app.appid, true)
-      const res = await stopApplicationInstance(app.appid)
-        .finally(() => { this.$set(this.serviceLoading, app.appid, false) })
+      const res = await stopApplicationInstance(app.appid).finally(() => { this.$set(this.serviceLoading, app.appid, false) })
       if (res.data) {
         this.loadApps()
         return
@@ -443,29 +383,11 @@ export default {
       if (app.status !== 'running') { return }
       await this.$confirm('确认要重启应用实例？', '实例操作确认')
       this.$set(this.serviceLoading, app.appid, true)
-      const res = await restartApplicationInstance(app.appid)
-        .finally(() => { this.$set(this.serviceLoading, app.appid, false) })
+      const res = await restartApplicationInstance(app.appid).finally(() => { this.$set(this.serviceLoading, app.appid, false) })
       if (res.data) {
         this.loadApps()
         return
       }
-    },
-    async exportApp(app) {
-      this.loading = true
-      const data = await exportApplication(app.appid)
-        .finally(() => { this.loading = false })
-
-      const time = parseTime(Date.now(), '{y}{m}{d}{h}{i}{s}')
-      const filename = `${app.name}_${time}.lapp`
-      exportRawBlob(filename, data)
-    },
-    showImportForm(app) {
-      this.importForm = { app, file: null }
-      this.dialogImportVisible = true
-      this.$nextTick(() => {
-        this.$refs['importForm'].clearValidate()
-        this.$refs['uploader'].clearFiles()
-      })
     },
     onImportFileChanged(data) {
       const file = data.raw
@@ -484,10 +406,8 @@ export default {
         if (res.error) {
           return showError('导入失败:' + res.error)
         }
-
         // 重启应用
         await restartApplicationInstance(app.appid)
-
         showSuccess('导入应用成功!')
         this.importForm = { app: null, file: null }
         this.dialogImportVisible = false
