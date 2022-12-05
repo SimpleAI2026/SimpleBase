@@ -1,16 +1,11 @@
 import store from '@/store'
-import variables from '@/styles/variables.scss'
 
 const { body } = document
 const WIDTH = 450 // refer to Bootstrap's responsive design
 
 export default {
   watch: {
-    $route(route) {
-      if (this.device === 'mobile' && this.sidebar.opened) {
-        store.dispatch('settings/closeSideBar', { withoutAnimation: false })
-      }
-    }
+    $route(route) { }
   },
   beforeMount() {
     window.addEventListener('resize', this.$_resizeHandler)
@@ -19,14 +14,7 @@ export default {
     window.removeEventListener('resize', this.$_resizeHandler)
   },
   mounted() {
-    const isMobile = this.$_isMobile()
-    if (isMobile) {
-      store.dispatch('settings/toggleDevice', 'mobile')
-      store.dispatch('settings/closeSideBar', { withoutAnimation: true })
-      document.getElementsByTagName("body")[0].style.setProperty("--sideBarWidth", "50px");
-    } else {
-      document.getElementsByTagName("body")[0].style.setProperty("--sideBarWidth", "210px");
-    }
+    this.$_resizeHandler()
   },
   methods: {
     // use $_ for mixins properties
@@ -43,6 +31,7 @@ export default {
           store.dispatch('settings/closeSideBar', { withoutAnimation: true })
           document.getElementsByTagName("body")[0].style.setProperty("--sideBarWidth", "50px");
         } else {
+          store.dispatch('settings/toggleSideBar', { withoutAnimation: true })
           document.getElementsByTagName("body")[0].style.setProperty("--sideBarWidth", "210px");
         }
       }

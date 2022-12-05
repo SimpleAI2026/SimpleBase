@@ -51,12 +51,13 @@ export const constantRoutes = [
     ]
   },
   {
-    path: '/applications',
+    path: '/',
     component: Layout,
+    redirect: '/applications',
     hidden: true,
     children: [
       {
-        path: '',
+        path: 'applications',
         component: () => import('@/views/application/index'),
         name: 'Application',
         meta: { title: '我的应用', icon: 'dashboard', noCache: true }
@@ -68,6 +69,5 @@ export const constantRoutes = [
     component: () => import('@/views/error-page/404'),
     hidden: true
   },
-  // 404 page must be placed at the end !!!
   { path: '*', redirect: '/404', hidden: true }
 ]

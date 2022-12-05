@@ -17,7 +17,7 @@ export const asyncRoutes = [
     path: '/app/:appid/cloudfunction',
     component: Layout,
     meta: {
-      title: '云函数', icon: 'example'
+      title: '云函数', icon: 'component'
     },
     children: [
       {
@@ -40,22 +40,13 @@ export const asyncRoutes = [
           noCache: false
         }
       },
-      // {
-      //   path: 'packages',
-      //   component: () => import('@/views/cloudfunction/packages'),
-      //   name: 'AllFunctionLogs',
-      //   meta: {
-      //     title: '依赖管理',
-      //     icon: 'tree-table'
-      //   }
-      // },
       {
         path: 'logs',
         component: () => import('@/views/cloudfunction/logs'),
         name: 'AllFunctionLogs',
         meta: {
           title: '日志查询',
-          icon: 'documentation'
+          icon: 'search'
         }
       },
       {
@@ -84,7 +75,7 @@ export const asyncRoutes = [
     path: '/app/:appid/database',
     component: Layout,
     meta: {
-      title: '云数据库', icon: 'excel'
+      title: '云数据库', icon: 'documentation'
     },
     children: [
       {
@@ -159,55 +150,25 @@ export const asyncRoutes = [
       }
     ]
   },
-  // {
-  //   path: '/app/:appid/replicate',
-  //   component: Layout,
-  //   redirect: '/replicate/auth',
-  //   meta: {
-  //     title: '远程部署', icon: 'guide'
-  //   },
-  //   children: [
-  //     {
-  //       path: 'auth',
-  //       component: () => import('@/views/replicate/auth'),
-  //       name: 'ReplicateAuth',
-  //       meta: {
-  //         title: '部署授权',
-  //         icon: 'guide',
-  //         noCache: true
-  //       }
-  //     },
-  //     {
-  //       path: 'request',
-  //       component: () => import('@/views/replicate/request'),
-  //       name: 'ReplicateRequest',
-  //       meta: {
-  //         title: '部署请求',
-  //         icon: 'guide',
-  //         noCache: true
-  //       }
-  //     }
-  //   ]
-  // },
-  // {
-  //   path: '/app/:appid/collaborate',
-  //   component: Layout,
-  //   meta: {
-  //     title: '成员管理',
-  //     icon: 'peoples',
-  //     noCache: true
-  //   },
-  //   children: [
-  //     {
-  //       path: 'index',
-  //       component: () => import('@/views/collaborate/index'),
-  //       name: 'CollaboratorListPage',
-  //       meta: {
-  //         title: '协作成员',
-  //         icon: 'people',
-  //         noCache: true
-  //       }
-  //     }
-  //   ]
-  // }
+  {
+    path: '/app/:appid/collaborate',
+    component: Layout,
+    meta: {
+      title: '成员管理',
+      icon: 'peoples',
+      noCache: true
+    },
+    children: [
+      {
+        path: 'index',
+        component: () => import('@/views/collaborate/index'),
+        name: 'CollaboratorListPage',
+        meta: {
+          title: '协作成员',
+          icon: 'peoples',
+          noCache: true
+        }
+      }
+    ]
+  },
 ]

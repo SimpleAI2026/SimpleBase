@@ -1,8 +1,8 @@
 <template>
   <div class="app-container">
-    <el-button type="default" @click="loadCollaborators" icon="el-icon-refresh">刷新</el-button>
-    <el-button type="success" @click="showAddForm">添加协作者</el-button>
-    <el-table :data="collaborators" style="width: 100%;margin-top:30px;" border>
+    <el-button type="default" @click="loadCollaborators" size="mini" icon="el-icon-refresh">刷新</el-button>
+    <el-button type="primary" @click="showAddForm" size="mini">添加协作者</el-button>
+    <el-table :data="collaborators" style="width: 100%;margin-top:20px;" border>
       <el-table-column align="center" label="ID" width="220">
         <template slot-scope="scope">
           {{ scope.row.uid }}

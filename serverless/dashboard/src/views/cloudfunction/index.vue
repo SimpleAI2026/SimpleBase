@@ -18,16 +18,8 @@
         @change="handleFilter">只看已启用</el-checkbox>
     </div>
 
-    <div class="tag-selector">
-      <div class="label">标签类别:</div>
-      <el-radio-group v-model="listQuery.tag" size="mini" @change="getList">
-        <el-radio-button :label="''" border>全部</el-radio-button>
-        <el-radio-button v-for="tag in all_tags" :key="tag" :label="tag" border>{{ tag }}</el-radio-button>
-      </el-radio-group>
-    </div>
-
     <el-table v-loading="listLoading" :data="list" border size="small" highlight-current-row style="width: 100%;">
-      <el-table-column label="函数标识" min-width="200">
+      <el-table-column label="函数标识" min-width="100" max-with="200">
         <template slot-scope="{ row }">
           <span class="link-type" style="font-size: 13px; font-weight: bold;" @click="showUpdateForm(row)">{{ row.label
           }}</span>
@@ -40,7 +32,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="创建/更新" width="120px" align="center">
+      <el-table-column label="创建/更新" min-width="80" max-width="120" align="center">
         <template slot-scope="{ row }">
           <span v-if="row.created_at">{{
               row.created_at | parseTime('{y}-{m}-{d} {h}:{i}')
@@ -63,7 +55,7 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="调用地址" align="center" min-width="70">
+      <el-table-column label="调用地址" align="center" min-width="60">
         <template slot-scope="{ row }">
           <el-tooltip :content="getFunctionInvokeBaseUrl(row.name)" placement="top">
             <i v-clipboard:message="getFunctionInvokeBaseUrl(row.name)" v-clipboard:success="onCopy"
@@ -225,7 +217,6 @@ export default {
         create: '创建'
       },
       rules: formRules,
-      all_tags: []
     }
   },
   computed: {},
@@ -233,11 +224,6 @@ export default {
     this.getList()
   },
   methods: {
-    /** 获取所有标签 */
-    async getAllTags() {
-      const res = await getAllFunctionTags()
-      this.all_tags = res.data
-    },
     /**
      * 获取数据列表
      */
@@ -261,7 +247,6 @@ export default {
       this.total = ret.total
       this.list = ret.data
       this.listLoading = false
-      this.getAllTags()
     },
     // 搜索
     handleFilter() {
