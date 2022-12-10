@@ -365,3 +365,7 @@ export function getCurrentBaseURL() {
   const { protocol, host } = new URL(href)
   return `${protocol}//${host}`
 }
+
+export function __isMobile() {
+  return window.innerWidth <= 768
+}

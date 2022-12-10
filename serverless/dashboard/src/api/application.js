@@ -47,7 +47,18 @@ export function resetAccountPassword(accountId, password) {
  */
 export function getMyApplications() {
   return request({
-    url: '/sys-api/apps/my',
+    url: '/api?fn=ApplicationMy',
+    method: 'get'
+  })
+}
+
+/**
+ * Get avaliable specs
+ * @returns
+ */
+export function getSpecs() {
+  return request({
+    url: '/api?fn=ApplicationSpecs',
     method: 'get'
   })
 }
@@ -181,38 +192,6 @@ export async function removeApplicationService(appid) {
 }
 
 /**
- * 导出应用
- * @param {string} appid
- * @returns
- */
-export async function exportApplication(appid) {
-  const res = await request({
-    url: `/sys-api/apps/${appid}/export`,
-    method: 'get',
-    responseType: 'blob'
-  })
-  return res
-}
-
-/**
- * 导入应用
- * @param {string} appid
- * @param {File} file
- * @returns
- */
-export async function importApplication(appid, file) {
-  const form = new FormData()
-  form.append('file', file)
-  const res = await request({
-    url: `/sys-api/apps/${appid} /import `,
-    method: 'post',
-    data: form,
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
-  return res
-}
-
-/**
  * 获取应用的依赖
  * @param {*} appid
  * @returns
@@ -278,17 +257,6 @@ export function getAppAccessUrl() {
   const schema = store.state.app.app_deploy_url_schema || 'http'
   const url = `${schema}://${appid}.${domain}`
   return url
-}
-
-/**
- * Get avaliable specs
- * @returns
- */
-export function getSpecs() {
-  return request({
-    url: '/sys-api/apps/specs',
-    method: 'get'
-  })
 }
 
 /**

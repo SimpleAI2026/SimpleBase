@@ -10,7 +10,7 @@
         </p>
       </div>
     </div>
-    <div class="jumbotron" ref="indexMainImg">
+    <div class="jumbotron">
       <img src="../../assets/homepage/homepage.png" alt="">
     </div>
     <div class="cards">
@@ -18,43 +18,25 @@
         <li>
           <div class="card">
             <img src="../../assets/homepage/component.png" alt="">
-            <h3>
-              1111
-            </h3>
-            <p>
-              1111
-            </p>
-            <router-link active-class="active" to="" exact>
-              1111
-            </router-link>
+            <h3>开发</h3>
+            <p>支持Golang，Webassembly开发模式，提供存储，数据库等托管</p>
+            <router-link active-class="active" to="" exact>查看详情</router-link>
           </div>
         </li>
         <li>
           <div class="card">
             <img src="../../assets/homepage/resource.png" alt="">
-            <h3>
-              1111
-            </h3>
-            <p>
-              1111
-            </p>
-            <router-link active-class="active" to="" exact>
-              1111
-            </router-link>
+            <h3>文档</h3>
+            <p>了解文档，快速组合或者开发业务功能</p>
+            <router-link active-class="active" to="" exact>查看详情</router-link>
           </div>
         </li>
         <li>
           <div class="card">
             <img src="../../assets/homepage/chart.svg" alt="">
-            <h3>
-              1111
-            </h3>
-            <p>
-              1111
-            </p>
-            <router-link active-class="active" to="" exact>
-              1111
-            </router-link>
+            <h3>图表</h3>
+            <p>详细的图表，便捷的查看线上服务状态</p>
+            <router-link active-class="active" to="" exact>查看详情</router-link>
           </div>
         </li>
       </ul>
@@ -64,15 +46,6 @@
 <script>
 export default {
   methods: {
-    handleScroll(index) {
-      const ele = this.$refs.indexMainImg;
-      const rect = ele.getBoundingClientRect();
-      const eleHeight = ele.clientHeight + 55;
-      let calHeight = (180 - rect.top) * 2;
-      if (calHeight < 0) calHeight = 0;
-      if (calHeight > eleHeight) calHeight = eleHeight;
-      this.mainImgOffset = calHeight;
-    }
   },
   data() {
     return {
@@ -80,12 +53,7 @@ export default {
       mainImgOffset: 0
     };
   },
-  beforeDestroy() {
-    window.removeEventListener('scroll', this.throttledHandleScroll);
-  },
-  mounted() {
-    window.addEventListener('scroll', this.throttledHandleScroll);
-  }
+  mounted() { }
 }
 </script>
 

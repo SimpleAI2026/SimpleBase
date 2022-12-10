@@ -21,7 +21,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column align="center" label="应用规格" min-width="80">
+        <el-table-column align="center" label="应用类型" min-width="80">
           <template slot-scope="scope">
             <el-tooltip v-if="scope.row.spec" placement="top">
               <div slot="content">{{ formatSpec(scope.row.spec.spec).text }}</div>
@@ -107,7 +107,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column align="center" label="规格" min-width="80">
+        <el-table-column align="center" label="应用类型" min-width="80">
           <template slot-scope="scope">
             <el-tooltip v-if="scope.row.spec" placement="top">
               <div slot="content">{{ formatSpec(scope.row.spec.spec).text }}</div>
@@ -157,7 +157,7 @@
             </el-button-group>
           </template>
         </el-table-column>
-        <el-table-column label="创建时间" align="center" min-width="120">
+        <el-table-column label="创建时间" align="center" min-width="80">
           <template slot-scope="{row}">
             <span v-if="row.created_at">{{ row.created_at | parseTime('{y}-{m}-{d} {h}:{i}') }}</span>
             <span v-else>-</span>
@@ -167,7 +167,7 @@
           class-name="small-padding">
           <template slot-scope="{row}">
             <el-button-group>
-              <el-button type="success" size="mini" @click="toDetail(row)">开发</el-button>
+              <el-button size="mini" @click="toDetail(row)">开发</el-button>
               <el-button :disabled="row.status === 'running'" size="mini" type="default"
                 @click="deleteApp(row)">释放</el-button>
             </el-button-group>
@@ -177,7 +177,7 @@
     </div>
 
     <!-- 创建应用表单 -->
-    <el-dialog :title="textMap[dialogStatus]" :visible.sync="dialogFormVisible">
+    <el-dialog :title="textMap[dialogStatus]" :visible.sync="dialogFormVisible" :width="dialogWidth">
       <el-form ref="dataForm" :rules="rules" :model="form" label-position="left">
         <el-form-item label="应用名称" prop="name">
           <el-input v-model="form.name" placeholder="应用名称" />
@@ -208,6 +208,7 @@
 <script>
 import { createApplication, getMyApplications, startApplicationInstance, stopApplicationInstance, restartApplicationInstance, updateApplication, removeApplication, importApplication, openAppConsole, getSpecs } from '@/api/application'
 import { showError, showInfo, showSuccess } from '@/utils/show'
+import { __isMobile } from '@/utils/index'
 
 // 默认化创建表单的值
 function getDefaultFormValue() {
@@ -227,6 +228,11 @@ const formRules = {
 export default {
   name: 'Applications',
   components: {},
+  computed: {
+    dialogWidth() {
+      return __isMobile() ? "80%" : "50%"
+    }
+  },
   data() {
     return {
       applications: {

@@ -92,8 +92,8 @@ export default {
     gotoSystemClient() {
       openSystemClient()
     },
-    handleSelect(key, keyPath) {
-      console.log("key: ", key, ", keyPath: ", keyPath)
+    handleSelect(path, pathList) {
+      this.$router.replace({ path: path })
     }
   }
 }

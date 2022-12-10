@@ -5,15 +5,15 @@ import { Message } from 'element-ui'
 
 const state = {
   token: getToken(),
-  user_profile: null
+  userProfile: null
 }
 
 const mutations = {
   SET_TOKEN: (state, token) => {
     state.token = token
   },
-  SET_USER_PROFILE: (state, user_profile) => {
-    state.user_profile = user_profile
+  SET_USER_PROFILE: (state, userProfile) => {
+    state.userProfile = userProfile
   }
 }
 
@@ -21,13 +21,12 @@ const actions = {
   // user login
   async login({ commit }, { username, password }) {
     const res = await login({ username: username.trim(), password: password })
-    console.log("======res: ", res)
     const { data } = res
     if (res.error) {
       Message.error(res.error)
       return
     }
-    commit('SET_TOKEN', data.access_token)
+    commit('SET_TOKEN', data.access_token, data.expire)
     setToken(data.access_token, data.expire)
   },
 

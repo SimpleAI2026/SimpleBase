@@ -40,8 +40,6 @@ module.exports = {
         "no-undef": 0,
         //一行结束后面不要有空格
         "no-trailing-spaces": 1,
-        //强制驼峰法命名
-        "camelcase": 2,
         //对象字面量项尾不能有逗号
         "comma-dangle": [2, "never"],
         //this别名

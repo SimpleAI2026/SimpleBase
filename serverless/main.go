@@ -19,7 +19,7 @@ func init() {
 	}
 }
 
-func main() {
+func apiServer() {
 	app := server.New()
 	for path, initApiV := range initApiMap {
 		iv := initApiV
@@ -33,6 +33,9 @@ func main() {
 			}
 		})
 	}
-
 	app.Start(":3001")
+}
+
+func main() {
+	apiServer()
 }

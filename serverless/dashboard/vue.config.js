@@ -46,16 +46,19 @@ module.exports = {
       warnings: false,
       errors: true
     },
-    // before: require('./mock/mock-server.js'),
     proxy: {
       // detail: https://cli.vuejs.org/config/#devserver-proxy
       '/sys-api': {
         target: 'https://console.lafyun.com/',
-        // changeOrigin: true
+        changeOrigin: true
       },
       '/sys-extension-api': {
         target: 'https://console.lafyun.com/',
-        // changeOrigin: true
+        changeOrigin: true
+      },
+      '/api': {
+        target: 'http://localhost:3001/', // goedge服务
+        changeOrigin: true
       }
     },
     disableHostCheck: true
