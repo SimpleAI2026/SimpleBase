@@ -6,11 +6,11 @@ import { asyncRoutes, constantRoutes } from '@/router'
  * @param route
  */
 function hasPermission(permissions, route) {
-    if (route.meta && route.meta.permissions) {
-        return permissions.some(perm => route.meta.permissions.includes(perm))
-    } else {
-        return true
-    }
+	if (route.meta && route.meta.permissions) {
+		return permissions.some(perm => route.meta.permissions.includes(perm))
+	} else {
+		return true
+	}
 }
 
 /**
@@ -19,11 +19,11 @@ function hasPermission(permissions, route) {
  * @param route
  */
 function hasRole(roles, route) {
-    if (route.meta && route.meta.roles) {
-        return roles.some(role => route.meta.roles.includes(role))
-    } else {
-        return true
-    }
+	if (route.meta && route.meta.roles) {
+		return roles.some(role => route.meta.roles.includes(role))
+	} else {
+		return true
+	}
 }
 
 /**
@@ -32,19 +32,19 @@ function hasRole(roles, route) {
  * @param roles
  */
 export function filterAsyncRoutes(routes, { roles, permissions }) {
-    const res = []
+	const res = []
 
-    routes.forEach(route => {
-        const tmp = { ...route }
-        if (hasRole(roles, tmp) && hasPermission(permissions, tmp)) {
-            if (tmp.children) {
-                tmp.children = filterAsyncRoutes(tmp.children, { roles, permissions })
-            }
-            res.push(tmp)
-        }
-    })
+	routes.forEach(route => {
+		const tmp = { ...route }
+		if (hasRole(roles, tmp) && hasPermission(permissions, tmp)) {
+			if (tmp.children) {
+				tmp.children = filterAsyncRoutes(tmp.children, { roles, permissions })
+			}
+			res.push(tmp)
+		}
+	})
 
-    return res
+	return res
 }
 
 /**
@@ -53,37 +53,37 @@ export function filterAsyncRoutes(routes, { roles, permissions }) {
  * @param {string} appid
  */
 function fillAppId2Routes(routes, appid) {
-    for (const route of routes) {
-        if (route.path.startsWith('/app/:appid/')) {
-            route.path = route.path.replace(`/app/:appid/`, `/app/${appid}/`)
-        }
-    }
+	for (const route of routes) {
+		if (route.path.startsWith('/app/:appid/')) {
+			route.path = route.path.replace(`/app/:appid/`, `/app/${appid}/`)
+		}
+	}
 }
 
 const state = {
-    routes: [],
-    addRoutes: []
+	routes: [],
+	addRoutes: []
 }
 
 const mutations = {
-    SET_ROUTES: (state, routes) => {
-        state.addRoutes = routes
-        state.routes = constantRoutes.concat(routes)
-    }
+	SET_ROUTES: (state, routes) => {
+		state.addRoutes = routes
+		state.routes = constantRoutes.concat(routes)
+	}
 }
 
 const actions = {
-    async generateRoutes({ commit }, { appid, roles, permissions }) {
-        const accessedRoutes = filterAsyncRoutes(asyncRoutes, { roles, permissions })
-        fillAppId2Routes(accessedRoutes, appid)
-        commit('SET_ROUTES', accessedRoutes)
-        return accessedRoutes
-    }
+	async generateRoutes({ commit }, { appid, roles, permissions }) {
+		const accessedRoutes = filterAsyncRoutes(asyncRoutes, { roles, permissions })
+		fillAppId2Routes(accessedRoutes, appid)
+		commit('SET_ROUTES', accessedRoutes)
+		return accessedRoutes
+	}
 }
 
 export default {
-    namespaced: true,
-    state,
-    mutations,
-    actions
+	namespaced: true,
+	state,
+	mutations,
+	actions
 }

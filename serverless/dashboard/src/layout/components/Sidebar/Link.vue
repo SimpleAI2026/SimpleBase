@@ -1,5 +1,5 @@
 <template>
-  <component :is="type" v-bind="linkProps(to)">
+  <component :is="type" v-bind="linkProps(to)" class="sublink">
     <slot />
   </component>
 </template>
@@ -41,3 +41,9 @@ export default {
   }
 }
 </script>
+
+<style lang="scss" scoped>
+.sublink {
+  border-top: 1px solid rgba(211, 211, 211, 0.253);
+}
+</style>

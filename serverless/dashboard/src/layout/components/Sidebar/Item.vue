@@ -15,7 +15,6 @@ export default {
   render(h, context) {
     const { icon, title } = context.props
     const vnodes = []
-    console.log("====== icon: ", icon, title)
     if (icon) {
       if (icon.includes('el-icon')) {
         vnodes.push(<i class={[icon, 'sub-el-icon']} />)
@@ -31,7 +30,7 @@ export default {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .sub-el-icon {
   color: currentColor;
   width: 1em;

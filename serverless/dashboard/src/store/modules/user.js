@@ -21,9 +21,9 @@ const actions = {
   // user login
   async login({ commit }, { username, password }) {
     const res = await login({ username: username.trim(), password: password })
+    console.log("======res: ", res)
     const { data } = res
     if (res.error) {
-      console.log(res)
       Message.error(res.error)
       return
     }

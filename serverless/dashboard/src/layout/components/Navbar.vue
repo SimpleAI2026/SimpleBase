@@ -20,11 +20,11 @@
         <el-menu-item index="/language/cn">中文</el-menu-item>
         <el-menu-item index="/language/en">English</el-menu-item>
       </el-submenu>
-      <el-submenu index="/user" text-color="#1890ff">
+      <el-submenu index="" text-color="#1890ff">
         <template slot="title" class="user-name" v-if="isLogin">{{ name }}</template>
         <template slot="title" class="user-name" v-else>未登录用户</template>
-        <el-menu-item index="/user/logout" @click.native="logout" v-if="isLogin">退出登录</el-menu-item>
-        <el-menu-item index="/user/signin" @click.native="logout" v-else>跳转登录</el-menu-item>
+        <el-menu-item index="/logout" @click.native="logout" v-if="isLogin">退出登录</el-menu-item>
+        <el-menu-item index="/login" @click.native="logout" v-else>跳转登录</el-menu-item>
         <el-menu-item index="/user/github" v-if="isLogin"><a href="https://github.com/labring/laf/"
             target="_blank">GitHub地址</a>
         </el-menu-item>
@@ -147,6 +147,7 @@ export default {
     float: right;
     height: 100%;
     display: flex;
+    font-weight: bold;
   }
 }
 </style>

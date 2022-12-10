@@ -20,9 +20,7 @@ export default {
   mixins: [ResizeMixin],
   computed: {
   },
-  created() {
-    console.log('main layout created')
-  },
+  created() { },
   methods: {
   }
 }

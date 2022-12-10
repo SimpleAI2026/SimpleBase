@@ -51,11 +51,11 @@ module.exports = {
       // detail: https://cli.vuejs.org/config/#devserver-proxy
       '/sys-api': {
         target: 'https://console.lafyun.com/',
-        changeOrigin: true
+        // changeOrigin: true
       },
       '/sys-extension-api': {
         target: 'https://console.lafyun.com/',
-        changeOrigin: true
+        // changeOrigin: true
       }
     },
     disableHostCheck: true
