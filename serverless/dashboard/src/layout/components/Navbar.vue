@@ -8,32 +8,36 @@
       </div>
       <div class="title">GoEdge</div>
     </div>
-    <div class="tags-view-container"></div>
-    <el-menu :default-active="activeIndex" router mode="horizontal" @select="handleSelect" class="right-menu"
-      active-text-color="#1890ff">
-      <el-menu-item index="/homepage">首页</el-menu-item>
-      <el-menu-item index="/applications">应用列表</el-menu-item>
-      <el-menu-item :index="appIndex">控制台</el-menu-item>
-      <el-menu-item index="/document">使用文档</el-menu-item>
-      <el-submenu index="/language">
-        <template slot="title" class="user-name">中文</template>
-        <el-menu-item index="/language/cn">中文</el-menu-item>
-        <el-menu-item index="/language/en">English</el-menu-item>
-      </el-submenu>
-      <el-submenu index="" text-color="#1890ff">
-        <template slot="title" class="user-name" v-if="isLogin">{{ name }}</template>
-        <template slot="title" class="user-name" v-else>未登录用户</template>
-        <el-menu-item index="/logout" @click.native="logout" v-if="isLogin">退出登录</el-menu-item>
-        <el-menu-item index="/login" @click.native="logout" v-else>跳转登录</el-menu-item>
-        <el-menu-item index="/user/github" v-if="isLogin"><a href="https://github.com/labring/laf/"
-            target="_blank">GitHub地址</a>
-        </el-menu-item>
-        <el-menu-item index="/user/theme" v-if="isLogin">主题色
-          <el-switch v-model="themeColor" style="margin: 10px;" active-color="#13ce66" inactive-color="#ff4949">
-          </el-switch>
-        </el-menu-item>
-      </el-submenu>
-    </el-menu>
+    <!-- <div class="tags-view-container"></div> -->
+    <div class="right-menu">
+      <el-menu :default-active="activeIndex" router mode="horizontal" @select="handleSelect"
+        active-text-color="#1890ff">
+        <el-menu-item index="/homepage" v-if="!isMobile">首页</el-menu-item>
+        <el-menu-item index="/applications" v-if="!isMobile">应用列表</el-menu-item>
+        <el-menu-item :index="appIndex" v-if="!isMobile">控制台</el-menu-item>
+        <el-menu-item index="/document" v-if="!isMobile">使用文档</el-menu-item>
+        <el-submenu index="/language" v-if="!isMobile">
+          <template slot="title">中文</template>
+          <el-menu-item>中文</el-menu-item>
+          <el-menu-item>English</el-menu-item>
+        </el-submenu>
+        <el-submenu index="/language" v-if="isMobile">
+          <template slot="title">首页</template>
+          <el-menu-item index="/homepage">首页</el-menu-item>
+          <el-menu-item index="/applications">应用列表</el-menu-item>
+          <el-menu-item :index="appIndex">控制台</el-menu-item>
+          <el-menu-item index="/document">使用文档</el-menu-item>
+        </el-submenu>
+        <el-submenu index="" text-color="#1890ff">
+          <template slot="title" v-if="isLogin">{{ name }}</template>
+          <template slot="title" v-else>未登录用户</template>
+          <el-menu-item @click.native="logout" v-if="isLogin">退出登录</el-menu-item>
+          <el-menu-item v-else>跳转登录</el-menu-item>
+          <el-menu-item><a href="https://github.com/labring/laf/" target="_blank">GitHub地址</a>
+          </el-menu-item>
+        </el-submenu>
+      </el-menu>
+    </div>
   </div>
 </template>
 
@@ -41,6 +45,7 @@
 import Screenfull from '@/components/Screenfull'
 import { openSystemClient } from '@/api/console'
 import { getCurrentAppid } from '@/api/application'
+import { __isMobile } from '@/utils/index'
 
 export default {
   components: {
@@ -55,15 +60,19 @@ export default {
       type: String,
       default: 'GoEdge'
     },
-    themeColor: {
-      type: Boolean,
-      default: true
-    },
+  },
+  data() {
+    return {
+      themeColor: true,
+    }
   },
   computed: {
     name() {
       const profile = this.$store.state.user.user_profile
       return profile?.username || profile?.name
+    },
+    isMobile() {
+      return __isMobile()
     },
     isLogin() {
       return this.$store.state.user.user_profile ? true : false
@@ -83,17 +92,18 @@ export default {
         let appid = getCurrentAppid()
         return appid ? `/app/${appid}/dashboard/index` : "/applications"
       }
-    }
+    },
   },
   methods: {
     async logout() {
       await this.$store.dispatch('user/logout')
+      this.$router.replace({ path: "/login" })
     },
     gotoSystemClient() {
       openSystemClient()
     },
     handleSelect(path, pathList) {
-      this.$router.replace({ path: path })
+      // this.$router.replace({ path: path })
     }
   }
 }
@@ -101,11 +111,11 @@ export default {
 
 <style lang="scss" scoped>
 .navbar {
-  height: 60px;
   display: flex;
   background: #fff;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, .12), 0 0 3px 0 rgba(0, 0, 0, .04);
   align-items: center;
+  justify-content: space-between;
 
   .nav-leading {
     min-width: 140px;

@@ -5,15 +5,15 @@ import { Message } from 'element-ui'
 
 const state = {
   token: getToken(),
-  userProfile: null
+  user_profile: null
 }
 
 const mutations = {
   SET_TOKEN: (state, token) => {
     state.token = token
   },
-  SET_USER_PROFILE: (state, userProfile) => {
-    state.userProfile = userProfile
+  SET_USER_PROFILE: (state, user_profile) => {
+    state.user_profile = user_profile
   }
 }
 
@@ -46,7 +46,6 @@ const actions = {
   logout({ commit, state, dispatch }) {
     return new Promise((resolve, reject) => {
       removeToken()
-
       resolve()
     })
   },
@@ -55,7 +54,6 @@ const actions = {
   resetToken({ commit }) {
     return new Promise(resolve => {
       commit('SET_TOKEN', '')
-      commit('SET_USER_PROFILE', null)
       commit('SET_USER_PROFILE', null)
       removeToken()
       resolve()

@@ -7,7 +7,7 @@ import request from '@/utils/request'
  */
 export function login(data) {
   return request({
-    url: '/sys-api/account/login',
+    url: '/api?fn=AccountLogin',
     method: 'post',
     data
   })
@@ -20,7 +20,7 @@ export function login(data) {
  */
 export function getUserProfile() {
   return request({
-    url: '/sys-api/account/profile',
+    url: '/api?fn=AccountProfile',
     method: 'get'
   })
 }
@@ -30,18 +30,7 @@ export function getUserProfile() {
  */
 export function signup(data) {
   return request({
-    url: '/sys-api/account/signup',
-    method: 'post',
-    data
-  })
-}
-
-/**
- * 编辑帐户信息
- */
-export function edit(data) {
-  return request({
-    url: '/sys-api/account/edit',
+    url: '/api?fn=AccountSignup',
     method: 'post',
     data
   })

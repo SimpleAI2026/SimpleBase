@@ -43,8 +43,7 @@ export default {
     resetRouter()
     store.dispatch('tagsView/delAllViews')
   },
-  methods: {
-  }
+  methods: {}
 }
 </script>
 

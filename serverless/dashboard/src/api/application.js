@@ -70,7 +70,7 @@ export function getSpecs() {
  */
 export async function getApplicationByAppid(appid) {
   const res = await request({
-    url: `/sys-api/apps/${appid}`,
+    url: `/api?fn=AppsInfo&appid=${appid}`,
     method: 'get'
   })
 

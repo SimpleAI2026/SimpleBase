@@ -6,5 +6,5 @@ X-Http-Method-Override: override
 {"username":"zhoulv","password":"zhoulv12345"}
 
 ### account profile
-http://localhost:3001/api?fn=AccountProfile
+GET http://localhost:3001/api?fn=AccountProfile
 Content-Type: application/json

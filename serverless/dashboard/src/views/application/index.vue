@@ -61,7 +61,7 @@
               <el-button v-if="row.status === 'running'" :loading="serviceLoading[row.appid]" type="default" size="mini"
                 @click="restartApp(row)">
                 重启
-              </el-button>
+              </el-button> 
               <el-button v-if="row.status === 'prepared_restart'" :loading="true" type="info" size="mini">
                 准备重启
               </el-button>
@@ -304,7 +304,6 @@ export default {
       this.$refs['dataForm'].validate(async (valid) => {
         if (!valid) { return }
         const data = Object.assign({}, this.form)
-        // 执行创建请求
         this.loading = true
         const res = await createApplication({ name: data.name, spec: data.spec }).finally(() => { this.loading = false })
         if (!res.data?.appid) {
@@ -338,9 +337,7 @@ export default {
     handleUpdate() {
       this.$refs['dataForm'].validate(async (valid) => {
         if (!valid) { return }
-
         this.loading = true
-        // 执行创建请求
         const res = await updateApplication(this.form.appid, { name: this.form.name })
           .finally(() => { this.loading = false })
         if (res.error) {
@@ -393,32 +390,6 @@ export default {
       if (res.data) {
         this.loadApps()
         return
-      }
-    },
-    onImportFileChanged(data) {
-      const file = data.raw
-      this.importForm.file = file
-    },
-    async handleImportApp() {
-      this.loading = true
-      if (!this.importForm.file) return
-      if (!this.importForm.app) return
-
-      const app = this.importForm.app
-      try {
-        const file = this.importForm.file
-        const appid = app?.appid
-        const res = await importApplication(appid, file)
-        if (res.error) {
-          return showError('导入失败:' + res.error)
-        }
-        // 重启应用
-        await restartApplicationInstance(app.appid)
-        showSuccess('导入应用成功!')
-        this.importForm = { app: null, file: null }
-        this.dialogImportVisible = false
-      } finally {
-        this.loading = false
       }
     },
     getRuntimeVersion(app) {
