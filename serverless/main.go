@@ -23,8 +23,8 @@ func apiServer() {
 	app := server.New()
 	for path, initApiV := range initApiMap {
 		iv := initApiV
-		app.Any(path, func(c server.Context) error {
-			fn := c.QueryParams().Get("fn")
+		app.Any(path + "/:fn", func(c server.Context) error {
+			fn := c.Param("fn")
 			result, err := iv.RunAny(fn, c)
 			if err != nil {
 				return c.String(http.StatusInternalServerError, "fn: "+fn+", err: "+err.Error())

@@ -47,7 +47,7 @@ export function resetAccountPassword(accountId, password) {
  */
 export function getMyApplications() {
   return request({
-    url: '/api?fn=ApplicationMy',
+    url: '/api/ApplicationMy',
     method: 'get'
   })
 }
@@ -58,7 +58,7 @@ export function getMyApplications() {
  */
 export function getSpecs() {
   return request({
-    url: '/api?fn=ApplicationSpecs',
+    url: '/api/ApplicationSpecs',
     method: 'get'
   })
 }
@@ -70,7 +70,7 @@ export function getSpecs() {
  */
 export async function getApplicationByAppid(appid) {
   const res = await request({
-    url: `/api?fn=AppsInfo&appid=${appid}`,
+    url: `/api/AppsInfo?appid=${appid}`,
     method: 'get'
   })
 

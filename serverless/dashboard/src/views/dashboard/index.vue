@@ -1,7 +1,7 @@
 <template>
   <div class="application-container">
     <el-row>
-      <el-col :span="12">
+      <el-col :span="elCol">
         <el-card class="chart">
           <div slot="header" class="clearfix">
             <span>详情</span>
@@ -15,21 +15,21 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col :span="elCol">
         <el-card class="chart">
-          <v-chart class="chart-v" :option="option_req" />
+          <v-chart :auto-resize="true" :option="option_req" />
         </el-card>
       </el-col>
     </el-row>
     <el-row>
-      <el-col :span="12">
+      <el-col :span="elCol">
         <el-card class="chart">
-          <v-chart class="chart-v" :option="option_error" />
+          <v-chart :auto-resize="true" :option="option_error" />
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col :span="elCol">
         <el-card class="chart">
-          <v-chart class="chart-v" :option="option_location" />
+          <v-chart :auto-resize="true" :option="option_location" />
         </el-card>
       </el-col>
     </el-row>
@@ -49,6 +49,7 @@ import {
   GridComponent,
 } from 'echarts/components';
 import VChart from 'vue-echarts';
+import { __isMobile } from '@/utils/index'
 
 use([
   CanvasRenderer,
@@ -148,6 +149,9 @@ export default {
   computed: {
     app() {
       return this.$store.state.app?.application
+    },
+    elCol() {
+      return __isMobile() ? 24 : 12
     }
   },
   async created() {
@@ -193,10 +197,6 @@ export default {
 
 .chart {
   height: 100%;
-  margin: 10px 10px;
-}
-
-.chart-v {
-  height: 400px;
+  margin: 5px;
 }
 </style>

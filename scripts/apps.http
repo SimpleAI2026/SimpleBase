@@ -1,11 +1,11 @@
 ### apps my
-POST http://localhost:3001/api?fn=appsMy
+POST http://localhost:3001/api/AppsMy
 Content-Type: application/json
 
 ### apps specs
-http://localhost:3001/api?fn=appsSpecs
+http://localhost:3001/api/AppsSpecs
 Content-Type: application/json
 
 ### apps info
-http://localhost:3001/api?fn=AppsInfo
+http://localhost:3001/api/AppsInfo
 Content-Type: application/json

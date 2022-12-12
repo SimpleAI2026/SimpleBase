@@ -1,11 +1,11 @@
 <template>
 	<div class="page-container page-guide">
 		<el-row>
-			<el-col :xs="24" :sm="5">
-				<doc-side-nav :data="navsData" :base="`/${lang}/guide`"></doc-side-nav>
+			<el-col :xs="24" :sm="10">
+				<doc-side-nav :data="navsData"></doc-side-nav>
 			</el-col>
-			<el-col :xs="24" :sm="19">
-				<router-view class="content">111111111111</router-view>
+			<el-col :xs="24" :sm="14">
+				<span class="content">111111111111</span>
 			</el-col>
 		</el-row>
 	</div>

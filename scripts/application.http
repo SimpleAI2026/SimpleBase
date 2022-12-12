@@ -1,7 +1,7 @@
 ### application my
-POST http://localhost:3001/api?fn=ApplicationMy
+POST http://localhost:3001/api/ApplicationMy
 Content-Type: application/json
 
 ### application specs
-POST http://localhost:3001/api?fn=ApplicationSpecs
+POST http://localhost:3001/api/ApplicationSpecs
 Content-Type: application/json

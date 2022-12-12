@@ -102,9 +102,7 @@ export default {
     gotoSystemClient() {
       openSystemClient()
     },
-    handleSelect(path, pathList) {
-      // this.$router.replace({ path: path })
-    }
+    handleSelect(path, pathList) { }
   }
 }
 </script>
