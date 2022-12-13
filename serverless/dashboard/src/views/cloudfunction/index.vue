@@ -6,11 +6,11 @@
       <el-button size="mini" class="filter-item" type="default" icon="el-icon-search" @click="handleFilter">
         搜索
       </el-button>
-      <el-button plain size="mini" class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">
+      <el-button size="mini" class="filter-item" type="primary" icon="el-icon-plus" @click="showCreateForm">
         新建函数
       </el-button>
       <el-tooltip content="发布函数：函数要发布后才能生效" placement="bottom" effect="light">
-        <el-button plain class="filter-item" size="mini" type="success" icon="el-icon-guide" @click="publish">
+        <el-button class="filter-item" size="mini" type="success" icon="el-icon-guide" @click="publish">
           发布函数
         </el-button>
       </el-tooltip>
@@ -45,39 +45,37 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column label="状态" class-name="status-col" min-width="60">
+      <el-table-column label="状态/地址" class-name="status-col" min-width="60">
         <template slot-scope="{ row }">
-          <el-tag v-if="row.status === 1" type="success" size="mini" style="font-weight: bold">
+          <el-tag v-if="row.status === 1" type="success" size="mini" style="font-weight: bold; margin-right:5px;">
             启
           </el-tag>
-          <el-tag v-if="row.status === 0" type="warning" size="mini" style="font-weight: bold">
+          <el-tag v-if="row.status === 0" type="warning" size="mini" style="font-weight: bold; margin-right:5px;">
             停
           </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="调用地址" align="center" min-width="60">
-        <template slot-scope="{ row }">
           <el-tooltip :content="getFunctionInvokeBaseUrl(row.name)" placement="top">
             <i v-clipboard:message="getFunctionInvokeBaseUrl(row.name)" v-clipboard:success="onCopy"
               class="el-icon-document-copy copy-btn" />
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column label="操作" align="center" min-width="240" class-name="small-padding">
+      <el-table-column label="操作" align="center" min-width="120" class-name="small-padding">
         <template slot-scope="{ row, $index }">
-          <el-button plain type="success" size="mini" @click="handleShowDetail(row)">
-            开发
-          </el-button>
-          <el-button plain type="info" size="mini" @click="handleShowLogs(row)">
-            日志
-          </el-button>
-          <el-button plain type="primary" size="mini" @click="handleTriggers(row)">
-            触发器<b v-if="row.triggers && row.triggers.length">({{ row.triggers.length }})</b>
-          </el-button>
-          <el-tooltip content="请先停用函数，再删除！" :disabled="row.status !== 1" placement="top">
-            <el-button v-if="row.status != 'deleted'" icon="el-icon-delete" plain size="mini" type="danger" circle
-              @click="handleDelete(row, $index)" />
-          </el-tooltip>
+          <el-button-group>
+            <el-button type="info" size="mini" plain @click="handleShowDetail(row)">
+              开发
+            </el-button>
+            <el-button type="success" size="mini" plain @click="handleShowLogs(row)">
+              日志
+            </el-button>
+            <el-button type="primary" size="mini" plain @click="handleTriggers(row)">
+              触发器<b v-if="row.triggers && row.triggers.length">({{ row.triggers.length }})</b>
+            </el-button>
+            <el-tooltip content="请先停用函数，再删除！" :disabled="row.status !== 1" placement="top">
+              <el-button v-if="row.status != 'deleted'" icon="el-icon-delete" size="mini" plain type="danger"
+                @click="handleDelete(row, $index)" />
+            </el-tooltip>
+          </el-button-group>
         </template>
       </el-table-column>
     </el-table>
@@ -132,7 +130,7 @@
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
 import {
   createFunction,
-  getAllFunctionTags,
+  getFunctionMetrics,
   getFunctions,
   publishFunctions,
   removeFunction,

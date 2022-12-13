@@ -53,7 +53,7 @@
       @pagination="getList" />
 
     <!-- 日志详情对话框 -->
-    <el-dialog v-if="detail" :visible.sync="isDialogVisiable" :title="dialogTitle">
+    <el-dialog v-if="detail" :visible.sync="isDialogVisiable" :title="dialogTitle" :width="dialogWidth">
       <FunctionLogDetail :data="detail" />
     </el-dialog>
   </div>
@@ -63,6 +63,7 @@
 import FunctionLogDetail from './components/FunctionLogDetail'
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
 import { getFunctionLogs } from '@/api/console/func'
+import { __isMobile } from '@/utils/index'
 
 export default {
   name: 'FunctionlogsListPage',
@@ -91,6 +92,9 @@ export default {
   computed: {
     dialogTitle() {
       return '函数执行日志: ' + this.detail?.func_name
+    },
+    dialogWidth() {
+      return __isMobile() ? "100%" : "50%"
     }
   },
   created() {

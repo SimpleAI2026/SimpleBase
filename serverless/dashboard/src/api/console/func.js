@@ -12,7 +12,7 @@ import { getAppAccessUrl } from '@/api/application'
 export function getFunctions(query, page, pageSize) {
   const appid = store.state.app.appid
   return request({
-    url: `/sys-api/apps/${appid}/function`,
+    url: `/api/FunctionInfo?appid=${appid}`,
     method: 'get',
     params: {
       ...query,
@@ -47,17 +47,6 @@ export async function getPublishedFunction(id) {
   const res = await getPublishedFunctions([id])
   const [func] = res?.data ?? []
   return func
-}
-
-/**
- * Get all tags of cloud functions
- */
-export function getAllFunctionTags() {
-  const appid = store.state.app.appid
-  return request({
-    url: `/sys-api/apps/${appid}/function/tags/all`,
-    method: 'get'
-  })
 }
 
 /**
@@ -214,7 +203,7 @@ export async function loadPackageTypings(packageName) {
 export async function getFunctionLogs(query, page, pageSize) {
   const appid = store.state.app.appid
   const res = await request({
-    url: `/sys-api/apps/${appid}/function/logs/query`,
+    url: `/api/FunctionLogsInfo?appid=${appid}`,
     method: 'get',
     params: {
       ...query,
@@ -240,5 +229,13 @@ export function getFunctionChangeHistory(func_id, page = 1, pageSize = 20) {
       page,
       limit: pageSize
     }
+  })
+}
+
+export function getFunctionMetrics(func_id) {
+  const appid = store.state.app.appid
+  return request({
+    url: `/api/FunctionMetrics?appid=${appid}`,
+    method: 'get'
   })
 }

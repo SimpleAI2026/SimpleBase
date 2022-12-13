@@ -8,7 +8,7 @@ import request from '@/utils/request'
 export async function getWebsites() {
   const appid = store.state.app.appid
   const res = await request({
-    url: `/sys-api/apps/${appid}/websites`,
+    url: `/api/OssWebsites?appid=${appid}`,
     method: 'get'
   })
 

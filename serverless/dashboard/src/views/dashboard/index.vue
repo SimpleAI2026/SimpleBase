@@ -17,19 +17,22 @@
       </el-col>
       <el-col :span="elCol">
         <el-card class="chart">
-          <v-chart :auto-resize="true" :option="option_req" />
+          <v-chart ref="runTimes_creditChart" :auto-resize="true" :option="option_req"
+            :style="{ width: '100%', height: '400px' }" />
         </el-card>
       </el-col>
     </el-row>
     <el-row>
       <el-col :span="elCol">
         <el-card class="chart">
-          <v-chart :auto-resize="true" :option="option_error" />
+          <v-chart ref="runTimes_creditChart" :auto-resize="true" :option="option_error"
+            :style="{ width: '100%', height: '400px' }" />
         </el-card>
       </el-col>
       <el-col :span="elCol">
         <el-card class="chart">
-          <v-chart :auto-resize="true" :option="option_location" />
+          <v-chart ref="runTimes_creditChart" :auto-resize="true" :option="option_location"
+            :style="{ width: '100%', height: '400px' }" />
         </el-card>
       </el-col>
     </el-row>
@@ -38,7 +41,6 @@
 
 <script>
 import { getAppAccessUrl } from '@/api/application'
-import { showSuccess } from '@/utils/show'
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { PieChart, LineChart, BarChart } from 'echarts/charts';
@@ -152,16 +154,17 @@ export default {
     },
     elCol() {
       return __isMobile() ? 24 : 12
-    }
+    },
+    charStyle() {
+      return __isMobile() ? "{ width: '350px', height: '400px' }" : "{ height: '400px' }"
+    },
   },
-  async created() {
+  mounted() {
   },
+  async created() { },
   methods: {
     getAppUrl() {
       return getAppAccessUrl()
-    },
-    onCopy() {
-      showSuccess('已复制到剪贴板')
     }
   }
 }
@@ -188,15 +191,8 @@ export default {
   padding-left: 10px;
 }
 
-.copy-btn {
-  color: green;
-  font-size: 16px;
-  margin-left: 10px;
-  cursor: pointer;
-}
-
 .chart {
-  height: 100%;
+  height: 400px;
   margin: 5px;
 }
 </style>

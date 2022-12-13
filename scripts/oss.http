@@ -1,0 +1,8 @@
+### OssBuckets
+POST http://localhost:3001/api/OssBuckets
+Content-Type: application/json
+
+
+### OssWebsites
+POST http://localhost:3001/api/OssWebsites
+Content-Type: application/json

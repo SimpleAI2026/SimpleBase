@@ -1,7 +1,3 @@
-
-/**
- * Open system client
- */
 export function openSystemClient() {
   const href = getSystemClientUrl() || '/'
   window.open(href, '_self')

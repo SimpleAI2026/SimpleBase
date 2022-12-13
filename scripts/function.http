@@ -1,0 +1,8 @@
+### FunctionInfo
+POST http://localhost:3001/api/FunctionInfo
+Content-Type: application/json
+
+
+### FunctionLogsInfo
+POST http://localhost:3001/api/FunctionLogsInfo
+Content-Type: application/json

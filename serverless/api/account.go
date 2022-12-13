@@ -11,9 +11,9 @@ func AccountLogin(c server.Context) interface{} {
 		"code": 0,
 		"data": map[string]interface{}{
 			"access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI2MzRmNzMzMmNjYWNiOGU2NmI1MjlmNDgiLCJleHAiOjE2NzA4Mzc5MDAsImlhdCI6MTY3MDc1MTUwMH0.cZwxRHWjrKaQWHQUzsrFSfO5-3BtFPCq-DBL9lVMiWs",
-			"username": "zhoulv",
-			"uid": "634f7332ccacb8e66b529f48",
-			"expire": 1670837900,
+			"username":     "zhoulv",
+			"uid":          "634f7332ccacb8e66b529f48",
+			"expire":       1680837900,
 		},
 	}
 
