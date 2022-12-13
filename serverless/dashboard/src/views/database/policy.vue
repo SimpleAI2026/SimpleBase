@@ -48,7 +48,7 @@
 <script>
 import JsonEditor from '@/components/JsonEditor/rule'
 import $ from 'lodash'
-import { getPolicyById, updatePolicyRules } from '@/api/console/policy'
+import { getPolicyById, updatePolicyRules } from '@/api/policy'
 
 const defaultValue =
 {

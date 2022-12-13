@@ -102,8 +102,8 @@
 </template>
 
 <script>
-import { getFunctionById } from '@/api/console/func'
-import { createTrigger, removeTrigger, updateTrigger } from '@/api/console/trigger'
+import { getFunctionById } from '@/api/func'
+import { createTrigger, removeTrigger, updateTrigger } from '@/api/trigger'
 
 // 默认化创建表单的值
 function getDefaultFormValue() {

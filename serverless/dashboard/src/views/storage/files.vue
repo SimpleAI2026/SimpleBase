@@ -100,7 +100,7 @@
 
 <script>
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
-import * as oss from '@/api/console/oss'
+import * as oss from '@/api/oss'
 import { assert } from '@/utils/assert'
 import { showError, showSuccess } from '@/utils/show'
 import PathLink from './components/path-link.vue'

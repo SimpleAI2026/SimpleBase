@@ -133,7 +133,7 @@
 </template>
 
 <script>
-import * as oss from '@/api/console/oss'
+import * as oss from '@/api/oss'
 import { assert } from '@/utils/assert'
 // import { byte2gb, gb2byte } from '@/utils/file'
 import store from '@/store'

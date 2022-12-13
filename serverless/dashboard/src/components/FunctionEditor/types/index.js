@@ -1,6 +1,6 @@
 
 import * as monaco from 'monaco-editor'
-import { loadPackageTypings } from '@/api/console/func'
+import { loadPackageTypings } from '@/api/func'
 import { global_declare } from './globals'
 
 /**

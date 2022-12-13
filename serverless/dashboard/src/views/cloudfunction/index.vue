@@ -135,7 +135,7 @@ import {
   publishFunctions,
   removeFunction,
   updateFunction
-} from '@/api/console/func'
+} from '@/api/func'
 import { getAppAccessUrl } from '@/api/application'
 
 const defaultCode = `

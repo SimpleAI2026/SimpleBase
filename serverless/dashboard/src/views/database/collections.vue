@@ -141,7 +141,7 @@
 
 <script>
 
-import { getCollections, getCollectionIndexes, deleCollectionIndex, setCollectionIndexes, getDb, createCollection, updateCollection } from '@/api/console/collect'
+import { getCollections, getCollectionIndexes, deleCollectionIndex, setCollectionIndexes, getDb, createCollection, updateCollection } from '@/api/collect'
 import JsonEditor from '@/components/JsonEditor/param'
 import MiniPagination from '@/components/Pagination/mini'
 import { showError, showSuccess } from '@/utils/show'

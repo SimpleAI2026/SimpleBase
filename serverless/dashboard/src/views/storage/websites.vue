@@ -90,8 +90,8 @@
 
 <script>
 import dayjs from 'dayjs'
-import * as websiteAPI from '@/api/console/website'
-import * as oss from '@/api/console/oss'
+import * as websiteAPI from '@/api/website'
+import * as oss from '@/api/oss'
 import { showError, showSuccess } from '@/utils/show'
 
 export default {

@@ -43,7 +43,7 @@
 
 <script>
 import Screenfull from '@/components/Screenfull'
-import { openSystemClient } from '@/api/console'
+import { openSystemClient } from '@/api/index'
 import { getCurrentAppid } from '@/api/application'
 import { __isMobile } from '@/utils/index'
 

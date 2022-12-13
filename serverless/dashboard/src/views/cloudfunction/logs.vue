@@ -62,7 +62,7 @@
 <script>
 import FunctionLogDetail from './components/FunctionLogDetail'
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
-import { getFunctionLogs } from '@/api/console/func'
+import { getFunctionLogs } from '@/api/func'
 import { __isMobile } from '@/utils/index'
 
 export default {
