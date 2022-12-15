@@ -189,3 +189,13 @@ aside {
 .multiselect--active {
   z-index: 1000 !important;
 }
+
+@media screen and (max-width: 768px) {
+  .el-message-box {
+    width: 90% !important;
+  }
+
+  .el-dialog {
+    width: 90% !important;
+  }
+}

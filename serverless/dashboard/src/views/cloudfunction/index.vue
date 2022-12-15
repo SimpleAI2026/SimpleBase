@@ -239,7 +239,6 @@ export default {
         query['status'] = 1
       }
       const ret = await getFunctions(query, page, limit)
-      console.log("==== ret: ", ret)
       this.total = ret.data.total
       this.list = ret.data.list
       this.listLoading = false

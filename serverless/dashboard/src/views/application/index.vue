@@ -177,7 +177,7 @@
     </div>
 
     <!-- 创建应用表单 -->
-    <el-dialog :title="textMap[dialogStatus]" :visible.sync="dialogFormVisible" :width="dialogWidth">
+    <el-dialog :title="textMap[dialogStatus]" :visible.sync="dialogFormVisible" width="50%">
       <el-form ref="dataForm" :rules="rules" :model="form" label-position="left">
         <el-form-item label="应用名称" prop="name">
           <el-input v-model="form.name" placeholder="应用名称" />
@@ -208,7 +208,6 @@
 <script>
 import { createApplication, getMyApplications, opApplicationInstance, updateApplication, removeApplication, openAppConsole, getSpecs } from '@/api/application'
 import { showError, showInfo, showSuccess } from '@/utils/show'
-import { __isMobile } from '@/utils/index'
 
 // 默认化创建表单的值
 function getDefaultFormValue() {
@@ -229,9 +228,6 @@ export default {
   name: 'Applications',
   components: {},
   computed: {
-    dialogWidth() {
-      return __isMobile() ? "80%" : "50%"
-    }
   },
   data() {
     return {
