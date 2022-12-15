@@ -8,7 +8,6 @@
       </div>
       <div class="title">GoEdge</div>
     </div>
-    <!-- <div class="tags-view-container"></div> -->
     <div class="right-menu">
       <el-menu :default-active="activeIndex" router mode="horizontal" @select="handleSelect"
         active-text-color="#1890ff">
@@ -23,7 +22,6 @@
         </el-submenu>
         <el-submenu index="/language" v-if="isMobile">
           <template slot="title">首页</template>
-          <el-menu-item index="/homepage">首页</el-menu-item>
           <el-menu-item index="/applications">应用列表</el-menu-item>
           <el-menu-item :index="appIndex">控制台</el-menu-item>
           <el-menu-item index="/document">使用文档</el-menu-item>
@@ -43,8 +41,7 @@
 
 <script>
 import Screenfull from '@/components/Screenfull'
-import { openSystemClient } from '@/api/index'
-import { getCurrentAppid } from '@/api/application'
+import { getCurrentAppid } from '@/api/index'
 import { __isMobile } from '@/utils/index'
 
 export default {
@@ -100,7 +97,7 @@ export default {
       this.$router.replace({ path: "/login" })
     },
     gotoSystemClient() {
-      openSystemClient()
+      window.open('/', '_self')
     },
     handleSelect(path, pathList) { }
   }

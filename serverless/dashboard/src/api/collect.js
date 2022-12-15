@@ -1,7 +1,5 @@
 import request from '@/utils/request'
 import store from '@/store'
-import { getToken } from '@/utils/auth'
-// import { Cloud } from 'laf-client-sdk'
 
 /**
  * Get collection list
@@ -39,7 +37,7 @@ export function updateCollection(collectionName, validatorSchema, validatorLevel
   const appid = store.state.app.appid
   return request({
     url: `/sys-api/apps/${appid}/dbm/collections`,
-    method: 'put',
+    method: 'post',
     data: {
       collectionName,
       options: {
@@ -69,7 +67,7 @@ export function getCollectionIndexes(collection) {
 export function setCollectionIndexes(collection, data) {
   const appid = store.state.app.appid
   return request({
-    url: `/sys-api/apps/${appid}/dbm/collection/indexes ? collection = ${collection}`,
+    url: `/sys-api/apps/${appid}/dbm/collection/indexes?collection = ${collection}`,
     method: 'post',
     data
   })

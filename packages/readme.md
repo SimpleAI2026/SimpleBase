@@ -5,6 +5,8 @@
 # 数据库相关
 github.com/upper/db
 
+sqlite: go get github.com/upper/db/v4/adapter/sqlite
+
 # oauth2.0
 https://github.com/openshift/osin
 

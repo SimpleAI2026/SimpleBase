@@ -40,7 +40,7 @@
 </template>
 
 <script>
-import { getAppAccessUrl } from '@/api/application'
+import { getAppAccessUrl } from '@/api/index'
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { PieChart, LineChart, BarChart } from 'echarts/charts';

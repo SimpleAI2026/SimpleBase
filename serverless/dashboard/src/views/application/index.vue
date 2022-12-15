@@ -206,7 +206,7 @@
 </template>
 
 <script>
-import { createApplication, getMyApplications, startApplicationInstance, stopApplicationInstance, restartApplicationInstance, updateApplication, removeApplication, importApplication, openAppConsole, getSpecs } from '@/api/application'
+import { createApplication, getMyApplications, opApplicationInstance, updateApplication, removeApplication, openAppConsole, getSpecs } from '@/api/application'
 import { showError, showInfo, showSuccess } from '@/utils/show'
 import { __isMobile } from '@/utils/index'
 
@@ -338,8 +338,7 @@ export default {
       this.$refs['dataForm'].validate(async (valid) => {
         if (!valid) { return }
         this.loading = true
-        const res = await updateApplication(this.form.appid, { name: this.form.name })
-          .finally(() => { this.loading = false })
+        const res = await updateApplication(this.form.appid, { name: this.form.name }).finally(() => { this.loading = false })
         if (res.error) {
           this.$notify({
             type: 'error',
@@ -362,12 +361,10 @@ export default {
       showSuccess('应用已释放: ' + row.name)
       this.loadApps()
     },
-    onCopy() {
-      this.$message.success('已复制')
-    },
+    onCopy() { this.$message.success('已复制') },
     async startApp(app) {
       this.$set(this.serviceLoading, app.appid, true)
-      const res = await startApplicationInstance(app.appid).finally(() => { this.$set(this.serviceLoading, app.appid, false) })
+      const res = await opApplicationInstance(app.appid, "start").finally(() => { this.$set(this.serviceLoading, app.appid, false) })
       if (res.data) {
         this.loadApps()
         return
@@ -376,7 +373,7 @@ export default {
     async stopApp(app) {
       await this.$confirm('确认要停止实例服务？', '实例操作确认')
       this.$set(this.serviceLoading, app.appid, true)
-      const res = await stopApplicationInstance(app.appid).finally(() => { this.$set(this.serviceLoading, app.appid, false) })
+      const res = await opApplicationInstance(app.appid, "stop").finally(() => { this.$set(this.serviceLoading, app.appid, false) })
       if (res.data) {
         this.loadApps()
         return
@@ -386,7 +383,7 @@ export default {
       if (app.status !== 'running') { return }
       await this.$confirm('确认要重启应用实例？', '实例操作确认')
       this.$set(this.serviceLoading, app.appid, true)
-      const res = await restartApplicationInstance(app.appid).finally(() => { this.$set(this.serviceLoading, app.appid, false) })
+      const res = await opApplicationInstance(app.appid, "restart").finally(() => { this.$set(this.serviceLoading, app.appid, false) })
       if (res.data) {
         this.loadApps()
         return

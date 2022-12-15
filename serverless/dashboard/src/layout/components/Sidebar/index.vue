@@ -23,7 +23,7 @@ export default {
       'sidebar'
     ]),
     openeds() {
-      return this.permission_routes.map(route => route.path)
+      return Array.from(new Set(this.permission_routes.map(route => route.path)))
     },
     activeMenu() {
       const route = this.$route

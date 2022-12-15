@@ -136,7 +136,7 @@ import {
   removeFunction,
   updateFunction
 } from '@/api/func'
-import { getAppAccessUrl } from '@/api/application'
+import { getAppAccessUrl } from '@/api/index'
 
 const defaultCode = `
 
@@ -227,7 +227,6 @@ export default {
      */
     async getList() {
       this.listLoading = true
-
       const { limit, page, keyword, tag, onlyEnabled } = this.listQuery
       const query = {}
       if (keyword) {
@@ -239,11 +238,10 @@ export default {
       if (onlyEnabled) {
         query['status'] = 1
       }
-
       const ret = await getFunctions(query, page, limit)
       console.log("==== ret: ", ret)
-      this.total = ret.total
-      this.list = ret.data
+      this.total = ret.data.total
+      this.list = ret.data.list
       this.listLoading = false
     },
     // 搜索

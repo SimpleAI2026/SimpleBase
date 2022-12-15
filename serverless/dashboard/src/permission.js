@@ -18,7 +18,6 @@ router.beforeEach(async (to, from, next) => {
 
   // determine whether the user has logged in
   const hasToken = getToken()
-  console.log("hasToken: ", hasToken)
   if (hasToken) {
     if (!store.state.user.user_profile?.name) {
       store.dispatch('user/getInfo')
@@ -38,7 +37,6 @@ router.beforeEach(async (to, from, next) => {
             const arr = to.path.split('/')
             appid = arr[2]
           }
-
           // load the application
           try {
             await store.dispatch('app/loadCurrentApplication', appid)
@@ -48,7 +46,6 @@ router.beforeEach(async (to, from, next) => {
             openSystemClient()
             return
           }
-
           const roles = store.state.app.roles
           const permissions = store.state.app.permissions
           const accessRoutes = await store.dispatch('permission/generateRoutes', { appid, roles, permissions })

@@ -1,44 +1,27 @@
 package api
 
 import (
-	"encoding/json"
-
 	"github.com/linkxzhou/gongx/packages/server"
 )
 
 func FunctionMetrics(c server.Context) interface{} {
-	r := map[string]interface{}{
-		"info": []interface{}{
-			map[string]interface{}{
-				"_id":               "627103c09e4d81d1bb1ff591",
-				"name":              "通用",
-				"label":             "1C1G",
-				"request_cpu":       5,
-				"request_memory":    67108864,
-				"limit_cpu":         500,
-				"limit_memory":      268435456,
-				"database_capacity": 1073741824,
-				"storage_capacity":  3221225472,
-				"bandwith":          10485760,
-				"out_traffic":       2147483648,
-				"priority":          0,
-				"enabled":           true,
-				"created_at":        "2022-05-03T10:28:16.424Z",
-				"updated_at":        "2022-05-03T10:28:16.424Z",
-			},
-		},
+	code := 0
+	message := emptyString
+	data := map[string]interface{}{
+		"access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI2MzRmNzMzMmNjYWNiOGU2NmI1MjlmNDgiLCJleHAiOjE2Njg4MjkyMzUsImlhdCI6MTY2ODc0MjgzNX0._1pf26on-X0RQFzTPzY6JL1Ny0j_YGevjxKbeFNjTLY",
+		"username":     "zhoulv",
+		"uid":          "634f7332ccacb8e66b529f48",
+		"expire":       1668829235,
 	}
 
-	if r1, err := json.Marshal(r); err != nil {
-		return nil
-	} else {
-		return string(r1)
-	}
+	return CommonResp(code, message, data)
 }
 
 func FunctionInfo(c server.Context) interface{} {
-	r := map[string]interface{}{
-		"data": []interface{}{
+	code := 0
+	message := emptyString
+	data := map[string]interface{}{
+		"list": []interface{}{
 			map[string]interface{}{
 				"_id":         "634f74161e1d2d44d065cca2",
 				"name":        "Helloworld",
@@ -222,21 +205,19 @@ func FunctionInfo(c server.Context) interface{} {
 				"appid":       "u3nnf8",
 			},
 		},
-		"total": 19,
-		"limit": 10,
+		"total": 4,
+		"limit": 20,
 		"page":  1,
 	}
 
-	if r1, err := json.Marshal(r); err != nil {
-		return nil
-	} else {
-		return string(r1)
-	}
+	return CommonResp(code, message, data)
 }
 
 func FunctionLogsInfo(c server.Context) interface{} {
-	r := map[string]interface{}{
-		"data": []interface{}{
+	code := 0
+	message := emptyString
+	data := map[string]interface{}{
+		"list": []interface{}{
 			map[string]interface{}{
 				"_id":        "638b492c33b3bd96cb937ee9",
 				"requestId":  "trigger_613a347c1ce6a2f7b5d49c16",
@@ -288,9 +269,5 @@ func FunctionLogsInfo(c server.Context) interface{} {
 		"page":  1,
 	}
 
-	if r1, err := json.Marshal(r); err != nil {
-		return nil
-	} else {
-		return string(r1)
-	}
+	return CommonResp(code, message, data)
 }

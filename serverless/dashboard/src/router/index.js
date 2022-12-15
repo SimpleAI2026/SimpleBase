@@ -32,7 +32,7 @@ export { constantRoutes } from './constants'
 const createRouter = () => new Router({
   // mode: 'history', // require service support
   scrollBehavior: () => ({ y: 0 }),
-  routes: constantRoutes.concat(asyncRoutes),
+  routes: constantRoutes.concat(asyncRoutes)
 })
 
 const router = createRouter()

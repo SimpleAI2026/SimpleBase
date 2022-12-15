@@ -1,14 +1,14 @@
 import store from '@/store'
 import request from '@/utils/request'
+import { setCurrentAppid } from "./index"
 
 /**
  * 获取应用的协作者列表
- * @param {string} username
  */
 export function getCollaborators() {
   const appid = store.state.app.appid
   return request({
-    url: `/sys-api/apps/${appid}/collaborators`,
+    url: `/api/CollaboratorsList?appid=${appid}`,
     method: 'get'
   })
 }
@@ -22,22 +22,6 @@ export function removeCollaborator(collaborator_id) {
   return request({
     url: `/sys-api/apps/${appid}/collaborators/${collaborator_id}`,
     method: 'delete'
-  })
-}
-
-/**
- * 更新协作者密码(TBD)
- * @param {string} accountId
- * @param {string} password
- */
-export function resetAccountPassword(accountId, password) {
-  return request({
-    url: '/sys-api/account/resetPassword',
-    method: 'post',
-    data: {
-      accountId,
-      password
-    }
   })
 }
 
@@ -79,12 +63,11 @@ export async function getApplicationByAppid(appid) {
 
 /**
  * 创建应用
- * @param param0
  * @returns
  */
 export async function createApplication({ name }) {
   const res = await request({
-    url: `/sys-api/apps/create`,
+    url: '/api/ApplicationCreate',
     method: 'post',
     data: {
       name
@@ -95,12 +78,11 @@ export async function createApplication({ name }) {
 
 /**
  * 编辑应用
- * @param param0
  * @returns
  */
 export async function updateApplication(appid, { name }) {
   const res = await request({
-    url: `/sys-api/apps/${appid}`,
+    url: `/api/ApplicationUpdate?appid=${appid}`,
     method: 'post',
     data: {
       name
@@ -116,7 +98,7 @@ export async function updateApplication(appid, { name }) {
  */
 export async function removeApplication(appid) {
   const res = await request({
-    url: `/sys-api/apps/${appid}`,
+    url: `/api/ApplicationRemove?appid=${appid}`,
     method: 'delete'
   })
   return res
@@ -146,7 +128,7 @@ export async function inviteCollaborator(member_id, roles) {
  */
 export function getAllApplicationRoles() {
   return request({
-    url: '/sys-api/apps/collaborators/roles',
+    url: '/api/CollaboratorsRoles',
     method: 'get'
   })
 }
@@ -166,19 +148,6 @@ export function searchUserByUsername(username) {
 }
 
 /**
- * 重启应用服务
- * @param {*} appid
- * @returns
- */
-export async function restartApplicationInstance(appid) {
-  const res = await request({
-    url: `/sys-api/apps/${appid}/instance/restart`,
-    method: 'post'
-  })
-  return res
-}
-
-/**
  * 删除应用服务
  * @param {*} appid
  * @returns
@@ -192,95 +161,17 @@ export async function removeApplicationService(appid) {
 }
 
 /**
- * 获取应用的依赖
+ * 操作应用服务
  * @param {*} appid
  * @returns
  */
-export async function getApplicationPackages(appid) {
+export async function opApplicationInstance(appid, op) {
   const res = await request({
-    url: `/sys-api/apps/${appid}/packages`,
-    method: 'get'
-  })
-  return res
-}
-
-/**
- * 添加应用的依赖
- * @param {*} appid
- * @returns
- */
-export async function addApplicationPackage(appid, { name, version }) {
-  const res = await request({
-    url: `/sys-api/apps/${appid}/packages`,
+    url: `/api/ApplicationInstanceOp?appid=${appid}`,
     method: 'post',
-    data: { name, version }
-  })
-  return res
-}
-
-/**
- * 更新应用的依赖
- * @param {*} appid
- * @returns
- */
-export async function updateApplicationPackage(appid, { name, version }) {
-  const res = await request({
-    url: `/sys-api/apps/${appid}/packages`,
-    method: 'put',
-    data: { name, version }
-  })
-  return res
-}
-
-/**
- * 删除应用的依赖
- * @param {*} appid
- * @returns
- */
-export async function removeApplicationPackage(appid, name) {
-  const res = await request({
-    url: `/sys-api/apps/${appid}/packages`,
-    method: 'delete',
-    data: { name }
-  })
-  return res
-}
-
-/**
- * 获取当前应用的访问地址
- * @param {*} appid default is current appid
- * @returns
- */
-export function getAppAccessUrl() {
-  const appid = store.state.app.appid
-  const domain = store.state.app.app_deploy_host
-  const schema = store.state.app.app_deploy_url_schema || 'http'
-  const url = `${schema}://${appid}.${domain}`
-  return url
-}
-
-/**
- * 启动应用服务
- * @param {*} appid
- * @returns
- */
-export async function startApplicationInstance(appid) {
-  const res = await request({
-    url: `/sys-api/apps/${appid}/instance/start`,
-    method: 'post'
-  })
-  return res
-}
-
-/**
- * 停止应用服务
- * @param {*} appid
- * @returns
- */
-export async function stopApplicationInstance(appid) {
-  const res = await request({
-    url: `/sys-api/apps/${appid}/instance/stop`,
-    method: 'post'
+    data: {
+      'op': op
+    }
   })
   return res
 }
@@ -293,14 +184,5 @@ export async function openAppConsole(app) {
   setCurrentAppid(app.appid)
   const back_url = encodeURIComponent(window.location.href)
   let app_console_url = `/#/app/${app.appid}/dashboard/index?$back_url=${back_url}`
-  console.log("app_console_url: ", app_console_url)
   window.open(app_console_url, '_self')
-}
-
-export function setCurrentAppid(appid) {
-  localStorage.setItem("current_appid", appid)
-}
-
-export function getCurrentAppid() {
-  return localStorage.getItem("current_appid")
 }

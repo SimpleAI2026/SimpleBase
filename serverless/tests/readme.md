@@ -112,3 +112,27 @@ http://localhost:9527/sys-api/apps/u3nnf8/function/634f74161e1d2d44d065cca2/chan
 
 ## 返回
 {"data":[]}
+
+
+https://console.lafyun.com/sys-api/apps/u3nnf8/collaborators
+
+## 请求
+
+## 返回
+{"data":[]}
+
+
+https://console.lafyun.com/sys-api/apps/collaborators/search
+
+## 请求
+
+## 返回
+{"data":null}
+
+
+https://console.lafyun.com/sys-api/apps/collaborators/roles
+
+## 请求
+
+## 返回
+{"data":[{"name":"FunctionReadyOnly","label":"Function Ready Only","actions":["fn:ListFunctions","fn:GetFunction","fn:ListLogs","fn:ListPackages"]},{"name":"FunctionFullAccess","label":"Function Full Access","actions":["fn:ListFunctions","fn:GetFunction","fn:CreateFunction","fn:UpdateFunction","fn:DeleteFunction","fn:InvokeFunction","fn:PublishFunction","fn:ListLogs","fn:ListPackages","fn:CreatePackage","fn:UpdatePackage","fn:DeletePackage"]},{"name":"DatabaseReadyOnly","label":"Database Ready Only","actions":["db:ListCollections","db:GetCollection","db:ListDocuments","db:GetDocument","db:ListPolicies","db:GetPolicy"]},{"name":"DatabaseFullAccess","label":"Database Full Access","actions":["db:ListCollections","db:GetCollection","db:CreateCollection","db:UpdateCollection","db:DeleteCollection","db:ListDocuments","db:GetDocument","db:CreateDocument","db:UpdateDocument","db:DeleteDocument","db:ListPolicies","db:GetPolicy","db:CreatePolicy","db:UpdatePolicy","db:DeletePolicy","db:PublishPolicy"]},{"name":"StorageReadOnly","label":"Storage Read Only","actions":["oss:ListBuckets","oss:GetBucket"]},{"name":"StorageFullAccess","label":"Storage Full Access","actions":["oss:ListBuckets","oss:GetBucket","oss:CreateBucket","oss:UpdateBucket","oss:DeleteBucket","oss:CreateServiceAccount"]},{"name":"ReplicationReadOnly","label":"Replication Read Only","actions":["rep:ListReplicateAuth","rep:GetReplicateAuth","rep:ListReplicateRequest","rep:GetReplicateRequest"]},{"name":"ReplicationFullAccess","label":"Replication Full Access","actions":["rep:ListReplicateAuth","rep:GetReplicateAuth","rep:CreateReplicateAuth","rep:UpdateReplicateAuth","rep:DeleteReplicateAuth","rep:ListReplicateRequest","rep:GetReplicateRequest","rep:CreateReplicateRequest","rep:UpdateReplicateRequest","rep:DeleteReplicateRequest"]},{"name":"ApplicationReadOnly","label":"Application Read Only","actions":["app:ListApplications","app:GetApplication"]},{"name":"InstanceOperator","label":"Instance Operator","actions":["app:StartInstance","app:StopInstance"]},{"name":"ApplicationFullAccess","label":"Application Full Access","actions":["app:ListApplications","app:GetApplication","app:CreateApplication","app:UpdateApplication","app:DeleteApplication","app:StartInstance","app:StopInstance"]},{"name":"WebsiteReadOnly","label":"Website Read Only","actions":["web:ListWebsites","web:GetWebsite"]},{"name":"WebsiteFullAccess","label":"Website Full Access","actions":["web:ListWebsites","web:GetWebsite","web:CreateWebsite","web:UpdateWebsite","web:DeleteWebsite"]},{"name":"Admin","label":"Admin","actions":["fn:ListFunctions","fn:GetFunction","fn:CreateFunction","fn:UpdateFunction","fn:DeleteFunction","fn:InvokeFunction","fn:PublishFunction","fn:ListLogs","fn:ListPackages","fn:CreatePackage","fn:UpdatePackage","fn:DeletePackage","db:ListCollections","db:GetCollection","db:CreateCollection","db:UpdateCollection","db:DeleteCollection","db:ListDocuments","db:GetDocument","db:CreateDocument","db:UpdateDocument","db:DeleteDocument","db:ListPolicies","db:GetPolicy","db:CreatePolicy","db:UpdatePolicy","db:DeletePolicy","db:PublishPolicy","oss:ListBuckets","oss:GetBucket","oss:CreateBucket","oss:UpdateBucket","oss:DeleteBucket","oss:CreateServiceAccount","rep:ListReplicateAuth","rep:GetReplicateAuth","rep:CreateReplicateAuth","rep:UpdateReplicateAuth","rep:DeleteReplicateAuth","rep:ListReplicateRequest","rep:GetReplicateRequest","rep:CreateReplicateRequest","rep:UpdateReplicateRequest","rep:DeleteReplicateRequest","app:ListApplications","app:GetApplication","app:CreateApplication","app:UpdateApplication","app:DeleteApplication","app:StartInstance","app:StopInstance","web:ListWebsites","web:GetWebsite","web:CreateWebsite","web:UpdateWebsite","web:DeleteWebsite"]}]}

@@ -1,7 +1,7 @@
 import store from '@/store'
 import request from '@/utils/request'
 import axios from 'axios'
-import { getAppAccessUrl } from '@/api/application'
+import { getAppAccessUrl } from '@/api/index'
 
 /**
  * Get cloud function list
