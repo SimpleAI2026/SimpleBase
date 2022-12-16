@@ -1,6 +1,5 @@
 
 import * as monaco from 'monaco-editor'
-import { loadPackageTypings } from '@/api/func'
 import { global_declare } from './globals'
 
 /**
@@ -83,27 +82,6 @@ export class AutoImportTypings {
    */
   async loadDeclaration(packageName) {
     if (this.isLoaded(packageName)) return
-    try {
-      const r = await loadPackageTypings(packageName).catch(err => console.error(err))
-      if (r?.code) {
-        return
-      }
-
-      const rets = r.data || []
-      for (const lib of rets) {
-        // 修复包的类型入口文件不为 index.d.ts 的情况
-        if (packageName === lib.packageName && lib.path !== `${packageName}/index.d.ts`) {
-          const _lib = { ...lib }
-          _lib.path = `${packageName}/index.d.ts`
-          this.addExtraLib(_lib)
-        }
-        this.addExtraLib(lib)
-      }
-
-      this._loaded.push(packageName)
-    } catch (error) {
-      console.error(`failed to load package: ${packageName} :`, error)
-    }
   }
 
   /**

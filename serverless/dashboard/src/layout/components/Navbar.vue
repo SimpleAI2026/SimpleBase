@@ -61,15 +61,13 @@ export default {
   data() {
     return {
       themeColor: true,
+      isMobile: __isMobile(),
     }
   },
   computed: {
     name() {
       const profile = this.$store.state.user.user_profile
       return profile?.username || profile?.name
-    },
-    isMobile() {
-      return __isMobile()
     },
     isLogin() {
       return this.$store.state.user.user_profile ? true : false

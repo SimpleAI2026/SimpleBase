@@ -102,7 +102,7 @@
 </template>
 
 <script>
-import { getFunctionById } from '@/api/func'
+import { getFunctionById } from '@/api/function'
 import { createTrigger, removeTrigger, updateTrigger } from '@/api/trigger'
 
 // 默认化创建表单的值

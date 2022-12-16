@@ -17,7 +17,96 @@ func FunctionMetrics(c server.Context) interface{} {
 	return CommonResp(code, message, data)
 }
 
+func FunctionCreate(c server.Context) interface{} {
+	code := 0
+	message := emptyString
+	data := map[string]interface{}{
+		"insertedId": "111",
+	}
+
+	return CommonResp(code, message, data)
+}
+
+func FunctionPublish(c server.Context) interface{} {
+	code := 0
+	message := emptyString
+
+	return CommonResp(code, message, nil)
+}
+
 func FunctionInfo(c server.Context) interface{} {
+	code := 0
+	message := emptyString
+	data := map[string]interface{}{
+		"_id":          "634f74161e1d2d44d065cca2",
+		"name":         "Helloworld",
+		"code":         "\n\nimport cloud from '@/cloud-sdk'\n\nexports.main = async function (ctx: FunctionContext) {\n  // body, query 为请求参数, auth 是授权对象\n  const { auth, body, query } = ctx\n\n  // 数据库操作\n  const db = cloud.database()\n  const r = await db.collection('admins').get()\n  console.log(r)\n\n  return r.data\n}\n",
+		"description":  "",
+		"enableHTTP":   true,
+		"status":       1,
+		"compiledCode": "\"use strict\";\nObject.defineProperty(exports, \"__esModule\", { value: true });\nconst cloud_sdk_1 = require(\"@/cloud-sdk\");\nexports.main = async function (ctx) {\n    const { auth, body, query } = ctx;\n    const db = cloud_sdk_1.default.database();\n    const r = await db.collection('admins').get();\n    console.log(r);\n    return r.data;\n};\n",
+		"tags":         []interface{}{},
+		"triggers": []interface{}{
+			map[string]interface{}{
+				"_id":        "6376fe5c7fd9b2915dfb7bbd",
+				"name":       "测试触发器",
+				"type":       "event",
+				"event":      "1111",
+				"duration":   nil,
+				"status":     1,
+				"desc":       "",
+				"created_at": "2022-11-18T03:39:08.403Z",
+				"updated_at": "2022-11-18T03:39:08.403Z",
+			},
+		},
+		"label":      "Helloworld",
+		"version":    1,
+		"hash":       "557cf05419f30d5a0c1bae67a696cb79",
+		"created_at": "2022-10-19T03:50:46.395Z",
+		"updated_at": "2022-11-18T03:39:08.403Z",
+		"created_by": "634f7332ccacb8e66b529f48",
+		"appid":      "u3nnf8",
+	}
+
+	return CommonResp(code, message, data)
+}
+
+func FunctionPublishedList(c server.Context) interface{} {
+	code := 0
+	message := emptyString
+	data := []interface{}{
+		map[string]interface{}{
+			"_id":          "634f74161e1d2d44d065cca2",
+			"name":         "Helloworld",
+			"code":         "\n\nimport cloud from '@/cloud-sdk'\n\nexports.main = async function (ctx: FunctionContext) {\n  // body, query 为请求参数, auth 是授权对象\n  const { auth, body, query } = ctx\n\n  // 数据库操作\n  const db = cloud.database()\n  const r = await db.collection('admins').get()\n  console.log(r)\n\n  return r.data\n}\n",
+			"description":  "",
+			"enableHTTP":   true,
+			"status":       1,
+			"compiledCode": "\"use strict\";\nObject.defineProperty(exports, \"__esModule\", { value: true });\nconst cloud_sdk_1 = require(\"@/cloud-sdk\");\nexports.main = async function (ctx) {\n    const { auth, body, query } = ctx;\n    const db = cloud_sdk_1.default.database();\n    const r = await db.collection('admins').get();\n    console.log(r);\n    return r.data;\n};\n",
+			"tags":         []interface{}{},
+			"triggers":     []interface{}{},
+			"label":        "Helloworld",
+			"version":      0,
+			"hash":         "557cf05419f30d5a0c1bae67a696cb79",
+			"created_at":   "2022-10-19T03:50:46.395Z",
+			"updated_at":   "2022-10-19T03:50:46.395Z",
+			"created_by":   "634f7332ccacb8e66b529f48",
+			"appid":        "u3nnf8",
+		},
+	}
+
+	return CommonResp(code, message, data)
+}
+
+func FunctionChangeHistory(c server.Context) interface{} {
+	code := 0
+	message := emptyString
+	data := []interface{}{}
+
+	return CommonResp(code, message, data)
+}
+
+func FunctionList(c server.Context) interface{} {
 	code := 0
 	message := emptyString
 	data := map[string]interface{}{

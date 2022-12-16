@@ -109,7 +109,7 @@
 <script>
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
 import { createPolicy, removePolicy, getPolicies, publishPolicies, updatePolicy } from '@/api/policy'
-import { getFunctions } from '@/api/func'
+import { getFunctions } from '@/api/function'
 
 // 默认化创建表单的值
 function getDefaultFormValue() {

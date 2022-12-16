@@ -1,15 +1,13 @@
 <template>
   <div class="app-container">
-    <!-- 数据检索区 -->
     <div class="filter-container">
       <el-input v-model="listQuery.keyword" size="mini" placeholder="Request ID"
-        style="width: 320px;margin-right: 10px;" class="filter-item" @keyup.enter.native="handleFilter" />
+        style="max-width: 320px;margin-right: 10px;" class="filter-item" @keyup.enter.native="handleFilter" />
       <el-button size="mini" class="filter-item" type="primary" icon="el-icon-search" @click="handleFilter">
         搜索
       </el-button>
     </div>
 
-    <!-- 表格 -->
     <el-table :key="tableKey" v-loading="listLoading" :data="list" border size="mini" highlight-current-row
       style="width: 100%;">
       <el-table-column label="RequestId" prop="id" align="center" width="260">
@@ -41,7 +39,7 @@
       </el-table-column>
       <el-table-column label="操作" align="center" width="80" class-name="small-padding fixed-width">
         <template slot-scope="{row}">
-          <el-button type="info" size="mini" @click="handleShowDetail(row)">
+          <el-button plain type="success" size="mini" @click="handleShowDetail(row)">
             查看
           </el-button>
         </template>
@@ -62,7 +60,7 @@
 <script>
 import FunctionLogDetail from './components/FunctionLogDetail'
 import Pagination from '@/components/Pagination' // secondary package based on el-pagination
-import { getFunctionLogs } from '@/api/func'
+import { getFunctionLogs } from '@/api/function'
 import { __isMobile } from '@/utils/index'
 
 export default {
@@ -105,32 +103,23 @@ export default {
     this.setTagViewTitle()
   },
   methods: {
-    /**
-       * 获取数据列表
-       */
     async getList() {
       this.listLoading = true
-
       // 拼装查询条件 by this.listQuery
       const { limit, page, keyword, triggerId } = this.listQuery
       const query = {}
       if (keyword) {
         query['requestId'] = keyword
       }
-
       if (this.func_id) {
         query['func_id'] = this.func_id
       }
-
       if (triggerId) {
         query['trigger_id'] = triggerId
       }
-
       // 执行数据查询
-      const res = await getFunctionLogs(query, page, limit)
-        .catch(() => { this.listLoading = false })
-
-      this.list = res.data
+      const res = await getFunctionLogs(query, page, limit).catch(() => { this.listLoading = false })
+      this.list = res.data.list
       this.total = res.total
       this.listLoading = false
     },

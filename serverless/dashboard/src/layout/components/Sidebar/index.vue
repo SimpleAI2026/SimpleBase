@@ -4,7 +4,7 @@
       <el-menu :default-active="activeMenu" :default-openeds="openeds" :collapse="isCollapse"
         :background-color="variables.menuBg" :text-color="variables.menuText" :unique-opened="false"
         :active-text-color="variables.menuActiveText" :collapse-transition="false" mode="vertical">
-        <sidebar-item v-for="route in permission_routes" :key="route.path" :item="route" :base-path="route.path" />
+        <sidebar-item v-for="route in routes" :key="route.path" :item="route" :base-path="route.path" />
       </el-menu>
     </el-scrollbar>
   </div>
@@ -23,7 +23,10 @@ export default {
       'sidebar'
     ]),
     openeds() {
-      return Array.from(new Set(this.permission_routes.map(route => route.path)))
+      return this.permission_routes.map(route => route.path)
+    },
+    routes() {
+      return this.permission_routes.filter(route => route.path.indexOf("/app/") == 0)
     },
     activeMenu() {
       const route = this.$route

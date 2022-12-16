@@ -14,8 +14,6 @@ export async function getBuckets() {
     url: `/api/OssWebsites?appid=${appid}`,
     method: 'get'
   })
-
-  assert(res.code === 0, 'get file buckets got error', res)
   return res
 }
 
@@ -43,7 +41,7 @@ export async function getOneBucket(bucketName) {
 export async function createBucket(bucketName, mode, quota) {
   const appid = store.state.app.appid
   const res = await request({
-    url: `/sys-api/apps/${appid}/oss/buckets`,
+    url: `/api/OssBuckets?appid=${appid}`,
     method: 'post',
     data: {
       bucket: bucketName,
@@ -71,8 +69,6 @@ export async function updateBucket(bucketName, mode, quota) {
       quota
     }
   })
-
-  assert(res.code === 0, 'update bucket got error', res)
   return res
 }
 
@@ -200,7 +196,5 @@ export async function updateAC(bucketName) {
     url: `/sys-api/apps/${appid}/oss/buckets/service-account`,
     method: 'post'
   })
-
-  assert(res.code === 0, 'update application service accounp', res)
   return res
 }

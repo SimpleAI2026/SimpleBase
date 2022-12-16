@@ -12,7 +12,7 @@ import { getAppAccessUrl } from '@/api/index'
 export function getFunctions(query, page, pageSize) {
   const appid = store.state.app.appid
   return request({
-    url: `/api/FunctionInfo?appid=${appid}`,
+    url: `/api/FunctionList?appid=${appid}`,
     method: 'get',
     params: {
       ...query,
@@ -30,23 +30,12 @@ export function getFunctions(query, page, pageSize) {
 export function getPublishedFunctions(ids) {
   const appid = store.state.app.appid
   return request({
-    url: `/sys-api/apps/${appid}/function/published`,
+    url: `/api/FunctionPublishedList?appid=${appid}`,
     method: 'POST',
     data: {
       ids
     }
   })
-}
-
-/**
- * Get published function by id
- * @param {string} id
- * @returns
- */
-export async function getPublishedFunction(id) {
-  const res = await getPublishedFunctions([id])
-  const [func] = res?.data ?? []
-  return func
 }
 
 /**
@@ -58,7 +47,7 @@ export async function getPublishedFunction(id) {
 export function getFunctionById(func_id) {
   const appid = store.state.app.appid
   return request({
-    url: `/sys-api/apps/${appid}/function/${func_id}`,
+    url: `/api/FunctionInfo?appid=${appid}&func_id=${func_id}`,
     method: 'get'
   })
 }
@@ -72,7 +61,7 @@ export function getFunctionById(func_id) {
 export function createFunction(function_data) {
   const appid = store.state.app.appid
   return request({
-    url: `/sys-api/apps/${appid}/function/create`,
+    url: `/api/FunctionCreate?appid=${appid}`,
     method: 'post',
     data: function_data
   })
@@ -127,7 +116,7 @@ export function removeFunction(func_id) {
 export function publishFunctions() {
   const appid = store.state.app.appid
   return request({
-    url: `/sys-api/apps/${appid}/function/publish`,
+    url: `/api/FunctionPublish?appid=${appid}`,
     method: 'post'
   })
 }
@@ -180,21 +169,6 @@ export async function launchFunction(func, param, debug_token) {
 }
 
 /**
- * 加载依赖包的类型声明文件
- * @param {string} packageName
- * @returns
- */
-export async function loadPackageTypings(packageName) {
-  const app_url = getAppAccessUrl()
-  const res = await axios({
-    url: app_url + `/sys-api/typing/package?packageName=${packageName}`,
-    method: 'GET'
-  })
-
-  return res.data
-}
-
-/**
  * Get cloud function logs
  * @param {*} query
  * @param {*} page
@@ -223,7 +197,7 @@ export async function getFunctionLogs(query, page, pageSize) {
 export function getFunctionChangeHistory(func_id, page = 1, pageSize = 20) {
   const appid = store.state.app.appid
   return request({
-    url: `/sys-api/apps/${appid}/function/${func_id}/changes`,
+    url: `/api/FunctionChangeHistory?appid=${appid}&func_id=${func_id}`,
     method: 'get',
     params: {
       page,

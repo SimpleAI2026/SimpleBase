@@ -1,7 +1,5 @@
 import store from '@/store'
-
-const { body } = document
-const WIDTH = 450 // refer to Bootstrap's responsive design
+import { __isMobile } from '@/utils/index'
 
 export default {
   watch: {
@@ -17,15 +15,9 @@ export default {
     this.$_resizeHandler()
   },
   methods: {
-    // use $_ for mixins properties
-    // https://vuejs.org/v2/style-guide/index.html#Private-property-names-essential
-    $_isMobile() {
-      const rect = body.getBoundingClientRect()
-      return rect.width - 1 < WIDTH
-    },
     $_resizeHandler() {
       if (!document.hidden) {
-        const isMobile = this.$_isMobile()
+        const isMobile = __isMobile()
         store.dispatch('settings/toggleDevice', isMobile ? 'mobile' : 'desktop')
         if (isMobile) {
           store.dispatch('settings/closeSideBar', { withoutAnimation: true })

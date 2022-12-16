@@ -161,9 +161,6 @@ export default {
     this.setTagViewTitle()
   },
   methods: {
-    /**
-     * 获取数据列表
-     */
     getList(upload = false) {
       if (this.listLoading) return
       this.listLoading = true

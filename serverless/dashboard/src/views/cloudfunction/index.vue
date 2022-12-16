@@ -19,7 +19,7 @@
     </div>
 
     <el-table v-loading="listLoading" :data="list" border size="small" highlight-current-row style="width: 100%;">
-      <el-table-column label="函数标识" min-width="100" max-with="200">
+      <el-table-column label="前缀标识" min-width="100" max-with="200">
         <template slot-scope="{ row }">
           <span class="link-type" style="font-size: 13px; font-weight: bold;" @click="showUpdateForm(row)">{{ row.label
           }}</span>
@@ -62,13 +62,13 @@
       <el-table-column label="操作" align="center" min-width="120" class-name="small-padding">
         <template slot-scope="{ row, $index }">
           <el-button-group>
-            <el-button type="info" size="mini" plain @click="handleShowDetail(row)">
+            <el-button type="primary" size="mini" plain @click="handleShowDetail(row)">
               开发
             </el-button>
             <el-button type="success" size="mini" plain @click="handleShowLogs(row)">
               日志
             </el-button>
-            <el-button type="primary" size="mini" plain @click="handleTriggers(row)">
+            <el-button type="info" size="mini" plain @click="handleTriggers(row)">
               触发器<b v-if="row.triggers && row.triggers.length">({{ row.triggers.length }})</b>
             </el-button>
             <el-tooltip content="请先停用函数，再删除！" :disabled="row.status !== 1" placement="top">
@@ -87,24 +87,18 @@
     <!-- 表单对话框 -->
     <el-dialog :title="textMap[dialogStatus]" width="600px" :visible.sync="dialogFormVisible">
       <el-form ref="dataForm" :rules="rules" :model="form" label-position="left" label-width="120px"
-        style="width: 500px; margin-left:20px;">
+        style="max-width: 500px; min-width: 200px; margin-left:10px;">
         <el-form-item v-if="form._id" label="ID" prop="_id">
           <div :value="form._id">{{ form._id }}</div>
         </el-form-item>
         <el-form-item label="显示名称" prop="label">
           <el-input v-model="form.label" placeholder="函数显示名，可为中文" />
         </el-form-item>
-        <el-form-item label="函数标识" prop="name">
-          <el-input v-model="form.name" placeholder="函数的唯一标识，如 get-user" />
+        <el-form-item label="前缀标识" prop="name">
+          <el-input v-model="form.name" placeholder="函数的前缀名，如：/api" />
         </el-form-item>
         <el-form-item label="HTTP访问" prop="enableHTTP">
           <el-switch v-model="form.enableHTTP" :active-value="true" :inactive-value="false" />
-        </el-form-item>
-        <el-form-item label="标签分类" prop="tags">
-          <el-tag v-for="(tag, index) in form.tags" :key="tag" style="margin-right: 10px;" type="" size="medium"
-            closable @close="removeTag(index)">{{ tag }}</el-tag>
-          <el-autocomplete v-model="form._tag_input" :fetch-suggestions="suggestTags" class="input-new-tag" clearable
-            size="mini" type="text" placeholder="添加" @select="addTag" @change="addTag" />
         </el-form-item>
         <el-form-item label="启用" prop="status">
           <el-switch v-model="form.status" :active-value="1" :inactive-value="0" />
@@ -135,7 +129,7 @@ import {
   publishFunctions,
   removeFunction,
   updateFunction
-} from '@/api/func'
+} from '@/api/function'
 import { getAppAccessUrl } from '@/api/index'
 
 const defaultCode = `
@@ -169,8 +163,6 @@ function getDefaultFormValue() {
     created_at: Date.now(),
     updated_at: Date.now(),
     code: defaultCode,
-    // 标签输入框绑定使用，不要提交到服务端
-    _tag_input: ''
   }
 }
 
@@ -264,7 +256,6 @@ export default {
           return
         }
         const data = Object.assign({}, this.form)
-        delete data['_tag_input']
         // 执行创建请求
         const res = await createFunction(data)
         if (!res.data?.insertedId) {
@@ -387,35 +378,6 @@ export default {
     // 设置触发器
     async handleTriggers(row) {
       this.$router.push(`triggers/${row._id}`)
-    },
-    // 搜索建议标签
-    async suggestTags(queryString, cb) {
-      const data = this.all_tags
-        .filter(it => {
-          return it.indexOf(queryString) >= 0
-        })
-        .map(it => {
-          return { value: it }
-        })
-
-      cb(data)
-    },
-    // 删除标签
-    removeTag(index) {
-      const tags = this.form.tags || []
-      if (!tags.length) return
-      tags.splice(index, 1)
-    },
-    // 添加标签
-    addTag() {
-      const val = this.form._tag_input
-      console.log('val: ', val)
-
-      if (!val) return
-      if (!this.form.tags.includes(val)) {
-        this.form.tags.push(val)
-      }
-      this.form._tag_input = ''
     },
     onCopy() {
       this.$message.success('已复制')

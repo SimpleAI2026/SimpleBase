@@ -22,18 +22,46 @@
         }}</el-button>
       <el-button v-if="published_func" type="text" size="mini" :loading="loading" style="margin-left: 10px;"
         @click="diffPublished">对比已发布 (#{{ published_func.version }})</el-button>
-      <el-button size="small" style="float: right;" type="primary" @click="showDebugPanel = true">显示调试面板(J)</el-button>
+      <el-button size="mini" style="float: right;margin: 5px;" type="primary"
+        @click="showDebugPanel = true">调试/历史/日志</el-button>
     </div>
 
-    <div style="display: flex;">
-      <div v-if="func" class="editor-container">
-        <function-editor v-model="value" :name="func.name" :height="editorHeight" :dark="false" @change="cacheCode" />
-      </div>
-      <div class="latest-logs">
+    <div v-if="func" class="editor-container">
+      <function-editor v-model="value" :name="func.name" :height="editorHeight" :dark="false" @change="cacheCode" />
+    </div>
+
+    <el-drawer title="调试面板" :visible="showDebugPanel" direction="rtl" size="40%" :destroy-on-close="false"
+      :show-close="true" :modal="true" :wrapper-closable="true" @close="showDebugPanel = false">
+      <div class="debug-panel">
         <el-tabs type="border-card">
+          <el-tab-pane label="调试面板">
+            <div class="title">
+              <el-button size="mini" type="success" style="margin-left: 10px" :loading="loading" @click="launch">运行(B)
+              </el-button>
+            </div>
+            <div class="editor">
+              <json-editor v-model="invokeParams" :line-numbers="false" :height="300" :dark="false" />
+            </div>
+            <div v-if="invokeRequestId" class="invoke-result">
+              <div class="title">
+                执行日志
+                <span v-if="invokeRequestId">（ RequestId: {{ invokeRequestId }} ）</span>
+              </div>
+              <div v-if="invokeLogs" class="logs">
+                <div v-for="(log, index) in invokeLogs" :key="index" class="log-item">
+                  <pre>- {{ log }}</pre>
+                </div>
+              </div>
+              <div class="title" style="margin-top: 20px">
+                调用结果 <span v-if="invokeTimeUsage"> （ {{ invokeTimeUsage }} ms ）</span>
+              </div>
+              <div class="result">
+                <pre>{{ invokeResult }}</pre>
+              </div>
+            </div>
+          </el-tab-pane>
           <el-tab-pane label="最近执行">
             <span slot="label">最近执行 <i class="el-icon-refresh" @click="getLatestLogs" /></span>
-
             <div v-for="log in latestLogs" :key="log._id" class="log-item">
               <el-tag type="warning" size="normal" @click="showLogDetailDlg(log)">
                 {{ log.created_at | parseTime('{y}-{m}-{d} {h}:{i}:{s}') }}
@@ -50,37 +78,6 @@
             </div>
           </el-tab-pane>
         </el-tabs>
-      </div>
-    </div>
-
-    <el-drawer title="调试面板" :visible="showDebugPanel" direction="rtl" size="40%" :destroy-on-close="false"
-      :show-close="true" :modal="true" :wrapper-closable="true" @close="showDebugPanel = false">
-      <div class="invoke-panel">
-        <div class="title">
-          调用参数
-          <el-button size="mini" type="success" style="margin-left: 10px" :loading="loading" @click="launch">运行(B)
-          </el-button>
-        </div>
-        <div class="editor">
-          <json-editor v-model="invokeParams" :line-numbers="false" :height="300" :dark="false" />
-        </div>
-        <div v-if="invokeRequestId" class="invoke-result">
-          <div class="title">
-            执行日志
-            <span v-if="invokeRequestId">（ RequestId: {{ invokeRequestId }} ）</span>
-          </div>
-          <div v-if="invokeLogs" class="logs">
-            <div v-for="(log, index) in invokeLogs" :key="index" class="log-item">
-              <pre>- {{ log }}</pre>
-            </div>
-          </div>
-          <div class="title" style="margin-top: 20px">
-            调用结果 <span v-if="invokeTimeUsage"> （ {{ invokeTimeUsage }} ms ）</span>
-          </div>
-          <div class="result">
-            <pre>{{ invokeResult }}</pre>
-          </div>
-        </div>
       </div>
     </el-drawer>
 
@@ -102,7 +99,7 @@ import FunctionLogDetail from './components/FunctionLogDetail'
 import FunctionEditor from '@/components/FunctionEditor'
 import DiffEditor from '@/components/FunctionEditor/diff'
 import jsonEditor from '@/components/JsonEditor/param'
-import { getFunctionById, getFunctionLogs, getPublishedFunction, launchFunction, publishOneFunction, updateFunctionCode, getFunctionChangeHistory, compileFunctionCode } from '@/api/func'
+import { getFunctionById, getFunctionLogs, getPublishedFunctions, launchFunction, publishOneFunction, updateFunctionCode, getFunctionChangeHistory, compileFunctionCode } from '@/api/function'
 import { showError, showSuccess } from '@/utils/show'
 import { debounce } from 'lodash'
 import { hashString } from '@/utils/hash'
@@ -219,7 +216,7 @@ export default {
       this.invokeParams = this.parseInvokeParam(this.func.debugParams) ?? defaultParamValue
       this.loading = false
 
-      this.published_func = await getPublishedFunction(func_id)
+      this.published_func = await getPublishedFunctions([func_id])
     },
     /**
      * 保存函数代码
@@ -295,11 +292,9 @@ export default {
     },
     async getLogByRequestId(requestId) {
       this.loading = true
-      const res = await getFunctionLogs({ requestId }, 1, 1)
-        .finally(() => { this.loading = false })
-
+      const res = await getFunctionLogs({ requestId }, 1, 1).finally(() => { this.loading = false })
       if (res.data?.length) {
-        this.invokeLogs = res.data[0]?.logs
+        this.invokeLogs = res.data[0]?.list?.logs
         this.invokeTimeUsage = res.data[0]?.time_usage
       }
     },
@@ -308,10 +303,9 @@ export default {
      */
     async getLatestLogs() {
       this.loading = true
-      const res = await getFunctionLogs({ func_id: this.func_id }, 1, 15)
-        .finally(() => { this.loading = false })
+      const res = await getFunctionLogs({ func_id: this.func_id }, 1, 15).finally(() => { this.loading = false })
 
-      this.latestLogs = res.data || []
+      this.latestLogs = res.data.list || []
     },
     /**
      * 获取函数变更记录
@@ -462,14 +456,14 @@ export default {
 .editor-container {
   position: relative;
   height: 100%;
-  width: 80%;
+  width: 100%;
   border: 1px solid lightgray;
-  padding: 0;
+  margin: 4px;
 }
 
-.latest-logs {
+.debug-panel {
   padding-left: 5px;
-  width: 20%;
+  width: 100%;
 
   .log-item {
     margin-top: 10px;
@@ -496,50 +490,32 @@ export default {
   }
 }
 
-.invoke-panel {
-  padding-left: 20px;
-  padding-top: 10px;
+.editor {
+  margin-top: 10px;
+  border: 1px dashed gray;
+  margin-left: 2px;
   width: 100%;
-  height: calc(90vh);
-  padding-bottom: 20px;
-  overflow-y: scroll;
-  overflow-x: hidden;
+  height: 400px;
+}
 
-  .title {
-    font-weight: bold;
+.invoke-result {
+  margin-top: 20px;
 
-    span {
-      font-weight: normal;
-      color: gray;
-    }
-  }
-
-  .editor {
+  .logs {
     margin-top: 10px;
-    border: 1px dashed gray;
-    margin-left: 2px;
-    width: 100%;
+    padding: 10px;
+    padding-left: 20px;
+    background: rgba(233, 243, 221, 0.472);
+    border-radius: 10px;
+    overflow-x: auto;
   }
 
-  .invoke-result {
-    margin-top: 20px;
-
-    .logs {
-      margin-top: 10px;
-      padding: 10px;
-      padding-left: 20px;
-      background: rgba(233, 243, 221, 0.472);
-      border-radius: 10px;
-      overflow-x: auto;
-    }
-
-    .result {
-      margin-top: 10px;
-      padding: 16px;
-      background: rgba(233, 243, 221, 0.472);
-      border-radius: 10px;
-      overflow-x: auto;
-    }
+  .result {
+    margin-top: 10px;
+    padding: 16px;
+    background: rgba(233, 243, 221, 0.472);
+    border-radius: 10px;
+    overflow-x: auto;
   }
 }
 </style>

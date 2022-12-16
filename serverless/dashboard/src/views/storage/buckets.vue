@@ -71,8 +71,8 @@
 
     <!-- 表单对话框 -->
     <el-dialog width="600px" :title="textMap[dialogStatus]" :visible.sync="dialogFormVisible">
-      <el-form ref="dataForm" :rules="rules" :model="form" label-position="left" label-width="100px"
-        style="width: 400px; margin-left:50px;">
+      <el-form ref="dataForm" :rules="rules" :model="form" label-position="left" label-width="80px"
+        style="max-width: 400px; min-width: 200px; margin-left:10px;">
         <el-form-item label="文件桶名" prop="name">
           <el-input v-model="form.name" :disabled="dialogStatus === 'update'" placeholder="唯一标识">
             <template #prepend>
@@ -89,7 +89,7 @@
         </el-form-item>
         <el-form-item label="容量" prop="quota">
           <el-input v-model.number="form.quota" type="number" :step="1" :min="1"
-            oninput="value=value.replace(/[^0-9]/g,'')" style="width: 140px;" placeholder="容量，单位：GB">
+            oninput="value=value.replace(/[^0-9]/g,'')" style="width: 130px;" placeholder="容量，单位：GB">
             <template slot="append">GB</template>
           </el-input>
           <span> 总容量 {{ totalQuota }} GB，剩余 {{ freeQuota }} GB</span>
@@ -106,7 +106,6 @@
     </el-dialog>
 
     <el-dialog width="800px" title="服务账号" :visible.sync="dialogACFormVisible">
-
       <el-form label-position="left" label-width="120px" style="width: 600px; margin-left:50px;">
         <el-alert title="服务账号只会显示一次，请自行保存" type="error" :closable="false" />
         <br>
