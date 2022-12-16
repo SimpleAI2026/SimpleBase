@@ -112,7 +112,7 @@ export async function removeApplication(appid) {
 export async function inviteCollaborator(member_id, roles) {
   const appid = store.state.app.appid
   const res = await request({
-    url: `/sys-api/apps/${appid}/invite`,
+    url: `/api/CollaboratorsInvite?appid=${appid}`,
     method: 'post',
     data: {
       member_id,
@@ -139,7 +139,7 @@ export function getAllApplicationRoles() {
  */
 export function searchUserByUsername(username) {
   return request({
-    url: '/sys-api/apps/collaborators/search',
+    url: `/api/CollaboratorsSearch?username=${username}`,
     method: 'post',
     data: {
       username

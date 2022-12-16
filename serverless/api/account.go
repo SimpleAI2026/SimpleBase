@@ -40,7 +40,18 @@ func AccountSignup(c server.Context) interface{} {
 func CollaboratorsList(c server.Context) interface{} {
 	code := 0
 	message := emptyString
-	data := []interface{}{}
+	data := []interface{}{
+		map[string]interface{}{
+			"uid": "1111",
+			"user": map[string]interface{}{
+				"username": "111",
+				"name":     "1111",
+			},
+			"roles": []interface{}{
+				"FunctionReadyOnly",
+			},
+		},
+	}
 
 	return CommonResp(code, message, data)
 }
@@ -109,4 +120,23 @@ func CollaboratorsRoles(c server.Context) interface{} {
 	}
 
 	return CommonResp(code, message, data)
+}
+
+func CollaboratorsSearch(c server.Context) interface{} {
+	code := 0
+	message := emptyString
+	data := map[string]interface{}{
+		"uid":      "1111",
+		"username": "111",
+		"name":     "1111",
+	}
+
+	return CommonResp(code, message, data)
+}
+
+func CollaboratorsInvite(c server.Context) interface{} {
+	code := 0
+	message := emptyString
+
+	return CommonResp(code, message, nil)
 }

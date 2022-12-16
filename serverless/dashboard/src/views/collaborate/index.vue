@@ -2,8 +2,8 @@
   <div class="app-container">
     <el-button type="default" @click="loadCollaborators" size="mini" icon="el-icon-refresh">刷新</el-button>
     <el-button type="primary" @click="showAddForm" size="mini">添加协作者</el-button>
-    <el-table :data="collaborators" style="width: 100%;margin-top:20px;" border>
-      <el-table-column align="center" label="ID" width="220">
+    <el-table :data="collaborators" style="width:100%;margin-top:10px;" border>
+      <el-table-column align="center" label="ID" max-width="220" min-width="110">
         <template slot-scope="scope">
           {{ scope.row.uid }}
         </template>
@@ -36,10 +36,10 @@
 
     <!-- 表单对话框 -->
     <el-dialog :visible.sync="dialogVisible" title="协作者">
-      <el-form v-loading="loading" :model="form" label-width="100px" label-position="left">
+      <el-form v-loading="loading" :model="form" label-width="60px" label-position="left">
         <el-form-item label="用户名">
-          <el-input v-model="form.username" style="width: 300px;" placeholder="请输入对方用户名" />
-          <el-button plain type="primary" style="margin-left: 10px;" size="medium" @click="search">搜索</el-button>
+          <el-input v-model="form.username" style="max-width: 300px;min-width: 100px;" placeholder="请输入对方用户名" />
+          <el-button type="primary" style="margin: 2px;" size="medium" @click="search">搜索</el-button>
         </el-form-item>
         <el-form-item v-if="form.user" label="用户">
           {{ form.user.name }} ({{ form.user.username }})
@@ -90,23 +90,18 @@ export default {
   methods: {
     async getRoles() {
       this.loading = true
-      const res = await getAllApplicationRoles()
-        .finally(() => { this.loading = false })
-
+      const res = await getAllApplicationRoles().finally(() => { this.loading = false })
       this.roles = res.data
     },
     async loadCollaborators() {
       this.loading = true
-      const res = await getCollaborators()
-        .finally(() => { this.loading = false })
-
+      const res = await getCollaborators().finally(() => { this.loading = false })
       this.collaborators = res.data
     },
     async search() {
       this.loading = true
       if (!this.form.username) { return }
-      const res = await searchUserByUsername(this.form.username)
-        .finally(() => { this.loading = false })
+      const res = await searchUserByUsername(this.form.username).finally(() => { this.loading = false })
       if (!res.data) { return showInfo('无此用户') }
       this.form.user = res.data
     },
@@ -128,8 +123,7 @@ export default {
       if (exists.length) { return showError('协作者已经存在') }
 
       this.loading = true
-      const res = await inviteCollaborator(this.form.user?._id, this.form.roles)
-        .finally(() => { this.loading = false })
+      const res = await inviteCollaborator(this.form.user?._id, this.form.roles).finally(() => { this.loading = false })
 
       if (res.error) { return showError(res.error) }
       this.$message.success('操作成功')
@@ -141,8 +135,7 @@ export default {
       const uid = row.uid
 
       this.loading = true
-      const res = await removeCollaborator(uid)
-        .finally(() => { this.loading = false })
+      const res = await removeCollaborator(uid).finally(() => { this.loading = false })
 
       if (res.error) showError('出错了:' + res.error)
       showSuccess('操作成功')
