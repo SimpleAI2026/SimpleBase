@@ -49,10 +49,15 @@ var importPkgs = map[string][]string{
 	"github.com/linkxzhou/gongx/packages/server": []string{},
 }
 
+const (
+	tab1Str = `	`
+	tab3Str = `			`
+)
+
 func builtinImportPkgs() error {
 	var builtinStr = ""
 	var importStr = ""
-	for path, _ := range importPkgs {
+	for path := range importPkgs {
 		pkg, err := importer.ForCompiler(token.NewFileSet(), "source", nil).Import(path)
 		if err != nil {
 			fmt.Println("err: ", err)
@@ -62,7 +67,7 @@ func builtinImportPkgs() error {
 		namedTypes := ""
 		vars := ""
 		funcs := ""
-		importStr += "\n" + `"` + path + `"`
+		importStr += "\n" + tab1Str + `"` + path + `"`
 		pkgName := path
 		if arr := strings.Split(pkgName, "/"); len(arr) > 0 {
 			pkgName = arr[len(arr)-1]
@@ -73,36 +78,42 @@ func builtinImportPkgs() error {
 				name := fmt.Sprintf("%s.%s", object.Pkg().Name(), object.Name())
 				switch object.(type) {
 				case *types.TypeName:
-					namedTypes = namedTypes + fmt.Sprintf(`"%s": reflect.TypeOf(func(%s){}).In(0),`+"\n", object.Name(), name)
+					namedTypes = namedTypes + fmt.Sprintf(tab3Str+`"%s": reflect.TypeOf(func(%s){}).In(0),`+"\n", object.Name(), name)
 				case *types.Const:
 					// TODO: fix by linkxzhou
 				case *types.Var:
 					switch object.Type().Underlying().(type) {
 					case *types.Interface:
 						if !strings.Contains(object.Type().String(), "/") {
-							vars = vars + fmt.Sprintf(`"%s": reflect.ValueOf(func (%s){}),`+"\n", object.Name(), object.Type().String())
+							vars = vars + fmt.Sprintf(tab3Str+`"%s": reflect.ValueOf(func (%s){}),`+"\n", object.Name(), object.Type().String())
 						}
 					default:
-						vars = vars + fmt.Sprintf(`"%s": reflect.ValueOf(%s),`+"\n", object.Name(), name)
+						vars = vars + fmt.Sprintf(tab3Str+`"%s": reflect.ValueOf(%s),`+"\n", object.Name(), name)
 					}
 				case *types.Func:
-					funcs = funcs + fmt.Sprintf(`"%s": reflect.ValueOf(%s),`+"\n", object.Name(), name)
+					funcs = funcs + fmt.Sprintf(tab3Str+`"%s": reflect.ValueOf(%s),`+"\n", object.Name(), name)
 				}
 			}
 		}
 		builtinStr += `
-		RegisterPackage(&Package{
-			Name:       "` + pkgName + `",
-			Path:       "` + path + `",
-			Deps:       make(map[string]string),
-			Interfaces: map[string]reflect.Type{},
-			NamedTypes: map[string]reflect.Type{` + namedTypes + `},
-			AliasTypes: map[string]reflect.Type{},
-			Vars:       map[string]reflect.Value{` + vars + `},
-			Funcs: map[string]reflect.Value{` + funcs + `},
-			TypedConsts:   map[string]TypedConst{},
-			UntypedConsts: map[string]UntypedConst{},
-		})
+	RegisterPackage(&Package{
+		Name:       "` + pkgName + `",
+		Path:       "` + path + `",
+		Deps:       make(map[string]string),
+		Interfaces: map[string]reflect.Type{},
+		NamedTypes: map[string]reflect.Type{
+` + namedTypes + `
+		},
+		AliasTypes: map[string]reflect.Type{},
+		Vars:       map[string]reflect.Value{
+` + vars + `
+		},
+		Funcs: map[string]reflect.Value{
+` + funcs + `
+		},
+		TypedConsts:   map[string]TypedConst{},
+		UntypedConsts: map[string]UntypedConst{},
+	})
 		`
 	}
 	fmt.Println(`

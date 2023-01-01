@@ -11,7 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/linkxzhou/gongx/interp_go/loader"
+	"github.com/linkxzhou/gongx/interp/go/loader"
 	"github.com/visualfc/xtype"
 	"golang.org/x/tools/go/ssa"
 )

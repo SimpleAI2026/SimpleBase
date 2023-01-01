@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/linkxzhou/gongx/interp_go/loader"
+	"github.com/linkxzhou/gongx/interp/go/loader"
 	"github.com/petermattis/goid"
 	"golang.org/x/tools/go/ssa"
 )

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/linkxzhou/gongx/interp/go/loader"
 	"github.com/linkxzhou/gongx/interp_go"
-	"github.com/linkxzhou/gongx/interp_go/loader"
 	"github.com/linkxzhou/gongx/packages/server"
 )
 
@@ -23,7 +23,7 @@ func apiServer() {
 	app := server.New()
 	for path, initApiV := range initApiMap {
 		iv := initApiV
-		app.Any(path + "/:fn", func(c server.Context) error {
+		app.Any(path+"/:fn", func(c server.Context) error {
 			fn := c.Param("fn")
 			result, err := iv.RunAny(fn, c)
 			if err != nil {

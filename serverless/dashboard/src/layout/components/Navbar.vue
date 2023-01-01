@@ -40,14 +40,12 @@
 </template>
 
 <script>
-import Screenfull from '@/components/Screenfull'
+import variables from '@/styles/element-variables.scss'
 import { getCurrentAppid } from '@/api/index'
 import { __isMobile } from '@/utils/index'
 
 export default {
-  components: {
-    Screenfull
-  },
+  components: {},
   props: {
     hideTags: {
       type: Boolean,
@@ -138,6 +136,7 @@ export default {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      color: #4f5959;
     }
   }
 

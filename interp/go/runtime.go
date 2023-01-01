@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/linkxzhou/gongx/interp_go/ctype"
+	"github.com/linkxzhou/gongx/interp/go/ctype"
 	"golang.org/x/tools/go/ssa"
 )
 

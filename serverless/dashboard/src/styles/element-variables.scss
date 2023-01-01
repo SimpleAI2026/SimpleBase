@@ -12,7 +12,10 @@ $--color-danger: #ff4949;
 
 $--button-font-weight: 400;
 
-// $--color-text-regular: #1f2d3d;
+$--color-text-primary: #4f5959 !default;
+$--color-text-regular: #4f5959;
+$--color-text-secondary: #4f5959 !default;
+$--color-text-placeholder: #4f5959 !default;
 
 $--border-color-light: #dfe4ed;
 $--border-color-lighter: #e6ebf5;

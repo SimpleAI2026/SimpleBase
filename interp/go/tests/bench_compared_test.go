@@ -6,8 +6,8 @@ import (
 
 	luaNew "github.com/Shopify/go-lua"
 	"github.com/dop251/goja"
+	"github.com/linkxzhou/gongx/interp/go/loader"
 	"github.com/linkxzhou/gongx/interp_go"
-	"github.com/linkxzhou/gongx/interp_go/loader"
 	lua "github.com/yuin/gopher-lua"
 )
 

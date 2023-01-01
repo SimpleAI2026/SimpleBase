@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/linkxzhou/gongx/interp/go/loader"
 	"github.com/linkxzhou/gongx/interp_go"
-	"github.com/linkxzhou/gongx/interp_go/loader"
 	"github.com/linkxzhou/gongx/packages/log"
 	"github.com/linkxzhou/gongx/packages/server"
 )

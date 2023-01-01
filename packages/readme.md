@@ -7,8 +7,11 @@ github.com/upper/db
 
 sqlite: go get github.com/upper/db/v4/adapter/sqlite
 
+https://github.com/cch123/elasticsql
+
 # oauth2.0
 https://github.com/openshift/osin
+https://github.com/pocketbase/pocketbase
 
 # oss存储
 支持s3，aliyun，腾讯云等产品

@@ -444,7 +444,6 @@ export default {
 }
 
 .app-group-title {
-  color: rgb(85, 83, 83);
   padding: 10px;
 }
 </style>

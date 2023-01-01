@@ -10,7 +10,7 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/linkxzhou/gongx/interp_go/loader"
+	"github.com/linkxzhou/gongx/interp/go/loader"
 	"github.com/linkxzhou/gongx/packages/log"
 )
 
