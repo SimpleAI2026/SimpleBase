@@ -5,17 +5,17 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/linkxzhou/gongx/goscript"
 	"github.com/linkxzhou/gongx/interp/go/loader"
-	"github.com/linkxzhou/gongx/interp_go"
 	"github.com/linkxzhou/gongx/packages/server"
 )
 
-var initDirInterp *interp_go.Interp
+var initDirInterp *goscript.Interp
 var interpcDir = loader.NewContext(loader.EnableDumpImports)
 var rootPath = "tests/"
 
 func initDir() {
-	initDirInterp, _ = interp_go.LoadDirWithCache(interpcDir, rootPath)
+	initDirInterp, _ = goscript.LoadDirWithCache(interpcDir, rootPath)
 }
 
 func TestServerGodir(t *testing.T) {

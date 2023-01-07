@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/linkxzhou/gongx/interp/go/loader"
+	"github.com/linkxzhou/gongx/interp/goscript/loader"
 )
 
 func Test_LoadFileMain(t *testing.T) {

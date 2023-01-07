@@ -1,28 +1,31 @@
-package interp_go
+package loader
 
 import (
 	"fmt"
 	"go/token"
 	"go/types"
-	"log"
 	"reflect"
 	"strconv"
 	"unsafe"
 
 	"github.com/goplus/reflectx"
-	"github.com/linkxzhou/gongx/interp/go/loader"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
 var (
-	tyEmptyStruct = reflect.TypeOf((*struct{})(nil)).Elem()
-	tyEmptyPtr    = reflect.TypeOf((*struct{})(nil))
-	tyEmptyMap    = reflect.TypeOf((*map[struct{}]struct{})(nil)).Elem()
-	tyEmptySlice  = reflect.TypeOf((*[]struct{})(nil)).Elem()
-	tyEmptyArray  = reflect.TypeOf((*[0]struct{})(nil)).Elem()
-	tyEmptyChan   = reflect.TypeOf((*chan struct{})(nil)).Elem()
-	tyEmptyFunc   = reflect.TypeOf((*func())(nil)).Elem()
+	typesDummyStruct    = types.NewStruct(nil, nil)
+	typesDummySig       = types.NewSignature(nil, nil, nil, false)
+	typesDummySlice     = types.NewSlice(typesDummyStruct)
+	typesError          = types.Universe.Lookup("error").Type()
+	typesEmptyInterface = types.NewInterfaceType(nil, nil)
+	typesEmptyFunc      = reflect.TypeOf((*func())(nil)).Elem()
+	typesEmptyStruct    = reflect.TypeOf((*struct{})(nil)).Elem()
+	typesEmptyPtr       = reflect.TypeOf((*struct{})(nil))
+	typesEmptyMap       = reflect.TypeOf((*map[struct{}]struct{})(nil)).Elem()
+	typesEmptySlice     = reflect.TypeOf((*[]struct{})(nil)).Elem()
+	typesEmptyArray     = reflect.TypeOf((*[0]struct{})(nil)).Elem()
+	typesEmptyChan      = reflect.TypeOf((*chan struct{})(nil)).Elem()
 )
 
 /*
@@ -41,21 +44,21 @@ var (
 func emptyType(kind reflect.Kind) reflect.Type {
 	switch kind {
 	case reflect.Array:
-		return tyEmptyArray
+		return typesEmptyArray
 	case reflect.Chan:
-		return tyEmptyChan
+		return typesEmptyChan
 	case reflect.Func:
-		return tyEmptyFunc
+		return typesEmptyFunc
 	case reflect.Interface:
-		return loader.TypesEmptyInterfaceV2
+		return TypesEmptyInterfaceV2
 	case reflect.Map:
-		return tyEmptyMap
+		return typesEmptyMap
 	case reflect.Ptr:
-		return tyEmptyPtr
+		return typesEmptyPtr
 	case reflect.Slice:
-		return tyEmptySlice
+		return typesEmptySlice
 	case reflect.Struct:
-		return tyEmptyStruct
+		return typesEmptyStruct
 	default:
 		return xtypeTypes[kind]
 	}
@@ -70,16 +73,16 @@ func toMockType(typ types.Type) reflect.Type {
 		}
 		panic(fmt.Errorf("toMockType: invalid type %v", typ))
 	case *types.Pointer:
-		return tyEmptyPtr
+		return typesEmptyPtr
 	case *types.Slice:
-		return tyEmptySlice
+		return typesEmptySlice
 	case *types.Array:
 		e := toMockType(t.Elem())
 		return reflect.ArrayOf(int(t.Len()), e)
 	case *types.Map:
-		return tyEmptyMap
+		return typesEmptyMap
 	case *types.Chan:
-		return tyEmptyChan
+		return typesEmptyChan
 	case *types.Struct:
 		n := t.NumFields()
 		fs := make([]reflect.StructField, n)
@@ -93,28 +96,28 @@ func toMockType(typ types.Type) reflect.Type {
 	case *types.Named:
 		return toMockType(typ.Underlying())
 	case *types.Interface:
-		return loader.TypesEmptyInterfaceV2
+		return TypesEmptyInterfaceV2
 	case *types.Signature:
 		in := t.Params().Len()
 		out := t.Results().Len()
 		if in+out == 0 {
-			return tyEmptyFunc
+			return typesEmptyFunc
 		}
 		ins := make([]reflect.Type, in)
 		outs := make([]reflect.Type, out)
 		variadic := t.Variadic()
 		if variadic {
 			for i := 0; i < in-1; i++ {
-				ins[i] = tyEmptyStruct
+				ins[i] = typesEmptyStruct
 			}
-			ins[in-1] = tyEmptySlice
+			ins[in-1] = typesEmptySlice
 		} else {
 			for i := 0; i < in; i++ {
-				ins[i] = tyEmptyStruct
+				ins[i] = typesEmptyStruct
 			}
 		}
 		for i := 0; i < out; i++ {
-			outs[i] = tyEmptyStruct
+			outs[i] = typesEmptyStruct
 		}
 		return reflect.FuncOf(ins, outs, variadic)
 	default:
@@ -155,13 +158,13 @@ type FindMethod interface {
 }
 
 type TypesRecord struct {
-	loader loader.Loader
+	loader Loader
 	finder FindMethod
 	rcache map[reflect.Type]types.Type
 	tcache *typeutil.Map
 }
 
-func NewTypesRecord(loader loader.Loader, finder FindMethod) *TypesRecord {
+func NewTypesRecord(loader Loader, finder FindMethod) *TypesRecord {
 	return &TypesRecord{
 		loader: loader,
 		finder: finder,
@@ -257,7 +260,7 @@ type _tuple struct{}
 func (r *TypesRecord) toInterfaceType(t *types.Interface) reflect.Type {
 	n := t.NumMethods()
 	if n == 0 {
-		return loader.TypesEmptyInterfaceV2
+		return TypesEmptyInterfaceV2
 	}
 	ms := make([]reflect.Method, n)
 	for i := 0; i < n; i++ {
@@ -279,7 +282,7 @@ func (r *TypesRecord) toNamedType(t *types.Named) reflect.Type {
 	name := t.Obj()
 	if name.Pkg() == nil {
 		if name.Name() == "error" {
-			return loader.TypesErrorInterfaceV2
+			return TypesErrorInterfaceV2
 		}
 		return r.ToType(ut)
 	}
@@ -317,7 +320,7 @@ func (r *TypesRecord) toNamedType(t *types.Named) reflect.Type {
 func (r *TypesRecord) toStructType(t *types.Struct) reflect.Type {
 	n := t.NumFields()
 	if n == 0 {
-		return tyEmptyStruct
+		return typesEmptyStruct
 	}
 	flds := make([]reflect.StructField, n)
 	for i := 0; i < n; i++ {
@@ -373,7 +376,7 @@ func isPointer(typ types.Type) bool {
 	return ok
 }
 
-func (r *TypesRecord) setMethods(typ reflect.Type, methods []*types.Selection) {
+func (r *TypesRecord) setMethods(typ reflect.Type, methods []*types.Selection) error {
 	numMethods := len(methods)
 	var ms []reflectx.Method
 	for i := 0; i < numMethods; i++ {
@@ -417,10 +420,7 @@ func (r *TypesRecord) setMethods(typ reflect.Type, methods []*types.Selection) {
 		}
 		ms = append(ms, reflectx.MakeMethod(fn.Name(), pkgpath, pointer, mtyp, mfn))
 	}
-	err := reflectx.SetMethodSet(typ, ms, false)
-	if err != nil {
-		log.Fatalf("SetMethodSet %v err, %v\n", typ, err)
-	}
+	return reflectx.SetMethodSet(typ, ms, false)
 }
 
 func toReflectChanDir(d types.ChanDir) reflect.ChanDir {

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/linkxzhou/gongx/goscript"
 	"github.com/linkxzhou/gongx/interp/go/loader"
-	"github.com/linkxzhou/gongx/interp_go"
 	"github.com/linkxzhou/gongx/packages/log"
 	"github.com/linkxzhou/gongx/packages/server"
 )
@@ -30,7 +30,7 @@ func TestServerHttp(t *testing.T) {
 
 	app.GET("/", func(c server.Context) error {
 		log.Info("========= RealIP: ", c.RealIP())
-		iv1, err1 := interp_go.LoadFileWithCache(interpc, "__main__.go", sources)
+		iv1, err1 := goscript.LoadFileWithCache(interpc, "__main__.go", sources)
 		fmt.Println("NewInterp err: ", err1, ", iv1: ", iv1)
 		if err1 != nil {
 			return c.String(http.StatusBadRequest, "Hello, World![1]")

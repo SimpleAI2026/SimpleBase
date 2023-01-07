@@ -1,10 +1,10 @@
-package interp_go
+package goscript
 
 import (
 	"reflect"
 
 	"github.com/visualfc/xtype"
-	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/goscript/ssa"
 )
 
 func makeBinOpADD(pfn *function, instr *ssa.BinOp) func(vm *goVm) {

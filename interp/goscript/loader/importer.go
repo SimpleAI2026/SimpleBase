@@ -49,7 +49,7 @@ func (i *Importer) Import(path string) (*types.Package, error) {
 	return nil, ErrNotFoundPackage
 }
 
-// RegisterPackage register pkg
+// RegisterPackage register pkg from gen_packages
 func RegisterPackage(pkg *Package) {
 	if p, ok := registerPkgs[pkg.Path]; ok {
 		p.merge(pkg)

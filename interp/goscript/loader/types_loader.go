@@ -10,19 +10,11 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/linkxzhou/gongx/packages/log"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
 var (
 	xtypeTypeNames = make(map[string]*types.Basic)
-
-	TypesDummyStruct    = types.NewStruct(nil, nil)
-	TypesDummySig       = types.NewSignature(nil, nil, nil, false)
-	TypesDummySlice     = types.NewSlice(TypesDummyStruct)
-	TypesError          = types.Universe.Lookup("error").Type()
-	TypesEmptyInterface = types.NewInterfaceType(nil, nil)
-	TypesEmptyFunc      = reflect.TypeOf((*func())(nil)).Elem()
 
 	TypesEmptyInterfaceV2 = reflect.TypeOf((*interface{})(nil)).Elem()
 	TypesErrorInterfaceV2 = reflect.TypeOf((*error)(nil)).Elem()
@@ -66,8 +58,8 @@ func NewTypesLoader(mode Mode) Loader {
 		mode:      mode,
 	}
 	r.packages["unsafe"] = types.Unsafe
-	r.rcache[TypesErrorInterfaceV2] = TypesError
-	r.rcache[TypesEmptyInterfaceV2] = TypesEmptyInterface
+	r.rcache[TypesErrorInterfaceV2] = typesError
+	r.rcache[TypesEmptyInterfaceV2] = typesEmptyInterface
 	r.importer = importer.Default()
 	return r
 }
@@ -129,7 +121,6 @@ func (r *TypesLoader) Import(path string) (*types.Package, error) {
 		r.Import(dep)
 	}
 	if err := r.installPackage(pkg); err != nil {
-		log.Error("installPackage err: ", err)
 		return nil, err
 	}
 	var list []*types.Package
@@ -146,7 +137,6 @@ func (r *TypesLoader) Import(path string) (*types.Package, error) {
 func (r *TypesLoader) installPackage(pkg *Package) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
-			log.Error("recover e: ", e)
 			err = e.(error)
 		}
 		r.curpkg = nil
@@ -319,16 +309,16 @@ func (r *TypesLoader) toFunc(pkg *types.Package, rt reflect.Type) *types.Signatu
 	variadic := rt.IsVariadic()
 	if variadic {
 		for i := 0; i < numIn-1; i++ {
-			in[i] = types.NewVar(token.NoPos, pkg, "", TypesDummyStruct)
+			in[i] = types.NewVar(token.NoPos, pkg, "", typesDummyStruct)
 		}
-		in[numIn-1] = types.NewVar(token.NoPos, pkg, "", TypesDummySlice)
+		in[numIn-1] = types.NewVar(token.NoPos, pkg, "", typesDummySlice)
 	} else {
 		for i := 0; i < numIn; i++ {
-			in[i] = types.NewVar(token.NoPos, pkg, "", TypesDummyStruct)
+			in[i] = types.NewVar(token.NoPos, pkg, "", typesDummyStruct)
 		}
 	}
 	for i := 0; i < numOut; i++ {
-		out[i] = types.NewVar(token.NoPos, pkg, "", TypesDummyStruct)
+		out[i] = types.NewVar(token.NoPos, pkg, "", typesDummyStruct)
 	}
 	typ := types.NewSignature(nil, types.NewTuple(in...), types.NewTuple(out...), variadic)
 	r.rcache[rt] = typ
@@ -412,7 +402,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 		if !isNamed {
 			typ = r.toMethod(nil, nil, 0, rt)
 		} else {
-			typ = TypesDummySig
+			typ = typesDummySig
 		}
 	case reflect.Interface:
 		n := rt.NumMethod()
@@ -420,7 +410,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 		pkg := r.GetPackage(rt.PkgPath())
 		for i := 0; i < n; i++ {
 			im := rt.Method(i)
-			imethods[i] = types.NewFunc(token.NoPos, pkg, im.Name, TypesDummySig)
+			imethods[i] = types.NewFunc(token.NoPos, pkg, im.Name, typesDummySig)
 		}
 		typ = types.NewInterfaceType(imethods, nil)
 	case reflect.Map:
@@ -495,7 +485,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 				if im.Type != nil {
 					sig = r.toMethod(pkg, recv, 1, im.Type)
 				} else {
-					sig = r.toMethod(pkg, recv, 0, TypesEmptyFunc)
+					sig = r.toMethod(pkg, recv, 0, typesEmptyFunc)
 				}
 				skip[im.Name] = true
 				named.AddMethod(types.NewFunc(token.NoPos, pkg, im.Name, sig))
@@ -511,7 +501,7 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 				if im.Type != nil {
 					sig = r.toMethod(pkg, precv, 1, im.Type)
 				} else {
-					sig = r.toMethod(pkg, precv, 0, TypesEmptyFunc)
+					sig = r.toMethod(pkg, precv, 0, typesEmptyFunc)
 				}
 				named.AddMethod(types.NewFunc(token.NoPos, pkg, im.Name, sig))
 			}

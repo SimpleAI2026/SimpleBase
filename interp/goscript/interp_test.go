@@ -1,10 +1,10 @@
-package interp_go
+package goscript
 
 import (
 	"fmt"
 	"testing"
 
-	"github.com/linkxzhou/gongx/interp/go/loader"
+	"github.com/linkxzhou/gongx/interp/goscript/loader"
 )
 
 func TestNewInterp(t *testing.T) {
@@ -23,7 +23,7 @@ func TestNewInterp(t *testing.T) {
 	func test(i int) int {
 		return fib(i)
 	}
-	
+
 	func main() {
 		fmt.Println("====", test(37))
 	}
@@ -46,7 +46,7 @@ func TestNewInterpAny(t *testing.T) {
 			return i
 		}
 		return fib(i - 1) + fib(i - 2)
-	}	
+	}
 	`
 	c := loader.NewContext(loader.EnableDumpImports)
 	p, err := c.LoadFile("__main__.go", sources)

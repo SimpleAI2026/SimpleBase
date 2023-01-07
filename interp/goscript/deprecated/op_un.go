@@ -1,4 +1,4 @@
-package interp_go
+package goscript
 
 import (
 	"reflect"
@@ -320,6 +320,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 	}
 	panic("unreachable")
 }
+
 func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)

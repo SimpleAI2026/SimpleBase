@@ -58,6 +58,8 @@ const (
 	tokenEngine                     // ENGINE
 	tokenLSM                        // LSM
 	tokenBPTree                     // B+ tree
+	tokenBlockStart                 // '{'
+	tokenBlockEnd                   // '}'
 )
 
 var tokenToString = map[tokenType]string{
@@ -272,7 +274,6 @@ func lexString(l *lexer) lexFunc {
 	switch r {
 	case '"':
 		l.produce(tokenString)
-
 		return lexStatement
 	case end:
 		return l.errorf("expected \"")

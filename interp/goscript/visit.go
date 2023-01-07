@@ -1,10 +1,10 @@
-package interp_go
+package goscript
 
 import (
 	"fmt"
 	"reflect"
 
-	"github.com/linkxzhou/gongx/interp/go/loader"
+	"github.com/linkxzhou/gongx/interp/goscript/loader"
 	"golang.org/x/tools/go/ssa"
 )
 

@@ -1,4 +1,4 @@
-package interp_go
+package goscript
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/linkxzhou/gongx/interp/go/ctype"
+	"github.com/linkxzhou/gongx/interp/goscript/ctype"
 	"golang.org/x/tools/go/ssa"
 )
 

@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/linkxzhou/gongx/goscript"
 	"github.com/linkxzhou/gongx/interp/go/loader"
-	"github.com/linkxzhou/gongx/interp_go"
 	"github.com/linkxzhou/gongx/packages/log"
 	"github.com/linkxzhou/gongx/packages/server"
 )
 
-var initFileMap = make(map[string]*interp_go.Interp, 0)
+var initFileMap = make(map[string]*goscript.Interp, 0)
 var interpc = loader.NewContext(loader.EnableDumpImports)
 
 func initFileList() {
@@ -24,7 +24,7 @@ func initFileList() {
 	for _, file := range files {
 		fileName := rootPath + file.Name()
 		if s, err := ioutil.ReadFile(rootPath + file.Name()); err == nil {
-			initFileMap["/"+fileName], err = interp_go.LoadFileWithCache(interpc, fileName, string(s))
+			initFileMap["/"+fileName], err = goscript.LoadFileWithCache(interpc, fileName, string(s))
 			fmt.Println("fileName: ", fileName, ", err: ", err)
 		}
 	}

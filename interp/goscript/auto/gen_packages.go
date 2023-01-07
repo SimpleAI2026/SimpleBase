@@ -54,7 +54,7 @@ const (
 	tab3Str = `			`
 )
 
-func builtinImportPkgs() error {
+func generateImportPkgs() error {
 	var builtinStr = ""
 	var importStr = ""
 	for path := range importPkgs {
@@ -116,7 +116,9 @@ func builtinImportPkgs() error {
 	})
 		`
 	}
+
 	fmt.Println(`
+// This is generate file
 package loader
 
 import (
@@ -128,9 +130,6 @@ func init() {
 	` + builtinStr + `
 }
 	`)
-	return nil
-}
 
-func main() {
-	builtinImportPkgs()
+	return nil
 }

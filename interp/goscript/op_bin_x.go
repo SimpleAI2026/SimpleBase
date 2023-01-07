@@ -1,4 +1,4 @@
-package interp_go
+package goscript
 
 import (
 	"reflect"

@@ -1,4 +1,4 @@
-package interp_go
+package goscript
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/linkxzhou/gongx/interp/go/loader"
+	"github.com/linkxzhou/gongx/interp/goscript/loader"
 	"github.com/visualfc/xtype"
 	"golang.org/x/tools/go/ssa"
 )
@@ -298,6 +298,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(vm *go
 		case token.AND_NOT:
 			return makeBinOpANDNOT(pfn, instr)
 		case token.LSS:
+			fmt.Println("instr: ", instr.String())
 			return makeBinOpLSS(pfn, instr)
 		case token.LEQ:
 			return makeBinOpLEQ(pfn, instr)

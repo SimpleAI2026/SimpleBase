@@ -1,4 +1,4 @@
-package gosqlparser
+package sqlschema
 
 import (
 	"fmt"

@@ -4,18 +4,18 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/linkxzhou/gongx/goscript"
 	"github.com/linkxzhou/gongx/interp/go/loader"
-	"github.com/linkxzhou/gongx/interp_go"
 	"github.com/linkxzhou/gongx/packages/server"
 )
 
-var initApiMap = make(map[string]*interp_go.Interp, 0)
+var initApiMap = make(map[string]*goscript.Interp, 0)
 var interpc = loader.NewContext(loader.EnableDumpImports)
 var rootPathList = []string{"api"}
 
 func init() {
 	for _, path := range rootPathList {
-		initApiMap[path], _ = interp_go.LoadDirWithCache(interpc, path)
+		initApiMap[path], _ = goscript.LoadDirWithCache(interpc, path)
 	}
 }
 

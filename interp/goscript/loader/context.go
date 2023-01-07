@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/linkxzhou/gongx/packages/log"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -42,9 +41,10 @@ type Context struct {
 	ParserMode  parser.Mode     // parser mode
 	BuilderMode ssa.BuilderMode // ssa builder mode
 
-	pkgs map[string]*sourcePackage // imports
-	conf *types.Config             // types check config
-	root string                    // project root
+	pkgs      map[string]*sourcePackage // imports
+	conf      *types.Config             // types check config
+	root      string                    // project root
+	isLoadPkg map[*types.Package]bool
 }
 
 func (ctx *Context) setRoot(root string) {
@@ -85,9 +85,10 @@ func NewContext(mode Mode) *Context {
 		ParserMode:   parser.AllErrors,
 		BuilderMode:  0, // ssa.SanityCheckFunctions
 		BuildContext: build.Default,
-		pkgs:         make(map[string]*sourcePackage),
 		Override:     make(map[string]reflect.Value),
 		CallForPool:  64,
+		pkgs:         make(map[string]*sourcePackage),
+		isLoadPkg:    make(map[*types.Package]bool),
 	}
 	if mode&EnableDumpInstr != 0 {
 		ctx.BuilderMode |= ssa.PrintFunctions
@@ -187,6 +188,42 @@ func (ctx *Context) loadPackage(bp *build.Package, pkgPath, dir string) (*source
 	return sp, nil
 }
 
+func (ctx *Context) loadPackageFunc(pkgs []*types.Package, prog *ssa.Program) {
+	for _, p := range pkgs {
+		if !ctx.isLoadPkg[p] {
+			ctx.isLoadPkg[p] = true
+			ctx.loadPackageFunc(p.Imports(), prog)
+			var typesInfo *types.Info = nil
+			var pkgFiles []*ast.File = nil
+			if pkg, ok := ctx.pkgs[p.Path()]; ok {
+				if ctx.Mode&EnableDumpImports != 0 {
+					if pkg.Dir != "" {
+						fmt.Println("# package", p.Path(), pkg.Dir)
+					} else {
+						fmt.Println("# package", p.Path(), "<memory>")
+					}
+				}
+				pkgFiles = pkg.Files
+				typesInfo = pkg.Info
+			} else {
+				var indirect bool
+				if !p.Complete() {
+					indirect = true
+					p.MarkComplete()
+				}
+				if ctx.Mode&EnableDumpImports != 0 {
+					if indirect {
+						fmt.Println("# virtual", p.Path())
+					} else {
+						fmt.Println("# builtin", p.Path())
+					}
+				}
+			}
+			prog.CreatePackage(p, pkgFiles, typesInfo, true).Build()
+		}
+	}
+}
+
 func (ctx *Context) LoadFile(filename string, src interface{}) (*ssa.Package, error) {
 	file, err := parser.ParseFile(ctx.FileSet, filename, src, ctx.ParserMode)
 	if err != nil {
@@ -220,7 +257,6 @@ func (ctx *Context) LoadAstFiles(pkgPath string, file ...*ast.File) (*ssa.Packag
 		Files:   files,
 	}
 	if err := sp.Load(); err != nil {
-		log.Error("LoadAstFiles err: ", err, ", path: ", pkgPath)
 		return nil, err
 	}
 	return ctx.buildPackage(sp)
@@ -233,56 +269,20 @@ func (ctx *Context) buildPackage(sp *sourcePackage) (pkg *ssa.Package, err error
 		}
 	}()
 
-	var loadPkgFunc func(pkgs []*types.Package)
-
 	prog := ssa.NewProgram(ctx.FileSet, ctx.BuilderMode)
-	// Create SSA packages for all imports. Order is not significant.
-	isLoadPkg := make(map[*types.Package]bool)
-	loadPkgFunc = func(pkgs []*types.Package) {
-		for _, p := range pkgs {
-			if !isLoadPkg[p] {
-				isLoadPkg[p] = true
-				loadPkgFunc(p.Imports())
-				if pkg, ok := ctx.pkgs[p.Path()]; ok {
-					if ctx.Mode&EnableDumpImports != 0 {
-						if pkg.Dir != "" {
-							fmt.Println("# package", p.Path(), pkg.Dir)
-						} else {
-							fmt.Println("# package", p.Path(), "<memory>")
-						}
-					}
-					prog.CreatePackage(p, pkg.Files, pkg.Info, true).Build()
-				} else {
-					var indirect bool
-					if !p.Complete() {
-						indirect = true
-						p.MarkComplete()
-					}
-					if ctx.Mode&EnableDumpImports != 0 {
-						if indirect {
-							fmt.Println("# virtual", p.Path())
-						} else {
-							fmt.Println("# builtin", p.Path())
-						}
-					}
-					prog.CreatePackage(p, nil, nil, true).Build()
-				}
-			}
-		}
-	}
-	var addin []*types.Package
+	var externalPkg []*types.Package
 	for _, pkg := range ctx.Loader.Packages() {
 		if !pkg.Complete() {
-			addin = append(addin, pkg)
+			externalPkg = append(externalPkg, pkg)
 		}
 	}
-	if len(addin) > 0 {
-		sort.Slice(addin, func(i, j int) bool {
-			return addin[i].Path() < addin[j].Path()
+	if len(externalPkg) > 0 {
+		sort.Slice(externalPkg, func(i, j int) bool {
+			return externalPkg[i].Path() < externalPkg[j].Path()
 		})
-		loadPkgFunc(addin)
+		ctx.loadPackageFunc(externalPkg, prog)
 	}
-	loadPkgFunc(sp.Package.Imports())
+	ctx.loadPackageFunc(sp.Package.Imports(), prog)
 	// Create and build the primary package.
 	pkg = prog.CreatePackage(sp.Package, sp.Files, sp.Info, false)
 	pkg.Build()

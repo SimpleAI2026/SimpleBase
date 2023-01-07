@@ -1,4 +1,4 @@
-package interp_go
+package goscript
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/linkxzhou/gongx/interp/go/loader"
+	"github.com/linkxzhou/gongx/interp/goscript/loader"
 	"github.com/linkxzhou/gongx/packages/log"
 )
 

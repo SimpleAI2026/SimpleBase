@@ -1,4 +1,4 @@
-package interp_go
+package goscript
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/linkxzhou/gongx/interp/go/loader"
+	"github.com/linkxzhou/gongx/interp/goscript/loader"
 	"github.com/petermattis/goid"
 	"golang.org/x/tools/go/ssa"
 )
@@ -19,7 +19,7 @@ import (
 type Interp struct {
 	ctx          *loader.Context
 	mainpkg      *ssa.Package                                // the SSA main package
-	record       *TypesRecord                                // lookup type and ToType
+	record       *loader.TypesRecord                         // lookup type and ToType
 	globals      map[ssa.Value]value                         // addresses of global variables (immutable)
 	preloadTypes map[types.Type]reflect.Type                 // preload types.Type -> reflect.Type
 	funcs        map[*ssa.Function]*function                 // ssa.Function -> *function
@@ -584,7 +584,7 @@ func newInterp(ctx *loader.Context, mainpkg *ssa.Package, globals map[string]int
 		chexit:       make(chan int),
 		mainid:       goroutineID(),
 	}
-	i.record = NewTypesRecord(i.ctx.Loader, i)
+	i.record = loader.NewTypesRecord(i.ctx.Loader, i)
 	i.record.Load(mainpkg)
 
 	var pkgs []*ssa.Package

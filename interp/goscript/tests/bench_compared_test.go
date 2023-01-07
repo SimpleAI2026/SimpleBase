@@ -6,8 +6,8 @@ import (
 
 	luaNew "github.com/Shopify/go-lua"
 	"github.com/dop251/goja"
-	"github.com/linkxzhou/gongx/interp/go/loader"
-	"github.com/linkxzhou/gongx/interp_go"
+	"github.com/linkxzhou/gongx/goscript"
+	"github.com/linkxzhou/gongx/interp/goscript/loader"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -35,7 +35,7 @@ func TestNewInterp(t *testing.T) {
 	c := loader.NewContext(loader.EnableDumpImports)
 	p, err := c.LoadFile("__main__.go", sources)
 	fmt.Println("p: ", p, ", err: ", err)
-	iv1, err1 := interp_go.NewInterp(c, p)
+	iv1, err1 := goscript.NewInterp(c, p)
 	fmt.Println("NewInterp err: ", err1, ", iv1: ", iv1)
 	iv2, err2 := iv1.RunMain()
 	fmt.Println("RunMain err: ", err2, ", iv2: ", iv2)
