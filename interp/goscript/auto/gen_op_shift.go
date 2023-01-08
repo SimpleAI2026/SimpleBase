@@ -9,27 +9,11 @@ import (
 var opShiftList = map[string]opValues{
 	"SHL": {
 		op:     "<<",
-		values: templateShiftValues,
+		values: removeDefaultValuesAttributes("String", "Float32", "Float64", "Complex64", "Complex128"),
 	},
 	"SHR": {
 		op:     ">>",
-		values: templateShiftValues,
-	},
-}
-
-var templateShiftValues = map[string]interface{}{
-	"types": map[string]string{
-		"Int":     "int",
-		"Int8":    "int8",
-		"Int16":   "int16",
-		"Int32":   "int32",
-		"Int64":   "int64",
-		"Uint":    "uint",
-		"Uint8":   "uint8",
-		"Uint16":  "uint16",
-		"Uint32":  "uint32",
-		"Uint64":  "uint64",
-		"Uintptr": "uintptr",
+		values: removeDefaultValuesAttributes("String", "Float32", "Float64", "Complex64", "Complex128"),
 	},
 }
 
@@ -52,7 +36,7 @@ var templateShiftFuncBody = `
 			switch ykind {
 			{{ range $ykey, $yvalue := $types }}
 			case reflect.{{ $ykey }}:
-				v := xtype.Make(t, x{{ $op }}xtype.{{ $ykey }}(vy))
+				v := xtype.Make(t, x {{ $op }} xtype.{{ $ykey }}(vy))
 				return func(vm *goVm) { vm.setReg(ir, v) }
 			{{ end }}
 			}
@@ -68,7 +52,7 @@ var templateShiftFuncBody = `
 				switch ykind {
 				{{ range $ykey, $yvalue := $types }}
 				case reflect.{{ $ykey }}:
-					return func(vm *goVm) { vm.setReg(ir, x{{ $op }}vm.{{ $yvalue }}(iy)) }
+					return func(vm *goVm) { vm.setReg(ir, x {{ $op }} vm.{{ $yvalue }}(iy)) }
 				{{ end }}
 				}
 			} else if ky == kindConst {
@@ -76,14 +60,14 @@ var templateShiftFuncBody = `
 				{{ range $ykey, $yvalue := $types }}
 				case reflect.{{ $ykey }}:
 					y := xtype.{{ $ykey }}(vy)
-					return func(vm *goVm) { vm.setReg(ir, vm.reg(ix).({{ $value }}){{ $op }}y) }
+					return func(vm *goVm) { vm.setReg(ir, vm.reg(ix).({{ $value }}) {{ $op }} y) }
 				{{ end }}
 				}
 			} else {
 				switch ykind {
 				{{ range $ykey, $yvalue := $types }}
 				case reflect.{{ $ykey }}:
-					return func(vm *goVm) { vm.setReg(ir, vm.reg(ix).({{ $value }}){{ $op }}vm.{{ $yvalue }}(iy)) }
+					return func(vm *goVm) { vm.setReg(ir, vm.reg(ix).({{ $value }}) {{ $op }} vm.{{ $yvalue }}(iy)) }
 				{{ end }}
 				}
 			}
@@ -99,7 +83,7 @@ var templateShiftFuncBody = `
 				switch ykind {
 				{{ range $ykey, $yvalue := $types }}
 				case reflect.{{ $ykey }}:
-					return func(vm *goVm) { vm.setReg(ir, xtype.Make(t, x{{ $op }}vm.{{ $yvalue }}(iy))) }
+					return func(vm *goVm) { vm.setReg(ir, xtype.Make(t, x {{ $op }} vm.{{ $yvalue }}(iy))) }
 				{{ end }}
 				}
 			} else if ky == kindConst {
@@ -107,21 +91,21 @@ var templateShiftFuncBody = `
 				{{ range $ykey, $yvalue := $types }}
 				case reflect.{{ $ykey }}:
 					y := xtype.{{ $ykey }}(vy)
-					return func(vm *goVm) { vm.setReg(ir, xtype.Make(t, vm.{{ $value }}(ix){{ $op }}y)) }
+					return func(vm *goVm) { vm.setReg(ir, xtype.Make(t, vm.{{ $value }}(ix) {{ $op }} y)) }
 				{{ end }}
 				}
 			} else {
 				switch ykind {
 				{{ range $ykey, $yvalue := $types }}
 				case reflect.{{ $ykey }}:
-					return func(vm *goVm) { vm.setReg(ir, xtype.Make(t, vm.{{ $value }}(ix){{ $op }}vm.{{ $yvalue }}(iy))) }
+					return func(vm *goVm) { vm.setReg(ir, xtype.Make(t, vm.{{ $value }}(ix) {{ $op }} vm.{{ $yvalue }}(iy))) }
 				{{ end }}
 				}
 			}
 		{{ end }}
 		}
 	}
-	panic("unreachable")
+	panic("unreachable kind: " + fmt.Sprintf("%v", xkind))
 `
 
 func generateOpShift() {
@@ -131,18 +115,12 @@ func generateOpShift() {
 		op.values["op"] = op.op
 		tx := template.Must(template.New(name).Parse(templateStr))
 		result := new(strings.Builder)
-		_ = tx.Execute(result, op.values)
-		resultStr += result.String()
+		if err := tx.Execute(result, op.values); err != nil {
+			panic(err)
+		} else {
+			resultStr += result.String()
+		}
 	}
-	resultStr = `
-package goscript
-
-import (
-	"reflect"
-
-	"github.com/visualfc/xtype"
-	"golang.org/x/tools/go/ssa"
-)
-` + resultStr
+	resultStr = generateImportWithSSA + resultStr
 	fmt.Println(resultStr)
 }

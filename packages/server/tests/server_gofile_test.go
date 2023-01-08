@@ -16,7 +16,7 @@ var initFileMap = make(map[string]*goscript.Interp, 0)
 var interpc = loader.NewContext(loader.EnableDumpImports)
 
 func initFileList() {
-	rootPath := "tests/"
+	rootPath := "gofiles/"
 	files, err := ioutil.ReadDir(rootPath)
 	if err != nil {
 		log.Debug("==== err: ", err)
@@ -24,7 +24,7 @@ func initFileList() {
 	for _, file := range files {
 		fileName := rootPath + file.Name()
 		if s, err := ioutil.ReadFile(rootPath + file.Name()); err == nil {
-			initFileMap["/"+fileName], err = goscript.LoadFileWithCache(interpc, fileName, string(s))
+			initFileMap["/"+fileName], err = goscript.LoadFileWithCache(interpc, fileName, string(s), "")
 			fmt.Println("fileName: ", fileName, ", err: ", err)
 		}
 	}

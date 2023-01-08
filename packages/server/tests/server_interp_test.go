@@ -45,7 +45,7 @@ func TestServerInterp(t *testing.T) {
 			return c.String(http.StatusOK, "buf err: "+err.Error())
 		}
 		sources := string(buf)
-		iv1, err1 := goscript.LoadFileWithCache(interpc, "__main__.go", sources)
+		iv1, err1 := goscript.LoadFileWithCache(interpc, "__main__.go", sources, "")
 		if err1 != nil {
 			return c.String(http.StatusOK, "err: "+err1.Error())
 		}

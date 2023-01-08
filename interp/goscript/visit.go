@@ -84,8 +84,7 @@ func (visit *visitor) function(fn *ssa.Function) {
 	}
 	visit.seen[fn] = true
 	fnPath := fn.String()
-	if f, ok := visit.intp.ctx.Override[fnPath]; ok &&
-		visit.intp.preToType(fn.Type()) == f.Type() {
+	if f, ok := visit.intp.ctx.Override[fnPath]; ok && visit.intp.preToType(fn.Type()) == f.Type() {
 		fn.Blocks = nil
 		return
 	}
@@ -123,11 +122,9 @@ func (visit *visitor) function(fn *ssa.Function) {
 				visit.intp.loadType(instr.Type())
 				visit.intp.loadType(deref(instr.Type()))
 			case *ssa.Next:
-				// skip *ssa.opaqueType: iter
-				ops = nil
+				ops = nil // skip *ssa.opaqueType: iter
 			case *ssa.Extract:
-				// skip
-				ops = nil
+				ops = nil // skip
 			case *ssa.TypeAssert:
 				visit.intp.loadType(instr.AssertedType)
 			case *ssa.MakeChan:

@@ -27,6 +27,7 @@ var (
 
 func init() {
 	defaultLogger = zap.NewExample()
+	SetLevel(LevelTrace) // default set trace log
 }
 
 func getLogMsg(args ...interface{}) string {

@@ -298,7 +298,6 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(vm *go
 		case token.AND_NOT:
 			return makeBinOpANDNOT(pfn, instr)
 		case token.LSS:
-			fmt.Println("instr: ", instr.String())
 			return makeBinOpLSS(pfn, instr)
 		case token.LEQ:
 			return makeBinOpLEQ(pfn, instr)
@@ -354,7 +353,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(vm *go
 			}
 			v := reflect.New(typ).Elem()
 			if vx != nil {
-				SetValue(v, reflect.ValueOf(vx))
+				setValue(v, reflect.ValueOf(vx))
 			}
 			vx = v.Interface()
 			return func(vm *goVm) {
@@ -370,7 +369,7 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(vm *go
 			v := reflect.New(typ).Elem()
 			if x := vm.reg(ix); x != nil {
 				vx := reflect.ValueOf(x)
-				SetValue(v, vx)
+				setValue(v, vx)
 			}
 			vm.setReg(ir, v.Interface())
 		}
@@ -423,15 +422,15 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(vm *go
 		il := pfn.regIndex(instr.Len)
 		ic := pfn.regIndex(instr.Cap)
 		return func(vm *goVm) {
-			Len := asInt(vm.reg(il))
-			if Len < 0 || Len >= maxMemLen {
+			ilen := asInt(vm.reg(il))
+			if ilen < 0 || ilen >= maxMemLen {
 				panic(runtimeError("makeslice: len out of range"))
 			}
-			Cap := asInt(vm.reg(ic))
-			if Cap < 0 || Cap >= maxMemLen {
+			icap := asInt(vm.reg(ic))
+			if icap < 0 || icap >= maxMemLen {
 				panic(runtimeError("makeslice: cap out of range"))
 			}
-			vm.setReg(ir, reflect.MakeSlice(typ, Len, Cap).Interface())
+			vm.setReg(ir, reflect.MakeSlice(typ, ilen, icap).Interface())
 		}
 	case *ssa.Slice:
 		typ := interp.preToType(instr.Type())
@@ -826,12 +825,12 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(vm *go
 			if vv == nil {
 				return func(vm *goVm) {
 					x := reflect.ValueOf(vm.reg(ia))
-					SetValue(x.Elem(), reflect.New(x.Elem().Type()).Elem())
+					setValue(x.Elem(), reflect.New(x.Elem().Type()).Elem())
 				}
 			}
 			return func(vm *goVm) {
 				x := reflect.ValueOf(vm.reg(ia))
-				SetValue(x.Elem(), reflect.ValueOf(vv))
+				setValue(x.Elem(), reflect.ValueOf(vv))
 			}
 		}
 		return func(vm *goVm) {
@@ -839,9 +838,9 @@ func makeInstr(interp *Interp, pfn *function, instr ssa.Instruction) func(vm *go
 			val := vm.reg(iv)
 			v := reflect.ValueOf(val)
 			if v.IsValid() {
-				SetValue(x.Elem(), v)
+				setValue(x.Elem(), v)
 			} else {
-				SetValue(x.Elem(), reflect.New(x.Elem().Type()).Elem())
+				setValue(x.Elem(), reflect.New(x.Elem().Type()).Elem())
 			}
 		}
 	case *ssa.MapUpdate:

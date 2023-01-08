@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/linkxzhou/gongx/goscript"
-	"github.com/linkxzhou/gongx/interp/go/loader"
+	"github.com/linkxzhou/gongx/interp/goscript"
+	"github.com/linkxzhou/gongx/interp/goscript/loader"
 	"github.com/linkxzhou/gongx/packages/server"
 )
 
@@ -15,7 +15,7 @@ var rootPathList = []string{"api"}
 
 func init() {
 	for _, path := range rootPathList {
-		initApiMap[path], _ = goscript.LoadDirWithCache(interpc, path)
+		initApiMap[path], _ = goscript.LoadFileWithCache(interpc, "", "", path)
 	}
 }
 

@@ -12,10 +12,10 @@ import (
 
 var initDirInterp *goscript.Interp
 var interpcDir = loader.NewContext(loader.EnableDumpImports)
-var rootPath = "tests/"
+var rootPath = "gofiles/"
 
 func initDir() {
-	initDirInterp, _ = goscript.LoadDirWithCache(interpcDir, rootPath)
+	initDirInterp, _ = goscript.LoadFileWithCache(interpcDir, "", "", rootPath)
 }
 
 func TestServerGodir(t *testing.T) {

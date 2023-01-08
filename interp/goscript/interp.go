@@ -9,10 +9,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	"github.com/linkxzhou/gongx/interp/goscript/loader"
-	"github.com/petermattis/goid"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -33,6 +31,65 @@ type Interp struct {
 	deferCount   int32                                       // fast has defer check
 	goexited     int32                                       // is call runtime.Goexit
 	exited       int32                                       // is call os.Exit
+}
+
+// Interpret interprets the Go program whose main package is mainpkg.
+// mode specifies various interpreter options.  filename and args are
+// the initial values of os.Args for the target program.  sizes is the
+// effective type-sizing function for this program.
+//
+// Interpret returns the exit code of the program: 2 for panic (like
+// gc does), or the argument to os.Exit for normal termination.
+//
+// The SSA program must include the "runtime" package.
+func NewInterp(ctx *loader.Context, mainpkg *ssa.Package) (*Interp, error) {
+	return newInterp(ctx, mainpkg, nil)
+}
+
+func newInterp(ctx *loader.Context, mainpkg *ssa.Package, globals map[string]interface{}) (*Interp, error) {
+	i := &Interp{
+		ctx:          ctx,
+		mainpkg:      mainpkg,
+		globals:      make(map[ssa.Value]value),
+		goroutines:   1,
+		preloadTypes: make(map[types.Type]reflect.Type),
+		funcs:        make(map[*ssa.Function]*function),
+		msets:        make(map[reflect.Type](map[string]*ssa.Function)),
+		chexit:       make(chan int),
+		mainid:       goroutineID(),
+	}
+	i.record = loader.NewTypesRecord(i.ctx.Loader, i)
+	i.record.Load(mainpkg)
+
+	var pkgs []*ssa.Package
+	for _, pkg := range mainpkg.Prog.AllPackages() {
+		// skip external pkg
+		if pkg.Func("init").Blocks == nil {
+			continue
+		}
+		pkgs = append(pkgs, pkg)
+		// Initialize global storage.
+		for _, m := range pkg.Members {
+			switch v := m.(type) {
+			case *ssa.Global:
+				typ := i.preToType(deref(v.Type()))
+				i.globals[v] = reflect.New(typ).Interface()
+			}
+		}
+	}
+	if globals != nil {
+		for k := range i.globals {
+			if fv, ok := globals[k.String()]; ok {
+				i.globals[k] = fv
+			}
+		}
+	}
+	// static types check
+	err := checkPackages(i, pkgs)
+	if err != nil {
+		return i, err
+	}
+	return i, err
 }
 
 func (i *Interp) loadFunction(fn *ssa.Function) *function {
@@ -104,32 +161,6 @@ func (i *Interp) makeFunction(typ reflect.Type, pfn *function, env []value) refl
 	})
 }
 
-func SetValue(v reflect.Value, x reflect.Value) {
-	switch v.Kind() {
-	case reflect.Bool:
-		v.SetBool(x.Bool())
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		v.SetInt(x.Int())
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v.SetUint(x.Uint())
-	case reflect.Uintptr:
-		v.SetUint(x.Uint())
-	case reflect.Float32, reflect.Float64:
-		v.SetFloat(x.Float())
-	case reflect.Complex64, reflect.Complex128:
-		v.SetComplex(x.Complex())
-	case reflect.String:
-		v.SetString(x.String())
-	case reflect.UnsafePointer:
-		v.SetPointer(unsafe.Pointer(x.Pointer()))
-	default:
-		v.Set(x)
-	}
-}
-
-// prepareCall determines the function value and argument values for a
-// function call in a Call, Go or Defer instruction, performing
-// interface method lookup if needed.
 func (i *Interp) prepareCall(vm *goVm, call *ssa.CallCommon, iv register, ia []register, ib []register) (fv value, args []value) {
 	if call.Method == nil {
 		switch f := call.Value.(type) {
@@ -137,8 +168,7 @@ func (i *Interp) prepareCall(vm *goVm, call *ssa.CallCommon, iv register, ia []r
 			fv = f
 		case *ssa.Function:
 			if f.Blocks == nil {
-				ext, ok := findExternFunc(i, f)
-				if !ok {
+				if ext, ok := findExternFunc(i, f); !ok {
 					if f.Pkg != nil && f.Name() == "init" {
 						fv = func() {}
 					} else {
@@ -161,24 +191,20 @@ func (i *Interp) prepareCall(vm *goVm, call *ssa.CallCommon, iv register, ia []r
 		}
 	} else {
 		v := vm.reg(iv)
+		fv = nil
 		rtype := reflect.TypeOf(v)
 		mname := call.Method.Name()
 		if mset, ok := i.msets[rtype]; ok {
 			if f, ok := mset[mname]; ok {
 				fv = f
+			}
+		}
+		if fv == nil {
+			if ext, ok := findUserMethod(rtype, mname); !ok {
+				panic(fmt.Errorf("no code for method: %v.%v", rtype, mname))
 			} else {
-				ext, ok := findUserMethod(rtype, mname)
-				if !ok {
-					panic(fmt.Errorf("no code for method: %v.%v", rtype, mname))
-				}
 				fv = ext
 			}
-		} else {
-			ext, ok := findExternMethod(rtype, mname)
-			if !ok {
-				panic(fmt.Errorf("no code for method: %v.%v", rtype, mname))
-			}
-			fv = ext
 		}
 		args = append(args, v)
 	}
@@ -189,9 +215,6 @@ func (i *Interp) prepareCall(vm *goVm, call *ssa.CallCommon, iv register, ia []r
 	return
 }
 
-// call interprets a call to a function (function, builtin or closure)
-// fn with arguments args, returning its result.
-// callpos is the position of the callsite.
 func (i *Interp) call(caller *goVm, fn value, args []value, ssaArgs []ssa.Value) value {
 	switch fn := fn.(type) {
 	case *ssa.Function:
@@ -207,9 +230,6 @@ func (i *Interp) call(caller *goVm, fn value, args []value, ssaArgs []ssa.Value)
 	}
 }
 
-// call interprets a call to a function (function, builtin or closure)
-// fn with arguments args, returning its result.
-// callpos is the position of the callsite.
 func (i *Interp) callDiscardsResult(caller *goVm, fn value, args []value, ssaArgs []ssa.Value) {
 	switch fn := fn.(type) {
 	case *ssa.Function:
@@ -241,7 +261,6 @@ func (i *Interp) callFunction(caller *goVm, pfn *function, args []value, env []v
 	} else if pfn.nres > 1 {
 		result = tuple(vm.stack[0:pfn.nres])
 	}
-
 	return
 }
 
@@ -490,135 +509,6 @@ func (i *Interp) callExternalByStack(caller *goVm, fn reflect.Value, ir register
 	}
 }
 
-// runFrame executes SSA instructions starting at fr.block and
-// continuing until a return, a panic, or a recovered panic.
-//
-// After a panic, runFrame panics.
-//
-// After a normal return, fr.result contains the result of the call
-// and fr.block is nil.
-//
-// A recovered panic in a function without named return parameters
-// (NRPs) becomes a normal return of the zero value of the function's
-// result type.
-//
-// After a recovered panic in a function with NRPs, fr.result is
-// undefined and fr.block contains the block at which to resume
-// control.
-func (vm *goVm) run() {
-	if vm.pfn.Recover != nil {
-		defer func() {
-			if vm.pc == -1 {
-				return // normal return
-			}
-			vm.panicking = &panicking{recover()}
-			vm.runDefers()
-			for _, fn := range vm.pfn.Recover {
-				fn(vm)
-			}
-		}()
-	}
-
-	for vm.pc != -1 && vm.pc < vm.pfn.InstrsLen {
-		fn := vm.pfn.Instrs[vm.pc]
-		vm.pc++
-		fn(vm)
-	}
-}
-
-// doRecover implements the recover() built-in.
-func doRecover(caller *goVm) value {
-	// recover() must be exactly one level beneath the deferred
-	// function (two levels beneath the panicking function) to
-	// have any effect.  Thus we ignore both "defer recover()" and
-	// "defer f() -> g() -> recover()".
-	if caller.pfn.Interp.ctx.Mode&loader.DisableRecover == 0 &&
-		caller.panicking == nil &&
-		caller.caller != nil && caller.caller.panicking != nil {
-		p := caller.caller.panicking.value
-		caller.caller.panicking = nil
-		// TODO(adonovan): support runtime.Goexit.
-		switch p := p.(type) {
-		case targetPanic:
-			// The target program explicitly called panic().
-			return p.v
-		case runtime.Error:
-			// The interpreter encountered a runtime error.
-			return p
-		case string:
-			return p
-		case plainError:
-			return p
-		case *reflect.ValueError:
-			return p
-		default:
-			panic(fmt.Sprintf("unexpected panic type %T in target call to recover()", p))
-		}
-	}
-
-	return nil //iface{}
-}
-
-// Interpret interprets the Go program whose main package is mainpkg.
-// mode specifies various interpreter options.  filename and args are
-// the initial values of os.Args for the target program.  sizes is the
-// effective type-sizing function for this program.
-//
-// Interpret returns the exit code of the program: 2 for panic (like
-// gc does), or the argument to os.Exit for normal termination.
-//
-// The SSA program must include the "runtime" package.
-func NewInterp(ctx *loader.Context, mainpkg *ssa.Package) (*Interp, error) {
-	return newInterp(ctx, mainpkg, nil)
-}
-
-func newInterp(ctx *loader.Context, mainpkg *ssa.Package, globals map[string]interface{}) (*Interp, error) {
-	i := &Interp{
-		ctx:          ctx,
-		mainpkg:      mainpkg,
-		globals:      make(map[ssa.Value]value),
-		goroutines:   1,
-		preloadTypes: make(map[types.Type]reflect.Type),
-		funcs:        make(map[*ssa.Function]*function),
-		msets:        make(map[reflect.Type](map[string]*ssa.Function)),
-		chexit:       make(chan int),
-		mainid:       goroutineID(),
-	}
-	i.record = loader.NewTypesRecord(i.ctx.Loader, i)
-	i.record.Load(mainpkg)
-
-	var pkgs []*ssa.Package
-	for _, pkg := range mainpkg.Prog.AllPackages() {
-		// skip external pkg
-		if pkg.Func("init").Blocks == nil {
-			continue
-		}
-		pkgs = append(pkgs, pkg)
-		// Initialize global storage.
-		for _, m := range pkg.Members {
-			switch v := m.(type) {
-			case *ssa.Global:
-				typ := i.preToType(deref(v.Type()))
-				i.globals[v] = reflect.New(typ).Interface()
-			}
-		}
-	}
-	if globals != nil {
-		for k := range i.globals {
-			if fv, ok := globals[k.String()]; ok {
-				i.globals[k] = fv
-			}
-		}
-	}
-
-	// static types check
-	err := checkPackages(i, pkgs)
-	if err != nil {
-		return i, err
-	}
-	return i, err
-}
-
 func (i *Interp) loadType(typ types.Type) {
 	if _, ok := i.preloadTypes[typ]; !ok {
 		i.preloadTypes[typ] = i.record.ToType(typ)
@@ -829,7 +719,7 @@ func (i *Interp) constToValue(c *ssa.Const) value {
 	} else if xtype, ok := typ.Underlying().(*types.Basic); ok {
 		v := xtypeValue(c, xtype.Kind())
 		nv := reflect.New(i.preToType(typ)).Elem()
-		SetValue(nv, reflect.ValueOf(v))
+		setValue(nv, reflect.ValueOf(v))
 		return nv.Interface()
 	}
 	panic(fmt.Sprintf("unparser constValue: %s", c))
@@ -851,15 +741,177 @@ func (i *Interp) globalToValue(key *ssa.Global) (interface{}, bool) {
 	return nil, false
 }
 
-// deref returns a pointer's element type; otherwise it returns typ.
-// TODO(adonovan): Import from ssa?
-func deref(typ types.Type) types.Type {
-	if p, ok := typ.Underlying().(*types.Pointer); ok {
-		return p.Elem()
+// callBuiltin interprets a call to builtin fn with arguments args,
+// returning its result.
+func (inter *Interp) callBuiltin(caller *goVm, fn *ssa.Builtin, args []value, ssaArgs []ssa.Value) value {
+	switch fnName := fn.Name(); fnName {
+	case "append":
+		if len(args) == 1 {
+			return args[0]
+		}
+		v0 := reflect.ValueOf(args[0])
+		v1 := reflect.ValueOf(args[1])
+		if v1.Kind() == reflect.String {
+			v1 = reflect.ValueOf([]byte(v1.String()))
+		}
+		i0 := v0.Len()
+		i1 := v1.Len()
+		if i0+i1 < i0 {
+			panic(runtimeError("growslice: cap out of range"))
+		}
+		return reflect.AppendSlice(v0, v1).Interface()
+
+	case "copy": // copy([]T, []T) int or copy([]byte, string) int
+		return reflect.Copy(reflect.ValueOf(args[0]), reflect.ValueOf(args[1]))
+
+	case "close": // close(chan T)
+		reflect.ValueOf(args[0]).Close()
+		return nil
+
+	case "delete": // delete(map[K]value, K)
+		reflect.ValueOf(args[0]).SetMapIndex(reflect.ValueOf(args[1]), reflect.Value{})
+		return nil
+
+	case "len":
+		return reflect.ValueOf(args[0]).Len()
+
+	case "cap":
+		return reflect.ValueOf(args[0]).Cap()
+
+	case "panic":
+		// ssa.Panic handles most cases; this is only for "go
+		// panic" or "defer panic".
+		panic(targetPanic{args[0]})
+
+	case "recover":
+		return doRecover(caller)
+
+	default:
+		panic("unknown built-in: " + fnName)
 	}
-	return typ
 }
 
-func goroutineID() int64 {
-	return goid.Get()
+// callBuiltinDiscardsResult interprets a call to builtin fn with arguments args,
+// discards its result.
+func (inter *Interp) callBuiltinDiscardsResult(caller *goVm, fn *ssa.Builtin, args []value, ssaArgs []ssa.Value) {
+	switch fnName := fn.Name(); fnName {
+	case "append":
+		panic("discards result of " + fnName)
+
+	case "copy": // copy([]T, []T) int or copy([]byte, string) int
+		reflect.Copy(reflect.ValueOf(args[0]), reflect.ValueOf(args[1]))
+
+	case "close": // close(chan T)
+		reflect.ValueOf(args[0]).Close()
+
+	case "delete": // delete(map[K]value, K)
+		reflect.ValueOf(args[0]).SetMapIndex(reflect.ValueOf(args[1]), reflect.Value{})
+
+	case "len":
+		panic("discards result of " + fnName)
+
+	case "cap":
+		panic("discards result of " + fnName)
+
+	case "panic":
+		// ssa.Panic handles most cases; this is only for "go
+		// panic" or "defer panic".
+		panic(targetPanic{args[0]})
+
+	case "recover":
+		doRecover(caller)
+
+	default:
+		panic("unknown built-in: " + fnName)
+	}
+}
+
+// callBuiltin interprets a call to builtin fn with arguments args,
+// returning its result.
+func (inter *Interp) callBuiltinByStack(caller *goVm, fn string, ssaArgs []ssa.Value, ir register, ia []register) {
+	switch fn {
+	case "append":
+		if len(ia) == 1 {
+			caller.copyReg(ir, ia[0])
+			return
+		}
+		arg0 := caller.reg(ia[0])
+		arg1 := caller.reg(ia[1])
+		v0 := reflect.ValueOf(arg0)
+		v1 := reflect.ValueOf(arg1)
+		if v1.Kind() == reflect.String {
+			v1 = reflect.ValueOf([]byte(v1.String()))
+		}
+		i0 := v0.Len()
+		i1 := v1.Len()
+		if i0+i1 < i0 {
+			panic(runtimeError("growslice: cap out of range"))
+		}
+		caller.setReg(ir, reflect.AppendSlice(v0, v1).Interface())
+
+	case "copy": // copy([]T, []T) int or copy([]byte, string) int
+		arg0 := caller.reg(ia[0])
+		arg1 := caller.reg(ia[1])
+		caller.setReg(ir, reflect.Copy(reflect.ValueOf(arg0), reflect.ValueOf(arg1)))
+
+	case "close": // close(chan T)
+		arg0 := caller.reg(ia[0])
+		reflect.ValueOf(arg0).Close()
+
+	case "delete": // delete(map[K]value, K)
+		arg0 := caller.reg(ia[0])
+		arg1 := caller.reg(ia[1])
+		reflect.ValueOf(arg0).SetMapIndex(reflect.ValueOf(arg1), reflect.Value{})
+
+	case "len":
+		arg0 := caller.reg(ia[0])
+		caller.setReg(ir, reflect.ValueOf(arg0).Len())
+
+	case "cap":
+		arg0 := caller.reg(ia[0])
+		caller.setReg(ir, reflect.ValueOf(arg0).Cap())
+
+	case "panic":
+		// ssa.Panic handles most cases; this is only for "go
+		// panic" or "defer panic".
+		arg0 := caller.reg(ia[0])
+		panic(targetPanic{arg0})
+
+	case "recover":
+		caller.setReg(ir, doRecover(caller))
+
+	default:
+		panic("unknown built-in: " + fn)
+	}
+}
+
+var globalInterpCache sync.Map
+
+func LoadFileWithCache(ctx *loader.Context, fileName, sources, dir string) (*Interp, error) {
+	var isDir bool
+	cacheKey := fileName
+	if dir != "" {
+		isDir = true
+		cacheKey = dir
+	}
+	var ssaPkg *ssa.Package
+	var err error
+	if cacheValue, ok := globalInterpCache.Load(cacheKey); !ok {
+		if isDir {
+			ssaPkg, err = ctx.LoadDir(dir)
+		} else {
+			ssaPkg, err = ctx.LoadFile(dir, sources)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if iv, err := NewInterp(ctx, ssaPkg); err != nil {
+			return nil, err
+		} else {
+			globalInterpCache.Store(cacheKey, iv)
+			return iv, nil
+		}
+	} else {
+		return cacheValue.(*Interp), nil
+	}
 }

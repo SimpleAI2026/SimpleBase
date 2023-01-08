@@ -3,23 +3,24 @@ package log
 import (
 	"testing"
 
-	"github.com/linkxzhou/gongx/log"
+	"github.com/linkxzhou/gongx/packages/log"
 )
 
 func TestLevel_String(t *testing.T) {
-	log.SetLevel(log.LevelInfo)
-	log.Debug("=================== Debug", "1111")
-	log.Info("=================== Info", "2222")
+	log.SetLevel(log.LevelDebug)
+	log.Debug("This is debug log", "test debug")
+	log.Info("This is info log", "test log")
 }
 
 func TestLevel_Int(t *testing.T) {
-	log.SetLevel(log.LevelInfo)
-	log.Debug("=================== Debug", 1111)
-	log.Info("=================== Info", 2222)
+	log.SetLevel(log.LevelDebug)
+	log.Debug("This is debug log", 1)
+	log.Info("This is info log", 1999)
+	log.Info("This is info log", 1e10)
 }
 
 func TestLevel_Map(t *testing.T) {
 	log.SetLevel(log.LevelInfo)
-	log.Debug("=================== Debug", map[string]string{"1111": "1111"})
-	log.Info("=================== Info", map[string]string{"2222": "2222"})
+	log.Debug("This is debug log", map[string]string{"test debug": "test debug params2"})
+	log.Info("This is info log", map[string]string{"test info": "test info params2"})
 }
