@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/Shopify/go-lua v0.0.0-20221004153744-91867de107cf // indirect
+	github.com/beevik/etree v1.1.0 // indirect
 	github.com/dop251/goja v0.0.0-20221106173738-3b8a68ca89b4 // indirect
 	github.com/goccy/go-jit v0.0.0-20200514131505-ff78d45cf6af // indirect
 	github.com/goplus/reflectx v0.9.7 // indirect

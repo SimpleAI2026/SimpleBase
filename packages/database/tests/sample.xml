@@ -1,0 +1,72 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<mapper version='1.0'>
+    <driver>
+    </driver>
+    <init>
+        create table test1(
+            <space>
+                <if test='status != nil && status > 0'>status = #{status}, </if>
+                <if test='username != nil && username != ""'>username LIKE CONCAT('%', #{username}, '%'), </if>
+            </space>
+        )
+    </init>
+    
+    <init>
+         create table test2(
+            <space>
+                <if test='status != nil && status > 0'>status = #{status}, </if>
+                <if test='username != nil && username != ""'>username LIKE CONCAT('%', #{username}, '%'), </if>
+            </space>
+         )
+    </init>
+
+    <sql id='List'>
+        SELECT id,username,status,create_time,update_time FROM app_user
+        <where>
+            <if test='status != nil && status > 0'>status = #{status}</if>
+            <if test='username != nil && username != ""'>username LIKE CONCAT('%', #{username}, '%')</if>
+        </where>
+        ORDER BY id DESC
+        <if test='limit != nil && limit > 0'>LIMIT #{limit}</if>
+    </sql>
+
+    <sql id='Insert'>
+        INSERT INTO app_user(username,password,status,create_time)
+        VALUES(#{username},#{password},#{status},#{createTime})
+    </sql>
+
+    <sql id='Update'>
+        UPDATE app_user
+        <set>
+            <if test='password != nil && password != ""'>password = #{password}</if>
+            <if test='status > 0'>status = #{status}</if>
+            <if>update_time = #{updateTime}</if>
+        </set>
+        WHERE id = #{id}
+    </sql>
+
+    <sql id='Delete'>
+        DELETE FROM app_user WHERE id = #{id}
+    </sql>
+
+    <sql id='Query'>
+        SELECT id,username,status,create_time,update_time FROM app_user WHERE id = #{id}
+    </sql>
+
+    <sql id='QueryUsername'>
+        SELECT username FROM app_user WHERE id = #{id}
+    </sql>
+
+    <sql id='SelectTrim'>
+        SELECT id,create_time,update_time
+        <trim suffixOverrides=','>
+            <if test='password != nil'>,password,</if>
+        </trim>
+        FROM app_user
+        <trim prefix='WHERE' prefixOverrides='AND'>
+            <if test='username != nil && username != ""'>username LIKE CONCAT('%', #{username}, '%')</if>
+            <if test='status != nil && status > 0'>AND status = #{status}</if>
+        </trim>
+    </sql>
+</mapper>

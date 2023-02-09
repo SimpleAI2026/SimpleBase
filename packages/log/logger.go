@@ -31,13 +31,11 @@ func init() {
 }
 
 func getLogMsg(args ...interface{}) string {
-	msg := fmt.Sprint(args...)
-	return msg
+	return fmt.Sprint(args...)
 }
 
 func getLogMsgf(format string, args ...interface{}) string {
-	msg := fmt.Sprintf(format, args...)
-	return msg
+	return fmt.Sprintf(format, args...)
 }
 
 func SetLogger(logger *zap.Logger) {
