@@ -8,7 +8,6 @@ import (
 
 	"github.com/beevik/etree"
 	"github.com/linkxzhou/gongx/packages/expr"
-	"github.com/linkxzhou/gongx/packages/log"
 	"github.com/linkxzhou/gongx/packages/utils"
 )
 
@@ -95,29 +94,40 @@ func (xml *XmlParserBuild) Build(element *etree.Element) (string, error) {
 	var err error
 	var builder strings.Builder
 	for _, child := range element.Child {
-		expression := ""
+		var exprResult string
+		var err error
+
 		switch reflect.TypeOf(child).String() {
 		case "*etree.CharData":
-			expression = xml.filter(strings.TrimSpace(child.(*etree.CharData).Data))
+			exprResult = xml.filter(strings.TrimSpace(child.(*etree.CharData).Data))
 		case "*etree.Element":
 			el := child.(*etree.Element)
 			switch el.Tag {
 			case "trim":
-				if expression, err = xml.buildTrim(el); err != nil {
+				if exprResult, err = xml.buildTrim(el); err != nil {
 					break
 				}
 			case "where":
-				expression = xml.buildWhere(el)
+				exprResult, err = xml.buildWhere(el)
 			case "set":
-				expression = xml.buildSet(el)
+				exprResult, err = xml.buildSet(el)
 			case "if":
-				expression = xml.buildIf(el)
-			case "space":
-				expression = xml.buildSpace(el)
+				exprResult, err = xml.buildIf(el)
+			case "with":
+				var joinStr = " " // default space string
+				if attr := el.SelectAttr("join"); attr != nil {
+					joinStr = attr.Value
+				}
+				exprResult, err = xml.buildWith(el, joinStr)
 			}
 		}
-		if expression != "" {
-			builder.WriteString(expression)
+
+		if err != nil {
+			return "", err
+		}
+
+		if exprResult != "" {
+			builder.WriteString(exprResult)
 			builder.WriteString(" ")
 		}
 	}
@@ -125,54 +135,54 @@ func (xml *XmlParserBuild) Build(element *etree.Element) (string, error) {
 }
 
 func (xml *XmlParserBuild) buildTrim(el *etree.Element) (string, error) {
-	expression, err := xml.Build(el)
+	exprResult, err := xml.Build(el)
 	if err != nil {
 		return "", err
 	}
-	if expression == "" {
-		return expression, err
+	if exprResult == "" {
+		return exprResult, err
 	}
 	if str := el.SelectAttrValue("prefixOverrides", ""); str != "" {
 		for _, tag := range strings.Split(str, "|") {
-			expression = strings.TrimLeft(expression, strings.TrimSpace(tag))
+			exprResult = strings.TrimLeft(exprResult, strings.TrimSpace(tag))
 		}
 	}
 	if str := el.SelectAttrValue("suffixOverrides", ""); str != "" {
 		for _, tag := range strings.Split(str, "|") {
-			expression = strings.TrimRight(expression, strings.TrimSpace(tag))
+			exprResult = strings.TrimRight(exprResult, strings.TrimSpace(tag))
 		}
 	}
-	if expression != "" {
-		expression = el.SelectAttrValue("prefix", "") + expression + el.SelectAttrValue("suffix", "")
+	if exprResult != "" {
+		exprResult = el.SelectAttrValue("prefix", "") + exprResult + el.SelectAttrValue("suffix", "")
 	}
-	return expression, nil
+	return exprResult, nil
 }
 
-func (xml *XmlParserBuild) buildWhere(el *etree.Element) string {
-	wheres := xml.buildWhereOrSet(el)
-	if len(wheres) > 0 {
-		return "WHERE " + strings.Join(wheres, " AND ")
+func (xml *XmlParserBuild) buildWhere(el *etree.Element) (string, error) {
+	if wheres, err := xml.buildWhereOrSet(el); err == nil && len(wheres) > 0 {
+		return "WHERE " + strings.Join(wheres, " AND "), nil
+	} else {
+		return "", err
 	}
-	return ""
 }
 
-func (xml *XmlParserBuild) buildSet(el *etree.Element) string {
-	sets := xml.buildWhereOrSet(el)
-	if len(sets) > 0 {
-		return "SET " + strings.Join(sets, ", ")
+func (xml *XmlParserBuild) buildSet(el *etree.Element) (string, error) {
+	if sets, err := xml.buildWhereOrSet(el); err == nil && len(sets) > 0 {
+		return "SET " + strings.Join(sets, ", "), nil
+	} else {
+		return "", err
 	}
-	return ""
 }
 
-func (xml *XmlParserBuild) buildSpace(el *etree.Element) string {
-	sets := xml.buildWhereOrSet(el)
-	if len(sets) > 0 {
-		return strings.Join(sets, " ")
+func (xml *XmlParserBuild) buildWith(el *etree.Element, join string) (string, error) {
+	if sets, err := xml.buildWhereOrSet(el); err == nil && len(sets) > 0 {
+		return strings.Join(sets, join), err
+	} else {
+		return "", err
 	}
-	return ""
 }
 
-func (xml *XmlParserBuild) buildWhereOrSet(el *etree.Element) []string {
+func (xml *XmlParserBuild) buildWhereOrSet(el *etree.Element) ([]string, error) {
 	ifElements := el.FindElements("if")
 	wheres := make([]string, len(ifElements))
 	index := 0
@@ -182,20 +192,19 @@ func (xml *XmlParserBuild) buildWhereOrSet(el *etree.Element) []string {
 			wheres[index] = xml.filter(el.Text())
 			index++
 		} else {
-			log.Error("if `", str, "` error: (", err, ")")
+			return nil, err
 		}
 	}
-	return wheres[0:index]
+	return wheres[0:index], nil
 }
 
-func (xml *XmlParserBuild) buildIf(el *etree.Element) string {
+func (xml *XmlParserBuild) buildIf(el *etree.Element) (string, error) {
 	str := strings.TrimSpace(el.SelectAttrValue("test", ""))
 	if b, err := xml.parseTest(str, xml.inputValue); err == nil && b {
-		return xml.filter(el.Text())
+		return xml.filter(el.Text()), err
 	} else {
-		log.Error("if `", str, "` error: (", err, ")")
+		return "", err
 	}
-	return ""
 }
 
 func (xml *XmlParserBuild) filter(str string) string {
@@ -217,6 +226,10 @@ func (xml *XmlParserBuild) parseTest(str string, args map[string]interface{}) (b
 	if str == "" {
 		return true, nil
 	}
+	// set var missing function
+	expr.DefaultPool.SetOnVarMissing(func(varName string) (expr.Value, error) {
+		return expr.NilValue, nil
+	})
 	p, err := expr.Eval(str, args, nil)
 	if err != nil {
 		return false, err

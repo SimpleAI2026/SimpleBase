@@ -17,13 +17,13 @@ var (
 	ErrUnsupportedType = errors.New("unsupported type")
 	ErrDivideZero      = errors.New("divide zero")
 	ErrPowOfZero       = errors.New("power of zero")
+	NilValue           = Value{kind: KindInvalid}
 
 	// default Value
-	nilValue = Value{kind: KindInvalid}
 	varZero  = Value{kind: KindInt, rawValue: "0"}
 	varTrue  = Value{kind: KindInt, intValue: 1, rawValue: "true"}
 	varFalse = Value{kind: KindInt, intValue: 0, rawValue: "false"}
-	varType  = reflect.TypeOf(nilValue).Kind()
+	varType  = reflect.TypeOf(NilValue).Kind()
 )
 
 const (
@@ -185,7 +185,7 @@ type (
 
 func (getter Getter) get(name string) (Value, bool) {
 	if getter == nil {
-		return nilValue, false
+		return NilValue, false
 	}
 	if v, ok := getter[name]; !ok {
 		switch name {
@@ -194,9 +194,9 @@ func (getter Getter) get(name string) (Value, bool) {
 		case "false", "False": // false False nil null => varFalse
 			return varFalse, true
 		case "nil":
-			return nilValue, true
+			return NilValue, true
 		}
-		return nilValue, false
+		return NilValue, false
 	} else {
 		rValue, err := NewValue(v)
 		return rValue, err == nil
@@ -204,7 +204,7 @@ func (getter Getter) get(name string) (Value, bool) {
 }
 
 var (
-	defaultPool = func() *Pool {
+	DefaultPool = func() *Pool {
 		if p, err := NewPool(); err != nil {
 			panic(err)
 		} else {
@@ -212,7 +212,7 @@ var (
 		}
 	}()
 
-	defaultOnVarMissing = func(varName string) (Value, error) {
+	DefaultOnVarMissing = func(varName string) (Value, error) {
 		return varZero, fmt.Errorf("var `%s' missing", varName)
 	}
 )
@@ -220,7 +220,7 @@ var (
 func New(s string, pool *Pool) (*Expr, error) {
 	s = strings.TrimSpace(s)
 	if pool == nil {
-		pool = defaultPool
+		pool = DefaultPool
 	}
 	if e, ok := pool.get(s); ok {
 		return e, nil
@@ -285,7 +285,7 @@ func (e *Expr) Eval(getter Getter) (Value, error) {
 func Eval(s string, getter map[string]interface{}, pool *Pool) (Value, error) {
 	e, err := New(s, pool)
 	if err != nil {
-		return varZero, err
+		return varZero, errors.New("eval expr(" + err.Error() + ")")
 	}
 	return e.Eval(Getter(getter))
 }
@@ -426,7 +426,7 @@ func NewPool(builtinList ...map[string]BuiltinFunc) (*Pool, error) {
 	p := &Pool{
 		pool:         make(map[string]*Expr),
 		builtinList:  map[string]BuiltinFunc{},
-		onVarMissing: defaultOnVarMissing,
+		onVarMissing: DefaultOnVarMissing,
 	}
 	for _, builtin := range builtinList {
 		for name, fn := range builtin {
@@ -458,10 +458,10 @@ func (p *Pool) builtinCall(name string, args ...Value) (Value, error) {
 		if v, err := fn(ValuesToInterfaces(args...)...); err == nil {
 			return NewValue(v)
 		} else {
-			return nilValue, err
+			return NilValue, err
 		}
 	}
-	return nilValue, fmt.Errorf("undefined function `%v`", name)
+	return NilValue, fmt.Errorf("undefined function `%v`", name)
 }
 
 var (
@@ -483,7 +483,7 @@ var (
 			}
 			return Float(math.Pow(v1.Float(), v2.Float())), nil
 		}
-		return nilValue, ErrUnsupportedType
+		return NilValue, ErrUnsupportedType
 	}
 
 	intOpFunc = func(v1, v2 Value, op OpKind) (Value, error) {
@@ -510,7 +510,7 @@ var (
 			}
 			return Int(int64(math.Pow(float64(v1.Int()), float64(v2.Int())))), nil
 		}
-		return nilValue, ErrUnsupportedType
+		return NilValue, ErrUnsupportedType
 	}
 )
 
