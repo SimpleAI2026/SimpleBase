@@ -18,3 +18,7 @@ https://github.com/pocketbase/pocketbase
 
 # 监控和日志信息
 metrics
+
+
+## 参考
+（1）https://wasmedge.org/book/zh/index.html

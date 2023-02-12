@@ -183,7 +183,7 @@ func TestOnVarMissing(t *testing.T) {
 		if dft, ok := defaults[varName]; ok {
 			return dft, nil
 		}
-		return defaultOnVarMissing(varName)
+		return DefaultOnVarMissing(varName)
 	})
 	if _, err := Eval("2 / b + a + x", map[string]interface{}{"x": 1}, pool); err != nil {
 		t.Errorf("err: %v", err)
@@ -237,20 +237,20 @@ func TestOp(t *testing.T) {
 		{`2 + 1 > 2`, varTrue, nil},
 		{`2 - 1`, Int(1), nil},
 
-		{`"a" - "b"`, nilValue, ErrUnsupportedType},
-		{`"a" + 1`, nilValue, ErrUnsupportedType},
-		{`"a" + 1.2`, nilValue, ErrUnsupportedType},
-		{`"a" - 1`, nilValue, ErrUnsupportedType},
-		{`"a" == 1`, nilValue, ErrUnsupportedType},
-		{`"a" != 1`, nilValue, ErrUnsupportedType},
-		{`"a" > 1`, nilValue, ErrUnsupportedType},
-		{`"a" < 1`, nilValue, ErrUnsupportedType},
-		{`"a" >= 1`, nilValue, ErrUnsupportedType},
-		{`"a" <= 1`, nilValue, ErrUnsupportedType},
-		{`1/0`, nilValue, ErrDivideZero},
-		{`1%0`, nilValue, ErrDivideZero},
-		{`0^2`, nilValue, ErrPowOfZero},
-		{`0.0^2`, nilValue, ErrPowOfZero},
+		{`"a" - "b"`, varInvalid, ErrUnsupportedType},
+		{`"a" + 1`, varInvalid, ErrUnsupportedType},
+		{`"a" + 1.2`, varInvalid, ErrUnsupportedType},
+		{`"a" - 1`, varInvalid, ErrUnsupportedType},
+		{`"a" == 1`, varInvalid, ErrUnsupportedType},
+		{`"a" != 1`, varInvalid, ErrUnsupportedType},
+		{`"a" > 1`, varInvalid, ErrUnsupportedType},
+		{`"a" < 1`, varInvalid, ErrUnsupportedType},
+		{`"a" >= 1`, varInvalid, ErrUnsupportedType},
+		{`"a" <= 1`, varInvalid, ErrUnsupportedType},
+		{`1/0`, varInvalid, ErrDivideZero},
+		{`1%0`, varInvalid, ErrDivideZero},
+		{`0^2`, varInvalid, ErrPowOfZero},
+		{`0.0^2`, varInvalid, ErrPowOfZero},
 	} {
 		e, err := New(tc.s, nil)
 		if err != nil {
@@ -298,9 +298,8 @@ func TestOpWithGetter(t *testing.T) {
 	}{
 		{`a + b`, String("uv"), nil},
 		{`x + y`, Int(3), nil},
-
-		{`a + 1`, nilValue, ErrUnsupportedType},
-		{`a > 1`, nilValue, ErrUnsupportedType},
+		{`a + 1`, varInvalid, ErrUnsupportedType},
+		{`a > 1`, varInvalid, ErrUnsupportedType},
 	} {
 		e, err := New(tc.s, pool)
 		if err != nil {

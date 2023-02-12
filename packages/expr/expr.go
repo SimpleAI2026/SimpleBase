@@ -17,13 +17,14 @@ var (
 	ErrUnsupportedType = errors.New("unsupported type")
 	ErrDivideZero      = errors.New("divide zero")
 	ErrPowOfZero       = errors.New("power of zero")
-	NilValue           = Value{kind: KindInvalid}
+	NilValue           = Value{kind: KindNil}
 
 	// default Value
-	varZero  = Value{kind: KindInt, rawValue: "0"}
-	varTrue  = Value{kind: KindInt, intValue: 1, rawValue: "true"}
-	varFalse = Value{kind: KindInt, intValue: 0, rawValue: "false"}
-	varType  = reflect.TypeOf(NilValue).Kind()
+	varInvalid = Value{kind: KindInvalid}
+	varZero    = Value{kind: KindInt, rawValue: "0"}
+	varTrue    = Value{kind: KindInt, intValue: 1, rawValue: "true"}
+	varFalse   = Value{kind: KindInt, intValue: 0, rawValue: "false"}
+	varType    = reflect.TypeOf(NilValue).Kind()
 )
 
 const (
@@ -31,6 +32,7 @@ const (
 	KindInt
 	KindFloat
 	KindString
+	KindNil
 
 	OpKindAdd OpKind = iota
 	OpKindSub
@@ -125,7 +127,7 @@ func (v Value) IsString() bool { return v.kind == KindString }
 func (v Value) IsInt() bool    { return v.kind == KindFloat || v.kind == KindInt }
 func (v Value) IsFloat() bool  { return v.kind == KindFloat || v.kind == KindInt }
 func (v Value) IsBool() bool {
-	return v.kind == KindString || v.kind == KindInt || v.kind == KindFloat || v.kind == KindInvalid
+	return v.kind == KindString || v.kind == KindInt || v.kind == KindFloat || v.kind == KindNil
 }
 func (v Value) IsInvalid() bool {
 	return v.kind == KindInvalid
@@ -187,6 +189,7 @@ func (getter Getter) get(name string) (Value, bool) {
 	if getter == nil {
 		return NilValue, false
 	}
+
 	if v, ok := getter[name]; !ok {
 		switch name {
 		case "true", "True": // true True => varTrue
@@ -458,10 +461,10 @@ func (p *Pool) builtinCall(name string, args ...Value) (Value, error) {
 		if v, err := fn(ValuesToInterfaces(args...)...); err == nil {
 			return NewValue(v)
 		} else {
-			return NilValue, err
+			return varInvalid, err
 		}
 	}
-	return NilValue, fmt.Errorf("undefined function `%v`", name)
+	return varInvalid, fmt.Errorf("undefined function `%v`", name)
 }
 
 var (
@@ -483,7 +486,7 @@ var (
 			}
 			return Float(math.Pow(v1.Float(), v2.Float())), nil
 		}
-		return NilValue, ErrUnsupportedType
+		return varInvalid, ErrUnsupportedType
 	}
 
 	intOpFunc = func(v1, v2 Value, op OpKind) (Value, error) {
@@ -510,7 +513,7 @@ var (
 			}
 			return Int(int64(math.Pow(float64(v1.Int()), float64(v2.Int())))), nil
 		}
-		return NilValue, ErrUnsupportedType
+		return varInvalid, ErrUnsupportedType
 	}
 )
 
@@ -579,8 +582,8 @@ func compare(v1, v2 Value, op OpKind) (Value, error) {
 		} else if v2.IsInvalid() {
 			return varFalse, nil
 		}
-	case KindInvalid:
-		if v2.Kind() == KindInvalid {
+	case KindNil:
+		if v2.Kind() == KindNil {
 			return varTrue, nil
 		}
 		return varFalse, nil
