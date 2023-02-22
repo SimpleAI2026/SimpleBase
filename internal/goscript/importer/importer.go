@@ -1,24 +1,34 @@
-package loader
+package importer
 
 import (
+	"errors"
 	"fmt"
 	"go/importer"
 	"go/types"
+
+	"github.com/linkxzhou/goedge/internal/goscript/context"
+)
+
+var (
+	ErrNotFoundImporter = errors.New("not found provider for types.Importer")
+	ErrNotFoundPackage  = errors.New("not found package")
 )
 
 type Importer struct {
-	ctx         *Context
 	pkgs        map[string]*types.Package
 	importing   map[string]bool
 	defaultImpl types.Importer
+	ctx         *context.Context
+	typesLoader *TypesLoader
 }
 
-func NewImporter(ctx *Context) *Importer {
+func NewImporter(ctx *context.Context, typesLoader *TypesLoader) *Importer {
 	return &Importer{
-		ctx:         ctx,
 		pkgs:        make(map[string]*types.Package),
 		importing:   make(map[string]bool),
 		defaultImpl: importer.Default(),
+		ctx:         ctx,
+		typesLoader: typesLoader,
 	}
 }
 
@@ -33,29 +43,13 @@ func (i *Importer) Import(path string) (*types.Package, error) {
 	defer func() {
 		i.importing[path] = false
 	}()
-	if pkg, err := i.ctx.Loader.Import(path); err == nil && pkg.Complete() {
+	if pkg, err := i.typesLoader.Import(path); err == nil && pkg.Complete() {
 		i.pkgs[path] = pkg
 		return pkg, nil
 	}
-	if pkg, ok := i.ctx.pkgs[path]; ok {
-		if !pkg.Package.Complete() {
-			if err := pkg.Load(); err != nil {
-				return nil, err
-			}
-		}
-		i.pkgs[path] = pkg.Package
-		return pkg.Package, nil
+	if pkg, _ := i.ctx.Import(path); pkg != nil {
+		i.pkgs[path] = pkg
+		return pkg, nil
 	}
 	return nil, ErrNotFoundPackage
 }
-
-// RegisterPackage register pkg from gen_packages
-func RegisterPackage(pkg *Package) {
-	if p, ok := registerPkgs[pkg.Path]; ok {
-		p.merge(pkg)
-		return
-	}
-	registerPkgs[pkg.Path] = pkg
-}
-
-var registerPkgs = make(map[string]*Package)

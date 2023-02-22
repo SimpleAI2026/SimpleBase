@@ -1,13 +1,22 @@
-package loader
+package context
 
 import (
 	"fmt"
+	"go/types"
 	"testing"
 
-	"github.com/linkxzhou/gongx/interp/goscript/loader"
+	"github.com/linkxzhou/goedge/internal/goscript/context"
+	"github.com/linkxzhou/goedge/internal/goscript/importer"
 )
 
-func Test_LoadFileMain(t *testing.T) {
+func setExternalConfig(c *context.Context) {
+	typesLoader := importer.NewTypesLoader()
+	c.SetExternalConfig(importer.NewImporter(c, typesLoader), func() []*types.Package {
+		return typesLoader.Packages()
+	})
+}
+
+func TestLoadFileMain(t *testing.T) {
 	sources := `
 	package test
 
@@ -30,23 +39,26 @@ func Test_LoadFileMain(t *testing.T) {
 	}
 	`
 	{
-		c := loader.NewContext(loader.EnableDumpInstr | loader.EnableDumpImports)
+		c := context.NewContext(context.EnableDumpInstr | context.EnableDumpImports)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}
 	{
-		c := loader.NewContext(loader.DisableRecover)
+		c := context.NewContext(context.DisableRecover)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}
 	{
-		c := loader.NewContext(loader.EnableDumpImports)
+		c := context.NewContext(context.EnableDumpImports)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}
 }
 
-func Test_LoadFileNoMain(t *testing.T) {
+func TestLoadFileNoMain(t *testing.T) {
 	sources := `
 	package test
 
@@ -62,23 +74,26 @@ func Test_LoadFileNoMain(t *testing.T) {
 	}
 	`
 	{
-		c := loader.NewContext(loader.EnableDumpInstr | loader.EnableDumpImports)
+		c := context.NewContext(context.EnableDumpInstr | context.EnableDumpImports)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}
 	{
-		c := loader.NewContext(loader.DisableRecover)
+		c := context.NewContext(context.DisableRecover)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}
 	{
-		c := loader.NewContext(loader.EnableDumpImports)
+		c := context.NewContext(context.EnableDumpImports)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}
 }
 
-func Test_LoadFileHttp(t *testing.T) {
+func TestLoadFileHttp(t *testing.T) {
 	sources := `
 	package main
 
@@ -100,17 +115,20 @@ func Test_LoadFileHttp(t *testing.T) {
 	}
 	`
 	{
-		c := loader.NewContext(loader.EnableDumpInstr | loader.EnableDumpImports)
+		c := context.NewContext(context.EnableDumpInstr | context.EnableDumpImports)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}
 	{
-		c := loader.NewContext(loader.DisableRecover)
+		c := context.NewContext(context.DisableRecover)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}
 	{
-		c := loader.NewContext(loader.EnableDumpImports)
+		c := context.NewContext(context.EnableDumpImports)
+		setExternalConfig(c)
 		p, err := c.LoadFile("__main__.go", sources)
 		fmt.Println("p: ", p, ", err: ", err)
 	}

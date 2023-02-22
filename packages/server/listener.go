@@ -6,7 +6,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/linkxzhou/gongx/packages/log"
+	"github.com/linkxzhou/goedge/packages/log"
 	"golang.org/x/sys/unix"
 )
 

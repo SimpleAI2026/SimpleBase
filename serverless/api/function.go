@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/linkxzhou/gongx/packages/server"
+	"github.com/linkxzhou/goedge/packages/server"
 )
 
 func FunctionMetrics(c server.Context) interface{} {

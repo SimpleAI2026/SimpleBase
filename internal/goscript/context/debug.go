@@ -1,4 +1,4 @@
-package loader
+package context
 
 import (
 	"go/token"

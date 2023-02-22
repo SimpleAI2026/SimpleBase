@@ -10,43 +10,43 @@ import (
 )
 
 var importPkgs = map[string][]string{
-	"bytes":           []string{},
-	"container/heap":  []string{},
-	"container/list":  []string{},
-	"container/ring":  []string{},
-	"crypto/md5":      []string{},
-	"encoding/base64": []string{},
-	"encoding/hex":    []string{},
-	"encoding/xml":    []string{},
-	"errors":          []string{},
-	"html":            []string{},
-	"math":            []string{},
-	"math/rand":       []string{},
-	"net/http":        []string{},
-	"net/url":         []string{},
-	"regexp":          []string{},
-	"sort":            []string{},
-	"strconv":         []string{},
-	"strings":         []string{},
-	"time":            []string{},
-	"unicode":         []string{},
-	"unicode/utf8":    []string{},
-	"unicode/utf16":   []string{},
-	"sync":            []string{},
-	"sync/atomic":     []string{},
-	"crypto/sha1":     []string{},
-	"encoding/json":   []string{},
-	"encoding/binary": []string{},
+	"bytes":           nil,
+	"container/heap":  nil,
+	"container/list":  nil,
+	"container/ring":  nil,
+	"crypto/md5":      nil,
+	"encoding/base64": nil,
+	"encoding/hex":    nil,
+	"encoding/xml":    nil,
+	"errors":          nil,
+	"html":            nil,
+	"math":            nil,
+	"math/rand":       nil,
+	"net/http":        nil,
+	"net/url":         nil,
+	"regexp":          nil,
+	"sort":            nil,
+	"strconv":         nil,
+	"strings":         nil,
+	"time":            nil,
+	"unicode":         nil,
+	"unicode/utf8":    nil,
+	"unicode/utf16":   nil,
+	"sync":            nil,
+	"sync/atomic":     nil,
+	"crypto/sha1":     nil,
+	"encoding/json":   nil,
+	"encoding/binary": nil,
 	"io/ioutil":       []string{"io"},
-	"io":              []string{},
-	"html/template":   []string{},
-	"path":            []string{},
-	"mime/multipart":  []string{},
-	"crypto/des":      []string{},
-	"crypto/cipher":   []string{},
-	"crypto/tls":      []string{},
-	"fmt":             []string{},
-	"github.com/linkxzhou/gongx/packages/server": []string{},
+	"io":              nil,
+	"html/template":   nil,
+	"path":            nil,
+	"mime/multipart":  nil,
+	"crypto/des":      nil,
+	"crypto/cipher":   nil,
+	"crypto/tls":      nil,
+	"fmt":             nil,
+	"github.com/linkxzhou/goedge/packages/server": nil,
 }
 
 const (
@@ -96,7 +96,7 @@ func generateImportPkgs() error {
 			}
 		}
 		builtinStr += `
-	RegisterPackage(&Package{
+	registerPackage(&Package{
 		Name:       "` + pkgName + `",
 		Path:       "` + path + `",
 		Deps:       make(map[string]string),
@@ -119,7 +119,7 @@ func generateImportPkgs() error {
 
 	fmt.Println(`
 // This is generate file
-package loader
+package importer
 
 import (
 	"reflect"

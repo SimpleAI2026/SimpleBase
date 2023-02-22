@@ -1,4 +1,3 @@
-
 // This is generate file
 package goscript
 
@@ -10,15 +9,14 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-
 func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
 	typ := pfn.Interp.preToType(instr.Type())
-	
+
 	if typ.PkgPath() == "" {
 		switch typ.Kind() {
-		
+
 		case reflect.Complex128:
 			if kx == kindConst {
 				v := -vx.(complex128)
@@ -29,7 +27,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Complex64:
 			if kx == kindConst {
 				v := -vx.(complex64)
@@ -40,7 +38,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Float32:
 			if kx == kindConst {
 				v := -vx.(float32)
@@ -51,7 +49,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Float64:
 			if kx == kindConst {
 				v := -vx.(float64)
@@ -62,7 +60,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int:
 			if kx == kindConst {
 				v := -vx.(int)
@@ -73,7 +71,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int16:
 			if kx == kindConst {
 				v := -vx.(int16)
@@ -84,7 +82,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int32:
 			if kx == kindConst {
 				v := -vx.(int32)
@@ -95,7 +93,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int64:
 			if kx == kindConst {
 				v := -vx.(int64)
@@ -106,7 +104,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int8:
 			if kx == kindConst {
 				v := -vx.(int8)
@@ -117,7 +115,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint:
 			if kx == kindConst {
 				v := -vx.(uint)
@@ -128,7 +126,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint16:
 			if kx == kindConst {
 				v := -vx.(uint16)
@@ -139,7 +137,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint32:
 			if kx == kindConst {
 				v := -vx.(uint32)
@@ -150,7 +148,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint64:
 			if kx == kindConst {
 				v := -vx.(uint64)
@@ -161,7 +159,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint8:
 			if kx == kindConst {
 				v := -vx.(uint8)
@@ -172,7 +170,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uintptr:
 			if kx == kindConst {
 				v := -vx.(uintptr)
@@ -183,11 +181,11 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		}
 	} else {
 		switch typ.Kind() {
-		
+
 		case reflect.Complex128:
 			if kx == kindConst {
 				v := xtype.NegComplex128(vx)
@@ -198,7 +196,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Complex64:
 			if kx == kindConst {
 				v := xtype.NegComplex64(vx)
@@ -209,7 +207,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Float32:
 			if kx == kindConst {
 				v := xtype.NegFloat32(vx)
@@ -220,7 +218,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Float64:
 			if kx == kindConst {
 				v := xtype.NegFloat64(vx)
@@ -231,7 +229,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int:
 			if kx == kindConst {
 				v := xtype.NegInt(vx)
@@ -242,7 +240,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int16:
 			if kx == kindConst {
 				v := xtype.NegInt16(vx)
@@ -253,7 +251,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int32:
 			if kx == kindConst {
 				v := xtype.NegInt32(vx)
@@ -264,7 +262,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int64:
 			if kx == kindConst {
 				v := xtype.NegInt64(vx)
@@ -275,7 +273,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int8:
 			if kx == kindConst {
 				v := xtype.NegInt8(vx)
@@ -286,7 +284,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint:
 			if kx == kindConst {
 				v := xtype.NegUint(vx)
@@ -297,7 +295,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint16:
 			if kx == kindConst {
 				v := xtype.NegUint16(vx)
@@ -308,7 +306,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint32:
 			if kx == kindConst {
 				v := xtype.NegUint32(vx)
@@ -319,7 +317,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint64:
 			if kx == kindConst {
 				v := xtype.NegUint64(vx)
@@ -330,7 +328,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint8:
 			if kx == kindConst {
 				v := xtype.NegUint8(vx)
@@ -341,7 +339,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uintptr:
 			if kx == kindConst {
 				v := xtype.NegUintptr(vx)
@@ -352,7 +350,7 @@ func makeUnOpSUB(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		}
 	}
 	panic("unreachable kind: " + fmt.Sprintf("%v", typ.Kind()))
@@ -362,10 +360,10 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 	ir := pfn.regIndex(instr)
 	ix, kx, vx := pfn.regIndex3(instr.X)
 	typ := pfn.Interp.preToType(instr.Type())
-	
+
 	if typ.PkgPath() == "" {
 		switch typ.Kind() {
-		
+
 		case reflect.Int:
 			if kx == kindConst {
 				v := ^vx.(int)
@@ -376,7 +374,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int16:
 			if kx == kindConst {
 				v := ^vx.(int16)
@@ -387,7 +385,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int32:
 			if kx == kindConst {
 				v := ^vx.(int32)
@@ -398,7 +396,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int64:
 			if kx == kindConst {
 				v := ^vx.(int64)
@@ -409,7 +407,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int8:
 			if kx == kindConst {
 				v := ^vx.(int8)
@@ -420,7 +418,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint:
 			if kx == kindConst {
 				v := ^vx.(uint)
@@ -431,7 +429,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint16:
 			if kx == kindConst {
 				v := ^vx.(uint16)
@@ -442,7 +440,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint32:
 			if kx == kindConst {
 				v := ^vx.(uint32)
@@ -453,7 +451,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint64:
 			if kx == kindConst {
 				v := ^vx.(uint64)
@@ -464,7 +462,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint8:
 			if kx == kindConst {
 				v := ^vx.(uint8)
@@ -475,7 +473,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uintptr:
 			if kx == kindConst {
 				v := ^vx.(uintptr)
@@ -486,11 +484,11 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		}
 	} else {
 		switch typ.Kind() {
-		
+
 		case reflect.Int:
 			if kx == kindConst {
 				v := xtype.XorInt(vx)
@@ -501,7 +499,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int16:
 			if kx == kindConst {
 				v := xtype.XorInt16(vx)
@@ -512,7 +510,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int32:
 			if kx == kindConst {
 				v := xtype.XorInt32(vx)
@@ -523,7 +521,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int64:
 			if kx == kindConst {
 				v := xtype.XorInt64(vx)
@@ -534,7 +532,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Int8:
 			if kx == kindConst {
 				v := xtype.XorInt8(vx)
@@ -545,7 +543,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint:
 			if kx == kindConst {
 				v := xtype.XorUint(vx)
@@ -556,7 +554,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint16:
 			if kx == kindConst {
 				v := xtype.XorUint16(vx)
@@ -567,7 +565,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint32:
 			if kx == kindConst {
 				v := xtype.XorUint32(vx)
@@ -578,7 +576,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint64:
 			if kx == kindConst {
 				v := xtype.XorUint64(vx)
@@ -589,7 +587,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uint8:
 			if kx == kindConst {
 				v := xtype.XorUint8(vx)
@@ -600,7 +598,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		case reflect.Uintptr:
 			if kx == kindConst {
 				v := xtype.XorUintptr(vx)
@@ -611,7 +609,7 @@ func makeUnOpXOR(pfn *function, instr *ssa.UnOp) func(vm *goVm) {
 					vm.setReg(ir, v)
 				}
 			}
-		
+
 		}
 	}
 	panic("unreachable kind: " + fmt.Sprintf("%v", typ.Kind()))

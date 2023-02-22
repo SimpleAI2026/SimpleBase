@@ -10,7 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/linkxzhou/gongx/interp/goscript/loader"
+	"github.com/linkxzhou/goedge/internal/goscript/loader"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -885,12 +885,15 @@ func (inter *Interp) callBuiltinByStack(caller *goVm, fn string, ssaArgs []ssa.V
 	}
 }
 
-var globalInterpCache sync.Map
+var NoDir string     // no dir
+var NoSources string // no source
+
+var globalInterpCache sync.Map // global cache
 
 func LoadFileWithCache(ctx *loader.Context, fileName, sources, dir string) (*Interp, error) {
 	var isDir bool
 	cacheKey := fileName
-	if dir != "" {
+	if dir != NoDir {
 		isDir = true
 		cacheKey = dir
 	}

@@ -3,7 +3,7 @@ package tests
 import (
 	"encoding/json"
 
-	"github.com/linkxzhou/gongx/packages/server"
+	"github.com/linkxzhou/goedge/packages/server"
 )
 
 func Handle(c server.Context) interface{} {

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/beevik/etree"
-	"github.com/linkxzhou/gongx/packages/expr"
-	"github.com/linkxzhou/gongx/packages/utils"
+	"github.com/linkxzhou/goedge/packages/expr"
+	"github.com/linkxzhou/goedge/packages/utils"
 )
 
 type (

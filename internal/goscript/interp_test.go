@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/linkxzhou/gongx/interp/goscript/loader"
+	"github.com/linkxzhou/goedge/internal/goscript/loader"
 )
 
 func TestNewInterp(t *testing.T) {
@@ -97,11 +97,11 @@ func Handle() interface{} {
 }
 	`
 	c := loader.NewContext(loader.EnableDumpImports)
-	iv1, _ := LoadFileWithCache(c, "__main__.go", sources)
+	iv1, _ := LoadFileWithCache(c, "__main__.go", sources, NoDir)
 	iv2, err2 := iv1.RunAny("Handle")
 	fmt.Println("TestNewInterpAnyCache err: ", err2, ", iv2: ", iv2)
 
-	iv11, _ := LoadFileWithCache(c, "__main__.go", sources)
+	iv11, _ := LoadFileWithCache(c, "__main__.go", sources, NoDir)
 	iv21, err21 := iv11.RunAny("Handle")
 	fmt.Println("TestNewInterpAnyCache1 err: ", err21, ", iv21: ", iv21)
 }
@@ -123,7 +123,7 @@ func Handle() interface{} {
 	`
 	c := loader.NewContext(loader.DisableRecover)
 	for n := 0; n < b.N; n++ {
-		iv, _ := LoadFileWithCache(c, "__main__.go", sources)
+		iv, _ := LoadFileWithCache(c, "__main__.go", sources, NoDir)
 		iv.RunAny("Handle")
 	}
 }

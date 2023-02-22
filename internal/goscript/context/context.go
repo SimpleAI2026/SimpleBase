@@ -1,4 +1,4 @@
-package loader
+package context
 
 import (
 	"errors"
@@ -25,16 +25,14 @@ const (
 	EnablePrintAny                     // Enable builtin print for any type ( struct/array )
 )
 
-const MainPkgPath = "main"
-
 // Context ssa context
 type Context struct {
-	Loader       Loader         // types loader
 	BuildContext build.Context  // build context
 	FileSet      *token.FileSet // file set
 
-	DebugFunc func(*DebugInfo)         // debug func
-	Override  map[string]reflect.Value // override function
+	DebugFunc    func(*DebugInfo) // debug func
+	ExternalFunc func() []*types.Package
+	Override     map[string]reflect.Value // override function
 
 	CallForPool int             // least call count for enable function pool
 	Mode        Mode            // mode
@@ -52,16 +50,16 @@ func (ctx *Context) setRoot(root string) {
 }
 
 type sourcePackage struct {
-	Context *Context
-	Package *types.Package
-	Info    *types.Info
-	Dir     string
-	Files   []*ast.File
+	ctx          *Context
+	typesPackage *types.Package
+	info         *types.Info
+	dir          string
+	files        []*ast.File
 }
 
-func (sp *sourcePackage) Load() (err error) {
-	if sp.Info == nil {
-		sp.Info = &types.Info{
+func (sp *sourcePackage) Load() error {
+	if sp.info == nil {
+		sp.info = &types.Info{
 			Types:      make(map[ast.Expr]types.TypeAndValue),
 			Defs:       make(map[*ast.Ident]types.Object),
 			Uses:       make(map[*ast.Ident]types.Object),
@@ -69,17 +67,16 @@ func (sp *sourcePackage) Load() (err error) {
 			Scopes:     make(map[ast.Node]*types.Scope),
 			Selections: make(map[*ast.SelectorExpr]*types.Selection),
 		}
-		if err := types.NewChecker(sp.Context.conf, sp.Context.FileSet, sp.Package, sp.Info).Files(sp.Files); err != nil {
+		if err := types.NewChecker(sp.ctx.conf, sp.ctx.FileSet, sp.typesPackage, sp.info).Files(sp.files); err != nil {
 			return err
 		}
 	}
-	return
+	return nil
 }
 
 // NewContext create a new Context
 func NewContext(mode Mode) *Context {
 	ctx := &Context{
-		Loader:       NewTypesLoader(mode),
 		FileSet:      token.NewFileSet(),
 		Mode:         mode,
 		ParserMode:   parser.AllErrors,
@@ -93,17 +90,18 @@ func NewContext(mode Mode) *Context {
 	if mode&EnableDumpInstr != 0 {
 		ctx.BuilderMode |= ssa.PrintFunctions
 	}
-	ctx.conf = &types.Config{
-		Importer: NewImporter(ctx),
-	}
 	return ctx
+}
+
+func (ctx *Context) SetExternalConfig(importer types.Importer, fn func() []*types.Package) {
+	ctx.conf = &types.Config{Importer: importer}
+	ctx.ExternalFunc = fn
 }
 
 func (ctx *Context) SetEvalMode(b bool) {
 	ctx.conf.DisableUnusedImportCheck = b
 }
 
-// SetLeastCallForEnablePool set least call count for enable function pool, default 64
 func (ctx *Context) SetLeastCallForEnablePool(count int) {
 	ctx.CallForPool = count
 }
@@ -113,38 +111,24 @@ func (ctx *Context) SetDebug(fn func(*DebugInfo)) {
 	ctx.DebugFunc = fn
 }
 
-// SetOverrideFunction register external function to override function.
-// match func fullname and signature
-func (ctx *Context) SetOverrideFunction(key string, fn interface{}) {
-	ctx.Override[key] = reflect.ValueOf(fn)
+func (ctx *Context) SetOverrideFunction(name string, fn interface{}) {
+	ctx.Override[name] = reflect.ValueOf(fn)
 }
 
-// ClearOverrideFunction reset override function
 func (ctx *Context) ClearOverrideFunction(key string) {
 	delete(ctx.Override, key)
 }
 
-func (ctx *Context) AddImportFile(pkgPath string, filename string, src interface{}) (err error) {
-	if sp, err := ctx.loadPackageFile(pkgPath, filename, src); err != nil {
-		return err
-	} else {
-		ctx.Loader.SetImport(pkgPath, sp.Package, sp.Load)
-		return nil
+func (ctx *Context) Import(path string) (*types.Package, error) {
+	if pkg, ok := ctx.pkgs[path]; ok {
+		if !pkg.typesPackage.Complete() {
+			if err := pkg.Load(); err != nil {
+				return nil, err
+			}
+		}
+		return pkg.typesPackage, nil
 	}
-}
-
-func (ctx *Context) AddImport(pkgPath string, dir string) (err error) {
-	bp, err := ctx.BuildContext.ImportDir(dir, 0)
-	if err != nil {
-		return err
-	}
-	bp.ImportPath = pkgPath
-	if sp, err := ctx.loadPackage(bp, pkgPath, dir); err != nil {
-		return err
-	} else {
-		ctx.Loader.SetImport(pkgPath, sp.Package, sp.Load)
-		return nil
-	}
+	return nil, ErrNoPackage
 }
 
 func (ctx *Context) loadPackageFile(pkgPath string, filename string, src interface{}) (*sourcePackage, error) {
@@ -154,9 +138,9 @@ func (ctx *Context) loadPackageFile(pkgPath string, filename string, src interfa
 	}
 	pkg := types.NewPackage(pkgPath, file.Name.Name)
 	sp := &sourcePackage{
-		Context: ctx,
-		Package: pkg,
-		Files:   []*ast.File{file},
+		ctx:          ctx,
+		typesPackage: pkg,
+		files:        []*ast.File{file},
 	}
 	ctx.pkgs[pkgPath] = sp
 	return sp, nil
@@ -179,10 +163,10 @@ func (ctx *Context) loadPackage(bp *build.Package, pkgPath, dir string) (*source
 		return nil, err
 	}
 	sp := &sourcePackage{
-		Package: types.NewPackage(pkgPath, bp.Name),
-		Files:   files,
-		Dir:     dir,
-		Context: ctx,
+		typesPackage: types.NewPackage(pkgPath, bp.Name),
+		files:        files,
+		dir:          dir,
+		ctx:          ctx,
 	}
 	ctx.pkgs[pkgPath] = sp
 	return sp, nil
@@ -197,14 +181,14 @@ func (ctx *Context) loadPackageFunc(pkgs []*types.Package, prog *ssa.Program) {
 			var pkgFiles []*ast.File = nil
 			if pkg, ok := ctx.pkgs[p.Path()]; ok {
 				if ctx.Mode&EnableDumpImports != 0 {
-					if pkg.Dir != "" {
-						fmt.Println("# package", p.Path(), pkg.Dir)
+					if pkg.dir != "" {
+						fmt.Println("# package", p.Path(), pkg.dir)
 					} else {
 						fmt.Println("# package", p.Path(), "<memory>")
 					}
 				}
-				pkgFiles = pkg.Files
-				typesInfo = pkg.Info
+				pkgFiles = pkg.files
+				typesInfo = pkg.info
 			} else {
 				var indirect bool
 				if !p.Complete() {
@@ -225,13 +209,13 @@ func (ctx *Context) loadPackageFunc(pkgs []*types.Package, prog *ssa.Program) {
 }
 
 func (ctx *Context) LoadFile(filename string, src interface{}) (*ssa.Package, error) {
-	file, err := parser.ParseFile(ctx.FileSet, filename, src, ctx.ParserMode)
-	if err != nil {
+	if file, err := parser.ParseFile(ctx.FileSet, filename, src, ctx.ParserMode); err != nil {
 		return nil, err
+	} else {
+		root, _ := filepath.Split(filename)
+		ctx.setRoot(root)
+		return ctx.loadAstFiles("main", file)
 	}
-	root, _ := filepath.Split(filename)
-	ctx.setRoot(root)
-	return ctx.LoadAstFiles(MainPkgPath, file)
 }
 
 func (ctx *Context) LoadDir(dir string) (*ssa.Package, error) {
@@ -239,22 +223,21 @@ func (ctx *Context) LoadDir(dir string) (*ssa.Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	files, err := ctx.parseGoFiles(dir, append(bp.GoFiles, bp.CgoFiles...))
-	if err != nil {
+	if files, err := ctx.parseGoFiles(dir, append(bp.GoFiles, bp.CgoFiles...)); err != nil {
 		return nil, err
+	} else {
+		return ctx.loadAstFiles("main", files...)
 	}
-	return ctx.LoadAstFiles(MainPkgPath, files...)
 }
 
-func (ctx *Context) LoadAstFiles(pkgPath string, file ...*ast.File) (*ssa.Package, error) {
-	if len(file) > 0 && file[0] == nil {
+func (ctx *Context) loadAstFiles(pkgPath string, files ...*ast.File) (*ssa.Package, error) {
+	if len(files) > 0 && files[0] == nil {
 		return nil, errors.New("file invalid")
 	}
-	files := file
 	sp := &sourcePackage{
-		Context: ctx,
-		Package: types.NewPackage(pkgPath, file[0].Name.Name),
-		Files:   files,
+		ctx:          ctx,
+		typesPackage: types.NewPackage(pkgPath, files[0].Name.Name),
+		files:        files,
 	}
 	if err := sp.Load(); err != nil {
 		return nil, err
@@ -268,12 +251,13 @@ func (ctx *Context) buildPackage(sp *sourcePackage) (pkg *ssa.Package, err error
 			err = fmt.Errorf("build SSA package error: %v", e)
 		}
 	}()
-
 	prog := ssa.NewProgram(ctx.FileSet, ctx.BuilderMode)
 	var externalPkg []*types.Package
-	for _, pkg := range ctx.Loader.Packages() {
-		if !pkg.Complete() {
-			externalPkg = append(externalPkg, pkg)
+	if ctx.ExternalFunc != nil { // load external packages
+		for _, pkg := range ctx.ExternalFunc() {
+			if pkg != nil && !pkg.Complete() {
+				externalPkg = append(externalPkg, pkg)
+			}
 		}
 	}
 	if len(externalPkg) > 0 {
@@ -282,9 +266,8 @@ func (ctx *Context) buildPackage(sp *sourcePackage) (pkg *ssa.Package, err error
 		})
 		ctx.loadPackageFunc(externalPkg, prog)
 	}
-	ctx.loadPackageFunc(sp.Package.Imports(), prog)
-	// Create and build the primary package.
-	pkg = prog.CreatePackage(sp.Package, sp.Files, sp.Info, false)
+	ctx.loadPackageFunc(sp.typesPackage.Imports(), prog)
+	pkg = prog.CreatePackage(sp.typesPackage, sp.files, sp.info, false)
 	pkg.Build()
 	return
 }

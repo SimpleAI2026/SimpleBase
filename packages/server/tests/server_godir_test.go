@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/linkxzhou/gongx/goscript"
-	"github.com/linkxzhou/gongx/interp/go/loader"
-	"github.com/linkxzhou/gongx/packages/server"
+	"github.com/linkxzhou/goedge/goscript"
+	"github.com/linkxzhou/goedge/internal/go/loader"
+	"github.com/linkxzhou/goedge/packages/server"
 )
 
 var initDirInterp *goscript.Interp

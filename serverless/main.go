@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/linkxzhou/gongx/interp/goscript"
-	"github.com/linkxzhou/gongx/interp/goscript/loader"
-	"github.com/linkxzhou/gongx/packages/server"
+	"github.com/linkxzhou/goedge/internal/goscript"
+	"github.com/linkxzhou/goedge/internal/goscript/loader"
+	"github.com/linkxzhou/goedge/packages/server"
 )
 
 var initApiMap = make(map[string]*goscript.Interp, 0)

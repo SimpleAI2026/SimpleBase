@@ -18,7 +18,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/linkxzhou/gongx/packages/log"
+	"github.com/linkxzhou/goedge/packages/log"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"

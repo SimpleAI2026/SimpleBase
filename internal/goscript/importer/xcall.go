@@ -1,4 +1,4 @@
-package loader
+package importer
 
 import (
 	"errors"

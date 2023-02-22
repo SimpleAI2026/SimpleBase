@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/linkxzhou/gongx/interp/goscript/ctype"
-	"github.com/linkxzhou/gongx/interp/goscript/loader"
+	"github.com/linkxzhou/goedge/internal/goscript/ctype"
+	"github.com/linkxzhou/goedge/internal/goscript/loader"
 	"github.com/petermattis/goid"
 	"golang.org/x/tools/go/ssa"
 )

@@ -1,4 +1,4 @@
-module github.com/linkxzhou/gongx
+module github.com/linkxzhou/goedge
 
 go 1.14
 
@@ -16,6 +16,7 @@ require (
 	github.com/upper/db/v4 v4.6.0 // indirect
 	github.com/visualfc/funcval v0.1.3 // indirect
 	github.com/visualfc/xtype v0.1.2 // indirect
+	github.com/wasmerio/wasmer-go v1.0.4 // indirect
 	github.com/yuin/gopher-lua v0.0.0-20220504180219-658193537a64 // indirect
 	go.uber.org/zap v1.23.0
 	golang.org/x/crypto v0.1.0

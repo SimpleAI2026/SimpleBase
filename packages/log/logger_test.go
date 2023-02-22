@@ -3,7 +3,7 @@ package log
 import (
 	"testing"
 
-	"github.com/linkxzhou/gongx/packages/log"
+	"github.com/linkxzhou/goedge/packages/log"
 )
 
 func TestLevelString(t *testing.T) {

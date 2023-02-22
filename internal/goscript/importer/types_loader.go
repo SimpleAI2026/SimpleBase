@@ -1,4 +1,4 @@
-package loader
+package importer
 
 import (
 	"fmt"
@@ -14,10 +14,10 @@ import (
 )
 
 var (
-	xtypeTypeNames = make(map[string]*types.Basic)
-
 	TypesEmptyInterfaceV2 = reflect.TypeOf((*interface{})(nil)).Elem()
 	TypesErrorInterfaceV2 = reflect.TypeOf((*error)(nil)).Elem()
+
+	xtypeTypeNames = make(map[string]*types.Basic)
 )
 
 func init() {
@@ -25,15 +25,6 @@ func init() {
 		typ := types.Typ[i]
 		xtypeTypeNames[typ.String()] = typ
 	}
-}
-
-type Loader interface {
-	Import(path string) (*types.Package, error)
-	Installed(path string) (*Package, bool)
-	Packages() []*types.Package
-	LookupReflect(typ types.Type) (reflect.Type, bool)
-	LookupTypes(typ reflect.Type) (types.Type, bool)
-	SetImport(path string, pkg *types.Package, load func() error) error
 }
 
 type TypesLoader struct {
@@ -44,18 +35,15 @@ type TypesLoader struct {
 	installed map[string]*Package
 	pkgloads  map[string]func() error
 	rcache    map[reflect.Type]types.Type
-	mode      Mode
 }
 
-// NewTypesLoader install package and readonly
-func NewTypesLoader(mode Mode) Loader {
+func NewTypesLoader() *TypesLoader {
 	r := &TypesLoader{
 		packages:  make(map[string]*types.Package),
 		installed: make(map[string]*Package),
 		pkgloads:  make(map[string]func() error),
 		rcache:    make(map[reflect.Type]types.Type),
 		tcache:    &typeutil.Map{},
-		mode:      mode,
 	}
 	r.packages["unsafe"] = types.Unsafe
 	r.rcache[TypesErrorInterfaceV2] = typesError
@@ -65,10 +53,9 @@ func NewTypesLoader(mode Mode) Loader {
 }
 
 func (r *TypesLoader) SetImport(path string, pkg *types.Package, load func() error) error {
+	r.packages[path] = pkg
 	if load != nil {
 		r.pkgloads[path] = load
-	} else {
-		r.packages[path] = pkg
 	}
 	return nil
 }
@@ -162,10 +149,11 @@ func (r *TypesLoader) installPackage(pkg *Package) (err error) {
 	for name, fn := range pkg.Funcs {
 		r.InsertFunc(p, name, fn)
 	}
-	// TODO: fix by linkxzhou
-	// for name, v := range pkg.Vars {
-	// 	r.InsertVar(p, name, v.Elem())
-	// }
+	for name, v := range pkg.Vars {
+		if v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer {
+			r.InsertVar(p, name, v.Elem())
+		}
+	}
 	for name, c := range pkg.TypedConsts {
 		r.InsertTypedConst(p, name, c)
 	}
@@ -305,7 +293,6 @@ func (r *TypesLoader) toFunc(pkg *types.Package, rt reflect.Type) *types.Signatu
 	numOut := rt.NumOut()
 	in := make([]*types.Var, numIn)
 	out := make([]*types.Var, numOut)
-	// mock type
 	variadic := rt.IsVariadic()
 	if variadic {
 		for i := 0; i < numIn-1; i++ {
@@ -323,7 +310,6 @@ func (r *TypesLoader) toFunc(pkg *types.Package, rt reflect.Type) *types.Signatu
 	typ := types.NewSignature(nil, types.NewTuple(in...), types.NewTuple(out...), variadic)
 	r.rcache[rt] = typ
 	r.tcache.Set(typ, rt)
-	// real type
 	for i := 0; i < numIn; i++ {
 		it := r.ToType(rt.In(i))
 		in[i] = types.NewVar(token.NoPos, pkg, "", it)
@@ -341,7 +327,6 @@ func (r *TypesLoader) ToType(rt reflect.Type) types.Type {
 	}
 	var isNamed bool
 	var pkgPath string
-	// check complete pkg named type
 	if pkgPath = rt.PkgPath(); pkgPath != "" {
 		if pkg, ok := r.packages[pkgPath]; ok && pkg.Complete() {
 			if obj := pkg.Scope().Lookup(rt.Name()); obj != nil {

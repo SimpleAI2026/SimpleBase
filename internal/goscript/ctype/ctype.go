@@ -123,7 +123,6 @@ func typedmemmove(t Type, dst unsafe.Pointer, src unsafe.Pointer)
 //go:linkname unsafe_New reflect.unsafe_New
 func unsafe_New(t Type) unsafe.Pointer
 
-// convert copy
 func ConvertDirect(typ Type, i interface{}) interface{} {
 	p := (*eface)(unsafe.Pointer(&i))
 	c := unsafe_New(typ)

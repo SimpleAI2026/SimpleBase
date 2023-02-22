@@ -1,4 +1,4 @@
-package loader
+package importer
 
 import (
 	"fmt"
@@ -126,25 +126,24 @@ func toMockType(typ types.Type) reflect.Type {
 }
 
 var xtypeTypes = [...]reflect.Type{
-	types.Bool:          reflect.TypeOf(false),
-	types.Int:           reflect.TypeOf(0),
-	types.Int8:          reflect.TypeOf(int8(0)),
-	types.Int16:         reflect.TypeOf(int16(0)),
-	types.Int32:         reflect.TypeOf(int32(0)),
-	types.Int64:         reflect.TypeOf(int64(0)),
-	types.Uint:          reflect.TypeOf(uint(0)),
-	types.Uint8:         reflect.TypeOf(uint8(0)),
-	types.Uint16:        reflect.TypeOf(uint16(0)),
-	types.Uint32:        reflect.TypeOf(uint32(0)),
-	types.Uint64:        reflect.TypeOf(uint64(0)),
-	types.Uintptr:       reflect.TypeOf(uintptr(0)),
-	types.Float32:       reflect.TypeOf(float32(0)),
-	types.Float64:       reflect.TypeOf(float64(0)),
-	types.Complex64:     reflect.TypeOf(complex64(0)),
-	types.Complex128:    reflect.TypeOf(complex128(0)),
-	types.String:        reflect.TypeOf(""),
-	types.UnsafePointer: reflect.TypeOf(unsafe.Pointer(nil)),
-
+	types.Bool:           reflect.TypeOf(false),
+	types.Int:            reflect.TypeOf(0),
+	types.Int8:           reflect.TypeOf(int8(0)),
+	types.Int16:          reflect.TypeOf(int16(0)),
+	types.Int32:          reflect.TypeOf(int32(0)),
+	types.Int64:          reflect.TypeOf(int64(0)),
+	types.Uint:           reflect.TypeOf(uint(0)),
+	types.Uint8:          reflect.TypeOf(uint8(0)),
+	types.Uint16:         reflect.TypeOf(uint16(0)),
+	types.Uint32:         reflect.TypeOf(uint32(0)),
+	types.Uint64:         reflect.TypeOf(uint64(0)),
+	types.Uintptr:        reflect.TypeOf(uintptr(0)),
+	types.Float32:        reflect.TypeOf(float32(0)),
+	types.Float64:        reflect.TypeOf(float64(0)),
+	types.Complex64:      reflect.TypeOf(complex64(0)),
+	types.Complex128:     reflect.TypeOf(complex128(0)),
+	types.String:         reflect.TypeOf(""),
+	types.UnsafePointer:  reflect.TypeOf(unsafe.Pointer(nil)),
 	types.UntypedBool:    reflect.TypeOf(false),
 	types.UntypedInt:     reflect.TypeOf(0),
 	types.UntypedRune:    reflect.TypeOf('a'),
@@ -158,24 +157,23 @@ type FindMethod interface {
 }
 
 type TypesRecord struct {
-	loader Loader
-	finder FindMethod
-	rcache map[reflect.Type]types.Type
-	tcache *typeutil.Map
+	typesLoader *TypesLoader
+	finder      FindMethod
+	rcache      map[reflect.Type]types.Type
+	tcache      *typeutil.Map
 }
 
-func NewTypesRecord(loader Loader, finder FindMethod) *TypesRecord {
+func NewTypesRecord(typesLoader *TypesLoader, finder FindMethod) *TypesRecord {
 	return &TypesRecord{
-		loader: loader,
-		finder: finder,
-		rcache: make(map[reflect.Type]types.Type),
-		tcache: &typeutil.Map{},
+		typesLoader: typesLoader,
+		finder:      finder,
+		rcache:      make(map[reflect.Type]types.Type),
+		tcache:      &typeutil.Map{},
 	}
 }
 
 func (r *TypesRecord) LookupReflect(typ types.Type) (rt reflect.Type, ok bool) {
-	rt, ok = r.loader.LookupReflect(typ)
-	if !ok {
+	if rt, ok = r.typesLoader.LookupReflect(typ); !ok {
 		if rt := r.tcache.At(typ); rt != nil {
 			return rt.(reflect.Type), true
 		}
@@ -189,8 +187,7 @@ func (r *TypesRecord) LookupLocalTypes(rt reflect.Type) (typ types.Type, ok bool
 }
 
 func (r *TypesRecord) LookupTypes(rt reflect.Type) (typ types.Type, ok bool) {
-	typ, ok = r.loader.LookupTypes(rt)
-	if !ok {
+	if typ, ok = r.typesLoader.LookupTypes(rt); !ok {
 		typ, ok = r.rcache[rt]
 	}
 	return
@@ -304,7 +301,6 @@ func (r *TypesRecord) toNamedType(t *types.Named) reflect.Type {
 		}
 		pcount++
 	}
-	// toMockType for size/align
 	etyp := toMockType(ut)
 	styp := reflectx.NamedTypeOf(name.Pkg().Path(), name.Name(), etyp)
 	typ := reflectx.NewMethodSet(styp, mcount, pcount)
@@ -457,7 +453,6 @@ func IntuitiveMethodSet(T types.Type) []*types.Selection {
 		ptr, ok := T.(*types.Pointer)
 		return ok && !types.IsInterface(ptr.Elem())
 	}
-
 	var result []*types.Selection
 	mset := types.NewMethodSet(T)
 	if types.IsInterface(T) || isPointerToConcrete(T) {
