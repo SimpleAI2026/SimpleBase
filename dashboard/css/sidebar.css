@@ -1,0 +1,116 @@
+/* Hide for mobile, show later */
+.sidebar {
+  display: none;
+  color: white;
+  background: #2E2E2E;
+
+  & .navbar-brand {
+    float: none;
+    display: block;
+    padding: 0;
+    margin-bottom: 20px;
+  }
+
+  & img.navbar-brand {
+    height: 50px;
+  }
+
+  & h4 {
+    margin-bottom: 30px;
+  }
+
+  & p {
+    font-size: 12px;
+    color: rgba(255, 255, 255, .35);
+    border-bottom: 1px solid rgba(255, 255, 255, .1);
+    padding-bottom: 20px;
+  }
+
+  & .welcome-section .fa {
+    font-size: 30px;
+    vertical-align: middle;
+    margin-right: 10px;
+    width: 25px;
+    text-align: center;
+    margin-left: -35px;
+  }
+}
+
+@media (min-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1000;
+    display: block;
+    padding: 20px;
+    overflow-x: hidden;
+
+    /* Scrollable contents if viewport is shorter than content. */
+    overflow-y: auto;
+
+    /* Sidebar navigation */
+    & .nav-sidebar {
+      margin-right: -21px;
+      /* 20px padding + 1px border */
+      margin-bottom: 20px;
+      margin-left: -20px;
+      margin-top: 20px;
+
+      &>li>a {
+        padding: 10px 10px 10px 20px;
+        color: rgba(255, 255, 255, .75);
+      }
+
+      &>li>a:hover,
+      &>li>a:focus,
+      &>li>a:active:hover {
+        color: white;
+        background-color: rgba(#7E38FF, .25);
+      }
+
+      &>.active>a,
+      &>.active>a:hover,
+      &>.active>a:focus {
+        color: white;
+        background-color: #7E38FF;
+      }
+    }
+
+    & .welcome-section .nav-sidebar>li>a {
+      padding: 10px 5px 10px 55px;
+    }
+  }
+}
+
+.navbar-inverse {
+  background-color: #2E2E2E;
+  border: none;
+  display: block;
+
+  & .navbar-brand {
+    padding: 5px 0 5px 15px;
+  }
+
+  & img.navbar-brand {
+    height: 50px;
+  }
+
+}
+
+@media (min-width: 768px) {
+  .navbar-inverse {
+    display: none;
+  }
+}
+
+#navbar .nav {
+  & .fa {
+    font-size: 30px;
+    vertical-align: middle;
+    margin-right: 10px;
+    width: 25px;
+    text-align: center;
+  }
+}
