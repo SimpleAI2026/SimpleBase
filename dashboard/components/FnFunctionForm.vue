@@ -58,7 +58,7 @@ import {
   defaultErrorHandler, configToLines, linesToConfig, newConfig, getAuthToken
 } from '../libs/util';
 
-var defaultFn = function (app) {
+let defaultFn = function (app) {
   return jQuery.extend(true, {}, {
     name: "",
     app_id: app.id,
@@ -93,16 +93,16 @@ export default {
       this.show = false;
     },
     ok: function () {
-      var t = this;
+      let t = this;
       eventBus.$emit('NotificationClear');
       this.submitting = true;
 
       this.fn.config = linesToConfig(this.fnConfig);
 
       if (this.edit) {
-        var url = '/api/fns/' + encodeURIComponent(this.fn.id)
+        let url = '/api/fns/' + encodeURIComponent(this.fn.id)
       } else {
-        var url = '/api/fns/'
+        let url = '/api/fns/'
       }
       $.ajax({
         headers: { 'Authorization': getAuthToken() },

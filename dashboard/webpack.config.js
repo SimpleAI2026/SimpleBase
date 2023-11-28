@@ -1,12 +1,5 @@
 var path = require('path');
 var ExtractTextPlugin = require('extract-text-webpack-plugin');
-// var webpack = require('webpack');
-
-// style
-// const postcssImport = require('postcss-import');
-// const postcssURL = require('postcss-url');
-// const cssnext = require('postcss-cssnext');
-// const fontMagician = require('postcss-font-magician');
 
 var config = {
     entry: {
@@ -57,20 +50,6 @@ var config = {
         ]
     },
     plugins: [
-        // new webpack.LoaderOptionsPlugin({
-        //     options: {
-        //         context: __dirname,
-        //         postcss: [
-        //             postcssImport(),
-        //             fontMagician({
-        //                 hosted: path.join(__dirname, './fonts/Roboto')
-        //             }),
-        //             postcssURL(),
-        //             require('postcss-hexrgba')(),
-        //             cssnext()
-        //         ]
-        //     }
-        // }),
         new ExtractTextPlugin({
             filename: '[name].css',
             allChunks: true

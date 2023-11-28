@@ -1,6 +1,5 @@
 <template>
   <div>
-
     <router-link class="navbar-brand" to="/">
       <!-- See also banner for small devices in index.html -->
       <img class="navbar-brand" src="/images/icons/fn_transparent.png">
@@ -10,7 +9,8 @@
         <button type="button" class="btn btn-default" @click='login' :disabled="loggingin">
           Login
         </button>
-        <input style="color:grey;" type="text" placeholder="FN_TOKEN" v-model="fn_token"></input>
+        <br>
+        <input style="color:grey;" type="text" placeholder="FN_TOKEN" v-model="fn_token">
       </div>
       <button type="button" class="btn btn-default" v-if="loggedIn" @click='logout'>
         Logout
@@ -26,14 +26,13 @@
       </li>
     </ul>
 
-
     <fn-welcome-section v-if="!app"></fn-welcome-section>
   </div>
 </template>
 
 <script>
-import { eventBus } from '../main';
 import FnWelcomeSection from '../components/FnWelcomeSection.vue';
+import { eventBus } from '../main';
 import { defaultErrorHandler } from '../libs/util';
 
 export default {

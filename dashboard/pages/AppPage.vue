@@ -18,7 +18,6 @@
 
     <br />
 
-    <!-- <div class="table-responsive"> -->
     <div class="row">
       <div class="col-md-12 col-lg-10">
         <table id="fnTable" class="table table-striped">

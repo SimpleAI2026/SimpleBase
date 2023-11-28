@@ -3,17 +3,17 @@
  * parsers can reuse. It's designed for individual parsers to inherit from.
  */
 module.exports = class StatsParser {
-    constructor() {
-      // Captures the key in a Javascript Object Literal (i.e. everything before the equals sign)
-      var labelNameRE = '([^=]+)';
+  constructor() {
+    // Captures the key in a Javascript Object Literal (i.e. everything before the equals sign)
+    let labelNameRE = '([^=]+)';
 
-      // Captures the value in a Javascript Object Literal (i.e. anything between the double quotes)
-      var labelValueRE = '"([^"]*)"';
+    // Captures the value in a Javascript Object Literal (i.e. anything between the double quotes)
+    let labelValueRE = '"([^"]*)"';
 
-      // Matches the key/value pair in a Javascript Object Literal
-      this._labelRE = labelNameRE + '=' + labelValueRE;
+    // Matches the key/value pair in a Javascript Object Literal
+    this._labelRE = labelNameRE + '=' + labelValueRE;
 
-      this._spacesRE = '\\s+';
-      this._valueRE = '(\\d+)';
-    }
+    this._spacesRE = '\\s+';
+    this._valueRE = '(\\d+)';
+  }
 };

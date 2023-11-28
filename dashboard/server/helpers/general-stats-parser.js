@@ -17,8 +17,8 @@ module.exports = class GeneralStatsParser extends StatsParser {
       'fn_completed': 'Complete',
     };
 
-    var metricNameRE = '(' + Object.keys(this._metricNames).join('|') + ')';
-    var metricsRE = '^' + metricNameRE + this._spacesRE + this._valueRE;
+    let metricNameRE = '(' + Object.keys(this._metricNames).join('|') + ')';
+    let metricsRE = '^' + metricNameRE + this._spacesRE + this._valueRE;
 
     this._regex = RegExp(metricsRE, 'gm');
 
@@ -45,19 +45,19 @@ module.exports = class GeneralStatsParser extends StatsParser {
    *                        documentation above.
    */
   parse(data) {
-    var jsonData = {};
+    let jsonData = {};
 
-    var metricData;
-    while((metricData = this._regex.exec(data)) !== null) {
-        logger.debug(
-          "Processing General Stat: " + metricData[this._WHOLE_MATCH]
-        );
+    let metricData;
+    while ((metricData = this._regex.exec(data)) !== null) {
+      logger.debug(
+        "Processing General Stat: " + metricData[this._WHOLE_MATCH]
+      );
 
-        var metricsName = metricData[this._METRIC_NAME];
-        var metricsHumanName = this._metricNames[metricsName];
-        var metricsValue = parseInt(metricData[this._METRIC_VALUE]);
+      let metricsName = metricData[this._METRIC_NAME];
+      let metricsHumanName = this._metricNames[metricsName];
+      let metricsValue = parseInt(metricData[this._METRIC_VALUE]);
 
-        jsonData[metricsHumanName] = metricsValue;
+      jsonData[metricsHumanName] = metricsValue;
     }
 
     return jsonData;

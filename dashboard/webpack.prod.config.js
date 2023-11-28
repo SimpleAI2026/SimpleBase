@@ -28,12 +28,12 @@ module.exports = merge(webpackBaseConfig, {
         // 压缩 js
         new webpack.optimize.UglifyJsPlugin({
             compress: {
-                warnings: false
-            }
+                warnings: false,
+            },
         }),
         // 提取模板，并保存入口 html 文件
         new HtmlWebpackPlugin({
-            filename: '../index_prod.html',
+            filename: '../index.html',
             template: './index.ejs',
             inject: false
         })

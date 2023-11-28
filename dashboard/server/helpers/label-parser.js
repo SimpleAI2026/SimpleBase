@@ -19,14 +19,14 @@ module.exports = class LabelParser extends StatsParser {
     // Remove the start and end curly braces as they're not part of the data
     data = data.replace(/^{|}$/g, '');
 
-    var jsonData = {};
+    let jsonData = {};
+    let labelData;
 
-    var labelData;
-    while((labelData = this._regex.exec(data)) !== null) {
-        var labelKey = labelData[this._LABEL_KEY];
-        var labelValue = labelData[this._LABEL_VALUE];
+    while ((labelData = this._regex.exec(data)) !== null) {
+      let labelKey = labelData[this._LABEL_KEY];
+      let labelValue = labelData[this._LABEL_VALUE];
 
-        jsonData[labelKey] = labelValue;
+      jsonData[labelKey] = labelValue;
     }
 
     return jsonData;

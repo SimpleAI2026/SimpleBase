@@ -35,14 +35,14 @@
   },
   "dependencies": {
     "axios": "^0.16.1",
-    "vue": "^2.2.6",
-    "vue-router": "^2.3.1",
-    "vue-chartjs": "^2.8.2",
-    "jquery": "^3.1.0",
     "bootstrap": "^3.3.7",
+    "config-logger": "0.0.4",
+    "css-loader": "^0.23.1",
     "expose-loader": "^0.7.1",
-    "normalize-css": "^2.3.1",
     "font-awesome": "^4.7.0",
+    "fsevents": "^2.3.2",
+    "jquery": "^3.1.0",
+    "normalize-css": "^2.3.1",
     "postcss-cssnext": "^2.7.0",
     "postcss-font-magician": "^1.4.0",
     "postcss-fontpath": "^0.3.0",
@@ -50,7 +50,8 @@
     "postcss-import": "^8.1.2",
     "postcss-loader": "^0.9.1",
     "postcss-url": "^5.1.2",
-    "css-loader": "^0.23.1",
-    "config-logger": "0.0.4"
+    "vue": "^2.2.6",
+    "vue-chartjs": "^2.8.2",
+    "vue-router": "^2.3.1"
   }
 }

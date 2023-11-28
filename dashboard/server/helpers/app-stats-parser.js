@@ -19,14 +19,14 @@ module.exports = class AppStatsParser extends StatsParser {
       'fn_container_wait_total': 'Waiting',
     };
 
-    var metricNameRE = '(' + Object.keys(this._metricNames).join('|') + ')';
+    let metricNameRE = '(' + Object.keys(this._metricNames).join('|') + ')';
 
     // Match fn container info e.g. {app_id="01D8JQSKDENG8G00GZJ000000B"}
-    var fnDataRE = '{' + '[^}]+' + '}';
+    let fnDataRE = '{' + '[^}]+' + '}';
 
     // unfortunately we cannot use ((?:, labelRE)+) as it won't capture the
     // middle key-value pair
-    var metricsRE = '^' + metricNameRE + '(' + fnDataRE + ')' + this._spacesRE + this._valueRE;
+    let metricsRE = '^' + metricNameRE + '(' + fnDataRE + ')' + this._spacesRE + this._valueRE;
 
     this._regex = RegExp(metricsRE, 'gm');
 
@@ -66,19 +66,19 @@ module.exports = class AppStatsParser extends StatsParser {
    *                        documentation above.
    */
   parse(data) {
-    var jsonData = {};
+    let jsonData = {};
 
-    var labelParser = new LabelParser();
-    var metricData;
-    while((metricData = this._regex.exec(data)) !== null) {
+    let labelParser = new LabelParser();
+    let metricData;
+    while ((metricData = this._regex.exec(data)) !== null) {
       logger.debug("Processing App Stat: " + metricData[0]);
 
-      var metricsName = metricData[this._METRIC_NAME];
-      var metricsHumanName = this._metricNames[metricsName];
-      var metricsValue = parseInt(metricData[this._METRIC_VALUE]);
+      let metricsName = metricData[this._METRIC_NAME];
+      let metricsHumanName = this._metricNames[metricsName];
+      let metricsValue = parseInt(metricData[this._METRIC_VALUE]);
 
-      var rawFnData = metricData[this._FN_DATA];
-      var fnData = labelParser.parse(rawFnData);
+      let rawFnData = metricData[this._FN_DATA];
+      let fnData = labelParser.parse(rawFnData);
 
       jsonData = this._addData(jsonData, fnData.app_id, fnData.fn_id,
         metricsHumanName, metricsValue
@@ -100,16 +100,16 @@ module.exports = class AppStatsParser extends StatsParser {
    * @return {Object}   the data object with the app data added.
    */
   _addData(data, appId, fnId, metricsHumanName, metricsValue) {
-    if(data[appId] === undefined) {
-      data[appId] = {'Functions': {}};
+    if (data[appId] === undefined) {
+      data[appId] = { 'Functions': {} };
     }
 
-    if(data[appId].Functions[fnId] === undefined) {
+    if (data[appId].Functions[fnId] === undefined) {
       data[appId].Functions[fnId] = {};
     }
 
     // Aggregate data for all fn images
-    if(metricsHumanName in data[appId].Functions[fnId]) {
+    if (metricsHumanName in data[appId].Functions[fnId]) {
       data[appId].Functions[fnId][metricsHumanName] += metricsValue;
     } else {
       data[appId].Functions[fnId][metricsHumanName] = metricsValue;
