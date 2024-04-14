@@ -102,3 +102,9 @@ func (h *DiskCacheHandler) pagesForRange(offset int64, size int) (startPage, end
 	endPage = (offset+int64(size))/int64(h.PageSize) + 1
 	return startPage, endPage
 }
+
+// AsyncRefreshVersion will refresh the cache asynchronously
+func (h *DiskCacheHandler) AsyncRefreshVersion() error {
+	// TODO: Implement async refresh
+	return nil
+}
