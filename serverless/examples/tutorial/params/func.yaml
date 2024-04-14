@@ -1,5 +1,0 @@
-name: fn3_request
-version: 0.0.6
-runtime: go
-entrypoint: ./func
-path: /fn3
