@@ -1,0 +1,81 @@
+### create tables
+POST http://localhost:18090/api/v1/123eeeb5e0aeb790ce0b0ae998e4e39342cfb2/execute?writekey=123eeeb5e0aeb7bcd0150fbda9bdcad834f19272588ea930a173a234d595eac2bd3ca8b4a8ef46
+Content-Type: application/json
+
+{
+    "list": [
+        {
+            "cmd": "CREATE TABLE IF NOT EXISTS foo1 (id text NOT NULL PRIMARY KEY,title text)",
+            "args": []
+        },
+        {
+            "cmd": "CREATE TABLE IF NOT EXISTS foo2 (id text NOT NULL PRIMARY KEY,title text)",
+            "args": []
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [1, "unique-title-1"]
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [2, "unique-title-2"]
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [3, "unique-title-3"]
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [4, "unique-title-4"]
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [5, "unique-title-5"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [6, "unique-title-6"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [7, "unique-title-7"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [8, "unique-title-8"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [9, "unique-title-9"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [10, "unique-title-10"]
+        }
+    ]
+}
+
+###
+{
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "readkey": "123eeeb5e0aeb790ce0b0ae998e4e39342cfb2",
+    "writekey": "123eeeb5e0aeb791e9692a899aa0cef616fd857447aa9817bf0ffe0ef98dc0dffe23ebbcdcd359"
+  }
+}
+
+### query tables
+POST http://localhost:18090/api/v1/123eeeb5e0aeb7fbda1523b1ece0cee517f0af/query
+Content-Type: application/json
+
+{
+    "list": [
+        {
+            "cmd": "select * from foo1"
+        },
+        {
+            "cmd": "select * from foo2"
+        }
+    ]
+}

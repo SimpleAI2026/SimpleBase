@@ -1,0 +1,24 @@
+### test
+GET http://localhost:18090/api/v1/test
+Content-Type: application/json
+
+### query tables
+GET http://localhost:18090/api/v1/123eeeb5e0aeb7878d3b7cadb9baf7d03ce6ef/tables?limit=10&offset=0
+Content-Type: application/json
+
+### query tables
+GET http://localhost:18090/api/v1/123eeeb5e0aeb7878d3b7cadb9baf7d03ce6ef/tables/foo2/rows?limit=100&offset=0
+Content-Type: application/json
+
+### query tables
+GET http://localhost:18090/api/v1/25c6wiS4yjBs/tables?limit=10&offset=0
+Content-Type: application/json
+
+### query tables
+GET http://localhost:18090/api/v1/25c6wiS4yjBs/tables/__TAMISYSTEM__/rows?limit=100&offset=0
+Content-Type: application/json
+
+### create databases
+curl -i -X POST -F "file=@foo.db" 'http://localhost:18090/api/v1/uploaddb' 
+{"code":0,"message":"OK","data":{"read_key":"5RkOj6pT1tgl","write_key":"ARUjeK0BHiiC17SPsTNY6JMaq0bNtn55"}}
+{"code":0,"message":"OK","data":{"read_key":"123eeeb5e0aeb7fbda1523b1ece0cee517f0af","write_key":"123eeeb5e0aeb7bcd0150fbda9bdcad834f19272588ea930a173a234d595eac2bd3ca8b4a8ef46"}}

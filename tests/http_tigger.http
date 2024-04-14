@@ -1,0 +1,12 @@
+### tigger
+POST http://localhost:18090/api/v1/tigger/s3events
+Content-Type: application/json
+
+{
+    "events":[
+        {
+            "s3bucket": "tamidb-1251014631",
+            "s3key": "123eeeb5e0aeb790ce0b0ae998e4e39342cfb2-1713021926665696000.redolog"
+        }
+    ]
+}
