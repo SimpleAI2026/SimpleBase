@@ -155,7 +155,7 @@ func QueryDB(c echo.Context) error {
 // QueryRedolog for query redolog on sqlite3 file
 func QueryRedolog(c echo.Context) error {
 	edbp := new(ExecuteDBParams)
-	if err := c.Bind(edbp); err != nil || edbp.List == nil || len(edbp.List) < 0 {
+	if err := c.Bind(edbp); err != nil {
 		return c.String(http.StatusBadRequest, "bad request")
 	}
 
@@ -177,24 +177,10 @@ func QueryRedolog(c echo.Context) error {
 	}
 	defer db.Close()
 
-	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
-	for _, cmd := range edbp.List {
-		columns, values, types, count, err := querySQLWithHTTPVFS(c, db, cmd)
-		if err != nil {
-			c.Logger().Error("ExecuteSQL err: ", err)
-			return err
-		}
-		result = append(result, DBValuesResp{
-			Columns:  columns,
-			Values:   values,
-			Types:    types,
-			Count:    count,
-		})
-	}
+	// TODO: need to support multiple redologs
 
 	return c.JSON(http.StatusOK, DataResp{
 		Code:    0,
 		Message: "OK",
-		Data:    result,
 	})
 }
