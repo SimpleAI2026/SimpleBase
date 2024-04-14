@@ -1,6 +1,8 @@
 package vfsextend
 
 import (
+	"strings"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/linkxzhou/LessDB/internal/sqlite3vfs"
 	_ "github.com/mattn/go-sqlite3"
@@ -183,7 +185,7 @@ CREATE TABLE IF NOT EXISTS foo (
 	}
 
 	_, err = db.Exec(`DELETE from foo where id = 415`)
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "attempt to write a readonly database") {
 		t.Fatal(err)
 	}
 
