@@ -1,5 +1,5 @@
 {
-	"name": "tamidb",
+	"name": "LessDB",
 	"version": "0.0.1",
 	"description": "A SQLite server",
 	"scripts": {

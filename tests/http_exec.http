@@ -1,5 +1,5 @@
 ### create tables
-POST http://localhost:18090/api/v1/123eeeb5e0aeb790ce0b0ae998e4e39342cfb2/execute?writekey=123eeeb5e0aeb7bcd0150fbda9bdcad834f19272588ea930a173a234d595eac2bd3ca8b4a8ef46
+POST http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/execute?writekey=
 Content-Type: application/json
 
 {
@@ -56,17 +56,37 @@ Content-Type: application/json
 }
 
 ###
+
 {
   "code": 0,
   "message": "OK",
   "data": {
-    "readkey": "123eeeb5e0aeb790ce0b0ae998e4e39342cfb2",
-    "writekey": "123eeeb5e0aeb791e9692a899aa0cef616fd857447aa9817bf0ffe0ef98dc0dffe23ebbcdcd359"
+    "seqid": "367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0-1713091801091069000.redolog",
+    "message": "Execute Pending",
+    "status": 1
+  }
+}
+
+{
+  "code": 0,
+  "message": "OK",
+  "data": {
+    "seqid": "367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0-1713092056336277000.redolog",
+    "message": "Execute Pending",
+    "status": 1
   }
 }
 
 ### query tables
-POST http://localhost:18090/api/v1/123eeeb5e0aeb7fbda1523b1ece0cee517f0af/query
+POST http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/executelog
+Content-Type: application/json
+
+{
+    "seqid": "367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0-1713092056336277000.redolog"
+}
+
+### query redolog
+POST http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f6bb82f7ed11fbb404699fbb38cc1e9c36f68acfc4/query
 Content-Type: application/json
 
 {

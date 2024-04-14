@@ -5,11 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
-	"time"
 )
 
-var slatNonce = []byte("OXFFFFFFFFFF")
-var slatKey = GetEnviron("TAMI_SLATKEY")
+var slatKey = GetEnviron("LESSDB_SLATKEY")
 
 func rc4Cipher(plaintext, key []byte) ([]byte, error) {
 	if len(key) < 32 {
@@ -45,42 +43,41 @@ func rc4Open(encrypted, key []byte) ([]byte, error) {
 }
 
 // NewRandomName create random name
-func NewRandomName() string {
-	name, err := randomName(12)
-	if err != nil {
-		return fmt.Sprintln("default.%v", time.Now().UnixNano())
-	}
-	return name
+func NewRandomName() (string, string, error) {
+	return randomName(20)
 }
 
 // NewRandomKey create random key
-func NewRandomKey() string {
-	key, err := randomName(32)
-	if err != nil {
-		return fmt.Sprintln("default.%v", time.Now().UnixNano())
-	}
-	return key
+func NewRandomKey() (string, string, error) {
+	return randomName(64)
 }
 
-func VerifyName(ciphertexthex string) bool {
+func VerifyName(ciphertexthex string) (string, bool) {
 	ciphertext, err := hex.DecodeString(ciphertexthex)
 	if err != nil {
-		return false
+		return "", false
 	}
+
 	plaintext, err := rc4Open(ciphertext, []byte(slatKey))
 	if err != nil {
-		return false
+		return "", false
 	}
-	return strings.Contains(string(plaintext), slatKey)
+
+	nameArr := strings.Split(string(plaintext), "-")
+	if len(nameArr) == 3 && nameArr[1] == slatKey {
+		return nameArr[2], true
+	}
+	return "", false
 }
 
-func randomName(l int) (string, error) {
-	message, err := stringWithCharset(l)
+func randomName(l int) (string, string, error) {
+	name, err := stringWithCharset(l)
 	if err != nil {
-		message = u.String()
+		return "", "", err
 	}
+
 	ciphertext, err := rc4Cipher(
-		[]byte(fmt.Sprintf("%v.%v", slatKey, message)),
+		[]byte(fmt.Sprintf("%v-%v-%v", VERSION, slatKey, name)),
 		[]byte(slatKey))
-	return hex.EncodeToString(ciphertext), err
+	return hex.EncodeToString(ciphertext), name, err
 }

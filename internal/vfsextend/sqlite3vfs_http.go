@@ -1,7 +1,7 @@
 package vfsextend
 
 import (
-	"github.com/linkxzhou/TamiDB/internal/sqlite3vfs"
+	"github.com/linkxzhou/LessDB/internal/sqlite3vfs"
 
 	"net/http"
 	"strings"

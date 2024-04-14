@@ -1,4 +1,4 @@
-# TamiDB UI
+# LessDB UI
 
 ## Development
 

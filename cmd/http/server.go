@@ -4,7 +4,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
-	"github.com/linkxzhou/TamiDB/cmd/http/handler"
+	"github.com/linkxzhou/LessDB/cmd/http/handler"
 
 	"fmt"
 )
@@ -21,10 +21,11 @@ func withVersion(uri string) string {
 // http://localhost:18090/api/v1/uploaddb
 // http://localhost:18090/api/v1/createdb
 // http://localhost:18090/api/v1/tigger/s3events
-// http://localhost:18090/api/v1/:DBName/tables
-// http://localhost:18090/api/v1/:DBName/tables/:tableName/rows
-// http://localhost:18090/api/v1/:DBName/execute
-// http://localhost:18090/api/v1/:DBName/query
+// http://localhost:18090/api/v1/:ReadKey/tables
+// http://localhost:18090/api/v1/:ReadKey/tables/:tableName/rows
+// http://localhost:18090/api/v1/:ReadKey/execute
+// http://localhost:18090/api/v1/:ReadKey/query
+// http://localhost:18090/api/v1/:ReadKey/executelog
 func main() {
 	e := echo.New()
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -35,9 +36,10 @@ func main() {
 	e.POST(withVersion("/uploaddb"), handler.UploadDB)
 	e.POST(withVersion("/createdb"), handler.CreateDB)
 	e.POST(withVersion("/tigger/s3events"), handler.TiggerS3Events)
-	e.GET(withVersion("/:DBName/tables"), handler.GetTables)
-	e.GET(withVersion("/:DBName/tables/:tableName/rows"), handler.GetRows)
-	e.POST(withVersion("/:DBName/execute"), handler.ExecuteDB)
-	e.POST(withVersion("/:DBName/query"), handler.QueryDB)
+	e.GET(withVersion("/:ReadKey/tables"), handler.GetTables)
+	e.GET(withVersion("/:ReadKey/tables/:tableName/rows"), handler.GetRows)
+	e.POST(withVersion("/:ReadKey/execute"), handler.ExecuteDB)
+	e.POST(withVersion("/:ReadKey/executelog"), handler.ExecuteLog)
+	e.POST(withVersion("/:ReadKey/query"), handler.QueryDB)
 	e.Logger.Fatal(e.Start(defaultListen))
 }

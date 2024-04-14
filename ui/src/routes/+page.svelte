@@ -98,7 +98,7 @@
   {:else}
     <ul class="tables">
       <li>
-        <button class="tami"> TamiDB </button>
+        <button class="tami"> LessDB </button>
       </li>
       {#each tables as table}
         <li>

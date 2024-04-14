@@ -2,13 +2,15 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/TamiDB/internal/s3"
+	"github.com/linkxzhou/LessDB/internal/s3"
 )
 
 type (
@@ -73,10 +75,30 @@ func TiggerS3Events(c echo.Context) error {
 		}
 		defer db.Close()
 
+		// Insert into redolog result to system table
+		err = insertSYSTEMDBStatus(c, db, ExecStatusPending, event.S3Key, "Pending")
+		if err != nil {
+			c.Logger().Error("insertSYSTEMDBStatus err: ", err)
+			return err
+		}
+
+		// Execute redolog list on sqlite3 file
 		err = ExecuteSQLWithFile(c, db, redolog.List)
 		if err != nil {
 			c.Logger().Error("ExecuteSQL err: ", err)
-			return err
+			// Update redolog error to system table
+			err = updateSYSTEMDBStatus(c, db, ExecStatusFailed, event.S3Key, err.Error())
+			if err != nil {
+				c.Logger().Error("updateSYSTEMDBStatus err: ", err)
+				return err
+			}
+		} else {
+			// Update redolog ok to system table
+			err = updateSYSTEMDBStatus(c, db, ExecStatusOK, event.S3Key, "OK")
+			if err != nil {
+				c.Logger().Error("updateSYSTEMDBStatus err: ", err)
+				return err
+			}
 		}
 
 		dbFile.Seek(0, io.SeekStart)
@@ -91,5 +113,23 @@ func TiggerS3Events(c echo.Context) error {
 	return c.JSON(http.StatusOK, DataResp{
 		Code:    0,
 		Message: "OK",
+	})
+}
+
+func insertSYSTEMDBStatus(c echo.Context, db *sql.DB, status int, name, value string) error {
+	return ExecuteSQLWithFile(c, db, []SQLExecuteCommandArgs{
+		SQLExecuteCommandArgs{
+			CMD:  fmt.Sprintf(`INSERT INTO %v(value_int, value, name) values(?, ?, ?)`, systemDBName),
+			Args: []interface{}{status, value, name},
+		},
+	})
+}
+
+func updateSYSTEMDBStatus(c echo.Context, db *sql.DB, status int, name, value string) error {
+	return ExecuteSQLWithFile(c, db, []SQLExecuteCommandArgs{
+		SQLExecuteCommandArgs{
+			CMD:  fmt.Sprintf(`UPDATE %v SET value_int = ?, value = ? where name = ?`, systemDBName),
+			Args: []interface{}{status, value, name},
+		},
 	})
 }

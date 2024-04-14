@@ -5,14 +5,14 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/TamiDB/internal/utils"
+	"github.com/linkxzhou/LessDB/internal/utils"
 )
 
 const defaultLimitSize int64 = 100
 
 type (
 	QueryParams struct {
-		DBName    string `json:"DBName" form:"DBName" query:"DBName" param:"DBName"`
+		ReadKey   string `json:"ReadKey" form:"ReadKey" query:"ReadKey" param:"ReadKey"`
 		TableName string `json:"tableName" form:"tableName" query:"tableName" param:"tableName"`
 		Limit     int64  `json:"limit" form:"limit" query:"limit" param:"limit"`
 		Offset    int64  `json:"offset" form:"offset" query:"offset" param:"offset"`
@@ -20,9 +20,9 @@ type (
 
 	DBValuesResp struct {
 		Columns interface{} `json:"columns"`
-		Values   interface{} `json:"values"`
-		Types interface{} `json:"types"`
-		Count int `json:"count"`
+		Values  interface{} `json:"values"`
+		Types   interface{} `json:"types"`
+		Count   int         `json:"count"`
 	}
 
 	DataResp struct {
@@ -38,7 +38,9 @@ func GetTables(c echo.Context) (err error) {
 		return c.String(http.StatusBadRequest, "bad request")
 	}
 
-	if !utils.VerifyName(q.DBName) {
+	readKey := q.ReadKey
+	dbName, authOK := utils.VerifyName(readKey)
+	if !authOK || dbName == "" {
 		return c.JSON(http.StatusOK, DataResp{
 			Code:    -999,
 			Message: "No Auth",
@@ -52,14 +54,14 @@ func GetTables(c echo.Context) (err error) {
 
 	c.Logger().Info("GetTables q: ", q)
 
-	db, uri, err := getVFSDB(q.DBName)
+	db, uri, err := getVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
 		return err
 	}
 	defer db.Close()
 
-	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", q.DBName)
+	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
 	columns, values, types, count, err := querySQLWithHTTPVFS(c, db,
 		SQLExecuteCommandArgs{
 			CMD:  `SELECT name FROM sqlite_master WHERE type='table' limit ? offset ?`,
@@ -75,9 +77,9 @@ func GetTables(c echo.Context) (err error) {
 		Message: "OK",
 		Data: DBValuesResp{
 			Columns: columns,
-			Values:   values,
-			Types:    types,
-			Count:    count,
+			Values:  values,
+			Types:   types,
+			Count:   count,
 		},
 	})
 }
@@ -88,7 +90,9 @@ func GetRows(c echo.Context) (err error) {
 		return c.String(http.StatusBadRequest, "bad request")
 	}
 
-	if !utils.VerifyName(q.DBName) {
+	readKey := q.ReadKey
+	dbName, authOK := utils.VerifyName(readKey)
+	if !authOK || dbName == "" {
 		return c.JSON(http.StatusOK, DataResp{
 			Code:    -999,
 			Message: "No Auth",
@@ -102,14 +106,14 @@ func GetRows(c echo.Context) (err error) {
 
 	c.Logger().Info("GetTables q: ", q)
 
-	db, uri, err := getVFSDB(q.DBName)
+	db, uri, err := getVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
 		return err
 	}
 	defer db.Close()
 
-	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", q.DBName)
+	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
 	columns, values, types, count, err := querySQLWithHTTPVFS(c, db,
 		SQLExecuteCommandArgs{
 			CMD:  fmt.Sprintf(`SELECT * FROM %v limit ? offset ?`, q.TableName),
@@ -125,9 +129,9 @@ func GetRows(c echo.Context) (err error) {
 		Message: "OK",
 		Data: DBValuesResp{
 			Columns: columns,
-			Values:   values,
-			Types:    types,
-			Count:    count,
+			Values:  values,
+			Types:   types,
+			Count:   count,
 		},
 	})
 }

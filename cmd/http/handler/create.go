@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/TamiDB/internal/s3"
-	"github.com/linkxzhou/TamiDB/internal/utils"
+	"github.com/linkxzhou/LessDB/internal/s3"
+	"github.com/linkxzhou/LessDB/internal/utils"
 )
 
 var (
@@ -49,7 +49,12 @@ func UploadDB(c echo.Context) error {
 	defer srcFile.Close()
 
 	// Destination
-	dbName := utils.NewRandomName()
+	readKey, dbName, err := utils.NewRandomName()
+	if err != nil {
+		c.Logger().Error("NewRandomName err: ", err)
+		return err
+	}
+
 	dstFile, err := os.Create(dbName)
 	if err != nil {
 		c.Logger().Error("Failed to create local file err: ", err)
@@ -73,8 +78,13 @@ func UploadDB(c echo.Context) error {
 	}
 	defer db.Close()
 
-	writeKey := utils.NewRandomKey()
-	err = initSQLWithSystem(c, db, dbName, writeKey)
+	writeKey, _, err := utils.NewRandomKey()
+	if err != nil {
+		c.Logger().Error("NewRandomKey err: ", err)
+		return err
+	}
+
+	err = initSQLWithSystem(c, db, readKey, writeKey)
 	if err != nil {
 		c.Logger().Error("InitSQL err: ", err)
 		return err
@@ -93,7 +103,7 @@ func UploadDB(c echo.Context) error {
 		Code:    0,
 		Message: "OK",
 		Data: AuthResp{
-			ReadKey:  dbName,
+			ReadKey:  readKey,
 			WriteKey: writeKey,
 		},
 	})
@@ -110,7 +120,12 @@ func CreateDB(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "bad request")
 	}
 
-	dbName := utils.NewRandomName()
+	readKey, dbName, err := utils.NewRandomName()
+	if err != nil {
+		c.Logger().Error("NewRandomName err: ", err)
+		return err
+	}
+
 	db, err := GetFileDB(dbName)
 	if err != nil {
 		c.Logger().Error("sql.Open err: ", err)
@@ -118,8 +133,13 @@ func CreateDB(c echo.Context) error {
 	}
 	defer db.Close()
 
-	writeKey := utils.NewRandomKey()
-	err = initSQLWithSystem(c, db, dbName, writeKey)
+	writeKey, _, err := utils.NewRandomKey()
+	if err != nil {
+		c.Logger().Error("NewRandomKey err: ", err)
+		return err
+	}
+
+	err = initSQLWithSystem(c, db, readKey, writeKey)
 	if err != nil {
 		c.Logger().Error("InitSQL err: ", err)
 		return err
@@ -153,7 +173,7 @@ func CreateDB(c echo.Context) error {
 		Code:    0,
 		Message: "OK",
 		Data: AuthResp{
-			ReadKey:  dbName,
+			ReadKey:  readKey,
 			WriteKey: writeKey,
 		},
 	})

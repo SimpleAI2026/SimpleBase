@@ -1,4 +1,4 @@
-module github.com/linkxzhou/TamiDB
+module github.com/linkxzhou/LessDB
 
 go 1.19
 

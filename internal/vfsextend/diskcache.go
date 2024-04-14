@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/linkxzhou/TamiDB/internal/utils"
+	"github.com/linkxzhou/LessDB/internal/utils"
 )
 
 const defaultPageSize = 1 << 10
@@ -103,8 +103,8 @@ func (h *DiskCacheHandler) pagesForRange(offset int64, size int) (startPage, end
 	return startPage, endPage
 }
 
-// AsyncRefreshVersion will refresh the cache asynchronously
-func (h *DiskCacheHandler) AsyncRefreshVersion() error {
+// AsyncRefreshVer will refresh the cache asynchronously
+func (h *DiskCacheHandler) AsyncRefreshVer() error {
 	// TODO: Implement async refresh
 	return nil
 }

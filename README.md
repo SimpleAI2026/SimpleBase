@@ -1,9 +1,9 @@
-# TamiDB 
+# LessDB 
 
-[![build](https://github.com/linkxzhou/TamiDB/actions/workflows/build1.21.yml/badge.svg)](https://github.com/linkxzhou/TamiDB/actions/workflows/build1.20.yml)
-[![build](https://github.com/linkxzhou/TamiDB/actions/workflows/build1.21.yml/badge.svg)](https://github.com/linkxzhou/TamiDB/actions/workflows/build1.21.yml)
+[![build](https://github.com/linkxzhou/LessDB/actions/workflows/build1.21.yml/badge.svg)](https://github.com/linkxzhou/LessDB/actions/workflows/build1.20.yml)
+[![build](https://github.com/linkxzhou/LessDB/actions/workflows/build1.21.yml/badge.svg)](https://github.com/linkxzhou/LessDB/actions/workflows/build1.21.yml)
 
-TamiDB a serverless SQLite service designed to simplify the use of cloud-based MySQL, PostgreSQL, and other databases. The project is still in the planning stage, and the planned features include.
+LessDB a serverless SQLite service designed to simplify the use of cloud-based MySQL, PostgreSQL, and other databases. The project is still in the planning stage, and the planned features include.
 
 - [ ] Local File Storage
 - [ ] Http FileServer Storage
@@ -15,12 +15,12 @@ TamiDB a serverless SQLite service designed to simplify the use of cloud-based M
 ### Installation
 
 ```
-go get github.com/linkxzhou/TamiDB
+go get github.com/linkxzhou/LessDB
 ```
 OR
 ```
-git clone git@github.com:linkxzhou/TamiDB.git
-cd TamiDB
+git clone git@github.com:linkxzhou/LessDB.git
+cd LessDB
 go build .
 ```
 
@@ -36,7 +36,7 @@ The goal is to build the most comprehensive public dataset worldwide.
 
 ```
 # query the sqlite schema table
-$ ./tamidb -url 'https://www.sanford.io/demo.db' -query 'select * from main.sqlite_master'
+$ ./LessDB -url 'https://www.sanford.io/demo.db' -query 'select * from main.sqlite_master'
 row: [table csv csv 2 CREATE TABLE csv (series_reference,
 period,
 data_value,
@@ -49,7 +49,7 @@ grp,
 series_title_1)]
 
 # get 10 rows from the dataset
-./tamidb -url 'https://www.sanford.io/demo.db' -query "select * from csv limit 10"
+./LessDB -url 'https://www.sanford.io/demo.db' -query "select * from csv limit 10"
 row: [BOPQ.S06AC000000000A 1971.06 426  F Dollars 6 Balance of Payments - BOP BPM6 Quarterly, Balance of payments major components Actual]
 row: [BOPQ.S06AC000000000A 1971.09 435  F Dollars 6 Balance of Payments - BOP BPM6 Quarterly, Balance of payments major components Actual]
 row: [BOPQ.S06AC000000000A 1971.12 360  F Dollars 6 Balance of Payments - BOP BPM6 Quarterly, Balance of payments major components Actual]
@@ -62,7 +62,7 @@ row: [BOPQ.S06AC000000000A 1973.06 666  F Dollars 6 Balance of Payments - BOP BP
 row: [BOPQ.S06AC000000000A 1973.09 578  F Dollars 6 Balance of Payments - BOP BPM6 Quarterly, Balance of payments major components Actual]
 
 # get 10 rows where the period is after 2010
-$ ./tamidb -url 'https://www.sanford.io/demo.db' -query "select * from csv where period > '2010' limit 10"
+$ ./LessDB -url 'https://www.sanford.io/demo.db' -query "select * from csv where period > '2010' limit 10"
 row: [BOPQ.S06AC000000000A 2010.03 17463  F Dollars 6 Balance of Payments - BOP BPM6 Quarterly, Balance of payments major components Actual]
 row: [BOPQ.S06AC000000000A 2010.06 17260  F Dollars 6 Balance of Payments - BOP BPM6 Quarterly, Balance of payments major components Actual]
 row: [BOPQ.S06AC000000000A 2010.09 15419  F Dollars 6 Balance of Payments - BOP BPM6 Quarterly, Balance of payments major components Actual]

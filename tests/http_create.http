@@ -24,53 +24,12 @@ Content-Type: application/json
 }
 
 ### 
-{
-  "read_key": "25c6wiS4yjBs",
-  "write_key": "uZiuaZXjr4hgxo5JzxfxJEQatpCMc2of"
-}
-{
-  "read_key": "FvcbcWMvKkIZ",
-  "write_key": "3tITktTH5J0BbztgSblRiea6lruUGiT1"
-}
-{
-  "read_key": "HjJBQPI3IR2e",
-  "write_key": "v0izSDPyHWKa09Drzv5itYKUha1WqEUy"
-}
-{
-  "read_key": "WsIJ4LK7kRbY",
-  "write_key": "prLuUDhh5Xi9SHv1z5XMuD5sWVt9jJTv"
-}
-{
-  "code": 0,
-  "message": "OK",
-  "data": {
-    "read_key": "TpCv3b98ZnzV",
-    "write_key": "YzhNz3BwTVWSxO2tXRb4IBserhUHc5ic"
-  }
-}
-{
-  "code": 0,
-  "message": "OK",
-  "data": {
-    "read_key": "123eeeb5e0aeb791e8332f8bace4b39408efbb",
-    "write_key": "123eeeb5e0aeb7bdf46b05b5afaac1c035caa6686da5843e9a218311adb1fdc2d83aa8b385ce4a"
-  }
-}
 
 {
   "code": 0,
   "message": "OK",
   "data": {
-    "readkey": "123eeeb5e0aeb787d23c00ea8ae1c6f43fe7bf",
-    "writekey": "123eeeb5e0aeb7a7df0c29a994bccfd144f19b7146a1a03c8235a527da8ac9e7b751d9ae8fd909"
-  }
-}
-
-{
-  "code": 0,
-  "message": "OK",
-  "data": {
-    "readkey": "123eeeb5e0aeb7878d3b7cadb9baf7d03ce6ef",
-    "writekey": "123eeeb5e0aeb7b0ed36378da8a6ecf315fc980f68b2b3208829a32ed589f5dfba1aebeeb7eb51"
+    "readkey": "367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0",
+    "writekey": "367fb8f59f92e9b1cb0820f6eee0d6c519ec9a6b5d8dd71e8b768f2cda8ae085f813f595a2ee01a70d064102ef94b010c6c8de28c76ebb569ee8bfb8b96ce91b0fab4f3e96d03a87961a0410"
   }
 }

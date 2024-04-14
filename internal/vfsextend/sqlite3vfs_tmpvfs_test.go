@@ -2,7 +2,7 @@ package vfsextend
 
 import (
 	"github.com/google/go-cmp/cmp"
-	"github.com/linkxzhou/TamiDB/internal/sqlite3vfs"
+	"github.com/linkxzhou/LessDB/internal/sqlite3vfs"
 	_ "github.com/mattn/go-sqlite3"
 
 	"database/sql"

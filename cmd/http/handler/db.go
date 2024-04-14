@@ -1,16 +1,17 @@
 package handler
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/TamiDB/internal/sqlite3vfs"
-	"github.com/linkxzhou/TamiDB/internal/utils"
-	"github.com/linkxzhou/TamiDB/internal/vfsextend"
+	"github.com/linkxzhou/LessDB/internal/sqlite3vfs"
+	"github.com/linkxzhou/LessDB/internal/utils"
+	"github.com/linkxzhou/LessDB/internal/vfsextend"
 
 	"database/sql"
-	"sync"
 	"strings"
+	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -46,7 +47,7 @@ func getVFSDB(dbName string) (*sql.DB, string, error) {
 	return db, uri, err
 }
 
-func querySQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) (interface{}, 
+func querySQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) (interface{},
 	interface{}, interface{}, int, error) {
 	rows, err := db.Query(cmd.CMD, cmd.Args...)
 	if err != nil {
@@ -146,19 +147,21 @@ func ExecuteSQLWithFile(c echo.Context, db *sql.DB, sqlList []SQLExecuteCommandA
 }
 
 // Create system table sql template
-const systemInitSQLTemplate = `CREATE TABLE __TAMISYSTEM__ (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	name TEXT UNIQUE NOT NULL,
+const systemDBName = "__LESSDBSYSTEM__"
+
+var systemInitSQLTemplate = fmt.Sprintf(`CREATE TABLE %v (
+	name TEXT PRIMARY KEY UNIQUE NOT NULL,
 	value TEXT NOT NULL,
+	value_int INTEGER DEFAULT 0,
 	create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-INSERT INTO __TAMISYSTEM__ (name, value)
+INSERT INTO %v (name, value)
 VALUES ('__version', '1'),
-	   ('__tamiversion', ?),
+	   ('__lessdbversion', ?),
        ('__readkey', ?),
 	   ('__writekey', ?);
-`
+`, systemDBName, systemDBName)
 
 func initSQLWithSystem(c echo.Context, db *sql.DB, readKey, writeKey string) error {
 	_, err := db.Exec(systemInitSQLTemplate, utils.VERSION, readKey, writeKey)
