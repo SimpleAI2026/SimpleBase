@@ -26,6 +26,13 @@ cd LessDB/cmd/http
 go build .
 ```
 
+**Startup：**
+```
+cd LessDB/cmd/http
+./http
+```
+
+
 ### Architecture
 ![avatar](./arch.png)
 
