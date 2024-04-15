@@ -1,4 +1,4 @@
-### create tables
+### execute sql
 POST http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/execute?writekey=
 Content-Type: application/json
 
