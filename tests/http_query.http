@@ -17,6 +17,3 @@ Content-Type: application/json
 ### query tables
 GET http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables/__LESSDBSYSTEM__/rows?limit=100&offset=0
 Content-Type: application/json
-
-### create databases
-curl -i -X POST -F "file=@foo.db" 'http://localhost:18090/api/v1/uploaddb' 

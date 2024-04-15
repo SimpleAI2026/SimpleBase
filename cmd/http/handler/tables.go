@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/LessDB/cmd/http/client"
 	"github.com/linkxzhou/LessDB/internal/utils"
 )
 
@@ -54,7 +55,7 @@ func GetTables(c echo.Context) (err error) {
 
 	c.Logger().Info("GetTables q: ", q)
 
-	db, uri, err := getVFSDB(dbName)
+	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
 		return err
@@ -62,9 +63,10 @@ func GetTables(c echo.Context) (err error) {
 	defer db.Close()
 
 	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
-	columns, values, types, count, err := querySQLWithHTTPVFS(c, db,
-		SQLExecuteCommandArgs{
-			CMD:  `SELECT name FROM sqlite_master WHERE type='table' limit ? offset ?`,
+	columns, values, types, count, err := client.QuerySQLWithHTTPVFS(c, db,
+		client.SQLExecuteCommandArgs{
+			CMD: `SELECT name FROM sqlite_master 
+				WHERE type='table' limit ? offset ?`,
 			Args: []interface{}{limit, q.Offset * limit},
 		})
 
@@ -106,7 +108,7 @@ func GetRows(c echo.Context) (err error) {
 
 	c.Logger().Info("GetTables q: ", q)
 
-	db, uri, err := getVFSDB(dbName)
+	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
 		return err
@@ -114,8 +116,8 @@ func GetRows(c echo.Context) (err error) {
 	defer db.Close()
 
 	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
-	columns, values, types, count, err := querySQLWithHTTPVFS(c, db,
-		SQLExecuteCommandArgs{
+	columns, values, types, count, err := client.QuerySQLWithHTTPVFS(c, db,
+		client.SQLExecuteCommandArgs{
 			CMD:  fmt.Sprintf(`SELECT * FROM %v limit ? offset ?`, q.TableName),
 			Args: []interface{}{limit, q.Offset * limit},
 		})

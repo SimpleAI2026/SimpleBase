@@ -1,5 +1,6 @@
 .env.*
 .DS_Store
+
 **/node_modules
 **/.svelte-kit
 **/sqlite3vfs_httpdir_*
@@ -11,3 +12,4 @@ cmd/tigger/tigger
 cmd/cli/cli
 **/*.db
 **/vfscache_*
+**/build

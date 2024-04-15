@@ -2,15 +2,13 @@ package handler
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/LessDB/internal/s3"
+	"github.com/linkxzhou/LessDB/cmd/http/client"
 )
 
 type (
@@ -31,12 +29,7 @@ func TiggerS3Events(c echo.Context) error {
 	}
 
 	for _, event := range req.Events {
-		s3Client := s3.NewS3Client(S3Endpoint, S3Region, S3AccessKey, S3SecretKey, event.S3Bucket)
-		if s3Client == nil {
-			c.Logger().Error("NewS3Client failed!")
-			return c.String(http.StatusBadRequest, "bad request")
-		}
-
+		s3Client := client.GetS3()
 		redologStr, err := s3Client.DownloadString(context.TODO(), event.S3Key)
 		if err != nil {
 			c.Logger().Error("Download err: ", err)
@@ -68,7 +61,7 @@ func TiggerS3Events(c echo.Context) error {
 			return err
 		}
 
-		db, err := GetFileDB(dbName)
+		db, err := client.GetFileDB(dbName)
 		if err != nil {
 			c.Logger().Error("sql.Open err: ", err)
 			return err
@@ -76,29 +69,26 @@ func TiggerS3Events(c echo.Context) error {
 		defer db.Close()
 
 		// Insert into redolog result to system table
-		err = insertSYSTEMDBStatus(c, db, ExecStatusPending, event.S3Key, "Pending")
+		err = client.SysTableInsertStatus(c, db, ExecStatusPending, event.S3Key, "Pending")
 		if err != nil {
-			c.Logger().Error("insertSYSTEMDBStatus err: ", err)
+			c.Logger().Error("SysTableInsertStatus err: ", err)
 			return err
 		}
 
 		// Execute redolog list on sqlite3 file
-		err = ExecuteSQLWithFile(c, db, redolog.List)
+		execStatus := ExecStatusOK
+		execMessage := "OK"
+		err = client.ExecuteSQLWithFile(c, db, redolog.List)
 		if err != nil {
 			c.Logger().Error("ExecuteSQL err: ", err)
-			// Update redolog error to system table
-			err = updateSYSTEMDBStatus(c, db, ExecStatusFailed, event.S3Key, err.Error())
-			if err != nil {
-				c.Logger().Error("updateSYSTEMDBStatus err: ", err)
-				return err
-			}
-		} else {
-			// Update redolog ok to system table
-			err = updateSYSTEMDBStatus(c, db, ExecStatusOK, event.S3Key, "OK")
-			if err != nil {
-				c.Logger().Error("updateSYSTEMDBStatus err: ", err)
-				return err
-			}
+			execStatus = ExecStatusFailed
+			execMessage = err.Error()
+		}
+		// Update redolog error to system table
+		err = client.SysTableUpdateStatus(c, db, execStatus, event.S3Key, execMessage)
+		if err != nil {
+			c.Logger().Error("SysTableUpdateStatus err: ", err)
+			return err
 		}
 
 		dbFile.Seek(0, io.SeekStart)
@@ -113,23 +103,5 @@ func TiggerS3Events(c echo.Context) error {
 	return c.JSON(http.StatusOK, DataResp{
 		Code:    0,
 		Message: "OK",
-	})
-}
-
-func insertSYSTEMDBStatus(c echo.Context, db *sql.DB, status int, name, value string) error {
-	return ExecuteSQLWithFile(c, db, []SQLExecuteCommandArgs{
-		SQLExecuteCommandArgs{
-			CMD:  fmt.Sprintf(`INSERT INTO %v(value_int, value, name) values(?, ?, ?)`, systemDBName),
-			Args: []interface{}{status, value, name},
-		},
-	})
-}
-
-func updateSYSTEMDBStatus(c echo.Context, db *sql.DB, status int, name, value string) error {
-	return ExecuteSQLWithFile(c, db, []SQLExecuteCommandArgs{
-		SQLExecuteCommandArgs{
-			CMD:  fmt.Sprintf(`UPDATE %v SET value_int = ?, value = ? where name = ?`, systemDBName),
-			Args: []interface{}{status, value, name},
-		},
 	})
 }

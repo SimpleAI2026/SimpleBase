@@ -5,27 +5,28 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
 	"github.com/linkxzhou/LessDB/cmd/http/handler"
+	"github.com/linkxzhou/LessDB/internal/utils"
 
 	"fmt"
 )
 
 const (
 	prefixVersion = "/api/v1"
-	defaultListen = ":18090"
+	defaultListen = ":9000"
 )
 
 func withVersion(uri string) string {
 	return fmt.Sprintf("%s%s", prefixVersion, uri)
 }
 
-// http://localhost:18090/api/v1/uploaddb
-// http://localhost:18090/api/v1/createdb
-// http://localhost:18090/api/v1/tigger/s3events
-// http://localhost:18090/api/v1/:ReadKey/tables
-// http://localhost:18090/api/v1/:ReadKey/tables/:tableName/rows
-// http://localhost:18090/api/v1/:ReadKey/execute
-// http://localhost:18090/api/v1/:ReadKey/query
-// http://localhost:18090/api/v1/:ReadKey/executelog
+// http://localhost:9000/api/v1/uploaddb
+// http://localhost:9000/api/v1/createdb
+// http://localhost:9000/api/v1/tigger/s3events
+// http://localhost:9000/api/v1/:ReadKey/tables
+// http://localhost:9000/api/v1/:ReadKey/tables/:tableName/rows
+// http://localhost:9000/api/v1/:ReadKey/execute
+// http://localhost:9000/api/v1/:ReadKey/query
+// http://localhost:9000/api/v1/:ReadKey/executelog
 func main() {
 	e := echo.New()
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -41,5 +42,10 @@ func main() {
 	e.POST(withVersion("/:ReadKey/execute"), handler.ExecuteDB)
 	e.POST(withVersion("/:ReadKey/executelog"), handler.ExecuteLog)
 	e.POST(withVersion("/:ReadKey/query"), handler.QueryDB)
-	e.Logger.Fatal(e.Start(defaultListen))
+
+	listenSvr := utils.GetEnviron("LESSDB_LISTEN")
+	if listenSvr == "" {
+		listenSvr = defaultListen
+	}
+	e.Logger.Fatal(e.Start(listenSvr))
 }

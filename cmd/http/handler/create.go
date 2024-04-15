@@ -1,36 +1,19 @@
 package handler
 
 import (
+	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/LessDB/cmd/http/client"
+	"github.com/linkxzhou/LessDB/internal/utils"
+
 	"context"
 	"io"
 	"net/http"
 	"os"
-
-	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/LessDB/internal/s3"
-	"github.com/linkxzhou/LessDB/internal/utils"
-)
-
-var (
-	S3Endpoint  = utils.GetEnviron("S3Endpoint")
-	S3Region    = utils.GetEnviron("S3Region")
-	S3AccessKey = utils.GetEnviron("S3AccessKey")
-	S3SecretKey = utils.GetEnviron("S3SecretKey")
-	S3Bucket    = utils.GetEnviron("S3Bucket")
-
-	s3Client *s3.S3Client
 )
 
 type AuthResp struct {
 	ReadKey  string `json:"readkey"`
 	WriteKey string `json:"writekey"`
-}
-
-func init() {
-	s3Client = s3.NewS3Client(S3Endpoint, S3Region, S3AccessKey, S3SecretKey, S3Bucket)
-	if s3Client == nil {
-		panic("NewS3Client failed!")
-	}
 }
 
 // UploadDB for upload sqlite3 file and to S3
@@ -71,7 +54,7 @@ func UploadDB(c echo.Context) error {
 		return err
 	}
 
-	db, err := GetFileDB(dbName)
+	db, err := client.GetFileDB(dbName)
 	if err != nil {
 		c.Logger().Error("sql.Open err: ", err)
 		return err
@@ -84,7 +67,7 @@ func UploadDB(c echo.Context) error {
 		return err
 	}
 
-	err = initSQLWithSystem(c, db, readKey, writeKey)
+	err = client.SysTableInit(c, db, readKey, writeKey)
 	if err != nil {
 		c.Logger().Error("InitSQL err: ", err)
 		return err
@@ -92,8 +75,8 @@ func UploadDB(c echo.Context) error {
 
 	// Seek to start and upload S3
 	dstFile.Seek(0, io.SeekStart)
-	c.Logger().Info("s3Client: ", s3Client.String(dbName))
-	err = s3Client.Upload(context.TODO(), dbName, dstFile)
+	c.Logger().Info("s3Client: ", client.GetS3().String(dbName))
+	err = client.GetS3().Upload(context.TODO(), dbName, dstFile)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
 		return err
@@ -110,7 +93,7 @@ func UploadDB(c echo.Context) error {
 }
 
 type CMDListParams struct {
-	List []SQLExecuteCommandArgs `json:"list"`
+	List []client.SQLExecuteCommandArgs `json:"list"`
 }
 
 // CreateDB for use sql create sqlite3 file
@@ -126,7 +109,7 @@ func CreateDB(c echo.Context) error {
 		return err
 	}
 
-	db, err := GetFileDB(dbName)
+	db, err := client.GetFileDB(dbName)
 	if err != nil {
 		c.Logger().Error("sql.Open err: ", err)
 		return err
@@ -139,13 +122,13 @@ func CreateDB(c echo.Context) error {
 		return err
 	}
 
-	err = initSQLWithSystem(c, db, readKey, writeKey)
+	err = client.SysTableInit(c, db, readKey, writeKey)
 	if err != nil {
 		c.Logger().Error("InitSQL err: ", err)
 		return err
 	}
 
-	err = ExecuteSQLWithFile(c, db, ep.List)
+	err = client.ExecuteSQLWithFile(c, db, ep.List)
 	if err != nil {
 		c.Logger().Error("ExecuteSQL err: ", err)
 		return err
@@ -162,8 +145,8 @@ func CreateDB(c echo.Context) error {
 		os.Remove(dbName)
 	}()
 
-	c.Logger().Info("s3Client: ", s3Client.String(dbName))
-	err = s3Client.Upload(context.TODO(), dbName, dbFile)
+	c.Logger().Info("s3Client: ", client.GetS3().String(dbName))
+	err = client.GetS3().Upload(context.TODO(), dbName, dbFile)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
 		return err

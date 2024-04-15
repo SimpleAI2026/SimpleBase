@@ -1,4 +1,4 @@
-package handler
+package client
 
 import (
 	"fmt"
@@ -16,29 +16,28 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var cacheVFS sync.Map
+var vfsCache sync.Map
 
-func getVFSDB(dbName string) (*sql.DB, string, error) {
+// GetVFSDB get httpvfs sqlite3 file
+func GetVFSDB(dbName string) (*sql.DB, string, error) {
 	uri, err := s3Client.GetFileLink(dbName)
 	if err != nil {
 		return nil, uri, err
 	}
 
 	var vfs *vfsextend.HttpVFS
-	if newVFS, ok := cacheVFS.Load(dbName); !ok || newVFS == nil {
+	if newVFS, ok := vfsCache.Load(dbName); !ok || newVFS == nil {
 		vfs = &vfsextend.HttpVFS{URL: uri}
 		if cacheFile, err := os.Create("vfscache_" + dbName); err == nil {
 			vfs.CacheHandler = vfsextend.NewDiskCache(cacheFile, -1)
 		}
-		err = sqlite3vfs.RegisterVFS("httpvfs", vfs)
-		if err != nil {
+		if err = sqlite3vfs.RegisterVFS("httpvfs", vfs); err != nil {
 			return nil, uri, err
 		}
-		cacheVFS.Store(dbName, vfs)
+		vfsCache.Store(dbName, vfs)
 	} else {
 		vfs = newVFS.(*vfsextend.HttpVFS)
-		err = sqlite3vfs.RegisterVFS("httpvfs", vfs)
-		if err != nil {
+		if err = sqlite3vfs.RegisterVFS("httpvfs", vfs); err != nil {
 			return nil, uri, err
 		}
 	}
@@ -47,7 +46,8 @@ func getVFSDB(dbName string) (*sql.DB, string, error) {
 	return db, uri, err
 }
 
-func querySQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) (interface{},
+// QuerySQLWithHTTPVFS query sql on httpvfs
+func QuerySQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) (interface{},
 	interface{}, interface{}, int, error) {
 	rows, err := db.Query(cmd.CMD, cmd.Args...)
 	if err != nil {
@@ -111,7 +111,8 @@ func querySQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) 
 	return columns, values, xTypes, len(values), nil
 }
 
-func execSQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) error {
+// ExecuteSQLWithHTTPVFS execute sql on httpvfs
+func ExecuteSQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) error {
 	result, err := db.Exec(cmd.CMD, cmd.Args...)
 	if err != nil {
 		c.Logger().Error("Execute err: ", err)
@@ -124,6 +125,7 @@ func execSQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) e
 	return nil
 }
 
+// GetFileDB get local sqlite3 file
 func GetFileDB(dbName string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", dbName)
 	return db, err
@@ -134,6 +136,7 @@ type SQLExecuteCommandArgs struct {
 	Args []interface{} `json:"args"`
 }
 
+// ExecuteSQLWithFile execute sql on local sqlite3
 func ExecuteSQLWithFile(c echo.Context, db *sql.DB, sqlList []SQLExecuteCommandArgs) error {
 	for _, sqlv := range sqlList {
 		c.Logger().Info("CMD: ", sqlv.CMD, ", sqlv.Args: ", sqlv.Args)
@@ -163,7 +166,31 @@ VALUES ('__version', '1'),
 	   ('__writekey', ?);
 `, systemDBName, systemDBName)
 
-func initSQLWithSystem(c echo.Context, db *sql.DB, readKey, writeKey string) error {
+// SysTableInit system table init
+func SysTableInit(c echo.Context, db *sql.DB, readKey, writeKey string) error {
 	_, err := db.Exec(systemInitSQLTemplate, utils.VERSION, readKey, writeKey)
 	return err
+}
+
+// SysTableQuerySQL get system table sql
+func SysTableQuerySQL() string {
+	return fmt.Sprintf(`SELECT name, value, value_int FROM %v where name = ?`, systemDBName)
+}
+
+func SysTableInsertStatus(c echo.Context, db *sql.DB, status int, name, value string) error {
+	return ExecuteSQLWithFile(c, db, []SQLExecuteCommandArgs{
+		SQLExecuteCommandArgs{
+			CMD:  fmt.Sprintf(`INSERT INTO %v(value_int, value, name) values(?, ?, ?)`, systemDBName),
+			Args: []interface{}{status, value, name},
+		},
+	})
+}
+
+func SysTableUpdateStatus(c echo.Context, db *sql.DB, status int, name, value string) error {
+	return ExecuteSQLWithFile(c, db, []SQLExecuteCommandArgs{
+		SQLExecuteCommandArgs{
+			CMD:  fmt.Sprintf(`UPDATE %v SET value_int = ?, value = ? where name = ?`, systemDBName),
+			Args: []interface{}{status, value, name},
+		},
+	})
 }

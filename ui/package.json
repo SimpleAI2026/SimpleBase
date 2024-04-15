@@ -1,7 +1,7 @@
 {
-	"name": "LessDB",
+	"name": "lessdb",
 	"version": "0.0.1",
-	"description": "A SQLite server",
+	"description": "Serverless SQLite",
 	"scripts": {
 		"dev": "vite dev --port 3000",
 		"build": "vite build",

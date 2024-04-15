@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LessDB</title>
+    <!-- Import style -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <!-- Import Vue 3 -->
+    <script src="https://unpkg.com/vue@3"></script>
+    <!-- Import component library -->
+    <script src="https://unpkg.com/element-plus"></script>
+</head>
+
+<body>
+    <template>
+        <el-table-v2 :columns="columns" :data="data" :width="700" :height="400" fixed />
+    </template>
+
+    <script lang="ts" setup>
+        Vue.config.productionTip = false;
+        const generateColumns = (length = 10, prefix = 'column-', props) =>
+            Array.from({ length }).map((_, columnIndex) => ({
+                ...props,
+                key: `${prefix}${columnIndex}`,
+                dataKey: `${prefix}${columnIndex}`,
+                title: `Column ${columnIndex}`,
+                width: 150,
+            }))
+
+        const generateData = (
+            columns,
+            length = 200,
+            prefix = 'row-'
+        ) =>
+            Array.from({ length }).map((_, rowIndex) => {
+                return columns.reduce(
+                    (rowData, column, columnIndex) => {
+                        rowData[column.dataKey] = `Row ${rowIndex} - Col ${columnIndex}`
+                        return rowData
+                    },
+                    {
+                        id: `${prefix}${rowIndex}`,
+                        parentId: null,
+                    }
+                )
+            })
+
+        const columns = generateColumns(10)
+        const data = generateData(columns, 1000)
+    </script>
+</body>
+
+<style>
+    body,
+    html,
+    body>div {
+        margin: 0;
+        padding: 0;
+    }
+</style>
+
+</html>

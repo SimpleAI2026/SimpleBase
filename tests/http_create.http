@@ -33,3 +33,8 @@ Content-Type: application/json
     "writekey": "367fb8f59f92e9b1cb0820f6eee0d6c519ec9a6b5d8dd71e8b768f2cda8ae085f813f595a2ee01a70d064102ef94b010c6c8de28c76ebb569ee8bfb8b96ce91b0fab4f3e96d03a87961a0410"
   }
 }
+
+
+### create databases
+curl -i -X POST -F "file=@demo.db" 'http://localhost:18090/api/v1/uploaddb' 
+demodb: {"code":0,"message":"OK","data":{"readkey":"367fb8f59f92e9b1cb0820f6efa3e09627ffb40c66d58942b2168b3cfd91dcc7","writekey":"367fb8f59f92e9b1cb0820f691a2cdd749e9a667428c841fa87d9707ee84edf1c503ccb3d7f242ff08334021f192cb48d1caed1ea75f9d4ff8bdab9a9366f85816a1151cd1c4208fad193c26"}}

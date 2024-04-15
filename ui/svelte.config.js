@@ -6,9 +6,6 @@ const config = {
     adapter: adapter({
       envPrefix: "STUDIO_",
     }),
-    paths: {
-      base: "/studio",
-    }
   },
 };
 

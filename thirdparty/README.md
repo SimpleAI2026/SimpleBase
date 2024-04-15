@@ -1,6 +1,7 @@
-# golang sqlite3  
+# some similar project
 
-github: github.com/mattn/go-sqlite3  
+（1）github: github.com/mattn/go-sqlite3  
+（2）github: https://github.com/nalgeon/redka
 
 # Goal 
 

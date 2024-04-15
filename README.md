@@ -13,6 +13,8 @@ LessDB a serverless SQLite service designed to simplify the use of cloud-based M
 - [x] Local Cache File
 - [ ] Compatible with MySQL Protocol
 - [ ] Support Uploading Various Data Formats and Converting them into SQLite Files
+- [ ] Prometheus Metrics Data
+- [ ] Optimizing WebUI
 
 ## Installation
 

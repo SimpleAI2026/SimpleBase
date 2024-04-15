@@ -1,16 +1,17 @@
 package handler
 
 import (
+	"github.com/linkxzhou/LessDB/cmd/http/client"
+	"github.com/linkxzhou/LessDB/internal/utils"
+
+	"github.com/labstack/echo/v4"
+
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/linkxzhou/LessDB/internal/utils"
-
-	"github.com/labstack/echo/v4"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -28,11 +29,11 @@ type (
 	}
 
 	UploadS3Redolog struct {
-		DBName        string                  `json:"dbname"`
-		ReadKey       string                  `json:"readkey"`
-		WriteKey      string                  `json:"writekey"`
-		NanoTimestamp int64                   `json:"nanotimestamp"`
-		List          []SQLExecuteCommandArgs `json:"list"`
+		DBName        string                         `json:"dbname"`
+		ReadKey       string                         `json:"readkey"`
+		WriteKey      string                         `json:"writekey"`
+		NanoTimestamp int64                          `json:"nanotimestamp"`
+		List          []client.SQLExecuteCommandArgs `json:"list"`
 	}
 
 	ResultRedolog struct {
@@ -69,7 +70,7 @@ func ExecuteDB(c echo.Context) error {
 		})
 	}
 
-	db, uri, err := getVFSDB(dbName)
+	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
 		return err
@@ -77,10 +78,9 @@ func ExecuteDB(c echo.Context) error {
 	defer db.Close()
 
 	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
-	var redologs []SQLExecuteCommandArgs
+	var redologs []client.SQLExecuteCommandArgs
 	for _, cmd := range edbp.List {
-		err := execSQLWithHTTPVFS(c, db, cmd)
-		if err != nil {
+		if err := client.ExecuteSQLWithHTTPVFS(c, db, cmd); err != nil {
 			if !strings.Contains(err.Error(), ErrNoAuthWrite) {
 				c.Logger().Error("ExecuteSQL err: ", err)
 				return err
@@ -105,7 +105,7 @@ func ExecuteDB(c echo.Context) error {
 	}
 
 	s3key := fmt.Sprintf("%v-%v.redolog", readKey, nanoTimestamp)
-	err = s3Client.UploadString(context.TODO(), s3key, jsons)
+	err = client.GetS3().UploadString(context.TODO(), s3key, jsons)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
 		return err
@@ -140,7 +140,7 @@ func ExecuteLog(c echo.Context) error {
 		})
 	}
 
-	db, uri, err := getVFSDB(dbName)
+	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
 		return err
@@ -148,9 +148,9 @@ func ExecuteLog(c echo.Context) error {
 	defer db.Close()
 
 	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
-	_, values, _, _, err := querySQLWithHTTPVFS(c, db,
-		SQLExecuteCommandArgs{
-			CMD:  fmt.Sprintf(`SELECT name, value, value_int FROM %v where name = ?`, systemDBName),
+	_, values, _, _, err := client.QuerySQLWithHTTPVFS(c, db,
+		client.SQLExecuteCommandArgs{
+			CMD:  client.SysTableQuerySQL(),
 			Args: []interface{}{elp.SeqID},
 		})
 	if err != nil {
@@ -186,7 +186,7 @@ func QueryDB(c echo.Context) error {
 		})
 	}
 
-	db, uri, err := getVFSDB(dbName)
+	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
 		return err
@@ -195,7 +195,8 @@ func QueryDB(c echo.Context) error {
 
 	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
 	for _, cmd := range edbp.List {
-		columns, values, types, count, err := querySQLWithHTTPVFS(c, db, cmd)
+		columns, values, types, count, err :=
+			client.QuerySQLWithHTTPVFS(c, db, cmd)
 		if err != nil {
 			c.Logger().Error("ExecuteSQL err: ", err)
 			return err

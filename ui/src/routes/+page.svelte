@@ -1,8 +1,14 @@
 <script>
   import { onMount } from "svelte";
 
+  const apiURL = import.meta.env.VITE_API_URL;
+  let selectedDB =
+    "367fb8f59f92e9b1cb0820f6efa3e09627ffb40c66d58942b2168b3cfd91dcc7";
   let selectedTab = null;
 
+  let dbs = [
+    "367fb8f59f92e9b1cb0820f6efa3e09627ffb40c66d58942b2168b3cfd91dcc7",
+  ]; // TODO: public db
   let tables = [];
   let tablesLoading = true;
 
@@ -18,17 +24,23 @@
   let viewportWidth;
 
   let addRecordMode = false;
+  let rowLimit = 200;
+  let rowOffset = 0;
 
   onMount(async () => {
-    fetch("http://localhost:18090/api/v1/GJxx0n3tABqF/tables")
+    const params = new URLSearchParams(window.location.search);
+    rowLimit = params.get("limit") || 200;
+    rowOffset = params.get("offset") || 0;
+
+    fetch(`${apiURL}/api/v1/${selectedDB}/tables`)
       .then((response) => response.json())
       .then(({ data }) => {
-        tables = data.map((row) => {
+        tables = data.values.map((row) => {
           return {
             name: row[0],
           };
         });
-        selectedTab = data[0][0];
+        selectedTab = data.values[0][0];
         handleTableTabClick(selectedTab);
         tablesLoading = false;
       })
@@ -42,20 +54,24 @@
     rowsLoading = true;
     columnsLoading = true;
     selectedTab = tableName;
+    rows = [];
+    columns = [];
 
     addRecordMode = false;
 
-    fetch(`http://localhost:18090/api/v1/GJxx0n3tABqF/tables/${tableName}/rows`)
+    fetch(
+      `${apiURL}/api/v1/${selectedDB}/tables/${tableName}/rows?limit=${rowLimit}&offset=${rowOffset}`,
+    )
       .then((response) => response.json())
-      .then(({ header, data }) => {
-        columns = header.map((row) => {
+      .then(({ data }) => {
+        columns = data.columns.map((row) => {
           return {
             name: row,
           };
         });
         columnsLoading = false;
 
-        rows = data.map((row) => {
+        rows = data.values.map((row) => {
           let fields = {};
           for (const key in row) {
             fields[key] = {
@@ -73,24 +89,10 @@
       });
   }
 
-  function handleAddRecord() {
-    addRecordMode = true;
-    const newRow = {
-      fields: {},
-      new: true,
-    };
-    columns.forEach((column) => {
-      newRow.fields[column.name] = {
-        value: "",
-        editable: true,
-        placeholder: column.dflt_value || column.notnull === 1 ? "" : "null",
-      };
-    });
-    rows = [newRow, ...rows];
+  function handleDBSelect(event) {
+    selectedDB = event;
   }
 </script>
-
-<svelte:window bind:innerHeight={viewportHeight} />
 
 <div class="wrapper">
   {#if tablesLoading}
@@ -112,13 +114,13 @@
       {/each}
     </ul>
     <div class="options">
-      <button class="button" on:click={handleAddRecord}> Add record </button>
+      <!-- <button class="button" on:click={handleAddRecord}> Add record </button>
       {#if addRecordMode}
         <button class="button primary">
           Save {rows.reduce((acc, curr) => acc + (curr.new ? 1 : 0), 0)} Changes
         </button>
         <button class="button transparent"> Discard Change </button>
-      {/if}
+      {/if} -->
     </div>
     <div class="table-wrapper">
       <table cellspacing="0">
@@ -167,11 +169,6 @@
           {/each}
         </tbody>
       </table>
-      <div class="phantom">
-        {#each new Array(Math.max(Math.floor(viewportHeight / ROW_HEIGHT) - 5, 5)).fill(0) as row}
-          <div class="row" />
-        {/each}
-      </div>
     </div>
   {/if}
 </div>
@@ -221,37 +218,6 @@
     background-color: var(--background-2);
   }
 
-  .button {
-    border: none;
-    background: var(--background-2);
-    font-weight: bold;
-    padding: 0 1rem;
-    height: 30px;
-    color: var(--text-1);
-    border-radius: 5px;
-    margin: 0 0.5rem;
-    transition: 0.5s all;
-  }
-
-  .button:hover {
-    background: var(--background-3);
-  }
-
-  .button.primary {
-    background: var(--primary-0);
-  }
-
-  .button.primary:hover {
-    background: var(--primary-1);
-  }
-  .button.transparent {
-    background: none;
-    color: var(--text-2);
-    margin: 0;
-  }
-  .button.transparent:hover {
-    color: var(--text-3);
-  }
   td,
   th {
     text-align: left;
@@ -270,7 +236,7 @@
     border: none !important;
     padding: 0 !important;
     color: var(--text-1);
-    max-width: 200px;
+    max-width: 300px;
     margin: 0;
     white-space: nowrap;
     overflow: hidden;
@@ -278,9 +244,6 @@
   }
   td input.cell {
     height: 100%;
-  }
-
-  td.editing {
   }
   th {
     border-top: 1px solid var(--divider);
@@ -306,21 +269,5 @@
   table {
     z-index: 100;
     position: relative;
-  }
-
-  .phantom {
-    position: absolute;
-    top: 0;
-    z-index: 0;
-  }
-
-  .phantom .row {
-    height: 35px;
-    min-width: 100vw;
-    border-bottom: 1px solid var(--divider);
-  }
-  .phantom .row:first-child {
-    border-top: 1px solid var(--divider);
-    background-color: var(--background-2);
   }
 </style>
