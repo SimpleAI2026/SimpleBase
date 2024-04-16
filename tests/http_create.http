@@ -37,4 +37,4 @@ Content-Type: application/json
 
 ### create databases
 curl -i -X POST -F "file=@demo.db" 'http://localhost:9000/api/v1/uploaddb' 
-demodb: {"code":0,"message":"OK","data":{"readkey":"367fb8f59f92e9b1cb0820f6efa3e09627ffb40c66d58942b2168b3cfd91dcc7","writekey":"367fb8f59f92e9b1cb0820f691a2cdd749e9a667428c841fa87d9707ee84edf1c503ccb3d7f242ff08334021f192cb48d1caed1ea75f9d4ff8bdab9a9366f85816a1151cd1c4208fad193c26"}}
+demodb: {"code":0,"message":"OK","data":{"readkey":"367fb8f59f92e9b1cb0820f692e4c0d426a886043dd6ae1eac2fbc6cacf6cada","writekey":"367fb8f59f92e9b1cb0820f6acb8dff322ab8e7e7fd3801cb476fe0caca5c2c3ec3efb9eddef5fa42d35781c88d4b36be2d7a836d8419b77bff5aea0a967ea1d0391294494da28aa81130a22"}}

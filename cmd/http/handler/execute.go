@@ -202,6 +202,7 @@ func QueryDB(c echo.Context) error {
 
 	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
 	for _, cmd := range edbp.List {
+		startTime := time.Now()
 		columns, values, types, count, err :=
 			client.QuerySQLWithHTTPVFS(c, db, cmd)
 		if err != nil {
@@ -209,10 +210,11 @@ func QueryDB(c echo.Context) error {
 			return err
 		}
 		result = append(result, DBValuesResp{
-			Columns: columns,
-			Values:  values,
-			Types:   types,
-			Count:   count,
+			Columns:  columns,
+			Values:   values,
+			Types:    types,
+			Count:    count,
+			TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
 		})
 	}
 

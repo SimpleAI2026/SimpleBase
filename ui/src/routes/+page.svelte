@@ -3,12 +3,8 @@
 
   const apiURL = import.meta.env.VITE_API_URL;
   let selectedDB =
-    "367fb8f59f92e9b1cb0820f6efa3e09627ffb40c66d58942b2168b3cfd91dcc7";
+    "367fb8f59f92e9b1cb0820f692e4c0d426a886043dd6ae1eac2fbc6cacf6cada";
   let selectedTab = null;
-
-  let dbs = [
-    "367fb8f59f92e9b1cb0820f6efa3e09627ffb40c66d58942b2168b3cfd91dcc7",
-  ]; // TODO: public db
   let tables = [];
   let tablesLoading = true;
 
@@ -19,14 +15,20 @@
   let columnsLoading = false;
 
   let addRecordMode = false;
-  let rowLimit = 200;
+  let rowLimit = 20;
   let rowOffset = 0;
 
-  onMount(async () => {
-    const params = new URLSearchParams(window.location.search);
-    rowLimit = params.get("limit") || 200;
-    rowOffset = params.get("offset") || 0;
+  let inputSQL = "";
+  let timecost = 0;
 
+  onMount(async () => {
+    fetchDBList();
+  });
+
+  function fetchDBList() {
+    const params = new URLSearchParams(window.location.search);
+    rowLimit = params.get("limit") || 20;
+    rowOffset = params.get("offset") || 0;
     fetch(`${apiURL}/api/v1/${selectedDB}/tables`)
       .then((response) => response.json())
       .then(({ data }) => {
@@ -43,7 +45,7 @@
         console.log(error);
         return [];
       });
-  });
+  }
 
   function handleTableTabClick(tableName) {
     rowOffset = 0;
@@ -79,6 +81,7 @@
           return { fields };
         });
         rowsLoading = false;
+        timecost = data.cost;
       })
       .catch((error) => {
         console.log(error);
@@ -87,7 +90,52 @@
   }
 
   function handleDBSelect(event) {
-    selectedDB = event;
+    selectedDB = event.target.value;
+    fetchDBList();
+  }
+
+  function handleExecuteSQL() {
+    fetch(`${apiURL}/api/v1/${selectedDB}/query`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        list: [
+          {
+            cmd: inputSQL,
+          },
+        ],
+      }),
+    })
+      .then((response) => response.json())
+      .then(({ data }) => {
+        columns = [];
+        rows = [];
+        selectedTab = "";
+
+        let result0 = data[0] || {};
+        columns = result0.columns.map((row) => {
+          return {
+            name: row,
+          };
+        });
+        rows = result0.values.map((row) => {
+          let fields = {};
+          for (const key in row) {
+            fields[key] = {
+              value: row[key],
+              editable: false,
+            };
+          }
+          return { fields };
+        });
+        timecost = result0.cost;
+      })
+      .catch((error) => {
+        console.log(error);
+        return [];
+      });
   }
 
   function handleLoadMoreRecord() {
@@ -109,6 +157,7 @@
           return { fields };
         });
         rows = rows.concat(newrows);
+        timecost = data.cost;
       })
       .catch((error) => {
         console.log(error);
@@ -131,12 +180,30 @@
             class:selected={table.name === selectedTab}
             on:click={handleTableTabClick(table.name)}
           >
-            {table.name.replace("_", " ")}
+            {table.name}
           </button>
         </li>
       {/each}
     </ul>
     <div class="table-wrapper">
+      <div class="flex-container">
+        <p>DBName :</p>
+        <select class="select" on:change={handleDBSelect}>
+          <option
+            value="367fb8f59f92e9b1cb0820f692e4c0d426a886043dd6ae1eac2fbc6cacf6cada"
+            >pub_demo1</option
+          >
+        </select>
+        <input
+          class="text"
+          type="text"
+          placeholder="input sql to execute"
+          bind:value={inputSQL}
+        />
+        <button class="button primary" on:click={handleExecuteSQL}>
+          Execute SQL
+        </button>
+      </div>
       <table cellspacing="0">
         <thead>
           <tr>
@@ -185,7 +252,7 @@
       </table>
     </div>
     <button class="button primary" on:click={handleLoadMoreRecord}>
-      Load More
+      Load More (time cost: {timecost} ms)
     </button>
   {/if}
 </div>
@@ -277,12 +344,10 @@
   .table-wrapper {
     position: relative;
   }
-
   table {
     z-index: 100;
     position: relative;
   }
-
   .button {
     border: none;
     background: var(--background-2);
@@ -292,7 +357,6 @@
     color: var(--text-1);
     border-radius: 2px;
     margin: 1rem;
-    /* transition: 0.5s all; */
   }
   .button:hover {
     background: var(--background-3);
@@ -302,5 +366,43 @@
   }
   .button.primary:hover {
     background: var(--primary-1);
+  }
+  .flex-container {
+    display: flex;
+    margin: 0px;
+  }
+  .flex-container p {
+    display: flex;
+    font-weight: bold;
+    justify-content: center;
+    align-items: center;
+  }
+  .flex-container .select {
+    display: flex;
+    border: none;
+    background: var(--background-2);
+    font-weight: bold;
+    width: 200px;
+    color: var(--text-1);
+    border-radius: 2px;
+    margin: 10px;
+  }
+  .flex-container .text {
+    display: flex;
+    border: none;
+    background: var(--background-2);
+    font-weight: bold;
+    min-width: 600px;
+    color: var(--text-1);
+    border-radius: 2px;
+    margin: 10px;
+  }
+  .flex-container button {
+    border: none;
+    background: var(--background-2);
+    font-weight: bold;
+    width: 200px;
+    color: var(--text-1);
+    border-radius: 2px;
   }
 </style>

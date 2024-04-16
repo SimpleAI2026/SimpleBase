@@ -97,14 +97,19 @@ func (h *DiskCacheHandler) Get(p []byte, off int64, fetcher VFSReadAt) (int, err
 	return h.f.ReadAt(p, off)
 }
 
+func (h *DiskCacheHandler) Size(fetcher VFSReadAt) (int64, error) {
+	if h.fileSize < 0 {
+		fileSize, sizeErr := fetcher.Size()
+		if sizeErr != nil {
+			return 0, sizeErr
+		}
+		h.fileSize = fileSize
+	}
+	return h.fileSize, nil
+}
+
 func (h *DiskCacheHandler) pagesForRange(offset int64, size int) (startPage, endPage int64) {
 	startPage = offset / int64(h.PageSize)
 	endPage = (offset+int64(size))/int64(h.PageSize) + 1
 	return startPage, endPage
-}
-
-// AsyncRefreshVer will refresh the cache asynchronously
-func (h *DiskCacheHandler) AsyncRefreshVer() error {
-	// TODO: Implement async refresh
-	return nil
 }

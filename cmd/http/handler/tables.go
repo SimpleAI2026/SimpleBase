@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/LessDB/cmd/http/client"
@@ -20,10 +21,11 @@ type (
 	}
 
 	DBValuesResp struct {
-		Columns interface{} `json:"columns"`
-		Values  interface{} `json:"values"`
-		Types   interface{} `json:"types"`
-		Count   int         `json:"count"`
+		Columns  interface{} `json:"columns"`
+		Values   interface{} `json:"values"`
+		Types    interface{} `json:"types"`
+		Count    int         `json:"count"`
+		TimeCost float64     `json:"cost"`
 	}
 
 	DataResp struct {
@@ -55,6 +57,7 @@ func GetTables(c echo.Context) (err error) {
 
 	c.Logger().Info("GetTables q: ", q)
 
+	startTime := time.Now()
 	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
@@ -78,10 +81,11 @@ func GetTables(c echo.Context) (err error) {
 		Code:    0,
 		Message: "OK",
 		Data: DBValuesResp{
-			Columns: columns,
-			Values:  values,
-			Types:   types,
-			Count:   count,
+			Columns:  columns,
+			Values:   values,
+			Types:    types,
+			Count:    count,
+			TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
 		},
 	})
 }
@@ -108,6 +112,7 @@ func GetRows(c echo.Context) (err error) {
 
 	c.Logger().Info("GetTables q: ", q)
 
+	startTime := time.Now()
 	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
@@ -130,10 +135,11 @@ func GetRows(c echo.Context) (err error) {
 		Code:    0,
 		Message: "OK",
 		Data: DBValuesResp{
-			Columns: columns,
-			Values:  values,
-			Types:   types,
-			Count:   count,
+			Columns:  columns,
+			Values:   values,
+			Types:    types,
+			Count:    count,
+			TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
 		},
 	})
 }

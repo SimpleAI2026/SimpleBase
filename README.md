@@ -81,7 +81,7 @@ Content-Type: application/json
 
 **（4）execute sql: asynchronously execute SQL**  
 ```
-POST http://localhost:18090/api/v1/{readkey}/execute?writekey={writekey}
+POST http://localhost:18090/api/v1/{readkey}/execute
 Content-Type: application/json
 
 {
@@ -102,7 +102,8 @@ Content-Type: application/json
             "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
             "args": [2, "unique-title-2"]
         }
-    ]
+    ],
+    "writekey": "{writekey}"
 }
 ```
 
@@ -146,3 +147,4 @@ Serve small and medium-sized developers, reducing the cost of cloud services.
 [6] https://github.com/rclone/rclone    
 [7] https://ieeexplore.ieee.org/abstract/document/9101371   
 [8] https://dl.acm.org/doi/abs/10.1145/1376616.1376645   
+[9] https://github.com/nalgeon/redka

@@ -51,12 +51,14 @@ type VFSReadAt interface {
 // CacheHandler is the interface used for optional response caching.
 type CacheHandler interface {
 	Get(p []byte, off int64, fetcher VFSReadAt) (int, error)
+	Size(fetcher VFSReadAt) (int64, error)
 }
 
 type RangeReader struct {
 	url          string
 	roundTripper http.RoundTripper
 	cacheHandler CacheHandler
+	lastETag     string // ETag
 }
 
 func New(url string, opts ...Option) *RangeReader {
@@ -88,6 +90,7 @@ func (rr *RangeReader) rawReadAt(p []byte, off int64) (n int, err error) {
 
 	defer resp.Body.Close()
 
+	rr.lastETag = resp.Header.Get("Etag") // TODO: if modify has a new version
 	n, err = io.ReadFull(resp.Body, p)
 	if err == io.ErrUnexpectedEOF {
 		return n, io.EOF
@@ -109,22 +112,32 @@ func (rr *RangeReader) client() *http.Client {
 	}
 }
 
-func (rr *RangeReader) ReadAt(p []byte, off int64) (n int, err error) {
-	rawFetcher := readerAt{
+func (rr *RangeReader) newFetcher() readerAt {
+	return readerAt{
 		readAt:   rr.rawReadAt,
-		readSize: rr.Size,
+		readSize: rr.rawSize,
 	}
+}
 
+func (rr *RangeReader) GetCacheHandler() CacheHandler {
 	cacheHandler := rr.cacheHandler
-
 	if cacheHandler == nil {
 		cacheHandler = &nopCacheHandler{}
 	}
+	return cacheHandler
+}
 
-	return cacheHandler.Get(p, off, rawFetcher)
+func (rr *RangeReader) ReadAt(p []byte, off int64) (n int, err error) {
+	rawFetcher := rr.newFetcher()
+	return rr.GetCacheHandler().Get(p, off, rawFetcher)
 }
 
 func (rr *RangeReader) Size() (n int64, err error) {
+	rawFetcher := rr.newFetcher()
+	return rr.GetCacheHandler().Size(rawFetcher)
+}
+
+func (rr *RangeReader) rawSize() (n int64, err error) {
 	req, err := http.NewRequest("GET", rr.url, nil)
 	if err != nil {
 		return 0, err
@@ -172,6 +185,10 @@ type nopCacheHandler struct {
 
 func (h *nopCacheHandler) Get(p []byte, off int64, fetcher VFSReadAt) (int, error) {
 	return fetcher.ReadAt(p, off)
+}
+
+func (h *nopCacheHandler) Size(fetcher VFSReadAt) (int64, error) {
+	return fetcher.Size()
 }
 
 type readerAt struct {

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -113,6 +114,10 @@ func QuerySQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) 
 
 // ExecuteSQLWithHTTPVFS execute sql on httpvfs
 func ExecuteSQLWithHTTPVFS(c echo.Context, db *sql.DB, cmd SQLExecuteCommandArgs) error {
+	if cmd.CMD == "" {
+		return errors.New("invalid sql")
+	}
+
 	result, err := db.Exec(cmd.CMD, cmd.Args...)
 	if err != nil {
 		c.Logger().Error("Execute err: ", err)

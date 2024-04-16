@@ -33,7 +33,6 @@ func TestDiskCache(t *testing.T) {
 			readAt: backingFile.ReadAt,
 		})
 		bn, backingErr := backingFile.ReadAt(fromBacking, off)
-
 		if cacheErr != backingErr {
 			t.Fatalf("Fetch error mismatch: cache_err=%s vs backing_err=%s", cacheErr, backingErr)
 		}

@@ -55,18 +55,21 @@ Content-Type: application/json
     ]
 }
 
-###
+### execute sql
+POST http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f692e4c0d426a886043dd6ae1eac2fbc6cacf6cada/execute
+Content-Type: application/json
 
 {
-  "code": 0,
-  "message": "OK",
-  "data": {
-    "seqid": "367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0-1713091801091069000.redolog",
-    "message": "Execute Pending",
-    "status": 1
-  }
+    "list": [
+        {
+            "cmd": "CREATE INDEX data_value_idx ON csv(data_value)",
+            "args": []
+        }
+    ],
+    "writekey": "367fb8f59f92e9b1cb0820f6acb8dff322ab8e7e7fd3801cb476fe0caca5c2c3ec3efb9eddef5fa42d35781c88d4b36be2d7a836d8419b77bff5aea0a967ea1d0391294494da28aa81130a22"
 }
 
+###
 {
   "code": 0,
   "message": "OK",
@@ -83,6 +86,18 @@ Content-Type: application/json
 
 {
     "seqid": "367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0-1713092056336277000.redolog"
+}
+
+### query tables
+POST http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f6efa3e09627ffb40c66d58942b2168b3cfd91dcc7/query
+Content-Type: application/json
+
+{
+    "list": [
+        {
+            "cmd": "select * from Csv where data_value = \"426\" limit 10"
+        }
+    ]
 }
 
 ### query redolog

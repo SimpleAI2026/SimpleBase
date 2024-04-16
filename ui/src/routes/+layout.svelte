@@ -2,7 +2,7 @@
   import "./styles.css";
 
   let styles = {
-    background: ["#0f0f0f", "#111111", "#292929", "#414141", "#b1b1b1"],
+    background: ["#0f0f0f", "#111111", "#444444", "#414141", "#b1b1b1"],
     paper: "#212121",
     text: ["#ffffff", "#fdfdfd", "#e4e4e4", "#cacaca", "#b1b1b1"],
 
