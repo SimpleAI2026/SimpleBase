@@ -18,11 +18,6 @@
   let columns = [];
   let columnsLoading = false;
 
-  const ROW_HEIGHT = 35;
-
-  let viewportHeight;
-  let viewportWidth;
-
   let addRecordMode = false;
   let rowLimit = 200;
   let rowOffset = 0;
@@ -51,6 +46,8 @@
   });
 
   function handleTableTabClick(tableName) {
+    rowOffset = 0;
+
     rowsLoading = true;
     columnsLoading = true;
     selectedTab = tableName;
@@ -92,6 +89,32 @@
   function handleDBSelect(event) {
     selectedDB = event;
   }
+
+  function handleLoadMoreRecord() {
+    rowOffset = rowOffset + 1;
+
+    fetch(
+      `${apiURL}/api/v1/${selectedDB}/tables/${selectedTab}/rows?limit=${rowLimit}&offset=${rowOffset}`,
+    )
+      .then((response) => response.json())
+      .then(({ data }) => {
+        let newrows = data.values.map((row) => {
+          let fields = {};
+          for (const key in row) {
+            fields[key] = {
+              value: row[key],
+              editable: false,
+            };
+          }
+          return { fields };
+        });
+        rows = rows.concat(newrows);
+      })
+      .catch((error) => {
+        console.log(error);
+        return [];
+      });
+  }
 </script>
 
 <div class="wrapper">
@@ -113,15 +136,6 @@
         </li>
       {/each}
     </ul>
-    <div class="options">
-      <!-- <button class="button" on:click={handleAddRecord}> Add record </button>
-      {#if addRecordMode}
-        <button class="button primary">
-          Save {rows.reduce((acc, curr) => acc + (curr.new ? 1 : 0), 0)} Changes
-        </button>
-        <button class="button transparent"> Discard Change </button>
-      {/if} -->
-    </div>
     <div class="table-wrapper">
       <table cellspacing="0">
         <thead>
@@ -170,6 +184,9 @@
         </tbody>
       </table>
     </div>
+    <button class="button primary" on:click={handleLoadMoreRecord}>
+      Load More
+    </button>
   {/if}
 </div>
 
@@ -207,11 +224,6 @@
 
   ul.tables li button.selected {
     background: var(--background-2);
-  }
-
-  .options {
-    padding: 1rem;
-    display: flex;
   }
 
   thead {
@@ -269,5 +281,26 @@
   table {
     z-index: 100;
     position: relative;
+  }
+
+  .button {
+    border: none;
+    background: var(--background-2);
+    font-weight: bold;
+    width: 400px;
+    height: 30px;
+    color: var(--text-1);
+    border-radius: 2px;
+    margin: 1rem;
+    /* transition: 0.5s all; */
+  }
+  .button:hover {
+    background: var(--background-3);
+  }
+  .button.primary {
+    background: var(--primary-0);
+  }
+  .button.primary:hover {
+    background: var(--primary-1);
   }
 </style>

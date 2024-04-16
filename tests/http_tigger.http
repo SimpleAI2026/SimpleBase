@@ -1,5 +1,5 @@
 ### tigger
-POST http://localhost:18090/api/v1/tigger/s3events
+POST http://localhost:9000/api/v1/tigger/s3events
 Content-Type: application/json
 
 {

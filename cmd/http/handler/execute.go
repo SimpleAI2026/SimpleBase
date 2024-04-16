@@ -60,6 +60,13 @@ func ExecuteDB(c echo.Context) error {
 	}
 
 	c.Logger().Info("ExecuteDB edbp: ", edbp)
+	// Check writeKey
+	if _, writeKeyOK := utils.VerifyName(edbp.WriteKey); !writeKeyOK {
+		return c.JSON(http.StatusOK, DataResp{
+			Code:    -998,
+			Message: "No Write Auth",
+		})
+	}
 
 	readKey := edbp.ReadKey
 	dbName, authOK := utils.VerifyName(readKey)

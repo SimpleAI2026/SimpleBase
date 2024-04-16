@@ -5,7 +5,7 @@ body>div {
 }
 
 * {
-  font-size: medium;
+  font-size: small;
 }
 
 body::-webkit-scrollbar {

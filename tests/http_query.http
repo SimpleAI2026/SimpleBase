@@ -1,19 +1,19 @@
 ### test
-GET http://localhost:18090/api/v1/test
+GET http://localhost:9000/api/v1/test
 Content-Type: application/json
 
 ### query tables
-GET http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables?limit=10&offset=0
+GET http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables?limit=10&offset=0
 Content-Type: application/json
 
 ### query tables
-GET http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables/foo1/rows?limit=100&offset=0
+GET http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables/foo1/rows?limit=100&offset=0
 Content-Type: application/json
 
 ### query tables
-GET http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables/foo2/rows?limit=100&offset=0
+GET http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables/foo2/rows?limit=100&offset=0
 Content-Type: application/json
 
 ### query tables
-GET http://localhost:18090/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables/__LESSDBSYSTEM__/rows?limit=100&offset=0
+GET http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/tables/__LESSDBSYSTEM__/rows?limit=100&offset=0
 Content-Type: application/json
