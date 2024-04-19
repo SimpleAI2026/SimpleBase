@@ -3,12 +3,9 @@ package client
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/LessDB/internal/sqlite3vfs"
 	"github.com/linkxzhou/LessDB/internal/utils"
-	"github.com/linkxzhou/LessDB/internal/vfsextend"
 
 	"database/sql"
 	"strings"
@@ -25,25 +22,7 @@ func GetVFSDB(dbName string) (*sql.DB, string, error) {
 	if err != nil {
 		return nil, uri, err
 	}
-
-	var vfs *vfsextend.HttpVFS
-	if newVFS, ok := vfsCache.Load(dbName); !ok || newVFS == nil {
-		vfs = &vfsextend.HttpVFS{URL: uri}
-		if cacheFile, err := os.Create("vfscache_" + dbName); err == nil {
-			vfs.CacheHandler = vfsextend.NewDiskCache(cacheFile, -1)
-		}
-		if err = sqlite3vfs.RegisterVFS("httpvfs", vfs); err != nil {
-			return nil, uri, err
-		}
-		vfsCache.Store(dbName, vfs)
-	} else {
-		vfs = newVFS.(*vfsextend.HttpVFS)
-		if err = sqlite3vfs.RegisterVFS("httpvfs", vfs); err != nil {
-			return nil, uri, err
-		}
-	}
-
-	db, err := sql.Open("sqlite3", "vfs.db?vfs=httpvfs")
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%v?vfs=httpvfs", dbName))
 	return db, uri, err
 }
 

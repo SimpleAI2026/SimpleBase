@@ -23,7 +23,10 @@ func TestDiskCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cache := NewDiskCache(backingFile, fileSize)
+	cache := NewDiskCache(func(string) (*os.File, error) {
+		return backingFile, nil
+	}, fileSize)
+	cache.SetFileName(backingFile.Name())
 	// 1<<17 / 1<<13 == 16 pages
 	cache.PageSize = 1 << 13
 

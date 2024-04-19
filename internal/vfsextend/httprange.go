@@ -10,6 +10,7 @@ import (
 )
 
 var invalidContentRangeErr = errors.New("invalid Content-Range response")
+var missCacheErr = errors.New("miss Cache")
 
 type Option interface {
 	set(*RangeReader)
@@ -46,19 +47,23 @@ func WithCacheHandler(c CacheHandler) Option {
 type VFSReadAt interface {
 	io.ReaderAt
 	Size() (int64, error)
+	Etag() string
 }
 
 // CacheHandler is the interface used for optional response caching.
 type CacheHandler interface {
 	Get(p []byte, off int64, fetcher VFSReadAt) (int, error)
 	Size(fetcher VFSReadAt) (int64, error)
+	SetFileName(name string)
 }
 
 type RangeReader struct {
 	url          string
 	roundTripper http.RoundTripper
 	cacheHandler CacheHandler
-	lastETag     string // ETag
+	lastEtag     string // Etag
+
+	fetcher readerAt
 }
 
 func New(url string, opts ...Option) *RangeReader {
@@ -66,11 +71,40 @@ func New(url string, opts ...Option) *RangeReader {
 		url: url,
 	}
 
+	rr.fetcher = readerAt{
+		readAt:   rr.rawReadAt,
+		readSize: rr.rawSize,
+		readEtag: rr.rawEtag,
+	}
+
 	for _, opt := range opts {
 		opt.set(&rr)
 	}
 
 	return &rr
+}
+
+func (rr *RangeReader) GetCacheHandler() CacheHandler {
+	cacheHandler := rr.cacheHandler
+	if cacheHandler == nil {
+		cacheHandler = &nopCacheHandler{}
+	}
+	return cacheHandler
+}
+
+func (rr *RangeReader) ReadAt(p []byte, off int64) (n int, err error) {
+	if n, err = rr.GetCacheHandler().Get(p, off, rr.fetcher); err == missCacheErr {
+		return rr.GetCacheHandler().Get(p, off, rr.fetcher)
+	}
+	return
+}
+
+func (rr *RangeReader) Size() (n int64, err error) {
+	return rr.GetCacheHandler().Size(rr.fetcher)
+}
+
+func (rr *RangeReader) rawEtag() string {
+	return rr.lastEtag
 }
 
 func (rr *RangeReader) rawReadAt(p []byte, off int64) (n int, err error) {
@@ -90,7 +124,6 @@ func (rr *RangeReader) rawReadAt(p []byte, off int64) (n int, err error) {
 
 	defer resp.Body.Close()
 
-	rr.lastETag = resp.Header.Get("Etag") // TODO: if modify has a new version
 	n, err = io.ReadFull(resp.Body, p)
 	if err == io.ErrUnexpectedEOF {
 		return n, io.EOF
@@ -100,6 +133,10 @@ func (rr *RangeReader) rawReadAt(p []byte, off int64) (n int, err error) {
 		// pass
 	}
 
+	etag := strings.ReplaceAll(resp.Header.Get("Etag"), `"`, "")
+	if etag != "" {
+		rr.lastEtag = etag
+	}
 	return n, nil
 }
 
@@ -110,31 +147,6 @@ func (rr *RangeReader) client() *http.Client {
 	return &http.Client{
 		Transport: rr.roundTripper,
 	}
-}
-
-func (rr *RangeReader) newFetcher() readerAt {
-	return readerAt{
-		readAt:   rr.rawReadAt,
-		readSize: rr.rawSize,
-	}
-}
-
-func (rr *RangeReader) GetCacheHandler() CacheHandler {
-	cacheHandler := rr.cacheHandler
-	if cacheHandler == nil {
-		cacheHandler = &nopCacheHandler{}
-	}
-	return cacheHandler
-}
-
-func (rr *RangeReader) ReadAt(p []byte, off int64) (n int, err error) {
-	rawFetcher := rr.newFetcher()
-	return rr.GetCacheHandler().Get(p, off, rawFetcher)
-}
-
-func (rr *RangeReader) Size() (n int64, err error) {
-	rawFetcher := rr.newFetcher()
-	return rr.GetCacheHandler().Size(rawFetcher)
 }
 
 func (rr *RangeReader) rawSize() (n int64, err error) {
@@ -177,6 +189,10 @@ func (rr *RangeReader) rawSize() (n int64, err error) {
 		return 0, invalidContentRangeErr
 	}
 
+	etag := strings.ReplaceAll(resp.Header.Get("Etag"), `"`, "")
+	if etag != "" {
+		rr.lastEtag = etag
+	}
 	return n, nil
 }
 
@@ -191,9 +207,13 @@ func (h *nopCacheHandler) Size(fetcher VFSReadAt) (int64, error) {
 	return fetcher.Size()
 }
 
+func (h *nopCacheHandler) SetFileName(name string) {
+}
+
 type readerAt struct {
-	readAt   func(p []byte, off int64) (n int, err error)
-	readSize func() (n int64, err error)
+	readAt   func([]byte, int64) (int, error)
+	readSize func() (int64, error)
+	readEtag func() string
 }
 
 func (r readerAt) ReadAt(p []byte, off int64) (n int, err error) {
@@ -202,4 +222,8 @@ func (r readerAt) ReadAt(p []byte, off int64) (n int, err error) {
 
 func (r readerAt) Size() (n int64, err error) {
 	return r.readSize()
+}
+
+func (r readerAt) Etag() string {
+	return r.readEtag()
 }

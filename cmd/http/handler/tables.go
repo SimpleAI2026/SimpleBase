@@ -110,7 +110,7 @@ func GetRows(c echo.Context) (err error) {
 		limit = q.Limit
 	}
 
-	c.Logger().Info("GetTables q: ", q)
+	c.Logger().Info("GetRows q: ", q)
 
 	startTime := time.Now()
 	db, uri, err := client.GetVFSDB(dbName)

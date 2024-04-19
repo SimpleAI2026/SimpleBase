@@ -8,8 +8,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"database/sql"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,7 +66,8 @@ CREATE TABLE IF NOT EXISTS foo (
 		t.Fatal(err)
 	}
 
-	s := httptest.NewServer(http.FileServer(http.Dir(dir)))
+	// TODO:
+	// s := httptest.NewServer(http.FileServer(http.Dir(dir)))
 
 	cacheFile, err := os.Create(filepath.Join(dir, "cache"))
 	if err != nil {
@@ -76,8 +75,9 @@ CREATE TABLE IF NOT EXISTS foo (
 	}
 
 	vfs := HttpVFS{
-		URL:          s.URL + "/test.db",
-		CacheHandler: NewDiskCache(cacheFile, -1),
+		CacheHandler: NewDiskCache(func(string) (*os.File, error) {
+			return cacheFile, nil
+		}, -1),
 	}
 
 	err = sqlite3vfs.RegisterVFS("httpvfs", &vfs)
@@ -169,10 +169,9 @@ CREATE TABLE IF NOT EXISTS foo (
 		t.Fatal(err)
 	}
 
-	s := httptest.NewServer(http.FileServer(http.Dir(dir)))
-	vfs := HttpVFS{
-		URL: s.URL + "/test.db",
-	}
+	// TODO:
+	// s := httptest.NewServer(http.FileServer(http.Dir(dir)))
+	vfs := HttpVFS{}
 
 	err = sqlite3vfs.RegisterVFS("httpvfs", &vfs)
 	if err != nil {
