@@ -60,6 +60,7 @@ func ExecuteDB(c echo.Context) error {
 	}
 
 	c.Logger().Info("ExecuteDB edbp: ", edbp)
+	
 	// Check writeKey
 	if _, writeKeyOK := utils.VerifyKey(edbp.WriteKey); !writeKeyOK {
 		return c.JSON(http.StatusOK, DataResp{
@@ -112,7 +113,7 @@ func ExecuteDB(c echo.Context) error {
 	}
 
 	s3key := fmt.Sprintf("%v-%v.redolog", readKey, nanoTimestamp)
-	err = client.S3Client.UploadString(context.TODO(), s3key, jsons)
+	err = client.S3().UploadString(context.TODO(), s3key, jsons)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
 		return err

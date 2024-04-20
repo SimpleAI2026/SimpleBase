@@ -1,5 +1,5 @@
 ### execute sql
-POST http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f68abbf3d51cd6be535a8d9110cf08a431f5b2f4f0/execute?writekey=
+POST http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f692e4c0d426a886043dd6ae1eac2fbc6cacf6cada/execute?writekey=
 Content-Type: application/json
 
 {
@@ -52,7 +52,8 @@ Content-Type: application/json
             "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
             "args": [10, "unique-title-10"]
         }
-    ]
+    ],
+    "writekey": "367fb8f59f92e9b1cb0820f6acb8dff322ab8e7e7fd3801cb476fe0caca5c2c3ec3efb9eddef5fa42d35781c88d4b36be2d7a836d8419b77bff5aea0a967ea1d0391294494da28aa81130a22"
 }
 
 ### execute sql
@@ -62,8 +63,12 @@ Content-Type: application/json
 {
     "list": [
         {
-            "cmd": "CREATE INDEX data_value_idx ON csv(data_value)",
-            "args": []
+            "cmd": "INSERT INTO csv (series_reference, period) values (?, ?)",
+            "args": ["unique-title-10", "2024.10"]
+        },
+        {
+            "cmd": "INSERT INTO csv (series_reference, period) values (?, ?)",
+            "args": ["unique-title-11", "2024.10"]
         }
     ],
     "writekey": "367fb8f59f92e9b1cb0820f6acb8dff322ab8e7e7fd3801cb476fe0caca5c2c3ec3efb9eddef5fa42d35781c88d4b36be2d7a836d8419b77bff5aea0a967ea1d0391294494da28aa81130a22"

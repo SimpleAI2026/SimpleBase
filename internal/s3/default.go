@@ -14,7 +14,12 @@ var (
 
 func DefaultS3Client() *S3Client {
 	if defaultClient == nil {
-		defaultClient = NewS3Client(s3Endpoint, s3Region, s3AccessKey, s3SecretKey, s3Bucket)
+		defaultClient = NewS3Client(
+			s3Endpoint, 
+			s3Region, 
+			s3AccessKey, 
+			s3SecretKey, 
+			s3Bucket)
 	}
 
 	return defaultClient

@@ -154,6 +154,7 @@ func (rr *RangeReader) rawReadAt(p []byte, off int64) (n int, err error) {
 	if etag != "" {
 		rr.lastEtag = etag
 	}
+
 	return n, nil
 }
 
@@ -161,9 +162,8 @@ func (rr *RangeReader) client() *http.Client {
 	if rr.roundTripper == nil {
 		return http.DefaultClient
 	}
-	return &http.Client{
-		Transport: rr.roundTripper,
-	}
+
+	return &http.Client{Transport: rr.roundTripper}
 }
 
 func (rr *RangeReader) rawSize() (n int64, err error) {
@@ -215,6 +215,7 @@ func (rr *RangeReader) rawSize() (n int64, err error) {
 	if etag != "" {
 		rr.lastEtag = etag
 	}
+	
 	return n, nil
 }
 

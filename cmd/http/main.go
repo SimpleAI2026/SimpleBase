@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/gommon/log"
 	"github.com/linkxzhou/LessDB/cmd/http/handler"
 	"github.com/linkxzhou/LessDB/internal/utils"
+	"github.com/prometheus/client_golang/prometheus/promhttp" 
 
 	"fmt"
 )
@@ -42,6 +43,7 @@ func main() {
 	e.POST(withVersion("/:ReadKey/execute"), handler.ExecuteDB)
 	e.POST(withVersion("/:ReadKey/executelog"), handler.ExecuteLog)
 	e.POST(withVersion("/:ReadKey/query"), handler.QueryDB)
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))  
 
 	listenSvr := utils.GetEnviron("LESSDB_LISTEN")
 	if listenSvr == utils.EmptyNil {

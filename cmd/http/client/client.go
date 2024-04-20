@@ -9,11 +9,11 @@ import (
 	"os"
 )
 
-var S3Client *s3.S3Client
+var s3client *s3.S3Client
 
 func init() {
-	S3Client := s3.DefaultS3Client()
-	if S3Client == nil {
+	s3client = s3.DefaultS3Client()
+	if s3client == nil {
 		panic("NewS3Client failed!")
 	}
 
@@ -23,9 +23,13 @@ func init() {
 				return os.OpenFile(fmt.Sprintf("vfscache_%v", fileName), os.O_RDWR|os.O_CREATE, 0644)
 			},
 			vfsextend.DefaultNoCacheSize),
-		URIHandler: s3.S3URIHandler{Client: S3Client},
+		URIHandler: s3.S3URIHandler{Client: s3client},
 	}
 	if err := sqlite3vfs.RegisterVFS("httpvfs", vfs); err != nil {
 		panic("HttpVFS err: " + err.Error())
 	}
+}
+
+func S3() *s3.S3Client {
+	return s3client
 }

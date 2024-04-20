@@ -29,7 +29,7 @@ func TiggerS3Events(c echo.Context) error {
 	}
 
 	for _, event := range req.Events {
-		redologStr, err := client.S3Client.DownloadString(context.TODO(), event.S3Key)
+		redologStr, err := client.S3().DownloadString(context.TODO(), event.S3Key)
 		if err != nil {
 			c.Logger().Error("Download err: ", err)
 			return err
@@ -54,7 +54,7 @@ func TiggerS3Events(c echo.Context) error {
 			os.Remove(dbName)
 		}()
 
-		err = client.S3Client.Download(context.TODO(), dbName, dbFile)
+		err = client.S3().Download(context.TODO(), dbName, dbFile)
 		if err != nil {
 			c.Logger().Error("Download err: ", err)
 			return err
@@ -83,6 +83,7 @@ func TiggerS3Events(c echo.Context) error {
 			execStatus = ExecStatusFailed
 			execMessage = err.Error()
 		}
+		
 		// Update redolog error to system table
 		err = client.SysTableUpdateStatus(c, db, execStatus, event.S3Key, execMessage)
 		if err != nil {
@@ -91,8 +92,8 @@ func TiggerS3Events(c echo.Context) error {
 		}
 
 		dbFile.Seek(0, io.SeekStart)
-		c.Logger().Info("S3Client Upload: ", client.S3Client.String(dbName))
-		err = client.S3Client.Upload(context.TODO(), dbName, dbFile)
+		c.Logger().Info("S3Client Upload: ", client.S3().String(dbName))
+		err = client.S3().Upload(context.TODO(), dbName, dbFile)
 		if err != nil {
 			c.Logger().Error("S3 UploadFile err: ", err)
 			return err

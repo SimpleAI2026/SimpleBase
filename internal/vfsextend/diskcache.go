@@ -2,17 +2,21 @@ package vfsextend
 
 import (
 	"github.com/linkxzhou/LessDB/internal/utils"
+	"github.com/linkxzhou/LessDB/internal/prom"
 
 	"fmt"
 	"os"
 	"strconv"
 	"sync"
+	"time"
 )
 
-const DefaultPageSize = 1 << 10
+const DefaultPageSize = 1 << 12
 const DefaultNoCacheSize = -1
 
-var envPageSize = utils.GetEnviron("CACHE_PAGESIZE")
+var envPageSize = utils.GetEnviron("LESSDB_CACHE_PAGESIZE")
+var envPeriodStr = utils.GetEnviron("LESSDB_CACHE_PERIOD")
+var defaultPeriod = 1000 * time.Millisecond
 
 type (
 	DiskCacheHandler struct {
@@ -22,6 +26,7 @@ type (
 
 		fileName string
 		fileSize int64
+		fileSizeUpdateTime time.Time
 
 		f     *os.File
 		pages sync.Map
@@ -51,6 +56,10 @@ func NewDiskCache(fileHandler FileHandler, fileSize int64) *DiskCacheHandler {
 		}
 	}
 
+	if peroid, err := strconv.ParseInt(envPeriodStr, 10, 64); err == nil {
+		defaultPeriod = time.Duration(peroid) * time.Millisecond
+	}
+
 	return h
 }
 
@@ -58,11 +67,15 @@ func (h *DiskCacheHandler) newFileCache(etag string) (err error) {
 	h.rwMutex.Lock()
 	defer h.rwMutex.Unlock()
 
-	if h.f == nil && h.fileHandler != nil {
+	if h.fileHandler != nil {
+		oldf := h.f
 		h.f, err = h.fileHandler(fmt.Sprintf("%v.%v", h.fileName, etag))
 		if err == nil {
 			h.cacheEtag = etag
 			h.pages = *new(sync.Map)
+		}
+		if oldf != nil {
+			oldf.Close()
 		}
 	}
 
@@ -70,12 +83,15 @@ func (h *DiskCacheHandler) newFileCache(etag string) (err error) {
 }
 
 func (h *DiskCacheHandler) Get(p []byte, off int64, fetcher VFSReadAt) (int, error) {
-	// Cache filesize
-	if h.fileSize <= DefaultNoCacheSize {
+	// Cache filesize or size cache expire time > 1000ms
+	if h.resize() {
 		if _, sizeErr := h.Size(fetcher); sizeErr != nil {
 			return 0, sizeErr
 		}
 	}
+	
+	t := prom.NewPromTrace(prom.RNameVFS, prom.TNameCacheGet)
+	defer t.SysDurations()
 
 	// Create new cache
 	etag := fetcher.Etag()
@@ -103,6 +119,7 @@ func (h *DiskCacheHandler) Get(p []byte, off int64, fetcher VFSReadAt) (int, err
 
 	lastPage := h.fileSize / int64(h.PageSize)
 	if firstMissingPage >= 0 {
+		t.Code = prom.CodeCacheMiss
 		h.cacheMiss++
 		pageCount := (lastMissingPage + 1) - firstMissingPage
 		size := pageCount * int64(h.PageSize)
@@ -136,6 +153,7 @@ func (h *DiskCacheHandler) Get(p []byte, off int64, fetcher VFSReadAt) (int, err
 			h.pages.Store(firstMissingPage+i, true)
 		}
 	} else {
+		t.Code = prom.CodeCacheHit
 		h.cacheHit++
 	}
 
@@ -143,12 +161,19 @@ func (h *DiskCacheHandler) Get(p []byte, off int64, fetcher VFSReadAt) (int, err
 }
 
 func (h *DiskCacheHandler) Size(fetcher VFSReadAt) (int64, error) {
-	if h.fileSize <= DefaultNoCacheSize {
+	t := prom.NewPromTrace(prom.RNameVFS, prom.TNameCacheSize)
+	defer t.SysDurations()
+
+	if h.resize() {
+		t.Code = prom.CodeCacheMiss
 		fileSize, sizeErr := fetcher.Size()
 		if sizeErr != nil {
 			return 0, sizeErr
 		}
 		h.fileSize = fileSize
+		h.fileSizeUpdateTime = time.Now()
+	} else {
+		t.Code = prom.CodeCacheHit
 	}
 
 	return h.fileSize, nil
@@ -166,4 +191,10 @@ func (h *DiskCacheHandler) pagesForRange(offset int64, size int) (startPage, end
 	startPage = offset / int64(h.PageSize)
 	endPage = (offset+int64(size))/int64(h.PageSize) + 1
 	return startPage, endPage
+}
+
+
+func (h *DiskCacheHandler) resize() bool {
+	return h.fileSize <= DefaultNoCacheSize || 
+		time.Now().Sub(h.fileSizeUpdateTime) > defaultPeriod
 }

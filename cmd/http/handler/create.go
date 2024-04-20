@@ -75,8 +75,8 @@ func UploadDB(c echo.Context) error {
 
 	// Seek to start and upload S3
 	dstFile.Seek(0, io.SeekStart)
-	c.Logger().Info("S3Client: ", client.S3Client.String(dbName))
-	err = client.S3Client.Upload(context.TODO(), dbName, dstFile)
+	c.Logger().Info("S3Client: ", client.S3().String(dbName))
+	err = client.S3().Upload(context.TODO(), dbName, dstFile)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
 		return err
@@ -145,8 +145,8 @@ func CreateDB(c echo.Context) error {
 		os.Remove(dbName)
 	}()
 
-	c.Logger().Info("S3Client: ", client.S3Client.String(dbName))
-	err = client.S3Client.Upload(context.TODO(), dbName, dbFile)
+	c.Logger().Info("S3Client: ", client.S3().String(dbName))
+	err = client.S3().Upload(context.TODO(), dbName, dbFile)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
 		return err

@@ -18,7 +18,7 @@ var vfsCache sync.Map
 
 // GetVFSDB get httpvfs sqlite3 file
 func GetVFSDB(dbName string) (*sql.DB, string, error) {
-	uri, err := S3Client.GetFileLink(dbName)
+	uri, err := s3client.GetFileLink(dbName)
 	if err != nil {
 		return nil, uri, err
 	}
