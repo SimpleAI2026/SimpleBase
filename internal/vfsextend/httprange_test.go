@@ -1,6 +1,8 @@
 package vfsextend
 
 import (
+	"github.com/linkxzhou/LessDB/internal/s3"
+
 	"bytes"
 	"crypto/rand"
 	"io"
@@ -33,7 +35,7 @@ func TestHTTPRangeRead(t *testing.T) {
 	server := httptest.NewServer(http.FileServer(http.Dir(dir)))
 	defer server.Close()
 
-	rr := New(server.URL + "/file")
+	rr := New("file", WithURIHandler(s3.HttpURIHandler{PrefixURI: server.URL}))
 
 	checks := []struct {
 		off  int

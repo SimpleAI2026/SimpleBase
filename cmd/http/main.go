@@ -44,7 +44,7 @@ func main() {
 	e.POST(withVersion("/:ReadKey/query"), handler.QueryDB)
 
 	listenSvr := utils.GetEnviron("LESSDB_LISTEN")
-	if listenSvr == "" {
+	if listenSvr == utils.EmptyNil {
 		listenSvr = defaultListen
 	}
 	e.Logger.Fatal(e.Start(listenSvr))

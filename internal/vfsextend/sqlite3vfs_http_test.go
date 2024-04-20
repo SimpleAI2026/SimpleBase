@@ -1,15 +1,17 @@
 package vfsextend
 
 import (
-	"strings"
-
 	"github.com/google/go-cmp/cmp"
+	"github.com/linkxzhou/LessDB/internal/s3"
 	"github.com/linkxzhou/LessDB/internal/sqlite3vfs"
 	_ "github.com/mattn/go-sqlite3"
 
 	"database/sql"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +26,7 @@ func TestSqlite3vfsHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer os.RemoveAll(dir)
 
 	db, err := sql.Open("sqlite3", filepath.Join(dir, "test.db"))
 	if err != nil {
@@ -66,8 +69,7 @@ CREATE TABLE IF NOT EXISTS foo (
 		t.Fatal(err)
 	}
 
-	// TODO:
-	// s := httptest.NewServer(http.FileServer(http.Dir(dir)))
+	server := httptest.NewServer(http.FileServer(http.Dir(dir)))
 
 	cacheFile, err := os.Create(filepath.Join(dir, "cache"))
 	if err != nil {
@@ -75,9 +77,10 @@ CREATE TABLE IF NOT EXISTS foo (
 	}
 
 	vfs := HttpVFS{
-		CacheHandler: NewDiskCache(func(string) (*os.File, error) {
+		CacheHandler: NewDiskCache(func(name string) (*os.File, error) {
 			return cacheFile, nil
 		}, -1),
+		URIHandler: s3.HttpURIHandler{PrefixURI: server.URL},
 	}
 
 	err = sqlite3vfs.RegisterVFS("httpvfs", &vfs)
@@ -127,6 +130,7 @@ func TestSqlite3vfsDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer os.RemoveAll(dir)
 
 	db, err := sql.Open("sqlite3", filepath.Join(dir, "test.db"))
 	if err != nil {
@@ -169,9 +173,10 @@ CREATE TABLE IF NOT EXISTS foo (
 		t.Fatal(err)
 	}
 
-	// TODO:
-	// s := httptest.NewServer(http.FileServer(http.Dir(dir)))
-	vfs := HttpVFS{}
+	server := httptest.NewServer(http.FileServer(http.Dir(dir)))
+	vfs := HttpVFS{
+		URIHandler: s3.HttpURIHandler{PrefixURI: server.URL},
+	}
 
 	err = sqlite3vfs.RegisterVFS("httpvfs", &vfs)
 	if err != nil {

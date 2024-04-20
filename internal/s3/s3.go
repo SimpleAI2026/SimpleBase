@@ -14,27 +14,29 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-// S3Config is the subconfig for the S3 storage type
-type S3Config struct {
-	Endpoint        string `json:"endpoint,omitempty"`
-	Region          string `json:"region"`
-	AccessKeyID     string `json:"access_key_id"`
-	SecretAccessKey string `json:"secret_access_key"`
-	Bucket          string `json:"bucket"`
-}
+type (
+	// S3Config is the subconfig for the S3 storage type
+	S3Config struct {
+		Endpoint        string `json:"endpoint,omitempty"`
+		Region          string `json:"region"`
+		AccessKeyID     string `json:"access_key_id"`
+		SecretAccessKey string `json:"secret_access_key"`
+		Bucket          string `json:"bucket"`
+	}
 
-// S3Client is a client for uploading data to S3.
-type S3Client struct {
-	endpoint  string
-	region    string
-	accessKey string
-	secretKey string
-	bucket    string
+	// S3Client is a client for uploading data to S3.
+	S3Client struct {
+		endpoint  string
+		region    string
+		accessKey string
+		secretKey string
+		bucket    string
 
-	// These fields are used for testing via dependency injection.
-	uploader   uploader
-	downloader downloader
-}
+		// These fields are used for testing via dependency injection.
+		uploader   uploader
+		downloader downloader
+	}
+)
 
 // NewS3Client returns an instance of an S3Client.
 func NewS3Client(endpoint, region, accessKey, secretKey, bucket string) *S3Client {

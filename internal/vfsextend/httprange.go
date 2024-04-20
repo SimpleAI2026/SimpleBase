@@ -1,6 +1,8 @@
 package vfsextend
 
 import (
+	"github.com/linkxzhou/LessDB/internal/s3"
+
 	"errors"
 	"fmt"
 	"io"
@@ -44,31 +46,39 @@ func WithCacheHandler(c CacheHandler) Option {
 	}
 }
 
-type VFSReadAt interface {
-	io.ReaderAt
-	Size() (int64, error)
-	Etag() string
+type uriHandlerOption struct {
+	h s3.URIHandler
 }
 
-// CacheHandler is the interface used for optional response caching.
+func (o *uriHandlerOption) set(rr *RangeReader) {
+	rr.uriHandler = o.h
+}
+
+func WithURIHandler(u s3.URIHandler) Option {
+	return &uriHandlerOption{
+		h: u,
+	}
+}
+
 type CacheHandler interface {
 	Get(p []byte, off int64, fetcher VFSReadAt) (int, error)
 	Size(fetcher VFSReadAt) (int64, error)
-	SetFileName(name string)
+	Set(fileName string)
 }
 
 type RangeReader struct {
-	url          string
+	name         string
 	roundTripper http.RoundTripper
 	cacheHandler CacheHandler
+	uriHandler   s3.URIHandler
 	lastEtag     string // Etag
 
 	fetcher readerAt
 }
 
-func New(url string, opts ...Option) *RangeReader {
+func New(name string, opts ...Option) *RangeReader {
 	rr := RangeReader{
-		url: url,
+		name: name,
 	}
 
 	rr.fetcher = readerAt{
@@ -84,23 +94,25 @@ func New(url string, opts ...Option) *RangeReader {
 	return &rr
 }
 
-func (rr *RangeReader) GetCacheHandler() CacheHandler {
+func (rr *RangeReader) CacheHandler() CacheHandler {
 	cacheHandler := rr.cacheHandler
 	if cacheHandler == nil {
 		cacheHandler = &nopCacheHandler{}
 	}
+
+	cacheHandler.Set(rr.name)
 	return cacheHandler
 }
 
 func (rr *RangeReader) ReadAt(p []byte, off int64) (n int, err error) {
-	if n, err = rr.GetCacheHandler().Get(p, off, rr.fetcher); err == missCacheErr {
-		return rr.GetCacheHandler().Get(p, off, rr.fetcher)
+	if n, err = rr.CacheHandler().Get(p, off, rr.fetcher); err == missCacheErr {
+		return rr.CacheHandler().Get(p, off, rr.fetcher)
 	}
 	return
 }
 
 func (rr *RangeReader) Size() (n int64, err error) {
-	return rr.GetCacheHandler().Size(rr.fetcher)
+	return rr.CacheHandler().Size(rr.fetcher)
 }
 
 func (rr *RangeReader) rawEtag() string {
@@ -108,9 +120,14 @@ func (rr *RangeReader) rawEtag() string {
 }
 
 func (rr *RangeReader) rawReadAt(p []byte, off int64) (n int, err error) {
+	url, err := rr.uriHandler.URI(rr.name)
+	if err != nil {
+		return 0, err
+	}
+
 	fetchSize := len(p)
 
-	req, err := http.NewRequest("GET", rr.url, nil)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -150,7 +167,12 @@ func (rr *RangeReader) client() *http.Client {
 }
 
 func (rr *RangeReader) rawSize() (n int64, err error) {
-	req, err := http.NewRequest("GET", rr.url, nil)
+	url, err := rr.uriHandler.URI(rr.name)
+	if err != nil {
+		return 0, err
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -196,18 +218,10 @@ func (rr *RangeReader) rawSize() (n int64, err error) {
 	return n, nil
 }
 
-type nopCacheHandler struct {
-}
-
-func (h *nopCacheHandler) Get(p []byte, off int64, fetcher VFSReadAt) (int, error) {
-	return fetcher.ReadAt(p, off)
-}
-
-func (h *nopCacheHandler) Size(fetcher VFSReadAt) (int64, error) {
-	return fetcher.Size()
-}
-
-func (h *nopCacheHandler) SetFileName(name string) {
+type VFSReadAt interface {
+	io.ReaderAt
+	Size() (int64, error)
+	Etag() string
 }
 
 type readerAt struct {
@@ -225,5 +239,9 @@ func (r readerAt) Size() (n int64, err error) {
 }
 
 func (r readerAt) Etag() string {
+	if r.readEtag == nil {
+		return "default"
+	}
+
 	return r.readEtag()
 }

@@ -61,7 +61,7 @@ func ExecuteDB(c echo.Context) error {
 
 	c.Logger().Info("ExecuteDB edbp: ", edbp)
 	// Check writeKey
-	if _, writeKeyOK := utils.VerifyName(edbp.WriteKey); !writeKeyOK {
+	if _, writeKeyOK := utils.VerifyKey(edbp.WriteKey); !writeKeyOK {
 		return c.JSON(http.StatusOK, DataResp{
 			Code:    -998,
 			Message: "No Write Auth",
@@ -69,7 +69,7 @@ func ExecuteDB(c echo.Context) error {
 	}
 
 	readKey := edbp.ReadKey
-	dbName, authOK := utils.VerifyName(readKey)
+	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
 		return c.JSON(http.StatusOK, DataResp{
 			Code:    -999,
@@ -112,7 +112,7 @@ func ExecuteDB(c echo.Context) error {
 	}
 
 	s3key := fmt.Sprintf("%v-%v.redolog", readKey, nanoTimestamp)
-	err = client.GetS3().UploadString(context.TODO(), s3key, jsons)
+	err = client.S3Client.UploadString(context.TODO(), s3key, jsons)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
 		return err
@@ -139,7 +139,7 @@ func ExecuteLog(c echo.Context) error {
 	c.Logger().Info("ExecuteLogParams elp: ", elp)
 
 	readKey := elp.ReadKey
-	dbName, authOK := utils.VerifyName(readKey)
+	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
 		return c.JSON(http.StatusOK, DataResp{
 			Code:    -999,
@@ -185,7 +185,7 @@ func QueryDB(c echo.Context) error {
 
 	var result []DBValuesResp
 	readKey := edbp.ReadKey
-	dbName, authOK := utils.VerifyName(readKey)
+	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
 		return c.JSON(http.StatusOK, DataResp{
 			Code:    -999,

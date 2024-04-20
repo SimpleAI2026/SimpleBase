@@ -37,6 +37,6 @@ func GetEnviron(name string) string {
 	if v, ok := environInfo[name]; ok {
 		return v
 	}
-
-	return ""
+	
+	return EmptyNil
 }

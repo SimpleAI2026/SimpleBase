@@ -1,12 +1,12 @@
 package vfsextend
 
 import (
+	"github.com/linkxzhou/LessDB/internal/utils"
+
 	"fmt"
 	"os"
 	"strconv"
 	"sync"
-
-	"github.com/linkxzhou/LessDB/internal/utils"
 )
 
 const DefaultPageSize = 1 << 10
@@ -154,12 +154,12 @@ func (h *DiskCacheHandler) Size(fetcher VFSReadAt) (int64, error) {
 	return h.fileSize, nil
 }
 
-func (h *DiskCacheHandler) SetFileName(name string) {
-	h.fileName = name
-}
-
 func (h *DiskCacheHandler) EtagModify(etag string) bool {
 	return h.cacheEtag != etag
+}
+
+func (h *DiskCacheHandler) Set(name string) {
+	h.fileName = name
 }
 
 func (h *DiskCacheHandler) pagesForRange(offset int64, size int) (startPage, endPage int64) {

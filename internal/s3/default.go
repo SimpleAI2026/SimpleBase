@@ -19,3 +19,23 @@ func DefaultS3Client() *S3Client {
 
 	return defaultClient
 }
+
+type URIHandler interface {
+	URI(key string) (string, error)
+}
+
+type S3URIHandler struct {
+	Client *S3Client
+}
+
+func (s S3URIHandler) URI(key string) (string, error) {
+	return s.Client.GetFileLink(key)
+}
+
+type HttpURIHandler struct {
+	PrefixURI string
+}
+
+func (h HttpURIHandler) URI(key string) (string, error) {
+	return h.PrefixURI + "/" + key, nil
+}

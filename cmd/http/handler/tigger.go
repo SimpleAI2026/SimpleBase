@@ -29,8 +29,7 @@ func TiggerS3Events(c echo.Context) error {
 	}
 
 	for _, event := range req.Events {
-		s3Client := client.GetS3()
-		redologStr, err := s3Client.DownloadString(context.TODO(), event.S3Key)
+		redologStr, err := client.S3Client.DownloadString(context.TODO(), event.S3Key)
 		if err != nil {
 			c.Logger().Error("Download err: ", err)
 			return err
@@ -55,7 +54,7 @@ func TiggerS3Events(c echo.Context) error {
 			os.Remove(dbName)
 		}()
 
-		err = s3Client.Download(context.TODO(), dbName, dbFile)
+		err = client.S3Client.Download(context.TODO(), dbName, dbFile)
 		if err != nil {
 			c.Logger().Error("Download err: ", err)
 			return err
@@ -92,8 +91,8 @@ func TiggerS3Events(c echo.Context) error {
 		}
 
 		dbFile.Seek(0, io.SeekStart)
-		c.Logger().Info("s3Client Upload: ", s3Client.String(dbName))
-		err = s3Client.Upload(context.TODO(), dbName, dbFile)
+		c.Logger().Info("S3Client Upload: ", client.S3Client.String(dbName))
+		err = client.S3Client.Upload(context.TODO(), dbName, dbFile)
 		if err != nil {
 			c.Logger().Error("S3 UploadFile err: ", err)
 			return err

@@ -7,12 +7,12 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	VERSION = "v1.0"
-	charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-)
+const VERSION = "v1.0"
+const EmptyNil = "nil"
 
 var u = uuid.New()
+
+const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func stringWithCharset(length int) (string, error) {
 	b := make([]byte, length)

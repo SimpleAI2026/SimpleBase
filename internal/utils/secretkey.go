@@ -52,7 +52,7 @@ func NewRandomKey() (string, string, error) {
 	return randomName(64)
 }
 
-func VerifyName(ciphertexthex string) (string, bool) {
+func VerifyKey(ciphertexthex string) (string, bool) {
 	ciphertext, err := hex.DecodeString(ciphertexthex)
 	if err != nil {
 		return "", false

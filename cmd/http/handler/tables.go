@@ -42,7 +42,7 @@ func GetTables(c echo.Context) (err error) {
 	}
 
 	readKey := q.ReadKey
-	dbName, authOK := utils.VerifyName(readKey)
+	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
 		return c.JSON(http.StatusOK, DataResp{
 			Code:    -999,
@@ -97,7 +97,7 @@ func GetRows(c echo.Context) (err error) {
 	}
 
 	readKey := q.ReadKey
-	dbName, authOK := utils.VerifyName(readKey)
+	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
 		return c.JSON(http.StatusOK, DataResp{
 			Code:    -999,

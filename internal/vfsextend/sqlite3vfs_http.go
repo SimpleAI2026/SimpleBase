@@ -1,26 +1,25 @@
 package vfsextend
 
 import (
-	"sync"
-
 	"github.com/linkxzhou/LessDB/internal/s3"
 	"github.com/linkxzhou/LessDB/internal/sqlite3vfs"
 
 	"net/http"
 	"strings"
+	"sync"
 )
 
 var vfscache sync.Map
 
 type HttpVFS struct {
 	CacheHandler CacheHandler
+	URIHandler   s3.URIHandler
 	RoundTripper http.RoundTripper
 }
 
 func (vfs *HttpVFS) Open(name string, flags sqlite3vfs.OpenFlag) (sqlite3vfs.File, sqlite3vfs.OpenFlag, error) {
 	var opts []Option
 	if vfs.CacheHandler != nil {
-		vfs.CacheHandler.SetFileName(name)
 		opts = append(opts, WithCacheHandler(vfs.CacheHandler))
 	}
 
@@ -28,16 +27,15 @@ func (vfs *HttpVFS) Open(name string, flags sqlite3vfs.OpenFlag) (sqlite3vfs.Fil
 		opts = append(opts, WithRoundTripper(vfs.RoundTripper))
 	}
 
+	if vfs.URIHandler != nil {
+		opts = append(opts, WithURIHandler(vfs.URIHandler))
+	}
+
 	if v, ok := vfscache.Load(name); ok {
 		return v.(*httpFile), flags, nil
 	}
 
-	uri, err := s3.DefaultS3Client().GetFileLink(name)
-	if err != nil {
-		return nil, flags, err
-	}
-
-	hf := &httpFile{rr: New(uri, opts...)}
+	hf := &httpFile{rr: New(name, opts...)}
 	vfscache.Store(name, hf)
 
 	return hf, flags, nil
