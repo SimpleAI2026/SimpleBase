@@ -1,13 +1,10 @@
 package prom
 
 import (
-	"github.com/linkxzhou/LessDB/internal/utils"
 	"github.com/prometheus/client_golang/prometheus"
 
 	_ "github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"strconv"
-	"sync"
 	"time"
 )
 
@@ -100,11 +97,6 @@ func init() {
 	prometheus.MustRegister(rtcodeRPCReqCounts)
 	prometheus.MustRegister(rtcodeRPCDurations)
 	prometheus.MustRegister(rtcodeRPCBytes)
-
-	refreshMetricsTimer(rtcodeSysCounts.MetricVec, rtcodeReqCounts.MetricVec,
-		rtcodeReqDurations.MetricVec, rtcodeRPCReqCounts.MetricVec,
-		rtcodeRPCDurations.MetricVec, rtcodeRPCBytes.MetricVec)
-
 	promInit = true
 }
 
@@ -182,34 +174,5 @@ func (p *PromTrace) RPCBytes(bytes int64) {
 	if promInit {
 		rtcodeRPCBytes.With(
 			getPrometheusLabels(p.R, p.T, p.Code)).Observe(float64(bytes))
-	}
-}
-
-var refreshMetricsList []*prometheus.MetricVec
-var refreshMetricsListMutex sync.Mutex
-
-func refreshMetricsTimer(list ...*prometheus.MetricVec) {
-	refreshMetricsPeriodSecond, err :=
-		strconv.ParseInt(utils.GetEnviron("REFRESH_METRICS_PERIOD"), 10, 64)
-	if err != nil || refreshMetricsPeriodSecond < 60 {
-		return
-	}
-
-	refreshMetricsListMutex.Lock()
-	defer refreshMetricsListMutex.Unlock()
-
-	refreshMetricsList = append(refreshMetricsList, list...)
-	if !refreshMetricsInit {
-		refreshMetricsInit = true
-		go func() {
-			for {
-				time.Sleep(time.Duration(refreshMetricsPeriodSecond) * time.Second)
-				for _, metrics := range refreshMetricsList {
-					if metrics != nil {
-						metrics.Reset()
-					}
-				}
-			}
-		}()
 	}
 }
