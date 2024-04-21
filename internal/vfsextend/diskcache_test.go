@@ -34,6 +34,9 @@ func TestDiskCache(t *testing.T) {
 		fromBacking := make([]byte, len(p))
 		cn, cacheErr := cache.Get(p, off, readerAt{
 			readAt: backingFile.ReadAt,
+			readSize: func() (int64, error) {
+				return fileSize, nil
+			},
 		})
 		bn, backingErr := backingFile.ReadAt(fromBacking, off)
 		if cacheErr != backingErr {
