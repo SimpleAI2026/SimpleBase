@@ -1,10 +1,10 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
-	"bytes"
 )
 
 func newNoAuthResp() DataResp {
@@ -25,7 +25,7 @@ func newOKResp(data interface{}) DataResp {
 	return DataResp{
 		Code:    0,
 		Message: "OK",
-		Data: data,
+		Data:    data,
 	}
 }
 
@@ -41,7 +41,7 @@ func httpRequest(url string, req interface{}, resp interface{}) (err error) {
 	var method = "GET"
 	if req != nil {
 		jsonData, err := json.Marshal(req)
-		if err != nil {  
+		if err != nil {
 			return err
 		}
 		data = bytes.NewBuffer(jsonData)
@@ -60,15 +60,14 @@ func httpRequest(url string, req interface{}, resp interface{}) (err error) {
 	}
 	defer httpResp.Body.Close()
 
-	body, err := ioutil.ReadAll(httpResp.Body)  
-	if err != nil {   
+	body, err := ioutil.ReadAll(httpResp.Body)
+	if err != nil {
 		return err
-	}  
+	}
 
 	if err = json.Unmarshal(body, resp); err != nil {
-		return 
+		return
 	}
 
 	return nil
 }
-  

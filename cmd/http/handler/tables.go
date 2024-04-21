@@ -75,12 +75,12 @@ func GetTables(c echo.Context) (err error) {
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(DBValuesResp{
-			Columns:  columns,
-			Values:   values,
-			Types:    types,
-			Count:    count,
-			TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
-		}))
+		Columns:  columns,
+		Values:   values,
+		Types:    types,
+		Count:    count,
+		TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
+	}))
 }
 
 func GetRows(c echo.Context) (err error) {
@@ -122,10 +122,10 @@ func GetRows(c echo.Context) (err error) {
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(DBValuesResp{
-			Columns:  columns,
-			Values:   values,
-			Types:    types,
-			Count:    count,
-			TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
-		}))
+		Columns:  columns,
+		Values:   values,
+		Types:    types,
+		Count:    count,
+		TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
+	}))
 }

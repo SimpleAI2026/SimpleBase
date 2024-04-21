@@ -1,8 +1,8 @@
 package vfsextend
 
 import (
-	"github.com/linkxzhou/LessDB/internal/utils"
 	"github.com/linkxzhou/LessDB/internal/prom"
+	"github.com/linkxzhou/LessDB/internal/utils"
 
 	"fmt"
 	"os"
@@ -24,8 +24,8 @@ type (
 
 		fileHandler FileHandler
 
-		fileName string
-		fileSize int64
+		fileName           string
+		fileSize           int64
 		fileSizeUpdateTime time.Time
 
 		f     *os.File
@@ -89,7 +89,7 @@ func (h *DiskCacheHandler) Get(p []byte, off int64, fetcher VFSReadAt) (int, err
 			return 0, sizeErr
 		}
 	}
-	
+
 	t := prom.NewPromTrace(prom.RNameVFS, prom.TNameCacheGet)
 	defer t.SysDurations()
 
@@ -193,8 +193,7 @@ func (h *DiskCacheHandler) pagesForRange(offset int64, size int) (startPage, end
 	return startPage, endPage
 }
 
-
 func (h *DiskCacheHandler) resize() bool {
-	return h.fileSize <= DefaultNoCacheSize || 
+	return h.fileSize <= DefaultNoCacheSize ||
 		time.Now().Sub(h.fileSizeUpdateTime) > defaultPeriod
 }

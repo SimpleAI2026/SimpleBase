@@ -8,11 +8,11 @@ import (
 
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
-	"errors"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -63,7 +63,7 @@ func ExecuteDB(c echo.Context) error {
 	}
 
 	c.Logger().Info("ExecuteDB edbp: ", edbp)
-	
+
 	// Check writeKey
 	if _, writeKeyOK := utils.VerifyKey(edbp.WriteKey); !writeKeyOK {
 		return c.JSON(http.StatusOK, newNoWriteAuthResp())
@@ -87,7 +87,7 @@ func ExecuteDB(c echo.Context) error {
 	var s3key string
 	var execMessage string
 	var execStatus int = ExecStatusPending
-	
+
 	// Upload redolog to S3
 	if tiggerURL == utils.EmptyNil {
 		var redologs []client.SQLExecuteCommandArgs
@@ -126,9 +126,9 @@ func ExecuteDB(c echo.Context) error {
 	} else {
 		s3key = fmt.Sprintf("%v-%v.sync", readKey, time.Now().UnixNano())
 		if err := requestTigger(dbName, TiggerExecuteCommandArgs{
-			DBName:  dbName,
-			List: edbp.List,
-			S3Key:   s3key,
+			DBName: dbName,
+			List:   edbp.List,
+			S3Key:  s3key,
 		}); err != nil {
 			c.Logger().Error("Sync requestTigger err: ", err)
 			return err
@@ -138,10 +138,10 @@ func ExecuteDB(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(ResultRedolog{
-			SeqID:   s3key,
-			Message: execMessage,
-			Status:  execStatus,
-		}))
+		SeqID:   s3key,
+		Message: execMessage,
+		Status:  execStatus,
+	}))
 }
 
 func requestTigger(dbName string, args TiggerExecuteCommandArgs) error {

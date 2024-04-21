@@ -14,19 +14,19 @@ import (
 const (
 	RNameVFS = "vfs"
 
-	TNameCacheGet = "cache_get"
+	TNameCacheGet  = "cache_get"
 	TNameCacheSize = "cache_size"
-	TNameHTTPGet = "http_get"
-	TNameHTTPSize = "http_size"
+	TNameHTTPGet   = "http_get"
+	TNameHTTPSize  = "http_size"
 
 	CodeCacheMiss = "0"
 	CodeCacheHit  = "1"
 )
 
 var (
-	rtcodeList = []string{"r", "t", "code"}
+	rtcodeList         = []string{"r", "t", "code"}
 	rtcodeDurationList = []float64{30.0, 100.0, 200.0, 500.0, 1000.0, 3000.0, 5000.0, 10000.0}
-	rtcodeBytesList = []float64{32, 128, 512, 1024, 4196, 10240, 102400, 1024000, 2048000}	
+	rtcodeBytesList    = []float64{32, 128, 512, 1024, 4196, 10240, 102400, 1024000, 2048000}
 
 	rtcodeSysCounts = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -109,16 +109,16 @@ func init() {
 }
 
 type PromTrace struct {
-	R string
-	T string
-	Code string
+	R         string
+	T         string
+	Code      string
 	startTime time.Time
 }
 
 func NewPromTrace(r, t string) *PromTrace {
 	return &PromTrace{
-		R: r, 
-		T: t,
+		R:         r,
+		T:         t,
 		startTime: time.Now(),
 	}
 }
@@ -189,7 +189,7 @@ var refreshMetricsList []*prometheus.MetricVec
 var refreshMetricsListMutex sync.Mutex
 
 func refreshMetricsTimer(list ...*prometheus.MetricVec) {
-	refreshMetricsPeriodSecond, err := 
+	refreshMetricsPeriodSecond, err :=
 		strconv.ParseInt(utils.GetEnviron("REFRESH_METRICS_PERIOD"), 10, 64)
 	if err != nil || refreshMetricsPeriodSecond < 60 {
 		return

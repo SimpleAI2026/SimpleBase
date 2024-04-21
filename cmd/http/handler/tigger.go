@@ -4,30 +4,30 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/LessDB/cmd/http/client"
 
-	"errors"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
-	"fmt"
 	"time"
 )
 
 type (
 	TiggerReq struct {
 		Events []TiggerEvents `json:"events"`
-		Sync   bool 		  `json:"sync"`
+		Sync   bool           `json:"sync"`
 		TiggerExecuteCommandArgs
 	}
 
 	TiggerEvents struct {
-		S3Key    string `json:"s3key"`
+		S3Key string `json:"s3key"`
 	}
 
 	TiggerExecuteCommandArgs struct {
-		DBName string `json:"dbname"`
+		DBName string                         `json:"dbname"`
 		List   []client.SQLExecuteCommandArgs `json:"list"`
-		S3Key  string `json:"s3key"`
+		S3Key  string                         `json:"s3key"`
 	}
 )
 
@@ -131,7 +131,7 @@ func TiggerS3Events(c echo.Context) error {
 		if _, err := os.Stat(lessdbName); os.IsNotExist(err) {
 			return errors.New("DB file not found")
 		}
-		
+
 		dbFile, err := os.Open(lessdbName)
 		if err != nil {
 			c.Logger().Error("OpenFile err: ", err)
@@ -149,4 +149,3 @@ func TiggerS3Events(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, newOKResp(nil))
 }
-

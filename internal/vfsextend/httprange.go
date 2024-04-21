@@ -215,7 +215,7 @@ func (rr *RangeReader) rawSize() (n int64, err error) {
 	if etag != "" {
 		rr.lastEtag = etag
 	}
-	
+
 	return n, nil
 }
 

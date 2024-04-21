@@ -83,9 +83,9 @@ func UploadDB(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(AuthResp{
-			ReadKey:  readKey,
-			WriteKey: writeKey,
-		}))
+		ReadKey:  readKey,
+		WriteKey: writeKey,
+	}))
 }
 
 type CMDListParams struct {
@@ -149,7 +149,7 @@ func CreateDB(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(AuthResp{
-			ReadKey:  readKey,
-			WriteKey: writeKey,
-		}))
+		ReadKey:  readKey,
+		WriteKey: writeKey,
+	}))
 }
