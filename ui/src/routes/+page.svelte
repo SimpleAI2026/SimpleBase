@@ -3,7 +3,7 @@
 
   const apiURL = import.meta.env.VITE_API_URL;
   let selectedDB =
-    "367fb8f59f92e9b1cb0820f692e4c0d426a886043dd6ae1eac2fbc6cacf6cada";
+    "367fb8f59f92e9b1cb0820f69f85c4f23cd28f736fbe8729a82d8b66f491d5f0";
   let selectedTab = null;
   let tables = [];
   let tablesLoading = true;

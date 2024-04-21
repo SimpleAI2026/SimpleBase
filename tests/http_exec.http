@@ -57,6 +57,64 @@ Content-Type: application/json
 }
 
 ### execute sql
+POST https://service-69bnjtn2-1251014631.gz.tencentapigw.com.cn/api/v1/367fb8f59f92e9b1cb0820f69f85c4f23cd28f736fbe8729a82d8b66f491d5f0/execute?writekey=
+Content-Type: application/json
+
+{
+    "list": [
+        {
+            "cmd": "CREATE TABLE IF NOT EXISTS foo1 (id text NOT NULL PRIMARY KEY,title text)",
+            "args": []
+        },
+        {
+            "cmd": "CREATE TABLE IF NOT EXISTS foo2 (id text NOT NULL PRIMARY KEY,title text)",
+            "args": []
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [1, "unique-title-1"]
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [2, "unique-title-2"]
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [3, "unique-title-3"]
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [4, "unique-title-4"]
+        },
+        {
+            "cmd": "INSERT INTO foo1 (id, title) values (?, ?)",
+            "args": [5, "unique-title-5"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [6, "unique-title-6"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [7, "unique-title-7"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [8, "unique-title-8"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [9, "unique-title-9"]
+        },
+        {
+            "cmd": "INSERT INTO foo2 (id, title) values (?, ?)",
+            "args": [10, "unique-title-10"]
+        }
+    ],
+    "writekey": "367fb8f59f92e9b1cb0820f6b2b9eed139f0e37047d5a712b22f8337ee89a9decf1dd59289d442c2201e5427f495d57597c9c717fa4d9a75a3ffa695f16ad95b178f163fe3c513aaf027061d"
+}
+
+### execute sql
 POST http://localhost:9000/api/v1/367fb8f59f92e9b1cb0820f692e4c0d426a886043dd6ae1eac2fbc6cacf6cada/execute
 Content-Type: application/json
 
