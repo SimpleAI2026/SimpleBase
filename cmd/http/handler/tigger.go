@@ -34,7 +34,7 @@ type (
 func TiggerS3Events(c echo.Context) error {
 	req := new(TiggerReq)
 	if err := c.Bind(req); err != nil {
-		return c.String(http.StatusBadRequest, "bad request")
+		return newBadRequestResp(c, "bad request")
 	}
 
 	var commandList []TiggerExecuteCommandArgs
@@ -43,14 +43,14 @@ func TiggerS3Events(c echo.Context) error {
 		redologStr, err := client.S3().DownloadString(context.TODO(), event.S3Key)
 		if err != nil {
 			c.Logger().Error("Download err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 
 		var redolog UploadS3Redolog
 		err = json.Unmarshal(redologStr, &redolog)
 		if err != nil {
 			c.Logger().Error("Unmarshal err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 
 		commandList = append(commandList, TiggerExecuteCommandArgs{
@@ -76,21 +76,21 @@ func TiggerS3Events(c echo.Context) error {
 			dbFile, err := os.Create(lessdbName)
 			if err != nil {
 				c.Logger().Error("OpenFile err: ", err)
-				return err
+				return newBadRequestResp(c, err)
 			}
 			defer dbFile.Close()
 
 			err = client.S3().Download(context.TODO(), command.DBName, dbFile)
 			if err != nil {
 				c.Logger().Error("Download err: ", err)
-				return err
+				return newBadRequestResp(c, err)
 			}
 		}
 
 		db, err := client.GetFileDB(lessdbName)
 		if err != nil {
 			c.Logger().Error("sql.Open err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 		defer db.Close()
 
@@ -100,7 +100,7 @@ func TiggerS3Events(c echo.Context) error {
 		err = client.SysTableInsertStatus(c, db, execStatus, command.S3Key, execMessage)
 		if err != nil {
 			c.Logger().Error("SysTableInsertStatus err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 
 		// Execute redolog list on sqlite3 file
@@ -117,7 +117,7 @@ func TiggerS3Events(c echo.Context) error {
 		err = client.SysTableUpdateStatus(c, db, execStatus, command.S3Key, execMessage)
 		if err != nil {
 			c.Logger().Error("SysTableUpdateStatus err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 
 		if execErr != nil && req.Sync {
@@ -135,7 +135,7 @@ func TiggerS3Events(c echo.Context) error {
 		dbFile, err := os.Open(lessdbName)
 		if err != nil {
 			c.Logger().Error("OpenFile err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 		defer dbFile.Close()
 
@@ -143,7 +143,7 @@ func TiggerS3Events(c echo.Context) error {
 		err = client.S3().Upload(context.TODO(), command.DBName, dbFile)
 		if err != nil {
 			c.Logger().Error("S3 UploadFile err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 	}
 

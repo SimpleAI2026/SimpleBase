@@ -22,12 +22,12 @@ func UploadDB(c echo.Context) error {
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.Logger().Error("FormFile err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	srcFile, err := file.Open()
 	if err != nil {
 		c.Logger().Error("OpenFile err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer srcFile.Close()
 
@@ -35,13 +35,13 @@ func UploadDB(c echo.Context) error {
 	readKey, dbName, err := utils.NewRandomName()
 	if err != nil {
 		c.Logger().Error("NewRandomName err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	dstFile, err := os.Create(dbName)
 	if err != nil {
 		c.Logger().Error("Failed to create local file err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer func() {
 		dstFile.Close()
@@ -51,26 +51,26 @@ func UploadDB(c echo.Context) error {
 
 	if _, err = io.Copy(dstFile, srcFile); err != nil {
 		c.Logger().Error("Failed to save file locally err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	db, err := client.GetFileDB(dbName)
 	if err != nil {
 		c.Logger().Error("sql.Open err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer db.Close()
 
 	writeKey, _, err := utils.NewRandomKey()
 	if err != nil {
 		c.Logger().Error("NewRandomKey err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	err = client.SysTableInit(c, db, readKey, writeKey)
 	if err != nil {
 		c.Logger().Error("InitSQL err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	// Seek to start and upload S3
@@ -79,7 +79,7 @@ func UploadDB(c echo.Context) error {
 	err = client.S3().Upload(context.TODO(), dbName, dstFile)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(AuthResp{
@@ -102,38 +102,38 @@ func CreateDB(c echo.Context) error {
 	readKey, dbName, err := utils.NewRandomName()
 	if err != nil {
 		c.Logger().Error("NewRandomName err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	db, err := client.GetFileDB(dbName)
 	if err != nil {
 		c.Logger().Error("sql.Open err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer db.Close()
 
 	writeKey, _, err := utils.NewRandomKey()
 	if err != nil {
 		c.Logger().Error("NewRandomKey err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	err = client.SysTableInit(c, db, readKey, writeKey)
 	if err != nil {
 		c.Logger().Error("InitSQL err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	err = client.ExecuteSQLWithFile(c, db, ep.List)
 	if err != nil {
 		c.Logger().Error("ExecuteSQL err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	dbFile, err := os.Open(dbName)
 	if err != nil {
 		c.Logger().Error("OpenFile err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer func() {
 		dbFile.Close()
@@ -145,7 +145,7 @@ func CreateDB(c echo.Context) error {
 	err = client.S3().Upload(context.TODO(), dbName, dbFile)
 	if err != nil {
 		c.Logger().Error("S3 UploadFile err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(AuthResp{

@@ -101,7 +101,7 @@ func (s *S3Client) Upload(ctx context.Context, key string, reader io.Reader) err
 		Body:   reader,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to upload to %v: %w", s, err)
+		return fmt.Errorf("failed to upload to %v: %w", key, err)
 	}
 	return nil
 }
@@ -131,7 +131,7 @@ func (s *S3Client) Download(ctx context.Context, key string, writer io.WriterAt)
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to download from %v: %w", s, err)
+		return fmt.Errorf("failed to download %v: %w", key, err)
 	}
 	return nil
 }

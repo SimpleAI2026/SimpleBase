@@ -58,7 +58,7 @@ func GetTables(c echo.Context) (err error) {
 	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer db.Close()
 
@@ -106,7 +106,7 @@ func GetRows(c echo.Context) (err error) {
 	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer db.Close()
 
@@ -118,7 +118,7 @@ func GetRows(c echo.Context) (err error) {
 		})
 	if err != nil {
 		c.Logger().Info("ExecuteSQL err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(DBValuesResp{

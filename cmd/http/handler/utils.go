@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"github.com/labstack/echo/v4"
+
 	"bytes"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"errors"
 )
 
 func newNoAuthResp() DataResp {
@@ -36,6 +39,17 @@ func newFailResp(code int, message string) DataResp {
 	}
 }
 
+func newBadRequestResp(c echo.Context, err interface{})	error {
+	switch err.(type) {
+		case string:
+			return c.String(http.StatusBadRequest, err.(string))
+		case error:
+			return c.String(http.StatusBadRequest, err.(error).Error())
+	}
+
+	return c.String(http.StatusBadRequest, 	"bad request")
+}
+
 func httpRequest(url string, req interface{}, resp interface{}) (err error) {
 	var data *bytes.Buffer
 	var method = "GET"
@@ -65,8 +79,12 @@ func httpRequest(url string, req interface{}, resp interface{}) (err error) {
 		return err
 	}
 
+	if httpResp.StatusCode != http.StatusOK {
+		return errors.New(string(body))
+	}
+
 	if err = json.Unmarshal(body, resp); err != nil {
-		return
+		return err
 	}
 
 	return nil

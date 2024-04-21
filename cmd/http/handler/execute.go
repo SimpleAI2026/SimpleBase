@@ -78,7 +78,7 @@ func ExecuteDB(c echo.Context) error {
 	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer db.Close()
 
@@ -95,7 +95,7 @@ func ExecuteDB(c echo.Context) error {
 			if err := client.ExecuteSQLWithHTTPVFS(c, db, cmd); err != nil {
 				if !strings.Contains(err.Error(), ErrNoAuthWrite) {
 					c.Logger().Error("ExecuteSQL err: ", err)
-					return err
+					return newBadRequestResp(c, err)
 				}
 				redologs = append(redologs, cmd)
 			}
@@ -112,15 +112,16 @@ func ExecuteDB(c echo.Context) error {
 		jsons, err := json.Marshal(uploadS3Redolog)
 		if err != nil {
 			c.Logger().Error("Marshal err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 
 		s3key = fmt.Sprintf("%v-%v.redolog", readKey, nanoTimestamp)
 		err = client.S3().UploadString(context.TODO(), s3key, jsons)
 		if err != nil {
 			c.Logger().Error("S3 UploadFile err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
+
 		execMessage = "Execute pending"
 		execStatus = ExecStatusPending
 	} else {
@@ -131,8 +132,9 @@ func ExecuteDB(c echo.Context) error {
 			S3Key:  s3key,
 		}); err != nil {
 			c.Logger().Error("Sync requestTigger err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
+
 		execMessage = "Execute finished"
 		execStatus = ExecStatusOK
 	}
@@ -150,9 +152,14 @@ func requestTigger(dbName string, args TiggerExecuteCommandArgs) error {
 		TiggerExecuteCommandArgs: args,
 		Sync:                     true,
 	}, &resp)
-	if err != nil || resp.Code != 0 {
+	if err != nil {
+		return errors.New("Request failed, err: " + err.Error())
+	}
+
+	if resp.Code != 0 {
 		return errors.New("Request failed, err: " + resp.Message)
 	}
+
 	return nil
 }
 
@@ -174,7 +181,7 @@ func ExecuteLog(c echo.Context) error {
 	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer db.Close()
 
@@ -186,11 +193,10 @@ func ExecuteLog(c echo.Context) error {
 		})
 	if err != nil {
 		c.Logger().Error("ExecuteSQL err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 
 	// TODO: fix values to redolog
-
 	return c.JSON(http.StatusOK, newOKResp(values))
 }
 
@@ -213,7 +219,7 @@ func QueryDB(c echo.Context) error {
 	db, uri, err := client.GetVFSDB(dbName)
 	if err != nil {
 		c.Logger().Error("getVFSDB err: ", err)
-		return err
+		return newBadRequestResp(c, err)
 	}
 	defer db.Close()
 
@@ -224,7 +230,7 @@ func QueryDB(c echo.Context) error {
 			client.QuerySQLWithHTTPVFS(c, db, cmd)
 		if err != nil {
 			c.Logger().Error("ExecuteSQL err: ", err)
-			return err
+			return newBadRequestResp(c, err)
 		}
 		result = append(result, DBValuesResp{
 			Columns:  columns,
