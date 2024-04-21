@@ -83,7 +83,7 @@ func TiggerS3Events(c echo.Context) error {
 			execStatus = ExecStatusFailed
 			execMessage = err.Error()
 		}
-		
+
 		// Update redolog error to system table
 		err = client.SysTableUpdateStatus(c, db, execStatus, event.S3Key, execMessage)
 		if err != nil {
@@ -100,8 +100,5 @@ func TiggerS3Events(c echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, DataResp{
-		Code:    0,
-		Message: "OK",
-	})
+	return c.JSON(http.StatusOK, newOKResp(nil))
 }

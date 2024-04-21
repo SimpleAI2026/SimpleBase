@@ -20,7 +20,8 @@ func init() {
 	var vfs = &vfsextend.HttpVFS{
 		CacheHandler: vfsextend.NewDiskCache(
 			func(fileName string) (*os.File, error) {
-				return os.OpenFile(fmt.Sprintf("vfscache_%v", fileName), os.O_RDWR|os.O_CREATE, 0644)
+				return os.OpenFile(fmt.Sprintf("vfscache_%v", fileName), 
+					os.O_RDWR|os.O_CREATE, 0644)
 			},
 			vfsextend.DefaultNoCacheSize),
 		URIHandler: s3.S3URIHandler{Client: s3client},

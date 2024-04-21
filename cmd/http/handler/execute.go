@@ -21,6 +21,7 @@ type (
 		QueryParams
 		CMDListParams
 		WriteKey string `json:"writekey" form:"writekey" query:"writekey" param:"writekey"`
+		Sync 	 bool 	`json:"sync" form:"sync" query:"sync" param:"sync"`
 	}
 
 	ExecuteLogParams struct {
@@ -63,19 +64,13 @@ func ExecuteDB(c echo.Context) error {
 	
 	// Check writeKey
 	if _, writeKeyOK := utils.VerifyKey(edbp.WriteKey); !writeKeyOK {
-		return c.JSON(http.StatusOK, DataResp{
-			Code:    -998,
-			Message: "No Write Auth",
-		})
+		return c.JSON(http.StatusOK, newNoWriteAuthResp())
 	}
 
 	readKey := edbp.ReadKey
 	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
-		return c.JSON(http.StatusOK, DataResp{
-			Code:    -999,
-			Message: "No Auth",
-		})
+		return c.JSON(http.StatusOK, newNoAuthResp())
 	}
 
 	db, uri, err := client.GetVFSDB(dbName)
@@ -119,15 +114,11 @@ func ExecuteDB(c echo.Context) error {
 		return err
 	}
 
-	return c.JSON(http.StatusOK, DataResp{
-		Code:    0,
-		Message: "OK",
-		Data: ResultRedolog{
+	return c.JSON(http.StatusOK, newOKResp(ResultRedolog{
 			SeqID:   s3key,
 			Message: "Execute Pending",
 			Status:  ExecStatusPending,
-		},
-	})
+		}))
 }
 
 // ExecuteLog for query redolog on sqlite3 file
@@ -142,10 +133,7 @@ func ExecuteLog(c echo.Context) error {
 	readKey := elp.ReadKey
 	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
-		return c.JSON(http.StatusOK, DataResp{
-			Code:    -999,
-			Message: "No Auth",
-		})
+		return c.JSON(http.StatusOK, newNoAuthResp())
 	}
 
 	db, uri, err := client.GetVFSDB(dbName)
@@ -168,11 +156,7 @@ func ExecuteLog(c echo.Context) error {
 
 	// TODO: fix values to redolog
 
-	return c.JSON(http.StatusOK, DataResp{
-		Code:    0,
-		Message: "OK",
-		Data:    values,
-	})
+	return c.JSON(http.StatusOK, newOKResp(values))
 }
 
 // QueryDB for query data on sqlite3 file
@@ -188,10 +172,7 @@ func QueryDB(c echo.Context) error {
 	readKey := edbp.ReadKey
 	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
-		return c.JSON(http.StatusOK, DataResp{
-			Code:    -999,
-			Message: "No Auth",
-		})
+		return c.JSON(http.StatusOK, newNoAuthResp())
 	}
 
 	db, uri, err := client.GetVFSDB(dbName)
@@ -219,9 +200,5 @@ func QueryDB(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, DataResp{
-		Code:    0,
-		Message: "OK",
-		Data:    result,
-	})
+	return c.JSON(http.StatusOK, newOKResp(result))
 }

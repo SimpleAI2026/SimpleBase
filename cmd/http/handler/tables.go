@@ -44,10 +44,7 @@ func GetTables(c echo.Context) (err error) {
 	readKey := q.ReadKey
 	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
-		return c.JSON(http.StatusOK, DataResp{
-			Code:    -999,
-			Message: "No Auth",
-		})
+		return c.JSON(http.StatusOK, newNoAuthResp())
 	}
 
 	limit := defaultLimitSize
@@ -77,17 +74,13 @@ func GetTables(c echo.Context) (err error) {
 		return c.String(http.StatusBadRequest, "query err: "+err.Error())
 	}
 
-	return c.JSON(http.StatusOK, DataResp{
-		Code:    0,
-		Message: "OK",
-		Data: DBValuesResp{
+	return c.JSON(http.StatusOK, newOKResp(DBValuesResp{
 			Columns:  columns,
 			Values:   values,
 			Types:    types,
 			Count:    count,
 			TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
-		},
-	})
+		}))
 }
 
 func GetRows(c echo.Context) (err error) {
@@ -99,10 +92,7 @@ func GetRows(c echo.Context) (err error) {
 	readKey := q.ReadKey
 	dbName, authOK := utils.VerifyKey(readKey)
 	if !authOK || dbName == "" {
-		return c.JSON(http.StatusOK, DataResp{
-			Code:    -999,
-			Message: "No Auth",
-		})
+		return c.JSON(http.StatusOK, newNoAuthResp())
 	}
 
 	limit := defaultLimitSize
@@ -131,15 +121,11 @@ func GetRows(c echo.Context) (err error) {
 		return err
 	}
 
-	return c.JSON(http.StatusOK, DataResp{
-		Code:    0,
-		Message: "OK",
-		Data: DBValuesResp{
+	return c.JSON(http.StatusOK, newOKResp(DBValuesResp{
 			Columns:  columns,
 			Values:   values,
 			Types:    types,
 			Count:    count,
 			TimeCost: float64(time.Since(startTime).Microseconds()) / 1e3,
-		},
-	})
+		}))
 }

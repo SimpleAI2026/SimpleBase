@@ -22,7 +22,7 @@ func GetVFSDB(dbName string) (*sql.DB, string, error) {
 	if err != nil {
 		return nil, uri, err
 	}
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%v?vfs=httpvfs", dbName))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%v?vfs=httpvfs&mode=rw", dbName))
 	return db, uri, err
 }
 
