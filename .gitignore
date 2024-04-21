@@ -11,5 +11,6 @@ cmd/http/http
 cmd/tigger/tigger
 cmd/cli/cli
 **/*.db
+**/*.lessdb
 **/vfscache_*
 **/build

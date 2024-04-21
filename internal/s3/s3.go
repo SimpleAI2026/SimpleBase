@@ -54,6 +54,11 @@ func (s *S3Client) String(key string) string {
 	return fmt.Sprintf("s3://%s/%s", s.bucket, key)
 }
 
+// Bucket returns the bucket name.
+func (s *S3Client) Bucket() string {
+	return s.bucket
+}
+
 // GetFileLink returns a presigned URL for a file in AWS S3.
 func (s *S3Client) GetFileLink(key string) (string, error) {
 	// Create a new S3 client from the configuration.

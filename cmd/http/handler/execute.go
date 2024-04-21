@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"errors"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -21,7 +22,6 @@ type (
 		QueryParams
 		CMDListParams
 		WriteKey string `json:"writekey" form:"writekey" query:"writekey" param:"writekey"`
-		Sync 	 bool 	`json:"sync" form:"sync" query:"sync" param:"sync"`
 	}
 
 	ExecuteLogParams struct {
@@ -53,6 +53,8 @@ const (
 	ExecStatusPartialFailed
 )
 
+var tiggerURL = utils.GetEnviron("LESSDB_TIGGERURL")
+
 // ExecuteDB for exec sql on sqlite3 file
 func ExecuteDB(c echo.Context) error {
 	edbp := new(ExecuteDBParams)
@@ -81,44 +83,77 @@ func ExecuteDB(c echo.Context) error {
 	defer db.Close()
 
 	c.Logger().Info("S3 GetFileLink: ", uri, ", dbName: ", dbName)
-	var redologs []client.SQLExecuteCommandArgs
-	for _, cmd := range edbp.List {
-		if err := client.ExecuteSQLWithHTTPVFS(c, db, cmd); err != nil {
-			if !strings.Contains(err.Error(), ErrNoAuthWrite) {
-				c.Logger().Error("ExecuteSQL err: ", err)
-				return err
-			}
-			redologs = append(redologs, cmd)
-		}
-	}
 
+	var s3key string
+	var execMessage string
+	var execStatus int = ExecStatusPending
+	
 	// Upload redolog to S3
-	nanoTimestamp := time.Now().UnixNano()
-	uploadS3Redolog := UploadS3Redolog{
-		DBName:        dbName,
-		NanoTimestamp: nanoTimestamp,
-		ReadKey:       readKey,
-		WriteKey:      edbp.WriteKey,
-		List:          redologs,
-	}
-	jsons, err := json.Marshal(uploadS3Redolog)
-	if err != nil {
-		c.Logger().Error("Marshal err: ", err)
-		return err
-	}
+	if tiggerURL == utils.EmptyNil {
+		var redologs []client.SQLExecuteCommandArgs
+		for _, cmd := range edbp.List {
+			if err := client.ExecuteSQLWithHTTPVFS(c, db, cmd); err != nil {
+				if !strings.Contains(err.Error(), ErrNoAuthWrite) {
+					c.Logger().Error("ExecuteSQL err: ", err)
+					return err
+				}
+				redologs = append(redologs, cmd)
+			}
+		}
 
-	s3key := fmt.Sprintf("%v-%v.redolog", readKey, nanoTimestamp)
-	err = client.S3().UploadString(context.TODO(), s3key, jsons)
-	if err != nil {
-		c.Logger().Error("S3 UploadFile err: ", err)
-		return err
+		nanoTimestamp := time.Now().UnixNano()
+		uploadS3Redolog := UploadS3Redolog{
+			DBName:        dbName,
+			NanoTimestamp: nanoTimestamp,
+			ReadKey:       readKey,
+			WriteKey:      edbp.WriteKey,
+			List:          redologs,
+		}
+		jsons, err := json.Marshal(uploadS3Redolog)
+		if err != nil {
+			c.Logger().Error("Marshal err: ", err)
+			return err
+		}
+
+		s3key = fmt.Sprintf("%v-%v.redolog", readKey, nanoTimestamp)
+		err = client.S3().UploadString(context.TODO(), s3key, jsons)
+		if err != nil {
+			c.Logger().Error("S3 UploadFile err: ", err)
+			return err
+		}
+		execMessage = "Execute pending"
+		execStatus = ExecStatusPending
+	} else {
+		s3key = fmt.Sprintf("%v-%v.sync", readKey, time.Now().UnixNano())
+		if err := requestTigger(dbName, TiggerExecuteCommandArgs{
+			DBName:  dbName,
+			List: edbp.List,
+			S3Key:   s3key,
+		}); err != nil {
+			c.Logger().Error("Sync requestTigger err: ", err)
+			return err
+		}
+		execMessage = "Execute finished"
+		execStatus = ExecStatusOK
 	}
 
 	return c.JSON(http.StatusOK, newOKResp(ResultRedolog{
 			SeqID:   s3key,
-			Message: "Execute Pending",
-			Status:  ExecStatusPending,
+			Message: execMessage,
+			Status:  execStatus,
 		}))
+}
+
+func requestTigger(dbName string, args TiggerExecuteCommandArgs) error {
+	resp := DataResp{Code: -1}
+	err := httpRequest(tiggerURL, TiggerReq{
+		TiggerExecuteCommandArgs: args,
+		Sync:                     true,
+	}, &resp)
+	if err != nil || resp.Code != 0 {
+		return errors.New("Request failed, err: " + resp.Message)
+	}
+	return nil
 }
 
 // ExecuteLog for query redolog on sqlite3 file
