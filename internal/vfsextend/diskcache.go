@@ -195,5 +195,5 @@ func (h *DiskCacheHandler) pagesForRange(offset int64, size int) (startPage, end
 
 func (h *DiskCacheHandler) resize() bool {
 	return h.fileSize <= DefaultNoCacheSize ||
-		time.Now().Sub(h.fileSizeUpdateTime) > defaultPeriod
+		time.Since(h.fileSizeUpdateTime) > defaultPeriod
 }

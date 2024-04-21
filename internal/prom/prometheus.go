@@ -124,7 +124,7 @@ func NewPromTrace(r, t string) *PromTrace {
 }
 
 func (p *PromTrace) Cost() float64 {
-	return float64(time.Now().Sub(p.startTime) / time.Millisecond)
+	return float64(time.Since(p.startTime) / time.Millisecond)
 }
 
 func getPrometheusLabels(r, t, code string) prometheus.Labels {
