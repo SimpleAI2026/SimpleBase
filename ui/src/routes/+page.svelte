@@ -2,8 +2,9 @@
   import { onMount } from "svelte";
 
   const apiURL = import.meta.env.VITE_API_URL;
-  let selectedDB =
-    "367fb8f59f92e9b1cb0820f69f85c4f23cd28f736fbe8729a82d8b66f491d5f0";
+
+  let selectedDB = "";
+  let selectedDBList = [];
   let selectedTab = null;
   let tables = [];
   let tablesLoading = true;
@@ -29,6 +30,11 @@
     const params = new URLSearchParams(window.location.search);
     rowLimit = params.get("limit") || 20;
     rowOffset = params.get("offset") || 0;
+    selectedDB =
+      params.get("db") ||
+      "367fb8f59f92e9b1cb0820f69f85c4f23cd28f736fbe8729a82d8b66f491d5f0"; // select db name and default pubdemo
+    selectedDBList = [];
+    selectedDBList.push(selectedDB);
     fetch(`${apiURL}/api/v1/${selectedDB}/tables`)
       .then((response) => response.json())
       .then(({ data }) => {
@@ -189,10 +195,9 @@
       <div class="flex-container">
         <p>DBName :</p>
         <select class="select" on:change={handleDBSelect}>
-          <option
-            value="367fb8f59f92e9b1cb0820f692e4c0d426a886043dd6ae1eac2fbc6cacf6cada"
-            >pub_demo1</option
-          >
+          {#each selectedDBList as option}
+            <option value={option}>{option}</option>
+          {/each}
         </select>
         <input
           class="text"
