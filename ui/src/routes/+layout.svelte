@@ -1,6 +1,5 @@
 <script>
   import "./styles.css";
-  export const prerender = true;
 
   let styles = {
     background: ["#0f0f0f", "#111111", "#444444", "#414141", "#b1b1b1"],
