@@ -8,8 +8,8 @@
 **/httprange-test*
 **/diskcache-test*
 cmd/http/http
-cmd/tigger/tigger
 cmd/cli/cli
+cmd/server/server
 **/*.db
 **/*.lessdb
 **/vfscache_*
