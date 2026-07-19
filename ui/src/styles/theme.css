@@ -1,0 +1,193 @@
+/* ========== SimpleBase Admin Global Theme ========== */
+
+:root {
+  /* Brand palette */
+  --sb-primary: #4f46e5;
+  --sb-primary-hover: #4338ca;
+  --sb-primary-light: #eef2ff;
+  --sb-accent: #06b6d4;
+  --sb-success: #10b981;
+  --sb-warning: #f59e0b;
+  --sb-danger: #ef4444;
+
+  /* Neutrals */
+  --sb-bg: #f5f6fa;
+  --sb-bg-soft: #eef1f6;
+  --sb-surface: #ffffff;
+  --sb-border: #e5e7eb;
+  --sb-border-soft: #f0f1f5;
+  --sb-text: #1f2937;
+  --sb-text-secondary: #6b7280;
+  --sb-text-muted: #9ca3af;
+
+  /* Layout */
+  --sb-sider-width: 232px;
+  --sb-sider-collapsed-width: 64px;
+  --sb-header-height: 56px;
+  --sb-radius: 10px;
+  --sb-radius-sm: 6px;
+  --sb-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.06);
+  --sb-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
+  --sb-shadow-lg: 0 8px 28px rgba(15, 23, 42, 0.12);
+  --sb-transition: all 0.2s ease;
+
+  /* Override Ant Design primary to brand color */
+  --ant-primary-color: #4f46e5;
+  --ant-primary-color-hover: #4338ca;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--sb-bg);
+  color: var(--sb-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Page-level helpers */
+.sb-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sb-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.sb-card {
+  border-radius: var(--sb-radius) !important;
+  border: 1px solid var(--sb-border-soft) !important;
+  box-shadow: var(--sb-shadow-sm) !important;
+}
+
+.sb-card .ant-card-head {
+  border-bottom-color: var(--sb-border-soft) !important;
+  min-height: 44px !important;
+}
+
+.sb-card .ant-card-head-title {
+  font-weight: 600 !important;
+  color: var(--sb-text) !important;
+}
+
+/* Page title block */
+.sb-page-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sb-page-title h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--sb-text);
+  letter-spacing: -0.01em;
+}
+.sb-page-title .sb-subtitle {
+  color: var(--sb-text-secondary);
+  font-size: 13px;
+}
+
+/* Statistic cards */
+.sb-stat {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.sb-stat .sb-stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.sb-stat .sb-stat-body .sb-stat-label {
+  color: var(--sb-text-secondary);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.sb-stat .sb-stat-body .sb-stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--sb-text);
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+/* Terminal */
+.sb-terminal {
+  height: 520px;
+  overflow: auto;
+  background: #0b1021;
+  color: #c9d6ff;
+  padding: 14px 16px;
+  border-radius: var(--sb-radius);
+  font-family: 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.4);
+}
+.sb-terminal .sb-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.sb-terminal .sb-log-line:hover {
+  background: rgba(79, 70, 229, 0.15);
+}
+
+/* Fade transition for router-view */
+.sb-fade-enter-active,
+.sb-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.sb-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.sb-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}

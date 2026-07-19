@@ -2,28 +2,15 @@ package prom
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-
 	_ "github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"time"
 )
 
-const (
-	RNameVFS = "vfs"
-
-	TNameCacheGet  = "cache_get"
-	TNameCacheSize = "cache_size"
-	TNameHTTPGet   = "http_get"
-	TNameHTTPSize  = "http_size"
-
-	CodeCacheMiss = "0"
-	CodeCacheHit  = "1"
-)
-
 var (
 	rtcodeList         = []string{"r", "t", "code"}
-	rtcodeDurationList = []float64{30.0, 100.0, 200.0, 500.0, 1000.0, 3000.0, 5000.0, 10000.0}
-	rtcodeBytesList    = []float64{32, 128, 512, 1024, 4196, 10240, 102400, 1024000, 2048000}
+	rtcodeDurationList = []float64{0.03, 0.2, 0.5, 1.0, 3.0, 10.0}
+	rtcodeBytesList    = []float64{128, 512, 1024, 4096, 10240, 102400, 1024000, 2048000}
 
 	rtcodeSysCounts = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -115,64 +102,67 @@ func NewPromTrace(r, t string) *PromTrace {
 	}
 }
 
-func (p *PromTrace) Cost() float64 {
-	return float64(time.Since(p.startTime) / time.Millisecond)
+func NewPromTraceWithCode(r, t, code string) *PromTrace {
+	return &PromTrace{
+		R:         r,
+		T:         t,
+		Code:      code,
+		startTime: time.Now(),
+	}
 }
 
-func getPrometheusLabels(r, t, code string) prometheus.Labels {
-	return prometheus.Labels{"r": r, "t": t, "code": code}
+func (p *PromTrace) Cost() float64 {
+	return time.Since(p.startTime).Seconds()
+}
+
+func (p *PromTrace) SetCode(code string) {
+	p.Code = code
 }
 
 // SysCounts sys counts
 func (p *PromTrace) SysCounts() {
 	if promInit {
-		rtcodeSysCounts.With(
-			getPrometheusLabels(p.R, p.T, p.Code)).Inc()
+		rtcodeSysCounts.WithLabelValues(p.R, p.T, p.Code).Inc()
 	}
 }
 
 func (p *PromTrace) SysDurations() {
 	if promInit {
-		rtcodeSysDurations.With(
-			getPrometheusLabels(p.R, p.T, p.Code)).Observe(p.Cost())
+		rtcodeSysDurations.WithLabelValues(p.R, p.T, p.Code).Observe(p.Cost())
 	}
 }
 
 // ReqCounts req_total
 func (p *PromTrace) ReqCounts() {
 	if promInit {
-		rtcodeReqCounts.With(
-			getPrometheusLabels(p.R, p.T, p.Code)).Inc()
+		rtcodeReqCounts.WithLabelValues(p.R, p.T, p.Code).Inc()
 	}
 }
 
 // ReqDurations req_durations_seconds
 func (p *PromTrace) ReqDurations() {
 	if promInit {
-		rtcodeReqDurations.With(
-			getPrometheusLabels(p.R, p.T, p.Code)).Observe(p.Cost())
+		rtcodeReqDurations.WithLabelValues(p.R, p.T, p.Code).Observe(p.Cost())
 	}
 }
 
 // RPCReqCounts rpc_req_total
 func (p *PromTrace) RPCReqCounts() {
 	if promInit {
-		rtcodeRPCReqCounts.With(getPrometheusLabels(p.R, p.T, p.Code)).Inc()
+		rtcodeRPCReqCounts.WithLabelValues(p.R, p.T, p.Code).Inc()
 	}
 }
 
 // RPCDurations rpc_durations_seconds
-func (p *PromTrace) RPCDurations(r, t, code string, cost int64) {
+func (p *PromTrace) RPCDurations() {
 	if promInit {
-		rtcodeRPCDurations.With(
-			getPrometheusLabels(p.R, p.T, p.Code)).Observe(p.Cost())
+		rtcodeRPCDurations.WithLabelValues(p.R, p.T, p.Code).Observe(p.Cost())
 	}
 }
 
 // RPCBytes rpc_bytes
 func (p *PromTrace) RPCBytes(bytes int64) {
 	if promInit {
-		rtcodeRPCBytes.With(
-			getPrometheusLabels(p.R, p.T, p.Code)).Observe(float64(bytes))
+		rtcodeRPCBytes.WithLabelValues(p.R, p.T, p.Code).Observe(float64(bytes))
 	}
 }

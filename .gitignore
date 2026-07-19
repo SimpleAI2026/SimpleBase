@@ -1,16 +1,15 @@
-.env.*
+.env
 .DS_Store
 
 **/node_modules
-**/.svelte-kit
-**/sqlite3vfs_httpdir_*
-**/sqlite3vfs_tmpdir_*
-**/httprange-test*
-**/diskcache-test*
-cmd/http/http
-cmd/cli/cli
-cmd/server/server
 **/*.db
 **/*.lessdb
 **/vfscache_*
 **/build
+**/main
+.cache
+.box-desens
+.session_tmps
+simplebased
+config.yaml
+thirdparty

@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-var slatKey = GetEnviron("LESSDB_SLATKEY")
+var slatKey = GetEnviron("SIMPLEBASE_KEY")
 
-func rc4Cipher(plaintext, key []byte) ([]byte, error) {
+func rc4XOR(data, key []byte) ([]byte, error) {
 	if len(key) < 32 {
 		zerokey := make([]byte, 32-len(key))
 		key = append(key, zerokey...)
@@ -20,26 +20,17 @@ func rc4Cipher(plaintext, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	encrypted := make([]byte, len(plaintext))
-	cipher.XORKeyStream(encrypted, plaintext)
-	return encrypted, nil
+	out := make([]byte, len(data))
+	cipher.XORKeyStream(out, data)
+	return out, nil
+}
+
+func rc4Cipher(plaintext, key []byte) ([]byte, error) {
+	return rc4XOR(plaintext, key)
 }
 
 func rc4Open(encrypted, key []byte) ([]byte, error) {
-	if len(key) < 32 {
-		zerokey := make([]byte, 32-len(key))
-		key = append(key, zerokey...)
-	}
-
-	cipher, err := rc4.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	decrypted := make([]byte, len(encrypted))
-	cipher.XORKeyStream(decrypted, encrypted)
-
-	return decrypted, nil
+	return rc4XOR(encrypted, key)
 }
 
 // NewRandomName create random name
@@ -63,7 +54,7 @@ func VerifyKey(ciphertexthex string) (string, bool) {
 		return "", false
 	}
 
-	nameArr := strings.Split(string(plaintext), "-")
+	nameArr := strings.SplitN(string(plaintext), "-", 3)
 	if len(nameArr) == 3 && nameArr[1] == slatKey {
 		return nameArr[2], true
 	}
@@ -79,5 +70,8 @@ func randomName(l int) (string, string, error) {
 	ciphertext, err := rc4Cipher(
 		[]byte(fmt.Sprintf("%v-%v-%v", VERSION, slatKey, name)),
 		[]byte(slatKey))
-	return hex.EncodeToString(ciphertext), name, err
+	if err != nil {
+		return "", "", err
+	}
+	return hex.EncodeToString(ciphertext), name, nil
 }

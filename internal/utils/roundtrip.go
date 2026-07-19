@@ -11,11 +11,11 @@ type RoundTripper struct {
 }
 
 func (rt *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if rt.referer != "" {
+	if rt.referer != "" && req.Header.Get("Referer") == "" {
 		req.Header.Set("Referer", rt.referer)
 	}
 
-	if rt.userAgent != "" {
+	if rt.userAgent != "" && req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", rt.userAgent)
 	}
 

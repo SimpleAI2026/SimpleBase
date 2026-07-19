@@ -3,21 +3,18 @@ package utils
 import (
 	"crypto/rand"
 	"math/big"
-
-	"github.com/google/uuid"
 )
 
 const VERSION = "v1.0"
 const EmptyNil = "nil"
-
-var u = uuid.New()
-
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+var charsetBig = big.NewInt(int64(len(charset)))
 
 func stringWithCharset(length int) (string, error) {
 	b := make([]byte, length)
 	for i := range b {
-		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		num, err := rand.Int(rand.Reader, charsetBig)
 		if err != nil {
 			return "", err
 		}

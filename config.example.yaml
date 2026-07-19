@@ -1,0 +1,68 @@
+# SimpleBase 单实例部署配置示例
+#
+# 注意：internal/config 实际只从环境变量加载（前缀 SIMPLEBASE_），
+# 不解析 YAML。本文件仅作为字段清单参考；运行时请用 .env 或环境变量。
+# 完整变量名见 .env.example。
+
+# 启动所需的最小环境变量（writable 实例）：
+#
+#   SIMPLEBASE_INSTANCE_ID=simplebase-prod-1
+#   SIMPLEBASE_DB_CACHE_DIR=/var/lib/simplebase/cache
+#   SIMPLEBASE_AUTH_APIKEY_SECRET=<32 字节随机密钥>
+#   SIMPLEBASE_S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
+#   SIMPLEBASE_S3_REGION=us-east-1
+#   SIMPLEBASE_S3_BUCKET=simplebase-prod
+#   SIMPLEBASE_S3_ACCESS_KEY=<IAM 或环境注入>
+#   SIMPLEBASE_S3_SECRET_KEY=<IAM 或环境注入>
+#
+# 以下结构仅说明字段语义，不代表可加载的 YAML。
+
+http:
+  address: ":8080"            # SIMPLEBASE_HTTP_ADDRESS
+  read_timeout: 15s           # SIMPLEBASE_HTTP_READ_TIMEOUT
+  write_timeout: 30s          # SIMPLEBASE_HTTP_WRITE_TIMEOUT
+  idle_timeout: 60s           # SIMPLEBASE_HTTP_IDLE_TIMEOUT
+
+instance:
+  id: "simplebase-prod-1"     # SIMPLEBASE_INSTANCE_ID（必填）
+  writable: true              # SIMPLEBASE_INSTANCE_WRITABLE
+
+database:
+  cache_dir: ".cache"         # SIMPLEBASE_DB_CACHE_DIR（必填）
+  idle_timeout: 5m            # SIMPLEBASE_DB_IDLE_TIMEOUT
+  max_open: 8                 # SIMPLEBASE_DB_MAX_OPEN
+  max_idle: 2                 # SIMPLEBASE_DB_MAX_IDLE
+
+s3:
+  endpoint: ""                # SIMPLEBASE_S3_ENDPOINT
+  region: ""                  # SIMPLEBASE_S3_REGION（writable 必填）
+  bucket: ""                  # SIMPLEBASE_S3_BUCKET（writable 必填）
+  prefix: "simplebase"        # SIMPLEBASE_S3_PREFIX
+  access_key: ""              # SIMPLEBASE_S3_ACCESS_KEY（环境注入）
+  secret_key: ""              # SIMPLEBASE_S3_SECRET_KEY（环境注入）
+  force_path_style: false     # SIMPLEBASE_S3_FORCE_PATH_STYLE
+
+catalog:
+  database_id: "simplebase-catalog"  # SIMPLEBASE_CATALOG_DATABASE_ID
+
+auth:
+  api_key_hash_secret: ""     # SIMPLEBASE_AUTH_APIKEY_SECRET（必填，32 字节随机）
+
+llm:
+  # providers: openai,anthropic       # SIMPLEBASE_LLM_PROVIDERS
+  # provider.openai.api_key: ""       # SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY
+  # provider.openai.base_url: ""      # SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL
+  # provider.openai.default_model: "" # SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL
+
+limits:
+  max_request_bytes: 1048576        # SIMPLEBASE_LIMITS_MAX_REQUEST_BYTES
+  max_query_rows: 1000              # SIMPLEBASE_LIMITS_MAX_QUERY_ROWS
+  query_timeout: 30s                # SIMPLEBASE_LIMITS_QUERY_TIMEOUT
+  max_concurrent_queries: 64        # SIMPLEBASE_LIMITS_MAX_CONCURRENT_QUERIES
+  max_batch_statements: 100         # SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS
+  max_sql_bytes: 65536              # SIMPLEBASE_LIMITS_MAX_SQL_BYTES
+
+observability:
+  log_level: "info"           # SIMPLEBASE_LOG_LEVEL
+  log_format: "json"          # SIMPLEBASE_LOG_FORMAT
+  metrics_path: "/metrics"    # SIMPLEBASE_METRICS_PATH

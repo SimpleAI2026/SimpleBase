@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"io"
-	"io/ioutil"
 	"os"
 	"testing"
 )
@@ -93,12 +92,12 @@ func TestFileSha256(t *testing.T) {
 	}
 
 	if !hash.Equals(SHA256Sum(expectedHash)) {
-		t.Errorf("Expected: %x, got: %s", expectedHash, hash)
+		t.Errorf("Expected: %x, got: %s", expectedHash, hash.String())
 	}
 }
 
 func mustWriteDataTempFile(data []byte) string {
-	tempFile, err := ioutil.TempFile("", "uploader_test")
+	tempFile, err := os.CreateTemp("", "uploader_test")
 	if err != nil {
 		panic("Error creating temp file: " + err.Error())
 	}

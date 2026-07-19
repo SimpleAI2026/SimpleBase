@@ -7,22 +7,22 @@ import (
 )
 
 func split(s string) (string, string, error) {
-	arr := strings.Split(s, "=")
-	if len(arr) <= 0 {
+	parts := strings.SplitN(s, "=", 2)
+	if len(parts) == 0 || parts[0] == "" {
 		return "", "", errors.New("environ invalid")
-	} else if len(arr) == 1 {
-		return arr[0], "", nil
-	} else {
-		return arr[0], arr[1], nil
 	}
+	if len(parts) == 1 {
+		return parts[0], "", nil
+	}
+	return parts[0], parts[1], nil
 }
 
 // GetEnvironInfo get all environment map
 func GetEnvironInfo() map[string]string {
 	env := make(map[string]string, 4)
 	environ := os.Environ()
-	for k := range environ {
-		if k1, v1, err := split(environ[k]); err == nil {
+	for _, kv := range environ {
+		if k1, v1, err := split(kv); err == nil {
 			env[k1] = v1
 		}
 	}
