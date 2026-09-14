@@ -24,7 +24,7 @@ defineProps<{ title?: string; subtitle?: string }>()
 .sb-page-title h2 {
   margin: 0;
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--sb-text);
   letter-spacing: -0.01em;
 }

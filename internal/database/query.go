@@ -19,6 +19,8 @@ type QueryResult struct {
 	Columns      []string
 	Rows         [][]any
 	RowsAffected int64
+	// LastInsertID 在 DuckDB/DuckLake 下恒为 0（无 last_insert_rowid，且不支持 sequences）。
+	// API 层已废弃该字段；请使用 RETURNING 或应用侧 UUID。
 	LastInsertID int64
 	Duration     time.Duration
 }
@@ -78,13 +80,8 @@ func Execute(ctx context.Context, db *sql.DB, stmt Statement) (QueryResult, erro
 		// 部分驱动/语句不支持 RowsAffected；不视为致命错误。
 		affected = 0
 	}
-	lastID, err := res.LastInsertId()
-	if err != nil {
-		lastID = 0
-	}
 	return QueryResult{
 		RowsAffected: affected,
-		LastInsertID: lastID,
 		Duration:     time.Since(start),
 	}, nil
 }
@@ -105,13 +102,8 @@ func executeOn(ctx context.Context, e execer, stmt Statement) (QueryResult, erro
 	if err != nil {
 		affected = 0
 	}
-	lastID, err := res.LastInsertId()
-	if err != nil {
-		lastID = 0
-	}
 	return QueryResult{
 		RowsAffected: affected,
-		LastInsertID: lastID,
 		Duration:     time.Since(start),
 	}, nil
 }

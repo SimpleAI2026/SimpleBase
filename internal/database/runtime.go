@@ -31,7 +31,7 @@ func (m AccessMode) String() string {
 }
 
 // Factory 从 catalog.Database 打开一个可用的 *sql.DB。
-// 实现者负责构建 Turso DSN、连接池配置和 Ping 验证；失败必须关闭已创建的资源。
+// 实现者负责引擎引导、连接池配置和 Ping 验证；失败必须关闭已创建的资源。
 type Factory interface {
 	Open(ctx context.Context, db catalog.Database, mode AccessMode) (*sql.DB, error)
 }

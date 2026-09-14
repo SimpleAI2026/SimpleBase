@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -25,6 +27,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/cache"
+	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/database/registry"
 	"github.com/linkxzhou/SimpleBase/internal/database/turso"
 	"github.com/linkxzhou/SimpleBase/internal/jobs"
@@ -35,29 +38,30 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
-	// DevMode 下使用 :memory: SQLite；驱动注册名 "sqlite3"。
+	// DevMode 下使用本地磁盘 SQLite；驱动注册名 "sqlite3"。
 	_ "github.com/uglyer/go-sqlite3"
 )
 
 // App 是运行中的 SimpleBase 实例。它持有 HTTP server 与已创建资源。
 type App struct {
-	cfg      config.Config
-	logger   observability.Logger
-	metrics  *observability.Metrics
+	cfg     config.Config
+	logger  observability.Logger
+	metrics *observability.Metrics
 
 	httpServer *http.Server
 	echo       *echo.Echo
 
-	objectStore objectstore.Client
-	catalog     *catalog.Service
-	registry    *registry.Registry
-	auth        *auth.Service
-	cacheMgr    *cache.Manager
-	usageSvc    *usage.Service
-	auditSvc    *audit.Service
-	llmSvc      llmgateway.Service
-	jobWorker   *jobs.Worker
-	jobEnqueuer *jobs.Enqueuer
+	objectStore  objectstore.Client
+	fileStore    objectstore.FileStore
+	catalog      *catalog.Service
+	registry     *registry.Registry
+	auth         *auth.Service
+	cacheMgr     *cache.Manager
+	usageSvc     *usage.Service
+	auditSvc     *audit.Service
+	llmSvc       llmgateway.Service
+	jobWorker    *jobs.Worker
+	jobEnqueuer  *jobs.Enqueuer
 	workerCancel context.CancelFunc
 
 	health *healthService
@@ -134,6 +138,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	// Plan 6：SQL handler。readonly 实例 SQLHandler 为 nil，路由不挂载写操作；
 	// query 路由也只在 writable 实例提供（首期 readonly 不开放 SQL API）。
 	var sqlHandler *api.SQLHandler
+	var dataHandler *api.DataHandler
 	if cfg.Instance.Writable && a.registry != nil {
 		sqlLimits := api.SQLLimits{
 			QueryTimeout:       int64(cfg.Limits.QueryTimeout),
@@ -143,11 +148,9 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 			MaxSQLBytes:        cfg.Limits.MaxSQLBytes,
 			MaxRequestBytes:    cfg.Limits.MaxRequestBytes,
 		}
-		sqlHandler = api.NewSQLHandler(
-			api.NewSQLServiceAdapter(a.catalog, a.registry),
-			sqlLimits,
-			cfg.Instance.Writable,
-		)
+		sqlService := api.NewSQLServiceAdapter(a.catalog, a.registry)
+		sqlHandler = api.NewSQLHandler(sqlService, sqlLimits, cfg.Instance.Writable)
+		dataHandler = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable)
 	}
 
 	deps := api.Dependencies{
@@ -160,11 +163,13 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		Registry:        a.registry,
 		DatabaseHandler: dbHandler,
 		SQLHandler:      sqlHandler,
+		DataHandler:     dataHandler,
 		Cache:           api.NewCacheService(a.cacheMgr),
 		Usage:           api.NewUsageService(a.usageSvc),
 		Audit:           api.NewAuditService(a.auditSvc),
 		LLM:             api.NewLLMService(a.llmSvc),
 		JobEnqueuer:     api.NewJobEnqueuer(a.jobEnqueuer),
+		S3FileStore:     a.fileStore,
 	}
 	a.echo = api.NewRouter(deps)
 
@@ -202,6 +207,14 @@ func (a *App) assembleDeps(ctx context.Context) error {
 			return fmt.Errorf("create objectstore client: %w", err)
 		}
 		a.objectStore = store
+
+		// 用户文件 FileStore（物理前缀 {root}/{env}/files）。
+		filePrefix := cfg.S3.Prefix + "/" + cfg.Instance.ID + "/files"
+		fs, err := objectstore.NewS3FileStore(ctx, s3cfg, filePrefix, a.logger)
+		if err != nil {
+			return fmt.Errorf("create s3 file store: %w", err)
+		}
+		a.fileStore = fs
 	}
 
 	// 2) catalog 系统数据库连接 + 迁移（Writable 实例需要）
@@ -211,13 +224,20 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		Environment: cfg.Instance.ID,
 	}
 	if cfg.Instance.Writable {
-		// DevMode：catalog 使用 :memory: SQLite，不走 turso/S3。
+		// DevMode：catalog 与用户库使用本地磁盘 SQLite，不走 turso/S3。
+		// 数据落在 cache_dir/dev 下，进程重启后保留。
 		if cfg.DevMode {
-			catalogDB, err := sql.Open("sqlite3", ":memory:")
+			devDir := filepath.Join(cfg.Database.CacheDir, "dev")
+			if err := os.MkdirAll(devDir, 0o755); err != nil {
+				return fmt.Errorf("create dev dir: %w", err)
+			}
+			catalogPath := filepath.Join(devDir, "catalog.db")
+			catalogDB, err := sql.Open("sqlite3",
+				fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", catalogPath))
 			if err != nil {
 				return fmt.Errorf("open catalog database (dev mode): %w", err)
 			}
-			catalogDB.SetMaxOpenConns(1) // :memory: 每连接独立，限单连接保证共享
+			catalogDB.SetMaxOpenConns(1)
 			catalogDB.SetMaxIdleConns(1)
 			a.registerCloser(catalogDB)
 			if err := catalog.ApplyMigrations(ctx, catalogDB); err != nil {
@@ -227,11 +247,8 @@ func (a *App) assembleDeps(ctx context.Context) error {
 			repo := catalog.NewSQLiteRepository(catalogDB)
 			a.catalog = catalog.NewService(repo, keys, nil, a.logger)
 
-			// DevMode factory：用户库也用 :memory: SQLite。
-			factory := &database.MemoryFactory{
-				Logger:  a.logger,
-				Metrics: a.metrics,
-			}
+			// DevMode 与生产同一 DuckLake 代码路径，DATA_PATH 落本地盘（§4.9）。
+			factory := a.newUserDatabaseFactory(filepath.Join(devDir, "dbs"))
 			a.registry = registry.New(factory, a.catalog, registry.Options{
 				IdleTimeout: cfg.Database.IdleTimeout,
 				MaxOpen:     cfg.Database.MaxOpen,
@@ -240,6 +257,29 @@ func (a *App) assembleDeps(ctx context.Context) error {
 
 			// auth service
 			a.auth = auth.NewService(auth.NewSQLiteAPIKeyRepository(catalogDB), cfg.Auth.APIKeyHashSecret)
+
+			// DevMode 种子数据：预置 tenant、project、API key，方便前端调试。
+			// 磁盘持久化后重启仍会执行，均按已存在幂等处理。
+			seedTime := time.Now()
+			const devTenantID = "00000000-0000-0000-0000-000000000001"
+			_ = a.catalog.Repository().CreateTenant(ctx, catalog.Tenant{
+				ID: devTenantID, Name: "Dev Tenant", CreatedAt: seedTime,
+			})
+			_ = a.catalog.Repository().CreateProject(ctx, catalog.Project{
+				ID: "proj-01", TenantID: devTenantID, Name: "商城后台", CreatedAt: seedTime,
+			})
+			const devRawKey = "sb_live_dev_key_12345"
+			devPerms := []auth.Permission{
+				auth.DatabaseRead, auth.DatabaseWrite, auth.DatabaseAdmin,
+				auth.LLMInvoke, auth.ProjectAdmin,
+			}
+			_ = auth.CreateAPIKey(ctx, catalogDB, "key-dev-01", "proj-01",
+				a.auth.HashKey(devRawKey), devPerms, seedTime)
+			if _, err := a.catalog.CreateDatabase(ctx, catalog.CreateDatabaseInput{
+				TenantID: devTenantID, ProjectID: "proj-01", Name: "default",
+			}); err != nil && !errors.Is(err, catalog.ErrAlreadyExists) {
+				return fmt.Errorf("create dev database: %w", err)
+			}
 
 			// cache manager（DevMode 下 Root 可空，仅占位）
 			a.cacheMgr, err = cache.NewManager(cache.Options{
@@ -277,7 +317,15 @@ func (a *App) assembleDeps(ctx context.Context) error {
 					return fmt.Errorf("create job worker: %w", err)
 				}
 			}
-			a.logger.Info("running in dev mode: :memory: SQLite, S3 bypassed")
+			// DevMode 用户文件使用本地磁盘 FileStore（重启保留）。
+			fs, err := objectstore.NewLocalFileStore(filepath.Join(devDir, "files"))
+			if err != nil {
+				return fmt.Errorf("create local file store: %w", err)
+			}
+			a.fileStore = fs
+
+			a.logger.Info("running in dev mode: local DuckLake, S3 bypassed",
+				zap.String("dir", devDir))
 			return nil
 		}
 
@@ -320,17 +368,8 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		}
 		a.catalog = catalog.NewService(repo, keys, descWriter, a.logger)
 
-		// 3) database factory + registry
-		factory := &database.TursoFactory{
-			Storage:  catalogStorage,
-			CacheDir: cfg.Database.CacheDir,
-			Pool: turso.PoolOptions{
-				MaxOpen: cfg.Database.MaxOpen,
-				MaxIdle: cfg.Database.MaxIdle,
-			},
-			Logger:  a.logger,
-			Metrics: a.metrics,
-		}
+		// 3) database factory + registry（默认 DuckLake；engine=turso 保留遗留链路）
+		factory := a.newUserDatabaseFactory(cfg.Database.CacheDir)
 		a.registry = registry.New(factory, a.catalog, registry.Options{
 			IdleTimeout: cfg.Database.IdleTimeout,
 			MaxOpen:     cfg.Database.MaxOpen,
@@ -454,6 +493,68 @@ func (a *App) Shutdown(ctx context.Context) error {
 		}
 	}
 	return firstErr
+}
+
+// newUserDatabaseFactory 按 engine 选择用户库工厂。
+// DevMode 与默认 engine 都走 DuckLake（本地 DATA_PATH）；turso/local 仅作遗留回退。
+func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
+	cfg := a.cfg
+	engine := strings.ToLower(cfg.Database.Engine)
+	if cfg.DevMode || engine == "" || engine == config.EngineDuckLake {
+		return &ducklake.Factory{
+			CacheDir: cacheDir,
+			Options:  duckLakeOptions(cfg.Database.DuckLake),
+			Syncer:   ducklake.NewLocalSyncer(),
+			Logger:   a.logger,
+			Metrics:  a.metrics,
+		}
+	}
+	if engine == config.EngineLocal {
+		return &database.LocalFactory{
+			Dir:     cacheDir,
+			Logger:  a.logger,
+			Metrics: a.metrics,
+		}
+	}
+	return &database.TursoFactory{
+		Storage: database.StorageConfig{
+			Endpoint:       cfg.S3.Endpoint,
+			Region:         cfg.S3.Region,
+			Bucket:         cfg.S3.Bucket,
+			KMSKeyID:       cfg.S3.KMSKeyID,
+			ForcePathStyle: cfg.S3.ForcePathStyle,
+		},
+		CacheDir: cacheDir,
+		Pool: turso.PoolOptions{
+			MaxOpen: cfg.Database.MaxOpen,
+			MaxIdle: cfg.Database.MaxIdle,
+		},
+		Logger:  a.logger,
+		Metrics: a.metrics,
+	}
+}
+
+func duckLakeOptions(cfg config.DuckLakeConfig) ducklake.Options {
+	return ducklake.Options{
+		MemoryLimit:          cfg.MemoryLimit,
+		Threads:              cfg.Threads,
+		ExtensionDir:         cfg.ExtensionDir,
+		DataInliningRowLimit: cfg.DataInliningRowLimit,
+		ParquetCompression:   cfg.ParquetCompression,
+		TargetFileSize:       cfg.TargetFileSize,
+		RequireCommitMessage: cfg.RequireCommitMessage,
+		CatalogSync: ducklake.CatalogSyncOptions{
+			Mode:         cfg.CatalogSync.Mode,
+			Debounce:     cfg.CatalogSync.Debounce,
+			KeepVersions: cfg.CatalogSync.KeepVersions,
+		},
+		Maintenance: ducklake.MaintenanceOptions{
+			CheckpointInterval:     cfg.Maintenance.CheckpointInterval,
+			ExpireOlderThan:        cfg.Maintenance.ExpireOlderThan,
+			DeleteOlderThan:        cfg.Maintenance.DeleteOlderThan,
+			RewriteDeleteThreshold: cfg.Maintenance.RewriteDeleteThreshold,
+		},
+	}
 }
 
 // registerCloser 让各 plan 注册需要反向关闭的资源。

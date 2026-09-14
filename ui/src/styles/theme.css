@@ -1,39 +1,48 @@
-/* ========== SimpleBase Admin Global Theme ========== */
+/* ========== SimpleBase Admin · Claude 官网风格主题 ========== */
 
 :root {
-  /* Brand palette */
-  --sb-primary: #4f46e5;
-  --sb-primary-hover: #4338ca;
-  --sb-primary-light: #eef2ff;
-  --sb-accent: #06b6d4;
-  --sb-success: #10b981;
-  --sb-warning: #f59e0b;
-  --sb-danger: #ef4444;
+  /* 固定亮色，防止 macOS 系统暗色模式导致原生控件/滚动条变黑 */
+  color-scheme: light;
 
-  /* Neutrals */
-  --sb-bg: #f5f6fa;
-  --sb-bg-soft: #eef1f6;
+  /* 品牌色板：Claude 橙（claude.ai 主色） */
+  --sb-primary: #d97757;
+  --sb-primary-hover: #c15e3c;
+  --sb-primary-light: rgba(217, 119, 87, 0.12);
+  --sb-accent: #d97757;
+  --sb-success: #3f8a5a;
+  --sb-warning: #c99a2c;
+  --sb-danger: #c0452f;
+
+  /* 中性色：Claude 暖米色系 */
+  --sb-bg: #f5f4ef;
+  --sb-bg-soft: #eeece5;
   --sb-surface: #ffffff;
-  --sb-border: #e5e7eb;
-  --sb-border-soft: #f0f1f5;
-  --sb-text: #1f2937;
-  --sb-text-secondary: #6b7280;
-  --sb-text-muted: #9ca3af;
+  --sb-border: rgba(31, 30, 29, 0.12);
+  --sb-border-soft: rgba(31, 30, 29, 0.08);
+  --sb-text: #1f1e1d;
+  --sb-text-secondary: #706f6a;
+  --sb-text-muted: #9b9a94;
 
-  /* Layout */
+  /* 布局 */
   --sb-sider-width: 232px;
   --sb-sider-collapsed-width: 64px;
   --sb-header-height: 56px;
-  --sb-radius: 10px;
-  --sb-radius-sm: 6px;
-  --sb-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.06);
-  --sb-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
-  --sb-shadow-lg: 0 8px 28px rgba(15, 23, 42, 0.12);
-  --sb-transition: all 0.2s ease;
+  --sb-radius: 12px;
+  --sb-radius-sm: 8px;
 
-  /* Override Ant Design primary to brand color */
-  --ant-primary-color: #4f46e5;
-  --ant-primary-color-hover: #4338ca;
+  /* 光影：暖灰分层，柔和克制 */
+  --sb-shadow-sm: 0 1px 2px rgba(31, 30, 29, 0.05);
+  --sb-shadow: 0 1px 2px rgba(31, 30, 29, 0.05), 0 8px 24px rgba(31, 30, 29, 0.07);
+  --sb-shadow-lg: 0 16px 40px rgba(31, 30, 29, 0.12);
+  --sb-glow: 0 0 0 4px rgba(217, 119, 87, 0.14);
+  --sb-transition: all 0.22s ease;
+
+  /* Claude 官网：标题衬线、正文无衬线 */
+  --sb-font-serif: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+
+  /* 覆盖 Ant Design 主色 */
+  --ant-primary-color: #d97757;
+  --ant-primary-color-hover: #c15e3c;
 }
 
 * {
@@ -62,7 +71,7 @@ body {
   min-height: 100vh;
 }
 
-/* Custom scrollbar */
+/* 滚动条 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -71,14 +80,14 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: #d8d5cc;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: #b5b2a8;
 }
 
-/* Page-level helpers */
+/* 页面级工具类 */
 .sb-page {
   display: flex;
   flex-direction: column;
@@ -96,6 +105,12 @@ body {
   border-radius: var(--sb-radius) !important;
   border: 1px solid var(--sb-border-soft) !important;
   box-shadow: var(--sb-shadow-sm) !important;
+  background: var(--sb-surface) !important;
+  transition: var(--sb-transition);
+}
+
+.sb-card:hover {
+  box-shadow: var(--sb-shadow) !important;
 }
 
 .sb-card .ant-card-head {
@@ -104,11 +119,13 @@ body {
 }
 
 .sb-card .ant-card-head-title {
+  font-family: var(--sb-font-serif) !important;
   font-weight: 600 !important;
+  font-size: 16px !important;
   color: var(--sb-text) !important;
 }
 
-/* Page title block */
+/* 页头标题块：Claude 官网衬线大标题 */
 .sb-page-title {
   display: flex;
   align-items: center;
@@ -116,17 +133,18 @@ body {
 }
 .sb-page-title h2 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 700;
+  font-family: var(--sb-font-serif);
+  font-size: 24px;
+  font-weight: 600;
   color: var(--sb-text);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 .sb-page-title .sb-subtitle {
   color: var(--sb-text-secondary);
   font-size: 13px;
 }
 
-/* Statistic cards */
+/* 统计卡片 */
 .sb-stat {
   display: flex;
   align-items: flex-start;
@@ -135,12 +153,11 @@ body {
 .sb-stat .sb-stat-icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--sb-radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
-  color: #fff;
+  font-size: 20px;
   flex-shrink: 0;
 }
 .sb-stat .sb-stat-body .sb-stat-label {
@@ -151,34 +168,36 @@ body {
 }
 .sb-stat .sb-stat-body .sb-stat-value {
   font-size: 26px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--sb-text);
   line-height: 1.2;
   margin-top: 2px;
 }
 
-/* Terminal */
+/* 终端 / 代码面板：中性灰阶 */
 .sb-terminal {
   height: 520px;
   overflow: auto;
-  background: #0b1021;
-  color: #c9d6ff;
+  background: var(--sb-bg-soft);
+  border: 1px solid var(--sb-border-soft);
+  color: var(--sb-text);
   padding: 14px 16px;
   border-radius: var(--sb-radius);
   font-family: 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
   font-size: 12.5px;
   line-height: 1.6;
-  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.4);
 }
 .sb-terminal .sb-log-line {
   white-space: pre-wrap;
   word-break: break-all;
+  border-radius: 4px;
+  padding: 0 6px;
 }
 .sb-terminal .sb-log-line:hover {
-  background: rgba(79, 70, 229, 0.15);
+  background: rgba(0, 0, 0, 0.04);
 }
 
-/* Fade transition for router-view */
+/* 路由过渡 */
 .sb-fade-enter-active,
 .sb-fade-leave-active {
   transition: opacity 0.18s ease, transform 0.18s ease;
@@ -190,4 +209,105 @@ body {
 .sb-fade-leave-to {
   opacity: 0;
   transform: translateY(-4px);
+}
+
+/* ========== 移动端适配 ========== */
+@media (max-width: 768px) {
+  :root {
+    --sb-sider-width: 0px;
+    --sb-sider-collapsed-width: 0px;
+    --sb-header-height: 48px;
+  }
+
+  body {
+    font-size: 13px;
+  }
+
+  .sb-page {
+    gap: 10px;
+  }
+
+  .sb-toolbar {
+    gap: 8px;
+  }
+  .sb-toolbar .ant-input,
+  .sb-toolbar .ant-select,
+  .sb-toolbar .ant-btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .sb-card .ant-card-body {
+    padding: 12px !important;
+  }
+  .sb-card .ant-card-head {
+    min-height: 40px !important;
+    padding: 0 12px !important;
+  }
+  .sb-card .ant-card-head-title {
+    font-size: 14px !important;
+  }
+
+  .sb-stat .sb-stat-body .sb-stat-value {
+    font-size: 20px;
+  }
+  .sb-stat .sb-stat-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 17px;
+  }
+
+  .sb-terminal {
+    height: 300px;
+    font-size: 11.5px;
+    padding: 10px 12px;
+  }
+
+  /* 表格横向滚动 */
+  .ant-table-content {
+    overflow-x: auto;
+  }
+  .ant-table-cell {
+    white-space: nowrap;
+  }
+
+  /* Modal 全宽 */
+  .ant-modal {
+    max-width: calc(100vw - 32px) !important;
+    margin: 16px auto !important;
+  }
+
+  /* 页头 */
+  .sb-page-title h2 {
+    font-size: 17px;
+  }
+  .sb-page-title .sb-subtitle {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sb-toolbar .ant-input,
+  .sb-toolbar .ant-input-affix-wrapper,
+  .sb-toolbar .ant-select {
+    width: 100% !important;
+    flex: 1 1 100%;
+  }
+  .sb-toolbar .ant-btn {
+    flex: 1 1 auto;
+  }
+
+  .sb-chart {
+    gap: 6px;
+    min-height: 120px;
+  }
+  .sb-chart-col {
+    min-width: 28px;
+  }
+  .sb-chart-bars {
+    height: 100px;
+  }
+  .sb-chart-bar {
+    width: 10px;
+  }
 }

@@ -1,7 +1,7 @@
 <template>
   <a-menu
     class="sb-menu"
-    theme="dark"
+    theme="light"
     mode="inline"
     :selectedKeys="[selectedKey]"
     @click="onClick"
@@ -18,13 +18,13 @@
       <CloudUploadOutlined />
       <span>S3 对象存储</span>
     </a-menu-item>
-    <a-menu-item key="project">
-      <ProjectOutlined />
-      <span>项目管理</span>
-    </a-menu-item>
     <a-menu-item key="faas">
       <CodeOutlined />
-      <span>FaaS 函数</span>
+      <span>云函数</span>
+    </a-menu-item>
+    <a-menu-item key="llm">
+      <RobotOutlined />
+      <span>LLM 对话</span>
     </a-menu-item>
     <a-menu-item key="logs">
       <FileTextOutlined />
@@ -41,14 +41,17 @@ import {
   CloudUploadOutlined,
   ProjectOutlined,
   FileTextOutlined,
-  CodeOutlined
+  CodeOutlined,
+  RobotOutlined
 } from '@ant-design/icons-vue'
 
+const emit = defineEmits<{ (e: 'navigate'): void }>()
 const route = useRoute()
 const router = useRouter()
 const selectedKey = computed(() => (route.name as string) || 'dashboard')
 function onClick(e: any) {
   router.push({ name: e.key })
+  emit('navigate')
 }
 </script>
 <style scoped>
@@ -58,17 +61,23 @@ function onClick(e: any) {
   padding-top: 8px;
 }
 .sb-menu :deep(.ant-menu-item) {
-  margin: 4px 8px !important;
-  border-radius: 8px !important;
+  margin: 4px 10px !important;
+  border-radius: 10px !important;
   height: 40px !important;
   line-height: 40px !important;
+  color: var(--sb-text-secondary) !important;
+  transition: var(--sb-transition);
 }
 .sb-menu :deep(.ant-menu-item-selected) {
-  background: linear-gradient(135deg, var(--sb-primary), var(--sb-primary-hover)) !important;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+  background: var(--sb-primary-light) !important;
+  color: var(--sb-primary) !important;
+  font-weight: 600;
 }
-.sb-menu :deep(.ant-menu-item:hover) {
-  color: #fff !important;
-  background: rgba(255, 255, 255, 0.06) !important;
+.sb-menu :deep(.ant-menu-item-selected .anticon) {
+  color: var(--sb-primary) !important;
+}
+.sb-menu :deep(.ant-menu-item:hover:not(.ant-menu-item-selected)) {
+  color: var(--sb-primary) !important;
+  background: rgba(31, 30, 29, 0.05) !important;
 }
 </style>

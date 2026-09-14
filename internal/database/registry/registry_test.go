@@ -210,3 +210,146 @@ func TestShutdown_ClosesAllHandles(t *testing.T) {
 		t.Fatalf("expected ErrRegistryClosed after shutdown, got %v", err)
 	}
 }
+
+func TestCloseDatabase_NonExistentReturnsNil(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true}, nil, nil)
+	if err := reg.CloseDatabase(context.Background(), "nonexistent-id"); err != nil {
+		t.Fatalf("CloseDatabase on non-existent should return nil, got %v", err)
+	}
+}
+
+func TestCloseDatabase_WithActiveReturnsError(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true}, nil, nil)
+	db := readyDatabase("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	lease, err := reg.Acquire(context.Background(), db, database.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer lease.Release()
+
+	if err := reg.CloseDatabase(context.Background(), db.ID); err == nil {
+		t.Fatal("expected error closing database with active references")
+	}
+}
+
+func TestCloseDatabase_IdleClosesSuccessfully(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true}, nil, nil)
+	db := readyDatabase("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+
+	lease, err := reg.Acquire(context.Background(), db, database.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	lease.Release()
+
+	if err := reg.CloseDatabase(context.Background(), db.ID); err != nil {
+		t.Fatalf("CloseDatabase: %v", err)
+	}
+
+	// 关闭后再次 Acquire 会重新打开
+	lease2, err := reg.Acquire(context.Background(), db, database.ReadWrite)
+	if err != nil {
+		t.Fatalf("re-acquire after close: %v", err)
+	}
+	lease2.Release()
+}
+
+func TestIsActive(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true}, nil, nil)
+	db := readyDatabase("cccccccc-cccc-cccc-cccc-cccccccccccc")
+
+	if reg.IsActive(db.ID) {
+		t.Fatal("expected false for unknown database")
+	}
+
+	lease, err := reg.Acquire(context.Background(), db, database.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if !reg.IsActive(db.ID) {
+		t.Fatal("expected true for acquired database")
+	}
+
+	lease.Release()
+	if reg.IsActive(db.ID) {
+		t.Fatal("expected false after release")
+	}
+}
+
+func TestAcquire_RejectsDegradedDatabase(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true}, nil, nil)
+	db := catalog.Database{ID: "dddddddd-dddd-dddd-dddd-dddddddddddd", Status: catalog.DatabaseDegraded}
+
+	_, err := reg.Acquire(context.Background(), db, database.ReadOnly)
+	if !errors.Is(err, database.ErrDatabaseNotReady) {
+		t.Fatalf("expected ErrDatabaseNotReady, got %v", err)
+	}
+}
+
+func TestAcquire_RejectsDeletedDatabase(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true}, nil, nil)
+	db := catalog.Database{ID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", Status: catalog.DatabaseDeleted}
+
+	_, err := reg.Acquire(context.Background(), db, database.ReadOnly)
+	if !errors.Is(err, database.ErrDatabaseDeleting) {
+		t.Fatalf("expected ErrDatabaseDeleting, got %v", err)
+	}
+}
+
+func TestAcquire_ReadOnlyAllowedWhenNotWritable(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: false}, nil, nil)
+	db := readyDatabase("ffffffff-ffff-ffff-ffff-ffffffffffff")
+
+	lease, err := reg.Acquire(context.Background(), db, database.ReadOnly)
+	if err != nil {
+		t.Fatalf("ReadOnly acquire should succeed when not writable: %v", err)
+	}
+	lease.Release()
+}
+
+func TestEvictor_StopsGracefully(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true, IdleTimeout: time.Millisecond}, nil, nil)
+	evictor := NewEvictor(reg, 10*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		evictor.Run(ctx)
+		close(done)
+	}()
+
+	// 让 evictor 运行几个周期
+	time.Sleep(50 * time.Millisecond)
+
+	evictor.Stop()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("evictor did not stop within 1s")
+	}
+}
+
+func TestAcquire_ReopenAfterCloseIdle(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true, IdleTimeout: time.Millisecond}, nil, nil)
+	db := readyDatabase("1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a")
+
+	l1, err := reg.Acquire(context.Background(), db, database.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire1: %v", err)
+	}
+	l1.Release()
+
+	time.Sleep(5 * time.Millisecond)
+	if err := reg.CloseIdle(context.Background(), time.Now()); err != nil {
+		t.Fatalf("CloseIdle: %v", err)
+	}
+
+	// 应能重新打开
+	l2, err := reg.Acquire(context.Background(), db, database.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire2 after CloseIdle: %v", err)
+	}
+	l2.Release()
+}

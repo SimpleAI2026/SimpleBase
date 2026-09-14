@@ -11,31 +11,35 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
-	"github.com/linkxzhou/SimpleBase/internal/web"
 	"github.com/linkxzhou/SimpleBase/internal/config"
+	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/web"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Dependencies 是 NewRouter 注入的全部运行期依赖。各字段可由后续 plan 逐步填充。
 type Dependencies struct {
-	Config      config.Config
-	Logger      observability.Logger
-	Metrics     *observability.Metrics
-	Health      HealthChecker
+	Config  config.Config
+	Logger  observability.Logger
+	Metrics *observability.Metrics
+	Health  HealthChecker
 	// 业务依赖（Plan 5 起填充）
 	Auth            *auth.Service
 	Catalog         CatalogService
 	Registry        RegistryService
 	DatabaseHandler *DatabaseHandler
 	// Plan 6：SQL 执行 handler。writable=false 时仅 query 可用。
-	SQLHandler *SQLHandler
+	SQLHandler  *SQLHandler
+	DataHandler *DataHandler
 	// Plan 7-9：缓存、用量、审计、LLM、后台任务
 	Cache       CacheService
 	Usage       UsageService
 	Audit       AuditService
 	LLM         LLMService
 	JobEnqueuer JobEnqueuer
+	// S3FileStore：用户文件存储（objectstore.FileStore）。
+	S3FileStore objectstore.FileStore
 }
 
 // CacheService 抽象缓存管理（plan7.md）。
@@ -102,9 +106,9 @@ type LLMResponse struct {
 
 // LLMTokenUsage 是 token 用量。
 type LLMTokenUsage struct {
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 // LLMStreamReader 抽象流式读取。
@@ -115,9 +119,9 @@ type LLMStreamReader interface {
 
 // LLMStreamChunk 是流式分块。
 type LLMStreamChunk struct {
-	Type         string
-	Content      string
-	FinishReason string
+	Type         string `json:"type"`
+	Content      string `json:"content,omitempty"`
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 // JobEnqueuer 抽象后台任务提交（plan7.md）。
@@ -208,6 +212,16 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.POST("/databases/:databaseID/batch", sh.Batch, require(auth.DatabaseWrite))
 	}
 
+	if deps.DataHandler != nil {
+		dh := deps.DataHandler
+		p.GET("/data/collections", dh.ListCollections, require(auth.DatabaseRead))
+		p.POST("/data/collections", dh.CreateCollection, require(auth.DatabaseWrite))
+		p.GET("/data/collections/:collection", dh.ListDocuments, require(auth.DatabaseRead))
+		p.POST("/data/collections/:collection/documents", dh.CreateDocument, require(auth.DatabaseWrite))
+		p.PUT("/data/collections/:collection/documents/:id", dh.UpdateDocument, require(auth.DatabaseWrite))
+		p.DELETE("/data/collections/:collection/documents/:id", dh.DeleteDocument, require(auth.DatabaseWrite))
+	}
+
 	// Plan 8：LLM Gateway 路由。deps.LLM 为 nil 时不挂载。
 	if deps.LLM != nil {
 		lh := &LLMHandler{svc: deps.LLM, usage: deps.Usage, audit: deps.Audit}
@@ -224,6 +238,15 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	if deps.Audit != nil {
 		ah := &AuditHandler{svc: deps.Audit}
 		p.GET("/audit", ah.ListOperations, require(auth.DatabaseRead))
+	}
+
+	// S3 用户文件存储路由。deps.S3FileStore 为 nil 时不挂载。
+	if deps.S3FileStore != nil {
+		sh := &S3Handler{store: deps.S3FileStore}
+		p.GET("/s3/objects", sh.ListObjects, require(auth.DatabaseRead))
+		p.POST("/s3/objects", sh.UploadObject, require(auth.DatabaseWrite))
+		p.DELETE("/s3/objects", sh.DeleteObject, require(auth.DatabaseWrite))
+		p.GET("/s3/presign", sh.PresignObject, require(auth.DatabaseRead))
 	}
 }
 

@@ -1,11 +1,14 @@
 # internal/database — 数据库运行时
 
-SimpleBase 数据库运行时层。基于 Turso/libSQL（`libsql` 驱动）与 `database/sql`，提供连接管理、单写路由、本地缓存、SQL 执行边界与行序列化。
+SimpleBase 数据库运行时层。用户库默认基于 DuckDB + DuckLake（`duckdb` 驱动）与 `database/sql`，提供连接管理、单写路由、本地缓存、SQL 执行边界与行序列化。平台 catalog 仍使用 SQLite / 遗留 Turso。
 
 ## 子包
 
+### `ducklake/`
+DuckLake 工厂：每库一个 DuckDB 实例，`ATTACH ducklake:sqlite:{cache}/catalog.sqlite`，Phase 1 使用本地 `DATA_PATH`。包含扩展引导、选项、快照检查、提交消息与本地 Syncer 空实现。
+
 ### `turso/`
-DSN 构建与连接工厂。从 database descriptor + S3 prefix + 本地缓存目录生成 `libsql` DSN。业务模型不直接依赖驱动包。
+遗留 libSQL DSN 构建与连接工厂（`engine=turso` 回退，Phase 4 退役）。
 
 ### `registry/`
 进程内每库唯一 writer。

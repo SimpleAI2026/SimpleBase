@@ -30,11 +30,12 @@ HTTP 路由层（Echo v4）。职责：
 
 ### `database`
 数据库运行时。
-- `turso/`：DSN 构建（`libsql` 驱动）与连接工厂。从 database descriptor + S3 prefix + 本地缓存目录生成 DSN。
+- `ducklake/`：用户库默认引擎。DuckDB + DuckLake（SQLite catalog + 本地/S3 Parquet），实现 `database.Factory`。
+- `turso/`：遗留 libSQL 连接工厂（`engine=turso` 回退）。
 - `registry/`：进程内每库唯一 writer。`map[databaseID]*DatabaseHandle` + 每库互斥。`Open` 幂等（已打开则复用），`Close` 引用计数归零后关闭，`Evictor` 按空闲超时卸载。
 - `cache/`：本地缓存目录管理。路径校验防穿越、LRU 淘汰、活跃库保护（不淘汰正在使用的库）、容量配额。
-- `sqlguard/`：SQL 执行边界。context deadline、最大返回行数、最大批次数、只读检测（query 禁止 DML/DDL）。
-- `serialize.go`：行序列化为 JSON。
+- `sqlguard/`：SQL 执行边界。DuckDB 方言拒绝清单（ATTACH/SET/CALL/COPY 等）、只读检测、多语句与 NUL 拦截。
+- `serialize.go`：行序列化为 JSON（含 DuckDB DECIMAL/UUID/嵌套类型）。
 - `runtime.go`、`query.go`、`transaction.go`、`errors.go`：运行时核心。
 
 ### `objectstore`

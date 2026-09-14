@@ -120,3 +120,164 @@ func TestEvictFreesSpace(t *testing.T) {
 		t.Fatalf("expected at least 1 eviction, got %d", res.EvictedCount)
 	}
 }
+
+func TestManagerPath_ValidUUID(t *testing.T) {
+	m, err := NewManager(Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	id := "550e8400-e29b-41d4-a716-446655440000"
+	p, err := m.Path(id)
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	if !filepath.IsAbs(p) {
+		t.Errorf("expected absolute path, got %s", p)
+	}
+	if filepath.Base(p) != id {
+		t.Errorf("expected base to be UUID, got %s", filepath.Base(p))
+	}
+}
+
+func TestManagerRoot_AbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(Options{Root: dir})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if !filepath.IsAbs(m.Root()) {
+		t.Errorf("Root should be absolute, got %s", m.Root())
+	}
+}
+
+func TestNewManager_DefaultsApplied(t *testing.T) {
+	m, err := NewManager(Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if m.maxBytes != 1<<30 {
+		t.Errorf("default maxBytes = %d, want %d", m.maxBytes, 1<<30)
+	}
+	if m.maxDatabases != 256 {
+		t.Errorf("default maxDatabases = %d, want 256", m.maxDatabases)
+	}
+}
+
+func TestNewManager_EmptyRootReturnsError(t *testing.T) {
+	_, err := NewManager(Options{Root: ""})
+	if err == nil {
+		t.Fatal("expected error for empty root")
+	}
+}
+
+func TestEvict_TargetZeroOrNegativeReturnsNil(t *testing.T) {
+	m, err := NewManager(Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	res, err := m.Evict(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("Evict(0): %v", err)
+	}
+	if res.Achieved {
+		t.Error("expected Achieved=false for zero target")
+	}
+}
+
+func TestEvict_NoCandidatesReturnsCapacityExceeded(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(Options{Root: dir, Registry: &fakeRegistry{active: map[string]bool{}}})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	// 目录为空，无可淘汰项
+	_, err = m.Evict(context.Background(), 100)
+	if err == nil {
+		t.Fatal("expected error when no candidates available")
+	}
+}
+
+func TestEvict_SkipsActiveDatabases(t *testing.T) {
+	dir := t.TempDir()
+	id := "550e8400-e29b-41d4-a716-446655440000"
+	reg := &fakeRegistry{active: map[string]bool{id: true}}
+	m, err := NewManager(Options{Root: dir, Registry: reg})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	p, _ := m.Path(id)
+	_ = os.MkdirAll(p, 0o755)
+	_ = os.WriteFile(filepath.Join(p, "data"), make([]byte, 50), 0o644)
+
+	res, err := m.Evict(context.Background(), 10)
+	if err == nil {
+		t.Fatal("expected capacity exceeded since only candidate is active")
+	}
+	if res.SkippedActive != 1 {
+		t.Errorf("expected SkippedActive=1, got %d", res.SkippedActive)
+	}
+}
+
+func TestEnsureCapacity_SufficientSpace(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(Options{Root: dir, MaxBytes: 1 << 20})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	// 空目录，空间充足
+	if err := m.EnsureCapacity(context.Background(), 100); err != nil {
+		t.Fatalf("EnsureCapacity with sufficient space: %v", err)
+	}
+}
+
+func TestEnsureCapacity_InsufficientSpaceNoCandidates(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(Options{Root: dir, MaxBytes: 100, Registry: &fakeRegistry{active: map[string]bool{}}})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	// 空目录，但 maxBytes 太小且无可淘汰项
+	err = m.EnsureCapacity(context.Background(), 200)
+	if err == nil {
+		t.Fatal("expected error when cannot ensure capacity")
+	}
+}
+
+func TestUsage_EmptyRoot(t *testing.T) {
+	m, err := NewManager(Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	u, err := m.Usage(context.Background())
+	if err != nil {
+		t.Fatalf("Usage: %v", err)
+	}
+	if u.TotalBytes != 0 || u.DatabaseDirs != 0 {
+		t.Errorf("expected zero usage, got bytes=%d dirs=%d", u.TotalBytes, u.DatabaseDirs)
+	}
+}
+
+func TestUsage_NestedFiles(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(Options{Root: dir})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	id := "550e8400-e29b-41d4-a716-446655440000"
+	p, _ := m.Path(id)
+	sub := filepath.Join(p, "sub")
+	_ = os.MkdirAll(sub, 0o755)
+	_ = os.WriteFile(filepath.Join(p, "a"), make([]byte, 10), 0o644)
+	_ = os.WriteFile(filepath.Join(sub, "b"), make([]byte, 15), 0o644)
+
+	u, err := m.Usage(context.Background())
+	if err != nil {
+		t.Fatalf("Usage: %v", err)
+	}
+	if u.DatabaseDirs != 1 {
+		t.Errorf("expected 1 dir, got %d", u.DatabaseDirs)
+	}
+	if u.TotalBytes != 25 {
+		t.Errorf("expected 25 bytes, got %d", u.TotalBytes)
+	}
+}

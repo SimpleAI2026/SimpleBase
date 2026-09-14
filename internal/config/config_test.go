@@ -52,6 +52,15 @@ func TestLoadRejectsEmptyAddress(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidEngine(t *testing.T) {
+	setRequiredEnvs(t, false, false)
+	t.Setenv("SIMPLEBASE_DB_ENGINE", "postgres")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid engine")
+	}
+}
+
 func TestLoadRejectsEmptyCacheDir(t *testing.T) {
 	setRequiredEnvs(t, false, false)
 	t.Setenv("SIMPLEBASE_DB_CACHE_DIR", "")
@@ -89,6 +98,15 @@ func TestLoadSucceedsWithCompleteConfig(t *testing.T) {
 	}
 	if cfg.Limits.QueryTimeout != 5*time.Second {
 		t.Fatalf("unexpected query timeout: %v", cfg.Limits.QueryTimeout)
+	}
+	if cfg.Database.Engine != EngineDuckLake {
+		t.Fatalf("unexpected engine: %s", cfg.Database.Engine)
+	}
+	if cfg.Database.DuckLake.MemoryLimit != "512MB" {
+		t.Fatalf("unexpected ducklake memory_limit: %s", cfg.Database.DuckLake.MemoryLimit)
+	}
+	if cfg.Database.DuckLake.CatalogSync.Mode != "debounce" {
+		t.Fatalf("unexpected sync mode: %s", cfg.Database.DuckLake.CatalogSync.Mode)
 	}
 }
 

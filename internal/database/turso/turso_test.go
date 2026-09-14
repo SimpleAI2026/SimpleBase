@@ -187,3 +187,131 @@ func TestCloseNil(t *testing.T) {
 
 // 确保 observability 包被引用（避免 import 未用）。
 var _ observability.Logger
+
+func TestBuildDSN_ForcePathStyle(t *testing.T) {
+	opts := OpenOptions{
+		DatabaseID: "d",
+		Storage: StorageConfig{
+			Region:         "r",
+			Bucket:         "b",
+			Prefix:         "p",
+			ForcePathStyle: true,
+		},
+	}
+	dsn, err := BuildDSN(opts)
+	if err != nil {
+		t.Fatalf("BuildDSN: %v", err)
+	}
+	if !strings.Contains(dsn, "force_path_style=true") {
+		t.Errorf("expected force_path_style=true in dsn: %s", dsn)
+	}
+}
+
+func TestBuildDSN_NoForcePathStyleByDefault(t *testing.T) {
+	opts := OpenOptions{
+		DatabaseID: "d",
+		Storage:    StorageConfig{Region: "r", Bucket: "b", Prefix: "p"},
+	}
+	dsn, err := BuildDSN(opts)
+	if err != nil {
+		t.Fatalf("BuildDSN: %v", err)
+	}
+	if strings.Contains(dsn, "force_path_style") {
+		t.Errorf("force_path_style should not appear when false: %s", dsn)
+	}
+}
+
+func TestBuildDSN_PrefixTrailingSlashRemoved(t *testing.T) {
+	opts := OpenOptions{
+		DatabaseID: "d",
+		Storage:    StorageConfig{Region: "r", Bucket: "b", Prefix: "p/data/"},
+	}
+	dsn, err := BuildDSN(opts)
+	if err != nil {
+		t.Fatalf("BuildDSN: %v", err)
+	}
+	// sanitizePrefix 去掉尾部斜杠
+	if strings.Contains(dsn, "p=data%2F") {
+		t.Errorf("trailing slash should be sanitized: %s", dsn)
+	}
+}
+
+func TestValidate_MissingDatabaseID(t *testing.T) {
+	opts := OpenOptions{
+		Storage: StorageConfig{Region: "r", Bucket: "b", Prefix: "p"},
+	}
+	err := opts.Validate()
+	if !errors.Is(err, ErrInvalidOptions) {
+		t.Fatalf("expected ErrInvalidOptions, got %v", err)
+	}
+}
+
+func TestValidate_MissingBucket(t *testing.T) {
+	opts := OpenOptions{
+		DatabaseID: "d",
+		Storage:    StorageConfig{Region: "r", Prefix: "p"},
+	}
+	err := opts.Validate()
+	if !errors.Is(err, ErrInvalidOptions) {
+		t.Fatalf("expected ErrInvalidOptions, got %v", err)
+	}
+}
+
+func TestValidate_MissingRegion(t *testing.T) {
+	opts := OpenOptions{
+		DatabaseID: "d",
+		Storage:    StorageConfig{Bucket: "b", Prefix: "p"},
+	}
+	err := opts.Validate()
+	if !errors.Is(err, ErrInvalidOptions) {
+		t.Fatalf("expected ErrInvalidOptions, got %v", err)
+	}
+}
+
+func TestValidate_MissingPrefix(t *testing.T) {
+	opts := OpenOptions{
+		DatabaseID: "d",
+		Storage:    StorageConfig{Region: "r", Bucket: "b"},
+	}
+	err := opts.Validate()
+	if !errors.Is(err, ErrInvalidOptions) {
+		t.Fatalf("expected ErrInvalidOptions, got %v", err)
+	}
+}
+
+func TestPoolOptionsDefaults_ExplicitValues(t *testing.T) {
+	p := PoolOptions{MaxOpen: 16, MaxIdle: 4, MaxIdleTime: 10 * time.Minute}.defaults()
+	if p.MaxOpen != 16 {
+		t.Errorf("MaxOpen = %d, want 16", p.MaxOpen)
+	}
+	if p.MaxIdle != 4 {
+		t.Errorf("MaxIdle = %d, want 4", p.MaxIdle)
+	}
+	if p.MaxIdleTime != 10*time.Minute {
+		t.Errorf("MaxIdleTime = %v, want 10m", p.MaxIdleTime)
+	}
+}
+
+func TestRedactDSN_NoQuestionMark(t *testing.T) {
+	in := "libsql+ss3://something"
+	out := redactDSN(in)
+	if out != in {
+		t.Errorf("redact without query should return as-is: got %s", out)
+	}
+}
+
+func TestOpen_BuildDSNFailsBeforeCallingDriver(t *testing.T) {
+	opts := OpenOptions{
+		DatabaseID: "d",
+		Storage:    StorageConfig{Region: "r", Bucket: "b", Prefix: "../traversal"},
+	}
+	// openFn 不应被调用——BuildDSN 在 Open 内部先校验
+	openFn := func(driverName, dsn string) (*sql.DB, error) {
+		t.Fatal("openFn should not be called when BuildDSN fails")
+		return nil, nil
+	}
+	_, err := Open(context.Background(), opts, PoolOptions{}, nil, nil, openFn)
+	if err == nil {
+		t.Fatal("expected error from invalid prefix")
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
+	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
 // APIError 是统一错误协议的载荷。
@@ -122,6 +123,10 @@ func Error(err error, requestID string) *APIError {
 	// sqlguard 错误
 	if errors.Is(err, sqlguard.ErrEmptySQL) {
 		return NewAPIError(http.StatusBadRequest, "empty_sql", "sql statement is empty", requestID)
+	}
+	// objectstore 文件 key 校验错误
+	if errors.Is(err, objectstore.ErrInvalidKey) {
+		return NewAPIError(http.StatusBadRequest, "invalid_file_key", "invalid file key", requestID)
 	}
 	if errors.Is(err, sqlguard.ErrMultipleStatements) {
 		return NewAPIError(http.StatusBadRequest, "multiple_statements", "multiple statements are not allowed", requestID)

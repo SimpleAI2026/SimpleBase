@@ -4,7 +4,7 @@
 //   - 去除前导空白与 SQL 注释后判断首关键字
 //   - 拒绝空 SQL、多语句、NUL 字符
 //   - 按意图（只读 / 写允许）过滤首关键字
-//   - 永久拒绝危险关键字：ATTACH/DETACH/LOAD_EXTENSION/部分 PRAGMA
+//   - 永久拒绝 DuckDB 管理面指令：ATTACH/DETACH/INSTALL/LOAD/COPY/SET/PRAGMA/CALL 等
 //
 // 若无法可靠判断，保守拒绝并返回 ErrSQLNotAllowed。
 package sqlguard
@@ -17,7 +17,7 @@ import (
 type Intent uint8
 
 const (
-	// ReadOnly 仅允许 SELECT/WITH/EXPLAIN/受控 PRAGMA。
+	// ReadOnly 仅允许 SELECT/WITH/EXPLAIN/DESCRIBE/SHOW 等只读关键字。
 	ReadOnly Intent = iota
 	// WriteAllowed 允许 DML/DDL，但仍拒绝危险关键字。
 	WriteAllowed
@@ -49,12 +49,8 @@ func Validate(sql string, intent Intent) error {
 	if isAlwaysDenied(kw) {
 		return ErrSQLNotAllowed
 	}
-
-	// PRAGMA 只允许白名单内的安全查询项
-	if kw == "PRAGMA" {
-		if !isAllowedPragma(sql) {
-			return ErrSQLNotAllowed
-		}
+	if (kw == "CREATE" || kw == "DROP") && isDeniedSchemaObject(sql) {
+		return ErrSQLNotAllowed
 	}
 
 	switch intent {
@@ -200,52 +196,49 @@ func firstTokenEnd(s string) int {
 }
 
 // isReadOnlyKeyword 判断首关键字是否属于只读集合。
-// PRAGMA 经 isAllowedPragma 白名单过滤后视为只读。
 func isReadOnlyKeyword(kw string) bool {
 	switch kw {
-	case "SELECT", "WITH", "EXPLAIN", "VALUES", "PRAGMA":
+	case "SELECT", "WITH", "EXPLAIN", "VALUES", "DESCRIBE", "SHOW", "FROM", "SUMMARIZE", "PIVOT", "UNPIVOT":
 		return true
 	}
 	return false
 }
 
 // isAlwaysDenied 判断关键字是否永久拒绝（不论意图）。
+// 管理面指令由后端内部通道执行，不走用户 SQL API（planv2.0 §4.5）。
 func isAlwaysDenied(kw string) bool {
 	switch kw {
-	case "ATTACH", "DETACH", "LOAD_EXTENSION":
+	case "ATTACH", "DETACH", "INSTALL", "LOAD", "LOAD_EXTENSION",
+		"COPY", "EXPORT", "IMPORT", "SET", "PRAGMA", "CHECKPOINT", "CALL",
+		"USE", "VACUUM", "PREPARE", "EXECUTE", "DEALLOCATE":
 		return true
 	}
 	return false
 }
 
-// isAllowedPragma 判断 PRAGMA 是否在安全白名单内。
-// 允许只读信息查询；拒绝 writable_schema/load_extension 等危险项。
-func isAllowedPragma(sql string) bool {
-	// 提取 PRAGMA 后的标识符
+// isDeniedSchemaObject 拦截 CREATE/DROP SECRET 与 CREATE/DROP MACRO。
+func isDeniedSchemaObject(sql string) bool {
+	switch schemaObjectKind(sql) {
+	case "SECRET", "MACRO":
+		return true
+	}
+	return false
+}
+
+func schemaObjectKind(sql string) string {
 	s := stripLeadingNoise(sql)
-	// 去掉 "PRAGMA" 前缀（已由 FirstKeyword 确认大小写无关）
-	if len(s) < 6 {
-		return false
-	}
-	rest := strings.TrimSpace(s[6:])
-	if rest == "" {
-		return false
-	}
-	// 取标识符部分（到 = 或 ( 或空白为止）
-	end := len(rest)
-	for i := 0; i < len(rest); i++ {
-		c := rest[i]
-		if c == '=' || c == '(' || c == ' ' || c == '\t' || c == ';' {
-			end = i
-			break
+	end := firstTokenEnd(s)
+	rest := stripLeadingNoise(s[end:])
+	for rest != "" {
+		tokEnd := firstTokenEnd(rest)
+		tok := strings.ToUpper(rest[:tokEnd])
+		switch tok {
+		case "OR", "REPLACE", "TEMP", "TEMPORARY", "UNIQUE", "RECURSIVE", "IF", "NOT", "EXISTS":
+			rest = stripLeadingNoise(rest[tokEnd:])
+			continue
+		default:
+			return tok
 		}
 	}
-	name := strings.ToUpper(rest[:end])
-
-	switch name {
-	case "WRITABLE_SCHEMA", "LOAD_EXTENSION":
-		return false
-	}
-	// 允许其余信息查询型 PRAGMA（如 database_list, integrity_check, table_info 等）
-	return true
+	return ""
 }

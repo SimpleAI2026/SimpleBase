@@ -93,6 +93,11 @@ func (a *sqlServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mo
 	return &sqlLeaseAdapter{lease: l}, nil
 }
 
+// ListDatabases 使 sqlServiceAdapter 同时满足 DataService。
+func (a *sqlServiceAdapter) ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page catalog.Page) ([]catalog.Database, string, error) {
+	return a.catalog.ListDatabases(ctx, principal, projectID, page)
+}
+
 // sqlLeaseAdapter 包装 registry.Lease，暴露 Handle 的 Query/Execute/Batch。
 type sqlLeaseAdapter struct {
 	lease *registry.Lease

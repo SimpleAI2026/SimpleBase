@@ -41,13 +41,48 @@ type InstanceConfig struct {
 	Writable bool
 }
 
+const (
+	EngineDuckLake = "ducklake"
+	EngineLocal    = "local"
+	EngineTurso    = "turso"
+)
+
 type DatabaseConfig struct {
+	// Engine 选择用户库后端：ducklake（默认）| local（SQLite 文件）| turso（遗留，Phase 4 退役）。
+	Engine            string
 	CacheDir          string
 	CacheMaxBytes     int64
 	CacheMaxDatabases int
 	IdleTimeout       time.Duration
 	MaxOpen           int
 	MaxIdle           int
+	DuckLake          DuckLakeConfig
+}
+
+// DuckLakeConfig 对应 planv2.0 §4.8 的 database.ducklake section。
+type DuckLakeConfig struct {
+	MemoryLimit          string
+	Threads              int
+	ExtensionDir         string
+	DataInliningRowLimit int
+	ParquetCompression   string
+	TargetFileSize       string
+	RequireCommitMessage bool
+	CatalogSync          CatalogSyncConfig
+	Maintenance          DuckLakeMaintenanceConfig
+}
+
+type CatalogSyncConfig struct {
+	Mode         string
+	Debounce     time.Duration
+	KeepVersions int
+}
+
+type DuckLakeMaintenanceConfig struct {
+	CheckpointInterval     time.Duration
+	ExpireOlderThan        time.Duration
+	DeleteOlderThan        time.Duration
+	RewriteDeleteThreshold float64
 }
 
 type S3Config struct {
@@ -160,10 +195,37 @@ type yamlInstance struct {
 }
 
 type yamlDatabase struct {
+	Engine      string        `yaml:"engine"`
 	CacheDir    string        `yaml:"cache_dir"`
 	IdleTimeout time.Duration `yaml:"idle_timeout"`
 	MaxOpen     int           `yaml:"max_open"`
 	MaxIdle     int           `yaml:"max_idle"`
+	DuckLake    yamlDuckLake  `yaml:"ducklake"`
+}
+
+type yamlDuckLake struct {
+	MemoryLimit          string                `yaml:"memory_limit"`
+	Threads              int                   `yaml:"threads"`
+	ExtensionDir         string                `yaml:"extension_dir"`
+	DataInliningRowLimit int                   `yaml:"data_inlining_row_limit"`
+	ParquetCompression   string                `yaml:"parquet_compression"`
+	TargetFileSize       string                `yaml:"target_file_size"`
+	RequireCommitMessage bool                  `yaml:"require_commit_message"`
+	CatalogSync          yamlCatalogSync       `yaml:"catalog_sync"`
+	Maintenance          yamlDuckLakeMaint     `yaml:"maintenance"`
+}
+
+type yamlCatalogSync struct {
+	Mode         string `yaml:"mode"`
+	DebounceMS   int    `yaml:"debounce_ms"`
+	KeepVersions int    `yaml:"keep_versions"`
+}
+
+type yamlDuckLakeMaint struct {
+	CheckpointInterval     time.Duration `yaml:"checkpoint_interval"`
+	ExpireOlderThan        string        `yaml:"expire_older_than"`
+	DeleteOlderThan        string        `yaml:"delete_older_than"`
+	RewriteDeleteThreshold float64       `yaml:"rewrite_delete_threshold"`
 }
 
 type yamlS3 struct {
@@ -232,11 +294,17 @@ func applyYAML(cfg *Config, yc yamlConfig) {
 	if os.Getenv("SIMPLEBASE_INSTANCE_WRITABLE") == "" {
 		cfg.Instance.Writable = yc.Instance.Writable
 	}
+	if yc.Database.Engine != "" {
+		if os.Getenv("SIMPLEBASE_DB_ENGINE") == "" {
+			cfg.Database.Engine = yc.Database.Engine
+		}
+	}
 	if yc.Database.CacheDir != "" {
 		if os.Getenv("SIMPLEBASE_DB_CACHE_DIR") == "" {
 			cfg.Database.CacheDir = yc.Database.CacheDir
 		}
 	}
+	applyYAMLDuckLake(cfg, yc.Database.DuckLake)
 	if yc.Database.IdleTimeout > 0 {
 		if os.Getenv("SIMPLEBASE_DB_IDLE_TIMEOUT") == "" {
 			cfg.Database.IdleTimeout = yc.Database.IdleTimeout
@@ -361,10 +429,31 @@ func loadFromEnv() Config {
 			Writable: envBool("SIMPLEBASE_INSTANCE_WRITABLE", true),
 		},
 		Database: DatabaseConfig{
+			Engine:      envStr("SIMPLEBASE_DB_ENGINE", EngineDuckLake),
 			CacheDir:    envStr("SIMPLEBASE_DB_CACHE_DIR", ""),
 			IdleTimeout: envDuration("SIMPLEBASE_DB_IDLE_TIMEOUT", 5*time.Minute),
 			MaxOpen:     envInt("SIMPLEBASE_DB_MAX_OPEN", 8),
 			MaxIdle:     envInt("SIMPLEBASE_DB_MAX_IDLE", 2),
+			DuckLake: DuckLakeConfig{
+				MemoryLimit:          envStr("SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT", "512MB"),
+				Threads:              envInt("SIMPLEBASE_DUCKLAKE_THREADS", 2),
+				ExtensionDir:         envStr("SIMPLEBASE_DUCKLAKE_EXTENSION_DIR", ""),
+				DataInliningRowLimit: envInt("SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT", 100),
+				ParquetCompression:   envStr("SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION", "zstd"),
+				TargetFileSize:       envStr("SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE", "64MB"),
+				RequireCommitMessage: envBool("SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE", false),
+				CatalogSync: CatalogSyncConfig{
+					Mode:         envStr("SIMPLEBASE_DUCKLAKE_SYNC_MODE", "debounce"),
+					Debounce:     time.Duration(envInt("SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS", 200)) * time.Millisecond,
+					KeepVersions: envInt("SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS", 10),
+				},
+				Maintenance: DuckLakeMaintenanceConfig{
+					CheckpointInterval:     envDuration("SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL", time.Hour),
+					ExpireOlderThan:        envDuration("SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN", 7*24*time.Hour),
+					DeleteOlderThan:        envDuration("SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN", 24*time.Hour),
+					RewriteDeleteThreshold: envFloat64("SIMPLEBASE_DUCKLAKE_MAINT_REWRITE_DELETE_THRESHOLD", 0.95),
+				},
+			},
 		},
 		S3: S3Config{
 			Endpoint:       envStr("SIMPLEBASE_S3_ENDPOINT", ""),
@@ -442,6 +531,14 @@ func (c Config) Validate() error {
 	if c.Instance.ID == "" {
 		errs = append(errs, errors.New("instance.id is required"))
 	}
+	switch strings.ToLower(c.Database.Engine) {
+	case "", EngineDuckLake, EngineLocal, EngineTurso:
+	default:
+		errs = append(errs, fmt.Errorf("database.engine must be ducklake, local, or turso"))
+	}
+	if c.Database.DuckLake.Threads < 0 {
+		errs = append(errs, errors.New("database.ducklake.threads must be non-negative"))
+	}
 	if c.Database.CacheDir == "" {
 		errs = append(errs, errors.New("database.cache_dir is required"))
 	}
@@ -513,10 +610,23 @@ func (c Config) Redacted() map[string]any {
 			"writable": c.Instance.Writable,
 		},
 		"database": map[string]any{
+			"engine":       c.Database.Engine,
 			"cache_dir":    c.Database.CacheDir,
 			"idle_timeout": c.Database.IdleTimeout.String(),
 			"max_open":     c.Database.MaxOpen,
 			"max_idle":     c.Database.MaxIdle,
+			"ducklake": map[string]any{
+				"memory_limit":             c.Database.DuckLake.MemoryLimit,
+				"threads":                  c.Database.DuckLake.Threads,
+				"extension_dir":            c.Database.DuckLake.ExtensionDir,
+				"data_inlining_row_limit":  c.Database.DuckLake.DataInliningRowLimit,
+				"parquet_compression":      c.Database.DuckLake.ParquetCompression,
+				"target_file_size":         c.Database.DuckLake.TargetFileSize,
+				"require_commit_message":   c.Database.DuckLake.RequireCommitMessage,
+				"catalog_sync_mode":        c.Database.DuckLake.CatalogSync.Mode,
+				"catalog_sync_debounce":    c.Database.DuckLake.CatalogSync.Debounce.String(),
+				"catalog_sync_keep_versions": c.Database.DuckLake.CatalogSync.KeepVersions,
+			},
 		},
 		"s3": map[string]any{
 			"endpoint":         c.S3.Endpoint,
@@ -589,13 +699,87 @@ func envInt64(key string, def int64) int64 {
 	return def
 }
 
+func applyYAMLDuckLake(cfg *Config, y yamlDuckLake) {
+	if y.MemoryLimit != "" && os.Getenv("SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT") == "" {
+		cfg.Database.DuckLake.MemoryLimit = y.MemoryLimit
+	}
+	if y.Threads > 0 && os.Getenv("SIMPLEBASE_DUCKLAKE_THREADS") == "" {
+		cfg.Database.DuckLake.Threads = y.Threads
+	}
+	if y.ExtensionDir != "" && os.Getenv("SIMPLEBASE_DUCKLAKE_EXTENSION_DIR") == "" {
+		cfg.Database.DuckLake.ExtensionDir = y.ExtensionDir
+	}
+	if y.DataInliningRowLimit > 0 && os.Getenv("SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT") == "" {
+		cfg.Database.DuckLake.DataInliningRowLimit = y.DataInliningRowLimit
+	}
+	if y.ParquetCompression != "" && os.Getenv("SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION") == "" {
+		cfg.Database.DuckLake.ParquetCompression = y.ParquetCompression
+	}
+	if y.TargetFileSize != "" && os.Getenv("SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE") == "" {
+		cfg.Database.DuckLake.TargetFileSize = y.TargetFileSize
+	}
+	if os.Getenv("SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE") == "" {
+		cfg.Database.DuckLake.RequireCommitMessage = y.RequireCommitMessage
+	}
+	if y.CatalogSync.Mode != "" && os.Getenv("SIMPLEBASE_DUCKLAKE_SYNC_MODE") == "" {
+		cfg.Database.DuckLake.CatalogSync.Mode = y.CatalogSync.Mode
+	}
+	if y.CatalogSync.DebounceMS > 0 && os.Getenv("SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS") == "" {
+		cfg.Database.DuckLake.CatalogSync.Debounce = time.Duration(y.CatalogSync.DebounceMS) * time.Millisecond
+	}
+	if y.CatalogSync.KeepVersions > 0 && os.Getenv("SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS") == "" {
+		cfg.Database.DuckLake.CatalogSync.KeepVersions = y.CatalogSync.KeepVersions
+	}
+	if y.Maintenance.CheckpointInterval > 0 && os.Getenv("SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL") == "" {
+		cfg.Database.DuckLake.Maintenance.CheckpointInterval = y.Maintenance.CheckpointInterval
+	}
+	if y.Maintenance.ExpireOlderThan != "" && os.Getenv("SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN") == "" {
+		if d, err := parseDuration(y.Maintenance.ExpireOlderThan); err == nil {
+			cfg.Database.DuckLake.Maintenance.ExpireOlderThan = d
+		}
+	}
+	if y.Maintenance.DeleteOlderThan != "" && os.Getenv("SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN") == "" {
+		if d, err := parseDuration(y.Maintenance.DeleteOlderThan); err == nil {
+			cfg.Database.DuckLake.Maintenance.DeleteOlderThan = d
+		}
+	}
+	if y.Maintenance.RewriteDeleteThreshold > 0 && os.Getenv("SIMPLEBASE_DUCKLAKE_MAINT_REWRITE_DELETE_THRESHOLD") == "" {
+		cfg.Database.DuckLake.Maintenance.RewriteDeleteThreshold = y.Maintenance.RewriteDeleteThreshold
+	}
+}
+
 func envDuration(key string, def time.Duration) time.Duration {
 	if v, ok := os.LookupEnv(key); ok {
-		d, err := time.ParseDuration(v)
+		d, err := parseDuration(v)
 		if err != nil {
 			return def
 		}
 		return d
+	}
+	return def
+}
+
+func parseDuration(v string) (time.Duration, error) {
+	if d, err := time.ParseDuration(v); err == nil {
+		return d, nil
+	}
+	if strings.HasSuffix(v, "d") {
+		n, err := strconv.Atoi(strings.TrimSuffix(v, "d"))
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return 0, fmt.Errorf("invalid duration %q", v)
+}
+
+func envFloat64(key string, def float64) float64 {
+	if v, ok := os.LookupEnv(key); ok {
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return def
+		}
+		return n
 	}
 	return def
 }

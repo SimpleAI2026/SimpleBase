@@ -28,10 +28,27 @@ instance:
   writable: true              # SIMPLEBASE_INSTANCE_WRITABLE
 
 database:
+  engine: ducklake            # SIMPLEBASE_DB_ENGINE：ducklake（默认）| local | turso
   cache_dir: ".cache"         # SIMPLEBASE_DB_CACHE_DIR（必填）
   idle_timeout: 5m            # SIMPLEBASE_DB_IDLE_TIMEOUT
   max_open: 8                 # SIMPLEBASE_DB_MAX_OPEN
   max_idle: 2                 # SIMPLEBASE_DB_MAX_IDLE
+  ducklake:
+    memory_limit: 512MB       # SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT
+    threads: 2                # SIMPLEBASE_DUCKLAKE_THREADS
+    extension_dir: ""         # SIMPLEBASE_DUCKLAKE_EXTENSION_DIR（生产预置扩展）
+    data_inlining_row_limit: 100
+    parquet_compression: zstd
+    target_file_size: 64MB
+    catalog_sync:
+      mode: debounce          # debounce | sync_on_commit
+      debounce_ms: 200
+      keep_versions: 10
+    maintenance:
+      checkpoint_interval: 1h
+      expire_older_than: 7d
+      delete_older_than: 1d
+      rewrite_delete_threshold: 0.95
 
 s3:
   endpoint: ""                # SIMPLEBASE_S3_ENDPOINT

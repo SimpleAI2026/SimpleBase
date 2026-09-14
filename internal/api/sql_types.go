@@ -40,7 +40,8 @@ type QueryResponse struct {
 }
 
 // ExecuteResponse 是执行响应。
-// LastInsertID 为指针：nil 表示驱动未提供或语句不产生自增 ID。
+// LastInsertID 已废弃：DuckLake 无 sequences / last_insert_rowid，恒为省略。
+// 请使用 RETURNING 或应用侧 UUID。
 type ExecuteResponse struct {
 	RowsAffected int64  `json:"rows_affected"`
 	LastInsertID *int64 `json:"last_insert_id,omitempty"`
