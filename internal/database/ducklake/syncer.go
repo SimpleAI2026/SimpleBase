@@ -2,11 +2,14 @@ package ducklake
 
 import (
 	"context"
+	"database/sql"
 	"sync"
+
+	"github.com/linkxzhou/SimpleBase/internal/catalog"
 )
 
 // Syncer 把本地 catalog.sqlite 同步到持久层。
-// Phase 1 仅记录快照水位，不上传 S3（完整实现见 Phase 2）。
+// Phase 1 LocalSyncer 只记水位；Phase 2 CatalogSyncer 上传 S3。
 type Syncer interface {
 	MarkDirty(dbID string, snapshotID int64)
 	LastSynced(dbID string) int64
@@ -14,7 +17,14 @@ type Syncer interface {
 	Flush(ctx context.Context, dbID string) error
 }
 
-// LocalSyncer 是 Phase 1 的本地空实现：只在内存中推进 last_synced_snapshot_id。
+// BindingSyncer 在 Open/Close 时绑定 *sql.DB，供 COPY FROM DATABASE 备份。
+type BindingSyncer interface {
+	Syncer
+	Bind(dbID string, sqlDB *sql.DB, meta catalog.Database, alias string)
+	Unbind(ctx context.Context, dbID string) error
+}
+
+// LocalSyncer 是 Phase 1 / DevMode 的本地空实现：只在内存中推进 last_synced_snapshot_id。
 type LocalSyncer struct {
 	mu   sync.Mutex
 	last map[string]int64

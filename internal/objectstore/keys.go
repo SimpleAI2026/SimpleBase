@@ -136,3 +136,36 @@ func (k KeyBuilder) BackupPrefix(tenantID, databaseID, backupID string) (string,
 func (k KeyBuilder) CatalogPrefix() string {
 	return joinKey(k.base(), "catalog")
 }
+
+// DuckLakeCatalogKey 返回 DuckLake catalog.sqlite 的对象键。
+func (k KeyBuilder) DuckLakeCatalogKey(tenantID, databaseID string) (string, error) {
+	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+	if err != nil {
+		return "", err
+	}
+	return prefix + "/catalog/catalog.sqlite", nil
+}
+
+// DuckLakeCatalogVersionKey 返回按快照 id 命名的 catalog 历史版本键。
+func (k KeyBuilder) DuckLakeCatalogVersionKey(tenantID, databaseID string, snapshotID int64) (string, error) {
+	if snapshotID <= 0 {
+		return "", fmt.Errorf("objectstore: snapshot_id must be positive")
+	}
+	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/catalog/versions/%d.sqlite", prefix, snapshotID), nil
+}
+
+// DuckLakeDataURI 返回 DuckLake DATA_PATH（必须以 / 结尾的 s3 URI）。
+func (k KeyBuilder) DuckLakeDataURI(bucket, tenantID, databaseID string) (string, error) {
+	if bucket == "" {
+		return "", fmt.Errorf("objectstore: bucket is required")
+	}
+	prefix, err := k.DataPrefix(tenantID, databaseID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("s3://%s/%s/", bucket, prefix), nil
+}

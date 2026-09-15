@@ -52,7 +52,9 @@ type Lease interface {
 // DatabaseHandler 实现 Plan 5 的全部数据库管理路由。
 type DatabaseHandler struct {
 	svc      DatabaseService
-	writable bool // 对应 config.Instance.Writable；false 时写 API 返回 503
+	writable bool
+	// SnapshotFor 可选：填充 DuckLake 同步水位。
+	SnapshotFor func(databaseID string) *DatabaseSnapshot
 }
 
 // NewDatabaseHandler 构造 handler。writable 为 false 时所有写操作返回 503。
@@ -72,6 +74,14 @@ type DatabaseResponse struct {
 	Status    string     `json:"status"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
+	// Snapshot 是 DuckLake catalog 同步水位（Phase 2）；未启用远程时为零值省略。
+	Snapshot  *DatabaseSnapshot `json:"snapshot,omitempty"`
+}
+
+// DatabaseSnapshot 暴露 last_synced / sync_lag（§八 API）。
+type DatabaseSnapshot struct {
+	LastSyncedSnapshot int64 `json:"last_synced_snapshot"`
+	SyncLag            int64 `json:"sync_lag"`
 }
 
 // DatabaseListResponse 是分页列表响应。NextCursor 为空表示无更多数据。
@@ -164,7 +174,11 @@ func (h *DatabaseHandler) GetDatabase(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	return c.JSON(http.StatusOK, toDatabaseResponse(db))
+	resp := toDatabaseResponse(db)
+	if h.SnapshotFor != nil {
+		resp.Snapshot = h.SnapshotFor(databaseID)
+	}
+	return c.JSON(http.StatusOK, resp)
 }
 
 // OpenDatabase: POST /v1/projects/:projectID/databases/:databaseID/open

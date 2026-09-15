@@ -21,6 +21,10 @@ type Metrics struct {
 	LLMFirstTokenSeconds *prometheus.HistogramVec
 	LLMTokens           *prometheus.CounterVec
 	JobsTotal           *prometheus.CounterVec
+	CatalogSyncTotal    *prometheus.CounterVec
+	CatalogSyncFailures prometheus.Counter
+	CatalogSyncDuration prometheus.Histogram
+	CatalogSyncLag      *prometheus.GaugeVec
 	JobDurationSeconds  *prometheus.HistogramVec
 }
 
@@ -110,6 +114,24 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "simplebase_jobs_total",
 			Help: "Background jobs by type and outcome.",
 		}, []string{"type", "outcome"}),
+		CatalogSyncTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_catalog_sync_total",
+			Help: "DuckLake catalog sync attempts by outcome",
+		}, []string{"outcome"}),
+		CatalogSyncFailures: f.NewCounter(prometheus.CounterOpts{
+			Name: "simplebase_catalog_sync_failures_total",
+			Help: "DuckLake catalog sync failures",
+		}),
+		CatalogSyncDuration: f.NewHistogram(prometheus.HistogramOpts{
+			Name:    "simplebase_catalog_sync_duration_seconds",
+			Help:    "DuckLake catalog sync duration",
+			Buckets: prometheus.DefBuckets,
+		}),
+		CatalogSyncLag: f.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "simplebase_catalog_sync_lag_snapshots",
+			Help: "DuckLake catalog sync lag in snapshot ids",
+		}, []string{"database_id"}),
+
 		JobDurationSeconds: f.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "simplebase_job_duration_seconds",
 			Help:    "Background job duration.",

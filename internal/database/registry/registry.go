@@ -140,6 +140,15 @@ func (r *Registry) openAndAcquire(ctx context.Context, db catalog.Database, mode
 	}
 
 	handle := newHandle(db, conn, mode)
+	if hook, ok := r.factory.(database.WriteHookFactory); ok {
+		hookFactory := hook
+		handle.onWrite = func(ctx context.Context, h *Handle) error {
+			return hookFactory.AfterWrite(ctx, h.Database, h.conn)
+		}
+		handle.beforeClose = func(ctx context.Context, h *Handle) error {
+			return hookFactory.BeforeClose(ctx, h.Database.ID, h.conn)
+		}
+	}
 	handle.active.Add(1)
 	e.handle = handle
 	close(e.opening)

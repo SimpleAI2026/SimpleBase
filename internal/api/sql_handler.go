@@ -72,6 +72,9 @@ type SQLHandler struct {
 	// 全局并发 semaphore（nil 表示不限制）
 	sem chan struct{}
 	mu  sync.Mutex
+
+	// DurabilityFor 返回写响应 durability；nil 时默认 committed_local。
+	DurabilityFor func(databaseID string) string
 }
 
 // NewSQLHandler 构造 SQL handler。writable 为 false 时写操作返回 503。
@@ -218,9 +221,14 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 		v := result.LastInsertID
 		lastID = &v
 	}
+	dur := "committed_local"
+	if h.DurabilityFor != nil {
+		dur = h.DurabilityFor(databaseID)
+	}
 	return c.JSON(http.StatusOK, ExecuteResponse{
 		RowsAffected: result.RowsAffected,
 		LastInsertID: lastID,
+		Durability:   dur,
 		DurationMS:   result.Duration.Milliseconds(),
 		RequestID:    rid,
 	})
@@ -280,8 +288,13 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 		if err != nil {
 			// 事务回滚：返回整体错误，标明失败位置
 			failedIdx := extractBatchIndex(err)
+			dur := "committed_local"
+			if h.DurabilityFor != nil {
+				dur = h.DurabilityFor(databaseID)
+			}
 			return c.JSON(http.StatusOK, BatchResponse{
 				Results:    toBatchResultsTransactional(results),
+				Durability: dur,
 				DurationMS: 0,
 				RequestID:  rid,
 				Error: &BatchError{
@@ -291,18 +304,28 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 				},
 			})
 		}
+		dur := "committed_local"
+		if h.DurabilityFor != nil {
+			dur = h.DurabilityFor(databaseID)
+		}
 		return c.JSON(http.StatusOK, BatchResponse{
-			Results:   toBatchResultsTransactional(results),
-			RequestID: rid,
+			Results:    toBatchResultsTransactional(results),
+			Durability: dur,
+			RequestID:  rid,
 		})
 	}
 
 	// Non-transactional: 逐条执行，失败项带 error 但不影响已提交
 	results, err := lease.Batch(ctx, stmts, false)
 	items := toBatchResultsNonTransactional(results, err)
+	dur := "committed_local"
+	if h.DurabilityFor != nil {
+		dur = h.DurabilityFor(databaseID)
+	}
 	return c.JSON(http.StatusOK, BatchResponse{
-		Results:   items,
-		RequestID: rid,
+		Results:    items,
+		Durability: dur,
+		RequestID:  rid,
 	})
 }
 

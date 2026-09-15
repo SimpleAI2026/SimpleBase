@@ -45,6 +45,8 @@ type QueryResponse struct {
 type ExecuteResponse struct {
 	RowsAffected int64  `json:"rows_affected"`
 	LastInsertID *int64 `json:"last_insert_id,omitempty"`
+	// Durability 是写持久化级别：committed_local | synced_s3（§4.4）。
+	Durability   string `json:"durability"`
 	DurationMS   int64  `json:"duration_ms"`
 	RequestID    string `json:"request_id"`
 }
@@ -64,6 +66,7 @@ type BatchResultItem struct {
 // 逐条返回结果，失败项带有 error_code/error_message。
 type BatchResponse struct {
 	Results    []BatchResultItem `json:"results"`
+	Durability string            `json:"durability"`
 	DurationMS int64             `json:"duration_ms"`
 	RequestID  string            `json:"request_id"`
 	// Error 在 transactional 模式回滚时填充，表示整体失败位置。

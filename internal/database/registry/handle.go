@@ -36,6 +36,11 @@ type Handle struct {
 	active    atomic.Int64
 	lastUsed  atomic.Int64 // UnixNano
 	closeOnce sync.Once
+
+	// onWrite 在写成功后回调（CatalogSyncer.MarkDirty 等）；只读 Query 不触发。
+	onWrite func(ctx context.Context, h *Handle) error
+	// beforeClose 在关闭连接前回调（Flush catalog 等）。
+	beforeClose func(ctx context.Context, h *Handle) error
 }
 
 func newHandle(db catalog.Database, conn *sql.DB, mode database.AccessMode) *Handle {
@@ -67,19 +72,40 @@ func (h *Handle) ActiveCount() int64 {
 	return h.active.Load()
 }
 
+// Conn 返回底层 *sql.DB（供同步器 / 管理面使用）。
+func (h *Handle) Conn() *sql.DB {
+	return h.conn
+}
+
 // Query 委托给 internal/database.Query。
 func (h *Handle) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
 	return database.Query(ctx, h.conn, stmt, maxRows)
 }
 
-// Execute 委托给 internal/database.Execute。
+// Execute 委托给 internal/database.Execute，成功后触发 onWrite。
 func (h *Handle) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
-	return database.Execute(ctx, h.conn, stmt)
+	res, err := database.Execute(ctx, h.conn, stmt)
+	if err != nil {
+		return res, err
+	}
+	h.touch()
+	if h.onWrite != nil {
+		_ = h.onWrite(ctx, h)
+	}
+	return res, nil
 }
 
-// Batch 委托给 internal/database.Batch。
+// Batch 委托给 internal/database.Batch，成功后触发 onWrite。
 func (h *Handle) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
-	return database.Batch(ctx, h.conn, stmts, transactional)
+	res, err := database.Batch(ctx, h.conn, stmts, transactional)
+	if err != nil {
+		return res, err
+	}
+	h.touch()
+	if h.onWrite != nil {
+		_ = h.onWrite(ctx, h)
+	}
+	return res, nil
 }
 
 // closeLocked 关闭底层连接，只执行一次。调用方必须已将 state 置为 closing/closed
@@ -88,6 +114,9 @@ func (h *Handle) closeLocked() error {
 	var err error
 	h.closeOnce.Do(func() {
 		h.state.Store(uint32(stateClosed))
+		if h.beforeClose != nil {
+			_ = h.beforeClose(context.Background(), h)
+		}
 		err = h.conn.Close()
 	})
 	return err

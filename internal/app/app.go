@@ -53,6 +53,8 @@ type App struct {
 
 	objectStore  objectstore.Client
 	fileStore    objectstore.FileStore
+	catalogSyncer ducklake.Syncer
+	duckFactory  *ducklake.Factory
 	catalog      *catalog.Service
 	registry     *registry.Registry
 	auth         *auth.Service
@@ -134,6 +136,16 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		api.NewDatabaseServiceAdapter(a.catalog, a.registry),
 		cfg.Instance.Writable,
 	)
+	if a.duckFactory != nil {
+		f := a.duckFactory
+		dbHandler.SnapshotFor = func(databaseID string) *api.DatabaseSnapshot {
+			last, lag := f.SnapshotStatus(databaseID)
+			if last == 0 && lag == 0 {
+				return nil
+			}
+			return &api.DatabaseSnapshot{LastSyncedSnapshot: last, SyncLag: lag}
+		}
+	}
 
 	// Plan 6：SQL handler。readonly 实例 SQLHandler 为 nil，路由不挂载写操作；
 	// query 路由也只在 writable 实例提供（首期 readonly 不开放 SQL API）。
@@ -150,6 +162,10 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		}
 		sqlService := api.NewSQLServiceAdapter(a.catalog, a.registry)
 		sqlHandler = api.NewSQLHandler(sqlService, sqlLimits, cfg.Instance.Writable)
+		if a.duckFactory != nil {
+			f := a.duckFactory
+			sqlHandler.DurabilityFor = f.DurabilityFor
+		}
 		dataHandler = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable)
 	}
 
@@ -501,13 +517,48 @@ func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
 	cfg := a.cfg
 	engine := strings.ToLower(cfg.Database.Engine)
 	if cfg.DevMode || engine == "" || engine == config.EngineDuckLake {
-		return &ducklake.Factory{
+		opts := duckLakeOptions(cfg.Database.DuckLake)
+		remote := ducklake.RemoteStorage{}
+		var syncer ducklake.Syncer = ducklake.NewLocalSyncer()
+		var blobs objectstore.BlobStore
+
+		// 生产（非 DevMode）启用 S3 catalog 同步与 DATA_PATH。
+		if !cfg.DevMode && cfg.S3.Bucket != "" {
+			remote = ducklake.RemoteStorage{
+				Enabled:        true,
+				Endpoint:       cfg.S3.Endpoint,
+				Region:         cfg.S3.Region,
+				Bucket:         cfg.S3.Bucket,
+				RootPrefix:     cfg.S3.Prefix,
+				Environment:    cfg.Instance.ID,
+				AccessKey:      cfg.S3.AccessKey,
+				SecretKey:      cfg.S3.SecretKey,
+				ForcePathStyle: cfg.S3.ForcePathStyle,
+			}
+			if a.objectStore != nil {
+				if b, ok := a.objectStore.(objectstore.BlobStore); ok {
+					blobs = b
+				}
+			}
+			if blobs != nil {
+				cs := ducklake.NewCatalogSyncer(blobs, remote, cacheDir, opts.CatalogSync, a.logger, a.metrics)
+				syncer = cs
+				a.catalogSyncer = cs
+				a.registerCloser(syncerCloser{cs: cs})
+			}
+		}
+
+		f := &ducklake.Factory{
 			CacheDir: cacheDir,
-			Options:  duckLakeOptions(cfg.Database.DuckLake),
-			Syncer:   ducklake.NewLocalSyncer(),
+			Options:  opts,
+			Syncer:   syncer,
+			Remote:   remote,
+			Blobs:    blobs,
 			Logger:   a.logger,
 			Metrics:  a.metrics,
 		}
+		a.duckFactory = f
+		return f
 	}
 	if engine == config.EngineLocal {
 		return &database.LocalFactory{
@@ -583,4 +634,14 @@ func (a *App) RunWithSignal(shutdownTimeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	return a.Shutdown(ctx)
+}
+
+
+type syncerCloser struct{ cs *ducklake.CatalogSyncer }
+
+func (c syncerCloser) Close() error {
+	if c.cs == nil {
+		return nil
+	}
+	return c.cs.Close(context.Background())
 }

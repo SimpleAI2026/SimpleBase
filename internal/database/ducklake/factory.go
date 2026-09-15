@@ -15,16 +15,19 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"go.uber.org/zap"
 )
 
 // Factory 实现 database.Factory：每库一个 DuckDB 实例（:memory: + ATTACH DuckLake）。
-// Phase 1 使用本地 DATA_PATH，不写 S3。
+// Remote.Enabled 时 DATA_PATH 指向 S3，并在 Open 时冷启动下载 catalog。
 type Factory struct {
 	CacheDir string
 	Options  Options
 	Syncer   Syncer
+	Remote   RemoteStorage
+	Blobs    objectstore.BlobStore
 	Logger   observability.Logger
 	Metrics  *observability.Metrics
 }
@@ -37,6 +40,9 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 	if f.CacheDir == "" {
 		return nil, fmt.Errorf("ducklake: cache dir is required")
 	}
+	if err := f.Remote.validate(); err != nil {
+		return nil, err
+	}
 
 	opts := f.Options.normalized()
 	layout := layoutFor(f.CacheDir, db.ID)
@@ -44,7 +50,18 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 		return nil, fmt.Errorf("ducklake: create cache dirs: %w", err)
 	}
 
-	boot := buildBootSQL(layout, opts)
+	if f.Remote.Enabled {
+		if _, err := EnsureLocalCatalog(ctx, f.Blobs, f.Remote, f.CacheDir, db); err != nil {
+			return nil, err
+		}
+	}
+
+	dataPath, err := f.dataPathFor(db, layout)
+	if err != nil {
+		return nil, err
+	}
+
+	boot := buildBootSQL(layout, opts, f.Remote, dataPath)
 	connector, err := duckdb.NewConnector("", func(execer driver.ExecerContext) error {
 		for _, q := range boot {
 			if _, err := execer.ExecContext(ctx, q, nil); err != nil {
@@ -75,19 +92,41 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 		return nil, err
 	}
 
+	if f.Remote.Enabled {
+		if err := validateRemoteDataPath(ctx, sqlDB, opts.LakeAlias, dataPath); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
+	}
+
+	if bs, ok := f.Syncer.(BindingSyncer); ok {
+		bs.Bind(db.ID, sqlDB, db, opts.LakeAlias)
+	}
+
 	if f.Logger != nil {
 		f.Logger.Info("ducklake database opened",
 			zap.String("database_id", db.ID),
 			zap.String("mode", mode.String()),
 			zap.String("alias", opts.LakeAlias),
+			zap.Bool("remote", f.Remote.Enabled),
 		)
 	}
 	return sqlDB, nil
 }
 
-func buildBootSQL(layout Layout, opts Options) []string {
+func (f *Factory) dataPathFor(db catalog.Database, layout Layout) (string, error) {
+	if !f.Remote.Enabled {
+		return layout.dataPathArg(), nil
+	}
+	return buildDataURI(f.Remote, db.TenantID, db.ID)
+}
+
+func buildBootSQL(layout Layout, opts Options, remote RemoteStorage, dataPath string) []string {
 	alias := opts.LakeAlias
 	out := extensionBootSQL(opts)
+	if remote.Enabled {
+		out = append(out, buildCreateSecretSQL(remote))
+	}
 	out = append(out,
 		"SET memory_limit = "+quoteSQLString(opts.MemoryLimit),
 		"SET threads = "+strconv.Itoa(opts.Threads),
@@ -95,16 +134,24 @@ func buildBootSQL(layout Layout, opts Options) []string {
 		"SET allowed_directories = ["+strings.Join(allowedDirectorySQL(layout, opts), ", ")+"]",
 	)
 
+	attachOpts := fmt.Sprintf(
+		"DATA_PATH %s, DATA_INLINING_ROW_LIMIT %d, AUTOMATIC_MIGRATION false",
+		quoteSQLString(dataPath),
+		opts.DataInliningRowLimit,
+	)
+	if remote.Enabled {
+		// catalog 可能记录了旧 data_path；冷启动用 OVERRIDE 对齐当前 bucket/prefix。
+		attachOpts += ", OVERRIDE_DATA_PATH true"
+	}
 	attach := fmt.Sprintf(
-		"ATTACH 'ducklake:sqlite:%s' AS %s (DATA_PATH %s, DATA_INLINING_ROW_LIMIT %d, AUTOMATIC_MIGRATION false)",
+		"ATTACH 'ducklake:sqlite:%s' AS %s (%s)",
 		filepathToSlash(layout.CatalogFile),
 		quoteIdent(alias),
-		sqlPath(layout.dataPathArg()),
-		opts.DataInliningRowLimit,
+		attachOpts,
 	)
 	out = append(out, attach, "USE "+quoteIdent(alias))
 	out = append(out, optionSQL(alias, opts)...)
-	// allowed_directories 是 enable_external_access=false 时的白名单（DuckDB 安全模型）。
+	// allowed_directories 是 enable_external_access=false 时的白名单。
 	// 必须在 ATTACH 之后关闭外部访问，已挂载的 catalog / DATA_PATH 仍可读写。
 	out = append(out, "SET enable_external_access = false")
 	out = append(out, "SET lock_configuration = true")
@@ -135,14 +182,92 @@ func optionSQL(alias string, opts Options) []string {
 	return out
 }
 
+func validateRemoteDataPath(ctx context.Context, db *sql.DB, alias, expectURI string) error {
+	settings, err := ListSettings(ctx, db, alias)
+	if err != nil {
+		return err
+	}
+	for _, s := range settings {
+		if strings.EqualFold(s.Key, "data_path") {
+			got := strings.TrimSpace(s.Value)
+			want := strings.TrimSpace(expectURI)
+			if got != "" && got != want && !strings.HasPrefix(got, want) && !strings.HasPrefix(want, got) {
+				return fmt.Errorf("ducklake: data_path mismatch: catalog=%q expect=%q", got, want)
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
 func filepathToSlash(p string) string {
 	return strings.ReplaceAll(p, "\\", "/")
 }
 
 func summarizeSQL(q string) string {
 	q = strings.TrimSpace(q)
+	// 避免把 SECRET 凭据打进错误摘要
+	upper := strings.ToUpper(q)
+	if strings.Contains(upper, "SECRET") && strings.Contains(upper, "KEY_ID") {
+		return "CREATE OR REPLACE SECRET ..."
+	}
 	if len(q) > 80 {
 		return q[:80] + "..."
 	}
 	return q
+}
+
+
+
+// AfterWrite 在 Registry 写成功后推进 CatalogSyncer 水位。
+func (f *Factory) AfterWrite(ctx context.Context, db catalog.Database, sqlDB *sql.DB) error {
+	if f == nil || f.Syncer == nil {
+		return nil
+	}
+	alias := f.Options.normalized().LakeAlias
+	snap, err := CurrentSnapshot(ctx, sqlDB, alias)
+	if err != nil {
+		return err
+	}
+	f.Syncer.MarkDirty(db.ID, snap)
+	return nil
+}
+
+// BeforeClose 在关闭连接前强制同步并解绑。
+func (f *Factory) BeforeClose(ctx context.Context, dbID string, sqlDB *sql.DB) error {
+	_ = sqlDB
+	if f == nil || f.Syncer == nil {
+		return nil
+	}
+	if bs, ok := f.Syncer.(BindingSyncer); ok {
+		return bs.Unbind(ctx, dbID)
+	}
+	return f.Syncer.Flush(ctx, dbID)
+}
+
+// DurabilityFor 返回写响应应声明的持久化级别（§4.4）。
+func (f *Factory) DurabilityFor(dbID string) string {
+	if f == nil || !f.Remote.Enabled {
+		return DurabilityCommittedLocal
+	}
+	cs, ok := f.Syncer.(*CatalogSyncer)
+	if !ok || cs == nil {
+		return DurabilityCommittedLocal
+	}
+	if f.Options.CatalogSync.Mode == "sync_on_commit" && cs.SyncLag(dbID) == 0 && cs.LastSynced(dbID) > 0 {
+		return DurabilitySyncedS3
+	}
+	return DurabilityCommittedLocal
+}
+
+// SnapshotStatus 返回已同步快照与滞后（管理面）。
+func (f *Factory) SnapshotStatus(dbID string) (lastSynced, lag int64) {
+	if f == nil || f.Syncer == nil {
+		return 0, 0
+	}
+	lastSynced = f.Syncer.LastSynced(dbID)
+	if cs, ok := f.Syncer.(*CatalogSyncer); ok {
+		lag = cs.SyncLag(dbID)
+	}
+	return lastSynced, lag
 }
