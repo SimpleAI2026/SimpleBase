@@ -131,7 +131,7 @@
       :database-id="activeDb?.id || ''"
       :collection="activeCollection"
       :reload-token="docReload"
-      @add-document="kvOpen = true"
+      @add-document="onAddDocumentFromList"
     />
     <DocumentKvModal
       v-model:open="kvOpen"
@@ -292,6 +292,12 @@ function onCollectionCreated() {
   collectionReload[id] = (collectionReload[id] || 0) + 1
   if (!expandedRowKeys.value.includes(id)) {
     expandedRowKeys.value = [...expandedRowKeys.value, id]
+  }
+}
+
+function onAddDocumentFromList() {
+  if (activeDb.value && activeCollection.value) {
+    kvOpen.value = true
   }
 }
 

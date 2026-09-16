@@ -25,7 +25,7 @@
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'data'">
-          <SbCodeBlock :value="formatDoc(record)" max-height="160px" />
+          <SbCodeBlock :value="docFields(record)" max-height="160px" />
         </template>
         <template v-else-if="column.key === 'ops'">
           <a-popconfirm title="确认删除该文档？" @confirm="removeRow(record.id)">
@@ -50,7 +50,6 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { api } from '../../services/api'
 import type { DbRow } from '../../services/api'
 import { usePagination } from '../../composables/usePagination'
-import { formatJson } from '../../utils/format'
 import SbCodeBlock from '../SbCodeBlock.vue'
 import SbModal from './SbModal.vue'
 
@@ -78,10 +77,10 @@ const rows = ref<DbRow[]>([])
 const loading = ref(false)
 const title = ref('文档')
 
-function formatDoc(row: DbRow): string {
+function docFields(row: DbRow): Record<string, unknown> {
   const { id, ...rest } = row
   void id
-  return formatJson(rest)
+  return rest
 }
 
 async function load() {

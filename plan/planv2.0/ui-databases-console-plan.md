@@ -2,7 +2,7 @@
 
 > 目标：把独立的「SQL 控制台」与「数据管理」折进 **数据库管理** 页，用统一 `SbModal` 家族承载查询 / 集合 / 文档操作。
 > 配套：[`ui-plan-v2.md`](./ui-plan-v2.md)、[`ui-principles.md`](./ui-principles.md)、[`proto-http.md`](./proto-http.md)
-> 状态：**implemented**（见文末 PR）
+> 状态：**implemented**（PR https://github.com/linkxzhou/SimpleBase/pull/2）
 
 ## 背景
 

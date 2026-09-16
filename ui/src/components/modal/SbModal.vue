@@ -9,6 +9,8 @@
     :cancel-text="cancelText"
     :ok-button-props="okButtonProps"
     :mask-closable="maskClosable"
+    :centered="centered"
+    :z-index="zIndex"
     wrap-class-name="sb-modal"
     @ok="emit('ok')"
     @cancel="onCancel"
@@ -36,6 +38,8 @@ withDefaults(
     cancelText?: string
     okButtonProps?: Record<string, unknown>
     maskClosable?: boolean
+    centered?: boolean
+    zIndex?: number
   }>(),
   {
     width: 520,
@@ -43,7 +47,8 @@ withDefaults(
     destroyOnClose: true,
     okText: '确定',
     cancelText: '取消',
-    maskClosable: true
+    maskClosable: true,
+    centered: true
   }
 )
 

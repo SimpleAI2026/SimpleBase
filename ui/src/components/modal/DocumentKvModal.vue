@@ -2,6 +2,8 @@
   <SbModal
     :open="open"
     title="新增文档"
+    :width="480"
+    :z-index="1100"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: !canSubmit }"
     @ok="submit"
@@ -9,7 +11,7 @@
   >
     <a-form layout="vertical">
       <a-form-item label="Key" required>
-        <a-input v-model:value="key" placeholder="字段名，例如 name" />
+        <a-input v-model:value="key" placeholder="字段名，例如 name" @pressEnter="submit" />
       </a-form-item>
       <a-form-item label="Value">
         <a-textarea v-model:value="value" :rows="6" placeholder='字符串，或 JSON（如 1、true、{"city":"SZ"}）' />

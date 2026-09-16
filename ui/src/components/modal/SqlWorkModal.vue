@@ -294,7 +294,6 @@ async function run() {
         maxRows: maxRows.value
       })
       queryResult.value = result
-      if (!result.columns.length) message.info('暂时未查询到数据')
     } else if (mode.value === 'execute') {
       executeResult.value = await api.sql.execute(pid, dbId, {
         sql: sqlText.value.trim(),
