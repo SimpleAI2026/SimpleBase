@@ -155,6 +155,17 @@ function llmStream(
   return { close: () => controller.abort() }
 }
 
+function dataCollectionsPath(projectId: string, databaseId: string, collection?: string) {
+  let path =
+    '/v1/projects/' +
+    encodeURIComponent(projectId) +
+    '/databases/' +
+    encodeURIComponent(databaseId) +
+    '/data/collections'
+  if (collection) path += '/' + encodeURIComponent(collection)
+  return path
+}
+
 function toProjectItem(raw: any): import('./types').ProjectItem {
   return {
     id: String(raw?.id ?? ''),
@@ -277,55 +288,33 @@ export const httpApi: Api = {
   },
 
   db: {
-    // 注意：本组路径不含 databaseID，服务端隐式取项目第一个库（proto-http.md §3.3）
-    collections: (projectId) =>
+    collections: (projectId, databaseId) =>
+      http.get(dataCollectionsPath(projectId, databaseId)).then((r) =>
+        Array.isArray(r.data?.collections) ? r.data.collections : []
+      ),
+    createCollection: (projectId, databaseId, name) =>
+      http.post(dataCollectionsPath(projectId, databaseId), { name }).then(() => undefined),
+    rows: (projectId, databaseId, collection, query) =>
       http
-        .get('/v1/projects/' + encodeURIComponent(projectId) + '/data/collections')
-        .then((r) => (Array.isArray(r.data?.collections) ? r.data.collections : [])),
-    createCollection: (projectId, name) =>
-      http
-        .post('/v1/projects/' + encodeURIComponent(projectId) + '/data/collections', { name })
-        .then(() => undefined),
-    rows: (projectId, collection, query) =>
-      http
-        .get(
-          '/v1/projects/' +
-            encodeURIComponent(projectId) +
-            '/data/collections/' +
-            encodeURIComponent(collection),
-          { params: query }
-        )
+        .get(dataCollectionsPath(projectId, databaseId, collection), { params: query })
         .then((r) => (Array.isArray(r.data?.rows) ? r.data.rows : [])),
-    insert: (projectId, collection, payload) =>
+    insert: (projectId, databaseId, collection, payload) =>
       http
-        .post(
-          '/v1/projects/' +
-            encodeURIComponent(projectId) +
-            '/data/collections/' +
-            encodeURIComponent(collection) +
-            '/documents',
-          payload
-        )
+        .post(dataCollectionsPath(projectId, databaseId, collection) + '/documents', payload)
         .then((r) => r.data),
-    update: (projectId, collection, id, payload) =>
+    update: (projectId, databaseId, collection, id, payload) =>
       http
         .put(
-          '/v1/projects/' +
-            encodeURIComponent(projectId) +
-            '/data/collections/' +
-            encodeURIComponent(collection) +
+          dataCollectionsPath(projectId, databaseId, collection) +
             '/documents/' +
             encodeURIComponent(id),
           payload
         )
         .then((r) => r.data),
-    remove: (projectId, collection, id) =>
+    remove: (projectId, databaseId, collection, id) =>
       http
         .delete(
-          '/v1/projects/' +
-            encodeURIComponent(projectId) +
-            '/data/collections/' +
-            encodeURIComponent(collection) +
+          dataCollectionsPath(projectId, databaseId, collection) +
             '/documents/' +
             encodeURIComponent(id)
         )

@@ -9,6 +9,15 @@ const pick = (arr) => arr[rand(0, arr.length - 1)]
 const genId = () => Math.random().toString(36).slice(2, 10)
 const now = () => new Date().toISOString()
 
+function requireDbStore(databaseId) {
+  const db = state.databases.find((d) => d.id === databaseId)
+  if (!db) throw new Error('数据库不存在')
+  if (!state.dbStores[databaseId]) {
+    state.dbStores[databaseId] = { collections: [], docs: {} }
+  }
+  return state.dbStores[databaseId]
+}
+
 /* ---------- 初始数据 ---------- */
 
 const DEFAULT_PROJECT = 'proj-01'
@@ -18,22 +27,27 @@ const state = {
     { id: 'db-default', name: 'default', status: 'ready', createdAt: now(), updatedAt: now() },
     { id: 'db-analytics', name: 'analytics', status: 'creating', createdAt: now(), updatedAt: now() }
   ],
-  collections: ['users', 'orders', 'products', 'sessions'],
-  db: {
-    users: [
-      { id: 'u1001', name: 'Alice', role: 'admin', age: 28 },
-      { id: 'u1002', name: 'Bob', role: 'member', age: 34 },
-      { id: 'u1003', name: 'Carol', role: 'member', age: 25 }
-    ],
-    orders: [
-      { id: 'o9001', user: 'u1001', amount: 199.5, status: 'paid' },
-      { id: 'o9002', user: 'u1002', amount: 59.0, status: 'pending' }
-    ],
-    products: [
-      { id: 'p3001', title: '机械键盘', price: 399, stock: 42 },
-      { id: 'p3002', title: '无线鼠标', price: 129, stock: 187 }
-    ],
-    sessions: [{ id: 's5001', user: 'u1001', ttl: 3600 }]
+  dbStores: {
+    'db-default': {
+      collections: ['users', 'orders', 'products', 'sessions'],
+      docs: {
+        users: [
+          { id: 'u1001', name: 'Alice', role: 'admin', age: 28 },
+          { id: 'u1002', name: 'Bob', role: 'member', age: 34 },
+          { id: 'u1003', name: 'Carol', role: 'member', age: 25 }
+        ],
+        orders: [
+          { id: 'o9001', user: 'u1001', amount: 199.5, status: 'paid' },
+          { id: 'o9002', user: 'u1002', amount: 59.0, status: 'pending' }
+        ],
+        products: [
+          { id: 'p3001', title: '机械键盘', price: 399, stock: 42 },
+          { id: 'p3002', title: '无线鼠标', price: 129, stock: 187 }
+        ],
+        sessions: [{ id: 's5001', user: 'u1001', ttl: 3600 }]
+      }
+    },
+    'db-analytics': { collections: [], docs: {} }
   },
   // 注意：mock 的 S3 list 按 _projectId 过滤，种子数据必须带该字段（否则列表恒空）
   objects: [
@@ -92,6 +106,7 @@ export const mockApi = {
       await delay()
       const db = { id: 'db-' + genId(), name, status: 'creating', createdAt: now(), updatedAt: now() }
       state.databases.push(db)
+      state.dbStores[db.id] = { collections: [], docs: {} }
       return { ...db }
     },
     async get(projectId, databaseId) {
@@ -119,15 +134,16 @@ export const mockApi = {
       await delay(400)
       const idx = state.databases.findIndex((d) => d.id === databaseId)
       if (idx >= 0) state.databases.splice(idx, 1)
+      delete state.dbStores[databaseId]
     }
   },
 
   sql: {
     async query(projectId, databaseId, req) {
       await delay(rand(80, 400))
-      // 极简 mock：SELECT 返回 users 表数据，其余返回空
+      const store = requireDbStore(databaseId)
       if (/from\s+"?users"?/i.test(req.sql)) {
-        const rows = state.db.users.map((u) => [u.id, JSON.stringify(u), now()])
+        const rows = (store.docs.users || []).map((u) => [u.id, JSON.stringify(u), now()])
         return {
           columns: ['id', 'data', 'created_at'],
           rows,
@@ -137,7 +153,7 @@ export const mockApi = {
         }
       }
       if (/information_schema/i.test(req.sql)) {
-        const rows = state.collections.map((c) => [c])
+        const rows = store.collections.map((c) => [c])
         return { columns: ['table_name'], rows, rowCount: rows.length, durationMs: 3, requestId: genId() }
       }
       return { columns: [], rows: [], rowCount: 0, durationMs: rand(1, 10), requestId: genId() }
@@ -162,42 +178,47 @@ export const mockApi = {
   },
 
   db: {
-    async collections() {
+    async collections(projectId, databaseId) {
       await delay()
-      return [...state.collections]
+      return [...requireDbStore(databaseId).collections]
     },
-    async createCollection(projectId, name) {
+    async createCollection(projectId, databaseId, name) {
       await delay()
-      if (!state.db[name]) {
-        state.db[name] = []
-        state.collections.push(name)
+      const store = requireDbStore(databaseId)
+      if (!store.docs[name]) {
+        store.docs[name] = []
+        store.collections.push(name)
       }
     },
-    async rows(projectId, collection) {
+    async rows(projectId, databaseId, collection) {
       await delay()
-      return [...(state.db[collection] || [])]
+      const store = requireDbStore(databaseId)
+      return [...(store.docs[collection] || [])]
     },
-    async insert(projectId, collection, payload) {
+    async insert(projectId, databaseId, collection, payload) {
       await delay()
-      if (!state.db[collection]) {
-        state.db[collection] = []
-        state.collections.push(collection)
+      const store = requireDbStore(databaseId)
+      if (!store.docs[collection]) {
+        store.docs[collection] = []
+        store.collections.push(collection)
       }
       const row = { id: genId(), ...payload }
-      state.db[collection].push(row)
+      store.docs[collection].push(row)
       return row
     },
-    async update(projectId, collection, id, payload) {
+    async update(projectId, databaseId, collection, id, payload) {
       await delay()
-      const row = (state.db[collection] || []).find((item) => item.id === id)
+      const store = requireDbStore(databaseId)
+      const row = (store.docs[collection] || []).find((item) => item.id === id)
       if (!row) throw new Error('文档不存在')
       Object.assign(row, { ...payload, id })
       return row
     },
-    async remove(projectId, collection, id) {
+    async remove(projectId, databaseId, collection, id) {
       await delay()
-      const list = state.db[collection] || []
-      state.db[collection] = list.filter((r) => r.id !== id)
+      const store = requireDbStore(databaseId)
+      const list = store.docs[collection] || []
+      store.docs[collection] = list.filter((r) => r.id !== id)
     }
   },
 

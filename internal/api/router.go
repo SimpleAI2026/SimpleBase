@@ -221,12 +221,20 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	if deps.DataHandler != nil {
 		dh := deps.DataHandler
+		// Legacy project-scoped routes: implicit first database.
 		p.GET("/data/collections", dh.ListCollections, require(auth.DatabaseRead))
 		p.POST("/data/collections", dh.CreateCollection, require(auth.DatabaseWrite))
 		p.GET("/data/collections/:collection", dh.ListDocuments, require(auth.DatabaseRead))
 		p.POST("/data/collections/:collection/documents", dh.CreateDocument, require(auth.DatabaseWrite))
 		p.PUT("/data/collections/:collection/documents/:id", dh.UpdateDocument, require(auth.DatabaseWrite))
 		p.DELETE("/data/collections/:collection/documents/:id", dh.DeleteDocument, require(auth.DatabaseWrite))
+		// Database-scoped routes: must select the given databaseID.
+		p.GET("/databases/:databaseID/data/collections", dh.ListCollections, require(auth.DatabaseRead))
+		p.POST("/databases/:databaseID/data/collections", dh.CreateCollection, require(auth.DatabaseWrite))
+		p.GET("/databases/:databaseID/data/collections/:collection", dh.ListDocuments, require(auth.DatabaseRead))
+		p.POST("/databases/:databaseID/data/collections/:collection/documents", dh.CreateDocument, require(auth.DatabaseWrite))
+		p.PUT("/databases/:databaseID/data/collections/:collection/documents/:id", dh.UpdateDocument, require(auth.DatabaseWrite))
+		p.DELETE("/databases/:databaseID/data/collections/:collection/documents/:id", dh.DeleteDocument, require(auth.DatabaseWrite))
 	}
 
 	// Plan 8：LLM Gateway 路由。deps.LLM 为 nil 时不挂载。

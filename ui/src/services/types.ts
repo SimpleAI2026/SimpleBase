@@ -197,12 +197,28 @@ export interface Api {
     batch: (projectId: string, databaseId: string, req: SqlBatchRequest) => Promise<SqlBatchResult>
   }
   db: {
-    collections: (projectId: string) => Promise<string[]>
-    createCollection: (projectId: string, name: string) => Promise<void>
-    rows: (projectId: string, collection: string, query?: Record<string, unknown>) => Promise<DbRow[]>
-    insert: (projectId: string, collection: string, payload: Record<string, unknown>) => Promise<DbRow>
-    update: (projectId: string, collection: string, id: string, payload: Record<string, unknown>) => Promise<DbRow>
-    remove: (projectId: string, collection: string, id: string) => Promise<void>
+    collections: (projectId: string, databaseId: string) => Promise<string[]>
+    createCollection: (projectId: string, databaseId: string, name: string) => Promise<void>
+    rows: (
+      projectId: string,
+      databaseId: string,
+      collection: string,
+      query?: Record<string, unknown>
+    ) => Promise<DbRow[]>
+    insert: (
+      projectId: string,
+      databaseId: string,
+      collection: string,
+      payload: Record<string, unknown>
+    ) => Promise<DbRow>
+    update: (
+      projectId: string,
+      databaseId: string,
+      collection: string,
+      id: string,
+      payload: Record<string, unknown>
+    ) => Promise<DbRow>
+    remove: (projectId: string, databaseId: string, collection: string, id: string) => Promise<void>
   }
   s3: {
     list: (projectId: string, prefix?: string) => Promise<S3Object[]>
