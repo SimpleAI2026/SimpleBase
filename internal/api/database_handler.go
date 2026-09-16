@@ -1,11 +1,11 @@
 // database_handler.go 实现 Plan 5 的数据库管理 API handler。
 //
 // 所有 handler 遵循同一流程：
-//   1. 从 context 取已校验的 ProjectContext（由 projectContextMiddleware 注入）。
-//   2. 从 context 取 Principal（由 auth.APIKeyMiddleware 注入）。
-//   3. 解析 path 参数；bind body 后显式校验。
-//   4. 调用 service 层；将 typed error 交给 WriteError 统一映射。
-//   5. 响应绝不包含 S3 key、DSN、凭据。
+//  1. 从 context 取已校验的 ProjectContext（由 projectContextMiddleware 注入）。
+//  2. 从 context 取 Principal（由 auth.APIKeyMiddleware 注入）。
+//  3. 解析 path 参数；bind body 后显式校验。
+//  4. 调用 service 层；将 typed error 交给 WriteError 统一映射。
+//  5. 响应绝不包含 S3 key、DSN、凭据。
 //
 // handler 不直接访问 catalog.Repository 或 registry.Registry，只通过
 // DatabaseService 接口依赖，便于测试用假实现替换。
@@ -73,13 +73,13 @@ type CreateDatabaseRequest struct {
 
 // DatabaseResponse 是数据库资源的对外表示。绝不包含 StoragePrefix/DSN/凭据。
 type DatabaseResponse struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Status    string     `json:"status"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	// Snapshot 是 DuckLake catalog 同步水位（Phase 2）；未启用远程时为零值省略。
-	Snapshot  *DatabaseSnapshot `json:"snapshot,omitempty"`
+	Snapshot *DatabaseSnapshot `json:"snapshot,omitempty"`
 }
 
 // DatabaseSnapshot 暴露 last_synced / sync_lag（§八 API）。

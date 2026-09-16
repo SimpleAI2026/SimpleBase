@@ -93,6 +93,7 @@ func (s *Service) CreateDatabase(ctx context.Context, in CreateDatabaseInput) (D
 		TenantID:      in.TenantID,
 		ProjectID:     in.ProjectID,
 		Name:          in.Name,
+		Kind:          DatabaseKindUser,
 		Status:        DatabaseCreating,
 		StoragePrefix: prefix,
 		FormatVersion: objectstore.DescriptorFormatVersion,
@@ -163,7 +164,14 @@ func (s *Service) GetDatabase(ctx context.Context, principal auth.Principal, pro
 	if !principal.CanAccessProject(projectID) {
 		return Database{}, fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
 	}
-	return s.repo.GetDatabase(ctx, projectID, databaseID)
+	db, err := s.repo.GetDatabase(ctx, projectID, databaseID)
+	if err != nil {
+		return Database{}, err
+	}
+	if IsSystemDatabase(db) {
+		return Database{}, fmt.Errorf("%w: database %s in project %s", ErrNotFound, databaseID, projectID)
+	}
+	return db, nil
 }
 
 // ListDatabases 校验 principal 可访问 projectID 后分页列出数据库。
@@ -191,11 +199,18 @@ func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([
 	if err != nil {
 		return nil, err
 	}
-	if principal.HasPermission(auth.ProjectAdmin) {
-		return all, nil
-	}
-	out := make([]Project, 0, len(all))
+	visible := make([]Project, 0, len(all))
 	for _, p := range all {
+		if IsSystemProject(p.ID) {
+			continue
+		}
+		visible = append(visible, p)
+	}
+	if principal.HasPermission(auth.ProjectAdmin) {
+		return visible, nil
+	}
+	out := make([]Project, 0, len(visible))
+	for _, p := range visible {
 		if principal.CanAccessProject(p.ID) {
 			out = append(out, p)
 		}
@@ -211,6 +226,9 @@ func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Princi
 	current, err := s.repo.GetDatabase(ctx, projectID, databaseID)
 	if err != nil {
 		return Database{}, err
+	}
+	if IsSystemDatabase(current) {
+		return Database{}, fmt.Errorf("%w: %s", ErrSystemProtected, databaseID)
 	}
 	from := []DatabaseStatus{DatabaseCreating, DatabaseOpening, DatabaseReady, DatabaseClosed, DatabaseDegraded, DatabaseRecovering}
 	db, err := s.repo.TransitionDatabase(ctx, current.ID, from, DatabaseDeleting, s.now())

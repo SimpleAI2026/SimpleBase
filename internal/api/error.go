@@ -11,6 +11,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
+	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
 // APIError 是统一错误协议的载荷。
@@ -97,6 +98,12 @@ func Error(err error, requestID string) *APIError {
 	}
 	if errors.Is(err, catalog.ErrMigrationFailed) {
 		return NewAPIError(http.StatusServiceUnavailable, "migration_failed", "catalog migration failed", requestID)
+	}
+	if errors.Is(err, catalog.ErrSystemProtected) {
+		return NewAPIError(http.StatusForbidden, "system_database_protected", "system database cannot be modified or deleted", requestID)
+	}
+	if errors.Is(err, systemdb.ErrUnavailable) {
+		return NewAPIError(http.StatusServiceUnavailable, "system_store_unavailable", "system database unavailable", requestID)
 	}
 	// database 运行时错误
 	if errors.Is(err, database.ErrDatabaseDeleting) {

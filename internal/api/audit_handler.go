@@ -14,7 +14,7 @@ type AuditHandler struct {
 	svc AuditService
 }
 
-// ListOperations 返回当前 project 的审计事件列表（占位）。
+// ListOperations 返回当前 project 的审计事件列表（读 sys_operations）。
 func (h *AuditHandler) ListOperations(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -26,10 +26,12 @@ func (h *AuditHandler) ListOperations(c echo.Context) error {
 			limit = n
 		}
 	}
-	_ = h.svc
-	_ = pc
+	ops, err := h.svc.ListOperations(c.Request().Context(), pc.ID, c.QueryParam("database_id"), limit)
+	if err != nil {
+		return WriteError(c, err)
+	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"operations": []any{},
+		"operations": ops,
 		"limit":      limit,
 	})
 }

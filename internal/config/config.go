@@ -15,17 +15,18 @@ import (
 // 所有敏感字段（S3 AccessKey/SecretKey、Auth.APIKeyHashSecret、LLM API Key）
 // 只能来自环境或密钥服务；禁止写入仓库或日志。
 type Config struct {
-	HTTP          HTTPConfig          `mapstructure:"http"`
-	Instance      InstanceConfig      `mapstructure:"instance"`
-	Database      DatabaseConfig      `mapstructure:"database"`
-	S3            S3Config            `mapstructure:"s3"`
-	Catalog       CatalogConfig       `mapstructure:"catalog"`
-	Auth          AuthConfig          `mapstructure:"auth"`
-	LLM           LLMConfig           `mapstructure:"llm"`
-	Limits        LimitsConfig        `mapstructure:"limits"`
-	Observability ObservabilityConfig `mapstructure:"observability"`
-	// DevMode 启用本地开发模式：catalog 与用户库使用 :memory: SQLite，
-	// 旁路 S3 持久层与 preflight S3 检查。仅用于本地开发，禁止生产开启。
+	HTTP           HTTPConfig           `mapstructure:"http"`
+	Instance       InstanceConfig       `mapstructure:"instance"`
+	Database       DatabaseConfig       `mapstructure:"database"`
+	S3             S3Config             `mapstructure:"s3"`
+	Catalog        CatalogConfig        `mapstructure:"catalog"`
+	Auth           AuthConfig           `mapstructure:"auth"`
+	LLM            LLMConfig            `mapstructure:"llm"`
+	Limits         LimitsConfig         `mapstructure:"limits"`
+	Observability  ObservabilityConfig  `mapstructure:"observability"`
+	SystemDatabase SystemDatabaseConfig `mapstructure:"system_database"`
+	// DevMode 启用本地开发模式：系统库与用户库 DATA_PATH 落本地盘，旁路远端 S3。
+	// 不再使用独立 SQLite catalog；DevMode 只影响存储位置。禁止生产开启。
 	DevMode bool `mapstructure:"dev_mode"`
 }
 
@@ -98,6 +99,15 @@ type CatalogConfig struct {
 	DatabaseID string
 }
 
+// SystemDatabaseConfig 控制实例级 DuckLake 系统库。
+type SystemDatabaseConfig struct {
+	Name                 string
+	HideFromList         bool
+	MetricsFlushInterval time.Duration
+	LogFlushInterval     time.Duration
+	LogKeepDays          int
+}
+
 type AuthConfig struct {
 	APIKeyHashSecret string
 }
@@ -108,25 +118,25 @@ type LLMConfig struct {
 }
 
 type ProviderConfig struct {
-	APIKey       string
-	BaseURL      string
-	DefaultModel string
+	APIKey        string
+	BaseURL       string
+	DefaultModel  string
 	AllowedModels []string
-	Timeout      time.Duration
+	Timeout       time.Duration
 }
 
 type LimitsConfig struct {
-	MaxRequestBytes       int64
-	MaxQueryRows          int
-	QueryTimeout          time.Duration
-	MaxConcurrentQueries  int
-	MaxBatchStatements    int
-	MaxSQLBytes           int
+	MaxRequestBytes      int64
+	MaxQueryRows         int
+	QueryTimeout         time.Duration
+	MaxConcurrentQueries int
+	MaxBatchStatements   int
+	MaxSQLBytes          int
 }
 
 type ObservabilityConfig struct {
-	LogLevel   string
-	LogFormat  string
+	LogLevel    string
+	LogFormat   string
 	MetricsPath string
 }
 
@@ -169,15 +179,16 @@ func configFilePath() string {
 // yamlConfig 镜像 Config 结构，字段名用 YAML 语义命名。
 // 环境变量仍是运行时权威；YAML 仅作本地开发底座。
 type yamlConfig struct {
-	HTTP          yamlHTTP          `yaml:"http"`
-	Instance      yamlInstance      `yaml:"instance"`
-	Database      yamlDatabase      `yaml:"database"`
-	S3            yamlS3            `yaml:"s3"`
-	Catalog       yamlCatalog       `yaml:"catalog"`
-	Auth          yamlAuth          `yaml:"auth"`
-	Limits        yamlLimits        `yaml:"limits"`
-	Observability yamlObservability `yaml:"observability"`
-	DevMode       bool              `yaml:"dev_mode"`
+	HTTP           yamlHTTP           `yaml:"http"`
+	Instance       yamlInstance       `yaml:"instance"`
+	Database       yamlDatabase       `yaml:"database"`
+	S3             yamlS3             `yaml:"s3"`
+	Catalog        yamlCatalog        `yaml:"catalog"`
+	Auth           yamlAuth           `yaml:"auth"`
+	Limits         yamlLimits         `yaml:"limits"`
+	Observability  yamlObservability  `yaml:"observability"`
+	SystemDatabase yamlSystemDatabase `yaml:"system_database"`
+	DevMode        bool               `yaml:"dev_mode"`
 }
 
 type yamlHTTP struct {
@@ -202,15 +213,15 @@ type yamlDatabase struct {
 }
 
 type yamlDuckLake struct {
-	MemoryLimit          string                `yaml:"memory_limit"`
-	Threads              int                   `yaml:"threads"`
-	ExtensionDir         string                `yaml:"extension_dir"`
-	DataInliningRowLimit int                   `yaml:"data_inlining_row_limit"`
-	ParquetCompression   string                `yaml:"parquet_compression"`
-	TargetFileSize       string                `yaml:"target_file_size"`
-	RequireCommitMessage bool                  `yaml:"require_commit_message"`
-	CatalogSync          yamlCatalogSync       `yaml:"catalog_sync"`
-	Maintenance          yamlDuckLakeMaint     `yaml:"maintenance"`
+	MemoryLimit          string            `yaml:"memory_limit"`
+	Threads              int               `yaml:"threads"`
+	ExtensionDir         string            `yaml:"extension_dir"`
+	DataInliningRowLimit int               `yaml:"data_inlining_row_limit"`
+	ParquetCompression   string            `yaml:"parquet_compression"`
+	TargetFileSize       string            `yaml:"target_file_size"`
+	RequireCommitMessage bool              `yaml:"require_commit_message"`
+	CatalogSync          yamlCatalogSync   `yaml:"catalog_sync"`
+	Maintenance          yamlDuckLakeMaint `yaml:"maintenance"`
 }
 
 type yamlCatalogSync struct {
@@ -257,6 +268,14 @@ type yamlObservability struct {
 	LogLevel    string `yaml:"log_level"`
 	LogFormat   string `yaml:"log_format"`
 	MetricsPath string `yaml:"metrics_path"`
+}
+
+type yamlSystemDatabase struct {
+	Name                 string        `yaml:"name"`
+	HideFromList         *bool         `yaml:"hide_from_list"`
+	MetricsFlushInterval time.Duration `yaml:"metrics_flush_interval"`
+	LogFlushInterval     time.Duration `yaml:"log_flush_interval"`
+	LogKeepDays          int           `yaml:"log_keep_days"`
 }
 
 // applyYAML 将 YAML 值填入 cfg 中仍为默认值的字段。
@@ -410,6 +429,21 @@ func applyYAML(cfg *Config, yc yamlConfig) {
 	if os.Getenv("SIMPLEBASE_DEV_MODE") == "" {
 		cfg.DevMode = yc.DevMode
 	}
+	if yc.SystemDatabase.Name != "" && os.Getenv("SIMPLEBASE_SYSTEM_DB_NAME") == "" {
+		cfg.SystemDatabase.Name = yc.SystemDatabase.Name
+	}
+	if yc.SystemDatabase.HideFromList != nil && os.Getenv("SIMPLEBASE_SYSTEM_DB_HIDE_FROM_LIST") == "" {
+		cfg.SystemDatabase.HideFromList = *yc.SystemDatabase.HideFromList
+	}
+	if yc.SystemDatabase.MetricsFlushInterval > 0 && os.Getenv("SIMPLEBASE_METRICS_FLUSH_INTERVAL") == "" {
+		cfg.SystemDatabase.MetricsFlushInterval = yc.SystemDatabase.MetricsFlushInterval
+	}
+	if yc.SystemDatabase.LogFlushInterval > 0 && os.Getenv("SIMPLEBASE_LOG_FLUSH_INTERVAL") == "" {
+		cfg.SystemDatabase.LogFlushInterval = yc.SystemDatabase.LogFlushInterval
+	}
+	if yc.SystemDatabase.LogKeepDays > 0 && os.Getenv("SIMPLEBASE_LOG_KEEP_DAYS") == "" {
+		cfg.SystemDatabase.LogKeepDays = yc.SystemDatabase.LogKeepDays
+	}
 }
 
 // loadFromEnv 仅从环境变量加载配置（原 Load 逻辑）。
@@ -485,6 +519,13 @@ func loadFromEnv() Config {
 			LogFormat:   envStr("SIMPLEBASE_LOG_FORMAT", "json"),
 			MetricsPath: envStr("SIMPLEBASE_METRICS_PATH", "/metrics"),
 		},
+		SystemDatabase: SystemDatabaseConfig{
+			Name:                 envStr("SIMPLEBASE_SYSTEM_DB_NAME", "simplebase-system"),
+			HideFromList:         envBool("SIMPLEBASE_SYSTEM_DB_HIDE_FROM_LIST", true),
+			MetricsFlushInterval: envDuration("SIMPLEBASE_METRICS_FLUSH_INTERVAL", 2*time.Second),
+			LogFlushInterval:     envDuration("SIMPLEBASE_LOG_FLUSH_INTERVAL", 2*time.Second),
+			LogKeepDays:          envInt("SIMPLEBASE_LOG_KEEP_DAYS", 14),
+		},
 	}
 }
 
@@ -509,7 +550,7 @@ func loadLLMProviders() map[string]ProviderConfig {
 			APIKey:        envStr("SIMPLEBASE_LLM_PROVIDER_"+upper+"_API_KEY", ""),
 			BaseURL:       envStr("SIMPLEBASE_LLM_PROVIDER_"+upper+"_BASE_URL", ""),
 			DefaultModel:  envStr("SIMPLEBASE_LLM_PROVIDER_"+upper+"_DEFAULT_MODEL", ""),
-			AllowedModels: envList("SIMPLEBASE_LLM_PROVIDER_"+upper+"_ALLOWED_MODELS"),
+			AllowedModels: envList("SIMPLEBASE_LLM_PROVIDER_" + upper + "_ALLOWED_MODELS"),
 			Timeout:       envDuration("SIMPLEBASE_LLM_PROVIDER_"+upper+"_TIMEOUT", 60*time.Second),
 		}
 	}
@@ -589,16 +630,16 @@ func (c Config) Redacted() map[string]any {
 	providers := make(map[string]any, len(c.LLM.Providers))
 	for name, p := range c.LLM.Providers {
 		entry := map[string]any{
-			"has_api_key":  p.APIKey != "",
-			"base_url":     p.BaseURL,
-			"default_model": p.DefaultModel,
+			"has_api_key":    p.APIKey != "",
+			"base_url":       p.BaseURL,
+			"default_model":  p.DefaultModel,
 			"allowed_models": p.AllowedModels,
 		}
 		providers[name] = entry
 	}
 	return map[string]any{
 		"http": map[string]any{
-			"address":      c.HTTP.Address,
+			"address":       c.HTTP.Address,
 			"read_timeout":  c.HTTP.ReadTimeout.String(),
 			"write_timeout": c.HTTP.WriteTimeout.String(),
 			"idle_timeout":  c.HTTP.IdleTimeout.String(),
@@ -614,15 +655,15 @@ func (c Config) Redacted() map[string]any {
 			"max_open":     c.Database.MaxOpen,
 			"max_idle":     c.Database.MaxIdle,
 			"ducklake": map[string]any{
-				"memory_limit":             c.Database.DuckLake.MemoryLimit,
-				"threads":                  c.Database.DuckLake.Threads,
-				"extension_dir":            c.Database.DuckLake.ExtensionDir,
-				"data_inlining_row_limit":  c.Database.DuckLake.DataInliningRowLimit,
-				"parquet_compression":      c.Database.DuckLake.ParquetCompression,
-				"target_file_size":         c.Database.DuckLake.TargetFileSize,
-				"require_commit_message":   c.Database.DuckLake.RequireCommitMessage,
-				"catalog_sync_mode":        c.Database.DuckLake.CatalogSync.Mode,
-				"catalog_sync_debounce":    c.Database.DuckLake.CatalogSync.Debounce.String(),
+				"memory_limit":               c.Database.DuckLake.MemoryLimit,
+				"threads":                    c.Database.DuckLake.Threads,
+				"extension_dir":              c.Database.DuckLake.ExtensionDir,
+				"data_inlining_row_limit":    c.Database.DuckLake.DataInliningRowLimit,
+				"parquet_compression":        c.Database.DuckLake.ParquetCompression,
+				"target_file_size":           c.Database.DuckLake.TargetFileSize,
+				"require_commit_message":     c.Database.DuckLake.RequireCommitMessage,
+				"catalog_sync_mode":          c.Database.DuckLake.CatalogSync.Mode,
+				"catalog_sync_debounce":      c.Database.DuckLake.CatalogSync.Debounce.String(),
 				"catalog_sync_keep_versions": c.Database.DuckLake.CatalogSync.KeepVersions,
 			},
 		},
@@ -638,6 +679,11 @@ func (c Config) Redacted() map[string]any {
 		},
 		"catalog": map[string]any{
 			"database_id": c.Catalog.DatabaseID,
+		},
+		"system_database": map[string]any{
+			"name":           c.SystemDatabase.Name,
+			"hide_from_list": c.SystemDatabase.HideFromList,
+			"log_keep_days":  c.SystemDatabase.LogKeepDays,
 		},
 		"limits": map[string]any{
 			"max_request_bytes":      c.Limits.MaxRequestBytes,

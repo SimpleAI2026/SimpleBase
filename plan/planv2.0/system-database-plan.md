@@ -1,6 +1,6 @@
 # 系统库（System Database）统一存储计划
 
-> **状态**：待评审 / 未实现  
+> **状态**：Phase A 已落地；Phase B 大部分 API 已落地（metrics/S3 索引/LLM 会话与 settings/logs/audit）；Phase C 前端对齐未做  
 > **日期**：2026-09-16  
 > **决策**：后端业务与管控数据全部落入 **DuckLake Databases**；启动时创建并迁移系统表；**不兼容历史数据**（可整库丢弃）  
 > **范围**：监控大盘、数据库列表、S3 对象列表索引、LLM 对话、设置配置、日志与日志管理；以及今日仍落在平台 `catalog.db`（SQLite）中的租户 / 项目 / API Key / 配额 / 审计等元数据  
@@ -323,20 +323,20 @@ DevMode **只影响 DATA_PATH 是否本地**，不再影响「用不用系统库
 
 ## 10. 实施阶段
 
-### Phase A — 骨架（阻塞后续）
+### Phase A — 骨架（阻塞后续） — **已落地**
 
-1. 新增 `internal/systemdb`：locator、bootstrap、migrate（先迁入今日 catalog 等价表）、seed  
-2. `app.go` 切换装配；删除 platform/dev `catalog.db` 路径  
-3. 全量 catalog 单测改为 DuckLake 系统库或测试用内存 DuckLake  
-4. DevMode + 非 DevMode 冷启动验收：空目录启动 → 系统库 ready → 种子 Key 可调 `GET /v1/projects`
+1. 新增 `internal/systemdb`：locator、bootstrap、migrate（先迁入今日 catalog 等价表）、seed  ✔  
+2. `app.go` 切换装配；删除 platform/dev `catalog.db` 路径  ✔  
+3. 全量 catalog 单测改为 DuckLake 系统库或测试用内存 DuckLake / 同构 sys_* SQLite  ✔  
+4. DevMode + 非 DevMode 冷启动验收：空目录启动 → 系统库 ready → 种子 Key 可调 `GET /v1/projects`  ✔（DevMode 单测覆盖）
 
-### Phase B — 六大模块表与 API
+### Phase B — 六大模块表与 API — **大部分已落地**
 
-1. metrics 表 + summary/trend API + 中间件采样  
-2. s3_objects 索引 + List/Upload/Delete 挂钩 + refresh  
-3. llm_sessions/messages/settings + chat 写库  
-4. settings_global/project API  
-5. log_events + retention + Logs HTTP API；operations 真写入  
+1. metrics 表 + summary/trend API + 中间件采样  ✔  
+2. s3_objects 索引 + List/Upload/Delete 挂钩 + refresh  ✔  
+3. llm_sessions/messages/settings + chat 写库  ✔（stream 未落库；provider-catalog 未做）  
+4. settings_global/project API  ✔  
+5. log_events + retention + Logs HTTP API；operations 真写入  ✔（保留任务未做）  
 
 ### Phase C — 前端对齐与清理
 

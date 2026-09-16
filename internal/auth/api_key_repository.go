@@ -1,12 +1,7 @@
-// api_key_repository.go 是 auth.Repository 基于 catalog 系统数据库的实现。
+// api_key_repository.go 是 auth.Repository 基于系统 DuckLake 的实现。
 //
-// 复用 catalog migrations 已创建的 api_keys 表（id, project_id, key_hash,
-// permissions, created_at, revoked_at）。tenant_id 通过 JOIN projects 得到，
-// 避免在 api_keys 表中重复存储。permissions 以逗号分隔字符串存储。
-//
-// 一个 API key 目前只授权单个 project；Principal.ProjectIDs 因此是大小为 1
-// 的集合。若未来需要一个 key 对应多个 project，需要拆分出关联表并调整此实现，
-// Principal/Service 的接口不需要变化。
+// 复用系统迁移创建的 sys_api_keys / sys_projects。tenant_id 通过 JOIN 得到。
+// permissions 以逗号分隔字符串存储。不使用 PRIMARY KEY / 序列。
 package auth
 
 import (
@@ -17,21 +12,19 @@ import (
 	"time"
 )
 
-// sqliteAPIKeyRepository 基于 database/sql 的 Repository 实现。
-type sqliteAPIKeyRepository struct {
+type sqlAPIKeyRepository struct {
 	db *sql.DB
 }
 
-// NewSQLiteAPIKeyRepository 构造 Repository。db 必须是已应用 catalog migrations
-// 的系统数据库连接。
-func NewSQLiteAPIKeyRepository(db *sql.DB) Repository {
-	return &sqliteAPIKeyRepository{db: db}
+// NewSQLAPIKeyRepository 构造 Repository。db 必须是已应用系统迁移的连接。
+func NewSQLAPIKeyRepository(db *sql.DB) Repository {
+	return &sqlAPIKeyRepository{db: db}
 }
 
-func (r *sqliteAPIKeyRepository) FindByHash(ctx context.Context, keyHash string) (APIKeyRecord, error) {
+func (r *sqlAPIKeyRepository) FindByHash(ctx context.Context, keyHash string) (APIKeyRecord, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT k.id, p.tenant_id, k.project_id, k.permissions, k.revoked_at, k.created_at
-		 FROM api_keys k JOIN projects p ON p.id = k.project_id
+		 FROM sys_api_keys k JOIN sys_projects p ON p.id = k.project_id
 		 WHERE k.key_hash = ?`,
 		keyHash)
 
@@ -62,18 +55,26 @@ func (r *sqliteAPIKeyRepository) FindByHash(ctx context.Context, keyHash string)
 	return rec, nil
 }
 
-// CreateAPIKey 插入一条新的 api_keys 记录。keyHash 由调用方通过 Service.HashKey
-// 预先计算；本函数不接受原文 key。
+// CreateAPIKey 插入一条新的 sys_api_keys 记录。keyHash 由调用方通过 Service.HashKey
+// 预先计算；本函数不接受原文 key。已存在时返回错误（调用方可按 duplicate 忽略）。
 func CreateAPIKey(ctx context.Context, db *sql.DB, id, projectID, keyHash string, perms []Permission, createdAt time.Time) error {
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO api_keys(id, project_id, key_hash, permissions, created_at) VALUES(?, ?, ?, ?, ?)`,
-		id, projectID, keyHash, joinPermissions(perms), createdAt)
+	var existing string
+	err := db.QueryRowContext(ctx, `SELECT id FROM sys_api_keys WHERE id = ?`, id).Scan(&existing)
+	if err == nil {
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO sys_api_keys(id, project_id, key_hash, permissions, created_at) VALUES(?, ?, ?, ?, ?)`,
+		id, projectID, keyHash, joinPermissions(perms), createdAt.UTC())
 	return err
 }
 
 // RevokeAPIKey 将指定 key 标记为已撤销。
 func RevokeAPIKey(ctx context.Context, db *sql.DB, id string, at time.Time) error {
-	_, err := db.ExecContext(ctx, `UPDATE api_keys SET revoked_at = ? WHERE id = ?`, at, id)
+	_, err := db.ExecContext(ctx, `UPDATE sys_api_keys SET revoked_at = ? WHERE id = ?`, at.UTC(), id)
 	return err
 }
 

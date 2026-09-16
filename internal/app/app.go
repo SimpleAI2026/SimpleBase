@@ -6,7 +6,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -32,12 +31,10 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
-
-	// DevMode 下使用本地磁盘 SQLite；驱动注册名 "sqlite3"。
-	_ "github.com/uglyer/go-sqlite3"
 )
 
 // App 是运行中的 SimpleBase 实例。它持有 HTTP server 与已创建资源。
@@ -49,20 +46,21 @@ type App struct {
 	httpServer *http.Server
 	echo       *echo.Echo
 
-	objectStore  objectstore.Client
-	fileStore    objectstore.FileStore
+	objectStore   objectstore.Client
+	fileStore     objectstore.FileStore
 	catalogSyncer ducklake.Syncer
-	duckFactory  *ducklake.Factory
-	catalog      *catalog.Service
-	registry     *registry.Registry
-	auth         *auth.Service
-	cacheMgr     *cache.Manager
-	usageSvc     *usage.Service
-	auditSvc     *audit.Service
-	llmSvc       llmgateway.Service
-	jobWorker    *jobs.Worker
-	jobEnqueuer  *jobs.Enqueuer
-	workerCancel context.CancelFunc
+	duckFactory   *ducklake.Factory
+	systemStore   *systemdb.Store
+	catalog       *catalog.Service
+	registry      *registry.Registry
+	auth          *auth.Service
+	cacheMgr      *cache.Manager
+	usageSvc      *usage.Service
+	auditSvc      *audit.Service
+	llmSvc        llmgateway.Service
+	jobWorker     *jobs.Worker
+	jobEnqueuer   *jobs.Enqueuer
+	workerCancel  context.CancelFunc
 
 	health *healthService
 
@@ -82,11 +80,18 @@ func (h *healthService) Live(ctx context.Context) error {
 
 func (h *healthService) Ready(ctx context.Context) error {
 	cfg := h.app.cfg
+	if cfg.Instance.Writable {
+		if h.app.systemStore == nil {
+			return errors.New("system database not ready")
+		}
+		if err := h.app.systemStore.Ping(ctx); err != nil {
+			return fmt.Errorf("system database: %w", err)
+		}
+	}
 	if cfg.Instance.Writable && !cfg.DevMode {
 		if cfg.S3.Bucket == "" {
 			return errors.New("s3 bucket not configured")
 		}
-		// Writable 实例必须能连通 S3 与 catalog
 		if h.app.objectStore != nil {
 			if err := h.app.objectStore.Check(ctx); err != nil {
 				return fmt.Errorf("s3 check failed: %w", err)
@@ -184,6 +189,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		LLM:             api.NewLLMService(a.llmSvc),
 		JobEnqueuer:     api.NewJobEnqueuer(a.jobEnqueuer),
 		S3FileStore:     a.fileStore,
+		System:          a.systemStore,
 	}
 	a.echo = api.NewRouter(deps)
 
@@ -198,20 +204,17 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	return a, nil
 }
 
-// assembleDeps 按顺序创建运行期依赖：S3 → catalog DB → catalog service →
-// database factory → registry → auth。失败时已创建的资源由调用方通过 Close 反向释放。
+// assembleDeps 按顺序创建运行期依赖：S3 → DuckLake factory → 系统库 bootstrap/migrate/seed
+// → catalog/auth/registry。DevMode 只影响 DATA_PATH 是否本地，不再使用 SQLite catalog。
 func (a *App) assembleDeps(ctx context.Context) error {
 	cfg := a.cfg
 
-	// 非 DevMode 的可写实例必须配置 S3（平面 A 用户文件 + 平面 B DuckLake DATA_PATH）。
 	if cfg.Instance.Writable && !cfg.DevMode {
 		if cfg.S3.Bucket == "" || cfg.S3.Region == "" || cfg.S3.Prefix == "" {
 			return fmt.Errorf("writable non-dev instance requires s3.bucket, s3.region and s3.prefix")
 		}
 	}
 
-	// 1) objectstore client（S3）
-	// DevMode 旁路远端 S3：平台 catalog 与用户 DuckLake DATA_PATH 均落本地盘。
 	s3cfg := objectstore.Config{
 		Endpoint:       cfg.S3.Endpoint,
 		Region:         cfg.S3.Region,
@@ -229,7 +232,6 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		}
 		a.objectStore = store
 
-		// 用户文件 FileStore（物理前缀 {root}/{env}/files）。
 		filePrefix := cfg.S3.Prefix + "/" + cfg.Instance.ID + "/files"
 		fs, err := objectstore.NewS3FileStore(ctx, s3cfg, filePrefix, a.logger)
 		if err != nil {
@@ -238,177 +240,104 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		a.fileStore = fs
 	}
 
-	// 2) catalog 系统数据库连接 + 迁移（Writable 实例需要）
-	// Readonly 实例首期不打开 catalog；auth/DB API 在 readonly 模式下不可用。
 	keys := objectstore.KeyBuilder{
 		RootPrefix:  cfg.S3.Prefix,
 		Environment: cfg.Instance.ID,
 	}
-	if cfg.Instance.Writable {
-		// DevMode：catalog 与用户库使用本地磁盘；旁路平面 A/B 的远端 S3。
-		// 数据落在 cache_dir/dev 下，进程重启后保留。
-		if cfg.DevMode {
-			devDir := filepath.Join(cfg.Database.CacheDir, "dev")
-			if err := os.MkdirAll(devDir, 0o755); err != nil {
-				return fmt.Errorf("create dev dir: %w", err)
-			}
-			catalogPath := filepath.Join(devDir, "catalog.db")
-			catalogDB, err := sql.Open("sqlite3",
-				fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", catalogPath))
-			if err != nil {
-				return fmt.Errorf("open catalog database (dev mode): %w", err)
-			}
-			catalogDB.SetMaxOpenConns(1)
-			catalogDB.SetMaxIdleConns(1)
-			a.registerCloser(catalogDB)
-			if err := catalog.ApplyMigrations(ctx, catalogDB); err != nil {
-				return fmt.Errorf("apply catalog migrations: %w", err)
-			}
+	if !cfg.Instance.Writable {
+		return nil
+	}
 
-			repo := catalog.NewSQLiteRepository(catalogDB)
-			a.catalog = catalog.NewService(repo, keys, nil, objectstore.DuckLakeStorage{}, a.logger)
-
-			// DevMode 与生产同一 DuckLake 代码路径，DATA_PATH 落本地盘（§4.9）。
-			factory := a.newUserDatabaseFactory(filepath.Join(devDir, "dbs"))
-			a.registry = registry.New(factory, a.catalog, registry.Options{
-				IdleTimeout: cfg.Database.IdleTimeout,
-				MaxOpen:     cfg.Database.MaxOpen,
-				Writable:    cfg.Instance.Writable,
-			}, a.logger, a.metrics)
-
-			// auth service
-			a.auth = auth.NewService(auth.NewSQLiteAPIKeyRepository(catalogDB), cfg.Auth.APIKeyHashSecret)
-
-			// DevMode 种子数据：预置 tenant、project、API key，方便前端调试。
-			// 磁盘持久化后重启仍会执行，均按已存在幂等处理。
-			seedTime := time.Now()
-			const devTenantID = "00000000-0000-0000-0000-000000000001"
-			_ = a.catalog.Repository().CreateTenant(ctx, catalog.Tenant{
-				ID: devTenantID, Name: "Dev Tenant", CreatedAt: seedTime,
-			})
-			_ = a.catalog.Repository().CreateProject(ctx, catalog.Project{
-				ID: "proj-01", TenantID: devTenantID, Name: "商城后台", CreatedAt: seedTime,
-			})
-			const devRawKey = "sb_live_dev_key_12345"
-			devPerms := []auth.Permission{
-				auth.DatabaseRead, auth.DatabaseWrite, auth.DatabaseAdmin,
-				auth.LLMInvoke, auth.ProjectAdmin,
-			}
-			_ = auth.CreateAPIKey(ctx, catalogDB, "key-dev-01", "proj-01",
-				a.auth.HashKey(devRawKey), devPerms, seedTime)
-			if _, err := a.catalog.CreateDatabase(ctx, catalog.CreateDatabaseInput{
-				TenantID: devTenantID, ProjectID: "proj-01", Name: "default",
-			}); err != nil && !errors.Is(err, catalog.ErrAlreadyExists) {
-				return fmt.Errorf("create dev database: %w", err)
-			}
-
-			// cache manager（DevMode 下 Root 可空，仅占位）
-			a.cacheMgr, err = cache.NewManager(cache.Options{
-				Root:         cfg.Database.CacheDir,
-				MaxBytes:     cfg.Database.CacheMaxBytes,
-				MaxDatabases: cfg.Database.CacheMaxDatabases,
-				Registry:     a.registry,
-				Closer:       a.registry,
-				Logger:       a.logger,
-				Metrics:      a.metrics,
-			})
-			if err != nil {
-				return fmt.Errorf("create cache manager: %w", err)
-			}
-
-			catRepo := a.catalog.Repository()
-			a.usageSvc = usage.NewService(catRepo, a.logger)
-			a.auditSvc = audit.NewService(catRepo, a.logger)
-
-			if cfg.LLM.Enabled {
-				resolver := llmgateway.NewCatalogResolver(a.catalog, nil)
-				a.llmSvc = llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
-			}
-
-			// 删库已改为 API 同步清理平面 B，不再注册 DeleteDatabaseHandler / 启动专用 worker。
-			// jobs.Enqueuer/Worker 留给后续 backup 等任务（有 handler 时再装配）。
-			// DevMode 用户文件使用本地磁盘 FileStore（重启保留）。
-			fs, err := objectstore.NewLocalFileStore(filepath.Join(devDir, "files"))
-			if err != nil {
-				return fmt.Errorf("create local file store: %w", err)
-			}
-			a.fileStore = fs
-
-			a.logger.Info("running in dev mode: local DuckLake, S3 bypassed",
-				zap.String("dir", devDir))
-			return nil
+	userCacheDir := cfg.Database.CacheDir
+	if cfg.DevMode {
+		userCacheDir = filepath.Join(cfg.Database.CacheDir, "dev", "dbs")
+		if err := os.MkdirAll(userCacheDir, 0o755); err != nil {
+			return fmt.Errorf("create dev dbs dir: %w", err)
 		}
+	}
+	userFactory := a.newUserDatabaseFactory(userCacheDir)
+	sysFactory := a.newSystemDatabaseFactory()
 
-		// 平台 catalog 使用本地 SQLite（非用户库）。用户数据面由 DuckLake + S3 负责。
-		// 历史 Turso/libSQL catalog 链路已退役。
-		platformDir := filepath.Join(cfg.Database.CacheDir, "platform")
-		if err := os.MkdirAll(platformDir, 0o755); err != nil {
-			return fmt.Errorf("create platform catalog dir: %w", err)
-		}
-		catalogPath := filepath.Join(platformDir, "catalog.db")
-		catalogDB, err := sql.Open("sqlite3",
-			fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", catalogPath))
+	sysName := cfg.SystemDatabase.Name
+	if sysName == "" {
+		sysName = systemdb.DefaultName
+	}
+	store, err := systemdb.Bootstrap(ctx, systemdb.BootstrapInput{
+		LocatorDir: filepath.Join(cfg.Database.CacheDir, "system"),
+		Name:       sysName,
+		Factory:    sysFactory,
+		Keys:       keys,
+		Logger:     a.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("bootstrap system database: %w", err)
+	}
+	a.systemStore = store
+	a.registerCloser(store)
+
+	repo := store.CatalogRepo()
+	var descWriter catalog.DescriptorWriter
+	if a.objectStore != nil {
+		descWriter = a.objectStore
+	}
+	ducklakeStore := objectstore.DuckLakeStorage{
+		Endpoint:       cfg.S3.Endpoint,
+		Region:         cfg.S3.Region,
+		Bucket:         cfg.S3.Bucket,
+		ForcePathStyle: cfg.S3.ForcePathStyle,
+		KMSKeyIDRef:    cfg.S3.KMSKeyID,
+	}
+	a.catalog = catalog.NewService(repo, keys, descWriter, ducklakeStore, a.logger)
+
+	a.registry = registry.New(userFactory, a.catalog, registry.Options{
+		IdleTimeout: cfg.Database.IdleTimeout,
+		MaxOpen:     cfg.Database.MaxOpen,
+		Writable:    cfg.Instance.Writable,
+	}, a.logger, a.metrics)
+
+	a.auth = auth.NewService(store.AuthRepo(), cfg.Auth.APIKeyHashSecret)
+
+	if err := systemdb.Seed(ctx, systemdb.SeedInput{
+		Store:   store,
+		Auth:    a.auth,
+		Catalog: a.catalog,
+		DevMode: cfg.DevMode,
+	}); err != nil {
+		return fmt.Errorf("seed system database: %w", err)
+	}
+
+	a.cacheMgr, err = cache.NewManager(cache.Options{
+		Root:         cfg.Database.CacheDir,
+		MaxBytes:     cfg.Database.CacheMaxBytes,
+		MaxDatabases: cfg.Database.CacheMaxDatabases,
+		Registry:     a.registry,
+		Closer:       a.registry,
+		Logger:       a.logger,
+		Metrics:      a.metrics,
+	})
+	if err != nil {
+		return fmt.Errorf("create cache manager: %w", err)
+	}
+
+	catRepo := a.catalog.Repository()
+	a.usageSvc = usage.NewService(catRepo, a.logger)
+	a.auditSvc = audit.NewService(catRepo, a.logger)
+
+	if cfg.LLM.Enabled {
+		resolver := llmgateway.NewCatalogResolver(a.catalog, nil)
+		a.llmSvc = llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
+	}
+
+	if cfg.DevMode {
+		fs, err := objectstore.NewLocalFileStore(filepath.Join(cfg.Database.CacheDir, "dev", "files"))
 		if err != nil {
-			return fmt.Errorf("open catalog database: %w", err)
+			return fmt.Errorf("create local file store: %w", err)
 		}
-		catalogDB.SetMaxOpenConns(5)
-		catalogDB.SetMaxIdleConns(2)
-		a.registerCloser(catalogDB)
-		if err := catalog.ApplyMigrations(ctx, catalogDB); err != nil {
-			return fmt.Errorf("apply catalog migrations: %w", err)
-		}
-
-		repo := catalog.NewSQLiteRepository(catalogDB)
-		var descWriter catalog.DescriptorWriter
-		if a.objectStore != nil {
-			descWriter = a.objectStore
-		}
-		ducklakeStore := objectstore.DuckLakeStorage{
-			Endpoint:       cfg.S3.Endpoint,
-			Region:         cfg.S3.Region,
-			Bucket:         cfg.S3.Bucket,
-			ForcePathStyle: cfg.S3.ForcePathStyle,
-			KMSKeyIDRef:    cfg.S3.KMSKeyID,
-		}
-		a.catalog = catalog.NewService(repo, keys, descWriter, ducklakeStore, a.logger)
-
-		// 3) database factory + registry（DuckLake-only）
-		factory := a.newUserDatabaseFactory(cfg.Database.CacheDir)
-		a.registry = registry.New(factory, a.catalog, registry.Options{
-			IdleTimeout: cfg.Database.IdleTimeout,
-			MaxOpen:     cfg.Database.MaxOpen,
-			Writable:    cfg.Instance.Writable,
-		}, a.logger, a.metrics)
-
-		// 4) auth service
-		a.auth = auth.NewService(auth.NewSQLiteAPIKeyRepository(catalogDB), cfg.Auth.APIKeyHashSecret)
-
-		// 5) Plan 7-9 依赖：cache manager / usage / audit / llm gateway / jobs
-		a.cacheMgr, err = cache.NewManager(cache.Options{
-			Root:         cfg.Database.CacheDir,
-			MaxBytes:     cfg.Database.CacheMaxBytes,
-			MaxDatabases: cfg.Database.CacheMaxDatabases,
-			Registry:     a.registry,
-			Closer:       a.registry,
-			Logger:       a.logger,
-			Metrics:      a.metrics,
-		})
-		if err != nil {
-			return fmt.Errorf("create cache manager: %w", err)
-		}
-
-		catRepo := a.catalog.Repository()
-		a.usageSvc = usage.NewService(catRepo, a.logger)
-		a.auditSvc = audit.NewService(catRepo, a.logger)
-
-		// LLM Gateway（仅在 LLM 启用时装配）。
-		if cfg.LLM.Enabled {
-			resolver := llmgateway.NewCatalogResolver(a.catalog, nil)
-			a.llmSvc = llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
-		}
-
-		// 删库同步清理，不启动 delete_database worker。
-		// 若后续注册 backup 等 Handler，再在此装配 jobEnqueuer / jobWorker。
+		a.fileStore = fs
+		a.logger.Info("running in dev mode: local DuckLake DATA_PATH, S3 bypassed",
+			zap.String("user_dbs", userCacheDir),
+			zap.String("system_dir", filepath.Join(cfg.Database.CacheDir, "system")),
+		)
 	}
 
 	return nil
@@ -534,6 +463,30 @@ func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
 	return f
 }
 
+// newSystemDatabaseFactory 返回系统库专用 Factory；与用户库共享 Remote/Syncer，CacheDir 隔离。
+func (a *App) newSystemDatabaseFactory() *ducklake.Factory {
+	cfg := a.cfg
+	opts := duckLakeOptions(cfg.Database.DuckLake)
+	f := &ducklake.Factory{
+		CacheDir: filepath.Join(cfg.Database.CacheDir, "system", "dbs"),
+		Options:  opts,
+		Logger:   a.logger,
+		Metrics:  a.metrics,
+	}
+	if a.duckFactory != nil {
+		f.Remote = a.duckFactory.Remote
+		f.Blobs = a.duckFactory.Blobs
+		f.Syncer = a.duckFactory.Syncer
+	}
+	if a.catalogSyncer != nil {
+		f.Syncer = a.catalogSyncer
+	}
+	if f.Syncer == nil {
+		f.Syncer = ducklake.NewLocalSyncer()
+	}
+	return f
+}
+
 func duckLakeOptions(cfg config.DuckLakeConfig) ducklake.Options {
 	return ducklake.Options{
 		MemoryLimit:          cfg.MemoryLimit,
@@ -584,7 +537,6 @@ func (a *App) RunWithSignal(shutdownTimeout time.Duration) error {
 	defer cancel()
 	return a.Shutdown(ctx)
 }
-
 
 type syncerCloser struct{ cs *ducklake.CatalogSyncer }
 

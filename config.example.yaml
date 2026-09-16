@@ -60,7 +60,14 @@ s3:
   force_path_style: false     # SIMPLEBASE_S3_FORCE_PATH_STYLE
 
 catalog:
-  database_id: "simplebase-catalog"  # SIMPLEBASE_CATALOG_DATABASE_ID
+  database_id: "simplebase-catalog"  # SIMPLEBASE_CATALOG_DATABASE_ID（遗留字段）
+
+system_database:
+  name: "simplebase-system"          # SIMPLEBASE_SYSTEM_DB_NAME
+  hide_from_list: true               # SIMPLEBASE_SYSTEM_DB_HIDE_FROM_LIST
+  metrics_flush_interval: 2s         # SIMPLEBASE_METRICS_FLUSH_INTERVAL
+  log_flush_interval: 2s             # SIMPLEBASE_LOG_FLUSH_INTERVAL
+  log_keep_days: 14                  # SIMPLEBASE_LOG_KEEP_DAYS
 
 auth:
   api_key_hash_secret: ""     # SIMPLEBASE_AUTH_APIKEY_SECRET（必填，32 字节随机）

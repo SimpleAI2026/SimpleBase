@@ -16,10 +16,11 @@ func newTestRepoForJobs(t *testing.T) Repository {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := ApplyMigrations(context.Background(), db); err != nil {
-		t.Fatalf("apply migrations: %v", err)
+	if err := applyTestSchema(db); err != nil {
+		t.Fatalf("apply schema: %v", err)
 	}
-	return NewSQLiteRepository(db)
+	t.Cleanup(func() { _ = db.Close() })
+	return NewSQLRepository(db)
 }
 
 func TestJobQueueEnqueueClaimComplete(t *testing.T) {
@@ -27,11 +28,11 @@ func TestJobQueueEnqueueClaimComplete(t *testing.T) {
 	ctx := context.Background()
 	jobID := uuid.NewString()
 	job := Job{
-		ID:         jobID,
-		DatabaseID: "db-1",
-		ProjectID:  "proj-1",
-		Type:       JobTypeDeleteDatabase,
-		Status:     JobStatusPending,
+		ID:          jobID,
+		DatabaseID:  "db-1",
+		ProjectID:   "proj-1",
+		Type:        JobTypeDeleteDatabase,
+		Status:      JobStatusPending,
 		MaxAttempts: 3,
 		RunAfter:    time.Now().UTC(),
 	}
@@ -111,20 +112,20 @@ func TestJobQueueListJobs(t *testing.T) {
 	ctx := context.Background()
 	for i := 0; i < 3; i++ {
 		repo.Enqueue(ctx, Job{
-			ID:         uuid.NewString(),
-			DatabaseID: "db-1",
-			ProjectID:  "proj-1",
-			Type:       JobTypeDeleteDatabase,
+			ID:          uuid.NewString(),
+			DatabaseID:  "db-1",
+			ProjectID:   "proj-1",
+			Type:        JobTypeDeleteDatabase,
 			MaxAttempts: 3,
 			RunAfter:    time.Now().UTC(),
 		})
 	}
 	// 不同 databaseID
 	repo.Enqueue(ctx, Job{
-		ID:         uuid.NewString(),
-		DatabaseID: "db-2",
-		ProjectID:  "proj-1",
-		Type:       JobTypeDeleteDatabase,
+		ID:          uuid.NewString(),
+		DatabaseID:  "db-2",
+		ProjectID:   "proj-1",
+		Type:        JobTypeDeleteDatabase,
 		MaxAttempts: 3,
 		RunAfter:    time.Now().UTC(),
 	})

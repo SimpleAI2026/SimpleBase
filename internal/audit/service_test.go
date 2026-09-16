@@ -7,6 +7,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	_ "github.com/uglyer/go-sqlite3"
 )
 
@@ -16,10 +17,11 @@ func newTestRepoForAudit(t *testing.T) catalog.Repository {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if err := catalog.ApplyMigrations(context.Background(), db); err != nil {
+	t.Cleanup(func() { _ = db.Close() })
+	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
-	return catalog.NewSQLiteRepository(db)
+	return catalog.NewSQLRepository(db)
 }
 
 func TestRecordAndList(t *testing.T) {

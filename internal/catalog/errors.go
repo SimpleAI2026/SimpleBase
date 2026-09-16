@@ -21,11 +21,18 @@ var (
 	ErrDescriptorWrite = errors.New("catalog: descriptor write failed")
 	// ErrMigrationFailed 迁移失败，server 不 ready（503）。
 	ErrMigrationFailed = errors.New("catalog: migration failed")
+	// ErrSystemProtected 禁止删除或改写系统库（403）。
+	ErrSystemProtected = errors.New("catalog: system database is protected")
 )
 
 // IsNotFound 判断错误是否为 ErrNotFound（含 wrapped）。
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound)
+}
+
+// IsAlreadyExists 判断错误是否为 ErrAlreadyExists（含 wrapped）。
+func IsAlreadyExists(err error) bool {
+	return errors.Is(err, ErrAlreadyExists)
 }
 
 // StateTransitionError 携带 from/to 上下文，便于审计与测试。
