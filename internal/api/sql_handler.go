@@ -1,18 +1,19 @@
 // sql_handler.go 实现 Plan 6 的 SQL API handler。
 //
 // 三个路由：
-//   POST /v1/projects/:projectID/databases/:databaseID/query   (DatabaseRead)
-//   POST /v1/projects/:projectID/databases/:databaseID/execute (DatabaseWrite)
-//   POST /v1/projects/:projectID/databases/:databaseID/batch   (DatabaseWrite)
+//
+//	POST /v1/projects/:projectID/databases/:databaseID/query   (DatabaseRead)
+//	POST /v1/projects/:projectID/databases/:databaseID/execute (DatabaseWrite)
+//	POST /v1/projects/:projectID/databases/:databaseID/batch   (DatabaseWrite)
 //
 // 所有 handler 遵循同一流程：
-//   1. 从 context 取已校验的 ProjectContext 与 Principal。
-//   2. 解析 path 参数 databaseID；bind body 后显式校验。
-//   3. 通过 catalog 校验数据库归属与状态。
-//   4. sqlguard.Validate 按 intent 校验 SQL。
-//   5. Acquire 租约（query 默认 ReadOnly，execute/batch 先检查 writable 再 ReadWrite）。
-//   6. 执行 SQL；序列化结果。
-//   7. 审计只记录关键字、SQL SHA-256、耗时、行数、错误码；不记录原 SQL 与参数。
+//  1. 从 context 取已校验的 ProjectContext 与 Principal。
+//  2. 解析 path 参数 databaseID；bind body 后显式校验。
+//  3. 通过 catalog 校验数据库归属与状态。
+//  4. sqlguard.Validate 按 intent 校验 SQL。
+//  5. Acquire 租约（query 默认 ReadOnly，execute/batch 先检查 writable 再 ReadWrite）。
+//  6. 执行 SQL；序列化结果。
+//  7. 审计只记录关键字、SQL SHA-256、耗时、行数、错误码；不记录原 SQL 与参数。
 package api
 
 import (

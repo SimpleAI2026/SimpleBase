@@ -1,9 +1,10 @@
 // llm_handler.go 实现 LLM Gateway 的 HTTP handler（plan8.md）。
 //
 // 路由：
-//   POST /v1/projects/:projectID/llm/chat
-//   POST /v1/projects/:projectID/llm/stream  (SSE)
-//   GET  /v1/projects/:projectID/llm/providers
+//
+//	POST /v1/projects/:projectID/llm/chat
+//	POST /v1/projects/:projectID/llm/stream  (SSE)
+//	GET  /v1/projects/:projectID/llm/providers
 package api
 
 import (
@@ -13,6 +14,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
 // LLMHandler 依赖 LLMService、UsageService、AuditService。
@@ -20,13 +22,16 @@ type LLMHandler struct {
 	svc   LLMService
 	usage UsageService
 	audit AuditService
+	store *systemdb.Store
 }
 
 type llmChatRequest struct {
-	Model       string           `json:"model,omitempty"`
+	Model       string          `json:"model,omitempty"`
+	Provider    string          `json:"provider,omitempty"`
+	SessionID   string          `json:"session_id,omitempty"`
 	Messages    []llmMessageDTO `json:"messages"`
-	MaxTokens   *int             `json:"max_tokens,omitempty"`
-	Temperature *float64         `json:"temperature,omitempty"`
+	MaxTokens   *int            `json:"max_tokens,omitempty"`
+	Temperature *float64        `json:"temperature,omitempty"`
 }
 
 type llmMessageDTO struct {
@@ -35,11 +40,11 @@ type llmMessageDTO struct {
 }
 
 type llmChatResponse struct {
-	Content      string         `json:"content"`
-	Usage        LLMTokenUsage  `json:"usage"`
-	Model        string         `json:"model"`
-	Provider     string         `json:"provider"`
-	FinishReason string         `json:"finish_reason,omitempty"`
+	Content      string        `json:"content"`
+	Usage        LLMTokenUsage `json:"usage"`
+	Model        string        `json:"model"`
+	Provider     string        `json:"provider"`
+	FinishReason string        `json:"finish_reason,omitempty"`
 }
 
 // Chat 处理非流式对话。
@@ -74,6 +79,7 @@ func (h *LLMHandler) Chat(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	h.recordAudit(c, pc.ID, "llm_chat", "ok")
+	h.persistChat(c, pc.ID, req, resp)
 	return c.JSON(http.StatusOK, llmChatResponse{
 		Content:      resp.Content,
 		Usage:        resp.Usage,
@@ -168,5 +174,38 @@ func (h *LLMHandler) recordAudit(c echo.Context, projectID, kind, status string)
 		Kind:        kind,
 		RequestID:   c.Response().Header().Get(echo.HeaderXRequestID),
 		Status:      status,
+	})
+}
+
+func (h *LLMHandler) persistChat(c echo.Context, projectID string, req llmChatRequest, resp LLMResponse) {
+	if h.store == nil {
+		return
+	}
+	ctx := context.Background()
+	sessionID := req.SessionID
+	if sessionID == "" {
+		createdBy := ""
+		if p, ok := PrincipalFromContext(c.Request().Context()); ok {
+			createdBy = p.APIKeyID
+		}
+		sess, err := h.store.CreateLLMSession(ctx, systemdb.LLMSession{
+			ProjectID: projectID, Provider: resp.Provider, Model: resp.Model, CreatedBy: createdBy,
+		})
+		if err != nil {
+			return
+		}
+		sessionID = sess.ID
+	}
+	rid := RequestIDFromContext(c.Request().Context())
+	if len(req.Messages) > 0 {
+		last := req.Messages[len(req.Messages)-1]
+		_, _ = h.store.AppendLLMMessage(ctx, systemdb.LLMMessage{
+			SessionID: sessionID, ProjectID: projectID, Role: last.Role, Content: last.Content, RequestID: rid,
+			TokenInput: int64(resp.Usage.PromptTokens),
+		})
+	}
+	_, _ = h.store.AppendLLMMessage(ctx, systemdb.LLMMessage{
+		SessionID: sessionID, ProjectID: projectID, Role: "assistant", Content: resp.Content, RequestID: rid,
+		TokenOutput: int64(resp.Usage.CompletionTokens),
 	})
 }

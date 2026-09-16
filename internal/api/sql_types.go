@@ -46,19 +46,19 @@ type ExecuteResponse struct {
 	RowsAffected int64  `json:"rows_affected"`
 	LastInsertID *int64 `json:"last_insert_id,omitempty"`
 	// Durability 是写持久化级别：committed_local | synced_s3（§4.4）。
-	Durability   string `json:"durability"`
-	DurationMS   int64  `json:"duration_ms"`
-	RequestID    string `json:"request_id"`
+	Durability string `json:"durability"`
+	DurationMS int64  `json:"duration_ms"`
+	RequestID  string `json:"request_id"`
 }
 
 // BatchResultItem 是批量执行中单条语句的结果或错误。
 type BatchResultItem struct {
-	Index         int    `json:"index"`
-	RowsAffected  int64  `json:"rows_affected,omitempty"`
-	LastInsertID  *int64 `json:"last_insert_id,omitempty"`
-	DurationMS    int64  `json:"duration_ms,omitempty"`
-	ErrorCode     string `json:"error_code,omitempty"`
-	ErrorMessage  string `json:"error_message,omitempty"`
+	Index        int    `json:"index"`
+	RowsAffected int64  `json:"rows_affected,omitempty"`
+	LastInsertID *int64 `json:"last_insert_id,omitempty"`
+	DurationMS   int64  `json:"duration_ms,omitempty"`
+	ErrorCode    string `json:"error_code,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // BatchResponse 是批量执行响应。

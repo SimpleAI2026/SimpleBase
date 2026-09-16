@@ -84,9 +84,9 @@ func MustPrincipal(ctx context.Context) auth.Principal {
 func itoa(i int) string { return strconv.Itoa(i) }
 
 // fieldString/fieldDuration 是 zap.Field 构造的别名，便于中间件内联。
-func fieldString(k, v string) zap.Field   { return zap.String(k, v) }
+func fieldString(k, v string) zap.Field                 { return zap.String(k, v) }
 func fieldDuration(k string, d time.Duration) zap.Field { return zap.Duration(k, d) }
-func fieldInt(k string, v int) zap.Field   { return zap.Int(k, v) }
+func fieldInt(k string, v int) zap.Field                { return zap.Int(k, v) }
 
 // nullWriter 是一个丢弃所有输出的 io.Writer，用于静音 echo 自带 logger。
 type nullWriter struct{}

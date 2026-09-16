@@ -17,15 +17,15 @@ import (
 
 // fakeSQLLease 模拟 SQLLease，可预设查询结果或错误。
 type fakeSQLLease struct {
-	released      bool
-	queryResult   database.QueryResult
-	queryErr      error
-	executeResult database.QueryResult
-	executeErr    error
-	batchResults  []database.QueryResult
-	batchErr      error
-	lastQueryStmt database.Statement
-	lastExecStmt  database.Statement
+	released       bool
+	queryResult    database.QueryResult
+	queryErr       error
+	executeResult  database.QueryResult
+	executeErr     error
+	batchResults   []database.QueryResult
+	batchErr       error
+	lastQueryStmt  database.Statement
+	lastExecStmt   database.Statement
 	lastBatchStmts []database.Statement
 }
 
@@ -48,11 +48,11 @@ func (l *fakeSQLLease) Batch(ctx context.Context, stmts []database.Statement, tr
 
 // fakeSQLService 是 SQLService 的内存假实现。
 type fakeSQLService struct {
-	db          catalog.Database
-	getErr      error
-	acquireErr  error
+	db           catalog.Database
+	getErr       error
+	acquireErr   error
 	acquiredMode database.AccessMode
-	lease       *fakeSQLLease
+	lease        *fakeSQLLease
 }
 
 func (f *fakeSQLService) GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error) {
@@ -220,9 +220,9 @@ func TestSQLQuery_AttachDenied(t *testing.T) {
 func TestSQLExecute_Success(t *testing.T) {
 	lease := &fakeSQLLease{
 		executeResult: database.QueryResult{
-			RowsAffected:  3,
-			LastInsertID:  42,
-			Duration:      2 * time.Millisecond,
+			RowsAffected: 3,
+			LastInsertID: 42,
+			Duration:     2 * time.Millisecond,
 		},
 	}
 	svc := &fakeSQLService{

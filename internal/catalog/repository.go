@@ -83,7 +83,7 @@ type JobQueue interface {
 }
 
 // TenantProjectValidator 用于 service 校验 project 属于 tenant。
-// 实现由 sqlite_repository 提供（查询 projects 表）
+// 实现由 sql_repository 提供（查询 sys_projects 表）
 type TenantProjectValidator interface {
 	ProjectBelongsToTenant(ctx context.Context, projectID, tenantID string) (bool, error)
 	// GetProjectTenant 返回 project 所属的 tenant ID；project 不存在返回 ErrNotFound。

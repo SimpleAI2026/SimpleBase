@@ -11,9 +11,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/web"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -40,6 +42,8 @@ type Dependencies struct {
 	JobEnqueuer JobEnqueuer
 	// S3FileStore：用户文件存储（objectstore.FileStore）。
 	S3FileStore objectstore.FileStore
+	// System 是实例系统 DuckLake（元数据 / 指标 / 日志 / S3 索引 / LLM 会话）。
+	System *systemdb.Store
 }
 
 // CacheService 抽象缓存管理（plan7.md）。
@@ -61,6 +65,7 @@ type UsageService interface {
 // AuditService 抽象审计记录（plan9.md）。
 type AuditService interface {
 	Record(ctx context.Context, e AuditEvent) error
+	ListOperations(ctx context.Context, projectID, databaseID string, limit int) ([]catalog.Operation, error)
 }
 
 // AuditEvent 是审计事件输入。
@@ -226,7 +231,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	// Plan 8：LLM Gateway 路由。deps.LLM 为 nil 时不挂载。
 	if deps.LLM != nil {
-		lh := &LLMHandler{svc: deps.LLM, usage: deps.Usage, audit: deps.Audit}
+		lh := &LLMHandler{svc: deps.LLM, usage: deps.Usage, audit: deps.Audit, store: deps.System}
 		p.POST("/llm/chat", lh.Chat, require(auth.DatabaseRead))
 		p.POST("/llm/stream", lh.Stream, require(auth.DatabaseRead))
 		p.GET("/llm/providers", lh.ListProviders, require(auth.DatabaseRead))
@@ -244,11 +249,38 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	// S3 用户文件存储路由。deps.S3FileStore 为 nil 时不挂载。
 	if deps.S3FileStore != nil {
-		sh := &S3Handler{store: deps.S3FileStore}
+		sh := &S3Handler{store: deps.S3FileStore, index: deps.System}
 		p.GET("/s3/objects", sh.ListObjects, require(auth.DatabaseRead))
 		p.POST("/s3/objects", sh.UploadObject, require(auth.DatabaseWrite))
 		p.DELETE("/s3/objects", sh.DeleteObject, require(auth.DatabaseWrite))
 		p.GET("/s3/presign", sh.PresignObject, require(auth.DatabaseRead))
+	}
+
+	if deps.System != nil {
+		mh := &metricsHandler{store: deps.System}
+		p.GET("/metrics/summary", mh.Summary, require(auth.DatabaseRead))
+		p.GET("/metrics/trend", mh.Trend, require(auth.DatabaseRead))
+
+		lh := &logsHTTPHandler{store: deps.System}
+		p.GET("/logs", lh.List, require(auth.DatabaseRead))
+		p.GET("/logs/retention", lh.GetRetention, require(auth.DatabaseRead))
+		p.PUT("/logs/retention", lh.PutRetention, require(auth.ProjectAdmin))
+
+		seth := &settingsHandler{store: deps.System}
+		p.GET("/settings", seth.GetProject, require(auth.DatabaseRead))
+		p.PUT("/settings", seth.PutProject, require(auth.ProjectAdmin))
+		v1.GET("/settings", seth.GetGlobal, require(auth.ProjectAdmin))
+		v1.PUT("/settings", seth.PutGlobal, require(auth.ProjectAdmin))
+
+		sess := &llmSessionHandler{store: deps.System}
+		p.GET("/llm/sessions", sess.List, require(auth.DatabaseRead))
+		p.POST("/llm/sessions", sess.Create, require(auth.DatabaseWrite))
+		p.GET("/llm/sessions/:sessionID", sess.Get, require(auth.DatabaseRead))
+		p.DELETE("/llm/sessions/:sessionID", sess.Delete, require(auth.DatabaseWrite))
+		p.GET("/llm/sessions/:sessionID/messages", sess.ListMessages, require(auth.DatabaseRead))
+		p.POST("/llm/sessions/:sessionID/messages", sess.PostMessage, require(auth.DatabaseWrite))
+		p.GET("/llm/settings", sess.GetSettings, require(auth.DatabaseRead))
+		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin))
 	}
 }
 
@@ -333,6 +365,28 @@ func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 			if deps.Metrics != nil {
 				deps.Metrics.HTTPRequests.WithLabelValues(c.Path(), c.Request().Method, itoa(status)).Inc()
 				deps.Metrics.HTTPRequestDuration.WithLabelValues(c.Path(), c.Request().Method).Observe(latency.Seconds())
+			}
+			if deps.System != nil {
+				pc, _ := ProjectFromContext(c.Request().Context())
+				projectID := ""
+				if pc.ID != "" {
+					projectID = pc.ID
+				}
+				deps.System.RecordLog(systemdb.LogEvent{
+					ProjectID:  projectID,
+					Level:      "info",
+					Logger:     "http",
+					Message:    c.Request().Method + " " + c.Path(),
+					FieldsJSON: `{"status":` + itoa(status) + `,"duration_ms":` + itoa(int(latency.Milliseconds())) + `}`,
+					RequestID:  rid,
+				})
+				if projectID != "" {
+					deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_requests", Value: 1})
+					deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_latency_ms", Value: float64(latency.Milliseconds())})
+					if status >= 500 {
+						deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_errors", Value: 1})
+					}
+				}
 			}
 			return err
 		}

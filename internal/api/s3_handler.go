@@ -1,10 +1,11 @@
 // s3_handler.go 实现用户文件存储的 HTTP handler。
 //
 // 路由（挂在 /v1/projects/:projectID/s3 下）：
-//   GET    /objects?prefix=xxx   列出对象
-//   POST   /objects              上传对象（multipart: key + file）
-//   DELETE /objects?key=xxx      删除对象
-//   GET    /presign?key=xxx      生成预签名下载 URL
+//
+//	GET    /objects?prefix=xxx   列出对象
+//	POST   /objects              上传对象（multipart: key + file）
+//	DELETE /objects?key=xxx      删除对象
+//	GET    /presign?key=xxx      生成预签名下载 URL
 //
 // 项目隔离：handler 从 ProjectContext 取 projectID，
 // 所有 key 前自动拼接 "{projectID}/" 作为物理前缀。
@@ -18,11 +19,13 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
+	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-// S3Handler 依赖 objectstore.FileStore。
+// S3Handler 依赖 objectstore.FileStore，可选系统库对象索引。
 type S3Handler struct {
 	store objectstore.FileStore
+	index *systemdb.Store
 }
 
 // s3ObjectDTO 是列表/上传返回的对象元数据。
@@ -51,7 +54,7 @@ func stripProject(projectID, key string) string {
 	return key
 }
 
-// ListObjects 列出当前项目下的对象。
+// ListObjects 列出当前项目下的对象。默认读 sys_s3_objects；refresh=1 时对账平面 A。
 func (h *S3Handler) ListObjects(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -62,6 +65,34 @@ func (h *S3Handler) ListObjects(c echo.Context) error {
 		if err := objectstore.ValidateFileKey(prefix); err != nil {
 			return WriteError(c, err)
 		}
+	}
+	refresh := c.QueryParam("refresh") == "1" || c.QueryParam("refresh") == "true"
+	if refresh && h.index != nil {
+		listed, err := h.store.List(c.Request().Context(), joinKey(pc.ID, prefix), 1000)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		stripped := make([]objectstore.FileObject, 0, len(listed))
+		for _, obj := range listed {
+			obj.Key = stripProject(pc.ID, obj.Key)
+			stripped = append(stripped, obj)
+		}
+		_, _, _ = h.index.RefreshS3Index(c.Request().Context(), pc.ID, stripped)
+	}
+	if h.index != nil && !refresh {
+		rows, err := h.index.ListS3Objects(c.Request().Context(), pc.ID, prefix, 1000)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		dtos := make([]s3ObjectDTO, 0, len(rows))
+		for _, obj := range rows {
+			dto := s3ObjectDTO{Key: obj.Key, Size: obj.Size}
+			if !obj.LastModified.IsZero() {
+				dto.LastModified = obj.LastModified.UTC().Format(time.RFC3339)
+			}
+			dtos = append(dtos, dto)
+		}
+		return c.JSON(http.StatusOK, dtos)
 	}
 	objects, err := h.store.List(c.Request().Context(), joinKey(pc.ID, prefix), 1000)
 	if err != nil {
@@ -101,6 +132,9 @@ func (h *S3Handler) UploadObject(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
+	if h.index != nil {
+		_ = h.index.UpsertS3Object(c.Request().Context(), pc.ID, key, obj.Size, "", contentType, obj.LastModified)
+	}
 	return c.JSON(http.StatusOK, toDTO(obj, pc.ID))
 }
 
@@ -119,6 +153,9 @@ func (h *S3Handler) DeleteObject(c echo.Context) error {
 	}
 	if err := h.store.Delete(c.Request().Context(), joinKey(pc.ID, key)); err != nil {
 		return WriteError(c, err)
+	}
+	if h.index != nil {
+		_ = h.index.SoftDeleteS3Object(c.Request().Context(), pc.ID, key)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }

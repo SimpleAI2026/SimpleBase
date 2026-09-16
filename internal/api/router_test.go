@@ -19,9 +19,9 @@ func testDeps(t *testing.T, health HealthChecker) Dependencies {
 	reg := prometheus.NewRegistry()
 	return Dependencies{
 		Config: config.Config{
-			HTTP: config.HTTPConfig{Address: ":0"},
+			HTTP:          config.HTTPConfig{Address: ":0"},
 			Observability: config.ObservabilityConfig{MetricsPath: "/metrics"},
-			Limits: config.LimitsConfig{MaxRequestBytes: 1 << 20},
+			Limits:        config.LimitsConfig{MaxRequestBytes: 1 << 20},
 		},
 		Logger:  observability.NewLogger("debug", "json", nil),
 		Metrics: observability.NewMetrics(reg),

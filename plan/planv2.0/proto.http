@@ -6,8 +6,10 @@
 ###   2. 先启动 DevMode 后端（config.yaml 中 dev_mode: true）：
 ###        go run ./cmd/simplebased      # 或 ./simplebased
 ###   3. DevMode 种子数据已内置（internal/app/app.go）：
-###        project = proj-01，database = default（自动创建），
-###        API key = sb_live_dev_key_12345（含 Read/Write/Admin 全量权限）
+###        project = 00000000-0000-0000-0000-000000000002（展示名「商城后台」），
+###        database = default（自动创建），
+###        API key = sb_live_dev_key_12345（含 Read/Write/Admin/ProjectAdmin）
+###        系统库 simplebase-system 不出现在 GET .../databases 列表中。
 ###
 ### 契约文档：plan/planv2.0/proto-http.md
 ### 所有 /v1/* 路由要求 Authorization: Bearer <API_KEY>
@@ -17,7 +19,7 @@
 ###       手工填写最可靠）。
 
 @host = http://localhost:8080
-@project = proj-01
+@project = 00000000-0000-0000-0000-000000000002
 @apiKey = sb_live_dev_key_12345
 @auth = Bearer {{apiKey}}
 
@@ -299,9 +301,36 @@ Content-Type: application/json
 GET {{host}}/v1/projects/{{project}}/quota
 Authorization: {{auth}}
 
-### 6.2 审计事件列表 → 200 {"operations":[],"limit":50}
-### 占位实现：handler 忽略 AuditService，operations 恒为空数组
+### 6.2 审计事件列表 → 200 {"operations":[...],"limit":50}
 GET {{host}}/v1/projects/{{project}}/audit?limit=50
+Authorization: {{auth}}
+
+### 6.3 项目列表 → 200 {"projects":[{"id":"...","name":"商城后台"}]}
+GET {{host}}/v1/projects
+Authorization: {{auth}}
+
+### =====================================================================
+### 6b. Metrics / Logs / Settings / LLM sessions（系统库）
+### =====================================================================
+
+### 6b.1 Dashboard summary
+GET {{host}}/v1/projects/{{project}}/metrics/summary
+Authorization: {{auth}}
+
+### 6b.2 Dashboard trend
+GET {{host}}/v1/projects/{{project}}/metrics/trend?days=7
+Authorization: {{auth}}
+
+### 6b.3 Logs
+GET {{host}}/v1/projects/{{project}}/logs?limit=50
+Authorization: {{auth}}
+
+### 6b.4 LLM settings
+GET {{host}}/v1/projects/{{project}}/llm/settings
+Authorization: {{auth}}
+
+### 6b.5 LLM sessions
+GET {{host}}/v1/projects/{{project}}/llm/sessions
 Authorization: {{auth}}
 
 ### =====================================================================

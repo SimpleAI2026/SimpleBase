@@ -62,6 +62,10 @@ func (a *auditServiceAdapter) Record(ctx context.Context, e AuditEvent) error {
 	})
 }
 
+func (a *auditServiceAdapter) ListOperations(ctx context.Context, projectID, databaseID string, limit int) ([]catalog.Operation, error) {
+	return a.s.ListOperations(ctx, audit.Query{ProjectID: projectID, DatabaseID: databaseID, Limit: limit})
+}
+
 // NewAuditService 构造 AuditService 适配器。
 func NewAuditService(s *audit.Service) AuditService {
 	if s == nil {

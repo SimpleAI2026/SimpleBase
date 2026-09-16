@@ -10,8 +10,8 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 
-	_ "github.com/uglyer/go-sqlite3"
 	"database/sql"
+	_ "github.com/uglyer/go-sqlite3"
 )
 
 func newTestDB(t *testing.T) *sql.DB {
@@ -20,8 +20,8 @@ func newTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := ApplyMigrations(context.Background(), db); err != nil {
-		t.Fatalf("apply migrations: %v", err)
+	if err := applyTestSchema(db); err != nil {
+		t.Fatalf("apply sys schema: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -60,7 +60,7 @@ func newTestPrincipal(tenantID string, projectIDs ...string) auth.Principal {
 func setupService(t *testing.T, descriptor DescriptorWriter) (*Service, Repository, string, string) {
 	t.Helper()
 	db := newTestDB(t)
-	repo := NewSQLiteRepository(db)
+	repo := NewSQLRepository(db)
 	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
 	svc := NewService(repo, keys, descriptor, objectstore.DuckLakeStorage{Region: "us-east-1", Bucket: "test-bucket"}, nil)
 
@@ -217,9 +217,58 @@ func TestBeginDeleteDatabase(t *testing.T) {
 	}
 }
 
-func TestMigrations_Idempotent(t *testing.T) {
-	db := newTestDB(t)
-	if err := ApplyMigrations(context.Background(), db); err != nil {
-		t.Fatalf("second apply should be no-op: %v", err)
+func TestSystemDatabaseHiddenAndProtected(t *testing.T) {
+	svc, repo, tenantID, projectID := setupService(t, nil)
+	ctx := context.Background()
+	now := time.Now()
+	sysID := uuid.NewString()
+	if err := repo.CreateDatabase(ctx, Database{
+		ID: sysID, TenantID: tenantID, ProjectID: projectID, Name: "simplebase-system",
+		Kind: DatabaseKindSystem, Status: DatabaseReady, StoragePrefix: "sys",
+		FormatVersion: 1, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed system db: %v", err)
+	}
+	if _, err := svc.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenantID, ProjectID: projectID, Name: "userdb"}); err != nil {
+		t.Fatalf("create user db: %v", err)
+	}
+	principal := newTestPrincipal(tenantID, projectID)
+	list, _, err := svc.ListDatabases(ctx, principal, projectID, Page{})
+	if err != nil {
+		t.Fatalf("ListDatabases: %v", err)
+	}
+	for _, d := range list {
+		if d.Kind == DatabaseKindSystem || d.ID == sysID {
+			t.Fatalf("system database leaked into list: %+v", d)
+		}
+	}
+	_, err = svc.GetDatabase(ctx, principal, projectID, sysID)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetDatabase system should be hidden, got %v", err)
+	}
+	_, err = svc.BeginDeleteDatabase(ctx, principal, projectID, sysID)
+	if !errors.Is(err, ErrSystemProtected) {
+		t.Fatalf("expected ErrSystemProtected, got %v", err)
+	}
+}
+
+func TestListProjectsHidesSystemProject(t *testing.T) {
+	svc, repo, tenantID, projectID := setupService(t, nil)
+	ctx := context.Background()
+	if err := repo.CreateProject(ctx, Project{
+		ID: ReservedSystemProjectID, TenantID: tenantID, Name: "system", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("seed system project: %v", err)
+	}
+	principal := newTestPrincipal(tenantID, projectID)
+	principal.Permissions[auth.ProjectAdmin] = struct{}{}
+	list, err := svc.ListProjects(ctx, principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range list {
+		if p.ID == ReservedSystemProjectID {
+			t.Fatal("system project should be hidden")
+		}
 	}
 }

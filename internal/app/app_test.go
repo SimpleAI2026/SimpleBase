@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,9 +30,9 @@ func testConfig(writable bool) config.Config {
 			MaxOpen:     2,
 			MaxIdle:     1,
 		},
-		S3:            s3,
-		Catalog:       config.CatalogConfig{DatabaseID: "catalog"},
-		Auth:          config.AuthConfig{APIKeyHashSecret: "secret"},
+		S3:      s3,
+		Catalog: config.CatalogConfig{DatabaseID: "catalog"},
+		Auth:    config.AuthConfig{APIKeyHashSecret: "secret"},
 		Limits: config.LimitsConfig{
 			MaxRequestBytes:      1 << 20,
 			MaxQueryRows:         100,
@@ -71,5 +73,36 @@ func TestNewWritableAppRejectsMissingS3(t *testing.T) {
 	_, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry())
 	if err == nil {
 		t.Fatal("expected New to fail when writable without bucket")
+	}
+}
+
+func TestNewDevModeAppUsesSystemDatabase(t *testing.T) {
+	cfg := testConfig(true)
+	cfg.DevMode = true
+	cfg.S3 = config.S3Config{}
+	cfg.Database.CacheDir = t.TempDir()
+	ctx := context.Background()
+	a, err := NewWithRegistry(ctx, cfg, prometheus.NewRegistry())
+	if err != nil {
+		t.Fatalf("New DevMode: %v", err)
+	}
+	t.Cleanup(func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = a.Shutdown(sctx)
+	})
+	if a.systemStore == nil {
+		t.Fatal("expected system store")
+	}
+	if err := a.systemStore.Ping(ctx); err != nil {
+		t.Fatalf("system ping: %v", err)
+	}
+	platform := filepath.Join(cfg.Database.CacheDir, "platform", "catalog.db")
+	devCatalog := filepath.Join(cfg.Database.CacheDir, "dev", "catalog.db")
+	if _, err := os.Stat(platform); err == nil {
+		t.Fatalf("must not create %s", platform)
+	}
+	if _, err := os.Stat(devCatalog); err == nil {
+		t.Fatalf("must not create %s", devCatalog)
 	}
 }

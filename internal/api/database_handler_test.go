@@ -384,7 +384,6 @@ func TestErrorNoInternalLeak(t *testing.T) {
 	}
 }
 
-
 func TestPlan_CreateDatabaseHTTPReturnsReady(t *testing.T) {
 	svc := newFakeDBService()
 	e := setupTestRouter(t, svc, true)

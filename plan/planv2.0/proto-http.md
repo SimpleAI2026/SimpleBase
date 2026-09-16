@@ -1,11 +1,11 @@
 # SimpleBase 前后端 HTTP 交互协议（proto-http）
 
-> 版本：v2.0（2026-09-15）
+> 版本：v2.0（2026-09-16）
 > 基础地址：开发 `http://localhost:8080`（vite 代理 `/v1`、`/health`、`/ws` 到 8080）；生产同源（`internal/web` embed SPA，同端口）
 > 认证：所有 `/v1/*` 业务路由要求 `Authorization: Bearer <API_KEY>`
-> DevMode 种子凭据：`Authorization: Bearer sb_live_dev_key_12345`，项目 `proj-01`，数据库 `default`
+> DevMode 种子凭据：`Authorization: Bearer sb_live_dev_key_12345`，项目 `00000000-0000-0000-0000-000000000002`（展示名「商城后台」），数据库 `default`。系统库 `simplebase-system` 不出现在列表中、不可删除。
 > 可执行样例：同目录 `proto.http`（VS Code REST Client / JetBrains HTTP Client 直接运行）
-> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`quota_handler.go`、`audit_handler.go`
+> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`
 
 ---
 
@@ -16,7 +16,7 @@
 | 项 | 约定 |
 |---|---|
 | 编码 | JSON `Content-Type: application/json`；上传为 `multipart/form-data` |
-| 路径参数 | `projectID`（如 `proj-01`）、`databaseID`（catalog 生成的 ID）、`collection`（`^[A-Za-z][A-Za-z0-9_]{0,62}$`） |
+| 路径参数 | `projectID`（UUID，DevMode 种子为 `00000000-0000-0000-0000-000000000002`）、`databaseID`（catalog 生成的 UUID）、`collection`（`^[A-Za-z][A-Za-z0-9_]{0,62}$`） |
 | 请求追踪 | 可选 `X-Request-ID`（UUID 或 `[a-zA-Z0-9_-]{8,64}`），响应头原样返回；不合法或未传则服务端生成 UUID |
 | 体积上限 | `limits.max_request_bytes`（config.yaml 默认 10MB，.env 模板为 1MB） |
 
@@ -73,6 +73,8 @@
 | 500 | `internal_error` | **未映射错误兜底**（多处参数校验落在此，见各章标注） |
 | 501 | `not_implemented` | 备份/恢复接口 |
 | 503 | `writer_unavailable` | 只读实例收到写请求 |
+| 503 | `system_store_unavailable` | 系统 DuckLake 不可用 |
+| 403 | `system_database_protected` | 试图删除/改写 `kind=system` 的系统库 |
 | 503 | `registry_closed` / `descriptor_write_failed` / `migration_failed` | 基础设施异常 |
 | 503 | `request_canceled` | `context.Canceled` |
 | 504 | `request_timeout` | `context.DeadlineExceeded` |
@@ -89,7 +91,8 @@
 - project 不存在 → `404 database_not_found`（`ResolveProjectTenant` 返回 `catalog.ErrNotFound`，映射表未区分 project/database，前端提示文案需自行兜底）。
 - key 与 project 不匹配 → `403 cross_project_denied`。
 - 路由挂载是**条件性**的：`deps.Auth` 或 `deps.DatabaseHandler` 为 nil 时整个 `/v1` 组不挂载；`SQLHandler`/`DataHandler`/`LLM`/`Usage`/`Audit`/`S3FileStore` 各自为 nil 时对应子组不挂载 → 请求落到 SPA fallback 返回 HTML。`internal/app/app.go` 默认注入全部依赖。
-- DevMode 种子（`internal/app/app.go:277-298`）：tenant `00000000-0000-0000-0000-000000000001` / project `proj-01`（"商城后台"）/ database `default` / key `sb_live_dev_key_12345`，权限集 `DatabaseRead + DatabaseWrite + DatabaseAdmin + LLMInvoke + ProjectAdmin`。
+- DevMode 种子（`internal/systemdb/seed.go`）：tenant `00000000-0000-0000-0000-000000000001` / project `00000000-0000-0000-0000-000000000002`（"商城后台"）/ database `default` / key `sb_live_dev_key_12345`，权限集 `DatabaseRead + DatabaseWrite + DatabaseAdmin + LLMInvoke + ProjectAdmin`。系统库本身 `kind=system`，列表默认隐藏，DELETE 返回 `403 system_database_protected`。
+- `GET /v1/projects` 返回当前 Key 可见项目（不含隐藏的系统项目）。
 
 ---
 
@@ -102,7 +105,7 @@
 | Method | Path | 权限 | 成功状态 | 说明 |
 |---|---|---|---|---|
 | POST | `:p/databases` | DatabaseAdmin | 201 | 创建库 `{ "name": "..." }`；body 含未知字段直接 400 |
-| GET | `:p/databases?limit=&cursor=` | DatabaseRead | 200 | 分页列表，`limit` 默认 50、范围 1–200 |
+| GET | `:p/databases?limit=&cursor=` | DatabaseRead | 200 | 分页列表，仅 `kind=user`；`limit` 默认 50、范围 1–200 |
 | GET | `:p/databases/:databaseID` | DatabaseRead | 200 | 详情（唯一可能带 `snapshot` 的接口） |
 | POST | `:p/databases/:databaseID/open` | DatabaseAdmin | 200 | 预热（取租约后立即释放），返回 DatabaseResponse |
 | POST | `:p/databases/:databaseID/close` | DatabaseAdmin | **204 无 body** | 关闭本地连接（不删数据） |
@@ -222,11 +225,12 @@
 
 | Method | Path | 权限 | 成功状态 | 说明 |
 |---|---|---|---|---|
-| GET | `:p/s3/objects?prefix=images/` | DatabaseRead | 200 | `[{ "key","size","lastModified" }]`，最多 1000 条 |
+| GET | `:p/s3/objects?prefix=images/&refresh=1` | DatabaseRead | 200 | 默认读 `sys_s3_objects`；`refresh=1`/`true` 对账平面 A 后返回 |
 | POST | `:p/s3/objects` | DatabaseWrite | 200 | multipart：`key` + `file` 字段 → 对象元数据 |
 | DELETE | `:p/s3/objects?key=images/a.png` | DatabaseWrite | 200 | → `{"ok":true}` |
 | GET | `:p/s3/presign?key=images/a.png` | DatabaseRead | 200 | → `{"url":"..."}`，TTL 固定 15 分钟 |
 
+- 上传/删除成功后维护 `sys_s3_objects` 索引；列表默认读表。
 - **项目隔离**：服务端自动在物理 key 前拼 `{projectID}/`；返回给前端的 key 已剥掉项目段。
 - **字段命名例外**：本组用 camelCase `lastModified`（RFC3339 UTC）；服务端时间为零值时该字段省略。
 - key 校验（`objectstore.ValidateFileKey`）：非空、≤1024 字节、无 NUL、不以 `/` 开头、不含 `\`、按 `/` 分段后不含 `.` 或 `..` → 违反则 400 `invalid_file_key`。`prefix` 为空串时跳过校验。
@@ -288,19 +292,30 @@ data: {"type":"end"}
 - 前端 `http-api.ts llmStream` 额外兼容 `delta` / OpenAI `choices[0].delta.content` 形态，属防御性代码，可保留。
 - 前端用原生 `fetch` + ReadableStream 消费（axios 不支持流式），`AbortController` 支持「停止生成」；错误分支的 `resp.json()` 需 `.catch()` 兜底。
 
-### 3.9 设置页 / 厂商凭证 / 项目 LLM 默认值（**后端未实现**，前端契约草案）
+### 3.8 日志查询（Logs 页，HTTP 轮询，无 WebSocket）
 
-> 来源：`ui-settings-chat-plan.md`。本轮**只定契约，不实现 Go handler**。
-> 现网可用的仍是 §3.5：`providers` / `chat` / `stream`。设置页一期可纯本地存储；下列路由供二期对齐 catalog `LLMProviderConfig`。
-
-#### 3.9.1 项目 LLM 默认设置
-
-| Method | Path | 权限（建议） | 说明 |
+| Method | Path | 权限 | 说明 |
 |---|---|---|---|
-| GET | `:p/llm/settings` | DatabaseRead | 返回项目默认模型/供应商/采样参数 |
-| PUT | `:p/llm/settings` | ProjectAdmin | 全量更新（或 PATCH 语义，实现时二选一写死） |
+| GET | `:p/logs?level=&q=&from=&to=&limit=` | DatabaseRead | 查 `sys_log_events`；`from`/`to` 为 RFC3339 |
+| GET | `:p/logs/retention` | DatabaseRead | `{"scope","keep_days","updated_at"}` |
+| PUT | `:p/logs/retention` | ProjectAdmin | `{"keep_days":14}` |
 
-`GET/PUT` 响应与 PUT 请求体：
+一期不做 WebSocket。HTTP access 摘要异步写入系统库。
+
+### 3.9 设置与 LLM 会话
+
+| Method | Path | 权限 | 说明 |
+|---|---|---|---|
+| GET/PUT | `:p/llm/settings` | DatabaseRead / ProjectAdmin | 项目默认 provider/model/temperature/max_tokens |
+| GET/POST | `:p/llm/sessions` | DatabaseRead / DatabaseWrite | 会话列表 / 创建 |
+| GET/DELETE | `:p/llm/sessions/:id` | DatabaseRead / DatabaseWrite | 详情 / 归档 |
+| GET/POST | `:p/llm/sessions/:id/messages` | DatabaseRead / DatabaseWrite | 历史 / 追加消息 |
+| GET/PUT | `:p/settings` | DatabaseRead / ProjectAdmin | 项目级 `sys_settings_project` |
+| GET/PUT | `/v1/settings` | ProjectAdmin | 实例级 `sys_settings_global` |
+
+`POST :p/llm/chat` 成功后服务端写入 `sys_llm_messages`（可带可选 `session_id`；缺省自动建会话）。
+
+`GET/PUT :p/llm/settings` 载荷：
 
 ```json
 {
@@ -311,119 +326,26 @@ data: {"type":"end"}
 }
 ```
 
-- 字段均可选；`null`/省略表示清除覆盖、回退服务端全局默认。
-- 未知 `default_provider` → 400 `invalid_request`。
+主题仍走前端 localStorage，不需要后端接口。
 
-#### 3.9.2 预置厂商与凭证状态
-
-| Method | Path | 权限（建议） | 说明 |
-|---|---|---|---|
-| GET | `:p/llm/provider-catalog` | DatabaseRead | 返回可配置厂商模板（静态 catalog，可含服务端裁剪） |
-| GET | `:p/llm/provider-configs` | DatabaseRead | 项目已保存的厂商配置**状态**（不含 secret 明文） |
-| PUT | `:p/llm/provider-configs/:providerId` | ProjectAdmin | 创建/更新某厂商配置与凭证 |
-| DELETE | `:p/llm/provider-configs/:providerId` | ProjectAdmin | 删除配置并作废凭证引用 |
-
-`GET :p/llm/provider-catalog` 示例：
-
-```json
-{
-  "providers": [
-    {
-      "id": "openai",
-      "name": "OpenAI",
-      "protocol": "openai_chat",
-      "fields": [
-        { "key": "api_key", "label": "API Key", "secret": true, "required": true },
-        { "key": "base_url", "label": "Base URL", "secret": false, "required": false },
-        { "key": "organization", "label": "Organization", "secret": false, "required": false }
-      ],
-      "suggested_models": ["gpt-4o-mini", "gpt-4o"]
-    }
-  ]
-}
-```
-
-`GET :p/llm/provider-configs` 示例（**禁止**返回 key 明文）：
-
-```json
-{
-  "configs": [
-    {
-      "provider_id": "openai",
-      "enabled": true,
-      "default_model": "gpt-4o-mini",
-      "credential_configured": true,
-      "credential_hint": "sk-...abc",
-      "updated_at": "2026-09-16T06:00:00Z"
-    }
-  ]
-}
-```
-
-`PUT :p/llm/provider-configs/:providerId` 请求体：
-
-```json
-{
-  "enabled": true,
-  "default_model": "gpt-4o-mini",
-  "credentials": {
-    "api_key": "sk-...",
-    "base_url": "https://api.openai.com/v1"
-  }
-}
-```
-
-- `credentials` 中 `secret: true` 字段只写不读；更新时可只传要轮换的字段。
-- 服务端应存 `CredentialRef`（或等价密文），与 `internal/catalog` 的 `LLMProviderConfig` 对齐。
-- 响应同 `provider-configs` 单条结构；**永不回显** `api_key` 全文。
-
-#### 3.9.3 与 §3.5 对话接口的演进（可选，后端 TODO）
-
-现有 `POST :p/llm/chat|stream` 请求体可增加可选字段（向后兼容）：
-
-```json
-{
-  "provider": "openai",
-  "model": "gpt-4o-mini",
-  "messages": [{ "role": "user", "content": "hi" }]
-}
-```
-
-- 缺省 `provider`：行为与今日一致（项目默认供应商）。
-- 指定未配置凭证的 provider → 400/409（实现时定码），前端设置页引导去配置。
-
-#### 3.9.4 主题设置
-
-主题（`light` | `dark` | `system`）**不需要后端接口**；前端 `localStorage` + `stores/settings` 即可。勿为此新增 HTTP 路由。
-
-### 3.6 配额与审计
+### 3.10 Dashboard 指标
 
 | Method | Path | 权限 | 响应 |
 |---|---|---|---|
-| GET | `:p/quota` | DatabaseRead | `{"llm_allowed":true,"database_allowed":true}` |
-| GET | `:p/audit?limit=50` | DatabaseRead | `{"operations":[],"limit":50}` |
+| GET | `:p/metrics/summary` | DatabaseRead | `{ "total_requests", "error_rate", "avg_latency_ms", "active_databases" }` |
+| GET | `:p/metrics/trend?days=7` | DatabaseRead | `{ "points": [ { "date", "requests", "errors" } ] }` |
 
-> `GET :p/audit` 是**占位实现**：handler 完全忽略 `AuditService`（源码里 `_ = h.svc`），`operations` 恒为空数组，仅回显 `limit`。前端接入后不会有数据，审计页在后端补齐前不应作为独立菜单项。
+数据来自 `sys_metric_samples`（HTTP 中间件采样）。现有 `/metrics` Prometheus 文本仍保留给 Grafana。
 
-### 3.7 Prometheus 指标与健康检查（无认证）
-
-| Method | Path | 响应 |
-|---|---|---|
-| GET | `/health/live` | 200 存活（不做 I/O） |
-| GET | `/health/ready` | 200 就绪（检查 catalog/S3）；依赖未就绪 503 |
-| GET | `/metrics` | Prometheus **文本格式**（路径由 `observability.metrics_path` 配置），不适合前端直接消费，见 §6.1 |
-
-### 3.8 前端已调用但后端未实现的路由（当前 UI 的 404 来源）
-
-已用 `rg` 在 `internal/`、`cmd/` 全部 `.go` 源码中确认：以下路径**完全不存在**（仅出现在 `internal/web/dist` 的前端构建产物里）。它们命中 SPA fallback 返回 `index.html`，前端拦截器转为「接口不存在或返回了 HTML 页面」。
+### 3.11 尚未实现的前端缺口
 
 | 前端调用 | 影响页面 | 处置 |
 |---|---|---|
-| `GET /metrics/summary`、`GET /metrics/trend` | Dashboard 全部内容 | 后端补 JSON 汇总接口（§6.1）；落地前 Dashboard 改用 `:p/quota` + `:p/databases` 填充 |
-| `GET /faas/functions`、`POST /faas/deploy`、`POST /faas/invoke/:name` | FaaSManager 整页 | **后端无 FaaS 模块**（功能未立项，非路由遗漏）。菜单隐藏，代码与 mock 保留 |
-| `GET /ws/logs`（WebSocket） | Logs 整页 | 后端无任何 WebSocket 实现。改为 Mock 演示 + 显式提示，或后端另立 plan |
+| `GET /faas/functions` 等 | FaaSManager | 后端无 FaaS 模块（未立项） |
+| `GET :p/llm/provider-catalog` / `provider-configs` | Settings 厂商凭证 | 本期未做；LLM settings/sessions 已落地 |
+| `GET /ws/logs` | 旧 Logs 页 | 改用 `GET :p/logs` HTTP 轮询 |
 
-> `vite.config.ts` 代理只配了 `/v1`、`/health`、`/ws`，**`/metrics` 与 `/faas` 前缀未代理**，开发模式下这两组请求打到 vite devServer(5173) 自身并返回 index.html——与生产行为一致（都是 HTML），但排障时易误判。后端补 `/metrics/summary` 时若挂在 `/v1/projects/:p/...` 下则无需改代理。
+> Dashboard 请改调 `GET :p/metrics/summary|trend`（已实现）。旧 `/metrics/summary` 根路径仍不存在。
 
 ---
 
@@ -432,12 +354,14 @@ data: {"type":"end"}
 | 分组 | 覆盖 |
 |---|---|
 | 基础设施 | `/health/live`、`/health/ready`、`/metrics`（注释态） |
+| Projects | `GET /v1/projects` |
 | Databases | 创建 / 列表 / 详情 / open / close / 备份(501) / 删除(注释态) |
 | SQL | query(元数据) / 建表 / 插入 / 带参查询 / batch 事务 / batch 非事务 |
 | Documents | 集合列表 / 建集合 / 文档列表 / 插入 / 更新 / 删除(注释态) |
-| S3 | 列表 / multipart 上传 / 预签名 / 删除(注释态) |
-| LLM | providers / chat / stream |
-| Quota & Audit | 配额 / 审计 |
+| S3 | 列表（含 refresh）/ multipart 上传 / 预签名 / 删除(注释态) |
+| LLM | providers / chat / stream / settings / sessions |
+| Quota & Audit | 配额 / 审计（读 `sys_operations`） |
+| Metrics / Logs / Settings | summary、trend、logs、retention、project/global settings |
 | 错误演示 | 无认证 / 错误 key / 不存在的 project / 只读意图写语句 / SPA fallback |
 
 破坏性或依赖前序步骤的请求以 `#` 注释保留，按需打开。
@@ -448,20 +372,20 @@ data: {"type":"end"}
 
 ```
 services/types.ts 的 Api 接口域        对应章节    状态
-  db.*        → §3.3    ✔ 已接，需去 proj-01 硬编码（8 处）
-  s3.*        → §3.4    ✔ 已接，需补上传进度与体积预校验
-  llm.*       → §3.5    ✔ 已接，需补 messages 本地校验
-  llmSettings.*/providerConfigs.* → §3.9  前端契约已定，后端未实现（见 ui-settings-chat-plan.md）
-  databases.* → §3.1    待新增（Phase 2）
-  sql.*       → §3.2    待新增（Phase 2）
-  quota.*     → §3.6    待新增（Phase 2）
-  audit.*     → §3.6    待新增（低优先，后端占位）
-  metrics.*   → §6.1    待后端实现，当前调用必然失败
-  faas.*      → §3.8    后端无此模块，仅 Mock 可用
-  logs.*      → §3.8    后端无 WS，仅 Mock 可用
+  db.*        → §3.3    ✔ 已接，需把硬编码 proj-01 换成 UUID 种子项目
+  s3.*        → §3.4    ✔ 已接；列表默认同索引表，可加 refresh=1
+  llm.*       → §3.5    ✔ 已接；chat 成功后服务端落库
+  llmSettings.*/sessions → §3.9  ✔ 后端已落地
+  databases.* → §3.1    ✔ 列表过滤 kind=user
+  sql.*       → §3.2    ✔
+  quota.*     → §3.6    ✔
+  audit.*     → §3.6    ✔ 读 sys_operations
+  metrics.*   → §3.10   ✔ GET :p/metrics/summary|trend
+  faas.*      → §3.11   后端无此模块，仅 Mock 可用
+  logs.*      → §3.8    ✔ HTTP GET :p/logs（无 WS）
 ```
 
-**没有「项目列表」接口**：后端只有 `/v1/projects/:projectID/*` 子路由，不存在 `GET /v1/projects`。前端无法枚举项目，项目切换只能由用户手工输入 + 本地保存项目 ID。
+`GET /v1/projects` 返回当前 Key 可见项目（DevMode 种子 UUID `00000000-0000-0000-0000-000000000002`）。
 
 拦截器约定（`http.ts`）：
 1. 请求头自动注入 `Authorization: Bearer <key>`（key 来自 localStorage，默认 DevMode 种子 key）。
@@ -473,21 +397,9 @@ services/types.ts 的 Api 接口域        对应章节    状态
 
 ## 6. 待补接口建议（后端 TODO）
 
-### 6.1 Dashboard 指标汇总（P0，Dashboard 整页依赖）
+### 6.1 Dashboard / Logs / Settings（已落地）
 
-现有 `/metrics` 是 Prometheus 文本格式，前端无法直接消费。建议新增：
-
-```
-GET /v1/projects/:projectID/metrics/summary        权限 DatabaseRead
-→ { "total_requests": 1234, "error_rate": 0.02, "avg_latency_ms": 15, "active_databases": 1 }
-
-GET /v1/projects/:projectID/metrics/trend?days=7   权限 DatabaseRead
-→ { "points": [ { "date": "9/15", "requests": 100, "errors": 2 } ] }
-```
-
-- 挂在 `/v1/projects/:projectID` 组下可复用现有认证 + project 中间件，且无需改 vite 代理。
-- `trend` 建议返回对象包裹（`{points:[...]}`）而非裸数组，与 `collections` / `databases` / `providers` 风格一致；前端 adapter 层解包。
-- 实现可读 `observability.Metrics` 的 Prometheus counter，或聚合访问日志。
+见 §3.8–§3.10。前端需从 Mock / WS / Prometheus 文本切到这些 JSON API。
 
 ### 6.2 文档 API 显式指定数据库（P1，多库场景正确性）
 
@@ -507,26 +419,12 @@ GET /v1/projects/:projectID/metrics/trend?days=7   权限 DatabaseRead
 
 `llm/stream` 中途失败时仅补发 `{"type":"end"}`，前端无法区分正常结束与失败。建议增加 `{"type":"error","message":"..."}` 帧。
 
-### 6.5 审计查询实装（P2）
+### 6.5 厂商凭证 catalog（P2）
 
-`GET :p/audit` 为占位实现，恒返回空数组。需接入 `AuditService` 实际存储查询后前端才有意义。
-
-
-### 6.7 设置页厂商凭证与项目 LLM 默认值（P1，前端设置页 / AiChat）
-
-见 §3.9 与 `ui-settings-chat-plan.md`。建议实现顺序：
-
-1. `GET/PUT :p/llm/settings`（默认 provider/model/采样参数）
-2. `GET :p/llm/provider-catalog`（可先写死与前端预置表一致的 JSON）
-3. `GET/PUT/DELETE :p/llm/provider-configs...`（凭证只写不读，落 `CredentialRef`）
-4. `chat`/`stream` 接受可选 `provider`，并做配额/审计打点
-
-安全约束：
-
-- 响应与日志禁止打印 API Key；错误信息不得回显密钥片段（`credential_hint` 最多保留前后极少字符）。
-- 不在 DevMode 种子或仓库示例中提交真实 key。
+`GET :p/llm/provider-catalog` 与 `GET/PUT/DELETE :p/llm/provider-configs` 仍未实现；密钥须走 `credential_ref`，禁止回显明文。
 
 ### 6.6 不建议本轮前端接入的能力
 
 - **FaaS**：后端无对应模块，属未立项功能。
-- **实时日志 WebSocket**：后端无 WS 实现，需独立 plan（涉及日志管道、连接管理、鉴权）。
+- **实时日志 WebSocket**：改用 HTTP 轮询 `GET :p/logs`。
+
