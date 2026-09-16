@@ -10,26 +10,4 @@
 <script setup lang="ts">
 defineProps<{ title?: string; subtitle?: string }>()
 </script>
-<style scoped>
-.sb-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.sb-page-title {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.sb-page-title h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--sb-text);
-  letter-spacing: -0.01em;
-}
-.sb-page-title .sb-subtitle {
-  color: var(--sb-text-secondary);
-  font-size: 13px;
-}
-</style>
+<!-- 样式收敛到 utilities.css 的 .sb-page / .sb-page-title，组件不再重复定义 -->

@@ -18,7 +18,7 @@ import (
 //	{root}/{env}/tenants/{tenantUUID}/databases/{databaseUUID}/
 //	  descriptor.json
 //	  state.json
-//	  data/                        # 只允许 Turso/libSQL 读写
+//	  data/                        # DuckLake DATA_PATH（平面 B）
 //	  backups/{backupUUID}/...
 type KeyBuilder struct {
 	RootPrefix  string // 例如 "simplebase"，对应 config.S3Config.Prefix
@@ -79,7 +79,7 @@ func (k KeyBuilder) base() string {
 }
 
 // DatabasePrefix 返回某个数据库在 S3 中的完整前缀（不含尾部 "/"）。
-// 调用方可在此前缀后追加 "data/" 等子路径，但 data/ 由 Turso 管理。
+// 调用方可在此前缀后追加 "data/" 等子路径（DuckLake 数据面）。
 func (k KeyBuilder) DatabasePrefix(tenantID, databaseID string) (string, error) {
 	if err := validateID("tenant_id", tenantID); err != nil {
 		return "", err
@@ -108,7 +108,7 @@ func (k KeyBuilder) StateKey(tenantID, databaseID string) (string, error) {
 	return prefix + "/state.json", nil
 }
 
-// DataPrefix 返回 data/ 子前缀（仅供 Turso 适配层使用，本包不直接读写）。
+// DataPrefix 返回 data/ 子前缀（DuckLake DATA_PATH；本包不直接解析 Parquet）。
 func (k KeyBuilder) DataPrefix(tenantID, databaseID string) (string, error) {
 	prefix, err := k.DatabasePrefix(tenantID, databaseID)
 	if err != nil {

@@ -5,8 +5,8 @@
       class="sb-sider"
       collapsible
       v-model:collapsed="collapsed"
-      :width="siderWidth"
-      :collapsed-width="siderCollapsedWidth"
+      :width="SIDER_WIDTH"
+      :collapsed-width="SIDER_COLLAPSED_WIDTH"
     >
       <div class="sb-brand" :class="{ 'is-collapsed': collapsed }">
         <div class="sb-brand-logo">S</div>
@@ -47,6 +47,14 @@
         </div>
         <div class="sb-header-right">
           <a-tag v-if="isMock" color="orange" class="sb-mock-tag">Mock 数据</a-tag>
+          <a-tooltip v-if="authStore.lastUnauthorizedAt > 0" title="API Key 无效，点击配置">
+            <a-badge dot status="error">
+              <SettingOutlined class="sb-icon-link" @click="authStore.openDrawer()" />
+            </a-badge>
+          </a-tooltip>
+          <a-tooltip v-else title="连接设置">
+            <SettingOutlined class="sb-icon-link" @click="authStore.openDrawer()" />
+          </a-tooltip>
           <a-tooltip title="GitHub">
             <a href="https://github.com/voocel/SimpleBase" target="_blank" class="sb-icon-link">
               <GithubOutlined />
@@ -55,7 +63,6 @@
           <a-tooltip title="刷新页面">
             <ReloadOutlined class="sb-icon-link" @click="reload" />
           </a-tooltip>
-          <a-avatar style="background-color: var(--sb-primary)" size="small">A</a-avatar>
         </div>
       </a-layout-header>
 
@@ -67,19 +74,30 @@
         </router-view>
       </a-layout-content>
     </a-layout>
+
+    <ApiKeyDrawer />
   </a-layout>
 </template>
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { GithubOutlined, ReloadOutlined, MenuOutlined } from '@ant-design/icons-vue'
+import { GithubOutlined, ReloadOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import { isMock } from '../services/api'
+import { useAuthStore } from '../stores/auth'
 import NavMenu from '../components/NavMenu.vue'
+import ApiKeyDrawer from '../components/ApiKeyDrawer.vue'
+import router from '../router'
 
 const collapsed = ref(false)
 const drawerOpen = ref(false)
 const route = useRoute()
+const authStore = useAuthStore()
 const isMobile = ref(window.innerWidth <= 768)
+
+// Sider 宽度用 JS 常量（修复：原来 getComputedStyle 同步读 CSS 变量，
+// 移动端媒体查询把变量改为 0px 后 parseInt 得 0，且不响应断点切换）
+const SIDER_WIDTH = 232
+const SIDER_COLLAPSED_WIDTH = 64
 
 function onResize() {
   isMobile.value = window.innerWidth <= 768
@@ -88,24 +106,13 @@ function onResize() {
 onMounted(() => window.addEventListener('resize', onResize))
 onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 
-const siderWidth = parseInt(
-  getComputedStyle(document.documentElement).getPropertyValue('--sb-sider-width') || '232',
-  10
-)
-const siderCollapsedWidth = parseInt(
-  getComputedStyle(document.documentElement).getPropertyValue('--sb-sider-collapsed-width') || '64',
-  10
-)
-
-const titleMap: Record<string, string> = {
-  dashboard: '监控大盘',
-  data: '数据管理',
-  s3: 'S3 对象存储',
-  faas: '云函数',
-  llm: 'LLM 对话',
-  logs: '日志管理'
-}
-const currentTitle = computed(() => titleMap[route.name as string] || 'SimpleBase')
+// 面包屑标题从路由 meta 派生（单一数据源，替代原 titleMap）
+const currentTitle = computed(() => {
+  const name = route.name as string
+  if (!name) return 'SimpleBase'
+  const r = router.getRoutes().find((rr) => rr.name === name)
+  return (r?.meta?.title as string) || 'SimpleBase'
+})
 
 function reload() {
   location.reload()
@@ -121,13 +128,13 @@ function reload() {
   -webkit-backdrop-filter: blur(20px);
   border-right: 1px solid var(--sb-border-soft);
   position: relative;
-  z-index: 10;
+  z-index: var(--sb-z-sider);
 }
 .sb-sider :deep(.ant-layout-sider-children) {
   display: flex;
   flex-direction: column;
 }
-/* 折叠触发器：与磨砂侧边栏融合，去掉 antd 默认的不透明背景 */
+/* 折叠触发器：与磨砂侧边栏融合 */
 .sb-sider :deep(.ant-layout-sider-trigger) {
   background: transparent !important;
   color: var(--sb-text-secondary) !important;
@@ -191,7 +198,7 @@ function reload() {
 .sb-header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sb-space-3);
 }
 .sb-header-right {
   display: flex;
@@ -200,7 +207,7 @@ function reload() {
 }
 .sb-icon-link {
   color: var(--sb-text-secondary);
-  font-size: 16px;
+  font-size: var(--sb-fs-lg);
   cursor: pointer;
   transition: var(--sb-transition);
 }
@@ -210,13 +217,12 @@ function reload() {
 .sb-menu-toggle {
   font-size: 18px;
 }
-.sb-mock-tag {
-  margin-inline-end: 0;
-  font-weight: 600;
-}
 .sb-content {
-  margin: 18px;
-  padding: 0;
+  margin: 18px auto;
+  padding: 0 18px;
+  /* 大屏内容宽度上限（原则 §I.4：内容有界） */
+  max-width: var(--sb-content-max-width);
+  width: 100%;
 }
 .sb-drawer :deep(.ant-drawer-body) {
   padding: 0;
@@ -230,7 +236,8 @@ function reload() {
     gap: 10px;
   }
   .sb-content {
-    margin: 10px;
+    margin: 10px auto;
+    padding: 0 10px;
   }
 }
 </style>

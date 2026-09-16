@@ -62,7 +62,7 @@ func setupService(t *testing.T, descriptor DescriptorWriter) (*Service, Reposito
 	db := newTestDB(t)
 	repo := NewSQLiteRepository(db)
 	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
-	svc := NewService(repo, keys, descriptor, nil)
+	svc := NewService(repo, keys, descriptor, objectstore.DuckLakeStorage{Region: "us-east-1", Bucket: "test-bucket"}, nil)
 
 	tenantID := uuid.NewString()
 	projectID := uuid.NewString()
@@ -88,8 +88,8 @@ func TestCreateDatabase_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDatabase: %v", err)
 	}
-	if db.Status != DatabaseCreating {
-		t.Fatalf("expected status creating, got %s", db.Status)
+	if db.Status != DatabaseReady {
+		t.Fatalf("expected status ready after create, got %s", db.Status)
 	}
 	if descriptor.calls != 1 {
 		t.Fatalf("expected 1 descriptor write, got %d", descriptor.calls)

@@ -65,8 +65,7 @@ func TestNewReadonlyApp(t *testing.T) {
 }
 
 func TestNewWritableAppRejectsMissingS3(t *testing.T) {
-	// Writable 实例在装配阶段需要打开 catalog DB（通过 turso/S3），
-	// 缺少 bucket 时 assembleDeps 应直接失败。
+	// Writable 非 DevMode 实例必须配置 S3；缺少 bucket 时 assembleDeps 应直接失败。
 	cfg := testConfig(true)
 	cfg.S3.Bucket = ""
 	_, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry())

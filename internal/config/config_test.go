@@ -133,3 +133,22 @@ func TestRedactedOmitsSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateRejectsLegacyEngines(t *testing.T) {
+	for _, engine := range []string{"turso", "local", "sqlite"} {
+		t.Setenv("SIMPLEBASE_INSTANCE_ID", "id")
+		t.Setenv("SIMPLEBASE_DB_CACHE_DIR", "/tmp/c")
+		t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "0123456789abcdef0123456789abcdef")
+		t.Setenv("SIMPLEBASE_DB_ENGINE", engine)
+		t.Setenv("SIMPLEBASE_INSTANCE_WRITABLE", "false")
+		_, err := Load()
+		if err == nil {
+			t.Fatalf("engine %q: expected validation error", engine)
+		}
+	}
+	t.Setenv("SIMPLEBASE_DB_ENGINE", "ducklake")
+	t.Setenv("SIMPLEBASE_INSTANCE_WRITABLE", "false")
+	if _, err := Load(); err != nil {
+		t.Fatalf("ducklake should be accepted: %v", err)
+	}
+}

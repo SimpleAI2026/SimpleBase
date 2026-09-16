@@ -110,7 +110,7 @@ type Page struct {
 type JobType string
 
 const (
-	JobTypeDeleteDatabase JobType = "delete_database"
+	JobTypeDeleteDatabase JobType = "delete_database" // 遗留枚举：队列测试仍可用；运行时不再投递/处理
 	JobTypeBackup         JobType = "backup"
 	JobTypeRestore        JobType = "restore"
 	JobTypeVerifyRecovery JobType = "verify_recovery"

@@ -151,9 +151,12 @@ func buildBootSQL(layout Layout, opts Options, remote RemoteStorage, dataPath st
 	)
 	out = append(out, attach, "USE "+quoteIdent(alias))
 	out = append(out, optionSQL(alias, opts)...)
-	// allowed_directories 是 enable_external_access=false 时的白名单。
-	// 必须在 ATTACH 之后关闭外部访问，已挂载的 catalog / DATA_PATH 仍可读写。
-	out = append(out, "SET enable_external_access = false")
+	// 本地盘：ATTACH 后关闭外部访问，仅靠 allowed_directories 白名单。
+	// 远端 S3 DATA_PATH：写 parquet 仍需外部访问；关闭会导致
+	// "file system operations are disabled by configuration"。
+	if !remote.Enabled {
+		out = append(out, "SET enable_external_access = false")
+	}
 	out = append(out, "SET lock_configuration = true")
 	return out
 }

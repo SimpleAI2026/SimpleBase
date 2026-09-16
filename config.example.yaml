@@ -28,7 +28,7 @@ instance:
   writable: true              # SIMPLEBASE_INSTANCE_WRITABLE
 
 database:
-  engine: ducklake            # SIMPLEBASE_DB_ENGINE：ducklake（默认）| local | turso
+  engine: ducklake            # SIMPLEBASE_DB_ENGINE：仅 ducklake（local/turso 已退役）
   cache_dir: ".cache"         # SIMPLEBASE_DB_CACHE_DIR（必填）
   idle_timeout: 5m            # SIMPLEBASE_DB_IDLE_TIMEOUT
   max_open: 8                 # SIMPLEBASE_DB_MAX_OPEN

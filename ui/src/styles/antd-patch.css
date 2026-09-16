@@ -1,0 +1,53 @@
+/* ========== antd 组件样式补丁（目标 ≤ 60 行） ========== */
+/* 原则：能用 ConfigProvider 组件 token 解决的不写在这里。 */
+/* 仅保留对抗 antd 默认样式必须覆盖的部分。 */
+
+.sb-card {
+  border-radius: var(--sb-radius) !important;
+  border: 1px solid var(--sb-border-soft) !important;
+  box-shadow: var(--sb-shadow-xs) !important;
+  background: var(--sb-surface) !important;
+  transition: var(--sb-transition);
+}
+
+.sb-card:hover {
+  box-shadow: var(--sb-shadow) !important;
+}
+
+.sb-card .ant-card-head {
+  border-bottom-color: var(--sb-border-soft) !important;
+  min-height: 44px !important;
+}
+
+.sb-card .ant-card-head-title {
+  font-family: var(--sb-font-serif) !important;
+  font-weight: 600 !important;
+  font-size: var(--sb-fs-lg) !important;
+  color: var(--sb-text) !important;
+}
+
+/* 表格：粘性表头 + 行 hover 用 antd token，此处仅补边框圆角 */
+.sb-card .ant-table-wrapper {
+  border-radius: var(--sb-radius-sm);
+}
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 768px) {
+  .sb-card .ant-card-body {
+    padding: 12px !important;
+  }
+  .sb-card .ant-card-head {
+    min-height: 40px !important;
+    padding: 0 12px !important;
+  }
+  .sb-card .ant-card-head-title {
+    font-size: var(--sb-fs-sm) !important;
+  }
+  .ant-modal {
+    max-width: calc(100vw - 32px) !important;
+    margin: 16px auto !important;
+  }
+  .ant-table-content {
+    overflow-x: auto;
+  }
+}

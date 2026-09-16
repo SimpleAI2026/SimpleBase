@@ -1,56 +1,82 @@
 <template>
   <a-menu
     class="sb-menu"
-    theme="light"
+    :theme="menuTheme"
     mode="inline"
     :selectedKeys="[selectedKey]"
     @click="onClick"
   >
-    <a-menu-item key="dashboard">
-      <AppstoreOutlined />
-      <span>监控大盘</span>
-    </a-menu-item>
-    <a-menu-item key="data">
-      <DatabaseOutlined />
-      <span>数据管理</span>
-    </a-menu-item>
-    <a-menu-item key="s3">
-      <CloudUploadOutlined />
-      <span>S3 对象存储</span>
-    </a-menu-item>
-    <a-menu-item key="faas">
-      <CodeOutlined />
-      <span>云函数</span>
-    </a-menu-item>
-    <a-menu-item key="llm">
-      <RobotOutlined />
-      <span>LLM 对话</span>
-    </a-menu-item>
-    <a-menu-item key="logs">
-      <FileTextOutlined />
-      <span>日志管理</span>
+    <a-menu-item v-for="item in menuItems" :key="item.name">
+      <component :is="item.icon" />
+      <span>{{ item.title }}</span>
     </a-menu-item>
   </a-menu>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useSettingsStore } from '../stores/settings'
 import {
   AppstoreOutlined,
   DatabaseOutlined,
+  ConsoleSqlOutlined,
+  TableOutlined,
   CloudUploadOutlined,
-  ProjectOutlined,
-  FileTextOutlined,
   CodeOutlined,
-  RobotOutlined
+  RobotOutlined,
+  SettingOutlined,
+  FileTextOutlined
 } from '@ant-design/icons-vue'
+import type { Component } from 'vue'
+import router from '../router'
+
+/** 菜单项从路由 meta 派生（单一数据源）；hidden 的路由不进菜单（如 FaaS：后端无此模块） */
+const iconMap: Record<string, Component> = {
+  dashboard: AppstoreOutlined,
+  databases: DatabaseOutlined,
+  sql: ConsoleSqlOutlined,
+  data: TableOutlined,
+  s3: CloudUploadOutlined,
+  faas: CodeOutlined,
+  llm: RobotOutlined,
+  settings: SettingOutlined,
+  logs: FileTextOutlined
+}
+
+interface MenuItem {
+  name: string
+  title: string
+  icon: Component
+}
+
+const menuItems = computed<MenuItem[]>(() =>
+  router
+    .getRoutes()
+    .filter((r) => !r.meta?.hidden && r.name && iconMap[r.name as string])
+    .sort((a, b) => orderOf(a.name as string) - orderOf(b.name as string))
+    .map((r) => ({
+      name: r.name as string,
+      title: (r.meta?.title as string) || (r.name as string),
+      icon: iconMap[r.name as string]
+    }))
+)
+
+const routeOrder = ['dashboard', 'databases', 'sql', 'data', 's3', 'faas', 'llm', 'settings', 'logs']
+function orderOf(name: string) {
+  const i = routeOrder.indexOf(name)
+  return i === -1 ? 99 : i
+}
+
+const settings = useSettingsStore()
+const menuTheme = computed(() => (settings.effectiveTheme === 'dark' ? 'dark' : 'light'))
 
 const emit = defineEmits<{ (e: 'navigate'): void }>()
-const route = useRoute()
-const router = useRouter()
-const selectedKey = computed(() => (route.name as string) || 'dashboard')
-function onClick(e: any) {
-  router.push({ name: e.key })
+const currentRoute = useRoute()
+const routerInstance = useRouter()
+const selectedKey = computed(() => (currentRoute.name as string) || 'dashboard')
+
+function onClick(e: { key: string }) {
+  routerInstance.push({ name: e.key })
   emit('navigate')
 }
 </script>
@@ -61,8 +87,7 @@ function onClick(e: any) {
   padding-top: 8px;
 }
 .sb-menu :deep(.ant-menu-item) {
-  margin: 4px 10px !important;
-  border-radius: 10px !important;
+  border-radius: var(--sb-radius-sm) !important;
   height: 40px !important;
   line-height: 40px !important;
   color: var(--sb-text-secondary) !important;

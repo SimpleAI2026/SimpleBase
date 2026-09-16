@@ -1,5 +1,5 @@
 <template>
-  <PageContainer title="日志管理" subtitle="实时日志流推送与过滤">
+  <PageContainer title="日志管理" subtitle="实时日志流（需后端 WebSocket 支持）">
     <a-card class="sb-card">
       <div class="sb-toolbar">
         <a-input
@@ -30,12 +30,21 @@
       </div>
     </a-card>
 
+    <a-alert
+      v-if="!isMock && !backendSupported"
+      type="warning"
+      show-icon
+      message="后端暂未支持实时日志"
+      description="WebSocket 日志流（/ws/logs）在后端尚未实现（proto-http.md §3.8）。当前为演示模式：Mock 模式下可查看模拟日志效果；连接真实后端将失败。"
+      style="border-radius: var(--sb-radius)"
+    />
+
     <a-card class="sb-card" title="实时日志">
       <div ref="terminalRef" class="sb-terminal">
         <div v-for="(l, i) in filtered" :key="i" class="sb-log-line" :class="levelClass(l)">
           {{ l }}
         </div>
-        <div v-if="!filtered.length" class="sb-empty">暂无日志，点击"连接"开始接收</div>
+        <div v-if="!filtered.length" class="sb-empty">暂无日志，点击「连接」开始接收</div>
       </div>
     </a-card>
   </PageContainer>
@@ -49,13 +58,15 @@ import {
   DisconnectOutlined,
   ClearOutlined
 } from '@ant-design/icons-vue'
-import { api } from '../services/api'
+import { api, isMock } from '../services/api'
 import type { LogConnection } from '../services/api'
 import PageContainer from '../components/PageContainer.vue'
 
 const filter = ref('')
 const logs = ref<string[]>([])
 const connected = ref(false)
+/** 后端无 WS 实现：非 mock 模式下显式提示，不静默失败 */
+const backendSupported = ref(isMock)
 const terminalRef = ref<HTMLElement | null>(null)
 let conn: LogConnection | null = null
 
@@ -85,10 +96,15 @@ function connect() {
   conn = api.logs.connect({
     onOpen: () => {
       connected.value = true
+      backendSupported.value = true
     },
     onMessage: (line) => {
       logs.value.push(line)
       if (logs.value.length > 2000) logs.value.splice(0, logs.value.length - 2000)
+    },
+    onError: () => {
+      // 真实模式下连接失败：明示后端未支持，不当作异常刷屏
+      backendSupported.value = false
     },
     onClose: () => {
       connected.value = false
@@ -110,7 +126,7 @@ onBeforeUnmount(disconnect)
 .sb-empty {
   color: var(--sb-text-muted);
   text-align: center;
-  padding: 40px 0;
+  padding: var(--sb-space-6) 0;
 }
 .sb-status-tag {
   display: inline-flex;
@@ -121,30 +137,23 @@ onBeforeUnmount(disconnect)
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #9ca3af;
+  background: var(--sb-text-muted);
 }
 .sb-status-dot.is-on {
   background: var(--sb-success);
-  box-shadow: 0 0 6px rgba(48, 209, 88, 0.6);
+  box-shadow: 0 0 6px var(--sb-success-bg);
   animation: sb-pulse 1.6s ease-in-out infinite;
 }
 .sb-count {
   margin-left: auto;
   color: var(--sb-text-muted);
-  font-size: 12px;
+  font-size: var(--sb-fs-xs);
 }
 @media (max-width: 768px) {
   .sb-count {
     margin-left: 0;
     flex: 1 1 100%;
   }
-}
-.sb-log-line--error {
-  color: var(--sb-danger);
-  background: rgba(192, 69, 47, 0.08);
-}
-.sb-log-line--warn {
-  color: #9a7b1a;
 }
 @keyframes sb-pulse {
   0%,

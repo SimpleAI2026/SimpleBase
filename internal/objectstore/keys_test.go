@@ -128,7 +128,7 @@ func TestDescriptorValidateRejectsFutureVersion(t *testing.T) {
 		ProjectID:     "22222222-2222-2222-2222-222222222222",
 		DatabaseID:    "33333333-3333-3333-3333-333333333333",
 		CreatedAt:     time.Now().UTC(),
-		TursoStorage: TursoStorage{Region: "us-east-1", Bucket: "b", Prefix: "p"},
+		DuckLakeStorage: DuckLakeStorage{Region: "us-east-1", Bucket: "b", Prefix: "p"},
 		DataPrefix:    "p",
 		Status:        StatusCreating,
 	}
@@ -144,11 +144,26 @@ func TestDescriptorValidateMismatchedPrefix(t *testing.T) {
 		ProjectID:     "22222222-2222-2222-2222-222222222222",
 		DatabaseID:    "33333333-3333-3333-3333-333333333333",
 		CreatedAt:     time.Now().UTC(),
-		TursoStorage: TursoStorage{Region: "us-east-1", Bucket: "b", Prefix: "p1"},
+		DuckLakeStorage: DuckLakeStorage{Region: "us-east-1", Bucket: "b", Prefix: "p1"},
 		DataPrefix:    "p2",
 		Status:        StatusCreating,
 	}
 	if err := desc.Validate(); err == nil {
 		t.Error("expected error for mismatched data_prefix")
+	}
+}
+
+func TestDescriptorValidateRejectsV1Turso(t *testing.T) {
+	desc := &Descriptor{
+		FormatVersion: 1,
+		TenantID:      "11111111-1111-1111-1111-111111111111",
+		ProjectID:     "22222222-2222-2222-2222-222222222222",
+		DatabaseID:    "33333333-3333-3333-3333-333333333333",
+		CreatedAt:     time.Now().UTC(),
+		DataPrefix:    "p",
+		Status:        StatusCreating,
+	}
+	if err := desc.Validate(); err == nil {
+		t.Fatal("expected error rejecting turso format v1")
 	}
 }

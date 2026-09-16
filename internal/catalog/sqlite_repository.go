@@ -46,6 +46,25 @@ func (r *sqliteRepository) CreateProject(ctx context.Context, p Project) error {
 	return nil
 }
 
+func (r *sqliteRepository) ListProjectsByTenant(ctx context.Context, tenantID string) ([]Project, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, tenant_id, name, created_at FROM projects WHERE tenant_id = ? ORDER BY created_at ASC, id ASC`,
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]Project, 0)
+	for rows.Next() {
+		var p Project
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.Name, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (r *sqliteRepository) CreateDatabase(ctx context.Context, d Database) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO databases(id, tenant_id, project_id, name, status, storage_prefix, format_version, deleted_at, created_at, updated_at)

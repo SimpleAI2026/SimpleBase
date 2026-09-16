@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -83,7 +84,7 @@ func TestDescriptorPutGetRoundTrip(t *testing.T) {
 		DatabaseID:    "33333333-3333-3333-3333-333333333333",
 		Name:          "mydb",
 		CreatedAt:     time.Now().UTC(),
-		TursoStorage: TursoStorage{
+		DuckLakeStorage: DuckLakeStorage{
 			Region: "us-east-1",
 			Bucket: "sb-test",
 			Prefix: "simplebase/test/tenants/11111111-1111-1111-1111-111111111111/databases/33333333-3333-3333-3333-333333333333/data",
@@ -188,4 +189,17 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestSanitizeErrPreservesNotFound(t *testing.T) {
+	c := &s3Client{redacted: redactor{}}
+	err := c.sanitizeErr(ErrNotFound)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("sanitizeErr must preserve ErrNotFound, got %v", err)
+	}
+	// mapNotFound then sanitize — same path as Head
+	err = c.sanitizeErr(mapNotFoundErr(fmt.Errorf("StatusCode: 404 Not Found")))
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("404 mapped+sanitized must be ErrNotFound, got %v", err)
+	}
 }

@@ -1,23 +1,42 @@
 <template>
-  <a-config-provider :theme="theme">
+  <a-config-provider :theme="antdTheme">
     <DefaultLayout />
   </a-config-provider>
 </template>
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { theme as antdThemeApi } from 'ant-design-vue'
 import DefaultLayout from './layouts/DefaultLayout.vue'
+import { antdDarkThemeToken, antdThemeToken } from './styles/tokens'
+import { useSettingsStore } from './stores/settings'
 
-// antd v4 通过 design token 统一主题色，与 theme.css 的 --sb-* 色板保持一致
-const theme = {
-  token: {
-    colorPrimary: '#d97757',
-    colorInfo: '#d97757',
-    colorSuccess: '#3f8a5a',
-    colorWarning: '#c99a2c',
-    colorError: '#c0452f',
-    colorBgLayout: '#f5f4ef',
-    colorText: '#1f1e1d',
-    colorTextSecondary: '#706f6a',
-    borderRadius: 10
+const settings = useSettingsStore()
+const { darkAlgorithm, defaultAlgorithm } = antdThemeApi
+
+const antdTheme = computed(() => {
+  const dark = settings.effectiveTheme === 'dark'
+  const base = dark ? antdDarkThemeToken : antdThemeToken
+  return {
+    ...base,
+    algorithm: dark ? darkAlgorithm : defaultAlgorithm
   }
+})
+
+let mql: MediaQueryList | null = null
+function onSystemTheme() {
+  if (settings.theme === 'system') settings.applyThemeToDom()
 }
+
+onMounted(() => {
+  settings.applyThemeToDom()
+  mql = window.matchMedia('(prefers-color-scheme: dark)')
+  mql.addEventListener('change', onSystemTheme)
+})
+onUnmounted(() => {
+  mql?.removeEventListener('change', onSystemTheme)
+})
+watch(
+  () => settings.theme,
+  () => settings.applyThemeToDom()
+)
 </script>

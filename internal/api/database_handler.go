@@ -36,12 +36,16 @@ type DatabaseService interface {
 	GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
 	// ListDatabases 分页列出 project 内的数据库。
 	ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page catalog.Page) ([]catalog.Database, string, error)
-	// BeginDeleteDatabase 将数据库转入 deleting 状态，返回更新后的记录。
+	// BeginDeleteDatabase 将数据库转入 deleting 状态（测试/兼容）。
 	BeginDeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
+	// DeleteDatabase 软删并同步清理平面 B 存储，返回最终记录（通常 status=deleted）。
+	DeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
 	// Acquire 获取数据库访问租约（预热/打开）。
 	Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (Lease, error)
 	// CloseDatabase 主动关闭数据库的本地连接（不删除 S3 数据）。
 	CloseDatabase(ctx context.Context, databaseID string) error
+	// SetDatabaseReady 将 creating/opening/recovering 转为 ready。
+	SetDatabaseReady(ctx context.Context, databaseID string) error
 }
 
 // Lease 是数据库访问租约的抽象接口。registry.Lease 自动满足此接口。
@@ -90,7 +94,7 @@ type DatabaseListResponse struct {
 	NextCursor string             `json:"next_cursor,omitempty"`
 }
 
-// DeleteDatabaseResponse 是删除操作的异步响应。
+// DeleteDatabaseResponse 是删除操作响应（HTTP 202；同步清理完成后 status 多为 deleted）。
 type DeleteDatabaseResponse struct {
 	DatabaseID string `json:"database_id"`
 	Status     string `json:"status"`
@@ -209,6 +213,11 @@ func (h *DatabaseHandler) OpenDatabase(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	lease.Release()
+	// 预热成功后推进状态（兼容历史卡在 creating 的库）。
+	_ = h.svc.SetDatabaseReady(c.Request().Context(), databaseID)
+	if refreshed, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID); err == nil {
+		db = refreshed
+	}
 	return c.JSON(http.StatusOK, toDatabaseResponse(db))
 }
 
@@ -243,7 +252,8 @@ func (h *DatabaseHandler) CloseDatabase(c echo.Context) error {
 }
 
 // DeleteDatabase: DELETE /v1/projects/:projectID/databases/:databaseID
-// 软删除：转入 deleting 状态，后台异步清理 S3 对象。返回 202。
+// 软删除并同步清理平面 B（DuckLake S3 前缀 / descriptor）；返回 202。
+// status 在清理成功后为 deleted（契约仍用 202；前端以列表刷新为准）。
 func (h *DatabaseHandler) DeleteDatabase(c echo.Context) error {
 	if !h.writable {
 		return WriteError(c, database.ErrWriterUnavailable)
@@ -261,14 +271,17 @@ func (h *DatabaseHandler) DeleteDatabase(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, APIErrorBody{Error: APIErrorDetail{Code: "invalid_request", Message: "database_id required"}})
 	}
 
-	_, err := h.svc.BeginDeleteDatabase(c.Request().Context(), principal, project.ID, databaseID)
+	db, err := h.svc.DeleteDatabase(c.Request().Context(), principal, project.ID, databaseID)
 	if err != nil {
 		return WriteError(c, err)
 	}
-	// TODO Plan 7: 投递后台 S3 清理任务
+	status := string(db.Status)
+	if status == "" {
+		status = "deleted"
+	}
 	return c.JSON(http.StatusAccepted, DeleteDatabaseResponse{
 		DatabaseID: databaseID,
-		Status:     "deleting",
+		Status:     status,
 	})
 }
 

@@ -1,0 +1,397 @@
+### SimpleBase API 调用样例（proto.http）
+###
+### 用法：
+###   1. VS Code 安装 "REST Client" 扩展（humao.rest-client），点击请求上方的 "Send Request"；
+###      或用 JetBrains HTTP Client（IntelliJ/GoLand 内置）直接运行本文件。
+###   2. 先启动 DevMode 后端（config.yaml 中 dev_mode: true）：
+###        go run ./cmd/simplebased      # 或 ./simplebased
+###   3. DevMode 种子数据已内置（internal/app/app.go）：
+###        project = proj-01，database = default（自动创建），
+###        API key = sb_live_dev_key_12345（含 Read/Write/Admin 全量权限）
+###
+### 契约文档：plan/planv2.0/proto-http.md
+### 所有 /v1/* 路由要求 Authorization: Bearer <API_KEY>
+###
+### 注意：@databaseId 需先执行「1.1 列出数据库」或「1.2 创建数据库」后，
+###       把真实 ID 填到下面的变量里（REST Client 的 response 变量跨请求不稳定，
+###       手工填写最可靠）。
+
+@host = http://localhost:8080
+@project = proj-01
+@apiKey = sb_live_dev_key_12345
+@auth = Bearer {{apiKey}}
+
+### 执行 1.1 后把返回的 databases[0].id 粘到这里
+@databaseId = REPLACE_WITH_REAL_DATABASE_ID
+
+### =====================================================================
+### 0. 基础设施（无认证）
+### =====================================================================
+
+### 0.1 存活探针（不做 I/O，恒 200）
+GET {{host}}/health/live
+
+### 0.2 就绪探针（检查 catalog / S3 依赖，未就绪返回 503）
+GET {{host}}/health/ready
+
+### 0.3 Prometheus 指标（文本格式，非 JSON，供 Prom/Grafana 抓取）
+# GET {{host}}/metrics
+
+### =====================================================================
+### 1. 数据库管理（DatabaseAdmin / DatabaseRead）
+### =====================================================================
+
+### 1.1 列出项目下数据库 → 200 {"databases":[...],"next_cursor":""}
+### limit 默认 50，合法范围 1-200（越界会返回 500 internal_error）
+GET {{host}}/v1/projects/{{project}}/databases?limit=20
+Authorization: {{auth}}
+
+### 1.2 创建数据库 → 201 DatabaseResponse（status 为 "creating"）
+### 名称 1-63 字节，不含 / \ 和控制字符；body 含未知字段直接 400
+POST {{host}}/v1/projects/{{project}}/databases
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "name": "analytics"
+}
+
+### 1.3 数据库详情 → 200（唯一可能返回 snapshot 字段的接口）
+GET {{host}}/v1/projects/{{project}}/databases/{{databaseId}}
+Authorization: {{auth}}
+
+### 1.4 打开数据库（预热：取租约后立即释放）→ 200 DatabaseResponse
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/open
+Authorization: {{auth}}
+
+### 1.5 关闭数据库（仅释放本地连接，不删 S3 数据）→ 204 无 body
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/close
+Authorization: {{auth}}
+
+### 1.6 创建备份 → 501 {"error":{"code":"not_implemented",...}}（尚未实现）
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/backups
+Authorization: {{auth}}
+
+### 1.7 恢复数据库 → 501 not_implemented（尚未实现）
+# POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/restore
+# Authorization: {{auth}}
+
+### 1.8 删除数据库 → 202 {"database_id":"...","status":"deleting"}（软删除）
+# DELETE {{host}}/v1/projects/{{project}}/databases/{{databaseId}}
+# Authorization: {{auth}}
+
+### =====================================================================
+### 2. SQL 执行（query 只读 / execute、batch 需写权限）
+### =====================================================================
+
+### 2.1 元数据查询：列出当前 schema 的表
+### 响应 rows 是二维数组，需与 columns 按下标对应
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/query
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "sql": "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()",
+  "max_rows": 50
+}
+
+### 2.2 建表（DuckLake 无 PRIMARY KEY / sequence，id 由应用层生成 UUID）
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/execute
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "sql": "CREATE TABLE IF NOT EXISTS \"users\" (id VARCHAR NOT NULL, data VARCHAR NOT NULL, created_at VARCHAR NOT NULL)"
+}
+
+### 2.3 插入数据（必须参数化占位符，禁止字符串拼接）
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/execute
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "sql": "INSERT INTO \"users\" (id, data, created_at) VALUES (?, ?, ?)",
+  "args": ["u-1001", "{\"name\":\"Alice\",\"age\":28}", "2026-09-15T12:00:00Z"]
+}
+
+### 2.4 带参数条件查询 → 200 QueryResponse
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/query
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "sql": "SELECT id, data, created_at FROM \"users\" WHERE id = ?",
+  "args": ["u-1001"]
+}
+
+### 2.5 批量执行（事务模式：任一失败整体回滚，响应带 error.failed_index）
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/batch
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "transactional": true,
+  "statements": [
+    { "sql": "INSERT INTO \"users\" (id, data, created_at) VALUES (?, ?, ?)", "args": ["u-2001", "{\"name\":\"Bob\"}", "2026-09-15T12:01:00Z"] },
+    { "sql": "INSERT INTO \"users\" (id, data, created_at) VALUES (?, ?, ?)", "args": ["u-2002", "{\"name\":\"Carol\"}", "2026-09-15T12:02:00Z"] }
+  ]
+}
+
+### 2.6 批量执行（非事务模式：失败项带 error_code，后续语句继续执行）
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/batch
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "transactional": false,
+  "statements": [
+    { "sql": "UPDATE \"users\" SET data = ? WHERE id = ?", "args": ["{\"name\":\"Alice v2\"}", "u-1001"] },
+    { "sql": "DELETE FROM \"users\" WHERE id = ?", "args": ["u-2002"] }
+  ]
+}
+
+### =====================================================================
+### 3. 文档数据 API
+###
+### 注意：本组路径不含 databaseID，服务端自动取该项目的「第一个」数据库
+###       （ListDatabases limit=1）。多库项目下不要假设它等于你在 §1 选的库。
+###       项目下无任何库时返回 500 internal_error。
+### =====================================================================
+
+### 3.1 列出集合（实为 information_schema 表清单，最多 200 条）
+GET {{host}}/v1/projects/{{project}}/data/collections
+Authorization: {{auth}}
+
+### 3.2 创建集合 → 201 无 body
+### 名称须匹配 ^[A-Za-z][A-Za-z0-9_]{0,62}$，否则 400 invalid_request
+POST {{host}}/v1/projects/{{project}}/data/collections
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "name": "orders"
+}
+
+### 3.3 列出文档 → 200 {"rows":[...]}（表不存在返回空数组而非 404，最多 1000 行）
+GET {{host}}/v1/projects/{{project}}/data/collections/users
+Authorization: {{auth}}
+
+### 3.4 插入文档 → 201 回显文档
+### body 为任意 JSON 对象；可自带 id，缺省服务端生成 UUID；表不存在会自动建表
+POST {{host}}/v1/projects/{{project}}/data/collections/users/documents
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "id": "u-3001",
+  "name": "Dave",
+  "tags": ["vip", "beta"],
+  "profile": { "city": "Shenzhen", "level": 3 }
+}
+
+### 3.5 更新文档 → 200 回显（body 中的 id 会被剔除；文档不存在返回 404 not_found）
+PUT {{host}}/v1/projects/{{project}}/data/collections/users/documents/u-3001
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "name": "Dave Chen",
+  "tags": ["vip"]
+}
+
+### 3.6 删除文档 → 204 无 body（表不存在也返回 204，幂等）
+# DELETE {{host}}/v1/projects/{{project}}/data/collections/users/documents/u-3001
+# Authorization: {{auth}}
+
+### =====================================================================
+### 4. S3 对象存储
+###
+### 项目隔离：服务端自动在物理 key 前拼 {projectID}/，返回的 key 已剥掉项目段。
+### 字段命名例外：本组用 camelCase lastModified（其余接口为 snake_case）。
+### =====================================================================
+
+### 4.1 列出对象（prefix 可空；空串时跳过 key 校验；最多 1000 条）
+GET {{host}}/v1/projects/{{project}}/s3/objects?prefix=
+Authorization: {{auth}}
+
+### 4.2 上传对象 → 200 {"key","size","lastModified"}
+### multipart/form-data，字段名固定为 key + file
+### 体积受 limits.max_request_bytes 限制（config.yaml 默认 10MB），超限 413
+POST {{host}}/v1/projects/{{project}}/s3/objects
+Authorization: {{auth}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="key"
+
+notes/hello.txt
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="hello.txt"
+Content-Type: text/plain
+
+Hello SimpleBase S3!
+--WebAppBoundary--
+
+### 4.3 预签名下载 URL → 200 {"url":"..."}（TTL 固定 15 分钟）
+GET {{host}}/v1/projects/{{project}}/s3/presign?key=notes/hello.txt
+Authorization: {{auth}}
+
+### 4.4 删除对象 → 200 {"ok":true}
+# DELETE {{host}}/v1/projects/{{project}}/s3/objects?key=notes/hello.txt
+# Authorization: {{auth}}
+
+### 4.5 非法 key 演示 → 400 invalid_file_key（含 .. 穿越段）
+GET {{host}}/v1/projects/{{project}}/s3/presign?key=../etc/passwd
+Authorization: {{auth}}
+
+### =====================================================================
+### 5. LLM Gateway
+###
+### 路由权限为 DatabaseRead（不是 LLMInvoke）；额外受 CheckQuota(project,"llm") 限制。
+### DevMode 未配置 LLM provider 时 providers 返回空数组、chat/stream 报错。
+### =====================================================================
+
+### 5.1 可用供应商列表 → 200 {"providers":[...]}
+GET {{host}}/v1/projects/{{project}}/llm/providers
+Authorization: {{auth}}
+
+### 5.2 非流式对话 → 200 {content, usage, model, provider, finish_reason}
+POST {{host}}/v1/projects/{{project}}/llm/chat
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "model": "gpt-4o-mini",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "用一句话介绍 DuckLake" }
+  ],
+  "max_tokens": 256,
+  "temperature": 0.7
+}
+
+### 5.3 流式对话（SSE：data: {...} 逐帧，结束帧 {"type":"end"}）
+### model/max_tokens/temperature 均可省略，由项目默认供应商配置决定
+POST {{host}}/v1/projects/{{project}}/llm/stream
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "user", "content": "写一个 Go 的 hello world" }
+  ]
+}
+
+### 5.4 空 messages 演示 → 实际返回 500 internal_error（不是 400，见 proto-http.md §6.3）
+POST {{host}}/v1/projects/{{project}}/llm/chat
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "messages": []
+}
+
+### =====================================================================
+### 6. 配额与审计
+### =====================================================================
+
+### 6.1 配额可用状态 → 200 {"llm_allowed":true,"database_allowed":true}
+GET {{host}}/v1/projects/{{project}}/quota
+Authorization: {{auth}}
+
+### 6.2 审计事件列表 → 200 {"operations":[],"limit":50}
+### 占位实现：handler 忽略 AuditService，operations 恒为空数组
+GET {{host}}/v1/projects/{{project}}/audit?limit=50
+Authorization: {{auth}}
+
+### =====================================================================
+### 7. 错误协议演示（验证前端拦截器行为）
+### =====================================================================
+
+### 7.1 缺失认证头 → 401 {"error":{"code":"unauthenticated",...}}
+GET {{host}}/v1/projects/{{project}}/databases
+
+### 7.2 错误 API Key → 401 {"error":{"code":"invalid_api_key",...}}
+GET {{host}}/v1/projects/{{project}}/databases
+Authorization: Bearer sb_live_wrong_key
+
+### 7.3 不存在的 project → 404 database_not_found
+### （ResolveProjectTenant 返回 catalog.ErrNotFound，错误码未区分 project/database）
+GET {{host}}/v1/projects/proj-not-exist/databases
+Authorization: {{auth}}
+
+### 7.4 只读意图里提交写语句 → 400 write_in_read_only
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/query
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "sql": "DELETE FROM \"users\""
+}
+
+### 7.5 创建库 body 含未知字段 → 400 invalid_request（DisallowUnknownFields）
+POST {{host}}/v1/projects/{{project}}/databases
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "name": "tmp",
+  "unknown_field": 1
+}
+
+### 7.6 不存在的 API 路由 → SPA fallback 返回 HTML（非 404 JSON）
+### 前端拦截器会把 content-type: text/html 转为「接口不存在或返回了 HTML 页面」
+GET {{host}}/metrics/summary
+
+###
+### 补充说明：
+### - @databaseId 需手工填写（见文件顶部）；REST Client 的 {{req.response.body.x}}
+###   跨请求引用在多数版本中不稳定，故本文件不使用响应链变量。
+### - 以 # 注释的请求为破坏性操作（删除库/文档/对象）或需前序步骤，按需打开。
+### - proto-http.md §3.8 列出前端已调用但后端不存在的路由：
+###   /metrics/summary、/metrics/trend、/faas/*、/ws/logs —— 它们都会命中 SPA
+###   fallback 返回 index.html，而非 404 JSON。
+
+
+###
+# ============================================================
+# LLM Settings / Provider credentials（§3.9，后端未实现 — 仅契约样例）
+# 打开前请确认服务端已按 ui-settings-chat-plan.md 落地，否则会 SPA fallback HTML
+# ============================================================
+
+# @name llmSettingsGet
+# GET {{baseUrl}}/v1/projects/{{projectId}}/llm/settings
+# Authorization: Bearer {{apiKey}}
+
+# @name llmSettingsPut
+# PUT {{baseUrl}}/v1/projects/{{projectId}}/llm/settings
+# Authorization: Bearer {{apiKey}}
+# Content-Type: application/json
+#
+# {
+#   "default_provider": "openai",
+#   "default_model": "gpt-4o-mini",
+#   "temperature": 0.7,
+#   "max_tokens": 1024
+# }
+
+# @name llmProviderCatalog
+# GET {{baseUrl}}/v1/projects/{{projectId}}/llm/provider-catalog
+# Authorization: Bearer {{apiKey}}
+
+# @name llmProviderConfigs
+# GET {{baseUrl}}/v1/projects/{{projectId}}/llm/provider-configs
+# Authorization: Bearer {{apiKey}}
+
+# @name llmProviderConfigPut
+# PUT {{baseUrl}}/v1/projects/{{projectId}}/llm/provider-configs/openai
+# Authorization: Bearer {{apiKey}}
+# Content-Type: application/json
+#
+# {
+#   "enabled": true,
+#   "default_model": "gpt-4o-mini",
+#   "credentials": {
+#     "api_key": "sk-replace-me"
+#   }
+# }

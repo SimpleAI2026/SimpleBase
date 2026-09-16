@@ -1,0 +1,181 @@
+/* ========== 全局工具类（页面骨架 / 工具栏 / 代码块 / 终端 / 统计卡） ========== */
+
+.sb-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sb-space-4);
+}
+
+.sb-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sb-space-3);
+}
+
+/* 页头标题块：衬线大标题（PageContainer.vue 不再重复定义） */
+.sb-page-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sb-space-3);
+}
+.sb-page-title h2 {
+  margin: 0;
+  font-family: var(--sb-font-serif);
+  font-size: var(--sb-fs-xl);
+  font-weight: 600;
+  color: var(--sb-text);
+  letter-spacing: -0.01em;
+}
+.sb-page-title .sb-subtitle {
+  color: var(--sb-text-secondary);
+  font-size: var(--sb-fs-sm);
+}
+
+/* 代码/JSON 展示块（替代各页复制的 .sb-json / .sb-result） */
+.sb-code {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--sb-bg-soft);
+  border: 1px solid var(--sb-border-soft);
+  border-radius: var(--sb-radius-sm);
+  color: var(--sb-text);
+  font-family: var(--sb-font-mono);
+  font-size: var(--sb-fs-xs);
+  line-height: var(--sb-lh-relaxed);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 终端 / 日志面板 */
+.sb-terminal {
+  height: 520px;
+  overflow: auto;
+  background: var(--sb-bg-soft);
+  border: 1px solid var(--sb-border-soft);
+  color: var(--sb-text);
+  padding: 14px 16px;
+  border-radius: var(--sb-radius);
+  font-family: var(--sb-font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.sb-terminal .sb-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-radius: var(--sb-radius-xs);
+  padding: 0 6px;
+}
+.sb-terminal .sb-log-line:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.sb-log-line--error {
+  color: var(--sb-danger);
+  background: var(--sb-danger-bg);
+}
+.sb-log-line--warn {
+  color: #9a7b1a;
+}
+
+/* 统计卡 */
+.sb-stat {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.sb-stat .sb-stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--sb-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--sb-fs-xl);
+  flex-shrink: 0;
+}
+.sb-stat .sb-stat-body .sb-stat-label {
+  color: var(--sb-text-secondary);
+  font-size: var(--sb-fs-xs);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.sb-stat .sb-stat-body .sb-stat-value {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--sb-text);
+  line-height: var(--sb-lh-tight);
+  margin-top: 2px;
+}
+
+/* 等宽内联（key / 函数名等表格单元格） */
+.sb-mono {
+  font-family: var(--sb-font-mono);
+  font-size: var(--sb-fs-sm);
+}
+
+/* mock 标记（全局唯一处定义） */
+.sb-mock-tag {
+  margin-inline-end: 0;
+  font-weight: 600;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  :root {
+    --sb-header-height: 48px;
+  }
+
+  body {
+    font-size: var(--sb-fs-sm);
+  }
+
+  .sb-page {
+    gap: 10px;
+  }
+
+  .sb-toolbar {
+    gap: var(--sb-space-2);
+  }
+  .sb-toolbar .ant-input,
+  .sb-toolbar .ant-select,
+  .sb-toolbar .ant-btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .sb-stat .sb-stat-body .sb-stat-value {
+    font-size: var(--sb-fs-xl);
+  }
+  .sb-stat .sb-stat-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 17px;
+  }
+
+  .sb-terminal {
+    height: 300px;
+    font-size: 11.5px;
+    padding: 10px 12px;
+  }
+
+  .sb-page-title h2 {
+    font-size: 17px;
+  }
+  .sb-page-title .sb-subtitle {
+    font-size: var(--sb-fs-xs);
+  }
+}
+
+@media (max-width: 480px) {
+  .sb-toolbar .ant-input,
+  .sb-toolbar .ant-input-affix-wrapper,
+  .sb-toolbar .ant-select {
+    width: 100% !important;
+    flex: 1 1 100%;
+  }
+  .sb-toolbar .ant-btn {
+    flex: 1 1 auto;
+  }
+}

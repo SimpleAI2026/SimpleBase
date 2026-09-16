@@ -1,5 +1,13 @@
 <template>
-  <PageContainer title="云函数" subtitle="函数包的上传部署与调用测试">
+  <PageContainer title="云函数" subtitle="函数包的上传部署与调用测试（后端能力未就绪）">
+    <a-alert
+      type="warning"
+      show-icon
+      message="后端暂无 FaaS 模块"
+      description="FaaS 相关接口（/faas/*）在后端尚未立项实现（proto-http.md §3.8）。本页当前仅 Mock 模式可演示；菜单已隐藏此入口。"
+      style="border-radius: var(--sb-radius)"
+    />
+
     <a-card class="sb-card" title="部署函数">
       <div class="sb-toolbar">
         <a-upload :show-upload-list="false" :before-upload="() => false" @change="onFileChange">
@@ -13,7 +21,7 @@
           <template #icon><RocketOutlined /></template>
           部署
         </a-button>
-        <a-button @click="load">
+        <a-button :loading="loading" @click="load">
           <template #icon><ReloadOutlined /></template>
           刷新
         </a-button>
@@ -29,11 +37,11 @@
         :data-source="funcs"
         :loading="loading"
         row-key="name"
-        :pagination="{ pageSize: 10, size: 'small', showTotal: (t: number) => `共 ${t} 条` }"
+        :pagination="pagination"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'">
-            <span class="sb-fn-name"><CodeOutlined /> {{ record.name }}</span>
+            <span class="sb-mono"><CodeOutlined /> {{ record.name }}</span>
           </template>
           <template v-else-if="column.key === 'version'">
             <a-tag color="orange">{{ record.version }}</a-tag>
@@ -49,7 +57,7 @@
           </template>
         </template>
         <template #emptyText>
-          <a-empty description="暂无函数" />
+          <SbEmptyState description="暂无函数" />
         </template>
       </a-table>
     </a-card>
@@ -69,7 +77,7 @@
       <div v-if="jsonError" class="sb-json-error">{{ jsonError }}</div>
       <template v-if="result">
         <a-divider style="margin: 12px 0">调用结果</a-divider>
-        <pre class="sb-result">{{ formatJson(result) }}</pre>
+        <SbCodeBlock :value="result" max-height="240px" />
       </template>
     </a-modal>
   </PageContainer>
@@ -88,8 +96,11 @@ import {
 } from '@ant-design/icons-vue'
 import { api } from '../services/api'
 import type { FaasFunction } from '../services/api'
-import { formatJson, formatTime } from '../utils/format'
+import { usePagination } from '../composables/usePagination'
+import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
+import SbCodeBlock from '../components/SbCodeBlock.vue'
+import SbEmptyState from '../components/SbEmptyState.vue'
 
 const columns = [
   { title: '名称', dataIndex: 'name', key: 'name' },
@@ -97,6 +108,8 @@ const columns = [
   { title: '更新时间', dataIndex: 'updatedAt', key: 'updatedAt', width: 180 },
   { title: '操作', key: 'ops', width: 110 }
 ]
+
+const pagination = usePagination()
 
 const funcs = ref<FaasFunction[]>([])
 const loading = ref(false)
@@ -118,12 +131,12 @@ watch(payload, (v) => {
   try {
     JSON.parse(v)
     jsonError.value = ''
-  } catch (e: any) {
-    jsonError.value = `JSON 格式错误：${e.message}`
+  } catch (e) {
+    jsonError.value = `JSON 格式错误：${e instanceof Error ? e.message : String(e)}`
   }
 })
 
-function onFileChange(info: any) {
+function onFileChange(info: { file: { originFileObj?: File } & File }) {
   file.value = info.file.originFileObj || info.file
 }
 
@@ -131,8 +144,8 @@ async function load() {
   loading.value = true
   try {
     funcs.value = await api.faas.list()
-  } catch (e: any) {
-    message.error(e?.message || '加载失败')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '加载失败')
   } finally {
     loading.value = false
   }
@@ -147,8 +160,8 @@ async function deploy() {
     file.value = null
     funcName.value = ''
     await load()
-  } catch (e: any) {
-    message.error(e?.message || '部署失败')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '部署失败')
   } finally {
     deploying.value = false
   }
@@ -174,8 +187,8 @@ async function invoke() {
   try {
     result.value = await api.faas.invoke(current.value.name, body)
     message.success('调用成功')
-  } catch (e: any) {
-    message.error(e?.message || '调用失败')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '调用失败')
   } finally {
     invoking.value = false
   }
@@ -188,31 +201,9 @@ onMounted(load)
 .sb-file-hint {
   margin-inline-end: 0;
 }
-.sb-fn-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
-  font-size: 13px;
-}
 .sb-json-error {
   color: var(--sb-danger);
-  font-size: 12px;
+  font-size: var(--sb-fs-xs);
   margin-top: 6px;
-}
-.sb-result {
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--sb-bg-soft);
-  border: 1px solid var(--sb-border-soft);
-  color: var(--sb-text);
-  border-radius: var(--sb-radius-sm);
-  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  max-height: 240px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 </style>

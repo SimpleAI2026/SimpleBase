@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -29,7 +28,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/database/cache"
 	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/database/registry"
-	"github.com/linkxzhou/SimpleBase/internal/database/turso"
 	"github.com/linkxzhou/SimpleBase/internal/jobs"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
@@ -133,7 +131,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	a.health = &healthService{app: a}
 
 	dbHandler := api.NewDatabaseHandler(
-		api.NewDatabaseServiceAdapter(a.catalog, a.registry),
+		api.NewDatabaseServiceAdapter(a.catalog, a.registry, a.objectStore),
 		cfg.Instance.Writable,
 	)
 	if a.duckFactory != nil {
@@ -205,8 +203,15 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 func (a *App) assembleDeps(ctx context.Context) error {
 	cfg := a.cfg
 
+	// 非 DevMode 的可写实例必须配置 S3（平面 A 用户文件 + 平面 B DuckLake DATA_PATH）。
+	if cfg.Instance.Writable && !cfg.DevMode {
+		if cfg.S3.Bucket == "" || cfg.S3.Region == "" || cfg.S3.Prefix == "" {
+			return fmt.Errorf("writable non-dev instance requires s3.bucket, s3.region and s3.prefix")
+		}
+	}
+
 	// 1) objectstore client（S3）
-	// DevMode 旁路 S3，catalog 与用户库使用 :memory: SQLite。
+	// DevMode 旁路远端 S3：平台 catalog 与用户 DuckLake DATA_PATH 均落本地盘。
 	s3cfg := objectstore.Config{
 		Endpoint:       cfg.S3.Endpoint,
 		Region:         cfg.S3.Region,
@@ -240,7 +245,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		Environment: cfg.Instance.ID,
 	}
 	if cfg.Instance.Writable {
-		// DevMode：catalog 与用户库使用本地磁盘 SQLite，不走 turso/S3。
+		// DevMode：catalog 与用户库使用本地磁盘；旁路平面 A/B 的远端 S3。
 		// 数据落在 cache_dir/dev 下，进程重启后保留。
 		if cfg.DevMode {
 			devDir := filepath.Join(cfg.Database.CacheDir, "dev")
@@ -261,7 +266,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 			}
 
 			repo := catalog.NewSQLiteRepository(catalogDB)
-			a.catalog = catalog.NewService(repo, keys, nil, a.logger)
+			a.catalog = catalog.NewService(repo, keys, nil, objectstore.DuckLakeStorage{}, a.logger)
 
 			// DevMode 与生产同一 DuckLake 代码路径，DATA_PATH 落本地盘（§4.9）。
 			factory := a.newUserDatabaseFactory(filepath.Join(devDir, "dbs"))
@@ -320,19 +325,8 @@ func (a *App) assembleDeps(ctx context.Context) error {
 				a.llmSvc = llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
 			}
 
-			if cfg.Instance.Writable {
-				handlers := []jobs.Handler{
-					jobs.NewDeleteDatabaseHandler(a.catalog, a.registry, nil, a.logger),
-				}
-				a.jobEnqueuer = jobs.NewEnqueuer(catRepo)
-				a.jobWorker, err = jobs.NewWorker(catRepo, handlers, jobs.Options{
-					Logger:  a.logger,
-					Metrics: a.metrics,
-				})
-				if err != nil {
-					return fmt.Errorf("create job worker: %w", err)
-				}
-			}
+			// 删库已改为 API 同步清理平面 B，不再注册 DeleteDatabaseHandler / 启动专用 worker。
+			// jobs.Enqueuer/Worker 留给后续 backup 等任务（有 handler 时再装配）。
 			// DevMode 用户文件使用本地磁盘 FileStore（重启保留）。
 			fs, err := objectstore.NewLocalFileStore(filepath.Join(devDir, "files"))
 			if err != nil {
@@ -345,33 +339,20 @@ func (a *App) assembleDeps(ctx context.Context) error {
 			return nil
 		}
 
-		catalogPrefix := keys.CatalogPrefix()
-		catalogStorage := database.StorageConfig{
-			Endpoint:       cfg.S3.Endpoint,
-			Region:         cfg.S3.Region,
-			Bucket:         cfg.S3.Bucket,
-			KMSKeyID:       cfg.S3.KMSKeyID,
-			ForcePathStyle: cfg.S3.ForcePathStyle,
+		// 平台 catalog 使用本地 SQLite（非用户库）。用户数据面由 DuckLake + S3 负责。
+		// 历史 Turso/libSQL catalog 链路已退役。
+		platformDir := filepath.Join(cfg.Database.CacheDir, "platform")
+		if err := os.MkdirAll(platformDir, 0o755); err != nil {
+			return fmt.Errorf("create platform catalog dir: %w", err)
 		}
-		catalogPool := turso.PoolOptions{
-			MaxOpen: 5,
-			MaxIdle: 2,
-		}
-		catalogDB, err := turso.Open(ctx, turso.OpenOptions{
-			DatabaseID: cfg.Catalog.DatabaseID,
-			Writable:   cfg.Instance.Writable,
-			Storage: turso.StorageConfig{
-				Endpoint:       catalogStorage.Endpoint,
-				Region:         catalogStorage.Region,
-				Bucket:         catalogStorage.Bucket,
-				Prefix:         catalogPrefix,
-				KMSKeyID:       catalogStorage.KMSKeyID,
-				ForcePathStyle: catalogStorage.ForcePathStyle,
-			},
-		}, catalogPool, a.logger, a.metrics, nil)
+		catalogPath := filepath.Join(platformDir, "catalog.db")
+		catalogDB, err := sql.Open("sqlite3",
+			fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", catalogPath))
 		if err != nil {
 			return fmt.Errorf("open catalog database: %w", err)
 		}
+		catalogDB.SetMaxOpenConns(5)
+		catalogDB.SetMaxIdleConns(2)
 		a.registerCloser(catalogDB)
 		if err := catalog.ApplyMigrations(ctx, catalogDB); err != nil {
 			return fmt.Errorf("apply catalog migrations: %w", err)
@@ -382,9 +363,16 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		if a.objectStore != nil {
 			descWriter = a.objectStore
 		}
-		a.catalog = catalog.NewService(repo, keys, descWriter, a.logger)
+		ducklakeStore := objectstore.DuckLakeStorage{
+			Endpoint:       cfg.S3.Endpoint,
+			Region:         cfg.S3.Region,
+			Bucket:         cfg.S3.Bucket,
+			ForcePathStyle: cfg.S3.ForcePathStyle,
+			KMSKeyIDRef:    cfg.S3.KMSKeyID,
+		}
+		a.catalog = catalog.NewService(repo, keys, descWriter, ducklakeStore, a.logger)
 
-		// 3) database factory + registry（默认 DuckLake；engine=turso 保留遗留链路）
+		// 3) database factory + registry（DuckLake-only）
 		factory := a.newUserDatabaseFactory(cfg.Database.CacheDir)
 		a.registry = registry.New(factory, a.catalog, registry.Options{
 			IdleTimeout: cfg.Database.IdleTimeout,
@@ -419,20 +407,8 @@ func (a *App) assembleDeps(ctx context.Context) error {
 			a.llmSvc = llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
 		}
 
-		// 后台任务 worker（仅 writable 实例启动）。
-		if cfg.Instance.Writable {
-			handlers := []jobs.Handler{
-				jobs.NewDeleteDatabaseHandler(a.catalog, a.registry, a.objectStore, a.logger),
-			}
-			a.jobEnqueuer = jobs.NewEnqueuer(catRepo)
-			a.jobWorker, err = jobs.NewWorker(catRepo, handlers, jobs.Options{
-				Logger:  a.logger,
-				Metrics: a.metrics,
-			})
-			if err != nil {
-				return fmt.Errorf("create job worker: %w", err)
-			}
-		}
+		// 删库同步清理，不启动 delete_database worker。
+		// 若后续注册 backup 等 Handler，再在此装配 jobEnqueuer / jobWorker。
 	}
 
 	return nil
@@ -511,78 +487,51 @@ func (a *App) Shutdown(ctx context.Context) error {
 	return firstErr
 }
 
-// newUserDatabaseFactory 按 engine 选择用户库工厂。
-// DevMode 与默认 engine 都走 DuckLake（本地 DATA_PATH）；turso/local 仅作遗留回退。
+// newUserDatabaseFactory 返回 DuckLake 用户库工厂（唯一引擎）。
 func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
 	cfg := a.cfg
-	engine := strings.ToLower(cfg.Database.Engine)
-	if cfg.DevMode || engine == "" || engine == config.EngineDuckLake {
-		opts := duckLakeOptions(cfg.Database.DuckLake)
-		remote := ducklake.RemoteStorage{}
-		var syncer ducklake.Syncer = ducklake.NewLocalSyncer()
-		var blobs objectstore.BlobStore
+	opts := duckLakeOptions(cfg.Database.DuckLake)
+	remote := ducklake.RemoteStorage{}
+	var syncer ducklake.Syncer = ducklake.NewLocalSyncer()
+	var blobs objectstore.BlobStore
 
-		// 生产（非 DevMode）启用 S3 catalog 同步与 DATA_PATH。
-		if !cfg.DevMode && cfg.S3.Bucket != "" {
-			remote = ducklake.RemoteStorage{
-				Enabled:        true,
-				Endpoint:       cfg.S3.Endpoint,
-				Region:         cfg.S3.Region,
-				Bucket:         cfg.S3.Bucket,
-				RootPrefix:     cfg.S3.Prefix,
-				Environment:    cfg.Instance.ID,
-				AccessKey:      cfg.S3.AccessKey,
-				SecretKey:      cfg.S3.SecretKey,
-				ForcePathStyle: cfg.S3.ForcePathStyle,
-			}
-			if a.objectStore != nil {
-				if b, ok := a.objectStore.(objectstore.BlobStore); ok {
-					blobs = b
-				}
-			}
-			if blobs != nil {
-				cs := ducklake.NewCatalogSyncer(blobs, remote, cacheDir, opts.CatalogSync, a.logger, a.metrics)
-				syncer = cs
-				a.catalogSyncer = cs
-				a.registerCloser(syncerCloser{cs: cs})
-			}
-		}
-
-		f := &ducklake.Factory{
-			CacheDir: cacheDir,
-			Options:  opts,
-			Syncer:   syncer,
-			Remote:   remote,
-			Blobs:    blobs,
-			Logger:   a.logger,
-			Metrics:  a.metrics,
-		}
-		a.duckFactory = f
-		return f
-	}
-	if engine == config.EngineLocal {
-		return &database.LocalFactory{
-			Dir:     cacheDir,
-			Logger:  a.logger,
-			Metrics: a.metrics,
-		}
-	}
-	return &database.TursoFactory{
-		Storage: database.StorageConfig{
+	// 生产（非 DevMode）启用 S3 catalog 同步与 DATA_PATH。
+	if !cfg.DevMode && cfg.S3.Bucket != "" {
+		remote = ducklake.RemoteStorage{
+			Enabled:        true,
 			Endpoint:       cfg.S3.Endpoint,
 			Region:         cfg.S3.Region,
 			Bucket:         cfg.S3.Bucket,
-			KMSKeyID:       cfg.S3.KMSKeyID,
+			RootPrefix:     cfg.S3.Prefix,
+			Environment:    cfg.Instance.ID,
+			AccessKey:      cfg.S3.AccessKey,
+			SecretKey:      cfg.S3.SecretKey,
 			ForcePathStyle: cfg.S3.ForcePathStyle,
-		},
-		CacheDir: cacheDir,
-		Pool: turso.PoolOptions{
-			MaxOpen: cfg.Database.MaxOpen,
-			MaxIdle: cfg.Database.MaxIdle,
-		},
-		Logger:  a.logger,
-		Metrics: a.metrics,
+		}
+		if a.objectStore != nil {
+			if b, ok := a.objectStore.(objectstore.BlobStore); ok {
+				blobs = b
+			}
+		}
+		if blobs != nil {
+			cs := ducklake.NewCatalogSyncer(blobs, remote, cacheDir, opts.CatalogSync, a.logger, a.metrics)
+			syncer = cs
+			a.catalogSyncer = cs
+			a.registerCloser(syncerCloser{cs: cs})
+		}
 	}
+
+	f := &ducklake.Factory{
+		CacheDir: cacheDir,
+		Options:  opts,
+		Syncer:   syncer,
+		Remote:   remote,
+		Blobs:    blobs,
+		Logger:   a.logger,
+		Metrics:  a.metrics,
+	}
+	a.duckFactory = f
+	return f
 }
 
 func duckLakeOptions(cfg config.DuckLakeConfig) ducklake.Options {

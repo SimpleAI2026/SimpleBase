@@ -43,7 +43,7 @@ func (f *fakeDBService) CreateDatabase(ctx context.Context, in catalog.CreateDat
 		TenantID:  in.TenantID,
 		ProjectID: in.ProjectID,
 		Name:      in.Name,
-		Status:    catalog.DatabaseCreating,
+		Status:    catalog.DatabaseReady,
 	}
 	f.dbs[db.ID] = db
 	return db, nil
@@ -86,6 +86,18 @@ func (f *fakeDBService) BeginDeleteDatabase(ctx context.Context, principal auth.
 	return db, nil
 }
 
+func (f *fakeDBService) DeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error) {
+	db, err := f.BeginDeleteDatabase(ctx, principal, projectID, databaseID)
+	if err != nil {
+		return catalog.Database{}, err
+	}
+	db.Status = catalog.DatabaseDeleted
+	if f.dbs != nil {
+		f.dbs[databaseID] = db
+	}
+	return db, nil
+}
+
 func (f *fakeDBService) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (Lease, error) {
 	if f.acquireErr != nil {
 		return nil, f.acquireErr
@@ -99,6 +111,16 @@ func (f *fakeDBService) CloseDatabase(ctx context.Context, databaseID string) er
 		return f.closeErr
 	}
 	f.closeCalled = databaseID
+	return nil
+}
+
+func (f *fakeDBService) SetDatabaseReady(ctx context.Context, databaseID string) error {
+	db, ok := f.dbs[databaseID]
+	if !ok {
+		return catalog.ErrNotFound
+	}
+	db.Status = catalog.DatabaseReady
+	f.dbs[databaseID] = db
 	return nil
 }
 
@@ -359,5 +381,59 @@ func TestErrorNoInternalLeak(t *testing.T) {
 	}
 	if bytes.Contains(rec.Body.Bytes(), []byte("dsn=")) {
 		t.Error("internal error leaked dsn in response")
+	}
+}
+
+
+func TestPlan_CreateDatabaseHTTPReturnsReady(t *testing.T) {
+	svc := newFakeDBService()
+	e := setupTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases", map[string]any{"name": "plan_db"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body DatabaseResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "ready" {
+		t.Fatalf("plan: create response status=%q want ready", body.Status)
+	}
+}
+
+func TestPlan_DeleteDatabaseHTTPReturnsDeleted(t *testing.T) {
+	svc := newFakeDBService()
+	svc.dbs["db-1"] = catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseReady}
+	e := setupTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodDelete, "/v1/projects/proj-1/databases/db-1", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body DeleteDatabaseResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "deleted" {
+		t.Fatalf("plan: delete response status=%q want deleted", body.Status)
+	}
+	if svc.dbs["db-1"].Status != catalog.DatabaseDeleted {
+		t.Fatalf("fake store status=%s want deleted", svc.dbs["db-1"].Status)
+	}
+}
+
+func TestPlan_OpenDatabasePromotesCreatingToReady(t *testing.T) {
+	svc := newFakeDBService()
+	svc.dbs["db-1"] = catalog.Database{ID: "db-1", ProjectID: "proj-1", Name: "stuck", Status: catalog.DatabaseCreating}
+	e := setupTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/open", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body DatabaseResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "ready" {
+		t.Fatalf("open should promote creating→ready, got %s", body.Status)
 	}
 }

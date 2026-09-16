@@ -1,0 +1,75 @@
+/* ========== reset、body、滚动条、focus-visible、reduce-motion ========== */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--sb-bg);
+  color: var(--sb-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
+  font-size: var(--sb-fs-md);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* 键盘焦点可见性：鼠标点击不显示，Tab 导航显示 */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--sb-ring);
+  border-radius: var(--sb-radius-xs);
+}
+
+/* 动效降级：用户偏好减少动效时关闭非必要动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d8d5cc;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b5b2a8;
+}
+
+/* 路由过渡 */
+.sb-fade-enter-active,
+.sb-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.sb-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.sb-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}

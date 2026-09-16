@@ -4,7 +4,8 @@
 //   - Queue 基于 catalog.Repository.JobQueue，持久化于 catalog 系统数据库。
 //   - 单实例 worker 以轮询方式 Claim 任务；任务必须幂等，使用 operation ID 与状态机防止重复执行。
 //   - 失败指数退避，有最大重试次数与 dead_letter 终态。
-//   - 任务处理器（delete_database/backup/restore/verify_recovery）实现 Handler 接口。
+//   - 任务处理器（backup/restore/verify_recovery 等）实现 Handler 接口。
+//     删库已改为 API 同步清理，不再使用 delete_database handler。
 package jobs
 
 import (

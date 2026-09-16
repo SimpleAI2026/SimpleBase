@@ -22,7 +22,7 @@ http.interceptors.request.use((config) => {
   return config
 })
 
-// 拦截 SPA fallback：后端对不存在的路由返回 HTML，axios 按 text/html 解析后 r.data 为字符串
+// SPA fallback 防御：后端对不存在的路由返回 HTML，axios 按 text/html 解析后 r.data 为字符串
 // 此类响应一律转为错误，避免调用方拿到非预期类型导致 .map() 崩溃
 http.interceptors.response.use((r) => {
   const ct = r.headers?.['content-type'] || ''
@@ -32,12 +32,27 @@ http.interceptors.response.use((r) => {
   return r
 })
 
-// 统一错误信息：适配后端 {error:{message}} 结构
+// 统一错误信息：适配后端 {error:{message}} 结构（501 响应无 request_id，解析容忍缺失）
+let onUnauthorized: (() => void) | null = null
+
+/** 注册 401 回调（auth store 注入，避免 http ↔ store 循环依赖） */
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler
+}
+
 http.interceptors.response.use(
   (r) => r,
   (e) => {
+    const status = e?.response?.status
     const data = e?.response?.data
     const msg = data?.error?.message || data?.message || e?.message || '网络请求失败'
+    if (status === 401) {
+      // 触发 auth store 打开 key 配置抽屉（延迟导入避免循环依赖）
+      import('../stores/auth').then(({ useAuthStore }) => {
+        useAuthStore().markUnauthorized()
+      })
+      onUnauthorized?.()
+    }
     return Promise.reject(new Error(msg))
   }
 )

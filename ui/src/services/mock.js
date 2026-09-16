@@ -11,7 +11,13 @@ const now = () => new Date().toISOString()
 
 /* ---------- 初始数据 ---------- */
 
+const DEFAULT_PROJECT = 'proj-01'
+
 const state = {
+  databases: [
+    { id: 'db-default', name: 'default', status: 'ready', createdAt: now(), updatedAt: now() },
+    { id: 'db-analytics', name: 'analytics', status: 'creating', createdAt: now(), updatedAt: now() }
+  ],
   collections: ['users', 'orders', 'products', 'sessions'],
   db: {
     users: [
@@ -29,11 +35,12 @@ const state = {
     ],
     sessions: [{ id: 's5001', user: 'u1001', ttl: 3600 }]
   },
+  // 注意：mock 的 S3 list 按 _projectId 过滤，种子数据必须带该字段（否则列表恒空）
   objects: [
-    { key: 'backups/2026-07-01.dump', size: 8388608, lastModified: now() },
-    { key: 'images/logo.png', size: 24576, lastModified: now() },
-    { key: 'images/banner.webp', size: 188416, lastModified: now() },
-    { key: 'docs/getting-started.md', size: 5120, lastModified: now() }
+    { key: 'backups/2026-07-01.dump', size: 8388608, lastModified: now(), _projectId: DEFAULT_PROJECT },
+    { key: 'images/logo.png', size: 24576, lastModified: now(), _projectId: DEFAULT_PROJECT },
+    { key: 'images/banner.webp', size: 188416, lastModified: now(), _projectId: DEFAULT_PROJECT },
+    { key: 'docs/getting-started.md', size: 5120, lastModified: now(), _projectId: DEFAULT_PROJECT }
   ],
   functions: [
     { name: 'resize-image', version: 'v1.4.2', runtime: 'node20', updatedAt: now() },
@@ -45,6 +52,12 @@ const state = {
 /* ---------- Mock API ---------- */
 
 export const mockApi = {
+  projects: {
+    list: async () => [
+      { id: 'proj-01', name: '商城后台', createdAt: new Date().toISOString() },
+      { id: 'proj-02', name: '示例项目', createdAt: new Date().toISOString() }
+    ]
+  },
   metrics: {
     async summary() {
       await delay()
@@ -52,7 +65,7 @@ export const mockApi = {
         totalRequests: rand(8000, 20000),
         errorRate: +(Math.random() * 2).toFixed(2),
         avgLatencyMs: rand(18, 120),
-        activeFunctions: state.functions.length
+        activeDatabases: state.databases.length
       }
     },
     async trend() {
@@ -70,23 +83,101 @@ export const mockApi = {
     }
   },
 
+  databases: {
+    async list() {
+      await delay()
+      return state.databases.map((d) => ({ ...d }))
+    },
+    async create(projectId, name) {
+      await delay()
+      const db = { id: 'db-' + genId(), name, status: 'creating', createdAt: now(), updatedAt: now() }
+      state.databases.push(db)
+      return { ...db }
+    },
+    async get(projectId, databaseId) {
+      await delay()
+      const db = state.databases.find((d) => d.id === databaseId)
+      if (!db) throw new Error('数据库不存在')
+      return { ...db }
+    },
+    async open(projectId, databaseId) {
+      await delay(400)
+      const db = state.databases.find((d) => d.id === databaseId)
+      if (!db) throw new Error('数据库不存在')
+      db.status = 'ready'
+      db.updatedAt = now()
+      return { ...db }
+    },
+    async close(projectId, databaseId) {
+      await delay(300)
+      const db = state.databases.find((d) => d.id === databaseId)
+      if (!db) throw new Error('数据库不存在')
+      db.status = 'closed'
+      db.updatedAt = now()
+    },
+    async remove(projectId, databaseId) {
+      await delay(400)
+      const idx = state.databases.findIndex((d) => d.id === databaseId)
+      if (idx >= 0) state.databases.splice(idx, 1)
+    }
+  },
+
+  sql: {
+    async query(projectId, databaseId, req) {
+      await delay(rand(80, 400))
+      // 极简 mock：SELECT 返回 users 表数据，其余返回空
+      if (/from\s+"?users"?/i.test(req.sql)) {
+        const rows = state.db.users.map((u) => [u.id, JSON.stringify(u), now()])
+        return {
+          columns: ['id', 'data', 'created_at'],
+          rows,
+          rowCount: rows.length,
+          durationMs: rand(2, 30),
+          requestId: genId()
+        }
+      }
+      if (/information_schema/i.test(req.sql)) {
+        const rows = state.collections.map((c) => [c])
+        return { columns: ['table_name'], rows, rowCount: rows.length, durationMs: 3, requestId: genId() }
+      }
+      return { columns: [], rows: [], rowCount: 0, durationMs: rand(1, 10), requestId: genId() }
+    },
+    async execute(projectId, databaseId, req) {
+      await delay(rand(100, 500))
+      return { rowsAffected: rand(0, 3), durability: 'committed_local', durationMs: rand(2, 40), requestId: genId() }
+    },
+    async batch(projectId, databaseId, req) {
+      await delay(rand(200, 600))
+      return {
+        results: req.statements.map((s, i) => ({
+          index: i,
+          rowsAffected: rand(0, 3),
+          durationMs: rand(2, 20)
+        })),
+        durability: 'committed_local',
+        durationMs: rand(10, 80),
+        requestId: genId()
+      }
+    }
+  },
+
   db: {
     async collections() {
       await delay()
       return [...state.collections]
     },
-    async createCollection(name) {
+    async createCollection(projectId, name) {
       await delay()
       if (!state.db[name]) {
         state.db[name] = []
         state.collections.push(name)
       }
     },
-    async rows(collection) {
+    async rows(projectId, collection) {
       await delay()
       return [...(state.db[collection] || [])]
     },
-    async insert(collection, payload) {
+    async insert(projectId, collection, payload) {
       await delay()
       if (!state.db[collection]) {
         state.db[collection] = []
@@ -96,14 +187,14 @@ export const mockApi = {
       state.db[collection].push(row)
       return row
     },
-    async update(collection, id, payload) {
+    async update(projectId, collection, id, payload) {
       await delay()
       const row = (state.db[collection] || []).find((item) => item.id === id)
       if (!row) throw new Error('文档不存在')
       Object.assign(row, { ...payload, id })
       return row
     },
-    async remove(collection, id) {
+    async remove(projectId, collection, id) {
       await delay()
       const list = state.db[collection] || []
       state.db[collection] = list.filter((r) => r.id !== id)
@@ -189,6 +280,13 @@ export const mockApi = {
           onClose?.()
         }
       }
+    }
+  },
+
+  quota: {
+    async status() {
+      await delay(200)
+      return { llmAllowed: true, databaseAllowed: true }
     }
   },
 

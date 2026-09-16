@@ -1,6 +1,6 @@
 // Package objectstore 是 SimpleBase 平台配置与元数据的 S3 访问层。
 // 它只负责 descriptor/state/manifest 等平台对象的读写与最小健康检查；
-// 数据库数据对象（data/）完全由 Turso/libSQL 管理，本包绝不解析或拼接其格式。
+// 数据库数据对象（data/）由 DuckLake 管理；本包提供 Blob/File API，不解析 Parquet 内容。
 //
 // 与旧 internal/s3 的区别：
 //   - 不提供 AppendObject / SelectObject（旧 storage API 专用，Plan 10 删除）
@@ -77,6 +77,7 @@ type s3API interface {
 	PutObject(ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	GetObject(ctx context.Context, in *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 	HeadObject(ctx context.Context, in *s3.HeadObjectInput, opts ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
+	HeadBucket(ctx context.Context, in *s3.HeadBucketInput, opts ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
 	DeleteObjects(ctx context.Context, in *s3.DeleteObjectsInput, opts ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error)
 	ListObjectsV2(ctx context.Context, in *s3.ListObjectsV2Input, opts ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
 }
@@ -261,17 +262,23 @@ func (c *s3Client) DeletePrefix(ctx context.Context, prefix string) error {
 	}
 }
 
-// Check 做最小连通与权限验证：HeadBucket。不能枚举其他 tenant。
+// Check 做最小连通与权限验证。
+// 腾讯云 COS + AWS SDK v2（自定义 Endpoint 且 HostnameImmutable）时，
+// ListObjectsV2 / HeadBucket 常误报 NoSuchKey/404；改用 HeadObject：
+// 对象存在或 404/NotFound 都视为 bucket 可达，其它错误才失败。
 func (c *s3Client) Check(ctx context.Context) error {
-	// 使用 ListObjectsV2 MaxKeys=1 限定到 bucket 根，验证读权限。
-	_, err := c.api.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket:  aws.String(c.bucket),
-		MaxKeys: aws.Int32(1),
+	_, err := c.api.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String("__simplebase_healthcheck__"),
 	})
-	if err != nil {
-		return c.sanitizeErr(err)
+	if err == nil {
+		return nil
 	}
-	return nil
+	mapped := mapNotFoundErr(err)
+	if errors.Is(mapped, ErrNotFound) {
+		return nil
+	}
+	return c.sanitizeErr(err)
 }
 
 func (c *s3Client) recordOp(op, outcome string) {
@@ -282,9 +289,14 @@ func (c *s3Client) recordOp(op, outcome string) {
 }
 
 // sanitizeErr 抹除 endpoint query、AccessKey、SecretKey、预签名 URL。
+// ErrNotFound 必须保留 errors.Is 语义：冷启动 EnsureLocalCatalog 依赖它判断
+// 「S3 尚无 catalog」；若改成纯字符串包装，新库 Open 会误报失败。
 func (c *s3Client) sanitizeErr(err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, ErrNotFound) {
+		return ErrNotFound
 	}
 	msg := err.Error()
 	msg = c.redacted.cleanString(msg)

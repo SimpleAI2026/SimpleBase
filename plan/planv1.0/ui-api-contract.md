@@ -1,3 +1,5 @@
+> **注意（2026-09-16）**：本文为 v0.1 早期契约，现行权威文档为 `plan/planv2.0/proto-http.md`。设置页 / 厂商凭证 / AiChat 见 `plan/planv2.0/ui-settings-chat-plan.md` 与 proto-http §3.9（后端未实现）。
+
 # UI ↔ Backend API 对接契约
 
 > 状态：前端已就绪，等待后端按契约实现

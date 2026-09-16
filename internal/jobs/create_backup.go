@@ -33,7 +33,7 @@ type BackupManifest struct {
 	ProjectID     string    `json:"project_id"`
 	TenantID      string    `json:"tenant_id"`
 	SnapshotRef   string    `json:"snapshot_ref"`
-	TursoVersion  string    `json:"turso_version,omitempty"`
+	SnapshotHint string    `json:"snapshot_hint,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	Status        string    `json:"status"`
 	ContentSHA256 string    `json:"content_sha256,omitempty"`

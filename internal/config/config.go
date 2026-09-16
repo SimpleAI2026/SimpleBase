@@ -43,12 +43,10 @@ type InstanceConfig struct {
 
 const (
 	EngineDuckLake = "ducklake"
-	EngineLocal    = "local"
-	EngineTurso    = "turso"
 )
 
 type DatabaseConfig struct {
-	// Engine 选择用户库后端：ducklake（默认）| local（SQLite 文件）| turso（遗留，Phase 4 退役）。
+	// Engine 用户库后端；仅允许 ducklake（缺省即 ducklake）。历史 local/turso 已退役。
 	Engine            string
 	CacheDir          string
 	CacheMaxBytes     int64
@@ -532,9 +530,9 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("instance.id is required"))
 	}
 	switch strings.ToLower(c.Database.Engine) {
-	case "", EngineDuckLake, EngineLocal, EngineTurso:
+	case "", EngineDuckLake:
 	default:
-		errs = append(errs, fmt.Errorf("database.engine must be ducklake, local, or turso"))
+		errs = append(errs, fmt.Errorf("database.engine must be ducklake (got %q); local/turso engines were removed", c.Database.Engine))
 	}
 	if c.Database.DuckLake.Threads < 0 {
 		errs = append(errs, errors.New("database.ducklake.threads must be non-negative"))

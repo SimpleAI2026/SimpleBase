@@ -1,0 +1,122 @@
+/* ========== SimpleBase 设计变量（唯一允许出现颜色/字号字面量的文件） ========== */
+/* 与 styles/tokens.ts 保持同源：JS 侧（antd token / 图表配色）从 tokens.ts 取值。  */
+
+:root {
+  /* 固定亮色，防止 macOS 系统暗色模式导致原生控件/滚动条变黑 */
+  color-scheme: light;
+
+  /* 品牌色板：Claude 橙 */
+  --sb-primary: #d97757;
+  --sb-primary-hover: #c15e3c;
+  --sb-primary-light: rgba(217, 119, 87, 0.12);
+
+  /* 语义色 */
+  --sb-success: #3f8a5a;
+  --sb-success-bg: rgba(63, 138, 90, 0.12);
+  --sb-warning: #c99a2c;
+  --sb-warning-bg: rgba(201, 154, 44, 0.12);
+  --sb-danger: #c0452f;
+  --sb-danger-bg: rgba(192, 69, 47, 0.1);
+  --sb-info: #4c7d9e;
+  --sb-info-bg: rgba(76, 125, 158, 0.12);
+
+  /* 中性色：Claude 暖米色系 */
+  --sb-bg: #f5f4ef;
+  --sb-bg-soft: #eeece5;
+  --sb-bg-sunken: #e7e4db;
+  --sb-surface: #ffffff;
+  --sb-surface-hover: #faf9f5;
+  --sb-border: rgba(31, 30, 29, 0.12);
+  --sb-border-soft: rgba(31, 30, 29, 0.08);
+  --sb-border-strong: rgba(31, 30, 29, 0.2);
+  --sb-text: #1f1e1d;
+  --sb-text-secondary: #706f6a;
+  --sb-text-muted: #9b9a94;
+  --sb-text-inverse: #faf9f5;
+
+  /* 布局（内容宽度上限：大屏不拉伸到全宽） */
+  --sb-sider-width: 232px;
+  --sb-sider-collapsed-width: 64px;
+  --sb-header-height: 56px;
+  --sb-content-max-width: 1440px;
+
+  /* 间距（8pt 栅格，4px 为半格） */
+  --sb-space-1: 4px;
+  --sb-space-2: 8px;
+  --sb-space-3: 12px;
+  --sb-space-4: 16px;
+  --sb-space-5: 20px;
+  --sb-space-6: 24px;
+  --sb-space-7: 32px;
+  --sb-space-8: 40px;
+
+  /* 字号标尺 */
+  --sb-fs-xs: 12px;
+  --sb-fs-sm: 13px;
+  --sb-fs-md: 14px;
+  --sb-fs-lg: 16px;
+  --sb-fs-xl: 20px;
+  --sb-fs-2xl: 24px;
+  --sb-fs-3xl: 30px;
+
+  /* 行高 */
+  --sb-lh-tight: 1.3;
+  --sb-lh-normal: 1.5;
+  --sb-lh-relaxed: 1.7;
+
+  /* 圆角 */
+  --sb-radius-xs: 4px;
+  --sb-radius-sm: 8px;
+  --sb-radius: 12px;
+  --sb-radius-lg: 16px;
+  --sb-radius-full: 999px;
+
+  /* 光影：暖灰分层，柔和克制 */
+  --sb-shadow-xs: 0 1px 2px rgba(31, 30, 29, 0.05);
+  --sb-shadow: 0 1px 2px rgba(31, 30, 29, 0.05), 0 8px 24px rgba(31, 30, 29, 0.07);
+  --sb-shadow-lg: 0 16px 40px rgba(31, 30, 29, 0.12);
+  /* 键盘焦点环：:focus-visible 使用（base.css） */
+  --sb-ring: 0 0 0 3px var(--sb-primary-light);
+
+  /* 动效：按属性列举，不用 all；时长 ≤ 240ms */
+  --sb-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --sb-dur-fast: 120ms;
+  --sb-dur: 200ms;
+  --sb-dur-slow: 320ms;
+  --sb-transition: color var(--sb-dur) var(--sb-ease),
+    background-color var(--sb-dur) var(--sb-ease),
+    border-color var(--sb-dur) var(--sb-ease),
+    box-shadow var(--sb-dur) var(--sb-ease),
+    opacity var(--sb-dur) var(--sb-ease);
+
+  /* 字体 */
+  --sb-font-serif: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  --sb-font-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
+
+  /* Composer（AiChat 输入框） */
+  --sb-composer-bg: #f3f2ee;
+  --sb-composer-radius: 24px;
+  --sb-composer-send-bg: #1f1e1d;
+
+  /* 层级 */
+  --sb-z-sider: 10;
+  --sb-z-header: 20;
+  --sb-z-drawer: 900;
+  --sb-z-modal: 1000;
+}
+
+/* 暗色主题：设置页 theme=dark|system 时由 stores/settings 写 data-theme */
+[data-theme='dark'] {
+  color-scheme: dark;
+  --sb-bg: #1a1918;
+  --sb-bg-elevated: #242322;
+  --sb-bg-soft: #2c2a28;
+  --sb-bg-layout: #121110;
+  --sb-text: #f3f1ea;
+  --sb-text-secondary: #a8a59c;
+  --sb-border: #3d3a36;
+  --sb-border-soft: #2f2d2a;
+  --sb-primary-light: rgba(217, 119, 87, 0.18);
+  --sb-composer-bg: #2c2a28;
+  --sb-composer-send-bg: #f3f1ea;
+}

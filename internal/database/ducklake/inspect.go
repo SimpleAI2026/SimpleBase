@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -75,25 +76,79 @@ func ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, e
 }
 
 // ListSettings 返回 lake.settings()。
+// DuckLake 扩展存在两套形态：
+//  1) 旧：行式 option_name / value / scope
+//  2) 新：宽表，列即配置项（如 data_path、extension_version）
+// Open 路径的 data_path 校验依赖本函数，必须兼容当前已加载的扩展。
 func ListSettings(ctx context.Context, db *sql.DB, alias string) ([]Setting, error) {
 	if !isSafeIdent(alias) {
 		return nil, fmt.Errorf("ducklake: invalid lake alias")
 	}
-	rows, err := db.QueryContext(ctx, fmt.Sprintf(
-		"SELECT CAST(option_name AS VARCHAR), CAST(value AS VARCHAR), COALESCE(CAST(scope AS VARCHAR), '') FROM %s.settings()",
-		quoteIdent(alias)))
+	q := fmt.Sprintf("SELECT * FROM %s.settings()", quoteIdent(alias))
+	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("ducklake: settings: %w", err)
 	}
 	defer rows.Close()
 
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("ducklake: settings columns: %w", err)
+	}
+	if len(cols) == 0 {
+		return nil, nil
+	}
+
+	// 行式：option_name + value（scope 可选）
+	lower := make([]string, len(cols))
+	idx := map[string]int{}
+	for i, c := range cols {
+		lower[i] = strings.ToLower(c)
+		idx[lower[i]] = i
+	}
+	if _, okName := idx["option_name"]; okName {
+		if _, okVal := idx["value"]; okVal {
+			var out []Setting
+			for rows.Next() {
+				raw := make([]any, len(cols))
+				ptrs := make([]any, len(cols))
+				for i := range raw {
+					ptrs[i] = &raw[i]
+				}
+				if err := rows.Scan(ptrs...); err != nil {
+					return nil, err
+				}
+				s := Setting{
+					Key:   fmt.Sprint(raw[idx["option_name"]]),
+					Value: fmt.Sprint(raw[idx["value"]]),
+				}
+				if i, ok := idx["scope"]; ok && raw[i] != nil {
+					s.Scope = fmt.Sprint(raw[i])
+				}
+				out = append(out, s)
+			}
+			return out, rows.Err()
+		}
+	}
+
+	// 宽表：每一列是一项设置，通常一行。
 	var out []Setting
 	for rows.Next() {
-		var s Setting
-		if err := rows.Scan(&s.Key, &s.Value, &s.Scope); err != nil {
+		raw := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range raw {
+			ptrs[i] = &raw[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
 			return nil, err
 		}
-		out = append(out, s)
+		for i, name := range lower {
+			val := ""
+			if raw[i] != nil {
+				val = fmt.Sprint(raw[i])
+			}
+			out = append(out, Setting{Key: name, Value: val})
+		}
 	}
 	return out, rows.Err()
 }

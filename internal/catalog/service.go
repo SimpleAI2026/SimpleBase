@@ -33,20 +33,25 @@ type Service struct {
 	repo       Repository
 	keys       objectstore.KeyBuilder
 	descriptor DescriptorWriter
-	logger     observability.Logger
-	now        Clock
+	// storage 是写入 descriptor.ducklake_storage 时的模板（Prefix 按库填充）。
+	// DevMode 下 descriptor 为 nil 时可不设置。
+	storage objectstore.DuckLakeStorage
+	logger  observability.Logger
+	now     Clock
 }
 
 // Repository 返回底层 Repository，供 usage/audit/jobs 等内部服务共享访问。
 // 外部 handler 不得使用此方法绕过 Service 校验。
 func (s *Service) Repository() Repository { return s.repo }
 
-// NewService 构造 Service。descriptor 可为 nil（测试或未配置 S3 时禁止创建库）。
-func NewService(repo Repository, keys objectstore.KeyBuilder, descriptor DescriptorWriter, logger observability.Logger) *Service {
+// NewService 构造 Service。descriptor 可为 nil（DevMode / 测试未配置 S3 时跳过 descriptor 写入）。
+// storage 在 descriptor 非 nil 时应提供 bucket/region 等（Prefix 按库生成）。
+func NewService(repo Repository, keys objectstore.KeyBuilder, descriptor DescriptorWriter, storage objectstore.DuckLakeStorage, logger observability.Logger) *Service {
 	return &Service{
 		repo:       repo,
 		keys:       keys,
 		descriptor: descriptor,
+		storage:    storage,
 		logger:     logger,
 		now:        time.Now,
 	}
@@ -60,7 +65,7 @@ type CreateDatabaseInput struct {
 }
 
 // CreateDatabase 校验名称与 project 归属 → 生成 UUID → 建立不可猜测 prefix →
-// 状态 creating → 写 DB 记录 → 写 S3 descriptor → 失败标记 degraded 或补偿软删。
+// 状态 creating → 写 DB 记录 → 写 S3 descriptor → 同步转为 ready；失败标记 degraded。
 func (s *Service) CreateDatabase(ctx context.Context, in CreateDatabaseInput) (Database, error) {
 	if err := validateName(in.Name); err != nil {
 		return Database{}, err
@@ -105,18 +110,23 @@ func (s *Service) CreateDatabase(ctx context.Context, in CreateDatabaseInput) (D
 			s.degradeAfterCreateFailure(ctx, id, err)
 			return Database{}, fmt.Errorf("%w: build descriptor key: %v", ErrDescriptorWrite, err)
 		}
+		st := s.storage
+		st.Prefix = prefix
 		desc := objectstore.Descriptor{
-			FormatVersion: objectstore.DescriptorFormatVersion,
-			TenantID:      in.TenantID,
-			ProjectID:     in.ProjectID,
-			DatabaseID:    id,
-			Name:          in.Name,
-			CreatedAt:     now,
-			DataPrefix:    prefix,
-			Status:        objectstore.StatusCreating,
-			TursoStorage: objectstore.TursoStorage{
-				Prefix: prefix,
-			},
+			FormatVersion:   objectstore.DescriptorFormatVersion,
+			TenantID:        in.TenantID,
+			ProjectID:       in.ProjectID,
+			DatabaseID:      id,
+			Name:            in.Name,
+			CreatedAt:       now,
+			DataPrefix:      prefix,
+			Status:          objectstore.StatusCreating,
+			Engine:          "ducklake",
+			DuckLakeStorage: st,
+		}
+		if err := desc.Validate(); err != nil {
+			s.degradeAfterCreateFailure(ctx, id, err)
+			return Database{}, fmt.Errorf("%w: invalid descriptor: %v", ErrDescriptorWrite, err)
 		}
 		if err := s.descriptor.PutJSON(ctx, descKey, desc, objectstore.PutOptions{}); err != nil {
 			// descriptor 写失败：标记 degraded，不删除已写入的 catalog 记录，
@@ -126,6 +136,14 @@ func (s *Service) CreateDatabase(ctx context.Context, in CreateDatabaseInput) (D
 		}
 	}
 
+	// DuckLake 创建无异步开通：catalog（+可选 descriptor）写成功即视为就绪。
+	// 否则会永久停在 creating（历史上依赖未接线的 Runtime 回调）。
+	if err := s.SetDatabaseReady(ctx, id); err != nil {
+		s.degradeAfterCreateFailure(ctx, id, err)
+		return Database{}, fmt.Errorf("catalog: mark ready after create: %w", err)
+	}
+	db.Status = DatabaseReady
+	db.UpdatedAt = s.now()
 	return db, nil
 }
 
@@ -163,7 +181,29 @@ func (s *Service) ResolveProjectTenant(ctx context.Context, projectID string) (s
 	return s.repo.GetProjectTenant(ctx, projectID)
 }
 
-// BeginDeleteDatabase 校验归属后将数据库转入 deleting；实际 S3 清理由后台任务异步执行。
+// ListProjects 返回当前 principal 可见的项目列表。
+// ProjectAdmin：租户下全部项目；否则仅返回 API key 授权的 ProjectIDs（并补全 name）。
+func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([]Project, error) {
+	if principal.TenantID == "" {
+		return nil, fmt.Errorf("%w: tenant required", ErrInvalidName)
+	}
+	all, err := s.repo.ListProjectsByTenant(ctx, principal.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if principal.HasPermission(auth.ProjectAdmin) {
+		return all, nil
+	}
+	out := make([]Project, 0, len(all))
+	for _, p := range all {
+		if principal.CanAccessProject(p.ID) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// BeginDeleteDatabase 校验归属后将数据库转入 deleting。
 func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (Database, error) {
 	if !principal.CanAccessProject(projectID) {
 		return Database{}, fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
@@ -172,7 +212,7 @@ func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Princi
 	if err != nil {
 		return Database{}, err
 	}
-	from := []DatabaseStatus{DatabaseReady, DatabaseClosed, DatabaseDegraded}
+	from := []DatabaseStatus{DatabaseCreating, DatabaseOpening, DatabaseReady, DatabaseClosed, DatabaseDegraded, DatabaseRecovering}
 	db, err := s.repo.TransitionDatabase(ctx, current.ID, from, DatabaseDeleting, s.now())
 	if err != nil {
 		return Database{}, err
@@ -189,16 +229,62 @@ func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Princi
 	return db, nil
 }
 
+// StoragePurger 抽象同步删除平面 B（DuckLake data/catalog/descriptor 所在前缀）。
+type StoragePurger interface {
+	DeletePrefix(ctx context.Context, prefix string) error
+}
+
+// DeleteDatabaseSync 软删并同步清理存储：deleting → 关闭连接 → DeletePrefix(库前缀) → deleted。
+// purger / closer 可为 nil（DevMode 无 S3 时只更新 catalog）。
+// 产品决策：不走 jobs 异步队列完成本轮清理。
+func (s *Service) DeleteDatabaseSync(
+	ctx context.Context,
+	principal auth.Principal,
+	projectID, databaseID string,
+	closer func(ctx context.Context, databaseID string) error,
+	purger StoragePurger,
+) (Database, error) {
+	db, err := s.BeginDeleteDatabase(ctx, principal, projectID, databaseID)
+	if err != nil {
+		return Database{}, err
+	}
+	if closer != nil {
+		if err := closer(ctx, db.ID); err != nil && s.logger != nil {
+			s.logger.Warn("catalog: close registry during delete",
+				zap.String("database_id", db.ID), zap.Error(err))
+		}
+	}
+	if purger != nil {
+		prefix := db.StoragePrefix
+		if dbPrefix, err := s.keys.DatabasePrefix(db.TenantID, db.ID); err == nil && dbPrefix != "" {
+			prefix = dbPrefix
+		}
+		if prefix != "" {
+			if err := purger.DeletePrefix(ctx, prefix); err != nil {
+				return db, fmt.Errorf("catalog: sync purge storage prefix %s: %w", prefix, err)
+			}
+		}
+	}
+	if err := s.MarkDatabaseDeleted(ctx, db.ID, s.now()); err != nil {
+		return db, err
+	}
+	db.Status = DatabaseDeleted
+	return db, nil
+}
+
 // SetDatabaseReady 将数据库从 creating/opening/recovering 转为 ready。
-// 由 Database Runtime 在完成打开/恢复流程后调用，不经过 HTTP handler。
+// 已是 ready 时幂等成功（open / 重复回调安全）。
 func (s *Service) SetDatabaseReady(ctx context.Context, id string) error {
 	from := []DatabaseStatus{DatabaseCreating, DatabaseOpening, DatabaseRecovering}
 	_, err := s.repo.TransitionDatabase(ctx, id, from, DatabaseReady, s.now())
+	if err != nil && errors.Is(err, ErrInvalidState) {
+		return nil // 已是 ready 或其他终态外的不可转换：创建路径已就绪时忽略
+	}
 	return err
 }
 
 // MarkDatabaseDeleted 将数据库从 deleting 转为 deleted 并记录 deleted_at。
-// 由后台删除任务在完成 S3 prefix 清理后调用（plan7.md）。幂等：重复调用不报错。
+// 由 DeleteDatabaseSync（或遗留 jobs handler）在完成存储清理后调用。幂等：重复调用不报错。
 func (s *Service) MarkDatabaseDeleted(ctx context.Context, id string, at time.Time) error {
 	// 状态校验：仅 deleting 可转 deleted。若已是 deleted 则幂等成功。
 	_, err := s.repo.TransitionDatabase(ctx, id, []DatabaseStatus{DatabaseDeleting}, DatabaseDeleted, at)

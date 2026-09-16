@@ -1,5 +1,5 @@
 <template>
-  <PageContainer title="监控大盘" subtitle="实时查看系统运行状态">
+  <PageContainer title="监控大盘" subtitle="系统运行状态与数据库概览">
     <a-row :gutter="16">
       <a-col v-for="card in cards" :key="card.label" :xs="24" :sm="12" :lg="6">
         <a-card class="sb-card sb-stat-card" :loading="loading">
@@ -21,133 +21,168 @@
     <a-card class="sb-card">
       <template #title>
         <div class="sb-card-title">
-          近 7 天请求趋势
+          数据库概览
           <a-tag v-if="isMock" color="orange" class="sb-mock-tag">Mock</a-tag>
         </div>
       </template>
       <template #extra>
         <div class="sb-toolbar">
           <span v-if="lastUpdate" class="sb-hint">最近更新：{{ lastUpdate }}</span>
-          <a-button type="primary" @click="load">
+          <a-button type="primary" :loading="loading" @click="load">
             <template #icon><ReloadOutlined /></template>
             刷新数据
           </a-button>
         </div>
       </template>
 
-      <a-alert v-if="err" type="error" :message="err" show-icon style="margin-bottom: 12px" />
+      <a-alert
+        v-if="backendNotice"
+        type="info"
+        show-icon
+        message="请求趋势图需后端支持"
+        description="后端暂未提供 /metrics JSON 汇总接口（Prometheus 文本格式不适合直接消费），当前卡片由配额与数据库数据填充。接口就绪后此处将恢复趋势图。"
+        style="margin-bottom: 12px"
+      />
 
-      <div class="sb-chart">
-        <div v-for="p in trend" :key="p.date" class="sb-chart-col">
-          <a-tooltip :title="`${p.date} · 请求 ${p.requests} · 错误 ${p.errors}`">
-            <div class="sb-chart-bars">
-              <div
-                class="sb-chart-bar sb-chart-bar--req"
-                :style="{ height: barHeight(p.requests) }"
-              />
-              <div
-                class="sb-chart-bar sb-chart-bar--err"
-                :style="{ height: barHeight(p.errors) }"
-              />
-            </div>
-          </a-tooltip>
-          <div class="sb-chart-date">{{ p.date }}</div>
-        </div>
-        <div v-if="!trend.length && !loading" class="sb-chart-empty">暂无数据</div>
-      </div>
-      <div class="sb-chart-legend">
-        <span class="sb-dot sb-dot--req" />请求数
-        <span class="sb-dot sb-dot--err" />错误数
-      </div>
+      <a-table
+        :columns="dbColumns"
+        :data-source="databases"
+        :loading="loading"
+        row-key="id"
+        :pagination="pagination"
+        size="small"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'status'">
+            <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'createdAt'">
+            {{ formatTime(record.createdAt) }}
+          </template>
+        </template>
+        <template #emptyText>
+          <SbEmptyState description="暂无数据库" action-text="去创建" @action="goDatabases" />
+        </template>
+      </a-table>
     </a-card>
   </PageContainer>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
-  BarChartOutlined,
-  WarningOutlined,
-  ClockCircleOutlined,
-  ThunderboltOutlined,
+  DatabaseOutlined,
+  CheckCircleOutlined,
+  ExclamationCircleOutlined,
   ReloadOutlined
 } from '@ant-design/icons-vue'
 import { api, isMock } from '../services/api'
-import type { MetricsSummary, TrendPoint } from '../services/api'
+import type { DatabaseItem, QuotaStatus } from '../services/api'
+import { useProjectStore } from '../stores/project'
+import { usePagination } from '../composables/usePagination'
+import { softBg, colors } from '../styles/tokens'
+import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
+import SbEmptyState from '../components/SbEmptyState.vue'
 
-const summary = ref<MetricsSummary>({
-  totalRequests: 0,
-  errorRate: 0,
-  avgLatencyMs: 0,
-  activeFunctions: 0
-})
-const trend = ref<TrendPoint[]>([])
+const router = useRouter()
+const projectStore = useProjectStore()
+const pagination = usePagination()
+
+const databases = ref<DatabaseItem[]>([])
+const quota = ref<QuotaStatus | null>(null)
 const loading = ref(false)
-const err = ref('')
 const lastUpdate = ref('')
+const err = ref('')
 
+/** 后端未提供 /metrics JSON 接口（proto-http.md §3.8 / §6.1），页面明示而非造假数据 */
+const backendNotice = !isMock
+
+const dbColumns = [
+  { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
+  { title: 'ID', dataIndex: 'id', key: 'id', ellipsis: true },
+  { title: '状态', key: 'status', width: 110 },
+  { title: '创建时间', key: 'createdAt', width: 180 }
+]
+
+/** 统计卡配色从 tokens.ts 派生（替代原 8 处硬编码 rgba） */
 const cards = computed(() => [
   {
-    label: '请求总数',
-    value: summary.value.totalRequests.toLocaleString(),
+    label: '数据库总数',
+    value: databases.value.length,
     unit: '',
-    icon: BarChartOutlined,
-    bg: 'rgba(217, 119, 87, 0.12)',
-    color: '#d97757'
+    icon: DatabaseOutlined,
+    bg: softBg(colors.primary),
+    color: colors.primary
   },
   {
-    label: '错误率',
-    value: summary.value.errorRate,
-    unit: '%',
-    icon: WarningOutlined,
-    bg: 'rgba(192, 69, 47, 0.1)',
-    color: '#c0452f'
-  },
-  {
-    label: '平均耗时',
-    value: summary.value.avgLatencyMs,
-    unit: 'ms',
-    icon: ClockCircleOutlined,
-    bg: 'rgba(201, 154, 44, 0.12)',
-    color: '#c99a2c'
-  },
-  {
-    label: '活跃函数',
-    value: summary.value.activeFunctions,
+    label: '就绪数据库',
+    value: databases.value.filter((d) => d.status === 'ready').length,
     unit: '',
-    icon: ThunderboltOutlined,
-    bg: 'rgba(63, 138, 90, 0.12)',
-    color: '#3f8a5a'
+    icon: CheckCircleOutlined,
+    bg: softBg(colors.success),
+    color: colors.success
+  },
+  {
+    label: '异常数据库',
+    value: databases.value.filter((d) => ['degraded', 'deleting'].includes(d.status)).length,
+    unit: '',
+    icon: ExclamationCircleOutlined,
+    bg: softBg(colors.danger),
+    color: colors.danger
+  },
+  {
+    label: '配额状态',
+    value: quota.value ? (quota.value.llmAllowed && quota.value.databaseAllowed ? '正常' : '受限') : '-',
+    unit: '',
+    icon: ExclamationCircleOutlined,
+    bg: quota.value?.llmAllowed === false ? softBg(colors.warning) : softBg(colors.info),
+    color: quota.value?.llmAllowed === false ? colors.warning : colors.info
   }
 ])
 
-const maxRequests = computed(() => Math.max(1, ...trend.value.map((p) => p.requests)))
-function barHeight(v: number) {
-  return `${Math.max(3, Math.round((v / maxRequests.value) * 140))}px`
+const statusColorMap: Record<string, string> = {
+  ready: 'success',
+  creating: 'processing',
+  opening: 'processing',
+  closing: 'processing',
+  recovering: 'processing',
+  closed: 'default',
+  degraded: 'warning',
+  deleting: 'warning',
+  deleted: 'default'
+}
+function statusColor(s: string) {
+  return statusColorMap[s] || 'default'
 }
 
 async function load() {
   loading.value = true
   err.value = ''
-  // 分别请求：trend 接口在后端未就绪时不影响统计卡渲染
-  const [summaryRes, trendRes] = await Promise.allSettled([
-    api.metrics.summary(),
-    api.metrics.trend()
+  // 分别请求：databases 失败不影响 quota 卡渲染
+  const [dbRes, quotaRes] = await Promise.allSettled([
+    api.databases.list(projectStore.id),
+    api.quota.status(projectStore.id)
   ])
-  if (summaryRes.status === 'fulfilled') {
-    summary.value = { ...summary.value, ...summaryRes.value }
+  if (dbRes.status === 'fulfilled') {
+    databases.value = dbRes.value
   } else {
-    err.value = (summaryRes.reason as Error)?.message || '加载失败'
+    err.value = (dbRes.reason as Error)?.message || '加载失败'
   }
-  if (trendRes.status === 'fulfilled') {
-    trend.value = trendRes.value
+  if (quotaRes.status === 'fulfilled') {
+    quota.value = quotaRes.value
   }
-  if (summaryRes.status === 'fulfilled' || trendRes.status === 'fulfilled') {
+  if (dbRes.status === 'fulfilled' || quotaRes.status === 'fulfilled') {
     lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   }
   loading.value = false
 }
+
+function goDatabases() {
+  router.push({ name: 'databases' })
+}
+
 onMounted(load)
 </script>
 
@@ -159,85 +194,18 @@ onMounted(load)
   padding: 18px 20px;
 }
 .sb-unit {
-  font-size: 14px;
+  font-size: var(--sb-fs-sm);
   font-weight: 500;
   color: var(--sb-text-secondary);
   margin-left: 4px;
 }
 .sb-hint {
   color: var(--sb-text-muted);
-  font-size: 12px;
+  font-size: var(--sb-fs-xs);
 }
 .sb-card-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-.sb-mock-tag {
-  margin-inline-end: 0;
-}
-.sb-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 18px;
-  padding: 8px 4px 0;
-  min-height: 170px;
-  overflow-x: auto;
-}
-.sb-chart-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 40px;
-}
-.sb-chart-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 140px;
-}
-.sb-chart-bar {
-  width: 14px;
-  border-radius: 4px 4px 0 0;
-  transition: height 0.4s ease;
-}
-.sb-chart-bar--req {
-  background: var(--sb-primary);
-}
-.sb-chart-bar--err {
-  background: var(--sb-danger);
-}
-.sb-chart-date {
-  font-size: 12px;
-  color: var(--sb-text-secondary);
-}
-.sb-chart-empty {
-  width: 100%;
-  text-align: center;
-  color: var(--sb-text-muted);
-  padding: 60px 0;
-}
-.sb-chart-legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--sb-text-secondary);
-}
-.sb-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-  margin-left: 12px;
-}
-.sb-dot--req {
-  background: var(--sb-primary);
-}
-.sb-dot--err {
-  background: var(--sb-danger);
+  gap: var(--sb-space-2);
 }
 </style>

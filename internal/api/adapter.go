@@ -11,16 +11,19 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/registry"
+	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
 // CatalogService 是 handler 依赖的 catalog.Service 的最小接口。
-// 避免强制要求 *catalog.Service 具体类型，便于测试。
 type CatalogService interface {
 	CreateDatabase(ctx context.Context, in catalog.CreateDatabaseInput) (catalog.Database, error)
 	GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
 	ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page catalog.Page) ([]catalog.Database, string, error)
 	BeginDeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
+	DeleteDatabaseSync(ctx context.Context, principal auth.Principal, projectID, databaseID string, closer func(context.Context, string) error, purger catalog.StoragePurger) (catalog.Database, error)
+	SetDatabaseReady(ctx context.Context, id string) error
 	ResolveProjectTenant(ctx context.Context, projectID string) (string, error)
+	ListProjects(ctx context.Context, principal auth.Principal) ([]catalog.Project, error)
 }
 
 // RegistryService 是 handler 依赖的 registry 的最小接口。
@@ -33,11 +36,12 @@ type RegistryService interface {
 type dbServiceAdapter struct {
 	catalog  CatalogService
 	registry RegistryService
+	purger   objectstore.Deleter // 可为 nil（DevMode）
 }
 
-// NewDatabaseServiceAdapter 构造 DatabaseService 的实现。
-func NewDatabaseServiceAdapter(cat CatalogService, reg RegistryService) DatabaseService {
-	return &dbServiceAdapter{catalog: cat, registry: reg}
+// NewDatabaseServiceAdapter 构造 DatabaseService。purger 用于删库时同步清理平面 B。
+func NewDatabaseServiceAdapter(cat CatalogService, reg RegistryService, purger objectstore.Deleter) DatabaseService {
+	return &dbServiceAdapter{catalog: cat, registry: reg, purger: purger}
 }
 
 func (a *dbServiceAdapter) CreateDatabase(ctx context.Context, in catalog.CreateDatabaseInput) (catalog.Database, error) {
@@ -56,6 +60,14 @@ func (a *dbServiceAdapter) BeginDeleteDatabase(ctx context.Context, principal au
 	return a.catalog.BeginDeleteDatabase(ctx, principal, projectID, databaseID)
 }
 
+func (a *dbServiceAdapter) DeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error) {
+	var purger catalog.StoragePurger
+	if a.purger != nil {
+		purger = a.purger
+	}
+	return a.catalog.DeleteDatabaseSync(ctx, principal, projectID, databaseID, a.registry.CloseDatabase, purger)
+}
+
 func (a *dbServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (Lease, error) {
 	l, err := a.registry.Acquire(ctx, db, mode)
 	if err != nil {
@@ -68,16 +80,19 @@ func (a *dbServiceAdapter) CloseDatabase(ctx context.Context, databaseID string)
 	return a.registry.CloseDatabase(ctx, databaseID)
 }
 
+func (a *dbServiceAdapter) SetDatabaseReady(ctx context.Context, databaseID string) error {
+	return a.catalog.SetDatabaseReady(ctx, databaseID)
+}
+
 // sqlServiceAdapter 把 CatalogService + RegistryService 适配为 SQLService。
-// 复用 dbServiceAdapter 的 catalog 查询能力，Acquire 返回带 SQL 执行能力的租约。
 type sqlServiceAdapter struct {
 	catalog  CatalogService
 	registry RegistryService
 }
 
-// NewSQLServiceAdapter 构造 SQLService 的实现。
-// catalog 和 registry 与 NewDatabaseServiceAdapter 共享同一实例。
+// NewSQLServiceAdapter 构造 SQLService。
 func NewSQLServiceAdapter(cat CatalogService, reg RegistryService) SQLService {
+
 	return &sqlServiceAdapter{catalog: cat, registry: reg}
 }
 

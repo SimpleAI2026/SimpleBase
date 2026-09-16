@@ -14,6 +14,8 @@ import (
 type Repository interface {
 	CreateTenant(ctx context.Context, tenant Tenant) error
 	CreateProject(ctx context.Context, project Project) error
+	// ListProjectsByTenant 列出租户下全部项目（按 created_at）。
+	ListProjectsByTenant(ctx context.Context, tenantID string) ([]Project, error)
 	CreateDatabase(ctx context.Context, db Database) error
 	GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error)
 	ListDatabases(ctx context.Context, projectID string, page Page) ([]Database, string, error)
