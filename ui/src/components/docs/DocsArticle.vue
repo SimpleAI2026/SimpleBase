@@ -59,7 +59,12 @@ const loadError = computed(() =>
 const html = computed(() => {
   if (raw.value == null) return ''
   if (!raw.value.trim()) return ''
-  return renderMarkdown(raw.value, props.moduleId)
+  try {
+    return renderMarkdown(raw.value, props.moduleId)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return `<p>文档渲染失败：${msg}</p>`
+  }
 })
 const githubUrl = computed(() => githubBlobUrl(props.page.filePath))
 
