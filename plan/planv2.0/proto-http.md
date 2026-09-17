@@ -63,7 +63,10 @@
 | 403 | `cross_project_denied` | principal 无该 project 权限 |
 | 404 | `database_not_found` | `catalog.ErrNotFound`（**project 不存在也走此码**，见 §2） |
 | 404 | `not_found` | 文档不存在、echo 层 404 |
+| 400 | `invalid_project_name` | 创建项目时名称为空、超长或含非法字符 |
+| 400 | `invalid_project_id` | 创建项目时 `id` 不是合法 UUID，或使用了保留系统项目 ID |
 | 409 | `database_already_exists` | 创建重名库 |
+| 409 | `project_already_exists` | 创建项目时 id 或同租户 name 冲突 |
 | 409 | `invalid_state` | 状态机非法迁移 |
 | 409 | `database_deleting` / `database_not_ready` | 库正在删除 / 未就绪 |
 | 413 | `request_too_large` | 请求体超 BodyLimit |
@@ -93,12 +96,22 @@
 - 路由挂载是**条件性**的：`deps.Auth` 或 `deps.DatabaseHandler` 为 nil 时整个 `/v1` 组不挂载；`SQLHandler`/`DataHandler`/`LLM`/`Usage`/`Audit`/`S3FileStore` 各自为 nil 时对应子组不挂载 → 请求落到 SPA fallback 返回 HTML。`internal/app/app.go` 默认注入全部依赖。
 - DevMode 种子（`internal/systemdb/seed.go`）：tenant `00000000-0000-0000-0000-000000000001` / project `00000000-0000-0000-0000-000000000002`（"商城后台"）/ database `default` / key `sb_live_dev_key_12345`，权限集 `DatabaseRead + DatabaseWrite + DatabaseAdmin + LLMInvoke + ProjectAdmin`。系统库本身 `kind=system`，列表默认隐藏，DELETE 返回 `403 system_database_protected`。
 - `GET /v1/projects` 返回当前 Key 可见项目（不含隐藏的系统项目）。
+- `POST /v1/projects` 创建项目（`ProjectAdmin`）：body `{ "name", "id?" }`，省略 `id` 时服务端生成 UUID；id/name 冲突 **409** `project_already_exists`。
 
 ---
 
 ## 3. 接口清单
 
 下表 `:p` = `/v1/projects/:projectID`。权限列指路由声明的 `auth.Require` 权限。
+
+### 3.0 项目（全局切换器）
+
+| Method | Path | 权限 | 成功状态 | 说明 |
+|---|---|---|---|---|
+| GET | `/v1/projects` | DatabaseRead | 200 | `{ "projects":[{ "id","name","created_at" }] }`；隐藏系统项目 |
+| POST | `/v1/projects` | ProjectAdmin | 201 | `{ "name":"...", "id":"<optional UUID>" }` → `{ "id","name","created_at" }`；未知字段 400；冲突 409 |
+
+`ProjectAdmin` 可访问本租户下任意用户项目（不仅是 API key 绑定的那一个）。系统项目 ID `00000000-0000-0000-0000-000000000099` 不可创建、不出现在列表。
 
 ### 3.1 数据库管理（Databases 页）
 
@@ -352,7 +365,7 @@ data: {"type":"end"}
 | 分组 | 覆盖 |
 |---|---|
 | 基础设施 | `/health/live`、`/health/ready`、`/metrics`（注释态） |
-| Projects | `GET /v1/projects` |
+| Projects | `GET /v1/projects`、`POST /v1/projects` |
 | Databases | 创建 / 列表 / 详情 / open / close / 备份(501) / 删除(注释态) |
 | SQL | query(元数据) / 建表 / 插入 / 带参查询 / batch 事务 / batch 非事务 |
 | Documents | 集合列表 / 建集合 / 文档列表 / 插入 / 更新 / 删除(注释态) |
@@ -381,9 +394,10 @@ services/types.ts 的 Api 接口域        对应章节    状态
   metrics.*   → §3.10   ✔ GET :p/metrics/summary|trend
   faas.*      → §3.11   后端无此模块，仅 Mock 可用
   logs.*      → §3.8    ✔ HTTP GET :p/logs（无 WS）
+  projects.*  → §3.0    ✔ list + create
 ```
 
-`GET /v1/projects` 返回当前 Key 可见项目（DevMode 种子 UUID `00000000-0000-0000-0000-000000000002`）。
+`GET /v1/projects` 返回当前 Key 可见项目（DevMode 种子 UUID `00000000-0000-0000-0000-000000000002`）。`POST /v1/projects` 创建项目。
 
 拦截器约定（`http.ts`）：
 1. 请求头自动注入 `Authorization: Bearer <key>`（key 来自 localStorage，默认 DevMode 种子 key）。

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -161,8 +162,8 @@ func (s *Service) degradeAfterCreateFailure(ctx context.Context, id string, caus
 
 // GetDatabase 校验 principal 可访问 projectID 后返回数据库记录。
 func (s *Service) GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (Database, error) {
-	if !principal.CanAccessProject(projectID) {
-		return Database{}, fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+	if err := s.ensureProjectAccess(ctx, principal, projectID); err != nil {
+		return Database{}, err
 	}
 	db, err := s.repo.GetDatabase(ctx, projectID, databaseID)
 	if err != nil {
@@ -176,8 +177,8 @@ func (s *Service) GetDatabase(ctx context.Context, principal auth.Principal, pro
 
 // ListDatabases 校验 principal 可访问 projectID 后分页列出数据库。
 func (s *Service) ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page Page) ([]Database, string, error) {
-	if !principal.CanAccessProject(projectID) {
-		return nil, "", fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+	if err := s.ensureProjectAccess(ctx, principal, projectID); err != nil {
+		return nil, "", err
 	}
 	return s.repo.ListDatabases(ctx, projectID, page)
 }
@@ -218,10 +219,76 @@ func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([
 	return out, nil
 }
 
+// CreateProjectInput 是创建项目的输入。ID 为空时由服务端生成 UUID。
+type CreateProjectInput struct {
+	Name string
+	ID   string
+}
+
+// CreateProject 在 principal 所属租户下创建项目。需要 ProjectAdmin。
+// ID 省略则生成 UUID；与已有 id/name 冲突返回 ErrAlreadyExists。
+func (s *Service) CreateProject(ctx context.Context, principal auth.Principal, in CreateProjectInput) (Project, error) {
+	if !principal.HasPermission(auth.ProjectAdmin) {
+		return Project{}, auth.ErrForbidden
+	}
+	if principal.TenantID == "" {
+		return Project{}, fmt.Errorf("%w: tenant required", ErrInvalidName)
+	}
+	name := strings.TrimSpace(in.Name)
+	if err := validateName(name); err != nil {
+		return Project{}, err
+	}
+	id := strings.TrimSpace(in.ID)
+	if id == "" {
+		id = uuid.NewString()
+	} else {
+		if _, err := uuid.Parse(id); err != nil {
+			return Project{}, fmt.Errorf("%w: id must be a UUID", ErrInvalidName)
+		}
+		if IsSystemProject(id) {
+			return Project{}, fmt.Errorf("%w: reserved project id", ErrInvalidName)
+		}
+	}
+
+	now := s.now().UTC()
+	p := Project{
+		ID:        id,
+		TenantID:  principal.TenantID,
+		Name:      name,
+		CreatedAt: now,
+	}
+	if err := s.repo.CreateProject(ctx, p); err != nil {
+		return Project{}, err
+	}
+	return p, nil
+}
+
+// ensureProjectAccess 校验 principal 可操作 projectID。
+// ProjectAdmin：租户内任意非系统项目；否则仅 API key 绑定的 ProjectIDs。
+func (s *Service) ensureProjectAccess(ctx context.Context, principal auth.Principal, projectID string) error {
+	if principal.HasPermission(auth.ProjectAdmin) {
+		if principal.TenantID == "" {
+			return fmt.Errorf("%w: tenant required", ErrInvalidName)
+		}
+		tenantID, err := s.repo.GetProjectTenant(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		if tenantID != principal.TenantID {
+			return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+		}
+		return nil
+	}
+	if !principal.CanAccessProject(projectID) {
+		return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+	}
+	return nil
+}
+
 // BeginDeleteDatabase 校验归属后将数据库转入 deleting。
 func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (Database, error) {
-	if !principal.CanAccessProject(projectID) {
-		return Database{}, fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+	if err := s.ensureProjectAccess(ctx, principal, projectID); err != nil {
+		return Database{}, err
 	}
 	current, err := s.repo.GetDatabase(ctx, projectID, databaseID)
 	if err != nil {
@@ -352,8 +419,8 @@ func (s *Service) SetDatabaseDegraded(ctx context.Context, id string, cause erro
 
 // UpsertProviderConfig 保存 project 级 LLM provider 配置。
 func (s *Service) UpsertProviderConfig(ctx context.Context, principal auth.Principal, cfg LLMProviderConfig) error {
-	if !principal.CanAccessProject(cfg.ProjectID) {
-		return fmt.Errorf("%w: project %s", ErrCrossProject, cfg.ProjectID)
+	if err := s.ensureProjectAccess(ctx, principal, cfg.ProjectID); err != nil {
+		return err
 	}
 	now := s.now()
 	if cfg.ID == "" {
@@ -366,8 +433,8 @@ func (s *Service) UpsertProviderConfig(ctx context.Context, principal auth.Princ
 
 // ListEnabledProviders 返回 project 已启用的 LLM provider 配置。
 func (s *Service) ListEnabledProviders(ctx context.Context, principal auth.Principal, projectID string) ([]LLMProviderConfig, error) {
-	if !principal.CanAccessProject(projectID) {
-		return nil, fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+	if err := s.ensureProjectAccess(ctx, principal, projectID); err != nil {
+		return nil, err
 	}
 	return s.repo.ListEnabledProviders(ctx, projectID)
 }

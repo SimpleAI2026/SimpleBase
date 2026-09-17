@@ -198,8 +198,10 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	}
 
 	v1 := e.Group("/v1", authMW)
-	// 项目枚举（不挂 :projectID，供前端下拉）
-	v1.GET("/projects", NewProjectsHandler(deps.Catalog).ListProjects, require(auth.DatabaseRead))
+	// 项目枚举 / 创建（不挂 :projectID，供全局切换器）
+	ph := NewProjectsHandler(deps.Catalog)
+	v1.GET("/projects", ph.ListProjects, require(auth.DatabaseRead))
+	v1.POST("/projects", ph.CreateProject, require(auth.ProjectAdmin))
 	p := v1.Group("/projects/:projectID", projectContextMiddlewareEcho(deps))
 	h := deps.DatabaseHandler
 	p.POST("/databases", h.CreateDatabase, require(auth.DatabaseAdmin))

@@ -308,6 +308,25 @@ Authorization: {{auth}}
 GET {{host}}/v1/projects
 Authorization: {{auth}}
 
+### 6.4 创建项目 → 201 {"id":"...","name":"演示项目","created_at":"..."}
+POST {{host}}/v1/projects
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "name": "演示项目"
+}
+
+### 6.5 创建项目（指定 UUID）→ 201 或 409 project_already_exists
+# POST {{host}}/v1/projects
+# Authorization: {{auth}}
+# Content-Type: application/json
+#
+# {
+#   "name": "指定 ID 项目",
+#   "id": "11111111-1111-1111-1111-111111111111"
+# }
+
 ### =====================================================================
 ### 6b. Metrics / Logs / Settings / LLM sessions（系统库）
 ### =====================================================================

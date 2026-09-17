@@ -57,7 +57,7 @@ const menuItems = computed<MenuItem[]>(() =>
     }))
 )
 
-const routeOrder = ['dashboard', 'databases', 's3', 'faas', 'llm', 'settings', 'logs']
+const routeOrder = ['dashboard', 'databases', 's3', 'faas', 'llm', 'logs', 'settings']
 function orderOf(name: string) {
   const i = routeOrder.indexOf(name)
   return i === -1 ? 99 : i

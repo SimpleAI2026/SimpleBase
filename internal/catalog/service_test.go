@@ -252,6 +252,79 @@ func TestSystemDatabaseHiddenAndProtected(t *testing.T) {
 	}
 }
 
+func TestCreateProject_SuccessAndConflict(t *testing.T) {
+	svc, _, tenantID, _ := setupService(t, nil)
+	ctx := context.Background()
+	admin := newTestPrincipal(tenantID)
+	admin.Permissions[auth.ProjectAdmin] = struct{}{}
+
+	p, err := svc.CreateProject(ctx, admin, CreateProjectInput{Name: "新项目"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if p.ID == "" || p.Name != "新项目" || p.TenantID != tenantID {
+		t.Fatalf("unexpected project: %+v", p)
+	}
+	if _, err := uuid.Parse(p.ID); err != nil {
+		t.Fatalf("generated id should be UUID: %v", err)
+	}
+
+	_, err = svc.CreateProject(ctx, admin, CreateProjectInput{Name: "新项目"})
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("expected name conflict, got %v", err)
+	}
+
+	fixedID := "11111111-1111-1111-1111-111111111111"
+	p2, err := svc.CreateProject(ctx, admin, CreateProjectInput{Name: "指定 ID", ID: fixedID})
+	if err != nil {
+		t.Fatalf("CreateProject with id: %v", err)
+	}
+	if p2.ID != fixedID {
+		t.Fatalf("id = %s, want %s", p2.ID, fixedID)
+	}
+	_, err = svc.CreateProject(ctx, admin, CreateProjectInput{Name: "另一个", ID: fixedID})
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("expected id conflict, got %v", err)
+	}
+
+	_, err = svc.CreateProject(ctx, admin, CreateProjectInput{Name: "坏 ID", ID: "not-a-uuid"})
+	if !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("expected invalid id, got %v", err)
+	}
+
+	_, err = svc.CreateProject(ctx, admin, CreateProjectInput{Name: "系统", ID: ReservedSystemProjectID})
+	if !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("expected reserved id, got %v", err)
+	}
+
+	plain := newTestPrincipal(tenantID)
+	_, err = svc.CreateProject(ctx, plain, CreateProjectInput{Name: "无权限"})
+	if !errors.Is(err, auth.ErrForbidden) {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
+}
+
+func TestProjectAdminCanAccessSiblingProject(t *testing.T) {
+	svc, _, tenantID, projectID := setupService(t, nil)
+	ctx := context.Background()
+	admin := newTestPrincipal(tenantID, projectID)
+	admin.Permissions[auth.ProjectAdmin] = struct{}{}
+
+	other, err := svc.CreateProject(ctx, admin, CreateProjectInput{Name: "sibling"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, _, err := svc.ListDatabases(ctx, admin, other.ID, Page{Limit: 20}); err != nil {
+		t.Fatalf("ProjectAdmin should list sibling project databases: %v", err)
+	}
+
+	foreign := newTestPrincipal(uuid.NewString(), projectID)
+	foreign.Permissions[auth.ProjectAdmin] = struct{}{}
+	if _, _, err := svc.ListDatabases(ctx, foreign, other.ID, Page{Limit: 20}); !errors.Is(err, ErrCrossProject) && !errors.Is(err, ErrNotFound) {
+		t.Fatalf("other tenant admin should be denied, got %v", err)
+	}
+}
+
 func TestListProjectsHidesSystemProject(t *testing.T) {
 	svc, repo, tenantID, projectID := setupService(t, nil)
 	ctx := context.Background()

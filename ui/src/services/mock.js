@@ -20,7 +20,7 @@ function requireDbStore(databaseId) {
 
 /* ---------- 初始数据 ---------- */
 
-const DEFAULT_PROJECT = 'proj-01'
+const DEFAULT_PROJECT = '00000000-0000-0000-0000-000000000002'
 
 const state = {
   databases: [
@@ -56,6 +56,10 @@ const state = {
     { key: 'images/banner.webp', size: 188416, lastModified: now(), _projectId: DEFAULT_PROJECT },
     { key: 'docs/getting-started.md', size: 5120, lastModified: now(), _projectId: DEFAULT_PROJECT }
   ],
+  projects: [
+    { id: DEFAULT_PROJECT, name: '商城后台', createdAt: now() },
+    { id: '11111111-1111-1111-1111-111111111111', name: '示例项目', createdAt: now() }
+  ],
   functions: [
     { name: 'resize-image', version: 'v1.4.2', runtime: 'node20', updatedAt: now() },
     { name: 'daily-report', version: 'v0.9.0', runtime: 'node20', updatedAt: now() },
@@ -67,10 +71,22 @@ const state = {
 
 export const mockApi = {
   projects: {
-    list: async () => [
-      { id: 'proj-01', name: '商城后台', createdAt: new Date().toISOString() },
-      { id: 'proj-02', name: '示例项目', createdAt: new Date().toISOString() }
-    ]
+    async list() {
+      await delay(80)
+      return state.projects.map((p) => ({ ...p }))
+    },
+    async create(req) {
+      await delay(80)
+      const name = String(req?.name || '').trim()
+      if (!name) throw new Error('name is required')
+      const id = String(req?.id || '').trim() || crypto.randomUUID()
+      if (state.projects.some((p) => p.id === id || p.name === name)) {
+        throw new Error('project already exists')
+      }
+      const item = { id, name, createdAt: now() }
+      state.projects.push(item)
+      return { ...item }
+    }
   },
   metrics: {
     async summary() {

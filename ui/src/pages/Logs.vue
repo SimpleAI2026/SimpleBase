@@ -1,4 +1,5 @@
 <template>
+  <ProjectScope>
   <PageContainer title="日志管理" subtitle="实时日志流（需后端 WebSocket 支持）">
     <a-card class="sb-card">
       <div class="sb-toolbar">
@@ -48,6 +49,7 @@
       </div>
     </a-card>
   </PageContainer>
+  </ProjectScope>
 </template>
 
 <script setup lang="ts">
@@ -60,8 +62,11 @@ import {
 } from '@ant-design/icons-vue'
 import { api, isMock } from '../services/api'
 import type { LogConnection } from '../services/api'
+import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
+import ProjectScope from '../components/ProjectScope.vue'
 
+const projectStore = useProjectStore()
 const filter = ref('')
 const logs = ref<string[]>([])
 const connected = ref(false)
@@ -118,6 +123,14 @@ function disconnect() {
   conn = null
   connected.value = false
 }
+
+watch(
+  () => projectStore.id,
+  () => {
+    disconnect()
+    logs.value = []
+  }
+)
 
 onBeforeUnmount(disconnect)
 </script>

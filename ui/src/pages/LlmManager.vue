@@ -1,8 +1,8 @@
 <template>
+  <ProjectScope>
   <PageContainer title="LLM 对话" subtitle="通用 AiChat 组件（支持流式）；默认模型来自设置页">
     <a-card class="sb-card" title="会话">
       <div class="sb-toolbar" style="margin-bottom: 12px">
-        <ProjectPicker />
         <a-button :loading="providersLoading" @click="loadProviders">
           <template #icon><ReloadOutlined /></template>
           刷新服务端供应商
@@ -23,6 +23,7 @@
       />
     </a-card>
   </PageContainer>
+  </ProjectScope>
 </template>
 
 <script setup lang="ts">
@@ -34,7 +35,7 @@ import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
 import { getProviderPreset } from '../constants/llmProviders'
 import PageContainer from '../components/PageContainer.vue'
-import ProjectPicker from '../components/ProjectPicker.vue'
+import ProjectScope from '../components/ProjectScope.vue'
 import AiChat from '../components/ai/AiChat.vue'
 
 const project = useProjectStore()
@@ -63,7 +64,13 @@ function syncModelFromSettings() {
   if (defs.defaultModel) model.value = defs.defaultModel
 }
 
-watch(() => project.id, syncModelFromSettings, { immediate: true })
+watch(
+  () => project.id,
+  () => {
+    syncModelFromSettings()
+    void loadProviders()
+  }
+)
 
 async function loadProviders() {
   providersLoading.value = true

@@ -1,8 +1,8 @@
 <template>
+  <ProjectScope>
   <PageContainer title="数据库管理" subtitle="DuckLake 数据库、SQL 工作台与集合文档">
     <a-card class="sb-card">
       <div class="sb-toolbar">
-        <ProjectPicker />
         <a-button :loading="loading" @click="doLoad">
           <template #icon><ReloadOutlined /></template>
           刷新
@@ -141,6 +141,7 @@
       @created="onDocumentCreated"
     />
   </PageContainer>
+  </ProjectScope>
 </template>
 
 <script setup lang="ts">
@@ -162,7 +163,7 @@ import { useAsyncAction } from '../composables/useAsyncAction'
 import { usePagination } from '../composables/usePagination'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
-import ProjectPicker from '../components/ProjectPicker.vue'
+import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 import SbModal from '../components/modal/SbModal.vue'
 import SqlWorkModal from '../components/modal/SqlWorkModal.vue'

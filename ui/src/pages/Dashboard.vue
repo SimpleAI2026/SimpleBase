@@ -1,4 +1,5 @@
 <template>
+  <ProjectScope>
   <PageContainer title="监控大盘" subtitle="系统运行状态与数据库概览">
     <a-row :gutter="16">
       <a-col v-for="card in cards" :key="card.label" :xs="24" :sm="12" :lg="6">
@@ -66,10 +67,11 @@
       </a-table>
     </a-card>
   </PageContainer>
+  </ProjectScope>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   DatabaseOutlined,
@@ -84,6 +86,7 @@ import { usePagination } from '../composables/usePagination'
 import { softBg, colors } from '../styles/tokens'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
+import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 
 const router = useRouter()
@@ -184,6 +187,12 @@ function goDatabases() {
 }
 
 onMounted(load)
+watch(
+  () => projectStore.id,
+  () => {
+    void load()
+  }
+)
 </script>
 
 <style scoped>

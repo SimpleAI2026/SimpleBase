@@ -24,6 +24,7 @@ type CatalogService interface {
 	SetDatabaseReady(ctx context.Context, id string) error
 	ResolveProjectTenant(ctx context.Context, projectID string) (string, error)
 	ListProjects(ctx context.Context, principal auth.Principal) ([]catalog.Project, error)
+	CreateProject(ctx context.Context, principal auth.Principal, in catalog.CreateProjectInput) (catalog.Project, error)
 }
 
 // RegistryService 是 handler 依赖的 registry 的最小接口。
