@@ -200,20 +200,18 @@
 - `transactional: true`：任一失败整体回滚，附 `"error": { "failed_index": 2, "code": "...", "message": "..." }`。
 - `transactional: false`：逐条独立执行，失败项带 `error_code` / `error_message`，后续语句继续。
 
-### 3.3 文档数据（DataManager 页）
+### 3.3 文档数据（数据库管理页）
 
 | Method | Path | 权限 | 成功状态 | 说明 |
 |---|---|---|---|---|
-| GET | `:p/data/collections` | DatabaseRead | 200 | `{"collections":["users"]}`，最多 200 条 |
-| POST | `:p/data/collections` | DatabaseWrite | **201 无 body** | `{"name":"users"}` |
-| GET | `:p/data/collections/:collection` | DatabaseRead | 200 | `{"rows":[{ "id":"u1", ...文档字段 }]}`，最多 1000 行，`created_at DESC` |
-| POST | `:p/data/collections/:collection/documents` | DatabaseWrite | 201 | body 为任意 JSON 对象；可带 `"id"`，缺省生成 UUID；回显文档 |
-| PUT | `:p/data/collections/:collection/documents/:id` | DatabaseWrite | 200 | body 为 JSON 对象（`id` 被剔除）；回显；不存在 404 `not_found` |
-| DELETE | `:p/data/collections/:collection/documents/:id` | DatabaseWrite | **204 无 body** | 表不存在也返回 204（幂等） |
+| GET | `:p/databases/:databaseID/data/collections` | DatabaseRead | 200 | `{"collections":["users"]}`，最多 200 条 |
+| POST | `:p/databases/:databaseID/data/collections` | DatabaseWrite | **201 无 body** | `{"name":"users"}` |
+| GET | `:p/databases/:databaseID/data/collections/:collection` | DatabaseRead | 200 | `{"rows":[{ "id":"u1", ...文档字段 }]}`，最多 1000 行，`created_at DESC` |
+| POST | `:p/databases/:databaseID/data/collections/:collection/documents` | DatabaseWrite | 201 | body 为任意 JSON 对象；可带 `"id"`，缺省生成 UUID；回显文档 |
+| PUT | `:p/databases/:databaseID/data/collections/:collection/documents/:id` | DatabaseWrite | 200 | body 为 JSON 对象（`id` 被剔除）；回显；不存在 404 `not_found` |
+| DELETE | `:p/databases/:databaseID/data/collections/:collection/documents/:id` | DatabaseWrite | **204 无 body** | 表不存在也返回 204（幂等） |
 
-**重要：本组接口不带 `databaseID`。** 服务端 `DataHandler.acquire` 自动取该 project 下 `ListDatabases(limit=1)` 的**第一个**数据库。因此：
-- 项目内有多个库时，文档 API 只操作第一个库，前端不能假设它等于用户在 Databases 页选中的库；
-- 项目下无任何库时返回 `500 internal_error`（服务端错误 `no database configured for project` 未映射），前端需给出「请先创建数据库」引导。
+兼容旧路径（**无** `databaseID`，隐式取项目第一个库）：`:p/data/collections...`。新 UI 只走带 `databaseID` 的路径。`DataHandler.acquire` 在路径含 `:databaseID` 时必须 `GetDatabase` 该库，**禁止**静默回落到第一个库。
 
 其他约束：
 - 集合名规则 `^[A-Za-z][A-Za-z0-9_]{0,62}$`，不合法 → 400 `invalid_request`（中文提示「集合名称仅支持字母、数字和下划线，且必须以字母开头」）。
@@ -372,7 +370,7 @@ data: {"type":"end"}
 
 ```
 services/types.ts 的 Api 接口域        对应章节    状态
-  db.*        → §3.3    ✔ 已接，需把硬编码 proj-01 换成 UUID 种子项目
+  db.*        → §3.3    ✔ 已接，路径含 databaseID
   s3.*        → §3.4    ✔ 已接；列表默认同索引表，可加 refresh=1
   llm.*       → §3.5    ✔ 已接；chat 成功后服务端落库
   llmSettings.*/sessions → §3.9  ✔ 后端已落地
@@ -401,11 +399,9 @@ services/types.ts 的 Api 接口域        对应章节    状态
 
 见 §3.8–§3.10。前端需从 Mock / WS / Prometheus 文本切到这些 JSON API。
 
-### 6.2 文档 API 显式指定数据库（P1，多库场景正确性）
+### 6.2 文档 API 显式指定数据库（已落地）
 
-当前 `:p/data/*` 隐式取项目第一个库（§3.3），多库项目下语义错误。建议二选一：
-- 路径改为 `:p/databases/:databaseID/data/collections/...`；或
-- 保留现路径，增加可选 query `?database_id=xxx`，缺省仍取第一个（向后兼容）。
+路径 `:p/databases/:databaseID/data/collections/...` 已挂载；`acquire` 在带 `databaseID` 时 `GetDatabase` 该库。旧 `:p/data/*` 仍取第一个库以保持兼容。
 
 ### 6.3 错误码一致性修正（P1，前端错误提示质量）
 

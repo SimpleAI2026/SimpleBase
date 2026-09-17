@@ -19,8 +19,6 @@ import { useSettingsStore } from '../stores/settings'
 import {
   AppstoreOutlined,
   DatabaseOutlined,
-  ConsoleSqlOutlined,
-  TableOutlined,
   CloudUploadOutlined,
   CodeOutlined,
   RobotOutlined,
@@ -34,8 +32,6 @@ import router from '../router'
 const iconMap: Record<string, Component> = {
   dashboard: AppstoreOutlined,
   databases: DatabaseOutlined,
-  sql: ConsoleSqlOutlined,
-  data: TableOutlined,
   s3: CloudUploadOutlined,
   faas: CodeOutlined,
   llm: RobotOutlined,
@@ -61,7 +57,7 @@ const menuItems = computed<MenuItem[]>(() =>
     }))
 )
 
-const routeOrder = ['dashboard', 'databases', 'sql', 'data', 's3', 'faas', 'llm', 'settings', 'logs']
+const routeOrder = ['dashboard', 'databases', 's3', 'faas', 'llm', 'settings', 'logs']
 function orderOf(name: string) {
   const i = routeOrder.indexOf(name)
   return i === -1 ? 99 : i

@@ -16,20 +16,10 @@ const routes: RouteRecordRaw[] = [
     path: '/databases',
     name: 'databases',
     component: () => import('../pages/Databases.vue'),
-    meta: { title: '数据库' }
+    meta: { title: '数据库管理' }
   },
-  {
-    path: '/sql',
-    name: 'sql',
-    component: () => import('../pages/SqlConsole.vue'),
-    meta: { title: 'SQL 控制台' }
-  },
-  {
-    path: '/data',
-    name: 'data',
-    component: () => import('../pages/DataManager.vue'),
-    meta: { title: '数据管理' }
-  },
+  { path: '/sql', redirect: '/databases' },
+  { path: '/data', redirect: '/databases' },
   {
     path: '/s3',
     name: 's3',

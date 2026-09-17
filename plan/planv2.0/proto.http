@@ -153,20 +153,19 @@ Content-Type: application/json
 }
 
 ### =====================================================================
-### 3. 文档数据 API
+### 3.3 文档数据 API
 ###
-### 注意：本组路径不含 databaseID，服务端自动取该项目的「第一个」数据库
-###       （ListDatabases limit=1）。多库项目下不要假设它等于你在 §1 选的库。
-###       项目下无任何库时返回 500 internal_error。
+### 推荐路径带 databaseID（数据库管理页使用）。
+### 旧路径 /data/collections 仍可用，但会取项目第一个库。
 ### =====================================================================
 
 ### 3.1 列出集合（实为 information_schema 表清单，最多 200 条）
-GET {{host}}/v1/projects/{{project}}/data/collections
+GET {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/data/collections
 Authorization: {{auth}}
 
 ### 3.2 创建集合 → 201 无 body
 ### 名称须匹配 ^[A-Za-z][A-Za-z0-9_]{0,62}$，否则 400 invalid_request
-POST {{host}}/v1/projects/{{project}}/data/collections
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/data/collections
 Authorization: {{auth}}
 Content-Type: application/json
 
@@ -175,12 +174,12 @@ Content-Type: application/json
 }
 
 ### 3.3 列出文档 → 200 {"rows":[...]}（表不存在返回空数组而非 404，最多 1000 行）
-GET {{host}}/v1/projects/{{project}}/data/collections/users
+GET {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/data/collections/users
 Authorization: {{auth}}
 
 ### 3.4 插入文档 → 201 回显文档
 ### body 为任意 JSON 对象；可自带 id，缺省服务端生成 UUID；表不存在会自动建表
-POST {{host}}/v1/projects/{{project}}/data/collections/users/documents
+POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/data/collections/users/documents
 Authorization: {{auth}}
 Content-Type: application/json
 
@@ -192,7 +191,7 @@ Content-Type: application/json
 }
 
 ### 3.5 更新文档 → 200 回显（body 中的 id 会被剔除；文档不存在返回 404 not_found）
-PUT {{host}}/v1/projects/{{project}}/data/collections/users/documents/u-3001
+PUT {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/data/collections/users/documents/u-3001
 Authorization: {{auth}}
 Content-Type: application/json
 
@@ -202,7 +201,7 @@ Content-Type: application/json
 }
 
 ### 3.6 删除文档 → 204 无 body（表不存在也返回 204，幂等）
-# DELETE {{host}}/v1/projects/{{project}}/data/collections/users/documents/u-3001
+# DELETE {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/data/collections/users/documents/u-3001
 # Authorization: {{auth}}
 
 ### =====================================================================

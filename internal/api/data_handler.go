@@ -240,6 +240,15 @@ func (h *DataHandler) acquire(c echo.Context, mode database.AccessMode) (SQLLeas
 	if !ok {
 		return nil, errors.New("project context missing")
 	}
+	// Path with :databaseID must use that database. Never fall back to "first DB".
+	if databaseID := c.Param("databaseID"); databaseID != "" {
+		db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID)
+		if err != nil {
+			return nil, err
+		}
+		return h.svc.Acquire(c.Request().Context(), db, mode)
+	}
+	// Legacy project-scoped routes: first database only.
 	databases, _, err := h.svc.ListDatabases(c.Request().Context(), principal, project.ID, catalog.Page{Limit: 1})
 	if err != nil {
 		return nil, err
