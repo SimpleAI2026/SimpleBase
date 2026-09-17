@@ -122,9 +122,9 @@
 | GET | `:p/databases/:databaseID` | DatabaseRead | 200 | 详情（唯一可能带 `snapshot` 的接口） |
 | POST | `:p/databases/:databaseID/open` | DatabaseAdmin | 200 | 预热（取租约后立即释放），返回 DatabaseResponse |
 | POST | `:p/databases/:databaseID/close` | DatabaseAdmin | **204 无 body** | 关闭本地连接（不删数据） |
-| POST | `:p/databases/:databaseID/backups` | DatabaseAdmin | **501** | 未实现 |
-| POST | `:p/databases/:databaseID/restore` | DatabaseAdmin | **501** | 未实现 |
 | DELETE | `:p/databases/:databaseID` | DatabaseAdmin | **202** | 软删除并**同步**清理平面 B（DuckLake S3 前缀）；成功后 catalog 为 `deleted`，响应 `status` 为 `deleted` |
+
+> 勘误（2026-09-17）：`POST :p/databases/:databaseID/backups` 与 `POST :p/databases/:databaseID/restore` 的 501 占位已删除，不再挂载。
 
 写类接口（create/open/close/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。
 

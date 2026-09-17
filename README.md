@@ -1,6 +1,6 @@
 # SimpleBase
 
-基于 Turso/libSQL、S3 在线持久层与 Go 构建的云端数据库服务，并集成统一 LLM 转发能力。
+基于 DuckLake、S3 在线持久层与 Go 构建的云端数据库服务，并集成 LLM Gateway 与 Cloud Agent。
 
 ## 架构概览
 
@@ -17,11 +17,11 @@
 │ ├─ SQL Query API                                    │
 │ └─ LLM Gateway API                                  │
 │                                                     │
-│ Database Runtime                 LLM Runtime         │
-│ ├─ DB Registry（每库唯一 writer）├─ litellm Router  │
-│ ├─ libsql / database/sql         ├─ Provider Keys   │
-│ ├─ Local Cache Manager           ├─ Streaming       │
-│ └─ Recovery Manager              └─ Usage Metering  │
+│ Database Runtime                 LLM / Agent Runtime │
+│ ├─ DB Registry（每库唯一 writer）├─ litellm Router   │
+│ ├─ DuckLake / DuckDB             ├─ Cloud Agent      │
+│ ├─ Local Cache Manager           ├─ Streaming        │
+│ └─ System DuckLake catalog       └─ Usage Metering   │
 └───────────────┬──────────────────────────┬──────────┘
                 │                          │
                 ▼                          ▼
@@ -33,9 +33,10 @@
 
 - **S3 是在线持久层**：本地磁盘仅作缓存与工作集；节点丢失本地数据后可仅凭 S3 恢复。
 - **单写实例**：首期固定副本数为 1，所有写请求经同一进程的 Registry 路由，保证单库唯一 writer。
-- **Turso/libSQL 驱动**：通过标准 `database/sql` 使用，业务模型不直接依赖驱动包。
+- **DuckLake-only**：用户库与系统库都走 DuckLake（DuckDB catalog + Parquet DATA_PATH）；历史 Turso/libSQL 引擎已退役。
 - **项目隔离**：每个 tenant/project 拥有独立 logical database 与 S3 对象前缀，认证、配额、审计按 project 划分。
-- **LLM Gateway**：复用 `/litellm` 多供应商客户端，服务端封装鉴权、配额、流式转发与用量计量。
+- **LLM Gateway**：复用 litellm 多供应商客户端，服务端封装鉴权、配额、流式转发与用量计量。
+- **Cloud Agent**：项目级只读工具代理（`/agents`），复用 LLM Gateway 与系统库会话。
 
 ## 快速开始
 
@@ -47,7 +48,8 @@ go build -o simplebased ./cmd/simplebased
 
 ### 配置
 
-复制 `config.example.yaml` 为 `config.yaml` 并按环境调整。所有字段可由 `SIMPLEBASE_` 前缀环境变量覆盖。生产凭据（S3 密钥、catalog token、server_secret）必须从环境变量或 IAM 角色注入，禁止写入配置文件。
+复制 `config.example.yaml` 为 `config.yaml` 并按环境调整。所有字段可由 `SIMPLEBASE_` 前缀环境变量覆盖。生产凭据（S3 密钥、API key hash secret）必须从环境变量或 IAM 角色注入，禁止写入配置文件。
+`SIMPLEBASE_CATALOG_DATABASE_ID` 已退役（breaking）：系统库由 `SIMPLEBASE_SYSTEM_DB_NAME` / `system_database.name` 决定。
 
 ### 运行
 
@@ -80,9 +82,7 @@ docker run -p 8080:8080 --env-file .env simplebased
 | GET | `/v1/projects/:p/databases/:id` | `database:read` | 查询状态与容量 |
 | POST | `/v1/projects/:p/databases/:id/open` | `database:admin` | 预热数据库 |
 | POST | `/v1/projects/:p/databases/:id/close` | `database:admin` | 释放本地资源 |
-| POST | `/v1/projects/:p/databases/:id/backups` | `database:admin` | 创建独立恢复点 |
-| POST | `/v1/projects/:p/databases/:id/restore` | `database:admin` | 恢复为新库后受控切换 |
-| DELETE | `/v1/projects/:p/databases/:id` | `database:admin` | 软删除，异步清理 S3 |
+| DELETE | `/v1/projects/:p/databases/:id` | `database:admin` | 软删除并同步清理 S3 |
 
 ### SQL 执行
 
@@ -102,6 +102,15 @@ docker run -p 8080:8080 --env-file .env simplebased
 | POST | `/v1/projects/:p/llm/stream` | `database:read` | SSE 流式响应 |
 | GET | `/v1/projects/:p/llm/providers` | `database:read` | 列出允许的 provider/model |
 
+### Cloud Agent
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/v1/projects/:p/agents` | `database:read` | 列出项目 Agent |
+| POST | `/v1/projects/:p/agent-threads/:id/runs` | `database:read` | 发起只读工具运行 |
+
+控制台 `/llm` 已重定向到 `/agents`。
+
 ### 配额与审计
 
 | 方法 | 路径 | 权限 | 说明 |
@@ -115,7 +124,7 @@ docker run -p 8080:8080 --env-file .env simplebased
 
 - **副本数固定为 1**：滚动升级必须先停旧实例、再启新实例。
 - **S3 bucket 私有**：启用 TLS、SSE-KMS、最小权限 IAM、版本控制。
-- **Catalog 独立库**：与用户库使用不同前缀和权限。
+- **系统库独立**：实例级 DuckLake 系统库（`system_database.name`）与用户库使用不同前缀。
 - **LLM 密钥**：来自 KMS 或加密配置，日志仅输出 provider/key ID 摘要。
 
 ## 迁移
@@ -139,14 +148,13 @@ internal/auth/          API Key、项目身份、权限与上下文
 internal/audit/         不可变审计事件与脱敏
 internal/catalog/       元数据：tenant/project/database/LLM 配置/usage
 internal/config/        配置加载
-internal/database/      libsql 连接、事务、查询、错误映射
+internal/database/      DuckLake 连接、事务、查询、错误映射
   ├─ registry/          进程内每库唯一 writer、引用计数、空闲卸载
   ├─ cache/             本地缓存目录、配额、LRU 淘汰
-  ├─ turso/             DSN 构建与连接工厂
+  ├─ ducklake/          用户库 / 系统库工厂与 catalog 同步
   ├─ sqlguard/          SQL 执行边界（超时、行数、批量）
   └─ serialize.go       行序列化
-internal/deploy/        Preflight 检查（缓存可写、S3 可达、flock）
-internal/jobs/          持久化异步任务（删除/备份/恢复/校验）
+internal/cloudagent/    Cloud Agent 运行时与只读工具
 internal/llmgateway/    litellm 服务端封装、流式转发、用量计量
 internal/objectstore/   S3 client、KeyBuilder、descriptor、health
 internal/observability/ 日志、指标、健康检查
@@ -157,9 +165,9 @@ litellm/                多供应商 LLM 客户端（独立保留）
 ## 技术栈
 
 - Go 1.25+
-- Turso/libSQL（驱动名 `libsql`）
+- DuckDB / DuckLake
 - S3 兼容存储（AWS SDK v2）
 - Echo v4 HTTP 框架
-- litellm v1.5.8（LLM 客户端）
+- litellm + CloudWeGo Eino（LLM / Agent）
 - Zap 结构化日志
 - Prometheus 指标
