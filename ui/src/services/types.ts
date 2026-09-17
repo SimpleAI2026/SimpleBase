@@ -25,22 +25,36 @@ export interface S3Object {
   lastModified?: string
 }
 
-export interface FaasFunction {
-  name: string
-  version: string
-  runtime?: string
-  updatedAt?: string
+export interface LogEvent {
+  id: string
+  projectId: string
+  level: string
+  logger: string
+  message: string
+  fieldsJson?: string
+  requestId?: string
+  occurredAt: string
 }
 
-export interface LogHandlers {
-  onOpen?: () => void
-  onMessage?: (line: string) => void
-  onClose?: () => void
-  onError?: (e: unknown) => void
+export interface LogQuery {
+  level?: string
+  q?: string
+  from?: string
+  to?: string
+  limit?: number
 }
 
-export interface LogConnection {
-  close: () => void
+export interface LogRetention {
+  scope: string
+  keepDays: number
+  updatedAt: string
+}
+
+export interface LlmSettings {
+  defaultProvider?: string
+  defaultModel?: string
+  temperature?: number
+  maxTokens?: number
 }
 
 /* ---------- Projects ---------- */
@@ -255,8 +269,8 @@ export interface Api {
     create: (req: { name: string; id?: string }) => Promise<ProjectItem>
   }
   metrics: {
-    summary: () => Promise<MetricsSummary>
-    trend: () => Promise<TrendPoint[]>
+    summary: (projectId: string) => Promise<MetricsSummary>
+    trend: (projectId: string) => Promise<TrendPoint[]>
   }
   databases: {
     list: (projectId: string) => Promise<DatabaseItem[]>
@@ -301,13 +315,10 @@ export interface Api {
     remove: (projectId: string, key: string) => Promise<void>
     upload: (projectId: string, key: string, file: File) => Promise<S3Object>
   }
-  faas: {
-    list: () => Promise<FaasFunction[]>
-    deploy: (name: string, file: File) => Promise<FaasFunction>
-    invoke: (name: string, payload: unknown) => Promise<unknown>
-  }
   logs: {
-    connect: (handlers: LogHandlers) => LogConnection
+    list: (projectId: string, q?: LogQuery) => Promise<LogEvent[]>
+    getRetention: (projectId: string) => Promise<LogRetention>
+    putRetention: (projectId: string, keepDays: number) => Promise<void>
   }
   quota: {
     status: (projectId: string) => Promise<QuotaStatus>
@@ -316,6 +327,10 @@ export interface Api {
     providers: (projectId: string) => Promise<string[]>
     chat: (projectId: string, req: LlmChatRequest) => Promise<LlmChatResponse>
     stream: (projectId: string, req: LlmChatRequest, handlers: LlmStreamHandlers) => LlmStreamConnection
+  }
+  llmSettings: {
+    get: (projectId: string) => Promise<LlmSettings>
+    put: (projectId: string, settings: LlmSettings) => Promise<LlmSettings>
   }
   agents: {
     modules: (projectId: string) => Promise<AgentModuleInfo[]>

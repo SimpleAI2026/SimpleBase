@@ -9,6 +9,31 @@ const pick = (arr) => arr[rand(0, arr.length - 1)]
 const genId = () => Math.random().toString(36).slice(2, 10)
 const now = () => new Date().toISOString()
 
+function ensureMockLogs() {
+  if (state.logEvents.length) return
+  const levels = ['info', 'info', 'info', 'warn', 'error']
+  const sources = ['http', 'db-engine', 's3-store', 'auth']
+  const actions = [
+    'GET /v1/projects/:projectID/databases',
+    'POST /v1/projects/:projectID/databases/:id/query',
+    'cache hit',
+    'object uploaded',
+    'slow query detected'
+  ]
+  for (let i = 0; i < 24; i++) {
+    const occurred = new Date(Date.now() - i * 7 * 60 * 1000)
+    state.logEvents.push({
+      id: 'log-' + genId(),
+      projectId: DEFAULT_PROJECT,
+      level: pick(levels),
+      logger: pick(sources),
+      message: pick(actions),
+      requestId: genId(),
+      occurredAt: occurred.toISOString()
+    })
+  }
+}
+
 function requireDbStore(databaseId) {
   const db = state.databases.find((d) => d.id === databaseId)
   if (!db) throw new Error('数据库不存在')
@@ -60,11 +85,9 @@ const state = {
     { id: DEFAULT_PROJECT, name: '商城后台', createdAt: now() },
     { id: '11111111-1111-1111-1111-111111111111', name: '示例项目', createdAt: now() }
   ],
-  functions: [
-    { name: 'resize-image', version: 'v1.4.2', runtime: 'node20', updatedAt: now() },
-    { name: 'daily-report', version: 'v0.9.0', runtime: 'node20', updatedAt: now() },
-    { name: 'webhook-relay', version: 'v2.1.0', runtime: 'node20', updatedAt: now() }
-  ],
+  logEvents: [],
+  logRetention: { [DEFAULT_PROJECT]: { scope: 'project', keepDays: 14, updatedAt: now() } },
+  llmSettings: {},
   agents: [
     {
       id: 'ag-db',
@@ -129,7 +152,7 @@ export const mockApi = {
     }
   },
   metrics: {
-    async summary() {
+    async summary(_projectId) {
       await delay()
       return {
         totalRequests: rand(8000, 20000),
@@ -138,7 +161,7 @@ export const mockApi = {
         activeDatabases: state.databases.length
       }
     },
-    async trend() {
+    async trend(_projectId) {
       await delay()
       const days = []
       for (let i = 6; i >= 0; i--) {
@@ -301,62 +324,30 @@ export const mockApi = {
     }
   },
 
-  faas: {
-    async list() {
-      await delay()
-      return [...state.functions]
-    },
-    async deploy(name, file) {
-      await delay(600)
-      const existing = state.functions.find((f) => f.name === name)
-      if (existing) {
-        const [major, minor, patch] = existing.version.replace('v', '').split('.').map(Number)
-        existing.version = `v${major}.${minor}.${patch + 1}`
-        existing.updatedAt = now()
-        return existing
-      }
-      const fn = { name, version: 'v0.1.0', runtime: 'node20', updatedAt: now(), size: file.size }
-      state.functions.push(fn)
-      return fn
-    },
-    async invoke(name, payload) {
-      await delay(400)
-      return {
-        ok: true,
-        function: name,
-        durationMs: rand(5, 180),
-        echo: payload,
-        requestId: genId()
-      }
-    }
-  },
-
   logs: {
-    connect({ onOpen, onMessage, onClose }) {
-      const levels = ['INFO', 'INFO', 'INFO', 'WARN', 'ERROR']
-      const sources = ['gateway', 'db-engine', 's3-store', 'faas-runtime', 'auth']
-      const actions = [
-        'request completed',
-        'connection established',
-        'cache hit',
-        'retry upstream',
-        'slow query detected',
-        'function invoked',
-        'object uploaded'
-      ]
-      const timer = setInterval(() => {
-        const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-        onMessage?.(
-          `${ts} [${pick(levels)}] [${pick(sources)}] ${pick(actions)} cost=${rand(1, 900)}ms`
-        )
-      }, 800)
-      setTimeout(() => onOpen?.(), 120)
-      return {
-        close() {
-          clearInterval(timer)
-          onClose?.()
-        }
-      }
+    async list(projectId, q = {}) {
+      await delay()
+      ensureMockLogs()
+      const level = String(q.level || '').toLowerCase()
+      const keyword = String(q.q || '').toLowerCase()
+      const from = q.from ? Date.parse(q.from) : 0
+      const to = q.to ? Date.parse(q.to) : 0
+      const limit = q.limit || 100
+      return state.logEvents
+        .filter((e) => e.projectId === projectId)
+        .filter((e) => !level || e.level === level)
+        .filter((e) => !keyword || e.message.toLowerCase().includes(keyword))
+        .filter((e) => !from || Date.parse(e.occurredAt) >= from)
+        .filter((e) => !to || Date.parse(e.occurredAt) <= to)
+        .slice(0, limit)
+    },
+    async getRetention(projectId) {
+      await delay(80)
+      return state.logRetention[projectId] || { scope: 'project', keepDays: 14, updatedAt: now() }
+    },
+    async putRetention(projectId, keepDays) {
+      await delay(80)
+      state.logRetention[projectId] = { scope: 'project', keepDays, updatedAt: now() }
     }
   },
 
@@ -420,6 +411,29 @@ export const mockApi = {
           }
         }
       }
+    }
+  },
+
+  llmSettings: {
+    async get(projectId) {
+      await delay(80)
+      return {
+        defaultProvider: 'openai',
+        defaultModel: 'gpt-4o-mini',
+        temperature: 0.7,
+        maxTokens: 1024,
+        ...(state.llmSettings[projectId] || {})
+      }
+    },
+    async put(projectId, settings) {
+      await delay(80)
+      state.llmSettings[projectId] = {
+        defaultProvider: settings.defaultProvider,
+        defaultModel: settings.defaultModel,
+        temperature: settings.temperature ?? 0.7,
+        maxTokens: settings.maxTokens ?? 1024
+      }
+      return { ...state.llmSettings[projectId] }
     }
   },
 

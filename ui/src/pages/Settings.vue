@@ -1,14 +1,6 @@
 <template>
   <ProjectScope>
-  <PageContainer title="设置" subtitle="主题、默认模型与厂商 API Key（本地存储，后端凭证接口未就绪）">
-    <a-alert
-      type="info"
-      show-icon
-      style="margin-bottom: 16px"
-      message="关于厂商 Key"
-      description="Key 保存在浏览器 localStorage，不会自动注入现有 LLM 网关。当前对话仍使用服务端已配置的供应商；后端 §3.9 凭证接口就绪后将改为服务端托管。"
-    />
-
+  <PageContainer title="设置" subtitle="主题、默认模型与厂商 API Key（Key 仅缓存在本机）">
     <a-card class="sb-card" title="外观">
       <a-form layout="vertical" style="max-width: 420px">
         <a-form-item label="主题">
@@ -140,10 +132,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
+import { api } from '../services/api'
 import { LLM_PROVIDER_PRESETS, getProviderPreset, maskSecret } from '../constants/llmProviders'
 import type { LlmProviderFieldKey } from '../constants/llmProviders'
 import { useProjectStore } from '../stores/project'
@@ -167,8 +160,24 @@ function onTheme(v: ThemeMode) {
   settings.setTheme(v)
 }
 
-function patchDefaults(patch: Record<string, unknown>) {
-  settings.setProjectDefaults(project.id, patch as never)
+async function loadServerDefaults() {
+  if (!project.id) return
+  try {
+    const remote = await api.llmSettings.get(project.id)
+    settings.setProjectDefaults(project.id, remote)
+  } catch {
+    /* 保留本地缓存默认值 */
+  }
+}
+
+async function patchDefaults(patch: Record<string, unknown>) {
+  const next = { ...defaults.value, ...patch }
+  settings.setProjectDefaults(project.id, next)
+  try {
+    await api.llmSettings.put(project.id, next)
+  } catch (e) {
+    message.error((e as Error)?.message || '保存默认模型失败')
+  }
 }
 
 function localCfg(providerId: string) {
@@ -183,9 +192,14 @@ function mask(v?: string) {
   return maskSecret(v)
 }
 
-function setDefault(providerId: string) {
+async function setDefault(providerId: string) {
   settings.setDefaultProvider(project.id, providerId)
-  message.success('已设为默认供应商')
+  try {
+    await api.llmSettings.put(project.id, settings.defaultsFor(project.id))
+    message.success('已设为默认供应商')
+  } catch (e) {
+    message.error((e as Error)?.message || '保存默认供应商失败')
+  }
 }
 
 const editorOpen = ref(false)
@@ -256,9 +270,13 @@ function clearEditor() {
 watch(
   () => project.id,
   () => {
-    /* defaults computed 自动切换 */
+    void loadServerDefaults()
   }
 )
+
+onMounted(() => {
+  void loadServerDefaults()
+})
 </script>
 
 <style scoped>

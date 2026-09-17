@@ -1,4 +1,4 @@
-import { http, wsBase, baseURL, getApiKey } from './http'
+import { http, baseURL, getApiKey } from './http'
 import type {
   Api,
   AgentMessage,
@@ -10,13 +10,19 @@ import type {
   CloudAgent,
   DatabaseItem,
   LlmChatRequest,
+  LlmSettings,
   LlmStreamHandlers,
   LlmStreamConnection,
+  LogEvent,
+  LogQuery,
+  LogRetention,
+  MetricsSummary,
   SqlBatchRequest,
   SqlBatchResult,
   SqlExecuteResult,
   SqlQueryResult,
-  SqlRequest
+  SqlRequest,
+  TrendPoint
 } from './types'
 
 /* ---------- 命名转换：UI camelCase ↔ 后端 snake_case（集中在此） ---------- */
@@ -164,6 +170,68 @@ function llmStream(
 
 function agentPath(projectId: string, rest = '') {
   return '/v1/projects/' + encodeURIComponent(projectId) + rest
+}
+
+function toMetricsSummary(d: Record<string, any> | undefined): MetricsSummary {
+  const raw = d && typeof d === 'object' ? d : {}
+  return {
+    totalRequests: Number(raw.total_requests ?? raw.totalRequests ?? 0),
+    errorRate: Number(raw.error_rate ?? raw.errorRate ?? 0),
+    avgLatencyMs: Number(raw.avg_latency_ms ?? raw.avgLatencyMs ?? 0),
+    activeDatabases: Number(raw.active_databases ?? raw.activeDatabases ?? 0)
+  }
+}
+
+function toTrendPoints(d: Record<string, any> | unknown[] | undefined): TrendPoint[] {
+  const list = Array.isArray(d) ? d : Array.isArray((d as any)?.points) ? (d as any).points : []
+  return list.map((p: Record<string, any>) => ({
+    date: String(p?.date ?? ''),
+    requests: Number(p?.requests ?? 0),
+    errors: Number(p?.errors ?? 0)
+  }))
+}
+
+function logQueryParams(q?: LogQuery) {
+  if (!q) return undefined
+  const params: Record<string, string | number> = {}
+  if (q.level) params.level = q.level
+  if (q.q) params.q = q.q
+  if (q.from) params.from = q.from
+  if (q.to) params.to = q.to
+  if (q.limit) params.limit = q.limit
+  return params
+}
+
+function toLogEvent(raw: Record<string, any>): LogEvent {
+  return {
+    id: String(raw?.id ?? raw?.ID ?? ''),
+    projectId: String(raw?.project_id ?? raw?.projectId ?? raw?.ProjectID ?? ''),
+    level: String(raw?.level ?? raw?.Level ?? ''),
+    logger: String(raw?.logger ?? raw?.Logger ?? ''),
+    message: String(raw?.message ?? raw?.Message ?? ''),
+    fieldsJson: raw?.fields_json ?? raw?.fieldsJson ?? raw?.FieldsJSON || undefined,
+    requestId: raw?.request_id ?? raw?.requestId ?? raw?.RequestID || undefined,
+    occurredAt: String(raw?.occurred_at ?? raw?.occurredAt ?? raw?.OccurredAt ?? '')
+  }
+}
+
+function toLogRetention(raw: Record<string, any> | undefined): LogRetention {
+  const d = raw && typeof raw === 'object' ? raw : {}
+  return {
+    scope: String(d.scope ?? d.Scope ?? ''),
+    keepDays: Number(d.keep_days ?? d.keepDays ?? d.KeepDays ?? 14),
+    updatedAt: String(d.updated_at ?? d.updatedAt ?? d.UpdatedAt ?? '')
+  }
+}
+
+function toLlmSettings(raw: Record<string, any> | undefined): LlmSettings {
+  const d = raw && typeof raw === 'object' ? raw : {}
+  return {
+    defaultProvider: d.default_provider || d.defaultProvider || undefined,
+    defaultModel: d.default_model || d.defaultModel || undefined,
+    temperature: d.temperature ?? undefined,
+    maxTokens: d.max_tokens ?? d.maxTokens ?? undefined
+  }
 }
 
 function toCloudAgent(raw: Record<string, any>): CloudAgent {
@@ -329,16 +397,14 @@ export const httpApi: Api = {
       )
   },
   metrics: {
-    // 注意：后端无 /metrics/summary 与 /metrics/trend 路由（proto-http.md §3.8），
-    // 调用必然失败。Dashboard 已改用 quota + databases 数据源，此域保留给后端补接口后使用。
-    summary: () =>
+    summary: (projectId) =>
       http
-        .get('/metrics/summary')
-        .then((r) => (r.data && typeof r.data === 'object' ? r.data : {})),
-    trend: () =>
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/metrics/summary')
+        .then((r) => toMetricsSummary(r.data)),
+    trend: (projectId) =>
       http
-        .get('/metrics/trend')
-        .then((r) => (Array.isArray(r.data) ? r.data : []))
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/metrics/trend')
+        .then((r) => toTrendPoints(r.data))
   },
 
   databases: {
@@ -491,31 +557,24 @@ export const httpApi: Api = {
     }
   },
 
-  faas: {
-    // 注意：后端无 FaaS 模块（proto-http.md §3.8），仅 Mock 模式可用
-    list: () =>
-      http.get('/faas/functions').then((r) => (Array.isArray(r.data) ? r.data : [])),
-    deploy: (name, file) => {
-      const fd = new FormData()
-      fd.append('name', name)
-      fd.append('file', file)
-      return http.post('/faas/deploy', fd).then((r) => r.data)
-    },
-    invoke: (name, payload) =>
-      http.post('/faas/invoke/' + encodeURIComponent(name), payload).then((r) => r.data)
-  },
-
   logs: {
-    // 注意：后端无 WebSocket 实现（proto-http.md §3.8）。UI 层 mock 模式演示，
-    // 真实模式下连接失败并在页面提示「后端未支持实时日志」
-    connect({ onOpen, onMessage, onClose, onError }) {
-      const ws = new WebSocket(wsBase + '/ws/logs')
-      ws.onopen = () => onOpen?.()
-      ws.onmessage = (ev) => onMessage?.(ev.data)
-      ws.onerror = (e) => onError?.(e)
-      ws.onclose = () => onClose?.()
-      return { close: () => ws.close() }
-    }
+    list: (projectId, q) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/logs', {
+          params: logQueryParams(q)
+        })
+        .then((r) => {
+          const list = Array.isArray(r.data?.events) ? r.data.events : Array.isArray(r.data) ? r.data : []
+          return list.map(toLogEvent)
+        }),
+    getRetention: (projectId) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/logs/retention')
+        .then((r) => toLogRetention(r.data)),
+    putRetention: (projectId, keepDays) =>
+      http
+        .put('/v1/projects/' + encodeURIComponent(projectId) + '/logs/retention', { keep_days: keepDays })
+        .then(() => undefined)
   },
 
   quota: {
@@ -541,6 +600,22 @@ export const httpApi: Api = {
         .post('/v1/projects/' + encodeURIComponent(projectId) + '/llm/chat', toLlmPayload(req))
         .then((r) => r.data),
     stream: llmStream
+  },
+
+  llmSettings: {
+    get: (projectId) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/settings')
+        .then((r) => toLlmSettings(r.data)),
+    put: (projectId, settings) =>
+      http
+        .put('/v1/projects/' + encodeURIComponent(projectId) + '/llm/settings', {
+          default_provider: settings.defaultProvider || '',
+          default_model: settings.defaultModel || '',
+          temperature: settings.temperature,
+          max_tokens: settings.maxTokens
+        })
+        .then((r) => toLlmSettings(r.data))
   },
 
   agents: {
