@@ -1,9 +1,13 @@
 <template>
   <ProjectScope>
-  <PageContainer title="S3 对象存储" subtitle="对象的上传、浏览与删除">
+  <PageContainer subtitle="对象的上传、浏览与删除">
     <Card>
-      <CardContent class="flex flex-wrap items-center gap-3">
-        <InputGroup class="min-w-50 max-w-80">
+      <CardHeader class="border-b">
+        <CardTitle>对象列表</CardTitle>
+        <CardDescription>按前缀筛选，支持上传与删除</CardDescription>
+      </CardHeader>
+      <CardContent class="flex flex-wrap items-center gap-2.5 border-b py-4">
+        <InputGroup class="min-w-56 flex-1 sm:max-w-80">
           <InputGroupAddon>
             <CloudUploadIcon />
           </InputGroupAddon>
@@ -26,34 +30,29 @@
         </Button>
         <Progress v-if="uploading && uploadPercent > 0" :model-value="uploadPercent" class="w-24" />
       </CardContent>
-    </Card>
-
-    <Card>
-      <CardHeader class="border-b">
-        <CardTitle>对象列表</CardTitle>
-      </CardHeader>
-      <CardContent>
+      <div class="p-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Key</TableHead>
-              <TableHead class="w-28">大小</TableHead>
-              <TableHead class="w-44">修改时间</TableHead>
-              <TableHead class="w-40">操作</TableHead>
+              <TableHead class="w-[45%] max-w-[480px]">Key</TableHead>
+              <TableHead class="w-32">大小</TableHead>
+              <TableHead class="w-48">修改时间</TableHead>
+              <TableHead class="w-36">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableEmpty v-if="!paged.length && !loading" :colspan="4">
               <SbEmptyState description="暂无对象" action-text="上传对象" @action="triggerUpload" />
             </TableEmpty>
-            <TableRow v-for="record in paged" :key="record.key">
-              <TableCell>
-                <span class="sb-mono inline-flex items-center gap-1.5">
-                  <FileIcon /> {{ record.key }}
+            <TableRow v-for="record in paged" :key="record.key" class="hover:bg-muted/40">
+              <TableCell class="max-w-[480px]">
+                <span class="sb-mono inline-flex items-center gap-2 font-medium">
+                  <FileIcon class="size-4 shrink-0 text-primary" />
+                  <span class="truncate" :title="record.key">{{ record.key }}</span>
                 </span>
               </TableCell>
-              <TableCell>{{ formatBytes(record.size) }}</TableCell>
-              <TableCell>{{ formatTime(record.lastModified) }}</TableCell>
+              <TableCell class="text-xs text-muted-foreground">{{ formatBytes(record.size) }}</TableCell>
+              <TableCell class="text-xs text-muted-foreground">{{ formatTime(record.lastModified) }}</TableCell>
               <TableCell>
                 <div class="flex gap-1">
                   <Button variant="ghost" size="sm" @click="open(record.key)">
@@ -61,7 +60,7 @@
                     打开
                   </Button>
                   <ConfirmAction title="确认删除该对象？" @confirm="remove(record.key)">
-                    <Button variant="ghost" size="sm" class="text-destructive">
+                    <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10">
                       <Trash2Icon data-icon="inline-start" />
                       删除
                     </Button>
@@ -71,14 +70,16 @@
             </TableRow>
           </TableBody>
         </Table>
-        <TablePager
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :page-count="pageCount"
-          @update:page="page = $event"
-        />
-      </CardContent>
+        <div class="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5">
+          <TablePager
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :page-count="pageCount"
+            @update:page="page = $event"
+          />
+        </div>
+      </div>
     </Card>
   </PageContainer>
   </ProjectScope>
@@ -90,7 +91,7 @@ import { toast } from 'vue-sonner'
 import axios from 'axios'
 import { CloudUploadIcon, EyeIcon, FileIcon, RefreshCwIcon, Trash2Icon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'

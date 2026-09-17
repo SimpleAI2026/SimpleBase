@@ -7,7 +7,7 @@
   >
     <div class="flex flex-col gap-3">
       <div class="flex gap-2">
-        <Button size="sm" @click="emit('add-document')">
+        <Button v-if="!readonly" size="sm" @click="emit('add-document')">
           <PlusIcon data-icon="inline-start" />
           新增文档
         </Button>
@@ -17,37 +17,40 @@
           刷新
         </Button>
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead class="w-[200px]">ID</TableHead>
-            <TableHead>数据</TableHead>
-            <TableHead class="w-20">操作</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow v-if="loading && !paged.length">
-            <TableCell colspan="3">
-              <div class="flex flex-col gap-2 py-2">
-                <Skeleton class="h-8 w-full" />
-                <Skeleton class="h-8 w-2/3" />
-              </div>
-            </TableCell>
-          </TableRow>
-          <TableEmpty v-else-if="!paged.length" :colspan="3">暂时未查询到数据</TableEmpty>
-          <TableRow v-for="record in paged" :key="record.id">
-            <TableCell class="sb-mono truncate">{{ record.id }}</TableCell>
-            <TableCell>
-              <SbCodeBlock :value="docFields(record)" max-height="160px" />
-            </TableCell>
-            <TableCell>
-              <ConfirmAction title="确认删除该文档？" @confirm="removeRow(record.id)">
-                <Button variant="ghost" size="sm" class="text-destructive">删除</Button>
-              </ConfirmAction>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
+      <div class="overflow-x-auto rounded-lg border border-border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead class="w-[200px]">ID</TableHead>
+              <TableHead>数据</TableHead>
+              <TableHead class="w-24">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-if="loading && !paged.length">
+              <TableCell colspan="3">
+                <div class="flex flex-col gap-2 py-2">
+                  <Skeleton class="h-8 w-full" />
+                  <Skeleton class="h-8 w-2/3" />
+                </div>
+              </TableCell>
+            </TableRow>
+            <TableEmpty v-else-if="!paged.length" :colspan="3">暂时未查询到数据</TableEmpty>
+            <TableRow v-for="record in paged" :key="record.id" class="hover:bg-muted/40">
+              <TableCell class="sb-mono font-medium truncate text-xs">{{ record.id }}</TableCell>
+              <TableCell>
+                <SbCodeBlock :value="docFields(record)" max-height="160px" />
+              </TableCell>
+              <TableCell>
+                <ConfirmAction v-if="!readonly" title="确认删除该文档？" @confirm="removeRow(record.id)">
+                  <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10">删除</Button>
+                </ConfirmAction>
+                <span v-else class="text-xs text-muted-foreground">只读</span>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
       <TablePager
         :page="page"
         :page-size="pageSize"
@@ -92,6 +95,8 @@ const props = defineProps<{
   databaseId: string
   collection: string
   reloadToken?: number
+  /** 只读模式（admin 系统库）：隐藏新增文档入口。 */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{

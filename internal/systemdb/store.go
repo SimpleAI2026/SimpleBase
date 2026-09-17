@@ -17,6 +17,12 @@ import (
 // ErrUnavailable 表示系统库连接不可用。
 var ErrUnavailable = errors.New("system_store_unavailable")
 
+// IsAdminProject 判断 projectID 是否为 admin（系统）项目；
+// admin 项目下的日志/监控查询不按项目过滤，返回全系统数据。
+func IsAdminProject(projectID string) bool {
+	return projectID == catalog.ReservedSystemProjectID
+}
+
 // Store 持有系统 DuckLake 连接与生命周期。
 type Store struct {
 	db      *sql.DB

@@ -8,15 +8,17 @@ const (
 
 	// ReservedTenantID 是实例保留租户，系统库与 Dev 种子项目同属此租户。
 	ReservedTenantID = "00000000-0000-0000-0000-000000000001"
-	// ReservedSystemProjectID 承载 kind=system 的系统库行；不出现在项目列表。
+	// ReservedSystemProjectID 承载 kind=system 的系统库行；以 admin 项目形式对 ProjectAdmin 可见。
 	ReservedSystemProjectID = "00000000-0000-0000-0000-000000000099"
+	// AdminProjectName 是系统项目在项目列表中的展示名。
+	AdminProjectName = "admin"
 	// DevProjectID 是 DevMode 种子项目（展示名「商城后台」）。
 	DevProjectID = "00000000-0000-0000-0000-000000000002"
 	// DevAPIKeyID 是 DevMode 种子 API Key 的记录 ID。
 	DevAPIKeyID = "00000000-0000-0000-0000-000000000003"
 )
 
-// IsSystemProject 判断是否为隐藏的系统项目。
+// IsSystemProject 判断是否为系统（admin）项目。
 func IsSystemProject(id string) bool {
 	return id == ReservedSystemProjectID
 }

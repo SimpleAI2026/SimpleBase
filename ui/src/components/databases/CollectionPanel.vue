@@ -1,32 +1,34 @@
 <template>
-  <div class="pr-4 pl-0 py-2">
-    <div v-if="loading && !collections.length" class="flex flex-col gap-2">
+  <div class="py-1">
+    <div v-if="loading && !collections.length" class="flex flex-col gap-2 py-2">
       <Skeleton class="h-8 w-full" />
       <Skeleton class="h-8 w-2/3" />
       <Skeleton class="h-8 w-1/2" />
     </div>
-    <Table v-else>
-      <TableHeader>
-        <TableRow>
-          <TableHead>集合</TableHead>
-          <TableHead class="w-44">操作</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        <TableEmpty v-if="!rows.length" :colspan="2">
-          <SbEmptyState description="暂无集合" action-text="新建集合" @action="emit('create-collection')" />
-        </TableEmpty>
-        <TableRow v-for="record in rows" :key="record.name">
-          <TableCell class="sb-mono">{{ record.name }}</TableCell>
-          <TableCell>
-            <div class="flex gap-1">
-              <Button variant="ghost" size="sm" @click="emit('view-data', record.name)">查看数据</Button>
-              <Button variant="ghost" size="sm" @click="emit('add-document', record.name)">新增文档</Button>
-            </div>
-          </TableCell>
-        </TableRow>
-      </TableBody>
-    </Table>
+    <div v-else class="overflow-x-auto rounded-lg border border-border/70 bg-card/60">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead class="w-[60%] max-w-[420px]">集合名称</TableHead>
+            <TableHead class="w-64 text-right">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableEmpty v-if="!rows.length" :colspan="2">
+            <SbEmptyState :description="readonly ? '暂无数据表' : '暂无集合'" :action-text="readonly ? undefined : '新建集合'" @action="!readonly && emit('create-collection')" />
+          </TableEmpty>
+          <TableRow v-for="record in rows" :key="record.name" class="hover:bg-muted/40">
+            <TableCell class="sb-mono max-w-[420px] truncate font-medium" :title="record.name">{{ record.name }}</TableCell>
+            <TableCell class="text-right">
+              <div class="flex items-center justify-end gap-1">
+                <Button variant="ghost" size="sm" @click="emit('view-data', record.name)">查看数据</Button>
+                <Button v-if="!readonly" variant="ghost" size="sm" @click="emit('add-document', record.name)">新增文档</Button>
+              </div>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </div>
   </div>
 </template>
 
@@ -44,6 +46,8 @@ const props = defineProps<{
   projectId: string
   database: DatabaseItem
   reloadToken?: number
+  /** 只读模式（admin 系统库）：隐藏新增文档/新建集合等写入口。 */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{

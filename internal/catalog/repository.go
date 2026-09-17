@@ -19,6 +19,8 @@ type Repository interface {
 	CreateDatabase(ctx context.Context, db Database) error
 	GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error)
 	ListDatabases(ctx context.Context, projectID string, page Page) ([]Database, string, error)
+	// ListDatabasesByKind 按类型列出数据库（admin 项目查询 kind=system 系统库）。
+	ListDatabasesByKind(ctx context.Context, projectID, kind string, page Page) ([]Database, string, error)
 	TransitionDatabase(ctx context.Context, id string, from []DatabaseStatus, to DatabaseStatus, at time.Time) (Database, error)
 	MarkDeleted(ctx context.Context, id string, at time.Time) error
 	UpsertProviderConfig(ctx context.Context, cfg LLMProviderConfig) error

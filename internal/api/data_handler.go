@@ -75,6 +75,9 @@ func (h *DataHandler) CreateCollection(c echo.Context) error {
 	if !h.writable {
 		return WriteError(c, database.ErrWriterUnavailable)
 	}
+	if err := h.systemGuard(c); err != nil {
+		return WriteError(c, err)
+	}
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -134,6 +137,9 @@ func (h *DataHandler) CreateDocument(c echo.Context) error {
 	if !h.writable {
 		return WriteError(c, database.ErrWriterUnavailable)
 	}
+	if err := h.systemGuard(c); err != nil {
+		return WriteError(c, err)
+	}
 	collection, err := collectionParam(c)
 	if err != nil {
 		return WriteError(c, err)
@@ -170,6 +176,9 @@ func (h *DataHandler) CreateDocument(c echo.Context) error {
 func (h *DataHandler) UpdateDocument(c echo.Context) error {
 	if !h.writable {
 		return WriteError(c, database.ErrWriterUnavailable)
+	}
+	if err := h.systemGuard(c); err != nil {
+		return WriteError(c, err)
 	}
 	collection, err := collectionParam(c)
 	if err != nil {
@@ -210,6 +219,9 @@ func (h *DataHandler) UpdateDocument(c echo.Context) error {
 func (h *DataHandler) DeleteDocument(c echo.Context) error {
 	if !h.writable {
 		return WriteError(c, database.ErrWriterUnavailable)
+	}
+	if err := h.systemGuard(c); err != nil {
+		return WriteError(c, err)
 	}
 	collection, err := collectionParam(c)
 	if err != nil {
@@ -261,6 +273,39 @@ func (h *DataHandler) acquire(c echo.Context, mode database.AccessMode) (SQLLeas
 		return nil, err
 	}
 	return h.svc.Acquire(c.Request().Context(), db, mode)
+}
+
+// systemGuard 写路径前置调用：系统库只读，拒绝改写。
+// 只查 catalog 记录，不开数据库连接。
+func (h *DataHandler) systemGuard(c echo.Context) error {
+	principal, ok := PrincipalFromContext(c.Request().Context())
+	if !ok {
+		return auth.ErrMissingCredentials
+	}
+	project, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return errors.New("project context missing")
+	}
+	databaseID := c.Param("databaseID")
+	if databaseID == "" {
+		// Legacy project-scoped 路由：取第一个库判定。
+		databases, _, err := h.svc.ListDatabases(c.Request().Context(), principal, project.ID, catalog.Page{Limit: 1})
+		if err != nil {
+			return err
+		}
+		if len(databases) == 0 {
+			return fmt.Errorf("no database configured for project")
+		}
+		databaseID = databases[0].ID
+	}
+	db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID)
+	if err != nil {
+		return err
+	}
+	if catalog.IsSystemDatabase(db) {
+		return catalog.ErrSystemProtected
+	}
+	return nil
 }
 
 func collectionParam(c echo.Context) (string, error) {

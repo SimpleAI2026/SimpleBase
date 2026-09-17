@@ -1,8 +1,12 @@
 <template>
   <ProjectScope>
-  <PageContainer title="日志管理" subtitle="按项目查询运行日志与保留策略">
+  <PageContainer subtitle="按项目查询运行日志与保留策略">
     <Card>
-      <CardContent class="flex flex-wrap items-center gap-3">
+      <CardHeader class="border-b">
+        <CardTitle>日志</CardTitle>
+        <CardDescription>按级别、关键字与时间范围过滤</CardDescription>
+      </CardHeader>
+      <CardContent class="flex flex-wrap items-center gap-3 border-b py-5">
         <Select :model-value="level" @update:model-value="(v: string) => (level = v || undefined)">
           <SelectTrigger class="w-30">
             <SelectValue placeholder="级别" />
@@ -31,18 +35,18 @@
         </Button>
         <div class="flex items-center gap-2">
           <Switch :checked="autoRefresh" @update:checked="autoRefresh = $event" />
-          <span class="text-sm">{{ autoRefresh ? '轮询' : '手动' }}</span>
+          <span class="text-sm text-muted-foreground">{{ autoRefresh ? '轮询' : '手动' }}</span>
         </div>
         <span class="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto">{{ events.length }} 条</span>
       </CardContent>
     </Card>
 
     <Card>
-      <CardHeader>
+      <CardHeader class="border-b">
         <CardTitle>保留策略</CardTitle>
       </CardHeader>
-      <CardContent class="flex flex-wrap items-center gap-3">
-        <span class="text-sm">保留天数</span>
+      <CardContent class="flex flex-wrap items-center gap-3 pt-5">
+        <span class="text-sm text-foreground">保留天数</span>
         <Input v-model="keepDaysText" type="number" class="w-24" min="1" max="365" />
         <Button variant="outline" :disabled="savingRetention" @click="saveRetention">
           <Spinner v-if="savingRetention" data-icon="inline-start" />
@@ -53,42 +57,44 @@
     </Card>
 
     <Card>
-      <CardHeader>
+      <CardHeader class="border-b">
         <CardTitle>日志</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent class="p-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="w-44">时间</TableHead>
-              <TableHead class="w-20">级别</TableHead>
-              <TableHead class="w-36">来源</TableHead>
+              <TableHead class="w-48">时间</TableHead>
+              <TableHead class="w-24">级别</TableHead>
+              <TableHead class="w-40">来源</TableHead>
               <TableHead>消息</TableHead>
-              <TableHead class="w-48">Request ID</TableHead>
+              <TableHead class="w-52">Request ID</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableEmpty v-if="!paged.length && !loading" :colspan="5">
               <SbEmptyState description="暂无匹配日志" />
             </TableEmpty>
-            <TableRow v-for="record in paged" :key="record.id">
-              <TableCell>{{ formatTime(record.occurredAt) }}</TableCell>
+            <TableRow v-for="record in paged" :key="record.id" class="hover:bg-muted/40 font-mono text-xs">
+              <TableCell class="text-muted-foreground">{{ formatTime(record.occurredAt) }}</TableCell>
               <TableCell>
                 <Badge :variant="logLevelVariant(record.level)">{{ record.level || '-' }}</Badge>
               </TableCell>
-              <TableCell>{{ record.logger }}</TableCell>
-              <TableCell class="max-w-md truncate">{{ record.message }}</TableCell>
-              <TableCell class="max-w-48 truncate">{{ record.requestId }}</TableCell>
+              <TableCell class="text-muted-foreground">{{ record.logger }}</TableCell>
+              <TableCell class="max-w-md truncate font-sans text-xs text-foreground">{{ record.message }}</TableCell>
+              <TableCell class="max-w-48 truncate text-muted-foreground">{{ record.requestId }}</TableCell>
             </TableRow>
           </TableBody>
         </Table>
-        <TablePager
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :page-count="pageCount"
-          @update:page="page = $event"
-        />
+        <div class="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5">
+          <TablePager
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :page-count="pageCount"
+            @update:page="page = $event"
+          />
+        </div>
       </CardContent>
     </Card>
   </PageContainer>
@@ -101,7 +107,7 @@ import { toast } from 'vue-sonner'
 import { FilterIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import {

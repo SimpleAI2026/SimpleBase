@@ -1,9 +1,9 @@
 <template>
   <ProjectScope>
-    <PageContainer title="Cloud Agent" subtitle="按模块的只读 Agent；composer 输入 @ 点名">
-      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
+    <PageContainer subtitle="按模块的只读 Agent；composer 输入 @ 点名">
+      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[300px_minmax(0,1fr)]">
         <Card>
-          <CardHeader>
+          <CardHeader class="border-b">
             <CardTitle>Agents</CardTitle>
             <CardAction>
               <div class="flex gap-2">
@@ -19,26 +19,26 @@
               </div>
             </CardAction>
           </CardHeader>
-          <CardContent>
+          <CardContent class="p-4">
             <SbEmptyState v-if="!loading && !agents.length" description="还没有 Agent" action-text="创建" @action="openCreate" />
-            <div class="flex flex-col gap-2">
+            <div class="flex flex-col gap-3">
               <button
                 v-for="a in agents"
                 :key="a.id"
                 type="button"
-                class="w-full rounded-md border bg-muted p-2.5 text-left"
-                :class="a.id === activeId ? 'border-primary bg-primary/12' : 'border-border'"
+                class="w-full rounded-xl border p-4 text-left transition-all cursor-pointer"
+                :class="a.id === activeId ? 'border-primary/60 bg-primary/8 shadow-xs' : 'border-border bg-card hover:bg-muted/40 hover:border-border'"
                 @click="activeId = a.id"
               >
                 <div class="flex items-center justify-between gap-2">
-                  <strong>{{ a.name }}</strong>
-                  <Badge variant="secondary">{{ a.module }}</Badge>
+                  <strong class="text-sm font-semibold text-foreground">{{ a.name }}</strong>
+                  <Badge variant="secondary" class="text-[11px]">{{ a.module }}</Badge>
                 </div>
-                <div class="mt-1 text-xs text-muted-foreground">{{ a.description || '无描述' }}</div>
-                <div class="mt-1 flex gap-1" @click.stop>
-                  <Button variant="ghost" size="sm" @click="openEdit(a)">编辑</Button>
+                <div class="mt-1.5 text-xs leading-relaxed text-muted-foreground line-clamp-2">{{ a.description || '无描述' }}</div>
+                <div class="mt-3 flex gap-1 justify-end border-t border-border/60 pt-3" @click.stop>
+                  <Button variant="ghost" size="xs" @click="openEdit(a)">编辑</Button>
                   <ConfirmAction title="确认删除该 Agent？" @confirm="removeAgent(a)">
-                    <Button variant="ghost" size="sm" class="text-destructive">删除</Button>
+                    <Button variant="ghost" size="xs" class="text-destructive hover:bg-destructive/10">删除</Button>
                   </ConfirmAction>
                 </div>
               </button>
@@ -47,10 +47,13 @@
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>{{ activeAgent ? '@' + activeAgent.name : '对话' }}</CardTitle>
+          <CardHeader class="border-b">
+            <CardTitle class="flex items-center gap-2">
+              {{ activeAgent ? '@' + activeAgent.name : '对话' }}
+              <Badge v-if="activeAgent" variant="secondary" class="text-xs">{{ activeAgent.module }}</Badge>
+            </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent class="p-4 pt-4">
             <AiChat
               :project-id="project.id"
               :show-toolbar="true"
@@ -63,8 +66,8 @@
               @stop="onStop"
             >
               <template #toolbar>
-                <Button variant="outline" :disabled="!chatMessages.length && !sending" @click="resetThread">新会话</Button>
-                <span class="text-sm text-muted-foreground">点名 {{ activeAgent ? '@' + activeAgent.name : '一个 Agent' }} 后发送；工具只读</span>
+                <Button variant="outline" size="sm" class="shrink-0" :disabled="!chatMessages.length && !sending" @click="resetThread">新会话</Button>
+                <span class="min-w-0 truncate text-xs text-muted-foreground">点名 {{ activeAgent ? '@' + activeAgent.name : '一个 Agent' }} 后发送；工具只读</span>
               </template>
               <template #empty>
                 <SbEmptyState v-if="!chatMessages.length" description="用 @ 点名左侧 Agent，询问数据库、对象或日志" />

@@ -10,6 +10,9 @@ const LEGACY_DEFAULT_ID = 'proj-01'
 /** DevMode 种子项目（internal/catalog.DevProjectID / systemdb seed）。 */
 export const DEFAULT_PROJECT_ID = '00000000-0000-0000-0000-000000000002'
 
+/** admin（系统）项目：internal/catalog.ReservedSystemProjectID。 */
+export const ADMIN_PROJECT_ID = '00000000-0000-0000-0000-000000000099'
+
 function loadHistory(): string[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY)
@@ -54,6 +57,10 @@ export const useProjectStore = defineStore('project', {
       if (this.projectName.trim()) return this.projectName.trim()
       const hit = this.projects.find((p) => p.id === this.id)
       return hit?.name || this.id || '选择项目'
+    },
+    /** 当前是否为 admin（系统）项目：数据库列表展示系统库且禁止新建/删除。 */
+    isAdmin(): boolean {
+      return this.id === ADMIN_PROJECT_ID
     }
   },
   actions: {

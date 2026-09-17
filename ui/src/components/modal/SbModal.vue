@@ -63,9 +63,13 @@ const okDisabled = computed(() => Boolean(props.okButtonProps?.disabled))
 
 const contentClass = computed(() => {
   const w = props.width
-  if (typeof w === 'number' && w >= 800) return 'sm:max-w-4xl'
-  if (typeof w === 'number' && w >= 700) return 'sm:max-w-3xl'
-  if (typeof w === 'number' && w >= 600) return 'sm:max-w-2xl'
+  if (typeof w === 'number') {
+    if (w >= 900) return 'sm:max-w-5xl'
+    if (w >= 800) return 'sm:max-w-4xl'
+    if (w >= 700) return 'sm:max-w-3xl'
+    if (w >= 600) return 'sm:max-w-2xl'
+    if (w <= 480) return 'sm:max-w-md'
+  }
   return 'sm:max-w-lg'
 })
 

@@ -2,6 +2,7 @@ package systemdb
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,31 +77,52 @@ func (s *Store) FlushMetrics(ctx context.Context) error {
 	return nil
 }
 
-// MetricsSummary 聚合项目近期样本与库数量。
+// MetricsSummary 聚合项目近期样本与库数量。admin 项目聚合全系统。
 func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSummary, error) {
 	var out MetricsSummary
 	if s == nil || s.db == nil {
 		return out, ErrUnavailable
 	}
+	admin := IsAdminProject(projectID)
 	since := time.Now().UTC().Add(-24 * time.Hour)
 	var requests, errors float64
-	_ = s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
-		 WHERE project_id = ? AND name = 'http_requests' AND occurred_at >= ?`,
-		projectID, since).Scan(&requests)
-	_ = s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
-		 WHERE project_id = ? AND name = 'http_errors' AND occurred_at >= ?`,
-		projectID, since).Scan(&errors)
+	if admin {
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
+			 WHERE name = 'http_requests' AND occurred_at >= ?`, since).Scan(&requests)
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
+			 WHERE name = 'http_errors' AND occurred_at >= ?`, since).Scan(&errors)
+	} else {
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
+			 WHERE project_id = ? AND name = 'http_requests' AND occurred_at >= ?`,
+			projectID, since).Scan(&requests)
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
+			 WHERE project_id = ? AND name = 'http_errors' AND occurred_at >= ?`,
+			projectID, since).Scan(&errors)
+	}
 	var avg float64
-	_ = s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(AVG(value_double), 0) FROM sys_metric_samples
-		 WHERE project_id = ? AND name = 'http_latency_ms' AND occurred_at >= ?`,
-		projectID, since).Scan(&avg)
+	if admin {
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(AVG(value_double), 0) FROM sys_metric_samples
+			 WHERE name = 'http_latency_ms' AND occurred_at >= ?`, since).Scan(&avg)
+	} else {
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT COALESCE(AVG(value_double), 0) FROM sys_metric_samples
+			 WHERE project_id = ? AND name = 'http_latency_ms' AND occurred_at >= ?`,
+			projectID, since).Scan(&avg)
+	}
 	var active int64
-	_ = s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sys_databases WHERE project_id = ? AND deleted_at IS NULL AND kind = 'user'`,
-		projectID).Scan(&active)
+	if admin {
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM sys_databases WHERE deleted_at IS NULL AND kind = 'user'`).Scan(&active)
+	} else {
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM sys_databases WHERE project_id = ? AND deleted_at IS NULL AND kind = 'user'`,
+			projectID).Scan(&active)
+	}
 	out.TotalRequests = int64(requests)
 	if requests > 0 {
 		out.ErrorRate = errors / requests
@@ -110,7 +132,7 @@ func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSu
 	return out, nil
 }
 
-// MetricsTrend 按天聚合最近 days 天的请求/错误。
+// MetricsTrend 按天聚合最近 days 天的请求/错误。admin 项目聚合全系统。
 func (s *Store) MetricsTrend(ctx context.Context, projectID string, days int) ([]TrendPoint, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
@@ -119,13 +141,23 @@ func (s *Store) MetricsTrend(ctx context.Context, projectID string, days int) ([
 		days = 7
 	}
 	since := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT CAST(occurred_at AS DATE), name, COALESCE(SUM(value_double), 0)
+	query := `SELECT CAST(occurred_at AS DATE), name, COALESCE(SUM(value_double), 0)
+		 FROM sys_metric_samples
+		 WHERE occurred_at >= ? AND name IN ('http_requests', 'http_errors')
+		 GROUP BY CAST(occurred_at AS DATE), name
+		 ORDER BY 1 ASC`
+	var rows *sql.Rows
+	var err error
+	if IsAdminProject(projectID) {
+		rows, err = s.db.QueryContext(ctx, query, since)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT CAST(occurred_at AS DATE), name, COALESCE(SUM(value_double), 0)
 		 FROM sys_metric_samples
 		 WHERE project_id = ? AND occurred_at >= ? AND name IN ('http_requests', 'http_errors')
 		 GROUP BY CAST(occurred_at AS DATE), name
-		 ORDER BY 1 ASC`,
-		projectID, since)
+		 ORDER BY 1 ASC`, projectID, since)
+	}
 	if err != nil {
 		return nil, err
 	}

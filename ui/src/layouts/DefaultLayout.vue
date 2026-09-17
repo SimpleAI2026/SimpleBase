@@ -22,7 +22,7 @@
     </Sidebar>
 
     <SidebarInset>
-      <header class="flex h-[var(--header-height)] shrink-0 items-center justify-between gap-3 border-b bg-background/85 px-5 backdrop-blur-xl md:px-5">
+      <header class="flex h-[var(--header-height)] shrink-0 items-center justify-between gap-3 border-b bg-background/85 px-4 backdrop-blur-xl sm:px-6">
         <div class="flex min-w-0 items-center gap-3">
           <SidebarTrigger />
           <Breadcrumb>
@@ -33,12 +33,23 @@
             </BreadcrumbList>
           </Breadcrumb>
         </div>
-        <div class="flex items-center gap-2.5 sm:gap-3.5">
-          <GlobalProjectSwitcher />
-          <Badge v-if="isMock" variant="warning">Mock 数据</Badge>
+        <div class="flex items-center gap-4 sm:gap-5">
           <Tooltip>
             <TooltipTrigger as-child>
-              <Button variant="ghost" size="icon" @click="authStore.openDrawer()">
+              <Button variant="outline" size="sm" as-child>
+                <router-link to="/docs" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5">
+                  <BookOpenIcon data-icon="inline-start" />
+                  <span>使用文档</span>
+                </router-link>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>使用文档</TooltipContent>
+          </Tooltip>
+          <GlobalProjectSwitcher />
+          <Badge v-if="isMock" variant="warning" class="hidden sm:inline-flex">Mock 数据</Badge>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button variant="ghost" size="icon-lg" @click="authStore.openDrawer()">
                 <span class="relative inline-flex">
                   <SettingsIcon />
                   <span
@@ -54,28 +65,7 @@
           </Tooltip>
           <Tooltip>
             <TooltipTrigger as-child>
-              <Button variant="ghost" size="icon" as-child>
-                <router-link to="/docs" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1">
-                  <BookOpenIcon />
-                  <span class="hidden text-xs lg:inline">使用文档</span>
-                </router-link>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>使用文档</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <Button variant="ghost" size="icon" as-child>
-                <a href="https://github.com/linkxzhou/SimpleBase" target="_blank" rel="noopener noreferrer">
-                  <GithubMark />
-                </a>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>GitHub</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <Button variant="ghost" size="icon" @click="reload">
+              <Button variant="ghost" size="icon-lg" @click="reload">
                 <RefreshCwIcon />
               </Button>
             </TooltipTrigger>
@@ -84,7 +74,7 @@
         </div>
       </header>
 
-      <div class="mx-auto w-full max-w-[var(--content-max-width)] flex-1 p-2.5 md:p-[18px]">
+      <div class="w-full flex-1 p-4 sm:p-6 lg:p-8">
         <router-view v-slot="{ Component }">
           <transition name="sb-fade" mode="out-in">
             <component :is="Component" />
@@ -120,7 +110,6 @@ import { useAuthStore } from '../stores/auth'
 import NavMenu from '../components/NavMenu.vue'
 import ApiKeyDrawer from '../components/ApiKeyDrawer.vue'
 import GlobalProjectSwitcher from '../components/GlobalProjectSwitcher.vue'
-import GithubMark from '../components/icons/GithubMark.vue'
 import router from '../router'
 
 const route = useRoute()

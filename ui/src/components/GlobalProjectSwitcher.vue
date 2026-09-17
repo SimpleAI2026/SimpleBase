@@ -2,13 +2,10 @@
   <div>
     <Popover v-model:open="open">
       <PopoverTrigger as-child>
-        <Button variant="outline" class="h-8 max-w-60 justify-start gap-2 px-2.5" aria-label="切换项目">
-          <FolderIcon />
-          <span class="flex min-w-0 flex-col items-start leading-tight">
-            <span class="max-w-40 truncate text-sm font-semibold">{{ store.displayName }}</span>
-            <span v-if="store.id" class="font-mono text-[11px] text-muted-foreground">{{ shortId(store.id) }}</span>
-          </span>
-          <ChevronDownIcon class="ml-auto opacity-60" />
+        <Button variant="outline" class="h-8 w-56 justify-start gap-2 px-3" aria-label="切换项目">
+          <FolderIcon class="shrink-0" />
+          <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ store.displayName }}</span>
+          <ChevronDownIcon class="ml-auto shrink-0 opacity-60" />
         </Button>
       </PopoverTrigger>
       <PopoverContent class="w-[300px] p-0" align="end">
@@ -69,12 +66,6 @@ import CreateProjectModal from './modal/CreateProjectModal.vue'
 
 const store = useProjectStore()
 const open = ref(false)
-
-function shortId(id: string) {
-  const compact = id.replace(/-/g, '')
-  if (compact.length >= 8) return compact.slice(-8)
-  return id.length > 8 ? id.slice(0, 8) : id
-}
 
 const merged = computed<ProjectItem[]>(() => {
   const map = new Map<string, ProjectItem>()

@@ -6,6 +6,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -89,12 +90,21 @@ func (a *dbServiceAdapter) SetDatabaseReady(ctx context.Context, databaseID stri
 type sqlServiceAdapter struct {
 	catalog  CatalogService
 	registry RegistryService
+	system   SystemStoreRef // 可为 nil；系统库桥接
+}
+
+// SystemStoreRef 是系统库常驻连接的最小引用（*systemdb.Store 满足）。
+type SystemStoreRef interface {
+	Meta() catalog.Database
+	DB() *sql.DB
 }
 
 // NewSQLServiceAdapter 构造 SQLService。
-func NewSQLServiceAdapter(cat CatalogService, reg RegistryService) SQLService {
+// system 可为 nil（测试）；非 nil 时系统库的 Acquire 桥接到 systemdb 常驻连接，
+// 不再经 registry 打开第二实例（用户 factory 的 CacheDir 与系统库不同，会得到空 catalog）。
+func NewSQLServiceAdapter(cat CatalogService, reg RegistryService, system SystemStoreRef) SQLService {
 
-	return &sqlServiceAdapter{catalog: cat, registry: reg}
+	return &sqlServiceAdapter{catalog: cat, registry: reg, system: system}
 }
 
 func (a *sqlServiceAdapter) GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error) {
@@ -102,6 +112,10 @@ func (a *sqlServiceAdapter) GetDatabase(ctx context.Context, principal auth.Prin
 }
 
 func (a *sqlServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error) {
+	// 系统库：桥接到 systemdb 常驻连接（只读查询），不经 registry。
+	if catalog.IsSystemDatabase(db) && a.system != nil && mode == database.ReadOnly {
+		return &systemLeaseAdapter{conn: a.system.DB()}, nil
+	}
 	l, err := a.registry.Acquire(ctx, db, mode)
 	if err != nil {
 		return nil, err
@@ -112,6 +126,26 @@ func (a *sqlServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mo
 // ListDatabases 使 sqlServiceAdapter 同时满足 DataService。
 func (a *sqlServiceAdapter) ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page catalog.Page) ([]catalog.Database, string, error) {
 	return a.catalog.ListDatabases(ctx, principal, projectID, page)
+}
+
+// systemLeaseAdapter 包装系统库常驻 *sql.DB 为只读租约。
+// Release 不关闭连接（连接由 systemdb.Store 管理生命周期）。
+type systemLeaseAdapter struct {
+	conn *sql.DB
+}
+
+func (s *systemLeaseAdapter) Release() {}
+
+func (s *systemLeaseAdapter) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
+	return database.Query(ctx, s.conn, stmt, maxRows)
+}
+
+func (s *systemLeaseAdapter) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
+	return database.QueryResult{}, catalog.ErrSystemProtected
+}
+
+func (s *systemLeaseAdapter) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
+	return nil, catalog.ErrSystemProtected
 }
 
 // sqlLeaseAdapter 包装 registry.Lease，暴露 Handle 的 Query/Execute/Batch。

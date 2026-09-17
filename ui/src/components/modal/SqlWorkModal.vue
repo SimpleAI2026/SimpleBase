@@ -8,9 +8,10 @@
     <div class="flex flex-col gap-3">
       <ToggleGroup v-model="mode" type="single" variant="outline" spacing="0">
         <ToggleGroupItem value="query">查询</ToggleGroupItem>
-        <ToggleGroupItem value="execute">执行</ToggleGroupItem>
-        <ToggleGroupItem value="batch">批量</ToggleGroupItem>
+        <ToggleGroupItem v-if="!readonly" value="execute">执行</ToggleGroupItem>
+        <ToggleGroupItem v-if="!readonly" value="batch">批量</ToggleGroupItem>
       </ToggleGroup>
+      <p v-if="readonly" class="m-0 text-xs text-muted-foreground">系统库只读：仅支持 SELECT 查询</p>
 
       <Textarea
         v-model="sqlText"
@@ -53,20 +54,22 @@
               <Badge variant="secondary">{{ queryResult.durationMs }} ms</Badge>
               <span class="font-mono text-[11px] text-muted-foreground">request_id: {{ queryResult.requestId }}</span>
             </div>
-            <Table v-if="queryResult.columns.length && queryResult.rowCount > 0">
-              <TableHeader>
-                <TableRow>
-                  <TableHead v-for="c in queryResult.columns" :key="c" class="min-w-40">{{ c }}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow v-for="row in queryPaged" :key="row.__idx">
-                  <TableCell v-for="c in queryResult.columns" :key="c" class="max-w-60 truncate">
-                    {{ formatCell(row[c]) }}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <div v-if="queryResult.columns.length && queryResult.rowCount > 0" class="overflow-x-auto rounded-lg border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead v-for="c in queryResult.columns" :key="c" class="min-w-32">{{ c }}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow v-for="row in queryPaged" :key="row.__idx" class="hover:bg-muted/40 font-mono text-xs">
+                    <TableCell v-for="c in queryResult.columns" :key="c" class="max-w-60 truncate">
+                      {{ formatCell(row[c]) }}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
             <SbEmptyState v-else description="暂时未查询到数据" />
             <TablePager
               v-if="queryResult.rowCount > 0"
@@ -103,33 +106,35 @@
               <AlertTitle>事务回滚：第 {{ batchResult.error.failedIndex + 1 }} 条失败（{{ batchResult.error.code }}）</AlertTitle>
               <AlertDescription>{{ batchResult.error.message }}</AlertDescription>
             </Alert>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead class="w-14">#</TableHead>
-                  <TableHead class="w-20">状态</TableHead>
-                  <TableHead class="w-28">受影响行数</TableHead>
-                  <TableHead class="w-24">耗时</TableHead>
-                  <TableHead>错误详情</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow v-for="(record, index) in batchResult.results" :key="index">
-                  <TableCell>{{ index + 1 }}</TableCell>
-                  <TableCell>
-                    <Badge :variant="record.errorCode ? 'destructive' : 'success'">
-                      {{ record.errorCode ? '失败' : '成功' }}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{{ record.rowsAffected ?? '-' }}</TableCell>
-                  <TableCell>{{ (record.durationMs ?? '-') + ' ms' }}</TableCell>
-                  <TableCell>
-                    <span v-if="record.errorMessage" class="text-xs text-destructive">{{ record.errorMessage }}</span>
-                    <span v-else>-</span>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <div class="overflow-x-auto rounded-lg border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead class="w-14">#</TableHead>
+                    <TableHead class="w-20">状态</TableHead>
+                    <TableHead class="w-28">受影响行数</TableHead>
+                    <TableHead class="w-24">耗时</TableHead>
+                    <TableHead>错误详情</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow v-for="(record, index) in batchResult.results" :key="index" class="hover:bg-muted/40 text-xs">
+                    <TableCell class="font-mono">{{ index + 1 }}</TableCell>
+                    <TableCell>
+                      <Badge :variant="record.errorCode ? 'destructive' : 'success'">
+                        {{ record.errorCode ? '失败' : '成功' }}
+                      </Badge>
+                    </TableCell>
+                    <TableCell class="font-mono">{{ record.rowsAffected ?? '-' }}</TableCell>
+                    <TableCell class="font-mono">{{ (record.durationMs ?? '-') + ' ms' }}</TableCell>
+                    <TableCell>
+                      <span v-if="record.errorMessage" class="text-xs text-destructive font-mono">{{ record.errorMessage }}</span>
+                      <span v-else>-</span>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
           </template>
           <SbEmptyState v-else description="执行后结果将显示在这里" />
         </template>
@@ -177,6 +182,8 @@ const props = defineProps<{
   open: boolean
   projectId: string
   database: DatabaseItem | null
+  /** 只读模式（admin 系统库）：隐藏执行/批量，仅保留查询。 */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -185,6 +192,13 @@ const emit = defineEmits<{
 
 type Mode = 'query' | 'execute' | 'batch'
 const mode = ref<Mode>('query')
+watch(
+  () => props.readonly,
+  (v) => {
+    if (v) mode.value = 'query'
+  },
+  { immediate: true }
+)
 const sqlText = ref('')
 const argsText = ref('')
 const maxRowsText = ref('')

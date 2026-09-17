@@ -161,6 +161,7 @@ func (s *Service) degradeAfterCreateFailure(ctx context.Context, id string, caus
 }
 
 // GetDatabase 校验 principal 可访问 projectID 后返回数据库记录。
+// admin（系统）项目内返回系统库详情；普通项目内系统库不可见（返回 NotFound）。
 func (s *Service) GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (Database, error) {
 	if err := s.ensureProjectAccess(ctx, principal, projectID); err != nil {
 		return Database{}, err
@@ -169,16 +170,20 @@ func (s *Service) GetDatabase(ctx context.Context, principal auth.Principal, pro
 	if err != nil {
 		return Database{}, err
 	}
-	if IsSystemDatabase(db) {
+	if IsSystemDatabase(db) && !IsSystemProject(projectID) {
 		return Database{}, fmt.Errorf("%w: database %s in project %s", ErrNotFound, databaseID, projectID)
 	}
 	return db, nil
 }
 
 // ListDatabases 校验 principal 可访问 projectID 后分页列出数据库。
+// admin（系统）项目：列出 kind=system 的系统库（只读视图，删除被 ErrSystemProtected 拦截）。
 func (s *Service) ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page Page) ([]Database, string, error) {
 	if err := s.ensureProjectAccess(ctx, principal, projectID); err != nil {
 		return nil, "", err
+	}
+	if IsSystemProject(projectID) {
+		return s.repo.ListDatabasesByKind(ctx, projectID, DatabaseKindSystem, page)
 	}
 	return s.repo.ListDatabases(ctx, projectID, page)
 }
@@ -191,7 +196,7 @@ func (s *Service) ResolveProjectTenant(ctx context.Context, projectID string) (s
 }
 
 // ListProjects 返回当前 principal 可见的项目列表。
-// ProjectAdmin：租户下全部项目；否则仅返回 API key 授权的 ProjectIDs（并补全 name）。
+// ProjectAdmin：租户下全部项目 + 头部的 admin（系统）项目；否则仅返回 API key 授权的 ProjectIDs（并补全 name）。
 func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([]Project, error) {
 	if principal.TenantID == "" {
 		return nil, fmt.Errorf("%w: tenant required", ErrInvalidName)
@@ -200,15 +205,26 @@ func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([
 	if err != nil {
 		return nil, err
 	}
-	visible := make([]Project, 0, len(all))
+	visible := make([]Project, 0, len(all)+1)
+	admin := Project{}
+	adminFound := false
 	for _, p := range all {
 		if IsSystemProject(p.ID) {
+			admin = p
+			if p.Name == "" || p.Name == "system" {
+				admin.Name = AdminProjectName
+			}
+			adminFound = true
 			continue
 		}
 		visible = append(visible, p)
 	}
+	if !adminFound {
+		// 未 seed 的实例：仍暴露 admin 入口（系统库行由 systemdb bootstrap 回填）。
+		admin = Project{ID: ReservedSystemProjectID, Name: AdminProjectName, CreatedAt: s.now().UTC()}
+	}
 	if principal.HasPermission(auth.ProjectAdmin) {
-		return visible, nil
+		return append([]Project{admin}, visible...), nil
 	}
 	out := make([]Project, 0, len(visible))
 	for _, p := range visible {
@@ -264,8 +280,14 @@ func (s *Service) CreateProject(ctx context.Context, principal auth.Principal, i
 }
 
 // ensureProjectAccess 校验 principal 可操作 projectID。
-// ProjectAdmin：租户内任意非系统项目；否则仅 API key 绑定的 ProjectIDs。
+// ProjectAdmin：租户内任意非系统项目 + admin（系统）项目本身；否则仅 API key 绑定的 ProjectIDs。
 func (s *Service) ensureProjectAccess(ctx context.Context, principal auth.Principal, projectID string) error {
+	if IsSystemProject(projectID) {
+		if principal.HasPermission(auth.ProjectAdmin) {
+			return nil
+		}
+		return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+	}
 	if principal.HasPermission(auth.ProjectAdmin) {
 		if principal.TenantID == "" {
 			return fmt.Errorf("%w: tenant required", ErrInvalidName)

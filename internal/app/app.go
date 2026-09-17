@@ -160,7 +160,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 			MaxSQLBytes:        cfg.Limits.MaxSQLBytes,
 			MaxRequestBytes:    cfg.Limits.MaxRequestBytes,
 		}
-		sqlService := api.NewSQLServiceAdapter(a.catalog, a.registry)
+		sqlService := api.NewSQLServiceAdapter(a.catalog, a.registry, a.systemStore)
 		sqlHandler = api.NewSQLHandler(sqlService, sqlLimits, cfg.Instance.Writable)
 		if a.duckFactory != nil {
 			f := a.duckFactory

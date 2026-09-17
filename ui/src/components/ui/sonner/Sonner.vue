@@ -33,7 +33,7 @@ const delegatedProps = reactiveOmit(props, 'class', 'toastOptions')
     }"
     :toast-options="props.toastOptions ?? {
       classes: {
-        toast: 'rounded-2xl',
+        toast: 'rounded-xl',
       },
     }"
     v-bind="delegatedProps"

@@ -90,7 +90,7 @@ func (s *Store) FlushLogs(ctx context.Context) error {
 	return nil
 }
 
-// QueryLogs 按条件查询运行日志。
+// QueryLogs 按条件查询运行日志。ProjectID 为 admin 系统项目时查询全系统。
 func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
@@ -101,7 +101,7 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 	sqlStr := `SELECT id, project_id, level, logger, message, fields_json, request_id, occurred_at
 	           FROM sys_log_events WHERE 1=1`
 	args := []any{}
-	if q.ProjectID != "" {
+	if q.ProjectID != "" && !IsAdminProject(q.ProjectID) {
 		sqlStr += " AND (project_id = ? OR project_id IS NULL)"
 		args = append(args, q.ProjectID)
 	}

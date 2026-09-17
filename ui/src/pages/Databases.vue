@@ -1,71 +1,79 @@
 <template>
   <ProjectScope>
-  <PageContainer title="数据库管理" subtitle="DuckLake 数据库、SQL 工作台与集合文档">
-    <Card>
-      <CardContent class="flex flex-wrap items-center gap-3">
-        <Button variant="outline" :disabled="loading" @click="doLoad">
-          <Spinner v-if="loading" data-icon="inline-start" />
-          <RefreshCwIcon v-else data-icon="inline-start" />
-          刷新
-        </Button>
-        <Button @click="openCreate">
-          <PlusIcon data-icon="inline-start" />
-          新建数据库
-        </Button>
-        <span class="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto">共 {{ databases.length }} 个数据库</span>
-      </CardContent>
-    </Card>
-
+  <PageContainer subtitle="DuckLake 数据库、SQL 工作台与集合文档">
     <Card>
       <CardHeader class="border-b">
-        <CardTitle>数据库列表</CardTitle>
+        <CardTitle>{{ isAdmin ? '系统数据库' : '数据库列表' }}</CardTitle>
+        <CardDescription>
+          {{ isAdmin ? '系统库承载实例元数据、日志与监控，只读且不可删除' : `共 ${databases.length} 个数据库` }}
+        </CardDescription>
+        <CardAction v-if="!isAdmin">
+          <div class="flex items-center gap-2">
+            <Button variant="outline" size="sm" :disabled="loading" @click="doLoad">
+              <Spinner v-if="loading" data-icon="inline-start" />
+              <RefreshCwIcon v-else data-icon="inline-start" />
+              刷新
+            </Button>
+            <Button size="sm" @click="openCreate">
+              <PlusIcon data-icon="inline-start" />
+              新建数据库
+            </Button>
+          </div>
+        </CardAction>
+        <CardAction v-else>
+          <Button variant="outline" size="sm" :disabled="loading" @click="doLoad">
+            <Spinner v-if="loading" data-icon="inline-start" />
+            <RefreshCwIcon v-else data-icon="inline-start" />
+            刷新
+          </Button>
+        </CardAction>
       </CardHeader>
-      <CardContent>
+      <CardContent class="p-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="w-8" />
-              <TableHead class="w-40">名称</TableHead>
-              <TableHead class="w-36">ID</TableHead>
-              <TableHead class="w-24">状态</TableHead>
+              <TableHead class="w-12 text-center" />
+              <TableHead class="w-44">名称</TableHead>
+              <TableHead class="w-40">ID</TableHead>
+              <TableHead class="w-28">状态</TableHead>
               <TableHead class="w-44">创建时间</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableEmpty v-if="!paged.length && !loading" :colspan="6">
-              <SbEmptyState description="暂无数据库" action-text="新建数据库" @action="openCreate" />
+              <SbEmptyState :description="isAdmin ? '暂无系统库' : '暂无数据库'" :action-text="isAdmin ? undefined : '新建数据库'" @action="!isAdmin && openCreate()" />
             </TableEmpty>
             <template v-for="record in paged" :key="record.id">
-              <TableRow>
-                <TableCell>
+              <TableRow class="hover:bg-muted/40">
+                <TableCell class="text-center">
                   <Tooltip>
                     <TooltipTrigger as-child>
                       <Button
                         variant="outline"
                         size="icon-xs"
-                        class="rounded-full"
+                        class="size-6 rounded-full"
                         :disabled="!isReady(record)"
                         @click="toggleExpand(record)"
                       >
-                        <MinusIcon v-if="expandedRowKeys.includes(record.id)" />
-                        <PlusIcon v-else />
+                        <MinusIcon v-if="expandedRowKeys.includes(record.id)" class="size-3" />
+                        <PlusIcon v-else class="size-3" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {{ isReady(record) ? (expandedRowKeys.includes(record.id) ? '收起集合' : '展开集合') : '数据库未就绪' }}
+                      {{ isReady(record) ? (expandedRowKeys.includes(record.id) ? '收起' : '查看数据') : '数据库未就绪' }}
                     </TooltipContent>
                   </Tooltip>
                 </TableCell>
                 <TableCell>
-                  <span class="sb-mono inline-flex items-center gap-1">
-                    <DatabaseIcon /> {{ record.name }}
+                  <span class="sb-mono inline-flex items-center gap-1.5 font-medium text-foreground">
+                    <DatabaseIcon class="size-4 text-primary" /> {{ record.name }}
                   </span>
                 </TableCell>
                 <TableCell>
                   <Tooltip>
                     <TooltipTrigger as-child>
-                      <span class="sb-mono block max-w-36 truncate text-muted-foreground">{{ record.id }}</span>
+                      <span class="sb-mono block max-w-36 truncate text-xs text-muted-foreground">{{ record.id }}</span>
                     </TooltipTrigger>
                     <TooltipContent>{{ record.id }}</TooltipContent>
                   </Tooltip>
@@ -73,68 +81,84 @@
                 <TableCell>
                   <Badge :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
                 </TableCell>
-                <TableCell>{{ formatTime(record.createdAt) }}</TableCell>
+                <TableCell class="text-xs text-muted-foreground">{{ formatTime(record.createdAt) }}</TableCell>
                 <TableCell>
                   <div class="flex flex-wrap items-center gap-1">
-                    <Button variant="ghost" size="sm" :disabled="!isOpenable(record)" @click="openDb(record)">
-                      <RocketIcon data-icon="inline-start" />
-                      打开
-                    </Button>
-                    <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="closeDb(record)">
-                      <PowerIcon data-icon="inline-start" />
-                      关闭
-                    </Button>
                     <Tooltip>
                       <TooltipTrigger as-child>
                         <span>
                           <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openSql(record)">SQL</Button>
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>{{ isReady(record) ? 'SQL 工作台' : '数据库未就绪' }}</TooltipContent>
+                      <TooltipContent>{{ isReady(record) ? (isAdmin ? 'SQL 控制台（只读查询）' : 'SQL 工作台') : '数据库未就绪' }}</TooltipContent>
                     </Tooltip>
-                    <Tooltip>
+                    <template v-if="!isAdmin">
+                      <Button variant="ghost" size="sm" :disabled="!isOpenable(record)" @click="openDb(record)">
+                        <RocketIcon data-icon="inline-start" />
+                        打开
+                      </Button>
+                      <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="closeDb(record)">
+                        <PowerIcon data-icon="inline-start" />
+                        关闭
+                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <span>
+                            <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">新建集合</Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{{ isReady(record) ? '新建集合' : '数据库未就绪' }}</TooltipContent>
+                      </Tooltip>
+                      <ConfirmAction
+                        :disabled="record.status === 'deleting'"
+                        title="删除为异步操作，确认继续？"
+                        @confirm="removeDb(record)"
+                      >
+                        <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10" :disabled="record.status === 'deleting'">
+                          <Trash2Icon data-icon="inline-start" />
+                          删除
+                        </Button>
+                      </ConfirmAction>
+                    </template>
+                    <Tooltip v-else>
                       <TooltipTrigger as-child>
-                        <span>
-                          <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">新建集合</Button>
+                        <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <ShieldCheckIcon class="size-3.5" />
+                          受保护
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>{{ isReady(record) ? '新建集合' : '数据库未就绪' }}</TooltipContent>
+                      <TooltipContent>系统库：删除与写入已被服务端拒绝</TooltipContent>
                     </Tooltip>
-                    <ConfirmAction
-                      :disabled="record.status === 'deleting'"
-                      title="删除为异步操作，确认继续？"
-                      @confirm="removeDb(record)"
-                    >
-                      <Button variant="ghost" size="sm" class="text-destructive" :disabled="record.status === 'deleting'">
-                        <Trash2Icon data-icon="inline-start" />
-                        删除
-                      </Button>
-                    </ConfirmAction>
                   </div>
                 </TableCell>
               </TableRow>
-              <TableRow v-if="expandedRowKeys.includes(record.id)">
-                <TableCell colspan="6">
-                  <CollectionPanel
-                    :project-id="projectStore.id"
-                    :database="record"
-                    :reload-token="collectionReload[record.id] || 0"
-                    @view-data="(c) => openDocList(record, c)"
-                    @add-document="(c) => openKv(record, c)"
-                    @create-collection="openCreateCollection(record)"
-                  />
+              <TableRow v-if="expandedRowKeys.includes(record.id)" class="bg-muted/20 hover:bg-muted/20">
+                <TableCell colspan="6" class="p-0 border-b-0">
+                  <div class="border-y border-border/70 bg-muted/25 px-6 py-4">
+                    <CollectionPanel
+                      :project-id="projectStore.id"
+                      :database="record"
+                      :reload-token="collectionReload[record.id] || 0"
+                      :readonly="isAdmin"
+                      @view-data="(c) => openDocList(record, c)"
+                      @add-document="(c) => openKv(record, c)"
+                      @create-collection="openCreateCollection(record)"
+                    />
+                  </div>
                 </TableCell>
               </TableRow>
             </template>
           </TableBody>
         </Table>
-        <TablePager
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :page-count="pageCount"
-          @update:page="page = $event"
-        />
+        <div class="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5">
+          <TablePager
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :page-count="pageCount"
+            @update:page="page = $event"
+          />
+        </div>
       </CardContent>
     </Card>
 
@@ -157,7 +181,7 @@
       </Field>
     </SbModal>
 
-    <SqlWorkModal v-model:open="sqlOpen" :project-id="projectStore.id" :database="activeDb" />
+    <SqlWorkModal v-model:open="sqlOpen" :project-id="projectStore.id" :database="activeDb" :readonly="isAdmin" />
     <CreateCollectionModal
       v-model:open="createCollectionOpen"
       :project-id="projectStore.id"
@@ -170,6 +194,7 @@
       :database-id="activeDb?.id || ''"
       :collection="activeCollection"
       :reload-token="docReload"
+      :readonly="isAdmin"
       @add-document="onAddDocumentFromList"
     />
     <DocumentKvModal
@@ -193,11 +218,12 @@ import {
   PowerIcon,
   RefreshCwIcon,
   RocketIcon,
+  ShieldCheckIcon,
   Trash2Icon,
 } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
@@ -214,6 +240,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { api } from '../services/api'
 import type { DatabaseItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { storeToRefs } from 'pinia'
 import { useAsyncAction } from '../composables/useAsyncAction'
 import { usePagination } from '../composables/usePagination'
 import { statusBadgeVariant, statusText } from '@/lib/status'
@@ -231,6 +258,7 @@ import DocumentKvModal from '../components/modal/DocumentKvModal.vue'
 import CollectionPanel from '../components/databases/CollectionPanel.vue'
 
 const projectStore = useProjectStore()
+const { isAdmin } = storeToRefs(projectStore)
 const databases = ref<DatabaseItem[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(databases)
 

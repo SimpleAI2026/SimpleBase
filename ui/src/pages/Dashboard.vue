@@ -1,26 +1,26 @@
 <template>
   <ProjectScope>
-  <PageContainer title="监控大盘" subtitle="系统运行状态与数据库概览">
+  <PageContainer subtitle="系统运行状态与数据库概览">
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <Card v-for="card in cards" :key="card.label">
-        <CardContent class="px-5 py-4">
-          <div v-if="loading" class="flex items-start gap-3.5">
-            <Skeleton class="size-11 rounded-md" />
-            <div class="flex flex-1 flex-col gap-2">
+        <CardContent class="p-5">
+          <div v-if="loading" class="flex items-start gap-4">
+            <Skeleton class="size-12 rounded-lg" />
+            <div class="flex flex-1 flex-col gap-2.5">
               <Skeleton class="h-3 w-20" />
               <Skeleton class="h-7 w-16" />
             </div>
           </div>
-          <div v-else class="flex items-start gap-3.5">
+          <div v-else class="flex items-start gap-4">
             <div
-              class="flex size-11 shrink-0 items-center justify-center rounded-md"
+              class="flex size-12 shrink-0 items-center justify-center rounded-lg"
               :class="card.tone"
             >
-              <component :is="card.icon" />
+              <component :is="card.icon" class="size-5" />
             </div>
-            <div class="min-w-0">
-              <div class="text-[12px] tracking-wide text-muted-foreground uppercase">{{ card.label }}</div>
-              <div class="mt-0.5 text-[26px] leading-tight font-semibold">{{ card.value }}</div>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12px] tracking-wide text-muted-foreground uppercase font-medium">{{ card.label }}</div>
+              <div class="mt-1 text-[26px] leading-tight font-semibold text-foreground">{{ card.value }}</div>
             </div>
           </div>
         </CardContent>
@@ -41,56 +41,60 @@
           <span v-if="lastUpdate">最近更新：{{ lastUpdate }}</span>
         </CardDescription>
         <CardAction>
-          <Button :disabled="loading" @click="load">
+          <Button variant="outline" size="sm" :disabled="loading" @click="load">
             <Spinner v-if="loading" data-icon="inline-start" />
             <RefreshCwIcon v-else data-icon="inline-start" />
             刷新数据
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent class="flex flex-col gap-4">
-        <div v-if="trend.length" class="flex min-h-40 items-end gap-3 px-1 pt-2">
-          <div v-for="p in trend" :key="p.date" class="flex flex-1 flex-col items-center gap-2">
-            <div class="flex h-[120px] items-end gap-1">
-              <div
-                class="w-2.5 rounded-t bg-primary"
-                :style="{ height: barHeight(p.requests, maxRequests) }"
-                :title="`请求 ${p.requests}`"
-              />
-              <div
-                class="w-2.5 rounded-t bg-destructive"
-                :style="{ height: barHeight(p.errors, maxRequests) }"
-                :title="`错误 ${p.errors}`"
-              />
+      <CardContent class="flex flex-col gap-6 pt-6">
+        <div v-if="trend.length" class="rounded-xl border border-border bg-muted/25 px-5 pt-5 pb-3">
+          <div class="flex min-h-44 items-end gap-3">
+            <div v-for="p in trend" :key="p.date" class="flex min-w-0 flex-1 flex-col items-center gap-2">
+              <div class="flex h-[120px] items-end gap-1.5">
+                <div
+                  class="w-3 rounded-t-sm bg-primary/85 transition-[height] duration-300"
+                  :style="{ height: barHeight(p.requests, maxRequests) }"
+                  :title="`请求 ${p.requests}`"
+                />
+                <div
+                  class="w-1.5 rounded-t-sm bg-destructive/70"
+                  :style="{ height: barHeight(p.errors, maxRequests) }"
+                  :title="`错误 ${p.errors}`"
+                />
+              </div>
+              <div class="text-xs text-muted-foreground">{{ p.date }}</div>
             </div>
-            <div class="text-xs text-muted-foreground">{{ p.date }}</div>
           </div>
         </div>
         <SbEmptyState v-else-if="!loading" description="暂无趋势数据" />
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead class="w-40">名称</TableHead>
-              <TableHead>ID</TableHead>
-              <TableHead class="w-28">状态</TableHead>
-              <TableHead class="w-44">创建时间</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableEmpty v-if="!paged.length && !loading" :colspan="4">
-              <SbEmptyState description="暂无数据库" action-text="去创建" @action="goDatabases" />
-            </TableEmpty>
-            <TableRow v-for="record in paged" :key="record.id">
-              <TableCell>{{ record.name }}</TableCell>
-              <TableCell class="max-w-48 truncate">{{ record.id }}</TableCell>
-              <TableCell>
-                <Badge :variant="statusBadgeVariant(record.status)">{{ record.status }}</Badge>
-              </TableCell>
-              <TableCell>{{ formatTime(record.createdAt) }}</TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
+        <div class="overflow-hidden rounded-lg border border-border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead class="w-40">名称</TableHead>
+                <TableHead>ID</TableHead>
+                <TableHead class="w-28">状态</TableHead>
+                <TableHead class="w-44">创建时间</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableEmpty v-if="!paged.length && !loading" :colspan="4">
+                <SbEmptyState description="暂无数据库" action-text="去创建" @action="goDatabases" />
+              </TableEmpty>
+              <TableRow v-for="record in paged" :key="record.id">
+                <TableCell class="font-medium">{{ record.name }}</TableCell>
+                <TableCell class="max-w-48 truncate font-mono text-xs text-muted-foreground">{{ record.id }}</TableCell>
+                <TableCell>
+                  <Badge :variant="statusBadgeVariant(record.status)">{{ record.status }}</Badge>
+                </TableCell>
+                <TableCell class="text-muted-foreground text-xs">{{ formatTime(record.createdAt) }}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
         <TablePager
           :page="page"
           :page-size="pageSize"

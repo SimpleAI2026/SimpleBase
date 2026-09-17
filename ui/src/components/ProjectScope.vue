@@ -1,7 +1,7 @@
 <template>
   <div>
     <slot v-if="store.id" />
-    <PageContainer v-else title="未选择项目" subtitle="项目切换仅在右上角">
+    <PageContainer v-else subtitle="项目切换仅在右上角">
       <Card>
         <CardContent>
           <SbEmptyState

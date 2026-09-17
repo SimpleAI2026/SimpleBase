@@ -1,12 +1,12 @@
 <template>
   <ProjectScope>
-  <PageContainer title="设置" subtitle="主题、默认模型与厂商 API Key（Key 仅缓存在本机）">
+  <PageContainer subtitle="主题、默认模型与厂商 API Key（Key 仅缓存在本机）">
     <Card>
-      <CardHeader>
+      <CardHeader class="border-b">
         <CardTitle>外观</CardTitle>
         <CardDescription>浅色、深色或跟随系统</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent class="pt-5">
         <FieldGroup class="max-w-md">
           <Field orientation="horizontal">
             <FieldTitle id="theme-label">主题</FieldTitle>
@@ -28,10 +28,10 @@
     </Card>
 
     <Card>
-      <CardHeader>
+      <CardHeader class="border-b">
         <CardTitle>模型默认值</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent class="pt-5">
         <FieldGroup class="max-w-lg">
           <Field>
             <FieldLabel>默认供应商</FieldLabel>
@@ -95,34 +95,37 @@
     </Card>
 
     <Card>
-      <CardHeader>
+      <CardHeader class="border-b">
         <CardTitle>供应商与 API Key</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <Card v-for="p in presets" :key="p.id" size="sm">
-            <CardHeader>
-              <div class="flex items-center gap-2.5">
-                <Avatar class="size-9 rounded-lg">
-                  <AvatarFallback class="rounded-lg bg-primary/12 text-primary font-bold">
-                    {{ p.name.slice(0, 1) }}
-                  </AvatarFallback>
-                </Avatar>
-                <div class="min-w-0 flex-1">
-                  <CardTitle>{{ p.name }}</CardTitle>
-                  <CardDescription>{{ p.protocol }}</CardDescription>
+      <CardContent class="pt-5">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <Card v-for="p in presets" :key="p.id" size="sm" class="flex flex-col justify-between">
+            <div class="flex flex-1 flex-col">
+              <CardHeader class="p-4 pb-2">
+                <div class="flex items-center gap-2.5">
+                  <Avatar class="size-9 rounded-lg">
+                    <AvatarFallback class="rounded-lg bg-primary/12 text-primary font-bold">
+                      {{ p.name.slice(0, 1) }}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div class="min-w-0 flex-1">
+                    <CardTitle>{{ p.name }}</CardTitle>
+                    <CardDescription>{{ p.protocol }}</CardDescription>
+                  </div>
+                  <Badge :variant="configured(p.id) ? 'success' : 'secondary'">
+                    {{ configured(p.id) ? '已配置' : '未配置' }}
+                  </Badge>
                 </div>
-                <Badge :variant="configured(p.id) ? 'success' : 'secondary'">
-                  {{ configured(p.id) ? '已配置' : '未配置' }}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p v-if="configured(p.id)" class="font-mono text-sm text-muted-foreground">
-                Key {{ mask(localCfg(p.id)?.credentials.api_key) }}
-              </p>
-            </CardContent>
-            <CardFooter class="flex gap-2">
+              </CardHeader>
+              <CardContent class="flex-1 p-4 pt-1">
+                <p v-if="configured(p.id)" class="font-mono text-xs text-muted-foreground truncate">
+                  Key {{ mask(localCfg(p.id)?.credentials.api_key) }}
+                </p>
+                <p v-else class="text-xs text-muted-foreground/60 italic">尚未配置 API Key</p>
+              </CardContent>
+            </div>
+            <CardFooter class="flex gap-2 p-4 pt-3">
               <Button size="sm" variant="outline" @click="openEditor(p.id)">配置</Button>
               <Button
                 size="sm"

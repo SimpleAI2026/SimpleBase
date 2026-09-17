@@ -199,6 +199,10 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
+	// 系统库只读：execute/batch 一律拒绝，防止改写实例元数据。
+	if catalog.IsSystemDatabase(db) {
+		return WriteError(c, catalog.ErrSystemProtected)
+	}
 
 	if err := h.acquireSem(ctx); err != nil {
 		return WriteError(c, err)
@@ -269,6 +273,10 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 	db, err := h.svc.GetDatabase(ctx, principal, project.ID, databaseID)
 	if err != nil {
 		return WriteError(c, err)
+	}
+	// 系统库只读：batch 一律拒绝。
+	if catalog.IsSystemDatabase(db) {
+		return WriteError(c, catalog.ErrSystemProtected)
 	}
 
 	if err := h.acquireSem(ctx); err != nil {

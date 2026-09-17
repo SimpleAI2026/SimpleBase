@@ -156,15 +156,25 @@ func (r *sqlRepository) GetDatabase(ctx context.Context, projectID, databaseID s
 }
 
 func (r *sqlRepository) ListDatabases(ctx context.Context, projectID string, page Page) ([]Database, string, error) {
+	return r.listDatabasesWhere(ctx, projectID, "kind = ?", []any{DatabaseKindUser}, page)
+}
+
+// ListDatabasesByKind 按类型列出（admin 视图查 kind=system）。
+func (r *sqlRepository) ListDatabasesByKind(ctx context.Context, projectID, kind string, page Page) ([]Database, string, error) {
+	return r.listDatabasesWhere(ctx, projectID, "kind = ?", []any{kind}, page)
+}
+
+func (r *sqlRepository) listDatabasesWhere(ctx context.Context, projectID string, kindWhere string, kindArgs []any, page Page) ([]Database, string, error) {
 	limit := page.Limit
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	args := append([]any{projectID}, kindArgs...)
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at
-		 FROM sys_databases WHERE project_id = ? AND deleted_at IS NULL AND kind = ?
+		 FROM sys_databases WHERE project_id = ? AND deleted_at IS NULL AND `+kindWhere+`
 		 ORDER BY created_at ASC, id ASC LIMIT ?`,
-		projectID, DatabaseKindUser, int64(limit+1))
+		append(args, int64(limit+1))...)
 	if err != nil {
 		return nil, "", err
 	}

@@ -93,7 +93,6 @@
   --composer-radius: 24px;
   --composer-send-bg: #1f1e1d;
   --header-height: 56px;
-  --content-max-width: 1440px;
 }
 
 .dark {
@@ -139,6 +138,7 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    box-sizing: border-box;
   }
   html,
   body,
@@ -149,6 +149,7 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-size: 14px;
+    line-height: 1.5;
   }
   :focus-visible {
     outline: none;

@@ -325,7 +325,7 @@ func TestProjectAdminCanAccessSiblingProject(t *testing.T) {
 	}
 }
 
-func TestListProjectsHidesSystemProject(t *testing.T) {
+func TestListProjectsExposesAdminProject(t *testing.T) {
 	svc, repo, tenantID, projectID := setupService(t, nil)
 	ctx := context.Background()
 	if err := repo.CreateProject(ctx, Project{
@@ -333,15 +333,30 @@ func TestListProjectsHidesSystemProject(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed system project: %v", err)
 	}
+
+	// ProjectAdmin：admin 项目应出现在列表首位，且名称规范化为 admin。
 	principal := newTestPrincipal(tenantID, projectID)
 	principal.Permissions[auth.ProjectAdmin] = struct{}{}
 	list, err := svc.ListProjects(ctx, principal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range list {
+	if len(list) == 0 || list[0].ID != ReservedSystemProjectID {
+		t.Fatalf("admin project should be first for ProjectAdmin, got %v", list)
+	}
+	if list[0].Name != AdminProjectName {
+		t.Fatalf("admin project name = %q, want %q", list[0].Name, AdminProjectName)
+	}
+
+	// 非 admin principal：不可见 admin 项目。
+	plain := newTestPrincipal(tenantID, projectID)
+	plainList, err := svc.ListProjects(ctx, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range plainList {
 		if p.ID == ReservedSystemProjectID {
-			t.Fatal("system project should be hidden")
+			t.Fatal("admin project should be hidden from non-admin principal")
 		}
 	}
 }
