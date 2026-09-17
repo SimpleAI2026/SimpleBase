@@ -4,6 +4,7 @@
     title="新建项目"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: !canSubmit }"
+    :z-index="1100"
     @ok="submit"
     @update:open="emit('update:open', $event)"
   >

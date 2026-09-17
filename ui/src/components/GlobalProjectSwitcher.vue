@@ -1,6 +1,12 @@
 <template>
   <div class="sb-project-switcher">
-    <a-dropdown v-model:open="open" trigger="click" :overlay-style="{ zIndex: 1050 }" @openChange="onOpenChange">
+    <a-dropdown
+      v-model:open="open"
+      trigger="click"
+      overlay-class-name="sb-project-dropdown"
+      :get-popup-container="popupContainer"
+      @openChange="onOpenChange"
+    >
       <button type="button" class="sb-project-trigger" aria-label="切换项目">
         <FolderOutlined class="sb-project-trigger__icon" />
         <span class="sb-project-trigger__text">
@@ -53,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { DownOutlined, FolderOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { useProjectStore } from '../stores/project'
@@ -63,6 +69,10 @@ import CreateProjectModal from './modal/CreateProjectModal.vue'
 const store = useProjectStore()
 const open = ref(false)
 const query = ref('')
+
+function popupContainer() {
+  return document.body
+}
 
 function shortId(id: string) {
   const compact = id.replace(/-/g, '')
@@ -112,8 +122,9 @@ function selectFirst() {
   if (first) select(first)
 }
 
-function openCreate() {
+async function openCreate() {
   open.value = false
+  await nextTick()
   store.openCreateModal()
 }
 
@@ -202,7 +213,7 @@ onMounted(() => {
   padding: 8px 10px;
   border: 0;
   border-radius: var(--sb-radius-sm);
-  background: transparent;
+  background: var(--sb-surface);
   cursor: pointer;
   text-align: left;
 }
@@ -236,5 +247,15 @@ onMounted(() => {
   .sb-project-trigger {
     max-width: 160px;
   }
+}
+</style>
+<style>
+.sb-project-dropdown {
+  z-index: 1050;
+}
+.sb-project-dropdown,
+.sb-project-dropdown .ant-dropdown-menu,
+.sb-project-dropdown .sb-project-panel {
+  background: var(--sb-surface);
 }
 </style>
