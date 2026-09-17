@@ -1,41 +1,53 @@
 <template>
   <div class="docs-wiki">
-    <div class="docs-wiki-head">
-      <h1 class="docs-wiki-title">使用文档</h1>
-      <p class="docs-wiki-sub">产品使用说明（只读 Wiki）</p>
+    <div v-if="!docCatalog.length" class="docs-error">
+      <a-result status="warning" title="未能加载文档">
+        <template #subTitle>
+          Vite 未匹配到仓库 <code>docs/&lt;module&gt;/*.md</code>
+          （已扫描 {{ loadedMarkdownCount }} 个文件）。请确认源文件存在后重新构建。
+        </template>
+      </a-result>
     </div>
 
-    <DocsModuleTabs v-model="moduleId" :modules="docCatalog" />
+    <template v-else>
+      <DocsModuleTabs v-model="moduleId" :modules="docCatalog" />
 
-    <div class="docs-wiki-body">
-      <template v-if="!isMobile">
-        <DocsSidebar
-          v-if="currentModule"
+      <div class="docs-wiki-body">
+        <template v-if="!isMobile">
+          <DocsSidebar
+            v-if="currentModule"
+            :module-id="currentModule.id"
+            :module-title="currentModule.title"
+            :pages="currentModule.pages"
+            :active-slug="slug"
+          />
+        </template>
+        <a-select
+          v-else-if="currentModule"
+          class="docs-mobile-pages"
+          :value="slug"
+          style="width: 100%; margin-bottom: 12px"
+          :options="pageOptions"
+          @change="onMobilePage"
+        />
+
+        <DocsArticle
+          v-if="currentModule && currentPage"
           :module-id="currentModule.id"
           :module-title="currentModule.title"
-          :pages="currentModule.pages"
-          :active-slug="slug"
+          :page="currentPage"
+          :prev="prevPage"
+          :next="nextPage"
         />
-      </template>
-      <a-select
-        v-else-if="currentModule"
-        class="docs-mobile-pages"
-        :value="slug"
-        style="width: 100%; margin-bottom: 12px"
-        :options="pageOptions"
-        @change="onMobilePage"
-      />
-
-      <DocsArticle
-        v-if="currentModule && currentPage"
-        :module-id="currentModule.id"
-        :module-title="currentModule.title"
-        :page="currentPage"
-        :prev="prevPage"
-        :next="nextPage"
-      />
-      <a-empty v-else description="未找到文档" />
-    </div>
+        <div v-else class="docs-error">
+          <a-result
+            status="404"
+            title="未找到文档"
+            :sub-title="missingHint"
+          />
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -50,7 +62,8 @@ import {
   defaultModuleId,
   defaultSlug,
   getModule,
-  getPage
+  getPage,
+  loadedMarkdownCount
 } from '../docs/catalog'
 
 const route = useRoute()
@@ -87,7 +100,16 @@ const nextPage = computed(() => {
   return pages[pageIndex.value + 1]
 })
 
+const missingHint = computed(() => {
+  const m = (route.params.module as string) || ''
+  const s = (route.params.slug as string) || ''
+  if (m && s) return `没有文档 ${m}/${s}`
+  if (m) return `没有模块 ${m}`
+  return '请从左侧选择一篇文档'
+})
+
 function syncFromRoute() {
+  if (!docCatalog.length) return
   const m = (route.params.module as string) || defaultModuleId()
   const s = (route.params.slug as string) || defaultSlug(m)
   if (!getModule(m)) {
@@ -124,41 +146,30 @@ function onMobilePage(v: unknown) {
 
 <style scoped>
 .docs-wiki {
-  background: var(--sb-surface, #faf9f5);
-  border: 1px solid var(--sb-border, #e8e6e0);
-  border-radius: 10px;
-  padding: 16px 20px 8px;
-  min-height: calc(100vh - 140px);
-}
-.docs-wiki-head {
-  margin-bottom: 8px;
-}
-.docs-wiki-title {
-  margin: 0;
-  font-size: 22px;
-  font-family: var(--sb-font-serif, Georgia, serif);
-}
-.docs-wiki-sub {
-  margin: 4px 0 12px;
-  color: var(--sb-text-secondary, #6b7280);
-  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--sb-header-height, 56px));
+  background: var(--sb-surface, #ffffff);
 }
 .docs-wiki-body {
   display: flex;
   align-items: flex-start;
   gap: 0;
-  padding-top: 12px;
+  flex: 1;
+  min-height: 0;
 }
 .docs-mobile-pages {
   margin-bottom: 8px;
 }
+.docs-error {
+  flex: 1;
+  padding: 24px 16px 48px;
+}
 
 @media (max-width: 768px) {
-  .docs-wiki {
-    padding: 12px;
-  }
   .docs-wiki-body {
     flex-direction: column;
+    padding: 0 12px 24px;
   }
 }
 </style>

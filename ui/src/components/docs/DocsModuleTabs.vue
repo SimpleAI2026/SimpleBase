@@ -31,9 +31,10 @@ defineEmits<{
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  padding: 0 0 12px;
+  padding: 12px 20px 0;
   border-bottom: 1px solid var(--sb-border, #e8e6e0);
   margin-bottom: 0;
+  background: var(--sb-surface, #ffffff);
 }
 .docs-module-tab {
   border: 1px solid transparent;
