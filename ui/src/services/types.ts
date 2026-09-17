@@ -178,6 +178,7 @@ export interface LlmStreamConnection {
 export interface Api {
   projects: {
     list: () => Promise<ProjectItem[]>
+    create: (req: { name: string; id?: string }) => Promise<ProjectItem>
   }
   metrics: {
     summary: () => Promise<MetricsSummary>

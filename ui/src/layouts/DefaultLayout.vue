@@ -46,6 +46,7 @@
           </a-breadcrumb>
         </div>
         <div class="sb-header-right">
+          <GlobalProjectSwitcher />
           <a-tag v-if="isMock" color="orange" class="sb-mock-tag">Mock 数据</a-tag>
           <a-tooltip v-if="authStore.lastUnauthorizedAt > 0" title="API Key 无效，点击配置">
             <a-badge dot status="error">
@@ -86,6 +87,7 @@ import { isMock } from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import NavMenu from '../components/NavMenu.vue'
 import ApiKeyDrawer from '../components/ApiKeyDrawer.vue'
+import GlobalProjectSwitcher from '../components/GlobalProjectSwitcher.vue'
 import router from '../router'
 
 const collapsed = ref(false)

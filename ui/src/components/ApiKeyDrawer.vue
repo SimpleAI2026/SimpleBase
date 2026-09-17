@@ -15,8 +15,8 @@
       style="margin-bottom: 16px"
     />
     <a-form layout="vertical">
-      <a-form-item label="项目 ID" help="后端暂无项目列表接口，需手工输入并本地记忆">
-        <a-input v-model:value="projectId" @press-enter="saveProject" />
+      <a-form-item label="当前项目" help="请在右上角切换或创建项目">
+        <a-input :value="projectLabel" disabled />
       </a-form-item>
       <a-form-item label="API Key" help="存储于浏览器 localStorage，刷新后保留">
         <a-input-password v-model:value="key" placeholder="sb_live_..." @press-enter="saveKey" />
@@ -52,26 +52,25 @@ const open = computed({
 
 const unauthorized = computed(() => authStore.lastUnauthorizedAt > 0)
 
-const projectId = ref(projectStore.projectId)
 const key = ref(authStore.apiKey)
+const projectLabel = computed(() => {
+  const name = projectStore.displayName
+  const id = projectStore.id
+  if (!id) return '未选择'
+  return name && name !== id ? `${name}（${id}）` : id
+})
 
 watch(open, (v) => {
   if (v) {
-    projectId.value = projectStore.projectId
     key.value = getApiKey()
   }
 })
-
-function saveProject() {
-  if (projectId.value.trim()) projectStore.setProject(projectId.value)
-}
 
 function saveKey() {
   if (key.value.trim()) authStore.updateKey(key.value)
 }
 
 function saveAll() {
-  saveProject()
   saveKey()
   message.success('设置已保存')
   authStore.closeDrawer()

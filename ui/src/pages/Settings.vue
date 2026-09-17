@@ -1,4 +1,5 @@
 <template>
+  <ProjectScope>
   <PageContainer title="设置" subtitle="主题、默认模型与厂商 API Key（本地存储，后端凭证接口未就绪）">
     <a-alert
       type="info"
@@ -21,9 +22,6 @@
     </a-card>
 
     <a-card class="sb-card" title="模型默认值">
-      <div class="sb-toolbar" style="margin-bottom: 12px">
-        <ProjectPicker />
-      </div>
       <a-form layout="vertical" style="max-width: 520px">
         <a-form-item label="默认供应商">
           <a-select
@@ -138,13 +136,14 @@
       </a-form>
     </a-drawer>
   </PageContainer>
+  </ProjectScope>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import PageContainer from '../components/PageContainer.vue'
-import ProjectPicker from '../components/ProjectPicker.vue'
+import ProjectScope from '../components/ProjectScope.vue'
 import { LLM_PROVIDER_PRESETS, getProviderPreset, maskSecret } from '../constants/llmProviders'
 import type { LlmProviderFieldKey } from '../constants/llmProviders'
 import { useProjectStore } from '../stores/project'

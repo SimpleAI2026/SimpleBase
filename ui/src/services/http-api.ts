@@ -181,7 +181,11 @@ export const httpApi: Api = {
       http.get('/v1/projects').then((r) => {
         const list = Array.isArray(r.data?.projects) ? r.data.projects : []
         return list.map(toProjectItem)
-      })
+      }),
+    create: (req) =>
+      http.post('/v1/projects', { name: req.name, id: req.id || undefined }).then((r) =>
+        toProjectItem(r.data)
+      )
   },
   metrics: {
     // 注意：后端无 /metrics/summary 与 /metrics/trend 路由（proto-http.md §3.8），

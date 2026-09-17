@@ -1,8 +1,8 @@
 <template>
+  <ProjectScope>
   <PageContainer title="S3 对象存储" subtitle="对象的上传、浏览与删除">
     <a-card class="sb-card">
       <div class="sb-toolbar">
-        <ProjectPicker />
         <a-input
           v-model:value="prefix"
           style="min-width: 200px"
@@ -68,6 +68,7 @@
       </a-table>
     </a-card>
   </PageContainer>
+  </ProjectScope>
 </template>
 
 <script setup lang="ts">
@@ -90,7 +91,7 @@ import { formatBytes, formatTime } from '../utils/format'
 import { getApiKey } from '../services/http'
 import { baseURL } from '../services/http'
 import PageContainer from '../components/PageContainer.vue'
-import ProjectPicker from '../components/ProjectPicker.vue'
+import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 
 const columns = [

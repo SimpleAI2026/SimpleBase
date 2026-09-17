@@ -17,6 +17,7 @@
 | `ui-settings-chat-plan.md` | 设置页（模型/主题/厂商 Key）+ 通用 AiChat 组件；**本轮仅计划与契约，不写代码** |
 | [`databases-and-s3-plan.md`](./databases-and-s3-plan.md) | 数据库 DuckLake-only + 用户 S3（AWS 协议）后端收敛计划（本轮只规划） |
 | [`ui-databases-console-plan.md`](./ui-databases-console-plan.md) | 数据库管理页合一：SQL 工作台 + 集合/文档弹窗（已实现） |
+| [`ui-global-project-plan.md`](./ui-global-project-plan.md) | 顶栏全局项目切换 + 创建项目（已实现） |
 
 > 阅读顺序建议：本文（全局与阶段） → `ui-principles.md`（写代码时的判据） → `proto-http.md` / `proto.http`（接接口时的契约）。
 
