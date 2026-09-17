@@ -1,12 +1,11 @@
 <template>
   <a-config-provider :theme="antdTheme">
-    <DefaultLayout />
+    <router-view />
   </a-config-provider>
 </template>
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { theme as antdThemeApi } from 'ant-design-vue'
-import DefaultLayout from './layouts/DefaultLayout.vue'
 import { antdDarkThemeToken, antdThemeToken } from './styles/tokens'
 import { useSettingsStore } from './stores/settings'
 

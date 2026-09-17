@@ -33,11 +33,12 @@ function pageTo(slug: string) {
 
 <style scoped>
 .docs-sidebar {
-  width: 240px;
+  width: 260px;
   flex-shrink: 0;
-  padding: 16px 12px 24px 0;
+  padding: 16px 12px 32px 16px;
   border-right: 1px solid var(--sb-border, #e8e6e0);
-  min-height: 360px;
+  min-height: calc(100vh - 120px);
+  background: var(--sb-surface-hover, #faf9f5);
 }
 .docs-sidebar-title {
   font-size: 12px;

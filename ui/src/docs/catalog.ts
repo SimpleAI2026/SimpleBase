@@ -1,4 +1,4 @@
-import metaJson from '@docs/_meta.json'
+import metaJson from '../../../docs/_meta.json'
 
 export interface DocPage {
   moduleId: string
@@ -22,12 +22,18 @@ type MetaFile = {
 
 const meta = metaJson as MetaFile
 
-/** Eager raw load of all markdown under repo docs/ (via @docs alias). */
-const rawModules = import.meta.glob('@docs/**/*.md', {
+/**
+ * Vite `import.meta.glob` only accepts relative (`./` `../`) or project-root
+ * (`/`) patterns — aliases like `@docs/**` are silently empty.
+ * Path is from this file (`ui/src/docs/`) up to repo `docs/`.
+ */
+const rawModules = import.meta.glob('../../../docs/**/*.md', {
   query: '?raw',
   import: 'default',
   eager: true
 }) as Record<string, string>
+
+export const loadedMarkdownCount = Object.keys(rawModules).length
 
 function parseFrontmatter(raw: string): { data: Record<string, string | number>; body: string } {
   if (!raw.startsWith('---')) return { data: {}, body: raw }
@@ -64,7 +70,6 @@ function docsRelPath(globKey: string): string | null {
   const key = toPosix(globKey)
   const idx = key.lastIndexOf('/docs/')
   if (idx >= 0) return key.slice(idx + '/docs/'.length)
-  // alias form may be @docs/...
   const at = key.indexOf('@docs/')
   if (at >= 0) return key.slice(at + '@docs/'.length)
   return null
@@ -143,17 +148,17 @@ export function defaultSlug(moduleId: string): string {
   return idx?.slug || mod.pages[0].slug
 }
 
-export function loadMarkdownRaw(filePath: string): string {
+/** Markdown body without frontmatter, or null if the glob did not include the file. */
+export function loadMarkdownRaw(filePath: string): string | null {
   for (const [key, raw] of Object.entries(rawModules)) {
     const rel = docsRelPath(key)
     if (rel === filePath) {
       return parseFrontmatter(raw).body
     }
   }
-  return ''
+  return null
 }
 
 export function githubBlobUrl(filePath: string): string {
-  // keep in sync with DefaultLayout GitHub link host/org
   return `https://github.com/linkxzhou/SimpleBase/blob/main/docs/${filePath}`
 }

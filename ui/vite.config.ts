@@ -20,12 +20,18 @@ export default defineConfig({
   server: {
     port: 5173,
     fs: {
-      allow: [rootDir]
+      // repo-root docs/ lives outside Vite root (ui/)
+      allow: [rootDir, docsDir]
     },
     proxy: {
       '/v1': { target: apiTarget, changeOrigin: true },
       '/health': { target: apiTarget, changeOrigin: true },
       '/ws': { target: wsTarget, changeOrigin: true, ws: true }
+    }
+  },
+  preview: {
+    fs: {
+      allow: [rootDir, docsDir]
     }
   }
 })

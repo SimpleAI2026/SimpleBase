@@ -1,73 +1,91 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
+import DefaultLayout from '../layouts/DefaultLayout.vue'
+import DocsLayout from '../layouts/DocsLayout.vue'
 
 /**
  * 路由元信息单一数据源：页面标题、菜单名、图标全部收敛到 meta。
  * NavMenu 遍历路由渲染（跳过 hidden），DefaultLayout 从 meta 取面包屑标题。
  * hidden：后端能力未就绪时隐藏入口（FaaS：后端无此模块）。
+ *
+ * 控制台与文档站拆布局：App.vue 只挂 <router-view />，
+ * 控制台子路由走 DefaultLayout（侧栏 + 项目切换），文档子路由走 DocsLayout。
  */
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    name: 'dashboard',
-    component: () => import('../pages/Dashboard.vue'),
-    meta: { title: '监控大盘' }
-  },
-  {
-    path: '/databases',
-    name: 'databases',
-    component: () => import('../pages/Databases.vue'),
-    meta: { title: '数据库管理' }
-  },
-  { path: '/sql', redirect: '/databases' },
-  { path: '/data', redirect: '/databases' },
-  {
-    path: '/s3',
-    name: 's3',
-    component: () => import('../pages/S3Manager.vue'),
-    meta: { title: 'S3 对象存储' }
-  },
-  {
-    path: '/faas',
-    name: 'faas',
-    component: () => import('../pages/FaaSManager.vue'),
-    meta: { title: '云函数', hidden: true }
-  },
-  {
-    path: '/agents',
-    name: 'agents',
-    component: () => import('../pages/AgentManager.vue'),
-    meta: { title: 'Cloud Agent' }
-  },
-  { path: '/llm', redirect: '/agents' },
-  {
-    path: '/settings',
-    name: 'settings',
-    component: () => import('../pages/Settings.vue'),
-    meta: { title: '设置' }
+    component: DefaultLayout,
+    children: [
+      {
+        path: '',
+        name: 'dashboard',
+        component: () => import('../pages/Dashboard.vue'),
+        meta: { title: '监控大盘' }
+      },
+      {
+        path: 'databases',
+        name: 'databases',
+        component: () => import('../pages/Databases.vue'),
+        meta: { title: '数据库管理' }
+      },
+      { path: 'sql', redirect: '/databases' },
+      { path: 'data', redirect: '/databases' },
+      {
+        path: 's3',
+        name: 's3',
+        component: () => import('../pages/S3Manager.vue'),
+        meta: { title: 'S3 对象存储' }
+      },
+      {
+        path: 'faas',
+        name: 'faas',
+        component: () => import('../pages/FaaSManager.vue'),
+        meta: { title: '云函数', hidden: true }
+      },
+      {
+        path: 'agents',
+        name: 'agents',
+        component: () => import('../pages/AgentManager.vue'),
+        meta: { title: 'Cloud Agent' }
+      },
+      { path: 'llm', redirect: '/agents' },
+      {
+        path: 'settings',
+        name: 'settings',
+        component: () => import('../pages/Settings.vue'),
+        meta: { title: '设置' }
+      },
+      {
+        path: 'logs',
+        name: 'logs',
+        component: () => import('../pages/Logs.vue'),
+        meta: { title: '日志管理' }
+      }
+    ]
   },
   {
     path: '/docs',
-    name: 'docs',
-    component: () => import('../pages/DocsWiki.vue'),
-    meta: { title: '使用文档', hidden: true }
-  },
-  {
-    path: '/docs/:module',
-    name: 'docs-module',
-    component: () => import('../pages/DocsWiki.vue'),
-    meta: { title: '使用文档', hidden: true }
-  },
-  {
-    path: '/docs/:module/:slug',
-    name: 'docs-page',
-    component: () => import('../pages/DocsWiki.vue'),
-    meta: { title: '使用文档', hidden: true }
-  },
-  {
-    path: '/logs',
-    name: 'logs',
-    component: () => import('../pages/Logs.vue'),
-    meta: { title: '日志管理' }
+    component: DocsLayout,
+    meta: { title: '使用文档', hidden: true },
+    children: [
+      {
+        path: '',
+        name: 'docs',
+        component: () => import('../pages/DocsWiki.vue'),
+        meta: { title: '使用文档', hidden: true }
+      },
+      {
+        path: ':module',
+        name: 'docs-module',
+        component: () => import('../pages/DocsWiki.vue'),
+        meta: { title: '使用文档', hidden: true }
+      },
+      {
+        path: ':module/:slug',
+        name: 'docs-page',
+        component: () => import('../pages/DocsWiki.vue'),
+        meta: { title: '使用文档', hidden: true }
+      }
+    ]
   }
 ]
 

@@ -18,7 +18,13 @@
         在 GitHub 上查看
       </a>
     </div>
-    <div class="docs-md" v-html="html" />
+    <div v-if="loadError" class="docs-missing">
+      <a-result status="warning" :title="loadError" sub-title="源文件未打进前端产物，页面不会空白。" />
+    </div>
+    <div v-else-if="!html" class="docs-missing">
+      <a-result status="info" title="这篇文档没有正文" :sub-title="`docs/${page.filePath}`" />
+    </div>
+    <div v-else class="docs-md" v-html="html" />
     <div v-if="prev || next" class="docs-pager">
       <router-link v-if="prev" class="docs-pager-link" :to="linkFor(prev.slug)">
         ← {{ prev.title }}
@@ -46,9 +52,20 @@ const props = defineProps<{
 }>()
 
 const title = computed(() => props.page.title)
-const html = computed(() =>
-  renderMarkdown(loadMarkdownRaw(props.page.filePath), props.moduleId)
+const raw = computed(() => loadMarkdownRaw(props.page.filePath))
+const loadError = computed(() =>
+  raw.value == null ? `文档文件缺失：docs/${props.page.filePath}` : null
 )
+const html = computed(() => {
+  if (raw.value == null) return ''
+  if (!raw.value.trim()) return ''
+  try {
+    return renderMarkdown(raw.value, props.moduleId)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return `<p>文档渲染失败：${msg}</p>`
+  }
+})
 const githubUrl = computed(() => githubBlobUrl(props.page.filePath))
 
 function linkFor(slug: string) {
@@ -79,6 +96,9 @@ function linkFor(slug: string) {
 }
 .docs-github:hover {
   color: var(--sb-primary, #d97757);
+}
+.docs-missing {
+  padding: 24px 0 48px;
 }
 .docs-pager {
   display: flex;
