@@ -56,8 +56,19 @@
           <a-tooltip v-else title="连接设置">
             <SettingOutlined class="sb-icon-link" @click="authStore.openDrawer()" />
           </a-tooltip>
+          <a-tooltip title="使用文档">
+            <router-link
+              to="/docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="sb-icon-link sb-docs-link"
+            >
+              <ReadOutlined />
+              <span class="sb-docs-link-text">使用文档</span>
+            </router-link>
+          </a-tooltip>
           <a-tooltip title="GitHub">
-            <a href="https://github.com/voocel/SimpleBase" target="_blank" class="sb-icon-link">
+            <a href="https://github.com/linkxzhou/SimpleBase" target="_blank" class="sb-icon-link">
               <GithubOutlined />
             </a>
           </a-tooltip>
@@ -82,7 +93,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { GithubOutlined, ReloadOutlined, MenuOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import { GithubOutlined, ReloadOutlined, MenuOutlined, SettingOutlined, ReadOutlined } from '@ant-design/icons-vue'
 import { isMock } from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import NavMenu from '../components/NavMenu.vue'
@@ -240,6 +251,26 @@ function reload() {
   .sb-content {
     margin: 10px auto;
     padding: 0 10px;
+  }
+}
+</style>
+
+<style scoped>
+.sb-docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+.sb-docs-link.active {
+  color: var(--sb-primary, #d97757);
+}
+.sb-docs-link-text {
+  font-size: 13px;
+}
+@media (max-width: 768px) {
+  .sb-docs-link-text {
+    display: none;
   }
 }
 </style>

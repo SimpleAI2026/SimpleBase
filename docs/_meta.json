@@ -1,0 +1,8 @@
+{
+  "modules": [
+    { "id": "getting-started", "title": "入门", "order": 1 },
+    { "id": "database", "title": "数据库", "order": 2 },
+    { "id": "ops", "title": "运维", "order": 3 },
+    { "id": "sdk", "title": "JS SDK", "order": 4 }
+  ]
+}

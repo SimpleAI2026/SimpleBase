@@ -46,6 +46,24 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '设置' }
   },
   {
+    path: '/docs',
+    name: 'docs',
+    component: () => import('../pages/DocsWiki.vue'),
+    meta: { title: '使用文档', hidden: true }
+  },
+  {
+    path: '/docs/:module',
+    name: 'docs-module',
+    component: () => import('../pages/DocsWiki.vue'),
+    meta: { title: '使用文档', hidden: true }
+  },
+  {
+    path: '/docs/:module/:slug',
+    name: 'docs-page',
+    component: () => import('../pages/DocsWiki.vue'),
+    meta: { title: '使用文档', hidden: true }
+  },
+  {
     path: '/logs',
     name: 'logs',
     component: () => import('../pages/Logs.vue'),

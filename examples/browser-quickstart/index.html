@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>SimpleBase SDK browser quickstart</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+      label { display: block; margin-top: 0.75rem; font-size: 0.85rem; color: #444; }
+      input { width: 100%; padding: 0.4rem; box-sizing: border-box; }
+      button { margin-top: 1rem; padding: 0.5rem 1rem; }
+      pre { background: #111; color: #eee; padding: 1rem; overflow: auto; font-size: 12px; }
+      .warn { color: #a40; font-size: 0.9rem; }
+    </style>
+  </head>
+  <body>
+    <h1>@simplebase/sdk</h1>
+    <p class="warn">
+      浏览器暴露 API Key = 该 Key 的全部权限。仅用只读 Key 做演示；生产请走后端 BFF。
+    </p>
+    <label>API URL <input id="url" value="http://127.0.0.1:8080" /></label>
+    <label>API Key <input id="key" value="sb_live_dev_key_12345" /></label>
+    <label>Project ID <input id="project" value="00000000-0000-0000-0000-000000000002" /></label>
+    <label>Database ID（可选） <input id="db" placeholder="leave empty to pick first" /></label>
+    <button id="run">List databases + SELECT 1</button>
+    <pre id="out">Ready.</pre>
+    <script type="module">
+      // After yarn build in packages/js-sdk, serve this folder and import the ESM build:
+      // For local file:// you need a static server that can resolve the relative path.
+      import { createClient } from '../../packages/js-sdk/dist/index.js'
+
+      const out = document.getElementById('out')
+      document.getElementById('run').onclick = async () => {
+        out.textContent = '…'
+        try {
+          const sb = createClient({
+            url: document.getElementById('url').value.trim(),
+            apiKey: document.getElementById('key').value.trim(),
+            projectId: document.getElementById('project').value.trim(),
+            databaseId: document.getElementById('db').value.trim() || undefined
+          })
+          const list = await sb.databases.list()
+          const dbId =
+            document.getElementById('db').value.trim() || list.databases?.[0]?.id
+          let query = null
+          if (dbId) {
+            query = await sb.database(dbId).sql.query('SELECT 1 AS one')
+          }
+          out.textContent = JSON.stringify({ databases: list, query }, null, 2)
+        } catch (e) {
+          out.textContent = String(e?.stack || e)
+        }
+      }
+    </script>
+  </body>
+</html>

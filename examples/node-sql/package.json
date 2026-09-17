@@ -1,0 +1,15 @@
+{
+  "name": "simplebase-example-node-sql",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts"
+  },
+  "dependencies": {
+    "@simplebase/sdk": "file:../../packages/js-sdk"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.3.3"
+  }
+}
