@@ -143,6 +143,36 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 	return out, rows.Err()
 }
 
+// LogLevelCount 是按级别聚合的条数。
+type LogLevelCount struct {
+	Level string
+	Count int64
+}
+
+// LogLevelStats 按 level 计数当前项目（含 project_id 为空的全局行）。
+func (s *Store) LogLevelStats(ctx context.Context, projectID string) ([]LogLevelCount, error) {
+	if s == nil || s.db == nil {
+		return nil, ErrUnavailable
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT level, COUNT(*) FROM sys_log_events
+		 WHERE project_id = ? OR project_id IS NULL
+		 GROUP BY level ORDER BY level`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]LogLevelCount, 0)
+	for rows.Next() {
+		var c LogLevelCount
+		if err := rows.Scan(&c.Level, &c.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // GetRetention 读取保留策略；缺省 14 天。
 func (s *Store) GetRetention(ctx context.Context, projectID string) (Retention, error) {
 	if s == nil || s.db == nil {

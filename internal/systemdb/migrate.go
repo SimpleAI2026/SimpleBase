@@ -297,6 +297,68 @@ var systemMigrations = []migration{
 			finished_at TIMESTAMP
 		)`,
 	},
+	{
+		version: 22,
+		name:    "sys_cloud_agents",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_cloud_agents (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			module VARCHAR NOT NULL,
+			description VARCHAR NOT NULL,
+			system_prompt VARCHAR NOT NULL,
+			tool_ids VARCHAR NOT NULL,
+			model_override VARCHAR NOT NULL,
+			team_enabled BIGINT NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`,
+	},
+	{
+		version: 23,
+		name:    "sys_agent_threads",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_agent_threads (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			title VARCHAR NOT NULL,
+			created_by VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`,
+	},
+	{
+		version: 24,
+		name:    "sys_agent_messages",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_agent_messages (
+			id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			role VARCHAR NOT NULL,
+			content VARCHAR NOT NULL,
+			agent_id VARCHAR NOT NULL,
+			mentions_json VARCHAR NOT NULL,
+			tool_calls_json VARCHAR NOT NULL,
+			run_id VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL
+		)`,
+	},
+	{
+		version: 25,
+		name:    "sys_agent_runs",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_agent_runs (
+			id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			agent_id VARCHAR NOT NULL,
+			status VARCHAR NOT NULL,
+			error VARCHAR NOT NULL,
+			started_at TIMESTAMP,
+			finished_at TIMESTAMP,
+			created_at TIMESTAMP NOT NULL
+		)`,
+	},
 }
 
 // ApplySystemMigrations 按版本顺序应用全部系统表。可重复执行。

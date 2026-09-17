@@ -36,6 +36,13 @@
           <RobotOutlined v-else />
         </span>
         <div class="ai-bubble">
+          <div v-if="m.toolCalls?.length" class="ai-tool-cards">
+            <div v-for="(t, ti) in m.toolCalls" :key="ti" class="ai-tool-card">
+              <span class="ai-tool-name">{{ t.name || 'tool' }}</span>
+              <pre v-if="t.arguments">{{ t.arguments }}</pre>
+              <pre v-if="t.content">{{ t.content }}</pre>
+            </div>
+          </div>
           <pre>{{ m.content }}<span v-if="sending && streaming && i === messages.length - 1" class="ai-cursor">▍</span></pre>
         </div>
       </div>
@@ -46,6 +53,7 @@
       :sending="sending"
       :disabled="disabled"
       :placeholder="placeholder"
+      :mention-agents="mentionAgents"
       @send="onSend"
       @stop="stop"
     />
@@ -53,11 +61,13 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { RobotOutlined, UserOutlined } from '@ant-design/icons-vue'
 import SbEmptyState from '../SbEmptyState.vue'
 import AiChatComposer from './AiChatComposer.vue'
+import type { MentionAgent } from './AiChatComposer.vue'
 import { useAiChat } from '../../composables/useAiChat'
+import type { ChatMsg } from '../../composables/useAiChat'
 
 const props = withDefaults(
   defineProps<{
@@ -68,13 +78,18 @@ const props = withDefaults(
     disabled?: boolean
     showToolbar?: boolean
     modelOptions?: { label: string; value: string }[]
+    mentionAgents?: MentionAgent[]
+    customSend?: (text: string, mentions: { agent_id: string }[]) => Promise<void>
+    messages?: ChatMsg[]
+    sending?: boolean
   }>(),
   {
     streaming: true,
-    placeholder: '输入消息，Enter 发送，Shift+Enter 换行',
+    placeholder: '输入消息，Enter 发送，Shift+Enter 换行；输入 @ 点名 Agent',
     disabled: false,
     showToolbar: true,
-    modelOptions: () => []
+    modelOptions: () => [],
+    mentionAgents: () => []
   }
 )
 
@@ -83,6 +98,7 @@ const emit = defineEmits<{
   (e: 'update:streaming', v: boolean): void
   (e: 'sent', payload: { role: string; content: string }): void
   (e: 'finished'): void
+  (e: 'stop'): void
 }>()
 
 const draft = ref('')
@@ -94,21 +110,36 @@ const chat = useAiChat({
   streaming: () => props.streaming !== false
 })
 
-const { messages, sending, send, stop, clear } = chat
+const messages = computed(() => props.messages || chat.messages.value)
+const sending = computed(() => (props.customSend ? !!props.sending : chat.sending.value))
 
-async function onSend() {
+async function onSend(mentions: { agent_id: string }[] = []) {
   const text = draft.value
   if (!text.trim()) return
   draft.value = ''
   emit('sent', { role: 'user', content: text.trim() })
-  await send(text)
+  if (props.customSend) {
+    await props.customSend(text, mentions)
+  } else {
+    await chat.send(text)
+  }
   emit('finished')
+}
+
+function stop() {
+  if (props.customSend) emit('stop')
+  else chat.stop()
+}
+
+function clear() {
+  if (!props.customSend) chat.clear()
 }
 
 watch(
   () => {
-    const last = messages.value[messages.value.length - 1]
-    return `${messages.value.length}:${last?.content.length || 0}`
+    const list = messages.value
+    const last = list[list.length - 1]
+    return `${list.length}:${last?.content.length || 0}`
   },
   async () => {
     await nextTick()
@@ -116,7 +147,7 @@ watch(
   }
 )
 
-defineExpose({ clear, stop, messages })
+defineExpose({ clear, stop, messages: chat.messages })
 </script>
 
 <style scoped>
@@ -187,6 +218,32 @@ defineExpose({ clear, stop, messages })
 .ai-cursor {
   color: var(--sb-primary);
   animation: ai-blink 1s step-end infinite;
+}
+.ai-tool-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.ai-tool-card {
+  border: 1px solid var(--sb-border-soft);
+  background: var(--sb-bg, #fff);
+  border-radius: var(--sb-radius-xs, 6px);
+  padding: 6px 8px;
+}
+.ai-tool-name {
+  font-size: var(--sb-fs-xs);
+  color: var(--sb-primary);
+  font-weight: 600;
+}
+.ai-tool-card pre {
+  margin: 4px 0 0;
+  font-family: var(--sb-font-mono);
+  font-size: var(--sb-fs-xs);
+  white-space: pre-wrap;
+  color: var(--sb-text-secondary);
+  max-height: 120px;
+  overflow: auto;
 }
 @keyframes ai-blink {
   50% {

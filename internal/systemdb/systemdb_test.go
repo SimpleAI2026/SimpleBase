@@ -122,6 +122,43 @@ func TestSQLRepositoryOnSystemSchema(t *testing.T) {
 	if err != nil || st.DefaultModel != "gpt-4o-mini" {
 		t.Fatalf("settings %+v err=%v", st, err)
 	}
+	if err := store.SeedDefaultCloudAgents(ctx, projectID); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := store.ListCloudAgents(ctx, projectID)
+	if err != nil || len(agents) != 3 {
+		t.Fatalf("agents n=%d err=%v", len(agents), err)
+	}
+	if err := store.SeedDefaultCloudAgents(ctx, projectID); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = store.ListCloudAgents(ctx, projectID)
+	if err != nil || len(agents) != 3 {
+		t.Fatalf("agents idempotent n=%d err=%v", len(agents), err)
+	}
+	th, err := store.CreateAgentThread(ctx, AgentThread{ProjectID: projectID, Title: "t1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.CreateAgentRun(ctx, AgentRun{ThreadID: th.ID, ProjectID: projectID, AgentID: agents[0].ID, Status: AgentRunRunning, StartedAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendAgentMessage(ctx, AgentMessage{ThreadID: th.ID, ProjectID: projectID, Role: "user", Content: "list dbs", AgentID: agents[0].ID, RunID: run.ID}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := store.ListAgentMessages(ctx, projectID, th.ID, 10)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("agent msgs n=%d err=%v", len(msgs), err)
+	}
+	obj, err := store.GetS3Object(ctx, projectID, "a.txt")
+	if err != nil || obj.Key != "a.txt" {
+		t.Fatalf("get s3 %+v err=%v", obj, err)
+	}
+	stats, err := store.LogLevelStats(ctx, projectID)
+	if err != nil || len(stats) == 0 {
+		t.Fatalf("log stats %+v err=%v", stats, err)
+	}
 }
 
 func TestBootstrapDuckLake(t *testing.T) {

@@ -283,6 +283,70 @@ Content-Type: application/json
   ]
 }
 
+### =====================================================================
+### 5b. Cloud Agent（§3.12）
+###
+### 替代 LLM 对话页。模型仍走 LLM settings/gateway；agent 表不含厂商密钥。
+### GET /agents 会幂等种子 Database / S3 / Logs 三个默认 agent。
+### =====================================================================
+
+### 5b.1 模块目录 → 200 {"modules":[{id,name,default_tools,team_supported}]}
+GET {{host}}/v1/projects/{{project}}/agents/modules
+Authorization: {{auth}}
+
+### 5b.2 列出 agents（首次会种子 3 个默认 agent）→ 200 {"agents":[...]}
+GET {{host}}/v1/projects/{{project}}/agents
+Authorization: {{auth}}
+
+### 5b.3 创建 agent → 201 CloudAgent
+POST {{host}}/v1/projects/{{project}}/agents
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "name": "Analytics",
+  "module": "database",
+  "description": "Readonly SQL helper",
+  "system_prompt": "Be concise.",
+  "tool_ids": ["list_databases", "list_collections", "readonly_sql"],
+  "team_enabled": false
+}
+
+### 5b.4 创建会话 → 201 {"id","title","created_at","updated_at"}
+POST {{host}}/v1/projects/{{project}}/agent-threads
+Authorization: {{auth}}
+Content-Type: application/json
+
+{
+  "title": "Cloud Agent"
+}
+
+### 5b.5 非流式 run（把 thread id / agent id 填到路径与 mentions）
+# POST {{host}}/v1/projects/{{project}}/agent-threads/REPLACE_THREAD_ID/runs
+# Authorization: {{auth}}
+# Content-Type: application/json
+#
+# {
+#   "content": "列出本项目的数据库",
+#   "mentions": [{ "agent_id": "REPLACE_AGENT_ID" }],
+#   "stream": false
+# }
+
+### 5b.6 流式 run（SSE：run / token / tool_call / tool_result / end）
+# POST {{host}}/v1/projects/{{project}}/agent-threads/REPLACE_THREAD_ID/runs
+# Authorization: {{auth}}
+# Content-Type: application/json
+#
+# {
+#   "content": "@Database 有哪些表？",
+#   "mentions": [{ "agent_id": "REPLACE_AGENT_ID" }],
+#   "stream": true
+# }
+
+### 5b.7 取消 run
+# POST {{host}}/v1/projects/{{project}}/agent-runs/REPLACE_RUN_ID/cancel
+# Authorization: {{auth}}
+
 ### 5.4 空 messages 演示 → 实际返回 500 internal_error（不是 400，见 proto-http.md §6.3）
 POST {{host}}/v1/projects/{{project}}/llm/chat
 Authorization: {{auth}}

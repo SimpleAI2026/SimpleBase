@@ -118,6 +118,34 @@ func (s *Store) ListS3Objects(ctx context.Context, projectID, prefix string, lim
 	return out, rows.Err()
 }
 
+// GetS3Object 按项目内相对 key 取未删除对象。
+func (s *Store) GetS3Object(ctx context.Context, projectID, key string) (S3Object, error) {
+	if s == nil || s.db == nil {
+		return S3Object{}, ErrUnavailable
+	}
+	var o S3Object
+	var lastMod sql.NullTime
+	var deleted sql.NullTime
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, project_id, object_key, size, etag, content_type, last_modified, created_at, deleted_at
+		 FROM sys_s3_objects WHERE project_id = ? AND object_key = ? AND deleted_at IS NULL`,
+		projectID, key).Scan(&o.ID, &o.ProjectID, &o.Key, &o.Size, &o.ETag, &o.ContentType, &lastMod, &o.CreatedAt, &deleted)
+	if errors.Is(err, sql.ErrNoRows) {
+		return S3Object{}, sql.ErrNoRows
+	}
+	if err != nil {
+		return S3Object{}, err
+	}
+	if lastMod.Valid {
+		o.LastModified = lastMod.Time
+	}
+	if deleted.Valid {
+		t := deleted.Time
+		o.DeletedAt = &t
+	}
+	return o, nil
+}
+
 // RefreshS3Index 用平面 A List 对账并更新表。
 func (s *Store) RefreshS3Index(ctx context.Context, projectID string, listed []objectstore.FileObject) (inserted, removed int, err error) {
 	if s == nil || s.db == nil {

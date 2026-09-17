@@ -64,7 +64,47 @@ const state = {
     { name: 'resize-image', version: 'v1.4.2', runtime: 'node20', updatedAt: now() },
     { name: 'daily-report', version: 'v0.9.0', runtime: 'node20', updatedAt: now() },
     { name: 'webhook-relay', version: 'v2.1.0', runtime: 'node20', updatedAt: now() }
-  ]
+  ],
+  agents: [
+    {
+      id: 'ag-db',
+      name: 'Database',
+      module: 'database',
+      description: 'Inspect project databases and run readonly SQL',
+      system_prompt: '',
+      tool_ids: ['list_databases', 'list_collections', 'readonly_sql'],
+      team_enabled: false,
+      created_at: now(),
+      updated_at: now(),
+      _projectId: DEFAULT_PROJECT
+    },
+    {
+      id: 'ag-s3',
+      name: 'S3',
+      module: 's3',
+      description: 'List and inspect project object storage',
+      system_prompt: '',
+      tool_ids: ['list_objects', 'head_object'],
+      team_enabled: false,
+      created_at: now(),
+      updated_at: now(),
+      _projectId: DEFAULT_PROJECT
+    },
+    {
+      id: 'ag-logs',
+      name: 'Logs',
+      module: 'logs',
+      description: 'Search project logs and summarize levels',
+      system_prompt: '',
+      tool_ids: ['search_logs', 'log_level_stats'],
+      team_enabled: false,
+      created_at: now(),
+      updated_at: now(),
+      _projectId: DEFAULT_PROJECT
+    }
+  ],
+  agentThreads: [],
+  agentMessages: {}
 }
 
 /* ---------- Mock API ---------- */
@@ -380,6 +420,141 @@ export const mockApi = {
           }
         }
       }
+    }
+  },
+
+  agents: {
+    async modules() {
+      await delay(80)
+      return [
+        { id: 'database', name: 'Database', description: 'Readonly SQL', default_tools: ['list_databases', 'list_collections', 'readonly_sql'], team_supported: false },
+        { id: 's3', name: 'S3', description: 'List objects', default_tools: ['list_objects', 'head_object'], team_supported: false },
+        { id: 'logs', name: 'Logs', description: 'Search logs', default_tools: ['search_logs', 'log_level_stats'], team_supported: false },
+        { id: 'general', name: 'General', description: 'Custom prompt', default_tools: [], team_supported: false }
+      ]
+    },
+    async list(projectId) {
+      await delay()
+      return state.agents.filter((a) => a._projectId === projectId).map((a) => ({ ...a }))
+    },
+    async create(projectId, body) {
+      await delay()
+      const row = {
+        id: 'ag-' + genId(),
+        name: body.name || 'Agent',
+        module: body.module || 'general',
+        description: body.description || '',
+        system_prompt: body.system_prompt || '',
+        tool_ids: body.tool_ids || [],
+        team_enabled: false,
+        created_at: now(),
+        updated_at: now(),
+        _projectId: projectId
+      }
+      state.agents.push(row)
+      return { ...row }
+    },
+    async get(projectId, agentId) {
+      await delay(80)
+      const row = state.agents.find((a) => a.id === agentId && a._projectId === projectId)
+      if (!row) throw new Error('agent not found')
+      return { ...row }
+    },
+    async patch(projectId, agentId, body) {
+      await delay()
+      const row = state.agents.find((a) => a.id === agentId && a._projectId === projectId)
+      if (!row) throw new Error('agent not found')
+      Object.assign(row, body, { updated_at: now() })
+      return { ...row }
+    },
+    async remove(projectId, agentId) {
+      await delay()
+      state.agents = state.agents.filter((a) => !(a.id === agentId && a._projectId === projectId))
+    }
+  },
+
+  agentThreads: {
+    async list(projectId) {
+      await delay()
+      return state.agentThreads.filter((t) => t._projectId === projectId).map((t) => ({ ...t }))
+    },
+    async create(projectId, title) {
+      await delay()
+      const row = { id: 'th-' + genId(), title: title || 'New thread', created_at: now(), updated_at: now(), _projectId: projectId }
+      state.agentThreads.unshift(row)
+      state.agentMessages[row.id] = []
+      return { ...row }
+    },
+    async get(projectId, threadId) {
+      const row = state.agentThreads.find((t) => t.id === threadId && t._projectId === projectId)
+      if (!row) throw new Error('thread not found')
+      return { ...row }
+    },
+    async remove(projectId, threadId) {
+      state.agentThreads = state.agentThreads.filter((t) => t.id !== threadId)
+    },
+    async messages(projectId, threadId) {
+      await delay()
+      return (state.agentMessages[threadId] || []).map((m) => ({ ...m }))
+    },
+    async run(projectId, threadId, req) {
+      await delay(400)
+      const msgs = state.agentMessages[threadId] || (state.agentMessages[threadId] = [])
+      msgs.push({
+        id: 'm-' + genId(),
+        role: 'user',
+        content: req.content,
+        mentions: req.mentions,
+        created_at: now()
+      })
+      const reply = {
+        id: 'm-' + genId(),
+        role: 'assistant',
+        content: `Mock Cloud Agent（项目 ${projectId}）：已收到「${String(req.content).slice(0, 80)}」`,
+        tool_calls: [{ name: 'list_databases', content: '[{"name":"default"}]' }],
+        created_at: now()
+      }
+      msgs.push(reply)
+      return { run: { id: 'run-' + genId(), thread_id: threadId, agent_id: req.mentions?.[0]?.agent_id, status: 'completed' }, message: reply }
+    },
+    streamRun(projectId, threadId, req, { onToken, onToolCall, onToolResult, onEnd, onError }) {
+      const text = `Mock 流式回复：${String(req.content || '').slice(0, 40)}`
+      const chunks = text.match(/[\s\S]{1,4}/g) || []
+      let i = 0
+      let closed = false
+      onToolCall?.('list_databases', '{}')
+      onToolResult?.('list_databases', '[{"name":"default"}]')
+      const timer = setInterval(() => {
+        if (closed) return
+        if (i >= chunks.length) {
+          clearInterval(timer)
+          closed = true
+          const msgs = state.agentMessages[threadId] || (state.agentMessages[threadId] = [])
+          msgs.push({ id: 'm-' + genId(), role: 'user', content: req.content, mentions: req.mentions, created_at: now() })
+          msgs.push({ id: 'm-' + genId(), role: 'assistant', content: text, created_at: now() })
+          onEnd?.()
+          return
+        }
+        try {
+          onToken?.(chunks[i++])
+        } catch (e) {
+          clearInterval(timer)
+          closed = true
+          onError?.(e)
+        }
+      }, 50)
+      return {
+        close() {
+          if (!closed) {
+            closed = true
+            clearInterval(timer)
+          }
+        }
+      }
+    },
+    async cancel() {
+      await delay(80)
+      return { id: '', thread_id: '', agent_id: '', status: 'canceled' }
     }
   }
 }

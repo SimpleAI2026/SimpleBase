@@ -5,7 +5,7 @@
 > 认证：所有 `/v1/*` 业务路由要求 `Authorization: Bearer <API_KEY>`
 > DevMode 种子凭据：`Authorization: Bearer sb_live_dev_key_12345`，项目 `00000000-0000-0000-0000-000000000002`（展示名「商城后台」），数据库 `default`。系统库 `simplebase-system` 不出现在列表中、不可删除。
 > 可执行样例：同目录 `proto.http`（VS Code REST Client / JetBrains HTTP Client 直接运行）
-> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`
+> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/cloudagent/`
 
 ---
 
@@ -358,6 +358,102 @@ data: {"type":"end"}
 
 > Dashboard 请改调 `GET :p/metrics/summary|trend`（已实现）。旧 `/metrics/summary` 根路径仍不存在。
 
+### 3.12 Cloud Agent（AgentManager 页，替代 LLM 对话）
+
+前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/cloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
+
+权限与 LLM 对齐：读 `DatabaseRead`，写 agent/thread `DatabaseWrite`，**run 与 cancel 为 `DatabaseRead`**（另 `CheckQuota(projectID, "llm")`）。`/llm/*` 保持可用（deprecated）；UI `/llm` → `/agents`。
+
+| Method | Path | 权限 | 成功状态 | 说明 |
+|---|---|---|---|---|
+| GET | `:p/agents/modules` | DatabaseRead | 200 | 内置模块目录（含 `team_supported: false` stub） |
+| GET | `:p/agents` | DatabaseRead | 200 | `{ "agents":[CloudAgent] }`；首次列出时幂等种子 Database / S3 / Logs |
+| POST | `:p/agents` | DatabaseWrite | 201 | 创建；`name` 必填；未知 `module` → 400 |
+| GET | `:p/agents/:agentID` | DatabaseRead | 200 | 详情；不存在 404 |
+| PATCH | `:p/agents/:agentID` | DatabaseWrite | 200 | 部分更新；空 `name` 保留原值 |
+| DELETE | `:p/agents/:agentID` | DatabaseWrite | **204 无 body** | 软删（`archived_at`） |
+| GET | `:p/agent-threads` | DatabaseRead | 200 | `{ "threads":[...] }`，最多 50 |
+| POST | `:p/agent-threads` | DatabaseWrite | 201 | `{ "title" }` |
+| GET | `:p/agent-threads/:threadID` | DatabaseRead | 200 | 详情 |
+| DELETE | `:p/agent-threads/:threadID` | DatabaseWrite | **204 无 body** | 软删 |
+| GET | `:p/agent-threads/:threadID/messages` | DatabaseRead | 200 | `{ "messages":[...] }`，最多 200 |
+| POST | `:p/agent-threads/:threadID/runs` | DatabaseRead | 200 | `{ content, mentions:[{agent_id}], stream? }`；quota `llm` |
+| POST | `:p/agent-runs/:runID/cancel` | DatabaseRead | 200 | 取消进行中的 run |
+
+`GET :p/agents/modules`：
+
+```json
+{
+  "modules": [
+    {
+      "id": "database",
+      "name": "Database",
+      "description": "Readonly database inspection and SQL",
+      "default_tools": ["list_databases", "list_collections", "readonly_sql"],
+      "team_supported": false
+    }
+  ]
+}
+```
+
+模块 id：`database` / `s3` / `logs` / `general`。`team_supported` 恒 false（Host Multi-Agent 为 Phase 4）。
+
+`CloudAgent`：
+
+```json
+{
+  "id": "…",
+  "name": "Database",
+  "module": "database",
+  "description": "…",
+  "system_prompt": "",
+  "tool_ids": ["list_databases", "list_collections", "readonly_sql"],
+  "model_override": "",
+  "team_enabled": false,
+  "created_at": "2026-09-17T00:00:00Z",
+  "updated_at": "2026-09-17T00:00:00Z"
+}
+```
+
+- `POST`：`name` 为空 → 400；`module` 缺省 `general`；未知 module → 400 `unknown module`；`tool_ids` 缺省该模块默认只读工具，未知 id 被丢弃。
+- `DELETE` agent/thread 为软删；列表不返回已归档行。
+- `mentions` 为空时 run 使用项目第一个未归档 agent；`mentions[0].agent_id` 不存在 → 400。
+- `content` 为空 → 400。
+- Phase 1 只读工具：`list_databases` / `list_collections` / `readonly_sql`（sqlguard.ReadOnly）/ `list_objects` / `head_object` / `search_logs` / `log_level_stats`。**无写工具。**
+
+非流式 run（`stream: false` 或缺省）：
+
+```json
+{
+  "run": { "id": "…", "thread_id": "…", "agent_id": "…", "status": "completed" },
+  "message": { "id": "…", "role": "assistant", "content": "…", "tool_calls": [], "run_id": "…" },
+  "agent_id": "…"
+}
+```
+
+流式（`stream: true`）：`Content-Type: text/event-stream`、`Cache-Control: no-cache`，SSE 帧 `data: {...}\n\n`：
+
+```
+data: {"type":"run","run_id":"…"}
+data: {"type":"token","content":"你","run_id":"…"}
+data: {"type":"tool_call","name":"list_databases","arguments":"{}","run_id":"…"}
+data: {"type":"tool_result","name":"list_databases","content":"[…]","run_id":"…"}
+data: {"type":"end"}
+```
+
+| `type` | 字段 | 说明 |
+|---|---|---|
+| `run` | `run_id` | 首帧，便于前端 cancel |
+| `token` | `content` | 模型增量（前端亦兼容 `chunk`） |
+| `tool_call` | `name`, `arguments` | 只读工具调用 |
+| `tool_result` | `name`, `content` | 工具返回 JSON 文本 |
+| `error` | `message` | 中途失败（与 §6.4 LLM stream 不同，本接口有 error 帧） |
+| `end` | — | 结束 |
+
+运行时不可用时流式仍 200：先 `error` 再 `end`。`cancel` 取消 run context；已结束的 run 原样返回。
+
+Prompt 组装（禁止密钥）：platform base → module template → `agent.system_prompt` → 项目非机密 env → 截断只读 snapshot → history → user。S3/provider key 永不进入 prompt。
+
 ---
 
 ## 4. 调用样例索引（见 proto.http）
@@ -371,6 +467,7 @@ data: {"type":"end"}
 | Documents | 集合列表 / 建集合 / 文档列表 / 插入 / 更新 / 删除(注释态) |
 | S3 | 列表（含 refresh）/ multipart 上传 / 预签名 / 删除(注释态) |
 | LLM | providers / chat / stream / settings / sessions |
+| Cloud Agent | modules / agents CRUD / threads / messages / runs（SSE） / cancel |
 | Quota & Audit | 配额 / 审计（读 `sys_operations`） |
 | Metrics / Logs / Settings | summary、trend、logs、retention、project/global settings |
 | 错误演示 | 无认证 / 错误 key / 不存在的 project / 只读意图写语句 / SPA fallback |
@@ -385,8 +482,9 @@ data: {"type":"end"}
 services/types.ts 的 Api 接口域        对应章节    状态
   db.*        → §3.3    ✔ 已接，路径含 databaseID
   s3.*        → §3.4    ✔ 已接；列表默认同索引表，可加 refresh=1
-  llm.*       → §3.5    ✔ 已接；chat 成功后服务端落库
-  llmSettings.*/sessions → §3.9  ✔ 后端已落地
+  llm.*       → §3.5    ✔ 已接（deprecated UI）；chat 成功后服务端落库
+  agents.* / agentThreads.* → §3.12  ✔ Cloud Agent；UI `/agents`，`/llm` 重定向
+  llmSettings.*/sessions → §3.9  ✔ 后端已落地（模型供给仍走此配置）
   databases.* → §3.1    ✔ 列表过滤 kind=user
   sql.*       → §3.2    ✔
   quota.*     → §3.6    ✔

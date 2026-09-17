@@ -68,6 +68,9 @@ func Seed(ctx context.Context, in SeedInput) error {
 		}); err != nil {
 			return fmt.Errorf("systemdb: seed quota: %w", err)
 		}
+		if err := in.Store.SeedDefaultCloudAgents(ctx, catalog.DevProjectID); err != nil {
+			return fmt.Errorf("systemdb: seed cloud agents: %w", err)
+		}
 	}
 
 	in.Store.notifyWrite(ctx)

@@ -33,11 +33,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '云函数', hidden: true }
   },
   {
-    path: '/llm',
-    name: 'llm',
-    component: () => import('../pages/LlmManager.vue'),
-    meta: { title: 'LLM 对话' }
+    path: '/agents',
+    name: 'agents',
+    component: () => import('../pages/AgentManager.vue'),
+    meta: { title: 'Cloud Agent' }
   },
+  { path: '/llm', redirect: '/agents' },
   {
     path: '/settings',
     name: 'settings',
