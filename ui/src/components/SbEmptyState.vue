@@ -1,30 +1,40 @@
 <template>
-  <div class="sb-empty-state">
-    <a-empty :description="description" :image="simpleImage">
-      <a-button v-if="actionText" type="primary" @click="$emit('action')">
-        <template #icon><PlusOutlined /></template>
+  <Empty class="py-5">
+    <EmptyHeader>
+      <EmptyMedia variant="icon">
+        <InboxIcon />
+      </EmptyMedia>
+      <EmptyTitle>{{ title }}</EmptyTitle>
+      <EmptyDescription>{{ description }}</EmptyDescription>
+    </EmptyHeader>
+    <EmptyContent v-if="actionText">
+      <Button @click="$emit('action')">
+        <PlusIcon data-icon="inline-start" />
         {{ actionText }}
-      </a-button>
-    </a-empty>
-  </div>
+      </Button>
+    </EmptyContent>
+  </Empty>
 </template>
 <script setup lang="ts">
-import { Empty } from 'ant-design-vue'
-import { PlusOutlined } from '@ant-design/icons-vue'
+import { InboxIcon, PlusIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
 
-/** 空态 + 引导 CTA：空数据不是死胡同 */
-defineProps<{
-  description?: string
-  /** 引导操作按钮文案；缺省不显示按钮 */
-  actionText?: string
-}>()
+withDefaults(
+  defineProps<{
+    title?: string
+    description?: string
+    actionText?: string
+  }>(),
+  { title: '暂无数据', description: '没有可展示的内容' }
+)
 
 defineEmits<{ (e: 'action'): void }>()
-
-const simpleImage = Empty.PRESENTED_IMAGE_SIMPLE
 </script>
-<style scoped>
-.sb-empty-state {
-  padding: var(--sb-space-5) 0;
-}
-</style>

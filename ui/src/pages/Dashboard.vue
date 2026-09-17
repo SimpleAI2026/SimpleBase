@@ -1,85 +1,105 @@
 <template>
   <ProjectScope>
   <PageContainer title="监控大盘" subtitle="系统运行状态与数据库概览">
-    <a-row :gutter="16">
-      <a-col v-for="card in cards" :key="card.label" :xs="24" :sm="12" :lg="6">
-        <a-card class="sb-card sb-stat-card" :loading="loading">
-          <div class="sb-stat">
-            <div class="sb-stat-icon" :style="{ background: card.bg, color: card.color }">
-              <component :is="card.icon" />
-            </div>
-            <div class="sb-stat-body">
-              <div class="sb-stat-label">{{ card.label }}</div>
-              <div class="sb-stat-value">
-                {{ card.value }}<span v-if="card.unit" class="sb-unit">{{ card.unit }}</span>
-              </div>
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <Card v-for="card in cards" :key="card.label">
+        <CardContent class="px-5 py-4">
+          <div v-if="loading" class="flex items-start gap-3.5">
+            <Skeleton class="size-11 rounded-md" />
+            <div class="flex flex-1 flex-col gap-2">
+              <Skeleton class="h-3 w-20" />
+              <Skeleton class="h-7 w-16" />
             </div>
           </div>
-        </a-card>
-      </a-col>
-    </a-row>
+          <div v-else class="flex items-start gap-3.5">
+            <div
+              class="flex size-11 shrink-0 items-center justify-center rounded-md"
+              :class="card.tone"
+            >
+              <component :is="card.icon" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-[12px] tracking-wide text-muted-foreground uppercase">{{ card.label }}</div>
+              <div class="mt-0.5 text-[26px] leading-tight font-semibold">{{ card.value }}</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
 
-    <a-card class="sb-card">
-      <template #title>
-        <div class="sb-card-title">
+    <Card>
+      <CardHeader class="border-b">
+        <CardTitle class="flex items-center gap-2">
           请求趋势
-          <a-tag v-if="isMock" color="orange" class="sb-mock-tag">Mock</a-tag>
-        </div>
-      </template>
-      <template #extra>
-        <div class="sb-toolbar">
-          <span v-if="summary.totalRequests" class="sb-hint">
+          <Badge v-if="isMock" variant="warning">Mock</Badge>
+        </CardTitle>
+        <CardDescription v-if="summary.totalRequests || lastUpdate" class="flex flex-wrap gap-3">
+          <span v-if="summary.totalRequests">
             请求 {{ summary.totalRequests }} · 错误率 {{ summary.errorRate }}% · 延迟
             {{ Math.round(summary.avgLatencyMs) }}ms
           </span>
-          <span v-if="lastUpdate" class="sb-hint">最近更新：{{ lastUpdate }}</span>
-          <a-button type="primary" :loading="loading" @click="load">
-            <template #icon><ReloadOutlined /></template>
+          <span v-if="lastUpdate">最近更新：{{ lastUpdate }}</span>
+        </CardDescription>
+        <CardAction>
+          <Button :disabled="loading" @click="load">
+            <Spinner v-if="loading" data-icon="inline-start" />
+            <RefreshCwIcon v-else data-icon="inline-start" />
             刷新数据
-          </a-button>
-        </div>
-      </template>
-
-      <div v-if="trend.length" class="sb-trend">
-        <div v-for="p in trend" :key="p.date" class="sb-trend-col">
-          <div class="sb-trend-bars">
-            <div
-              class="sb-trend-bar sb-trend-bar--req"
-              :style="{ height: barHeight(p.requests, maxRequests) }"
-              :title="`请求 ${p.requests}`"
-            />
-            <div
-              class="sb-trend-bar sb-trend-bar--err"
-              :style="{ height: barHeight(p.errors, maxRequests) }"
-              :title="`错误 ${p.errors}`"
-            />
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent class="flex flex-col gap-4">
+        <div v-if="trend.length" class="flex min-h-40 items-end gap-3 px-1 pt-2">
+          <div v-for="p in trend" :key="p.date" class="flex flex-1 flex-col items-center gap-2">
+            <div class="flex h-[120px] items-end gap-1">
+              <div
+                class="w-2.5 rounded-t bg-primary"
+                :style="{ height: barHeight(p.requests, maxRequests) }"
+                :title="`请求 ${p.requests}`"
+              />
+              <div
+                class="w-2.5 rounded-t bg-destructive"
+                :style="{ height: barHeight(p.errors, maxRequests) }"
+                :title="`错误 ${p.errors}`"
+              />
+            </div>
+            <div class="text-xs text-muted-foreground">{{ p.date }}</div>
           </div>
-          <div class="sb-trend-label">{{ p.date }}</div>
         </div>
-      </div>
-      <a-empty v-else-if="!loading" description="暂无趋势数据" style="margin-bottom: 12px" />
+        <SbEmptyState v-else-if="!loading" description="暂无趋势数据" />
 
-      <a-table
-        :columns="dbColumns"
-        :data-source="databases"
-        :loading="loading"
-        row-key="id"
-        :pagination="pagination"
-        size="small"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'createdAt'">
-            {{ formatTime(record.createdAt) }}
-          </template>
-        </template>
-        <template #emptyText>
-          <SbEmptyState description="暂无数据库" action-text="去创建" @action="goDatabases" />
-        </template>
-      </a-table>
-    </a-card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead class="w-40">名称</TableHead>
+              <TableHead>ID</TableHead>
+              <TableHead class="w-28">状态</TableHead>
+              <TableHead class="w-44">创建时间</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableEmpty v-if="!paged.length && !loading" :colspan="4">
+              <SbEmptyState description="暂无数据库" action-text="去创建" @action="goDatabases" />
+            </TableEmpty>
+            <TableRow v-for="record in paged" :key="record.id">
+              <TableCell>{{ record.name }}</TableCell>
+              <TableCell class="max-w-48 truncate">{{ record.id }}</TableCell>
+              <TableCell>
+                <Badge :variant="statusBadgeVariant(record.status)">{{ record.status }}</Badge>
+              </TableCell>
+              <TableCell>{{ formatTime(record.createdAt) }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+        <TablePager
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :page-count="pageCount"
+          @update:page="page = $event"
+        />
+      </CardContent>
+    </Card>
   </PageContainer>
   </ProjectScope>
 </template>
@@ -87,33 +107,49 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { CircleCheckIcon, DatabaseIcon, RefreshCwIcon, TriangleAlertIcon } from '@lucide/vue'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
-  DatabaseOutlined,
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
-  ReloadOutlined
-} from '@ant-design/icons-vue'
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { api, isMock } from '../services/api'
 import type { DatabaseItem, QuotaStatus, TrendPoint } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import { usePagination } from '../composables/usePagination'
-import { softBg, colors } from '../styles/tokens'
+import { statusBadgeVariant } from '@/lib/status'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
+import TablePager from '../components/TablePager.vue'
 
 const router = useRouter()
 const projectStore = useProjectStore()
-const pagination = usePagination()
 
 const databases = ref<DatabaseItem[]>([])
 const quota = ref<QuotaStatus | null>(null)
 const loading = ref(false)
 const lastUpdate = ref('')
-const err = ref('')
 const trend = ref<TrendPoint[]>([])
 const summary = ref({ totalRequests: 0, errorRate: 0, avgLatencyMs: 0, activeDatabases: 0 })
+const { page, pageSize, total, pageCount, items: paged } = usePagination(databases)
 
 const maxRequests = computed(() => Math.max(1, ...trend.value.map((p) => p.requests)))
 
@@ -121,88 +157,46 @@ function barHeight(value: number, max: number) {
   return `${Math.max(4, Math.round((value / max) * 120))}px`
 }
 
-const dbColumns = [
-  { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
-  { title: 'ID', dataIndex: 'id', key: 'id', ellipsis: true },
-  { title: '状态', key: 'status', width: 110 },
-  { title: '创建时间', key: 'createdAt', width: 180 }
-]
-
-/** 统计卡配色从 tokens.ts 派生（替代原 8 处硬编码 rgba） */
 const cards = computed(() => [
   {
     label: '数据库总数',
     value: databases.value.length,
-    unit: '',
-    icon: DatabaseOutlined,
-    bg: softBg(colors.primary),
-    color: colors.primary
+    icon: DatabaseIcon,
+    tone: 'bg-primary/12 text-primary',
   },
   {
     label: '就绪数据库',
     value: databases.value.filter((d) => d.status === 'ready').length,
-    unit: '',
-    icon: CheckCircleOutlined,
-    bg: softBg(colors.success),
-    color: colors.success
+    icon: CircleCheckIcon,
+    tone: 'bg-success/12 text-success',
   },
   {
     label: '异常数据库',
     value: databases.value.filter((d) => ['degraded', 'deleting'].includes(d.status)).length,
-    unit: '',
-    icon: ExclamationCircleOutlined,
-    bg: softBg(colors.danger),
-    color: colors.danger
+    icon: TriangleAlertIcon,
+    tone: 'bg-destructive/10 text-destructive',
   },
   {
     label: '配额状态',
     value: quota.value ? (quota.value.llmAllowed && quota.value.databaseAllowed ? '正常' : '受限') : '-',
-    unit: '',
-    icon: ExclamationCircleOutlined,
-    bg: quota.value?.llmAllowed === false ? softBg(colors.warning) : softBg(colors.info),
-    color: quota.value?.llmAllowed === false ? colors.warning : colors.info
-  }
+    icon: TriangleAlertIcon,
+    tone:
+      quota.value?.llmAllowed === false ? 'bg-warning/12 text-warning' : 'bg-info/12 text-info',
+  },
 ])
-
-const statusColorMap: Record<string, string> = {
-  ready: 'success',
-  creating: 'processing',
-  opening: 'processing',
-  closing: 'processing',
-  recovering: 'processing',
-  closed: 'default',
-  degraded: 'warning',
-  deleting: 'warning',
-  deleted: 'default'
-}
-function statusColor(s: string) {
-  return statusColorMap[s] || 'default'
-}
 
 async function load() {
   loading.value = true
-  err.value = ''
-  // 分别请求：databases 失败不影响 quota 卡渲染
   const [dbRes, quotaRes, trendRes, summaryRes] = await Promise.allSettled([
     api.databases.list(projectStore.id),
     api.quota.status(projectStore.id),
     api.metrics.trend(projectStore.id),
-    api.metrics.summary(projectStore.id)
+    api.metrics.summary(projectStore.id),
   ])
-  if (dbRes.status === 'fulfilled') {
-    databases.value = dbRes.value
-  } else {
-    err.value = (dbRes.reason as Error)?.message || '加载失败'
-  }
-  if (quotaRes.status === 'fulfilled') {
-    quota.value = quotaRes.value
-  }
-  if (trendRes.status === 'fulfilled') {
-    trend.value = trendRes.value
-  }
-  if (summaryRes.status === 'fulfilled') {
-    summary.value = summaryRes.value
-  }
+  if (dbRes.status === 'fulfilled') databases.value = dbRes.value
+  if (quotaRes.status === 'fulfilled') quota.value = quotaRes.value
+  if (trendRes.status === 'fulfilled') trend.value = trendRes.value
+  if (summaryRes.status === 'fulfilled') summary.value = summaryRes.value
   if (
     dbRes.status === 'fulfilled' ||
     quotaRes.status === 'fulfilled' ||
@@ -225,62 +219,3 @@ watch(
   }
 )
 </script>
-
-<style scoped>
-.sb-stat-card {
-  height: 100%;
-}
-.sb-stat-card :deep(.ant-card-body) {
-  padding: 18px 20px;
-}
-.sb-unit {
-  font-size: var(--sb-fs-sm);
-  font-weight: 500;
-  color: var(--sb-text-secondary);
-  margin-left: 4px;
-}
-.sb-hint {
-  color: var(--sb-text-muted);
-  font-size: var(--sb-fs-xs);
-}
-.sb-card-title {
-  display: flex;
-  align-items: center;
-  gap: var(--sb-space-2);
-}
-.sb-trend {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  min-height: 160px;
-  margin-bottom: 16px;
-  padding: 8px 4px 0;
-}
-.sb-trend-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-.sb-trend-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 120px;
-}
-.sb-trend-bar {
-  width: 10px;
-  border-radius: 4px 4px 0 0;
-}
-.sb-trend-bar--req {
-  background: var(--sb-primary);
-}
-.sb-trend-bar--err {
-  background: var(--sb-danger);
-}
-.sb-trend-label {
-  color: var(--sb-text-muted);
-  font-size: var(--sb-fs-xs);
-}
-</style>

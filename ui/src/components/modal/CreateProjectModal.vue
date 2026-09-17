@@ -4,36 +4,43 @@
     title="新建项目"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: !canSubmit }"
-    :z-index="1100"
     @ok="submit"
     @update:open="emit('update:open', $event)"
   >
-    <a-form layout="vertical">
-      <a-form-item label="项目名称" required :validate-status="nameError ? 'error' : ''" :help="nameError || ''">
-        <a-input
-          v-model:value="name"
+    <FieldGroup>
+      <Field :data-invalid="nameError ? true : undefined">
+        <FieldLabel for="project-name">项目名称</FieldLabel>
+        <Input
+          id="project-name"
+          v-model="name"
           placeholder="例如：商城后台"
           maxlength="128"
-          allow-clear
-          @pressEnter="submit"
+          :aria-invalid="nameError ? true : undefined"
+          @keydown.enter="submit"
         />
-      </a-form-item>
-      <a-form-item label="项目 ID" :validate-status="idError ? 'error' : ''" :help="idError || '可选。留空由服务端生成 UUID。'">
-        <a-input
-          v-model:value="customId"
+        <FieldDescription v-if="nameError">{{ nameError }}</FieldDescription>
+      </Field>
+      <Field :data-invalid="idError ? true : undefined">
+        <FieldLabel for="project-id">项目 ID</FieldLabel>
+        <Input
+          id="project-id"
+          v-model="customId"
           placeholder="可选 UUID"
-          allow-clear
-          class="sb-mono-input"
-          @pressEnter="submit"
+          class="font-mono"
+          :aria-invalid="idError ? true : undefined"
+          @keydown.enter="submit"
         />
-      </a-form-item>
-    </a-form>
+        <FieldDescription>{{ idError || '可选。留空由服务端生成 UUID。' }}</FieldDescription>
+      </Field>
+    </FieldGroup>
   </SbModal>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
+import { toast } from 'vue-sonner'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { api } from '../../services/api'
 import type { ProjectItem } from '../../services/types'
 import SbModal from './SbModal.vue'
@@ -83,7 +90,7 @@ watch(
 
 async function submit() {
   if (!canSubmit.value) {
-    if (!name.value.trim()) message.warning('请输入项目名称')
+    if (!name.value.trim()) toast.warning('请输入项目名称')
     return
   }
   submitting.value = true
@@ -92,20 +99,13 @@ async function submit() {
       name: name.value.trim(),
       id: customId.value.trim() || undefined
     })
-    message.success(`已创建项目「${created.name || created.id}」`)
+    toast.success(`已创建项目「${created.name || created.id}」`)
     emit('created', created)
     emit('update:open', false)
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '创建项目失败')
+    toast.error(e instanceof Error ? e.message : '创建项目失败')
   } finally {
     submitting.value = false
   }
 }
 </script>
-
-<style scoped>
-.sb-mono-input :deep(input) {
-  font-family: var(--sb-font-mono);
-  font-size: var(--sb-fs-sm);
-}
-</style>

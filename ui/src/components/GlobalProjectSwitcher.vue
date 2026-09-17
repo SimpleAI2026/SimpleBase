@@ -1,55 +1,45 @@
 <template>
-  <div class="sb-project-switcher">
-    <a-dropdown
-      v-model:open="open"
-      trigger="click"
-      overlay-class-name="sb-project-dropdown"
-      :get-popup-container="popupContainer"
-      @openChange="onOpenChange"
-    >
-      <button type="button" class="sb-project-trigger" aria-label="切换项目">
-        <FolderOutlined class="sb-project-trigger__icon" />
-        <span class="sb-project-trigger__text">
-          <span class="sb-project-trigger__name">{{ store.displayName }}</span>
-          <span v-if="store.id" class="sb-project-trigger__id">{{ shortId(store.id) }}</span>
-        </span>
-        <DownOutlined class="sb-project-trigger__caret" />
-      </button>
-      <template #overlay>
-        <div class="sb-project-panel">
-          <a-input
-            v-model:value="query"
-            allow-clear
-            placeholder="搜索项目名称或 ID"
-            @pressEnter="selectFirst"
-          >
-            <template #prefix><SearchOutlined /></template>
-          </a-input>
-          <div class="sb-project-list">
-            <button
-              v-for="p in filtered"
-              :key="p.id"
-              type="button"
-              class="sb-project-item"
-              :class="{ 'is-active': p.id === store.id }"
-              @click="select(p)"
-            >
-              <span class="sb-project-item__name">{{ p.name || p.id }}</span>
-              <span class="sb-project-item__id">{{ p.id }}</span>
-            </button>
-            <div v-if="!filtered.length" class="sb-project-empty">
-              {{ store.loading ? '加载项目…' : '没有匹配的项目' }}
-            </div>
-          </div>
-          <div class="sb-project-footer">
-            <a-button type="link" @click="openCreate">
-              <template #icon><PlusOutlined /></template>
-              新建项目
-            </a-button>
-          </div>
+  <div>
+    <Popover v-model:open="open">
+      <PopoverTrigger as-child>
+        <Button variant="outline" class="h-8 max-w-60 justify-start gap-2 px-2.5" aria-label="切换项目">
+          <FolderIcon />
+          <span class="flex min-w-0 flex-col items-start leading-tight">
+            <span class="max-w-40 truncate text-sm font-semibold">{{ store.displayName }}</span>
+            <span v-if="store.id" class="font-mono text-[11px] text-muted-foreground">{{ shortId(store.id) }}</span>
+          </span>
+          <ChevronDownIcon class="ml-auto opacity-60" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent class="w-[300px] p-0" align="end">
+        <Command>
+          <CommandInput placeholder="搜索项目名称或 ID" />
+          <CommandList>
+            <CommandEmpty>{{ store.loading ? '加载项目…' : '没有匹配的项目' }}</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                v-for="p in merged"
+                :key="p.id"
+                :value="`${p.name} ${p.id}`"
+                @select="() => select(p)"
+              >
+                <span class="flex min-w-0 flex-col">
+                  <span class="truncate">{{ p.name || p.id }}</span>
+                  <span class="font-mono text-[11px] text-muted-foreground break-all">{{ p.id }}</span>
+                </span>
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        <Separator />
+        <div class="p-1">
+          <Button variant="ghost" class="w-full justify-start" @click="openCreate">
+            <PlusIcon data-icon="inline-start" />
+            新建项目
+          </Button>
         </div>
-      </template>
-    </a-dropdown>
+      </PopoverContent>
+    </Popover>
     <CreateProjectModal
       :open="store.createModalOpen"
       @update:open="(v: boolean) => (v ? store.openCreateModal() : store.closeCreateModal())"
@@ -60,19 +50,25 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
-import { DownOutlined, FolderOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { toast } from 'vue-sonner'
+import { ChevronDownIcon, FolderIcon, PlusIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
 import { useProjectStore } from '../stores/project'
 import type { ProjectItem } from '../services/types'
 import CreateProjectModal from './modal/CreateProjectModal.vue'
 
 const store = useProjectStore()
 const open = ref(false)
-const query = ref('')
-
-function popupContainer() {
-  return document.body
-}
 
 function shortId(id: string) {
   const compact = id.replace(/-/g, '')
@@ -94,32 +90,18 @@ const merged = computed<ProjectItem[]>(() => {
   return Array.from(map.values())
 })
 
-const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return merged.value
-  return merged.value.filter(
-    (p) => p.id.toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q)
-  )
-})
-
-function onOpenChange(next: boolean) {
+watch(open, (next) => {
   if (next) {
-    query.value = ''
     void store.loadProjects()
   }
-}
+})
 
 function select(p: ProjectItem) {
   if (p.id !== store.id) {
     store.setProject(p.id, p.name)
-    message.success(`已切换到「${p.name || p.id}」`)
+    toast.success(`已切换到「${p.name || p.id}」`)
   }
   open.value = false
-}
-
-function selectFirst() {
-  const first = filtered.value[0]
-  if (first) select(first)
 }
 
 async function openCreate() {
@@ -144,118 +126,3 @@ onMounted(() => {
   void store.loadProjects()
 })
 </script>
-
-<style scoped>
-.sb-project-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sb-space-2);
-  max-width: 240px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--sb-border-soft);
-  border-radius: var(--sb-radius-sm);
-  background: var(--sb-surface);
-  color: var(--sb-text);
-  cursor: pointer;
-  transition: var(--sb-transition);
-}
-.sb-project-trigger:hover,
-.sb-project-trigger:focus-visible {
-  border-color: var(--sb-primary);
-  color: var(--sb-primary);
-}
-.sb-project-trigger__icon,
-.sb-project-trigger__caret {
-  color: var(--sb-text-secondary);
-  font-size: var(--sb-fs-sm);
-  flex-shrink: 0;
-}
-.sb-project-trigger__text {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-width: 0;
-  line-height: var(--sb-lh-tight);
-}
-.sb-project-trigger__name {
-  font-size: var(--sb-fs-sm);
-  font-weight: 600;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sb-project-trigger__id {
-  font-family: var(--sb-font-mono);
-  font-size: var(--sb-fs-xs);
-  color: var(--sb-text-muted);
-}
-.sb-project-panel {
-  width: 300px;
-  padding: var(--sb-space-2);
-  background: var(--sb-surface);
-  border: 1px solid var(--sb-border-soft);
-  border-radius: var(--sb-radius-sm);
-  box-shadow: var(--sb-shadow);
-}
-.sb-project-list {
-  max-height: 240px;
-  overflow: auto;
-  margin-top: var(--sb-space-2);
-}
-.sb-project-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--sb-radius-sm);
-  background: var(--sb-surface);
-  cursor: pointer;
-  text-align: left;
-}
-.sb-project-item:hover,
-.sb-project-item.is-active {
-  background: var(--sb-primary-light);
-}
-.sb-project-item__name {
-  color: var(--sb-text);
-  font-size: var(--sb-fs-sm);
-}
-.sb-project-item__id {
-  font-family: var(--sb-font-mono);
-  font-size: var(--sb-fs-xs);
-  color: var(--sb-text-muted);
-  word-break: break-all;
-}
-.sb-project-empty {
-  color: var(--sb-text-muted);
-  font-size: var(--sb-fs-sm);
-  text-align: center;
-  padding: var(--sb-space-4) 0;
-}
-.sb-project-footer {
-  border-top: 1px solid var(--sb-border-soft);
-  margin-top: var(--sb-space-2);
-  padding-top: var(--sb-space-1);
-}
-
-@media (max-width: 768px) {
-  .sb-project-trigger {
-    max-width: 160px;
-  }
-}
-</style>
-<style>
-.sb-project-dropdown {
-  z-index: 1050;
-}
-.sb-project-dropdown,
-.sb-project-dropdown .ant-dropdown-menu,
-.sb-project-dropdown .sb-project-panel {
-  background: var(--sb-surface);
-}
-</style>

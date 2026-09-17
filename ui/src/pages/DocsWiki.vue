@@ -1,35 +1,38 @@
 <template>
-  <div class="docs-wiki">
-    <div v-if="!docCatalog.length" class="docs-error">
-      <a-result status="warning" title="未能加载文档">
-        <template #subTitle>
+  <div class="flex min-h-[calc(100vh-var(--header-height))] flex-col bg-card">
+    <div v-if="!docCatalog.length" class="px-4 py-12">
+      <Alert>
+        <AlertTitle>未能加载文档</AlertTitle>
+        <AlertDescription>
           Vite 未匹配到仓库 <code>docs/&lt;module&gt;/*.md</code>
           （已扫描 {{ loadedMarkdownCount }} 个文件）。请确认源文件存在后重新构建。
-        </template>
-      </a-result>
+        </AlertDescription>
+      </Alert>
     </div>
 
     <template v-else>
       <DocsModuleTabs v-model="moduleId" :modules="docCatalog" />
 
-      <div class="docs-wiki-body">
-        <template v-if="!isMobile">
-          <DocsSidebar
-            v-if="currentModule"
-            :module-id="currentModule.id"
-            :module-title="currentModule.title"
-            :pages="currentModule.pages"
-            :active-slug="slug"
-          />
-        </template>
-        <a-select
-          v-else-if="currentModule"
-          class="docs-mobile-pages"
-          :value="slug"
-          style="width: 100%; margin-bottom: 12px"
-          :options="pageOptions"
-          @change="onMobilePage"
+      <div class="flex min-h-0 flex-1 items-start max-md:flex-col max-md:px-3 max-md:pb-6">
+        <DocsSidebar
+          v-if="!isMobile && currentModule"
+          :module-id="currentModule.id"
+          :module-title="currentModule.title"
+          :pages="currentModule.pages"
+          :active-slug="slug"
         />
+        <div v-else-if="currentModule" class="mb-3 w-full">
+          <Select :model-value="slug" @update:model-value="onMobilePage">
+            <SelectTrigger class="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem v-for="p in pageOptions" :key="p.value" :value="p.value">{{ p.label }}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
 
         <DocsArticle
           v-if="currentModule && currentPage"
@@ -39,12 +42,11 @@
           :prev="prevPage"
           :next="nextPage"
         />
-        <div v-else class="docs-error">
-          <a-result
-            status="404"
-            title="未找到文档"
-            :sub-title="missingHint"
-          />
+        <div v-else class="flex-1 px-4 py-12">
+          <Alert>
+            <AlertTitle>未找到文档</AlertTitle>
+            <AlertDescription>{{ missingHint }}</AlertDescription>
+          </Alert>
         </div>
       </div>
     </template>
@@ -54,6 +56,15 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import DocsModuleTabs from '../components/docs/DocsModuleTabs.vue'
 import DocsSidebar from '../components/docs/DocsSidebar.vue'
 import DocsArticle from '../components/docs/DocsArticle.vue'
@@ -143,33 +154,3 @@ function onMobilePage(v: unknown) {
   else router.push(`/docs/${moduleId.value}/${slugVal}`)
 }
 </script>
-
-<style scoped>
-.docs-wiki {
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - var(--sb-header-height, 56px));
-  background: var(--sb-surface, #ffffff);
-}
-.docs-wiki-body {
-  display: flex;
-  align-items: flex-start;
-  gap: 0;
-  flex: 1;
-  min-height: 0;
-}
-.docs-mobile-pages {
-  margin-bottom: 8px;
-}
-.docs-error {
-  flex: 1;
-  padding: 24px 16px 48px;
-}
-
-@media (max-width: 768px) {
-  .docs-wiki-body {
-    flex-direction: column;
-    padding: 0 12px 24px;
-  }
-}
-</style>

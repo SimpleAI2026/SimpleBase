@@ -1,52 +1,65 @@
 <template>
-  <div class="ai-chat">
-    <div v-if="showToolbar" class="ai-chat-toolbar">
+  <div class="flex flex-col gap-3">
+    <div v-if="showToolbar" class="flex flex-wrap items-center gap-2">
       <slot name="toolbar">
-        <a-select
+        <Select
           v-if="modelOptions.length"
-          :value="model"
-          style="min-width: 200px"
-          placeholder="模型"
-          allow-clear
-          :options="modelOptions"
-          @update:value="(v: string) => $emit('update:model', v)"
-        />
-        <a-switch
-          :checked="streaming"
-          checked-children="流式"
-          un-checked-children="整段"
-          @update:checked="(v: boolean) => $emit('update:streaming', v)"
-        />
-        <a-button :disabled="sending || !messages.length" @click="clear">清空会话</a-button>
+          :model-value="model"
+          @update:model-value="(v: string) => $emit('update:model', v)"
+        >
+          <SelectTrigger class="min-w-50">
+            <SelectValue placeholder="模型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem v-for="opt in modelOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <div class="flex items-center gap-2">
+          <Switch
+            :checked="streaming"
+            @update:checked="(v: boolean) => $emit('update:streaming', v)"
+          />
+          <span class="text-sm">{{ streaming ? '流式' : '整段' }}</span>
+        </div>
+        <Button variant="outline" :disabled="sending || !messages.length" @click="clear">清空会话</Button>
       </slot>
     </div>
 
-    <div ref="listEl" class="ai-chat-list">
+    <MessageScroller :follow-key="followKey">
       <slot name="empty">
         <SbEmptyState v-if="!messages.length" description="开始一段对话吧" />
       </slot>
-      <div
+      <Message
         v-for="(m, i) in messages"
         :key="i"
-        class="ai-msg"
-        :class="m.role === 'user' ? 'ai-msg-user' : 'ai-msg-assistant'"
+        :align="m.role === 'user' ? 'end' : 'start'"
       >
-        <span class="ai-avatar">
-          <UserOutlined v-if="m.role === 'user'" />
-          <RobotOutlined v-else />
-        </span>
-        <div class="ai-bubble">
-          <div v-if="m.toolCalls?.length" class="ai-tool-cards">
-            <div v-for="(t, ti) in m.toolCalls" :key="ti" class="ai-tool-card">
-              <span class="ai-tool-name">{{ t.name || 'tool' }}</span>
-              <pre v-if="t.arguments">{{ t.arguments }}</pre>
-              <pre v-if="t.content">{{ t.content }}</pre>
+        <MessageAvatar :align="m.role === 'user' ? 'end' : 'start'">
+          <UserIcon v-if="m.role === 'user'" />
+          <BotIcon v-else />
+        </MessageAvatar>
+        <MessageContent>
+          <Bubble :variant="m.role === 'user' ? 'default' : 'muted'" :align="m.role === 'user' ? 'end' : 'start'">
+            <div v-if="m.toolCalls?.length" class="mb-1.5 flex flex-col gap-1.5">
+              <Card v-for="(t, ti) in m.toolCalls" :key="ti" size="sm">
+                <CardHeader>
+                  <CardTitle class="text-xs text-primary">{{ t.name || 'tool' }}</CardTitle>
+                </CardHeader>
+                <CardContent v-if="t.arguments || t.content" class="px-3">
+                  <pre v-if="t.arguments" class="m-0 max-h-30 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">{{ t.arguments }}</pre>
+                  <pre v-if="t.content" class="m-0 max-h-30 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">{{ t.content }}</pre>
+                </CardContent>
+              </Card>
             </div>
-          </div>
-          <pre>{{ m.content }}<span v-if="sending && streaming && i === messages.length - 1" class="ai-cursor">▍</span></pre>
-        </div>
-      </div>
-    </div>
+            <pre class="m-0 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">{{ m.content }}<span v-if="sending && streaming && i === messages.length - 1" class="text-primary">▍</span></pre>
+          </Bubble>
+        </MessageContent>
+      </Message>
+    </MessageScroller>
 
     <AiChatComposer
       v-model="draft"
@@ -61,9 +74,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { RobotOutlined, UserOutlined } from '@ant-design/icons-vue'
+import { computed, ref } from 'vue'
+import { BotIcon, UserIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import SbEmptyState from '../SbEmptyState.vue'
+import MessageScroller from '../chat/MessageScroller.vue'
+import Message from '../chat/Message.vue'
+import MessageAvatar from '../chat/MessageAvatar.vue'
+import MessageContent from '../chat/MessageContent.vue'
+import Bubble from '../chat/Bubble.vue'
 import AiChatComposer from './AiChatComposer.vue'
 import type { MentionAgent } from './AiChatComposer.vue'
 import { useAiChat } from '../../composables/useAiChat'
@@ -102,7 +131,6 @@ const emit = defineEmits<{
 }>()
 
 const draft = ref('')
-const listEl = ref<HTMLElement | null>(null)
 
 const chat = useAiChat({
   projectId: () => props.projectId,
@@ -112,6 +140,11 @@ const chat = useAiChat({
 
 const messages = computed(() => props.messages || chat.messages.value)
 const sending = computed(() => (props.customSend ? !!props.sending : chat.sending.value))
+const followKey = computed(() => {
+  const list = messages.value
+  const last = list[list.length - 1]
+  return `${list.length}:${last?.content.length || 0}`
+})
 
 async function onSend(mentions: { agent_id: string }[] = []) {
   const text = draft.value
@@ -135,124 +168,5 @@ function clear() {
   if (!props.customSend) chat.clear()
 }
 
-watch(
-  () => {
-    const list = messages.value
-    const last = list[list.length - 1]
-    return `${list.length}:${last?.content.length || 0}`
-  },
-  async () => {
-    await nextTick()
-    if (listEl.value) listEl.value.scrollTop = listEl.value.scrollHeight
-  }
-)
-
 defineExpose({ clear, stop, messages: chat.messages })
 </script>
-
-<style scoped>
-.ai-chat {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sb-space-3);
-}
-.ai-chat-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sb-space-2);
-  align-items: center;
-}
-.ai-chat-list {
-  min-height: 240px;
-  max-height: 480px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sb-space-3);
-  padding: 4px 0;
-}
-.ai-msg {
-  display: flex;
-  gap: var(--sb-space-2);
-  align-items: flex-start;
-}
-.ai-msg-user {
-  flex-direction: row-reverse;
-}
-.ai-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--sb-bg-soft);
-  border: 1px solid var(--sb-border-soft);
-  color: var(--sb-text-secondary);
-  flex-shrink: 0;
-}
-.ai-msg-user .ai-avatar {
-  color: var(--sb-primary);
-  border-color: var(--sb-primary);
-}
-.ai-bubble {
-  max-width: 75%;
-  padding: 8px 12px;
-  border-radius: var(--sb-radius-sm);
-  background: var(--sb-bg-soft);
-  border: 1px solid var(--sb-border-soft);
-}
-.ai-msg-user .ai-bubble {
-  background: var(--sb-primary-light);
-  border-color: transparent;
-}
-.ai-bubble pre {
-  margin: 0;
-  font-family: inherit;
-  font-size: var(--sb-fs-sm);
-  line-height: var(--sb-lh-relaxed);
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--sb-text);
-}
-.ai-cursor {
-  color: var(--sb-primary);
-  animation: ai-blink 1s step-end infinite;
-}
-.ai-tool-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.ai-tool-card {
-  border: 1px solid var(--sb-border-soft);
-  background: var(--sb-bg, #fff);
-  border-radius: var(--sb-radius-xs, 6px);
-  padding: 6px 8px;
-}
-.ai-tool-name {
-  font-size: var(--sb-fs-xs);
-  color: var(--sb-primary);
-  font-weight: 600;
-}
-.ai-tool-card pre {
-  margin: 4px 0 0;
-  font-family: var(--sb-font-mono);
-  font-size: var(--sb-fs-xs);
-  white-space: pre-wrap;
-  color: var(--sb-text-secondary);
-  max-height: 120px;
-  overflow: auto;
-}
-@keyframes ai-blink {
-  50% {
-    opacity: 0;
-  }
-}
-@media (max-width: 768px) {
-  .ai-bubble {
-    max-width: 85%;
-  }
-}
-</style>

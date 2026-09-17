@@ -88,8 +88,9 @@ export const useSettingsStore = defineStore('settings', {
       this.persist()
     },
     applyThemeToDom() {
-      const effective = this.effectiveTheme
-      document.documentElement.setAttribute('data-theme', effective)
+      const dark = this.effectiveTheme === 'dark'
+      document.documentElement.classList.toggle('dark', dark)
+      document.documentElement.removeAttribute('data-theme')
     },
     setProjectDefaults(projectId: string, patch: ProjectLlmDefaults) {
       const cur = { ...(this.projectDefaults[projectId] || {}), ...patch }

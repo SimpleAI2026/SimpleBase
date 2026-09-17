@@ -1,10 +1,18 @@
-import type { TablePaginationConfig } from 'ant-design-vue'
+import { computed, ref, watch, type Ref } from 'vue'
 
-/** 表格统一分页配置（替代 3 个页面复制的 { pageSize: 10, size: 'small', showTotal }） */
-export function usePagination(): TablePaginationConfig {
-  return {
-    pageSize: 10,
-    size: 'small',
-    showTotal: (t: number) => `共 ${t} 条`
-  }
+/** 客户端分页：替代 antd Table pagination 配置 */
+export function usePagination<T>(source: Ref<T[]>, pageSize = 10) {
+  const page = ref(1)
+  const total = computed(() => source.value.length)
+  const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+  const items = computed(() => {
+    const start = (page.value - 1) * pageSize
+    return source.value.slice(start, start + pageSize)
+  })
+
+  watch(total, () => {
+    if (page.value > pageCount.value) page.value = pageCount.value
+  })
+
+  return { page, pageSize, total, pageCount, items }
 }

@@ -1,54 +1,55 @@
 <template>
-  <a-modal
-    :open="open"
-    :title="title"
-    :width="width"
-    :confirm-loading="confirmLoading"
-    :destroy-on-close="destroyOnClose"
-    :ok-text="okText"
-    :cancel-text="cancelText"
-    :ok-button-props="okButtonProps"
-    :mask-closable="maskClosable"
-    :centered="centered"
-    :z-index="zIndex"
-    wrap-class-name="sb-modal"
-    @ok="emit('ok')"
-    @cancel="onCancel"
-    @update:open="(v: boolean) => emit('update:open', v)"
-  >
-    <slot />
-    <template v-if="$slots.footer" #footer>
-      <slot name="footer" />
-    </template>
-  </a-modal>
+  <Dialog :open="open" @update:open="emit('update:open', $event)">
+    <DialogContent :class="contentClass" :show-close-button="true">
+      <DialogHeader>
+        <DialogTitle>{{ title }}</DialogTitle>
+        <DialogDescription v-if="description" class="sr-only">{{ description }}</DialogDescription>
+      </DialogHeader>
+      <div class="min-w-0">
+        <slot />
+      </div>
+      <DialogFooter>
+        <slot name="footer">
+          <Button variant="outline" @click="onCancel">{{ cancelText }}</Button>
+          <Button :disabled="okDisabled || confirmLoading" @click="emit('ok')">
+            <Spinner v-if="confirmLoading" data-icon="inline-start" />
+            {{ okText }}
+          </Button>
+        </slot>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
-/**
- * 统一弹窗：固定默认宽度、footer、destroyOnClose，业务弹窗都包这一层。
- */
-withDefaults(
+import { computed } from 'vue'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Spinner } from '@/components/ui/spinner'
+
+const props = withDefaults(
   defineProps<{
     open: boolean
     title?: string
+    description?: string
     width?: number | string
     confirmLoading?: boolean
-    destroyOnClose?: boolean
     okText?: string
     cancelText?: string
     okButtonProps?: Record<string, unknown>
-    maskClosable?: boolean
-    centered?: boolean
-    zIndex?: number
   }>(),
   {
     width: 520,
     confirmLoading: false,
-    destroyOnClose: true,
     okText: '确定',
     cancelText: '取消',
-    maskClosable: true,
-    centered: true
   }
 )
 
@@ -57,6 +58,16 @@ const emit = defineEmits<{
   ok: []
   cancel: []
 }>()
+
+const okDisabled = computed(() => Boolean(props.okButtonProps?.disabled))
+
+const contentClass = computed(() => {
+  const w = props.width
+  if (typeof w === 'number' && w >= 800) return 'sm:max-w-4xl'
+  if (typeof w === 'number' && w >= 700) return 'sm:max-w-3xl'
+  if (typeof w === 'number' && w >= 600) return 'sm:max-w-2xl'
+  return 'sm:max-w-lg'
+})
 
 function onCancel() {
   emit('cancel')
