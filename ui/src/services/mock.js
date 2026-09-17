@@ -427,9 +427,9 @@ export const mockApi = {
     async modules() {
       await delay(80)
       return [
-        { id: 'database', name: 'Database', description: 'Readonly SQL', default_tools: ['list_databases'], team_supported: false },
-        { id: 's3', name: 'S3', description: 'List objects', default_tools: ['list_objects'], team_supported: false },
-        { id: 'logs', name: 'Logs', description: 'Search logs', default_tools: ['search_logs'], team_supported: false },
+        { id: 'database', name: 'Database', description: 'Readonly SQL', default_tools: ['list_databases', 'list_collections', 'readonly_sql'], team_supported: false },
+        { id: 's3', name: 'S3', description: 'List objects', default_tools: ['list_objects', 'head_object'], team_supported: false },
+        { id: 'logs', name: 'Logs', description: 'Search logs', default_tools: ['search_logs', 'log_level_stats'], team_supported: false },
         { id: 'general', name: 'General', description: 'Custom prompt', default_tools: [], team_supported: false }
       ]
     },

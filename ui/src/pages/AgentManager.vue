@@ -47,7 +47,7 @@
             @stop="onStop"
           >
             <template #toolbar>
-              <a-button :disabled="sending || !chatMessages.length" @click="resetThread">新会话</a-button>
+              <a-button :disabled="!chatMessages.length && !sending" @click="resetThread">新会话</a-button>
               <span class="ca-hint">点名 {{ activeAgent ? '@' + activeAgent.name : '一个 Agent' }} 后发送；工具只读</span>
             </template>
             <template #empty>
@@ -251,7 +251,7 @@ async function removeAgent(a: CloudAgent) {
 }
 
 async function resetThread() {
-  if (sending.value) return
+  onStop()
   try {
     const th = await api.agentThreads.create(project.id, 'Cloud Agent')
     threadId.value = th.id
