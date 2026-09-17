@@ -7,24 +7,29 @@
     @ok="submit"
     @update:open="emit('update:open', $event)"
   >
-    <a-input
-      v-model:value="name"
-      placeholder="例如：users（字母开头，仅字母数字下划线）"
-      :status="nameError ? 'error' : ''"
-      @pressEnter="submit"
-    />
-    <div v-if="nameError" class="sb-name-error">{{ nameError }}</div>
+    <Field :data-invalid="nameError ? true : undefined">
+      <FieldLabel for="collection-name">集合名称</FieldLabel>
+      <Input
+        id="collection-name"
+        v-model="name"
+        placeholder="例如：users（字母开头，仅字母数字下划线）"
+        :aria-invalid="nameError ? true : undefined"
+        @keydown.enter="submit"
+      />
+      <FieldDescription v-if="nameError">{{ nameError }}</FieldDescription>
+    </Field>
   </SbModal>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
+import { toast } from 'vue-sonner'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { api } from '../../services/api'
 import type { DatabaseItem } from '../../services/api'
 import SbModal from './SbModal.vue'
 
-/** 与后端 collectionNamePattern 对齐：字母开头，最多 63 字符 */
 const COLLECTION_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,62}$/
 
 const props = defineProps<{
@@ -64,28 +69,20 @@ watch(
 
 async function submit() {
   if (!canSubmit.value || !props.database) {
-    if (!name.value.trim()) message.warning('请输入集合名称')
+    if (!name.value.trim()) toast.warning('请输入集合名称')
     return
   }
   submitting.value = true
   try {
     const trimmed = name.value.trim()
     await api.db.createCollection(props.projectId, props.database.id, trimmed)
-    message.success('集合创建成功')
+    toast.success('集合创建成功')
     emit('created', trimmed)
     emit('update:open', false)
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '集合创建失败')
+    toast.error(e instanceof Error ? e.message : '集合创建失败')
   } finally {
     submitting.value = false
   }
 }
 </script>
-
-<style scoped>
-.sb-name-error {
-  color: var(--sb-danger);
-  font-size: var(--sb-fs-xs);
-  margin-top: var(--sb-space-2);
-}
-</style>

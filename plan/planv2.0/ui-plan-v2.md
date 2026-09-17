@@ -1,7 +1,7 @@
 # SimpleBase UI 优化总计划 v2.0（主入口）
 
 > 目标目录：`ui/src`
-> 技术栈：Vue 3.4 + TypeScript + Vite 5 + ant-design-vue 4 + pinia + axios
+> 技术栈：Vue 3.4 + TypeScript + Vite 5 + shadcn-vue（Reka UI + Tailwind CSS v4）+ pinia + axios
 > 制定日期：2026-09-15
 > 前置版本：`plan/planv1.0/ui-refactor-plan.md`（已完成 API 抽象、Mock 层、Claude 暖橙主题）、
 > `plan/planv2.0/ui-style-plan.md`（样式优化，本计划吸收并升级）

@@ -1,19 +1,22 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const docsDir = path.resolve(rootDir, 'docs')
+const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'src')
 
 // SIMPLEBASE_DEV_API_PROXY 由 ./build.sh dev 注入，默认本机 8080
 const apiTarget = process.env.SIMPLEBASE_DEV_API_PROXY || 'http://127.0.0.1:8080'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), tailwindcss()],
   resolve: {
     alias: {
-      '@docs': docsDir
+      '@docs': docsDir,
+      '@': srcDir
     }
   },
   server: {

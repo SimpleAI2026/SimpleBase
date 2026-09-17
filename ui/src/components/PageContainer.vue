@@ -1,8 +1,8 @@
 <template>
-  <div class="sb-page">
-    <div class="sb-page-title" v-if="title">
-      <h2>{{ title }}</h2>
-      <span class="sb-subtitle" v-if="subtitle">{{ subtitle }}</span>
+  <div class="flex flex-col gap-4">
+    <div v-if="title" class="flex flex-wrap items-baseline gap-3">
+      <h2 class="m-0 font-serif text-xl font-semibold tracking-tight text-foreground">{{ title }}</h2>
+      <span v-if="subtitle" class="text-sm text-muted-foreground">{{ subtitle }}</span>
     </div>
     <slot />
   </div>
@@ -10,4 +10,3 @@
 <script setup lang="ts">
 defineProps<{ title?: string; subtitle?: string }>()
 </script>
-<!-- 样式收敛到 utilities.css 的 .sb-page / .sb-page-title，组件不再重复定义 -->

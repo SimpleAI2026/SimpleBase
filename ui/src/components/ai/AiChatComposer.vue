@@ -1,17 +1,19 @@
 <template>
-  <div class="ai-composer" :class="{ 'is-disabled': disabled }">
-    <button
-      type="button"
-      class="ai-composer-icon-btn"
-      disabled
-      title="附件（即将支持）"
-      aria-label="添加附件"
-    >
-      <PlusOutlined />
-    </button>
+  <div
+    class="relative flex items-end gap-2 px-3 py-2.5"
+    :class="disabled ? 'opacity-60' : ''"
+    :style="{
+      background: 'var(--composer-bg)',
+      borderRadius: 'var(--composer-radius)',
+      border: '1px solid var(--border)',
+    }"
+  >
+    <Button variant="outline" size="icon-sm" class="rounded-full" disabled title="附件（即将支持）" aria-label="添加附件">
+      <PlusIcon />
+    </Button>
     <textarea
       ref="ta"
-      class="ai-composer-input"
+      class="max-h-55 min-h-6 min-w-0 flex-1 resize-none border-0 bg-transparent py-1 font-sans text-sm leading-normal text-foreground outline-none placeholder:text-muted-foreground"
       :value="modelValue"
       :placeholder="placeholder"
       :disabled="disabled || sending"
@@ -19,55 +21,69 @@
       @input="onInput"
       @keydown="onKeydown"
     />
-    <div v-if="mentionOpen && mentionAgents.length" class="ai-mention-pop">
-      <button
-        v-for="a in filteredMentions"
-        :key="a.id"
-        type="button"
-        class="ai-mention-item"
-        @mousedown.prevent="pickMention(a)"
-      >
-        <span class="ai-mention-at">@</span>{{ a.name }}
-        <span class="ai-mention-mod">{{ a.module }}</span>
-      </button>
-      <div v-if="!filteredMentions.length" class="ai-mention-empty">无匹配 Agent</div>
-    </div>
-    <button
-      type="button"
-      class="ai-composer-icon-btn"
-      disabled
-      title="语音输入（即将支持）"
-      aria-label="语音输入"
-    >
-      <AudioOutlined />
-    </button>
-    <button
+    <Popover :open="mentionOpen && mentionAgents.length > 0">
+      <PopoverTrigger as-child>
+        <span class="sr-only">mention</span>
+      </PopoverTrigger>
+      <PopoverContent class="w-72 p-0" side="top" align="start">
+        <Command>
+          <CommandList>
+            <CommandEmpty>无匹配 Agent</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                v-for="a in filteredMentions"
+                :key="a.id"
+                :value="a.name"
+                @select="() => pickMention(a)"
+              >
+                <span class="font-semibold text-primary">@</span>{{ a.name }}
+                <span class="ml-auto text-xs text-muted-foreground">{{ a.module }}</span>
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+    <Button variant="outline" size="icon-sm" class="rounded-full" disabled title="语音输入（即将支持）" aria-label="语音输入">
+      <MicIcon />
+    </Button>
+    <Button
       v-if="sending"
-      type="button"
-      class="ai-composer-send is-stop"
+      size="icon"
+      class="rounded-full bg-destructive text-primary-foreground hover:bg-destructive/90"
       title="停止"
       aria-label="停止生成"
       @click="$emit('stop')"
     >
-      <BorderOutlined />
-    </button>
-    <button
+      <SquareIcon />
+    </Button>
+    <Button
       v-else
-      type="button"
-      class="ai-composer-send"
+      size="icon"
+      class="rounded-full"
+      :style="{ background: 'var(--composer-send-bg)', color: 'var(--background)' }"
       :disabled="disabled || !modelValue.trim()"
       title="发送"
       aria-label="发送"
       @click="$emit('send', mentionsForSend(modelValue))"
     >
-      <ArrowUpOutlined />
-    </button>
+      <ArrowUpIcon />
+    </Button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { PlusOutlined, AudioOutlined, ArrowUpOutlined, BorderOutlined } from '@ant-design/icons-vue'
+import { ArrowUpIcon, MicIcon, PlusIcon, SquareIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 export interface MentionAgent {
   id: string
@@ -181,125 +197,3 @@ watch(
   () => autosize()
 )
 </script>
-
-<style scoped>
-.ai-composer {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 10px 12px;
-  position: relative;
-  background: var(--sb-composer-bg, var(--sb-bg-soft));
-  border: 1px solid var(--sb-border-soft);
-  border-radius: var(--sb-composer-radius, 24px);
-  transition: border-color var(--sb-dur) var(--sb-ease), box-shadow var(--sb-dur) var(--sb-ease);
-}
-.ai-composer:focus-within {
-  border-color: var(--sb-border);
-  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.12);
-}
-.ai-composer.is-disabled {
-  opacity: 0.6;
-}
-.ai-composer-input {
-  flex: 1;
-  min-width: 0;
-  min-height: 24px;
-  max-height: 220px;
-  resize: none;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--sb-text);
-  font-size: var(--sb-fs-md, 14px);
-  line-height: 1.5;
-  font-family: inherit;
-  padding: 4px 0;
-}
-.ai-composer-input::placeholder {
-  color: var(--sb-text-secondary);
-}
-.ai-composer-icon-btn {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid var(--sb-border-soft);
-  background: var(--sb-bg, #fff);
-  color: var(--sb-text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-.ai-composer-send {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 0;
-  background: var(--sb-composer-send-bg, #1f1e1d);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: opacity var(--sb-dur) var(--sb-ease), transform var(--sb-dur) var(--sb-ease);
-}
-.ai-composer-send:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.ai-composer-send:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-.ai-composer-send.is-stop {
-  background: var(--sb-danger, #c0452f);
-}
-.ai-mention-pop {
-  position: absolute;
-  left: 48px;
-  right: 48px;
-  bottom: calc(100% + 8px);
-  background: var(--sb-bg, #fff);
-  border: 1px solid var(--sb-border-soft);
-  border-radius: var(--sb-radius-sm);
-  box-shadow: var(--sb-shadow, 0 8px 24px rgba(31, 30, 29, 0.08));
-  max-height: 220px;
-  overflow: auto;
-  z-index: 5;
-  padding: 4px;
-}
-.ai-mention-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: var(--sb-radius-xs, 6px);
-  cursor: pointer;
-  color: var(--sb-text);
-  font-size: var(--sb-fs-sm);
-}
-.ai-mention-item:hover {
-  background: var(--sb-primary-light);
-}
-.ai-mention-at {
-  color: var(--sb-primary);
-  font-weight: 600;
-}
-.ai-mention-mod {
-  margin-left: auto;
-  color: var(--sb-text-secondary);
-  font-size: var(--sb-fs-xs);
-}
-.ai-mention-empty {
-  padding: 8px 10px;
-  color: var(--sb-text-secondary);
-  font-size: var(--sb-fs-sm);
-}
-</style>

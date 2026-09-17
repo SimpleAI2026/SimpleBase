@@ -1,25 +1,16 @@
 <template>
-  <a-config-provider :theme="antdTheme">
+  <TooltipProvider>
     <router-view />
-  </a-config-provider>
+    <Toaster rich-colors position="top-center" />
+  </TooltipProvider>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from 'vue'
-import { theme as antdThemeApi } from 'ant-design-vue'
-import { antdDarkThemeToken, antdThemeToken } from './styles/tokens'
+import { onMounted, onUnmounted, watch } from 'vue'
+import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { useSettingsStore } from './stores/settings'
 
 const settings = useSettingsStore()
-const { darkAlgorithm, defaultAlgorithm } = antdThemeApi
-
-const antdTheme = computed(() => {
-  const dark = settings.effectiveTheme === 'dark'
-  const base = dark ? antdDarkThemeToken : antdThemeToken
-  return {
-    ...base,
-    algorithm: dark ? darkAlgorithm : defaultAlgorithm
-  }
-})
 
 let mql: MediaQueryList | null = null
 function onSystemTheme() {

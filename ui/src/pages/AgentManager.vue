@@ -1,85 +1,121 @@
 <template>
   <ProjectScope>
     <PageContainer title="Cloud Agent" subtitle="按模块的只读 Agent；composer 输入 @ 点名">
-      <div class="ca-layout">
-        <a-card class="sb-card ca-list" title="Agents">
-          <div class="sb-toolbar" style="margin-bottom: 12px">
-            <a-button :loading="loading" @click="loadAgents">
-              <template #icon><ReloadOutlined /></template>
-              刷新
-            </a-button>
-            <a-button type="primary" @click="openCreate">
-              <template #icon><PlusOutlined /></template>
-              新建
-            </a-button>
-          </div>
-          <SbEmptyState v-if="!loading && !agents.length" description="还没有 Agent" action-text="创建" @action="openCreate" />
-          <button
-            v-for="a in agents"
-            :key="a.id"
-            type="button"
-            class="ca-item"
-            :class="{ 'is-active': a.id === activeId }"
-            @click="activeId = a.id"
-          >
-            <div class="ca-item-top">
-              <strong>{{ a.name }}</strong>
-              <a-tag>{{ a.module }}</a-tag>
+      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Agents</CardTitle>
+            <CardAction>
+              <div class="flex gap-2">
+                <Button variant="outline" size="sm" :disabled="loading" @click="loadAgents">
+                  <Spinner v-if="loading" data-icon="inline-start" />
+                  <RefreshCwIcon v-else data-icon="inline-start" />
+                  刷新
+                </Button>
+                <Button size="sm" @click="openCreate">
+                  <PlusIcon data-icon="inline-start" />
+                  新建
+                </Button>
+              </div>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <SbEmptyState v-if="!loading && !agents.length" description="还没有 Agent" action-text="创建" @action="openCreate" />
+            <div class="flex flex-col gap-2">
+              <button
+                v-for="a in agents"
+                :key="a.id"
+                type="button"
+                class="w-full rounded-md border bg-muted p-2.5 text-left"
+                :class="a.id === activeId ? 'border-primary bg-primary/12' : 'border-border'"
+                @click="activeId = a.id"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <strong>{{ a.name }}</strong>
+                  <Badge variant="secondary">{{ a.module }}</Badge>
+                </div>
+                <div class="mt-1 text-xs text-muted-foreground">{{ a.description || '无描述' }}</div>
+                <div class="mt-1 flex gap-1" @click.stop>
+                  <Button variant="ghost" size="sm" @click="openEdit(a)">编辑</Button>
+                  <ConfirmAction title="确认删除该 Agent？" @confirm="removeAgent(a)">
+                    <Button variant="ghost" size="sm" class="text-destructive">删除</Button>
+                  </ConfirmAction>
+                </div>
+              </button>
             </div>
-            <div class="ca-item-desc">{{ a.description || '无描述' }}</div>
-            <div class="ca-item-ops">
-              <a-button type="link" size="small" @click.stop="openEdit(a)">编辑</a-button>
-              <a-button type="link" size="small" danger @click.stop="removeAgent(a)">删除</a-button>
-            </div>
-          </button>
-        </a-card>
+          </CardContent>
+        </Card>
 
-        <a-card class="sb-card ca-chat" :title="activeAgent ? '@' + activeAgent.name : '对话'">
-          <AiChat
-            :project-id="project.id"
-            :show-toolbar="true"
-            :mention-agents="mentionAgents"
-            :messages="chatMessages"
-            :sending="sending"
-            :custom-send="onSend"
-            :streaming="true"
-            :placeholder="composerPlaceholder"
-            @stop="onStop"
-          >
-            <template #toolbar>
-              <a-button :disabled="!chatMessages.length && !sending" @click="resetThread">新会话</a-button>
-              <span class="ca-hint">点名 {{ activeAgent ? '@' + activeAgent.name : '一个 Agent' }} 后发送；工具只读</span>
-            </template>
-            <template #empty>
-              <SbEmptyState v-if="!chatMessages.length" description="用 @ 点名左侧 Agent，询问数据库、对象或日志" />
-            </template>
-          </AiChat>
-        </a-card>
+        <Card>
+          <CardHeader>
+            <CardTitle>{{ activeAgent ? '@' + activeAgent.name : '对话' }}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AiChat
+              :project-id="project.id"
+              :show-toolbar="true"
+              :mention-agents="mentionAgents"
+              :messages="chatMessages"
+              :sending="sending"
+              :custom-send="onSend"
+              :streaming="true"
+              :placeholder="composerPlaceholder"
+              @stop="onStop"
+            >
+              <template #toolbar>
+                <Button variant="outline" :disabled="!chatMessages.length && !sending" @click="resetThread">新会话</Button>
+                <span class="text-sm text-muted-foreground">点名 {{ activeAgent ? '@' + activeAgent.name : '一个 Agent' }} 后发送；工具只读</span>
+              </template>
+              <template #empty>
+                <SbEmptyState v-if="!chatMessages.length" description="用 @ 点名左侧 Agent，询问数据库、对象或日志" />
+              </template>
+            </AiChat>
+          </CardContent>
+        </Card>
       </div>
 
       <SbModal :open="modalOpen" :title="editing ? '编辑 Agent' : '新建 Agent'" :confirm-loading="saving" @ok="saveAgent" @update:open="(v: boolean) => (modalOpen = v)">
-        <a-form layout="vertical">
-          <a-form-item label="名称" required>
-            <a-input v-model:value="form.name" placeholder="Database" />
-          </a-form-item>
-          <a-form-item label="模块">
-            <a-select v-model:value="form.module" :options="moduleOptions" @change="onModuleChange" />
-          </a-form-item>
-          <a-form-item label="描述">
-            <a-input v-model:value="form.description" />
-          </a-form-item>
-          <a-form-item label="System prompt">
-            <a-textarea v-model:value="form.system_prompt" :rows="4" placeholder="可选；叠在模块模板之上" />
-          </a-form-item>
-          <a-form-item label="只读工具">
-            <a-select
-              v-model:value="form.tool_ids"
-              mode="multiple"
-              :options="toolOptions"
-              placeholder="选择只读工具"
-            />
-          </a-form-item>
-        </a-form>
+        <FieldGroup>
+          <Field>
+            <FieldLabel for="agent-name">名称</FieldLabel>
+            <Input id="agent-name" v-model="form.name" placeholder="Database" />
+          </Field>
+          <Field>
+            <FieldLabel>模块</FieldLabel>
+            <Select :model-value="form.module" @update:model-value="onModuleChange">
+              <SelectTrigger class="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem v-for="opt in moduleOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel for="agent-desc">描述</FieldLabel>
+            <Input id="agent-desc" v-model="form.description" />
+          </Field>
+          <Field>
+            <FieldLabel for="agent-prompt">System prompt</FieldLabel>
+            <Textarea id="agent-prompt" v-model="form.system_prompt" :rows="4" placeholder="可选；叠在模块模板之上" />
+          </Field>
+          <Field>
+            <FieldLabel>只读工具</FieldLabel>
+            <div class="flex flex-wrap gap-2">
+              <Badge
+                v-for="id in toolOptions"
+                :key="id.value"
+                :variant="form.tool_ids.includes(id.value) ? 'default' : 'outline'"
+                class="cursor-pointer"
+                @click="toggleTool(id.value)"
+              >
+                {{ id.label }}
+              </Badge>
+            </div>
+          </Field>
+        </FieldGroup>
       </SbModal>
     </PageContainer>
   </ProjectScope>
@@ -87,14 +123,30 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { toast } from 'vue-sonner'
+import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
 import { api } from '../services/api'
 import type { AgentModuleInfo, CloudAgent, LlmStreamConnection } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
+import ConfirmAction from '../components/ConfirmAction.vue'
 import SbModal from '../components/modal/SbModal.vue'
 import AiChat from '../components/ai/AiChat.vue'
 import type { ChatMsg } from '../composables/useAiChat'
@@ -149,7 +201,7 @@ async function loadModules() {
   try {
     modules.value = await api.agents.modules(project.id)
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '加载模块失败')
+    toast.error(e instanceof Error ? e.message : '加载模块失败')
   }
 }
 
@@ -159,7 +211,7 @@ async function loadAgents() {
     agents.value = await api.agents.list(project.id)
     if (!activeId.value && agents.value.length) activeId.value = agents.value[0].id
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '加载 Agent 失败')
+    toast.error(e instanceof Error ? e.message : '加载 Agent 失败')
   } finally {
     loading.value = false
   }
@@ -181,7 +233,7 @@ async function ensureThread() {
       toolCalls: m.tool_calls
     }))
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '加载会话失败')
+    toast.error(e instanceof Error ? e.message : '加载会话失败')
   }
 }
 
@@ -211,6 +263,7 @@ function openEdit(a: CloudAgent) {
 }
 
 function onModuleChange(mod: string) {
+  form.value.module = mod
   const m = modules.value.find((x) => x.id === mod)
   if (m && !editing.value) {
     form.value.tool_ids = [...(m.default_tools || [])]
@@ -218,9 +271,14 @@ function onModuleChange(mod: string) {
   }
 }
 
+function toggleTool(id: string) {
+  const cur = form.value.tool_ids
+  form.value.tool_ids = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+}
+
 async function saveAgent() {
   if (!form.value.name.trim()) {
-    message.warning('请填写名称')
+    toast.warning('请填写名称')
     return
   }
   saving.value = true
@@ -234,7 +292,7 @@ async function saveAgent() {
     modalOpen.value = false
     await loadAgents()
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(e instanceof Error ? e.message : '保存失败')
   } finally {
     saving.value = false
   }
@@ -246,7 +304,7 @@ async function removeAgent(a: CloudAgent) {
     if (activeId.value === a.id) activeId.value = ''
     await loadAgents()
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(e instanceof Error ? e.message : '删除失败')
   }
 }
 
@@ -257,7 +315,7 @@ async function resetThread() {
     threadId.value = th.id
     chatMessages.value = []
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '新建会话失败')
+    toast.error(e instanceof Error ? e.message : '新建会话失败')
   }
 }
 
@@ -270,7 +328,7 @@ async function onSend(text: string, mentions: { agent_id: string }[]) {
     used = [{ agent_id: activeAgent.value.id }]
   }
   if (!used.length) {
-    message.warning('请先选择或 @ 一个 Agent')
+    toast.warning('请先选择或 @ 一个 Agent')
     return
   }
   chatMessages.value.push({ role: 'user', content })
@@ -306,7 +364,7 @@ async function onSend(text: string, mentions: { agent_id: string }[]) {
       onError: (e) => {
         sending.value = false
         conn = null
-        if (e) message.error(e instanceof Error ? e.message : '运行失败')
+        if (e) toast.error(e instanceof Error ? e.message : '运行失败')
       }
     }
   )
@@ -325,56 +383,3 @@ onMounted(() => {
   void bootstrap()
 })
 </script>
-
-<style scoped>
-.ca-layout {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: var(--sb-space-4);
-  align-items: stretch;
-}
-.ca-list :deep(.ant-card-body) {
-  padding: 16px;
-}
-.ca-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 1px solid var(--sb-border-soft);
-  background: var(--sb-bg-soft);
-  border-radius: var(--sb-radius-sm);
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  cursor: pointer;
-  color: inherit;
-}
-.ca-item.is-active {
-  border-color: var(--sb-primary);
-  background: var(--sb-primary-light);
-}
-.ca-item-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.ca-item-desc {
-  color: var(--sb-text-secondary);
-  font-size: var(--sb-fs-xs);
-  margin-top: 4px;
-}
-.ca-item-ops {
-  display: flex;
-  gap: 0;
-  margin-top: 4px;
-}
-.ca-hint {
-  color: var(--sb-text-secondary);
-  font-size: var(--sb-fs-sm);
-}
-@media (max-width: 768px) {
-  .ca-layout {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

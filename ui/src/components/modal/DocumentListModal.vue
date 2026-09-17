@@ -5,51 +5,84 @@
     :width="720"
     @update:open="emit('update:open', $event)"
   >
-    <div class="sb-doc-toolbar">
-      <a-button type="primary" size="small" @click="emit('add-document')">
-        <template #icon><PlusOutlined /></template>
-        新增文档
-      </a-button>
-      <a-button size="small" :loading="loading" @click="load">
-        <template #icon><ReloadOutlined /></template>
-        刷新
-      </a-button>
+    <div class="flex flex-col gap-3">
+      <div class="flex gap-2">
+        <Button size="sm" @click="emit('add-document')">
+          <PlusIcon data-icon="inline-start" />
+          新增文档
+        </Button>
+        <Button size="sm" variant="outline" :disabled="loading" @click="load">
+          <Spinner v-if="loading" data-icon="inline-start" />
+          <RefreshCwIcon v-else data-icon="inline-start" />
+          刷新
+        </Button>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead class="w-[200px]">ID</TableHead>
+            <TableHead>数据</TableHead>
+            <TableHead class="w-20">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow v-if="loading && !paged.length">
+            <TableCell colspan="3">
+              <div class="flex flex-col gap-2 py-2">
+                <Skeleton class="h-8 w-full" />
+                <Skeleton class="h-8 w-2/3" />
+              </div>
+            </TableCell>
+          </TableRow>
+          <TableEmpty v-else-if="!paged.length" :colspan="3">暂时未查询到数据</TableEmpty>
+          <TableRow v-for="record in paged" :key="record.id">
+            <TableCell class="sb-mono truncate">{{ record.id }}</TableCell>
+            <TableCell>
+              <SbCodeBlock :value="docFields(record)" max-height="160px" />
+            </TableCell>
+            <TableCell>
+              <ConfirmAction title="确认删除该文档？" @confirm="removeRow(record.id)">
+                <Button variant="ghost" size="sm" class="text-destructive">删除</Button>
+              </ConfirmAction>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+      <TablePager
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        :page-count="pageCount"
+        @update:page="page = $event"
+      />
     </div>
-    <a-table
-      :columns="columns"
-      :data-source="rows"
-      :loading="loading"
-      row-key="id"
-      :pagination="pagination"
-      size="small"
-    >
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'data'">
-          <SbCodeBlock :value="docFields(record)" max-height="160px" />
-        </template>
-        <template v-else-if="column.key === 'ops'">
-          <a-popconfirm title="确认删除该文档？" @confirm="removeRow(record.id)">
-            <a-button type="link" danger size="small">删除</a-button>
-          </a-popconfirm>
-        </template>
-      </template>
-      <template #emptyText>
-        <a-empty description="暂时未查询到数据" />
-      </template>
-    </a-table>
     <template #footer>
-      <a-button @click="emit('update:open', false)">关闭</a-button>
+      <Button variant="outline" @click="emit('update:open', false)">关闭</Button>
     </template>
   </SbModal>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { toast } from 'vue-sonner'
+import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { api } from '../../services/api'
 import type { DbRow } from '../../services/api'
 import { usePagination } from '../../composables/usePagination'
+import ConfirmAction from '../ConfirmAction.vue'
+import TablePager from '../TablePager.vue'
 import SbCodeBlock from '../SbCodeBlock.vue'
 import SbModal from './SbModal.vue'
 
@@ -66,16 +99,10 @@ const emit = defineEmits<{
   'add-document': []
 }>()
 
-const columns = [
-  { title: 'ID', dataIndex: 'id', key: 'id', width: 200, ellipsis: true },
-  { title: '数据', key: 'data' },
-  { title: '操作', key: 'ops', width: 80 }
-]
-
-const pagination = usePagination()
 const rows = ref<DbRow[]>([])
 const loading = ref(false)
 const title = ref('文档')
+const { page, pageSize, total, pageCount, items: paged } = usePagination(rows)
 
 function docFields(row: DbRow): Record<string, unknown> {
   const { id, ...rest } = row
@@ -89,7 +116,7 @@ async function load() {
   try {
     rows.value = await api.db.rows(props.projectId, props.databaseId, props.collection)
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '数据加载失败')
+    toast.error(e instanceof Error ? e.message : '数据加载失败')
   } finally {
     loading.value = false
   }
@@ -98,10 +125,10 @@ async function load() {
 async function removeRow(id: string) {
   try {
     await api.db.remove(props.projectId, props.databaseId, props.collection, id)
-    message.success('删除成功')
+    toast.success('删除成功')
     await load()
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(e instanceof Error ? e.message : '删除失败')
   }
 }
 
@@ -114,11 +141,3 @@ watch(
   { immediate: true }
 )
 </script>
-
-<style scoped>
-.sb-doc-toolbar {
-  display: flex;
-  gap: var(--sb-space-2);
-  margin-bottom: var(--sb-space-3);
-}
-</style>
