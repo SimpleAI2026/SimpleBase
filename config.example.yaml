@@ -59,9 +59,6 @@ s3:
   secret_key: ""              # SIMPLEBASE_S3_SECRET_KEY（环境注入）
   force_path_style: false     # SIMPLEBASE_S3_FORCE_PATH_STYLE
 
-catalog:
-  database_id: "simplebase-catalog"  # SIMPLEBASE_CATALOG_DATABASE_ID（遗留字段）
-
 system_database:
   name: "simplebase-system"          # SIMPLEBASE_SYSTEM_DB_NAME
   hide_from_list: true               # SIMPLEBASE_SYSTEM_DB_HIDE_FROM_LIST

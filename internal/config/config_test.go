@@ -17,7 +17,6 @@ func setRequiredEnvs(t *testing.T, writable bool, s3Incomplete bool) {
 	t.Setenv("SIMPLEBASE_DB_IDLE_TIMEOUT", "1m")
 	t.Setenv("SIMPLEBASE_DB_MAX_OPEN", "4")
 	t.Setenv("SIMPLEBASE_DB_MAX_IDLE", "1")
-	t.Setenv("SIMPLEBASE_CATALOG_DATABASE_ID", "catalog")
 	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "test-secret")
 	t.Setenv("SIMPLEBASE_LIMITS_MAX_REQUEST_BYTES", "1024")
 	t.Setenv("SIMPLEBASE_LIMITS_MAX_QUERY_ROWS", "100")

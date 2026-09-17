@@ -7,7 +7,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database/cache"
-	"github.com/linkxzhou/SimpleBase/internal/jobs"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
 	"github.com/voocel/litellm/providers"
@@ -149,24 +148,3 @@ func (a *llmStreamReaderAdapter) Next() (*LLMStreamChunk, error) {
 }
 
 func (a *llmStreamReaderAdapter) Close() error { return a.inner.Close() }
-
-// jobEnqueuerAdapter 适配 *jobs.Enqueuer。
-type jobEnqueuerAdapter struct{ e *jobs.Enqueuer }
-
-func (a *jobEnqueuerAdapter) Enqueue(ctx context.Context, in JobInput) (string, error) {
-	return a.e.Enqueue(ctx, jobs.EnqueueInput{
-		OperationID: in.OperationID,
-		DatabaseID:  in.DatabaseID,
-		ProjectID:   in.ProjectID,
-		Type:        catalog.JobType(in.Type),
-		PayloadJSON: in.PayloadJSON,
-	})
-}
-
-// NewJobEnqueuer 构造 JobEnqueuer 适配器。
-func NewJobEnqueuer(e *jobs.Enqueuer) JobEnqueuer {
-	if e == nil {
-		return nil
-	}
-	return &jobEnqueuerAdapter{e: e}
-}

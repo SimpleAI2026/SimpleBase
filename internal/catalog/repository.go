@@ -28,9 +28,6 @@ type Repository interface {
 	// ListOperations 查询审计事件。projectID 可为空表示全部。
 	ListOperations(ctx context.Context, projectID, databaseID string, limit int) ([]Operation, error)
 
-	// Job 队列（plan7.md）：Enqueue/Claim/Complete/Retry/MarkDeadLetter/ListJobs。
-	JobQueue
-
 	// LLM 供应商配置（plan8.md）。
 	LLMProviderStore
 
@@ -62,24 +59,6 @@ type UsageSummary struct {
 type LLMProviderStore interface {
 	GetLLMProviders(ctx context.Context, projectID string) (LLMProviders, error)
 	SetLLMProviders(ctx context.Context, projectID string, providers LLMProviders) error
-}
-
-// JobQueue 抽象后台任务的持久化与领取（plan7.md）。
-// 实现必须保证 Claim 的原子性（单实例下用事务 + UPDATE...WHERE status='pending'）。
-type JobQueue interface {
-	Enqueue(ctx context.Context, job Job) error
-	// Claim 原子地把最早一个 status=pending 且 run_after<=now 的任务置为 running，
-	// 返回该任务。无可用任务返回 ErrNotFound。
-	Claim(ctx context.Context, workerID string, now time.Time) (Job, error)
-	// Complete 标记任务为 completed。任务必须处于 running 状态。
-	Complete(ctx context.Context, id string) error
-	// Retry 记录失败原因，attempt+1，状态回 pending，run_after=next。
-	// 超过 max_attempts 则标记 dead_letter。
-	Retry(ctx context.Context, id string, lastErr string, next time.Time) error
-	// GetJob 按 ID 查询任务（供 API 查询状态）。
-	GetJob(ctx context.Context, id string) (Job, error)
-	// ListJobs 返回指定 database 的任务（按 created_at 降序，限 limit 条）。
-	ListJobs(ctx context.Context, databaseID string, limit int) ([]Job, error)
 }
 
 // TenantProjectValidator 用于 service 校验 project 属于 tenant。

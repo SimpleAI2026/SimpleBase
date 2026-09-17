@@ -17,9 +17,7 @@ import (
 //	{root}/{env}/catalog/...
 //	{root}/{env}/tenants/{tenantUUID}/databases/{databaseUUID}/
 //	  descriptor.json
-//	  state.json
 //	  data/                        # DuckLake DATA_PATH（平面 B）
-//	  backups/{backupUUID}/...
 type KeyBuilder struct {
 	RootPrefix  string // 例如 "simplebase"，对应 config.S3Config.Prefix
 	Environment string // 例如 "prod"，用于多环境隔离
@@ -99,15 +97,6 @@ func (k KeyBuilder) DescriptorKey(tenantID, databaseID string) (string, error) {
 	return prefix + "/descriptor.json", nil
 }
 
-// StateKey 返回 state.json 的完整 key。
-func (k KeyBuilder) StateKey(tenantID, databaseID string) (string, error) {
-	prefix, err := k.DatabasePrefix(tenantID, databaseID)
-	if err != nil {
-		return "", err
-	}
-	return prefix + "/state.json", nil
-}
-
 // DataPrefix 返回 data/ 子前缀（DuckLake DATA_PATH；本包不直接解析 Parquet）。
 func (k KeyBuilder) DataPrefix(tenantID, databaseID string) (string, error) {
 	prefix, err := k.DatabasePrefix(tenantID, databaseID)
@@ -115,20 +104,6 @@ func (k KeyBuilder) DataPrefix(tenantID, databaseID string) (string, error) {
 		return "", err
 	}
 	return prefix + "/data", nil
-}
-
-// BackupPrefix 返回某次备份的对象前缀。
-func (k KeyBuilder) BackupPrefix(tenantID, databaseID, backupID string) (string, error) {
-	if err := validateID("tenant_id", tenantID); err != nil {
-		return "", err
-	}
-	if err := validateID("database_id", databaseID); err != nil {
-		return "", err
-	}
-	if err := validateID("backup_id", backupID); err != nil {
-		return "", err
-	}
-	return joinKey(k.base(), "tenants", tenantID, "databases", databaseID, "backups", backupID), nil
 }
 
 // CatalogPrefix 返回 catalog 对象前缀。catalog 只能由唯一 Server 实例访问，

@@ -369,30 +369,19 @@ func (s *Service) SetDatabaseReady(ctx context.Context, id string) error {
 }
 
 // MarkDatabaseDeleted 将数据库从 deleting 转为 deleted 并记录 deleted_at。
-// 由 DeleteDatabaseSync（或遗留 jobs handler）在完成存储清理后调用。幂等：重复调用不报错。
+// 由 DeleteDatabaseSync 在完成存储清理后调用。幂等：重复调用不报错。
 func (s *Service) MarkDatabaseDeleted(ctx context.Context, id string, at time.Time) error {
 	// 状态校验：仅 deleting 可转 deleted。若已是 deleted 则幂等成功。
 	_, err := s.repo.TransitionDatabase(ctx, id, []DatabaseStatus{DatabaseDeleting}, DatabaseDeleted, at)
 	if err != nil {
 		if errors.Is(err, ErrInvalidState) {
 			// 检查是否已是 deleted（幂等重试）。
-			// 注意：GetDatabase 需要 projectID，此处用 ListJobs 同级的方式不适用；
 			// 直接依赖 TransitionDatabase 的 affected rows 判断：若非 deleting 则忽略。
 			return nil
 		}
 		return err
 	}
 	return s.repo.MarkDeleted(ctx, id, at)
-}
-
-// GetDatabaseForJob 供后台任务按 projectID+databaseID 获取库元数据。
-// 不经过 HTTP principal 校验，但校验 databaseID 属于 projectID（防越权）。
-func (s *Service) GetDatabaseForJob(ctx context.Context, projectID, databaseID string) (Database, error) {
-	db, err := s.repo.GetDatabase(ctx, projectID, databaseID)
-	if err != nil {
-		return Database{}, err
-	}
-	return db, nil
 }
 
 // GetLLMProviders 返回 project 的 LLM 供应商配置（含 CredentialRef，不含密钥原文）。

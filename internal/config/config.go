@@ -19,7 +19,6 @@ type Config struct {
 	Instance       InstanceConfig       `mapstructure:"instance"`
 	Database       DatabaseConfig       `mapstructure:"database"`
 	S3             S3Config             `mapstructure:"s3"`
-	Catalog        CatalogConfig        `mapstructure:"catalog"`
 	Auth           AuthConfig           `mapstructure:"auth"`
 	LLM            LLMConfig            `mapstructure:"llm"`
 	Limits         LimitsConfig         `mapstructure:"limits"`
@@ -93,10 +92,6 @@ type S3Config struct {
 	SecretKey      string
 	KMSKeyID       string
 	ForcePathStyle bool
-}
-
-type CatalogConfig struct {
-	DatabaseID string
 }
 
 // SystemDatabaseConfig 控制实例级 DuckLake 系统库。
@@ -183,7 +178,6 @@ type yamlConfig struct {
 	Instance       yamlInstance       `yaml:"instance"`
 	Database       yamlDatabase       `yaml:"database"`
 	S3             yamlS3             `yaml:"s3"`
-	Catalog        yamlCatalog        `yaml:"catalog"`
 	Auth           yamlAuth           `yaml:"auth"`
 	Limits         yamlLimits         `yaml:"limits"`
 	Observability  yamlObservability  `yaml:"observability"`
@@ -245,10 +239,6 @@ type yamlS3 struct {
 	AccessKey      string `yaml:"access_key"`
 	SecretKey      string `yaml:"secret_key"`
 	ForcePathStyle bool   `yaml:"force_path_style"`
-}
-
-type yamlCatalog struct {
-	DatabaseID string `yaml:"database_id"`
 }
 
 type yamlAuth struct {
@@ -369,11 +359,6 @@ func applyYAML(cfg *Config, yc yamlConfig) {
 	}
 	if os.Getenv("SIMPLEBASE_S3_FORCE_PATH_STYLE") == "" {
 		cfg.S3.ForcePathStyle = yc.S3.ForcePathStyle
-	}
-	if yc.Catalog.DatabaseID != "" {
-		if os.Getenv("SIMPLEBASE_CATALOG_DATABASE_ID") == "" {
-			cfg.Catalog.DatabaseID = yc.Catalog.DatabaseID
-		}
 	}
 	if yc.Auth.APIKeyHashSecret != "" {
 		if os.Getenv("SIMPLEBASE_AUTH_APIKEY_SECRET") == "" {
@@ -497,9 +482,6 @@ func loadFromEnv() Config {
 			KMSKeyID:       envStr("SIMPLEBASE_S3_KMS_KEY_ID", ""),
 			ForcePathStyle: envBool("SIMPLEBASE_S3_FORCE_PATH_STYLE", false),
 		},
-		Catalog: CatalogConfig{
-			DatabaseID: envStr("SIMPLEBASE_CATALOG_DATABASE_ID", "simplebase-catalog"),
-		},
 		Auth: AuthConfig{
 			APIKeyHashSecret: envStr("SIMPLEBASE_AUTH_APIKEY_SECRET", ""),
 		},
@@ -587,9 +569,6 @@ func (c Config) Validate() error {
 	if c.Database.MaxOpen <= 0 || c.Database.MaxIdle < 0 {
 		errs = append(errs, errors.New("database.max_open must be positive and max_idle non-negative"))
 	}
-	if c.Catalog.DatabaseID == "" {
-		errs = append(errs, errors.New("catalog.database_id is required"))
-	}
 	if c.Auth.APIKeyHashSecret == "" {
 		errs = append(errs, errors.New("auth.api_key_hash_secret is required"))
 	}
@@ -676,9 +655,6 @@ func (c Config) Redacted() map[string]any {
 			"has_access_key":   c.S3.AccessKey != "",
 			"has_secret_key":   c.S3.SecretKey != "",
 			"kms_key_id":       c.S3.KMSKeyID,
-		},
-		"catalog": map[string]any{
-			"database_id": c.Catalog.DatabaseID,
 		},
 		"system_database": map[string]any{
 			"name":           c.SystemDatabase.Name,

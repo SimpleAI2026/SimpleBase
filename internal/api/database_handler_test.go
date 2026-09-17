@@ -169,8 +169,6 @@ func setupTestRouter(t *testing.T, svc *fakeDBService, writable bool) *echo.Echo
 	p.POST("/databases/:databaseID/open", h.OpenDatabase)
 	p.POST("/databases/:databaseID/close", h.CloseDatabase)
 	p.DELETE("/databases/:databaseID", h.DeleteDatabase)
-	p.POST("/databases/:databaseID/backups", h.CreateBackup)
-	p.POST("/databases/:databaseID/restore", h.RestoreDatabase)
 
 	return e
 }
@@ -334,18 +332,6 @@ func TestListDatabases_Success(t *testing.T) {
 	}
 	if len(resp.Databases) != 2 {
 		t.Errorf("expected 2 databases, got %d", len(resp.Databases))
-	}
-}
-
-func TestBackupRestore_NotImplemented(t *testing.T) {
-	e := setupTestRouter(t, newFakeDBService(), true)
-	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/backups", nil)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d", rec.Code)
-	}
-	rec = doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/restore", nil)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d", rec.Code)
 	}
 }
 

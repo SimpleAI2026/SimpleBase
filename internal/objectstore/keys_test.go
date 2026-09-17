@@ -82,24 +82,6 @@ func TestKeyBuilderTenantIsolation(t *testing.T) {
 	}
 }
 
-func TestKeyBuilderBackupPrefix(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
-	tenant := "11111111-1111-1111-1111-111111111111"
-	db := "33333333-3333-3333-3333-333333333333"
-	backup := "44444444-4444-4444-4444-444444444444"
-	got, err := kb.BackupPrefix(tenant, db, backup)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(got, "/backups/") {
-		t.Errorf("backup prefix missing /backups/: %s", got)
-	}
-	// 非 UUID backup id 应被拒
-	if _, err := kb.BackupPrefix(tenant, db, "my-backup-name"); err == nil {
-		t.Error("expected error for non-UUID backup id")
-	}
-}
-
 func TestKeyBuilderCatalogPrefix(t *testing.T) {
 	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
 	got := kb.CatalogPrefix()
@@ -123,14 +105,14 @@ func TestKeyBuilderEnvironmentIsolation(t *testing.T) {
 
 func TestDescriptorValidateRejectsFutureVersion(t *testing.T) {
 	desc := &Descriptor{
-		FormatVersion: DescriptorFormatVersion + 1,
-		TenantID:      "11111111-1111-1111-1111-111111111111",
-		ProjectID:     "22222222-2222-2222-2222-222222222222",
-		DatabaseID:    "33333333-3333-3333-3333-333333333333",
-		CreatedAt:     time.Now().UTC(),
+		FormatVersion:   DescriptorFormatVersion + 1,
+		TenantID:        "11111111-1111-1111-1111-111111111111",
+		ProjectID:       "22222222-2222-2222-2222-222222222222",
+		DatabaseID:      "33333333-3333-3333-3333-333333333333",
+		CreatedAt:       time.Now().UTC(),
 		DuckLakeStorage: DuckLakeStorage{Region: "us-east-1", Bucket: "b", Prefix: "p"},
-		DataPrefix:    "p",
-		Status:        StatusCreating,
+		DataPrefix:      "p",
+		Status:          StatusCreating,
 	}
 	if err := desc.Validate(); err == nil {
 		t.Error("expected error for future format version")
@@ -139,14 +121,14 @@ func TestDescriptorValidateRejectsFutureVersion(t *testing.T) {
 
 func TestDescriptorValidateMismatchedPrefix(t *testing.T) {
 	desc := &Descriptor{
-		FormatVersion: DescriptorFormatVersion,
-		TenantID:      "11111111-1111-1111-1111-111111111111",
-		ProjectID:     "22222222-2222-2222-2222-222222222222",
-		DatabaseID:    "33333333-3333-3333-3333-333333333333",
-		CreatedAt:     time.Now().UTC(),
+		FormatVersion:   DescriptorFormatVersion,
+		TenantID:        "11111111-1111-1111-1111-111111111111",
+		ProjectID:       "22222222-2222-2222-2222-222222222222",
+		DatabaseID:      "33333333-3333-3333-3333-333333333333",
+		CreatedAt:       time.Now().UTC(),
 		DuckLakeStorage: DuckLakeStorage{Region: "us-east-1", Bucket: "b", Prefix: "p1"},
-		DataPrefix:    "p2",
-		Status:        StatusCreating,
+		DataPrefix:      "p2",
+		Status:          StatusCreating,
 	}
 	if err := desc.Validate(); err == nil {
 		t.Error("expected error for mismatched data_prefix")
