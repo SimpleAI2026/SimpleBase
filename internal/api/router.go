@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
@@ -42,8 +43,10 @@ type Dependencies struct {
 	JobEnqueuer JobEnqueuer
 	// S3FileStore：用户文件存储（objectstore.FileStore）。
 	S3FileStore objectstore.FileStore
-	// System 是实例系统 DuckLake（元数据 / 指标 / 日志 / S3 索引 / LLM 会话）。
+	// System 是实例系统 DuckLake（元数据 / 指标 / 日志 / S3 索引 / LLM 会话 / Cloud Agent）。
 	System *systemdb.Store
+	// CloudAgent 是 Phase 1 单 agent + 只读工具运行时。
+	CloudAgent *cloudagent.Runtime
 }
 
 // CacheService 抽象缓存管理（plan7.md）。
@@ -291,6 +294,21 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.POST("/llm/sessions/:sessionID/messages", sess.PostMessage, require(auth.DatabaseWrite))
 		p.GET("/llm/settings", sess.GetSettings, require(auth.DatabaseRead))
 		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin))
+
+		ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit}
+		p.GET("/agents/modules", ah.ListModules, require(auth.DatabaseRead))
+		p.GET("/agents", ah.ListAgents, require(auth.DatabaseRead))
+		p.POST("/agents", ah.CreateAgent, require(auth.DatabaseWrite))
+		p.GET("/agents/:agentID", ah.GetAgent, require(auth.DatabaseRead))
+		p.PATCH("/agents/:agentID", ah.PatchAgent, require(auth.DatabaseWrite))
+		p.DELETE("/agents/:agentID", ah.DeleteAgent, require(auth.DatabaseWrite))
+		p.GET("/agent-threads", ah.ListThreads, require(auth.DatabaseRead))
+		p.POST("/agent-threads", ah.CreateThread, require(auth.DatabaseWrite))
+		p.GET("/agent-threads/:threadID", ah.GetThread, require(auth.DatabaseRead))
+		p.DELETE("/agent-threads/:threadID", ah.DeleteThread, require(auth.DatabaseWrite))
+		p.GET("/agent-threads/:threadID/messages", ah.ListMessages, require(auth.DatabaseRead))
+		p.POST("/agent-threads/:threadID/runs", ah.CreateRun, require(auth.DatabaseRead))
+		p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseRead))
 	}
 }
 

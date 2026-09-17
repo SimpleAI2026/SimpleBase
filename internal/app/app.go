@@ -22,6 +22,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/cache"
@@ -190,6 +191,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		JobEnqueuer:     api.NewJobEnqueuer(a.jobEnqueuer),
 		S3FileStore:     a.fileStore,
 		System:          a.systemStore,
+		CloudAgent:      a.cloudAgentRuntime(),
 	}
 	a.echo = api.NewRouter(deps)
 
@@ -485,6 +487,19 @@ func (a *App) newSystemDatabaseFactory() *ducklake.Factory {
 		f.Syncer = ducklake.NewLocalSyncer()
 	}
 	return f
+}
+
+func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
+	if a.systemStore == nil {
+		return nil
+	}
+	return &cloudagent.Runtime{
+		LLM:      api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
+		DB:       api.NewCloudAgentDB(a.catalog, a.registry),
+		Obj:      api.NewCloudAgentObj(a.fileStore, a.systemStore),
+		Logs:     cloudagent.NewLogAccess(a.systemStore),
+		Settings: cloudagent.NewSettingsAccess(a.systemStore),
+	}
 }
 
 func duckLakeOptions(cfg config.DuckLakeConfig) ducklake.Options {

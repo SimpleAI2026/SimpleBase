@@ -4,8 +4,9 @@ import { api } from '../services/api'
 import type { LlmMessage, LlmStreamConnection } from '../services/api'
 
 export interface ChatMsg {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool'
   content: string
+  toolCalls?: { name?: string; content?: string; arguments?: string }[]
 }
 
 export function useAiChat(opts: {

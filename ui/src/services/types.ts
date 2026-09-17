@@ -170,6 +170,80 @@ export interface LlmStreamConnection {
   close: () => void
 }
 
+/* ---------- Cloud Agent（proto-http.md §3.12） ---------- */
+
+export interface AgentModuleInfo {
+  id: string
+  name: string
+  description: string
+  default_tools: string[]
+  team_supported: boolean
+}
+
+export interface CloudAgent {
+  id: string
+  name: string
+  module: string
+  description: string
+  system_prompt: string
+  tool_ids: string[]
+  model_override?: string
+  team_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentThread {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentMention {
+  agent_id: string
+}
+
+export interface AgentToolCallCard {
+  name?: string
+  content?: string
+  arguments?: string
+}
+
+export interface AgentMessage {
+  id: string
+  role: string
+  content: string
+  agent_id?: string
+  mentions?: AgentMention[]
+  tool_calls?: AgentToolCallCard[]
+  run_id?: string
+  created_at: string
+}
+
+export interface AgentRun {
+  id: string
+  thread_id: string
+  agent_id: string
+  status: string
+  error?: string
+}
+
+export interface AgentRunRequest {
+  content: string
+  mentions: AgentMention[]
+  stream?: boolean
+}
+
+export interface AgentStreamHandlers {
+  onRun?: (runId: string) => void
+  onToken?: (text: string) => void
+  onToolCall?: (name: string, args: string) => void
+  onToolResult?: (name: string, content: string) => void
+  onEnd?: () => void
+  onError?: (e: unknown) => void
+}
+
 /**
  * API 统一抽象：http 实现与 mock 实现均遵循该接口。
  * projectId 一律为方法首个参数，由调用方从 stores/project.ts 读取后显式传入
@@ -242,5 +316,28 @@ export interface Api {
     providers: (projectId: string) => Promise<string[]>
     chat: (projectId: string, req: LlmChatRequest) => Promise<LlmChatResponse>
     stream: (projectId: string, req: LlmChatRequest, handlers: LlmStreamHandlers) => LlmStreamConnection
+  }
+  agents: {
+    modules: (projectId: string) => Promise<AgentModuleInfo[]>
+    list: (projectId: string) => Promise<CloudAgent[]>
+    create: (projectId: string, body: Partial<CloudAgent>) => Promise<CloudAgent>
+    get: (projectId: string, agentId: string) => Promise<CloudAgent>
+    patch: (projectId: string, agentId: string, body: Partial<CloudAgent>) => Promise<CloudAgent>
+    remove: (projectId: string, agentId: string) => Promise<void>
+  }
+  agentThreads: {
+    list: (projectId: string) => Promise<AgentThread[]>
+    create: (projectId: string, title?: string) => Promise<AgentThread>
+    get: (projectId: string, threadId: string) => Promise<AgentThread>
+    remove: (projectId: string, threadId: string) => Promise<void>
+    messages: (projectId: string, threadId: string) => Promise<AgentMessage[]>
+    run: (projectId: string, threadId: string, req: AgentRunRequest) => Promise<{ run: AgentRun; message: AgentMessage }>
+    streamRun: (
+      projectId: string,
+      threadId: string,
+      req: AgentRunRequest,
+      handlers: AgentStreamHandlers
+    ) => LlmStreamConnection
+    cancel: (projectId: string, runId: string) => Promise<AgentRun>
   }
 }

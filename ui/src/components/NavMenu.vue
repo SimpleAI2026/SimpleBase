@@ -35,6 +35,7 @@ const iconMap: Record<string, Component> = {
   s3: CloudUploadOutlined,
   faas: CodeOutlined,
   llm: RobotOutlined,
+  agents: RobotOutlined,
   settings: SettingOutlined,
   logs: FileTextOutlined
 }
@@ -57,7 +58,7 @@ const menuItems = computed<MenuItem[]>(() =>
     }))
 )
 
-const routeOrder = ['dashboard', 'databases', 's3', 'faas', 'llm', 'logs', 'settings']
+const routeOrder = ['dashboard', 'databases', 's3', 'faas', 'agents', 'logs', 'settings']
 function orderOf(name: string) {
   const i = routeOrder.indexOf(name)
   return i === -1 ? 99 : i

@@ -35,6 +35,11 @@ type Store struct {
 // DB 返回底层连接（供仓储使用）。
 func (s *Store) DB() *sql.DB { return s.db }
 
+// NewStoreForTest wraps an already-migrated *sql.DB (unit tests).
+func NewStoreForTest(db *sql.DB) *Store {
+	return &Store{db: db}
+}
+
 // Meta 返回系统库 catalog 行（kind=system）。
 func (s *Store) Meta() catalog.Database { return s.meta }
 

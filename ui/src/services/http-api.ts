@@ -1,6 +1,13 @@
 import { http, wsBase, baseURL, getApiKey } from './http'
 import type {
   Api,
+  AgentMessage,
+  AgentModuleInfo,
+  AgentRun,
+  AgentRunRequest,
+  AgentStreamHandlers,
+  AgentThread,
+  CloudAgent,
   DatabaseItem,
   LlmChatRequest,
   LlmStreamHandlers,
@@ -143,6 +150,140 @@ function llmStream(
               if (text) handlers.onChunk?.(text)
             } catch {
               /* 忽略非 JSON 帧 */
+            }
+          }
+        }
+      }
+      fireEnd()
+    } catch (e) {
+      if (!controller.signal.aborted) handlers.onError?.(e)
+    }
+  })()
+  return { close: () => controller.abort() }
+}
+
+function agentPath(projectId: string, rest = '') {
+  return '/v1/projects/' + encodeURIComponent(projectId) + rest
+}
+
+function toCloudAgent(raw: Record<string, any>): CloudAgent {
+  return {
+    id: String(raw?.id ?? ''),
+    name: String(raw?.name ?? ''),
+    module: String(raw?.module ?? ''),
+    description: String(raw?.description ?? ''),
+    system_prompt: String(raw?.system_prompt ?? ''),
+    tool_ids: Array.isArray(raw?.tool_ids) ? raw.tool_ids.map(String) : [],
+    model_override: raw?.model_override || undefined,
+    team_enabled: !!raw?.team_enabled,
+    created_at: String(raw?.created_at ?? ''),
+    updated_at: String(raw?.updated_at ?? '')
+  }
+}
+
+function toAgentThread(raw: Record<string, any>): AgentThread {
+  return {
+    id: String(raw?.id ?? ''),
+    title: String(raw?.title ?? ''),
+    created_at: String(raw?.created_at ?? ''),
+    updated_at: String(raw?.updated_at ?? '')
+  }
+}
+
+function toAgentMessage(raw: Record<string, any>): AgentMessage {
+  return {
+    id: String(raw?.id ?? ''),
+    role: String(raw?.role ?? ''),
+    content: String(raw?.content ?? ''),
+    agent_id: raw?.agent_id || undefined,
+    mentions: Array.isArray(raw?.mentions) ? raw.mentions : [],
+    tool_calls: Array.isArray(raw?.tool_calls) ? raw.tool_calls : [],
+    run_id: raw?.run_id || undefined,
+    created_at: String(raw?.created_at ?? '')
+  }
+}
+
+function streamAgentRun(
+  projectId: string,
+  threadId: string,
+  req: AgentRunRequest,
+  handlers: AgentStreamHandlers
+): LlmStreamConnection {
+  const controller = new AbortController()
+  let ended = false
+  const fireEnd = () => {
+    if (!ended) {
+      ended = true
+      handlers.onEnd?.()
+    }
+  }
+  ;(async () => {
+    try {
+      const resp = await fetch(
+        `${baseURL}${agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/runs')}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${getApiKey()}`
+          },
+          body: JSON.stringify({ content: req.content, mentions: req.mentions, stream: true }),
+          signal: controller.signal
+        }
+      )
+      const ct = resp.headers.get('content-type') || ''
+      if (ct.includes('text/html')) {
+        throw new Error('接口不存在或返回了 HTML 页面')
+      }
+      if (!resp.ok || !resp.body) {
+        const data = await resp.json().catch(() => null)
+        throw new Error(
+          (data as any)?.error?.message || (data as any)?.message || `请求失败 (${resp.status})`
+        )
+      }
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let idx: number
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const raw = buf.slice(0, idx)
+          buf = buf.slice(idx + 2)
+          for (const line of raw.split('\n')) {
+            if (!line.startsWith('data:')) continue
+            const data = line.slice(5).trim()
+            if (!data) continue
+            try {
+              const obj = JSON.parse(data)
+              if (obj?.type === 'end') {
+                fireEnd()
+                continue
+              }
+              if (obj?.type === 'run' && obj.run_id) {
+                handlers.onRun?.(String(obj.run_id))
+                continue
+              }
+              if (obj?.type === 'error') {
+                handlers.onError?.(new Error(obj.message || 'run failed'))
+                continue
+              }
+              if (obj?.type === 'token' || obj?.type === 'chunk') {
+                const text = obj.content || obj.delta || ''
+                if (text) handlers.onToken?.(text)
+                continue
+              }
+              if (obj?.type === 'tool_call') {
+                handlers.onToolCall?.(obj.name || '', obj.arguments || '')
+                continue
+              }
+              if (obj?.type === 'tool_result') {
+                handlers.onToolResult?.(obj.name || '', obj.content || '')
+              }
+            } catch {
+              /* ignore */
             }
           }
         }
@@ -400,5 +541,71 @@ export const httpApi: Api = {
         .post('/v1/projects/' + encodeURIComponent(projectId) + '/llm/chat', toLlmPayload(req))
         .then((r) => r.data),
     stream: llmStream
+  },
+
+  agents: {
+    modules: (projectId) =>
+      http.get(agentPath(projectId, '/agents/modules')).then((r) => {
+        const list = Array.isArray(r.data?.modules) ? r.data.modules : []
+        return list as AgentModuleInfo[]
+      }),
+    list: (projectId) =>
+      http.get(agentPath(projectId, '/agents')).then((r) => {
+        const list = Array.isArray(r.data?.agents) ? r.data.agents : []
+        return list.map(toCloudAgent)
+      }),
+    create: (projectId, body) =>
+      http.post(agentPath(projectId, '/agents'), body).then((r) => toCloudAgent(r.data)),
+    get: (projectId, agentId) =>
+      http
+        .get(agentPath(projectId, '/agents/' + encodeURIComponent(agentId)))
+        .then((r) => toCloudAgent(r.data)),
+    patch: (projectId, agentId, body) =>
+      http
+        .patch(agentPath(projectId, '/agents/' + encodeURIComponent(agentId)), body)
+        .then((r) => toCloudAgent(r.data)),
+    remove: (projectId, agentId) =>
+      http.delete(agentPath(projectId, '/agents/' + encodeURIComponent(agentId))).then(() => undefined)
+  },
+
+  agentThreads: {
+    list: (projectId) =>
+      http.get(agentPath(projectId, '/agent-threads')).then((r) => {
+        const list = Array.isArray(r.data?.threads) ? r.data.threads : []
+        return list.map(toAgentThread)
+      }),
+    create: (projectId, title) =>
+      http.post(agentPath(projectId, '/agent-threads'), { title }).then((r) => toAgentThread(r.data)),
+    get: (projectId, threadId) =>
+      http
+        .get(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)))
+        .then((r) => toAgentThread(r.data)),
+    remove: (projectId, threadId) =>
+      http
+        .delete(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)))
+        .then(() => undefined),
+    messages: (projectId, threadId) =>
+      http
+        .get(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/messages'))
+        .then((r) => {
+          const list = Array.isArray(r.data?.messages) ? r.data.messages : []
+          return list.map(toAgentMessage)
+        }),
+    run: (projectId, threadId, req) =>
+      http
+        .post(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/runs'), {
+          content: req.content,
+          mentions: req.mentions,
+          stream: false
+        })
+        .then((r) => ({
+          run: r.data?.run as AgentRun,
+          message: toAgentMessage(r.data?.message || {})
+        })),
+    streamRun: streamAgentRun,
+    cancel: (projectId, runId) =>
+      http
+        .post(agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/cancel'))
+        .then((r) => r.data as AgentRun)
   }
 }

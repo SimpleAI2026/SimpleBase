@@ -18,6 +18,7 @@
 | [`databases-and-s3-plan.md`](./databases-and-s3-plan.md) | 数据库 DuckLake-only + 用户 S3（AWS 协议）后端收敛计划（本轮只规划） |
 | [`ui-databases-console-plan.md`](./ui-databases-console-plan.md) | 数据库管理页合一：SQL 工作台 + 集合/文档弹窗（已实现） |
 | [`ui-global-project-plan.md`](./ui-global-project-plan.md) | 顶栏全局项目切换 + 创建项目（已实现） |
+| [`cloud-agent-plan.md`](./cloud-agent-plan.md) | Cloud Agent：per-module agent、两栏 UI、`@` mention、eino 只读工具（替代 LLM 对话） |
 
 > 阅读顺序建议：本文（全局与阶段） → `ui-principles.md`（写代码时的判据） → `proto-http.md` / `proto.http`（接接口时的契约）。
 
@@ -130,7 +131,8 @@ ui/src
 | SQL | `POST :p/databases/:id/{query,execute,batch}` | 无 | 新增 SqlConsole 页。`QueryResponse.rows` 是**二维数组**，需与 `columns` 按下标 zip |
 | 文档 | `GET/POST :p/data/collections`、`GET :p/data/collections/:c`、`POST/PUT/DELETE .../documents[/:id]` | 已接，硬编码 proj-01 | 改 `Api.db.*` 签名加 projectId；UI 明示隐式取第一个库；无库时引导建库 |
 | S3 | `GET/POST/DELETE :p/s3/objects`、`GET :p/s3/presign` | 已接 | 补上传进度 + 体积预校验；`lastModified` 是 camelCase 例外 |
-| LLM | `GET :p/llm/providers`、`POST :p/llm/{chat,stream}` | 已接 | 供应商改下拉；**本地校验 messages 非空**（后端空数组返回 500 而非 400） |
+| LLM | `GET :p/llm/providers`、`POST :p/llm/{chat,stream}` | 已接（deprecated） | UI `/llm` 重定向到 Cloud Agent；settings/sessions 仍供模型配置 |
+| Cloud Agent | `GET/POST :p/agents`、threads/runs（见 proto-http.md §3.12） | `/agents` 两栏页 | 替代 LLM 对话；`@` mention + 只读工具；契约见 `cloud-agent-plan.md` |
 | 配额 | `GET :p/quota` | 无 | Dashboard 卡片 |
 | 审计 | `GET :p/audit` | 无 | **后端是占位实现（恒空数组）**，不做独立菜单，降级为 Logs 页一个 tab 或暂不接 |
 | 指标 | `/metrics`（Prometheus 文本） | 前端调的 `/metrics/summary`、`/metrics/trend` 不存在 | 短期：Dashboard 改用 quota + databases；长期：后端补 JSON 接口（proto-http.md §6.1） |
