@@ -209,8 +209,8 @@ function toLogEvent(raw: Record<string, any>): LogEvent {
     level: String(raw?.level ?? raw?.Level ?? ''),
     logger: String(raw?.logger ?? raw?.Logger ?? ''),
     message: String(raw?.message ?? raw?.Message ?? ''),
-    fieldsJson: raw?.fields_json ?? raw?.fieldsJson ?? raw?.FieldsJSON || undefined,
-    requestId: raw?.request_id ?? raw?.requestId ?? raw?.RequestID || undefined,
+    fieldsJson: raw?.fields_json ?? raw?.fieldsJson ?? raw?.FieldsJSON ?? undefined,
+    requestId: raw?.request_id ?? raw?.requestId ?? raw?.RequestID ?? undefined,
     occurredAt: String(raw?.occurred_at ?? raw?.occurredAt ?? raw?.OccurredAt ?? '')
   }
 }
