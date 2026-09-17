@@ -56,9 +56,3 @@ http.interceptors.response.use(
     return Promise.reject(new Error(msg))
   }
 )
-
-export const wsBase =
-  import.meta.env.VITE_WS_BASE_URL ||
-  (location.origin.startsWith('https')
-    ? location.origin.replace('https', 'wss')
-    : location.origin.replace('http', 'ws'))

@@ -114,6 +114,8 @@ var systemMigrations = []migration{
 		)`,
 	},
 	{
+		// deprecated: retained for migration history. The jobs worker was removed;
+		// this table is no longer read or written by application code.
 		version: 8,
 		name:    "sys_jobs",
 		stmt: `CREATE TABLE IF NOT EXISTS sys_jobs (

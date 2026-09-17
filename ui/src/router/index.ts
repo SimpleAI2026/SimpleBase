@@ -5,7 +5,7 @@ import DocsLayout from '../layouts/DocsLayout.vue'
 /**
  * 路由元信息单一数据源：页面标题、菜单名、图标全部收敛到 meta。
  * NavMenu 遍历路由渲染（跳过 hidden），DefaultLayout 从 meta 取面包屑标题。
- * hidden：后端能力未就绪时隐藏入口（FaaS：后端无此模块）。
+ * hidden：文档站等非控制台入口不进侧栏。
  *
  * 控制台与文档站拆布局：App.vue 只挂 <router-view />，
  * 控制台子路由走 DefaultLayout（侧栏 + 项目切换），文档子路由走 DocsLayout。
@@ -34,12 +34,6 @@ const routes: RouteRecordRaw[] = [
         name: 's3',
         component: () => import('../pages/S3Manager.vue'),
         meta: { title: 'S3 对象存储' }
-      },
-      {
-        path: 'faas',
-        name: 'faas',
-        component: () => import('../pages/FaaSManager.vue'),
-        meta: { title: '云函数', hidden: true }
       },
       {
         path: 'agents',

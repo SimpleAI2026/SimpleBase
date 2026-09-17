@@ -285,19 +285,6 @@ func (h *DatabaseHandler) DeleteDatabase(c echo.Context) error {
 	})
 }
 
-// CreateBackup 和 RestoreDatabase 属于 Plan 7（备份恢复）范围，首期返回 501。
-func (h *DatabaseHandler) CreateBackup(c echo.Context) error {
-	return c.JSON(http.StatusNotImplemented, APIErrorBody{Error: APIErrorDetail{
-		Code: "not_implemented", Message: "backup API not yet implemented",
-	}})
-}
-
-func (h *DatabaseHandler) RestoreDatabase(c echo.Context) error {
-	return c.JSON(http.StatusNotImplemented, APIErrorBody{Error: APIErrorDetail{
-		Code: "not_implemented", Message: "restore API not yet implemented",
-	}})
-}
-
 // projectContextMiddleware 解析 :projectID path 参数并通过 catalog 解析其 tenant，
 // 构造 ProjectContext 注入 context。project 不存在返回 404。
 // 使用 echo.Context 以便传递请求 context 给 catalog。

@@ -1,164 +1,194 @@
 <template>
   <ProjectScope>
-  <PageContainer title="日志管理" subtitle="实时日志流（需后端 WebSocket 支持）">
+  <PageContainer title="日志管理" subtitle="按项目查询运行日志与保留策略">
     <a-card class="sb-card">
       <div class="sb-toolbar">
+        <a-select
+          v-model:value="level"
+          allow-clear
+          placeholder="级别"
+          style="width: 120px"
+          :options="levelOptions"
+        />
         <a-input
-          v-model:value="filter"
-          style="min-width: 240px"
-          placeholder="过滤关键字"
+          v-model:value="keyword"
+          style="min-width: 220px"
+          placeholder="关键字"
           allow-clear
         >
           <template #prefix><FilterOutlined /></template>
         </a-input>
-        <a-button type="primary" :disabled="connected" @click="connect">
-          <template #icon><LinkOutlined /></template>
-          连接
+        <a-input v-model:value="from" type="datetime-local" style="width: 210px" />
+        <span class="sb-hint">至</span>
+        <a-input v-model:value="to" type="datetime-local" style="width: 210px" />
+        <a-button type="primary" :loading="loading" @click="load">
+          <template #icon><ReloadOutlined /></template>
+          刷新
         </a-button>
-        <a-button danger :disabled="!connected" @click="disconnect">
-          <template #icon><DisconnectOutlined /></template>
-          断开
-        </a-button>
-        <a-tag :color="connected ? 'success' : 'default'" class="sb-status-tag">
-          <span class="sb-status-dot" :class="{ 'is-on': connected }" />
-          {{ connected ? '已连接' : '未连接' }}
-        </a-tag>
-        <a-button type="text" :disabled="!logs.length" @click="logs = []">
-          <template #icon><ClearOutlined /></template>
-          清空
-        </a-button>
-        <span class="sb-count">{{ filtered.length }} / {{ logs.length }} 条</span>
+        <a-switch v-model:checked="autoRefresh" checked-children="轮询" un-checked-children="手动" />
+        <span class="sb-count">{{ events.length }} 条</span>
       </div>
     </a-card>
 
-    <a-alert
-      v-if="!isMock && !backendSupported"
-      type="warning"
-      show-icon
-      message="后端暂未支持实时日志"
-      description="WebSocket 日志流（/ws/logs）在后端尚未实现（proto-http.md §3.8）。当前为演示模式：Mock 模式下可查看模拟日志效果；连接真实后端将失败。"
-      style="border-radius: var(--sb-radius)"
-    />
+    <a-card class="sb-card" title="保留策略">
+      <a-space>
+        <span>保留天数</span>
+        <a-input-number v-model:value="keepDays" :min="1" :max="365" />
+        <a-button :loading="savingRetention" @click="saveRetention">保存</a-button>
+        <span v-if="retentionUpdatedAt" class="sb-hint">更新于 {{ retentionUpdatedAt }}</span>
+      </a-space>
+    </a-card>
 
-    <a-card class="sb-card" title="实时日志">
-      <div ref="terminalRef" class="sb-terminal">
-        <div v-for="(l, i) in filtered" :key="i" class="sb-log-line" :class="levelClass(l)">
-          {{ l }}
-        </div>
-        <div v-if="!filtered.length" class="sb-empty">暂无日志，点击「连接」开始接收</div>
-      </div>
+    <a-card class="sb-card" title="日志">
+      <a-table
+        :columns="columns"
+        :data-source="events"
+        :loading="loading"
+        row-key="id"
+        :pagination="pagination"
+        size="small"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'level'">
+            <a-tag :color="levelColor(record.level)">{{ record.level || '-' }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'occurredAt'">
+            {{ formatTime(record.occurredAt) }}
+          </template>
+        </template>
+        <template #emptyText>
+          <SbEmptyState description="暂无匹配日志" />
+        </template>
+      </a-table>
     </a-card>
   </PageContainer>
   </ProjectScope>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import {
-  FilterOutlined,
-  LinkOutlined,
-  DisconnectOutlined,
-  ClearOutlined
-} from '@ant-design/icons-vue'
-import { api, isMock } from '../services/api'
-import type { LogConnection } from '../services/api'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { message } from 'ant-design-vue'
+import { FilterOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { api } from '../services/api'
+import type { LogEvent } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { usePagination } from '../composables/usePagination'
+import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
+import SbEmptyState from '../components/SbEmptyState.vue'
 
 const projectStore = useProjectStore()
-const filter = ref('')
-const logs = ref<string[]>([])
-const connected = ref(false)
-/** 后端无 WS 实现：非 mock 模式下显式提示，不静默失败 */
-const backendSupported = ref(isMock)
-const terminalRef = ref<HTMLElement | null>(null)
-let conn: LogConnection | null = null
+const pagination = usePagination()
 
-const filtered = computed(() =>
-  logs.value.filter((l) => !filter.value || l.includes(filter.value))
-)
+const level = ref<string | undefined>()
+const keyword = ref('')
+const from = ref('')
+const to = ref('')
+const events = ref<LogEvent[]>([])
+const loading = ref(false)
+const autoRefresh = ref(false)
+const keepDays = ref(14)
+const savingRetention = ref(false)
+const retentionUpdatedAt = ref('')
+let timer: number | null = null
 
-watch(
-  () => filtered.value.length,
-  async () => {
-    await nextTick()
-    if (terminalRef.value) {
-      terminalRef.value.scrollTop = terminalRef.value.scrollHeight
-    }
+const levelOptions = [
+  { label: 'info', value: 'info' },
+  { label: 'warn', value: 'warn' },
+  { label: 'error', value: 'error' }
+]
+
+const columns = [
+  { title: '时间', key: 'occurredAt', width: 180 },
+  { title: '级别', key: 'level', width: 90 },
+  { title: '来源', dataIndex: 'logger', key: 'logger', width: 140 },
+  { title: '消息', dataIndex: 'message', key: 'message', ellipsis: true },
+  { title: 'Request ID', dataIndex: 'requestId', key: 'requestId', ellipsis: true, width: 200 }
+]
+
+function levelColor(s: string) {
+  if (s === 'error') return 'error'
+  if (s === 'warn') return 'warning'
+  return 'default'
+}
+
+function queryParams() {
+  return {
+    level: level.value || undefined,
+    q: keyword.value.trim() || undefined,
+    from: from.value ? new Date(from.value).toISOString() : undefined,
+    to: to.value ? new Date(to.value).toISOString() : undefined,
+    limit: 200
   }
-)
-
-// 兼容多种后端日志格式：[ERROR] / " ERROR " / level=error
-function levelClass(line: string) {
-  if (/\[ERROR\]|\bERROR\b|level=error/i.test(line)) return 'sb-log-line--error'
-  if (/\[WARN\]|\bWARN\b|level=warn/i.test(line)) return 'sb-log-line--warn'
-  return ''
 }
 
-function connect() {
-  if (conn) return
-  conn = api.logs.connect({
-    onOpen: () => {
-      connected.value = true
-      backendSupported.value = true
-    },
-    onMessage: (line) => {
-      logs.value.push(line)
-      if (logs.value.length > 2000) logs.value.splice(0, logs.value.length - 2000)
-    },
-    onError: () => {
-      // 真实模式下连接失败：明示后端未支持，不当作异常刷屏
-      backendSupported.value = false
-    },
-    onClose: () => {
-      connected.value = false
-      conn = null
-    }
-  })
+async function load() {
+  if (!projectStore.id) return
+  loading.value = true
+  try {
+    const [list, retention] = await Promise.all([
+      api.logs.list(projectStore.id, queryParams()),
+      api.logs.getRetention(projectStore.id)
+    ])
+    events.value = list
+    keepDays.value = retention.keepDays
+    retentionUpdatedAt.value = retention.updatedAt ? formatTime(retention.updatedAt) : ''
+  } catch (e) {
+    message.error((e as Error)?.message || '加载日志失败')
+  } finally {
+    loading.value = false
+  }
 }
 
-function disconnect() {
-  conn?.close()
-  conn = null
-  connected.value = false
+async function saveRetention() {
+  if (!projectStore.id) return
+  savingRetention.value = true
+  try {
+    await api.logs.putRetention(projectStore.id, keepDays.value)
+    message.success('已保存保留策略')
+    await load()
+  } catch (e) {
+    message.error((e as Error)?.message || '保存失败')
+  } finally {
+    savingRetention.value = false
+  }
 }
+
+function stopPolling() {
+  if (timer != null) {
+    window.clearInterval(timer)
+    timer = null
+  }
+}
+
+watch(autoRefresh, (on) => {
+  stopPolling()
+  if (on) {
+    timer = window.setInterval(() => {
+      void load()
+    }, 10000)
+  }
+})
 
 watch(
   () => projectStore.id,
   () => {
-    disconnect()
-    logs.value = []
+    void load()
   }
 )
 
-onBeforeUnmount(disconnect)
+onMounted(load)
+onBeforeUnmount(stopPolling)
 </script>
 
 <style scoped>
-.sb-empty {
-  color: var(--sb-text-muted);
-  text-align: center;
-  padding: var(--sb-space-6) 0;
-}
-.sb-status-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.sb-status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--sb-text-muted);
-}
-.sb-status-dot.is-on {
-  background: var(--sb-success);
-  box-shadow: 0 0 6px var(--sb-success-bg);
-  animation: sb-pulse 1.6s ease-in-out infinite;
-}
 .sb-count {
   margin-left: auto;
+  color: var(--sb-text-muted);
+  font-size: var(--sb-fs-xs);
+}
+.sb-hint {
   color: var(--sb-text-muted);
   font-size: var(--sb-fs-xs);
 }
@@ -166,15 +196,6 @@ onBeforeUnmount(disconnect)
   .sb-count {
     margin-left: 0;
     flex: 1 1 100%;
-  }
-}
-@keyframes sb-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
   }
 }
 </style>

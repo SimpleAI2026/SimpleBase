@@ -22,12 +22,16 @@
     <a-card class="sb-card">
       <template #title>
         <div class="sb-card-title">
-          数据库概览
+          请求趋势
           <a-tag v-if="isMock" color="orange" class="sb-mock-tag">Mock</a-tag>
         </div>
       </template>
       <template #extra>
         <div class="sb-toolbar">
+          <span v-if="summary.totalRequests" class="sb-hint">
+            请求 {{ summary.totalRequests }} · 错误率 {{ summary.errorRate }}% · 延迟
+            {{ Math.round(summary.avgLatencyMs) }}ms
+          </span>
           <span v-if="lastUpdate" class="sb-hint">最近更新：{{ lastUpdate }}</span>
           <a-button type="primary" :loading="loading" @click="load">
             <template #icon><ReloadOutlined /></template>
@@ -36,14 +40,24 @@
         </div>
       </template>
 
-      <a-alert
-        v-if="backendNotice"
-        type="info"
-        show-icon
-        message="请求趋势图需后端支持"
-        description="后端暂未提供 /metrics JSON 汇总接口（Prometheus 文本格式不适合直接消费），当前卡片由配额与数据库数据填充。接口就绪后此处将恢复趋势图。"
-        style="margin-bottom: 12px"
-      />
+      <div v-if="trend.length" class="sb-trend">
+        <div v-for="p in trend" :key="p.date" class="sb-trend-col">
+          <div class="sb-trend-bars">
+            <div
+              class="sb-trend-bar sb-trend-bar--req"
+              :style="{ height: barHeight(p.requests, maxRequests) }"
+              :title="`请求 ${p.requests}`"
+            />
+            <div
+              class="sb-trend-bar sb-trend-bar--err"
+              :style="{ height: barHeight(p.errors, maxRequests) }"
+              :title="`错误 ${p.errors}`"
+            />
+          </div>
+          <div class="sb-trend-label">{{ p.date }}</div>
+        </div>
+      </div>
+      <a-empty v-else-if="!loading" description="暂无趋势数据" style="margin-bottom: 12px" />
 
       <a-table
         :columns="dbColumns"
@@ -80,7 +94,7 @@ import {
   ReloadOutlined
 } from '@ant-design/icons-vue'
 import { api, isMock } from '../services/api'
-import type { DatabaseItem, QuotaStatus } from '../services/api'
+import type { DatabaseItem, QuotaStatus, TrendPoint } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import { usePagination } from '../composables/usePagination'
 import { softBg, colors } from '../styles/tokens'
@@ -98,9 +112,14 @@ const quota = ref<QuotaStatus | null>(null)
 const loading = ref(false)
 const lastUpdate = ref('')
 const err = ref('')
+const trend = ref<TrendPoint[]>([])
+const summary = ref({ totalRequests: 0, errorRate: 0, avgLatencyMs: 0, activeDatabases: 0 })
 
-/** 后端未提供 /metrics JSON 接口（proto-http.md §3.8 / §6.1），页面明示而非造假数据 */
-const backendNotice = !isMock
+const maxRequests = computed(() => Math.max(1, ...trend.value.map((p) => p.requests)))
+
+function barHeight(value: number, max: number) {
+  return `${Math.max(4, Math.round((value / max) * 120))}px`
+}
 
 const dbColumns = [
   { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
@@ -164,9 +183,11 @@ async function load() {
   loading.value = true
   err.value = ''
   // 分别请求：databases 失败不影响 quota 卡渲染
-  const [dbRes, quotaRes] = await Promise.allSettled([
+  const [dbRes, quotaRes, trendRes, summaryRes] = await Promise.allSettled([
     api.databases.list(projectStore.id),
-    api.quota.status(projectStore.id)
+    api.quota.status(projectStore.id),
+    api.metrics.trend(projectStore.id),
+    api.metrics.summary(projectStore.id)
   ])
   if (dbRes.status === 'fulfilled') {
     databases.value = dbRes.value
@@ -176,7 +197,17 @@ async function load() {
   if (quotaRes.status === 'fulfilled') {
     quota.value = quotaRes.value
   }
-  if (dbRes.status === 'fulfilled' || quotaRes.status === 'fulfilled') {
+  if (trendRes.status === 'fulfilled') {
+    trend.value = trendRes.value
+  }
+  if (summaryRes.status === 'fulfilled') {
+    summary.value = summaryRes.value
+  }
+  if (
+    dbRes.status === 'fulfilled' ||
+    quotaRes.status === 'fulfilled' ||
+    trendRes.status === 'fulfilled'
+  ) {
     lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   }
   loading.value = false
@@ -216,5 +247,40 @@ watch(
   display: flex;
   align-items: center;
   gap: var(--sb-space-2);
+}
+.sb-trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  min-height: 160px;
+  margin-bottom: 16px;
+  padding: 8px 4px 0;
+}
+.sb-trend-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.sb-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 120px;
+}
+.sb-trend-bar {
+  width: 10px;
+  border-radius: 4px 4px 0 0;
+}
+.sb-trend-bar--req {
+  background: var(--sb-primary);
+}
+.sb-trend-bar--err {
+  background: var(--sb-danger);
+}
+.sb-trend-label {
+  color: var(--sb-text-muted);
+  font-size: var(--sb-fs-xs);
 }
 </style>

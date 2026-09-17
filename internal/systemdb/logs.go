@@ -11,14 +11,14 @@ import (
 
 // LogEvent 是 sys_log_events 一行。
 type LogEvent struct {
-	ID         string
-	ProjectID  string
-	Level      string
-	Logger     string
-	Message    string
-	FieldsJSON string
-	RequestID  string
-	OccurredAt time.Time
+	ID         string    `json:"id"`
+	ProjectID  string    `json:"project_id"`
+	Level      string    `json:"level"`
+	Logger     string    `json:"logger"`
+	Message    string    `json:"message"`
+	FieldsJSON string    `json:"fields_json,omitempty"`
+	RequestID  string    `json:"request_id,omitempty"`
+	OccurredAt time.Time `json:"occurred_at"`
 }
 
 // LogQuery 是日志查询条件。

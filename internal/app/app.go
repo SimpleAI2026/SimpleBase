@@ -28,7 +28,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/database/cache"
 	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/database/registry"
-	"github.com/linkxzhou/SimpleBase/internal/jobs"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
@@ -59,9 +58,6 @@ type App struct {
 	usageSvc      *usage.Service
 	auditSvc      *audit.Service
 	llmSvc        llmgateway.Service
-	jobWorker     *jobs.Worker
-	jobEnqueuer   *jobs.Enqueuer
-	workerCancel  context.CancelFunc
 
 	health *healthService
 
@@ -188,7 +184,6 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		Usage:           api.NewUsageService(a.usageSvc),
 		Audit:           api.NewAuditService(a.auditSvc),
 		LLM:             api.NewLLMService(a.llmSvc),
-		JobEnqueuer:     api.NewJobEnqueuer(a.jobEnqueuer),
 		S3FileStore:     a.fileStore,
 		System:          a.systemStore,
 		CloudAgent:      a.cloudAgentRuntime(),
@@ -365,14 +360,8 @@ func (a *App) Close(ctx context.Context) error {
 	return firstErr
 }
 
-// Start 启动 HTTP server 与后台 worker。阻塞调用者直到 Shutdown。
+// Start 启动 HTTP server。阻塞调用者直到 Shutdown。
 func (a *App) Start() error {
-	// 启动后台任务 worker（若已配置）。
-	if a.jobWorker != nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		a.workerCancel = cancel
-		go a.jobWorker.Start(ctx)
-	}
 	a.logger.Info("http server listening", zap.String("address", a.cfg.HTTP.Address))
 	err := a.httpServer.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -381,19 +370,11 @@ func (a *App) Start() error {
 	return nil
 }
 
-// Shutdown 优雅关闭：停止 job worker → HTTP server → registry → catalog → LLM。
+// Shutdown 优雅关闭：HTTP server → registry → catalog → LLM。
 // 超时由 ctx 控制。
 func (a *App) Shutdown(ctx context.Context) error {
 	a.logger.Info("shutdown started")
 	var firstErr error
-
-	// 停止后台任务 worker（等待当前任务完成）。
-	if a.workerCancel != nil {
-		a.workerCancel()
-	}
-	if a.jobWorker != nil {
-		a.jobWorker.Stop()
-	}
 
 	if err := a.httpServer.Shutdown(ctx); err != nil {
 		a.logger.Error("http shutdown error", zap.String("err", err.Error()))

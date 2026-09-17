@@ -30,9 +30,8 @@ func testConfig(writable bool) config.Config {
 			MaxOpen:     2,
 			MaxIdle:     1,
 		},
-		S3:      s3,
-		Catalog: config.CatalogConfig{DatabaseID: "catalog"},
-		Auth:    config.AuthConfig{APIKeyHashSecret: "secret"},
+		S3:   s3,
+		Auth: config.AuthConfig{APIKeyHashSecret: "secret"},
 		Limits: config.LimitsConfig{
 			MaxRequestBytes:      1 << 20,
 			MaxQueryRows:         100,

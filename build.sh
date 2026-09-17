@@ -42,7 +42,7 @@ usage() {
   --api-port PORT  后端端口（默认 8080，也可用 SIMPLEBASE_DEV_API_PORT）
 
 开发说明:
-  - 前端: http://HOST:UI_PORT （Vite，代理 /v1 /health /ws → 后端）
+  - 前端: http://HOST:UI_PORT （Vite，代理 /v1 /health → 后端）
   - 后端: http://API_HOST:API_PORT （go run ./cmd/simplebased）
   - 自动加载仓库根目录 .env（若存在）
   - SIMPLEBASE_DEV_MODE 默认 true（旁路 S3）；.env 设 false 则走真实 COS/S3

@@ -35,12 +35,11 @@ type Dependencies struct {
 	// Plan 6：SQL 执行 handler。writable=false 时仅 query 可用。
 	SQLHandler  *SQLHandler
 	DataHandler *DataHandler
-	// Plan 7-9：缓存、用量、审计、LLM、后台任务
-	Cache       CacheService
-	Usage       UsageService
-	Audit       AuditService
-	LLM         LLMService
-	JobEnqueuer JobEnqueuer
+	// Plan 7-9：缓存、用量、审计、LLM
+	Cache CacheService
+	Usage UsageService
+	Audit AuditService
+	LLM   LLMService
 	// S3FileStore：用户文件存储（objectstore.FileStore）。
 	S3FileStore objectstore.FileStore
 	// System 是实例系统 DuckLake（元数据 / 指标 / 日志 / S3 索引 / LLM 会话 / Cloud Agent）。
@@ -132,20 +131,6 @@ type LLMStreamChunk struct {
 	FinishReason string `json:"finish_reason,omitempty"`
 }
 
-// JobEnqueuer 抽象后台任务提交（plan7.md）。
-type JobEnqueuer interface {
-	Enqueue(ctx context.Context, in JobInput) (string, error)
-}
-
-// JobInput 是提交任务的输入。
-type JobInput struct {
-	OperationID string
-	DatabaseID  string
-	ProjectID   string
-	Type        string
-	PayloadJSON string
-}
-
 // HealthChecker 由 App 提供；live 不做 I/O，ready 检查 catalog/S3。
 type HealthChecker interface {
 	Live(ctx context.Context) error
@@ -212,8 +197,6 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	p.GET("/databases/:databaseID", h.GetDatabase, require(auth.DatabaseRead))
 	p.POST("/databases/:databaseID/open", h.OpenDatabase, require(auth.DatabaseAdmin))
 	p.POST("/databases/:databaseID/close", h.CloseDatabase, require(auth.DatabaseAdmin))
-	p.POST("/databases/:databaseID/backups", h.CreateBackup, require(auth.DatabaseAdmin))
-	p.POST("/databases/:databaseID/restore", h.RestoreDatabase, require(auth.DatabaseAdmin))
 	p.DELETE("/databases/:databaseID", h.DeleteDatabase, require(auth.DatabaseAdmin))
 
 	// Plan 6：SQL 执行路由。SQLHandler 为 nil 时不挂载（readonly 实例可仅挂 query）。

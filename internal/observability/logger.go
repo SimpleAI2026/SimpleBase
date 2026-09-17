@@ -1,5 +1,5 @@
 // Package observability 提供 SimpleBase 的结构化日志、Prometheus 指标和脱敏工具。
-// 本包是对 internal/log 和 internal/prom 的薄封装，统一为 API/服务层使用。
+// 本包是对 internal/log 的薄封装，统一为 API/服务层使用。
 package observability
 
 import (

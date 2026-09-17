@@ -20,7 +20,6 @@ import {
   AppstoreOutlined,
   DatabaseOutlined,
   CloudUploadOutlined,
-  CodeOutlined,
   RobotOutlined,
   SettingOutlined,
   FileTextOutlined
@@ -28,13 +27,11 @@ import {
 import type { Component } from 'vue'
 import router from '../router'
 
-/** 菜单项从路由 meta 派生（单一数据源）；hidden 的路由不进菜单（如 FaaS：后端无此模块） */
+/** 菜单项从路由 meta 派生（单一数据源）；hidden 的路由不进菜单 */
 const iconMap: Record<string, Component> = {
   dashboard: AppstoreOutlined,
   databases: DatabaseOutlined,
   s3: CloudUploadOutlined,
-  faas: CodeOutlined,
-  llm: RobotOutlined,
   agents: RobotOutlined,
   settings: SettingOutlined,
   logs: FileTextOutlined
@@ -58,7 +55,7 @@ const menuItems = computed<MenuItem[]>(() =>
     }))
 )
 
-const routeOrder = ['dashboard', 'databases', 's3', 'faas', 'agents', 'logs', 'settings']
+const routeOrder = ['dashboard', 'databases', 's3', 'agents', 'logs', 'settings']
 function orderOf(name: string) {
   const i = routeOrder.indexOf(name)
   return i === -1 ? 99 : i

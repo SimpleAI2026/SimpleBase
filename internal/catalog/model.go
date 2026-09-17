@@ -1,7 +1,7 @@
 // Package catalog 实现首期单实例 Catalog。
 //
 // Catalog 只保存产品元数据与配置，不承担分布式选主。它使用实例级系统 DuckLake
-//（sys_* 表），绝不能与用户 SQL 使用同一 database ID。用户 query 无法读取系统表。
+// （sys_* 表），绝不能与用户 SQL 使用同一 database ID。用户 query 无法读取系统表。
 //
 // 设计原则（见 plan3.md）：
 //   - 所有读取必须带 projectID 或先由 service 验证资源归属；
@@ -105,44 +105,6 @@ type Operation struct {
 type Page struct {
 	Limit  int
 	Cursor string // 不透明游标；空表示第一页
-}
-
-// JobType 标识后台任务类型（plan7.md）。
-type JobType string
-
-const (
-	JobTypeDeleteDatabase JobType = "delete_database" // 遗留枚举：队列测试仍可用；运行时不再投递/处理
-	JobTypeBackup         JobType = "backup"
-	JobTypeRestore        JobType = "restore"
-	JobTypeVerifyRecovery JobType = "verify_recovery"
-)
-
-// JobStatus 标识任务执行状态。
-type JobStatus string
-
-const (
-	JobStatusPending    JobStatus = "pending"
-	JobStatusRunning    JobStatus = "running"
-	JobStatusCompleted  JobStatus = "completed"
-	JobStatusFailed     JobStatus = "failed"
-	JobStatusDeadLetter JobStatus = "dead_letter"
-)
-
-// Job 是后台任务的持久化记录。任务必须幂等，使用 OperationID 和状态机防止重复执行。
-type Job struct {
-	ID          string
-	OperationID string
-	DatabaseID  string
-	ProjectID   string
-	Type        JobType
-	Status      JobStatus
-	Attempt     int
-	MaxAttempts int
-	RunAfter    time.Time
-	PayloadJSON string
-	LastError   string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
 }
 
 // LLMProviders 描述一个 project 的全部 LLM 供应商配置。

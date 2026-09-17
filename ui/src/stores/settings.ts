@@ -78,7 +78,6 @@ export const useSettingsStore = defineStore('settings', {
         STORAGE_KEY,
         JSON.stringify({
           theme: this.theme,
-          projectDefaults: this.projectDefaults,
           providerConfigs: this.providerConfigs
         })
       )

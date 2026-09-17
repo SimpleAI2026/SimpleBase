@@ -32,12 +32,11 @@ instance:
 
 ```yaml
 database:
-  driver: "libsql"
+  engine: ducklake
   cache_dir: "/var/lib/simplebase/cache"
   cache_max_bytes: 10737418240   # 10GiB
   cache_max_databases: 256
   idle_timeout: 5m
-  open_timeout: 30s
 ```
 
 本地缓存可完全丢弃；丢失后从 S3 恢复。`cache_max_bytes` 与 `cache_max_databases` 触发 LRU 淘汰，活跃库不被淘汰。
@@ -55,13 +54,15 @@ s3:
   force_path_style: false
 ```
 
-### catalog
+### system_database
 
 ```yaml
-catalog:
-  dsn: "libsql://simplebase-catalog.turso.io"
-  token: ""              # 环境变量注入
+system_database:
+  name: "simplebase-system"   # SIMPLEBASE_SYSTEM_DB_NAME
+  hide_from_list: true
 ```
+
+历史 `catalog.database_id` / `SIMPLEBASE_CATALOG_DATABASE_ID` 已删除，设置它们不再有任何效果。
 
 ### auth
 
@@ -90,10 +91,10 @@ docker run -d \
 环境变量（`SIMPLEBASE_` 前缀覆盖同名配置）：
 
 ```text
-SIMPLEBASE_S3_ACCESS_KEY_ID=...
-SIMPLEBASE_S3_SECRET_ACCESS_KEY=...
-SIMPLEBASE_CATALOG_TOKEN=...
-SIMPLEBASE_AUTH_SERVER_SECRET=...
+SIMPLEBASE_S3_ACCESS_KEY=...
+SIMPLEBASE_S3_SECRET_KEY=...
+SIMPLEBASE_AUTH_APIKEY_SECRET=...
+SIMPLEBASE_SYSTEM_DB_NAME=simplebase-system
 ```
 
 ## Kubernetes 部署
@@ -141,15 +142,9 @@ spec:
 
 > 缓存卷可丢失。Pod 重启后从 S3 恢复。使用 `emptyDir` 而非持久卷，强调缓存语义。
 
-## Preflight 检查
+## 启动检查
 
-启动时 `internal/deploy` 执行：
-
-1. **缓存目录可写 + 容量**：`cache_dir` 可创建文件且剩余空间 ≥ `cache_max_bytes` 的 10%。
-2. **S3 可达**：HeadBucket 成功。
-3. **单写 flock 锁**：在 `cache_dir/.simplebase.lock` 上获取独占锁，防止同机误启多实例。
-
-任一检查失败，进程退出码 1。
+`internal/deploy` 已删除。启动时由 `cache.NewManager` 校验缓存目录，`/health/ready` 检查系统库与 S3。单写仍由部署层保证（`replicas=1`）。
 
 ## 健康检查
 
@@ -194,49 +189,30 @@ spec:
 **约束**：禁止新旧实例并行。
 
 **步骤**：
-1. 旧实例收到 SIGTERM → `Shutdown`（30s 超时）停止接收新请求、等待在途请求、关闭数据库连接、停止 job worker。
-2. 旧实例退出后，新实例启动 → Preflight → `ready` 为 200。
+1. 旧实例收到 SIGTERM → `Shutdown`（30s 超时）停止接收新请求、等待在途请求、关闭数据库连接。
+2. 旧实例退出后，新实例启动 → `ready` 为 200。
 3. 流量切换到新实例。
 
 > 若使用 K8s `RollingUpdate`，必须设 `maxSurge: 0` + `maxUnavailable: 1`。
 
 ### 场景 4：数据库恢复
 
-通过 API 触发：
-
-```bash
-POST /v1/projects/:p/databases/:id/restore
-```
-
-- 创建异步 Restore job，从备份生成新 database ID。
-- 校验通过后受控切换 alias（更新 catalog 指向新 ID）。
-- 旧库进入只读观察期，按保留期清理。
-- 切换产生审计事件，alias 版本可回退。
+备份/恢复 HTTP 路由（`/backups`、`/restore`）与 jobs worker 已退役。节点丢失本地缓存后，从 S3 上的 DuckLake catalog / DATA_PATH 重建。
 
 ### 场景 5：误启多实例
 
-**症状**：第二个实例启动时 Preflight flock 锁失败，退出码 1。
+**症状**：第二个实例与现实例并行写同一 S3 前缀。
 
 **处理**：
 1. 确认仅一个实例运行（`replicas=1`）。
 2. flock 锁仅防同机误配置；跨节点需部署层保证（如 K8s StatefulSet 唯一性）。
 3. 若怀疑跨节点双写，立即停止后启动的实例，检查 catalog 状态。
 
-### 场景 6：Job 队列堆积
-
-**症状**：删除/备份/恢复任务长时间未完成。
-
-**处理**：
-1. 查询 catalog `jobs` 表状态（`pending`/`running`/`retry`/`dead_letter`）。
-2. `dead_letter` 任务需人工排查后重置或放弃。
-3. Worker 指数退避，瞬时故障可自愈。
-4. S3 故障期间 job 会重试，恢复后自动消化。
-
 ## 备份策略
 
-- **S3 在线数据**：由 Turso 管理，启用 bucket 版本控制作为对象级保护。
-- **独立恢复点**：通过 `POST /v1/projects/:p/databases/:id/backups` 创建，存于 `backups/{backup-id}/` 前缀，独立于在线数据。
-- **Catalog**：独立系统库，建议定期快照（Turso 平台功能或 S3 版本控制）。
+- **S3 在线数据**：DuckLake catalog 与 Parquet DATA_PATH 存在对象存储；启用 bucket 版本控制作为对象级保护。
+- **系统库**：实例级 DuckLake（`system_database.name`），与用户库隔离。
+- **独立 backups/restore API**：已移除（此前仅 501）。
 
 ## 安全基线
 

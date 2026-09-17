@@ -8,24 +8,22 @@ import (
 // Metrics 汇总 SimpleBase 各模块的低基数 Prometheus 指标。
 // 禁止把 databaseID/tenantID/projectID/requestID/SQL 文本作为 label。
 type Metrics struct {
-	HTTPRequests        *prometheus.CounterVec
-	HTTPRequestDuration *prometheus.HistogramVec
-	DBOpenHandles       prometheus.Gauge
-	DBOpenSeconds       *prometheus.HistogramVec
-	DBQuerySeconds      *prometheus.HistogramVec
-	S3Operations        *prometheus.CounterVec
-	S3OperationSeconds  *prometheus.HistogramVec
-	CacheBytes          prometheus.Gauge
-	CacheEvictions      prometheus.Counter
-	LLMRequests         *prometheus.CounterVec
+	HTTPRequests         *prometheus.CounterVec
+	HTTPRequestDuration  *prometheus.HistogramVec
+	DBOpenHandles        prometheus.Gauge
+	DBOpenSeconds        *prometheus.HistogramVec
+	DBQuerySeconds       *prometheus.HistogramVec
+	S3Operations         *prometheus.CounterVec
+	S3OperationSeconds   *prometheus.HistogramVec
+	CacheBytes           prometheus.Gauge
+	CacheEvictions       prometheus.Counter
+	LLMRequests          *prometheus.CounterVec
 	LLMFirstTokenSeconds *prometheus.HistogramVec
-	LLMTokens           *prometheus.CounterVec
-	JobsTotal           *prometheus.CounterVec
-	CatalogSyncTotal    *prometheus.CounterVec
-	CatalogSyncFailures prometheus.Counter
-	CatalogSyncDuration prometheus.Histogram
-	CatalogSyncLag      *prometheus.GaugeVec
-	JobDurationSeconds  *prometheus.HistogramVec
+	LLMTokens            *prometheus.CounterVec
+	CatalogSyncTotal     *prometheus.CounterVec
+	CatalogSyncFailures  prometheus.Counter
+	CatalogSyncDuration  prometheus.Histogram
+	CatalogSyncLag       *prometheus.GaugeVec
 }
 
 // ObserveCacheBytes 更新当前缓存字节用量。
@@ -38,16 +36,6 @@ func (m *Metrics) ObserveCacheBytes(bytes int64) {
 // 满足 internal/database/cache.CacheMetrics 接口。
 func (m *Metrics) IncCacheEvictions() {
 	m.CacheEvictions.Inc()
-}
-
-// IncJobTotal 增加后台任务计数。满足 internal/jobs.JobMetrics 接口。
-func (m *Metrics) IncJobTotal(jobType string, outcome string) {
-	m.JobsTotal.WithLabelValues(jobType, outcome).Inc()
-}
-
-// ObserveJobDuration 记录后台任务耗时。满足 internal/jobs.JobMetrics 接口。
-func (m *Metrics) ObserveJobDuration(jobType string, seconds float64) {
-	m.JobDurationSeconds.WithLabelValues(jobType).Observe(seconds)
 }
 
 // NewMetrics 在给定 Registerer 上注册指标。若 registerer 为 nil，使用默认 registry。
@@ -110,10 +98,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "simplebase_llm_tokens_total",
 			Help: "LLM token usage.",
 		}, []string{"provider", "model", "direction"}),
-		JobsTotal: f.NewCounterVec(prometheus.CounterOpts{
-			Name: "simplebase_jobs_total",
-			Help: "Background jobs by type and outcome.",
-		}, []string{"type", "outcome"}),
 		CatalogSyncTotal: f.NewCounterVec(prometheus.CounterOpts{
 			Name: "simplebase_catalog_sync_total",
 			Help: "DuckLake catalog sync attempts by outcome",
@@ -131,11 +115,5 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "simplebase_catalog_sync_lag_snapshots",
 			Help: "DuckLake catalog sync lag in snapshot ids",
 		}, []string{"database_id"}),
-
-		JobDurationSeconds: f.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "simplebase_job_duration_seconds",
-			Help:    "Background job duration.",
-			Buckets: prometheus.DefBuckets,
-		}, []string{"type"}),
 	}
 }

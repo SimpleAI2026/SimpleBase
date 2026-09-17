@@ -111,30 +111,3 @@ func (d *Descriptor) Validate() error {
 	}
 	return nil
 }
-
-// State 是 SimpleBase 写入 state.json 的运维状态。
-type State struct {
-	DatabaseID      string    `json:"database_id"`
-	Status          string    `json:"status"`
-	LastOpenedAt    time.Time `json:"last_opened_at,omitempty"`
-	LastVerifiedAt  time.Time `json:"last_verified_at,omitempty"`
-	LastPersistHint string    `json:"last_persist_hint,omitempty"` // "local" | "s3-confirmed" | "unknown"
-	UpdatedAt       time.Time `json:"updated_at"`
-}
-
-// Validate 校验 state 字段一致性。
-func (s *State) Validate() error {
-	if s == nil {
-		return errors.New("objectstore: state is nil")
-	}
-	if err := validateID("database_id", s.DatabaseID); err != nil {
-		return err
-	}
-	if s.Status == "" {
-		return errors.New("objectstore: state.status is required")
-	}
-	if s.UpdatedAt.IsZero() {
-		return errors.New("objectstore: state.updated_at is required")
-	}
-	return nil
-}
