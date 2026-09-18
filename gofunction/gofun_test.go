@@ -53,17 +53,24 @@ func testCase(t *testing.T, funcName string) {
 				if !ast.IsExported(name) || (len(funcName) > 0 && name != funcName) {
 					continue
 				}
+				if testing.Short() && (name == "NilInterface") {
+					t.Logf("skip %s in short mode (network)", name)
+					continue
+				}
 				t.Log("test", name)
 				result, err := program.Run("", name)
 				if err != nil {
-					t.Logf("run func: %v, error: %v", name, err)
+					t.Errorf("run func %s: %v", name, err)
 					continue
 				}
-				expected := testSet.MethodByName(name).Call(nil)[0].Interface()
+				method := testSet.MethodByName(name)
+				if !method.IsValid() {
+					t.Errorf("native testdata method %s not found", name)
+					continue
+				}
+				expected := method.Call(nil)[0].Interface()
 				if !reflect.DeepEqual(result, expected) {
-					t.Logf("func %s expected %#v got %#v.", name, expected, result)
-				} else {
-					t.Logf("test %s PASS", name)
+					t.Errorf("func %s expected %#v got %#v", name, expected, result)
 				}
 			}
 		}

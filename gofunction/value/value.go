@@ -50,8 +50,12 @@ type RValue struct {
 	Value reflect.Value
 }
 
-// ValueOf 将任意 Go 值包装为 Value
+// ValueOf 将任意 Go 值包装为 Value。
+// 若传入的已是 reflect.Value，则不再二次包装。
 func ValueOf(v interface{}) Value {
+	if rv, ok := v.(reflect.Value); ok {
+		return RValue{Value: rv}
+	}
 	return RValue{Value: reflect.ValueOf(v)}
 }
 

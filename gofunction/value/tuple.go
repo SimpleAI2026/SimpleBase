@@ -22,7 +22,11 @@ func (iter *MapIter) Next() Value {
 		})}
 	}
 	key := iter.Keys[iter.I]
-	val := iter.Value.RValue().MapIndex(key)
+	rv := iter.Value.RValue()
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	val := rv.MapIndex(key)
 	iter.I++
 	return RValue{Value: reflect.ValueOf([]Value{
 		RValue{Value: reflect.ValueOf(true)},
@@ -55,8 +59,8 @@ func (iter *MapIter) Float() float64 {
 }
 func (iter *MapIter) Bool() bool { panic("MapIter does not support Bool") }
 
-func (iter *MapIter) Len() int   { return len(iter.Keys) - iter.I }
-func (iter *MapIter) Cap() int   { return len(iter.Keys) - iter.I }
+func (iter *MapIter) Len() int { return len(iter.Keys) - iter.I }
+func (iter *MapIter) Cap() int { return len(iter.Keys) - iter.I }
 func (iter *MapIter) Index(_ int) Value {
 	panic("MapIter does not support Index")
 }

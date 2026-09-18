@@ -16,21 +16,34 @@ import (
 var debugging = false
 
 func callExternal(fn reflect.Value, args []value.Value) value.Value {
+	if !fn.IsValid() || fn.Kind() != reflect.Func {
+		panic(fmt.Sprintf("callExternal: not a function: %s", fn.String()))
+	}
 	fnType := fn.Type()
 	numIn := fnType.NumIn()
-	if fnType.IsVariadic() {
+	isVariadic := fnType.IsVariadic()
+	if isVariadic {
 		numIn--
+	}
+	if len(args) < numIn {
+		panic(fmt.Sprintf("callExternal %s: got %d args, want %d", fnType, len(args), fnType.NumIn()))
 	}
 	in := make([]reflect.Value, numIn)
 	for i := 0; i < numIn; i++ {
 		in[i] = args[i].RValue().Convert(fnType.In(i))
 	}
-	if fnType.IsVariadic() {
+	if isVariadic {
 		variadicType := fnType.In(numIn).Elem()
-		variadicArgs := args[len(args)-1]
-		variadicLen := variadicArgs.Len()
-		for i := 0; i < variadicLen; i++ {
-			in = append(in, variadicArgs.Index(i).RValue().Convert(variadicType))
+		if len(args) == numIn+1 && args[numIn].Kind() == reflect.Slice {
+			variadicArgs := args[numIn]
+			variadicLen := variadicArgs.Len()
+			for i := 0; i < variadicLen; i++ {
+				in = append(in, variadicArgs.Index(i).RValue().Convert(variadicType))
+			}
+		} else {
+			for i := numIn; i < len(args); i++ {
+				in = append(in, args[i].RValue().Convert(variadicType))
+			}
 		}
 	}
 	out := fn.Call(in)
@@ -43,6 +56,10 @@ func callSSA(caller *frame, fn *ssa.Function, args []value.Value, env []*value.V
 		if ext := caller.program.externalFunction(fn); ext != nil {
 			return callExternal(*ext, args)
 		}
+		if imported := caller.program.importedFunction(fn); imported != nil && imported != fn {
+			return callSSA(caller, imported, args, env)
+		}
+		panic(fmt.Sprintf("no implementation for external function %s", fn.String()))
 	}
 
 	fr := caller.newChild(fn)
@@ -58,12 +75,19 @@ func callSSA(caller *frame, fn *ssa.Function, args []value.Value, env []*value.V
 		fr.env[l] = &fr.locals[i]
 	}
 	for i, p := range fn.Params {
+		if i >= len(args) {
+			panic(fmt.Sprintf("call %s: missing argument %d", fn.String(), i))
+		}
 		fr.env[p] = &args[i]
 	}
 	for i, fv := range fn.FreeVars {
+		if i >= len(env) {
+			panic(fmt.Sprintf("call %s: missing free var %s", fn.String(), fv.Name()))
+		}
 		fr.env[fv] = env[i]
 	}
-	if fr.block != nil {
+	// 与 x/tools SSA interp 一致：panic 恢复后可能进入 Recover 块，需再次执行
+	for fr.block != nil {
 		runFrame(fr)
 	}
 	// 返回时释放所有局部变量
@@ -78,17 +102,47 @@ func callBuiltin(caller *frame, callPos token.Pos, fn *ssa.Builtin, args []value
 	switch fn.Name() {
 	case "append":
 		slice := args[0].RValue()
-		if args[1].IsNil() {
-			return args[0]
+		if slice.Kind() == reflect.Ptr {
+			slice = slice.Elem()
 		}
-	 elems := make([]reflect.Value, args[1].Len())
-		for i := range elems {
-			elems[i] = args[1].RValue().Index(i)
+		if len(args) == 1 {
+			return value.RValue{Value: slice}
+		}
+		elems := make([]reflect.Value, 0)
+		for i := 1; i < len(args); i++ {
+			arg := args[i]
+			if arg == nil || !arg.IsValid() || arg.IsNil() {
+				continue
+			}
+			rv := arg.RValue()
+			// SSA 将 variadic 参数打包为切片
+			if rv.Kind() == reflect.Slice {
+				for j := 0; j < rv.Len(); j++ {
+					elems = append(elems, rv.Index(j))
+				}
+				continue
+			}
+			// append([]byte, string...) 特殊情况
+			if slice.Kind() == reflect.Slice && slice.Type().Elem().Kind() == reflect.Uint8 && rv.Kind() == reflect.String {
+				for _, b := range []byte(rv.String()) {
+					elems = append(elems, reflect.ValueOf(b))
+				}
+				continue
+			}
+			elems = append(elems, rv)
 		}
 		return value.RValue{Value: reflect.Append(slice, elems...)}
 
 	case "copy":
-		n := reflect.Copy(args[0].RValue(), args[1].RValue())
+		dst := args[0].RValue()
+		src := args[1].RValue()
+		if dst.Kind() == reflect.Ptr {
+			dst = dst.Elem()
+		}
+		if src.Kind() == reflect.Ptr {
+			src = src.Elem()
+		}
+		n := reflect.Copy(dst, src)
 		return value.ValueOf(n)
 
 	case "close": // close(chan T)
@@ -128,11 +182,14 @@ func callBuiltin(caller *frame, callPos token.Pos, fn *ssa.Builtin, args []value
 		panic(args[0].Interface())
 
 	case "recover":
-		if caller.caller.panicking {
-			caller.caller.panicking = false
-			return value.ValueOf(caller.caller.panic)
+		// recover 只对调用链上处于 panic 状态的栈帧生效（通常是 deferred 闭包的父帧）
+		for p := caller.caller; p != nil; p = p.caller {
+			if p.panicking {
+				p.panicking = false
+				return value.ValueOf(p.panic)
+			}
 		}
-		return value.ValueOf(recover())
+		return value.ValueOf((interface{})(nil))
 	}
 	panic("unknown built-in: " + fn.Name())
 }
@@ -156,33 +213,38 @@ func runFrame(fr *frame) {
 	var instr ssa.Instruction
 	defer func() {
 		if fr.block == nil {
-			return // normal return
+			return // 正常返回
 		}
-
 		fr.panicking = true
-		fr.panic = fmt.Errorf("panic: %s: %v", fr.program.mainPkg.Prog.Fset.Position(instr.Pos()).String(), recover())
+		re := recover()
+		pos := "-"
+		if instr != nil && fr.program != nil && fr.program.mainPkg != nil {
+			pos = fr.program.mainPkg.Prog.Fset.Position(instr.Pos()).String()
+		}
+		fr.panic = fmt.Errorf("panic: %s: %v", pos, re)
 		fr.runDefers()
-		fr.block = fr.fn.Recover
+		if fr.fn != nil {
+			fr.block = fr.fn.Recover
+		} else {
+			fr.block = nil
+		}
 	}()
 
+	// B9：_JUMP 必须继续外层循环以执行目标 block，而不能 break 出整个 runFrame
 BlockLoop:
-	for {
+	for fr.block != nil {
 		for _, instr = range fr.block.Instrs {
 			c := visitInstr(fr, instr)
 			if !debugging {
-				err := fr.context.Err()
-				if err != nil {
+				if err := fr.context.Err(); err != nil {
 					panic(err)
 				}
 			}
-
 			switch c {
 			case _Return:
 				return
-			case _NEXT:
-				// no-op
 			case _JUMP:
-				break BlockLoop
+				continue BlockLoop
 			}
 		}
 	}
@@ -216,6 +278,8 @@ func visitInstr(fr *frame, instr ssa.Instruction) nextInstr {
 		c = runReturn(fr, instr)
 	case *ssa.IndexAddr:
 		c = runIndexAddr(fr, instr)
+	case *ssa.Index:
+		c = runIndex(fr, instr)
 	case *ssa.Field:
 		c = runField(fr, instr)
 	case *ssa.FieldAddr:

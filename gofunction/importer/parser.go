@@ -31,7 +31,7 @@ func (p *Importer) parseNameType(t reflect.Type) (named *types.Named) {
 		typeName := types.NewTypeName(token.NoPos, pkg, name, nil)
 		named = types.NewNamed(typeName, nil, nil)
 	}
-	
+
 	// 将结果存储到缓存中
 	p.typeCache[t] = named
 	return named

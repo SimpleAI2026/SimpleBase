@@ -52,6 +52,9 @@ func NewImporter(importPackage ...*ssa.Package) *Importer {
 	}
 	for _, pkg := range importPackage {
 		i.ssaPackages[pkg.Pkg.Name()] = pkg
+		if path := pkg.Pkg.Path(); path != "" {
+			i.ssaPackages[path] = pkg
+		}
 	}
 
 	return i
