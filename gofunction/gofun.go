@@ -9,7 +9,7 @@
 //	import _ "github.com/linkxzhou/SimpleBase/gofunction/packages" // 注册标准库
 //	result, err := gofunction.Run("seq-1", "package main\nfunc add(a, b int) int { return a + b }", "add", 1, 2)
 //
-// 详细用法、限制与已注册标准库清单见 README.md；可运行示例见 examples/。
+// 详细用法、限制与已注册标准库清单见 README.md；用法样本见 testdata/，由 go test 加载执行。
 package gofunction
 
 import (
