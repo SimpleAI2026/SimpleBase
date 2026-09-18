@@ -84,9 +84,13 @@ func (co *ConstantOperations) Evaluate(c *ssa.Const, zero func(types.Type) value
 	if c.IsNil() {
 		return zero(c.Type()).Elem() // typed nil
 	}
+	basic, ok := c.Type().Underlying().(*types.Basic)
+	if !ok {
+		// 结构体/数组等复合类型的零值常量（如 Vertex{}）
+		return zero(c.Type()).Elem()
+	}
 	var val interface{}
-	t := c.Type().Underlying().(*types.Basic)
-	switch t.Kind() {
+	switch basic.Kind() {
 	case types.Bool, types.UntypedBool:
 		val = constant.BoolVal(c.Value)
 	case types.Int, types.UntypedInt, types.Int8, types.Int16, types.Int32, types.UntypedRune, types.Int64:
@@ -98,7 +102,7 @@ func (co *ConstantOperations) Evaluate(c *ssa.Const, zero func(types.Type) value
 	case types.Complex64, types.Complex128, types.UntypedComplex:
 		val = c.Complex128()
 	case types.String, types.UntypedString:
-		if c.Value.Kind() == constant.String {
+		if c.Value != nil && c.Value.Kind() == constant.String {
 			val = constant.StringVal(c.Value)
 		} else {
 			val = string(rune(c.Int64()))

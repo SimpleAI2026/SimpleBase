@@ -10,15 +10,19 @@ package packages
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"math"
 	"net/http"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
@@ -38,6 +42,10 @@ func init() {
 	mustRegister("net/http", "http", httpObjects()...)
 	mustRegister("errors", "errors", errorsObjects()...)
 	mustRegister("strconv", "strconv", strconvObjects()...)
+	mustRegister("sync/atomic", "atomic", atomicObjects()...)
+	mustRegister("io", "io", ioObjects()...)
+	mustRegister("io/ioutil", "ioutil", ioutilObjects()...)
+	mustRegister("encoding/binary", "binary", binaryObjects()...)
 	mustRegister("github.com/json-iterator/go", "jsoniter", jsoniterObjects()...)
 }
 
@@ -130,8 +138,11 @@ func mathObjects() []*importer.Object {
 // --- time ---
 
 func timeObjects() []*importer.Object {
-	// time 包主要暴露常用常量与函数；Duration 方法集通过反射自动可用
 	return []*importer.Object{
+		importer.CreateType("Time", reflect.TypeOf(time.Time{}), ""),
+		importer.CreateType("Duration", reflect.TypeOf(time.Duration(0)), ""),
+		importer.CreateType("Location", reflect.TypeOf((*time.Location)(nil)).Elem(), ""),
+		importer.CreateType("Weekday", reflect.TypeOf(time.Sunday), ""),
 		funcObj("Now", time.Now),
 		funcObj("LoadLocation", time.LoadLocation),
 		funcObj("Date", time.Date),
@@ -178,10 +189,11 @@ func jsonObjects() []*importer.Object {
 
 func base64Objects() []*importer.Object {
 	return []*importer.Object{
-		varObj("StdEncoding", base64.StdEncoding, reflect.TypeOf(base64.StdEncoding)),
-		varObj("URLEncoding", base64.URLEncoding, reflect.TypeOf(base64.URLEncoding)),
-		varObj("RawStdEncoding", base64.RawStdEncoding, reflect.TypeOf(base64.RawStdEncoding)),
-		varObj("RawURLEncoding", base64.RawURLEncoding, reflect.TypeOf(base64.RawURLEncoding)),
+		importer.CreateType("Encoding", reflect.TypeOf((*base64.Encoding)(nil)).Elem(), ""),
+		varObj("StdEncoding", &base64.StdEncoding, reflect.TypeOf(base64.StdEncoding)),
+		varObj("URLEncoding", &base64.URLEncoding, reflect.TypeOf(base64.URLEncoding)),
+		varObj("RawStdEncoding", &base64.RawStdEncoding, reflect.TypeOf(base64.RawStdEncoding)),
+		varObj("RawURLEncoding", &base64.RawURLEncoding, reflect.TypeOf(base64.RawURLEncoding)),
 	}
 }
 
@@ -230,6 +242,7 @@ func jsoniterObjects() []*importer.Object {
 		funcObj("Marshal", jsoniter.Marshal),
 		funcObj("Unmarshal", jsoniter.Unmarshal),
 		importer.CreateType("API", reflect.TypeOf((*jsoniter.API)(nil)).Elem(), ""),
+		importer.CreateType("Any", reflect.TypeOf((*jsoniter.Any)(nil)).Elem(), ""),
 	}
 }
 
@@ -246,6 +259,61 @@ func httpObjects() []*importer.Object {
 		constObj("MethodPost", http.MethodPost),
 		constObj("MethodPut", http.MethodPut),
 		constObj("MethodDelete", http.MethodDelete),
-		varObj("DefaultClient", http.DefaultClient, reflect.TypeOf(http.DefaultClient)),
+		varObj("DefaultClient", &http.DefaultClient, reflect.TypeOf(http.DefaultClient)),
+		importer.CreateType("Client", reflect.TypeOf((*http.Client)(nil)).Elem(), ""),
+		importer.CreateType("Request", reflect.TypeOf((*http.Request)(nil)).Elem(), ""),
+		importer.CreateType("Response", reflect.TypeOf((*http.Response)(nil)).Elem(), ""),
+		importer.CreateType("Header", reflect.TypeOf(http.Header{}), ""),
+	}
+}
+
+func atomicObjects() []*importer.Object {
+	return []*importer.Object{
+		funcObj("AddInt32", atomic.AddInt32),
+		funcObj("AddInt64", atomic.AddInt64),
+		funcObj("AddUint32", atomic.AddUint32),
+		funcObj("AddUint64", atomic.AddUint64),
+		funcObj("LoadInt32", atomic.LoadInt32),
+		funcObj("LoadInt64", atomic.LoadInt64),
+		funcObj("LoadUint32", atomic.LoadUint32),
+		funcObj("LoadUint64", atomic.LoadUint64),
+		funcObj("StoreInt32", atomic.StoreInt32),
+		funcObj("StoreInt64", atomic.StoreInt64),
+		funcObj("StoreUint32", atomic.StoreUint32),
+		funcObj("StoreUint64", atomic.StoreUint64),
+		funcObj("CompareAndSwapInt32", atomic.CompareAndSwapInt32),
+		funcObj("CompareAndSwapInt64", atomic.CompareAndSwapInt64),
+	}
+}
+
+func ioObjects() []*importer.Object {
+	return []*importer.Object{
+		funcObj("ReadAll", io.ReadAll),
+		funcObj("Copy", io.Copy),
+		funcObj("NopCloser", io.NopCloser),
+		varObj("EOF", &io.EOF, reflect.TypeOf((*error)(nil)).Elem()),
+		importer.CreateType("Reader", reflect.TypeOf((*io.Reader)(nil)).Elem(), ""),
+		importer.CreateType("Writer", reflect.TypeOf((*io.Writer)(nil)).Elem(), ""),
+		importer.CreateType("Closer", reflect.TypeOf((*io.Closer)(nil)).Elem(), ""),
+		importer.CreateType("ReadCloser", reflect.TypeOf((*io.ReadCloser)(nil)).Elem(), ""),
+	}
+}
+
+func ioutilObjects() []*importer.Object {
+	return []*importer.Object{
+		funcObj("ReadAll", ioutil.ReadAll),
+		funcObj("ReadFile", ioutil.ReadFile),
+		funcObj("NopCloser", ioutil.NopCloser),
+		funcObj("WriteFile", ioutil.WriteFile),
+	}
+}
+
+func binaryObjects() []*importer.Object {
+	return []*importer.Object{
+		funcObj("Read", binary.Read),
+		funcObj("Write", binary.Write),
+		funcObj("Size", binary.Size),
+		varObj("BigEndian", &binary.BigEndian, reflect.TypeOf(binary.BigEndian)),
+		varObj("LittleEndian", &binary.LittleEndian, reflect.TypeOf(binary.LittleEndian)),
 	}
 }

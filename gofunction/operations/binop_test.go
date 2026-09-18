@@ -254,7 +254,7 @@ func TestBinaryOperations_ShiftOperations(t *testing.T) {
 
 	// 测试左移运算
 	t.Run("Shl operation", func(t *testing.T) {
-		x := value.ValueOf(5)  // 101
+		x := value.ValueOf(5)       // 101
 		y := value.ValueOf(uint(2)) // 左移2位
 		result := bo.Shl(x, y)
 		expected := int64(20) // 10100
@@ -265,7 +265,7 @@ func TestBinaryOperations_ShiftOperations(t *testing.T) {
 
 	// 测试右移运算
 	t.Run("Shr operation", func(t *testing.T) {
-		x := value.ValueOf(20) // 10100
+		x := value.ValueOf(20)      // 10100
 		y := value.ValueOf(uint(2)) // 右移2位
 		result := bo.Shr(x, y)
 		expected := int64(5) // 101

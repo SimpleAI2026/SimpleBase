@@ -50,7 +50,7 @@ func (e *Executor) Execute(functionName, script string) (result interface{}, err
 		e.vm.Initialize("")
 	}
 
-	program, buildErr := BuildProgram(e.vm.SequenceID, functionName, script)
+	program, buildErr := BuildProgram(e.vm.SequenceID, "main", script)
 	if buildErr != nil {
 		return nil, buildErr
 	}

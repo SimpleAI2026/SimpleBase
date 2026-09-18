@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gofunction/value"
@@ -54,6 +55,17 @@ func (p *Context) Output() string {
 	return p.outBuffer.String()
 }
 
+// waitGoroutines 等待脚本内 go 语句启动的协程结束（B8）
+func (p *Context) waitGoroutines(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for atomic.LoadInt32(&p.goroutines) > 0 {
+		if time.Now().After(deadline) || p.Err() != nil {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func newCallContext() *Context {
 	ctx, cancelFunc := context.WithTimeout(context.Background(), defaultTimeout)
 	return &Context{
@@ -85,16 +97,24 @@ func (fr *frame) makeFunc(f *ssa.Function, bindings []ssa.Value) value.Value {
 	for i, binding := range bindings {
 		env[i] = fr.env[binding]
 	}
-	in := make([]reflect.Type, len(f.Params))
-	for i, param := range f.Params {
-		in[i] = typeChange(param.Type())
+	sig := f.Signature
+	nIn := sig.Params().Len()
+	if sig.Recv() != nil {
+		nIn++
+	}
+	in := make([]reflect.Type, 0, nIn)
+	if sig.Recv() != nil {
+		in = append(in, typeChange(sig.Recv().Type()))
+	}
+	for i := 0; i < sig.Params().Len(); i++ {
+		in = append(in, typeChange(sig.Params().At(i).Type()))
 	}
 	out := make([]reflect.Type, 0)
-	results := f.Signature.Results()
+	results := sig.Results()
 	for i := 0; i < results.Len(); i++ {
 		out = append(out, typeChange(results.At(i).Type()))
 	}
-	funcType := reflect.FuncOf(in, out, f.Signature.Variadic())
+	funcType := reflect.FuncOf(in, out, sig.Variadic())
 	fn := func(in []reflect.Value) (results []reflect.Value) {
 		args := make([]value.Value, len(in))
 		for i, arg := range in {
@@ -116,19 +136,17 @@ func (fr *frame) get(key ssa.Value) value.Value {
 	case *ssa.Const:
 		return constValue(key)
 	case *ssa.Global:
-		if r, ok := fr.program.globals[key]; ok {
-			v := (*r).Interface()
-			return value.ValueOf(&v)
+		if r, ok := fr.program.globals[key]; ok && r != nil {
+			return *r
 		}
-		// 本包未初始化的全局变量或外部包全局变量：
-		// 前者已有 initGlobal 零值占位，后者走注册表解析
+		// 外部包全局变量走注册表
 		if key.Pkg != nil && key.Pkg != fr.program.mainPkg {
 			return fr.program.externalValue(key)
 		}
 	case *ssa.Function:
 		return fr.makeFunc(key, nil)
 	}
-	if r, ok := fr.env[key]; ok {
+	if r, ok := fr.env[key]; ok && r != nil {
 		return *r
 	}
 	panic(fmt.Sprintf("get: no Value for %T: %v", key, key.Name()))

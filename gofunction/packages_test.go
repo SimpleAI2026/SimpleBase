@@ -107,6 +107,9 @@ func test() string {
 }
 
 func TestHttpRequest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping external HTTP in short mode")
+	}
 	sources := `
 package main
 
@@ -134,6 +137,9 @@ func test() (int, string) {
 }
 
 func TestHttpsRequest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping external HTTPS in short mode")
+	}
 	sources := `
 package main
 

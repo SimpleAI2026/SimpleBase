@@ -50,8 +50,9 @@ func TestPackageUnpackage(t *testing.T) {
 }
 
 func TestMapIterNext(t *testing.T) {
-	m := reflect.ValueOf(map[string]int{"a": 1})
-	iter := &MapIter{Value: ValueOf(m), Keys: m.MapKeys()}
+	m := map[string]int{"a": 1}
+	rv := reflect.ValueOf(m)
+	iter := &MapIter{Value: ValueOf(m), Keys: rv.MapKeys()}
 	n := 0
 	for {
 		res := iter.Next()
@@ -64,6 +65,12 @@ func TestMapIterNext(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("expected 1 iteration, got %d", n)
+	}
+
+	// ValueOf(reflect.Value) 不应二次包装
+	iter2 := &MapIter{Value: ValueOf(rv), Keys: rv.MapKeys()}
+	if !iter2.Next().RValue().Index(0).Interface().(Value).Bool() {
+		t.Fatal("expected one element from reflect.Value-wrapped map")
 	}
 }
 

@@ -15,7 +15,7 @@ import (
 	"encoding/hex"
 )
 
-// newSequenceID 生成随机序列 ID（替代原 snowflake 依赖）
+// newSequenceID 生成随机序列 ID
 func newSequenceID() string {
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
