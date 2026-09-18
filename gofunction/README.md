@@ -40,7 +40,7 @@ func add(a, b int) int { return a + b }
 }
 ```
 
-完整可运行示例见 [`examples/hello`](examples/hello)。
+完整可运行样本见 [`testdata/hello.go`](testdata/hello.go)，由 `go test ./gofunction -run TestTestdataScripts/hello` 加载执行。
 
 ## 工作原理（简图）
 
@@ -85,7 +85,7 @@ SSA 全局符号类型为 `*T`（单元指针）。下列方法读写的是**单
 | `(*Program).GetGlobalValue(name string) (interface{}, error)` | 读包级变量。不存在则报 `global Value %s not found`。 |
 | `(*Program).SetGlobalValue(name string, val interface{}) error` | 写包级变量；类型需可赋值或可转换。 |
 
-示例：[`examples/globals`](examples/globals)。须在 `BuildProgram`（会跑包级 `init`）之后、`Run` 之前调用 `SetGlobalValue`，后续执行能读到新值。
+样本：[`testdata/globals.go`](testdata/globals.go)（`TestTestdataScripts/globals`）。须在 `BuildProgram`（会跑包级 `init`）之后、`Run` 之前调用 `SetGlobalValue`，后续执行能读到新值。
 
 ### 日志与调试输出
 
@@ -146,7 +146,7 @@ ex.Close() // 放回池中（过期则销毁）
 
 `Runtime`（`NewRuntime`、`Initialize`、`Get/SetUserData`、`ConsoleLog`、`Reset`）是 Executor 内部用的运行时对象，也可单独构造；`ConsoleLog` 走 `SetLogger` 的 logger。
 
-示例：[`examples/pool`](examples/pool)。
+样本：[`testdata/pool.go`](testdata/pool.go)（`TestTestdataScripts/pool`）。池本身是宿主 API，脚本只提供无参入口 `answer`。
 
 ### 自定义宿主注册（importer）
 
@@ -182,7 +182,7 @@ func demo() int { return host.Add(20, 22) }
 
 `importer` 还提供补全辅助（`GetCompletionItems`、`GetPackageCompletions`、`GetFunctionSignature`、`Keywords`），给编辑器场景用，不参与执行。
 
-示例：[`examples/hostfn`](examples/hostfn)。
+样本：[`testdata/hostfn.go`](testdata/hostfn.go)（`TestTestdataScripts/hostfn`）。宿主在测试里 `RegisterPackage`，脚本只 `import` 该 path。
 
 ---
 
@@ -213,7 +213,7 @@ func demo() int { return host.Add(20, 22) }
 6. **`Executor.Execute` 不能传参**。要传参请用 `Run` / `Program.Run`。
 7. **每次 `Execute` 都会重新 `BuildProgram`**。池复用的是 `Executor` 对象，不是编译缓存（`functionChecksums` 字段目前未参与执行）。
 8. **`Interrupt` 不打断 SSA 循环**；真正停靠默认 10s 的 context 超时。
-9. **外网 HTTP**：`net/http` 的 `Get`/`Post` 等是真的发请求。仓库测试里 `TestHttpRequest` / `TestHttpsRequest` 在 `testing.Short()` 下跳过。本地示例用 `net/http/httptest`，不依赖外网。
+9. **外网 HTTP**：`net/http` 的 `Get`/`Post` 等是真的发请求。仓库测试里 `TestHttpRequest` / `TestHttpsRequest` 在 `testing.Short()` 下跳过。`testdata/http.go` 由 `TestTestdataScripts/http` 搭配宿主 `net/http/httptest` 跑，不依赖外网。
 10. 未注册 path 仍会被 `Importer.Package` 建成**空** `types.Package`（`MarkComplete`），编译期不一定立刻失败，调用其函数会在运行期 panic 并被 `RunWithContext` 收成 error。
 11. `Executor.Compile`、`SetProfile`、`Runtime.Cleanup` 等为空实现。
 
@@ -261,7 +261,10 @@ go vet ./gofunction/...
 go build ./gofunction/...
 ```
 
-`testdata/` 是对拍集：`TestAll` 用解释器跑导出函数，再与 `testdata.TestSet` 同名方法的原生 Go 结果 `reflect.DeepEqual`。覆盖算术、全局变量、import、方法、控制流等。
+`testdata/` 里有两类源文件：
+
+1. **对拍集**（`basic.go`、`basics.go`、`flowcontrol.go`、`methods.go`、`moretypes.go`，入口 `main.go`）：`TestAll` 用解释器跑导出函数，再与 `testdata.TestSet` 同名方法的原生 Go 结果 `reflect.DeepEqual`。覆盖算术、全局变量、import、方法、控制流等。
+2. **用法样本**（`hello.go`、`stdlib.go`、`globals.go`、`funclist.go`、`hostfn.go`、`pool.go`、`controlflow.go`、`http.go`）：`package main` 函数库（`//go:build ignore`，不编进 `testdata` 包），由 `TestTestdataScripts` 通过 `Run` / `BuildProgram` / `ParseFuncList` / `ExecutorPool` 读取执行。它们不是可 `go run` 的独立程序。
 
 覆盖率（与重构 PR 相同的命令）：
 
@@ -269,30 +272,28 @@ go build ./gofunction/...
 go test ./gofunction/... -coverprofile=cov.out -short && go tool cover -func=cov.out
 ```
 
-跑示例：
+查看用法样本（verbose 会打印子测试名）：
 
 ```bash
-go run ./gofunction/examples/hello
-# 或一次性：
-for d in gofunction/examples/*/; do echo "== $d"; go run ./$d; done
+go test ./gofunction -run TestTestdataScripts -v -short
 ```
 
 ---
 
-## 示例
+## 用法样本
 
-每个目录都是独立的 `package main`（`main.go` + 短 README），在模块根 `go run ./gofunction/examples/<name>` 即可。
+每个文件都是解释器可编译的 `package main` 函数库，由对应子测试加载。在模块根执行 `go test ./gofunction -run TestTestdataScripts/<name> -v`。
 
-| 目录 | 演示 |
-| --- | --- |
-| [`examples/hello`](examples/hello) | `Run` 编译执行 `add` |
-| [`examples/stdlib`](examples/stdlib) | blank-import `packages`，脚本使用 `fmt` / `strings` / `encoding/json` |
-| [`examples/globals`](examples/globals) | `BuildProgram` + `SetGlobalValue` / `GetGlobalValue` |
-| [`examples/funclist`](examples/funclist) | `ParseFuncList`（导出函数 vs 全部函数） |
-| [`examples/hostfn`](examples/hostfn) | `importer.RegisterPackage` 注入宿主函数 |
-| [`examples/pool`](examples/pool) | `ExecutorPool` 取出 / `Execute` / `Close` 归还再取 |
-| [`examples/controlflow`](examples/controlflow) | `if` / `for` / `switch` / `defer` |
-| [`examples/http`](examples/http) | 宿主 `httptest` + 脚本 `http.Get`（不访问公网） |
+| 文件 | 子测试 | 演示 |
+| --- | --- | --- |
+| [`testdata/hello.go`](testdata/hello.go) | `TestTestdataScripts/hello` | `Run` 编译执行 `add` |
+| [`testdata/stdlib.go`](testdata/stdlib.go) | `TestTestdataScripts/stdlib` | blank-import `packages`，脚本使用 `fmt` / `strings` / `encoding/json` |
+| [`testdata/globals.go`](testdata/globals.go) | `TestTestdataScripts/globals` | `BuildProgram` + `SetGlobalValue` / `GetGlobalValue` |
+| [`testdata/funclist.go`](testdata/funclist.go) | `TestTestdataScripts/funclist` | `ParseFuncList`（导出函数 vs 全部函数） |
+| [`testdata/hostfn.go`](testdata/hostfn.go) | `TestTestdataScripts/hostfn` | `importer.RegisterPackage` 注入宿主函数 |
+| [`testdata/pool.go`](testdata/pool.go) | `TestTestdataScripts/pool` | `ExecutorPool` 取出 / `Execute` / `Close` 归还再取 |
+| [`testdata/controlflow.go`](testdata/controlflow.go) | `TestTestdataScripts/controlflow` | `if` / `for` / `switch` / `defer`（与对拍集 `flowcontrol.go` 互补，不合并） |
+| [`testdata/http.go`](testdata/http.go) | `TestTestdataScripts/http` | 宿主 `httptest` + 脚本 `http.Get`（不访问公网） |
 
 子包源码：
 

@@ -33,7 +33,7 @@ func testCase(t *testing.T, funcName string) {
 
 	testSet := reflect.ValueOf(testdata.TestSet)
 	for _, file := range dir {
-		if file.Name() == "main.go" {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".go") || file.Name() == "main.go" {
 			continue
 		}
 
@@ -41,6 +41,11 @@ func testCase(t *testing.T, funcName string) {
 		if err != nil {
 			t.Error(err)
 			return
+		}
+		// Usage samples in testdata/ are package main scripts (often //go:build ignore)
+		// loaded by TestTestdataScripts, not dual-executed against testdata.TestSet.
+		if !strings.Contains(string(source), `func (__testSet)`) {
+			continue
 		}
 		src := strings.Replace(string(source), `func (__testSet)`, `func `, -1)
 		program, err := BuildProgram(seqid, "testSet", src)
