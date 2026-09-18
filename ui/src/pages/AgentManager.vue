@@ -35,8 +35,15 @@
                   <Badge variant="secondary" class="text-[11px]">{{ a.module }}</Badge>
                 </div>
                 <div class="mt-1.5 text-xs leading-relaxed text-muted-foreground line-clamp-2">{{ a.description || '无描述' }}</div>
+                <div v-if="scheduleByAgent[a.id]" class="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <ClockIcon class="size-3" />
+                  <span>{{ scheduleSummary(scheduleByAgent[a.id]) }}</span>
+                  <span v-if="scheduleByAgent[a.id]?.enabled" class="size-1.5 rounded-full bg-emerald-500" />
+                  <span v-else class="size-1.5 rounded-full bg-muted-foreground/40" />
+                </div>
                 <div class="mt-3 flex gap-1 justify-end border-t border-border/60 pt-3" @click.stop>
                   <Button variant="ghost" size="xs" @click="openEdit(a)">编辑</Button>
+                  <Button variant="ghost" size="xs" @click="openSchedule(a)">定时</Button>
                   <ConfirmAction title="确认删除该 Agent？" @confirm="removeAgent(a)">
                     <Button variant="ghost" size="xs" class="text-destructive hover:bg-destructive/10">删除</Button>
                   </ConfirmAction>
@@ -120,6 +127,17 @@
           </Field>
         </FieldGroup>
       </SbModal>
+
+      <AgentScheduleModal
+        :open="scheduleModalOpen"
+        :agent="scheduleAgent"
+        :schedule="scheduleAgent ? (scheduleByAgent[scheduleAgent.id] || null) : null"
+        :project-id="project.id"
+        @update:open="(v: boolean) => (scheduleModalOpen = v)"
+        @saved="onScheduleSaved"
+        @removed="onScheduleRemoved"
+        @view-thread="onViewScheduleThread"
+      />
     </PageContainer>
   </ProjectScope>
 </template>
@@ -127,7 +145,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { ClockIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -152,7 +170,9 @@ import SbEmptyState from '../components/SbEmptyState.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import SbModal from '../components/modal/SbModal.vue'
 import AiChat from '../components/ai/AiChat.vue'
+import AgentScheduleModal from '../components/ai/AgentScheduleModal.vue'
 import type { ChatMsg } from '../composables/useAiChat'
+import type { AgentSchedule } from '../services/types'
 
 const project = useProjectStore()
 const loading = ref(false)
@@ -169,6 +189,10 @@ const currentRunId = ref('')
 const chatMessages = ref<ChatMsg[]>([])
 const sending = ref(false)
 let conn: LlmStreamConnection | null = null
+
+const scheduleByAgent = ref<Record<string, AgentSchedule>>({})
+const scheduleModalOpen = ref(false)
+const scheduleAgent = ref<CloudAgent | null>(null)
 
 const activeAgent = computed(() => agents.value.find((a) => a.id === activeId.value))
 const mentionAgents = computed(() => agents.value.map((a) => ({ id: a.id, name: a.name, module: a.module })))
@@ -198,6 +222,62 @@ async function bootstrap() {
   await loadModules()
   await loadAgents()
   await ensureThread()
+  await loadSchedules()
+}
+
+async function loadSchedules() {
+  try {
+    const list = await api.agentSchedules.list(project.id)
+    const map: Record<string, AgentSchedule> = {}
+    for (const s of list) map[s.agent_id] = s
+    scheduleByAgent.value = map
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '加载定时任务失败')
+  }
+}
+
+function scheduleSummary(s: AgentSchedule): string {
+  const presets: Record<string, string> = {
+    '*/15 * * * *': '每 15 分钟',
+    '0 * * * *': '每小时',
+    '0 8 * * *': '每天 08:00 (UTC)',
+    '0 8 * * 1': '每周一 08:00 (UTC)'
+  }
+  const cron = presets[s.cron_expr] || s.cron_expr
+  return `${cron} ${s.enabled ? '已启用' : '已停用'}`
+}
+
+function openSchedule(a: CloudAgent) {
+  scheduleAgent.value = a
+  scheduleModalOpen.value = true
+}
+
+function onScheduleSaved(s: AgentSchedule) {
+  scheduleByAgent.value = { ...scheduleByAgent.value, [s.agent_id]: s }
+}
+
+function onScheduleRemoved(scheduleId: string) {
+  const map = { ...scheduleByAgent.value }
+  for (const [agentId, s] of Object.entries(map)) {
+    if (s.id === scheduleId) delete map[agentId]
+  }
+  scheduleByAgent.value = map
+}
+
+async function onViewScheduleThread(threadIdToView: string) {
+  onStop()
+  scheduleModalOpen.value = false
+  threadId.value = threadIdToView
+  try {
+    const msgs = await api.agentThreads.messages(project.id, threadId.value)
+    chatMessages.value = msgs.map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content,
+      toolCalls: m.tool_calls
+    }))
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '加载会话失败')
+  }
 }
 
 async function loadModules() {

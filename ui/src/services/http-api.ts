@@ -5,6 +5,8 @@ import type {
   AgentModuleInfo,
   AgentRun,
   AgentRunRequest,
+  AgentSchedule,
+  AgentScheduleRun,
   AgentStreamHandlers,
   AgentThread,
   CloudAgent,
@@ -267,6 +269,37 @@ function toAgentMessage(raw: Record<string, any>): AgentMessage {
     mentions: Array.isArray(raw?.mentions) ? raw.mentions : [],
     tool_calls: Array.isArray(raw?.tool_calls) ? raw.tool_calls : [],
     run_id: raw?.run_id || undefined,
+    created_at: String(raw?.created_at ?? '')
+  }
+}
+
+function toAgentSchedule(raw: Record<string, any>): AgentSchedule {
+  return {
+    id: String(raw?.id ?? ''),
+    agent_id: String(raw?.agent_id ?? ''),
+    agent_name: raw?.agent_name || undefined,
+    thread_id: String(raw?.thread_id ?? ''),
+    prompt: String(raw?.prompt ?? ''),
+    cron_expr: String(raw?.cron_expr ?? ''),
+    enabled: !!raw?.enabled,
+    last_run_at: raw?.last_run_at || undefined,
+    next_run_at: raw?.next_run_at || undefined,
+    created_by: raw?.created_by || undefined,
+    created_at: String(raw?.created_at ?? ''),
+    updated_at: String(raw?.updated_at ?? '')
+  }
+}
+
+function toAgentScheduleRun(raw: Record<string, any>): AgentScheduleRun {
+  return {
+    id: String(raw?.id ?? ''),
+    schedule_id: String(raw?.schedule_id ?? ''),
+    run_id: String(raw?.run_id ?? ''),
+    trigger: String(raw?.trigger ?? ''),
+    status: String(raw?.status ?? ''),
+    error: raw?.error || undefined,
+    started_at: raw?.started_at || undefined,
+    finished_at: raw?.finished_at || undefined,
     created_at: String(raw?.created_at ?? '')
   }
 }
@@ -682,5 +715,34 @@ export const httpApi: Api = {
       http
         .post(agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/cancel'))
         .then((r) => r.data as AgentRun)
+  },
+
+  agentSchedules: {
+    list: (projectId) =>
+      http.get(agentPath(projectId, '/agent-schedules')).then((r) => {
+        const list = Array.isArray(r.data?.schedules) ? r.data.schedules : []
+        return list.map((s: Record<string, any>) => toAgentSchedule(s))
+      }),
+    create: (projectId, body) =>
+      http.post(agentPath(projectId, '/agent-schedules'), body).then((r) => toAgentSchedule(r.data)),
+    patch: (projectId, scheduleId, body) =>
+      http
+        .patch(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId)), body)
+        .then((r) => toAgentSchedule(r.data)),
+    remove: (projectId, scheduleId) =>
+      http
+        .delete(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId)))
+        .then(() => undefined),
+    runs: (projectId, scheduleId) =>
+      http
+        .get(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId) + '/runs'))
+        .then((r) => {
+          const list = Array.isArray(r.data?.runs) ? r.data.runs : []
+          return list.map((x: Record<string, any>) => toAgentScheduleRun(x))
+        }),
+    trigger: (projectId, scheduleId) =>
+      http
+        .post(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId) + '/run'))
+        .then(() => undefined)
   }
 }

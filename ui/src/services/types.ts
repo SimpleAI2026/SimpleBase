@@ -243,6 +243,43 @@ export interface AgentRun {
   error?: string
 }
 
+/* ---------- Agent Schedule（定时执行） ---------- */
+
+export interface AgentSchedule {
+  id: string
+  agent_id: string
+  agent_name?: string
+  thread_id: string
+  prompt: string
+  cron_expr: string
+  enabled: boolean
+  last_run_at?: string
+  next_run_at?: string
+  created_by?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentScheduleBody {
+  agent_id: string
+  prompt: string
+  cron_expr: string
+  enabled?: boolean
+  thread_id?: string
+}
+
+export interface AgentScheduleRun {
+  id: string
+  schedule_id: string
+  run_id: string
+  trigger: string
+  status: string
+  error?: string
+  started_at?: string
+  finished_at?: string
+  created_at: string
+}
+
 export interface AgentRunRequest {
   content: string
   mentions: AgentMention[]
@@ -354,5 +391,13 @@ export interface Api {
       handlers: AgentStreamHandlers
     ) => LlmStreamConnection
     cancel: (projectId: string, runId: string) => Promise<AgentRun>
+  }
+  agentSchedules: {
+    list: (projectId: string) => Promise<AgentSchedule[]>
+    create: (projectId: string, body: AgentScheduleBody) => Promise<AgentSchedule>
+    patch: (projectId: string, scheduleId: string, body: Partial<AgentScheduleBody>) => Promise<AgentSchedule>
+    remove: (projectId: string, scheduleId: string) => Promise<void>
+    runs: (projectId: string, scheduleId: string) => Promise<AgentScheduleRun[]>
+    trigger: (projectId: string, scheduleId: string) => Promise<void>
   }
 }

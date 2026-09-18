@@ -127,7 +127,9 @@ const state = {
     }
   ],
   agentThreads: [],
-  agentMessages: {}
+  agentMessages: {},
+  agentSchedules: [],
+  agentScheduleRuns: {}
 }
 
 /* ---------- Mock API ---------- */
@@ -569,6 +571,97 @@ export const mockApi = {
     async cancel() {
       await delay(80)
       return { id: '', thread_id: '', agent_id: '', status: 'canceled' }
+    }
+  },
+
+  agentSchedules: {
+    async list(projectId) {
+      await delay()
+      return state.agentSchedules
+        .filter((s) => s._projectId === projectId)
+        .map((s) => {
+          const agent = state.agents.find((a) => a.id === s.agent_id)
+          return { ...s, agent_name: agent ? agent.name : '' }
+        })
+    },
+    async create(projectId, body) {
+      await delay()
+      const agent = state.agents.find((a) => a.id === body.agent_id && a._projectId === projectId)
+      if (!agent) throw new Error('agent not found')
+      if (state.agentSchedules.some((s) => s.agent_id === body.agent_id && s._projectId === projectId)) {
+        const err = new Error('schedule already exists')
+        err.status = 409
+        throw err
+      }
+      const thread = { id: 'th-' + genId(), title: 'Scheduled: ' + agent.name, created_at: now(), updated_at: now(), _projectId: projectId }
+      state.agentThreads.unshift(thread)
+      state.agentMessages[thread.id] = []
+      const row = {
+        id: 'sch-' + genId(),
+        agent_id: body.agent_id,
+        agent_name: agent.name,
+        thread_id: thread.id,
+        prompt: body.prompt,
+        cron_expr: body.cron_expr,
+        enabled: body.enabled !== false,
+        next_run_at: now(),
+        created_at: now(),
+        updated_at: now(),
+        _projectId: projectId
+      }
+      state.agentSchedules.push(row)
+      return { ...row }
+    },
+    async patch(projectId, scheduleId, body) {
+      await delay()
+      const row = state.agentSchedules.find((s) => s.id === scheduleId && s._projectId === projectId)
+      if (!row) throw new Error('schedule not found')
+      if (body.prompt !== undefined) row.prompt = body.prompt
+      if (body.cron_expr !== undefined) row.cron_expr = body.cron_expr
+      if (body.enabled !== undefined) {
+        row.enabled = body.enabled
+        row.next_run_at = body.enabled ? now() : undefined
+      }
+      row.updated_at = now()
+      return { ...row }
+    },
+    async remove(projectId, scheduleId) {
+      await delay()
+      state.agentSchedules = state.agentSchedules.filter((s) => s.id !== scheduleId)
+    },
+    async runs(projectId, scheduleId) {
+      await delay()
+      return (state.agentScheduleRuns[scheduleId] || []).map((r) => ({ ...r }))
+    },
+    async trigger(projectId, scheduleId) {
+      await delay()
+      const row = state.agentSchedules.find((s) => s.id === scheduleId)
+      if (!row) throw new Error('schedule not found')
+      const runs = state.agentScheduleRuns[scheduleId] || (state.agentScheduleRuns[scheduleId] = [])
+      const run = {
+        id: 'srun-' + genId(),
+        schedule_id: scheduleId,
+        run_id: 'run-' + genId(),
+        trigger: 'manual',
+        status: 'running',
+        started_at: now(),
+        created_at: now()
+      }
+      runs.unshift(run)
+      // 异步完成：写入结果 thread 消息并把状态推进为 completed。
+      setTimeout(() => {
+        const msgs = state.agentMessages[row.thread_id] || (state.agentMessages[row.thread_id] = [])
+        msgs.push({ id: 'm-' + genId(), role: 'user', content: '[scheduled] ' + row.prompt, created_at: now() })
+        msgs.push({
+          id: 'm-' + genId(),
+          role: 'assistant',
+          content: `Mock 定时执行：已按提示词「${String(row.prompt).slice(0, 60)}」完成巡检。`,
+          tool_calls: [{ name: 'list_databases', content: '[{"name":"default"}]' }],
+          created_at: now()
+        })
+        run.status = 'completed'
+        run.finished_at = now()
+      }, 1200)
     }
   }
 }

@@ -1,6 +1,10 @@
 package ducklake
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+	"unicode"
+)
 
 // buildCreateSecretSQL 生成 httpfs S3 SECRET（在 ATTACH 之前执行）。
 // 凭据只出现在 boot SQL 中，绝不写入日志（summarizeSQL 截断）。
@@ -46,4 +50,36 @@ func buildDataURI(remote RemoteStorage, tenantID, databaseID string) (string, er
 		return "", fmt.Errorf("ducklake: data uri: %w", err)
 	}
 	return uri, nil
+}
+
+// —— SQL 字面量与标识符构造（原 sqlquote.go）——
+
+func quoteSQLString(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func sqlPath(p string) string {
+	return quoteSQLString(filepathToSlash(p))
+}
+
+func isSafeIdent(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if i == 0 {
+			if !unicode.IsLetter(r) && r != '_' {
+				return false
+			}
+			continue
+		}
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return false
+		}
+	}
+	return true
 }

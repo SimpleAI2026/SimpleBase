@@ -46,6 +46,8 @@ type Dependencies struct {
 	System *systemdb.Store
 	// CloudAgent 是 Phase 1 单 agent + 只读工具运行时。
 	CloudAgent *cloudagent.Runtime
+	// AgentScheduler 是 Cloud Agent 定时执行调度器。
+	AgentScheduler *cloudagent.Scheduler
 }
 
 // CacheService 抽象缓存管理（plan7.md）。
@@ -292,6 +294,18 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/agent-threads/:threadID/messages", ah.ListMessages, require(auth.DatabaseRead))
 		p.POST("/agent-threads/:threadID/runs", ah.CreateRun, require(auth.DatabaseRead))
 		p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseRead))
+
+		// Cloud Agent 定时执行路由。
+		sch := &agentScheduleHandler{store: deps.System, scheduler: deps.AgentScheduler, usage: deps.Usage}
+		p.GET("/agent-schedules", sch.ListSchedules, require(auth.DatabaseRead))
+		p.POST("/agent-schedules", sch.CreateSchedule, require(auth.DatabaseWrite))
+		p.GET("/agent-schedules/:scheduleID", sch.GetSchedule, require(auth.DatabaseRead))
+		p.PATCH("/agent-schedules/:scheduleID", sch.PatchSchedule, require(auth.DatabaseWrite))
+		p.DELETE("/agent-schedules/:scheduleID", sch.DeleteSchedule, require(auth.DatabaseWrite))
+		p.GET("/agent-schedules/:scheduleID/runs", sch.ListScheduleRuns, require(auth.DatabaseRead))
+		if deps.AgentScheduler != nil {
+			p.POST("/agent-schedules/:scheduleID/run", sch.TriggerScheduleRun, require(auth.DatabaseRead))
+		}
 	}
 }
 

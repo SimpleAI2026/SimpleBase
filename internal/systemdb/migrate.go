@@ -361,6 +361,43 @@ var systemMigrations = []migration{
 			created_at TIMESTAMP NOT NULL
 		)`,
 	},
+	{
+		version: 26,
+		name:    "sys_agent_schedules",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_agent_schedules (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			agent_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			prompt VARCHAR NOT NULL,
+			cron_expr VARCHAR NOT NULL,
+			enabled BIGINT NOT NULL,
+			last_run_at TIMESTAMP,
+			next_run_at TIMESTAMP,
+			created_by VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`,
+	},
+	{
+		version: 27,
+		name:    "sys_agent_schedule_runs",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_agent_schedule_runs (
+			id VARCHAR NOT NULL,
+			schedule_id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			agent_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			run_id VARCHAR NOT NULL,
+			trigger VARCHAR NOT NULL,
+			status VARCHAR NOT NULL,
+			error VARCHAR NOT NULL,
+			started_at TIMESTAMP,
+			finished_at TIMESTAMP,
+			created_at TIMESTAMP NOT NULL
+		)`,
+	},
 }
 
 // ApplySystemMigrations 按版本顺序应用全部系统表。可重复执行。

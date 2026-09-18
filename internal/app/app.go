@@ -59,6 +59,10 @@ type App struct {
 	auditSvc      *audit.Service
 	llmSvc        llmgateway.Service
 
+	agentScheduler    *cloudagent.Scheduler
+	schedulerCancel   context.CancelFunc
+	schedulerBaseCtx  context.Context
+
 	health *healthService
 
 	closerMu sync.Mutex
@@ -169,6 +173,16 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		dataHandler = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable)
 	}
 
+	// Cloud Agent 定时执行调度器：仅在运行时与系统库齐备时创建。
+	var agentScheduler *cloudagent.Scheduler
+	runtime := a.cloudAgentRuntime()
+	if runtime != nil && a.systemStore != nil {
+		agentScheduler = cloudagent.NewScheduler(a.systemStore, runtime, a.usageSvc)
+		a.agentScheduler = agentScheduler
+		a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
+		agentScheduler.Start(a.schedulerBaseCtx)
+	}
+
 	deps := api.Dependencies{
 		Config:          cfg,
 		Logger:          logger,
@@ -186,7 +200,8 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		LLM:             api.NewLLMService(a.llmSvc),
 		S3FileStore:     a.fileStore,
 		System:          a.systemStore,
-		CloudAgent:      a.cloudAgentRuntime(),
+		CloudAgent:      runtime,
+		AgentScheduler:  agentScheduler,
 	}
 	a.echo = api.NewRouter(deps)
 
@@ -370,7 +385,7 @@ func (a *App) Start() error {
 	return nil
 }
 
-// Shutdown 优雅关闭：HTTP server → registry → catalog → LLM。
+// Shutdown 优雅关闭：HTTP server → 调度器 → registry → catalog → LLM。
 // 超时由 ctx 控制。
 func (a *App) Shutdown(ctx context.Context) error {
 	a.logger.Info("shutdown started")
@@ -380,6 +395,23 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.logger.Error("http shutdown error", zap.String("err", err.Error()))
 		if firstErr == nil {
 			firstErr = err
+		}
+	}
+
+	// 停止 Cloud Agent 调度器并等待 in-flight 执行收敛（受 ctx 超时约束）。
+	if a.schedulerCancel != nil {
+		a.schedulerCancel()
+	}
+	if a.agentScheduler != nil {
+		done := make(chan struct{})
+		go func() {
+			a.agentScheduler.Stop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			a.logger.Warn("agent scheduler stop timed out")
 		}
 	}
 

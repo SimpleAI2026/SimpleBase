@@ -57,6 +57,10 @@ func Error(err error, requestID string) *APIError {
 		}
 		return ae
 	}
+	// echo.HTTPError（handler 经 WriteError 透传的 4xx/5xx）
+	if apiErr := mapEchoError(err, requestID); apiErr != nil {
+		return apiErr
+	}
 	// context 语义
 	if errors.Is(err, context.Canceled) {
 		return NewAPIError(http.StatusServiceUnavailable, "request_canceled", "request canceled", requestID)
