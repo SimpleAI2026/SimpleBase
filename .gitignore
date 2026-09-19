@@ -15,5 +15,6 @@ config.yaml
 thirdparty
 
 # 前端构建产物：由 build.sh 生成（ui/dist → internal/web/dist → go:embed）
-internal/web/dist/
+internal/web/dist/*
+!internal/web/dist/.keep
 ui/dist/
