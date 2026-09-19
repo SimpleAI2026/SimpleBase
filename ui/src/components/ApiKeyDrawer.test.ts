@@ -7,10 +7,14 @@ import { useProjectStore } from '../stores/project'
 import { uiStubs } from '../test/helpers'
 import ApiKeyDrawer from './ApiKeyDrawer.vue'
 
-vi.mock('../services/http', () => ({
-  getApiKey: () => 'sb_from_http',
-  baseURL: ''
-}))
+vi.mock('../services/http', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/http')>()
+  return {
+    ...actual,
+    getApiKey: () => actual.getApiKey(),
+    setApiKey: actual.setApiKey
+  }
+})
 
 describe('ApiKeyDrawer', () => {
   it('covers save/reset/label and drawer open wiring', async () => {

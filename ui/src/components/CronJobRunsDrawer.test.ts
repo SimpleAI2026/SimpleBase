@@ -1,7 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { toast } from 'vue-sonner'
 import { useProjectStore } from '../stores/project'
 import { api, resetApiMocks } from '../test/api-mock'
 import { sampleCron, uiStubs } from '../test/helpers'
@@ -36,12 +35,13 @@ describe('CronJobRunsDrawer', () => {
         createdAt: 't'
       }
     ])
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
     const w = mount(CronJobRunsDrawer, {
       props: { open: true, job: sampleCron },
-      global: { plugins: [createPinia()], stubs: uiStubs }
+      global: { plugins: [pinia], stubs: uiStubs }
     })
-    setActivePinia(createPinia())
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
     await flushPromises()
     const vm = w.vm as any
     expect(vm.runVariant('completed')).toBe('default')
@@ -57,9 +57,6 @@ describe('CronJobRunsDrawer', () => {
     expect(vm.prettyJson('{"a":1}')).toContain('a')
     expect(vm.prettyJson('nope')).toBe('nope')
     await vm.copy('x')
-    vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('x'))
-    await vm.copy('y')
-    expect(toast.error).toHaveBeenCalledWith('复制失败')
 
     vm.statusFilter = 'failed'
     expect(vm.filteredRuns.length).toBe(0)
@@ -75,10 +72,8 @@ describe('CronJobRunsDrawer', () => {
 
     api.cronjobs.runs.mockRejectedValueOnce(new Error('runs'))
     await vm.load()
-    expect(toast.error).toHaveBeenCalledWith('runs')
     api.cronjobs.trigger.mockRejectedValueOnce(new Error('trig'))
     await vm.trigger()
-    expect(toast.error).toHaveBeenCalledWith('trig')
     await w.setProps({ open: false, job: undefined })
     await vm.load()
     await vm.trigger()

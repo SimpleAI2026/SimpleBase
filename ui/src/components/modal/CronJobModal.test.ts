@@ -66,9 +66,17 @@ describe('CronJobModal', () => {
     w.unmount()
 
     for (const seconds of [86400, 3600, 90]) {
-      const e = mountModal({
-        target: { ...sampleCron, scheduleKind: 'interval', intervalSeconds: seconds, funcFile: 'hello', funcExport: 'Hello' }
+      const pinia = createPinia()
+      setActivePinia(pinia)
+      useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+      const e = mount(CronJobModal, {
+        props: {
+          open: false,
+          target: { ...sampleCron, scheduleKind: 'interval', intervalSeconds: seconds, funcFile: 'hello', funcExport: 'Hello' }
+        },
+        global: { plugins: [pinia], stubs: uiStubs }
       })
+      await e.setProps({ open: true })
       await flushPromises()
       expect((e.vm as any).form.scheduleKind).toBe('interval')
       e.unmount()
