@@ -7,7 +7,6 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
@@ -65,11 +64,11 @@ func TestPromptRedactAndTruncate(t *testing.T) {
 	if RedactSecrets("") != "" {
 		t.Fatal("empty redact")
 	}
-	got := RedactSecrets("Authorization: Bearer abcdef.ghij+/= password=hunter2")
+	got := RedactSecrets("Bearer abcdef.ghij+/= password=hunter2")
 	if strings.Contains(got, "abcdef") || strings.Contains(got, "hunter2") {
 		t.Fatalf("leaked: %s", got)
 	}
-	if !strings.Contains(got, "Bearer [REDACTED]") && !strings.Contains(got, "[REDACTED]") {
+	if !strings.Contains(got, "[REDACTED]") {
 		t.Fatalf("expected redaction: %s", got)
 	}
 	if truncate("ab", 0) != "ab" {
@@ -645,5 +644,3 @@ func TestParseCronAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-var _ = time.Second

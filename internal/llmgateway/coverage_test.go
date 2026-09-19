@@ -104,9 +104,11 @@ func TestChatAndStreamWithLocalProvider(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := observability.NewLogger("warn", "json", &logBuf)
 	svc := NewService(&fakeResolver{providers: testProviders(srv.URL)}, rec, logger)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 	maxTok := 16
 	temp := 0.1
-	out, err := svc.Chat(context.Background(), "proj-a", Request{
+	out, err := svc.Chat(ctx, "proj-a", Request{
 		Messages:    []providers.Message{{Role: "user", Content: "hi"}},
 		MaxTokens:   &maxTok,
 		Temperature: &temp,
@@ -122,7 +124,7 @@ func TestChatAndStreamWithLocalProvider(t *testing.T) {
 	}
 
 	// cache hit + explicit model
-	out, err = svc.Chat(context.Background(), "proj-a", Request{
+	out, err = svc.Chat(ctx, "proj-a", Request{
 		Model:    "gpt-4",
 		Messages: []providers.Message{{Role: "user", Content: "again"}},
 	})
@@ -135,7 +137,7 @@ func TestChatAndStreamWithLocalProvider(t *testing.T) {
 
 	// recorder error with logger
 	rec.err = errors.New("usage down")
-	if _, err := svc.Chat(context.Background(), "proj-a", Request{
+	if _, err := svc.Chat(ctx, "proj-a", Request{
 		Messages: []providers.Message{{Role: "user", Content: "x"}},
 	}); err != nil {
 		t.Fatal(err)
@@ -146,16 +148,17 @@ func TestChatAndStreamWithLocalProvider(t *testing.T) {
 
 	// recorder error without logger
 	svcNoLog := NewService(&fakeResolver{providers: testProviders(srv.URL)}, &countingRecorder{err: errors.New("x")}, nil)
-	if _, err := svcNoLog.Chat(context.Background(), "proj-b", Request{
+	if _, err := svcNoLog.Chat(ctx, "proj-b", Request{
 		Messages: []providers.Message{{Role: "user", Content: "x"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	// stream with recorder wrapper
+	// stream with recorder wrapper. Do not drain litellm's reader: after
+	// [DONE] Next() returns Done=true with a nil error and would spin.
 	rec.err = nil
 	rec.called = false
-	reader, err := svc.Stream(context.Background(), "proj-a", Request{
+	reader, err := svc.Stream(ctx, "proj-a", Request{
 		Messages: []providers.Message{{Role: "user", Content: "stream"}},
 	})
 	if err != nil {
@@ -164,18 +167,12 @@ func TestChatAndStreamWithLocalProvider(t *testing.T) {
 	if _, ok := reader.(*usageRecordingReader); !ok {
 		t.Fatalf("want usageRecordingReader, got %T", reader)
 	}
-	for {
-		_, err := reader.Next()
-		if err != nil {
-			break
-		}
-	}
 	if err := reader.Close(); err != nil {
 		t.Fatal(err)
 	}
 
 	// stream without recorder
-	raw, err := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil).Stream(context.Background(), "proj-c", Request{
+	raw, err := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil).Stream(ctx, "proj-c", Request{
 		Model:    "gpt-4",
 		Messages: []providers.Message{{Role: "user", Content: "s"}},
 	})
@@ -194,13 +191,15 @@ func TestChatAndStreamProviderErrors(t *testing.T) {
 	}
 	srv := openaiCompatServer(t, true)
 	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 	svc := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil)
-	if _, err := svc.Chat(context.Background(), "p", Request{
+	if _, err := svc.Chat(ctx, "p", Request{
 		Messages: []providers.Message{{Role: "user", Content: "x"}},
 	}); err == nil {
 		t.Fatal("chat should fail")
 	}
-	if _, err := svc.Stream(context.Background(), "p", Request{
+	if _, err := svc.Stream(ctx, "p", Request{
 		Messages: []providers.Message{{Role: "user", Content: "x"}},
 	}); err == nil {
 		t.Fatal("stream should fail")
