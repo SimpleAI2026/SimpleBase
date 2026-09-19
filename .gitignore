@@ -18,3 +18,5 @@ thirdparty
 internal/web/dist/*
 !internal/web/dist/.keep
 ui/dist/
+ui/coverage/
+cov.out

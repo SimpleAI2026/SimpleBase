@@ -63,10 +63,10 @@ type App struct {
 	auditSvc      *audit.Service
 	llmSvc        llmgateway.Service
 
-	agentScheduler    *cloudagent.Scheduler
-	cronScheduler     *cronjob.Scheduler
-	schedulerCancel   context.CancelFunc
-	schedulerBaseCtx  context.Context
+	agentScheduler   *cloudagent.Scheduler
+	cronScheduler    *cronjob.Scheduler
+	schedulerCancel  context.CancelFunc
+	schedulerBaseCtx context.Context
 
 	health *healthService
 
@@ -148,11 +148,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	if a.duckFactory != nil {
 		f := a.duckFactory
 		dbHandler.SnapshotFor = func(databaseID string) *api.DatabaseSnapshot {
-			last, lag := f.SnapshotStatus(databaseID)
-			if last == 0 && lag == 0 {
-				return nil
-			}
-			return &api.DatabaseSnapshot{LastSyncedSnapshot: last, SyncLag: lag}
+			return snapshotFromFactory(f, databaseID)
 		}
 	}
 
@@ -543,6 +539,16 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		Logs:     cloudagent.NewLogAccess(a.systemStore),
 		Settings: cloudagent.NewSettingsAccess(a.systemStore),
 	}
+}
+
+// snapshotFromFactory maps DuckLake sync watermarks to the API snapshot DTO.
+// Extracted so tests can cover both empty and non-empty watermarks without HTTP.
+func snapshotFromFactory(f *ducklake.Factory, databaseID string) *api.DatabaseSnapshot {
+	last, lag := f.SnapshotStatus(databaseID)
+	if last == 0 && lag == 0 {
+		return nil
+	}
+	return &api.DatabaseSnapshot{LastSyncedSnapshot: last, SyncLag: lag}
 }
 
 func duckLakeOptions(cfg config.DuckLakeConfig) ducklake.Options {
