@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
@@ -17,6 +18,24 @@ export default defineConfig({
     alias: {
       '@docs': docsDir,
       '@': srcDir
+    }
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.ts'],
+    css: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'text-summary', 'json-summary'],
+      reportsDirectory: './coverage',
+      include: ['src/**/*.{ts,js,vue}'],
+      exclude: [
+        'src/components/ui/**',
+        'src/**/*.d.ts',
+        'src/test/**',
+        'src/main.ts'
+      ]
     }
   },
   server: {
