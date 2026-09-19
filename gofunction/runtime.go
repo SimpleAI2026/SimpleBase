@@ -1,14 +1,12 @@
 package gofunction
 
 import (
-	"fmt"
 	"sync"
 )
 
 // Runtime Go代码运行时环境
 type Runtime struct {
 	Program *Program
-	Async   RuntimeAsync
 
 	// 用户私有数据
 	userData      map[string]interface{}
@@ -16,18 +14,6 @@ type Runtime struct {
 
 	// 系统成员
 	SequenceID string
-}
-
-// RuntimeAsync 异步运行时
-type RuntimeAsync struct {
-	waitGroup sync.WaitGroup
-	isAsync   bool
-}
-
-// RuntimeTaskInfo 运行时任务信息
-type RuntimeTaskInfo struct {
-	Result interface{}
-	Error  error
 }
 
 // NewRuntime 创建新的运行时实例
@@ -68,12 +54,6 @@ func (r *Runtime) SetUserData(key string, value interface{}) {
 		r.userData = make(map[string]interface{})
 	}
 	r.userData[key] = value
-}
-
-// ConsoleLog 控制台日志输出（写入当前 Program 的执行输出缓冲区）
-func (r *Runtime) ConsoleLog(level int, tag string, data interface{}) {
-	_ = level
-	logger.Info(fmt.Sprintf("%v %v", tag, data))
 }
 
 // Reset 重置运行时状态

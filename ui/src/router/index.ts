@@ -36,10 +36,22 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'S3 对象存储' }
       },
       {
+        path: 'gofunctions',
+        name: 'gofunctions',
+        component: () => import('../pages/GoFunctions.vue'),
+        meta: { title: '云函数' }
+      },
+      {
+        path: 'cron-jobs',
+        name: 'cron-jobs',
+        component: () => import('../pages/CronJobs.vue'),
+        meta: { title: '定时任务' }
+      },
+      {
         path: 'agents',
         name: 'agents',
         component: () => import('../pages/AgentManager.vue'),
-        meta: { title: 'Cloud Agent' }
+        meta: { title: '云 Agent' }
       },
       { path: 'llm', redirect: '/agents' },
       {

@@ -1,5 +1,5 @@
 <template>
-  <div class="flex min-h-[calc(100vh-var(--header-height))] flex-col bg-card">
+  <div class="flex min-h-[calc(100vh-var(--header-height))] flex-col bg-background">
     <div v-if="!docCatalog.length" class="px-4 py-12">
       <Alert>
         <AlertTitle>未能加载文档</AlertTitle>
@@ -11,9 +11,11 @@
     </div>
 
     <template v-else>
-      <DocsModuleTabs v-model="moduleId" :modules="docCatalog" />
+      <div class="sticky top-[var(--header-height)] z-10 border-b bg-background/85 backdrop-blur-xl">
+        <DocsModuleTabs v-model="moduleId" :modules="docCatalog" />
+      </div>
 
-      <div class="flex min-h-0 flex-1 items-start max-md:flex-col max-md:px-3 max-md:pb-6">
+      <div class="mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 items-start gap-6 px-4 py-6 max-md:flex-col max-md:px-3 max-md:pb-6 md:px-6">
         <DocsSidebar
           v-if="!isMobile && currentModule"
           :module-id="currentModule.id"

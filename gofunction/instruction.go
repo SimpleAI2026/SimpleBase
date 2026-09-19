@@ -22,39 +22,32 @@ func containerValue(v value.Value) reflect.Value {
 	return rv
 }
 
-func runAlloc(fr *frame, instr *ssa.Alloc) nextInstr {
-	var addr *value.Value
-	if instr.Heap {
-		// 堆分配
-		addr = new(value.Value)
-		fr.env[instr] = addr
-	} else {
-		// 栈分配
-		addr = fr.env[instr]
-	}
-	*addr = zero(deref(instr.Type()))
-	return _NEXT
+func runAlloc(fr *frame, instr *ssa.Alloc) step {
+	// 槽内存放 *T 地址值（reflect.New 产物）：栈/堆统一，
+	// 共享与修改经 Elem() 完成（P3-1：指针语义下沉 reflect 层）
+	fr.env[fr.layout.slotOfMust(instr)] = zero(deref(instr.Type()))
+	return stepNext
 }
 
-func runUnOp(fr *frame, instr *ssa.UnOp) nextInstr {
+func runUnOp(fr *frame, instr *ssa.UnOp) step {
 	v := unop(instr, fr.get(instr.X))
 	fr.set(instr, v)
-	return _NEXT
+	return stepNext
 }
 
-func runBinOp(fr *frame, instr *ssa.BinOp) nextInstr {
+func runBinOp(fr *frame, instr *ssa.BinOp) step {
 	v := binop(instr, fr.get(instr.X), fr.get(instr.Y))
 	fr.set(instr, v)
-	return _NEXT
+	return stepNext
 }
 
-func runMakeInterface(fr *frame, instr *ssa.MakeInterface) nextInstr {
+func runMakeInterface(fr *frame, instr *ssa.MakeInterface) step {
 	v := fr.get(instr.X)
 	fr.set(instr, v)
-	return _NEXT
+	return stepNext
 }
 
-func runReturn(fr *frame, instr *ssa.Return) nextInstr {
+func runReturn(fr *frame, instr *ssa.Return) step {
 	switch len(instr.Results) {
 	case 0:
 	case 1:
@@ -68,45 +61,54 @@ func runReturn(fr *frame, instr *ssa.Return) nextInstr {
 		fr.result = value.ValueOf(res)
 	}
 	fr.block = nil
-	return _Return
+	return stepReturn
 }
 
-func runIndexAddr(fr *frame, instr *ssa.IndexAddr) nextInstr {
+func runIndexAddr(fr *frame, instr *ssa.IndexAddr) step {
 	x := containerValue(fr.get(instr.X))
 	idx := int(fr.get(instr.Index).Int())
 	fr.set(instr, value.RValue{Value: x.Index(idx).Addr()})
-	return _NEXT
+	return stepNext
 }
 
-func runIndex(fr *frame, instr *ssa.Index) nextInstr {
+func runIndex(fr *frame, instr *ssa.Index) step {
 	x := containerValue(fr.get(instr.X))
 	idx := int(fr.get(instr.Index).Int())
 	fr.set(instr, value.RValue{Value: x.Index(idx)})
-	return _NEXT
+	return stepNext
 }
 
-func runField(fr *frame, instr *ssa.Field) nextInstr {
+func runField(fr *frame, instr *ssa.Field) step {
 	x := fr.get(instr.X)
 	fr.set(instr, x.Field(instr.Field))
-	return _NEXT
+	return stepNext
 }
 
-func runFieldAddr(fr *frame, instr *ssa.FieldAddr) nextInstr {
+func runFieldAddr(fr *frame, instr *ssa.FieldAddr) step {
 	x := fr.get(instr.X).Elem()
 	v := x.RValue().Field(instr.Field).Addr()
 	fr.set(instr, value.RValue{Value: v})
-	return _NEXT
+	return stepNext
 }
 
-func runStore(fr *frame, instr *ssa.Store) nextInstr {
+func runStore(fr *frame, instr *ssa.Store) step {
 	val := fr.get(instr.Val)
 	switch addr := instr.Addr.(type) {
 	case *ssa.Alloc, *ssa.FreeVar:
-		p, ok := fr.env[addr]
-		if !ok || p == nil {
+		// 槽内存放 *T 地址值；直接走 reflect 写入，
+		// 避免 p.Elem() 的接口包装分配（剖析 ~8% alloc）
+		p := fr.get(addr)
+		if p == nil || !p.IsValid() {
 			panic(fmt.Sprintf("store: no address for %T: %v", addr, addr.Name()))
 		}
-		(*p).Elem().Set(val)
+		ptr := p.RValue()
+		elem := ptr.Elem()
+		src := val.RValue()
+		if src.Type().AssignableTo(elem.Type()) {
+			elem.Set(src)
+		} else {
+			elem.Set(src.Convert(elem.Type()))
+		}
 	case *ssa.Global:
 		cell, ok := fr.program.globals[addr]
 		if !ok || cell == nil {
@@ -139,10 +141,10 @@ func runStore(fr *frame, instr *ssa.Store) nextInstr {
 		}
 		rv.Elem().Set(val.RValue())
 	}
-	return _NEXT
+	return stepNext
 }
 
-func runSlice(fr *frame, instr *ssa.Slice) nextInstr {
+func runSlice(fr *frame, instr *ssa.Slice) step {
 	x := containerValue(fr.get(instr.X))
 	l, h := 0, x.Len()
 	low := fr.get(instr.Low)
@@ -159,40 +161,40 @@ func runSlice(fr *frame, instr *ssa.Slice) nextInstr {
 	} else {
 		fr.set(instr, value.RValue{Value: x.Slice(l, h)})
 	}
-	return _NEXT
+	return stepNext
 }
 
-func runCall(fr *frame, instr *ssa.Call) nextInstr {
+func runCall(fr *frame, instr *ssa.Call) step {
 	v := callOp(fr, instr.Common())
-	fr.env[instr] = &v
-	return _NEXT
+	fr.set(instr, v)
+	return stepNext
 }
 
-func runMakeSlice(fr *frame, instr *ssa.MakeSlice) nextInstr {
+func runMakeSlice(fr *frame, instr *ssa.MakeSlice) step {
 	sliceLen := int(fr.get(instr.Len).Int())
 	sliceCap := int(fr.get(instr.Cap).Int())
 	fr.set(instr, value.RValue{Value: reflect.MakeSlice(typeChange(instr.Type()), sliceLen, sliceCap)})
-	return _NEXT
+	return stepNext
 }
 
-func runMakeMap(fr *frame, instr *ssa.MakeMap) nextInstr {
+func runMakeMap(fr *frame, instr *ssa.MakeMap) step {
 	size := 0
 	if instr.Reserve != nil {
 		size = int(fr.get(instr.Reserve).Int())
 	}
 	fr.set(instr, value.RValue{Value: reflect.MakeMapWithSize(typeChange(instr.Type()), size)})
-	return _NEXT
+	return stepNext
 }
 
-func runMapUpdate(fr *frame, instr *ssa.MapUpdate) nextInstr {
+func runMapUpdate(fr *frame, instr *ssa.MapUpdate) step {
 	m := containerValue(fr.get(instr.Map))
 	key := fr.get(instr.Key)
 	v := fr.get(instr.Value)
 	m.SetMapIndex(key.RValue(), v.RValue())
-	return _NEXT
+	return stepNext
 }
 
-func runLookup(fr *frame, instr *ssa.Lookup) nextInstr {
+func runLookup(fr *frame, instr *ssa.Lookup) step {
 	x := containerValue(fr.get(instr.X))
 	index := fr.get(instr.Index)
 	if x.Kind() == reflect.Map {
@@ -206,106 +208,114 @@ func runLookup(fr *frame, instr *ssa.Lookup) nextInstr {
 			v = value.ValueOf([]value.Value{v, value.ValueOf(ok)})
 		}
 		fr.set(instr, v)
-		return _NEXT
+		return stepNext
 	}
 	fr.set(instr, value.RValue{Value: x.Index(int(index.Int()))})
-	return _NEXT
+	return stepNext
 }
 
-func runExtract(fr *frame, instr *ssa.Extract) nextInstr {
+func runExtract(fr *frame, instr *ssa.Extract) step {
 	tuple := fr.get(instr.Tuple)
 	item := tuple.Index(instr.Index)
 	if v, ok := item.Interface().(value.Value); ok {
 		fr.set(instr, v)
-		return _NEXT
+		return stepNext
 	}
 	fr.set(instr, item)
-	return _NEXT
+	return stepNext
 }
 
-func runIf(fr *frame, instr *ssa.If) nextInstr {
+func runIf(fr *frame, instr *ssa.If) step {
 	succ := 1
 	if fr.get(instr.Cond).Bool() {
 		succ = 0
 	}
 	fr.prevBlock, fr.block = fr.block, fr.block.Succs[succ]
-	return _JUMP
+	return stepJump
 }
 
-func runJump(fr *frame, instr *ssa.Jump) nextInstr {
+func runJump(fr *frame, instr *ssa.Jump) step {
 	fr.prevBlock, fr.block = fr.block, fr.block.Succs[0]
-	return _JUMP
+	return stepJump
 }
 
-func runPhi(fr *frame, instr *ssa.Phi) nextInstr {
+func runPhi(fr *frame, instr *ssa.Phi) step {
 	for i, pred := range instr.Block().Preds {
 		if fr.prevBlock == pred {
 			fr.set(instr, fr.get(instr.Edges[i]))
 			break
 		}
 	}
-	return _NEXT
+	return stepNext
 }
 
-func runConvert(fr *frame, instr *ssa.Convert) nextInstr {
+func runConvert(fr *frame, instr *ssa.Convert) step {
 	fr.set(instr, conv(fr.get(instr.X).Interface(), instr.Type()))
-	return _NEXT
+	return stepNext
 }
 
-func runRange(fr *frame, instr *ssa.Range) nextInstr {
+func runRange(fr *frame, instr *ssa.Range) step {
 	v := fr.get(instr.X)
 	rv := containerValue(v)
-	fr.set(instr, &value.MapIter{
-		I:     0,
-		Value: value.NewRValueOf(rv),
-		Keys:  rv.MapKeys(),
-	})
-	return _NEXT
+	switch rv.Kind() {
+	case reflect.Map:
+		fr.set(instr, &value.MapIter{
+			Value: value.NewRValueOf(rv),
+			Keys:  rv.MapKeys(),
+		})
+	case reflect.String:
+		// string 按 rune 解码迭代（Go range 语义）
+		fr.set(instr, value.NewStringIter(rv.String()))
+	default:
+		// slice/array 走通用序列迭代器
+		fr.set(instr, value.NewSliceIter(v))
+	}
+	return stepNext
 }
 
-func runNext(fr *frame, instr *ssa.Next) nextInstr {
+func runNext(fr *frame, instr *ssa.Next) step {
 	fr.set(instr, fr.get(instr.Iter).(*value.MapIter).Next())
-	return _NEXT
+	return stepNext
 }
 
-func runChangeType(fr *frame, instr *ssa.ChangeType) nextInstr {
+func runChangeType(fr *frame, instr *ssa.ChangeType) step {
 	fr.set(instr, fr.get(instr.X))
-	return _NEXT
+	return stepNext
 }
 
-func runChangeInterface(fr *frame, instr *ssa.ChangeInterface) nextInstr {
+func runChangeInterface(fr *frame, instr *ssa.ChangeInterface) step {
 	fr.set(instr, fr.get(instr.X))
-	return _NEXT
+	return stepNext
 }
 
-func runMakeClosure(fr *frame, instr *ssa.MakeClosure) nextInstr {
+func runMakeClosure(fr *frame, instr *ssa.MakeClosure) step {
 	closure := fr.makeFunc(instr.Fn.(*ssa.Function), instr.Bindings)
 	fr.set(instr, closure)
-	return _NEXT
+	return stepNext
 }
 
-func runDefer(fr *frame, instr *ssa.Defer) nextInstr {
+func runDefer(fr *frame, instr *ssa.Defer) step {
 	fr.defers = append(fr.defers, instr)
-	return _NEXT
+	return stepNext
 }
 
-func runRunDefers(fr *frame, instr *ssa.RunDefers) nextInstr {
+func runRunDefers(fr *frame, instr *ssa.RunDefers) step {
 	fr.runDefers()
-	return _NEXT
+	return stepNext
 }
 
-func runMakeChan(fr *frame, instr *ssa.MakeChan) nextInstr {
+func runMakeChan(fr *frame, instr *ssa.MakeChan) step {
 	fr.set(instr, value.RValue{Value: reflect.MakeChan(typeChange(instr.Type()), int(fr.get(instr.Size).Int()))})
-	return _NEXT
+	return stepNext
 }
 
-func runSend(fr *frame, instr *ssa.Send) nextInstr {
+func runSend(fr *frame, instr *ssa.Send) step {
 	ch := containerValue(fr.get(instr.Chan))
 	ch.Send(fr.get(instr.X).RValue())
-	return _NEXT
+	return stepNext
 }
 
-func runTypeAssert(fr *frame, instr *ssa.TypeAssert) nextInstr {
+func runTypeAssert(fr *frame, instr *ssa.TypeAssert) step {
 	v := fr.get(instr.X)
 	for v.IsValid() && v.Kind() == reflect.Interface {
 		v = v.Elem()
@@ -336,19 +346,19 @@ func runTypeAssert(fr *frame, instr *ssa.TypeAssert) nextInstr {
 			panic(fmt.Errorf("interface conversion: interface is %s, not %s", v.Type().String(), destType.String()))
 		}
 	}
-	return _NEXT
+	return stepNext
 }
 
-func runGo(fr *frame, instr *ssa.Go) nextInstr {
+func runGo(fr *frame, instr *ssa.Go) step {
 	goCall(fr, instr.Common())
-	return _NEXT
+	return stepNext
 }
 
-func runPanic(fr *frame, instr *ssa.Panic) nextInstr {
+func runPanic(fr *frame, instr *ssa.Panic) step {
 	panic(fr.get(instr.X).Interface())
 }
 
-func runSelect(fr *frame, instr *ssa.Select) nextInstr {
+func runSelect(fr *frame, instr *ssa.Select) step {
 	var cases []reflect.SelectCase
 	if !instr.Blocking {
 		cases = append(cases, reflect.SelectCase{
@@ -389,5 +399,5 @@ func runSelect(fr *frame, instr *ssa.Select) nextInstr {
 		}
 	}
 	fr.set(instr, value.ValueOf(r))
-	return _NEXT
+	return stepNext
 }

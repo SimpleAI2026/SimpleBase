@@ -20,10 +20,12 @@ import { useRoute } from 'vue-router'
 import {
   BotIcon,
   CloudUploadIcon,
+  CodeIcon,
   DatabaseIcon,
   FileTextIcon,
   LayoutDashboardIcon,
   SettingsIcon,
+  TimerIcon,
 } from '@lucide/vue'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
 import router from '../router'
@@ -32,6 +34,8 @@ const iconMap: Record<string, Component> = {
   dashboard: LayoutDashboardIcon,
   databases: DatabaseIcon,
   s3: CloudUploadIcon,
+  gofunctions: CodeIcon,
+  'cron-jobs': TimerIcon,
   agents: BotIcon,
   settings: SettingsIcon,
   logs: FileTextIcon,
@@ -55,7 +59,7 @@ const menuItems = computed<MenuItem[]>(() =>
     }))
 )
 
-const routeOrder = ['dashboard', 'databases', 's3', 'agents', 'logs', 'settings']
+const routeOrder = ['dashboard', 'databases', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs', 'settings']
 function orderOf(name: string) {
   const i = routeOrder.indexOf(name)
   return i === -1 ? 99 : i

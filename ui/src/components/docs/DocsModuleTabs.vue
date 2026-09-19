@@ -1,10 +1,12 @@
 <template>
   <Tabs :model-value="modelValue" class="gap-0" @update:model-value="$emit('update:modelValue', String($event))">
-    <TabsList variant="line" class="w-full justify-start rounded-none bg-card px-5 pt-3">
-      <TabsTrigger v-for="m in modules" :key="m.id" :value="m.id">
-        {{ m.title }}
-      </TabsTrigger>
-    </TabsList>
+    <div class="mx-auto w-full max-w-[1200px] px-4 md:px-6">
+      <TabsList variant="line" class="h-11 w-full justify-start gap-2 rounded-none bg-transparent">
+        <TabsTrigger v-for="m in modules" :key="m.id" :value="m.id" class="px-2.5 text-[13.5px]">
+          {{ m.title }}
+        </TabsTrigger>
+      </TabsList>
+    </div>
   </Tabs>
 </template>
 

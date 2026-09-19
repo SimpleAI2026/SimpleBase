@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/types"
 	"reflect"
+	"sync"
 
 	"github.com/linkxzhou/SimpleBase/gofunction/importer"
 	"github.com/linkxzhou/SimpleBase/gofunction/value"
@@ -39,6 +40,30 @@ var builtinTypes = map[types.BasicKind]reflect.Type{
 
 // interfaceType 空 interface 的 reflect 类型
 var interfaceType = reflect.TypeOf((*interface{})(nil)).Elem()
+
+// typeCache types.Type -> reflect.Type 缓存。
+// types.Type 接口的动态值在 SSA 构建后稳定不变，可直接做 map 键；
+// 避免每次指令执行都递归重建 reflect 类型（含 StructOf 等高开销路径）。
+// 读多写少且构建后只读，用 RWMutex 保护并发 Run 同一 Program 的场景。
+var (
+	typeCacheMu sync.RWMutex
+	typeCache   = make(map[types.Type]reflect.Type)
+)
+
+// typeChangeCached 带缓存的 typeChange
+func typeChangeCached(typ types.Type) reflect.Type {
+	typeCacheMu.RLock()
+	rType, ok := typeCache[typ]
+	typeCacheMu.RUnlock()
+	if ok {
+		return rType
+	}
+	rType = typeChange(typ)
+	typeCacheMu.Lock()
+	typeCache[typ] = rType
+	typeCacheMu.Unlock()
+	return rType
+}
 
 // typeChange 将types.Type转换为对应的reflect.Type类型
 func typeChange(typ types.Type) reflect.Type {
@@ -106,12 +131,16 @@ func typeChange(typ types.Type) reflect.Type {
 	return rType
 }
 
-// conv 将变量v的类型转换为typ
+// conv 将变量v的类型转换为typ（走缓存查询 reflect 类型）
 func conv(v interface{}, typ types.Type) value.Value {
-	rtype := typeChange(typ)
+	rtype := typeChangeCached(typ)
 	if v == nil {
 		return value.RValue{Value: reflect.Zero(rtype)}
 	}
-	reflectValue := reflect.ValueOf(v).Convert(rtype)
-	return value.RValue{Value: reflectValue}
+	rv := reflect.ValueOf(v)
+	// 快路径：结果天然类型与目标一致时跳过 Convert（消除一次反射转换分配）
+	if rv.Type() == rtype {
+		return value.RValue{Value: rv}
+	}
+	return value.RValue{Value: rv.Convert(rtype)}
 }

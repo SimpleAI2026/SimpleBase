@@ -2,8 +2,8 @@
 
 package main
 
-func Exported() {}
-func hidden() {}
+func Exported()      {}
+func hidden()        {}
 func (s *S) Method() {}
 
 type S struct{}

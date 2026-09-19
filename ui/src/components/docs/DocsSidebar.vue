@@ -1,20 +1,24 @@
 <template>
-  <ScrollArea class="h-[calc(100vh-120px)] w-[260px] shrink-0 border-r bg-muted/40">
-    <nav class="flex flex-col gap-1 px-3 py-4">
-      <div class="px-2.5 pb-2.5 text-[12px] font-semibold tracking-wide text-muted-foreground uppercase">
-        {{ moduleTitle }}
-      </div>
-      <router-link
-        v-for="p in pages"
-        :key="p.slug"
-        class="rounded-md border-l-[3px] border-transparent px-2.5 py-1.5 text-sm text-foreground no-underline hover:bg-muted"
-        :class="p.slug === activeSlug ? 'border-l-primary bg-primary/10 font-semibold text-primary' : ''"
-        :to="pageTo(p.slug)"
-      >
-        {{ p.title }}
-      </router-link>
-    </nav>
-  </ScrollArea>
+  <aside
+    class="sticky top-[calc(var(--header-height)+61px)] h-[calc(100svh-var(--header-height)-77px)] w-[248px] shrink-0 self-start overflow-hidden rounded-xl border bg-card shadow-sm"
+  >
+    <ScrollArea class="h-full">
+      <nav class="flex flex-col gap-0.5 p-3">
+        <div class="px-2.5 pt-1 pb-2 text-[11.5px] font-semibold tracking-wider text-muted-foreground uppercase">
+          {{ moduleTitle }}
+        </div>
+        <router-link
+          v-for="p in pages"
+          :key="p.slug"
+          class="rounded-lg px-2.5 py-1.5 text-[13.5px] text-foreground/75 no-underline transition-colors hover:bg-accent hover:text-foreground"
+          :class="p.slug === activeSlug ? 'bg-primary/10 font-semibold text-primary hover:bg-primary/10 hover:text-primary' : ''"
+          :to="pageTo(p.slug)"
+        >
+          {{ p.title }}
+        </router-link>
+      </nav>
+    </ScrollArea>
+  </aside>
 </template>
 
 <script setup lang="ts">

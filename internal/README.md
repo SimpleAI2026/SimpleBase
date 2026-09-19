@@ -5,7 +5,7 @@
 ## 模块清单
 
 ### `app`
-依赖装配与服务生命周期。创建系统库、catalog、registry、auth、llmgateway、usage、audit、Cloud Agent 等全部依赖；`Shutdown` 按序停止。`RunWithSignal` 监听 SIGINT/SIGTERM 并在超时内优雅退出。
+依赖装配与服务生命周期。创建系统库、catalog、registry、auth、llmgateway、usage、audit、云 Agent 等全部依赖；`Shutdown` 按序停止。`RunWithSignal` 监听 SIGINT/SIGTERM 并在超时内优雅退出。
 
 ### `config`
 从 `config.yaml`（或 `SIMPLEBASE_` 前缀环境变量）加载配置。结构体覆盖 HTTP、instance、database、s3、auth、llm、limits、observability、system_database 全部字段。历史 `catalog.database_id` / `SIMPLEBASE_CATALOG_DATABASE_ID` 已删除。
@@ -41,7 +41,7 @@ HTTP 路由层（Echo v4）。职责：
 S3 边界。`client.go`（AWS SDK v2 封装）、`keys.go`（KeyBuilder 生成隔离前缀）、`descriptor.go`（database descriptor 读写）、`health.go`（S3 可达性检查）。对象键使用内部 UUID，禁止用户名直接入键。
 
 ### `cloudagent`
-项目级 Cloud Agent 运行时。只读工具（数据库 / S3 / 日志 / 设置）+ 会话线程，依赖 LLM Gateway 与系统库。
+项目级云 Agent 运行时。只读工具（数据库 / S3 / 日志 / 设置）+ 会话线程，依赖 LLM Gateway 与系统库。
 
 ### `llmgateway`
 LLM 服务端封装。项目隔离的 provider 配置（从 catalog `llm_provider_configs` 读取），单供应商 client 缓存。`Chat` 非流式、`Stream` SSE 流式（用量累计）、`ListProviders`。密钥采用 CredentialRef 模式，禁止环境变量自动发现。适配 litellm v1.5.8 的 `NewWithProvider` 单供应商 API。

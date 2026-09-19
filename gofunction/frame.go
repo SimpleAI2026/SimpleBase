@@ -3,6 +3,7 @@ package gofunction
 import (
 	"context"
 	"fmt"
+	"go/types"
 	"io"
 	"log/slog"
 	"os"
@@ -22,20 +23,6 @@ var logger = slog.Default()
 
 // stderrWriter 调试输出目标（SSA 转储等）
 var stderrWriter io.Writer = os.Stderr
-
-// SetLogger 注入解释器内部使用的日志器（默认 slog.Default()）
-func SetLogger(l *slog.Logger) {
-	if l != nil {
-		logger = l
-	}
-}
-
-// SetDebugOutput 设置调试输出目标
-func SetDebugOutput(w io.Writer) {
-	if w != nil {
-		stderrWriter = w
-	}
-}
 
 // logDebug 调试日志输出
 func logDebug(format string, args ...interface{}) {
@@ -79,9 +66,9 @@ type frame struct {
 	program          *Program
 	caller           *frame
 	fn               *ssa.Function
+	layout           *funcLayout // 当前函数的槽位布局（P3-1）
 	block, prevBlock *ssa.BasicBlock
-	env              map[ssa.Value]*value.Value
-	locals           []value.Value
+	env              []value.Value // 槽位数组：参数/自由变量/局部变量/指令结果，按 layout.slotOf 索引
 	defers           []*ssa.Defer
 	result           value.Value
 	panicking        bool
@@ -91,11 +78,34 @@ type frame struct {
 	context *Context
 }
 
-// makeFunc 定义函数或创建闭包，bindings为闭包中关联的外部变量
+// makeFunc 定义函数或创建闭包，bindings为闭包中关联的外部变量。
+// 闭包体内以调用时的 caller frame 身份执行 callSSA；由于 callSSA 现在
+// 从池中借用子 frame，此处的 fr 必须是「逃逸出本次执行的稳定 frame」——
+// 即创建闭包时的逻辑帧。为避免池化归还后闭包引用悬空，
+// makeFunc 为闭包构造一个不参与池化的独立调用帧。
+// caller 保留创建时的帧引用：recover builtin 需沿 caller 链向上查找
+// panicking 帧（defer/recover 语义）。该帧此刻处于活跃调用中
+// （runDefers/runFrame 内），尚未归还池，不存在悬空窗口。
 func (fr *frame) makeFunc(f *ssa.Function, bindings []ssa.Value) value.Value {
+	layout := fr.program.layoutOf(f)
+	// 闭包捕获：绑定值在 SSA 中已装箱为 Alloc/FreeVar（ptr 类型），
+	// 槽内存放的就是共享地址值；callSSA 接口保持 *value.Value
+	// 以承载地址共享语义（解引用后写入被调帧槽位，Elem 写回共享）
 	env := make([]*value.Value, len(bindings))
 	for i, binding := range bindings {
-		env[i] = fr.env[binding]
+		v := fr.get(binding)
+		cell := new(value.Value)
+		*cell = v
+		env[i] = cell
+	}
+	// 闭包捕获创建时的帧信息（program/context/seqid），不复用池化 frame
+	closureFrame := &frame{
+		program: fr.program,
+		context: fr.context,
+		caller:  fr,
+		seqid:   fr.seqid,
+		layout:  layout,
+		env:     make([]value.Value, layout.nSlots),
 	}
 	sig := f.Signature
 	nIn := sig.Params().Len()
@@ -116,11 +126,13 @@ func (fr *frame) makeFunc(f *ssa.Function, bindings []ssa.Value) value.Value {
 	}
 	funcType := reflect.FuncOf(in, out, sig.Variadic())
 	fn := func(in []reflect.Value) (results []reflect.Value) {
+		// 无泄漏切片：callSSA 按值拷入槽位后不再引用，
+		// 逃逸分析可栈分配（P3-3）
 		args := make([]value.Value, len(in))
 		for i, arg := range in {
 			args[i] = value.RValue{Value: arg}
 		}
-		ret := callSSA(fr, f, args, env)
+		ret := callSSA(closureFrame, f, args, env)
 		if ret != nil {
 			return value.Unpackage(ret)
 		}
@@ -129,12 +141,15 @@ func (fr *frame) makeFunc(f *ssa.Function, bindings []ssa.Value) value.Value {
 	return value.RValue{Value: reflect.MakeFunc(funcType, fn)}
 }
 
+// get 通用取值入口（走槽位映射，一次切片索引）。
+// 预编译闭包内已把热路径槽位号直接编译进指令闭包，
+// 此方法仅供 runframe 兜底、callOp 动态调用目标等低频路径使用。
 func (fr *frame) get(key ssa.Value) value.Value {
 	switch key := key.(type) {
 	case nil:
 		return nil
 	case *ssa.Const:
-		return constValue(key)
+		return fr.constValueCached(key)
 	case *ssa.Global:
 		if r, ok := fr.program.globals[key]; ok && r != nil {
 			return *r
@@ -144,26 +159,40 @@ func (fr *frame) get(key ssa.Value) value.Value {
 			return fr.program.externalValue(key)
 		}
 	case *ssa.Function:
-		return fr.makeFunc(key, nil)
+		if v, ok := fr.program.funcCache.Load(key); ok {
+			return v.(value.Value)
+		}
+		v := fr.makeFunc(key, nil)
+		fr.program.funcCache.Store(key, v)
+		return v
 	}
-	if r, ok := fr.env[key]; ok && r != nil {
-		return *r
+	if slot, ok := fr.layout.slotOf(key); ok {
+		return fr.env[slot]
 	}
 	panic(fmt.Sprintf("get: no Value for %T: %v", key, key.Name()))
 }
 
-func (fr *frame) set(instr ssa.Value, val value.Value) {
-	fr.env[instr] = &val
+// constValueCached 常量求值缓存：SSA 中同一 *ssa.Const 单例且值恒定，
+// 基础类型缓存复用；复合零值（结构体/数组）每次新建以防共享可变内存。
+func (fr *frame) constValueCached(c *ssa.Const) value.Value {
+	if v, ok := fr.program.constCache.Load(c); ok {
+		return v.(value.Value)
+	}
+	v := constValue(c)
+	if isBasicType(c.Type()) {
+		fr.program.constCache.Store(c, v)
+	}
+	return v
 }
 
-func (fr *frame) newChild(fn *ssa.Function) *frame {
-	return &frame{
-		program: fr.program,
-		context: fr.context,
-		caller:  fr, // for panic/recover
-		fn:      fn,
-		seqid:   fr.seqid,
-	}
+// isBasicType 判断 types.Type 底层是否为基础类型
+func isBasicType(t types.Type) bool {
+	_, ok := t.Underlying().(*types.Basic)
+	return ok
+}
+
+func (fr *frame) set(instr ssa.Value, val value.Value) {
+	fr.env[fr.layout.slotOfMust(instr)] = val
 }
 
 func (fr *frame) runDefers() {

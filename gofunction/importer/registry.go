@@ -34,7 +34,10 @@ type Registry struct {
 	packages       map[string]*Package
 	packagesByName map[string]*ast.ImportSpec
 	externalTypes  sync.Map
-	config         *RegistryConfig
+	// externalTypesByType 按 types.Type 指针直接索引的外部类型缓存。
+	// 避免热路径上用 goType.String()（types.TypeString，伴随大量分配）做 map 键。
+	externalTypesByType sync.Map
+	config              *RegistryConfig
 }
 
 // NewRegistry 创建新的包注册器
@@ -174,14 +177,20 @@ func (r *Registry) UpdateConfig(config *RegistryConfig) {
 // SetExternalType 设置外部类型映射
 func (r *Registry) SetExternalType(goType types.Type, reflectType reflect.Type) {
 	r.externalTypes.Store(goType.String(), reflectType)
+	r.externalTypesByType.Store(goType, reflectType)
 }
 
-// GetExternalType 获取外部类型映射
+// GetExternalType 获取外部类型映射。
+// 优先按 types.Type 直接命中（热路径，无字符串化开销），miss 时回退字符串键。
 func (r *Registry) GetExternalType(goType types.Type) (reflect.Type, bool) {
+	if v, ok := r.externalTypesByType.Load(goType); ok {
+		return v.(reflect.Type), true
+	}
 	value, exists := r.externalTypes.Load(goType.String())
 	if !exists {
 		return nil, false
 	}
+	r.externalTypesByType.Store(goType, value)
 	return value.(reflect.Type), true
 }
 

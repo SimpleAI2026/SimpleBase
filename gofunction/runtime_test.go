@@ -25,7 +25,6 @@ func TestRuntimeUserDataAndInit(t *testing.T) {
 	if !ok || v != 1 {
 		t.Fatalf("got %v %v", v, ok)
 	}
-	r.ConsoleLog(1, "tag", "data")
 	r.Reset()
 	if _, ok := r.GetUserData("k"); ok {
 		t.Fatal("reset should clear user data")

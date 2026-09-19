@@ -10,7 +10,11 @@ import type {
   AgentStreamHandlers,
   AgentThread,
   CloudAgent,
+  CronJobCreate,
+  CronJobItem,
+  CronJobRunItem,
   DatabaseItem,
+  GoFunctionItem,
   LlmChatRequest,
   LlmSettings,
   LlmStreamHandlers,
@@ -172,6 +176,91 @@ function llmStream(
 
 function agentPath(projectId: string, rest = '') {
   return '/v1/projects/' + encodeURIComponent(projectId) + rest
+}
+
+/** 云函数路径：/v1/projects/:pid/gofunctions[/:name] */
+function gofunctionsPath(projectId: string, name?: string) {
+  let path = '/v1/projects/' + encodeURIComponent(projectId) + '/gofunctions'
+  if (name) path += '/' + encodeURIComponent(name)
+  return path
+}
+
+/** 定时任务路径：/v1/projects/:pid/cron-jobs[/:jobId[/runs|/trigger]] */
+function cronJobsPath(projectId: string, jobId?: string, suffix?: 'runs' | 'trigger') {
+  let path = '/v1/projects/' + encodeURIComponent(projectId) + '/cron-jobs'
+  if (jobId) {
+    path += '/' + encodeURIComponent(jobId)
+    if (suffix) path += '/' + suffix
+  }
+  return path
+}
+
+/** GoFunctionItem：后端 snake_case → UI camelCase（§3.13） */
+function toGoFunctionItem(raw: Record<string, any>): GoFunctionItem {
+  return {
+    id: String(raw?.id ?? ''),
+    name: String(raw?.name ?? ''),
+    file: String(raw?.file ?? ''),
+    source: raw?.source || undefined,
+    exports: Array.isArray(raw?.exports) ? raw.exports.map(String) : [],
+    createdAt: String(raw?.created_at ?? ''),
+    updatedAt: String(raw?.updated_at ?? '')
+  }
+}
+
+/** CronJobItem：后端 snake_case → UI camelCase（§3.14） */
+function toCronJobItem(raw: Record<string, any>): CronJobItem {
+  return {
+    id: String(raw?.id ?? ''),
+    name: String(raw?.name ?? ''),
+    description: String(raw?.description ?? ''),
+    scheduleKind: raw?.schedule_kind === 'interval' ? 'interval' : 'cron',
+    cronExpr: String(raw?.cron_expr ?? ''),
+    intervalSeconds: raw?.interval_seconds != null ? Number(raw.interval_seconds) : undefined,
+    funcFile: String(raw?.func_file ?? ''),
+    funcExport: String(raw?.func_export ?? ''),
+    inputJson: String(raw?.input_json ?? '{}'),
+    enabled: Boolean(raw?.enabled),
+    lastRunAt: raw?.last_run_at || undefined,
+    nextRunAt: raw?.next_run_at || undefined,
+    lastStatus: String(raw?.last_status ?? ''),
+    lastError: String(raw?.last_error ?? ''),
+    runCount: Number(raw?.run_count ?? 0),
+    targetMissing: Boolean(raw?.target_missing),
+    createdAt: String(raw?.created_at ?? ''),
+    updatedAt: String(raw?.updated_at ?? '')
+  }
+}
+
+function toCronJobRunItem(raw: Record<string, any>): CronJobRunItem {
+  return {
+    id: String(raw?.id ?? ''),
+    jobId: String(raw?.job_id ?? ''),
+    trigger: raw?.trigger === 'manual' ? 'manual' : 'scheduled',
+    status: String(raw?.status ?? '') as CronJobRunItem['status'],
+    error: String(raw?.error ?? ''),
+    durationMs: Number(raw?.duration_ms ?? 0),
+    responseJson: String(raw?.response_json ?? ''),
+    startedAt: raw?.started_at || undefined,
+    finishedAt: raw?.finished_at || undefined,
+    createdAt: String(raw?.created_at ?? '')
+  }
+}
+
+/** CronJobCreate → 后端 snake_case body */
+function cronJobBody(body: Partial<CronJobCreate>) {
+  const out: Record<string, unknown> = {
+    description: body.description ?? '',
+    schedule_kind: body.scheduleKind,
+    func_file: body.funcFile,
+    func_export: body.funcExport,
+    input_json: body.inputJson ?? '{}'
+  }
+  if (body.name != null) out.name = body.name
+  if (body.cronExpr != null) out.cron_expr = body.cronExpr
+  if (body.intervalSeconds != null) out.interval_seconds = body.intervalSeconds
+  if (body.enabled != null) out.enabled = body.enabled
+  return out
 }
 
 function toMetricsSummary(d: Record<string, any> | undefined): MetricsSummary {
@@ -418,6 +507,47 @@ function toProjectItem(raw: any): import('./types').ProjectItem {
 
 /** 真实后端实现（路径契约见 plan/planv2.0/proto-http.md） */
 export const httpApi: Api = {
+  gofunctions: {
+    list: (projectId) =>
+      http.get(gofunctionsPath(projectId)).then((r) => {
+        const list = Array.isArray(r.data?.functions) ? r.data.functions : []
+        return list.map((raw: Record<string, any>) => toGoFunctionItem(raw))
+      }),
+    create: (projectId, body) =>
+      http
+        .post(gofunctionsPath(projectId), { name: body.name, source: body.source })
+        .then((r) => toGoFunctionItem(r.data)),
+    get: (projectId, name) =>
+      http.get(gofunctionsPath(projectId, name)).then((r) => toGoFunctionItem(r.data)),
+    update: (projectId, name, source) =>
+      http.put(gofunctionsPath(projectId, name), { source }).then((r) => toGoFunctionItem(r.data)),
+    remove: (projectId, name) =>
+      http.delete(gofunctionsPath(projectId, name)).then(() => undefined)
+  },
+  cronjobs: {
+    list: (projectId) =>
+      http.get(cronJobsPath(projectId)).then((r) => {
+        const list = Array.isArray(r.data?.jobs) ? r.data.jobs : []
+        return list.map((raw: Record<string, any>) => toCronJobItem(raw))
+      }),
+    create: (projectId, body) =>
+      http.post(cronJobsPath(projectId), cronJobBody(body)).then((r) => toCronJobItem(r.data)),
+    get: (projectId, jobId) =>
+      http.get(cronJobsPath(projectId, jobId)).then((r) => toCronJobItem(r.data)),
+    update: (projectId, jobId, body) =>
+      http.patch(cronJobsPath(projectId, jobId), cronJobBody(body)).then((r) => toCronJobItem(r.data)),
+    remove: (projectId, jobId) =>
+      http.delete(cronJobsPath(projectId, jobId)).then(() => undefined),
+    runs: (projectId, jobId, limit) =>
+      http
+        .get(cronJobsPath(projectId, jobId, 'runs'), { params: limit ? { limit } : undefined })
+        .then((r) => {
+          const list = Array.isArray(r.data?.runs) ? r.data.runs : []
+          return list.map((raw: Record<string, any>) => toCronJobRunItem(raw))
+        }),
+    trigger: (projectId, jobId) =>
+      http.post(cronJobsPath(projectId, jobId, 'trigger')).then(() => undefined)
+  },
   projects: {
     list: () =>
       http.get('/v1/projects').then((r) => {

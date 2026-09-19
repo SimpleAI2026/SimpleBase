@@ -306,7 +306,7 @@ async function ensureThread() {
     if (list.length) {
       threadId.value = list[0].id
     } else {
-      const th = await api.agentThreads.create(project.id, 'Cloud Agent')
+      const th = await api.agentThreads.create(project.id, '云 Agent')
       threadId.value = th.id
     }
     const msgs = await api.agentThreads.messages(project.id, threadId.value)
@@ -394,7 +394,7 @@ async function removeAgent(a: CloudAgent) {
 async function resetThread() {
   onStop()
   try {
-    const th = await api.agentThreads.create(project.id, 'Cloud Agent')
+    const th = await api.agentThreads.create(project.id, '云 Agent')
     threadId.value = th.id
     chatMessages.value = []
   } catch (e) {

@@ -13,6 +13,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
@@ -48,6 +49,8 @@ type Dependencies struct {
 	CloudAgent *cloudagent.Runtime
 	// AgentScheduler 是 Cloud Agent 定时执行调度器。
 	AgentScheduler *cloudagent.Scheduler
+	// CronScheduler 是云函数定时任务调度器；nil 时 trigger 返回 503。
+	CronScheduler *cronjob.Scheduler
 }
 
 // CacheService 抽象缓存管理（plan7.md）。
@@ -169,6 +172,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	// v1 业务路由组：认证 → project context → 各 handler
 	if deps.Auth != nil && deps.DatabaseHandler != nil {
 		mountV1Routes(e, deps)
+		mountGoRoutes(e, deps)
 	}
 
 	// 管理端静态资源：所有未匹配 API 路由的 GET 请求回退到前端 SPA。
@@ -306,7 +310,43 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		if deps.AgentScheduler != nil {
 			p.POST("/agent-schedules/:scheduleID/run", sch.TriggerScheduleRun, require(auth.DatabaseRead))
 		}
+
+		// 云函数管理面（ui-gofunction-plan §7.1）。writable=false 时写操作返回 503。
+		gh := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit)
+		p.GET("/gofunctions", gh.List, require(auth.DatabaseRead))
+		p.POST("/gofunctions", gh.Create, require(auth.DatabaseWrite))
+		p.GET("/gofunctions/:name", gh.Get, require(auth.DatabaseRead))
+		p.PUT("/gofunctions/:name", gh.Update, require(auth.DatabaseWrite))
+		p.DELETE("/gofunctions/:name", gh.Delete, require(auth.DatabaseWrite))
+
+		// 定时任务管理面（ui-cronjob-plan §6）。writable=false 时写操作返回 503。
+		cj := NewCronJobHandler(deps.System, deps.Config.Instance.Writable, deps.CronScheduler, deps.Audit)
+		p.GET("/cron-jobs", cj.List, require(auth.DatabaseRead))
+		p.POST("/cron-jobs", cj.Create, require(auth.DatabaseWrite))
+		p.GET("/cron-jobs/:jobID", cj.Get, require(auth.DatabaseRead))
+		p.PATCH("/cron-jobs/:jobID", cj.Update, require(auth.DatabaseWrite))
+		p.DELETE("/cron-jobs/:jobID", cj.Delete, require(auth.DatabaseWrite))
+		p.GET("/cron-jobs/:jobID/runs", cj.ListRuns, require(auth.DatabaseRead))
+		p.POST("/cron-jobs/:jobID/trigger", cj.Trigger, require(auth.DatabaseWrite))
 	}
+}
+
+// mountGoRoutes 挂载对外调用面 /go/:projectID/:name/:functionName（§7.2）。
+// 必须在 web.Register（SPA GET fallback）之前执行——由 NewRouter 调用顺序保证。
+// 与 mountV1Routes 同一依赖守卫，复用认证与 project context 中间件。
+func mountGoRoutes(e *echo.Echo, deps Dependencies) {
+	if deps.System == nil {
+		return
+	}
+	authMW := auth.APIKeyMiddleware(deps.Auth, WithPrincipal)
+	require := func(perm auth.Permission) echo.MiddlewareFunc {
+		return auth.Require(perm, PrincipalFromContext)
+	}
+	h := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit)
+	goGrp := e.Group("/go/:projectID", authMW, projectContextMiddlewareEcho(deps))
+	goGrp.POST("/:name/:functionName", h.Invoke, require(auth.DatabaseRead))
+	// 405 JSON：防止浏览器 GET 掉进 SPA index.html（验收 G11）
+	goGrp.GET("/:name/:functionName", h.MethodNotAllowed, require(auth.DatabaseRead))
 }
 
 // bodyLimit 将字节数转换为 echo BodyLimit 字符串（K/M）。

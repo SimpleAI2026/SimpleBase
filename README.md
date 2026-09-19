@@ -1,6 +1,6 @@
 # SimpleBase
 
-基于 DuckLake、S3 在线持久层与 Go 构建的云端数据库服务，并集成 LLM Gateway 与 Cloud Agent。
+基于 DuckLake、S3 在线持久层与 Go 构建的云端数据库服务，并集成 LLM Gateway 与云 Agent。
 
 ## 架构概览
 
@@ -19,7 +19,7 @@
 │                                                     │
 │ Database Runtime                 LLM / Agent Runtime │
 │ ├─ DB Registry（每库唯一 writer）├─ litellm Router   │
-│ ├─ DuckLake / DuckDB             ├─ Cloud Agent      │
+│ ├─ DuckLake / DuckDB             ├─ 云 Agent         │
 │ ├─ Local Cache Manager           ├─ Streaming        │
 │ └─ System DuckLake catalog       └─ Usage Metering   │
 └───────────────┬──────────────────────────┬──────────┘
@@ -36,7 +36,7 @@
 - **DuckLake-only**：用户库与系统库都走 DuckLake（DuckDB catalog + Parquet DATA_PATH）；历史 Turso/libSQL 引擎已退役。
 - **项目隔离**：每个 tenant/project 拥有独立 logical database 与 S3 对象前缀，认证、配额、审计按 project 划分。
 - **LLM Gateway**：复用 litellm 多供应商客户端，服务端封装鉴权、配额、流式转发与用量计量。
-- **Cloud Agent**：项目级只读工具代理（`/agents`），复用 LLM Gateway 与系统库会话。
+- **云 Agent**：项目级只读工具代理（`/agents`），复用 LLM Gateway 与系统库会话。
 
 ## 快速开始
 
@@ -102,7 +102,7 @@ docker run -p 8080:8080 --env-file .env simplebased
 | POST | `/v1/projects/:p/llm/stream` | `database:read` | SSE 流式响应 |
 | GET | `/v1/projects/:p/llm/providers` | `database:read` | 列出允许的 provider/model |
 
-### Cloud Agent
+### 云 Agent
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
@@ -154,7 +154,7 @@ internal/database/      DuckLake 连接、事务、查询、错误映射
   ├─ ducklake/          用户库 / 系统库工厂与 catalog 同步
   ├─ sqlguard/          SQL 执行边界（超时、行数、批量）
   └─ serialize.go       行序列化
-internal/cloudagent/    Cloud Agent 运行时与只读工具
+internal/cloudagent/    云 Agent 运行时与只读工具
 internal/llmgateway/    litellm 服务端封装、流式转发、用量计量
 internal/objectstore/   S3 client、KeyBuilder、descriptor、health
 internal/observability/ 日志、指标、健康检查

@@ -21,6 +21,7 @@
 | [`cloud-agent-plan.md`](./cloud-agent-plan.md) | Cloud Agent：per-module agent、两栏 UI、`@` mention、eino 只读工具（替代 LLM 对话） |
 | [`ui-docs-wiki-plan.md`](./ui-docs-wiki-plan.md) | 顶栏「使用文档」：GitHub Wiki 风（模块 + 左 TOC + 右 MD），源 `docs/<module>/*.md`（已实现） |
 | [`js-sdk-plan.md`](./js-sdk-plan.md) | 公共 JS SDK（Supabase 风格 Token 客户端）+ examples + `docs/sdk` Wiki（MVP 已落地） |
+| [`ui-gofunction-plan.md`](./ui-gofunction-plan.md) | 云函数：侧栏列表 + Monaco 编辑 `.go` + `POST /go/{projectID}/{name}/{functionName}`（本轮只规划） |
 
 > 阅读顺序建议：本文（全局与阶段） → `ui-principles.md`（写代码时的判据） → `proto-http.md` / `proto.http`（接接口时的契约）。
 

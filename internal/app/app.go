@@ -24,6 +24,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/config"
+	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/cache"
 	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
@@ -33,6 +34,9 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
+	// 云函数脚本可 import 的宿主标准库注册（blank import 必须保留，
+	// 否则解释器 BuildProgram 找不到 fmt/json 等包，见 ui-gofunction-plan §4）
+	_ "github.com/linkxzhou/SimpleBase/gofunction/packages"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
@@ -60,6 +64,7 @@ type App struct {
 	llmSvc        llmgateway.Service
 
 	agentScheduler    *cloudagent.Scheduler
+	cronScheduler     *cronjob.Scheduler
 	schedulerCancel   context.CancelFunc
 	schedulerBaseCtx  context.Context
 
@@ -183,6 +188,17 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		agentScheduler.Start(a.schedulerBaseCtx)
 	}
 
+	// 云函数定时任务调度器（ui-cronjob-plan §5.4）：仅在系统库齐备时创建。
+	var cronScheduler *cronjob.Scheduler
+	if a.systemStore != nil {
+		cronScheduler = cronjob.NewScheduler(a.systemStore, &systemDBRunner{store: a.systemStore})
+		a.cronScheduler = cronScheduler
+		if a.schedulerCancel == nil {
+			a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
+		}
+		cronScheduler.Start(a.schedulerBaseCtx)
+	}
+
 	deps := api.Dependencies{
 		Config:          cfg,
 		Logger:          logger,
@@ -202,6 +218,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		System:          a.systemStore,
 		CloudAgent:      runtime,
 		AgentScheduler:  agentScheduler,
+		CronScheduler:   cronScheduler,
 	}
 	a.echo = api.NewRouter(deps)
 
@@ -412,6 +429,19 @@ func (a *App) Shutdown(ctx context.Context) error {
 		case <-done:
 		case <-ctx.Done():
 			a.logger.Warn("agent scheduler stop timed out")
+		}
+	}
+	// 停止云函数定时任务调度器（同上收敛语义）。
+	if a.cronScheduler != nil {
+		done := make(chan struct{})
+		go func() {
+			a.cronScheduler.Stop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			a.logger.Warn("cron scheduler stop timed out")
 		}
 	}
 

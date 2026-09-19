@@ -184,7 +184,7 @@ export interface LlmStreamConnection {
   close: () => void
 }
 
-/* ---------- Cloud Agent（proto-http.md §3.12） ---------- */
+/* ---------- 云 Agent（proto-http.md §3.12） ---------- */
 
 export interface AgentModuleInfo {
   id: string
@@ -295,12 +295,108 @@ export interface AgentStreamHandlers {
   onError?: (e: unknown) => void
 }
 
+/* ---------- GoFunctions（proto-http.md §3.13） ---------- */
+
+/** 云函数资源。file 由服务端派生 = name + ".go" */
+export interface GoFunctionItem {
+  id: string
+  name: string
+  file: string
+  /** 列表接口省略；详情 / 创建 / 更新返回完整源码 */
+  source?: string
+  exports: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GoFunctionCreate {
+  name: string
+  source: string
+}
+
+/* ---------- CronJobs（proto-http.md §3.14） ---------- */
+
+/** 定时任务调度模式：cron 定时执行 / interval 固定间隔 */
+export type CronScheduleKind = 'cron' | 'interval'
+
+/** 定时任务资源。目标为云函数导出函数；时间一律 UTC */
+export interface CronJobItem {
+  id: string
+  name: string
+  description: string
+  scheduleKind: CronScheduleKind
+  /** scheduleKind=cron 时非空：5 字段 cron 表达式 */
+  cronExpr: string
+  /** scheduleKind=interval 时非空：秒（60 ~ 2592000） */
+  intervalSeconds?: number
+  funcFile: string
+  funcExport: string
+  /** 固定入参 JSON 原文，默认 "{}" */
+  inputJson: string
+  enabled: boolean
+  lastRunAt?: string
+  nextRunAt?: string
+  /** 最近一次执行状态：completed / failed / running / ''（未运行） */
+  lastStatus: string
+  lastError: string
+  runCount: number
+  /** 目标云函数缺失（文件被删/函数未导出）；执行将失败 */
+  targetMissing: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** 一次定时任务执行记录 */
+export interface CronJobRunItem {
+  id: string
+  jobId: string
+  trigger: 'scheduled' | 'manual'
+  status: 'running' | 'completed' | 'failed' | 'canceled'
+  error: string
+  durationMs: number
+  /** 返回值 JSON（截断 4KB）；空串表示无输出 */
+  responseJson: string
+  startedAt?: string
+  finishedAt?: string
+  createdAt: string
+}
+
+export interface CronJobCreate {
+  name: string
+  description: string
+  scheduleKind: CronScheduleKind
+  cronExpr: string
+  intervalSeconds?: number
+  funcFile: string
+  funcExport: string
+  inputJson: string
+  enabled?: boolean
+}
+
 /**
  * API 统一抽象：http 实现与 mock 实现均遵循该接口。
  * projectId 一律为方法首个参数，由调用方从 stores/project.ts 读取后显式传入
  * （services 层不 import store，保持无状态可测）。
  */
 export interface Api {
+  gofunctions: {
+    list: (projectId: string) => Promise<GoFunctionItem[]>
+    create: (projectId: string, body: GoFunctionCreate) => Promise<GoFunctionItem>
+    get: (projectId: string, name: string) => Promise<GoFunctionItem>
+    update: (projectId: string, name: string, source: string) => Promise<GoFunctionItem>
+    remove: (projectId: string, name: string) => Promise<void>
+  }
+  cronjobs: {
+    list: (projectId: string) => Promise<CronJobItem[]>
+    create: (projectId: string, body: CronJobCreate) => Promise<CronJobItem>
+    get: (projectId: string, jobId: string) => Promise<CronJobItem>
+    /** PATCH：name 不可改；调度变更后服务端重算 nextRunAt */
+    update: (projectId: string, jobId: string, body: Partial<CronJobCreate>) => Promise<CronJobItem>
+    remove: (projectId: string, jobId: string) => Promise<void>
+    runs: (projectId: string, jobId: string, limit?: number) => Promise<CronJobRunItem[]>
+    /** 手动立即执行（异步 202；不改排期） */
+    trigger: (projectId: string, jobId: string) => Promise<void>
+  }
   projects: {
     list: () => Promise<ProjectItem[]>
     create: (req: { name: string; id?: string }) => Promise<ProjectItem>

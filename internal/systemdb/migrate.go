@@ -398,6 +398,66 @@ var systemMigrations = []migration{
 			created_at TIMESTAMP NOT NULL
 		)`,
 	},
+	{
+		// v28：云函数（ui-gofunction-plan §5）。源码为权威，exports_json 冗余。
+		version: 28,
+		name:    "sys_gofunctions",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_gofunctions (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			source VARCHAR NOT NULL,
+			exports_json VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`,
+	},
+	{
+		// v29：定时任务（ui-cronjob-plan §4.1）。目标为云函数导出函数；两种调度模式。
+		version: 29,
+		name:    "sys_cron_jobs",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_cron_jobs (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			description VARCHAR NOT NULL DEFAULT '',
+			schedule_kind VARCHAR NOT NULL,
+			cron_expr VARCHAR,
+			interval_seconds BIGINT,
+			func_file VARCHAR NOT NULL,
+			func_export VARCHAR NOT NULL,
+			input_json VARCHAR NOT NULL DEFAULT '{}',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			last_run_at TIMESTAMP,
+			next_run_at TIMESTAMP,
+			last_status VARCHAR NOT NULL DEFAULT '',
+			last_error VARCHAR NOT NULL DEFAULT '',
+			run_count BIGINT NOT NULL DEFAULT 0,
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`,
+	},
+	{
+		// v30：定时任务运行记录（ui-cronjob-plan §4.2）。response_json 截断 4KB。
+		version: 30,
+		name:    "sys_cron_job_runs",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_cron_job_runs (
+			id VARCHAR NOT NULL,
+			job_id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			trigger VARCHAR NOT NULL,
+			status VARCHAR NOT NULL,
+			error VARCHAR NOT NULL DEFAULT '',
+			duration_ms BIGINT NOT NULL DEFAULT 0,
+			response_json VARCHAR,
+			started_at TIMESTAMP,
+			finished_at TIMESTAMP,
+			created_at TIMESTAMP NOT NULL
+		)`,
+	},
 }
 
 // ApplySystemMigrations 按版本顺序应用全部系统表。可重复执行。

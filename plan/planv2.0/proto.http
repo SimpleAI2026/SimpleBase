@@ -506,3 +506,135 @@ GET {{host}}/metrics/summary
 #     "api_key": "sk-replace-me"
 #   }
 # }
+
+# ============================================================
+# GoFunctions 云函数（§3.13）
+# 管理：/v1/projects/:projectID/gofunctions；调用：/go/:projectID/:name/:functionName
+# ============================================================
+
+### 列出云函数（列表不带 source）
+# @name goFunctionsList
+GET {{baseUrl}}/v1/projects/{{projectId}}/gofunctions
+Authorization: Bearer {{apiKey}}
+
+### 创建云函数 hello.go（保存前编译校验：导出函数必须 1 入参 1 返回）
+# @name goFunctionCreate
+POST {{baseUrl}}/v1/projects/{{projectId}}/gofunctions
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "name": "hello",
+  "source": "package main\n\ntype Request struct {\n\tName string `json:\"name\"`\n}\n\ntype Response struct {\n\tMessage string `json:\"message\"`\n}\n\nfunc Hello(req Request) Response {\n\treturn Response{Message: \"hello, \" + req.Name}\n}"
+}
+
+### 详情（含 source）
+# @name goFunctionGet
+GET {{baseUrl}}/v1/projects/{{projectId}}/gofunctions/hello
+Authorization: Bearer {{apiKey}}
+
+### 更新源码（name 不可改；重算 exports）
+# @name goFunctionUpdate
+PUT {{baseUrl}}/v1/projects/{{projectId}}/gofunctions/hello
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "source": "package main\n\ntype Request struct {\n\tName string `json:\"name\"`\n}\n\ntype Response struct {\n\tMessage string `json:\"message\"`\n}\n\nfunc Hello(req Request) Response {\n\treturn Response{Message: \"hello, \" + req.Name}\n}\n\nfunc Ping(req Request) Response {\n\treturn Response{Message: \"pong\"}\n}"
+}
+
+### 调用（响应体即返回值 JSON，无 envelope）
+# @name goFunctionInvoke
+POST {{baseUrl}}/go/{{projectId}}/hello/Hello
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "name": "a"
+}
+
+### GET 调用面 → 405 JSON（防 SPA fallback 吞成 index.html）
+# @name goFunctionInvokeGet405
+# GET {{baseUrl}}/go/{{projectId}}/hello/Hello
+# Authorization: Bearer {{apiKey}}
+
+### 签名不合规示例：多参导出 → 400 signature_invalid（message 指明 Bad）
+# @name goFunctionCreateBadSignature
+# POST {{baseUrl}}/v1/projects/{{projectId}}/gofunctions
+# Authorization: Bearer {{apiKey}}
+# Content-Type: application/json
+#
+# {
+#   "name": "bad",
+#   "source": "package main\nfunc Bad(a, b int) int { return a + b }"
+# }
+
+### 删除云函数（软删，204 无 body）
+# @name goFunctionDelete
+# DELETE {{baseUrl}}/v1/projects/{{projectId}}/gofunctions/hello
+# Authorization: Bearer {{apiKey}}
+
+### 定时任务：创建（cron 模式，绑云函数导出函数）
+# @name cronJobCreate
+POST {{baseUrl}}/v1/projects/{{projectId}}/cron-jobs
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "name": "nightly-refresh",
+  "description": "每天 02:00 UTC 调用 hello.Hello",
+  "schedule_kind": "cron",
+  "cron_expr": "0 2 * * *",
+  "func_file": "hello",
+  "func_export": "Hello",
+  "input_json": "{\"name\":\"cron\"}"
+}
+
+### 定时任务：列表（附 target_missing 标记）
+# @name cronJobList
+GET {{baseUrl}}/v1/projects/{{projectId}}/cron-jobs
+Authorization: Bearer {{apiKey}}
+
+### 定时任务：创建（interval 模式，每 10 分钟）
+# @name cronJobCreateInterval
+# POST {{baseUrl}}/v1/projects/{{projectId}}/cron-jobs
+# Authorization: Bearer {{apiKey}}
+# Content-Type: application/json
+#
+# {
+#   "name": "cache-warm",
+#   "schedule_kind": "interval",
+#   "interval_seconds": 600,
+#   "func_file": "hello",
+#   "func_export": "Hello"
+# }
+
+### 定时任务：更新（切换调度/目标/启停；name 不可改）
+# @name cronJobPatch
+# PATCH {{baseUrl}}/v1/projects/{{projectId}}/cron-jobs/nightly-refresh
+# Authorization: Bearer {{apiKey}}
+# Content-Type: application/json
+#
+# {
+#   "description": "改描述",
+#   "schedule_kind": "interval",
+#   "interval_seconds": 3600,
+#   "func_file": "hello",
+#   "func_export": "Hello",
+#   "enabled": false
+# }
+
+### 定时任务：运行记录（新→旧）
+# @name cronJobRuns
+# GET {{baseUrl}}/v1/projects/{{projectId}}/cron-jobs/nightly-refresh/runs?limit=20
+# Authorization: Bearer {{apiKey}}
+
+### 定时任务：手动立即执行（异步 202，不改排期）
+# @name cronJobTrigger
+# POST {{baseUrl}}/v1/projects/{{projectId}}/cron-jobs/nightly-refresh/trigger
+# Authorization: Bearer {{apiKey}}
+
+### 定时任务：删除（软删 204；运行记录保留）
+# @name cronJobDelete
+# DELETE {{baseUrl}}/v1/projects/{{projectId}}/cron-jobs/nightly-refresh
+# Authorization: Bearer {{apiKey}}

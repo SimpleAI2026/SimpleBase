@@ -27,7 +27,9 @@ export default defineConfig({
     },
     proxy: {
       '/v1': { target: apiTarget, changeOrigin: true },
-      '/health': { target: apiTarget, changeOrigin: true }
+      '/health': { target: apiTarget, changeOrigin: true },
+      // 云函数调用面前缀（ui-gofunction-plan §7.2）
+      '/go': { target: apiTarget, changeOrigin: true }
     }
   },
   preview: {

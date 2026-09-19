@@ -129,12 +129,247 @@ const state = {
   agentThreads: [],
   agentMessages: {},
   agentSchedules: [],
-  agentScheduleRuns: {}
+  agentScheduleRuns: {},
+  // 云函数（ui-gofunction-plan §9）：内存数组，种子一条 hello + 模板源码
+  gofunctions: [
+    {
+      id: 'gf-hello',
+      name: 'hello',
+      file: 'hello.go',
+      source: [
+        'package main',
+        '',
+        'type Request struct {',
+        '\tName string `json:"name"`',
+        '}',
+        '',
+        'type Response struct {',
+        '\tMessage string `json:"message"`',
+        '}',
+        '',
+        'func Hello(req Request) Response {',
+        '\treturn Response{Message: "hello, " + req.Name}',
+        '}'
+      ].join('\n'),
+      exports: ['Hello'],
+      createdAt: now(),
+      updatedAt: now(),
+      _projectId: DEFAULT_PROJECT
+    }
+  ],
+  // 定时任务（ui-cronjob-plan §7.5）：内存数组，种子一条绑 hello/Hello 的 cron 任务
+  cronJobs: [
+    {
+      id: 'cj-nightly',
+      name: 'nightly-hello',
+      description: '示例：每分钟调用 hello.Hello',
+      scheduleKind: 'cron',
+      cronExpr: '* * * * *',
+      intervalSeconds: undefined,
+      funcFile: 'hello',
+      funcExport: 'Hello',
+      inputJson: '{"name":"cron"}',
+      enabled: true,
+      lastRunAt: undefined,
+      nextRunAt: futureTime(60000),
+      lastStatus: '',
+      lastError: '',
+      runCount: 0,
+      targetMissing: false,
+      createdAt: now(),
+      updatedAt: now(),
+      _projectId: DEFAULT_PROJECT
+    }
+  ],
+  cronJobRuns: {}
+}
+
+/** mock 工具：N 毫秒后的 ISO 时间 */
+function futureTime(ms) {
+  return new Date(Date.now() + ms).toISOString()
 }
 
 /* ---------- Mock API ---------- */
 
 export const mockApi = {
+  gofunctions: {
+    async list(projectId) {
+      await delay()
+      return state.gofunctions
+        .filter((g) => g._projectId === projectId)
+        .map((g) => ({ ...g, source: undefined, _projectId: undefined }))
+    },
+    async create(projectId, body) {
+      await delay()
+      const name = String(body?.name || '').trim()
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,62}$/.test(name)) throw new Error('云函数名不符合规则')
+      if (state.gofunctions.some((g) => g._projectId === projectId && g.name === name)) {
+        throw new Error('go function already exists')
+      }
+      const exports = [...String(body.source).matchAll(/^func\s+([A-Z][A-Za-z0-9_]*)\s*\(/gm)].map(
+        (m) => m[1]
+      )
+      if (!exports.length) throw new Error('至少导出一个大写函数（func Name(req T) R）')
+      const item = {
+        id: 'gf-' + genId(),
+        name,
+        file: name + '.go',
+        source: String(body.source),
+        exports: [...new Set(exports)],
+        createdAt: now(),
+        updatedAt: now(),
+        _projectId: projectId
+      }
+      state.gofunctions.push(item)
+      const { _projectId, ...rest } = item
+      return rest
+    },
+    async get(projectId, name) {
+      await delay()
+      const found = state.gofunctions.find((g) => g._projectId === projectId && g.name === name)
+      if (!found) throw new Error('go function not found')
+      const { _projectId, ...rest } = found
+      return { ...rest }
+    },
+    async update(projectId, name, source) {
+      await delay()
+      const found = state.gofunctions.find((g) => g._projectId === projectId && g.name === name)
+      if (!found) throw new Error('go function not found')
+      const exports = [...String(source).matchAll(/^func\s+([A-Z][A-Za-z0-9_]*)\s*\(/gm)].map(
+        (m) => m[1]
+      )
+      if (!exports.length) throw new Error('至少导出一个大写函数（func Name(req T) R）')
+      found.source = String(source)
+      found.exports = [...new Set(exports)]
+      found.updatedAt = now()
+      const { _projectId, ...rest } = found
+      return { ...rest }
+    },
+    async remove(projectId, name) {
+      await delay()
+      const i = state.gofunctions.findIndex((g) => g._projectId === projectId && g.name === name)
+      if (i < 0) throw new Error('go function not found')
+      state.gofunctions.splice(i, 1)
+    }
+  },
+  // 定时任务（ui-cronjob-plan §7.5）：mock 不追求排期精确，trigger 直接落 completed run
+  cronjobs: {
+    async list(projectId) {
+      await delay()
+      return state.cronJobs
+        .filter((j) => j._projectId === projectId)
+        .map((j) => ({ ...j, _projectId: undefined }))
+    },
+    async create(projectId, body) {
+      await delay()
+      const name = String(body?.name || '').trim()
+      if (!/^[A-Za-z][A-Za-z0-9_-]{0,62}$/.test(name)) throw new Error('任务名不符合规则')
+      if (state.cronJobs.some((j) => j._projectId === projectId && j.name === name)) {
+        throw new Error('cron job already exists')
+      }
+      const target = state.gofunctions.find(
+        (g) => g._projectId === projectId && g.name === body.funcFile
+      )
+      if (!target) throw new Error('目标云函数不存在')
+      if (!target.exports.includes(body.funcExport)) throw new Error('目标函数未导出')
+      if (body.scheduleKind === 'cron' && !/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/.test(body.cronExpr || '')) {
+        throw new Error('cron 表达式须为 5 字段')
+      }
+      if (body.scheduleKind === 'interval' && !(body.intervalSeconds >= 60)) {
+        throw new Error('间隔至少 60 秒')
+      }
+      const item = {
+        id: 'cj-' + genId(),
+        name,
+        description: String(body.description || ''),
+        scheduleKind: body.scheduleKind,
+        cronExpr: body.scheduleKind === 'cron' ? body.cronExpr : '',
+        intervalSeconds: body.scheduleKind === 'interval' ? Number(body.intervalSeconds) : undefined,
+        funcFile: body.funcFile,
+        funcExport: body.funcExport,
+        inputJson: body.inputJson || '{}',
+        enabled: body.enabled !== false,
+        lastRunAt: undefined,
+        nextRunAt: futureTime(body.scheduleKind === 'interval' ? (body.intervalSeconds || 60) * 1000 : 3600000),
+        lastStatus: '',
+        lastError: '',
+        runCount: 0,
+        targetMissing: false,
+        createdAt: now(),
+        updatedAt: now(),
+        _projectId: projectId
+      }
+      state.cronJobs.push(item)
+      const { _projectId, ...rest } = item
+      return rest
+    },
+    async get(projectId, jobId) {
+      await delay()
+      const found = state.cronJobs.find((j) => j._projectId === projectId && j.id === jobId)
+      if (!found) throw new Error('cron job not found')
+      const { _projectId, ...rest } = found
+      return { ...rest }
+    },
+    async update(projectId, jobId, body) {
+      await delay()
+      const found = state.cronJobs.find((j) => j._projectId === projectId && j.id === jobId)
+      if (!found) throw new Error('cron job not found')
+      if (body.description != null) found.description = String(body.description)
+      if (body.scheduleKind) {
+        found.scheduleKind = body.scheduleKind
+        if (body.scheduleKind === 'cron') {
+          found.cronExpr = String(body.cronExpr || '')
+          found.intervalSeconds = undefined
+        } else {
+          found.intervalSeconds = Number(body.intervalSeconds || 60)
+          found.cronExpr = ''
+        }
+      }
+      if (body.funcFile) found.funcFile = body.funcFile
+      if (body.funcExport) found.funcExport = body.funcExport
+      if (body.inputJson != null) found.inputJson = body.inputJson
+      if (body.enabled != null) found.enabled = Boolean(body.enabled)
+      found.nextRunAt = futureTime(found.scheduleKind === 'interval' ? (found.intervalSeconds || 60) * 1000 : 3600000)
+      found.updatedAt = now()
+      const { _projectId, ...rest } = found
+      return { ...rest }
+    },
+    async remove(projectId, jobId) {
+      await delay()
+      const i = state.cronJobs.findIndex((j) => j._projectId === projectId && j.id === jobId)
+      if (i < 0) throw new Error('cron job not found')
+      state.cronJobs.splice(i, 1)
+    },
+    async runs(projectId, jobId) {
+      await delay()
+      const list = state.cronJobRuns[jobId] || []
+      return list.map((r) => ({ ...r }))
+    },
+    async trigger(projectId, jobId) {
+      await delay()
+      const found = state.cronJobs.find((j) => j._projectId === projectId && j.id === jobId)
+      if (!found) throw new Error('cron job not found')
+      // mock 简化：同步落一条 completed run（不真调云函数）
+      const run = {
+        id: 'cjr-' + genId(),
+        jobId,
+        trigger: 'manual',
+        status: 'completed',
+        error: '',
+        durationMs: rand(50, 900),
+        responseJson: JSON.stringify({ message: 'hello, cron' }),
+        startedAt: now(),
+        finishedAt: now(),
+        createdAt: now()
+      }
+      state.cronJobRuns[jobId] = [run, ...(state.cronJobRuns[jobId] || [])]
+      found.lastRunAt = now()
+      found.lastStatus = 'completed'
+      found.lastError = ''
+      found.runCount += 1
+      found.updatedAt = now()
+    }
+  },
   projects: {
     async list() {
       await delay(80)
@@ -526,7 +761,7 @@ export const mockApi = {
       const reply = {
         id: 'm-' + genId(),
         role: 'assistant',
-        content: `Mock Cloud Agent（项目 ${projectId}）：已收到「${String(req.content).slice(0, 80)}」`,
+        content: `Mock 云 Agent（项目 ${projectId}）：已收到「${String(req.content).slice(0, 80)}」`,
         tool_calls: [{ name: 'list_databases', content: '[{"name":"default"}]' }],
         created_at: now()
       }

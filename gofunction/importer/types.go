@@ -31,9 +31,6 @@ const (
 	BuiltinFunction = BuiltinFunctionKind
 )
 
-// BasicKind 基本类型别名（向后兼容）
-type BasicKind = ObjectKind
-
 // String 返回对象类型的字符串表示
 func (k ObjectKind) String() string {
 	switch k {
@@ -123,7 +120,3 @@ func NewType(name string, typ reflect.Type, doc string) *Object {
 		Documentation: doc,
 	}
 }
-
-// 向后兼容的类型别名
-type ExternalPackage = Package
-type ExternalObject = Object

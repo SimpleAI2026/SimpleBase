@@ -16,8 +16,7 @@ type withMethod struct {
 func (w withMethod) ValueMeth() int { return w.N }
 func (w *withMethod) PtrMeth() int  { return w.N }
 
-func TestKeywordsAndRegistryLookups(t *testing.T) {
-	_ = Keywords()
+func TestRegistryLookups(t *testing.T) {
 	reg := NewRegistry()
 	if err := reg.RegisterPackage("demo/path", "demo",
 		CreateFunction("Add", func(a, b int) int { return a + b }, "add"),
@@ -39,7 +38,6 @@ func TestKeywordsAndRegistryLookups(t *testing.T) {
 		t.Fatal("GetExternalType")
 	}
 	_ = GetExternalType(typ)
-	_ = GetCompletionItems()
 }
 
 func TestImporterTypeOfKinds(t *testing.T) {

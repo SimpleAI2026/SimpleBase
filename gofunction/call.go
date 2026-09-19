@@ -6,15 +6,14 @@ import (
 	"go/types"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gofunction/value"
 	"golang.org/x/tools/go/ssa"
 )
 
-// 调试开关：设置为 true 时打印每条语句的执行详情
-var debugging = false
-
+// callExternal 调用宿主函数（通过反射）
 func callExternal(fn reflect.Value, args []value.Value) value.Value {
 	if !fn.IsValid() || fn.Kind() != reflect.Func {
 		panic(fmt.Sprintf("callExternal: not a function: %s", fn.String()))
@@ -50,6 +49,83 @@ func callExternal(fn reflect.Value, args []value.Value) value.Value {
 	return value.Package(out)
 }
 
+// call 函数调用（分发到 ssa 函数 / 内置函数 / 外部函数）
+func call(caller *frame, callpos token.Pos, fn interface{}, args []value.Value) value.Value {
+	switch fun := fn.(type) {
+	case *ssa.Function:
+		if fun == nil {
+			panic("call of nil function") // nil of func type
+		}
+		return callSSA(caller, fun, args, nil)
+	case *ssa.Builtin:
+		return callBuiltin(caller, callpos, fun, args)
+	case *value.ExternalValue:
+		return callExternal(fun.Object.Value, args)
+	case reflect.Value:
+		return callExternal(fun, args)
+	case ssa.Value:
+		// 动态函数值（存于槽位/全局/常量等），统一走 fr.get 取值
+		f := caller.get(fun).Interface()
+		if rv, ok := f.(reflect.Value); ok {
+			return callExternal(rv, args)
+		}
+		return call(caller, callpos, f, args)
+	default:
+		rv := reflect.ValueOf(fun)
+		if rv.Kind() == reflect.Interface {
+			rv = rv.Elem()
+		}
+		return callExternal(rv, args)
+	}
+}
+
+// framePool 复用已执行完的 frame 及其 env 槽位数组。
+// frame 生命周期与单次函数调用一致且不再被引用后归还，池化可消除
+// 每次调用的 frame{} + env 分配。
+// 注意：goCall 对 env 做快照拷贝、子协程引用拷贝而非原 frame，
+// 归还时机由 waitGoroutines 保证在脚本协程结束后，无悬挂引用风险。
+var framePool sync.Pool
+
+// getFrameFromPool 取出并重置一个可复用 frame
+func getFrameFromPool(caller *frame, fn *ssa.Function) *frame {
+	fr, _ := framePool.Get().(*frame)
+	if fr == nil {
+		fr = &frame{}
+	}
+	fr.program = caller.program
+	fr.context = caller.context
+	fr.caller = caller
+	fr.fn = fn
+	fr.seqid = caller.seqid
+	fr.layout = caller.program.layoutOf(fn)
+	// env 槽位数组：按布局大小复用容量（P3-1）
+	fr.prepareEnv(fr.layout.nSlots)
+	fr.block = nil
+	fr.prevBlock = nil
+	fr.defers = nil
+	fr.result = nil
+	fr.panicking = false
+	fr.panic = nil
+	return fr
+}
+
+// putFrameToPool 归还 frame。调用方须确保之后不再访问该 frame
+// （当前唯一读取返回值的路径 fr.result 已在归还前拷贝）。
+func putFrameToPool(fr *frame) {
+	fr.program = nil
+	fr.context = nil
+	fr.caller = nil
+	fr.fn = nil
+	fr.layout = nil
+	fr.block = nil
+	fr.prevBlock = nil
+	fr.defers = nil
+	fr.result = nil
+	clear(fr.env) // 释放槽位持有的引用
+	framePool.Put(fr)
+}
+
+// callSSA 调用脚本内函数
 func callSSA(caller *frame, fn *ssa.Function, args []value.Value, env []*value.Value) value.Value {
 	// 外部函数（无函数体，来自宿主注册包）：从注册表查找实现并调用
 	if len(fn.Blocks) == 0 {
@@ -62,39 +138,36 @@ func callSSA(caller *frame, fn *ssa.Function, args []value.Value, env []*value.V
 		panic(fmt.Sprintf("no implementation for external function %s", fn.String()))
 	}
 
-	fr := caller.newChild(fn)
-	fr.env = make(map[ssa.Value]*value.Value)
+	fr := getFrameFromPool(caller, fn)
 	if len(fn.Blocks) > 0 {
 		fr.block = fn.Blocks[0]
 		// 入口基本块作为 prevBlock，保证首个 phi 能从入口边取值
 		fr.prevBlock = fn.Blocks[0]
 	}
-	fr.locals = make([]value.Value, len(fn.Locals))
+	// 局部变量：SSA 中 Locals 均为 *T（Alloc），槽位存放 ptr 值
+	// （reflect.New 产物），读写经 Elem() 共享 —— 指针语义天然保留
 	for i, l := range fn.Locals {
-		fr.locals[i] = zero(deref(l.Type()))
-		fr.env[l] = &fr.locals[i]
+		fr.env[fr.layout.localSlots[i]] = zero(deref(l.Type()))
 	}
-	for i, p := range fn.Params {
+	for i := range fn.Params {
 		if i >= len(args) {
 			panic(fmt.Sprintf("call %s: missing argument %d", fn.String(), i))
 		}
-		fr.env[p] = &args[i]
+		fr.env[fr.layout.paramSlots[i]] = args[i]
 	}
 	for i, fv := range fn.FreeVars {
 		if i >= len(env) {
 			panic(fmt.Sprintf("call %s: missing free var %s", fn.String(), fv.Name()))
 		}
-		fr.env[fv] = env[i]
+		fr.env[fr.layout.freeVarSlots[i]] = *env[i]
 	}
 	// 与 x/tools SSA interp 一致：panic 恢复后可能进入 Recover 块，需再次执行
 	for fr.block != nil {
-		runFrame(fr)
+		runFrameCompiled(fr)
 	}
-	// 返回时释放所有局部变量
-	for i := range fn.Locals {
-		fr.locals[i] = nil
-	}
-	return fr.result
+	result := fr.result
+	putFrameToPool(fr)
+	return result
 }
 
 // callBuiltin 调用内置函数
@@ -206,149 +279,4 @@ func deref(typ types.Type) types.Type {
 func zero(t types.Type) value.Value {
 	v := reflect.New(typeChange(t))
 	return value.RValue{Value: v}
-}
-
-// runFrame 在栈帧上执行程序
-func runFrame(fr *frame) {
-	var instr ssa.Instruction
-	defer func() {
-		if fr.block == nil {
-			return // 正常返回
-		}
-		fr.panicking = true
-		re := recover()
-		pos := "-"
-		if instr != nil && fr.program != nil && fr.program.mainPkg != nil {
-			pos = fr.program.mainPkg.Prog.Fset.Position(instr.Pos()).String()
-		}
-		fr.panic = fmt.Errorf("panic: %s: %v", pos, re)
-		fr.runDefers()
-		if fr.fn != nil {
-			fr.block = fr.fn.Recover
-		} else {
-			fr.block = nil
-		}
-	}()
-
-	// B9：_JUMP 必须继续外层循环以执行目标 block，而不能 break 出整个 runFrame
-BlockLoop:
-	for fr.block != nil {
-		for _, instr = range fr.block.Instrs {
-			c := visitInstr(fr, instr)
-			if !debugging {
-				if err := fr.context.Err(); err != nil {
-					panic(err)
-				}
-			}
-			switch c {
-			case _Return:
-				return
-			case _JUMP:
-				continue BlockLoop
-			}
-		}
-	}
-}
-
-// 下一条执行指令的状态
-type nextInstr int
-
-const (
-	_NEXT   nextInstr = iota // 继续执行下一条语句
-	_Return                  // 函数返回
-	_JUMP                    // 跳转到另一个block
-)
-
-// visitInstr 执行一条ssa.Instruction语句，返回值nextInstr用于指示下一条语句的位置
-func visitInstr(fr *frame, instr ssa.Instruction) nextInstr {
-	c := _NEXT
-	// 无法为第三方包中的结构体添加方法，因此通过switch type的方式来找到不同语句的执行方法
-	switch instr := instr.(type) {
-	case *ssa.DebugRef:
-		// no-op
-	case *ssa.Alloc:
-		c = runAlloc(fr, instr)
-	case *ssa.UnOp:
-		c = runUnOp(fr, instr)
-	case *ssa.BinOp:
-		c = runBinOp(fr, instr)
-	case *ssa.MakeInterface:
-		c = runMakeInterface(fr, instr)
-	case *ssa.Return:
-		c = runReturn(fr, instr)
-	case *ssa.IndexAddr:
-		c = runIndexAddr(fr, instr)
-	case *ssa.Index:
-		c = runIndex(fr, instr)
-	case *ssa.Field:
-		c = runField(fr, instr)
-	case *ssa.FieldAddr:
-		c = runFieldAddr(fr, instr)
-	case *ssa.Store:
-		c = runStore(fr, instr)
-	case *ssa.Slice:
-		c = runSlice(fr, instr)
-	case *ssa.Call:
-		c = runCall(fr, instr)
-	case *ssa.MakeSlice:
-		c = runMakeSlice(fr, instr)
-	case *ssa.MakeMap:
-		c = runMakeMap(fr, instr)
-	case *ssa.MapUpdate:
-		c = runMapUpdate(fr, instr)
-	case *ssa.Lookup:
-		c = runLookup(fr, instr)
-	case *ssa.Extract:
-		c = runExtract(fr, instr)
-	case *ssa.If:
-		c = runIf(fr, instr)
-	case *ssa.Jump:
-		c = runJump(fr, instr)
-	case *ssa.Phi:
-		c = runPhi(fr, instr)
-	case *ssa.Convert:
-		c = runConvert(fr, instr)
-	case *ssa.Range:
-		c = runRange(fr, instr)
-	case *ssa.Next:
-		c = runNext(fr, instr)
-	case *ssa.ChangeType:
-		c = runChangeType(fr, instr)
-	case *ssa.ChangeInterface:
-		c = runChangeInterface(fr, instr)
-	case *ssa.MakeClosure:
-		c = runMakeClosure(fr, instr)
-	case *ssa.Defer:
-		c = runDefer(fr, instr)
-	case *ssa.RunDefers:
-		c = runRunDefers(fr, instr)
-	case *ssa.MakeChan:
-		c = runMakeChan(fr, instr)
-	case *ssa.Send:
-		c = runSend(fr, instr)
-	case *ssa.TypeAssert:
-		c = runTypeAssert(fr, instr)
-	case *ssa.Go:
-		c = runGo(fr, instr)
-	case *ssa.Panic:
-		c = runPanic(fr, instr)
-	case *ssa.Select:
-		c = runSelect(fr, instr)
-	default:
-		panic(fmt.Sprintf("unexpected instruction: %T", instr))
-	}
-
-	if debugging {
-		logDebug("run %s: \t%s \t%T", fr.program.mainPkg.Prog.Fset.Position(instr.Pos()), instr.String(), instr)
-		if val, ok := instr.(ssa.Value); ok {
-			if pv, ok := fr.env[val]; ok && pv != nil {
-				v := *pv
-				if v != nil && v.IsValid() {
-					logDebug("\t\t\t%#v", v.Interface())
-				}
-			}
-		}
-	}
-
-	return c
 }
