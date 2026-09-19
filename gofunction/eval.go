@@ -12,6 +12,10 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
+// skipFastEval is a test-only seam so coverage can exercise the generic
+// unop/binop fallbacks that production keeps behind the typed fast paths.
+var skipFastEval bool
+
 // unop 一元表达式求值
 func unop(instr *ssa.UnOp, x value.Value) value.Value {
 	if instr.Op == token.MUL {
@@ -20,28 +24,30 @@ func unop(instr *ssa.UnOp, x value.Value) value.Value {
 		return value.RValue{Value: x.RValue().Elem()}
 	}
 	// 数值取负/取反/布尔取非快路径（免 interface{} 装箱）
-	switch x.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		switch instr.Op {
-		case token.SUB:
-			return convTyped(-x.Int(), instr.Type())
-		case token.XOR:
-			return convTyped(^x.Int(), instr.Type())
-		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		switch instr.Op {
-		case token.SUB:
-			return convTyped(-x.Uint(), instr.Type())
-		case token.XOR:
-			return convTyped(^x.Uint(), instr.Type())
-		}
-	case reflect.Float32, reflect.Float64:
-		if instr.Op == token.SUB {
-			return convTyped(-x.Float(), instr.Type())
-		}
-	case reflect.Bool:
-		if instr.Op == token.NOT {
-			return boolValue(!x.Bool())
+	if !skipFastEval {
+		switch x.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			switch instr.Op {
+			case token.SUB:
+				return convTyped(-x.Int(), instr.Type())
+			case token.XOR:
+				return convTyped(^x.Int(), instr.Type())
+			}
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			switch instr.Op {
+			case token.SUB:
+				return convTyped(-x.Uint(), instr.Type())
+			case token.XOR:
+				return convTyped(^x.Uint(), instr.Type())
+			}
+		case reflect.Float32, reflect.Float64:
+			if instr.Op == token.SUB {
+				return convTyped(-x.Float(), instr.Type())
+			}
+		case reflect.Bool:
+			if instr.Op == token.NOT {
+				return boolValue(!x.Bool())
+			}
 		}
 	}
 	var result interface{}
@@ -95,8 +101,10 @@ func unop(instr *ssa.UnOp, x value.Value) value.Value {
 func binop(instr *ssa.BinOp, x, y value.Value) value.Value {
 	// 数值快路径：直接按目标类型产出，避免 interface{} 装箱 + 反射转换。
 	// SSA 保证 BinOp 两操作数同类型，且运算结果类型即 instr.Type()。
-	if v, ok := binopFast(instr, x, y); ok {
-		return v
+	if !skipFastEval {
+		if v, ok := binopFast(instr, x, y); ok {
+			return v
+		}
 	}
 	var result interface{}
 	switch instr.Op {

@@ -1,0 +1,2 @@
+# Placeholder so //go:embed all:dist compiles without a UI build.
+# No index.html here: Register() still reports "管理端未构建".
