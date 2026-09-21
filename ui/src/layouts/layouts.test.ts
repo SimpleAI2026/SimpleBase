@@ -51,7 +51,7 @@ describe('layouts', () => {
           Badge: { template: '<span><slot /></span>' },
           Button: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
           NavMenu: { template: '<div />' },
-          ApiKeyDrawer: { template: '<div />' },
+          SettingsModal: { template: '<div />' },
           GlobalProjectSwitcher: { template: '<div />' }
         }
       }
@@ -62,8 +62,8 @@ describe('layouts', () => {
     const store = useAuthStore()
     const settingsBtn = w.findAll('button').find((b) => b.html().includes('Settings') || true)
     await w.findAll('button').at(-2)?.trigger('click')
-    store.openDrawer()
-    expect(store.keyDrawerOpen).toBe(true)
+    store.openSettings()
+    expect(store.settingsOpen).toBe(true)
     w.unmount()
   })
 

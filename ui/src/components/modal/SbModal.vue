@@ -1,14 +1,20 @@
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent :class="contentClass" :show-close-button="true">
+    <DialogContent
+      :class="contentClass"
+      :style="contentStyle"
+      :data-max-width="cssSize(maxWidth) || undefined"
+      :data-min-width="cssSize(minWidth) || undefined"
+      :show-close-button="true"
+    >
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription v-if="description" class="sr-only">{{ description }}</DialogDescription>
       </DialogHeader>
-      <div class="min-w-0">
+      <div :class="bodyClass || 'min-w-0'">
         <slot />
       </div>
-      <DialogFooter>
+      <DialogFooter v-if="!hideFooter">
         <slot name="footer">
           <Button variant="outline" @click="onCancel">{{ cancelText }}</Button>
           <Button :disabled="okDisabled || confirmLoading" @click="emit('ok')">
@@ -22,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type StyleValue } from 'vue'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -40,6 +46,12 @@ const props = withDefaults(
     title?: string
     description?: string
     width?: number | string
+    /** Exact max-width (px if number). Overrides the `width` breakpoint mapping. */
+    maxWidth?: number | string
+    /** Exact min-width (px if number). */
+    minWidth?: number | string
+    hideFooter?: boolean
+    bodyClass?: string
     confirmLoading?: boolean
     okText?: string
     cancelText?: string
@@ -61,16 +73,43 @@ const emit = defineEmits<{
 
 const okDisabled = computed(() => Boolean(props.okButtonProps?.disabled))
 
+function cssSize(v: number | string | undefined): string | undefined {
+  if (v == null || v === '') return undefined
+  if (typeof v === 'number') return `${v}px`
+  if (/^\d+(\.\d+)?$/.test(v.trim())) return `${v.trim()}px`
+  return v
+}
+
+const contentStyle = computed<StyleValue>(() => {
+  const style: Record<string, string> = {}
+  const maxW = cssSize(props.maxWidth)
+  const minW = cssSize(props.minWidth)
+  if (maxW) style['--sb-modal-max-w'] = maxW
+  if (minW) style['--sb-modal-min-w'] = minW
+  return style
+})
+
 const contentClass = computed(() => {
-  const w = props.width
-  if (typeof w === 'number') {
-    if (w >= 900) return 'sm:max-w-5xl'
-    if (w >= 800) return 'sm:max-w-4xl'
-    if (w >= 700) return 'sm:max-w-3xl'
-    if (w >= 600) return 'sm:max-w-2xl'
-    if (w <= 480) return 'sm:max-w-md'
+  const classes: string[] = []
+  if (props.maxWidth != null && props.maxWidth !== '') {
+    classes.push('sm:max-w-[var(--sb-modal-max-w)]')
+  } else {
+    const w = props.width
+    if (typeof w === 'number') {
+      if (w >= 900) classes.push('sm:max-w-5xl')
+      else if (w >= 800) classes.push('sm:max-w-4xl')
+      else if (w >= 700) classes.push('sm:max-w-3xl')
+      else if (w >= 600) classes.push('sm:max-w-2xl')
+      else if (w <= 480) classes.push('sm:max-w-md')
+      else classes.push('sm:max-w-lg')
+    } else {
+      classes.push('sm:max-w-lg')
+    }
   }
-  return 'sm:max-w-lg'
+  if (props.minWidth != null && props.minWidth !== '') {
+    classes.push('sm:min-w-[var(--sb-modal-min-w)]')
+  }
+  return classes.join(' ')
 })
 
 function onCancel() {

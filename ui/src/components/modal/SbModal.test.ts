@@ -20,6 +20,29 @@ describe('SbModal', () => {
     }
   })
 
+  it('applies maxWidth and minWidth CSS variables and can hide the footer', async () => {
+    const w = mount(SbModal, {
+      props: { open: true, title: 'Settings', maxWidth: 900, minWidth: 480, hideFooter: true },
+      global: { stubs }
+    })
+    expect(w.text()).toContain('Settings')
+    expect(w.text()).not.toContain('确定')
+    const vm = w.vm as any
+    expect(vm.contentClass).toContain('sm:max-w-[var(--sb-modal-max-w)]')
+    expect(vm.contentClass).toContain('sm:min-w-[var(--sb-modal-min-w)]')
+    expect(JSON.stringify(vm.contentStyle)).toContain('900px')
+    expect(JSON.stringify(vm.contentStyle)).toContain('480px')
+    w.unmount()
+
+    const px = mount(SbModal, {
+      props: { open: true, title: 'W', maxWidth: '720px', minWidth: '20rem' },
+      global: { stubs }
+    })
+    expect(px.text()).toContain('W')
+    expect(px.text()).toContain('确定')
+    px.unmount()
+  })
+
   it('emits ok and cancel', async () => {
     const w = mount(SbModal, {
       props: { open: true, title: 'X', description: 'd', confirmLoading: true },

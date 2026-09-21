@@ -49,7 +49,7 @@
           <Badge v-if="isMock" variant="warning" class="hidden sm:inline-flex">Mock 数据</Badge>
           <Tooltip>
             <TooltipTrigger as-child>
-              <Button variant="ghost" size="icon-lg" @click="authStore.openDrawer()">
+              <Button variant="ghost" size="icon-lg" @click="authStore.openSettings()">
                 <span class="relative inline-flex">
                   <SettingsIcon />
                   <span
@@ -60,7 +60,7 @@
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {{ authStore.lastUnauthorizedAt > 0 ? 'API Key 无效，点击配置' : '连接设置' }}
+              {{ authStore.lastUnauthorizedAt > 0 ? 'API Key 无效，点击配置' : '设置' }}
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -83,12 +83,12 @@
       </div>
     </SidebarInset>
 
-    <ApiKeyDrawer />
+    <SettingsModal />
   </SidebarProvider>
 </template>
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { BookOpenIcon, RefreshCwIcon, SettingsIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb'
@@ -108,12 +108,30 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { isMock } from '../services/api'
 import { useAuthStore } from '../stores/auth'
 import NavMenu from '../components/NavMenu.vue'
-import ApiKeyDrawer from '../components/ApiKeyDrawer.vue'
+import SettingsModal from '../components/SettingsModal.vue'
 import GlobalProjectSwitcher from '../components/GlobalProjectSwitcher.vue'
 import router from '../router'
 
 const route = useRoute()
+const vueRouter = useRouter()
 const authStore = useAuthStore()
+
+watch(
+  () => route.query.settings,
+  (v) => {
+    if (v === undefined || v === null || v === '') return
+    const raw = Array.isArray(v) ? v[0] : v
+    const tab =
+      raw === 'appearance' || raw === 'models' || raw === 'providers' || raw === 'connection'
+        ? raw
+        : undefined
+    authStore.openSettings(tab)
+    const query = { ...route.query }
+    delete query.settings
+    void vueRouter.replace({ path: route.path, query })
+  },
+  { immediate: true }
+)
 
 const currentTitle = computed(() => {
   const name = route.name as string

@@ -88,5 +88,6 @@ describe('router-backed chrome', () => {
       }
     })
     expect(w.text()).toContain('监控大盘')
+    expect(w.text()).not.toContain('设置')
   })
 })

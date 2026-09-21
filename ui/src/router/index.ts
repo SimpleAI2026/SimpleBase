@@ -5,7 +5,7 @@ import DocsLayout from '../layouts/DocsLayout.vue'
 /**
  * 路由元信息单一数据源：页面标题、菜单名、图标全部收敛到 meta。
  * NavMenu 遍历路由渲染（跳过 hidden），DefaultLayout 从 meta 取面包屑标题。
- * hidden：文档站等非控制台入口不进侧栏。
+ * hidden：文档站、设置 deep-link 等非控制台入口不进侧栏。
  *
  * 控制台与文档站拆布局：App.vue 只挂 <router-view />，
  * 控制台子路由走 DefaultLayout（侧栏 + 项目切换），文档子路由走 DocsLayout。
@@ -57,8 +57,8 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'settings',
         name: 'settings',
-        component: () => import('../pages/Settings.vue'),
-        meta: { title: '设置' }
+        redirect: { path: '/', query: { settings: '1' } },
+        meta: { title: '设置', hidden: true }
       },
       {
         path: 'logs',

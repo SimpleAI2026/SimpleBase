@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useProjectStore } from './stores/project'
 import { api, resetApiMocks } from './test/api-mock'
 import {
+  clickText,
   closedDb,
   mountWithApp,
   readyDb,
@@ -18,7 +19,7 @@ import Databases from './pages/Databases.vue'
 import GoFunctions from './pages/GoFunctions.vue'
 import Logs from './pages/Logs.vue'
 import S3Manager from './pages/S3Manager.vue'
-import Settings from './pages/Settings.vue'
+import AppSettingsPanel from './components/settings/AppSettingsPanel.vue'
 import CronJobModal from './components/modal/CronJobModal.vue'
 import GoFunctionModal from './components/modal/GoFunctionModal.vue'
 import SqlWorkModal from './components/modal/SqlWorkModal.vue'
@@ -26,7 +27,7 @@ import DocumentListModal from './components/modal/DocumentListModal.vue'
 import SbModal from './components/modal/SbModal.vue'
 import AgentScheduleModal from './components/ai/AgentScheduleModal.vue'
 import CronJobRunsDrawer from './components/CronJobRunsDrawer.vue'
-import ApiKeyDrawer from './components/ApiKeyDrawer.vue'
+import ConnectionPanel from './components/settings/ConnectionPanel.vue'
 import GlobalProjectSwitcher from './components/GlobalProjectSwitcher.vue'
 
 vi.mock('./services/api', async () => {
@@ -128,7 +129,7 @@ describe('remaining coverage gaps', () => {
     wrapper.unmount()
   })
 
-  it('CronJobs / S3 / Logs / Settings / GoFunctions non-Error paths', async () => {
+  it('CronJobs / S3 / Logs / AppSettings / GoFunctions non-Error paths', async () => {
     const cron = await mountWithApp(CronJobs)
     const cvm = vmOf(cron.wrapper)
     expect(cvm.scheduleText({ scheduleKind: 'interval', intervalSeconds: undefined })).toContain('每')
@@ -164,7 +165,7 @@ describe('remaining coverage gaps', () => {
     await lvm.load()
     logs.wrapper.unmount()
 
-    const settings = await mountWithApp(Settings)
+    const settings = await mountWithApp(AppSettingsPanel)
     const st = vmOf(settings.wrapper)
     api.llmSettings.put.mockRejectedValueOnce({ nope: true })
     await st.patchDefaults({ maxTokens: 1 })
@@ -174,8 +175,9 @@ describe('remaining coverage gaps', () => {
       await settings.wrapper.get('#max-tokens').setValue('')
       await flushPromises()
     }
-    if (settings.wrapper.find('.sheet-content-close').exists()) {
-      await settings.wrapper.get('.sheet-content-close').trigger('click')
+    if (settings.wrapper.find('button').exists()) {
+      await clickText(settings.wrapper, '配置').catch(() => undefined)
+      await clickText(settings.wrapper, '取消').catch(() => undefined)
     }
     settings.wrapper.unmount()
 
@@ -385,7 +387,7 @@ describe('remaining coverage gaps', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
-    const key = mount(ApiKeyDrawer, { global: { plugins: [pinia], stubs: uiStubs } })
+    const key = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
     const keyInput = key.find('input')
     if (keyInput.exists()) await keyInput.setValue('k')
     key.unmount()

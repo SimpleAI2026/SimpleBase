@@ -1,24 +1,23 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { useSettingsStore } from '../stores/settings'
-import { api, resetApiMocks } from '../test/api-mock'
-import { clickText, mountWithApp } from '../test/helpers'
+import { useSettingsStore } from '../../stores/settings'
+import { api, resetApiMocks } from '../../test/api-mock'
+import { clickText, mountWithApp } from '../../test/helpers'
+import AppSettingsPanel from './AppSettingsPanel.vue'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('../../services/api', async () => {
+  const m = await import('../../test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import Settings from './Settings.vue'
-
-describe('Settings', () => {
+describe('AppSettingsPanel', () => {
   beforeEach(() => {
     resetApiMocks()
   })
 
   it('loads remote defaults, patches theme/model, and sets a default provider', async () => {
-    const { wrapper, pinia } = await mountWithApp(Settings)
+    const { wrapper, pinia } = await mountWithApp(AppSettingsPanel)
     const settings = useSettingsStore(pinia)
     await wrapper.get('.tg-dark').trigger('click')
     expect(settings.theme).toBe('dark')
@@ -45,7 +44,7 @@ describe('Settings', () => {
   })
 
   it('opens the editor, validates, saves, and clears keys', async () => {
-    const { wrapper, pinia } = await mountWithApp(Settings)
+    const { wrapper, pinia } = await mountWithApp(AppSettingsPanel)
     await clickText(wrapper, '配置')
     expect(wrapper.text()).toContain('配置 OpenAI')
     await clickText(wrapper, '保存到本地')
@@ -67,7 +66,7 @@ describe('Settings', () => {
   it('keeps local defaults when remote load fails and toasts put errors', async () => {
     api.llmSettings.get.mockRejectedValueOnce(new Error('nope'))
     api.llmSettings.put.mockRejectedValueOnce(new Error('save def'))
-    const { wrapper, pinia } = await mountWithApp(Settings)
+    const { wrapper, pinia } = await mountWithApp(AppSettingsPanel)
     await wrapper.get('.select-emit').trigger('click')
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('save def')
@@ -77,7 +76,7 @@ describe('Settings', () => {
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('prov')
 
-    const { useProjectStore } = await import('../stores/project')
+    const { useProjectStore } = await import('../../stores/project')
     useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
     await flushPromises()
     expect(api.llmSettings.get.mock.calls.length).toBeGreaterThan(1)
@@ -87,14 +86,7 @@ describe('Settings', () => {
     vm.onTheme(['nope'])
     vm.openEditor('openai')
     await flushPromises()
-    if (wrapper.find('.sheet').exists()) {
-      if (wrapper.find('.sheet-close').exists()) {
-        await wrapper.get('.sheet-close').trigger('click')
-      }
-      if (wrapper.find('.sheet-content-close').exists()) {
-        await wrapper.get('.sheet-content-close').trigger('click')
-      }
-    }
+    await clickText(wrapper, '取消')
     if (wrapper.find('.combo-emit').exists()) {
       await wrapper.get('.combo-emit').trigger('click')
     }

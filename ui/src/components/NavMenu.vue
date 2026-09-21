@@ -24,7 +24,6 @@ import {
   DatabaseIcon,
   FileTextIcon,
   LayoutDashboardIcon,
-  SettingsIcon,
   TimerIcon,
 } from '@lucide/vue'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
@@ -37,7 +36,6 @@ const iconMap: Record<string, Component> = {
   gofunctions: CodeIcon,
   'cron-jobs': TimerIcon,
   agents: BotIcon,
-  settings: SettingsIcon,
   logs: FileTextIcon,
 }
 
@@ -59,7 +57,7 @@ const menuItems = computed<MenuItem[]>(() =>
     }))
 )
 
-const routeOrder = ['dashboard', 'databases', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs', 'settings']
+const routeOrder = ['dashboard', 'databases', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs']
 function orderOf(name: string) {
   const i = routeOrder.indexOf(name)
   return i === -1 ? 99 : i
