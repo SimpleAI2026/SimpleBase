@@ -1,80 +1,97 @@
-# SimpleBase 单实例部署配置示例
+# SimpleBase 单实例配置示例
 #
-# 注意：internal/config 实际只从环境变量加载（前缀 SIMPLEBASE_），
-# 不解析 YAML。本文件仅作为字段清单参考；运行时请用 .env 或环境变量。
-# 完整变量名见 .env.example。
+# 复制为 config.yaml（已被 .gitignore）并按环境修改。
+# 加载顺序：代码默认值 → 本文件 → SIMPLEBASE_* 环境变量覆盖。
+# 生产密钥不要写进本文件：用环境变量或 IAM 角色注入。
+#
+# 本地开发最短路径：
+#   1. cp config.example.yaml config.yaml
+#   2. 设置 dev_mode: true，并填写 auth.api_key_hash_secret（或 SIMPLEBASE_AUTH_APIKEY_SECRET）
+#   3. ./build.sh dev
+#      （脚本在缺少 config.yaml 时会从本文件生成一份本地副本，并把 log_level 设为 debug）
 
-# 启动所需的最小环境变量（writable 实例）：
-#
-#   SIMPLEBASE_INSTANCE_ID=simplebase-prod-1
-#   SIMPLEBASE_DB_CACHE_DIR=/var/lib/simplebase/cache
-#   SIMPLEBASE_AUTH_APIKEY_SECRET=<32 字节随机密钥>
-#   SIMPLEBASE_S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
-#   SIMPLEBASE_S3_REGION=us-east-1
-#   SIMPLEBASE_S3_BUCKET=simplebase-prod
-#   SIMPLEBASE_S3_ACCESS_KEY=<IAM 或环境注入>
-#   SIMPLEBASE_S3_SECRET_KEY=<IAM 或环境注入>
-#
-# 以下结构仅说明字段语义，不代表可加载的 YAML。
-
+# ── HTTP ──────────────────────────────────────────────
 http:
-  address: ":8080"            # SIMPLEBASE_HTTP_ADDRESS
+  address: ":8080"            # SIMPLEBASE_HTTP_ADDRESS；./build.sh --api-port 会覆盖
   read_timeout: 15s           # SIMPLEBASE_HTTP_READ_TIMEOUT
   write_timeout: 30s          # SIMPLEBASE_HTTP_WRITE_TIMEOUT
   idle_timeout: 60s           # SIMPLEBASE_HTTP_IDLE_TIMEOUT
+  shutdown_timeout: 30s       # SIMPLEBASE_HTTP_SHUTDOWN_TIMEOUT；SIGTERM 优雅退出预算
 
+# ── Instance ──────────────────────────────────────────
 instance:
-  id: "simplebase-prod-1"     # SIMPLEBASE_INSTANCE_ID（必填）
-  writable: true              # SIMPLEBASE_INSTANCE_WRITABLE
+  id: "simplebase-dev-1"      # SIMPLEBASE_INSTANCE_ID（必填）；S3 对象前缀 / 日志身份
+  writable: true              # SIMPLEBASE_INSTANCE_WRITABLE；单写实例必须为 true
 
+# 本地开发：DATA_PATH 落盘、旁路 S3、写入 Dev 种子 API key。生产必须 false。
+dev_mode: false               # SIMPLEBASE_DEV_MODE
+
+# ── Database / DuckLake ───────────────────────────────
 database:
-  engine: ducklake            # SIMPLEBASE_DB_ENGINE：仅 ducklake（local/turso 已退役）
+  engine: ducklake            # SIMPLEBASE_DB_ENGINE；仅允许 ducklake
   cache_dir: ".cache"         # SIMPLEBASE_DB_CACHE_DIR（必填）
-  idle_timeout: 5m            # SIMPLEBASE_DB_IDLE_TIMEOUT
-  max_open: 8                 # SIMPLEBASE_DB_MAX_OPEN
-  max_idle: 2                 # SIMPLEBASE_DB_MAX_IDLE
+  cache_max_bytes: 1073741824 # SIMPLEBASE_DB_CACHE_MAX_BYTES；1GiB LRU 上限（生产可改为 10GiB）
+  cache_max_databases: 256    # SIMPLEBASE_DB_CACHE_MAX_DATABASES
+  idle_timeout: 5m            # SIMPLEBASE_DB_IDLE_TIMEOUT；空闲库句柄关闭
+  max_open: 8                 # SIMPLEBASE_DB_MAX_OPEN；同时打开的用户库数（非 sql.DB pool）
   ducklake:
     memory_limit: 512MB       # SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT
     threads: 2                # SIMPLEBASE_DUCKLAKE_THREADS
     extension_dir: ""         # SIMPLEBASE_DUCKLAKE_EXTENSION_DIR（生产预置扩展）
-    data_inlining_row_limit: 100
-    parquet_compression: zstd
-    target_file_size: 64MB
+    data_inlining_row_limit: 100  # SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT
+    parquet_compression: zstd     # SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION
+    target_file_size: 64MB        # SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE
+    require_commit_message: false # SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE
     catalog_sync:
-      mode: debounce          # debounce | sync_on_commit
-      debounce_ms: 200
-      keep_versions: 10
+      mode: debounce          # debounce | sync_on_commit；SIMPLEBASE_DUCKLAKE_SYNC_MODE
+      debounce: 200ms         # SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS（仍接受 debounce_ms 整数）
+      keep_versions: 10       # SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS
     maintenance:
-      checkpoint_interval: 1h
-      expire_older_than: 7d
-      delete_older_than: 1d
-      rewrite_delete_threshold: 0.95
+      checkpoint_interval: 1h # SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL
+      expire_older_than: 7d   # SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN（支持 Nd）
+      delete_older_than: 1d   # SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN
+      rewrite_delete_threshold: 0.95  # SIMPLEBASE_DUCKLAKE_MAINT_REWRITE_DELETE_THRESHOLD
 
+# ── S3（非密钥）──────────────────────────────────────
+# writable + 非 dev_mode 时 bucket/region/prefix 必填。
+# access_key / secret_key 生产必须走环境变量；留空则使用 AWS 默认凭证链（IAM/IRSA）。
 s3:
-  endpoint: ""                # SIMPLEBASE_S3_ENDPOINT
-  region: ""                  # SIMPLEBASE_S3_REGION（writable 必填）
-  bucket: ""                  # SIMPLEBASE_S3_BUCKET（writable 必填）
+  endpoint: ""                # SIMPLEBASE_S3_ENDPOINT；COS/MinIO 填完整 URL
+  region: ""                  # SIMPLEBASE_S3_REGION
+  bucket: ""                  # SIMPLEBASE_S3_BUCKET
   prefix: "simplebase"        # SIMPLEBASE_S3_PREFIX
-  access_key: ""              # SIMPLEBASE_S3_ACCESS_KEY（环境注入）
-  secret_key: ""              # SIMPLEBASE_S3_SECRET_KEY（环境注入）
-  force_path_style: false     # SIMPLEBASE_S3_FORCE_PATH_STYLE
+  force_path_style: false     # SIMPLEBASE_S3_FORCE_PATH_STYLE；COS/MinIO 常为 true
+  kms_key_id: ""              # SIMPLEBASE_S3_KMS_KEY_ID；SSE-KMS CMK id，非密钥材料
+  # access_key: ""            # 禁止提交。SIMPLEBASE_S3_ACCESS_KEY
+  # secret_key: ""            # 禁止提交。SIMPLEBASE_S3_SECRET_KEY
 
+# ── System database ───────────────────────────────────
 system_database:
-  name: "simplebase-system"          # SIMPLEBASE_SYSTEM_DB_NAME
-  hide_from_list: true               # SIMPLEBASE_SYSTEM_DB_HIDE_FROM_LIST
-  metrics_flush_interval: 2s         # SIMPLEBASE_METRICS_FLUSH_INTERVAL
-  log_flush_interval: 2s             # SIMPLEBASE_LOG_FLUSH_INTERVAL
-  log_keep_days: 14                  # SIMPLEBASE_LOG_KEEP_DAYS
+  name: "simplebase-system"   # SIMPLEBASE_SYSTEM_DB_NAME
+  metrics_flush_interval: 2s  # SIMPLEBASE_METRICS_FLUSH_INTERVAL； besides 64 条缓冲
+  log_flush_interval: 2s      # SIMPLEBASE_LOG_FLUSH_INTERVAL
+  log_keep_days: 14           # SIMPLEBASE_LOG_KEEP_DAYS；种子 sys_log_retention（无行时）
 
+# ── Auth ──────────────────────────────────────────────
 auth:
-  api_key_hash_secret: ""     # SIMPLEBASE_AUTH_APIKEY_SECRET（必填，32 字节随机）
+  # 必填 HMAC 盐。生产：SIMPLEBASE_AUTH_APIKEY_SECRET；dev 可写在本地 config.yaml。
+  api_key_hash_secret: ""
 
+# ── LLM ───────────────────────────────────────────────
+# 运行时密钥以 catalog CredentialRef 为准；以下为实例级兜底（catalog 无密钥时）。
+# 不要自动发现 OPENAI_API_KEY 等未加前缀的环境变量。
 llm:
-  # providers: openai,anthropic       # SIMPLEBASE_LLM_PROVIDERS
-  # provider.openai.api_key: ""       # SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY
-  # provider.openai.base_url: ""      # SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL
-  # provider.openai.default_model: "" # SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL
+  enabled: true               # SIMPLEBASE_LLM_ENABLED；false 则不构造 gateway
+  # providers:
+  #   openai:
+  #     api_key: ""           # SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY（生产走环境）
+  #     base_url: ""          # SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL
+  #     default_model: "gpt-4o-mini"  # SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL
+  #     allowed_models: ["gpt-4o-mini", "gpt-4o"]  # SIMPLEBASE_LLM_PROVIDER_OPENAI_ALLOWED_MODELS
+  #     timeout: 60s          # SIMPLEBASE_LLM_PROVIDER_OPENAI_TIMEOUT
+  # SIMPLEBASE_LLM_PROVIDERS=openai,anthropic 可增补 provider 名。
 
+# ── Limits ────────────────────────────────────────────
 limits:
   max_request_bytes: 1048576        # SIMPLEBASE_LIMITS_MAX_REQUEST_BYTES
   max_query_rows: 1000              # SIMPLEBASE_LIMITS_MAX_QUERY_ROWS
@@ -83,7 +100,10 @@ limits:
   max_batch_statements: 100         # SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS
   max_sql_bytes: 65536              # SIMPLEBASE_LIMITS_MAX_SQL_BYTES
 
+# ── Observability ─────────────────────────────────────
 observability:
-  log_level: "info"           # SIMPLEBASE_LOG_LEVEL（生产默认 info；./build.sh dev 未设置时用 debug）
-  log_format: "json"          # SIMPLEBASE_LOG_FORMAT
-  metrics_path: "/metrics"    # SIMPLEBASE_METRICS_PATH
+  log_level: info             # debug | info | warn | error；SIMPLEBASE_LOG_LEVEL
+                              # ./build.sh dev 仅在 yaml/.env 都未设置时默认 debug
+  log_format: json            # json | console（console 为 zap 控制台编码器，非 JSON）
+  log_output: stderr          # stderr | stdout；SIMPLEBASE_LOG_OUTPUT
+  metrics_path: /metrics      # SIMPLEBASE_METRICS_PATH
