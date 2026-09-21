@@ -26,4 +26,13 @@ describe('router', () => {
     const docs = router.getRoutes().find((r) => r.path === '/docs')
     expect(docs?.meta?.hidden).toBe(true)
   })
+
+  it('resolves lazy page loaders', async () => {
+    const loaders = router.getRoutes()
+      .map((r) => r.components?.default)
+      .filter((fn): fn is () => Promise<unknown> => typeof fn === 'function')
+    expect(loaders.length).toBeGreaterThan(0)
+    const loaded = await Promise.all(loaders.map((fn) => fn()))
+    expect(loaded.every(Boolean)).toBe(true)
+  })
 })

@@ -19,8 +19,12 @@ import DocsWiki from './DocsWiki.vue'
 
 describe('DocsWiki empty catalog', () => {
   it('shows the failed-load alert when no markdown matched', async () => {
-    const { wrapper } = await mountWithApp(DocsWiki, { path: '/docs' })
+    const { wrapper } = await mountWithApp(DocsWiki, { path: '/docs/mod/slug' })
     expect(wrapper.text()).toContain('未能加载文档')
     expect(wrapper.text()).toContain('0')
+    const { wrapper: w2 } = await mountWithApp(DocsWiki, { path: '/docs/mod' })
+    expect(w2.text()).toContain('未能加载文档')
+    const { wrapper: w3 } = await mountWithApp(DocsWiki, { path: '/docs' })
+    expect(w3.text()).toContain('未能加载文档')
   })
 })

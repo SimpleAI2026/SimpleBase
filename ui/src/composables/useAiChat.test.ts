@@ -65,6 +65,20 @@ describe('useAiChat', () => {
     expect(toast.error).toHaveBeenCalledWith('sse')
     chatApi.stop()
     expect(close).toHaveBeenCalled()
+    stream.mockImplementation((_pid, _req, handlers) => {
+      handlers.onError('plain')
+      return { close }
+    })
+    await chatApi.send('fail stream 2')
+    expect(toast.error).toHaveBeenCalledWith('流式请求失败')
+    chat.mockRejectedValueOnce('x')
+    const nonStream = useAiChat({
+      projectId: () => 'p1',
+      model: () => '',
+      streaming: () => false
+    })
+    await nonStream.send('z')
+    expect(toast.error).toHaveBeenCalledWith('请求失败')
     chatApi.sending.value = true
     chatApi.clear()
     expect(chatApi.messages.value.length).toBeGreaterThan(0)

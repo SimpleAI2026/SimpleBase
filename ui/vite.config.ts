@@ -34,8 +34,15 @@ export default defineConfig({
         'src/components/ui/**',
         'src/**/*.d.ts',
         'src/test/**',
-        'src/main.ts'
-      ]
+        'src/main.ts',
+        'src/services/types.ts'
+      ],
+      thresholds: {
+        statements: 95,
+        lines: 95,
+        functions: 95,
+        branches: 95
+      }
     }
   },
   server: {

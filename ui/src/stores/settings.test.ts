@@ -58,6 +58,22 @@ describe('settings store', () => {
     expect(store.isProviderConfigured('p1', 'openai')).toBe(false)
   })
 
+  it('loads missing nested maps, empty credentials patches, and credential model fallback', () => {
+    localStorage.setItem('sb_settings_v1', JSON.stringify({ theme: 'light' }))
+    setActivePinia(createPinia())
+    const store = useSettingsStore()
+    expect(store.defaultsFor('p')).toEqual({})
+    expect(store.configsFor('p')).toEqual({})
+    store.upsertProviderConfig('p1', 'openai', { enabled: true, defaultModel: undefined })
+    expect(store.configsFor('p1').openai.credentials).toEqual({})
+    store.upsertProviderConfig('p', 'custom', {
+      enabled: true,
+      credentials: { api_key: '', default_model: 'from-cred' } as never
+    })
+    store.setDefaultProvider('p', 'custom')
+    expect(store.defaultsFor('p').defaultModel).toBe('from-cred')
+  })
+
   it('falls back for unknown stored theme and custom providers', () => {
     localStorage.setItem(
       'sb_settings_v1',

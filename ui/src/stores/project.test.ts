@@ -72,4 +72,30 @@ describe('useProjectStore', () => {
     store.closeCreateModal()
     expect(store.createModalOpen).toBe(false)
   })
+
+  it('covers history non-array JSON, empty names, and non-array project lists', async () => {
+    localStorage.removeItem('sb_project_id_history')
+    localStorage.setItem('sb_project_id_history', '{}')
+    setActivePinia(createPinia())
+    expect(useProjectStore().history).toEqual([])
+
+    localStorage.setItem('sb_project_id_history', JSON.stringify(['', 'kept']))
+    setActivePinia(createPinia())
+    expect(useProjectStore().history).toEqual(['kept'])
+
+    vi.mocked(api.projects.list).mockResolvedValueOnce(null as never)
+    const store = useProjectStore()
+    store.projectId = ''
+    store.projectName = ''
+    expect(store.displayName).toBe('选择项目')
+    await store.loadProjects()
+    expect(store.projects).toEqual([])
+
+    store.setProject(DEFAULT_PROJECT_ID)
+    vi.mocked(api.projects.list).mockResolvedValueOnce([{ id: DEFAULT_PROJECT_ID, name: '', createdAt: 't' }])
+    await store.loadProjects()
+    expect(store.projectName).toBe('')
+    store.setProject(DEFAULT_PROJECT_ID)
+    expect(store.projectName).toBe('')
+  })
 })

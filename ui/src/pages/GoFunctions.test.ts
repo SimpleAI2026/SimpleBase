@@ -16,7 +16,8 @@ const modalStub = {
   GoFunctionModal: {
     props: ['open', 'mode', 'target'],
     emits: ['saved', 'update:open'],
-    template: '<div v-if="open" class="gf-modal">{{ mode }} {{ target && target.name }}</div>'
+    template:
+      '<div v-if="open" class="gf-modal"><button type="button" class="gf-close" @click="$emit(\'update:open\', false)">x</button>{{ mode }} {{ target && target.name }}</div>'
   }
 }
 
@@ -56,6 +57,7 @@ describe('GoFunctions', () => {
     expect(wrapper.get('.gf-modal').text()).toContain('edit')
     await clickText(wrapper, '查看')
     expect(wrapper.get('.gf-modal').text()).toContain('view')
+    await wrapper.get('.gf-close').trigger('click')
 
     await clickText(wrapper, '删除')
     await flushPromises()
@@ -64,6 +66,7 @@ describe('GoFunctions', () => {
     await clickText(wrapper, '删除')
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('rm')
+    await wrapper.get('.pager-next').trigger('click')
   })
 
   it('hides write actions on admin project and handles list errors', async () => {

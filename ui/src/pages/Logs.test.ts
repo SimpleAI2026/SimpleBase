@@ -89,6 +89,7 @@ describe('Logs', () => {
     expect(q.q).toBe('err')
     expect(q.from).toBeTruthy()
     expect(q.limit).toBe(200)
+    await wrapper.get('.pager-next').trigger('click')
 
     const keep = wrapper.find('input[type="number"]')
     await keep.setValue('not-a-number')

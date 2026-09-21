@@ -41,17 +41,28 @@ export const uiStubs = {
   Sheet: {
     props: ['open'],
     emits: ['update:open'],
-    template: '<div v-if="open !== false" class="sheet"><slot /></div>'
+    template:
+      '<div v-if="open !== false" class="sheet"><button type="button" class="sheet-close" @click="$emit(\'update:open\', false)">x</button><slot /></div>'
   },
-  SheetContent: { template: '<div class="sheet-content"><slot /></div>' },
+  SheetContent: {
+    emits: ['close'],
+    template:
+      '<div class="sheet-content"><button type="button" class="sheet-content-close" @click="$emit(\'close\')">x</button><slot /></div>'
+  },
   SheetHeader: { template: '<div><slot /></div>' },
   SheetTitle: { template: '<div><slot /></div>' },
   SheetDescription: { template: '<div><slot /></div>' },
   Select: {
     props: ['modelValue'],
     emits: ['update:modelValue'],
-    template:
-      '<div class="select"><button type="button" class="select-emit" @click="$emit(\'update:modelValue\', emitted || \'info\')">sel</button><slot /></div>'
+    template: `<div class="select">
+      <button type="button" class="select-emit" @click="$emit('update:modelValue', 'info')">sel</button>
+      <button type="button" class="select-hour" @click="$emit('update:modelValue', 'hour')">hour</button>
+      <button type="button" class="select-day" @click="$emit('update:modelValue', 'day')">day</button>
+      <button type="button" class="select-custom" @click="$emit('update:modelValue', 'custom')">custom</button>
+      <button type="button" class="select-empty" @click="$emit('update:modelValue', '')">empty</button>
+      <slot />
+    </div>`
   },
   SelectTrigger: { template: '<div><slot /></div>' },
   SelectValue: { template: '<span />' },
@@ -151,7 +162,8 @@ export const uiStubs = {
   Popover: {
     props: ['open'],
     emits: ['update:open'],
-    template: '<div class="popover"><slot /></div>'
+    template:
+      '<div class="popover"><button type="button" class="pop-open" @click="$emit(\'update:open\', true)">open</button><button type="button" class="pop-close" @click="$emit(\'update:open\', false)">close</button><slot /></div>'
   },
   PopoverTrigger: { template: '<div><slot /></div>' },
   PopoverContent: { template: '<div><slot /></div>' },

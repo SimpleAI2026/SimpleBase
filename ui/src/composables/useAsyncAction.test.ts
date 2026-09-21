@@ -33,5 +33,20 @@ describe('useAsyncAction', () => {
     )
     await fallback.run()
     expect(fallback.error.value).toBe('失败了')
+
+    const withErrorMsg = useAsyncAction(
+      async () => {
+        throw 1
+      },
+      { errorMsg: '自定义错误' }
+    )
+    await withErrorMsg.run()
+    expect(withErrorMsg.error.value).toBe('自定义错误')
+
+    const bare = useAsyncAction(async () => {
+      throw { nope: true }
+    })
+    await bare.run()
+    expect(bare.error.value).toBe('操作失败')
   })
 })

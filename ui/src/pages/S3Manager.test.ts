@@ -59,6 +59,9 @@ describe('S3Manager', () => {
     await flushPromises()
     expect(api.s3.remove).toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalledWith('删除成功')
+    const prefix = wrapper.get('.ig-input')
+    await prefix.trigger('keydown.enter')
+    await wrapper.get('.pager-next').trigger('click')
   })
 
   it('opens the file picker from the toolbar upload button and posts the file', async () => {

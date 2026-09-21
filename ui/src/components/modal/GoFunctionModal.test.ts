@@ -44,6 +44,10 @@ describe('GoFunctionModal', () => {
     expect(toast.error).toHaveBeenCalledWith('compile')
 
     await w.setProps({ open: false })
+    await w.setProps({ open: true, mode: 'create' })
+    expect(vm.nameValue).toBe('')
+
+    await w.setProps({ open: false })
     await w.setProps({ open: true, mode: 'edit', target: { name: 'hello' } })
     await flushPromises()
     expect(api.gofunctions.get).toHaveBeenCalled()

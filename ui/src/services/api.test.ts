@@ -9,4 +9,13 @@ describe('api selector', () => {
     expect(mod.api.projects).toBeDefined()
     vi.unstubAllEnvs()
   })
+
+  it('selects mockApi when VITE_USE_MOCK is true', async () => {
+    vi.resetModules()
+    vi.stubEnv('VITE_USE_MOCK', 'true')
+    const mod = await import('./api')
+    expect(mod.isMock).toBe(true)
+    expect(mod.api.projects).toBeDefined()
+    vi.unstubAllEnvs()
+  })
 })

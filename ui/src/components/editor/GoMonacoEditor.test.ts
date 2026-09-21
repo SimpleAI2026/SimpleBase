@@ -39,6 +39,9 @@ describe('GoMonacoEditor', () => {
     w.unmount()
     expect(editor.dispose).toHaveBeenCalled()
 
+    const env = (globalThis as unknown as { MonacoEnvironment?: { getWorker: () => unknown } }).MonacoEnvironment
+    expect(env?.getWorker()).toBeTruthy()
+
     const w2 = mount(GoMonacoEditor, { props: { modelValue: 'x' } })
     w2.unmount()
   })

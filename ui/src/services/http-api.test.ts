@@ -273,6 +273,39 @@ describe('httpApi', () => {
     expect(await httpApi.agentSchedules.runs(pid, 's')).toEqual([])
     http.post.mockResolvedValueOnce({ data: {} })
     await httpApi.agentSchedules.trigger(pid, 's')
+    http.post.mockResolvedValueOnce({ data: {} })
+    expect((await httpApi.sql.execute(pid, db, { sql: 'update x' })).rowsAffected).toBe(0)
+    http.post.mockResolvedValueOnce({ data: { results: [{}] } })
+    expect((await httpApi.sql.batch(pid, db, { statements: [{ sql: 's' }] })).results[0].index).toBe(0)
+    http.get.mockResolvedValueOnce({
+      data: { functions: [{}] }
+    })
+    expect((await httpApi.gofunctions.list(pid))[0].exports).toEqual([])
+    http.get.mockResolvedValueOnce({ data: { jobs: [{}] } })
+    const sparseJob = (await httpApi.cronjobs.list(pid))[0]
+    expect(sparseJob.scheduleKind).toBe('cron')
+    http.get.mockResolvedValueOnce({ data: { runs: [{}] } })
+    expect((await httpApi.cronjobs.runs(pid, 'j'))[0].trigger).toBe('scheduled')
+    http.get.mockResolvedValueOnce({ data: { events: [{}] } })
+    expect((await httpApi.logs.list(pid))[0].id).toBe('')
+    http.get.mockResolvedValueOnce({ data: { agents: [{}] } })
+    expect((await httpApi.agents.list(pid))[0].tool_ids).toEqual([])
+    http.get.mockResolvedValueOnce({ data: { threads: [{}] } })
+    expect((await httpApi.agentThreads.list(pid))[0].id).toBe('')
+    http.get.mockResolvedValueOnce({ data: { messages: [{}] } })
+    expect((await httpApi.agentThreads.messages(pid, 't'))[0].role).toBe('')
+    http.get.mockResolvedValueOnce({ data: { schedules: [{}] } })
+    expect((await httpApi.agentSchedules.list(pid))[0].id).toBe('')
+    http.get.mockResolvedValueOnce({ data: { runs: [{}] } })
+    expect((await httpApi.agentSchedules.runs(pid, 's'))[0].id).toBe('')
+    http.get.mockResolvedValueOnce({ data: { totalRequests: 3 } })
+    expect((await httpApi.metrics.summary(pid)).totalRequests).toBe(3)
+    http.get.mockResolvedValueOnce({ data: { points: [{}] } })
+    expect((await httpApi.metrics.trend(pid))[0].date).toBe('')
+    http.put.mockResolvedValueOnce({ data: { defaultProvider: 'x', defaultModel: 'y', maxTokens: 1 } })
+    await httpApi.llmSettings.put(pid, { defaultProvider: 'x' })
+    http.patch.mockResolvedValueOnce({ data: {} })
+    await httpApi.cronjobs.update(pid, 'j', { scheduleKind: 'interval', intervalSeconds: 60, enabled: false })
   })
 
   it('parses LLM and agent SSE streams including error and abort paths', async () => {
@@ -385,6 +418,127 @@ describe('httpApi', () => {
     httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: bad })
     await vi.waitFor(() => expect(bad).toHaveBeenCalled())
 
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: () => new Promise(() => {})
+        })
+      }
+    })
+    const hung = httpApi.llm.stream(pid, { messages: [] }, { onError: vi.fn(), onEnd: vi.fn() })
+    hung.close()
+
+    fetchMock.mockRejectedValueOnce(new Error('network'))
+    const netErr = vi.fn()
+    httpApi.llm.stream(pid, { messages: [] }, { onError: netErr })
+    await vi.waitFor(() => expect(netErr).toHaveBeenCalled())
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      body: null,
+      json: async () => ({ message: 'svc' })
+    })
+    const llmMsg = vi.fn()
+    httpApi.llm.stream(pid, { messages: [] }, { onError: llmMsg })
+    await vi.waitFor(() => expect(llmMsg).toHaveBeenCalled())
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 504,
+      body: null,
+      json: async () => ({})
+    })
+    const llmStatus = vi.fn()
+    httpApi.llm.stream(pid, { messages: [] }, { onError: llmStatus })
+    await vi.waitFor(() => expect(llmStatus).toHaveBeenCalled())
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      body: {
+        getReader: () =>
+          makeReader(['data: \n\n', 'data: {"type":"other"}\n\n', 'data: {"type":"end"}\n\n'])
+      }
+    })
+    const emptyEnded = vi.fn()
+    httpApi.llm.stream(pid, { messages: [] }, { onEnd: emptyEnded })
+    await vi.waitFor(() => expect(emptyEnded).toHaveBeenCalled())
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => null },
+      body: {
+        getReader: () =>
+          makeReader([
+            'event: ping\n\n',
+            'data: \n\n',
+            'data: not-json\n\n',
+            'data: {"type":"error"}\n\n',
+            'data: {"type":"token"}\n\n',
+            'data: {"type":"tool_call"}\n\n',
+            'data: {"type":"tool_result"}\n\n',
+            'data: {"type":"end"}\n\n'
+          ])
+      }
+    })
+    const sparse = vi.fn()
+    const agentHangClose = httpApi.agentThreads.streamRun(
+      pid,
+      'th',
+      { content: 'x', mentions: [] },
+      {
+        onError: sparse,
+        onToken: vi.fn(),
+        onToolCall: vi.fn(),
+        onToolResult: vi.fn(),
+        onEnd: vi.fn()
+      }
+    )
+    await vi.waitFor(() => expect(sparse).toHaveBeenCalled())
+    agentHangClose.close()
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 418,
+      headers: { get: () => 'application/json' },
+      body: null,
+      json: async () => ({})
+    })
+    const teapot = vi.fn()
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: teapot })
+    await vi.waitFor(() => expect(teapot).toHaveBeenCalled())
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => 'text/event-stream' },
+      body: {
+        getReader: () => ({
+          read: () => new Promise(() => {})
+        })
+      }
+    })
+    const hungAgent = httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, {
+      onError: vi.fn(),
+      onEnd: vi.fn()
+    })
+    hungAgent.close()
+
     vi.unstubAllGlobals()
+  })
+
+  it('covers remaining mapper fallbacks', async () => {
+    http.get.mockResolvedValueOnce({ data: { points: null } })
+    expect(await httpApi.metrics.trend(pid)).toEqual([])
+    http.get.mockResolvedValueOnce({ data: { projects: [{}] } })
+    expect((await httpApi.projects.list())[0].id).toBe('')
+    http.get.mockResolvedValueOnce({ data: { functions: null } })
+    expect(await httpApi.gofunctions.list(pid)).toEqual([])
+    http.get.mockResolvedValueOnce({ data: { jobs: null } })
+    expect(await httpApi.cronjobs.list(pid)).toEqual([])
+    http.get.mockResolvedValueOnce({ data: { nope: true } })
+    expect(await httpApi.logs.list(pid)).toEqual([])
+    http.post.mockResolvedValueOnce({ data: { run: { id: 'r' } } })
+    expect((await httpApi.agentThreads.run(pid, 't', { content: 'hi', mentions: [] })).message.role).toBe('')
   })
 })
