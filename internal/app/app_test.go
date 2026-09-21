@@ -28,7 +28,6 @@ func testConfig(writable bool) config.Config {
 			CacheDir:    "/tmp/simplebase-test-cache",
 			IdleTimeout: time.Minute,
 			MaxOpen:     2,
-			MaxIdle:     1,
 		},
 		S3:   s3,
 		Auth: config.AuthConfig{APIKeyHashSecret: "secret"},

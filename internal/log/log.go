@@ -80,28 +80,42 @@ var (
 )
 
 func New(writer io.Writer, level Level, opts ...Option) *Logger {
+	return newLogger(writer, level, false, opts...)
+}
+
+// NewConsole 使用 zap console 编码器（非 JSON 行）。
+func NewConsole(writer io.Writer, level Level, opts ...Option) *Logger {
+	return newLogger(writer, level, true, opts...)
+}
+
+func newLogger(writer io.Writer, level Level, console bool, opts ...Option) *Logger {
 	if writer == nil {
 		panic("writer is nil")
 	}
 
-	cfg := zap.NewProductionConfig()
-	cfg.EncoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+	encCfg := zap.NewProductionEncoderConfig()
+	encCfg.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(t.Format("2006-01-02T15:04:05.000Z0700"))
 	}
+	encCfg.EncodeLevel = zapcore.CapitalLevelEncoder
+	var encoder zapcore.Encoder
+	if console {
+		encCfg.EncodeDuration = zapcore.StringDurationEncoder
+		encoder = zapcore.NewConsoleEncoder(encCfg)
+	} else {
+		encoder = zapcore.NewJSONEncoder(encCfg)
+	}
 	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(cfg.EncoderConfig),
-		// zapcore.NewConsoleEncoder(cfg.EncoderConfig),
+		encoder,
 		zapcore.AddSync(writer),
 		zapcore.Level(level),
 	)
 
 	opts = append(opts, WithCaller(true))
-	logger := &Logger{
+	return &Logger{
 		l:     zap.New(core, opts...),
 		level: level,
 	}
-
-	return logger
 }
 
 func (l *Logger) Sync() error {

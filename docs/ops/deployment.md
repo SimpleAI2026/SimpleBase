@@ -16,7 +16,9 @@ SimpleBase 首期为**单写实例**部署。所有写请求经同一进程的 D
 
 ## 配置
 
-参考 `config.example.yaml`。关键字段：
+`config.yaml` 是非密钥配置的权威来源（复制 `config.example.yaml`）。加载顺序：代码默认值 → YAML → `SIMPLEBASE_*` 环境变量覆盖。`SIMPLEBASE_CONFIG_PATH` 指向的文件缺失或非法 YAML 会使进程退出。
+
+生产密钥（`SIMPLEBASE_S3_ACCESS_KEY` / `SIMPLEBASE_S3_SECRET_KEY` / `SIMPLEBASE_AUTH_APIKEY_SECRET` / `SIMPLEBASE_LLM_PROVIDER_*_API_KEY`）从 Secret 或 IAM 注入；`dev_mode: false` 时 YAML 里的非空密钥会被拒绝。
 
 ### instance
 
@@ -24,9 +26,10 @@ SimpleBase 首期为**单写实例**部署。所有写请求经同一进程的 D
 instance:
   id: "simplebase-prod-1"
   writable: true  # 单写实例必须为 true
+dev_mode: false
 ```
 
-`id` 用于启动冲突检测（防误配置），不提供分布式锁语义。
+`id` 用于对象前缀与日志身份，不提供分布式锁语义。
 
 ### database
 
@@ -34,9 +37,10 @@ instance:
 database:
   engine: ducklake
   cache_dir: "/var/lib/simplebase/cache"
-  cache_max_bytes: 10737418240   # 10GiB
+  cache_max_bytes: 10737418240   # 10GiB 生产建议；代码/示例默认 1GiB
   cache_max_databases: 256
   idle_timeout: 5m
+  max_open: 8
 ```
 
 本地缓存可完全丢弃；丢失后从 S3 恢复。`cache_max_bytes` 与 `cache_max_databases` 触发 LRU 淘汰，活跃库不被淘汰。
@@ -48,18 +52,19 @@ s3:
   endpoint: "https://s3.us-east-1.amazonaws.com"
   region: "us-east-1"
   bucket: "simplebase-prod"
-  prefix: "simplebase/"
-  access_key_id: ""      # 环境变量或 IAM 角色
-  secret_access_key: ""
+  prefix: "simplebase"
   force_path_style: false
+  kms_key_id: ""   # SSE-KMS CMK id；密钥材料走 IAM / SIMPLEBASE_S3_*
 ```
 
 ### system_database
 
 ```yaml
 system_database:
-  name: "simplebase-system"   # SIMPLEBASE_SYSTEM_DB_NAME
-  hide_from_list: true
+  name: "simplebase-system"
+  metrics_flush_interval: 2s
+  log_flush_interval: 2s
+  log_keep_days: 14
 ```
 
 历史 `catalog.database_id` / `SIMPLEBASE_CATALOG_DATABASE_ID` 已删除，设置它们不再有任何效果。
@@ -68,11 +73,22 @@ system_database:
 
 ```yaml
 auth:
-  server_secret: ""      # 32 字节随机密钥，环境变量注入
-  default_plan: "free"
+  api_key_hash_secret: ""  # 必填；生产用 SIMPLEBASE_AUTH_APIKEY_SECRET
 ```
 
-`server_secret` 用于 API key HMAC 签名。轮换需同时更新所有已签发 key。
+`api_key_hash_secret` 用于 API key HMAC 签名。轮换需同时更新所有已签发 key。
+
+### observability
+
+```yaml
+observability:
+  log_level: info      # debug | info | warn | error
+  log_format: json     # json | console
+  log_output: stderr   # stderr | stdout
+  metrics_path: /metrics
+```
+
+HTTP 优雅退出超时：`http.shutdown_timeout`（默认 30s）。
 
 ## Docker 部署
 
@@ -88,13 +104,13 @@ docker run -d \
   simplebased
 ```
 
-环境变量（`SIMPLEBASE_` 前缀覆盖同名配置）：
+环境变量（密钥与可选覆盖；非密钥优先写 ConfigMap 中的 `config.yaml`）：
 
 ```text
+SIMPLEBASE_CONFIG_PATH=/etc/simplebase/config.yaml
 SIMPLEBASE_S3_ACCESS_KEY=...
 SIMPLEBASE_S3_SECRET_KEY=...
 SIMPLEBASE_AUTH_APIKEY_SECRET=...
-SIMPLEBASE_SYSTEM_DB_NAME=simplebase-system
 ```
 
 ## Kubernetes 部署
@@ -124,6 +140,12 @@ spec:
         volumeMounts:
         - name: cache
           mountPath: /var/lib/simplebase/cache
+        - name: config
+          mountPath: /etc/simplebase
+          readOnly: true
+        env:
+        - name: SIMPLEBASE_CONFIG_PATH
+          value: /etc/simplebase/config.yaml
         livenessProbe:
           httpGet:
             path: /health/live
@@ -138,6 +160,9 @@ spec:
       - name: cache
         emptyDir:
           sizeLimit: 10Gi
+      - name: config
+        configMap:
+          name: simplebase-config
 ```
 
 > 缓存卷可丢失。Pod 重启后从 S3 恢复。使用 `emptyDir` 而非持久卷，强调缓存语义。
@@ -222,4 +247,4 @@ spec:
 - 最小权限 IAM：API 仅需 S3 读写 + KMS Decrypt。
 - LLM 密钥从 KMS 或加密配置加载，日志仅输出 provider/key ID 摘要。
 - 审计日志默认不记录 SQL 参数与 LLM 正文（`Redact` 脱敏）。
-- API key HMAC 签名，`server_secret` 32 字节随机，定期轮换。
+- API key HMAC 签名，`auth.api_key_hash_secret` 32 字节随机，定期轮换。

@@ -5,6 +5,7 @@ package observability
 import (
 	"io"
 	"os"
+	"strings"
 
 	"github.com/linkxzhou/SimpleBase/internal/log"
 	"go.uber.org/zap"
@@ -14,6 +15,16 @@ import (
 // Logger 是服务层使用的结构化日志接口。禁止调用方直接使用 zap 全局变量。
 type Logger = *log.Logger
 
+// WriterFor 将 observability.log_output 映射到进程 writer。未知值回退 stderr。
+func WriterFor(output string) io.Writer {
+	switch strings.ToLower(strings.TrimSpace(output)) {
+	case "stdout":
+		return os.Stdout
+	default:
+		return os.Stderr
+	}
+}
+
 // NewLogger 根据 level/format 构造 Logger。format 仅支持 "json" 或 "console"。
 func NewLogger(level, format string, w io.Writer) Logger {
 	if w == nil {
@@ -21,7 +32,7 @@ func NewLogger(level, format string, w io.Writer) Logger {
 	}
 	lvl := parseLevel(level)
 	if format == "console" {
-		return newConsoleLogger(lvl, w)
+		return log.NewConsole(w, lvl)
 	}
 	return log.New(w, lvl)
 }
@@ -39,11 +50,6 @@ func parseLevel(s string) zapcore.Level {
 	default:
 		return zapcore.InfoLevel
 	}
-}
-
-func newConsoleLogger(level zapcore.Level, w io.Writer) Logger {
-	// 复用 log.New，其内部使用 JSON 编码器；若需 console 可后续扩展。
-	return log.New(w, level)
 }
 
 // Sync 刷新底层日志缓冲。进程退出前应调用。

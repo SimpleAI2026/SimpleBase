@@ -48,7 +48,7 @@ go build -o simplebased ./cmd/simplebased
 
 ### 配置
 
-复制 `config.example.yaml` 为 `config.yaml` 并按环境调整。所有字段可由 `SIMPLEBASE_` 前缀环境变量覆盖。生产凭据（S3 密钥、API key hash secret）必须从环境变量或 IAM 角色注入，禁止写入配置文件。
+复制 `config.example.yaml` 为 `config.yaml` 并按环境调整。加载顺序为 **代码默认值 → YAML → `SIMPLEBASE_*` 环境变量覆盖**。YAML 是非密钥配置的权威来源；生产凭据（S3 密钥、API key hash secret、LLM API key）必须从环境变量或 IAM 角色注入，`dev_mode: false` 时 YAML 中的非空密钥会被拒绝。
 `SIMPLEBASE_CATALOG_DATABASE_ID` 已退役（breaking）：系统库由 `SIMPLEBASE_SYSTEM_DB_NAME` / `system_database.name` 决定。
 
 ### 运行
@@ -120,7 +120,7 @@ docker run -p 8080:8080 --env-file .env simplebased
 
 ## 部署
 
-详见 [docs/deployment.md](docs/deployment.md)。关键约束：
+详见 [docs/ops/deployment.md](docs/ops/deployment.md)。关键约束：
 
 - **副本数固定为 1**：滚动升级必须先停旧实例、再启新实例。
 - **S3 bucket 私有**：启用 TLS、SSE-KMS、最小权限 IAM、版本控制。
@@ -129,13 +129,13 @@ docker run -p 8080:8080 --env-file .env simplebased
 
 ## 迁移
 
-从旧版本（LessDB/ha-sqlite）迁移到新链路的工作流详见 [docs/migration-guide.md](docs/migration-guide.md)。
+从旧版本（LessDB/ha-sqlite）迁移到新链路的工作流详见 [docs/ops/migration.md](docs/ops/migration.md)。
 
 ## 文档
 
 - [内部模块说明](internal/README.md)
-- [部署文档与 runbook](docs/deployment.md)
-- [迁移指南](docs/migration-guide.md)
+- [部署文档与 runbook](docs/ops/deployment.md)
+- [迁移指南](docs/ops/migration.md)
 - [重构计划](plan/plan.md)
 
 ## 目录结构
