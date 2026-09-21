@@ -205,7 +205,19 @@ export const uiStubs = {
   EmptyDescription: { template: '<div><slot /></div>' },
   EmptyContent: { template: '<div><slot /></div>' },
   SbModal: {
-    props: ['open', 'title', 'width', 'maxWidth', 'minWidth', 'hideFooter', 'confirmLoading', 'okButtonProps', 'okText', 'cancelText', 'description'],
+    props: {
+      open: Boolean,
+      title: String,
+      width: [Number, String],
+      maxWidth: [Number, String],
+      minWidth: [Number, String],
+      hideFooter: Boolean,
+      confirmLoading: Boolean,
+      okButtonProps: Object,
+      okText: String,
+      cancelText: String,
+      description: String
+    },
     emits: ['ok', 'update:open', 'cancel'],
     template: `
       <div v-if="open" class="sb-modal" :data-title="title" :data-width="width" :data-max-width="maxWidth" :data-min-width="minWidth" :data-hide-footer="hideFooter ? 'true' : 'false'">

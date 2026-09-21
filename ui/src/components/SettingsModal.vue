@@ -4,7 +4,7 @@
     title="设置"
     description="主题、连接、默认模型与厂商 API Key"
     :max-width="900"
-    hide-footer
+    :hide-footer="true"
     @update:open="onOpen"
   >
     <Tabs :model-value="auth.settingsTab" class="w-full" @update:model-value="onTab">
