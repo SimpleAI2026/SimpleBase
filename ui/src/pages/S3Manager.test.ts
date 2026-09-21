@@ -61,6 +61,29 @@ describe('S3Manager', () => {
     expect(toast.success).toHaveBeenCalledWith('删除成功')
   })
 
+  it('opens the file picker from the toolbar upload button and posts the file', async () => {
+    api.s3.list.mockResolvedValue([{ key: 'a.txt', size: 12, lastModified: '2024-01-01T00:00:00Z' }])
+    const { wrapper } = await mountWithApp(S3Manager)
+    const input = wrapper.get('input[type="file"]')
+    const click = vi.fn(() => {
+      Object.defineProperty(input.element, 'files', {
+        value: [fileNamed('picked.txt')],
+        configurable: true
+      })
+      return input.trigger('change')
+    })
+    ;(input.element as HTMLInputElement).click = click
+
+    await clickText(wrapper, '上传对象')
+    expect(click).toHaveBeenCalled()
+    await flushPromises()
+
+    expect(axios.post).toHaveBeenCalled()
+    const [url, body] = vi.mocked(axios.post).mock.calls[0]
+    expect(String(url)).toContain('/s3/objects')
+    expect(body).toBeInstanceOf(FormData)
+  })
+
   it('handles list / delete / presign errors and empty upload trigger', async () => {
     api.s3.list.mockRejectedValueOnce(new Error('list boom'))
     const { wrapper } = await mountWithApp(S3Manager)

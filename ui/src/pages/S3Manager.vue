@@ -23,7 +23,7 @@
           刷新
         </Button>
         <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
-        <Button :disabled="uploading" @click="fileInput?.click()">
+        <Button :disabled="uploading" @click="triggerUpload">
           <Spinner v-if="uploading" data-icon="inline-start" />
           <UploadIcon v-else data-icon="inline-start" />
           上传对象
