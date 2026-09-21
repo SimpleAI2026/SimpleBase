@@ -326,3 +326,33 @@ func TestS3IndexRefreshAndCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSeedGlobalRetentionAndFlushTicker(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	s.SetDefaultLogKeepDays(21)
+	if err := s.SeedGlobalRetention(ctx, 21); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SeedGlobalRetention(ctx, 99); err != nil {
+		t.Fatal(err)
+	}
+	ret, err := s.GetRetention(ctx, "p1")
+	if err != nil || ret.KeepDays != 21 || ret.Scope != "global" {
+		t.Fatalf("seeded retention: %+v err=%v", ret, err)
+	}
+
+	s.DB().SetMaxOpenConns(1)
+	s.StartPeriodicFlush(20*time.Millisecond, 20*time.Millisecond)
+	s.RecordLog(LogEvent{ProjectID: "p1", Message: "ticker"})
+	s.RecordMetric(MetricSample{ProjectID: "p1", Name: "n", Value: 1})
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		logs, err := s.QueryLogs(ctx, LogQuery{ProjectID: "p1", Q: "ticker", Limit: 10})
+		if err == nil && len(logs) == 1 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for log flush ticker")
+}

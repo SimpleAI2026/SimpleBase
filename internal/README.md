@@ -8,7 +8,7 @@
 依赖装配与服务生命周期。创建系统库、catalog、registry、auth、llmgateway、usage、audit、云 Agent 等全部依赖；`Shutdown` 按序停止。`RunWithSignal` 监听 SIGINT/SIGTERM 并在超时内优雅退出。
 
 ### `config`
-从 `config.yaml`（或 `SIMPLEBASE_` 前缀环境变量）加载配置。结构体覆盖 HTTP、instance、database、s3、auth、llm、limits、observability、system_database 全部字段。历史 `catalog.database_id` / `SIMPLEBASE_CATALOG_DATABASE_ID` 已删除。
+从 `config.yaml` 加载非密钥配置，再用 `SIMPLEBASE_` 前缀环境变量覆盖（密钥与 `SIMPLEBASE_CONFIG_PATH` 引导路径除外）。结构体覆盖 HTTP、instance、database、s3、auth、llm、limits、observability、system_database 全部字段。`config.example.yaml` 是可加载的字段清单。历史 `catalog.database_id` / `SIMPLEBASE_CATALOG_DATABASE_ID` 已删除。
 
 ### `api`
 HTTP 路由层（Echo v4）。职责：

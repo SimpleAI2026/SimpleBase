@@ -29,6 +29,15 @@ func TestNewLogger(t *testing.T) {
 	assert.Contains(t, output, "value")
 }
 
+func TestNewConsoleLogger(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewConsole(&buf, InfoLevel)
+	l.Info("console-line", String("k", "v"))
+	out := buf.String()
+	assert.Contains(t, out, "console-line")
+	assert.NotEqual(t, '{', out[0])
+}
+
 func TestLogLevels(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(&buf, ErrorLevel)

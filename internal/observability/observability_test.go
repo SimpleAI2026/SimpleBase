@@ -3,6 +3,7 @@ package observability
 import (
 	"bytes"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -49,6 +50,25 @@ func TestNewLoggerLevelsAndFormats(t *testing.T) {
 	}
 }
 
+func TestConsoleFormatIsNotJSON(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewLogger("info", "console", &buf)
+	l.Info("hello-console")
+	out := buf.String()
+	if out == "" {
+		t.Fatal("empty console log")
+	}
+	if len(out) > 0 && out[0] == '{' {
+		t.Fatalf("console format still JSON: %q", out)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("hello-console")) {
+		t.Fatalf("missing message: %q", out)
+	}
+	if WriterFor("stdout") != os.Stdout || WriterFor("STDERR") != os.Stderr {
+		t.Fatal("WriterFor")
+	}
+}
+
 func TestSyncNil(t *testing.T) {
 	if err := Sync(nil); err != nil {
 		t.Fatalf("Sync(nil)=%v", err)
@@ -87,12 +107,12 @@ func TestRedactMap(t *testing.T) {
 		t.Fatal("nil in => nil out")
 	}
 	in := map[string]any{
-		"api_key":     "secret",
-		"nested":      map[string]any{"password": "p", "ok": "v"},
-		"short":       "abc",
-		"long":        "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz",
-		"count":       3,
-		"token":       "should-hide",
+		"api_key": "secret",
+		"nested":  map[string]any{"password": "p", "ok": "v"},
+		"short":   "abc",
+		"long":    "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz",
+		"count":   3,
+		"token":   "should-hide",
 	}
 	out := RedactMap(in)
 	if out["api_key"] != "***" || out["token"] != "***" {

@@ -180,16 +180,20 @@ func (s *Store) GetRetention(ctx context.Context, projectID string) (Retention, 
 	}
 	var r Retention
 	var keep int64
+	var project sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		`SELECT scope, project_id, keep_days, updated_at FROM sys_log_retention
 		 WHERE (scope = 'project' AND project_id = ?) OR scope = 'global'
 		 ORDER BY CASE WHEN scope = 'project' THEN 0 ELSE 1 END LIMIT 1`,
-		projectID).Scan(&r.Scope, &r.ProjectID, &keep, &r.UpdatedAt)
+		projectID).Scan(&r.Scope, &project, &keep, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Retention{Scope: "global", KeepDays: 14}, nil
+		return Retention{Scope: "global", KeepDays: s.defaultKeep()}, nil
 	}
 	if err != nil {
 		return Retention{}, err
+	}
+	if project.Valid {
+		r.ProjectID = project.String
 	}
 	r.KeepDays = int(keep)
 	return r, nil
@@ -201,7 +205,7 @@ func (s *Store) PutRetention(ctx context.Context, projectID string, keepDays int
 		return ErrUnavailable
 	}
 	if keepDays <= 0 {
-		keepDays = 14
+		keepDays = s.defaultKeep()
 	}
 	now := time.Now().UTC()
 	var existing string

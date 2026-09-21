@@ -117,7 +117,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 // NewWithRegistry 允许注入独立的 Prometheus Registerer（测试隔离用）。
 // reg 为 nil 时使用 prometheus.DefaultRegisterer。
 func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Registerer) (*App, error) {
-	logger := observability.NewLogger(cfg.Observability.LogLevel, cfg.Observability.LogFormat, nil)
+	logger := observability.NewLogger(cfg.Observability.LogLevel, cfg.Observability.LogFormat, observability.WriterFor(cfg.Observability.LogOutput))
 	logger.Info("starting simplebase",
 		zap.String("instance_id", cfg.Instance.ID),
 		zap.Bool("writable", cfg.Instance.Writable),
@@ -330,6 +330,11 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}); err != nil {
 		return fmt.Errorf("seed system database: %w", err)
 	}
+	store.SetDefaultLogKeepDays(cfg.SystemDatabase.LogKeepDays)
+	if err := store.SeedGlobalRetention(ctx, cfg.SystemDatabase.LogKeepDays); err != nil {
+		return fmt.Errorf("seed log retention: %w", err)
+	}
+	store.StartPeriodicFlush(cfg.SystemDatabase.LogFlushInterval, cfg.SystemDatabase.MetricsFlushInterval)
 
 	a.cacheMgr, err = cache.NewManager(cache.Options{
 		Root:         cfg.Database.CacheDir,
@@ -349,7 +354,10 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	a.auditSvc = audit.NewService(catRepo, a.logger)
 
 	if cfg.LLM.Enabled {
-		resolver := llmgateway.NewCatalogResolver(a.catalog, nil)
+		var resolver llmgateway.ProviderResolver = llmgateway.NewCatalogResolver(a.catalog, nil)
+		if inst := instanceLLMProviders(cfg.LLM.Providers); len(inst) > 0 {
+			resolver = llmgateway.NewFallbackResolver(resolver, inst)
+		}
 		a.llmSvc = llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
 	}
 
@@ -549,6 +557,23 @@ func snapshotFromFactory(f *ducklake.Factory, databaseID string) *api.DatabaseSn
 		return nil
 	}
 	return &api.DatabaseSnapshot{LastSyncedSnapshot: last, SyncLag: lag}
+}
+
+func instanceLLMProviders(in map[string]config.ProviderConfig) map[string]llmgateway.InstanceProvider {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]llmgateway.InstanceProvider, len(in))
+	for name, p := range in {
+		out[name] = llmgateway.InstanceProvider{
+			APIKey:        p.APIKey,
+			BaseURL:       p.BaseURL,
+			DefaultModel:  p.DefaultModel,
+			AllowedModels: p.AllowedModels,
+			Timeout:       p.Timeout,
+		}
+	}
+	return out
 }
 
 func duckLakeOptions(cfg config.DuckLakeConfig) ducklake.Options {

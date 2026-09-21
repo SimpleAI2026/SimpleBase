@@ -22,6 +22,7 @@ DEV_UI_PORT="${SIMPLEBASE_DEV_UI_PORT:-5173}"
 DEV_API_HOST="${SIMPLEBASE_DEV_API_HOST:-127.0.0.1}"
 DEV_API_PORT="${SIMPLEBASE_DEV_API_PORT:-8080}"
 DEV_OPEN=1
+API_PORT_EXPLICIT=0
 
 usage() {
   cat <<'USAGE'
@@ -44,9 +45,12 @@ usage() {
 开发说明:
   - 前端: http://HOST:UI_PORT （Vite，代理 /v1 /health → 后端）
   - 后端: http://API_HOST:API_PORT （go run ./cmd/simplebased）
-  - 自动加载仓库根目录 .env（若存在）
-  - SIMPLEBASE_DEV_MODE 默认 true（旁路 S3）；.env 设 false 则走真实 COS/S3
-  - SIMPLEBASE_LOG_LEVEL 默认 debug（生产 / 二进制默认仍为 info）；.env 可覆盖
+  - 自动加载仓库根目录 .env（若存在；主要用于密钥）
+  - 非密钥配置以 config.yaml 为准；环境变量覆盖 YAML
+  - 缺少 config.yaml 时从 config.example.yaml 生成本地副本（gitignore）
+  - SIMPLEBASE_DEV_MODE 仅在 yaml/.env 都未设置时默认 true
+  - SIMPLEBASE_LOG_LEVEL 仅在 yaml/.env 都未设置时默认 debug（生产仍为 info）
+  - --api-port 会导出 SIMPLEBASE_HTTP_ADDRESS；未传则尊重 yaml http.address
   - 后端日志输出到终端 stdout/stderr（同时写入临时文件，供启动失败排查）
   - DevMode 种子 Key: sb_live_dev_key_12345
   - Ctrl+C 结束前后端进程
@@ -60,6 +64,84 @@ need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "错误: 未找到命令 '$1'，请先安装后再运行 build.sh" >&2
     exit 1
+  fi
+}
+
+yaml_scalar_under() {
+  # yaml_scalar_under FILE SECTION KEY — very small nested scalar reader (no yq).
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  [[ -f "$file" ]] || return 1
+  awk -v section="$section" -v key="$key" '
+    BEGIN { insec=0 }
+    /^[[:space:]]*#/ { next }
+    $0 ~ "^"section":[[:space:]]*$" { insec=1; next }
+    insec && /^[^[:space:]#]/ { insec=0 }
+    insec && $0 ~ "^[[:space:]]+"key":[[:space:]]*" {
+      line=$0
+      sub("^[[:space:]]+"key":[[:space:]]*", "", line)
+      gsub(/["\047]/, "", line)
+      sub(/[[:space:]]+#.*$/, "", line)
+      gsub(/[[:space:]]+$/, "", line)
+      print line
+      exit
+    }
+  ' "$file"
+}
+
+yaml_top_scalar() {
+  local file="$1"
+  local key="$2"
+  [[ -f "$file" ]] || return 1
+  awk -v key="$key" '
+    /^[[:space:]]*#/ { next }
+    $0 ~ "^"key":[[:space:]]*" {
+      line=$0
+      sub("^"key":[[:space:]]*", "", line)
+      gsub(/["\047]/, "", line)
+      sub(/[[:space:]]+#.*$/, "", line)
+      gsub(/[[:space:]]+$/, "", line)
+      print line
+      exit
+    }
+  ' "$file"
+}
+
+ensure_dev_config() {
+  local src="$ROOT_DIR/config.example.yaml"
+  local dst="$ROOT_DIR/config.yaml"
+  if [[ -f "$dst" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$src" ]]; then
+    echo "警告: 未找到 config.yaml 与 config.example.yaml。请确保 AUTH 等必填项已在环境中配置。" >&2
+    return 0
+  fi
+  echo "==> 未找到 config.yaml，从 config.example.yaml 生成本地开发副本"
+  cp "$src" "$dst"
+  local tmp
+  tmp="$(mktemp "${TMPDIR:-/tmp}/simplebase-config.XXXXXX")"
+  awk '
+    BEGIN { done_dev=0; done_lvl=0 }
+    /^dev_mode:[[:space:]]*false/ && !done_dev { sub(/false/, "true"); done_dev=1 }
+    /^[[:space:]]*log_level:[[:space:]]*info/ && !done_lvl { sub(/info/, "debug"); done_lvl=1 }
+    { print }
+  ' "$dst" > "$tmp"
+  mv "$tmp" "$dst"
+  if grep -qE '^[[:space:]]*api_key_hash_secret:[[:space:]]*""' "$dst" && [[ -z "${SIMPLEBASE_AUTH_APIKEY_SECRET:-}" ]]; then
+    local secret
+    secret="$(openssl rand -hex 16 2>/dev/null || printf 'dev-local-%s' "$$")"
+    tmp="$(mktemp "${TMPDIR:-/tmp}/simplebase-config.XXXXXX")"
+    awk -v secret="$secret" '
+      /^[[:space:]]*api_key_hash_secret:[[:space:]]*""/ && !done {
+        sub(/""/, "\"" secret "\"")
+        done=1
+      }
+      { print }
+    ' "$dst" > "$tmp"
+    mv "$tmp" "$dst"
+    echo "    已写入本地 api_key_hash_secret（文件已被 gitignore）"
   fi
 }
 
@@ -223,6 +305,7 @@ cmd_dev() {
         shift
         [[ $# -gt 0 ]] || { echo "错误: --api-port 需要参数" >&2; exit 2; }
         DEV_API_PORT="$1"
+        API_PORT_EXPLICIT=1
         ;;
       *)
         echo "错误: 未知开发选项 '$1'" >&2
@@ -250,19 +333,49 @@ cmd_dev() {
 
   cd "$ROOT_DIR"
   load_dotenv
+  ensure_dev_config
 
-  # 尊重 .env：SIMPLEBASE_DEV_MODE 未设置时默认 true（旁路 S3）；显式 false 走真实 S3
-  export SIMPLEBASE_DEV_MODE="${SIMPLEBASE_DEV_MODE:-true}"
-  # 本地开发默认 debug，便于终端看到服务端日志；生产默认仍为 info（config / envStr）
-  export SIMPLEBASE_LOG_LEVEL="${SIMPLEBASE_LOG_LEVEL:-debug}"
-  export SIMPLEBASE_HTTP_ADDRESS=":${DEV_API_PORT}"
-  export SIMPLEBASE_DEV_API_PROXY="http://${DEV_API_HOST}:${DEV_API_PORT}"
-  echo "==> SIMPLEBASE_DEV_MODE=${SIMPLEBASE_DEV_MODE}"
-  echo "==> SIMPLEBASE_LOG_LEVEL=${SIMPLEBASE_LOG_LEVEL}"
+  local cfg="$ROOT_DIR/config.yaml"
 
-  if [[ ! -f "$ROOT_DIR/config.yaml" ]]; then
-    echo "警告: 未找到 config.yaml。请确保 AUTH 等必填项已在环境或 .env 中配置。" >&2
+  # DevMode：仅在 yaml 与 env 都未设置时默认 true。
+  if [[ -z "${SIMPLEBASE_DEV_MODE:-}" ]]; then
+    local yaml_dev
+    yaml_dev="$(yaml_top_scalar "$cfg" "dev_mode" || true)"
+    if [[ -z "$yaml_dev" ]]; then
+      export SIMPLEBASE_DEV_MODE=true
+    fi
   fi
+
+  # Log level：仅在 yaml 与 env 都未设置时默认 debug，避免永远盖住 yaml。
+  if [[ -z "${SIMPLEBASE_LOG_LEVEL:-}" ]]; then
+    local yaml_level
+    yaml_level="$(yaml_scalar_under "$cfg" "observability" "log_level" || true)"
+    if [[ -z "$yaml_level" ]]; then
+      export SIMPLEBASE_LOG_LEVEL=debug
+    fi
+  fi
+
+  # HTTP 地址：--api-port 显式覆盖；否则尊重 env / yaml http.address。
+  if [[ "$API_PORT_EXPLICIT" -eq 1 ]]; then
+    export SIMPLEBASE_HTTP_ADDRESS=":${DEV_API_PORT}"
+  else
+    local effective_addr="${SIMPLEBASE_HTTP_ADDRESS:-}"
+    if [[ -z "$effective_addr" ]]; then
+      effective_addr="$(yaml_scalar_under "$cfg" "http" "address" || true)"
+    fi
+    if [[ -n "$effective_addr" ]]; then
+      local yaml_port="${effective_addr##*:}"
+      if [[ "$yaml_port" =~ ^[0-9]+$ ]]; then
+        DEV_API_PORT="$yaml_port"
+      fi
+    else
+      export SIMPLEBASE_HTTP_ADDRESS=":${DEV_API_PORT}"
+    fi
+  fi
+  export SIMPLEBASE_DEV_API_PROXY="http://${DEV_API_HOST}:${DEV_API_PORT}"
+  echo "==> SIMPLEBASE_DEV_MODE=${SIMPLEBASE_DEV_MODE:-<yaml>}"
+  echo "==> log_level=${SIMPLEBASE_LOG_LEVEL:-<yaml observability.log_level>}"
+  echo "==> backend ${DEV_API_HOST}:${DEV_API_PORT}"
 
   if [[ ! -d "$UI_DIR/node_modules" ]]; then
     echo "==> node_modules 缺失，执行 yarn install..."
@@ -347,7 +460,7 @@ cmd_dev() {
   echo "    打开:     ${ui_url}"
   echo "    后端 API: ${api_url}"
   echo "    健康检查: ${health_url}"
-  echo "    日志级别: ${SIMPLEBASE_LOG_LEVEL}（后端输出到终端）"
+  echo "    日志级别: ${SIMPLEBASE_LOG_LEVEL:-config.yaml}（后端输出到终端）"
   echo "    Dev Key:  sb_live_dev_key_12345"
   echo "    停止:     Ctrl+C"
   echo

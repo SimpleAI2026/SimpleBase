@@ -10,7 +10,7 @@
 .cache
 .box-desens
 .session_tmps
-simplebased
+/simplebased
 config.yaml
 thirdparty
 

@@ -169,17 +169,18 @@ func TestLoadLLMProviders(t *testing.T) {
 
 func TestConfigFilePath(t *testing.T) {
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", "/tmp/custom.yaml")
-	if got := configFilePath(); got != "/tmp/custom.yaml" {
-		t.Fatalf("explicit path: %q", got)
+	got, required := configFilePath()
+	if got != "/tmp/custom.yaml" || !required {
+		t.Fatalf("explicit path: %q required=%v", got, required)
 	}
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", "")
-	// default: only returns config.yaml if it exists in cwd
+	got, required = configFilePath()
 	if _, err := os.Stat("config.yaml"); err == nil {
-		if configFilePath() != "config.yaml" {
-			t.Fatal("expected default config.yaml when present")
+		if got != "config.yaml" || required {
+			t.Fatalf("expected optional config.yaml when present, got %q required=%v", got, required)
 		}
-	} else if configFilePath() != "" {
-		t.Fatalf("expected empty when config.yaml missing, got %q", configFilePath())
+	} else if got != "" {
+		t.Fatalf("expected empty when config.yaml missing, got %q", got)
 	}
 }
 
@@ -190,15 +191,17 @@ http:
   read_timeout: 11s
   write_timeout: 12s
   idle_timeout: 13s
+  shutdown_timeout: 9s
 instance:
   id: yaml-instance
   writable: false
 database:
   engine: ducklake
   cache_dir: /tmp/yaml-cache
+  cache_max_bytes: 2048
+  cache_max_databases: 4
   idle_timeout: 2m
   max_open: 3
-  max_idle: 1
   ducklake:
     memory_limit: 256MB
     threads: 4
@@ -209,7 +212,7 @@ database:
     require_commit_message: true
     catalog_sync:
       mode: sync_on_commit
-      debounce_ms: 400
+      debounce: 400ms
       keep_versions: 5
     maintenance:
       checkpoint_interval: 30m
@@ -224,8 +227,18 @@ s3:
   access_key: yaml-ak
   secret_key: yaml-sk
   force_path_style: true
+  kms_key_id: yaml-kms
 auth:
   api_key_hash_secret: yaml-secret
+llm:
+  enabled: true
+  providers:
+    openai:
+      api_key: yaml-llm
+      base_url: https://api.example
+      default_model: gpt-4o-mini
+      allowed_models: ["gpt-4o-mini"]
+      timeout: 45s
 limits:
   max_request_bytes: 2048
   max_query_rows: 50
@@ -236,10 +249,10 @@ limits:
 observability:
   log_level: debug
   log_format: console
+  log_output: stdout
   metrics_path: /prom
 system_database:
   name: yaml-system
-  hide_from_list: false
   metrics_flush_interval: 3s
   log_flush_interval: 4s
   log_keep_days: 21
@@ -258,8 +271,14 @@ dev_mode: true
 	if cfg.Instance.Writable {
 		t.Fatal("yaml writable=false")
 	}
-	if cfg.Database.CacheDir != "/tmp/yaml-cache" || cfg.Database.MaxOpen != 3 || cfg.Database.MaxIdle != 1 {
+	if cfg.Database.CacheDir != "/tmp/yaml-cache" || cfg.Database.MaxOpen != 3 {
 		t.Fatalf("database: %+v", cfg.Database)
+	}
+	if cfg.Database.CacheMaxBytes != 2048 || cfg.Database.CacheMaxDatabases != 4 {
+		t.Fatalf("cache caps: %+v", cfg.Database)
+	}
+	if cfg.HTTP.ShutdownTimeout != 9*time.Second {
+		t.Fatalf("shutdown: %v", cfg.HTTP.ShutdownTimeout)
 	}
 	dl := cfg.Database.DuckLake
 	if dl.MemoryLimit != "256MB" || dl.Threads != 4 || dl.ExtensionDir != "/ext" {
@@ -280,20 +299,26 @@ dev_mode: true
 	if dl.Maintenance.RewriteDeleteThreshold != 0.8 || dl.Maintenance.CheckpointInterval != 30*time.Minute {
 		t.Fatalf("maint: %+v", dl.Maintenance)
 	}
-	if cfg.S3.Bucket != "yaml-bucket" || cfg.S3.Region != "us-west-2" || !cfg.S3.ForcePathStyle {
+	if cfg.S3.Bucket != "yaml-bucket" || cfg.S3.Region != "us-west-2" || !cfg.S3.ForcePathStyle || cfg.S3.KMSKeyID != "yaml-kms" {
 		t.Fatalf("s3: %+v", cfg.S3)
 	}
 	if cfg.Auth.APIKeyHashSecret != "yaml-secret" {
 		t.Fatalf("auth: %+v", cfg.Auth)
 	}
+	if !cfg.LLM.Enabled || cfg.LLM.Providers["openai"].APIKey != "yaml-llm" || cfg.LLM.Providers["openai"].Timeout != 45*time.Second {
+		t.Fatalf("llm: %+v", cfg.LLM)
+	}
 	if cfg.Limits.MaxRequestBytes != 2048 || cfg.Limits.MaxSQLBytes != 1111 {
 		t.Fatalf("limits: %+v", cfg.Limits)
 	}
-	if cfg.Observability.LogLevel != "debug" || cfg.Observability.MetricsPath != "/prom" {
+	if cfg.Observability.LogLevel != "debug" || cfg.Observability.MetricsPath != "/prom" || cfg.Observability.LogOutput != "stdout" {
 		t.Fatalf("obs: %+v", cfg.Observability)
 	}
-	if cfg.SystemDatabase.Name != "yaml-system" || cfg.SystemDatabase.HideFromList || cfg.SystemDatabase.LogKeepDays != 21 {
+	if cfg.SystemDatabase.Name != "yaml-system" || cfg.SystemDatabase.LogKeepDays != 21 {
 		t.Fatalf("system db: %+v", cfg.SystemDatabase)
+	}
+	if cfg.SystemDatabase.MetricsFlushInterval != 3*time.Second || cfg.SystemDatabase.LogFlushInterval != 4*time.Second {
+		t.Fatalf("flush: %+v", cfg.SystemDatabase)
 	}
 	if !cfg.DevMode {
 		t.Fatal("dev_mode")
@@ -309,8 +334,6 @@ instance:
   writable: false
 database:
   cache_dir: /tmp/yaml
-auth:
-  api_key_hash_secret: yaml-secret
 dev_mode: true
 `)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
@@ -330,24 +353,38 @@ dev_mode: true
 	}
 }
 
-func TestLoadInvalidYAMLFallsBackToEnv(t *testing.T) {
+func TestLoadInvalidYAMLErrors(t *testing.T) {
 	path := writeYAML(t, "::::not-yaml")
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
 	setRequiredEnvs(t, false, false)
+	if _, err := Load(); err == nil {
+		t.Fatal("invalid yaml must fail")
+	}
+}
+
+func TestLoadMissingYAMLPathErrorsWhenConfigured(t *testing.T) {
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.yaml"))
+	setRequiredEnvs(t, false, false)
+	if _, err := Load(); err == nil {
+		t.Fatal("missing SIMPLEBASE_CONFIG_PATH must fail")
+	}
+}
+
+func TestLoadEnvOnlyWhenNoYAML(t *testing.T) {
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", "")
+	setRequiredEnvs(t, false, false)
 	cfg, err := Load()
 	if err != nil {
-		t.Fatalf("invalid yaml should fall back: %v", err)
+		t.Fatalf("env-only: %v", err)
 	}
 	if cfg.Instance.ID != "test-instance" {
 		t.Fatalf("got %s", cfg.Instance.ID)
 	}
-}
-
-func TestLoadMissingYAMLPathUsesEnv(t *testing.T) {
-	t.Setenv("SIMPLEBASE_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.yaml"))
-	setRequiredEnvs(t, false, false)
-	if _, err := Load(); err != nil {
-		t.Fatalf("missing yaml: %v", err)
+	if !cfg.LLM.Enabled {
+		t.Fatal("llm.enabled default true")
+	}
+	if cfg.Database.CacheMaxBytes != DefaultCacheMaxBytes {
+		t.Fatalf("cache default: %d", cfg.Database.CacheMaxBytes)
 	}
 }
 
@@ -355,42 +392,169 @@ func TestApplyYAMLZeroValuesDoNotOverride(t *testing.T) {
 	cfg := loadFromEnv()
 	origAddr := cfg.HTTP.Address
 	origMaxOpen := cfg.Database.MaxOpen
-	applyYAML(&cfg, yamlConfig{})
+	origWritable := cfg.Instance.Writable
+	if _, err := applyYAML(&cfg, yamlConfig{}); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.HTTP.Address != origAddr {
 		t.Fatalf("empty yaml should not change address: %s", cfg.HTTP.Address)
 	}
 	if cfg.Database.MaxOpen != origMaxOpen {
 		t.Fatalf("empty yaml should not change max_open: %d", cfg.Database.MaxOpen)
 	}
+	if cfg.Instance.Writable != origWritable {
+		t.Fatal("omitted writable must not flip default")
+	}
 }
 
-func TestApplyYAMLDuckLakeInvalidDurationIgnored(t *testing.T) {
-	cfg := loadFromEnv()
-	origExpire := cfg.Database.DuckLake.Maintenance.ExpireOlderThan
-	applyYAMLDuckLake(&cfg, yamlDuckLake{
-		Maintenance: yamlDuckLakeMaint{
-			ExpireOlderThan: "not-a-duration",
-			DeleteOlderThan: "also-bad",
-		},
-	})
-	if cfg.Database.DuckLake.Maintenance.ExpireOlderThan != origExpire {
-		t.Fatal("invalid expire duration should be ignored")
+func TestLoadInvalidDurationInYAMLErrors(t *testing.T) {
+	path := writeYAML(t, `
+instance:
+  id: yaml-id
+database:
+  cache_dir: /tmp/yaml
+  ducklake:
+    maintenance:
+      expire_older_than: not-a-duration
+auth:
+  api_key_hash_secret: s
+dev_mode: true
+`)
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	if _, err := Load(); err == nil {
+		t.Fatal("invalid duration must fail")
+	}
+}
+
+func TestOmittedYAMLBoolsKeepDefaults(t *testing.T) {
+	path := writeYAML(t, `
+http:
+  address: ":8081"
+instance:
+  id: yaml-id
+database:
+  cache_dir: /tmp/yaml
+auth:
+  api_key_hash_secret: s
+dev_mode: true
+`)
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Instance.Writable {
+		t.Fatal("omitted writable should stay default true")
+	}
+	if cfg.S3.ForcePathStyle {
+		t.Fatal("omitted force_path_style should stay false")
+	}
+	if cfg.Database.DuckLake.RequireCommitMessage {
+		t.Fatal("omitted require_commit_message should stay false")
+	}
+}
+
+func TestLoadRejectsYAMLSecretsWhenNotDev(t *testing.T) {
+	path := writeYAML(t, `
+instance:
+  id: prod
+  writable: false
+database:
+  cache_dir: /tmp/c
+s3:
+  access_key: AKIA
+  secret_key: secret
+auth:
+  api_key_hash_secret: from-yaml
+dev_mode: false
+`)
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	if _, err := Load(); err == nil {
+		t.Fatal("expected secret rejection")
+	}
+}
+
+func TestLoadAllowsYAMLSecretsInDevMode(t *testing.T) {
+	path := writeYAML(t, `
+instance:
+  id: dev
+database:
+  cache_dir: /tmp/c
+auth:
+  api_key_hash_secret: from-yaml
+dev_mode: true
+`)
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.APIKeyHashSecret != "from-yaml" {
+		t.Fatalf("auth: %s", cfg.Auth.APIKeyHashSecret)
+	}
+}
+
+func TestDebounceMSCompatAlias(t *testing.T) {
+	path := writeYAML(t, `
+instance:
+  id: yaml-id
+database:
+  cache_dir: /tmp/yaml
+  ducklake:
+    catalog_sync:
+      debounce_ms: 350
+auth:
+  api_key_hash_secret: s
+dev_mode: true
+`)
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Database.DuckLake.CatalogSync.Debounce != 350*time.Millisecond {
+		t.Fatalf("debounce: %v", cfg.Database.DuckLake.CatalogSync.Debounce)
+	}
+}
+
+func TestLoadConfigExampleYAML(t *testing.T) {
+	example := filepath.Join("..", "..", "config.example.yaml")
+	if _, err := os.Stat(example); err != nil {
+		t.Skip("config.example.yaml not found")
+	}
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", example)
+	t.Setenv("SIMPLEBASE_DEV_MODE", "true")
+	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "example-test-secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("example yaml: %v", err)
+	}
+	if cfg.Instance.ID == "" || cfg.Database.CacheDir == "" {
+		t.Fatalf("example missing required fields: %+v", cfg)
+	}
+	if cfg.Observability.LogFormat == "" || cfg.HTTP.ShutdownTimeout <= 0 {
+		t.Fatalf("example missing new fields: %+v", cfg.Observability)
 	}
 }
 
 func TestValidateTable(t *testing.T) {
 	valid := func() Config {
 		return Config{
-			HTTP:     HTTPConfig{Address: ":1", ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second},
+			HTTP: HTTPConfig{
+				Address: ":1", ReadTimeout: time.Second, WriteTimeout: time.Second,
+				IdleTimeout: time.Second, ShutdownTimeout: time.Second,
+			},
 			Instance: InstanceConfig{ID: "id", Writable: false},
 			Database: DatabaseConfig{
-				Engine: EngineDuckLake, CacheDir: "/tmp/c", IdleTimeout: time.Minute, MaxOpen: 1, MaxIdle: 0,
+				Engine: EngineDuckLake, CacheDir: "/tmp/c", IdleTimeout: time.Minute, MaxOpen: 1,
+				CacheMaxBytes: DefaultCacheMaxBytes, CacheMaxDatabases: DefaultCacheMaxDatabases,
 			},
 			Auth: AuthConfig{APIKeyHashSecret: "s"},
 			Limits: LimitsConfig{
 				MaxRequestBytes: 1, MaxQueryRows: 1, QueryTimeout: time.Second,
 				MaxConcurrentQueries: 1, MaxBatchStatements: 1, MaxSQLBytes: 1,
 			},
+			SystemDatabase: SystemDatabaseConfig{LogKeepDays: 14},
 		}
 	}
 
@@ -403,15 +567,19 @@ func TestValidateTable(t *testing.T) {
 		{"empty engine ok", func(c *Config) { c.Database.Engine = "" }, ""},
 		{"empty address", func(c *Config) { c.HTTP.Address = "" }, "http.address"},
 		{"bad timeout", func(c *Config) { c.HTTP.ReadTimeout = 0 }, "timeouts"},
+		{"bad shutdown", func(c *Config) { c.HTTP.ShutdownTimeout = 0 }, "shutdown_timeout"},
 		{"empty instance", func(c *Config) { c.Instance.ID = "" }, "instance.id"},
 		{"bad engine", func(c *Config) { c.Database.Engine = "sqlite" }, "ducklake"},
 		{"neg threads", func(c *Config) { c.Database.DuckLake.Threads = -1 }, "threads"},
 		{"empty cache", func(c *Config) { c.Database.CacheDir = "" }, "cache_dir"},
 		{"bad idle", func(c *Config) { c.Database.IdleTimeout = 0 }, "idle_timeout"},
 		{"bad max open", func(c *Config) { c.Database.MaxOpen = 0 }, "max_open"},
-		{"neg max idle", func(c *Config) { c.Database.MaxIdle = -1 }, "max_idle"},
+		{"bad cache bytes", func(c *Config) { c.Database.CacheMaxBytes = 0 }, "cache_max_bytes"},
 		{"empty secret", func(c *Config) { c.Auth.APIKeyHashSecret = "" }, "api_key_hash_secret"},
 		{"bad limits", func(c *Config) { c.Limits.MaxSQLBytes = 0 }, "limits"},
+		{"bad log format", func(c *Config) { c.Observability.LogFormat = "xml" }, "log_format"},
+		{"bad log output", func(c *Config) { c.Observability.LogOutput = "file" }, "log_output"},
+		{"bad keep days", func(c *Config) { c.SystemDatabase.LogKeepDays = 0 }, "log_keep_days"},
 		{"writable missing bucket", func(c *Config) {
 			c.Instance.Writable = true
 			c.S3 = S3Config{Region: "r", Prefix: "p"}
@@ -458,9 +626,10 @@ func TestValidateTable(t *testing.T) {
 
 func TestRedactedIncludesProvidersAndOmitsSecrets(t *testing.T) {
 	cfg := Config{
-		HTTP:     HTTPConfig{Address: ":1", ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second},
+		HTTP:     HTTPConfig{Address: ":1", ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second, ShutdownTimeout: time.Second},
 		Instance: InstanceConfig{ID: "id", Writable: true},
-		Database: DatabaseConfig{Engine: EngineDuckLake, CacheDir: "/c", IdleTimeout: time.Minute, MaxOpen: 1, MaxIdle: 0,
+		Database: DatabaseConfig{Engine: EngineDuckLake, CacheDir: "/c", IdleTimeout: time.Minute, MaxOpen: 1,
+			CacheMaxBytes: 1, CacheMaxDatabases: 1,
 			DuckLake: DuckLakeConfig{MemoryLimit: "1MB", CatalogSync: CatalogSyncConfig{Mode: "debounce", Debounce: time.Millisecond}}},
 		S3:   S3Config{AccessKey: "AKIA", SecretKey: "SECRET", KMSKeyID: "kms", Bucket: "b", Region: "r", Prefix: "p"},
 		Auth: AuthConfig{APIKeyHashSecret: "hash-secret"},
@@ -485,7 +654,8 @@ func TestRedactedIncludesProvidersAndOmitsSecrets(t *testing.T) {
 			t.Fatal("secret leaked")
 		}
 	}
-	providers := view["llm_providers"].(map[string]any)
+	llm := view["llm"].(map[string]any)
+	providers := llm["providers"].(map[string]any)
 	openai := providers["openai"].(map[string]any)
 	if openai["has_api_key"] != true || openai["base_url"] != "https://x" {
 		t.Fatalf("provider: %#v", openai)

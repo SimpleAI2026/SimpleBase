@@ -64,6 +64,6 @@ cmd/simplebased → app → api → auth / catalog / database / objectstore
 
 ## 其他
 
-- 配置只从 `config.yaml` / `SIMPLEBASE_` 环境变量加载（`internal/config`），不得引入其他配置来源。
+- 配置只从 `config.yaml` / `SIMPLEBASE_` 环境变量加载（`internal/config`）：YAML 为非密钥权威来源，env 覆盖；不得引入其他配置来源。
 - 审计事件默认脱敏；不得在日志/审计中输出 SQL 参数或 LLM 正文。
 - 不新增第三方依赖除非用户明确要求；不改 `go.mod` 结构。
