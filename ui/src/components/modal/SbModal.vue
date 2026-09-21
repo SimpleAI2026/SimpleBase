@@ -1,6 +1,6 @@
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent :class="contentClass" :show-close-button="true">
+    <DialogContent :class="contentClass" :style="contentStyle" :show-close-button="true">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription v-if="description" class="sr-only">{{ description }}</DialogDescription>
@@ -8,7 +8,7 @@
       <div class="min-w-0">
         <slot />
       </div>
-      <DialogFooter>
+      <DialogFooter v-if="!hideFooter">
         <slot name="footer">
           <Button variant="outline" @click="onCancel">{{ cancelText }}</Button>
           <Button :disabled="okDisabled || confirmLoading" @click="emit('ok')">
@@ -40,6 +40,9 @@ const props = withDefaults(
     title?: string
     description?: string
     width?: number | string
+    maxWidth?: number | string
+    minWidth?: number | string
+    hideFooter?: boolean
     confirmLoading?: boolean
     okText?: string
     cancelText?: string
@@ -47,6 +50,7 @@ const props = withDefaults(
   }>(),
   {
     width: 520,
+    hideFooter: false,
     confirmLoading: false,
     okText: '确定',
     cancelText: '取消',
@@ -61,16 +65,42 @@ const emit = defineEmits<{
 
 const okDisabled = computed(() => Boolean(props.okButtonProps?.disabled))
 
-const contentClass = computed(() => {
-  const w = props.width
-  if (typeof w === 'number') {
-    if (w >= 900) return 'sm:max-w-5xl'
-    if (w >= 800) return 'sm:max-w-4xl'
-    if (w >= 700) return 'sm:max-w-3xl'
-    if (w >= 600) return 'sm:max-w-2xl'
-    if (w <= 480) return 'sm:max-w-md'
+function cssSize(value: number | string): string {
+  return typeof value === 'number' ? `${value}px` : value
+}
+
+const contentStyle = computed(() => {
+  const style: Record<string, string> = {}
+  if (props.maxWidth != null) {
+    style['--sb-modal-max-w'] = cssSize(props.maxWidth)
   }
-  return 'sm:max-w-lg'
+  if (props.minWidth != null) {
+    style['--sb-modal-min-w'] = cssSize(props.minWidth)
+  }
+  return style
+})
+
+const contentClass = computed(() => {
+  const classes: string[] = []
+  if (props.maxWidth != null) {
+    classes.push('sm:max-w-[var(--sb-modal-max-w)]')
+  } else {
+    const w = props.width
+    if (typeof w === 'number') {
+      if (w >= 900) classes.push('sm:max-w-5xl')
+      else if (w >= 800) classes.push('sm:max-w-4xl')
+      else if (w >= 700) classes.push('sm:max-w-3xl')
+      else if (w >= 600) classes.push('sm:max-w-2xl')
+      else if (w <= 480) classes.push('sm:max-w-md')
+      else classes.push('sm:max-w-lg')
+    } else {
+      classes.push('sm:max-w-lg')
+    }
+  }
+  if (props.minWidth != null) {
+    classes.push('sm:min-w-[var(--sb-modal-min-w)]')
+  }
+  return classes.join(' ')
 })
 
 function onCancel() {

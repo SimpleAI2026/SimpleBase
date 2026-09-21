@@ -340,7 +340,7 @@ func Hello(req Request) Response {
 | 项 | 值 |
 |---|---|
 | 路由 | `path: 'gofunctions'`, `name: 'gofunctions'`, `meta.title: '云函数'` |
-| 侧栏顺序 | dashboard → databases → s3 → **gofunctions** → agents → logs → settings |
+| 侧栏顺序 | dashboard → databases → s3 → **gofunctions** → agents → logs（Settings 已离开侧栏，见 [`ui-settings-merge-plan.md`](./ui-settings-merge-plan.md)） |
 | 图标 | `@lucide/vue` 的 `CodeIcon`（若当前版本导出 `SquareFunctionIcon` 则优先） |
 | 页面 | `ui/src/pages/GoFunctions.vue` |
 | 弹窗 | `ui/src/components/modal/GoFunctionModal.vue` |

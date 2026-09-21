@@ -5,7 +5,7 @@ import AiChat from './ai/AiChat.vue'
 import AiChatComposer from './ai/AiChatComposer.vue'
 import MessageScroller from './chat/MessageScroller.vue'
 import CollectionPanel from './databases/CollectionPanel.vue'
-import ApiKeyDrawer from './ApiKeyDrawer.vue'
+import ConnectionPanel from './settings/ConnectionPanel.vue'
 import CronJobRunsDrawer from './CronJobRunsDrawer.vue'
 import { useAuthStore } from '../stores/auth'
 import { useProjectStore } from '../stores/project'
@@ -159,14 +159,14 @@ describe('component coverage', () => {
     w.unmount()
   })
 
-  it('ApiKeyDrawer and CronJobRunsDrawer helpers', async () => {
+  it('ConnectionPanel and CronJobRunsDrawer helpers', async () => {
     setActivePinia(createPinia())
     useProjectStore().setProject('p', 'Proj')
     const auth = useAuthStore()
-    auth.keyDrawerOpen = true
-    const drawer = mount(ApiKeyDrawer, { global: { plugins: [createPinia()], stubs } })
+    auth.settingsOpen = true
+    const panel = mount(ConnectionPanel, { global: { plugins: [createPinia()], stubs } })
     await flushPromises()
-    drawer.unmount()
+    panel.unmount()
 
     api.cronjobs.runs.mockResolvedValue([
       { id: '1', jobId: 'j', trigger: 'manual', status: 'completed', error: '', durationMs: 1, responseJson: '{"a":1}', createdAt: 't' }

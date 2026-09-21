@@ -18,7 +18,6 @@ import Databases from './pages/Databases.vue'
 import GoFunctions from './pages/GoFunctions.vue'
 import Logs from './pages/Logs.vue'
 import S3Manager from './pages/S3Manager.vue'
-import Settings from './pages/Settings.vue'
 import CronJobModal from './components/modal/CronJobModal.vue'
 import GoFunctionModal from './components/modal/GoFunctionModal.vue'
 import SqlWorkModal from './components/modal/SqlWorkModal.vue'
@@ -26,7 +25,8 @@ import DocumentListModal from './components/modal/DocumentListModal.vue'
 import SbModal from './components/modal/SbModal.vue'
 import AgentScheduleModal from './components/ai/AgentScheduleModal.vue'
 import CronJobRunsDrawer from './components/CronJobRunsDrawer.vue'
-import ApiKeyDrawer from './components/ApiKeyDrawer.vue'
+import ConnectionPanel from './components/settings/ConnectionPanel.vue'
+import SettingsPanel from './components/settings/SettingsPanel.vue'
 import GlobalProjectSwitcher from './components/GlobalProjectSwitcher.vue'
 
 vi.mock('./services/api', async () => {
@@ -164,20 +164,19 @@ describe('remaining coverage gaps', () => {
     await lvm.load()
     logs.wrapper.unmount()
 
-    const settings = await mountWithApp(Settings)
+    const settings = await mountWithApp(SettingsPanel, { props: { section: 'models' } })
     const st = vmOf(settings.wrapper)
     api.llmSettings.put.mockRejectedValueOnce({ nope: true })
     await st.patchDefaults({ maxTokens: 1 })
     api.llmSettings.put.mockRejectedValueOnce({ nope: true })
-    await st.setDefault('openai')
+    const providers = await mountWithApp(SettingsPanel, { props: { section: 'providers' } })
+    await vmOf(providers.wrapper).setDefault('openai')
     if (settings.wrapper.find('#max-tokens').exists()) {
       await settings.wrapper.get('#max-tokens').setValue('')
       await flushPromises()
     }
-    if (settings.wrapper.find('.sheet-content-close').exists()) {
-      await settings.wrapper.get('.sheet-content-close').trigger('click')
-    }
     settings.wrapper.unmount()
+    providers.wrapper.unmount()
 
     const go = await mountWithApp(GoFunctions)
     const gvm = vmOf(go.wrapper)
@@ -385,7 +384,7 @@ describe('remaining coverage gaps', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
-    const key = mount(ApiKeyDrawer, { global: { plugins: [pinia], stubs: uiStubs } })
+    const key = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
     const keyInput = key.find('input')
     if (keyInput.exists()) await keyInput.setValue('k')
     key.unmount()

@@ -20,7 +20,7 @@ import CollectionPanel from './databases/CollectionPanel.vue'
 import CronJobRunsDrawer from './CronJobRunsDrawer.vue'
 import GlobalProjectSwitcher from './GlobalProjectSwitcher.vue'
 import NavMenu from './NavMenu.vue'
-import ApiKeyDrawer from './ApiKeyDrawer.vue'
+import ConnectionPanel from './settings/ConnectionPanel.vue'
 
 vi.mock('../services/api', async () => {
   const m = await import('../test/api-mock')
@@ -301,10 +301,11 @@ describe('component template interactions', () => {
     w.unmount()
   })
 
-  it('ApiKeyDrawer sheet close', async () => {
+  it('ConnectionPanel mounts without a sheet', async () => {
     const pinia = piniaWithProject()
-    const w = mount(ApiKeyDrawer, { global: { plugins: [pinia], stubs: uiStubs } })
-    if (w.find('.sheet-close').exists()) await w.get('.sheet-close').trigger('click')
+    const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
+    expect(w.find('.sheet').exists()).toBe(false)
+    expect(w.text()).toContain('API Key')
     w.unmount()
   })
 })

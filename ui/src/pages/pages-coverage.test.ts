@@ -8,8 +8,9 @@ import GoFunctions from './GoFunctions.vue'
 import CronJobs from './CronJobs.vue'
 import S3Manager from './S3Manager.vue'
 import Databases from './Databases.vue'
-import Settings from './Settings.vue'
 import AgentManager from './AgentManager.vue'
+import SettingsPanel from '../components/settings/SettingsPanel.vue'
+import { uiStubs } from '../test/helpers'
 
 const { api } = vi.hoisted(() => {
   const fn = () => vi.fn()
@@ -327,7 +328,8 @@ describe('page coverage', () => {
     await dbVm.removeDb(item)
     db.unmount()
 
-    const settings = mount(Settings, {
+    const settings = mount(SettingsPanel, {
+      props: { section: 'providers' },
       global: { plugins: [createPinia()], stubs: { ...uiStubs, default: true } },
       shallow: true
     })

@@ -88,5 +88,8 @@ describe('router-backed chrome', () => {
       }
     })
     expect(w.text()).toContain('监控大盘')
+    expect(w.text()).not.toContain('设置')
+    const names = (w.vm as { menuItems: { name: string }[] }).menuItems.map((i) => i.name)
+    expect(names).toEqual(['dashboard', 'databases', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs'])
   })
 })
