@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks } from '../../test/api-mock'
-import { readyDb, uiStubs } from '../../test/helpers'
+import { clickText, readyDb, uiStubs } from '../../test/helpers'
 import SqlWorkModal from './SqlWorkModal.vue'
 
 vi.mock('../../services/api', async () => {
@@ -93,5 +93,31 @@ describe('SqlWorkModal', () => {
     await flushPromises()
     expect(vm.mode).toBe('query')
     w.unmount()
+  })
+
+  it('runs a SELECT from the footer button and shows query rows', async () => {
+    const w = mount(SqlWorkModal, {
+      props: { open: true, projectId: 'p', database: readyDb },
+      global: { stubs: uiStubs }
+    })
+    await w.get('textarea').setValue('SELECT 1')
+    await clickText(w, '执行查询')
+    await flushPromises()
+    expect(api.sql.query).toHaveBeenCalledWith('p', 'db-1', expect.objectContaining({ sql: 'SELECT 1' }))
+    expect(w.text()).toContain('1 行')
+    expect(w.text()).toContain('request_id: r1')
+  })
+
+  it('hides write modes in readonly and still allows query', async () => {
+    const w = mount(SqlWorkModal, {
+      props: { open: true, projectId: 'p', database: readyDb, readonly: true },
+      global: { stubs: uiStubs }
+    })
+    expect(w.text()).toContain('系统库只读')
+    expect(w.text()).toContain('执行查询')
+    await w.get('textarea').setValue('SELECT id FROM users')
+    await clickText(w, '执行查询')
+    await flushPromises()
+    expect(api.sql.query).toHaveBeenCalled()
   })
 })

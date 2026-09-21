@@ -27,6 +27,17 @@ describe('router', () => {
     expect(docs?.meta?.hidden).toBe(true)
   })
 
+  it('assigns Chinese titles to the seven console feature areas', () => {
+    const titleOf = (name: string) => router.getRoutes().find((r) => r.name === name)?.meta?.title
+    expect(titleOf('dashboard')).toBe('监控大盘')
+    expect(titleOf('databases')).toBe('数据库管理')
+    expect(titleOf('s3')).toBe('S3 对象存储')
+    expect(titleOf('gofunctions')).toBe('云函数')
+    expect(titleOf('cron-jobs')).toBe('定时任务')
+    expect(titleOf('agents')).toBe('云 Agent')
+    expect(titleOf('logs')).toBe('日志管理')
+  })
+
   it('resolves lazy page loaders', async () => {
     const loaders = router.getRoutes()
       .map((r) => r.components?.default)
