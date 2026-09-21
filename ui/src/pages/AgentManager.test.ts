@@ -1,11 +1,9 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { useProjectStore } from '../stores/project'
 import { api, resetApiMocks } from '../test/api-mock'
-import { sampleAgent, uiStubs } from '../test/helpers'
+import { clickText, mountWithApp, sampleAgent } from '../test/helpers'
 import AgentManager from './AgentManager.vue'
 
 vi.mock('../services/api', async () => {
@@ -13,34 +11,180 @@ vi.mock('../services/api', async () => {
   return { api: m.api, isMock: false }
 })
 
-async function mountPage() {
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', name: 'agents', component: { template: '<div />' } }]
-  })
-  await router.push('/')
-  await router.isReady()
-  const pinia = createPinia()
-  setActivePinia(pinia)
-  useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
-  api.agents.list.mockResolvedValue([sampleAgent])
-  api.agentThreads.list.mockResolvedValue([{ id: 'th-1', title: 'T', created_at: 't', updated_at: 't' }])
-  api.agentThreads.messages.mockResolvedValue([])
-  api.agentSchedules.list.mockResolvedValue([
-    { id: 'sch-1', agent_id: 'ag-1', thread_id: 'th-1', prompt: 'p', cron_expr: '0 * * * *', enabled: false, created_at: 't', updated_at: 't' }
-  ])
-  return mount(AgentManager, {
-    global: { plugins: [router, pinia], stubs: { ...uiStubs, AiChat: true, AgentScheduleModal: true } }
-  })
+const agentStubs = {
+  AiChat: {
+    props: ['customSend', 'messages', 'sending', 'mentionAgents'],
+    emits: ['stop'],
+    template: `
+      <div class="ai-chat">
+        <button type="button" class="ai-send" @click="customSend && customSend('hello', mentionAgents && mentionAgents[0] ? [{ agent_id: mentionAgents[0].id }] : [])">send</button>
+        <button type="button" class="ai-blank" @click="customSend && customSend('   ', [])">blank</button>
+        <button type="button" class="ai-stop" @click="$emit('stop')">stop</button>
+        <slot name="toolbar" />
+        <slot name="empty" />
+      </div>
+    `
+  },
+  AgentScheduleModal: {
+    props: ['open', 'agent', 'schedule'],
+    emits: ['update:open', 'saved', 'removed', 'view-thread'],
+    template: `
+      <div v-if="open" class="sch-m">
+        {{ agent && agent.name }}
+        <button type="button" class="sch-saved" @click="$emit('saved', { id: 's1', agent_id: 'ag-1', cron_expr: '0 8 * * *', enabled: true })">save</button>
+        <button type="button" class="sch-removed" @click="$emit('removed', 'sch-1')">rm</button>
+        <button type="button" class="sch-thread" @click="$emit('view-thread', 'th-1')">th</button>
+        <button type="button" class="sch-close" @click="$emit('update:open', false)">x</button>
+      </div>
+    `
+  }
 }
 
-describe('AgentManager script', () => {
-  beforeEach(() => resetApiMocks())
+function clickExact(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wrapper'], text: string) {
+  const el = wrapper.findAll('button').find((b) => b.text().trim() === text)
+  if (!el) throw new Error(`No exact button "${text}"`)
+  return el.trigger('click')
+}
 
-  it('covers schedule helpers, CRUD, and stream send/stop', async () => {
-    const w = await mountPage()
+describe('AgentManager (云 Agent)', () => {
+  beforeEach(() => {
+    resetApiMocks()
+    api.agents.list.mockResolvedValue([sampleAgent])
+    api.agents.modules.mockResolvedValue([
+      { id: 'database', name: 'Database', description: 'd', default_tools: ['list_databases'], team_supported: false },
+      { id: 's3', name: 'S3', description: 's', default_tools: ['list_objects'], team_supported: false }
+    ])
+    api.agentThreads.list.mockResolvedValue([{ id: 'th-1', title: 'T', created_at: 't', updated_at: 't' }])
+    api.agentThreads.messages.mockResolvedValue([])
+    api.agentSchedules.list.mockResolvedValue([
+      {
+        id: 'sch-1',
+        agent_id: 'ag-1',
+        thread_id: 'th-1',
+        prompt: 'p',
+        cron_expr: '0 * * * *',
+        enabled: true,
+        created_at: 't',
+        updated_at: 't'
+      }
+    ])
+  })
+
+  it('lists agents with schedule summary and selects one', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    expect(wrapper.text()).toContain('按模块的只读 Agent')
+    expect(wrapper.text()).toContain('Database')
+    expect(wrapper.text()).toContain('每小时')
+    expect(wrapper.text()).toContain('已启用')
+    await wrapper.find('button.w-full').trigger('click')
+    expect(wrapper.text()).toContain('@Database')
+  })
+
+  it('creates, edits, and deletes an agent from the page', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await clickExact(wrapper, '新建')
+    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    await wrapper.get('#agent-name').setValue('')
+    await wrapper.get('.sb-ok').trigger('click')
     await flushPromises()
-    const vm = w.vm as any
+    expect(toast.warning).toHaveBeenCalledWith('请填写名称')
+
+    await wrapper.get('#agent-name').setValue('N2')
+    await wrapper.get('#agent-desc').setValue('desc')
+    await wrapper.get('#agent-prompt').setValue('sys')
+    await wrapper.get('.select-emit').trigger('click')
+    const badges = wrapper.findAll('.badge')
+    if (badges.length) await badges[badges.length - 1].trigger('click')
+    await wrapper.get('.sb-ok').trigger('click')
+    await flushPromises()
+    expect(api.agents.create).toHaveBeenCalled()
+
+    await clickExact(wrapper, '编辑')
+    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    await wrapper.get('#agent-name').setValue('N3')
+    await wrapper.get('.sb-ok').trigger('click')
+    await flushPromises()
+    expect(api.agents.patch).toHaveBeenCalled()
+
+    api.agents.remove.mockRejectedValueOnce(new Error('rm'))
+    await clickExact(wrapper, '删除')
+    await flushPromises()
+    expect(toast.error).toHaveBeenCalledWith('rm')
+    await clickExact(wrapper, '删除')
+    await flushPromises()
+    expect(api.agents.remove).toHaveBeenCalled()
+  })
+
+  it('opens schedule modal, applies save/remove, and loads a thread', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await clickExact(wrapper, '定时')
+    expect(wrapper.get('.sch-m').text()).toContain('Database')
+    await wrapper.get('.sch-saved').trigger('click')
+    await wrapper.get('.sch-removed').trigger('click')
+    await wrapper.get('.sch-thread').trigger('click')
+    await flushPromises()
+    expect(api.agentThreads.messages).toHaveBeenCalled()
+  })
+
+  it('sends a stream message, stops it, and starts a new thread', async () => {
+    const close = vi.fn()
+    api.agentThreads.streamRun.mockImplementation((_p: string, _t: string, _r: unknown, h: { onRun?: (id: string) => void; onToken?: (t: string) => void; onEnd?: () => void }) => {
+      h.onRun?.('run-1')
+      h.onToken?.('A')
+      h.onEnd?.()
+      return { close }
+    })
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await wrapper.get('.ai-send').trigger('click')
+    await flushPromises()
+    expect(api.agentThreads.streamRun).toHaveBeenCalled()
+    await wrapper.get('.ai-stop').trigger('click')
+    await clickText(wrapper, '新会话')
+    await flushPromises()
+    expect(api.agentThreads.create).toHaveBeenCalled()
+  })
+
+  it('shows empty-state create and reloads on refresh / project change', async () => {
+    api.agents.list.mockResolvedValueOnce([])
+    const { wrapper, pinia } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    expect(wrapper.text()).toContain('还没有 Agent')
+    await wrapper.get('.empty-action').trigger('click')
+    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+
+    api.agents.list.mockResolvedValue([sampleAgent])
+    await clickText(wrapper, '刷新')
+    await flushPromises()
+    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    await flushPromises()
+    expect(api.agents.list.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('handles list / schedule / thread load errors', async () => {
+    api.agents.list.mockRejectedValueOnce(new Error('agents'))
+    api.agentSchedules.list.mockRejectedValueOnce(new Error('sched'))
+    await mountWithApp(AgentManager, { stubs: agentStubs })
+    expect(toast.error).toHaveBeenCalledWith('agents')
+    expect(toast.error).toHaveBeenCalledWith('sched')
+  })
+})
+
+describe('AgentManager script helpers', () => {
+  beforeEach(() => {
+    resetApiMocks()
+    api.agents.list.mockResolvedValue([sampleAgent])
+    api.agentThreads.list.mockResolvedValue([{ id: 'th-1', title: 'T', created_at: 't', updated_at: 't' }])
+    api.agentThreads.messages.mockResolvedValue([])
+    api.agentSchedules.list.mockResolvedValue([
+      { id: 'sch-1', agent_id: 'ag-1', thread_id: 'th-1', prompt: 'p', cron_expr: '0 * * * *', enabled: false, created_at: 't', updated_at: 't' }
+    ])
+  })
+
+  it('covers schedule helpers, CRUD edge cases, and stream send/stop', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, {
+      stubs: { ...agentStubs, AgentScheduleModal: true, AiChat: true }
+    })
+    await flushPromises()
+    const vm = wrapper.vm as Record<string, any>
     expect(vm.scheduleSummary({ cron_expr: '*/15 * * * *', enabled: true })).toContain('每 15 分钟')
     expect(vm.scheduleSummary({ cron_expr: '0 * * * *', enabled: false })).toContain('已停用')
     expect(vm.scheduleSummary({ cron_expr: '0 8 * * *', enabled: true })).toContain('每天')
@@ -124,9 +268,6 @@ describe('AgentManager script', () => {
     await vm.ensureThread()
     api.agentSchedules.list.mockRejectedValueOnce(new Error('s'))
     await vm.loadSchedules()
-    const { useProjectStore } = await import('../stores/project')
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000003')
-    await flushPromises()
-    w.unmount()
+    wrapper.unmount()
   })
 })

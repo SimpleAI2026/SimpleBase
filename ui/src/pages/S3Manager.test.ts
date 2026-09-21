@@ -39,7 +39,7 @@ async function changeFile(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wra
   await flushPromises()
 }
 
-describe('S3Manager', () => {
+describe('S3Manager (S3 对象存储)', () => {
   beforeEach(() => {
     resetApiMocks()
     setIsMock(false)
@@ -159,5 +159,16 @@ describe('S3Manager', () => {
     useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
     await flushPromises()
     expect(api.s3.list.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('filters the object list by prefix', async () => {
+    api.s3.list.mockResolvedValue([{ key: 'images/a.png', size: 8, lastModified: '2024-01-01T00:00:00Z' }])
+    const { wrapper } = await mountWithApp(S3Manager)
+    const prefix = wrapper.get('.ig-input')
+    await prefix.setValue('images/')
+    await prefix.trigger('keydown.enter')
+    await flushPromises()
+    expect(api.s3.list).toHaveBeenCalledWith(expect.any(String), 'images/')
+    expect(wrapper.text()).toContain('images/a.png')
   })
 })

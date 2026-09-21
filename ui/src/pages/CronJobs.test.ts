@@ -27,7 +27,7 @@ const extraStubs = {
   }
 }
 
-describe('CronJobs', () => {
+describe('CronJobs (定时任务)', () => {
   beforeEach(() => {
     resetApiMocks()
     api.cronjobs.list.mockResolvedValue([
@@ -145,5 +145,14 @@ describe('CronJobs', () => {
     useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
     await flushPromises()
     expect(api.cronjobs.list.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('reloads the catalog from the toolbar refresh button', async () => {
+    const { wrapper } = await mountWithApp(CronJobs, { stubs: extraStubs })
+    const before = api.cronjobs.list.mock.calls.length
+    await clickText(wrapper, '刷新')
+    await flushPromises()
+    expect(api.cronjobs.list.mock.calls.length).toBeGreaterThan(before)
+    expect(wrapper.text()).toContain('定时任务列表')
   })
 })

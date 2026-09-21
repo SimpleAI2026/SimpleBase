@@ -11,7 +11,7 @@ vi.mock('../services/api', async () => {
 
 import Logs from './Logs.vue'
 
-describe('Logs', () => {
+describe('Logs (日志管理)', () => {
   beforeEach(() => {
     resetApiMocks()
     vi.useFakeTimers()
@@ -97,5 +97,25 @@ describe('Logs', () => {
     useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
     await flushPromises()
     expect(api.logs.list.mock.calls.length).toBeGreaterThan(2)
+  })
+
+  it('renders empty state and warn/info levels', async () => {
+    api.logs.list.mockResolvedValueOnce([])
+    api.logs.getRetention.mockResolvedValueOnce({ scope: 'p', keepDays: 3, updatedAt: '' })
+    const empty = await mountWithApp(Logs)
+    expect(empty.wrapper.text()).toContain('暂无匹配日志')
+    expect(empty.wrapper.text()).toContain('0 条')
+    empty.wrapper.unmount()
+
+    api.logs.list.mockResolvedValue([
+      { id: 'w1', projectId: 'p', level: 'warn', logger: 'cron', message: 'slow', occurredAt: '2024-01-01T00:00:00Z' },
+      { id: 'i1', projectId: 'p', level: 'info', logger: 'http', message: 'ok', occurredAt: '2024-01-01T00:00:01Z' }
+    ])
+    const { wrapper } = await mountWithApp(Logs)
+    expect(wrapper.text()).toContain('slow')
+    expect(wrapper.text()).toContain('ok')
+    expect(wrapper.text()).toContain('warn')
+    expect(wrapper.text()).toContain('info')
+    expect(wrapper.text()).toContain('2 条')
   })
 })

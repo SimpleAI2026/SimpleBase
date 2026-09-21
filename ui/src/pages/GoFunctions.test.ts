@@ -21,7 +21,7 @@ const modalStub = {
   }
 }
 
-describe('GoFunctions', () => {
+describe('GoFunctions (云函数)', () => {
   beforeEach(() => {
     resetApiMocks()
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
@@ -88,6 +88,16 @@ describe('GoFunctions', () => {
     const { pinia } = await mountWithApp(GoFunctions, { stubs: modalStub })
     const { useProjectStore } = await import('../stores/project')
     useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    await flushPromises()
+    expect(api.gofunctions.list.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('shows the empty catalog for a normal project', async () => {
+    api.gofunctions.list.mockResolvedValueOnce([])
+    const { wrapper } = await mountWithApp(GoFunctions, { stubs: modalStub })
+    expect(wrapper.text()).toContain('还没有云函数')
+    expect(wrapper.text()).toContain('新建云函数')
+    await clickText(wrapper, '刷新')
     await flushPromises()
     expect(api.gofunctions.list.mock.calls.length).toBeGreaterThan(1)
   })
