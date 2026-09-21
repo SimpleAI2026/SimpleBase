@@ -46,10 +46,12 @@ usage() {
   - 后端: http://API_HOST:API_PORT （go run ./cmd/simplebased）
   - 自动加载仓库根目录 .env（若存在）
   - SIMPLEBASE_DEV_MODE 默认 true（旁路 S3）；.env 设 false 则走真实 COS/S3
+  - SIMPLEBASE_LOG_LEVEL 默认 debug（生产 / 二进制默认仍为 info）；.env 可覆盖
+  - 后端日志输出到终端 stdout/stderr（同时写入临时文件，供启动失败排查）
   - DevMode 种子 Key: sb_live_dev_key_12345
   - Ctrl+C 结束前后端进程
 
-环境要求: yarn、go；开发另需 curl（探测就绪）
+环境要求: yarn、go；开发另需 curl（探测就绪）、tee（后端日志）
 默认构建产物: ./simplebased
 USAGE
 }
@@ -235,6 +237,7 @@ cmd_dev() {
   need_cmd yarn
   need_cmd go
   need_cmd curl
+  need_cmd tee
 
   if [[ ! -f "$UI_DIR/package.json" ]]; then
     echo "错误: 缺少 $UI_DIR/package.json" >&2
@@ -250,9 +253,12 @@ cmd_dev() {
 
   # 尊重 .env：SIMPLEBASE_DEV_MODE 未设置时默认 true（旁路 S3）；显式 false 走真实 S3
   export SIMPLEBASE_DEV_MODE="${SIMPLEBASE_DEV_MODE:-true}"
+  # 本地开发默认 debug，便于终端看到服务端日志；生产默认仍为 info（config / envStr）
+  export SIMPLEBASE_LOG_LEVEL="${SIMPLEBASE_LOG_LEVEL:-debug}"
   export SIMPLEBASE_HTTP_ADDRESS=":${DEV_API_PORT}"
   export SIMPLEBASE_DEV_API_PROXY="http://${DEV_API_HOST}:${DEV_API_PORT}"
   echo "==> SIMPLEBASE_DEV_MODE=${SIMPLEBASE_DEV_MODE}"
+  echo "==> SIMPLEBASE_LOG_LEVEL=${SIMPLEBASE_LOG_LEVEL}"
 
   if [[ ! -f "$ROOT_DIR/config.yaml" ]]; then
     echo "警告: 未找到 config.yaml。请确保 AUTH 等必填项已在环境或 .env 中配置。" >&2
@@ -307,12 +313,12 @@ cmd_dev() {
   trap cleanup_dev EXIT INT TERM
 
   echo "==> 启动后端 ${api_url}"
-  echo "    日志: ${backend_log}"
+  echo "    日志: 终端 stdout/stderr（副本 ${backend_log}）"
   (
     cd "$ROOT_DIR"
-    # 未缓冲一点日志观感；go run 足够用于本地热改后重启
+    # 同时写终端与文件：启动失败时仍可 tail 副本；go run 用于本地热改后重启
     exec go run ./cmd/simplebased
-  ) >"$backend_log" 2>&1 &
+  ) > >(tee "$backend_log") 2>&1 &
   backend_pid=$!
 
   if ! wait_http "$health_url" "后端" 90; then
@@ -341,6 +347,7 @@ cmd_dev() {
   echo "    打开:     ${ui_url}"
   echo "    后端 API: ${api_url}"
   echo "    健康检查: ${health_url}"
+  echo "    日志级别: ${SIMPLEBASE_LOG_LEVEL}（后端输出到终端）"
   echo "    Dev Key:  sb_live_dev_key_12345"
   echo "    停止:     Ctrl+C"
   echo

@@ -84,6 +84,6 @@ limits:
   max_sql_bytes: 65536              # SIMPLEBASE_LIMITS_MAX_SQL_BYTES
 
 observability:
-  log_level: "info"           # SIMPLEBASE_LOG_LEVEL
+  log_level: "info"           # SIMPLEBASE_LOG_LEVEL（生产默认 info；./build.sh dev 未设置时用 debug）
   log_format: "json"          # SIMPLEBASE_LOG_FORMAT
   metrics_path: "/metrics"    # SIMPLEBASE_METRICS_PATH
