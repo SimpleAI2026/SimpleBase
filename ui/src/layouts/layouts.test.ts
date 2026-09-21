@@ -12,7 +12,7 @@ vi.mock('../services/api', () => ({
 }))
 
 describe('layouts', () => {
-  it('DefaultLayout shows route title and opens the key drawer', async () => {
+  it('DefaultLayout shows route title and opens settings', async () => {
     setActivePinia(createPinia())
     const router = createRouter({
       history: createMemoryHistory(),
@@ -51,7 +51,7 @@ describe('layouts', () => {
           Badge: { template: '<span><slot /></span>' },
           Button: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
           NavMenu: { template: '<div />' },
-          ApiKeyDrawer: { template: '<div />' },
+          SettingsModal: { template: '<div />' },
           GlobalProjectSwitcher: { template: '<div />' }
         }
       }
@@ -60,10 +60,9 @@ describe('layouts', () => {
     expect(w.text()).toContain('监控大盘')
     expect(w.text()).toContain('Mock')
     const store = useAuthStore()
-    const settingsBtn = w.findAll('button').find((b) => b.html().includes('Settings') || true)
     await w.findAll('button').at(-2)?.trigger('click')
-    store.openDrawer()
-    expect(store.keyDrawerOpen).toBe(true)
+    store.openSettings()
+    expect(store.settingsOpen).toBe(true)
     w.unmount()
   })
 

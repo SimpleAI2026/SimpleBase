@@ -36,7 +36,7 @@
 
 | 路径 | 名称 | meta.title | 说明 |
 |---|---|---|---|
-| `/settings` | `settings` | 设置 | 新增；侧栏可见 |
+| `/settings` | `settings` | 设置 | 已改为 deep-link → 右上角 `SbModal`（见 [`ui-settings-merge-plan.md`](./ui-settings-merge-plan.md)） |
 | `/llm` | `llm` | LLM 对话 | 保留；内部改用通用 Chat 组件（实现阶段） |
 
 建议设置页 Tab（单页多区块，不必拆子路由）：

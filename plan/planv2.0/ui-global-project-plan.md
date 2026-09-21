@@ -13,13 +13,13 @@ v2 UI 已有 `stores/project.ts` 与各页 `<ProjectPicker />`，但：
 - 每页各自放一份项目输入框，切换入口不唯一。
 - 缺省 ID 仍是历史占位 `proj-01`，与系统库种子 UUID 不一致。
 - 后端已有 `GET /v1/projects`，没有 `POST /v1/projects`。
-- 侧栏「设置」排在「日志」前面。
+- 侧栏「设置」排在「日志」前面。（已过时：设置已并入右上角 `SbModal`，见 [`ui-settings-merge-plan.md`](./ui-settings-merge-plan.md)）
 
 ## 目标
 
 1. 顶栏右侧全局项目下拉 + 创建项目（**唯一**切换入口）。
 2. Dashboard / Databases / S3 / LLM / Settings / Logs 全部使用 `projectStore` 当前项目，去掉页内 `ProjectPicker`。
-3. 侧栏顺序：… → LLM → Logs → **Settings 最后**。
+3. 侧栏顺序：… → LLM → Logs → **Settings 最后**。（已过时：Settings 已离开侧栏，见 [`ui-settings-merge-plan.md`](./ui-settings-merge-plan.md)）
 4. `POST /v1/projects`；默认项目 ID 对齐系统种子 UUID。
 
 ## 阶段
@@ -54,7 +54,7 @@ v2 UI 已有 `stores/project.ts` 与各页 `<ProjectPicker />`，但：
 |---|---|
 | G1 | 顶栏右侧有全局项目切换器（名称 + 短 ID），是唯一切换入口 |
 | G2 | Databases / S3 / LLM / Settings 等页无 `ProjectPicker`；数据请求使用 `projectStore` 当前项目 |
-| G3 | 侧栏顺序为 Dashboard → Databases → S3 → LLM → Logs → Settings |
+| G3 | 侧栏顺序为 Dashboard → Databases → S3 → LLM → Logs → Settings（已过时：Settings 已离开侧栏，见 [`ui-settings-merge-plan.md`](./ui-settings-merge-plan.md)） |
 | G4 | `POST /v1/projects` 成功 201、冲突 409；缺省项目 ID 为 `00000000-0000-0000-0000-000000000002` |
 | G5 | 新建项目弹窗成功后选中该项目并刷新列表；页内 `watch(projectId)` 会重载 |
 | G6 | ApiKeyDrawer 项目只读；无项目时有空态；`yarn build` 与相关 Go 测试通过 |

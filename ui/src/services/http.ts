@@ -47,7 +47,7 @@ http.interceptors.response.use(
     const data = e?.response?.data
     const msg = data?.error?.message || data?.message || e?.message || '网络请求失败'
     if (status === 401) {
-      // 触发 auth store 打开 key 配置抽屉（延迟导入避免循环依赖）
+      // 触发 auth store 打开设置弹窗的「连接」Tab（延迟导入避免循环依赖）
       import('../stores/auth').then(({ useAuthStore }) => {
         useAuthStore().markUnauthorized()
       })

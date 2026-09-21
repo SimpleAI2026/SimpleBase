@@ -33,7 +33,10 @@ export const uiStubs = {
   TooltipContent: { template: '<div><slot /></div>' },
   TooltipProvider: { template: '<div><slot /></div>' },
   Dialog: { template: '<div class="dialog"><slot /></div>' },
-  DialogContent: { template: '<div class="dialog-content"><slot /></div>' },
+  DialogContent: {
+    inheritAttrs: false,
+    template: '<div class="dialog-content" :class="$attrs.class" :style="$attrs.style"><slot /></div>'
+  },
   DialogHeader: { template: '<div><slot /></div>' },
   DialogTitle: { template: '<div><slot /></div>' },
   DialogDescription: { template: '<div><slot /></div>' },
@@ -144,8 +147,15 @@ export const uiStubs = {
     template:
       '<div class="tabs"><button type="button" class="tab-emit" @click="$emit(\'update:modelValue\', \'other\')">tab</button><slot /></div>'
   },
-  TabsList: { template: '<div><slot /></div>' },
-  TabsTrigger: { props: ['value'], template: '<button type="button">{{ value }}<slot /></button>' },
+  TabsList: { template: '<div class="tabs-list"><slot /></div>' },
+  TabsTrigger: {
+    props: ['value'],
+    template: '<button type="button" class="tab-trigger" :data-tab="value"><slot /></button>'
+  },
+  TabsContent: {
+    props: ['value'],
+    template: '<div class="tabs-content" :data-tab="value"><slot /></div>'
+  },
   SidebarProvider: { template: '<div class="sidebar-provider"><slot /></div>' },
   Sidebar: { template: '<aside><slot /></aside>' },
   SidebarHeader: { template: '<div><slot /></div>' },
@@ -195,12 +205,12 @@ export const uiStubs = {
   EmptyDescription: { template: '<div><slot /></div>' },
   EmptyContent: { template: '<div><slot /></div>' },
   SbModal: {
-    props: ['open', 'title', 'width', 'confirmLoading', 'okButtonProps', 'okText', 'cancelText'],
+    props: ['open', 'title', 'width', 'maxWidth', 'minWidth', 'hideFooter', 'confirmLoading', 'okButtonProps', 'okText', 'cancelText', 'description'],
     emits: ['ok', 'update:open', 'cancel'],
     template: `
-      <div v-if="open" class="sb-modal" :data-title="title" :data-width="width">
+      <div v-if="open" class="sb-modal" :data-title="title" :data-width="width" :data-max-width="maxWidth" :data-min-width="minWidth" :data-hide-footer="hideFooter ? 'true' : 'false'">
         <slot />
-        <slot name="footer">
+        <slot v-if="!hideFooter" name="footer">
           <button type="button" class="sb-ok" @click="$emit('ok')">{{ okText || '确定' }}</button>
           <button type="button" class="sb-cancel" @click="$emit('cancel'); $emit('update:open', false)">{{ cancelText || '取消' }}</button>
         </slot>
