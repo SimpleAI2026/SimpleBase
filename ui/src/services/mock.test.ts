@@ -80,6 +80,10 @@ describe('mockApi', () => {
     expect(await flush(mockApi.llm.providers(PID))).toContain('openai')
     const chat = await flush(mockApi.llm.chat(PID, { messages: [{ role: 'user', content: 'hello world' }] }))
     expect(chat.content).toContain('hello')
+    expect((await flush(mockApi.metrics.summary(PID))).totalRequests).toBeGreaterThan(0)
+    expect((await flush(mockApi.metrics.trend(PID))).length).toBe(7)
+    expect((await flush(mockApi.llm.chat(PID, { messages: [] }))).content).toBeTruthy()
+    await flushReject(mockApi.gofunctions.create(PID, { source: 'func Hello() {}' }))
 
     const chunks: string[] = []
     const ended = vi.fn()
@@ -99,6 +103,12 @@ describe('mockApi', () => {
     await vi.runAllTimersAsync()
     conn.close()
     conn2.close()
+    const conn3 = mockApi.llm.stream(PID, { messages: [{ role: 'user', content: 'early' }] }, {
+      onChunk: vi.fn(),
+      onEnd: vi.fn()
+    })
+    conn3.close()
+    await vi.runAllTimersAsync()
 
     expect((await flush(mockApi.llmSettings.get(PID))).defaultProvider).toBe('openai')
     expect((await flush(mockApi.llmSettings.put(PID, { defaultProvider: 'anthropic', defaultModel: 'c' }))).defaultProvider).toBe(
@@ -186,8 +196,9 @@ describe('mockApi', () => {
     expect((await flush(mockApi.agents.modules(PID))).length).toBeGreaterThan(0)
     const listed = await flush(mockApi.agents.list(PID))
     expect(listed.length).toBeGreaterThan(0)
-    const agent = await flush(mockApi.agents.create(PID, { name: 'Custom', module: 'general', description: 'd', system_prompt: 'p', tool_ids: [] }))
-    expect((await flush(mockApi.agents.get(PID, agent.id))).name).toBe('Custom')
+    const agent = await flush(mockApi.agents.create(PID, {}))
+    expect(agent.name).toBe('Agent')
+    expect((await flush(mockApi.agents.get(PID, agent.id))).name).toBe('Agent')
     await flushReject(mockApi.agents.get(PID, 'missing'))
     expect((await flush(mockApi.agents.patch(PID, agent.id, { name: 'Custom2' }))).name).toBe('Custom2')
     await flushReject(mockApi.agents.patch(PID, 'missing', {}))
@@ -220,6 +231,12 @@ describe('mockApi', () => {
     await vi.runAllTimersAsync()
     s1.close()
     s2.close()
+    const s3 = mockApi.agentThreads.streamRun(PID, thread.id, { content: 'early', mentions: [] }, {
+      onToken: vi.fn(),
+      onError: vi.fn()
+    })
+    s3.close()
+    await vi.runAllTimersAsync()
     await flush(mockApi.agentThreads.remove(PID, thread.id))
 
     const sched = await flush(
@@ -240,5 +257,72 @@ describe('mockApi', () => {
     await flushReject(mockApi.agentSchedules.trigger(PID, 'missing'))
     await flush(mockApi.agentSchedules.remove(PID, sched.id))
     await flush(mockApi.agents.remove(PID, agent.id))
+  })
+
+  it('hits remaining fallbacks for sql, cron, llm, and agents', async () => {
+    const extra = await flush(mockApi.databases.create(PID, 'fallback-db'))
+    expect((await flush(mockApi.sql.query(PID, extra.id, { sql: 'select * from users' }))).rowCount).toBe(0)
+    expect(await flush(mockApi.db.rows(PID, extra.id, 'missing-coll'))).toEqual([])
+    await flushReject(mockApi.db.update(PID, extra.id, 'missing-coll', 'x', {}))
+    await flush(mockApi.db.remove(PID, extra.id, 'missing-coll', 'x'))
+    await flush(mockApi.databases.remove(PID, extra.id))
+
+    await flushReject(mockApi.cronjobs.create(PID, { scheduleKind: 'cron' }))
+    await flushReject(
+      mockApi.cronjobs.create(PID, {
+        name: 'NoExpr',
+        funcFile: 'hello',
+        funcExport: 'Hello',
+        scheduleKind: 'cron'
+      })
+    )
+    const extraJob = await flush(
+      mockApi.cronjobs.create(PID, {
+        name: 'FallbackJob',
+        funcFile: 'hello',
+        funcExport: 'Hello',
+        scheduleKind: 'cron',
+        cronExpr: '0 1 * * *'
+      })
+    )
+    expect(await flush(mockApi.cronjobs.runs(PID, extraJob.id))).toEqual([])
+    expect(
+      (
+        await flush(
+          mockApi.cronjobs.update(PID, extraJob.id, { scheduleKind: 'cron', cronExpr: '' })
+        )
+      ).cronExpr
+    ).toBe('')
+    expect(
+      (await flush(mockApi.cronjobs.update(PID, extraJob.id, { scheduleKind: 'interval' }))).intervalSeconds
+    ).toBe(60)
+    await flush(mockApi.cronjobs.remove(PID, extraJob.id))
+
+    expect((await flush(mockApi.llm.chat(PID, { messages: [{ role: 'user' }] }))).content).toBeTruthy()
+    const untitled = await flush(mockApi.agentThreads.create(PID, ''))
+    expect(untitled.title).toBe('New thread')
+    expect(await flush(mockApi.agentThreads.messages(PID, 'no-such-thread'))).toEqual([])
+    const ghostRun = await flush(mockApi.agentThreads.run(PID, 'ghost-thread', { content: 'x', mentions: [] }))
+    expect(ghostRun.message.role).toBe('assistant')
+    const tokens: string[] = []
+    const ghostStream = mockApi.agentThreads.streamRun(
+      PID,
+      'ghost-stream',
+      { content: '', mentions: [] },
+      { onToken: (t) => tokens.push(t), onEnd: vi.fn(), onError: vi.fn() }
+    )
+    await vi.runAllTimersAsync()
+    ghostStream.close()
+    expect(tokens.join('').length).toBeGreaterThan(0)
+
+    const orphanAgent = await flush(mockApi.agents.create(PID, { name: 'Orphan' }))
+    const orphanSched = await flush(
+      mockApi.agentSchedules.create(PID, { agent_id: orphanAgent.id, prompt: 'p', cron_expr: '* * * * *' })
+    )
+    await flush(mockApi.agents.remove(PID, orphanAgent.id))
+    const listed = await flush(mockApi.agentSchedules.list(PID))
+    expect(listed.some((s) => s.id === orphanSched.id && s.agent_name === '')).toBe(true)
+    expect(await flush(mockApi.agentSchedules.runs(PID, 'missing-schedule'))).toEqual([])
+    await flush(mockApi.agentSchedules.remove(PID, orphanSched.id))
   })
 })

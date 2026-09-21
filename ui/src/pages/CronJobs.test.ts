@@ -16,12 +16,14 @@ const extraStubs = {
   CronJobModal: {
     props: ['open', 'target'],
     emits: ['saved', 'update:open'],
-    template: '<div v-if="open" class="cj-modal">{{ target ? target.name : \'new\' }}</div>'
+    template:
+      '<div v-if="open" class="cj-modal"><button type="button" class="cj-close" @click="$emit(\'update:open\', false)">x</button>{{ target ? target.name : \'new\' }}</div>'
   },
   CronJobRunsDrawer: {
     props: ['open', 'job'],
     emits: ['triggered', 'update:open'],
-    template: '<div v-if="open" class="runs">{{ job && job.name }}</div>'
+    template:
+      '<div v-if="open" class="runs"><button type="button" class="runs-close" @click="$emit(\'update:open\', false)">x</button>{{ job && job.name }}</div>'
   }
 }
 
@@ -111,6 +113,7 @@ describe('CronJobs', () => {
     expect(wrapper.get('.cj-modal').text()).toContain('nightly')
     await clickText(wrapper, '新建定时任务')
     expect(wrapper.get('.cj-modal').text()).toContain('new')
+    await wrapper.get('.cj-close').trigger('click')
 
     await clickText(wrapper, '删除')
     await flushPromises()
@@ -119,6 +122,7 @@ describe('CronJobs', () => {
     await clickText(wrapper, '删除')
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('rm')
+    await wrapper.get('.pager-next').trigger('click')
   })
 
   it('hides writes on admin and handles empty / error / project change', async () => {

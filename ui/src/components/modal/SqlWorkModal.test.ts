@@ -31,7 +31,7 @@ describe('SqlWorkModal', () => {
     vm.argsText = '{bad'
     expect(() => vm.parseArgs()).toThrow()
 
-    vm.sqlText = 'INSERT INTO t VALUES (1)\n-- skip\nUPDATE t SET x=1 -- args=["a"]\nUPDATE t SET y=1 -- args={bad}'
+    vm.sqlText = 'INSERT INTO t VALUES (1)\n-- skip\nUPDATE t SET x=1 -- args=["a"]\nUPDATE t SET y=1 -- args=[not-json]'
     const batch = vm.parseBatch()
     expect(batch.length).toBe(3)
     expect(batch[1].args).toEqual(['a'])
@@ -48,6 +48,15 @@ describe('SqlWorkModal', () => {
     expect(api.sql.execute).toHaveBeenCalled()
 
     vm.mode = 'batch'
+    vm.sqlText = 'INSERT 1\nINSERT 2'
+    api.sql.batch.mockResolvedValueOnce({
+      results: [{ rowsAffected: 1 }, { rowsAffected: 1 }],
+      durability: 'ok',
+      durationMs: 1,
+      requestId: 'b'
+    })
+    await vm.run()
+    expect(toast.success).toHaveBeenCalled()
     vm.sqlText = 'INSERT 1\nINSERT 2'
     api.sql.batch.mockResolvedValueOnce({
       results: [{ errorCode: 'e', errorMessage: 'bad' }],

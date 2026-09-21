@@ -65,6 +65,15 @@ describe('CronJobModal', () => {
     expect(vm.gofunctions).toEqual([])
     w.unmount()
 
+    const createReset = mountModal({ open: false })
+    await createReset.setProps({ open: true })
+    await flushPromises()
+    expect((createReset.vm as any).form.name).toBe('')
+    ;(createReset.vm as any).preset = '0 * * * *'
+    await flushPromises()
+    expect((createReset.vm as any).form.cronExpr).toBe('0 * * * *')
+    createReset.unmount()
+
     for (const seconds of [86400, 3600, 90]) {
       const pinia = createPinia()
       setActivePinia(pinia)

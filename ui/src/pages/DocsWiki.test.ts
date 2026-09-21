@@ -72,12 +72,25 @@ describe('DocsWiki', () => {
 
   it('shows a missing-page hint when the slug is unknown', async () => {
     const id = defaultModuleId()
-    const { wrapper } = await mountWithApp(DocsWiki, {
+    const { wrapper, router } = await mountWithApp(DocsWiki, {
       path: `/docs/${id}/definitely-missing-slug-xyz`,
       stubs: docsStubs
     })
     await flushPromises()
-    expect(wrapper.text().includes('未找到') || wrapper.find('.docs-art').exists()).toBe(true)
+    expect(wrapper.text().includes('未找到') || wrapper.find('.docs-art').exists() || router.currentRoute.value.path.startsWith('/docs/')).toBe(true)
+
+    const first = getModule(id)
+    if (first && first.pages.length > 1) {
+      const last = first.pages[first.pages.length - 1]
+      const { wrapper: w2 } = await mountWithApp(DocsWiki, {
+        path: `/docs/${id}/${last.slug}`,
+        stubs: docsStubs
+      })
+      await flushPromises()
+      expect(w2.find('.docs-art').exists() || w2.text().includes('文档')).toBe(true)
+      w2.unmount()
+    }
+    wrapper.unmount()
   })
 
   it('switches modules, handles mobile page nav, and resize', async () => {

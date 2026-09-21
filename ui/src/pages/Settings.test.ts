@@ -86,6 +86,18 @@ describe('Settings', () => {
     vm.onTheme(undefined)
     vm.onTheme(['nope'])
     vm.openEditor('openai')
+    await flushPromises()
+    if (wrapper.find('.sheet').exists()) {
+      if (wrapper.find('.sheet-close').exists()) {
+        await wrapper.get('.sheet-close').trigger('click')
+      }
+      if (wrapper.find('.sheet-content-close').exists()) {
+        await wrapper.get('.sheet-content-close').trigger('click')
+      }
+    }
+    if (wrapper.find('.combo-emit').exists()) {
+      await wrapper.get('.combo-emit').trigger('click')
+    }
     vm.editorForm.api_key = 'sk-abc'
     vm.editorForm.base_url = ''
     vm.editorForm.organization = 'org'

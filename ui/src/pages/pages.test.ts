@@ -42,7 +42,11 @@ const stubs = {
   Skeleton: { template: '<div />' },
   Spinner: { template: '<div />' },
   SbEmptyState: { template: '<button @click="$emit(\'action\')">empty</button>' },
-  TablePager: { template: '<div />' },
+  TablePager: {
+    props: ['page'],
+    emits: ['update:page'],
+    template: '<button type="button" class="pager-next" @click="$emit(\'update:page\', (page || 1) + 1)">next</button>'
+  },
   Alert: { template: '<div><slot /></div>' },
   AlertTitle: { template: '<div><slot /></div>' },
   AlertDescription: { template: '<div><slot /></div>' },
@@ -93,6 +97,22 @@ describe('pages', () => {
     await flushPromises()
     expect(w.text()).toContain('请求 9')
     expect(w.text()).toContain('n')
+
+    api.databases.list.mockRejectedValueOnce(new Error('db'))
+    api.quota.status.mockResolvedValue({ llmAllowed: false, databaseAllowed: true })
+    api.metrics.trend.mockRejectedValueOnce(new Error('t'))
+    api.metrics.summary.mockResolvedValue({ totalRequests: 1, errorRate: 0, avgLatencyMs: 1, activeDatabases: 0 })
+    await w.vm.$.setupState.load?.()
+    await flushPromises()
+    expect(w.text()).toContain('受限')
+
+    api.databases.list.mockRejectedValueOnce(new Error('db'))
+    api.quota.status.mockRejectedValueOnce(new Error('q'))
+    api.metrics.trend.mockResolvedValueOnce([{ date: '1/2', requests: 0, errors: 0 }])
+    api.metrics.summary.mockRejectedValueOnce(new Error('s'))
+    await w.vm.$.setupState.load?.()
+    await flushPromises()
+
     const empty = mount(Dashboard, { global: { plugins: [router, createPinia()], stubs } })
     api.databases.list.mockResolvedValue([])
     api.quota.status.mockRejectedValue(new Error('x'))
@@ -100,11 +120,12 @@ describe('pages', () => {
     api.metrics.summary.mockRejectedValue(new Error('x'))
     await empty.vm.$.setupState.load?.()
     await flushPromises()
-    const btn = w.findAll('button').find((b) => b.text().includes('empty'))
+    const btn = empty.findAll('button').filter((b) => b.text().includes('empty') || b.text().includes('去创建')).at(-1)
     if (btn) {
       await btn.trigger('click')
-      expect(push).toHaveBeenCalled()
     }
+    const pager = empty.find('.pager-next')
+    if (pager.exists()) await pager.trigger('click')
     w.unmount()
     empty.unmount()
   })

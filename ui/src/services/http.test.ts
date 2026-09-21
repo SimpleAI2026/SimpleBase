@@ -46,6 +46,15 @@ describe('http helpers and interceptors', () => {
       headers: { 'content-type': 'application/json' },
       data: { ok: 1 }
     })
+    expect(await okFn({ headers: {}, data: { ok: 1 } })).toEqual({ headers: {}, data: { ok: 1 } })
+
+    const reqNoHeaders = requestUse.mock.calls[0][0]
+    const cfg2 = await reqNoHeaders({})
+    expect(cfg2.headers.Authorization).toMatch(/^Bearer /)
+
+    const passthrough = responseUse.mock.calls[1][0]
+    const r = { data: { ok: true } }
+    expect(await passthrough(r)).toBe(r)
   })
 
   it('normalizes API errors and notifies 401 handlers', async () => {
@@ -68,5 +77,6 @@ describe('http helpers and interceptors', () => {
     await expect(errFn({ response: { status: 500, data: { message: 'oops' } } })).rejects.toThrow(
       'oops'
     )
+    await expect(errFn({})).rejects.toThrow('网络请求失败')
   })
 })

@@ -35,7 +35,7 @@ const rawModules = import.meta.glob('../../../docs/**/*.md', {
 
 export const loadedMarkdownCount = Object.keys(rawModules).length
 
-function parseFrontmatter(raw: string): { data: Record<string, string | number>; body: string } {
+export function parseFrontmatter(raw: string): { data: Record<string, string | number>; body: string } {
   if (!raw.startsWith('---')) return { data: {}, body: raw }
   const end = raw.indexOf('\n---', 3)
   if (end < 0) return { data: {}, body: raw }
@@ -56,17 +56,17 @@ function parseFrontmatter(raw: string): { data: Record<string, string | number>;
   return { data, body }
 }
 
-function firstH1(body: string): string | undefined {
+export function firstH1(body: string): string | undefined {
   const m = body.match(/^#\s+(.+)$/m)
   return m?.[1]?.trim()
 }
 
-function toPosix(p: string): string {
+export function toPosix(p: string): string {
   return p.replace(/\\/g, '/')
 }
 
 /** Normalize glob key → docs-relative path like `ops/deployment.md`. */
-function docsRelPath(globKey: string): string | null {
+export function docsRelPath(globKey: string): string | null {
   const key = toPosix(globKey)
   const idx = key.lastIndexOf('/docs/')
   if (idx >= 0) return key.slice(idx + '/docs/'.length)
@@ -75,10 +75,13 @@ function docsRelPath(globKey: string): string | null {
   return null
 }
 
-function buildCatalog(): DocModule[] {
+export function buildCatalogFrom(
+  entries: Record<string, string>,
+  metaFile: MetaFile = meta
+): DocModule[] {
   const pagesByModule = new Map<string, DocPage[]>()
 
-  for (const [key, raw] of Object.entries(rawModules)) {
+  for (const [key, raw] of Object.entries(entries)) {
     const rel = docsRelPath(key)
     if (!rel || rel.includes('/_')) continue
     const parts = rel.split('/')
@@ -100,7 +103,7 @@ function buildCatalog(): DocModule[] {
     pagesByModule.set(moduleId, list)
   }
 
-  const metaMods = meta.modules || []
+  const metaMods = metaFile.modules || []
   const modules: DocModule[] = []
 
   for (const m of metaMods) {
@@ -125,6 +128,10 @@ function buildCatalog(): DocModule[] {
   }
 
   return modules.filter((m) => m.pages.length > 0).sort((a, b) => a.order - b.order)
+}
+
+function buildCatalog(): DocModule[] {
+  return buildCatalogFrom(rawModules, meta)
 }
 
 export const docCatalog: DocModule[] = buildCatalog()

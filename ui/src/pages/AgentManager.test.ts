@@ -53,8 +53,15 @@ describe('AgentManager script', () => {
     await vm.onViewScheduleThread('th-view')
     api.agentThreads.messages.mockRejectedValueOnce(new Error('th'))
     await vm.onViewScheduleThread('th-view')
+    api.agentThreads.messages.mockResolvedValueOnce([
+      { id: 'm1', role: 'assistant', content: 'a', tool_calls: [{ name: 't' }], created_at: 't' },
+      { id: 'm2', role: 'user', content: 'u', created_at: 't' }
+    ])
+    await vm.onViewScheduleThread('th-msgs')
 
     vm.openCreate()
+    vm.onModuleChange('s3')
+    expect(vm.form.tool_ids).toEqual(expect.arrayContaining(['list_objects']))
     vm.form.name = ''
     await vm.saveAgent()
     expect(toast.warning).toHaveBeenCalledWith('请填写名称')
@@ -109,11 +116,17 @@ describe('AgentManager script', () => {
     api.agents.modules.mockRejectedValueOnce('m')
     await vm.loadModules()
     api.agentThreads.list.mockResolvedValueOnce([])
+    api.agentThreads.messages.mockResolvedValueOnce([
+      { id: 'm1', role: 'assistant', content: 'a', tool_calls: [{ name: 't' }], created_at: 't' }
+    ])
     await vm.ensureThread()
     api.agentThreads.list.mockRejectedValueOnce(new Error('t'))
     await vm.ensureThread()
     api.agentSchedules.list.mockRejectedValueOnce(new Error('s'))
     await vm.loadSchedules()
+    const { useProjectStore } = await import('../stores/project')
+    useProjectStore().setProject('00000000-0000-0000-0000-000000000003')
+    await flushPromises()
     w.unmount()
   })
 })
