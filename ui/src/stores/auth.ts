@@ -3,13 +3,13 @@ import { getApiKey, setApiKey } from '../services/http'
 
 export type SettingsTab = 'connection' | 'appearance' | 'models' | 'providers'
 
-/** API key 管理：localStorage 持久化 + 401 状态 + 设置 Modal 开关。 */
+/** API key 管理：localStorage 持久化 + 401 状态 + 全局设置弹窗开关。 */
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     apiKey: getApiKey(),
     /** 最近一次 401（invalid_api_key / unauthenticated）时间戳；用于 Header 提示 */
     lastUnauthorizedAt: 0,
-    /** 全局设置 Modal（401 时由 http 拦截器打开并落到「连接」） */
+    /** 全局设置 SbModal 开关（401 时由 http 拦截器触发打开） */
     settingsOpen: false,
     settingsTab: 'connection' as SettingsTab
   }),
@@ -23,11 +23,10 @@ export const useAuthStore = defineStore('auth', {
     },
     markUnauthorized() {
       this.lastUnauthorizedAt = Date.now()
-      this.settingsTab = 'connection'
-      this.settingsOpen = true
+      this.openSettings({ tab: 'connection' })
     },
-    openSettings(tab?: SettingsTab) {
-      if (tab) this.settingsTab = tab
+    openSettings(opts?: { tab?: SettingsTab }) {
+      if (opts?.tab) this.settingsTab = opts.tab
       this.settingsOpen = true
     },
     closeSettings() {

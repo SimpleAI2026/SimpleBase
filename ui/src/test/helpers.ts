@@ -33,7 +33,10 @@ export const uiStubs = {
   TooltipContent: { template: '<div><slot /></div>' },
   TooltipProvider: { template: '<div><slot /></div>' },
   Dialog: { template: '<div class="dialog"><slot /></div>' },
-  DialogContent: { template: '<div class="dialog-content"><slot /></div>' },
+  DialogContent: {
+    inheritAttrs: false,
+    template: '<div class="dialog-content" :class="$attrs.class" :style="$attrs.style"><slot /></div>'
+  },
   DialogHeader: { template: '<div><slot /></div>' },
   DialogTitle: { template: '<div><slot /></div>' },
   DialogDescription: { template: '<div><slot /></div>' },
@@ -144,9 +147,15 @@ export const uiStubs = {
     template:
       '<div class="tabs"><button type="button" class="tab-emit" @click="$emit(\'update:modelValue\', \'other\')">tab</button><slot /></div>'
   },
-  TabsList: { template: '<div><slot /></div>' },
-  TabsTrigger: { props: ['value'], template: '<button type="button">{{ value }}<slot /></button>' },
-  TabsContent: { props: ['value'], template: '<div class="tabs-content"><slot /></div>' },
+  TabsList: { template: '<div class="tabs-list"><slot /></div>' },
+  TabsTrigger: {
+    props: ['value'],
+    template: '<button type="button" class="tab-trigger" :data-tab="value"><slot /></button>'
+  },
+  TabsContent: {
+    props: ['value'],
+    template: '<div class="tabs-content" :data-tab="value"><slot /></div>'
+  },
   SidebarProvider: { template: '<div class="sidebar-provider"><slot /></div>' },
   Sidebar: { template: '<aside><slot /></aside>' },
   SidebarHeader: { template: '<div><slot /></div>' },
@@ -196,16 +205,14 @@ export const uiStubs = {
   EmptyDescription: { template: '<div><slot /></div>' },
   EmptyContent: { template: '<div><slot /></div>' },
   SbModal: {
-    props: ['open', 'title', 'width', 'maxWidth', 'minWidth', 'hideFooter', 'bodyClass', 'confirmLoading', 'okButtonProps', 'okText', 'cancelText'],
+    props: ['open', 'title', 'width', 'maxWidth', 'minWidth', 'hideFooter', 'confirmLoading', 'okButtonProps', 'okText', 'cancelText', 'description'],
     emits: ['ok', 'update:open', 'cancel'],
     template: `
-      <div v-if="open" class="sb-modal" :data-title="title" :data-width="width" :data-max-width="maxWidth" :data-min-width="minWidth">
+      <div v-if="open" class="sb-modal" :data-title="title" :data-width="width" :data-max-width="maxWidth" :data-min-width="minWidth" :data-hide-footer="hideFooter ? 'true' : 'false'">
         <slot />
-        <slot name="footer">
-          <template v-if="!hideFooter">
-            <button type="button" class="sb-ok" @click="$emit('ok')">{{ okText || '确定' }}</button>
-            <button type="button" class="sb-cancel" @click="$emit('cancel'); $emit('update:open', false)">{{ cancelText || '取消' }}</button>
-          </template>
+        <slot v-if="!hideFooter" name="footer">
+          <button type="button" class="sb-ok" @click="$emit('ok')">{{ okText || '确定' }}</button>
+          <button type="button" class="sb-cancel" @click="$emit('cancel'); $emit('update:open', false)">{{ cancelText || '取消' }}</button>
         </slot>
       </div>
     `
@@ -237,7 +244,7 @@ export const defaultRoutes: RouteRecordRaw[] = [
   { path: '/gofunctions', name: 'gofunctions', component: { template: '<div>go</div>' }, meta: { title: '云函数' } },
   { path: '/cron-jobs', name: 'cron-jobs', component: { template: '<div>cron</div>' }, meta: { title: '定时任务' } },
   { path: '/agents', name: 'agents', component: { template: '<div>ag</div>' }, meta: { title: '云 Agent' } },
-  { path: '/settings', name: 'settings', redirect: { path: '/', query: { settings: '1' } }, meta: { title: '设置', hidden: true } },
+  { path: '/settings', name: 'settings', component: { template: '<div>set</div>' }, meta: { title: '设置' } },
   { path: '/logs', name: 'logs', component: { template: '<div>log</div>' }, meta: { title: '日志管理' } },
   { path: '/docs/:module?/:slug?', name: 'docs-page', component: { template: '<div>docs</div>' }, meta: { title: '使用文档' } },
   { path: '/docs', name: 'docs', component: { template: '<div>docs</div>' }, meta: { title: '使用文档', hidden: true } },

@@ -301,9 +301,10 @@ describe('component template interactions', () => {
     w.unmount()
   })
 
-  it('ConnectionPanel mounts in the settings modal flow', async () => {
+  it('ConnectionPanel mounts without a sheet', async () => {
     const pinia = piniaWithProject()
     const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
+    expect(w.find('.sheet').exists()).toBe(false)
     expect(w.text()).toContain('API Key')
     w.unmount()
   })

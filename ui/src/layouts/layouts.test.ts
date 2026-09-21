@@ -12,7 +12,7 @@ vi.mock('../services/api', () => ({
 }))
 
 describe('layouts', () => {
-  it('DefaultLayout shows route title and opens the key drawer', async () => {
+  it('DefaultLayout shows route title and opens settings', async () => {
     setActivePinia(createPinia())
     const router = createRouter({
       history: createMemoryHistory(),
@@ -60,7 +60,6 @@ describe('layouts', () => {
     expect(w.text()).toContain('监控大盘')
     expect(w.text()).toContain('Mock')
     const store = useAuthStore()
-    const settingsBtn = w.findAll('button').find((b) => b.html().includes('Settings') || true)
     await w.findAll('button').at(-2)?.trigger('click')
     store.openSettings()
     expect(store.settingsOpen).toBe(true)

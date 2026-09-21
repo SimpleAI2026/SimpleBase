@@ -20,17 +20,19 @@ describe('useAuthStore', () => {
     store.markUnauthorized()
     expect(store.lastUnauthorizedAt).toBeGreaterThan(0)
     expect(store.settingsOpen).toBe(true)
+    expect(store.settingsTab).toBe('connection')
     store.updateKey('  sb_live_new  ')
     expect(store.apiKey).toBe('sb_live_new')
     expect(getApiKey()).toBe('sb_live_new')
     expect(store.lastUnauthorizedAt).toBe(0)
-    expect(store.settingsTab).toBe('connection')
   })
 
-  it('opens and closes the settings modal', () => {
+  it('opens and closes the settings modal and can target a tab', () => {
     const store = useAuthStore()
-    store.openSettings('appearance')
+    store.openSettings({ tab: 'appearance' })
     expect(store.settingsOpen).toBe(true)
+    expect(store.settingsTab).toBe('appearance')
+    store.openSettings()
     expect(store.settingsTab).toBe('appearance')
     store.closeSettings()
     expect(store.settingsOpen).toBe(false)

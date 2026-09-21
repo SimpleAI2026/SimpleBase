@@ -106,11 +106,13 @@ import {
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { isMock } from '../services/api'
-import { useAuthStore } from '../stores/auth'
+import { useAuthStore, type SettingsTab } from '../stores/auth'
 import NavMenu from '../components/NavMenu.vue'
 import SettingsModal from '../components/SettingsModal.vue'
 import GlobalProjectSwitcher from '../components/GlobalProjectSwitcher.vue'
 import router from '../router'
+
+const SETTINGS_TABS: SettingsTab[] = ['connection', 'appearance', 'models', 'providers']
 
 const route = useRoute()
 const vueRouter = useRouter()
@@ -118,14 +120,12 @@ const authStore = useAuthStore()
 
 watch(
   () => route.query.settings,
-  (v) => {
-    if (v === undefined || v === null || v === '') return
-    const raw = Array.isArray(v) ? v[0] : v
-    const tab =
-      raw === 'appearance' || raw === 'models' || raw === 'providers' || raw === 'connection'
-        ? raw
-        : undefined
-    authStore.openSettings(tab)
+  (raw) => {
+    if (raw === undefined || raw === null || raw === '') return
+    const value = Array.isArray(raw) ? raw[0] : raw
+    if (typeof value !== 'string') return
+    const tab = SETTINGS_TABS.includes(value as SettingsTab) ? (value as SettingsTab) : undefined
+    authStore.openSettings(tab ? { tab } : undefined)
     const query = { ...route.query }
     delete query.settings
     void vueRouter.replace({ path: route.path, query })

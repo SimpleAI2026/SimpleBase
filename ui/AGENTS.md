@@ -6,7 +6,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 
 | 目录 | 职责 | 约束 |
 | --- | --- | --- |
-| `src/pages/` | 路由页面（Dashboard / Databases / S3Manager / AgentManager / Logs / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.title`。全局设置不是页面，走顶栏 `SettingsModal` |
+| `src/pages/` | 路由页面（Dashboard / Databases / S3Manager / AgentManager / Logs / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.title`。全局设置不是全页，见 `SettingsModal` |
 | `src/components/ui/` | 基础组件库（button / table / dialog / select 等，shadcn 风格） | **视为本地 fork 的库代码**：只增删组件不改风格约定；删除组件前必须全局确认零引用 |
 | `src/components/` | 业务组件（modal/ databases/ chat/ ai/ docs/ 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖 |
 | `src/services/` | API 层：`api.ts`（mock/http 切换）→ `http-api.ts`（实现）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
@@ -40,7 +40,8 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
   - 页面标题只用 PageContainer 的 subtitle 单行（不加 h2 大标题）。
 - 图标用 `@lucide/vue`；按钮内图标加 `data-icon="inline-start"`（或 inline-end）配合样式钩子。
 - 提示统一 `vue-sonner` 的 `toast`；确认操作统一 `ConfirmAction` 组件。
-- 弹窗用 `SbModal`（可设 `maxWidth` / `minWidth`；设置弹窗 `maxWidth=900` + `hideFooter`）；空态用 `SbEmptyState`；分页用 `TablePager`（配合 `usePagination`）。
+- 弹窗用 `SbModal`；空态用 `SbEmptyState`；分页用 `TablePager`（配合 `usePagination`）。
+- 全局设置：右上角齿轮打开 `SettingsModal`（`SbModal` + `maxWidth={900}` + `hideFooter`），不是全页、不是 Sheet。侧栏不放「设置」。`/settings` 仅作 deep-link redirect。
 
 ## 工程规则
 
@@ -48,4 +49,4 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - 不新增依赖、不升级依赖版本、不改 `package.json` / `tsconfig.json` / `vite.config.ts`，除非用户明确要求。
 - 类型：不使用 `any` 落盘新代码；跨层契约必须走 `types.ts`。
 - 已删除的零引用组件（checkbox / drawer / dropdown-menu / pagination / radio-group）不得重新引入——对应能力分别由 switch、sheet、原生方案、TablePager、toggle/radio 内联实现。
-- 路由 redirect 保持现状（`/sql`→`/databases`、`/llm`→`/agents`、`/settings`→`/?settings=1` 打开设置 Modal）。
+- 路由 redirect 保持现状（`/sql`→`/databases`、`/llm`→`/agents`、`/settings`→`/?settings=1` 等）。

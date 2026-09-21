@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useProjectStore } from './stores/project'
 import { api, resetApiMocks } from './test/api-mock'
 import {
-  clickText,
   closedDb,
   mountWithApp,
   readyDb,
@@ -19,7 +18,6 @@ import Databases from './pages/Databases.vue'
 import GoFunctions from './pages/GoFunctions.vue'
 import Logs from './pages/Logs.vue'
 import S3Manager from './pages/S3Manager.vue'
-import AppSettingsPanel from './components/settings/AppSettingsPanel.vue'
 import CronJobModal from './components/modal/CronJobModal.vue'
 import GoFunctionModal from './components/modal/GoFunctionModal.vue'
 import SqlWorkModal from './components/modal/SqlWorkModal.vue'
@@ -28,6 +26,7 @@ import SbModal from './components/modal/SbModal.vue'
 import AgentScheduleModal from './components/ai/AgentScheduleModal.vue'
 import CronJobRunsDrawer from './components/CronJobRunsDrawer.vue'
 import ConnectionPanel from './components/settings/ConnectionPanel.vue'
+import SettingsPanel from './components/settings/SettingsPanel.vue'
 import GlobalProjectSwitcher from './components/GlobalProjectSwitcher.vue'
 
 vi.mock('./services/api', async () => {
@@ -129,7 +128,7 @@ describe('remaining coverage gaps', () => {
     wrapper.unmount()
   })
 
-  it('CronJobs / S3 / Logs / AppSettings / GoFunctions non-Error paths', async () => {
+  it('CronJobs / S3 / Logs / Settings / GoFunctions non-Error paths', async () => {
     const cron = await mountWithApp(CronJobs)
     const cvm = vmOf(cron.wrapper)
     expect(cvm.scheduleText({ scheduleKind: 'interval', intervalSeconds: undefined })).toContain('每')
@@ -165,21 +164,19 @@ describe('remaining coverage gaps', () => {
     await lvm.load()
     logs.wrapper.unmount()
 
-    const settings = await mountWithApp(AppSettingsPanel)
+    const settings = await mountWithApp(SettingsPanel, { props: { section: 'models' } })
     const st = vmOf(settings.wrapper)
     api.llmSettings.put.mockRejectedValueOnce({ nope: true })
     await st.patchDefaults({ maxTokens: 1 })
     api.llmSettings.put.mockRejectedValueOnce({ nope: true })
-    await st.setDefault('openai')
+    const providers = await mountWithApp(SettingsPanel, { props: { section: 'providers' } })
+    await vmOf(providers.wrapper).setDefault('openai')
     if (settings.wrapper.find('#max-tokens').exists()) {
       await settings.wrapper.get('#max-tokens').setValue('')
       await flushPromises()
     }
-    if (settings.wrapper.find('button').exists()) {
-      await clickText(settings.wrapper, '配置').catch(() => undefined)
-      await clickText(settings.wrapper, '取消').catch(() => undefined)
-    }
     settings.wrapper.unmount()
+    providers.wrapper.unmount()
 
     const go = await mountWithApp(GoFunctions)
     const gvm = vmOf(go.wrapper)

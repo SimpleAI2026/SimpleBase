@@ -1,29 +1,20 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '../../stores/auth'
 import { useProjectStore } from '../../stores/project'
 import { uiStubs } from '../../test/helpers'
 import ConnectionPanel from './ConnectionPanel.vue'
 
-vi.mock('../../services/http', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../services/http')>()
-  return {
-    ...actual,
-    getApiKey: () => actual.getApiKey(),
-    setApiKey: actual.setApiKey
-  }
-})
-
 describe('ConnectionPanel', () => {
-  it('covers save/reset/label and settings-open key reload', async () => {
+  it('covers save/reset/label and settings open wiring', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const auth = useAuthStore()
     const project = useProjectStore()
     project.setProject('00000000-0000-0000-0000-000000000002', '商城')
-    auth.openSettings('connection')
+    auth.openSettings()
     const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
     await flushPromises()
     const vm = w.vm as any
@@ -31,13 +22,12 @@ describe('ConnectionPanel', () => {
     vm.key = '  sb_new  '
     vm.saveKey()
     expect(auth.apiKey).toBe('sb_new')
-    vm.saveAll()
+    await w.get('input#api-key').setValue('sb_clicked')
+    const buttons = w.findAll('button')
+    await buttons[0].trigger('click')
     expect(toast.success).toHaveBeenCalledWith('设置已保存')
-    vm.resetKey()
+    await buttons[1].trigger('click')
     expect(auth.apiKey).toBe('sb_live_dev_key_12345')
-    auth.closeSettings()
-    auth.openSettings()
-    await flushPromises()
     project.projectName = ''
     expect(String(vm.projectLabel)).toBeTruthy()
     project.projectId = ''
@@ -45,6 +35,9 @@ describe('ConnectionPanel', () => {
     auth.markUnauthorized()
     await flushPromises()
     expect(vm.unauthorized).toBe(true)
+    auth.closeSettings()
+    auth.openSettings()
+    await flushPromises()
     w.unmount()
   })
 })

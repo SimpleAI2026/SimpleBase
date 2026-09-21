@@ -20,27 +20,42 @@ describe('SbModal', () => {
     }
   })
 
-  it('applies maxWidth and minWidth CSS variables and can hide the footer', async () => {
+  it('applies exact maxWidth and minWidth via CSS variables', () => {
     const w = mount(SbModal, {
-      props: { open: true, title: 'Settings', maxWidth: 900, minWidth: 480, hideFooter: true },
+      props: { open: true, title: 'Sized', maxWidth: 900, minWidth: 480 },
       global: { stubs }
     })
-    expect(w.text()).toContain('Settings')
-    expect(w.text()).not.toContain('确定')
-    const vm = w.vm as any
+    const vm = w.vm as { contentStyle: Record<string, string>; contentClass: string }
+    expect(vm.contentStyle['--sb-modal-max-w']).toBe('900px')
+    expect(vm.contentStyle['--sb-modal-min-w']).toBe('480px')
     expect(vm.contentClass).toContain('sm:max-w-[var(--sb-modal-max-w)]')
     expect(vm.contentClass).toContain('sm:min-w-[var(--sb-modal-min-w)]')
-    expect(JSON.stringify(vm.contentStyle)).toContain('900px')
-    expect(JSON.stringify(vm.contentStyle)).toContain('480px')
+    expect(vm.contentClass).not.toContain('sm:max-w-5xl')
+    const content = w.find('.dialog-content')
+    if (content.exists()) {
+      expect(content.attributes('style') || '').toContain('--sb-modal-max-w: 900px')
+    }
     w.unmount()
 
-    const px = mount(SbModal, {
-      props: { open: true, title: 'W', maxWidth: '720px', minWidth: '20rem' },
+    const w2 = mount(SbModal, {
+      props: { open: true, title: 'Css', maxWidth: '40rem', minWidth: '20rem' },
       global: { stubs }
     })
-    expect(px.text()).toContain('W')
-    expect(px.text()).toContain('确定')
-    px.unmount()
+    const vm2 = w2.vm as { contentStyle: Record<string, string> }
+    expect(vm2.contentStyle['--sb-modal-max-w']).toBe('40rem')
+    expect(vm2.contentStyle['--sb-modal-min-w']).toBe('20rem')
+    w2.unmount()
+  })
+
+  it('hides the default footer when hideFooter is set', () => {
+    const w = mount(SbModal, {
+      props: { open: true, title: 'No footer', hideFooter: true },
+      global: { stubs }
+    })
+    expect(w.text()).not.toContain('确定')
+    expect(w.text()).not.toContain('取消')
+    expect(w.find('.dialog-footer').exists()).toBe(false)
+    w.unmount()
   })
 
   it('emits ok and cancel', async () => {

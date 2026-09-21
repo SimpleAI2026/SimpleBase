@@ -94,7 +94,7 @@ pages（编排） → composables（复用逻辑） → stores（状态） → s
 ### 3. 组件规则
 
 - **重复两次即抽组件**：同样的样式/结构出现第 2 次，就必须抽成 `components/` 下的组件或 `utilities.css` 工具类（现行 `.sb-json` 五处复制即反例）。
-- 组件命名：`Sb` 前缀表项目通用组件（`SbCodeBlock`、`SbEmptyState`）；业务组件用名词短语（`ProjectPicker`、`ApiKeyDrawer`）。
+- 组件命名：`Sb` 前缀表项目通用组件（`SbCodeBlock`、`SbEmptyState`）；业务组件用名词短语（`ProjectPicker`、`SettingsModal`）。
 - 组件 props 用 TypeScript interface 定义，事件用 `defineEmits<{...}>` 泛型签名，禁用 `any`。
 - 组件不含业务请求；数据由页面/composable 传入。
 
