@@ -45,6 +45,12 @@ describe('DocsWiki', () => {
     })
     expect(wrapper.find('.docs-art').exists()).toBe(true)
     expect(wrapper.find('.docs-side').exists()).toBe(true)
+    const bar = wrapper.get('[data-docs-tabs]')
+    expect(bar.classes()).toContain('border-b-0')
+    expect(bar.classes()).not.toContain('border-b')
+    const list = wrapper.get('.tabs-list')
+    expect(list.classes()).toContain('border-b-0')
+    expect(list.classes()).not.toContain('border-b')
   })
 
   it('redirects unknown modules and index slugs', async () => {
