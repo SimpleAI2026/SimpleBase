@@ -52,7 +52,7 @@
             <div class="mb-3 flex flex-wrap items-center gap-2">
               <Badge variant="outline">{{ queryResult.rowCount }} 行</Badge>
               <Badge variant="secondary">{{ queryResult.durationMs }} ms</Badge>
-              <span class="font-mono text-[11px] text-muted-foreground">request_id: {{ queryResult.requestId }}</span>
+              <span class="font-mono text-xs text-muted-foreground">request_id: {{ queryResult.requestId }}</span>
             </div>
             <div v-if="queryResult.columns.length && queryResult.rowCount > 0" class="overflow-x-auto rounded-lg border border-border">
               <Table>
@@ -62,7 +62,7 @@
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow v-for="row in queryPaged" :key="row.__idx" class="hover:bg-muted/40 font-mono text-xs">
+                  <TableRow v-for="row in queryPaged" :key="row.__idx" class="font-mono text-xs">
                     <TableCell v-for="c in queryResult.columns" :key="c" class="max-w-60 truncate">
                       {{ formatCell(row[c]) }}
                     </TableCell>
@@ -89,7 +89,7 @@
               <Badge variant="success">{{ executeResult.rowsAffected }} 行受影响</Badge>
               <Badge variant="secondary">{{ executeResult.durationMs }} ms</Badge>
               <Badge variant="warning">{{ executeResult.durability }}</Badge>
-              <span class="font-mono text-[11px] text-muted-foreground">request_id: {{ executeResult.requestId }}</span>
+              <span class="font-mono text-xs text-muted-foreground">request_id: {{ executeResult.requestId }}</span>
             </div>
           </template>
           <SbEmptyState v-else description="执行后结果将显示在这里" />
@@ -118,7 +118,7 @@
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow v-for="(record, index) in batchResult.results" :key="index" class="hover:bg-muted/40 text-xs">
+                  <TableRow v-for="(record, index) in batchResult.results" :key="index" class="text-xs">
                     <TableCell class="font-mono">{{ index + 1 }}</TableCell>
                     <TableCell>
                       <Badge :variant="record.errorCode ? 'destructive' : 'success'">

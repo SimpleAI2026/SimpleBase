@@ -10,12 +10,12 @@
           </CardDescription>
         </CardHeader>
         <CardContent class="flex flex-wrap items-center gap-2.5 border-b py-4">
-          <Button variant="outline" :disabled="loading" @click="load">
+          <Button variant="outline" size="sm" :disabled="loading" @click="load">
             <Spinner v-if="loading" data-icon="inline-start" />
             <RefreshCwIcon v-else data-icon="inline-start" />
             刷新
           </Button>
-          <Button v-if="!isAdminProject" :disabled="loading" @click="openCreate">
+          <Button v-if="!isAdminProject" size="sm" :disabled="loading" @click="openCreate">
             <PlusIcon data-icon="inline-start" />
             新建云函数
           </Button>
@@ -31,13 +31,18 @@
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableEmpty v-if="!paged.length && !loading" :colspan="4">
+              <template v-if="loading && !records.length">
+                <TableRow v-for="n in 3" :key="'sk-' + n">
+                  <TableCell colspan="4"><Skeleton class="h-8 w-full" /></TableCell>
+                </TableRow>
+              </template>
+              <TableEmpty v-else-if="!paged.length" :colspan="4">
                 <SbEmptyState
                   :title="isAdminProject ? '系统项目不支持云函数' : '还没有云函数'"
-                  :description="isAdminProject ? '' : '新建一个 .go 文件，导出大写函数后即可 HTTP 调用'"
+                  :description="isAdminProject ? '系统项目不提供此功能' : '新建一个 .go 文件，导出大写函数后即可 HTTP 调用'"
                 />
               </TableEmpty>
-              <TableRow v-for="record in paged" :key="record.id" class="hover:bg-muted/40">
+              <TableRow v-for="record in paged" :key="record.id">
                 <TableCell>
                   <TooltipProvider :delay-duration="200">
                     <Tooltip>
@@ -52,18 +57,25 @@
                   </TooltipProvider>
                 </TableCell>
                 <TableCell>
-                  <div v-if="record.exports.length" class="flex flex-wrap gap-1.5">
-                    <Badge
-                      v-for="fn in record.exports"
-                      :key="fn"
-                      variant="secondary"
-                      class="sb-mono cursor-pointer hover:bg-secondary/70"
-                      title="点击复制完整调用路径"
-                      @click="copyInvokePath(record, fn)"
-                    >
-                      {{ fn }}
-                    </Badge>
-                  </div>
+                  <TooltipProvider v-if="record.exports.length" :delay-duration="200">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <div class="line-clamp-1 max-w-md">
+                          <Badge
+                            v-for="fn in record.exports"
+                            :key="fn"
+                            variant="secondary"
+                            class="sb-mono mr-1.5 cursor-pointer hover:bg-secondary/70"
+                            title="点击复制完整调用路径"
+                            @click="copyInvokePath(record, fn)"
+                          >
+                            {{ fn }}
+                          </Badge>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent class="max-w-sm">{{ record.exports.join('、') }}</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                   <span v-else class="text-sm text-muted-foreground">—</span>
                 </TableCell>
                 <TableCell class="text-xs text-muted-foreground">
@@ -88,7 +100,7 @@
                       :title="`确认删除 ${record.file}？已导出的 ${record.exports.join(' / ') || '函数'} 将立即不可调用。`"
                       @confirm="remove(record)"
                     >
-                      <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10">
+                      <Button variant="destructiveGhost" size="sm">
                         <Trash2Icon data-icon="inline-start" />
                         删除
                       </Button>
@@ -98,15 +110,14 @@
               </TableRow>
             </TableBody>
           </Table>
-          <div class="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5">
-            <TablePager
-              :page="page"
-              :page-size="pageSize"
-              :total="total"
-              :page-count="pageCount"
-              @update:page="page = $event"
-            />
-          </div>
+          <TablePager
+            variant="footer"
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :page-count="pageCount"
+            @update:page="page = $event"
+          />
         </div>
       </Card>
 
@@ -120,7 +131,8 @@
  * 云函数列表页（ui-gofunction-plan §8.3）。
  * Badge 点击复制完整调用 URL；删除走 ConfirmAction；项目切换重载。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import {
   CodeIcon,
@@ -134,6 +146,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
@@ -157,11 +170,8 @@ import ConfirmAction from '../components/ConfirmAction.vue'
 import TablePager from '../components/TablePager.vue'
 import GoFunctionModal from '../components/modal/GoFunctionModal.vue'
 
-const ADMIN_PROJECT_ID = '00000000-0000-0000-0000-000000000099'
-
 const projectStore = useProjectStore()
-const projectId = computed(() => projectStore.projectId)
-const isAdminProject = computed(() => projectId.value === ADMIN_PROJECT_ID)
+const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
 
 const records = ref<GoFunctionItem[]>([])
 const loading = ref(false)

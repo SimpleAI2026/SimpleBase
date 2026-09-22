@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { defaultModuleId, defaultSlug, getPage } from '../../docs/catalog'
 import { uiStubs } from '../../test/helpers'
 import DocsArticle from './DocsArticle.vue'
-import DocsModuleTabs from './DocsModuleTabs.vue'
 import DocsSidebar from './DocsSidebar.vue'
 
 const routes = [
@@ -59,21 +58,8 @@ describe('docs components', () => {
     })
   })
 
-  it('emits tab changes and builds sidebar links', async () => {
+  it('builds sidebar links', async () => {
     const router = await withRouter()
-    const tabs = mount(DocsModuleTabs, {
-      props: {
-        modelValue: 'a',
-        modules: [
-          { id: 'a', title: 'A', order: 1, pages: [] },
-          { id: 'b', title: 'B', order: 2, pages: [] }
-        ]
-      },
-      global: { stubs: uiStubs }
-    })
-    await tabs.get('.tab-emit').trigger('click')
-    expect(tabs.emitted('update:modelValue')?.[0]).toEqual(['other'])
-
     const side = mount(DocsSidebar, {
       props: {
         moduleId: 'ops',

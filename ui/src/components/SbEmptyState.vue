@@ -2,7 +2,7 @@
   <Empty class="py-5">
     <EmptyHeader>
       <EmptyMedia variant="icon">
-        <InboxIcon />
+        <component :is="icon || InboxIcon" />
       </EmptyMedia>
       <EmptyTitle>{{ title }}</EmptyTitle>
       <EmptyDescription>{{ description }}</EmptyDescription>
@@ -16,6 +16,7 @@
   </Empty>
 </template>
 <script setup lang="ts">
+import type { Component } from 'vue'
 import { InboxIcon, PlusIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import {
@@ -32,6 +33,7 @@ withDefaults(
     title?: string
     description?: string
     actionText?: string
+    icon?: Component
   }>(),
   { title: '暂无数据', description: '没有可展示的内容' }
 )

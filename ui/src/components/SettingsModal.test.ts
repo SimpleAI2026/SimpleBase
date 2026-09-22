@@ -25,6 +25,7 @@ describe('SettingsModal', () => {
     expect(modal.attributes('data-title')).toBe('设置')
     expect(modal.attributes('data-max-width')).toBe('900')
     expect(modal.attributes('data-hide-footer')).toBe('true')
+    expect(wrapper.text()).toContain('主题、连接、默认模型与厂商 API Key')
     expect(wrapper.text()).toContain('连接')
     expect(wrapper.text()).toContain('外观')
     expect(wrapper.text()).toContain('模型')

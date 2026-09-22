@@ -64,17 +64,48 @@ function bootstrap() {
       'editor.lineHighlightBackground': '#f5f2ea'
     }
   })
+  // sb-dark：颜色取自 style.css `.dark` 的 card / foreground / muted-foreground / primary
+  monaco.editor.defineTheme('sb-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: 'a8a59c', fontStyle: 'italic' },
+      { token: 'keyword', foreground: 'f3f1ea' },
+      { token: 'type', foreground: 'a8a59c' },
+      { token: 'string', foreground: 'd97757' },
+      { token: 'string.escape', foreground: 'e06b57' },
+      { token: 'number', foreground: 'd4b04a' },
+      { token: 'operator', foreground: 'a8a59c' }
+    ],
+    colors: {
+      'editor.background': '#242322',
+      'editor.foreground': '#f3f1ea',
+      'editorLineNumber.foreground': '#a8a59c',
+      'editor.selectionBackground': '#2c2a28',
+      'editor.lineHighlightBackground': '#2c2a28'
+    }
+  })
+}
+
+function themeName(): 'sb-light' | 'sb-dark' {
+  return document.documentElement.classList.contains('dark') ? 'sb-dark' : 'sb-light'
+}
+
+function syncTheme() {
+  editor?.updateOptions({ theme: themeName() })
 }
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
+let themeObserver: MutationObserver | null = null
 
 onMounted(() => {
   bootstrap()
+  syncTheme()
   if (!containerRef.value) return
   editor = monaco.editor.create(containerRef.value, {
     value: props.modelValue,
     language: 'go',
-    theme: 'sb-light',
+    theme: themeName(),
     readOnly: props.readOnly,
     tabSize: 4,
     minimap: { enabled: false },
@@ -89,6 +120,9 @@ onMounted(() => {
   editor.onDidChangeModelContent(() => {
     emit('update:modelValue', editor!.getValue())
   })
+  syncTheme()
+  themeObserver = new MutationObserver(syncTheme)
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 })
 
 watch(
@@ -107,6 +141,8 @@ watch(
 )
 
 onUnmounted(() => {
+  themeObserver?.disconnect()
+  themeObserver = null
   editor?.dispose()
   editor = null
 })

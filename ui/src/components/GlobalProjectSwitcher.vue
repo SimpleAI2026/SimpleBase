@@ -22,7 +22,7 @@
               >
                 <span class="flex min-w-0 flex-col">
                   <span class="truncate">{{ p.name || p.id }}</span>
-                  <span class="font-mono text-[11px] text-muted-foreground break-all">{{ p.id }}</span>
+                  <span class="font-mono text-xs text-muted-foreground break-all">{{ p.id }}</span>
                 </span>
               </CommandItem>
             </CommandGroup>

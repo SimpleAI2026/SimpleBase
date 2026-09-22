@@ -77,12 +77,12 @@ describe('layouts', () => {
       global: {
         plugins: [router],
         stubs: {
-          Button: { template: '<button><slot /></button>' },
-          GithubMark: { template: '<span>gh</span>' }
+          Button: { template: '<button><slot /></button>' }
         }
       }
     })
     expect(w.text()).toContain('使用文档')
     expect(w.text()).toContain('doc')
+    expect(w.find('a[href*="github.com"]').exists()).toBe(true)
   })
 })

@@ -36,14 +36,14 @@
               </TableCell>
             </TableRow>
             <TableEmpty v-else-if="!paged.length" :colspan="3">暂时未查询到数据</TableEmpty>
-            <TableRow v-for="record in paged" :key="record.id" class="hover:bg-muted/40">
+            <TableRow v-for="record in paged" :key="record.id">
               <TableCell class="sb-mono font-medium truncate text-xs">{{ record.id }}</TableCell>
               <TableCell>
                 <SbCodeBlock :value="docFields(record)" max-height="160px" />
               </TableCell>
               <TableCell>
                 <ConfirmAction v-if="!readonly" title="确认删除该文档？" @confirm="removeRow(record.id)">
-                  <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10">删除</Button>
+                  <Button variant="destructiveGhost" size="sm">删除</Button>
                 </ConfirmAction>
                 <span v-else class="text-xs text-muted-foreground">只读</span>
               </TableCell>

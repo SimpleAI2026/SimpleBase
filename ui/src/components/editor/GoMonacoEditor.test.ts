@@ -24,6 +24,7 @@ vi.mock('monaco-editor/editor/editor.worker.js?worker', () => ({
   default: class EditorWorker {}
 }))
 
+import * as monaco from 'monaco-editor/editor.js'
 import GoMonacoEditor from './GoMonacoEditor.vue'
 
 describe('GoMonacoEditor', () => {
@@ -44,5 +45,23 @@ describe('GoMonacoEditor', () => {
 
     const w2 = mount(GoMonacoEditor, { props: { modelValue: 'x' } })
     w2.unmount()
+
+    const defined = vi.mocked(monaco.editor.defineTheme).mock.calls.map((c) => c[0])
+    expect(defined).toContain('sb-light')
+    expect(defined).toContain('sb-dark')
+    const dark = vi.mocked(monaco.editor.defineTheme).mock.calls.find((c) => c[0] === 'sb-dark')
+    const colors = (dark?.[1] as { colors: Record<string, string> }).colors
+    expect(colors['editor.background']).toBe('#242322')
+    expect(colors['editor.foreground']).toBe('#f3f1ea')
+    expect(colors['editor.background']).not.toBe('#faf9f5')
+
+    document.documentElement.classList.add('dark')
+    const w3 = mount(GoMonacoEditor, { props: { modelValue: 'dark' } })
+    expect(monaco.editor.create).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ theme: 'sb-dark' })
+    )
+    document.documentElement.classList.remove('dark')
+    w3.unmount()
   })
 })

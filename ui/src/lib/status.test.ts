@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { logLevelVariant, statusBadgeVariant, statusText, statusTextMap } from './status'
+import {
+  cronStatusText,
+  cronStatusVariant,
+  logLevelText,
+  logLevelVariant,
+  statusBadgeVariant,
+  statusText,
+  statusTextMap,
+} from './status'
 
 describe('status helpers', () => {
   it('maps known statuses and falls back to raw text', () => {
@@ -20,5 +28,18 @@ describe('status helpers', () => {
     expect(logLevelVariant('error')).toBe('destructive')
     expect(logLevelVariant('warn')).toBe('warning')
     expect(logLevelVariant('info')).toBe('secondary')
+    expect(logLevelText('info')).toBe('信息')
+    expect(logLevelText('warn')).toBe('警告')
+    expect(logLevelText('error')).toBe('错误')
+    expect(logLevelText('debug')).toBe('debug')
+    expect(logLevelText('')).toBe('-')
+    expect(cronStatusText('completed')).toBe('成功')
+    expect(cronStatusText('failed')).toBe('失败')
+    expect(cronStatusText('running')).toBe('执行中')
+    expect(cronStatusText('')).toBe('未运行')
+    expect(cronStatusVariant('completed')).toBe('success')
+    expect(cronStatusVariant('failed')).toBe('destructive')
+    expect(cronStatusVariant('running')).toBe('secondary')
+    expect(cronStatusVariant('')).toBe('outline')
   })
 })

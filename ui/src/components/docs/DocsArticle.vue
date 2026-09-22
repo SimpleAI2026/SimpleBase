@@ -176,9 +176,9 @@ function linkFor(slug: string) {
   border-radius: 5px;
 }
 .docs-md :deep(pre) {
-  background: #1e1e1e;
-  color: #e5e5e5;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
   padding: 14px 16px;
   margin: 1rem 0;

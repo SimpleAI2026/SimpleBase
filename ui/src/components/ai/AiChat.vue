@@ -33,17 +33,27 @@
       <slot name="empty">
         <SbEmptyState v-if="!messages.length" description="开始一段对话吧" />
       </slot>
-      <Message
+      <div
         v-for="(m, i) in messages"
         :key="i"
-        :align="m.role === 'user' ? 'end' : 'start'"
+        :class="cn('flex items-start gap-2', m.role === 'user' && 'flex-row-reverse')"
       >
-        <MessageAvatar :align="m.role === 'user' ? 'end' : 'start'">
+        <div
+          :class="cn(
+            'flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground',
+            m.role === 'user' && 'border-primary text-primary',
+          )"
+        >
           <UserIcon v-if="m.role === 'user'" />
           <BotIcon v-else />
-        </MessageAvatar>
-        <MessageContent>
-          <Bubble :variant="m.role === 'user' ? 'default' : 'muted'" :align="m.role === 'user' ? 'end' : 'start'">
+        </div>
+        <div class="flex min-w-0 max-w-[75%] flex-col gap-1 max-[768px]:max-w-[85%]">
+          <div
+            :class="cn(
+              'rounded-lg border px-3 py-2',
+              m.role === 'user' ? 'bg-primary/12 border-transparent' : 'bg-muted border-border',
+            )"
+          >
             <div v-if="m.toolCalls?.length" class="mb-1.5 flex flex-col gap-1.5">
               <Card v-for="(t, ti) in m.toolCalls" :key="ti" size="sm">
                 <CardHeader>
@@ -56,9 +66,9 @@
               </Card>
             </div>
             <pre class="m-0 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">{{ m.content }}<span v-if="sending && streaming && i === messages.length - 1" class="text-primary">▍</span></pre>
-          </Bubble>
-        </MessageContent>
-      </Message>
+          </div>
+        </div>
+      </div>
     </MessageScroller>
 
     <AiChatComposer
@@ -87,12 +97,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 import SbEmptyState from '../SbEmptyState.vue'
 import MessageScroller from '../chat/MessageScroller.vue'
-import Message from '../chat/Message.vue'
-import MessageAvatar from '../chat/MessageAvatar.vue'
-import MessageContent from '../chat/MessageContent.vue'
-import Bubble from '../chat/Bubble.vue'
 import AiChatComposer from './AiChatComposer.vue'
 import type { MentionAgent } from './AiChatComposer.vue'
 import { useAiChat } from '../../composables/useAiChat'

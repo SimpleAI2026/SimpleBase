@@ -19,8 +19,8 @@
               <component :is="card.icon" class="size-5" />
             </div>
             <div class="min-w-0 flex-1">
-              <div class="text-[12px] tracking-wide text-muted-foreground uppercase font-medium">{{ card.label }}</div>
-              <div class="mt-1 text-[26px] leading-tight font-semibold text-foreground">{{ card.value }}</div>
+              <div class="text-xs tracking-wide text-muted-foreground uppercase font-medium">{{ card.label }}</div>
+              <div class="mt-1 text-2xl leading-tight font-semibold text-foreground">{{ card.value }}</div>
             </div>
           </div>
         </CardContent>
@@ -50,16 +50,28 @@
       </CardHeader>
       <CardContent class="flex flex-col gap-6 pt-6">
         <div v-if="trend.length" class="rounded-xl border border-border bg-muted/25 px-5 pt-5 pb-3">
+          <div class="trend-legend mb-3 flex items-center gap-4 text-xs text-muted-foreground">
+            <span class="inline-flex items-center gap-1.5">
+              <span class="size-2.5 rounded-sm bg-primary" />
+              请求
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+              <span class="size-2.5 rounded-sm bg-destructive" />
+              错误
+            </span>
+          </div>
           <div class="flex min-h-44 items-end gap-3">
             <div v-for="p in trend" :key="p.date" class="flex min-w-0 flex-1 flex-col items-center gap-2">
               <div class="flex h-[120px] items-end gap-1.5">
                 <div
-                  class="w-3 rounded-t-sm bg-primary/85 transition-[height] duration-300"
+                  v-if="p.requests > 0"
+                  class="w-3 rounded-t-sm bg-primary transition-[height] duration-300"
                   :style="{ height: barHeight(p.requests, maxRequests) }"
                   :title="`请求 ${p.requests}`"
                 />
                 <div
-                  class="w-1.5 rounded-t-sm bg-destructive/70"
+                  v-if="p.errors > 0"
+                  class="w-1.5 rounded-t-sm bg-destructive"
                   :style="{ height: barHeight(p.errors, maxRequests) }"
                   :title="`错误 ${p.errors}`"
                 />
@@ -68,7 +80,12 @@
             </div>
           </div>
         </div>
-        <SbEmptyState v-else-if="!loading" description="暂无趋势数据" />
+        <Skeleton v-else-if="loading" class="h-44 w-full rounded-xl" />
+        <SbEmptyState
+          v-else
+          :title="trendFailed ? '趋势加载失败' : '暂无数据'"
+          :description="trendFailed ? '请求未完成，请刷新后重试' : '暂无趋势数据'"
+        />
 
         <div class="overflow-hidden rounded-lg border border-border">
           <Table>
@@ -81,14 +98,19 @@
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableEmpty v-if="!paged.length && !loading" :colspan="4">
+              <template v-if="loading && !databases.length">
+                <TableRow v-for="n in 3" :key="'sk-' + n">
+                  <TableCell colspan="4"><Skeleton class="h-8 w-full" /></TableCell>
+                </TableRow>
+              </template>
+              <TableEmpty v-else-if="!paged.length" :colspan="4">
                 <SbEmptyState description="暂无数据库" action-text="去创建" @action="goDatabases" />
               </TableEmpty>
               <TableRow v-for="record in paged" :key="record.id">
                 <TableCell class="font-medium">{{ record.name }}</TableCell>
                 <TableCell class="max-w-48 truncate font-mono text-xs text-muted-foreground">{{ record.id }}</TableCell>
                 <TableCell>
-                  <Badge :variant="statusBadgeVariant(record.status)">{{ record.status }}</Badge>
+                  <Badge :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
                 </TableCell>
                 <TableCell class="text-muted-foreground text-xs">{{ formatTime(record.createdAt) }}</TableCell>
               </TableRow>
@@ -111,6 +133,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { toast } from 'vue-sonner'
 import { CircleCheckIcon, DatabaseIcon, RefreshCwIcon, TriangleAlertIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -137,7 +160,7 @@ import { api, isMock } from '../services/api'
 import type { DatabaseItem, QuotaStatus, TrendPoint } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import { usePagination } from '../composables/usePagination'
-import { statusBadgeVariant } from '@/lib/status'
+import { statusBadgeVariant, statusText } from '@/lib/status'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
@@ -150,6 +173,7 @@ const projectStore = useProjectStore()
 const databases = ref<DatabaseItem[]>([])
 const quota = ref<QuotaStatus | null>(null)
 const loading = ref(false)
+const trendFailed = ref(false)
 const lastUpdate = ref('')
 const trend = ref<TrendPoint[]>([])
 const summary = ref({ totalRequests: 0, errorRate: 0, avgLatencyMs: 0, activeDatabases: 0 })
@@ -158,7 +182,7 @@ const { page, pageSize, total, pageCount, items: paged } = usePagination(databas
 const maxRequests = computed(() => Math.max(1, ...trend.value.map((p) => p.requests)))
 
 function barHeight(value: number, max: number) {
-  return `${Math.max(4, Math.round((value / max) * 120))}px`
+  return `${Math.round((value / max) * 120)}px`
 }
 
 const cards = computed(() => [
@@ -183,7 +207,7 @@ const cards = computed(() => [
   {
     label: '配额状态',
     value: quota.value ? (quota.value.llmAllowed && quota.value.databaseAllowed ? '正常' : '受限') : '-',
-    icon: TriangleAlertIcon,
+    icon: quota.value && !(quota.value.llmAllowed && quota.value.databaseAllowed) ? TriangleAlertIcon : CircleCheckIcon,
     tone:
       quota.value?.llmAllowed === false ? 'bg-warning/12 text-warning' : 'bg-info/12 text-info',
   },
@@ -199,8 +223,16 @@ async function load() {
   ])
   if (dbRes.status === 'fulfilled') databases.value = dbRes.value
   if (quotaRes.status === 'fulfilled') quota.value = quotaRes.value
-  if (trendRes.status === 'fulfilled') trend.value = trendRes.value
+  if (trendRes.status === 'fulfilled') {
+    trend.value = trendRes.value
+    trendFailed.value = false
+  } else {
+    trendFailed.value = true
+  }
   if (summaryRes.status === 'fulfilled') summary.value = summaryRes.value
+  if ([dbRes, quotaRes, trendRes, summaryRes].some((r) => r.status === 'rejected')) {
+    toast.error('部分数据加载失败')
+  }
   if (
     dbRes.status === 'fulfilled' ||
     quotaRes.status === 'fulfilled' ||

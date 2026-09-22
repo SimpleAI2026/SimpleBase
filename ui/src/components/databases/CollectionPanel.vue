@@ -17,7 +17,7 @@
           <TableEmpty v-if="!rows.length" :colspan="2">
             <SbEmptyState :description="readonly ? '暂无数据表' : '暂无集合'" :action-text="readonly ? undefined : '新建集合'" @action="!readonly && emit('create-collection')" />
           </TableEmpty>
-          <TableRow v-for="record in rows" :key="record.name" class="hover:bg-muted/40">
+          <TableRow v-for="record in rows" :key="record.name">
             <TableCell class="sb-mono max-w-[420px] truncate font-medium" :title="record.name">{{ record.name }}</TableCell>
             <TableCell class="text-right">
               <div class="flex items-center justify-end gap-1">

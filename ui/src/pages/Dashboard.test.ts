@@ -1,5 +1,6 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { toast } from 'vue-sonner'
 import { api, resetApiMocks, setIsMock } from '../test/api-mock'
 import { clickText, closedDb, mountWithApp, readyDb } from '../test/helpers'
 
@@ -53,8 +54,14 @@ describe('Dashboard (监控大盘)', () => {
     expect(wrapper.text()).toContain('错误率 1%')
     expect(wrapper.text()).toContain('demo')
     expect(wrapper.text()).toContain('flaky')
+    expect(wrapper.text()).toContain('就绪')
+    expect(wrapper.text()).toContain('降级')
+    expect(wrapper.find('.trend-legend').text()).toContain('请求')
+    expect(wrapper.find('.trend-legend').text()).toContain('错误')
     expect(wrapper.find('[title="请求 10"]').exists()).toBe(true)
     expect(wrapper.find('[title="错误 1"]').exists()).toBe(true)
+    expect(wrapper.find('[title="请求 0"]').exists()).toBe(false)
+    expect(wrapper.find('[title="错误 0"]').exists()).toBe(false)
   })
 
   it('shows Mock badge and refreshes data from the toolbar', async () => {
@@ -81,7 +88,10 @@ describe('Dashboard (监控大盘)', () => {
     const { wrapper } = await mountWithApp(Dashboard)
     expect(wrapper.text()).toContain('数据库总数')
     expect(wrapper.text()).toContain('-')
+    expect(wrapper.text()).toContain('趋势加载失败')
+    expect(wrapper.text()).not.toContain('暂无趋势数据')
     expect(wrapper.text()).not.toContain('请求 9')
+    expect(toast.error).toHaveBeenCalledWith('部分数据加载失败')
   })
 
   it('navigates to databases from the empty-state action', async () => {

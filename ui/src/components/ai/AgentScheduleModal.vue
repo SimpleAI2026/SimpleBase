@@ -90,7 +90,7 @@
 
     <template #footer>
       <ConfirmAction v-if="schedule" title="确认删除该定时任务？" @confirm="remove">
-        <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10">删除</Button>
+        <Button variant="destructiveGhost" size="sm">删除</Button>
       </ConfirmAction>
       <div class="flex-1" />
       <Button variant="outline" :disabled="!schedule || triggering" @click="triggerNow">

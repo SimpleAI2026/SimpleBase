@@ -6,29 +6,31 @@
         <CardTitle>对象列表</CardTitle>
         <CardDescription>按前缀筛选，支持上传与删除</CardDescription>
       </CardHeader>
-      <CardContent class="flex flex-wrap items-center gap-2.5 border-b py-4">
-        <InputGroup class="min-w-56 flex-1 sm:max-w-80">
-          <InputGroupAddon>
-            <CloudUploadIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            v-model="prefix"
-            placeholder="前缀筛选，如 images/"
-            @keydown.enter="load"
-          />
-        </InputGroup>
-        <Button variant="outline" :disabled="loading" @click="load">
-          <Spinner v-if="loading" data-icon="inline-start" />
-          <RefreshCwIcon v-else data-icon="inline-start" />
-          刷新
-        </Button>
-        <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
-        <Button :disabled="uploading" @click="triggerUpload">
-          <Spinner v-if="uploading" data-icon="inline-start" />
-          <UploadIcon v-else data-icon="inline-start" />
-          上传对象
-        </Button>
-        <Progress v-if="uploading && uploadPercent > 0" :model-value="uploadPercent" class="w-24" />
+      <CardContent class="flex flex-col gap-3 border-b py-4">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <InputGroup class="min-w-56 flex-1 sm:max-w-80">
+            <InputGroupAddon>
+              <SearchIcon />
+            </InputGroupAddon>
+            <InputGroupInput
+              v-model="prefix"
+              placeholder="前缀筛选，如 images/"
+              @keydown.enter="load"
+            />
+          </InputGroup>
+          <Button variant="outline" size="sm" :disabled="loading" @click="load">
+            <Spinner v-if="loading" data-icon="inline-start" />
+            <RefreshCwIcon v-else data-icon="inline-start" />
+            刷新
+          </Button>
+          <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
+          <Button size="sm" :disabled="uploading" @click="triggerUpload">
+            <Spinner v-if="uploading" data-icon="inline-start" />
+            <UploadIcon v-else data-icon="inline-start" />
+            上传对象
+          </Button>
+        </div>
+        <Progress v-if="uploading && uploadPercent > 0" :model-value="uploadPercent" class="w-full" />
       </CardContent>
       <div class="p-0">
         <Table>
@@ -41,10 +43,15 @@
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableEmpty v-if="!paged.length && !loading" :colspan="4">
+            <template v-if="loading && !objects.length">
+              <TableRow v-for="n in 3" :key="'sk-' + n">
+                <TableCell colspan="4"><Skeleton class="h-8 w-full" /></TableCell>
+              </TableRow>
+            </template>
+            <TableEmpty v-else-if="!paged.length" :colspan="4">
               <SbEmptyState description="暂无对象" action-text="上传对象" @action="triggerUpload" />
             </TableEmpty>
-            <TableRow v-for="record in paged" :key="record.key" class="hover:bg-muted/40">
+            <TableRow v-for="record in paged" :key="record.key">
               <TableCell class="max-w-[480px]">
                 <span class="sb-mono inline-flex items-center gap-2 font-medium">
                   <FileIcon class="size-4 shrink-0 text-primary" />
@@ -60,7 +67,7 @@
                     打开
                   </Button>
                   <ConfirmAction title="确认删除该对象？" @confirm="remove(record.key)">
-                    <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10">
+                    <Button variant="destructiveGhost" size="sm">
                       <Trash2Icon data-icon="inline-start" />
                       删除
                     </Button>
@@ -70,15 +77,14 @@
             </TableRow>
           </TableBody>
         </Table>
-        <div class="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5">
-          <TablePager
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :page-count="pageCount"
-            @update:page="page = $event"
-          />
-        </div>
+        <TablePager
+          variant="footer"
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :page-count="pageCount"
+          @update:page="page = $event"
+        />
       </div>
     </Card>
   </PageContainer>
@@ -89,11 +95,12 @@
 import { onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import axios from 'axios'
-import { CloudUploadIcon, EyeIcon, FileIcon, RefreshCwIcon, Trash2Icon, UploadIcon } from '@lucide/vue'
+import { EyeIcon, FileIcon, RefreshCwIcon, SearchIcon, Trash2Icon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,

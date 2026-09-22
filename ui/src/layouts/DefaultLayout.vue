@@ -3,10 +3,10 @@
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div class="flex h-12 items-center gap-2.5 overflow-hidden px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary font-serif text-[17px] font-semibold text-primary-foreground">
+          <div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary font-serif text-base font-semibold text-primary-foreground">
             S
           </div>
-          <span class="truncate font-serif text-[17px] font-bold tracking-tight group-data-[collapsible=icon]:hidden">
+          <span class="truncate font-serif text-base font-bold tracking-tight group-data-[collapsible=icon]:hidden">
             SimpleBase
           </span>
         </div>
@@ -28,7 +28,7 @@
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbPage>{{ currentTitle }}</BreadcrumbPage>
+                <BreadcrumbPage class="font-medium">{{ currentTitle }}</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
@@ -39,7 +39,7 @@
               <Button variant="outline" size="sm" as-child>
                 <router-link to="/docs" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5">
                   <BookOpenIcon data-icon="inline-start" />
-                  <span>使用文档</span>
+                  <span class="hidden sm:inline">使用文档</span>
                 </router-link>
               </Button>
             </TooltipTrigger>

@@ -3,7 +3,7 @@
     <DialogContent :class="contentClass" :style="contentStyle" :show-close-button="true">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
-        <DialogDescription v-if="description" class="sr-only">{{ description }}</DialogDescription>
+        <DialogDescription v-if="description">{{ description }}</DialogDescription>
       </DialogHeader>
       <div class="min-w-0">
         <slot />
