@@ -28,6 +28,14 @@ describe('simple presentational components', () => {
     expect(single.text()).toContain('共 3 条')
     expect(single.findAll('button')).toHaveLength(0)
 
+    expect(single.classes().join(' ')).toContain('pt-3')
+
+    const footer = mount(TablePager, {
+      props: { page: 1, pageSize: 10, total: 3, pageCount: 1, variant: 'footer' }
+    })
+    expect(footer.classes().join(' ')).toContain('border-t')
+    expect(footer.classes().join(' ')).not.toContain('pt-3')
+
     const multi = mount(TablePager, { props: { page: 2, pageSize: 10, total: 30, pageCount: 3 } })
     await multi.findAll('button')[0].trigger('click')
     expect(multi.emitted('update:page')?.[0]).toEqual([1])

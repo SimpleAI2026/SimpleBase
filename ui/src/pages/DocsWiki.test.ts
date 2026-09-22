@@ -11,12 +11,6 @@ vi.mock('../services/api', async () => {
 import DocsWiki from './DocsWiki.vue'
 
 const docsStubs = {
-  DocsModuleTabs: {
-    props: ['modelValue', 'modules'],
-    emits: ['update:modelValue'],
-    template:
-      '<div class="tabs"><button type="button" class="switch-mod" @click="$emit(\'update:modelValue\', modules[1] ? modules[1].id : modelValue)">mod</button></div>'
-  },
   DocsSidebar: { template: '<aside class="docs-side" />' },
   DocsArticle: { template: '<article class="docs-art" />' },
   Select: {
@@ -109,8 +103,8 @@ describe('DocsWiki', () => {
       await flushPromises()
       expect(router.currentRoute.value.path).toContain(`/docs/${id}/`)
     }
-    if (wrapper.find('.switch-mod').exists() && docCatalog.length > 1) {
-      await wrapper.get('.switch-mod').trigger('click')
+    if (wrapper.find('.tab-emit').exists() && docCatalog.length > 1) {
+      await wrapper.get('.tab-emit').trigger('click')
       await flushPromises()
       expect(router.currentRoute.value.path.startsWith('/docs/')).toBe(true)
     }

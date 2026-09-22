@@ -9,12 +9,12 @@
           </CardDescription>
         </CardHeader>
         <CardContent class="flex flex-wrap items-center gap-2.5 border-b py-4">
-          <Button variant="outline" :disabled="loading" @click="load">
+          <Button variant="outline" size="sm" :disabled="loading" @click="load">
             <Spinner v-if="loading" data-icon="inline-start" />
             <RefreshCwIcon v-else data-icon="inline-start" />
             刷新
           </Button>
-          <Button v-if="!isAdminProject" :disabled="loading" @click="openCreate">
+          <Button v-if="!isAdminProject" size="sm" :disabled="loading" @click="openCreate">
             <PlusIcon data-icon="inline-start" />
             新建定时任务
           </Button>
@@ -32,15 +32,20 @@
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableEmpty v-if="!paged.length && !loading" :colspan="6">
+              <template v-if="loading && !records.length">
+                <TableRow v-for="n in 3" :key="'sk-' + n">
+                  <TableCell colspan="6"><Skeleton class="h-8 w-full" /></TableCell>
+                </TableRow>
+              </template>
+              <TableEmpty v-else-if="!paged.length" :colspan="6">
                 <SbEmptyState
                   :title="isAdminProject ? '系统项目不支持定时任务' : '还没有定时任务'"
-                  :description="isAdminProject ? '' : '新建定时任务，到点自动调用云函数'"
+                  :description="isAdminProject ? '系统项目不提供此功能' : '新建定时任务，到点自动调用云函数'"
                   :action-text="isAdminProject ? undefined : '新建定时任务'"
                   @action="!isAdminProject && openCreate()"
                 />
               </TableEmpty>
-              <TableRow v-for="record in paged" :key="record.id" class="hover:bg-muted/40">
+              <TableRow v-for="record in paged" :key="record.id">
                 <TableCell>
                   <TooltipProvider :delay-duration="200">
                     <Tooltip>
@@ -77,7 +82,7 @@
                         <Tooltip>
                           <TooltipTrigger as-child>
                             <span class="inline-flex items-center gap-1.5">
-                              <AlertTriangleIcon class="size-3.5" />
+                              <AlertTriangleIcon class="size-3.5 text-destructive" />
                               {{ record.funcFile }}.{{ record.funcExport }}
                             </span>
                           </TooltipTrigger>
@@ -90,8 +95,8 @@
                 </TableCell>
                 <TableCell>
                   <div class="flex flex-col gap-0.5">
-                    <Badge :variant="statusVariant(record.lastStatus)" class="w-fit">
-                      {{ statusText(record.lastStatus) }}
+                    <Badge :variant="cronStatusVariant(record.lastStatus)" class="w-fit">
+                      {{ cronStatusText(record.lastStatus) }}
                     </Badge>
                     <span class="text-xs text-muted-foreground">
                       {{ record.lastRunAt ? formatTime(record.lastRunAt) : '未运行' }}
@@ -124,7 +129,7 @@
                       :title="`确认删除 ${record.name}？历史运行记录保留但不再排期。`"
                       @confirm="remove(record)"
                     >
-                      <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10">
+                      <Button variant="destructiveGhost" size="sm">
                         <Trash2Icon data-icon="inline-start" />
                         删除
                       </Button>
@@ -134,15 +139,14 @@
               </TableRow>
             </TableBody>
           </Table>
-          <div class="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5">
-            <TablePager
-              :page="page"
-              :page-size="pageSize"
-              :total="total"
-              :page-count="pageCount"
-              @update:page="page = $event"
-            />
-          </div>
+          <TablePager
+            variant="footer"
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :page-count="pageCount"
+            @update:page="page = $event"
+          />
         </div>
       </Card>
 
@@ -161,7 +165,8 @@
  * 定时任务列表页（ui-cronjob-plan §7.2）。
  * 调度/目标/状态快照/启用 Switch；立即执行触发后刷新；删除走 ConfirmAction。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import {
   AlertTriangleIcon,
@@ -175,6 +180,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -191,6 +197,7 @@ import { api } from '../services/api'
 import type { CronJobItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import { usePagination } from '../composables/usePagination'
+import { cronStatusText, cronStatusVariant } from '@/lib/status'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
@@ -200,11 +207,8 @@ import TablePager from '../components/TablePager.vue'
 import CronJobModal from '../components/modal/CronJobModal.vue'
 import CronJobRunsDrawer from '../components/CronJobRunsDrawer.vue'
 
-const ADMIN_PROJECT_ID = '00000000-0000-0000-0000-000000000099'
-
 const projectStore = useProjectStore()
-const projectId = computed(() => projectStore.projectId)
-const isAdminProject = computed(() => projectId.value === ADMIN_PROJECT_ID)
+const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
 
 const records = ref<CronJobItem[]>([])
 const loading = ref(false)
@@ -233,20 +237,6 @@ function scheduleText(record: CronJobItem): string {
   if (s % 3600 === 0) return `每 ${s / 3600} 小时`
   if (s % 60 === 0) return `每 ${s / 60} 分钟`
   return `每 ${s} 秒`
-}
-
-function statusVariant(status: string) {
-  if (status === 'completed') return 'success' as const
-  if (status === 'failed') return 'destructive' as const
-  if (status === 'running') return 'secondary' as const
-  return 'outline' as const
-}
-
-function statusText(status: string) {
-  if (status === 'completed') return '成功'
-  if (status === 'failed') return '失败'
-  if (status === 'running') return '执行中'
-  return '未运行'
 }
 
 async function toggleEnabled(record: CronJobItem) {

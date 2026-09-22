@@ -12,7 +12,15 @@
 
     <template v-else>
       <div class="sticky top-[var(--header-height)] z-10 border-b bg-background/85 backdrop-blur-xl">
-        <DocsModuleTabs v-model="moduleId" :modules="docCatalog" />
+        <Tabs :model-value="moduleId" class="gap-0" @update:model-value="onModuleTab">
+          <div class="mx-auto w-full max-w-[1200px] px-4 md:px-6">
+            <TabsList variant="line" class="h-11 w-full justify-start gap-2 rounded-none bg-transparent">
+              <TabsTrigger v-for="m in docCatalog" :key="m.id" :value="m.id" class="px-2.5 text-sm">
+                {{ m.title }}
+              </TabsTrigger>
+            </TabsList>
+          </div>
+        </Tabs>
       </div>
 
       <div class="mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 items-start gap-6 px-4 py-6 max-md:flex-col max-md:px-3 max-md:pb-6 md:px-6">
@@ -59,6 +67,7 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select,
   SelectContent,
@@ -67,7 +76,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import DocsModuleTabs from '../components/docs/DocsModuleTabs.vue'
 import DocsSidebar from '../components/docs/DocsSidebar.vue'
 import DocsArticle from '../components/docs/DocsArticle.vue'
 import {
@@ -149,6 +157,10 @@ watch(moduleId, (id, prev) => {
     router.push(`/docs/${id}`)
   }
 })
+
+function onModuleTab(v: string | number) {
+  moduleId.value = String(v)
+}
 
 function onMobilePage(v: unknown) {
   const slugVal = String(v)

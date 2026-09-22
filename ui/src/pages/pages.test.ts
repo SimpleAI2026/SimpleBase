@@ -50,7 +50,6 @@ const stubs = {
   Alert: { template: '<div><slot /></div>' },
   AlertTitle: { template: '<div><slot /></div>' },
   AlertDescription: { template: '<div><slot /></div>' },
-  DocsModuleTabs: { template: '<div />' },
   DocsSidebar: { template: '<div />' },
   DocsArticle: { template: '<div class="article" />' },
   Select: { template: '<div><slot /></div>' },

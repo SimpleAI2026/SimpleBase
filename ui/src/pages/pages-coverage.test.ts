@@ -198,6 +198,11 @@ describe('page coverage', () => {
     await flushPromises()
     vm.autoRefresh = false
     await flushPromises()
+    vm.keyword = 'needle'
+    vm.from = '2024-01-01T00:00'
+    await vm.clearFilters()
+    expect(vm.keyword).toBe('')
+    expect(vm.from).toBe('')
     api.logs.list.mockRejectedValueOnce(new Error('fail'))
     await vm.load()
     api.logs.putRetention.mockRejectedValueOnce(new Error('nope'))
@@ -238,13 +243,7 @@ describe('page coverage', () => {
     expect(vm.scheduleText({ scheduleKind: 'interval', intervalSeconds: 3600 })).toContain('小时')
     expect(vm.scheduleText({ scheduleKind: 'interval', intervalSeconds: 120 })).toContain('分钟')
     expect(vm.scheduleText({ scheduleKind: 'interval', intervalSeconds: 61 })).toContain('秒')
-    expect(vm.statusVariant('completed')).toBe('success')
-    expect(vm.statusVariant('failed')).toBe('destructive')
-    expect(vm.statusVariant('running')).toBe('secondary')
-    expect(vm.statusText('completed')).toBe('成功')
-    expect(vm.statusText('failed')).toBe('失败')
-    expect(vm.statusText('running')).toBe('执行中')
-    expect(vm.statusText('')).toBe('未运行')
+    expect(w.text()).toContain('成功')
     api.cronjobs.update.mockResolvedValue({ ...rec, enabled: false })
     await vm.toggleEnabled(rec)
     api.cronjobs.update.mockRejectedValueOnce(new Error('x'))

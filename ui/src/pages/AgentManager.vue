@@ -20,7 +20,7 @@
             </CardAction>
           </CardHeader>
           <CardContent class="p-4">
-            <SbEmptyState v-if="!loading && !agents.length" description="还没有 Agent" action-text="创建" @action="openCreate" />
+            <SbEmptyState v-if="!loading && !agents.length" :icon="BotIcon" description="还没有 Agent" action-text="创建" @action="openCreate" />
             <div class="flex flex-col gap-3">
               <button
                 v-for="a in agents"
@@ -32,20 +32,20 @@
               >
                 <div class="flex items-center justify-between gap-2">
                   <strong class="text-sm font-semibold text-foreground">{{ a.name }}</strong>
-                  <Badge variant="secondary" class="text-[11px]">{{ a.module }}</Badge>
+                  <Badge variant="secondary" class="text-xs">{{ a.module }}</Badge>
                 </div>
                 <div class="mt-1.5 text-xs leading-relaxed text-muted-foreground line-clamp-2">{{ a.description || '无描述' }}</div>
-                <div v-if="scheduleByAgent[a.id]" class="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <div v-if="scheduleByAgent[a.id]" class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                   <ClockIcon class="size-3" />
                   <span>{{ scheduleSummary(scheduleByAgent[a.id]) }}</span>
-                  <span v-if="scheduleByAgent[a.id]?.enabled" class="size-1.5 rounded-full bg-emerald-500" />
+                  <span v-if="scheduleByAgent[a.id]?.enabled" class="size-1.5 rounded-full bg-success" />
                   <span v-else class="size-1.5 rounded-full bg-muted-foreground/40" />
                 </div>
                 <div class="mt-3 flex gap-1 justify-end border-t border-border/60 pt-3" @click.stop>
                   <Button variant="ghost" size="xs" @click="openEdit(a)">编辑</Button>
                   <Button variant="ghost" size="xs" @click="openSchedule(a)">定时</Button>
                   <ConfirmAction title="确认删除该 Agent？" @confirm="removeAgent(a)">
-                    <Button variant="ghost" size="xs" class="text-destructive hover:bg-destructive/10">删除</Button>
+                    <Button variant="destructiveGhost" size="xs">删除</Button>
                   </ConfirmAction>
                 </div>
               </button>
@@ -77,7 +77,7 @@
                 <span class="min-w-0 truncate text-xs text-muted-foreground">点名 {{ activeAgent ? '@' + activeAgent.name : '一个 Agent' }} 后发送；工具只读</span>
               </template>
               <template #empty>
-                <SbEmptyState v-if="!chatMessages.length" description="用 @ 点名左侧 Agent，询问数据库、对象或日志" />
+                <SbEmptyState v-if="!chatMessages.length" :icon="BotIcon" description="用 @ 点名左侧 Agent，询问数据库、对象或日志" />
               </template>
             </AiChat>
           </CardContent>
@@ -145,7 +145,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { ClockIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { BotIcon, ClockIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'

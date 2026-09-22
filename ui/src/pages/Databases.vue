@@ -41,18 +41,23 @@
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableEmpty v-if="!paged.length && !loading" :colspan="6">
+            <template v-if="loading && !databases.length">
+              <TableRow v-for="n in 3" :key="'sk-' + n">
+                <TableCell colspan="6"><Skeleton class="h-8 w-full" /></TableCell>
+              </TableRow>
+            </template>
+            <TableEmpty v-else-if="!paged.length" :colspan="6">
               <SbEmptyState :description="isAdmin ? '暂无系统库' : '暂无数据库'" :action-text="isAdmin ? undefined : '新建数据库'" @action="!isAdmin && openCreate()" />
             </TableEmpty>
             <template v-for="record in paged" :key="record.id">
-              <TableRow class="hover:bg-muted/40">
+              <TableRow>
                 <TableCell class="text-center">
                   <Tooltip>
                     <TooltipTrigger as-child>
                       <Button
                         variant="outline"
-                        size="icon-xs"
-                        class="size-6 rounded-full"
+                        size="icon-sm"
+                        class="rounded-full"
                         :disabled="!isReady(record)"
                         @click="toggleExpand(record)"
                       >
@@ -87,24 +92,40 @@
                     <Tooltip>
                       <TooltipTrigger as-child>
                         <span>
-                          <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openSql(record)">SQL</Button>
+                          <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openSql(record)">
+                            <CodeIcon data-icon="inline-start" />
+                            <span class="hidden lg:inline">SQL</span>
+                          </Button>
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>{{ isReady(record) ? (isAdmin ? 'SQL 控制台（只读查询）' : 'SQL 工作台') : '数据库未就绪' }}</TooltipContent>
                     </Tooltip>
                     <template v-if="!isAdmin">
-                      <Button variant="ghost" size="sm" :disabled="!isOpenable(record)" @click="openDb(record)">
-                        <RocketIcon data-icon="inline-start" />
-                        打开
-                      </Button>
-                      <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="closeDb(record)">
-                        <PowerIcon data-icon="inline-start" />
-                        关闭
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <Button variant="ghost" size="sm" :disabled="!isOpenable(record)" @click="openDb(record)">
+                            <RocketIcon data-icon="inline-start" />
+                            <span class="hidden lg:inline">打开</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>打开</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger as-child>
+                          <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="closeDb(record)">
+                            <PowerIcon data-icon="inline-start" />
+                            <span class="hidden lg:inline">关闭</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>关闭</TooltipContent>
+                      </Tooltip>
                       <Tooltip>
                         <TooltipTrigger as-child>
                           <span>
-                            <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">新建集合</Button>
+                            <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">
+                              <PlusIcon data-icon="inline-start" />
+                              <span class="hidden lg:inline">新建集合</span>
+                            </Button>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent>{{ isReady(record) ? '新建集合' : '数据库未就绪' }}</TooltipContent>
@@ -114,10 +135,15 @@
                         title="删除为异步操作，确认继续？"
                         @confirm="removeDb(record)"
                       >
-                        <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10" :disabled="record.status === 'deleting'">
-                          <Trash2Icon data-icon="inline-start" />
-                          删除
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger as-child>
+                            <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">
+                              <Trash2Icon data-icon="inline-start" />
+                              <span class="hidden lg:inline">删除</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>删除</TooltipContent>
+                        </Tooltip>
                       </ConfirmAction>
                     </template>
                     <Tooltip v-else>
@@ -150,15 +176,14 @@
             </template>
           </TableBody>
         </Table>
-        <div class="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5">
-          <TablePager
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :page-count="pageCount"
-            @update:page="page = $event"
-          />
-        </div>
+        <TablePager
+          variant="footer"
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :page-count="pageCount"
+          @update:page="page = $event"
+        />
       </CardContent>
     </Card>
 
@@ -212,6 +237,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
+  CodeIcon,
   DatabaseIcon,
   MinusIcon,
   PlusIcon,
@@ -226,6 +252,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,

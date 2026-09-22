@@ -221,6 +221,7 @@ export const uiStubs = {
     emits: ['ok', 'update:open', 'cancel'],
     template: `
       <div v-if="open" class="sb-modal" :data-title="title" :data-width="width" :data-max-width="maxWidth" :data-min-width="minWidth" :data-hide-footer="hideFooter ? 'true' : 'false'">
+        <p v-if="description" class="sb-modal-desc">{{ description }}</p>
         <slot />
         <slot v-if="!hideFooter" name="footer">
           <button type="button" class="sb-ok" @click="$emit('ok')">{{ okText || '确定' }}</button>

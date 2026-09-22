@@ -28,3 +28,28 @@ export function logLevelVariant(s: string): BadgeVariants['variant'] {
   if (s === 'warn') return 'warning'
   return 'secondary'
 }
+
+export const logLevelTextMap: Record<string, string> = {
+  info: '信息',
+  warn: '警告',
+  error: '错误',
+}
+
+export function logLevelText(s: string) {
+  return logLevelTextMap[s] || s || '-'
+}
+
+/** Cron job last-run status. Separate from database `statusText`. */
+export function cronStatusText(status: string) {
+  if (status === 'completed') return '成功'
+  if (status === 'failed') return '失败'
+  if (status === 'running') return '执行中'
+  return '未运行'
+}
+
+export function cronStatusVariant(status: string): BadgeVariants['variant'] {
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'destructive'
+  if (status === 'running') return 'secondary'
+  return 'outline'
+}

@@ -16,6 +16,7 @@
           <ToggleGroupItem value="system">跟随系统</ToggleGroupItem>
         </ToggleGroup>
       </Field>
+      <p class="text-sm text-muted-foreground">跟随系统、浅色与深色的选择保存在本机。</p>
     </FieldGroup>
   </div>
 
@@ -64,13 +65,18 @@
       </Field>
       <Field>
         <FieldLabel>Temperature {{ defaults.temperature ?? 0.7 }}</FieldLabel>
-        <Slider
-          :model-value="[defaults.temperature ?? 0.7]"
-          :min="0"
-          :max="2"
-          :step="0.1"
-          @update:model-value="(v: number[]) => patchDefaults({ temperature: v[0] })"
-        />
+        <div class="flex items-center gap-3">
+          <span class="w-3 text-xs text-muted-foreground">0</span>
+          <Slider
+            class="flex-1"
+            :model-value="[defaults.temperature ?? 0.7]"
+            :min="0"
+            :max="2"
+            :step="0.1"
+            @update:model-value="(v: number[]) => patchDefaults({ temperature: v[0] })"
+          />
+          <span class="w-3 text-xs text-muted-foreground">2</span>
+        </div>
       </Field>
       <Field>
         <FieldLabel for="max-tokens">Max Tokens</FieldLabel>
@@ -87,7 +93,7 @@
     </FieldGroup>
   </div>
 
-  <div v-else-if="section === 'providers'" class="flex flex-col gap-4">
+  <div v-else-if="section === 'providers'" class="flex flex-col gap-6">
     <SbEmptyState
       v-if="!project.id"
       description="请先在右上角选择或创建一个项目"
@@ -135,7 +141,7 @@
         </Card>
       </div>
 
-      <Card v-if="editorPreset">
+      <Card v-if="editorPreset" class="border-t">
         <CardHeader class="border-b">
           <CardTitle>配置 {{ editorPreset.name }}</CardTitle>
           <CardDescription>Key 仅保存在本机浏览器</CardDescription>
