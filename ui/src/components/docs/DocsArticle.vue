@@ -1,6 +1,6 @@
 <template>
-  <article class="min-w-0 w-full max-w-[880px] flex-1 rounded-xl border bg-card px-5 pt-6 pb-10 shadow-sm md:px-9 md:pt-7">
-    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+  <article class="min-w-0 w-full max-w-[880px] flex-1 rounded-xl border bg-card px-5 py-6 shadow-xs md:px-10 md:py-8">
+    <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -14,18 +14,19 @@
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{{ title }}</BreadcrumbPage>
+            <BreadcrumbPage class="font-medium">{{ title }}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
       <a
         v-if="githubUrl"
-        class="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[12.5px] text-muted-foreground no-underline transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+        class="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground no-underline transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
         :href="githubUrl"
         target="_blank"
         rel="noopener noreferrer"
       >
-        在 GitHub 上查看 ↗
+        在 GitHub 上查看
+        <ExternalLinkIcon class="size-3.5" />
       </a>
     </div>
     <div v-if="loadError" class="py-6">
@@ -41,23 +42,22 @@
       </Alert>
     </div>
     <div v-else class="docs-md" v-html="html" />
-    <div v-if="prev || next" class="mt-10 flex justify-between gap-3 border-t pt-6">
+    <div v-if="prev || next" class="mt-10 grid gap-3 border-t border-border pt-6 sm:grid-cols-2">
       <router-link
         v-if="prev"
-        class="flex max-w-[48%] flex-col gap-0.5 rounded-lg border px-4 py-2.5 no-underline transition-colors hover:border-primary/40 hover:bg-primary/5"
+        class="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-background/70 px-4 py-3 no-underline transition-colors hover:border-primary/40 hover:bg-primary/5"
         :to="linkFor(prev.slug)"
       >
-        <span class="text-[11.5px] text-muted-foreground">← 上一篇</span>
-        <span class="truncate text-sm font-medium text-primary">{{ prev.title }}</span>
+        <span class="text-xs text-muted-foreground">上一篇</span>
+        <span class="truncate text-sm font-medium text-primary">← {{ prev.title }}</span>
       </router-link>
-      <span v-else />
       <router-link
         v-if="next"
-        class="flex max-w-[48%] flex-col items-end gap-0.5 rounded-lg border px-4 py-2.5 text-right no-underline transition-colors hover:border-primary/40 hover:bg-primary/5"
+        class="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-background/70 px-4 py-3 no-underline transition-colors hover:border-primary/40 hover:bg-primary/5 sm:col-start-2 sm:items-end sm:text-right"
         :to="linkFor(next.slug)"
       >
-        <span class="text-[11.5px] text-muted-foreground">下一篇 →</span>
-        <span class="truncate text-sm font-medium text-primary">{{ next.title }}</span>
+        <span class="text-xs text-muted-foreground">下一篇</span>
+        <span class="truncate text-sm font-medium text-primary">{{ next.title }} →</span>
       </router-link>
     </div>
   </article>
@@ -65,6 +65,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ExternalLinkIcon } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Breadcrumb,
@@ -116,7 +117,7 @@ function linkFor(slug: string) {
 .docs-md :deep(h4) {
   font-family: var(--font-heading);
   font-weight: 700;
-  scroll-margin-top: calc(var(--header-height) + 72px);
+  scroll-margin-top: calc(var(--header-height) + var(--docs-tabs-h, 2.75rem) + 0.75rem);
 }
 .docs-md :deep(h1) {
   font-size: 1.8rem;
@@ -158,7 +159,7 @@ function linkFor(slug: string) {
 .docs-md :deep(a) {
   color: var(--primary);
   text-decoration: none;
-  text-decoration-color: rgb(217 119 87 / 0.4);
+  text-decoration-color: color-mix(in srgb, var(--primary) 45%, transparent);
   text-underline-offset: 3px;
 }
 .docs-md :deep(a:hover) {
@@ -173,17 +174,17 @@ function linkFor(slug: string) {
   background: var(--muted);
   border: 1px solid var(--border);
   padding: 0.12em 0.4em;
-  border-radius: 5px;
+  border-radius: 0.375rem;
 }
 .docs-md :deep(pre) {
-  background: var(--card);
+  background: light-dark(var(--muted), var(--background));
   color: var(--foreground);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
   padding: 14px 16px;
   margin: 1rem 0;
-  border-radius: 10px;
+  border-radius: var(--radius);
   overflow: auto;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -197,7 +198,7 @@ function linkFor(slug: string) {
   border-collapse: collapse;
   width: 100%;
   margin: 1.1rem 0;
-  font-size: 13.5px;
+  font-size: 0.875rem;
 }
 .docs-md :deep(th),
 .docs-md :deep(td) {
@@ -217,7 +218,7 @@ function linkFor(slug: string) {
   padding: 0.6rem 1rem;
   border-left: 3px solid var(--primary);
   border-radius: 0 8px 8px 0;
-  background: rgb(217 119 87 / 0.06);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
   color: var(--muted-foreground);
 }
 .docs-md :deep(blockquote p) {
@@ -230,7 +231,7 @@ function linkFor(slug: string) {
 }
 .docs-md :deep(img) {
   max-width: 100%;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
 }
 </style>

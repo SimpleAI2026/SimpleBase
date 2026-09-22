@@ -1,6 +1,6 @@
 <template>
-  <div class="flex min-h-[calc(100vh-var(--header-height))] flex-col bg-background">
-    <div v-if="!docCatalog.length" class="px-4 py-12">
+  <div class="flex min-h-[calc(100vh-var(--header-height))] flex-col bg-background [--docs-pad-y:2rem] [--docs-tabs-h:2.75rem] max-md:[--docs-pad-y:1.25rem]">
+    <div v-if="!docCatalog.length" class="mx-auto w-full max-w-[1200px] px-4 py-12 md:px-6">
       <Alert>
         <AlertTitle>未能加载文档</AlertTitle>
         <AlertDescription>
@@ -11,11 +11,22 @@
     </div>
 
     <template v-else>
-      <div class="sticky top-[var(--header-height)] z-10 border-b bg-background/85 backdrop-blur-xl">
+      <div
+        data-docs-tabs
+        class="sticky top-[var(--header-height)] z-10 border-b-0 bg-background/90 backdrop-blur-xl"
+      >
         <Tabs :model-value="moduleId" class="gap-0" @update:model-value="onModuleTab">
           <div class="mx-auto w-full max-w-[1200px] px-4 md:px-6">
-            <TabsList variant="line" class="h-11 w-full justify-start gap-2 rounded-none bg-transparent">
-              <TabsTrigger v-for="m in docCatalog" :key="m.id" :value="m.id" class="px-2.5 text-sm">
+            <TabsList
+              variant="line"
+              class="h-[var(--docs-tabs-h)] w-full justify-start gap-1 overflow-x-auto rounded-none border-b-0 bg-transparent p-0 group-data-[orientation=horizontal]/tabs:h-[var(--docs-tabs-h)]"
+            >
+              <TabsTrigger
+                v-for="m in docCatalog"
+                :key="m.id"
+                :value="m.id"
+                class="h-[var(--docs-tabs-h)] flex-none px-3 text-sm after:bg-primary data-active:text-primary group-data-[orientation=horizontal]/tabs:after:bottom-0 dark:data-active:text-primary"
+              >
                 {{ m.title }}
               </TabsTrigger>
             </TabsList>
@@ -23,7 +34,7 @@
         </Tabs>
       </div>
 
-      <div class="mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 items-start gap-6 px-4 py-6 max-md:flex-col max-md:px-3 max-md:pb-6 md:px-6">
+      <div class="mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 items-start gap-6 px-4 py-[var(--docs-pad-y)] max-md:flex-col max-md:px-3 md:px-6">
         <DocsSidebar
           v-if="!isMobile && currentModule"
           :module-id="currentModule.id"
@@ -31,9 +42,9 @@
           :pages="currentModule.pages"
           :active-slug="slug"
         />
-        <div v-else-if="currentModule" class="mb-3 w-full">
+        <div v-else-if="currentModule" class="w-full">
           <Select :model-value="slug" @update:model-value="onMobilePage">
-            <SelectTrigger class="w-full">
+            <SelectTrigger class="w-full bg-card">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -52,7 +63,7 @@
           :prev="prevPage"
           :next="nextPage"
         />
-        <div v-else class="flex-1 px-4 py-12">
+        <div v-else class="min-w-0 flex-1">
           <Alert>
             <AlertTitle>未找到文档</AlertTitle>
             <AlertDescription>{{ missingHint }}</AlertDescription>
