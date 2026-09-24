@@ -94,7 +94,7 @@ describe('Logs (日志管理)', () => {
     const keep = wrapper.find('input[type="number"]')
     await keep.setValue('not-a-number')
     const { useProjectStore } = await import('../stores/project')
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.logs.list.mock.calls.length).toBeGreaterThan(2)
   })

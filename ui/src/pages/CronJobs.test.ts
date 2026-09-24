@@ -142,7 +142,7 @@ describe('CronJobs (定时任务)', () => {
     await wrapper.get('.empty-action').trigger('click')
     expect(wrapper.find('.cj-modal').exists()).toBe(true)
     const { useProjectStore } = await import('../stores/project')
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.cronjobs.list.mock.calls.length).toBeGreaterThan(1)
   })

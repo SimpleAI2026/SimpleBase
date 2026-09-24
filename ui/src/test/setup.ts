@@ -60,6 +60,40 @@ vi.mock('vue-sonner', () => ({
   Toaster: { name: 'Toaster', template: '<div class="toaster" />' }
 }))
 
+// jsdom 无 canvas 2d，echarts 需 mock（各用例可再 mock 断言 setOption）
+vi.mock('echarts/core', () => {
+  const make = () => ({
+    setOption: vi.fn(),
+    resize: vi.fn(),
+    dispose: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    getOption: vi.fn(() => ({}))
+  })
+  return {
+    init: vi.fn(make),
+    use: vi.fn(),
+    default: { init: vi.fn(make), use: vi.fn() }
+  }
+})
+vi.mock('echarts/charts', () => ({ BarChart: {}, LineChart: {} }))
+vi.mock('echarts/components', () => ({ GridComponent: {}, TooltipComponent: {} }))
+vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
+vi.mock('echarts', () => {
+  const make = () => ({
+    setOption: vi.fn(),
+    resize: vi.fn(),
+    dispose: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    getOption: vi.fn(() => ({}))
+  })
+  return {
+    init: vi.fn(make),
+    default: { init: vi.fn(make) }
+  }
+})
+
 config.global.stubs = {
   teleport: true,
   Transition: false,

@@ -78,7 +78,7 @@ func (d *Descriptor) Validate() error {
 	if err := validateID("tenant_id", d.TenantID); err != nil {
 		return err
 	}
-	if err := validateID("project_id", d.ProjectID); err != nil {
+	if err := ValidateProjectID(d.ProjectID); err != nil {
 		return err
 	}
 	if err := validateID("database_id", d.DatabaseID); err != nil {

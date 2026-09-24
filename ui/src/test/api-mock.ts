@@ -11,6 +11,20 @@ export function setIsMock(v: boolean) {
 }
 
 export const api = {
+  auth: {
+    login: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+    me: vi.fn(),
+    changePassword: vi.fn()
+  },
+  users: {
+    list: vi.fn(),
+    create: vi.fn(),
+    get: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn()
+  },
   projects: {
     list: vi.fn(),
     create: vi.fn()
@@ -93,8 +107,12 @@ export const api = {
     list: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
+    saveVersion: vi.fn(),
     update: vi.fn(),
-    remove: vi.fn()
+    remove: vi.fn(),
+    listVersions: vi.fn(),
+    activate: vi.fn(),
+    test: vi.fn()
   },
   cronjobs: {
     list: vi.fn(),
@@ -108,6 +126,80 @@ export const api = {
 }
 
 export function applyApiDefaults() {
+  api.auth.login.mockResolvedValue({
+    tokenType: 'Bearer',
+    accessToken: 'at',
+    expiresIn: 7200,
+    refreshToken: 'rt',
+    user: {
+      id: 'u1',
+      username: 'simplebase2026',
+      role: 'superadminl1',
+      displayName: 'Super',
+      email: '',
+      status: 'active',
+      mustChangePassword: false
+    }
+  })
+  api.auth.refresh.mockResolvedValue({
+    tokenType: 'Bearer',
+    accessToken: 'at2',
+    expiresIn: 7200,
+    refreshToken: 'rt2',
+    user: {
+      id: 'u1',
+      username: 'simplebase2026',
+      role: 'superadminl1',
+      displayName: 'Super',
+      email: '',
+      status: 'active',
+      mustChangePassword: false
+    }
+  })
+  api.auth.logout.mockResolvedValue(undefined)
+  api.auth.me.mockResolvedValue({
+    id: 'u1',
+    username: 'simplebase2026',
+    role: 'superadminl1',
+    displayName: 'Super',
+    email: '',
+    status: 'active',
+    mustChangePassword: false,
+    projects: []
+  })
+  api.auth.changePassword.mockResolvedValue(undefined)
+  api.users.list.mockResolvedValue({ users: [], nextCursor: '' })
+  api.users.create.mockResolvedValue({
+    id: 'u-new',
+    username: 'alice',
+    role: 'user',
+    displayName: '',
+    email: '',
+    status: 'active',
+    mustChangePassword: false,
+    projectCount: 0
+  })
+  api.users.get.mockResolvedValue({
+    id: 'u1',
+    username: 'simplebase2026',
+    role: 'superadminl1',
+    displayName: '',
+    email: '',
+    status: 'active',
+    mustChangePassword: false,
+    projectCount: 0
+  })
+  api.users.update.mockResolvedValue({
+    id: 'u1',
+    username: 'simplebase2026',
+    role: 'superadminl1',
+    displayName: '',
+    email: '',
+    status: 'active',
+    mustChangePassword: false,
+    projectCount: 0
+  })
+  api.users.remove.mockResolvedValue(undefined)
   api.projects.list.mockResolvedValue([])
   api.projects.create.mockResolvedValue({ id: 'p-new', name: 'New', createdAt: 't' })
   api.metrics.summary.mockResolvedValue({
@@ -255,9 +347,38 @@ export function applyApiDefaults() {
     id: 'gf-1',
     name: 'hello',
     file: 'hello.go',
+    activeVersion: 2,
+    latestVersion: 2,
+    published: true,
     exports: ['Hello'],
     createdAt: 't',
     updatedAt: 't'
+  })
+  api.gofunctions.saveVersion.mockResolvedValue({
+    id: 'gf-1',
+    name: 'hello',
+    file: 'hello.go',
+    activeVersion: 2,
+    latestVersion: 2,
+    published: true,
+    exports: ['Hello'],
+    createdAt: 't',
+    updatedAt: 't'
+  })
+  api.gofunctions.listVersions.mockResolvedValue({
+    activeVersion: 1,
+    versions: [{ version: 1, exports: ['Hello'], note: '', createdAt: 't', active: true }]
+  })
+  api.gofunctions.activate.mockResolvedValue({ activeVersion: 1 })
+  api.gofunctions.test.mockResolvedValue({
+    ok: true,
+    statusCode: 200,
+    durationMs: 5,
+    version: 1,
+    activeVersion: 1,
+    functionName: 'Hello',
+    data: {},
+    error: ''
   })
   api.gofunctions.remove.mockResolvedValue(undefined)
   api.cronjobs.list.mockResolvedValue([])

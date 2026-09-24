@@ -22,6 +22,12 @@ vi.mock('../components/SettingsModal.vue', () => ({
 vi.mock('../components/GlobalProjectSwitcher.vue', () => ({
   default: { template: '<div class="switcher" />' }
 }))
+vi.mock('../components/UserMenu.vue', () => ({
+  default: { template: '<div class="user-menu" />' }
+}))
+vi.mock('../components/modal/LoginModal.vue', () => ({
+  default: { template: '<div class="login-modal" />' }
+}))
 
 import DefaultLayout from './DefaultLayout.vue'
 import { useAuthStore } from '../stores/auth'
@@ -39,10 +45,11 @@ describe('DefaultLayout', () => {
     })
     const { wrapper, pinia } = await mountWithApp(DefaultLayout, { path: '/' })
     expect(wrapper.text()).toContain('监控大盘')
-    expect(wrapper.text()).toContain('Mock 数据')
+    expect(wrapper.text()).toContain('Mock')
     expect(wrapper.text()).toContain('使用文档')
     const auth = useAuthStore(pinia)
     const iconBtns = wrapper.findAll('button')
+    // 按钮顺序：… → 设置 → 刷新（UserMenu 在未登录时不渲染）
     await iconBtns[iconBtns.length - 2].trigger('click')
     expect(auth.settingsOpen).toBe(true)
     auth.markUnauthorized()

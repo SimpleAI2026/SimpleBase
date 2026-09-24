@@ -1,6 +1,7 @@
 package objectstore
 
 import (
+	"crypto/rand"
 	"fmt"
 	"strings"
 )
@@ -26,6 +27,45 @@ type KeyBuilder struct {
 // uuidPattern 用于轻量校验 UUID（v4 形态：8-4-4-4-12 十六进制）。
 // 不强校验版本位，只保证字符集与分段长度，避免引入额外依赖。
 const uuidPatternLen = 36 // "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+// ProjectIDLen 是项目 ID 的固定长度（字母/数字/连字符）。
+const ProjectIDLen = 8
+
+// projectIDAlphabet 是项目 ID 生成字符集（不含大写，便于 URL/路径）。
+const projectIDAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+// ValidateProjectID 校验项目 ID：恰好 8 位 [A-Za-z0-9-]，且无路径穿越。
+func ValidateProjectID(id string) error {
+	if id == "" {
+		return fmt.Errorf("objectstore: project_id is empty")
+	}
+	if len(id) != ProjectIDLen {
+		return fmt.Errorf("objectstore: project_id must be %d chars, got length %d", ProjectIDLen, len(id))
+	}
+	for i, r := range id {
+		ok := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '-'
+		if !ok {
+			return fmt.Errorf("objectstore: project_id contains invalid char %q at pos %d", r, i)
+		}
+	}
+	if strings.Contains(id, "..") || strings.Contains(id, "/") {
+		return fmt.Errorf("objectstore: project_id contains path separator or traversal")
+	}
+	return nil
+}
+
+// NewProjectID 生成随机 8 位项目 ID（[a-z0-9]）。
+func NewProjectID() string {
+	b := make([]byte, ProjectIDLen)
+	if _, err := rand.Read(b); err != nil {
+		/* v8 ignore next 2 -- crypto/rand 失败极罕见，退化为固定长度占位 */
+		return "proj-fb0"
+	}
+	for i := range b {
+		b[i] = projectIDAlphabet[int(b[i])%len(projectIDAlphabet)]
+	}
+	return string(b)
+}
 
 // validateID 校验 ID 是否为 UUID 形态。拒绝空串、非 UUID、含路径分隔符。
 func validateID(name string, id string) error {

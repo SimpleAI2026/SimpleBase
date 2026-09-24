@@ -80,7 +80,7 @@ func TestDescriptorPutGetRoundTrip(t *testing.T) {
 	desc := &Descriptor{
 		FormatVersion: DescriptorFormatVersion,
 		TenantID:      "11111111-1111-1111-1111-111111111111",
-		ProjectID:     "22222222-2222-2222-2222-222222222222",
+		ProjectID:     "pro-test",
 		DatabaseID:    "33333333-3333-3333-3333-333333333333",
 		Name:          "mydb",
 		CreatedAt:     time.Now().UTC(),

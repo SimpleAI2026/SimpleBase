@@ -3,7 +3,7 @@ import { createClient, SimpleBaseError } from '@simplebase/sdk'
 const url = process.env.SIMPLEBASE_URL || 'http://127.0.0.1:8080'
 const apiKey = process.env.SIMPLEBASE_API_KEY || 'sb_live_dev_key_12345'
 const projectId =
-  process.env.SIMPLEBASE_PROJECT_ID || '00000000-0000-0000-0000-000000000002'
+  process.env.SIMPLEBASE_PROJECT_ID || 'dev-shop'
 
 async function main() {
   const sb = createClient({ url, apiKey, projectId })

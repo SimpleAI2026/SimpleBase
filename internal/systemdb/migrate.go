@@ -425,6 +425,7 @@ var systemMigrations = []migration{
 			schedule_kind VARCHAR NOT NULL,
 			cron_expr VARCHAR,
 			interval_seconds BIGINT,
+			run_at TIMESTAMP,
 			func_file VARCHAR NOT NULL,
 			func_export VARCHAR NOT NULL,
 			input_json VARCHAR NOT NULL DEFAULT '{}',
@@ -455,6 +456,103 @@ var systemMigrations = []migration{
 			response_json VARCHAR,
 			started_at TIMESTAMP,
 			finished_at TIMESTAMP,
+			created_at TIMESTAMP NOT NULL
+		)`,
+	},
+	{
+		// v31：控制台用户（login-auth-plan §3.1）。password_hash 为 argon2id 编码串。
+		version: 31,
+		name:    "sys_users",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_users (
+			id VARCHAR NOT NULL,
+			username VARCHAR NOT NULL,
+			password_hash VARCHAR NOT NULL,
+			role VARCHAR NOT NULL,
+			display_name VARCHAR NOT NULL DEFAULT '',
+			email VARCHAR NOT NULL DEFAULT '',
+			status VARCHAR NOT NULL,
+			must_change_password BIGINT NOT NULL DEFAULT 0,
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			last_login_at TIMESTAMP,
+			disabled_at TIMESTAMP
+		)`,
+	},
+	{
+		// v32：OAuth2 refresh 会话（login-auth-plan §3.2）。只存 refresh 摘要。
+		version: 32,
+		name:    "sys_user_sessions",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_user_sessions (
+			id VARCHAR NOT NULL,
+			user_id VARCHAR NOT NULL,
+			refresh_token_hash VARCHAR NOT NULL,
+			access_jti VARCHAR NOT NULL DEFAULT '',
+			user_agent VARCHAR NOT NULL DEFAULT '',
+			ip VARCHAR NOT NULL DEFAULT '',
+			expires_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP NOT NULL,
+			revoked_at TIMESTAMP
+		)`,
+	},
+	{
+		// v33：项目归属（login-auth-plan §3.3）。user 只可见自己创建的项目。
+		version: 33,
+		name:    "sys_project_owners",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_project_owners (
+			project_id VARCHAR NOT NULL,
+			user_id VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL
+		)`,
+	},
+	{
+		// v34：云函数实体（gofunction-versions-testplan §4.1）。active_version=0 表示未发布。
+		version: 34,
+		name:    "sys_go_funcs",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_go_funcs (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			active_version BIGINT NOT NULL DEFAULT 0,
+			description VARCHAR NOT NULL DEFAULT '',
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`,
+	},
+	{
+		// v35：云函数不可变版本快照（§4.2）。source 为权威。
+		version: 35,
+		name:    "sys_go_func_versions",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_go_func_versions (
+			id VARCHAR NOT NULL,
+			func_id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			version BIGINT NOT NULL,
+			source VARCHAR NOT NULL,
+			exports_json VARCHAR NOT NULL,
+			note VARCHAR NOT NULL DEFAULT '',
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL
+		)`,
+	},
+	{
+		// v36：云函数调用流水（§4.3）。不存 body/响应原文。
+		version: 36,
+		name:    "sys_go_func_invokes",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_go_func_invokes (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			func_name VARCHAR NOT NULL,
+			function_name VARCHAR NOT NULL,
+			version BIGINT NOT NULL,
+			channel VARCHAR NOT NULL,
+			status_code BIGINT NOT NULL,
+			duration_ms BIGINT NOT NULL,
+			request_id VARCHAR NOT NULL,
+			actor VARCHAR NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL
 		)`,
 	},

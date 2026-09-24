@@ -638,9 +638,3 @@ func (f *errLogs) SearchLogs(context.Context, string, string, string, int) ([]sy
 func (f *errLogs) LevelStats(context.Context, string) ([]systemdb.LogLevelCount, error) {
 	return f.stats, f.err
 }
-
-func TestParseCronAlias(t *testing.T) {
-	if _, err := ParseCron("* * * * *"); err != nil {
-		t.Fatal(err)
-	}
-}

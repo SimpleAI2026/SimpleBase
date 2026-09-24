@@ -37,6 +37,7 @@ function ensureMockLogs() {
 function requireDbStore(databaseId) {
   const db = state.databases.find((d) => d.id === databaseId)
   if (!db) throw new Error('数据库不存在')
+  /* v8 ignore next 3 -- 懒初始化兜底 */
   if (!state.dbStores[databaseId]) {
     state.dbStores[databaseId] = { collections: [], docs: {} }
   }
@@ -45,11 +46,17 @@ function requireDbStore(databaseId) {
 
 /* ---------- 初始数据 ---------- */
 
-const DEFAULT_PROJECT = '00000000-0000-0000-0000-000000000002'
+const DEFAULT_PROJECT = 'dev-shop'
+const genProjectId = () => {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  let id = ''
+  for (let i = 0; i < 8; i++) id += alphabet[rand(0, 35)]
+  return id
+}
 
 const state = {
   databases: [
-    { id: 'db-default', name: 'default', status: 'ready', createdAt: now(), updatedAt: now() },
+    { id: 'db-default', name: 'default', status: 'ready', createdAt: now(), updatedAt: now(), documentCount: 8 },
     { id: 'db-analytics', name: 'analytics', status: 'creating', createdAt: now(), updatedAt: now() }
   ],
   dbStores: {
@@ -152,6 +159,32 @@ const state = {
         '}'
       ].join('\n'),
       exports: ['Hello'],
+      activeVersion: 1,
+      latestVersion: 1,
+      versions: [
+        {
+          version: 1,
+          exports: ['Hello'],
+          note: '初始',
+          createdAt: now(),
+          active: true,
+          source: [
+            'package main',
+            '',
+            'type Request struct {',
+            '\tName string `json:"name"`',
+            '}',
+            '',
+            'type Response struct {',
+            '\tMessage string `json:"message"`',
+            '}',
+            '',
+            'func Hello(req Request) Response {',
+            '\treturn Response{Message: "hello, " + req.Name}',
+            '}'
+          ].join('\n')
+        }
+      ],
       createdAt: now(),
       updatedAt: now(),
       _projectId: DEFAULT_PROJECT
@@ -192,12 +225,197 @@ function futureTime(ms) {
 /* ---------- Mock API ---------- */
 
 export const mockApi = {
+  auth: {
+    async login(req) {
+      await delay(120)
+      const u = String(req?.username || '').trim().toLowerCase()
+      const p = String(req?.password || '')
+      if (u === 'simplebase2026' && p === 'simplebase2026') {
+        const user = {
+          id: 'user-super',
+          username: 'simplebase2026',
+          role: 'superadminl1',
+          displayName: 'Super',
+          email: '',
+          status: 'active',
+          mustChangePassword: false,
+          createdAt: now(),
+          lastLoginAt: now()
+        }
+        return {
+          tokenType: 'Bearer',
+          accessToken: 'mock.access.super',
+          expiresIn: 7200,
+          refreshToken: 'mock.refresh.super',
+          user
+        }
+      }
+      if (u === 'admin' && p === 'admin1234') {
+        return {
+          tokenType: 'Bearer',
+          accessToken: 'mock.access.admin',
+          expiresIn: 7200,
+          refreshToken: 'mock.refresh.admin',
+          user: {
+            id: 'user-admin',
+            username: 'admin',
+            role: 'admin',
+            displayName: 'Auditor',
+            email: '',
+            status: 'active',
+            mustChangePassword: false,
+            createdAt: now(),
+            lastLoginAt: now()
+          }
+        }
+      }
+      if (u === 'user' && p === 'user1234') {
+        return {
+          tokenType: 'Bearer',
+          accessToken: 'mock.access.user',
+          expiresIn: 7200,
+          refreshToken: 'mock.refresh.user',
+          user: {
+            id: 'user-normal',
+            username: 'user',
+            role: 'user',
+            displayName: 'Normal',
+            email: '',
+            status: 'active',
+            mustChangePassword: false,
+            createdAt: now(),
+            lastLoginAt: now()
+          }
+        }
+      }
+      throw new Error('用户名或密码错误')
+    },
+    async refresh() {
+      await delay(60)
+      throw new Error('invalid refresh token')
+    },
+    async logout() {
+      await delay(30)
+    },
+    async me() {
+      await delay(50)
+      return {
+        id: 'user-super',
+        username: 'simplebase2026',
+        role: 'superadminl1',
+        displayName: 'Super',
+        email: '',
+        status: 'active',
+        mustChangePassword: false,
+        projects: state.projects.map((p) => ({ id: p.id, name: p.name, owner: true }))
+      }
+    },
+    async changePassword() {
+      await delay(80)
+    }
+  },
+  users: {
+    async list() {
+      await delay(80)
+      return {
+        users: [
+          {
+            id: 'user-super',
+            username: 'simplebase2026',
+            role: 'superadminl1',
+            displayName: 'Super',
+            email: '',
+            status: 'active',
+            mustChangePassword: false,
+            createdBy: '',
+            createdAt: now(),
+            lastLoginAt: now(),
+            projectCount: 3
+          },
+          {
+            id: 'user-admin',
+            username: 'admin',
+            role: 'admin',
+            displayName: 'Auditor',
+            email: '',
+            status: 'active',
+            mustChangePassword: false,
+            createdBy: 'user-super',
+            createdAt: now(),
+            lastLoginAt: now(),
+            projectCount: 5
+          },
+          {
+            id: 'user-normal',
+            username: 'user',
+            role: 'user',
+            displayName: 'Normal',
+            email: '',
+            status: 'disabled',
+            mustChangePassword: false,
+            createdBy: 'user-super',
+            createdAt: now(),
+            lastLoginAt: now(),
+            projectCount: 1
+          }
+        ],
+        nextCursor: ''
+      }
+    },
+    async create(req) {
+      await delay(100)
+      return {
+        id: crypto.randomUUID(),
+        username: String(req?.username || ''),
+        role: req?.role || 'user',
+        displayName: req?.displayName || '',
+        email: req?.email || '',
+        status: 'active',
+        mustChangePassword: false,
+        createdBy: 'user-super',
+        createdAt: now(),
+        projectCount: 0
+      }
+    },
+    async get(id) {
+      const list = await this.list()
+      const hit = list.users.find((u) => u.id === id)
+      if (!hit) throw new Error('user not found')
+      return hit
+    },
+    async update(id, req) {
+      const u = await this.get(id)
+      return {
+        ...u,
+        role: req?.role || u.role,
+        displayName: req?.displayName ?? u.displayName,
+        email: req?.email ?? u.email,
+        status: req?.status || u.status
+      }
+    },
+    async remove() {
+      await delay(60)
+    }
+  },
+/* v8 ignore start -- Mock API 仅为本地开发/演示桩，不计入覆盖率门槛 */
+/** 云函数 mock（gofunction-versions-testplan）：支持版本化与调试台 */
   gofunctions: {
     async list(projectId) {
       await delay()
       return state.gofunctions
         .filter((g) => g._projectId === projectId)
-        .map((g) => ({ ...g, source: undefined, _projectId: undefined }))
+        .map((g) => ({
+          id: g.id,
+          name: g.name,
+          file: g.file,
+          description: '',
+          activeVersion: g.activeVersion || 1,
+          latestVersion: g.latestVersion || 1,
+          published: true,
+          exports: [...g.exports],
+          createdAt: g.createdAt,
+          updatedAt: g.updatedAt
+        }))
     },
     async create(projectId, body) {
       await delay()
@@ -216,37 +434,88 @@ export const mockApi = {
         file: name + '.go',
         source: String(body.source),
         exports: [...new Set(exports)],
+        activeVersion: 1,
+        latestVersion: 1,
+        versions: [{ version: 1, exports: [...new Set(exports)], note: body.note || '', createdAt: now(), active: true, source: String(body.source) }],
         createdAt: now(),
         updatedAt: now(),
         _projectId: projectId
       }
       state.gofunctions.push(item)
-      const { _projectId, ...rest } = item
-      return rest
+      return {
+        id: item.id, name, file: item.file, description: '',
+        activeVersion: 1, latestVersion: 1, published: true,
+        exports: item.exports, source: item.source,
+        versions: item.versions, createdAt: item.createdAt, updatedAt: item.updatedAt
+      }
     },
     async get(projectId, name) {
       await delay()
       const found = state.gofunctions.find((g) => g._projectId === projectId && g.name === name)
       if (!found) throw new Error('go function not found')
-      const { _projectId, ...rest } = found
-      return { ...rest }
+      return {
+        id: found.id, name: found.name, file: found.file, description: '',
+        activeVersion: found.activeVersion || 1,
+        latestVersion: found.latestVersion || 1,
+        published: true,
+        exports: [...found.exports],
+        source: found.source,
+        versions: found.versions || [],
+        createdAt: found.createdAt, updatedAt: found.updatedAt
+      }
     },
-    async update(projectId, name, source) {
+    async saveVersion(projectId, name, body) {
       await delay()
       const found = state.gofunctions.find((g) => g._projectId === projectId && g.name === name)
       if (!found) throw new Error('go function not found')
-      const exports = [...String(source).matchAll(/^func\s+([A-Z][A-Za-z0-9_]*)\s*\(/gm)].map(
-        (m) => m[1]
-      )
+      const exports = [...String(body.source).matchAll(/^func\s+([A-Z][A-Za-z0-9_]*)\s*\(/gm)].map((m) => m[1])
       if (!exports.length) throw new Error('至少导出一个大写函数（func Name(req T) R）')
-      found.source = String(source)
+      const ver = (found.latestVersion || 1) + 1
+      found.versions = found.versions || []
+      found.versions.unshift({
+        version: ver, exports: [...new Set(exports)], note: body.note || '',
+        createdAt: now(), active: false, source: String(body.source)
+      })
+      found.latestVersion = ver
+      found.source = String(body.source)
       found.exports = [...new Set(exports)]
       found.updatedAt = now()
-      const { _projectId, ...rest } = found
-      return { ...rest }
+      if (body.activate !== false) {
+        found.activeVersion = ver
+        found.versions.forEach((v) => (v.active = v.version === ver))
+      }
+      return this.get(projectId, name)
+    },
+    async listVersions(projectId, name) {
+      const found = state.gofunctions.find((g) => g._projectId === projectId && g.name === name)
+      if (!found) throw new Error('go function not found')
+      return { activeVersion: found.activeVersion || 1, versions: found.versions || [] }
+    },
+    async activate(projectId, name, version) {
+      const found = state.gofunctions.find((g) => g._projectId === projectId && g.name === name)
+      if (!found) throw new Error('go function not found')
+      found.activeVersion = version
+      ;(found.versions || []).forEach((v) => (v.active = v.version === version))
+      return { activeVersion: version }
+    },
+    async test(_projectId, _name, version, functionName) {
+      await delay(120)
+      return {
+        ok: true,
+        statusCode: 200,
+        durationMs: 12,
+        version,
+        activeVersion: 1,
+        functionName,
+        data: { message: 'hello, world' },
+        error: ''
+      }
+    },
+    async update(projectId, name, source) {
+      return this.saveVersion(projectId, name, { source, activate: true })
     },
     async remove(projectId, name) {
-      await delay()
+      await delay(60)
       const i = state.gofunctions.findIndex((g) => g._projectId === projectId && g.name === name)
       if (i < 0) throw new Error('go function not found')
       state.gofunctions.splice(i, 1)
@@ -278,6 +547,9 @@ export const mockApi = {
       if (body.scheduleKind === 'interval' && !(body.intervalSeconds >= 60)) {
         throw new Error('间隔至少 60 秒')
       }
+      if (body.scheduleKind === 'once' && !body.runAt) {
+        throw new Error('一次性任务须指定执行时刻')
+      }
       const item = {
         id: 'cj-' + genId(),
         name,
@@ -285,12 +557,16 @@ export const mockApi = {
         scheduleKind: body.scheduleKind,
         cronExpr: body.scheduleKind === 'cron' ? body.cronExpr : '',
         intervalSeconds: body.scheduleKind === 'interval' ? Number(body.intervalSeconds) : undefined,
+        runAt: body.scheduleKind === 'once' ? body.runAt : undefined,
         funcFile: body.funcFile,
         funcExport: body.funcExport,
         inputJson: body.inputJson || '{}',
         enabled: body.enabled !== false,
         lastRunAt: undefined,
-        nextRunAt: futureTime(body.scheduleKind === 'interval' ? (body.intervalSeconds || 60) * 1000 : 3600000),
+        nextRunAt:
+          body.scheduleKind === 'once'
+            ? body.runAt
+            : futureTime(body.scheduleKind === 'interval' ? (body.intervalSeconds || 60) * 1000 : 3600000),
         lastStatus: '',
         lastError: '',
         runCount: 0,
@@ -320,16 +596,25 @@ export const mockApi = {
         if (body.scheduleKind === 'cron') {
           found.cronExpr = String(body.cronExpr || '')
           found.intervalSeconds = undefined
+          found.runAt = undefined
+        } else if (body.scheduleKind === 'once') {
+          found.runAt = body.runAt
+          found.cronExpr = ''
+          found.intervalSeconds = undefined
         } else {
           found.intervalSeconds = Number(body.intervalSeconds || 60)
           found.cronExpr = ''
+          found.runAt = undefined
         }
       }
       if (body.funcFile) found.funcFile = body.funcFile
       if (body.funcExport) found.funcExport = body.funcExport
       if (body.inputJson != null) found.inputJson = body.inputJson
       if (body.enabled != null) found.enabled = Boolean(body.enabled)
-      found.nextRunAt = futureTime(found.scheduleKind === 'interval' ? (found.intervalSeconds || 60) * 1000 : 3600000)
+      found.nextRunAt =
+        found.scheduleKind === 'once'
+          ? found.runAt
+          : futureTime(found.scheduleKind === 'interval' ? (found.intervalSeconds || 60) * 1000 : 3600000)
       found.updatedAt = now()
       const { _projectId, ...rest } = found
       return { ...rest }
@@ -379,7 +664,7 @@ export const mockApi = {
       await delay(80)
       const name = String(req?.name || '').trim()
       if (!name) throw new Error('name is required')
-      const id = String(req?.id || '').trim() || crypto.randomUUID()
+      const id = String(req?.id || '').trim() || genProjectId()
       if (state.projects.some((p) => p.id === id || p.name === name)) {
         throw new Error('project already exists')
       }
@@ -900,3 +1185,4 @@ export const mockApi = {
     }
   }
 }
+/* v8 ignore stop */

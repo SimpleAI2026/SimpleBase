@@ -38,7 +38,7 @@ vi.mock('@/components/editor/GoMonacoEditor.vue', () => ({
 function piniaWithProject() {
   const pinia = createPinia()
   setActivePinia(pinia)
-  useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+  useProjectStore().setProject('dev-shop')
   return pinia
 }
 
@@ -292,6 +292,9 @@ describe('component template interactions', () => {
           SidebarMenu: { template: '<div><slot /></div>' },
           SidebarMenuItem: { template: '<div><slot /></div>' },
           SidebarMenuButton: { template: '<div><slot /></div>' },
+          SidebarGroup: { template: '<div><slot /></div>' },
+          SidebarGroupContent: { template: '<div><slot /></div>' },
+          SidebarGroupLabel: { template: '<div><slot /></div>' },
           RouterLink: { template: '<a class="nav-link" @click="$attrs.onClick && $attrs.onClick()"><slot /></a>' }
         }
       }

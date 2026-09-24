@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/crontab"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -124,7 +125,7 @@ func (h *agentScheduleHandler) CreateSchedule(c echo.Context) error {
 	if strings.TrimSpace(body.Prompt) == "" {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "prompt is required"))
 	}
-	spec, err := cloudagent.ParseCron(body.CronExpr)
+	spec, err := crontab.ParseCron(body.CronExpr)
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cron expression"))
 	}
@@ -235,7 +236,7 @@ func (h *agentScheduleHandler) PatchSchedule(c echo.Context) error {
 	case !next.Enabled:
 		next.NextRunAt = time.Time{}
 	case cronChanged || (next.Enabled && cur.NextRunAt.IsZero()):
-		spec, err := cloudagent.ParseCron(next.CronExpr)
+		spec, err := crontab.ParseCron(next.CronExpr)
 		if err != nil {
 			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cron expression"))
 		}

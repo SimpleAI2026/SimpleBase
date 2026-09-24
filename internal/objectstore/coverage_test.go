@@ -305,7 +305,7 @@ func TestDescriptorValidateRemaining(t *testing.T) {
 		return &Descriptor{
 			FormatVersion:   2,
 			TenantID:        "11111111-1111-1111-1111-111111111111",
-			ProjectID:       "22222222-2222-2222-2222-222222222222",
+			ProjectID:       "pro-test",
 			DatabaseID:      "33333333-3333-3333-3333-333333333333",
 			CreatedAt:       time.Now(),
 			DuckLakeStorage: DuckLakeStorage{Bucket: "b", Region: "r", Prefix: "p"},

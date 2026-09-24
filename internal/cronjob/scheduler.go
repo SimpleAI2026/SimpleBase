@@ -128,21 +128,30 @@ func (s *Scheduler) runDue(ctx context.Context, j systemdb.CronJob) {
 		return
 	}
 	s.execute(ctx, j, TriggerScheduled)
+	// once：执行后自动停用，不再排期。
+	if j.ScheduleKind == systemdb.CronJobKindOnce {
+		s.disableJob(ctx, j, "disable one-shot cron job "+j.ID)
+	}
 }
 
-// nextRun 计算下一次触发：cron 用 NextAfter；interval 以认领时刻为基准（防漂移，§3）。
+// nextRun 计算下一次触发：cron 用 NextAfter；interval 以认领时刻为基准（防漂移，§3）；
+// once 执行后不再排期（返回零值并由 runDue 停用）。
 func (s *Scheduler) nextRun(j systemdb.CronJob, now time.Time) (time.Time, error) {
-	if j.ScheduleKind == systemdb.CronJobKindCron {
+	switch j.ScheduleKind {
+	case systemdb.CronJobKindCron:
 		spec, err := crontab.ParseCron(j.CronExpr)
 		if err != nil {
 			return time.Time{}, err
 		}
 		return spec.NextAfter(now)
+	case systemdb.CronJobKindOnce:
+		return time.Time{}, nil
+	default:
+		if j.IntervalSeconds <= 0 {
+			return time.Time{}, fmt.Errorf("invalid interval_seconds %d", j.IntervalSeconds)
+		}
+		return now.Add(time.Duration(j.IntervalSeconds) * time.Second), nil
 	}
-	if j.IntervalSeconds <= 0 {
-		return time.Time{}, fmt.Errorf("invalid interval_seconds %d", j.IntervalSeconds)
-	}
-	return now.Add(time.Duration(j.IntervalSeconds) * time.Second), nil
 }
 
 // Trigger 手动立即执行一条任务（不改 next_run_at）。异步执行，立即返回。

@@ -13,6 +13,7 @@ const props = defineProps<{
 }>()
 
 const formatted = computed(() =>
+  /* v8 ignore next -- 有 value 走 formatJson，否则用 slot */
   props.value !== undefined ? formatJson(props.value) : undefined
 )
 </script>

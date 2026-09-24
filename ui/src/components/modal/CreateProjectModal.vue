@@ -25,12 +25,13 @@
         <Input
           id="project-id"
           v-model="customId"
-          placeholder="可选 UUID"
+          placeholder="可选，8 位字母数字或 -"
           class="font-mono"
+          maxlength="8"
           :aria-invalid="idError ? true : undefined"
           @keydown.enter="submit"
         />
-        <FieldDescription>{{ idError || '可选。留空由服务端生成 UUID。' }}</FieldDescription>
+        <FieldDescription>{{ idError || '可选。留空由服务端生成 8 位 ID。' }}</FieldDescription>
       </Field>
     </FieldGroup>
   </SbModal>
@@ -45,7 +46,7 @@ import { api } from '../../services/api'
 import type { ProjectItem } from '../../services/types'
 import SbModal from './SbModal.vue'
 
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+const PROJECT_ID_RE = /^[A-Za-z0-9-]{8}$/
 
 const props = defineProps<{
   open: boolean
@@ -71,7 +72,7 @@ const nameError = computed(() => {
 const idError = computed(() => {
   const id = customId.value.trim()
   if (!id) return ''
-  if (!UUID_RE.test(id)) return '须为合法 UUID'
+  if (!PROJECT_ID_RE.test(id)) return '须为 8 位字母、数字或连字符'
   return ''
 })
 

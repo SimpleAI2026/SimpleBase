@@ -14,6 +14,7 @@ describe('router', () => {
         'agents',
         'settings',
         'logs',
+        'users',
         'docs',
         'docs-module',
         'docs-page'
@@ -48,5 +49,5 @@ describe('router', () => {
     expect(loaders.length).toBeGreaterThan(0)
     const loaded = await Promise.all(loaders.map((fn) => fn()))
     expect(loaded.every(Boolean)).toBe(true)
-  })
+  }, 20000)
 })

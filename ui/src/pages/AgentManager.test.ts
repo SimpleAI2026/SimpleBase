@@ -154,7 +154,7 @@ describe('AgentManager (云 Agent)', () => {
     api.agents.list.mockResolvedValue([sampleAgent])
     await clickText(wrapper, '刷新')
     await flushPromises()
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.agents.list.mock.calls.length).toBeGreaterThan(1)
   })

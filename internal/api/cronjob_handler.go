@@ -60,6 +60,7 @@ type cronJobDTO struct {
 	ScheduleKind    string     `json:"schedule_kind"`
 	CronExpr        string     `json:"cron_expr,omitempty"`
 	IntervalSeconds *int64     `json:"interval_seconds,omitempty"`
+	RunAt           *time.Time `json:"run_at,omitempty"`
 	FuncFile        string     `json:"func_file"`
 	FuncExport      string     `json:"func_export"`
 	InputJSON       string     `json:"input_json"`
@@ -100,6 +101,10 @@ func toCronJobDTO(j systemdb.CronJob, targetMissing bool) cronJobDTO {
 		v := j.IntervalSeconds
 		dto.IntervalSeconds = &v
 	}
+	if !j.RunAt.IsZero() {
+		t := j.RunAt
+		dto.RunAt = &t
+	}
 	if !j.LastRunAt.IsZero() {
 		t := j.LastRunAt
 		dto.LastRunAt = &t
@@ -134,6 +139,7 @@ type upsertCronJobBody struct {
 	ScheduleKind    string `json:"schedule_kind"`
 	CronExpr        string `json:"cron_expr"`
 	IntervalSeconds int64  `json:"interval_seconds"`
+	RunAt           string `json:"run_at"`
 	FuncFile        string `json:"func_file"`
 	FuncExport      string `json:"func_export"`
 	InputJSON       string `json:"input_json"`
@@ -141,6 +147,8 @@ type upsertCronJobBody struct {
 
 	// enabledValue 是校验后的 resolved 值（缺省 true），供写库使用。
 	enabledValue bool
+	// runAtTime 是校验后的 run_at（kind=once）。
+	runAtTime time.Time
 }
 
 // List 列出项目内全部任务，附 target_missing 标记。
@@ -220,13 +228,14 @@ func (h *CronJobHandler) Create(c echo.Context) error {
 	if err := h.validateTarget(c.Request().Context(), pc.ID, req.FuncFile, req.FuncExport); err != nil {
 		return WriteError(c, err)
 	}
-	next, err := computeNextRun(req.ScheduleKind, req.CronExpr, req.IntervalSeconds)
+	next, err := computeNextRun(req.ScheduleKind, req.CronExpr, req.IntervalSeconds, req.runAtTime)
 	if err != nil {
 		return WriteError(c, err)
 	}
 	created, err := h.store.CreateCronJob(c.Request().Context(), systemdb.CronJob{
 		ProjectID: pc.ID, Name: req.Name, Description: req.Description,
 		ScheduleKind: req.ScheduleKind, CronExpr: req.CronExpr, IntervalSeconds: req.IntervalSeconds,
+		RunAt: req.runAtTime,
 		FuncFile: req.FuncFile, FuncExport: req.FuncExport, InputJSON: req.InputJSON,
 		Enabled: req.enabledValue, NextRunAt: next,
 	})
@@ -273,11 +282,12 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 	j.ScheduleKind = req.ScheduleKind
 	j.CronExpr = req.CronExpr
 	j.IntervalSeconds = req.IntervalSeconds
+	j.RunAt = req.runAtTime
 	j.FuncFile = req.FuncFile
 	j.FuncExport = req.FuncExport
 	j.InputJSON = req.InputJSON
 	j.Enabled = req.enabledValue
-	j.NextRunAt, err = computeNextRun(req.ScheduleKind, req.CronExpr, req.IntervalSeconds)
+	j.NextRunAt, err = computeNextRun(req.ScheduleKind, req.CronExpr, req.IntervalSeconds, req.runAtTime)
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -393,13 +403,26 @@ func validateCronJobBody(req upsertCronJobBody, rid string, create bool) (upsert
 			return req, NewAPIError(http.StatusBadRequest, "invalid_cron_expression", err.Error(), rid)
 		}
 		req.IntervalSeconds = 0
+		req.RunAt = ""
 	case systemdb.CronJobKindInterval:
 		if req.IntervalSeconds < cronJobIntervalMinSeconds || req.IntervalSeconds > cronJobIntervalMaxSeconds {
 			return req, NewAPIError(http.StatusBadRequest, "invalid_interval", "interval_seconds must be between 60 and 2592000", rid)
 		}
 		req.CronExpr = ""
+		req.RunAt = ""
+	case systemdb.CronJobKindOnce:
+		if req.RunAt == "" {
+			return req, NewAPIError(http.StatusBadRequest, "invalid_run_at", "run_at is required for schedule_kind=once", rid)
+		}
+		t, err := time.Parse(time.RFC3339, req.RunAt)
+		if err != nil {
+			return req, NewAPIError(http.StatusBadRequest, "invalid_run_at", "run_at must be RFC3339 timestamp", rid)
+		}
+		req.runAtTime = t.UTC()
+		req.CronExpr = ""
+		req.IntervalSeconds = 0
 	default:
-		return req, NewAPIError(http.StatusBadRequest, "invalid_request", "schedule_kind must be cron or interval", rid)
+		return req, NewAPIError(http.StatusBadRequest, "invalid_request", "schedule_kind must be cron, interval or once", rid)
 	}
 	if req.FuncFile == "" || req.FuncExport == "" {
 		return req, NewAPIError(http.StatusBadRequest, "invalid_request", "func_file and func_export are required", rid)
@@ -421,16 +444,19 @@ func validateCronJobBody(req upsertCronJobBody, rid string, create bool) (upsert
 	return req, nil
 }
 
-// validateTarget 校验目标云函数文件存在且函数在 exports 内。
+// validateTarget 校验目标云函数存在生效版且函数在生效版 exports 内（plan §2.1）。
 func (h *CronJobHandler) validateTarget(ctx context.Context, projectID, file, export string) error {
-	g, err := h.store.GetGoFunction(ctx, projectID, file)
+	v, err := h.store.ResolveActiveSource(ctx, projectID, file)
 	if errors.Is(err, sql.ErrNoRows) {
 		return NewAPIError(http.StatusBadRequest, "gofunction_not_found", "target go function file does not exist", RequestIDFromContext(ctx))
+	}
+	if errors.Is(err, systemdb.ErrNoActiveVersion) {
+		return NewAPIError(http.StatusBadRequest, "no_active_version", "go function has no active version", RequestIDFromContext(ctx))
 	}
 	if err != nil {
 		return err
 	}
-	for _, e := range g.Exports {
+	for _, e := range v.Exports {
 		if e == export {
 			return nil
 		}
@@ -438,16 +464,23 @@ func (h *CronJobHandler) validateTarget(ctx context.Context, projectID, file, ex
 	return NewAPIError(http.StatusBadRequest, "function_not_exported", "target function is not exported in this file", RequestIDFromContext(ctx))
 }
 
-// buildTargetIndex 构造项目内可用目标集合：file\x00export → true。
+// buildTargetIndex 构造项目内可用目标集合（仅生效版 exports）：file\x00export → true。
 func (h *CronJobHandler) buildTargetIndex(ctx context.Context, projectID string) (map[string]bool, error) {
-	funcs, err := h.store.ListGoFunctions(ctx, projectID)
+	funcs, err := h.store.ListGoFuncs(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
 	index := map[string]bool{}
-	for _, g := range funcs {
-		for _, e := range g.Exports {
-			index[g.Name+"\x00"+e] = true
+	for _, f := range funcs {
+		if f.ActiveVersion <= 0 {
+			continue
+		}
+		v, err := h.store.GetGoFuncVersion(ctx, projectID, f.Name, f.ActiveVersion)
+		if err != nil {
+			continue
+		}
+		for _, e := range v.Exports {
+			index[f.Name+"\x00"+e] = true
 		}
 	}
 	return index, nil
@@ -463,9 +496,10 @@ func (h *CronJobHandler) isTargetMissing(ctx context.Context, projectID, file, e
 }
 
 // computeNextRun 按调度模式计算下一次触发时刻。
-func computeNextRun(kind, cronExpr string, intervalSeconds int64) (time.Time, error) {
+func computeNextRun(kind, cronExpr string, intervalSeconds int64, runAt time.Time) (time.Time, error) {
 	now := time.Now().UTC()
-	if kind == systemdb.CronJobKindCron {
+	switch kind {
+	case systemdb.CronJobKindCron:
 		spec, err := crontab.ParseCron(cronExpr)
 		if err != nil {
 			return time.Time{}, NewAPIError(http.StatusBadRequest, "invalid_cron_expression", err.Error(), "")
@@ -475,8 +509,11 @@ func computeNextRun(kind, cronExpr string, intervalSeconds int64) (time.Time, er
 			return time.Time{}, NewAPIError(http.StatusBadRequest, "invalid_cron_expression", err.Error(), "")
 		}
 		return next, nil
+	case systemdb.CronJobKindOnce:
+		return runAt, nil
+	default:
+		return now.Add(time.Duration(intervalSeconds) * time.Second), nil
 	}
-	return now.Add(time.Duration(intervalSeconds) * time.Second), nil
 }
 
 // recordAudit 写操作审计（§8）：kind=cronjob，detail 只含动作与任务名。

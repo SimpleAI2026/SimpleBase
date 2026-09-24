@@ -83,7 +83,7 @@ describe('SettingsPanel', () => {
     expect(toast.error).toHaveBeenCalledWith('prov')
 
     const { useProjectStore } = await import('../../stores/project')
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.llmSettings.get.mock.calls.length).toBeGreaterThan(1)
 

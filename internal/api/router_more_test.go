@@ -116,11 +116,15 @@ func TestNewRouter_AuthProjectMetricsSPA(t *testing.T) {
 		t.Fatalf("missing project %d %s", rec.Code, rec.Body.String())
 	}
 
-	// SPA unbuilt
+	// SPA：未构建返回 503 提示；已构建（internal/web/dist 有 index.html）返回 200 HTML。
 	req = httptest.NewRequest(http.MethodGet, "/console", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "管理端未构建") {
+	if rec.Code == http.StatusServiceUnavailable {
+		if !strings.Contains(rec.Body.String(), "管理端未构建") {
+			t.Fatalf("spa unbuilt body %s", rec.Body.String())
+		}
+	} else if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<html") {
 		t.Fatalf("spa %d %s", rec.Code, rec.Body.String())
 	}
 

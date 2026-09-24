@@ -68,6 +68,12 @@ const routes: RouteRecordRaw[] = [
         name: 'logs',
         component: () => import('../pages/Logs.vue'),
         meta: { title: '日志管理' }
+      },
+      {
+        path: 'users',
+        name: 'users',
+        component: () => import('../pages/Users.vue'),
+        meta: { title: '用户管理', requiresRole: 'superadminl1' }
       }
     ]
   },

@@ -20,11 +20,11 @@ func TestStaticFS(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("embedded dist should contain .keep")
 	}
+	// 未构建：仅 .keep；已构建：含 index.html。两种状态均合法。
 	if _, err := fs.Stat(root, ".keep"); err != nil {
-		t.Fatalf("expected .keep: %v", err)
-	}
-	if _, err := fs.Stat(root, "index.html"); err == nil {
-		t.Fatal("index.html should be absent so SPA reports unbuilt")
+		if _, err2 := fs.Stat(root, "index.html"); err2 != nil {
+			t.Fatalf("expected .keep or built index.html: %v / %v", err, err2)
+		}
 	}
 }
 
@@ -95,7 +95,12 @@ func TestRegisterBuiltSPAAndStatic(t *testing.T) {
 }
 
 func TestLoadIndexHTMLAbsent(t *testing.T) {
-	if got := loadIndexHTML(); got != nil {
-		t.Fatalf("expected nil without index.html, got %q", got)
+	// 工作区已构建 UI 时 loadIndexHTML 返回真实 index.html；未构建返回 nil。
+	got := loadIndexHTML()
+	if got == nil {
+		return
+	}
+	if !strings.Contains(string(got), "<html") && !strings.Contains(string(got), "<!doctype") {
+		t.Fatalf("unexpected index.html: %q", got)
 	}
 }

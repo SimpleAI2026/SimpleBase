@@ -59,6 +59,8 @@ type DatabaseHandler struct {
 	writable bool
 	// SnapshotFor 可选：填充 DuckLake 同步水位。
 	SnapshotFor func(databaseID string) *DatabaseSnapshot
+	// RowCountFor 可选：统计库内用户表总行数（列表「数据量」列）。
+	RowCountFor func(ctx context.Context, db catalog.Database) (int64, error)
 }
 
 // NewDatabaseHandler 构造 handler。writable 为 false 时所有写操作返回 503。
@@ -80,6 +82,8 @@ type DatabaseResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Snapshot 是 DuckLake catalog 同步水位（Phase 2）；未启用远程时为零值省略。
 	Snapshot *DatabaseSnapshot `json:"snapshot,omitempty"`
+	// DocumentCount 是库内用户表总行数；未知/未就绪时省略（UI 显示 —）。
+	DocumentCount *int64 `json:"document_count,omitempty"`
 }
 
 // DatabaseSnapshot 暴露 last_synced / sync_lag（§八 API）。
@@ -154,9 +158,32 @@ func (h *DatabaseHandler) ListDatabases(c echo.Context) error {
 	}
 	out := make([]DatabaseResponse, 0, len(dbs))
 	for _, db := range dbs {
-		out = append(out, toDatabaseResponse(db))
+		resp := toDatabaseResponse(db)
+		h.enrich(c.Request().Context(), db, &resp)
+		out = append(out, resp)
 	}
 	return c.JSON(http.StatusOK, DatabaseListResponse{Databases: out, NextCursor: nextCursor})
+}
+
+// enrich 填充 snapshot 与 document_count（均可选；失败静默，列表不被单库统计拖垮）。
+func (h *DatabaseHandler) enrich(ctx context.Context, db catalog.Database, resp *DatabaseResponse) {
+	if h.SnapshotFor != nil {
+		resp.Snapshot = h.SnapshotFor(db.ID)
+	}
+	if h.RowCountFor == nil {
+		return
+	}
+	// 仅 ready 库统计；单库限时，避免列表请求被慢查询拖死。
+	if db.Status != catalog.DatabaseReady {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	n, err := h.RowCountFor(cctx, db)
+	if err != nil {
+		return
+	}
+	resp.DocumentCount = &n
 }
 
 // GetDatabase: GET /v1/projects/:projectID/databases/:databaseID
@@ -179,9 +206,7 @@ func (h *DatabaseHandler) GetDatabase(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	resp := toDatabaseResponse(db)
-	if h.SnapshotFor != nil {
-		resp.Snapshot = h.SnapshotFor(databaseID)
-	}
+	h.enrich(c.Request().Context(), db, &resp)
 	return c.JSON(http.StatusOK, resp)
 }
 

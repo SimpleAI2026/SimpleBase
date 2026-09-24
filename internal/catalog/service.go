@@ -196,7 +196,9 @@ func (s *Service) ResolveProjectTenant(ctx context.Context, projectID string) (s
 }
 
 // ListProjects 返回当前 principal 可见的项目列表。
-// ProjectAdmin：租户下全部项目 + 头部的 admin（系统）项目；否则仅返回 API key 授权的 ProjectIDs（并补全 name）。
+// Role super/admin：租户下全部项目 + admin（系统）项目；
+// Role user：仅 ProjectIDs（构建时已按 sys_project_owners 收敛），不含 admin；
+// API Key：ProjectAdmin 为租户全部 + admin，否则仅 Key 绑定的 ProjectIDs。
 func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([]Project, error) {
 	if principal.TenantID == "" {
 		return nil, fmt.Errorf("%w: tenant required", ErrInvalidName)
@@ -223,6 +225,21 @@ func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([
 		// 未 seed 的实例：仍暴露 admin 入口（系统库行由 systemdb bootstrap 回填）。
 		admin = Project{ID: ReservedSystemProjectID, Name: AdminProjectName, CreatedAt: s.now().UTC()}
 	}
+
+	// 登录态：按角色收敛（login-auth-plan §4.5）。
+	switch principal.Role {
+	case auth.RoleSuperAdmin, auth.RoleAdmin:
+		return append([]Project{admin}, visible...), nil
+	case auth.RoleUser:
+		out := make([]Project, 0, len(visible))
+		for _, p := range visible {
+			if principal.CanAccessProject(p.ID) {
+				out = append(out, p)
+			}
+		}
+		return out, nil
+	}
+
 	if principal.HasPermission(auth.ProjectAdmin) {
 		return append([]Project{admin}, visible...), nil
 	}
@@ -235,15 +252,19 @@ func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([
 	return out, nil
 }
 
-// CreateProjectInput 是创建项目的输入。ID 为空时由服务端生成 UUID。
+// CreateProjectInput 是创建项目的输入。ID 为空时由服务端生成 8 位项目 ID。
 type CreateProjectInput struct {
 	Name string
 	ID   string
 }
 
 // CreateProject 在 principal 所属租户下创建项目。需要 ProjectAdmin。
-// ID 省略则生成 UUID；与已有 id/name 冲突返回 ErrAlreadyExists。
+// Role=admin 全局只读，禁止创建（login-auth-plan D4）。
+// ID 省略则生成 8 位 ID；与已有 id/name 冲突返回 ErrAlreadyExists。
 func (s *Service) CreateProject(ctx context.Context, principal auth.Principal, in CreateProjectInput) (Project, error) {
+	if principal.Role.IsAdmin() {
+		return Project{}, auth.ErrForbidden
+	}
 	if !principal.HasPermission(auth.ProjectAdmin) {
 		return Project{}, auth.ErrForbidden
 	}
@@ -256,10 +277,10 @@ func (s *Service) CreateProject(ctx context.Context, principal auth.Principal, i
 	}
 	id := strings.TrimSpace(in.ID)
 	if id == "" {
-		id = uuid.NewString()
+		id = objectstore.NewProjectID()
 	} else {
-		if _, err := uuid.Parse(id); err != nil {
-			return Project{}, fmt.Errorf("%w: id must be a UUID", ErrInvalidName)
+		if err := objectstore.ValidateProjectID(id); err != nil {
+			return Project{}, fmt.Errorf("%w: id must be 8 chars [A-Za-z0-9-]", ErrInvalidName)
 		}
 		if IsSystemProject(id) {
 			return Project{}, fmt.Errorf("%w: reserved project id", ErrInvalidName)
@@ -280,13 +301,40 @@ func (s *Service) CreateProject(ctx context.Context, principal auth.Principal, i
 }
 
 // ensureProjectAccess 校验 principal 可操作 projectID。
-// ProjectAdmin：租户内任意非系统项目 + admin（系统）项目本身；否则仅 API key 绑定的 ProjectIDs。
+// Role=user：仅 ProjectIDs（owner 收敛）内放行，即使持有 ProjectAdmin；
+// Role=super/admin：租户内全部 + admin 系统项目；
+// API Key：ProjectAdmin 为租户内 + admin，否则仅绑定 ProjectIDs。
 func (s *Service) ensureProjectAccess(ctx context.Context, principal auth.Principal, projectID string) error {
+	if principal.Role.IsUser() {
+		if IsSystemProject(projectID) {
+			return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+		}
+		if !principal.CanAccessProject(projectID) {
+			return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+		}
+		return nil
+	}
 	if IsSystemProject(projectID) {
+		if principal.Role.IsSuper() || principal.Role.IsAdmin() {
+			return nil
+		}
 		if principal.HasPermission(auth.ProjectAdmin) {
 			return nil
 		}
 		return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+	}
+	if principal.Role.IsSuper() || principal.Role.IsAdmin() {
+		if principal.TenantID == "" {
+			return fmt.Errorf("%w: tenant required", ErrInvalidName)
+		}
+		tenantID, err := s.repo.GetProjectTenant(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		if tenantID != principal.TenantID {
+			return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+		}
+		return nil
 	}
 	if principal.HasPermission(auth.ProjectAdmin) {
 		if principal.TenantID == "" {

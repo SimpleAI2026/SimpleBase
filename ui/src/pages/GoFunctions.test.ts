@@ -36,12 +36,13 @@ describe('GoFunctions (云函数)', () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalled()
 
-    await clickText(wrapper, '复制路径')
+    await clickText(wrapper, '测试')
     await flushPromises()
 
-    const emptyRowBtn = wrapper.findAll('button').filter((b) => b.text().includes('复制路径'))[1]
+    // 空导出函数同样可打开测试台（左栏导出为空）
+    const emptyRowBtn = wrapper.findAll('button').filter((b) => b.text().includes('测试'))[1]
     await emptyRowBtn.trigger('click')
-    expect(toast.error).toHaveBeenCalledWith('该云函数没有导出函数')
+    await flushPromises()
 
     vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
     await wrapper.findAll('.badge')[0].trigger('click')
@@ -87,7 +88,7 @@ describe('GoFunctions (云函数)', () => {
   it('reloads when the project changes', async () => {
     const { pinia } = await mountWithApp(GoFunctions, { stubs: modalStub })
     const { useProjectStore } = await import('../stores/project')
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    useProjectStore(pinia).setProject('other-prj')
     await flushPromises()
     expect(api.gofunctions.list.mock.calls.length).toBeGreaterThan(1)
   })

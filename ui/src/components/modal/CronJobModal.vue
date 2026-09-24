@@ -2,7 +2,7 @@
   <SbModal
     :open="open"
     :title="isEdit ? '编辑定时任务' : '新建定时任务'"
-    :width="640"
+    :width="860"
     :confirm-loading="saving"
     :ok-button-props="{ disabled: !canSave }"
     @update:open="$emit('update:open', $event)"
@@ -10,15 +10,17 @@
   >
     <div class="flex max-h-[70vh] flex-col gap-4 overflow-y-auto py-2 pr-1">
       <FieldGroup>
-        <Field>
+        <Field :data-invalid="nameError ? true : undefined">
           <FieldLabel>任务名</FieldLabel>
           <Input
             v-model="form.name"
             class="sb-mono"
             :disabled="isEdit"
             placeholder="nightly-refresh"
+            :aria-invalid="nameError ? true : undefined"
           />
           <FieldDescription>{{ isEdit ? '创建后不可修改' : '字母开头，可含字母数字 _ -' }}</FieldDescription>
+          <FieldError v-if="nameError">{{ nameError }}</FieldError>
         </Field>
         <Field>
           <FieldLabel>描述</FieldLabel>
@@ -30,9 +32,9 @@
 
       <FieldSet>
         <FieldLegend>时间执行</FieldLegend>
-        <FieldDescription>两种模式二选一；调度一律按 UTC 解释。</FieldDescription>
+        <FieldDescription>三种模式任选其一；调度一律按 UTC 解释。</FieldDescription>
         <FieldContent>
-          <div class="flex items-center gap-6 pt-1.5">
+          <div class="flex flex-wrap items-center gap-6 pt-1.5">
             <label class="flex cursor-pointer items-center gap-2 text-sm font-normal">
               <input
                 v-model="form.scheduleKind"
@@ -53,6 +55,16 @@
               />
               <span>固定间隔</span>
             </label>
+            <label class="flex cursor-pointer items-center gap-2 text-sm font-normal">
+              <input
+                v-model="form.scheduleKind"
+                type="radio"
+                name="schedule-kind"
+                value="once"
+                class="size-4 shrink-0 accent-primary"
+              />
+              <span>一次性执行</span>
+            </label>
           </div>
         </FieldContent>
 
@@ -70,7 +82,7 @@
           <FieldDescription>分 时 日 月 周 · 示例 <code class="sb-mono">0 2 * * *</code> = 每天 02:00 UTC</FieldDescription>
         </Field>
 
-        <Field v-else class="pt-3">
+        <Field v-else-if="form.scheduleKind === 'interval'" class="pt-3">
           <FieldLabel>执行间隔</FieldLabel>
           <div class="flex items-center gap-2">
             <span class="text-sm text-muted-foreground">每</span>
@@ -93,6 +105,16 @@
           </div>
           <FieldDescription>范围 1 分钟 ~ 30 天</FieldDescription>
         </Field>
+
+        <Field v-else class="pt-3">
+          <FieldLabel>执行时刻</FieldLabel>
+          <Input
+            v-model="form.runAtLocal"
+            type="datetime-local"
+            class="sb-mono w-full sm:w-64"
+          />
+          <FieldDescription>到点执行一次后自动停用；时间按 UTC 解释</FieldDescription>
+        </Field>
       </FieldSet>
 
       <Separator />
@@ -105,7 +127,7 @@
               <SelectValue placeholder="选择文件" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem v-for="g in gofunctions" :key="g.id" :value="g.name">
+              <SelectItem v-for="g in availableFunctions" :key="g.id" :value="g.name">
                 {{ g.file }}
               </SelectItem>
             </SelectContent>
@@ -113,6 +135,13 @@
           <FieldDescription v-if="!gofunctions.length">
             项目内还没有云函数，
             <RouterLink to="/gofunctions" class="text-primary underline">先去创建</RouterLink>
+          </FieldDescription>
+          <FieldDescription v-else-if="!availableFunctions.length">
+            没有已发布的云函数（需有生效版本），
+            <RouterLink to="/gofunctions" class="text-primary underline">先去发布</RouterLink>
+          </FieldDescription>
+          <FieldDescription v-else-if="unpublishedCount > 0">
+            仅列出已发布（有生效版）的云函数；{{ unpublishedCount }} 个未发布不可选
           </FieldDescription>
         </Field>
         <Field>
@@ -209,8 +238,9 @@ const isEdit = computed(() => Boolean(props.target))
 const form = reactive({
   name: '',
   description: '',
-  scheduleKind: 'cron' as 'cron' | 'interval',
+  scheduleKind: 'cron' as 'cron' | 'interval' | 'once',
   cronExpr: '0 2 * * *',
+  runAtLocal: '',
   funcFile: '',
   funcExport: '',
   inputJson: ''
@@ -245,6 +275,31 @@ const intervalSeconds = computed(() => {
   }
 })
 
+/** datetime-local（本地展示）↔ ISO UTC */
+function toLocalInput(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function toRunAtISO(local: string): string {
+  if (!local) return ''
+  const d = new Date(local)
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString()
+}
+
+/** 提交用调度字段 */
+function schedulePayload() {
+  return {
+    scheduleKind: form.scheduleKind,
+    cronExpr: form.scheduleKind === 'cron' ? form.cronExpr.trim() : '',
+    intervalSeconds: form.scheduleKind === 'interval' ? intervalSeconds.value : undefined,
+    runAt: form.scheduleKind === 'once' ? toRunAtISO(form.runAtLocal) : undefined
+  }
+}
+
 /* ---------- 云函数联动 ---------- */
 
 const gofunctions = ref<GoFunctionItem[]>([])
@@ -276,6 +331,7 @@ watch(
       form.description = t.description
       form.scheduleKind = t.scheduleKind
       form.cronExpr = t.cronExpr || '0 2 * * *'
+      form.runAtLocal = t.runAt ? toLocalInput(t.runAt) : ''
       form.funcFile = t.funcFile
       form.funcExport = t.funcExport
       form.inputJson = t.inputJson
@@ -297,6 +353,7 @@ watch(
       form.description = ''
       form.scheduleKind = 'cron'
       form.cronExpr = '0 2 * * *'
+      form.runAtLocal = ''
       form.funcFile = ''
       form.funcExport = ''
       form.inputJson = ''
@@ -304,7 +361,8 @@ watch(
       intervalValue.value = 10
     }
     preset.value = undefined
-  }
+  },
+  { immediate: true }
 )
 
 /* ---------- 校验与保存 ---------- */
@@ -320,11 +378,38 @@ const inputJsonError = computed(() => {
   }
 })
 
+/** 任务名格式（对齐后端 cronJobNameRe） */
+const nameError = computed(() => {
+  if (isEdit.value) return ''
+  const s = form.name.trim()
+  if (!s) return ''
+  if (!/^[A-Za-z][A-Za-z0-9_-]{0,62}$/.test(s)) return '字母开头，可含字母数字 _ -（1~63 位）'
+  return ''
+})
+
+/** 仅已发布（有生效版）的云函数可作定时任务目标（后端 validateTarget 同口径） */
+const availableFunctions = computed(() => {
+  const list = gofunctions.value.filter((g) => g.published && g.activeVersion > 0)
+  // 编辑时保留当前目标（即使已未发布），避免 Select 显示为空
+  if (isEdit.value && form.funcFile && !list.some((g) => g.name === form.funcFile)) {
+    const cur = gofunctions.value.find((g) => g.name === form.funcFile)
+    if (cur) return [cur, ...list]
+  }
+  return list
+})
+
+const unpublishedCount = computed(
+  () => gofunctions.value.filter((g) => !(g.published && g.activeVersion > 0)).length
+)
+
 const canSave = computed(() => {
-  if (!form.name.trim()) return false
+  if (!form.name.trim() || nameError.value) return false
   if (form.scheduleKind === 'cron' && form.cronExpr.trim().split(/\s+/).length !== 5) return false
   if (form.scheduleKind === 'interval' && intervalSeconds.value < 60) return false
+  if (form.scheduleKind === 'once' && !form.runAtLocal) return false
   if (!form.funcFile || !form.funcExport) return false
+  const target = gofunctions.value.find((g) => g.name === form.funcFile)
+  if (!target || !(target.published && target.activeVersion > 0)) return false
   return !inputJsonError.value
 })
 
@@ -338,9 +423,7 @@ async function save() {
     if (isEdit.value && props.target) {
       await api.cronjobs.update(projectId.value, props.target.id, {
         description: form.description,
-        scheduleKind: form.scheduleKind,
-        cronExpr: form.scheduleKind === 'cron' ? form.cronExpr.trim() : '',
-        intervalSeconds: form.scheduleKind === 'interval' ? intervalSeconds.value : undefined,
+        ...schedulePayload(),
         funcFile: form.funcFile,
         funcExport: form.funcExport,
         inputJson,
@@ -351,9 +434,7 @@ async function save() {
       const created = await api.cronjobs.create(projectId.value, {
         name: form.name.trim(),
         description: form.description,
-        scheduleKind: form.scheduleKind,
-        cronExpr: form.scheduleKind === 'cron' ? form.cronExpr.trim() : '',
-        intervalSeconds: form.scheduleKind === 'interval' ? intervalSeconds.value : undefined,
+        ...schedulePayload(),
         funcFile: form.funcFile,
         funcExport: form.funcExport,
         inputJson

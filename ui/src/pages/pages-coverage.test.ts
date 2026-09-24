@@ -137,7 +137,7 @@ async function mountPage(comp: object) {
   await router.isReady()
   const pinia = createPinia()
   setActivePinia(pinia)
-  useProjectStore().setProject('00000000-0000-0000-0000-000000000002', '商城后台')
+  useProjectStore().setProject('dev-shop', '商城后台')
   return mount(comp, { global: { plugins: [router, pinia], stubs: uiStubs } })
 }
 

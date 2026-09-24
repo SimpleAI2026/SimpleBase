@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatJson, formatTime } from './format'
+import { formatBytes, formatCount, formatJson, formatTime } from './format'
+
+describe('formatCount', () => {
+  it('formats counts and unknown', () => {
+    expect(formatCount(undefined)).toBe('—')
+    expect(formatCount(0)).toBe('0 条')
+    expect(formatCount(42)).toBe('42 条')
+  })
+})
 
 describe('formatBytes', () => {
   it('formats zero and missing values', () => {

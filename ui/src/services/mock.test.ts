@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockApi } from './mock'
 
-const PID = '00000000-0000-0000-0000-000000000002'
+const PID = 'dev-shop'
 
 describe('mockApi', () => {
   beforeEach(() => {
@@ -132,6 +132,33 @@ describe('mockApi', () => {
     await flushReject(mockApi.gofunctions.update(PID, 'missing', 'func X() {}'))
     await flush(mockApi.gofunctions.remove(PID, 'Echo'))
     await flushReject(mockApi.gofunctions.remove(PID, 'Echo'))
+
+    // 版本化 API
+    const vlist = await flush(mockApi.gofunctions.listVersions(PID, 'hello'))
+    expect(vlist.versions.length).toBeGreaterThan(0)
+    await flush(mockApi.gofunctions.activate(PID, 'hello', vlist.versions[0].version))
+    const saved = await flush(
+      mockApi.gofunctions.saveVersion(PID, 'hello', {
+        source: 'func Hello(req T) R {}\nfunc Ping() int { return 1 }',
+        activate: false,
+        note: 'draft'
+      })
+    )
+    expect(saved.latestVersion).toBeGreaterThan(saved.activeVersion)
+    await flushReject(mockApi.gofunctions.saveVersion(PID, 'hello', { source: 'package main' }))
+    await flushReject(mockApi.gofunctions.saveVersion(PID, 'missing', { source: 'func X() {}' }))
+    await flushReject(mockApi.gofunctions.activate(PID, 'missing', 1))
+    await flush(mockApi.gofunctions.test(PID, 'hello', 1, 'Hello', { name: 'x' }))
+    const published = await flush(
+      mockApi.gofunctions.saveVersion(PID, 'hello', {
+        source: 'func Hello(req T) R {}',
+        activate: true,
+        note: 'pub'
+      })
+    )
+    expect(published.published).toBe(true)
+    const item = await flush(mockApi.gofunctions.get(PID, 'hello'))
+    expect(item.versions && item.versions.length).toBeGreaterThan(0)
 
     const jobs = await flush(mockApi.cronjobs.list(PID))
     expect(jobs[0].name).toBe('nightly-hello')

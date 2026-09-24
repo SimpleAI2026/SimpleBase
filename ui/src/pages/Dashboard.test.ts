@@ -29,6 +29,13 @@ describe('Dashboard (监控大盘)', () => {
     resetApiMocks()
     setIsMock(false)
     api.databases.list.mockResolvedValue([readyDb, closedDb, degradedDb])
+    api.s3.list.mockResolvedValue([
+      { key: 'a.txt', size: 1, lastModified: 't' },
+      { key: 'b.txt', size: 2, lastModified: 't' }
+    ])
+    api.gofunctions.list.mockResolvedValue([{ name: 'f1' }, { name: 'f2' }, { name: 'f3' }])
+    api.cronjobs.list.mockResolvedValue([{ name: 'job1' }])
+    api.agents.list.mockResolvedValue([{ id: 'a1' }, { id: 'a2' }])
     api.quota.status.mockResolvedValue({ llmAllowed: true, databaseAllowed: true })
     api.metrics.trend.mockResolvedValue([
       { date: '01-01', requests: 10, errors: 1 },
@@ -42,9 +49,9 @@ describe('Dashboard (监控大盘)', () => {
     })
   })
 
-  it('loads metric cards, request trend, and database overview', async () => {
+  it('loads metric cards, request trend, and resource summary counts', async () => {
     const { wrapper } = await mountWithApp(Dashboard)
-    expect(wrapper.text()).toContain('系统运行状态与数据库概览')
+    expect(wrapper.text()).toContain('系统运行状态与项目资源概览')
     expect(wrapper.text()).toContain('数据库总数')
     expect(wrapper.text()).toContain('就绪数据库')
     expect(wrapper.text()).toContain('异常数据库')
@@ -52,16 +59,31 @@ describe('Dashboard (监控大盘)', () => {
     expect(wrapper.text()).toContain('正常')
     expect(wrapper.text()).toContain('请求 9')
     expect(wrapper.text()).toContain('错误率 1%')
-    expect(wrapper.text()).toContain('demo')
-    expect(wrapper.text()).toContain('flaky')
-    expect(wrapper.text()).toContain('就绪')
-    expect(wrapper.text()).toContain('降级')
+    // 资源汇总：只展示类型与数量，不列明细名称
+    expect(wrapper.text()).toContain('资源类型')
+    expect(wrapper.text()).toContain('数据库')
+    expect(wrapper.text()).toContain('S3 对象存储')
+    expect(wrapper.text()).toContain('云函数')
+    expect(wrapper.text()).toContain('定时任务')
+    expect(wrapper.text()).toContain('云 Agent')
+    expect(wrapper.text()).not.toContain('demo')
+    expect(wrapper.text()).not.toContain('flaky')
     expect(wrapper.find('.trend-legend').text()).toContain('请求')
     expect(wrapper.find('.trend-legend').text()).toContain('错误')
-    expect(wrapper.find('[title="请求 10"]').exists()).toBe(true)
-    expect(wrapper.find('[title="错误 1"]').exists()).toBe(true)
-    expect(wrapper.find('[title="请求 0"]').exists()).toBe(false)
-    expect(wrapper.find('[title="错误 0"]').exists()).toBe(false)
+    // 柱状/折线切换控件（echarts 容器）
+    expect(wrapper.find('.trend-mode-switch').exists()).toBe(true)
+    expect(wrapper.find('.trend-canvas').exists()).toBe(true)
+    expect(wrapper.find('[role="img"]').exists()).toBe(true)
+  })
+
+  it('switches between bar and line chart modes', async () => {
+    const { wrapper } = await mountWithApp(Dashboard)
+    await flushPromises()
+    expect(wrapper.find('.trend-chart').exists()).toBe(true)
+    // uiStubs 的 ToggleGroup 在点击时 emit update:modelValue → line
+    await wrapper.get('.tg-line').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.trend-chart').exists()).toBe(true)
   })
 
   it('shows Mock badge and refreshes data from the toolbar', async () => {
@@ -94,23 +116,25 @@ describe('Dashboard (监控大盘)', () => {
     expect(toast.error).toHaveBeenCalledWith('部分数据加载失败')
   })
 
-  it('navigates to databases from the empty-state action', async () => {
+  it('shows zero counts when no resources exist', async () => {
     api.databases.list.mockResolvedValue([])
+    api.s3.list.mockResolvedValue([])
+    api.gofunctions.list.mockResolvedValue([])
+    api.cronjobs.list.mockResolvedValue([])
+    api.agents.list.mockResolvedValue([])
     api.metrics.trend.mockResolvedValue([])
-    const { wrapper, router } = await mountWithApp(Dashboard)
+    const { wrapper } = await mountWithApp(Dashboard)
     expect(wrapper.text()).toContain('暂无趋势数据')
-    expect(wrapper.text()).toContain('暂无数据库')
-    const push = vi.spyOn(router, 'push')
-    await wrapper.get('.empty-action').trigger('click')
-    expect(push).toHaveBeenCalledWith({ name: 'databases' })
+    expect(wrapper.text()).toContain('资源类型')
+    expect(wrapper.text()).toContain('云 Agent')
   })
 
-  it('pages the database table and reloads when the project changes', async () => {
+  it('reloads when the project changes', async () => {
     const { wrapper, pinia } = await mountWithApp(Dashboard)
-    await wrapper.get('.pager-next').trigger('click')
-    const { useProjectStore } = await import('../stores/project')
+    await flushPromises()
     const before = api.databases.list.mock.calls.length
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    const { useProjectStore } = await import('../stores/project')
+    useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.databases.list.mock.calls.length).toBeGreaterThan(before)
   })

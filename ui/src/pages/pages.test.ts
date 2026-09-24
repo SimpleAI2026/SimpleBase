@@ -12,7 +12,10 @@ const { api } = vi.hoisted(() => ({
     quota: { status: vi.fn() },
     metrics: { trend: vi.fn(), summary: vi.fn() },
     logs: { list: vi.fn(), getRetention: vi.fn(), putRetention: vi.fn() },
-    s3: { list: vi.fn(), remove: vi.fn(), upload: vi.fn(), presign: vi.fn() }
+    s3: { list: vi.fn(), remove: vi.fn(), upload: vi.fn(), presign: vi.fn() },
+    gofunctions: { list: vi.fn() },
+    cronjobs: { list: vi.fn() },
+    agents: { list: vi.fn() }
   }
 }))
 
@@ -87,15 +90,20 @@ describe('pages', () => {
       { id: 'd1', name: 'n', status: 'ready', createdAt: '2026-01-01T00:00:00Z', updatedAt: 't' },
       { id: 'd2', name: 'bad', status: 'degraded', createdAt: 't', updatedAt: 't' }
     ])
+    api.s3.list.mockResolvedValue([])
+    api.gofunctions.list.mockResolvedValue([])
+    api.cronjobs.list.mockResolvedValue([])
+    api.agents.list.mockResolvedValue([])
     api.quota.status.mockResolvedValue({ llmAllowed: true, databaseAllowed: true })
     api.metrics.trend.mockResolvedValue([{ date: '1/1', requests: 10, errors: 1 }])
     api.metrics.summary.mockResolvedValue({ totalRequests: 9, errorRate: 1, avgLatencyMs: 2, activeDatabases: 1 })
     const router = await withRouter()
-    const push = vi.spyOn(router, 'push')
+    vi.spyOn(router, 'push')
     const w = mount(Dashboard, { global: { plugins: [router, createPinia()], stubs } })
     await flushPromises()
     expect(w.text()).toContain('请求 9')
-    expect(w.text()).toContain('n')
+    expect(w.text()).toContain('资源类型')
+    expect(w.text()).toContain('数据库')
 
     api.databases.list.mockRejectedValueOnce(new Error('db'))
     api.quota.status.mockResolvedValue({ llmAllowed: false, databaseAllowed: true })
@@ -114,17 +122,15 @@ describe('pages', () => {
 
     const empty = mount(Dashboard, { global: { plugins: [router, createPinia()], stubs } })
     api.databases.list.mockResolvedValue([])
+    api.s3.list.mockResolvedValue([])
+    api.gofunctions.list.mockResolvedValue([])
+    api.cronjobs.list.mockResolvedValue([])
+    api.agents.list.mockResolvedValue([])
     api.quota.status.mockRejectedValue(new Error('x'))
     api.metrics.trend.mockResolvedValue([])
     api.metrics.summary.mockRejectedValue(new Error('x'))
     await empty.vm.$.setupState.load?.()
     await flushPromises()
-    const btn = empty.findAll('button').filter((b) => b.text().includes('empty') || b.text().includes('去创建')).at(-1)
-    if (btn) {
-      await btn.trigger('click')
-    }
-    const pager = empty.find('.pager-next')
-    if (pager.exists()) await pager.trigger('click')
     w.unmount()
     empty.unmount()
   })

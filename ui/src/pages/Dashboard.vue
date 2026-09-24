@@ -1,6 +1,6 @@
 <template>
   <ProjectScope>
-  <PageContainer subtitle="系统运行状态与数据库概览">
+  <PageContainer subtitle="系统运行状态与项目资源概览">
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <Card v-for="card in cards" :key="card.label">
         <CardContent class="p-5">
@@ -49,37 +49,12 @@
         </CardAction>
       </CardHeader>
       <CardContent class="flex flex-col gap-6 pt-6">
-        <div v-if="trend.length" class="rounded-xl border border-border bg-muted/25 px-5 pt-5 pb-3">
-          <div class="trend-legend mb-3 flex items-center gap-4 text-xs text-muted-foreground">
-            <span class="inline-flex items-center gap-1.5">
-              <span class="size-2.5 rounded-sm bg-primary" />
-              请求
-            </span>
-            <span class="inline-flex items-center gap-1.5">
-              <span class="size-2.5 rounded-sm bg-destructive" />
-              错误
-            </span>
-          </div>
-          <div class="flex min-h-44 items-end gap-3">
-            <div v-for="p in trend" :key="p.date" class="flex min-w-0 flex-1 flex-col items-center gap-2">
-              <div class="flex h-[120px] items-end gap-1.5">
-                <div
-                  v-if="p.requests > 0"
-                  class="w-3 rounded-t-sm bg-primary transition-[height] duration-300"
-                  :style="{ height: barHeight(p.requests, maxRequests) }"
-                  :title="`请求 ${p.requests}`"
-                />
-                <div
-                  v-if="p.errors > 0"
-                  class="w-1.5 rounded-t-sm bg-destructive"
-                  :style="{ height: barHeight(p.errors, maxRequests) }"
-                  :title="`错误 ${p.errors}`"
-                />
-              </div>
-              <div class="text-xs text-muted-foreground">{{ p.date }}</div>
-            </div>
-          </div>
-        </div>
+        <TrendChart
+          v-if="trend.length"
+          :points="trend"
+          :mode="chartMode"
+          @update:mode="chartMode = $event"
+        />
         <Skeleton v-else-if="loading" class="h-44 w-full rounded-xl" />
         <SbEmptyState
           v-else
@@ -87,43 +62,37 @@
           :description="trendFailed ? '请求未完成，请刷新后重试' : '暂无趋势数据'"
         />
 
+        <!-- 资源汇总：只展示各类型数量，不列明细名称 -->
         <div class="overflow-hidden rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="w-40">名称</TableHead>
-                <TableHead>ID</TableHead>
-                <TableHead class="w-28">状态</TableHead>
-                <TableHead class="w-44">创建时间</TableHead>
+                <TableHead class="sb-col-name">资源类型</TableHead>
+                <TableHead class="w-28 text-right">数量</TableHead>
+                <TableHead class="max-w-md">说明</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              <template v-if="loading && !databases.length">
+              <template v-if="loading && !resourcesLoaded">
                 <TableRow v-for="n in 3" :key="'sk-' + n">
-                  <TableCell colspan="4"><Skeleton class="h-8 w-full" /></TableCell>
+                  <TableCell colspan="3"><Skeleton class="h-8 w-full" /></TableCell>
                 </TableRow>
               </template>
-              <TableEmpty v-else-if="!paged.length" :colspan="4">
-                <SbEmptyState description="暂无数据库" action-text="去创建" @action="goDatabases" />
-              </TableEmpty>
-              <TableRow v-for="record in paged" :key="record.id">
-                <TableCell class="font-medium">{{ record.name }}</TableCell>
-                <TableCell class="max-w-48 truncate font-mono text-xs text-muted-foreground">{{ record.id }}</TableCell>
-                <TableCell>
-                  <Badge :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
+              <TableRow v-for="row in resourceRows" v-else :key="row.key">
+                <TableCell class="font-medium">
+                  <span class="inline-flex items-center gap-2">
+                    <component :is="row.icon" class="size-4 shrink-0 text-primary opacity-80" />
+                    {{ row.label }}
+                  </span>
                 </TableCell>
-                <TableCell class="text-muted-foreground text-xs">{{ formatTime(record.createdAt) }}</TableCell>
+                <TableCell class="w-28 text-right text-base font-semibold tabular-nums">
+                  {{ row.count }}
+                </TableCell>
+                <TableCell class="max-w-md text-xs text-muted-foreground">{{ row.hint }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
         </div>
-        <TablePager
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :page-count="pageCount"
-          @update:page="page = $event"
-        />
       </CardContent>
     </Card>
   </PageContainer>
@@ -134,7 +103,16 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { CircleCheckIcon, DatabaseIcon, RefreshCwIcon, TriangleAlertIcon } from '@lucide/vue'
+import {
+  BotIcon,
+  CircleCheckIcon,
+  CloudUploadIcon,
+  CodeIcon,
+  DatabaseIcon,
+  RefreshCwIcon,
+  TimerIcon,
+  TriangleAlertIcon
+} from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -151,56 +129,56 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
 import { api, isMock } from '../services/api'
-import type { DatabaseItem, QuotaStatus, TrendPoint } from '../services/api'
+import type { QuotaStatus, TrendPoint } from '../services/api'
 import { useProjectStore } from '../stores/project'
-import { usePagination } from '../composables/usePagination'
-import { statusBadgeVariant, statusText } from '@/lib/status'
-import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
-import TablePager from '../components/TablePager.vue'
+import TrendChart, { type ChartMode } from '../components/TrendChart.vue'
 
 const router = useRouter()
 const projectStore = useProjectStore()
 
-const databases = ref<DatabaseItem[]>([])
 const quota = ref<QuotaStatus | null>(null)
 const loading = ref(false)
 const trendFailed = ref(false)
 const lastUpdate = ref('')
 const trend = ref<TrendPoint[]>([])
+const chartMode = ref<ChartMode>('bar')
 const summary = ref({ totalRequests: 0, errorRate: 0, avgLatencyMs: 0, activeDatabases: 0 })
-const { page, pageSize, total, pageCount, items: paged } = usePagination(databases)
 
-const maxRequests = computed(() => Math.max(1, ...trend.value.map((p) => p.requests)))
-
-function barHeight(value: number, max: number) {
-  return `${Math.round((value / max) * 120)}px`
-}
+/** 资源计数（按类型汇总，不列明细） */
+const counts = ref({
+  databases: 0,
+  s3Objects: 0,
+  gofunctions: 0,
+  cronjobs: 0,
+  agents: 0
+})
+const dbStatus = ref({ ready: 0, abnormal: 0 })
+const resourcesLoaded = ref(false)
 
 const cards = computed(() => [
   {
     label: '数据库总数',
-    value: databases.value.length,
+    value: resourcesLoaded.value ? counts.value.databases : '-',
     icon: DatabaseIcon,
     tone: 'bg-primary/12 text-primary',
   },
   {
     label: '就绪数据库',
-    value: databases.value.filter((d) => d.status === 'ready').length,
+    value: resourcesLoaded.value ? dbStatus.value.ready : '-',
     icon: CircleCheckIcon,
     tone: 'bg-success/12 text-success',
   },
   {
     label: '异常数据库',
-    value: databases.value.filter((d) => ['degraded', 'deleting'].includes(d.status)).length,
+    value: resourcesLoaded.value ? dbStatus.value.abnormal : '-',
     icon: TriangleAlertIcon,
     tone: 'bg-destructive/10 text-destructive',
   },
@@ -213,15 +191,77 @@ const cards = computed(() => [
   },
 ])
 
+const resourceRows = computed(() => [
+  {
+    key: 'databases',
+    label: '数据库',
+    icon: DatabaseIcon,
+    count: counts.value.databases,
+    hint: 'DuckLake 逻辑库（含就绪 / 未就绪）',
+  },
+  {
+    key: 's3',
+    label: 'S3 对象存储',
+    icon: CloudUploadIcon,
+    count: counts.value.s3Objects,
+    hint: '当前项目前缀下的对象文件',
+  },
+  {
+    key: 'gofunctions',
+    label: '云函数',
+    icon: CodeIcon,
+    count: counts.value.gofunctions,
+    hint: '已部署的 Go 云函数',
+  },
+  {
+    key: 'cronjobs',
+    label: '定时任务',
+    icon: TimerIcon,
+    count: counts.value.cronjobs,
+    hint: '云函数调度任务（含停用）',
+  },
+  {
+    key: 'agents',
+    label: '云 Agent',
+    icon: BotIcon,
+    count: counts.value.agents,
+    hint: '项目内智能体配置',
+  },
+])
+
 async function load() {
   loading.value = true
-  const [dbRes, quotaRes, trendRes, summaryRes] = await Promise.allSettled([
-    api.databases.list(projectStore.id),
-    api.quota.status(projectStore.id),
-    api.metrics.trend(projectStore.id),
-    api.metrics.summary(projectStore.id),
-  ])
-  if (dbRes.status === 'fulfilled') databases.value = dbRes.value
+  const [dbRes, s3Res, fnRes, cronRes, agentRes, quotaRes, trendRes, summaryRes] =
+    await Promise.allSettled([
+      api.databases.list(projectStore.id),
+      api.s3.list(projectStore.id),
+      api.gofunctions.list(projectStore.id),
+      api.cronjobs.list(projectStore.id),
+      api.agents.list(projectStore.id),
+      api.quota.status(projectStore.id),
+      api.metrics.trend(projectStore.id),
+      api.metrics.summary(projectStore.id),
+    ])
+
+  if (dbRes.status === 'fulfilled') {
+    const dbs = Array.isArray(dbRes.value) ? dbRes.value : []
+    counts.value.databases = dbs.length
+    dbStatus.value = {
+      ready: dbs.filter((d) => d.status === 'ready').length,
+      abnormal: dbs.filter((d) => ['degraded', 'deleting'].includes(d.status)).length,
+    }
+  }
+  if (s3Res.status === 'fulfilled') counts.value.s3Objects = Array.isArray(s3Res.value) ? s3Res.value.length : 0
+  if (fnRes.status === 'fulfilled') counts.value.gofunctions = Array.isArray(fnRes.value) ? fnRes.value.length : 0
+  if (cronRes.status === 'fulfilled') counts.value.cronjobs = Array.isArray(cronRes.value) ? cronRes.value.length : 0
+  if (agentRes.status === 'fulfilled') counts.value.agents = Array.isArray(agentRes.value) ? agentRes.value.length : 0
+  resourcesLoaded.value =
+    dbRes.status === 'fulfilled' ||
+    s3Res.status === 'fulfilled' ||
+    fnRes.status === 'fulfilled' ||
+    cronRes.status === 'fulfilled' ||
+    agentRes.status === 'fulfilled'
+
   if (quotaRes.status === 'fulfilled') quota.value = quotaRes.value
   if (trendRes.status === 'fulfilled') {
     trend.value = trendRes.value
@@ -230,14 +270,12 @@ async function load() {
     trendFailed.value = true
   }
   if (summaryRes.status === 'fulfilled') summary.value = summaryRes.value
-  if ([dbRes, quotaRes, trendRes, summaryRes].some((r) => r.status === 'rejected')) {
+
+  const all = [dbRes, s3Res, fnRes, cronRes, agentRes, quotaRes, trendRes, summaryRes]
+  if (all.some((r) => r.status === 'rejected')) {
     toast.error('部分数据加载失败')
   }
-  if (
-    dbRes.status === 'fulfilled' ||
-    quotaRes.status === 'fulfilled' ||
-    trendRes.status === 'fulfilled'
-  ) {
+  if (all.slice(0, 6).some((r) => r.status === 'fulfilled')) {
     lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   }
   loading.value = false

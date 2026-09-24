@@ -58,3 +58,57 @@ func Require(permission Permission, extract func(ctx context.Context) (Principal
 		}
 	}
 }
+
+// SessionAuthenticator 抽象 JWT 通道校验（由 SessionService 适配，避免 middleware 依赖具体类型）。
+type SessionAuthenticator interface {
+	VerifyAccess(token string) (JWTClaims, error)
+	PrincipalFromClaims(ctx context.Context, claims JWTClaims) (Principal, error)
+}
+
+// AuthMiddleware 是双通道认证（login-auth-plan §4.6）：
+// Bearer 形如 JWT → 登录态；否则回落 API Key。两者都注入 Principal。
+func AuthMiddleware(sessions SessionAuthenticator, keys *Service, inject func(ctx context.Context, p Principal) context.Context) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			raw, err := ExtractBearerToken(c.Request().Header.Get(echo.HeaderAuthorization))
+			if err != nil {
+				return echo.NewHTTPError(http.StatusUnauthorized, "missing or malformed authorization header")
+			}
+			if LooksLikeJWT(raw) {
+				if sessions == nil {
+					return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+				}
+				claims, err := sessions.VerifyAccess(raw)
+				if err != nil {
+					return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+				}
+				p, err := sessions.PrincipalFromClaims(c.Request().Context(), claims)
+				if err != nil {
+					if errors.Is(err, ErrUserDisabled) {
+						return echo.NewHTTPError(http.StatusUnauthorized, "user disabled")
+					}
+					return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+				}
+				ctx := inject(c.Request().Context(), p)
+				c.SetRequest(c.Request().WithContext(ctx))
+				return next(c)
+			}
+			// API Key 通道（SDK / 程序化调用）。
+			if keys == nil {
+				return echo.NewHTTPError(http.StatusUnauthorized, "invalid api key")
+			}
+			principal, err := keys.Authenticate(c.Request().Context(), raw)
+			if err != nil {
+				switch {
+				case errors.Is(err, ErrKeyRevoked):
+					return echo.NewHTTPError(http.StatusUnauthorized, "api key revoked")
+				default:
+					return echo.NewHTTPError(http.StatusUnauthorized, "invalid api key")
+				}
+			}
+			ctx := inject(c.Request().Context(), principal)
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	}
+}

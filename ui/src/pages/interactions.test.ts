@@ -127,7 +127,7 @@ describe('page template interactions', () => {
     await clickText(wrapper, '新建集合')
     await clickText(wrapper, '删除')
     await wrapper.get('.pager-next').trigger('click')
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     wrapper.unmount()
   })
@@ -141,7 +141,7 @@ describe('page template interactions', () => {
 
     api.databases.list.mockResolvedValue([readyDb])
     const admin = await mountWithApp(Databases, {
-      projectId: '00000000-0000-0000-0000-000000000099',
+      projectId: 'sb-admin',
       stubs: collectionStub
     })
     await clickText(admin.wrapper, '刷新')
@@ -179,7 +179,7 @@ describe('page template interactions', () => {
     await clickText(wrapper, '删除')
     await clickText(wrapper, '新会话')
     if (wrapper.find('.ai-stop').exists()) await wrapper.get('.ai-stop').trigger('click')
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     wrapper.unmount()
   })
@@ -194,12 +194,18 @@ describe('page template interactions', () => {
     wrapper.unmount()
   })
 
-  it('Dashboard pager and refresh', async () => {
+  it('Dashboard resource summary and refresh', async () => {
     api.metrics.summary.mockResolvedValue({ totalRequests: 2, errorRate: 0, avgLatencyMs: 1, activeDatabases: 1 })
     api.metrics.trend.mockResolvedValue([{ date: '1/1', requests: 2, errors: 0 }])
+    api.databases.list.mockResolvedValue([readyDb])
+    api.s3.list.mockResolvedValue([{ key: 'a', size: 1 }])
+    api.gofunctions.list.mockResolvedValue([])
+    api.cronjobs.list.mockResolvedValue([])
+    api.agents.list.mockResolvedValue([])
     const { wrapper } = await mountWithApp(Dashboard)
+    expect(wrapper.text()).toContain('资源类型')
     await clickText(wrapper, '刷新数据')
-    await wrapper.get('.pager-next').trigger('click')
+    expect(wrapper.text()).toContain('S3 对象存储')
     wrapper.unmount()
   })
 })
@@ -207,10 +213,10 @@ describe('page template interactions', () => {
 describe('script-setup method coverage extras', () => {
   it('Databases onDocumentCreated reopens list when closed', async () => {
     setActivePinia(createPinia())
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     const pinia = createPinia()
     setActivePinia(pinia)
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     const w = mount(Databases, {
       global: { plugins: [pinia], stubs: { ...uiStubs, ...collectionStub } }
     })

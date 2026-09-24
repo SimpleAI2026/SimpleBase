@@ -247,7 +247,7 @@ func TestGoFunction_ReadOnly503(t *testing.T) {
 }
 
 func TestGoFunction_AdminProjectProtected(t *testing.T) {
-	adminID := "00000000-0000-0000-0000-000000000099"
+	adminID := "sb-admin"
 	e, _ := setupGoFunctionTestRouter(t, true, adminID)
 
 	// 读返回空列表

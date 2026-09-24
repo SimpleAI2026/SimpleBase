@@ -33,20 +33,21 @@
           <TableHeader>
             <TableRow>
               <TableHead class="w-12 text-center" />
-              <TableHead class="w-44">名称</TableHead>
-              <TableHead class="w-40">ID</TableHead>
-              <TableHead class="w-28">状态</TableHead>
-              <TableHead class="w-44">创建时间</TableHead>
-              <TableHead>操作</TableHead>
+              <TableHead class="sb-col-name">名称</TableHead>
+              <TableHead class="sb-col-id">ID</TableHead>
+              <TableHead class="sb-col-sm">状态</TableHead>
+              <TableHead class="w-24 text-right">数据量</TableHead>
+              <TableHead class="sb-col-md">创建时间</TableHead>
+              <TableHead class="sb-col-act min-w-36">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <template v-if="loading && !databases.length">
               <TableRow v-for="n in 3" :key="'sk-' + n">
-                <TableCell colspan="6"><Skeleton class="h-8 w-full" /></TableCell>
+                <TableCell colspan="7"><Skeleton class="h-8 w-full" /></TableCell>
               </TableRow>
             </template>
-            <TableEmpty v-else-if="!paged.length" :colspan="6">
+            <TableEmpty v-else-if="!paged.length" :colspan="7">
               <SbEmptyState :description="isAdmin ? '暂无系统库' : '暂无数据库'" :action-text="isAdmin ? undefined : '新建数据库'" @action="!isAdmin && openCreate()" />
             </TableEmpty>
             <template v-for="record in paged" :key="record.id">
@@ -70,23 +71,34 @@
                     </TooltipContent>
                   </Tooltip>
                 </TableCell>
-                <TableCell>
+                <TableCell class="sb-col-name">
                   <span class="sb-mono inline-flex items-center gap-1.5 font-medium text-foreground">
-                    <DatabaseIcon class="size-4 text-primary" /> {{ record.name }}
+                    <DatabaseIcon class="size-4 shrink-0 text-primary" />
+                    <span class="truncate">{{ record.name }}</span>
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell class="sb-col-id">
                   <Tooltip>
                     <TooltipTrigger as-child>
-                      <span class="sb-mono block max-w-36 truncate text-xs text-muted-foreground">{{ record.id }}</span>
+                      <span class="sb-mono block max-w-full truncate text-xs text-muted-foreground">{{ record.id }}</span>
                     </TooltipTrigger>
                     <TooltipContent>{{ record.id }}</TooltipContent>
                   </Tooltip>
                 </TableCell>
-                <TableCell>
+                <TableCell class="sb-col-sm">
                   <Badge :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
                 </TableCell>
-                <TableCell class="text-xs text-muted-foreground">{{ formatTime(record.createdAt) }}</TableCell>
+                <TableCell class="w-24 text-right tabular-nums text-sm">
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <span class="cursor-default">{{ formatCount(record.documentCount) }}</span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {{ record.documentCount === undefined ? '未就绪或统计不可用' : `库内用户表共 ${record.documentCount} 行` }}
+                    </TooltipContent>
+                  </Tooltip>
+                </TableCell>
+                <TableCell class="sb-col-md text-xs text-muted-foreground">{{ formatTime(record.createdAt) }}</TableCell>
                 <TableCell>
                   <div class="flex flex-wrap items-center gap-1">
                     <Tooltip>
@@ -159,7 +171,7 @@
                 </TableCell>
               </TableRow>
               <TableRow v-if="expandedRowKeys.includes(record.id)" class="bg-muted/20 hover:bg-muted/20">
-                <TableCell colspan="6" class="p-0 border-b-0">
+                <TableCell colspan="7" class="p-0 border-b-0">
                   <div class="border-y border-border/70 bg-muted/25 px-6 py-4">
                     <CollectionPanel
                       :project-id="projectStore.id"
@@ -271,7 +283,7 @@ import { storeToRefs } from 'pinia'
 import { useAsyncAction } from '../composables/useAsyncAction'
 import { usePagination } from '../composables/usePagination'
 import { statusBadgeVariant, statusText } from '@/lib/status'
-import { formatTime } from '../utils/format'
+import { formatCount, formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'

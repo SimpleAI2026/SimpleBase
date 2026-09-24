@@ -79,7 +79,7 @@ func newHookedService(t *testing.T, descriptor DescriptorWriter, hook *hookRepo)
 	logger := observability.NewLogger("error", "json", io.Discard)
 	svc := NewService(hook, keys, descriptor, objectstore.DuckLakeStorage{Region: "us-east-1", Bucket: "test-bucket"}, logger)
 	tenantID := uuid.NewString()
-	projectID := uuid.NewString()
+	projectID := objectstore.NewProjectID()
 	ctx := context.Background()
 	if err := base.CreateTenant(ctx, Tenant{ID: tenantID, Name: "t1", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestService_CreateDatabaseValidationAndErrors(t *testing.T) {
 	if err := repo.CreateTenant(ctx, Tenant{ID: "not-a-uuid", Name: "t", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	pid := uuid.NewString()
+	pid := objectstore.NewProjectID()
 	if err := repo.CreateProject(ctx, Project{ID: pid, TenantID: "not-a-uuid", Name: "p", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,9 +129,9 @@ func TestService_CreateDatabaseValidationAndErrors(t *testing.T) {
 		t.Fatalf("prefix error: %v", err)
 	}
 
-	// non-UUID project passes DataPrefix but fails descriptor.Validate
+	// invalid project id format fails descriptor.Validate
 	svc3, repo3, tenant3, _ := setupService(t, &fakeDescriptorWriter{})
-	badPID := "not-a-uuid-project----------------" // 32 chars, not UUID
+	badPID := "not-valid!" // 非 8 位 [A-Za-z0-9-]
 	if err := repo3.CreateProject(ctx, Project{ID: badPID, TenantID: tenant3, Name: "bad", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}

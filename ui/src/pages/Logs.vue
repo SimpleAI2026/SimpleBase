@@ -57,11 +57,11 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="w-48">时间</TableHead>
-              <TableHead class="w-24">级别</TableHead>
-              <TableHead class="w-40">来源</TableHead>
-              <TableHead>消息</TableHead>
-              <TableHead class="w-52">Request ID</TableHead>
+              <TableHead class="sb-col-md">时间</TableHead>
+              <TableHead class="sb-col-sm">级别</TableHead>
+              <TableHead class="sb-col-sm">来源</TableHead>
+              <TableHead class="max-w-lg">消息</TableHead>
+              <TableHead class="sb-col-id">Request ID</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

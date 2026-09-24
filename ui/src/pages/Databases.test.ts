@@ -230,7 +230,7 @@ describe('Databases (数据库管理)', () => {
     expect(wrapper.find('.sb-modal').exists()).toBe(true)
 
     const { useProjectStore } = await import('../stores/project')
-    useProjectStore(pinia).setProject('00000000-0000-0000-0000-000000000003')
+    useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.databases.list.mock.calls.length).toBeGreaterThan(1)
   })

@@ -51,7 +51,7 @@
         <Button variant="outline" :disabled="saving" @click="close">取消</Button>
         <Button :disabled="saveDisabled || saving" @click="save">
           <Spinner v-if="saving" data-icon="inline-start" />
-          保存
+          {{ mode === 'create' ? '创建' : '保存为新版本' }}
         </Button>
       </template>
     </template>
@@ -168,12 +168,16 @@ async function save() {
     if (props.mode === 'create') {
       const created = await api.gofunctions.create(projectId.value, {
         name: nameValue.value.trim(),
-        source: sourceValue.value
+        source: sourceValue.value,
+        activate: true
       })
-      toast.success(`已创建 ${created.file}`)
+      toast.success(`已创建 ${created.file} v${created.activeVersion || 1}`)
     } else if (props.target) {
-      const updated = await api.gofunctions.update(projectId.value, props.target.name, sourceValue.value)
-      toast.success(`已保存 ${updated.file}，导出：${updated.exports.join('、') || '无'}`)
+      const updated = await api.gofunctions.saveVersion(projectId.value, props.target.name, {
+        source: sourceValue.value,
+        activate: true
+      })
+      toast.success(`已保存为新版本 v${updated.latestVersion || updated.activeVersion || ''} 并已设为生效`)
     }
     emit('saved')
     close()

@@ -63,6 +63,64 @@ export interface ProjectItem {
   id: string
   name: string
   createdAt: string
+  /** admin 管理数据库（系统项目）标记，super/admin 可见 */
+  managed?: boolean
+}
+
+/* ---------- Auth / Users（login-auth-plan） ---------- */
+
+export type UserRole = 'superadminl1' | 'admin' | 'user'
+
+export interface AuthUser {
+  id: string
+  username: string
+  role: UserRole
+  displayName: string
+  email: string
+  status: 'active' | 'disabled'
+  mustChangePassword: boolean
+  createdBy?: string
+  createdAt?: string
+  lastLoginAt?: string
+}
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface TokenPair {
+  tokenType: string
+  accessToken: string
+  expiresIn: number
+  refreshToken: string
+  user: AuthUser
+}
+
+export interface UserItem extends AuthUser {
+  projectCount: number
+}
+
+export interface UserListResult {
+  users: UserItem[]
+  nextCursor: string
+}
+
+export interface CreateUserRequest {
+  username: string
+  password: string
+  role: Exclude<UserRole, 'superadminl1'>
+  displayName?: string
+  email?: string
+}
+
+export interface UpdateUserRequest {
+  role?: UserRole
+  displayName?: string
+  email?: string
+  status?: 'active' | 'disabled'
+  password?: string
+  mustChangePassword?: boolean
 }
 
 /* ---------- Databases（proto-http.md §3.1） ---------- */
@@ -85,6 +143,8 @@ export interface DatabaseItem {
   updatedAt: string
   /** 仅详情接口可能返回（服务端注入 SnapshotFor 时） */
   snapshot?: { lastSyncedSnapshot: number; syncLag: number }
+  /** 库内用户表总行数；未知/未就绪时省略 */
+  documentCount?: number
 }
 
 export interface DatabaseListResult {
@@ -295,16 +355,31 @@ export interface AgentStreamHandlers {
   onError?: (e: unknown) => void
 }
 
-/* ---------- GoFunctions（proto-http.md §3.13） ---------- */
+/* ---------- GoFunctions（gofunction-versions-testplan） ---------- */
 
-/** 云函数资源。file 由服务端派生 = name + ".go" */
+export interface GoFuncVersionSummary {
+  version: number
+  exports: string[]
+  note: string
+  createdAt: string
+  active: boolean
+  source?: string
+}
+
+/** 云函数实体。file = name + ".go" */
 export interface GoFunctionItem {
   id: string
   name: string
   file: string
-  /** 列表接口省略；详情 / 创建 / 更新返回完整源码 */
-  source?: string
+  description: string
+  /** 0 = 未发布 */
+  activeVersion: number
+  latestVersion: number
+  published: boolean
+  /** 生效版（或最新版）导出 */
   exports: string[]
+  versions?: GoFuncVersionSummary[]
+  source?: string
   createdAt: string
   updatedAt: string
 }
@@ -312,12 +387,33 @@ export interface GoFunctionItem {
 export interface GoFunctionCreate {
   name: string
   source: string
+  description?: string
+  note?: string
+  /** 默认 true：保存后设为生效 */
+  activate?: boolean
+}
+
+export interface GoFuncVersionCreate {
+  source: string
+  note?: string
+  activate?: boolean
+}
+
+export interface GoFuncTestResult {
+  ok: boolean
+  statusCode: number
+  durationMs: number
+  version: number
+  activeVersion: number
+  functionName: string
+  data?: unknown
+  error?: string
 }
 
 /* ---------- CronJobs（proto-http.md §3.14） ---------- */
 
-/** 定时任务调度模式：cron 定时执行 / interval 固定间隔 */
-export type CronScheduleKind = 'cron' | 'interval'
+/** 定时任务调度模式：cron 定时执行 / interval 固定间隔 / once 一次性执行 */
+export type CronScheduleKind = 'cron' | 'interval' | 'once'
 
 /** 定时任务资源。目标为云函数导出函数；时间一律 UTC */
 export interface CronJobItem {
@@ -329,6 +425,8 @@ export interface CronJobItem {
   cronExpr: string
   /** scheduleKind=interval 时非空：秒（60 ~ 2592000） */
   intervalSeconds?: number
+  /** scheduleKind=once 时非空：一次性执行时刻（ISO，UTC） */
+  runAt?: string
   funcFile: string
   funcExport: string
   /** 固定入参 JSON 原文，默认 "{}" */
@@ -367,6 +465,8 @@ export interface CronJobCreate {
   scheduleKind: CronScheduleKind
   cronExpr: string
   intervalSeconds?: number
+  /** scheduleKind=once 时必填 */
+  runAt?: string
   funcFile: string
   funcExport: string
   inputJson: string
@@ -379,12 +479,40 @@ export interface CronJobCreate {
  * （services 层不 import store，保持无状态可测）。
  */
 export interface Api {
+  auth: {
+    login: (req: LoginRequest) => Promise<TokenPair>
+    refresh: (refreshToken: string) => Promise<TokenPair>
+    logout: (refreshToken?: string) => Promise<void>
+    me: () => Promise<AuthUser & { projects: { id: string; name?: string; owner: boolean }[] }>
+    changePassword: (oldPassword: string, newPassword: string) => Promise<void>
+  }
+  users: {
+    list: (limit?: number, cursor?: string) => Promise<UserListResult>
+    create: (req: CreateUserRequest) => Promise<UserItem>
+    get: (id: string) => Promise<UserItem>
+    update: (id: string, req: UpdateUserRequest) => Promise<UserItem>
+    remove: (id: string) => Promise<void>
+  }
   gofunctions: {
     list: (projectId: string) => Promise<GoFunctionItem[]>
     create: (projectId: string, body: GoFunctionCreate) => Promise<GoFunctionItem>
     get: (projectId: string, name: string) => Promise<GoFunctionItem>
-    update: (projectId: string, name: string, source: string) => Promise<GoFunctionItem>
+    /** 保存为新版本（可选设为生效） */
+    saveVersion: (projectId: string, name: string, body: GoFuncVersionCreate) => Promise<GoFunctionItem>
     remove: (projectId: string, name: string) => Promise<void>
+    listVersions: (
+      projectId: string,
+      name: string
+    ) => Promise<{ activeVersion: number; versions: GoFuncVersionSummary[] }>
+    activate: (projectId: string, name: string, version: number) => Promise<{ activeVersion: number }>
+    /** 调试台试跑指定版本 */
+    test: (
+      projectId: string,
+      name: string,
+      version: number,
+      functionName: string,
+      body: unknown
+    ) => Promise<GoFuncTestResult>
   }
   cronjobs: {
     list: (projectId: string) => Promise<CronJobItem[]>
@@ -399,7 +527,7 @@ export interface Api {
   }
   projects: {
     list: () => Promise<ProjectItem[]>
-    create: (req: { name: string; id?: string }) => Promise<ProjectItem>
+    create: (req: { name: string; id?: string; ownerUserId?: string }) => Promise<ProjectItem>
   }
   metrics: {
     summary: (projectId: string) => Promise<MetricsSummary>

@@ -42,6 +42,34 @@ func TestKeyBuilderDescriptorKey(t *testing.T) {
 	}
 }
 
+func TestValidateProjectIDAndNewProjectID(t *testing.T) {
+	if err := ValidateProjectID(""); err == nil {
+		t.Fatal("empty")
+	}
+	if err := ValidateProjectID("short"); err == nil {
+		t.Fatal("too short")
+	}
+	if err := ValidateProjectID("toolong-id"); err == nil {
+		t.Fatal("too long")
+	}
+	if err := ValidateProjectID("bad!char"); err == nil {
+		t.Fatal("invalid char")
+	}
+	if err := ValidateProjectID("pro-test"); err != nil {
+		t.Fatalf("valid: %v", err)
+	}
+	if err := ValidateProjectID("AdminSys"); err != nil {
+		t.Fatalf("valid mixed case: %v", err)
+	}
+	id := NewProjectID()
+	if err := ValidateProjectID(id); err != nil {
+		t.Fatalf("generated id invalid: %v (%v)", id, err)
+	}
+	if len(id) != ProjectIDLen {
+		t.Fatalf("len=%d", len(id))
+	}
+}
+
 func TestKeyBuilderRejectsNonUUID(t *testing.T) {
 	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
 	cases := []struct {
@@ -107,7 +135,7 @@ func TestDescriptorValidateRejectsFutureVersion(t *testing.T) {
 	desc := &Descriptor{
 		FormatVersion:   DescriptorFormatVersion + 1,
 		TenantID:        "11111111-1111-1111-1111-111111111111",
-		ProjectID:       "22222222-2222-2222-2222-222222222222",
+		ProjectID:       "pro-test",
 		DatabaseID:      "33333333-3333-3333-3333-333333333333",
 		CreatedAt:       time.Now().UTC(),
 		DuckLakeStorage: DuckLakeStorage{Region: "us-east-1", Bucket: "b", Prefix: "p"},
@@ -123,7 +151,7 @@ func TestDescriptorValidateMismatchedPrefix(t *testing.T) {
 	desc := &Descriptor{
 		FormatVersion:   DescriptorFormatVersion,
 		TenantID:        "11111111-1111-1111-1111-111111111111",
-		ProjectID:       "22222222-2222-2222-2222-222222222222",
+		ProjectID:       "pro-test",
 		DatabaseID:      "33333333-3333-3333-3333-333333333333",
 		CreatedAt:       time.Now().UTC(),
 		DuckLakeStorage: DuckLakeStorage{Region: "us-east-1", Bucket: "b", Prefix: "p1"},
@@ -139,7 +167,7 @@ func TestDescriptorValidateRejectsV1Turso(t *testing.T) {
 	desc := &Descriptor{
 		FormatVersion: 1,
 		TenantID:      "11111111-1111-1111-1111-111111111111",
-		ProjectID:     "22222222-2222-2222-2222-222222222222",
+		ProjectID:     "pro-test",
 		DatabaseID:    "33333333-3333-3333-3333-333333333333",
 		CreatedAt:     time.Now().UTC(),
 		DataPrefix:    "p",

@@ -188,7 +188,7 @@ describe('remaining coverage gaps', () => {
   it('CronJobModal interval unit selects, json error, and save catches', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     const w = mount(CronJobModal, {
       props: { open: true },
       global: { plugins: [pinia], stubs: uiStubs }
@@ -259,7 +259,7 @@ describe('remaining coverage gaps', () => {
   it('GoFunctionModal monaco, close emit, and save catch', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     const w = mount(GoFunctionModal, {
       props: { open: true, mode: 'create' },
       global: { plugins: [pinia], stubs: uiStubs }
@@ -326,7 +326,7 @@ describe('remaining coverage gaps', () => {
   it('CronJobRunsDrawer copy clicks, load/trigger fallbacks, empty job', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     api.cronjobs.runs.mockResolvedValue([
       {
         id: 'r1',
@@ -383,7 +383,7 @@ describe('remaining coverage gaps', () => {
 
     const pinia = createPinia()
     setActivePinia(pinia)
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     const key = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
     const keyInput = key.find('input')
     if (keyInput.exists()) await keyInput.setValue('k')

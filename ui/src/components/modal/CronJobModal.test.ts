@@ -15,7 +15,7 @@ vi.mock('../../services/api', async () => {
 function mountModal(props: Record<string, unknown> = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
-  useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+  useProjectStore().setProject('dev-shop')
   return mount(CronJobModal, {
     props: { open: true, ...props },
     global: { plugins: [pinia], stubs: uiStubs }
@@ -77,7 +77,7 @@ describe('CronJobModal', () => {
     for (const seconds of [86400, 3600, 90]) {
       const pinia = createPinia()
       setActivePinia(pinia)
-      useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+      useProjectStore().setProject('dev-shop')
       const e = mount(CronJobModal, {
         props: {
           open: false,
@@ -107,5 +107,54 @@ describe('CronJobModal', () => {
     evm.saving = true
     await evm.save()
     edit.unmount()
+  })
+
+  it('filters unpublished go functions and validates name format', async () => {
+    const unpublished = {
+      ...sampleGoFn,
+      id: 'gf-2',
+      name: 'draft',
+      file: 'draft.go',
+      activeVersion: 0,
+      latestVersion: 1,
+      published: false,
+      exports: ['Draft']
+    }
+    api.gofunctions.list.mockResolvedValue([sampleGoFn, unpublished])
+    const w = mountModal()
+    await flushPromises()
+    const vm = w.vm as any
+    expect(vm.unpublishedCount).toBe(1)
+    expect(vm.availableFunctions.map((g: { name: string }) => g.name)).toEqual(['hello'])
+    // 未发布函数不可作目标
+    vm.form.name = 'ok-job'
+    vm.form.scheduleKind = 'cron'
+    vm.form.cronExpr = '0 2 * * *'
+    vm.form.funcFile = 'draft'
+    vm.form.funcExport = 'Draft'
+    expect(vm.canSave).toBe(false)
+    // 任务名格式：数字开头 / 中文 → 拦截
+    vm.form.funcFile = 'hello'
+    vm.form.funcExport = 'Hello'
+    expect(vm.canSave).toBe(true)
+    vm.form.name = '1bad'
+    expect(vm.nameError).toBeTruthy()
+    expect(vm.canSave).toBe(false)
+    vm.form.name = '每日任务'
+    expect(vm.nameError).toBeTruthy()
+    expect(vm.canSave).toBe(false)
+    vm.form.name = 'nightly-ok'
+    expect(vm.nameError).toBe('')
+    expect(vm.canSave).toBe(true)
+    // 编辑态保留当前目标（即使未发布）
+    const edit = mountModal({
+      target: { ...sampleCron, funcFile: 'draft', funcExport: 'Draft' }
+    })
+    await flushPromises()
+    const evm = edit.vm as any
+    expect(evm.availableFunctions.some((g: { name: string }) => g.name === 'draft')).toBe(true)
+    expect(evm.nameError).toBe('')
+    edit.unmount()
+    w.unmount()
   })
 })

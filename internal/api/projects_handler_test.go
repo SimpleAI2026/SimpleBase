@@ -83,7 +83,7 @@ func setupProjectsRouter(t *testing.T, cat CatalogService, perms ...auth.Permiss
 			return next(c)
 		}
 	})
-	h := NewProjectsHandler(cat)
+	h := NewProjectsHandler(cat, nil)
 	e.GET("/v1/projects", h.ListProjects)
 	e.POST("/v1/projects", h.CreateProject)
 	return e

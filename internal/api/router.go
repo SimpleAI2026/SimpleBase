@@ -51,6 +51,9 @@ type Dependencies struct {
 	AgentScheduler *cloudagent.Scheduler
 	// CronScheduler 是云函数定时任务调度器；nil 时 trigger 返回 503。
 	CronScheduler *cronjob.Scheduler
+	// login-auth-plan：登录态与用户管理。
+	Sessions *auth.SessionService
+	Users    *auth.UserService
 }
 
 // CacheService 抽象缓存管理（plan7.md）。
@@ -169,6 +172,13 @@ func NewRouter(deps Dependencies) *echo.Echo {
 		e.GET(deps.Config.Observability.MetricsPath, echo.WrapHandler(promhttp.Handler()))
 	}
 
+	// login-auth-plan：免认证登录/刷新端点。
+	if deps.Sessions != nil && deps.Users != nil {
+		ah := NewAuthHandler(deps.Sessions, deps.Users)
+		e.POST("/v1/auth/login", ah.Login)
+		e.POST("/v1/auth/refresh", ah.Refresh)
+	}
+
 	// v1 业务路由组：认证 → project context → 各 handler
 	if deps.Auth != nil && deps.DatabaseHandler != nil {
 		mountV1Routes(e, deps)
@@ -182,18 +192,34 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	return e
 }
 
-// mountV1Routes 挂载 /v1/projects/:projectID/databases/* 路由。
-// 中间件顺序：APIKeyMiddleware（认证+注入 Principal）→ projectContext（解析+注入 ProjectContext）。
+// mountV1Routes 挂载 /v1 路由。
+// 中间件顺序：AuthMiddleware（JWT/API Key 双通道）→ projectContext。
 // 权限校验通过 auth.Require 在每个路由单独配置。
 func mountV1Routes(e *echo.Echo, deps Dependencies) {
-	authMW := auth.APIKeyMiddleware(deps.Auth, WithPrincipal)
+	authMW := auth.AuthMiddleware(deps.Sessions, deps.Auth, WithPrincipal)
 	require := func(perm auth.Permission) echo.MiddlewareFunc {
 		return auth.Require(perm, PrincipalFromContext)
 	}
 
 	v1 := e.Group("/v1", authMW)
+
+	// 登录态自身路由（需认证）。
+	if deps.Sessions != nil && deps.Users != nil {
+		ah := NewAuthHandler(deps.Sessions, deps.Users)
+		v1.POST("/auth/logout", ah.Logout)
+		v1.GET("/auth/me", ah.Me)
+		v1.PUT("/auth/password", ah.ChangePassword)
+
+		uh := NewUsersHandler(deps.Users, deps.Sessions)
+		v1.GET("/users", uh.List)
+		v1.POST("/users", uh.Create)
+		v1.GET("/users/:id", uh.Get)
+		v1.PATCH("/users/:id", uh.Patch)
+		v1.DELETE("/users/:id", uh.Delete)
+	}
+
 	// 项目枚举 / 创建（不挂 :projectID，供全局切换器）
-	ph := NewProjectsHandler(deps.Catalog)
+	ph := NewProjectsHandler(deps.Catalog, deps.Users)
 	v1.GET("/projects", ph.ListProjects, require(auth.DatabaseRead))
 	v1.POST("/projects", ph.CreateProject, require(auth.ProjectAdmin))
 	p := v1.Group("/projects/:projectID", projectContextMiddlewareEcho(deps))
@@ -316,8 +342,13 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/gofunctions", gh.List, require(auth.DatabaseRead))
 		p.POST("/gofunctions", gh.Create, require(auth.DatabaseWrite))
 		p.GET("/gofunctions/:name", gh.Get, require(auth.DatabaseRead))
-		p.PUT("/gofunctions/:name", gh.Update, require(auth.DatabaseWrite))
+		p.PATCH("/gofunctions/:name", gh.Patch, require(auth.DatabaseWrite))
 		p.DELETE("/gofunctions/:name", gh.Delete, require(auth.DatabaseWrite))
+		p.GET("/gofunctions/:name/versions", gh.ListVersions, require(auth.DatabaseRead))
+		p.POST("/gofunctions/:name/versions", gh.CreateVersion, require(auth.DatabaseWrite))
+		p.GET("/gofunctions/:name/versions/:ver", gh.GetVersion, require(auth.DatabaseRead))
+		p.POST("/gofunctions/:name/versions/:ver/activate", gh.ActivateVersion, require(auth.DatabaseWrite))
+		p.POST("/gofunctions/:name/versions/:ver/test", gh.TestVersion, require(auth.DatabaseWrite))
 
 		// 定时任务管理面（ui-cronjob-plan §6）。writable=false 时写操作返回 503。
 		cj := NewCronJobHandler(deps.System, deps.Config.Instance.Writable, deps.CronScheduler, deps.Audit)
@@ -338,7 +369,7 @@ func mountGoRoutes(e *echo.Echo, deps Dependencies) {
 	if deps.System == nil {
 		return
 	}
-	authMW := auth.APIKeyMiddleware(deps.Auth, WithPrincipal)
+	authMW := auth.AuthMiddleware(deps.Sessions, deps.Auth, WithPrincipal)
 	require := func(perm auth.Permission) echo.MiddlewareFunc {
 		return auth.Require(perm, PrincipalFromContext)
 	}

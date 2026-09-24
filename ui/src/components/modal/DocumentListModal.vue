@@ -21,9 +21,9 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="w-[200px]">ID</TableHead>
-              <TableHead>数据</TableHead>
-              <TableHead class="w-24">操作</TableHead>
+              <TableHead class="sb-col-id">ID</TableHead>
+              <TableHead class="max-w-md">数据</TableHead>
+              <TableHead class="w-28">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

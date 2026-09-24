@@ -24,86 +24,82 @@
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="w-[22%] min-w-40">文件</TableHead>
-                <TableHead>导出函数</TableHead>
-                <TableHead class="w-44">更新时间</TableHead>
-                <TableHead class="w-56">操作</TableHead>
+                <TableHead class="min-w-40 max-w-52">文件</TableHead>
+                <TableHead class="max-w-md">导出函数</TableHead>
+                <TableHead class="w-18 max-w-18">生效版</TableHead>
+                <TableHead class="w-24 max-w-28">最新版本</TableHead>
+                <TableHead class="sb-col-md">更新时间</TableHead>
+                <TableHead class="min-w-72">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <template v-if="loading && !records.length">
                 <TableRow v-for="n in 3" :key="'sk-' + n">
-                  <TableCell colspan="4"><Skeleton class="h-8 w-full" /></TableCell>
+                  <TableCell colspan="6"><Skeleton class="h-8 w-full" /></TableCell>
                 </TableRow>
               </template>
-              <TableEmpty v-else-if="!paged.length" :colspan="4">
+              <TableEmpty v-else-if="!paged.length" :colspan="6">
                 <SbEmptyState
                   :title="isAdminProject ? '系统项目不支持云函数' : '还没有云函数'"
                   :description="isAdminProject ? '系统项目不提供此功能' : '新建一个 .go 文件，导出大写函数后即可 HTTP 调用'"
+                  :action-text="isAdminProject ? undefined : '新建云函数'"
+                  @action="!isAdminProject && openCreate()"
                 />
               </TableEmpty>
               <TableRow v-for="record in paged" :key="record.id">
-                <TableCell>
-                  <TooltipProvider :delay-duration="200">
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <span class="sb-mono inline-flex items-center gap-2 font-medium">
-                          <CodeIcon class="size-4 shrink-0 text-primary" />
-                          <span class="truncate">{{ record.file }}</span>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent class="sb-mono">{{ record.name }}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                <TableCell class="max-w-52">
+                  <span class="sb-mono inline-flex items-center gap-2 font-medium">
+                    <CodeIcon class="size-4 shrink-0 text-primary" />
+                    <span class="truncate">{{ record.file }}</span>
+                  </span>
                 </TableCell>
                 <TableCell>
-                  <TooltipProvider v-if="record.exports.length" :delay-duration="200">
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <div class="line-clamp-1 max-w-md">
-                          <Badge
-                            v-for="fn in record.exports"
-                            :key="fn"
-                            variant="secondary"
-                            class="sb-mono mr-1.5 cursor-pointer hover:bg-secondary/70"
-                            title="点击复制完整调用路径"
-                            @click="copyInvokePath(record, fn)"
-                          >
-                            {{ fn }}
-                          </Badge>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent class="max-w-sm">{{ record.exports.join('、') }}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <span v-else class="text-sm text-muted-foreground">—</span>
+                  <div class="line-clamp-1 max-w-md">
+                    <Badge
+                      v-for="fn in record.exports"
+                      :key="fn"
+                      variant="secondary"
+                      class="sb-mono mr-1.5 cursor-pointer hover:bg-secondary/70"
+                      title="点击复制完整调用路径"
+                      @click="copyInvokePath(record, fn)"
+                    >
+                      {{ fn }}
+                    </Badge>
+                    <span v-if="!record.exports.length" class="text-sm text-muted-foreground">—</span>
+                  </div>
                 </TableCell>
-                <TableCell class="text-xs text-muted-foreground">
+                <TableCell class="w-18 max-w-18">
+                  <Badge v-if="record.activeVersion > 0" variant="success" class="px-1.5">
+                    v{{ record.activeVersion }}
+                  </Badge>
+                  <Badge v-else variant="outline" class="px-1.5">未发布</Badge>
+                </TableCell>
+                <TableCell class="w-24 max-w-28 tabular-nums">
+                  <div class="flex flex-col gap-0.5">
+                    <span>v{{ record.latestVersion || '—' }}</span>
+                    <span
+                      v-if="record.latestVersion > record.activeVersion && record.activeVersion > 0"
+                      class="text-[10px] text-warning"
+                    >有未发布</span>
+                  </div>
+                </TableCell>
+                <TableCell class="sb-col-md text-xs text-muted-foreground">
                   {{ formatTime(record.updatedAt) }}
                 </TableCell>
-                <TableCell>
-                  <div class="flex gap-1">
-                    <Button variant="ghost" size="sm" @click="openView(record)">
-                      <EyeIcon data-icon="inline-start" />
-                      查看
+                <TableCell class="min-w-72">
+                  <div class="flex flex-nowrap items-center gap-1">
+                    <Button v-if="!isAdminProject" variant="outline" size="sm" class="px-2" @click="openTest(record)">
+                      测试
                     </Button>
-                    <Button v-if="!isAdminProject" variant="ghost" size="sm" @click="openEdit(record)">
-                      <PencilIcon data-icon="inline-start" />
-                      编辑
-                    </Button>
-                    <Button variant="ghost" size="sm" @click="copyInvokePath(record, record.exports[0])">
-                      <CopyIcon data-icon="inline-start" />
-                      复制路径
-                    </Button>
+                    <Button variant="ghost" size="sm" class="px-2" @click="openView(record)">查看</Button>
+                    <Button variant="ghost" size="sm" class="px-2" @click="openVersions(record)">版本</Button>
+                    <Button v-if="!isAdminProject" variant="ghost" size="sm" class="px-2" @click="openEdit(record)">编辑</Button>
                     <ConfirmAction
                       v-if="!isAdminProject"
-                      :title="`确认删除 ${record.file}？已导出的 ${record.exports.join(' / ') || '函数'} 将立即不可调用。`"
+                      :title="`确认删除 ${record.file}？生效版将立即不可调用。`"
                       @confirm="remove(record)"
                     >
-                      <Button variant="destructiveGhost" size="sm">
-                        <Trash2Icon data-icon="inline-start" />
-                        删除
-                      </Button>
+                      <Button variant="destructiveGhost" size="sm" class="px-2">删除</Button>
                     </ConfirmAction>
                   </div>
                 </TableCell>
@@ -122,6 +118,12 @@
       </Card>
 
       <GoFunctionModal v-model:open="modalOpen" :mode="modalMode" :target="modalTarget" @saved="load" />
+      <GoFuncTestModal v-model:open="testOpen" :record="testTarget" />
+      <GoFuncVersionsModal
+        v-model:open="versionsOpen"
+        :record="versionsTarget"
+        @changed="load"
+      />
     </PageContainer>
   </ProjectScope>
 </template>
@@ -169,6 +171,8 @@ import SbEmptyState from '../components/SbEmptyState.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import TablePager from '../components/TablePager.vue'
 import GoFunctionModal from '../components/modal/GoFunctionModal.vue'
+import GoFuncTestModal from '../components/modal/GoFuncTestModal.vue'
+import GoFuncVersionsModal from '../components/modal/GoFuncVersionsModal.vue'
 
 const projectStore = useProjectStore()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
@@ -210,6 +214,21 @@ function openView(record: GoFunctionItem) {
   modalMode.value = 'view'
   modalTarget.value = { name: record.name }
   modalOpen.value = true
+}
+
+/* 测试台 / 版本管理 */
+const testOpen = ref(false)
+const testTarget = ref<GoFunctionItem | null>(null)
+const versionsOpen = ref(false)
+const versionsTarget = ref<GoFunctionItem | null>(null)
+
+function openTest(record: GoFunctionItem) {
+  testTarget.value = record
+  testOpen.value = true
+}
+function openVersions(record: GoFunctionItem) {
+  versionsTarget.value = record
+  versionsOpen.value = true
 }
 
 async function remove(record: GoFunctionItem) {

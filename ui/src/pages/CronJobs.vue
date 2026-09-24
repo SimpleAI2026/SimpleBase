@@ -23,12 +23,12 @@
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="w-[20%] min-w-40">名称</TableHead>
-                <TableHead class="w-44">调度</TableHead>
-                <TableHead class="w-40">目标函数</TableHead>
-                <TableHead class="w-36">状态</TableHead>
-                <TableHead class="w-20">启用</TableHead>
-                <TableHead>操作</TableHead>
+                <TableHead class="min-w-40 max-w-56">名称</TableHead>
+                <TableHead class="sb-col-md">调度</TableHead>
+                <TableHead class="sb-col-name">目标函数</TableHead>
+                <TableHead class="sb-col-sm">状态</TableHead>
+                <TableHead class="sb-col-sm">启用</TableHead>
+                <TableHead class="sb-col-act min-w-32">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -65,7 +65,7 @@
                   <div class="flex flex-col gap-0.5">
                     <span class="sb-mono text-xs">{{ scheduleText(record) }}</span>
                     <span class="text-xs text-muted-foreground">
-                      {{ record.scheduleKind === 'cron' ? '定时执行' : '固定间隔' }}
+                      {{ scheduleKindText(record.scheduleKind) }}
                       <template v-if="record.enabled && record.nextRunAt">
                         · 下次 {{ formatTime(record.nextRunAt) }}
                       </template>
@@ -229,14 +229,21 @@ async function load() {
   }
 }
 
-/** 调度人类化：cron 原样等宽；interval 转「每 N 分钟/小时/天」 */
+/** 调度人类化：cron 原样等宽；interval 转「每 N 分钟/小时/天」；once 显示执行时刻 */
 function scheduleText(record: CronJobItem): string {
   if (record.scheduleKind === 'cron') return record.cronExpr
+  if (record.scheduleKind === 'once') return record.runAt ? formatTime(record.runAt) : '—'
   const s = record.intervalSeconds ?? 0
   if (s % 86400 === 0) return `每 ${s / 86400} 天`
   if (s % 3600 === 0) return `每 ${s / 3600} 小时`
   if (s % 60 === 0) return `每 ${s / 60} 分钟`
   return `每 ${s} 秒`
+}
+
+function scheduleKindText(kind: CronJobItem['scheduleKind']): string {
+  if (kind === 'cron') return '定时执行'
+  if (kind === 'once') return '一次性'
+  return '固定间隔'
 }
 
 async function toggleEnabled(record: CronJobItem) {

@@ -86,12 +86,12 @@ export const uiStubs = {
   ComboboxGroup: { template: '<div><slot /></div>' },
   ComboboxItem: { template: '<div><slot /></div>' },
   ToggleGroup: {
-    props: ['modelValue'],
+    props: ['modelValue', 'type'],
     emits: ['update:modelValue'],
     template:
-      '<div class="tg"><button type="button" class="tg-light" @click="$emit(\'update:modelValue\', \'light\')">浅色</button><button type="button" class="tg-dark" @click="$emit(\'update:modelValue\', \'dark\')">深色</button><button type="button" class="tg-system" @click="$emit(\'update:modelValue\', \'system\')">跟随系统</button><button type="button" class="tg-query" @click="$emit(\'update:modelValue\', \'query\')">查询</button><button type="button" class="tg-execute" @click="$emit(\'update:modelValue\', \'execute\')">执行</button><button type="button" class="tg-batch" @click="$emit(\'update:modelValue\', \'batch\')">批量</button><slot /></div>'
+      '<div class="tg"><button type="button" class="tg-light" @click="$emit(\'update:modelValue\', \'light\')">浅色</button><button type="button" class="tg-dark" @click="$emit(\'update:modelValue\', \'dark\')">深色</button><button type="button" class="tg-system" @click="$emit(\'update:modelValue\', \'system\')">跟随系统</button><button type="button" class="tg-query" @click="$emit(\'update:modelValue\', \'query\')">查询</button><button type="button" class="tg-execute" @click="$emit(\'update:modelValue\', \'execute\')">执行</button><button type="button" class="tg-batch" @click="$emit(\'update:modelValue\', \'batch\')">批量</button><button type="button" class="tg-bar" @click="$emit(\'update:modelValue\', \'bar\')">柱状图</button><button type="button" class="tg-line" @click="$emit(\'update:modelValue\', \'line\')">折线图</button><slot /></div>'
   },
-  ToggleGroupItem: { props: ['value'], template: '<span />' },
+  ToggleGroupItem: { props: ['value'], template: '<span class="toggle-item"><slot /></span>' },
   Slider: {
     props: ['modelValue'],
     emits: ['update:modelValue'],
@@ -311,7 +311,8 @@ export const readyDb = {
   name: 'demo',
   status: 'ready' as const,
   createdAt: '2024-01-01T00:00:00Z',
-  updatedAt: '2024-01-01T00:00:00Z'
+  updatedAt: '2024-01-01T00:00:00Z',
+  documentCount: 42
 }
 
 export const closedDb = {
@@ -338,6 +339,10 @@ export const sampleGoFn = {
   id: 'gf-1',
   name: 'hello',
   file: 'hello.go',
+  description: '',
+  activeVersion: 1,
+  latestVersion: 1,
+  published: true,
   exports: ['Hello', 'Ping'],
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-02T00:00:00Z'

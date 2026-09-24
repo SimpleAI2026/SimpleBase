@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	"github.com/linkxzhou/SimpleBase/internal/crontab"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -125,7 +126,7 @@ func (s *Scheduler) tickOnce(ctx context.Context) {
 // runDue 认领并执行一条到期 schedule（scheduled 触发）。
 func (s *Scheduler) runDue(ctx context.Context, sc systemdb.AgentSchedule) {
 	now := time.Now().UTC()
-	spec, err := ParseCron(sc.CronExpr)
+	spec, err := crontab.ParseCron(sc.CronExpr)
 	if err != nil {
 		// 历史数据被改坏：停用并告警，不执行。
 		sc.Enabled = false

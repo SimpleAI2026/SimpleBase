@@ -1,3 +1,5 @@
+// gofunctions.go 兼容层：旧 GoFunction 读写 API 映射到 sys_go_funcs / sys_go_func_versions
+// （gofunction-versions-testplan：对外 HTTP 已是版本化契约；此文件供既有测试与内部调用过渡）。
 package systemdb
 
 import (
@@ -5,155 +7,126 @@ import (
 	"database/sql"
 	"errors"
 	"time"
-
-	"github.com/google/uuid"
 )
 
-// GoFunction 是 sys_gofunctions 一行（ui-gofunction-plan §5）。
-// Source 为权威；Exports 为保存时 ParseFuncList 结果的冗余快照。
+// GoFunction 是旧「一文件一源码」视图；底层为实体 + 生效/最新版本。
 type GoFunction struct {
 	ID        string
 	ProjectID string
-	Name      string // {name}.go 的 basename；同项目唯一（未归档）
+	Name      string
 	Source    string
 	Exports   []string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
-// ListGoFunctions 列出项目内未归档云函数（不含软删）。
-func (s *Store) ListGoFunctions(ctx context.Context, projectID string) ([]GoFunction, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+func fromGoFuncParts(f GoFunc, v GoFuncVersion) GoFunction {
+	src := v.Source
+	exports := v.Exports
+	if exports == nil {
+		exports = []string{}
 	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, source, exports_json, created_at, updated_at
-		 FROM sys_gofunctions WHERE project_id = ? AND archived_at IS NULL
-		 ORDER BY created_at ASC`, projectID)
+	return GoFunction{
+		ID:        f.ID,
+		ProjectID: f.ProjectID,
+		Name:      f.Name,
+		Source:    src,
+		Exports:   exports,
+		CreatedAt: f.CreatedAt,
+		UpdatedAt: f.UpdatedAt,
+	}
+}
+
+// ListGoFunctions 列出项目内云函数（源码取生效版，否则最新版）。
+func (s *Store) ListGoFunctions(ctx context.Context, projectID string) ([]GoFunction, error) {
+	funcs, err := s.ListGoFuncs(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]GoFunction, 0)
-	for rows.Next() {
-		g, err := scanGoFunction(rows)
+	out := make([]GoFunction, 0, len(funcs))
+	for _, f := range funcs {
+		v, err := s.viewVersion(ctx, projectID, f)
 		if err != nil {
-			return nil, err
+			continue
 		}
-		out = append(out, g)
+		out = append(out, fromGoFuncParts(f, v))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-// GetGoFunction 按项目 + 名称取未归档云函数。
+func (s *Store) viewVersion(ctx context.Context, projectID string, f GoFunc) (GoFuncVersion, error) {
+	if f.ActiveVersion > 0 {
+		return s.GetGoFuncVersion(ctx, projectID, f.Name, f.ActiveVersion)
+	}
+	return s.LatestGoFuncVersion(ctx, projectID, f.Name)
+}
+
+// GetGoFunction 按项目 + 名称取（源码同上）。
 func (s *Store) GetGoFunction(ctx context.Context, projectID, name string) (GoFunction, error) {
-	if s == nil || s.db == nil {
-		return GoFunction{}, ErrUnavailable
+	f, err := s.GetGoFunc(ctx, projectID, name)
+	if err != nil {
+		return GoFunction{}, err
 	}
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, source, exports_json, created_at, updated_at
-		 FROM sys_gofunctions WHERE name = ? AND project_id = ? AND archived_at IS NULL`,
-		name, projectID)
-	g, err := scanGoFunction(row)
+	v, err := s.viewVersion(ctx, projectID, f)
 	if errors.Is(err, sql.ErrNoRows) {
-		return GoFunction{}, sql.ErrNoRows
+		return fromGoFuncParts(f, GoFuncVersion{Exports: []string{}}), nil
 	}
-	return g, err
+	if err != nil {
+		return GoFunction{}, err
+	}
+	return fromGoFuncParts(f, v), nil
 }
 
-// CreateGoFunction 写入一个云函数。
+// CreateGoFunction 创建实体 + v1 并默认生效。
 func (s *Store) CreateGoFunction(ctx context.Context, g GoFunction) (GoFunction, error) {
-	if s == nil || s.db == nil {
-		return GoFunction{}, ErrUnavailable
-	}
-	now := time.Now().UTC()
-	if g.ID == "" {
-		g.ID = uuid.NewString()
-	}
-	g.CreatedAt = now
-	g.UpdatedAt = now
-	exportsJSON, err := marshalStringSlice(g.Exports)
+	f, err := s.CreateGoFunc(ctx, GoFunc{
+		ProjectID: g.ProjectID,
+		Name:      g.Name,
+	})
 	if err != nil {
 		return GoFunction{}, err
 	}
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO sys_gofunctions(id, project_id, name, source, exports_json, created_at, updated_at, archived_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, NULL)`,
-		g.ID, g.ProjectID, g.Name, g.Source, exportsJSON, now, now)
+	v, err := s.AppendGoFuncVersion(ctx, GoFuncVersion{
+		FuncID: f.ID, ProjectID: g.ProjectID, Name: g.Name,
+		Source: g.Source, Exports: g.Exports,
+	})
 	if err != nil {
 		return GoFunction{}, err
 	}
-	s.notifyWrite(ctx)
-	return g, nil
+	if err := s.ActivateGoFuncVersion(ctx, g.ProjectID, g.Name, v.Version); err != nil {
+		return GoFunction{}, err
+	}
+	f.ActiveVersion = v.Version
+	return fromGoFuncParts(f, v), nil
 }
 
-// UpdateGoFunction 更新源码与导出快照（name 不可改）。
+// UpdateGoFunction 追加新版本并设为生效（旧语义「覆盖源码」→ 新语义「存新版」）。
 func (s *Store) UpdateGoFunction(ctx context.Context, g GoFunction) (GoFunction, error) {
-	if s == nil || s.db == nil {
-		return GoFunction{}, ErrUnavailable
-	}
-	now := time.Now().UTC()
-	g.UpdatedAt = now
-	exportsJSON, err := marshalStringSlice(g.Exports)
+	f, err := s.GetGoFunc(ctx, g.ProjectID, g.Name)
 	if err != nil {
 		return GoFunction{}, err
 	}
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE sys_gofunctions SET source=?, exports_json=?, updated_at=?
-		 WHERE name=? AND project_id=? AND archived_at IS NULL`,
-		g.Source, exportsJSON, now, g.Name, g.ProjectID)
+	v, err := s.AppendGoFuncVersion(ctx, GoFuncVersion{
+		FuncID: f.ID, ProjectID: g.ProjectID, Name: g.Name,
+		Source: g.Source, Exports: g.Exports,
+	})
 	if err != nil {
 		return GoFunction{}, err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return GoFunction{}, sql.ErrNoRows
+	if err := s.ActivateGoFuncVersion(ctx, g.ProjectID, g.Name, v.Version); err != nil {
+		return GoFunction{}, err
 	}
-	s.notifyWrite(ctx)
-	return g, nil
+	f.ActiveVersion = v.Version
+	f.UpdatedAt = time.Now().UTC()
+	return fromGoFuncParts(f, v), nil
 }
 
-// ArchiveGoFunction 软删云函数。
+// ArchiveGoFunction 软删实体。
 func (s *Store) ArchiveGoFunction(ctx context.Context, projectID, name string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE sys_gofunctions SET archived_at=?, updated_at=? WHERE name=? AND project_id=? AND archived_at IS NULL`,
-		now, now, name, projectID)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	s.notifyWrite(ctx)
-	return nil
+	return s.ArchiveGoFunc(ctx, projectID, name)
 }
 
-// CountGoFunctions 返回未归档数量（含 0）。
+// CountGoFunctions 未归档数量。
 func (s *Store) CountGoFunctions(ctx context.Context, projectID string) (int, error) {
-	if s == nil || s.db == nil {
-		return 0, ErrUnavailable
-	}
-	var n int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sys_gofunctions WHERE project_id = ? AND archived_at IS NULL`, projectID).Scan(&n)
-	return int(n), err
-}
-
-func scanGoFunction(sc rowScanner) (GoFunction, error) {
-	var g GoFunction
-	var exportsJSON string
-	if err := sc.Scan(&g.ID, &g.ProjectID, &g.Name, &g.Source, &exportsJSON, &g.CreatedAt, &g.UpdatedAt); err != nil {
-		return GoFunction{}, err
-	}
-	exports, err := unmarshalStringSlice(exportsJSON)
-	if err != nil {
-		return GoFunction{}, err
-	}
-	g.Exports = exports
-	return g, nil
+	return s.CountGoFuncs(ctx, projectID)
 }

@@ -25,8 +25,15 @@ const (
 //
 // 所有字段都不可包含密钥原文。日志输出时只使用 APIKeyID/TenantID。
 type Principal struct {
-	APIKeyID    string
-	TenantID    string
+	APIKeyID string
+	// UserID / Username / Role / SessionID / AccessJTI 仅登录态（JWT 通道）有值；
+	// API Key 通道保持零值，向后兼容。
+	UserID    string
+	Username  string
+	Role      Role
+	SessionID string
+	AccessJTI string
+	TenantID  string
 	ProjectIDs  map[string]struct{}
 	Permissions map[Permission]struct{}
 }

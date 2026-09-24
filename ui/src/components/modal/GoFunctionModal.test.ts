@@ -20,13 +20,13 @@ describe('GoFunctionModal', () => {
   beforeEach(() => {
     resetApiMocks()
     setActivePinia(createPinia())
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
   })
 
   it('previews exports and saves create/edit/view paths', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     const w = mount(GoFunctionModal, {
       props: { open: true, mode: 'create' },
       global: { plugins: [pinia], stubs: { ...uiStubs, GoMonacoEditor: true } }
@@ -52,7 +52,7 @@ describe('GoFunctionModal', () => {
     await flushPromises()
     expect(api.gofunctions.get).toHaveBeenCalled()
     await vm.save()
-    expect(api.gofunctions.update).toHaveBeenCalled()
+    expect(api.gofunctions.saveVersion).toHaveBeenCalled()
 
     api.gofunctions.get.mockRejectedValueOnce(new Error('src'))
     await w.setProps({ open: false })

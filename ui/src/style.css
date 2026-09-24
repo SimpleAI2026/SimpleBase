@@ -93,6 +93,13 @@
   --composer-radius: 24px;
   --composer-send-bg: #1f1e1d;
   --header-height: 56px;
+
+  /* 表格列宽分档（planv3.0 列宽策略）：sm 短枚举 / md 时间数字 / name 名称 / id 标识 / act 操作 */
+  --sb-col-sm: 5.5rem;
+  --sb-col-md: 9.5rem;
+  --sb-col-name: 11rem;
+  --sb-col-id: 9rem;
+  --sb-col-act: 12rem;
 }
 
 .dark {
@@ -177,6 +184,36 @@
   font-size: 13px;
 }
 
+/* 表格列宽工具类：配合 max-w + truncate，避免过宽/过窄 */
+@utility sb-col-sm {
+  width: var(--sb-col-sm);
+  min-width: 4.5rem;
+  max-width: var(--sb-col-sm);
+}
+
+@utility sb-col-md {
+  width: var(--sb-col-md);
+  min-width: 7.5rem;
+  max-width: 11rem;
+}
+
+@utility sb-col-name {
+  width: var(--sb-col-name);
+  min-width: 8rem;
+  max-width: 14rem;
+}
+
+@utility sb-col-id {
+  width: var(--sb-col-id);
+  min-width: 7rem;
+  max-width: 11rem;
+}
+
+@utility sb-col-act {
+  min-width: 7rem;
+  max-width: var(--sb-col-act);
+}
+
 @utility sb-code {
   margin: 0;
   padding: 10px 12px;
@@ -206,6 +243,45 @@
   line-height: 1.6;
 }
 
+/* Mac 风格滚动条：细、无边框、圆角半透明（全局统一） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--foreground) 22%, transparent);
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--foreground) 38%, transparent);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 隐藏滚动条（侧栏 / 下拉 / 命令面板用） */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 .sb-fade-enter-active,
 .sb-fade-leave-active {
   transition: opacity 0.18s ease, transform 0.18s ease;
@@ -218,3 +294,4 @@
   opacity: 0;
   transform: translateY(-4px);
 }
+

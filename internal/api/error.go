@@ -81,6 +81,39 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, auth.ErrForbidden) {
 		return NewAPIError(http.StatusForbidden, "forbidden", "permission denied", requestID)
 	}
+	if errors.Is(err, auth.ErrUserNotFound) {
+		return NewAPIError(http.StatusNotFound, "user_not_found", "user not found", requestID)
+	}
+	if errors.Is(err, auth.ErrUsernameTaken) {
+		return NewAPIError(http.StatusConflict, "username_taken", "username already exists", requestID)
+	}
+	if errors.Is(err, auth.ErrUserDisabled) {
+		return NewAPIError(http.StatusForbidden, "user_disabled", "user disabled", requestID)
+	}
+	if errors.Is(err, auth.ErrUserProtected) {
+		return NewAPIError(http.StatusBadRequest, "user_protected", "user is protected", requestID)
+	}
+	if errors.Is(err, auth.ErrInvalidRole) {
+		return NewAPIError(http.StatusBadRequest, "invalid_role", "invalid role", requestID)
+	}
+	if errors.Is(err, auth.ErrWeakPassword) {
+		return NewAPIError(http.StatusBadRequest, "weak_password", "password too weak", requestID)
+	}
+	if errors.Is(err, auth.ErrMustChangePasswd) {
+		return NewAPIError(http.StatusLocked, "must_change_password", "password change required", requestID)
+	}
+	if errors.Is(err, auth.ErrInvalidRefreshToken) {
+		return NewAPIError(http.StatusUnauthorized, "invalid_refresh_token", "invalid refresh token", requestID)
+	}
+	if errors.Is(err, auth.ErrSessionRevoked) {
+		return NewAPIError(http.StatusUnauthorized, "session_revoked", "session revoked", requestID)
+	}
+	if errors.Is(err, auth.ErrInvalidToken) {
+		return NewAPIError(http.StatusUnauthorized, "invalid_or_expired_token", "invalid or expired token", requestID)
+	}
+	if errors.Is(err, auth.ErrExpiredToken) {
+		return NewAPIError(http.StatusUnauthorized, "invalid_or_expired_token", "invalid or expired token", requestID)
+	}
 	// catalog 错误
 	if errors.Is(err, catalog.ErrNotFound) {
 		return NewAPIError(http.StatusNotFound, "database_not_found", "database not found", requestID)

@@ -6,6 +6,12 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+/** 数据量展示：undefined → —；数字千分位 + 「条」 */
+export function formatCount(n?: number): string {
+  if (n === undefined || n === null || Number.isNaN(n)) return '—'
+  return `${n.toLocaleString('zh-CN')} 条`
+}
+
 export function formatTime(iso?: string): string {
   if (!iso) return '-'
   const d = new Date(iso)

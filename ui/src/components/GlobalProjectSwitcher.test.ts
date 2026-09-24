@@ -25,7 +25,7 @@ describe('GlobalProjectSwitcher', () => {
   beforeEach(() => {
     resetApiMocks()
     api.projects.list.mockResolvedValue([
-      { id: '00000000-0000-0000-0000-000000000002', name: '商城', createdAt: 't' },
+      { id: 'dev-shop', name: '商城', createdAt: 't' },
       { id: 'p-b', name: 'Beta', createdAt: 't' }
     ])
   })

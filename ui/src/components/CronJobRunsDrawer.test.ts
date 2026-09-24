@@ -15,7 +15,7 @@ describe('CronJobRunsDrawer', () => {
   beforeEach(() => {
     resetApiMocks()
     setActivePinia(createPinia())
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
     vi.useFakeTimers()
   })
@@ -37,7 +37,7 @@ describe('CronJobRunsDrawer', () => {
     ])
     const pinia = createPinia()
     setActivePinia(pinia)
-    useProjectStore().setProject('00000000-0000-0000-0000-000000000002')
+    useProjectStore().setProject('dev-shop')
     const w = mount(CronJobRunsDrawer, {
       props: { open: true, job: sampleCron },
       global: { plugins: [pinia], stubs: uiStubs }

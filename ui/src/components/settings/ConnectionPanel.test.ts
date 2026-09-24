@@ -13,7 +13,7 @@ describe('ConnectionPanel', () => {
     setActivePinia(pinia)
     const auth = useAuthStore()
     const project = useProjectStore()
-    project.setProject('00000000-0000-0000-0000-000000000002', '商城')
+    project.setProject('dev-shop', '商城')
     auth.openSettings()
     const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
     await flushPromises()

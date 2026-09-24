@@ -9,8 +9,8 @@
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="w-[60%] max-w-[420px]">集合名称</TableHead>
-            <TableHead class="w-64 text-right">操作</TableHead>
+            <TableHead class="min-w-44 max-w-80">集合名称</TableHead>
+            <TableHead class="w-52 text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -18,8 +18,8 @@
             <SbEmptyState :description="readonly ? '暂无数据表' : '暂无集合'" :action-text="readonly ? undefined : '新建集合'" @action="!readonly && emit('create-collection')" />
           </TableEmpty>
           <TableRow v-for="record in rows" :key="record.name">
-            <TableCell class="sb-mono max-w-[420px] truncate font-medium" :title="record.name">{{ record.name }}</TableCell>
-            <TableCell class="text-right">
+            <TableCell class="sb-mono max-w-80 truncate font-medium" :title="record.name">{{ record.name }}</TableCell>
+            <TableCell class="w-52 text-right">
               <div class="flex items-center justify-end gap-1">
                 <Button variant="ghost" size="sm" @click="emit('view-data', record.name)">查看数据</Button>
                 <Button v-if="!readonly" variant="ghost" size="sm" @click="emit('add-document', record.name)">新增文档</Button>

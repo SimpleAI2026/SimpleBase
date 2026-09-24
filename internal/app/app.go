@@ -58,6 +58,8 @@ type App struct {
 	catalog       *catalog.Service
 	registry      *registry.Registry
 	auth          *auth.Service
+	users         *auth.UserService
+	sessions      *auth.SessionService
 	cacheMgr      *cache.Manager
 	usageSvc      *usage.Service
 	auditSvc      *audit.Service
@@ -151,6 +153,11 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 			return snapshotFromFactory(f, databaseID)
 		}
 	}
+	// 数据库列表「数据量」列：统计各库用户表总行数（只读，单库限时在 handler）。
+	sqlSvcForStats := api.NewSQLServiceAdapter(a.catalog, a.registry, a.systemStore)
+	dbHandler.RowCountFor = func(ctx context.Context, db catalog.Database) (int64, error) {
+		return api.CountDatabaseRows(ctx, sqlSvcForStats, db)
+	}
 
 	// Plan 6：SQL handler。readonly 实例 SQLHandler 为 nil，路由不挂载写操作；
 	// query 路由也只在 writable 实例提供（首期 readonly 不开放 SQL API）。
@@ -201,6 +208,8 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		Metrics:         metrics,
 		Health:          a.health,
 		Auth:            a.auth,
+		Sessions:        a.sessions,
+		Users:           a.users,
 		Catalog:         a.catalog,
 		Registry:        a.registry,
 		DatabaseHandler: dbHandler,
@@ -321,12 +330,19 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}, a.logger, a.metrics)
 
 	a.auth = auth.NewService(store.AuthRepo(), cfg.Auth.APIKeyHashSecret)
+	a.users = auth.NewUserService(auth.NewSQLUserRepository(store.DB()), catalog.ReservedTenantID)
+	a.sessions = auth.NewSessionService(a.users, auth.NewSQLSessionRepository(store.DB()),
+		cfg.Auth.APIKeyHashSecret, auth.SessionConfig{
+			AccessTTL:  2 * time.Hour,
+			RefreshTTL: 7 * 24 * time.Hour,
+		})
 
 	if err := systemdb.Seed(ctx, systemdb.SeedInput{
 		Store:   store,
 		Auth:    a.auth,
 		Catalog: a.catalog,
 		DevMode: cfg.DevMode,
+		Logger:  a.logger,
 	}); err != nil {
 		return fmt.Errorf("seed system database: %w", err)
 	}

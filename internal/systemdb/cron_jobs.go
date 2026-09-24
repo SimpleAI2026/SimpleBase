@@ -13,6 +13,7 @@ import (
 const (
 	CronJobKindCron     = "cron"
 	CronJobKindInterval = "interval"
+	CronJobKindOnce     = "once"
 )
 
 // 定时任务运行状态（ui-cronjob-plan §4.2）。
@@ -29,9 +30,10 @@ type CronJob struct {
 	ProjectID       string
 	Name            string
 	Description     string
-	ScheduleKind    string // cron / interval
+	ScheduleKind    string // cron / interval / once
 	CronExpr        string // kind=cron 时非空
 	IntervalSeconds int64  // kind=interval 时非空
+	RunAt           time.Time // kind=once 时非空：一次性执行时刻
 	FuncFile        string // sys_gofunctions.name
 	FuncExport      string // 导出函数名
 	InputJSON       string // 固定入参 JSON 原文，默认 "{}"
@@ -76,19 +78,22 @@ func (s *Store) CreateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 	if j.Enabled {
 		enabled = 1
 	}
-	var lastRun, nextRun any
+	var lastRun, nextRun, runAt any
 	if !j.LastRunAt.IsZero() {
 		lastRun = j.LastRunAt.UTC()
 	}
 	if !j.NextRunAt.IsZero() {
 		nextRun = j.NextRunAt.UTC()
 	}
+	if !j.RunAt.IsZero() {
+		runAt = j.RunAt.UTC()
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sys_cron_jobs(id, project_id, name, description, schedule_kind, cron_expr, interval_seconds,
+		`INSERT INTO sys_cron_jobs(id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
 			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
 			created_by, created_at, updated_at, archived_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-		j.ID, j.ProjectID, j.Name, j.Description, j.ScheduleKind, nullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds),
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+		j.ID, j.ProjectID, j.Name, j.Description, j.ScheduleKind, nullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds), runAt,
 		j.FuncFile, j.FuncExport, j.InputJSON, enabled, lastRun, nextRun, j.LastStatus, j.LastError, j.RunCount,
 		j.CreatedBy, now, now)
 	if err != nil {
@@ -104,7 +109,7 @@ func (s *Store) GetCronJob(ctx context.Context, projectID, id string) (CronJob, 
 		return CronJob{}, ErrUnavailable
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds,
+		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
 			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
 			created_by, created_at, updated_at
 		 FROM sys_cron_jobs WHERE id = ? AND project_id = ? AND archived_at IS NULL`, id, projectID)
@@ -121,7 +126,7 @@ func (s *Store) GetCronJobByName(ctx context.Context, projectID, name string) (C
 		return CronJob{}, ErrUnavailable
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds,
+		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
 			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
 			created_by, created_at, updated_at
 		 FROM sys_cron_jobs WHERE project_id = ? AND name = ? AND archived_at IS NULL`, projectID, name)
@@ -138,7 +143,7 @@ func (s *Store) ListCronJobs(ctx context.Context, projectID string) ([]CronJob, 
 		return nil, ErrUnavailable
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds,
+		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
 			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
 			created_by, created_at, updated_at
 		 FROM sys_cron_jobs WHERE project_id = ? AND archived_at IS NULL
@@ -169,19 +174,22 @@ func (s *Store) UpdateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 	if j.Enabled {
 		enabled = 1
 	}
-	var lastRun, nextRun any
+	var lastRun, nextRun, runAt any
 	if !j.LastRunAt.IsZero() {
 		lastRun = j.LastRunAt.UTC()
 	}
 	if !j.NextRunAt.IsZero() {
 		nextRun = j.NextRunAt.UTC()
 	}
+	if !j.RunAt.IsZero() {
+		runAt = j.RunAt.UTC()
+	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE sys_cron_jobs SET description=?, schedule_kind=?, cron_expr=?, interval_seconds=?,
+		`UPDATE sys_cron_jobs SET description=?, schedule_kind=?, cron_expr=?, interval_seconds=?, run_at=?,
 			func_file=?, func_export=?, input_json=?, enabled=?, last_run_at=?, next_run_at=?,
 			last_status=?, last_error=?, run_count=?, updated_at=?
 		 WHERE id=? AND project_id=? AND archived_at IS NULL`,
-		j.Description, j.ScheduleKind, nullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds),
+		j.Description, j.ScheduleKind, nullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds), runAt,
 		j.FuncFile, j.FuncExport, j.InputJSON, enabled, lastRun, nextRun,
 		j.LastStatus, j.LastError, j.RunCount, now, j.ID, j.ProjectID)
 	if err != nil {
@@ -224,7 +232,7 @@ func (s *Store) ListDueCronJobs(ctx context.Context, now time.Time, limit int) (
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds,
+		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
 			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
 			created_by, created_at, updated_at
 		 FROM sys_cron_jobs
@@ -360,8 +368,8 @@ func scanCronJob(sc rowScanner) (CronJob, error) {
 	var enabled int64
 	var cronExpr sql.NullString
 	var interval sql.NullInt64
-	var lastRun, nextRun sql.NullTime
-	if err := sc.Scan(&j.ID, &j.ProjectID, &j.Name, &j.Description, &j.ScheduleKind, &cronExpr, &interval,
+	var lastRun, nextRun, runAt sql.NullTime
+	if err := sc.Scan(&j.ID, &j.ProjectID, &j.Name, &j.Description, &j.ScheduleKind, &cronExpr, &interval, &runAt,
 		&j.FuncFile, &j.FuncExport, &j.InputJSON, &enabled, &lastRun, &nextRun,
 		&j.LastStatus, &j.LastError, &j.RunCount, &j.CreatedBy, &j.CreatedAt, &j.UpdatedAt); err != nil {
 		return CronJob{}, err
@@ -369,6 +377,9 @@ func scanCronJob(sc rowScanner) (CronJob, error) {
 	j.Enabled = enabled != 0
 	j.CronExpr = cronExpr.String
 	j.IntervalSeconds = interval.Int64
+	if runAt.Valid {
+		j.RunAt = runAt.Time
+	}
 	if lastRun.Valid {
 		j.LastRunAt = lastRun.Time
 	}

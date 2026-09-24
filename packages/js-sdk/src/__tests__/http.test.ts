@@ -17,7 +17,7 @@ describe('createClient', () => {
     const sb = createClient({
       url: 'http://example.test',
       apiKey: 'sb_live_dev_key_12345',
-      projectId: '00000000-0000-0000-0000-000000000002',
+      projectId: 'dev-shop',
       fetch: fetchMock as unknown as typeof fetch
     })
     await sb.databases.list()

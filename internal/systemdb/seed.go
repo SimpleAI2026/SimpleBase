@@ -9,6 +9,8 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"go.uber.org/zap"
 )
 
 // DevRawAPIKey 是 DevMode 种子明文 Key（仅本地开发；禁止用于生产）。
@@ -26,6 +28,7 @@ type SeedInput struct {
 	Auth    *auth.Service
 	Catalog *catalog.Service
 	DevMode bool
+	Logger  observability.Logger
 }
 
 // Seed 幂等写入保留租户 / 系统项目；DevMode 额外写入 UUID 项目、Dev Key 与 default 库。
@@ -43,9 +46,27 @@ func Seed(ctx context.Context, in SeedInput) error {
 		return err
 	}
 
+	// login-auth-plan §3.5：幂等种子超管 simplebase2026 / simplebase2026。
+	userRepo := auth.NewSQLUserRepository(in.Store.DB())
+	users := auth.NewUserService(userRepo, catalog.ReservedTenantID)
+	boot, created, err := users.EnsureBootstrapUser(ctx)
+	if err != nil {
+		return fmt.Errorf("systemdb: seed bootstrap user: %w", err)
+	}
+	if created && in.Logger != nil {
+		in.Logger.Info("seeded bootstrap user", zap.String("username", boot.Username))
+	}
+	// 项目归属：admin 系统项目 +（DevMode）种子项目 → 超管。
+	if err := userRepo.SetProjectOwner(ctx, catalog.ReservedSystemProjectID, boot.ID, now); err != nil {
+		return fmt.Errorf("systemdb: seed admin project owner: %w", err)
+	}
+
 	if in.DevMode {
 		if err := seedProject(ctx, repo, catalog.DevProjectID, catalog.ReservedTenantID, devProjectName, now); err != nil {
 			return err
+		}
+		if err := userRepo.SetProjectOwner(ctx, catalog.DevProjectID, boot.ID, now); err != nil {
+			return fmt.Errorf("systemdb: seed dev project owner: %w", err)
 		}
 		if in.Auth != nil {
 			if err := seedDevAPIKey(ctx, in.Store, in.Auth, now); err != nil {

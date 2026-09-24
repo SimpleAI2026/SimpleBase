@@ -40,8 +40,20 @@ describe('httpApi', () => {
     await httpApi.gofunctions.create(pid, { name: 'n', source: 's' })
     http.get.mockResolvedValueOnce({ data: { name: 'n' } })
     await httpApi.gofunctions.get(pid, 'n')
-    http.put.mockResolvedValueOnce({ data: { name: 'n', source: 's2' } })
+    http.post.mockResolvedValueOnce({ data: { name: 'n', source: 's2' } })
+    await httpApi.gofunctions.saveVersion(pid, 'n', { source: 's2', note: 'x', activate: false })
+    http.post.mockResolvedValueOnce({ data: { name: 'n', source: 's2' } })
     await httpApi.gofunctions.update(pid, 'n', 's2')
+    http.post.mockResolvedValueOnce({ data: { active_version: 1 } })
+    await httpApi.gofunctions.activate(pid, 'n', 1)
+    http.get.mockResolvedValueOnce({
+      data: { active_version: 1, versions: [{ version: 1, exports: ['Hello'], note: '', created_at: 't', active: true }] }
+    })
+    await httpApi.gofunctions.listVersions(pid, 'n')
+    http.post.mockResolvedValueOnce({
+      data: { ok: true, status_code: 200, duration_ms: 3, version: 1, active_version: 1, function_name: 'Hello', data: { x: 1 } }
+    })
+    await httpApi.gofunctions.test(pid, 'n', 1, 'Hello', {})
     http.delete.mockResolvedValueOnce({ data: {} })
     await httpApi.gofunctions.remove(pid, 'n')
 
@@ -281,6 +293,22 @@ describe('httpApi', () => {
       data: { functions: [{}] }
     })
     expect((await httpApi.gofunctions.list(pid))[0].exports).toEqual([])
+    http.get.mockResolvedValueOnce({
+      data: {
+        functions: [
+          {
+            id: 'g',
+            name: 'g',
+            active_version: 2,
+            latest_version: 3,
+            published: true,
+            exports: ['A'],
+            versions: [{ version: 2, exports: ['A'], note: 'n', created_at: 't', active: true, source: 'src' }]
+          }
+        ]
+      }
+    })
+    expect((await httpApi.gofunctions.list(pid))[0].versions?.[0].active).toBe(true)
     http.get.mockResolvedValueOnce({ data: { jobs: [{}] } })
     const sparseJob = (await httpApi.cronjobs.list(pid))[0]
     expect(sparseJob.scheduleKind).toBe('cron')

@@ -18,8 +18,8 @@ describe('useProjectStore', () => {
     vi.mocked(api.projects.list).mockReset()
   })
 
-  it('migrates the legacy default id and exposes admin getter', () => {
-    localStorage.setItem('sb_project_id', 'proj-01')
+  it('defaults project id and exposes admin getter', () => {
+    localStorage.removeItem('sb_project_id')
     setActivePinia(createPinia())
     const store = useProjectStore()
     expect(store.id).toBe(DEFAULT_PROJECT_ID)

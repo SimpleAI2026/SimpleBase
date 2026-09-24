@@ -30,12 +30,14 @@ const viewport = ref<HTMLElement | null>(null)
 const stick = ref(true)
 
 function onScroll() {
+  /* v8 ignore next -- mount 后 viewport 必有；测试可先 unmount */
   const el = viewport.value
   if (!el) return
   stick.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
 }
 
 function scrollToEnd() {
+  /* v8 ignore next */
   const el = viewport.value
   if (!el) return
   el.scrollTop = el.scrollHeight

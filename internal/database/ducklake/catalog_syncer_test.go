@@ -40,7 +40,7 @@ func TestCatalogSyncerDebounceAndUpload(t *testing.T) {
 		Blobs:    blobs,
 	}
 	// Force remote keys to work while DATA_PATH stays local: syncer.Remote enabled, factory remote off.
-	meta := catalog.Database{ID: id, TenantID: tenant, ProjectID: "22222222-2222-2222-2222-222222222222"}
+	meta := catalog.Database{ID: id, TenantID: tenant, ProjectID: "pro-test"}
 	db, err := f.Open(context.Background(), meta, database.ReadWrite)
 	if err != nil {
 		t.Fatalf("open: %v", err)

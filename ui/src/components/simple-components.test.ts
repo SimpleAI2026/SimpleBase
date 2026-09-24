@@ -91,12 +91,19 @@ describe('router-backed chrome', () => {
         stubs: {
           SidebarMenu: { template: '<div><slot /></div>' },
           SidebarMenuItem: { template: '<div><slot /></div>' },
-          SidebarMenuButton: { template: '<div><slot /></div>' }
+          SidebarMenuButton: { template: '<div><slot /></div>' },
+          SidebarGroup: { template: '<div><slot /></div>' },
+          SidebarGroupContent: { template: '<div><slot /></div>' },
+          SidebarGroupLabel: { template: '<div><slot /></div>' }
         }
       }
     })
     expect(w.text()).toContain('监控大盘')
     expect(w.text()).not.toContain('设置')
+    expect(w.text()).toContain('工作台')
+    expect(w.text()).toContain('数据')
+    expect(w.text()).toContain('自动化')
+    expect(w.text()).toContain('运维')
     const names = (w.vm as { menuItems: { name: string }[] }).menuItems.map((i) => i.name)
     expect(names).toEqual(['dashboard', 'databases', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs'])
   })

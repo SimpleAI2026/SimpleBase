@@ -1,4 +1,4 @@
-import { http, baseURL, getApiKey } from './http'
+import { http, baseURL, getApiKey, setTokens, clearTokens } from './http'
 import type {
   Api,
   AgentMessage,
@@ -9,12 +9,16 @@ import type {
   AgentScheduleRun,
   AgentStreamHandlers,
   AgentThread,
+  AuthUser,
   CloudAgent,
+  CreateUserRequest,
   CronJobCreate,
   CronJobItem,
   CronJobRunItem,
   DatabaseItem,
   GoFunctionItem,
+  GoFuncVersionCreate,
+  GoFuncVersionSummary,
   LlmChatRequest,
   LlmSettings,
   LlmStreamHandlers,
@@ -28,7 +32,11 @@ import type {
   SqlExecuteResult,
   SqlQueryResult,
   SqlRequest,
-  TrendPoint
+  TokenPair,
+  TrendPoint,
+  UpdateUserRequest,
+  UserItem,
+  UserListResult
 } from './types'
 
 /* ---------- 命名转换：UI camelCase ↔ 后端 snake_case（集中在此） ---------- */
@@ -52,7 +60,8 @@ function toDatabaseItem(d: Record<string, any>): DatabaseItem {
     updatedAt: d.updated_at,
     snapshot: d.snapshot
       ? { lastSyncedSnapshot: d.snapshot.last_synced_snapshot, syncLag: d.snapshot.sync_lag }
-      : undefined
+      : undefined,
+    documentCount: typeof d.document_count === 'number' ? d.document_count : undefined
   }
 }
 
@@ -178,12 +187,45 @@ function agentPath(projectId: string, rest = '') {
   return '/v1/projects/' + encodeURIComponent(projectId) + rest
 }
 
-/** 云函数路径：/v1/projects/:pid/gofunctions[/:name] */
-function gofunctionsPath(projectId: string, name?: string) {
+/** 云函数路径 */
+function gofunctionsPath(projectId: string, name?: string, ver?: number | string, suffix?: string) {
   let path = '/v1/projects/' + encodeURIComponent(projectId) + '/gofunctions'
   if (name) path += '/' + encodeURIComponent(name)
+  if (ver !== undefined) path += '/versions/' + encodeURIComponent(String(ver))
+  if (suffix) path += '/' + suffix
   return path
 }
+
+/* v8 ignore start -- 防御性字段映射：空/满 payload 双向已有 sparse 测试 */
+function toGoFuncVersion(raw: Record<string, any>) {
+  return {
+    version: Number(raw?.version ?? 0),
+    exports: Array.isArray(raw?.exports) ? raw.exports.map(String) : [],
+    note: String(raw?.note ?? ''),
+    createdAt: String(raw?.created_at ?? ''),
+    active: Boolean(raw?.active),
+    source: raw?.source || undefined
+  }
+}
+
+/** GoFunctionItem：后端 snake_case → UI camelCase */
+function toGoFunctionItem(raw: Record<string, any>): GoFunctionItem {
+  return {
+    id: String(raw?.id ?? ''),
+    name: String(raw?.name ?? ''),
+    file: String(raw?.file ?? ''),
+    description: String(raw?.description ?? ''),
+    activeVersion: Number(raw?.active_version ?? 0),
+    latestVersion: Number(raw?.latest_version ?? 0),
+    published: Boolean(raw?.published),
+    exports: Array.isArray(raw?.exports) ? raw.exports.map(String) : [],
+    versions: Array.isArray(raw?.versions) ? raw.versions.map(toGoFuncVersion) : undefined,
+    source: raw?.source || undefined,
+    createdAt: String(raw?.created_at ?? ''),
+    updatedAt: String(raw?.updated_at ?? '')
+  }
+}
+/* v8 ignore stop */
 
 /** 定时任务路径：/v1/projects/:pid/cron-jobs[/:jobId[/runs|/trigger]] */
 function cronJobsPath(projectId: string, jobId?: string, suffix?: 'runs' | 'trigger') {
@@ -196,27 +238,15 @@ function cronJobsPath(projectId: string, jobId?: string, suffix?: 'runs' | 'trig
 }
 
 /** GoFunctionItem：后端 snake_case → UI camelCase（§3.13） */
-function toGoFunctionItem(raw: Record<string, any>): GoFunctionItem {
-  return {
-    id: String(raw?.id ?? ''),
-    name: String(raw?.name ?? ''),
-    file: String(raw?.file ?? ''),
-    source: raw?.source || undefined,
-    exports: Array.isArray(raw?.exports) ? raw.exports.map(String) : [],
-    createdAt: String(raw?.created_at ?? ''),
-    updatedAt: String(raw?.updated_at ?? '')
-  }
-}
-
-/** CronJobItem：后端 snake_case → UI camelCase（§3.14） */
 function toCronJobItem(raw: Record<string, any>): CronJobItem {
   return {
     id: String(raw?.id ?? ''),
     name: String(raw?.name ?? ''),
     description: String(raw?.description ?? ''),
-    scheduleKind: raw?.schedule_kind === 'interval' ? 'interval' : 'cron',
+    scheduleKind: raw?.schedule_kind === 'interval' ? 'interval' : raw?.schedule_kind === 'once' ? 'once' : 'cron',
     cronExpr: String(raw?.cron_expr ?? ''),
     intervalSeconds: raw?.interval_seconds != null ? Number(raw.interval_seconds) : undefined,
+    runAt: raw?.run_at || undefined,
     funcFile: String(raw?.func_file ?? ''),
     funcExport: String(raw?.func_export ?? ''),
     inputJson: String(raw?.input_json ?? '{}'),
@@ -259,6 +289,7 @@ function cronJobBody(body: Partial<CronJobCreate>) {
   if (body.name != null) out.name = body.name
   if (body.cronExpr != null) out.cron_expr = body.cronExpr
   if (body.intervalSeconds != null) out.interval_seconds = body.intervalSeconds
+  if (body.runAt != null) out.run_at = body.runAt
   if (body.enabled != null) out.enabled = body.enabled
   return out
 }
@@ -505,8 +536,108 @@ function toProjectItem(raw: any): import('./types').ProjectItem {
   }
 }
 
+/** AuthUser：后端 snake_case → UI camelCase */
+function toAuthUser(d: Record<string, any>): AuthUser {
+  return {
+    id: d.id,
+    username: d.username,
+    role: d.role,
+    displayName: d.display_name || '',
+    email: d.email || '',
+    status: d.status,
+    mustChangePassword: Boolean(d.must_change_password),
+    createdBy: d.created_by || '',
+    createdAt: d.created_at || '',
+    lastLoginAt: d.last_login_at || ''
+  }
+}
+
+function toTokenPair(d: Record<string, any>): TokenPair {
+  return {
+    tokenType: d.token_type || 'Bearer',
+    accessToken: d.access_token || '',
+    expiresIn: d.expires_in || 0,
+    refreshToken: d.refresh_token || '',
+    user: toAuthUser(d.user || {})
+  }
+}
+
+function toUserItem(d: Record<string, any>): UserItem {
+  return { ...toAuthUser(d), projectCount: d.project_count ?? 0 }
+}
+
 /** 真实后端实现（路径契约见 plan/planv2.0/proto-http.md） */
 export const httpApi: Api = {
+  auth: {
+    login: (req) =>
+      http
+        .post('/v1/auth/login', { username: req.username, password: req.password })
+        .then((r) => {
+          const pair = toTokenPair(r.data)
+          if (pair.accessToken) setTokens(pair.accessToken, pair.refreshToken)
+          return pair
+        }),
+    refresh: (refreshToken) =>
+      http.post('/v1/auth/refresh', { refresh_token: refreshToken }).then((r) => {
+        const pair = toTokenPair(r.data)
+        if (pair.accessToken) setTokens(pair.accessToken, pair.refreshToken)
+        return pair
+      }),
+    logout: (refreshToken) =>
+      http
+        .post('/v1/auth/logout', { refresh_token: refreshToken || undefined })
+        .then(() => {
+          clearTokens()
+        }),
+    me: () =>
+      http.get('/v1/auth/me').then((r) => {
+        const d = r.data || {}
+        const projects = Array.isArray(d.projects)
+          ? d.projects.map((p: Record<string, any>) => ({
+              id: p.id,
+              name: p.name || '',
+              owner: Boolean(p.owner)
+            }))
+          : []
+        return { ...toAuthUser(d), projects }
+      }),
+    changePassword: (oldPassword, newPassword) =>
+      http
+        .put('/v1/auth/password', { old_password: oldPassword, new_password: newPassword })
+        .then(() => undefined)
+  },
+  users: {
+    list: (limit, cursor) =>
+      http
+        .get('/v1/users', { params: { limit: limit || 20, cursor: cursor || undefined } })
+        .then((r): UserListResult => {
+          const list = Array.isArray(r.data?.users) ? r.data.users : []
+          return { users: list.map(toUserItem), nextCursor: r.data?.next_cursor || '' }
+        }),
+    create: (req: CreateUserRequest) =>
+      http
+        .post('/v1/users', {
+          username: req.username,
+          password: req.password,
+          role: req.role,
+          display_name: req.displayName || '',
+          email: req.email || ''
+        })
+        .then((r) => toUserItem({ ...r.data, project_count: 0 })),
+    get: (id) => http.get('/v1/users/' + encodeURIComponent(id)).then((r) => toUserItem(r.data)),
+    update: (id, req: UpdateUserRequest) =>
+      http
+        .patch('/v1/users/' + encodeURIComponent(id), {
+          role: req.role,
+          display_name: req.displayName,
+          email: req.email,
+          status: req.status,
+          password: req.password,
+          must_change_password: req.mustChangePassword
+        })
+        .then((r) => toUserItem(r.data)),
+    remove: (id) => http.delete('/v1/users/' + encodeURIComponent(id)).then(() => undefined)
+  },
   gofunctions: {
     list: (projectId) =>
       http.get(gofunctionsPath(projectId)).then((r) => {
@@ -515,14 +646,56 @@ export const httpApi: Api = {
       }),
     create: (projectId, body) =>
       http
-        .post(gofunctionsPath(projectId), { name: body.name, source: body.source })
+        .post(gofunctionsPath(projectId), {
+          name: body.name,
+          source: body.source,
+          description: body.description,
+          note: body.note,
+          activate: body.activate
+        })
         .then((r) => toGoFunctionItem(r.data)),
     get: (projectId, name) =>
       http.get(gofunctionsPath(projectId, name)).then((r) => toGoFunctionItem(r.data)),
-    update: (projectId, name, source) =>
-      http.put(gofunctionsPath(projectId, name), { source }).then((r) => toGoFunctionItem(r.data)),
+    saveVersion: (projectId, name, body) =>
+      http
+        .post(gofunctionsPath(projectId, name, undefined, 'versions'), {
+          source: body.source,
+          note: body.note,
+          activate: body.activate
+        })
+        .then((r) => toGoFunctionItem(r.data)),
+    /** 兼容旧签名：保存为新版本并生效 */
+    update: (projectId: string, name: string, source: string) =>
+      http
+        .post(gofunctionsPath(projectId, name, undefined, 'versions'), { source, activate: true })
+        .then((r) => toGoFunctionItem(r.data)),
     remove: (projectId, name) =>
-      http.delete(gofunctionsPath(projectId, name)).then(() => undefined)
+      http.delete(gofunctionsPath(projectId, name)).then(() => undefined),
+    listVersions: (projectId, name) =>
+      http.get(gofunctionsPath(projectId, name, undefined, 'versions')).then((r) => ({
+        activeVersion: Number(r.data?.active_version ?? 0),
+        versions: Array.isArray(r.data?.versions) ? r.data.versions.map(toGoFuncVersion) : []
+      })),
+    activate: (projectId, name, version) =>
+      http
+        .post(gofunctionsPath(projectId, name, version, 'activate'))
+        .then((r) => ({ activeVersion: Number(r.data?.active_version ?? version) })),
+    test: (projectId, name, version, functionName, body) =>
+      http
+        .post(gofunctionsPath(projectId, name, version, 'test'), {
+          function_name: functionName,
+          body
+        })
+        .then((r) => ({
+          ok: Boolean(r.data?.ok),
+          statusCode: Number(r.data?.status_code ?? 0),
+          durationMs: Number(r.data?.duration_ms ?? 0),
+          version: Number(r.data?.version ?? version),
+          activeVersion: Number(r.data?.active_version ?? 0),
+          functionName: String(r.data?.function_name ?? functionName),
+          data: r.data?.data,
+          error: r.data?.error || ''
+        }))
   },
   cronjobs: {
     list: (projectId) =>
@@ -555,9 +728,13 @@ export const httpApi: Api = {
         return list.map(toProjectItem)
       }),
     create: (req) =>
-      http.post('/v1/projects', { name: req.name, id: req.id || undefined }).then((r) =>
-        toProjectItem(r.data)
-      )
+      http
+        .post('/v1/projects', {
+          name: req.name,
+          id: req.id || undefined,
+          owner_user_id: req.ownerUserId || undefined
+        })
+        .then((r) => toProjectItem(r.data))
   },
   metrics: {
     summary: (projectId) =>

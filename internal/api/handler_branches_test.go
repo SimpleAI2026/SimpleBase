@@ -561,7 +561,7 @@ func TestProjectsHandler_MoreBranches(t *testing.T) {
 	e := setupProjectsRouter(t, &fakeProjectCatalog{})
 	// missing principal
 	e2 := echo.New()
-	h := NewProjectsHandler(&fakeProjectCatalog{})
+	h := NewProjectsHandler(&fakeProjectCatalog{}, nil)
 	e2.GET("/v1/projects", h.ListProjects)
 	e2.POST("/v1/projects", h.CreateProject)
 	rec := doRequest(e2, http.MethodGet, "/v1/projects", nil)
@@ -584,10 +584,10 @@ func TestProjectsHandler_MoreBranches(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("invalid_project_name")) {
 		t.Fatalf("invalid name %d %s", rec.Code, rec.Body.String())
 	}
-	cat.err = errors.New("catalog: invalid name: id must be a UUID")
+	cat.err = errors.New("catalog: invalid name: id must be 8 chars [A-Za-z0-9-]")
 	// errors.Is won't match unless wrapped
-	cat.err = wrapInvalid("id must be a UUID")
-	rec = doRequest(e, http.MethodPost, "/v1/projects", CreateProjectRequest{Name: "x", ID: "not-uuid"})
+	cat.err = wrapInvalid("id must be 8 chars [A-Za-z0-9-]")
+	rec = doRequest(e, http.MethodPost, "/v1/projects", CreateProjectRequest{Name: "x", ID: "not-valid!"})
 	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("invalid_project_id")) {
 		t.Fatalf("invalid id %d %s", rec.Code, rec.Body.String())
 	}

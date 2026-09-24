@@ -5,13 +5,12 @@ import type { ProjectItem } from '../services/types'
 const STORAGE_KEY = 'sb_project_id'
 const HISTORY_KEY = 'sb_project_id_history'
 const HISTORY_MAX = 20
-const LEGACY_DEFAULT_ID = 'proj-01'
 
 /** DevMode 种子项目（internal/catalog.DevProjectID / systemdb seed）。 */
-export const DEFAULT_PROJECT_ID = '00000000-0000-0000-0000-000000000002'
+export const DEFAULT_PROJECT_ID = 'dev-shop'
 
 /** admin（系统）项目：internal/catalog.ReservedSystemProjectID。 */
-export const ADMIN_PROJECT_ID = '00000000-0000-0000-0000-000000000099'
+export const ADMIN_PROJECT_ID = 'sb-admin'
 
 function loadHistory(): string[] {
   try {
@@ -29,14 +28,14 @@ function saveHistory(ids: string[]) {
 
 function initialProjectId(): string {
   const stored = localStorage.getItem(STORAGE_KEY)
-  if (!stored || stored === LEGACY_DEFAULT_ID) {
+  if (!stored) {
     localStorage.setItem(STORAGE_KEY, DEFAULT_PROJECT_ID)
     return DEFAULT_PROJECT_ID
   }
   return stored
 }
 
-/** 当前项目 store：GET /v1/projects 缓存 + 本地历史；缺省 DevMode 种子 UUID。 */
+/** 当前项目 store：GET /v1/projects 缓存 + 本地历史；缺省 DevMode 种子项目。 */
 export const useProjectStore = defineStore('project', {
   state: () => ({
     projectId: initialProjectId(),

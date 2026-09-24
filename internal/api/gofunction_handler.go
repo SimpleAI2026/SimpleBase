@@ -1,31 +1,32 @@
-// gofunction_handler.go 实现云函数（Go Function）的管理与调用 handler。
+// gofunction_handler.go 云函数管理 + 版本 + 调试台 + /go 调用
+// （gofunction-versions-testplan §5）。
 //
-// 管理面（挂在 /v1/projects/:projectID/gofunctions 下）：
+// 管理面（/v1/projects/:projectID/gofunctions）：
 //
-//	GET    /gofunctions          列出（列表不带 source）
-//	POST   /gofunctions          创建（保存前 ValidateHTTPFuncs 校验）
-//	GET    /gofunctions/:name    详情（含 source）
-//	PUT    /gofunctions/:name    更新源码
-//	DELETE /gofunctions/:name    软删
+//	GET    /gofunctions                         列表（含 active/latest）
+//	POST   /gofunctions                         创建实体 + v1
+//	GET    /gofunctions/:name                   详情 + 版本摘要
+//	PATCH  /gofunctions/:name                   改 description
+//	DELETE /gofunctions/:name                   软删
+//	GET    /gofunctions/:name/versions          版本列表
+//	POST   /gofunctions/:name/versions          新建版本
+//	GET    /gofunctions/:name/versions/:ver     版本详情（含 source）
+//	POST   /gofunctions/:name/versions/:ver/activate  发布/回滚
+//	POST   /gofunctions/:name/versions/:ver/test      调试台试跑
 //
-// 调用面（挂在 /go/:projectID 下）：
+// 调用面：
 //
-//	POST /go/:projectID/:name/:functionName   执行（响应体为返回值 JSON，无 envelope）
-//	GET  /go/:projectID/:name/:functionName   405 JSON（防 SPA fallback 吞掉）
-//
-// metrics（ui-gofunction-plan §10.1）：
-//
-//	gofunction_invokes / gofunction_invoke_duration_ms / gofunction_invoke_errors
-//	gofunction_compile_ms
+//	POST /go/:projectID/:name/:functionName     只跑 active_version
 package api
 
 import (
-	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,53 +36,72 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-// gofunctionNameRe 云函数名规则（与集合名一致）：^[A-Za-z][A-Za-z0-9_]{0,62}$
-var gofunctionNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,62}$`)
-
-// gofunctionExportNameRe 导出函数名：大写开头的 Go 标识符
-var gofunctionExportNameRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
-
-const (
-	gofunctionMaxSourceBytes = 256 << 10 // 256 KiB
-	gofunctionMaxPerProject  = 100
-)
-
-// GoFunctionHandler 依赖系统库；writable=false 时写操作返回 503。
-// audit 可为 nil（不写审计）；写操作成功时记 kind=gofunction（detail 不含源码，§10）。
+// GoFunctionHandler 依赖系统库；writable=false 时写/测试返回 503。
 type GoFunctionHandler struct {
 	store    *systemdb.Store
 	writable bool
 	audit    AuditService
 }
 
+var (
+	gofunctionNameRe       = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,62}$`)
+	gofunctionExportNameRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
+)
+
+const (
+	gofunctionMaxSourceBytes = 256 << 10
+	gofunctionMaxPerProject  = 100
+)
+
 // NewGoFunctionHandler 构造 handler。
 func NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService) *GoFunctionHandler {
 	return &GoFunctionHandler{store: store, writable: writable, audit: audit}
 }
 
-// goFunctionDTO 是对外 JSON（snake_case，ui-gofunction-plan §7.1）。
-type goFunctionDTO struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	File      string   `json:"file"`
-	Source    string   `json:"source,omitempty"`
+// ---------- DTO ----------
+
+type goFuncVersionSummary struct {
+	Version   int64    `json:"version"`
 	Exports   []string `json:"exports"`
+	Note      string   `json:"note"`
 	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at"`
+	Active    bool     `json:"active"`
+	Source    string   `json:"source,omitempty"`
 }
 
-func toGoFunctionDTO(g systemdb.GoFunction, withSource bool) goFunctionDTO {
+type goFuncDTO struct {
+	ID            string                 `json:"id"`
+	Name          string                 `json:"name"`
+	File          string                 `json:"file"`
+	Description   string                 `json:"description"`
+	ActiveVersion int64                  `json:"active_version"`
+	LatestVersion int64                  `json:"latest_version"`
+	Published     bool                   `json:"published"`
+	Exports       []string               `json:"exports"`
+	Versions      []goFuncVersionSummary `json:"versions,omitempty"`
+	Source        string                 `json:"source,omitempty"`
+	CreatedAt     string                 `json:"created_at"`
+	UpdatedAt     string                 `json:"updated_at"`
+}
+
+// goFunctionDTO / toGoFunctionDTO：兼容旧测试与 PUT 路径。
+type goFunctionDTO = goFuncDTO
+
+func toGoFunctionDTO(g systemdb.GoFunction, withSource bool) goFuncDTO {
 	exports := g.Exports
 	if exports == nil {
 		exports = []string{}
 	}
-	dto := goFunctionDTO{
-		ID:        g.ID,
-		Name:      g.Name,
-		File:      g.Name + ".go",
-		Exports:   exports,
-		CreatedAt: g.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: g.UpdatedAt.UTC().Format(time.RFC3339),
+	dto := goFuncDTO{
+		ID:            g.ID,
+		Name:          g.Name,
+		File:          g.Name + ".go",
+		ActiveVersion: 1,
+		LatestVersion: 1,
+		Published:     true,
+		Exports:       exports,
+		CreatedAt:     g.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:     g.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	if withSource {
 		dto.Source = g.Source
@@ -89,7 +109,68 @@ func toGoFunctionDTO(g systemdb.GoFunction, withSource bool) goFunctionDTO {
 	return dto
 }
 
-// List 列出当前项目云函数（列表不带 source）。
+func toVersionSummary(v systemdb.GoFuncVersion, activeVersion int64) goFuncVersionSummary {
+	exports := v.Exports
+	if exports == nil {
+		exports = []string{}
+	}
+	return goFuncVersionSummary{
+		Version:   v.Version,
+		Exports:   exports,
+		Note:      v.Note,
+		CreatedAt: v.CreatedAt.UTC().Format(time.RFC3339),
+		Active:    v.Version == activeVersion,
+		Source:    v.Source,
+	}
+}
+
+func (h *GoFunctionHandler) toDTO(f systemdb.GoFunc, vers []systemdb.GoFuncVersion, withVersions bool) (goFuncDTO, error) {
+	latest := int64(0)
+	if len(vers) > 0 {
+		latest = vers[0].Version // 降序
+	}
+	// D12：exports 取 active，否则 latest
+	pick := f.ActiveVersion
+	if pick <= 0 {
+		pick = latest
+	}
+	var exports []string
+	source := ""
+	for _, v := range vers {
+		if v.Version == pick {
+			exports = v.Exports
+			break
+		}
+	}
+	if exports == nil {
+		exports = []string{}
+	}
+	// 需要 source 时单独取（列表 vers.Source 已被清空）
+	dto := goFuncDTO{
+		ID:            f.ID,
+		Name:          f.Name,
+		File:          f.Name + ".go",
+		Description:   f.Description,
+		ActiveVersion: f.ActiveVersion,
+		LatestVersion: latest,
+		Published:     f.ActiveVersion > 0,
+		Exports:       exports,
+		CreatedAt:     f.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:     f.UpdatedAt.UTC().Format(time.RFC3339),
+		Source:        source,
+	}
+	if withVersions {
+		dto.Versions = make([]goFuncVersionSummary, 0, len(vers))
+		for _, v := range vers {
+			dto.Versions = append(dto.Versions, toVersionSummary(v, f.ActiveVersion))
+		}
+	}
+	return dto, nil
+}
+
+// ---------- 管理面 ----------
+
+// List: GET /gofunctions
 func (h *GoFunctionHandler) List(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -98,47 +179,56 @@ func (h *GoFunctionHandler) List(c echo.Context) error {
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
-	rows, err := h.store.ListGoFunctions(c.Request().Context(), pc.ID)
+	if systemdb.IsAdminProject(pc.ID) {
+		return c.JSON(http.StatusOK, map[string]any{"functions": []goFuncDTO{}})
+	}
+	rows, err := h.store.ListGoFuncs(c.Request().Context(), pc.ID)
 	if err != nil {
 		return WriteError(c, err)
 	}
-	// admin 系统项目不提供云函数：返回空列表（与系统库只读策略一致）
-	if systemdb.IsAdminProject(pc.ID) {
-		rows = nil
-	}
-	dtos := make([]goFunctionDTO, 0, len(rows))
-	for _, g := range rows {
-		dtos = append(dtos, toGoFunctionDTO(g, false))
+	dtos := make([]goFuncDTO, 0, len(rows))
+	for _, f := range rows {
+		vers, err := h.store.ListGoFuncVersions(c.Request().Context(), pc.ID, f.Name)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		d, err := h.toDTO(f, vers, false)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		dtos = append(dtos, d)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"functions": dtos})
 }
 
-// goFunctionCreateRequest 创建请求体。
-type goFunctionCreateRequest struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
+type goFuncCreateRequest struct {
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Description string `json:"description"`
+	Note        string `json:"note"`
+	Activate    *bool  `json:"activate"`
 }
 
-// Create 创建云函数。保存前 ValidateHTTPFuncs 编译校验。
+// Create: POST /gofunctions —— 实体 + v1。
 func (h *GoFunctionHandler) Create(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, errors.New("project context missing"))
 	}
+	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
 		return WriteError(c, errWriterUnavailable())
 	}
 	if systemdb.IsAdminProject(pc.ID) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
-	var req goFunctionCreateRequest
+	var req goFuncCreateRequest
 	if err := bindGoFunctionBody(c, &req); err != nil {
 		return WriteError(c, err)
 	}
-	rid := RequestIDFromContext(c.Request().Context())
 	if !gofunctionNameRe.MatchString(req.Name) {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_gofunction_name", "name must match ^[A-Za-z][A-Za-z0-9_]{0,62}$", rid))
 	}
@@ -149,32 +239,52 @@ func (h *GoFunctionHandler) Create(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, mapGoFunctionValidationError(err, rid))
 	}
-	// 查重 + 配额
-	if existing, err := h.store.GetGoFunction(c.Request().Context(), pc.ID, req.Name); err == nil && existing.ID != "" {
+	if existing, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, req.Name); err == nil && existing.ID != "" {
 		return WriteError(c, NewAPIError(http.StatusConflict, "gofunction_already_exists", "go function already exists", rid))
 	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return WriteError(c, err)
 	}
-	if n, err := h.store.CountGoFunctions(c.Request().Context(), pc.ID); err != nil {
+	if n, err := h.store.CountGoFuncs(c.Request().Context(), pc.ID); err != nil {
 		return WriteError(c, err)
 	} else if n >= gofunctionMaxPerProject {
 		return WriteError(c, NewAPIError(422, "gofunction_limit_exceeded", "go function limit exceeded (100 per project)", rid))
 	}
-	exports := make([]string, 0, len(infos))
-	for _, fi := range infos {
-		exports = append(exports, fi.Name)
-	}
-	created, err := h.store.CreateGoFunction(c.Request().Context(), systemdb.GoFunction{
-		ProjectID: pc.ID, Name: req.Name, Source: req.Source, Exports: exports,
+	exports := funcNames(infos)
+
+	f, err := h.store.CreateGoFunc(c.Request().Context(), systemdb.GoFunc{
+		ProjectID: pc.ID, Name: req.Name, Description: req.Description,
+		CreatedBy: actorID(c),
 	})
 	if err != nil {
 		return WriteError(c, err)
 	}
-	h.recordAudit(c, pc.ID, "create "+req.Name+".go")
-	return c.JSON(http.StatusCreated, toGoFunctionDTO(created, true))
+	v, err := h.store.AppendGoFuncVersion(c.Request().Context(), systemdb.GoFuncVersion{
+		FuncID: f.ID, ProjectID: pc.ID, Name: req.Name,
+		Source: req.Source, Exports: exports, Note: req.Note, CreatedBy: actorID(c),
+	})
+	if err != nil {
+		return WriteError(c, err)
+	}
+	activate := true
+	if req.Activate != nil {
+		activate = *req.Activate
+	}
+	if activate {
+		if err := h.store.ActivateGoFuncVersion(c.Request().Context(), pc.ID, req.Name, v.Version); err != nil {
+			return WriteError(c, err)
+		}
+		f.ActiveVersion = v.Version
+	}
+	h.recordAudit(c, pc.ID, "create "+req.Name+".go v"+strconv.FormatInt(v.Version, 10))
+	dto, err := h.toDTO(f, []systemdb.GoFuncVersion{v}, true)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	dto.Source = req.Source
+	return c.JSON(http.StatusCreated, dto)
 }
 
-// Get 详情（含 source）。
+// Get: GET /gofunctions/:name
 func (h *GoFunctionHandler) Get(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -184,26 +294,29 @@ func (h *GoFunctionHandler) Get(c echo.Context) error {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
 	name := c.Param("name")
-	if !gofunctionNameRe.MatchString(name) {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_gofunction_name", "invalid go function name", RequestIDFromContext(c.Request().Context())))
-	}
-	g, err := h.store.GetGoFunction(c.Request().Context(), pc.ID, name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context())))
-	}
+	f, vers, err := h.loadFunc(c, pc.ID, name)
 	if err != nil {
 		return WriteError(c, err)
 	}
-	return c.JSON(http.StatusOK, toGoFunctionDTO(g, true))
+	dto, err := h.toDTO(f, vers, true)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	// 附 source：active 优先，否则 latest
+	src, err := h.pickSource(c, pc.ID, name, f)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	dto.Source = src
+	return c.JSON(http.StatusOK, dto)
 }
 
-// goFunctionUpdateRequest 更新请求体（name 不可改）。
-type goFunctionUpdateRequest struct {
-	Source string `json:"source"`
+type goFuncPatchRequest struct {
+	Description string `json:"description"`
 }
 
-// Update 更新源码，重算 exports。
-func (h *GoFunctionHandler) Update(c echo.Context) error {
+// Patch: PATCH /gofunctions/:name —— 仅 description。
+func (h *GoFunctionHandler) Patch(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, errors.New("project context missing"))
@@ -211,50 +324,37 @@ func (h *GoFunctionHandler) Update(c echo.Context) error {
 	if !h.writable {
 		return WriteError(c, errWriterUnavailable())
 	}
-	if systemdb.IsAdminProject(pc.ID) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", RequestIDFromContext(c.Request().Context())))
-	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
 	name := c.Param("name")
-	rid := RequestIDFromContext(c.Request().Context())
-	if !gofunctionNameRe.MatchString(name) {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_gofunction_name", "invalid go function name", rid))
+	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context())))
 	}
-	var req goFunctionUpdateRequest
+	if err != nil {
+		return WriteError(c, err)
+	}
+	var req goFuncPatchRequest
 	if err := bindGoFunctionBody(c, &req); err != nil {
 		return WriteError(c, err)
 	}
-	if err := validateGoFunctionSource(req.Source); err != nil {
+	f.Description = req.Description
+	if err := h.store.UpdateGoFuncMeta(c.Request().Context(), f); err != nil {
 		return WriteError(c, err)
 	}
-	infos, err := h.validateSource(c, req.Source)
-	if err != nil {
-		return WriteError(c, mapGoFunctionValidationError(err, rid))
-	}
-	// 必须已存在
-	if _, err := h.store.GetGoFunction(c.Request().Context(), pc.ID, name); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", rid))
-		}
-		return WriteError(c, err)
-	}
-	exports := make([]string, 0, len(infos))
-	for _, fi := range infos {
-		exports = append(exports, fi.Name)
-	}
-	updated, err := h.store.UpdateGoFunction(c.Request().Context(), systemdb.GoFunction{
-		ProjectID: pc.ID, Name: name, Source: req.Source, Exports: exports,
-	})
+	vers, err := h.store.ListGoFuncVersions(c.Request().Context(), pc.ID, name)
 	if err != nil {
 		return WriteError(c, err)
 	}
-	h.recordAudit(c, pc.ID, "update "+name+".go")
-	return c.JSON(http.StatusOK, toGoFunctionDTO(updated, true))
+	dto, err := h.toDTO(f, vers, true)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	return c.JSON(http.StatusOK, dto)
 }
 
-// Delete 软删云函数。
+// Delete: DELETE /gofunctions/:name
 func (h *GoFunctionHandler) Delete(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -270,23 +370,275 @@ func (h *GoFunctionHandler) Delete(c echo.Context) error {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
 	name := c.Param("name")
-	if !gofunctionNameRe.MatchString(name) {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_gofunction_name", "invalid go function name", RequestIDFromContext(c.Request().Context())))
-	}
-	err := h.store.ArchiveGoFunction(c.Request().Context(), pc.ID, name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context())))
-	}
-	if err != nil {
+	if err := h.store.ArchiveGoFunc(c.Request().Context(), pc.ID, name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context())))
+		}
 		return WriteError(c, err)
 	}
 	h.recordAudit(c, pc.ID, "delete "+name+".go")
 	return c.NoContent(http.StatusNoContent)
 }
 
-// Invoke 执行云函数：POST /go/:projectID/:name/:functionName。
-// 响应体就是返回值的 JSON（无 envelope）。
-// metrics（§10.1）：每次 invoke（含 4xx/5xx 失败）都计数，用 defer 保证覆盖全部返回路径。
+type goFuncVersionCreateRequest struct {
+	Source   string `json:"source"`
+	Note     string `json:"note"`
+	Activate *bool  `json:"activate"`
+}
+
+// Update 兼容旧 PUT：保存为新版本并生效，响应 200。
+func (h *GoFunctionHandler) Update(c echo.Context) error {
+	err := h.CreateVersion(c)
+	return err
+}
+
+// ListVersions: GET /gofunctions/:name/versions
+func (h *GoFunctionHandler) ListVersions(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, errors.New("project context missing"))
+	}
+	if h.store == nil {
+		return WriteError(c, systemdb.ErrUnavailable)
+	}
+	name := c.Param("name")
+	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context())))
+	}
+	if err != nil {
+		return WriteError(c, err)
+	}
+	vers, err := h.store.ListGoFuncVersions(c.Request().Context(), pc.ID, name)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	sums := make([]goFuncVersionSummary, 0, len(vers))
+	for _, v := range vers {
+		sums = append(sums, toVersionSummary(v, f.ActiveVersion))
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"active_version": f.ActiveVersion,
+		"versions":       sums,
+	})
+}
+
+// CreateVersion: POST /gofunctions/:name/versions
+func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, errors.New("project context missing"))
+	}
+	rid := RequestIDFromContext(c.Request().Context())
+	if !h.writable {
+		return WriteError(c, errWriterUnavailable())
+	}
+	if systemdb.IsAdminProject(pc.ID) {
+		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
+	}
+	if h.store == nil {
+		return WriteError(c, systemdb.ErrUnavailable)
+	}
+	name := c.Param("name")
+	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", rid))
+	}
+	if err != nil {
+		return WriteError(c, err)
+	}
+	var req goFuncVersionCreateRequest
+	if err := bindGoFunctionBody(c, &req); err != nil {
+		return WriteError(c, err)
+	}
+	if err := validateGoFunctionSource(req.Source); err != nil {
+		return WriteError(c, err)
+	}
+	infos, err := h.validateSource(c, req.Source)
+	if err != nil {
+		return WriteError(c, mapGoFunctionValidationError(err, rid))
+	}
+	v, err := h.store.AppendGoFuncVersion(c.Request().Context(), systemdb.GoFuncVersion{
+		FuncID: f.ID, ProjectID: pc.ID, Name: name,
+		Source: req.Source, Exports: funcNames(infos), Note: req.Note, CreatedBy: actorID(c),
+	})
+	if err != nil {
+		if errors.Is(err, systemdb.ErrVersionLimit) {
+			return WriteError(c, NewAPIError(422, "version_limit_exceeded", "version limit exceeded (50 per function)", rid))
+		}
+		return WriteError(c, err)
+	}
+	activate := true
+	if req.Activate != nil {
+		activate = *req.Activate
+	}
+	if activate {
+		if err := h.store.ActivateGoFuncVersion(c.Request().Context(), pc.ID, name, v.Version); err != nil {
+			return WriteError(c, err)
+		}
+		f.ActiveVersion = v.Version
+	}
+	vers := []systemdb.GoFuncVersion{v}
+	all, _ := h.store.ListGoFuncVersions(c.Request().Context(), pc.ID, name)
+	if len(all) > 0 {
+		vers = all
+	}
+	h.recordAudit(c, pc.ID, "save "+name+".go v"+strconv.FormatInt(v.Version, 10))
+	dto, err := h.toDTO(f, vers, true)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	dto.Source = req.Source
+	// PUT 兼容路径期望 200；新 API 返回 201
+	if c.Request().Method == http.MethodPut {
+		return c.JSON(http.StatusOK, dto)
+	}
+	return c.JSON(http.StatusCreated, dto)
+}
+
+// GetVersion: GET /gofunctions/:name/versions/:ver
+func (h *GoFunctionHandler) GetVersion(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, errors.New("project context missing"))
+	}
+	if h.store == nil {
+		return WriteError(c, systemdb.ErrUnavailable)
+	}
+	name := c.Param("name")
+	ver, err := strconv.ParseInt(c.Param("ver"), 10, 64)
+	if err != nil || ver <= 0 {
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid version", RequestIDFromContext(c.Request().Context())))
+	}
+	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
+	if err != nil {
+		return WriteError(c, mapNotFound(err))
+	}
+	v, err := h.store.GetGoFuncVersion(c.Request().Context(), pc.ID, name, ver)
+	if err != nil {
+		return WriteError(c, mapNotFound(err))
+	}
+	sum := toVersionSummary(v, f.ActiveVersion)
+	return c.JSON(http.StatusOK, sum)
+}
+
+// ActivateVersion: POST /gofunctions/:name/versions/:ver/activate
+func (h *GoFunctionHandler) ActivateVersion(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, errors.New("project context missing"))
+	}
+	rid := RequestIDFromContext(c.Request().Context())
+	if !h.writable {
+		return WriteError(c, errWriterUnavailable())
+	}
+	if h.store == nil {
+		return WriteError(c, systemdb.ErrUnavailable)
+	}
+	name := c.Param("name")
+	ver, err := strconv.ParseInt(c.Param("ver"), 10, 64)
+	if err != nil || ver <= 0 {
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid version", rid))
+	}
+	if err := h.store.ActivateGoFuncVersion(c.Request().Context(), pc.ID, name, ver); err != nil {
+		return WriteError(c, mapNotFound(err))
+	}
+	h.recordAudit(c, pc.ID, "activate "+name+".go v"+strconv.FormatInt(ver, 10))
+	return c.JSON(http.StatusOK, map[string]any{"active_version": ver})
+}
+
+// ---------- 调试台 ----------
+
+type goFuncTestRequest struct {
+	FunctionName string          `json:"function_name"`
+	Body         json.RawMessage `json:"body"`
+}
+
+type goFuncTestResponse struct {
+	OK            bool            `json:"ok"`
+	StatusCode    int             `json:"status_code"`
+	DurationMs    int64           `json:"duration_ms"`
+	Version       int64           `json:"version"`
+	ActiveVersion int64           `json:"active_version"`
+	FunctionName  string          `json:"function_name"`
+	Data          json.RawMessage `json:"data,omitempty"`
+	Error         string          `json:"error,omitempty"`
+}
+
+// TestVersion: POST /gofunctions/:name/versions/:ver/test（plan §5.3）
+func (h *GoFunctionHandler) TestVersion(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, errors.New("project context missing"))
+	}
+	rid := RequestIDFromContext(c.Request().Context())
+	if !h.writable {
+		return WriteError(c, errWriterUnavailable())
+	}
+	if systemdb.IsAdminProject(pc.ID) {
+		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
+	}
+	if h.store == nil {
+		return WriteError(c, systemdb.ErrUnavailable)
+	}
+	name := c.Param("name")
+	ver, err := strconv.ParseInt(c.Param("ver"), 10, 64)
+	if err != nil || ver <= 0 {
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid version", rid))
+	}
+	var req goFuncTestRequest
+	if err := bindGoFunctionBody(c, &req); err != nil {
+		return WriteError(c, err)
+	}
+	if !gofunctionExportNameRe.MatchString(req.FunctionName) {
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid function_name", rid))
+	}
+	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
+	if err != nil {
+		return WriteError(c, mapNotFound(err))
+	}
+	v, err := h.store.GetGoFuncVersion(c.Request().Context(), pc.ID, name, ver)
+	if err != nil {
+		return WriteError(c, mapNotFound(err))
+	}
+	body := req.Body
+	if len(body) == 0 {
+		body = json.RawMessage(`{}`)
+	}
+	start := time.Now()
+	out, runErr := gofunction.RunJSON(c.Request().Context(), rid, name, v.Source, req.FunctionName, body)
+	dur := time.Since(start)
+	resp := goFuncTestResponse{
+		OK:           runErr == nil,
+		StatusCode:   http.StatusOK,
+		DurationMs:   dur.Milliseconds(),
+		Version:      ver,
+		ActiveVersion: f.ActiveVersion,
+		FunctionName: req.FunctionName,
+	}
+	if runErr != nil {
+		ae := mapGoFunctionRunError(runErr, rid)
+		var he *APIError
+		if errors.As(ae, &he) {
+			resp.StatusCode = he.HTTPStatus
+			resp.Error = he.Body.Error.Message
+		} else {
+			resp.StatusCode = http.StatusInternalServerError
+			resp.Error = runErr.Error()
+		}
+	} else {
+		resp.Data = out
+	}
+	h.store.RecordGoFuncInvoke(c.Request().Context(), pc.ID, name, req.FunctionName, ver, "test",
+		resp.StatusCode, dur.Milliseconds(), rid, actorID(c))
+	h.recordInvokeMetrics(pc.ID, dur, runErr)
+	h.recordAudit(c, pc.ID, "test "+name+".go v"+strconv.FormatInt(ver, 10))
+	return c.JSON(http.StatusOK, resp)
+}
+
+// ---------- /go 调用面（只跑 active） ----------
+
+// Invoke: POST /go/:projectID/:name/:functionName
 func (h *GoFunctionHandler) Invoke(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -312,9 +664,13 @@ func (h *GoFunctionHandler) Invoke(c echo.Context) error {
 	if !gofunctionExportNameRe.MatchString(fnName) {
 		return fail(NewAPIError(http.StatusNotFound, "function_not_found", "function not found", rid))
 	}
-	g, err := h.store.GetGoFunction(c.Request().Context(), pc.ID, name)
+	// D8：只跑 active_version
+	v, err := h.store.ResolveActiveSource(c.Request().Context(), pc.ID, name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fail(NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", rid))
+	}
+	if errors.Is(err, systemdb.ErrNoActiveVersion) {
+		return fail(NewAPIError(http.StatusConflict, "no_active_version", "go function has no active version", rid))
 	}
 	if err != nil {
 		return fail(err)
@@ -324,14 +680,27 @@ func (h *GoFunctionHandler) Invoke(c echo.Context) error {
 	if err != nil {
 		return fail(NewAPIError(http.StatusBadRequest, "invalid_request", "cannot read request body", rid))
 	}
-	out, runErr := gofunction.RunJSON(c.Request().Context(), rid, name, g.Source, fnName, body)
+	out, runErr := gofunction.RunJSON(c.Request().Context(), rid, name, v.Source, fnName, body)
+	dur := time.Since(start)
+	status := http.StatusOK
 	if runErr != nil {
-		return fail(mapGoFunctionRunError(runErr, rid))
+		ae := mapGoFunctionRunError(runErr, rid)
+		var he *APIError
+		if errors.As(ae, &he) {
+			status = he.HTTPStatus
+		} else {
+			status = http.StatusInternalServerError
+		}
+		h.store.RecordGoFuncInvoke(c.Request().Context(), pc.ID, name, fnName, v.Version, "go",
+			status, dur.Milliseconds(), rid, actorID(c))
+		return fail(ae)
 	}
+	h.store.RecordGoFuncInvoke(c.Request().Context(), pc.ID, name, fnName, v.Version, "go",
+		status, dur.Milliseconds(), rid, actorID(c))
 	return c.Blob(http.StatusOK, "application/json", out)
 }
 
-// MethodNotAllowed 返回 405 JSON，防止 SPA fallback 把 GET /go 吞成 index.html。
+// MethodNotAllowed 返回 405 JSON。
 func (h *GoFunctionHandler) MethodNotAllowed(c echo.Context) error {
 	return c.JSON(http.StatusMethodNotAllowed, APIErrorBody{Error: APIErrorDetail{
 		Code: "method_not_allowed", Message: "use POST with JSON body",
@@ -339,7 +708,66 @@ func (h *GoFunctionHandler) MethodNotAllowed(c echo.Context) error {
 	}})
 }
 
-// validateSource 调用 ValidateHTTPFuncs 并上报 gofunction_compile_ms。
+// ---------- helpers ----------
+
+func (h *GoFunctionHandler) loadFunc(c echo.Context, projectID, name string) (systemdb.GoFunc, []systemdb.GoFuncVersion, error) {
+	rid := RequestIDFromContext(c.Request().Context())
+	f, err := h.store.GetGoFunc(c.Request().Context(), projectID, name)
+	if err != nil {
+		return systemdb.GoFunc{}, nil, mapNotFound(err)
+	}
+	vers, err := h.store.ListGoFuncVersions(c.Request().Context(), projectID, name)
+	if err != nil {
+		_ = rid
+		return systemdb.GoFunc{}, nil, err
+	}
+	return f, vers, nil
+}
+
+func (h *GoFunctionHandler) pickSource(c echo.Context, projectID, name string, f systemdb.GoFunc) (string, error) {
+	if f.ActiveVersion > 0 {
+		v, err := h.store.GetGoFuncVersion(c.Request().Context(), projectID, name, f.ActiveVersion)
+		if err == nil {
+			return v.Source, nil
+		}
+	}
+	v, err := h.store.LatestGoFuncVersion(c.Request().Context(), projectID, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return v.Source, nil
+}
+
+func funcNames(infos []gofunction.FuncInfo) []string {
+	out := make([]string, 0, len(infos))
+	for _, fi := range infos {
+		out = append(out, fi.Name)
+	}
+	return out
+}
+
+func mapNotFound(err error) error {
+	rid := "" // filled by WriteError via Error()
+	if errors.Is(err, sql.ErrNoRows) {
+		return NewAPIError(http.StatusNotFound, "not_found", "resource not found", rid)
+	}
+	return err
+}
+
+func actorID(c echo.Context) string {
+	p, ok := PrincipalFromContext(c.Request().Context())
+	if !ok {
+		return ""
+	}
+	if p.UserID != "" {
+		return p.UserID
+	}
+	return p.APIKeyID
+}
+
 func (h *GoFunctionHandler) validateSource(c echo.Context, source string) ([]gofunction.FuncInfo, error) {
 	start := time.Now()
 	infos, err := gofunction.ValidateHTTPFuncs(source)
@@ -354,7 +782,6 @@ func (h *GoFunctionHandler) validateSource(c echo.Context, source string) ([]gof
 	return infos, err
 }
 
-// recordInvokeMetrics 上报 §10.1 四指标中的三个 invoke 指标（失败静默）。
 func (h *GoFunctionHandler) recordInvokeMetrics(projectID string, dur time.Duration, runErr error) {
 	if h.store == nil || projectID == "" || systemdb.IsAdminProject(projectID) {
 		return
@@ -368,7 +795,6 @@ func (h *GoFunctionHandler) recordInvokeMetrics(projectID string, dur time.Durat
 	}
 }
 
-// recordAudit 写操作审计（§10）：kind=gofunction，detail 只含动作与文件名，不含源码。
 func (h *GoFunctionHandler) recordAudit(c echo.Context, projectID, detail string) {
 	if h.audit == nil {
 		return
@@ -377,8 +803,11 @@ func (h *GoFunctionHandler) recordAudit(c echo.Context, projectID, detail string
 	pID := ""
 	if ok {
 		pID = string(principal.APIKeyID)
+		if principal.UserID != "" {
+			pID = principal.UserID
+		}
 	}
-	_ = h.audit.Record(context.Background(), AuditEvent{
+	_ = h.audit.Record(c.Request().Context(), AuditEvent{
 		ProjectID:   projectID,
 		PrincipalID: pID,
 		Kind:        "gofunction",
@@ -388,7 +817,7 @@ func (h *GoFunctionHandler) recordAudit(c echo.Context, projectID, detail string
 	})
 }
 
-// bindGoFunctionBody 解析 JSON body（不使用 DisallowUnknownFields，宽容前端扩展字段）。
+// bindGoFunctionBody 解析 JSON body。
 func bindGoFunctionBody(c echo.Context, req any) error {
 	if err := c.Bind(req); err != nil {
 		return NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
@@ -398,30 +827,33 @@ func bindGoFunctionBody(c echo.Context, req any) error {
 
 // validateGoFunctionSource 校验源码非空与体积上限。
 func validateGoFunctionSource(source string) error {
-	if strings.TrimSpace(source) == "" {
-		return NewAPIError(400, "gofunction_signature_invalid", "source is empty", "")
+	rid := ""
+	if source == "" {
+		return NewAPIError(http.StatusBadRequest, "invalid_request", "source is required", rid)
 	}
 	if len(source) > gofunctionMaxSourceBytes {
-		return NewAPIError(http.StatusBadRequest, "gofunction_source_too_large", "source exceeds 256KiB", "")
+		return NewAPIError(http.StatusRequestEntityTooLarge, "request_too_large", "source exceeds 256KB limit", rid)
 	}
 	return nil
 }
 
-// mapGoFunctionValidationError 把保存时 ValidateHTTPFuncs 的失败映射为
-// 400 compile/signature 错误；message 原样透传（含每个不合规函数名与原因）。
-// 判定顺序：能 Parse 但签名/类型不合 → signature_invalid；Parse/编译失败 → compile_error。
+// mapGoFunctionValidationError 映射 ValidateHTTPFuncs 错误。
+// 约定/签名问题 → gofunction_signature_invalid；编译错误 → gofunction_compile_error。
 func mapGoFunctionValidationError(err error, rid string) error {
 	if err == nil {
 		return nil
 	}
-	msg := truncateMessage(err.Error(), 1024)
-	if strings.Contains(err.Error(), "不符合约定") || strings.Contains(err.Error(), "至少导出一个") {
-		return NewAPIError(http.StatusBadRequest, "gofunction_signature_invalid", msg, rid)
+	msg := truncateMessage(err.Error(), 512)
+	// 编译/语法错误才用 compile_error；签名与导出约定问题统一 signature_invalid
+	if strings.Contains(err.Error(), "syntax error") ||
+		strings.Contains(err.Error(), "expected") ||
+		strings.Contains(err.Error(), "解析失败") {
+		return NewAPIError(http.StatusBadRequest, "gofunction_compile_error", msg, rid)
 	}
-	return NewAPIError(http.StatusBadRequest, "gofunction_compile_error", msg, rid)
+	return NewAPIError(http.StatusBadRequest, "gofunction_signature_invalid", msg, rid)
 }
 
-// mapGoFunctionRunError 把 gofunction 包错误映射为统一错误协议（§7.2/§13）。
+// mapGoFunctionRunError 映射 RunJSON 错误。
 func mapGoFunctionRunError(err error, rid string) error {
 	if err == nil {
 		return nil
@@ -435,7 +867,6 @@ func mapGoFunctionRunError(err error, rid string) error {
 	if errors.Is(err, gofunction.ErrBind) {
 		return NewAPIError(http.StatusBadRequest, "invalid_request", truncateMessage(err.Error(), 512), rid)
 	}
-	// invoke 时 BuildProgram 失败（保存后环境变化）→ 500 gofunction_compile_error（§7.2/§13）
 	if errors.Is(err, gofunction.ErrCompile) {
 		return NewAPIError(http.StatusInternalServerError, "gofunction_compile_error", truncateMessage(err.Error(), 512), rid)
 	}

@@ -36,10 +36,10 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="w-[45%] max-w-[480px]">Key</TableHead>
-              <TableHead class="w-32">大小</TableHead>
-              <TableHead class="w-48">修改时间</TableHead>
-              <TableHead class="w-36">操作</TableHead>
+              <TableHead class="max-w-lg">Key</TableHead>
+              <TableHead class="sb-col-sm">大小</TableHead>
+              <TableHead class="sb-col-md">修改时间</TableHead>
+              <TableHead class="w-32">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -52,15 +52,15 @@
               <SbEmptyState description="暂无对象" action-text="上传对象" @action="triggerUpload" />
             </TableEmpty>
             <TableRow v-for="record in paged" :key="record.key">
-              <TableCell class="max-w-[480px]">
+              <TableCell class="max-w-lg">
                 <span class="sb-mono inline-flex items-center gap-2 font-medium">
                   <FileIcon class="size-4 shrink-0 text-primary" />
                   <span class="truncate" :title="record.key">{{ record.key }}</span>
                 </span>
               </TableCell>
-              <TableCell class="text-xs text-muted-foreground">{{ formatBytes(record.size) }}</TableCell>
-              <TableCell class="text-xs text-muted-foreground">{{ formatTime(record.lastModified) }}</TableCell>
-              <TableCell>
+              <TableCell class="sb-col-sm text-xs text-muted-foreground">{{ formatBytes(record.size) }}</TableCell>
+              <TableCell class="sb-col-md text-xs text-muted-foreground">{{ formatTime(record.lastModified) }}</TableCell>
+              <TableCell class="w-32">
                 <div class="flex gap-1">
                   <Button variant="ghost" size="sm" @click="open(record.key)">
                     <EyeIcon data-icon="inline-start" />

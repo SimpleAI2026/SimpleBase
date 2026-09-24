@@ -17,18 +17,21 @@ type systemDBRunner struct {
 	store *systemdb.Store
 }
 
-// RunFunction 取目标云函数源码并调 gofunction.RunJSON。
+// RunFunction 取目标云函数**生效版**源码并调 gofunction.RunJSON（plan §2.1）。
 // 错误保留哨兵语义（ErrTimeout/ErrCompile/ErrBind），由调度器统一落 failed 记录。
 func (r *systemDBRunner) RunFunction(ctx context.Context, projectID, funcFile, funcExport string, input json.RawMessage) ([]byte, error) {
 	if r.store == nil {
 		return nil, errors.New("system store unavailable")
 	}
-	g, err := r.store.GetGoFunction(ctx, projectID, funcFile)
+	v, err := r.store.ResolveActiveSource(ctx, projectID, funcFile)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("gofunction not found: %s", funcFile)
+	}
+	if errors.Is(err, systemdb.ErrNoActiveVersion) {
+		return nil, fmt.Errorf("no_active_version: %s", funcFile)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return gofunction.RunJSON(ctx, fmt.Sprintf("cron-%s", funcFile), funcFile, g.Source, funcExport, input)
+	return gofunction.RunJSON(ctx, fmt.Sprintf("cron-%s", funcFile), funcFile, v.Source, funcExport, input)
 }

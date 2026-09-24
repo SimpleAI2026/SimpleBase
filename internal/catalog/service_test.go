@@ -65,7 +65,7 @@ func setupService(t *testing.T, descriptor DescriptorWriter) (*Service, Reposito
 	svc := NewService(repo, keys, descriptor, objectstore.DuckLakeStorage{Region: "us-east-1", Bucket: "test-bucket"}, nil)
 
 	tenantID := uuid.NewString()
-	projectID := uuid.NewString()
+	projectID := objectstore.NewProjectID()
 	ctx := context.Background()
 	if err := repo.CreateTenant(ctx, Tenant{ID: tenantID, Name: "t1", CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("create tenant: %v", err)
@@ -98,7 +98,7 @@ func TestCreateDatabase_Success(t *testing.T) {
 
 func TestCreateDatabase_CrossProjectRejected(t *testing.T) {
 	svc, _, tenantID, _ := setupService(t, &fakeDescriptorWriter{})
-	otherProject := uuid.NewString()
+	otherProject := objectstore.NewProjectID()
 
 	_, err := svc.CreateDatabase(context.Background(), CreateDatabaseInput{
 		TenantID:  tenantID,
@@ -265,8 +265,8 @@ func TestCreateProject_SuccessAndConflict(t *testing.T) {
 	if p.ID == "" || p.Name != "新项目" || p.TenantID != tenantID {
 		t.Fatalf("unexpected project: %+v", p)
 	}
-	if _, err := uuid.Parse(p.ID); err != nil {
-		t.Fatalf("generated id should be UUID: %v", err)
+	if err := objectstore.ValidateProjectID(p.ID); err != nil {
+		t.Fatalf("generated id should be 8-char project id: %v", err)
 	}
 
 	_, err = svc.CreateProject(ctx, admin, CreateProjectInput{Name: "新项目"})
@@ -274,7 +274,7 @@ func TestCreateProject_SuccessAndConflict(t *testing.T) {
 		t.Fatalf("expected name conflict, got %v", err)
 	}
 
-	fixedID := "11111111-1111-1111-1111-111111111111"
+	fixedID := "fixed-id"
 	p2, err := svc.CreateProject(ctx, admin, CreateProjectInput{Name: "指定 ID", ID: fixedID})
 	if err != nil {
 		t.Fatalf("CreateProject with id: %v", err)
@@ -287,7 +287,7 @@ func TestCreateProject_SuccessAndConflict(t *testing.T) {
 		t.Fatalf("expected id conflict, got %v", err)
 	}
 
-	_, err = svc.CreateProject(ctx, admin, CreateProjectInput{Name: "坏 ID", ID: "not-a-uuid"})
+	_, err = svc.CreateProject(ctx, admin, CreateProjectInput{Name: "坏 ID", ID: "not-valid!"})
 	if !errors.Is(err, ErrInvalidName) {
 		t.Fatalf("expected invalid id, got %v", err)
 	}

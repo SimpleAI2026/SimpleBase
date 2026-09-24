@@ -28,16 +28,19 @@ type ProjectListResponse struct {
 type CreateProjectRequest struct {
 	Name string `json:"name"`
 	ID   string `json:"id,omitempty"`
+	// OwnerUserID 仅 superadminl1 可指定；默认创建者。
+	OwnerUserID string `json:"owner_user_id,omitempty"`
 }
 
 // ProjectsHandler 提供租户/授权范围内的项目枚举与创建。
 type ProjectsHandler struct {
 	catalog CatalogService
+	users   *auth.UserService
 }
 
-// NewProjectsHandler 构造 ProjectsHandler。
-func NewProjectsHandler(cat CatalogService) *ProjectsHandler {
-	return &ProjectsHandler{catalog: cat}
+// NewProjectsHandler 构造 ProjectsHandler。users 可为 nil（API Key-only 测试）。
+func NewProjectsHandler(cat CatalogService, users *auth.UserService) *ProjectsHandler {
+	return &ProjectsHandler{catalog: cat, users: users}
 }
 
 // ListProjects: GET /v1/projects
@@ -59,7 +62,7 @@ func (h *ProjectsHandler) ListProjects(c echo.Context) error {
 }
 
 // CreateProject: POST /v1/projects
-// body { "name": "...", "id": "<optional UUID>" } → 201 { id, name, created_at }
+// body { "name": "...", "id": "<optional 8-char id>" } → 201 { id, name, created_at }
 func (h *ProjectsHandler) CreateProject(c echo.Context) error {
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -81,12 +84,23 @@ func (h *ProjectsHandler) CreateProject(c echo.Context) error {
 		if errors.Is(err, catalog.ErrInvalidName) {
 			msg := err.Error()
 			code := "invalid_project_name"
-			if strings.Contains(msg, "id must be a UUID") || strings.Contains(msg, "reserved project id") {
+			if strings.Contains(msg, "id must be") || strings.Contains(msg, "reserved project id") {
 				code = "invalid_project_id"
 			}
 			return WriteError(c, NewAPIError(http.StatusBadRequest, code, msg, rid))
 		}
 		return WriteError(c, err)
+	}
+	// 记录项目归属（login-auth-plan §4.5）：user/super 创建后 owner=自己或指定用户。
+	if h.users != nil && principal.UserID != "" {
+		ownerID := principal.UserID
+		if req.OwnerUserID != "" && principal.Role.IsSuper() {
+			ownerID = req.OwnerUserID
+		}
+		if err := h.users.AssignProjectOwner(c.Request().Context(), p.ID, ownerID); err != nil {
+			// 归属写失败不回滚项目（仍可用）；日志由 access log 兜底。
+			_ = err
+		}
 	}
 	return c.JSON(http.StatusCreated, toProjectResponse(p))
 }

@@ -6,19 +6,41 @@ export { baseURL }
 
 export const http = axios.create({ baseURL, timeout: 15000 })
 
-// 默认 API key（DevMode 种子数据），可被 localStorage 覆盖
+/* ---------- 登录态 token（login-auth-plan）：access JWT + refresh ---------- */
+
+const ACCESS_KEY = 'sb_access_token'
+const REFRESH_KEY = 'sb_refresh_token'
+// 兼容旧 API Key 通道（SDK / DevMode）；登录态优先。
+const API_KEY = 'sb_api_key'
 const DEFAULT_API_KEY = 'sb_live_dev_key_12345'
-export function getApiKey(): string {
-  return localStorage.getItem('sb_api_key') || DEFAULT_API_KEY
+
+export function getAccessToken(): string {
+  return localStorage.getItem(ACCESS_KEY) || ''
 }
-export function setApiKey(key: string) {
-  localStorage.setItem('sb_api_key', key)
+export function getRefreshToken(): string {
+  return localStorage.getItem(REFRESH_KEY) || ''
+}
+export function setTokens(access: string, refresh: string) {
+  localStorage.setItem(ACCESS_KEY, access)
+  localStorage.setItem(REFRESH_KEY, refresh)
+}
+export function clearTokens() {
+  localStorage.removeItem(ACCESS_KEY)
+  localStorage.removeItem(REFRESH_KEY)
 }
 
-// 自动注入 Authorization: Bearer <key>
+export function getApiKey(): string {
+  return localStorage.getItem(API_KEY) || DEFAULT_API_KEY
+}
+export function setApiKey(key: string) {
+  localStorage.setItem(API_KEY, key)
+}
+
+// 自动注入 Authorization: Bearer <access_token | api-key>
 http.interceptors.request.use((config) => {
   config.headers = config.headers || {}
-  config.headers.Authorization = `Bearer ${getApiKey()}`
+  const token = getAccessToken() || getApiKey()
+  config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
@@ -32,22 +54,59 @@ http.interceptors.response.use((r) => {
   return r
 })
 
-// 统一错误信息：适配后端 {error:{message}} 结构（501 响应无 request_id，解析容忍缺失）
+// 统一错误信息 + 401 自动 refresh 一次
 let onUnauthorized: (() => void) | null = null
+let refreshing: Promise<string | null> | null = null
 
 /** 注册 401 回调（auth store 注入，避免 http ↔ store 循环依赖） */
 export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler
 }
 
+async function tryRefresh(): Promise<string | null> {
+  const rt = getRefreshToken()
+  if (!rt) return null
+  if (refreshing) return refreshing
+  refreshing = axios
+    .post(`${baseURL}/v1/auth/refresh`, { refresh_token: rt }, { timeout: 10000 })
+    .then((r) => {
+      const access = r.data?.access_token || ''
+      const refresh = r.data?.refresh_token || rt
+      if (access) setTokens(access, refresh)
+      return access || null
+    })
+    .catch(() => {
+      clearTokens()
+      return null
+    })
+    .finally(() => {
+      refreshing = null
+    })
+  return refreshing
+}
+
 http.interceptors.response.use(
   (r) => r,
-  (e) => {
+  async (e) => {
     const status = e?.response?.status
     const data = e?.response?.data
     const msg = data?.error?.message || data?.message || e?.message || '网络请求失败'
+    const cfg = e?.config || {}
+    if (status === 401 && !cfg.__retried && getAccessToken()) {
+      cfg.__retried = true
+      const access = await tryRefresh()
+      if (access) {
+        cfg.headers = cfg.headers || {}
+        cfg.headers.Authorization = `Bearer ${access}`
+        return http.request(cfg)
+      }
+      import('../stores/auth').then(({ useAuthStore }) => {
+        useAuthStore().markUnauthorized()
+      })
+      onUnauthorized?.()
+      return Promise.reject(new Error(msg))
+    }
     if (status === 401) {
-      // 触发 auth store 打开设置弹窗的「连接」Tab（延迟导入避免循环依赖）
       import('../stores/auth').then(({ useAuthStore }) => {
         useAuthStore().markUnauthorized()
       })
