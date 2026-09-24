@@ -77,11 +77,9 @@ docker run -p 8080:8080 --env-file .env simplebased
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| POST | `/v1/projects/:p/databases` | `database:admin` | 创建 logical database |
+| POST | `/v1/projects/:p/databases` | `database:admin` | 创建 logical database（成功即为 ready，无需打开） |
 | GET | `/v1/projects/:p/databases` | `database:read` | 列出 project 下数据库 |
 | GET | `/v1/projects/:p/databases/:id` | `database:read` | 查询状态与容量 |
-| POST | `/v1/projects/:p/databases/:id/open` | `database:admin` | 预热数据库 |
-| POST | `/v1/projects/:p/databases/:id/close` | `database:admin` | 释放本地资源 |
 | DELETE | `/v1/projects/:p/databases/:id` | `database:admin` | 软删除并同步清理 S3 |
 
 ### SQL 执行

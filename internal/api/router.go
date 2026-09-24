@@ -13,8 +13,8 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
-	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/config"
+	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -227,8 +227,10 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	p.POST("/databases", h.CreateDatabase, require(auth.DatabaseAdmin))
 	p.GET("/databases", h.ListDatabases, require(auth.DatabaseRead))
 	p.GET("/databases/:databaseID", h.GetDatabase, require(auth.DatabaseRead))
-	p.POST("/databases/:databaseID/open", h.OpenDatabase, require(auth.DatabaseAdmin))
-	p.POST("/databases/:databaseID/close", h.CloseDatabase, require(auth.DatabaseAdmin))
+	// Echo 会把 POST .../databases/:id/open 当成 POST .../databases 的方法不匹配（405）。
+	// 产品面已去掉打开/关闭；这里只回答 404 not_found，不打开连接、不改状态。
+	p.POST("/databases/:databaseID/open", removedDatabaseAction)
+	p.POST("/databases/:databaseID/close", removedDatabaseAction)
 	p.DELETE("/databases/:databaseID", h.DeleteDatabase, require(auth.DatabaseAdmin))
 
 	// Plan 6：SQL 执行路由。SQLHandler 为 nil 时不挂载（readonly 实例可仅挂 query）。
@@ -497,7 +499,7 @@ func errorHandler(deps Dependencies) echo.HTTPErrorHandler {
 		rid := RequestIDFromContext(c.Request().Context())
 		// 业务错误统一通过 WriteError 写入；若 handler 未处理，此处兜底。
 		if apiErr := mapEchoError(err, rid); apiErr != nil {
-			if cErr := c.JSON(apiErr.HTTPStatus, apiErr); cErr != nil && deps.Logger != nil {
+			if cErr := c.JSON(apiErr.HTTPStatus, apiErr.Body); cErr != nil && deps.Logger != nil {
 				deps.Logger.Error("write error", fieldString("err", cErr.Error()))
 			}
 			return

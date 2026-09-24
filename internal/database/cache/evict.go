@@ -1,7 +1,7 @@
 // evict.go 实现缓存淘汰策略（plan7.md）。
 //
 // 淘汰规则：
-//  1. 只淘汰已关闭、registry 中 active==0 且非恢复/备份中的库。
+//  1. 只淘汰 registry 里没有活跃引用的库。
 //  2. 先调用 Registry.CloseDatabase 关闭句柄，再删除缓存目录。
 //  3. 容量不足且无法淘汰时返回 ErrCacheCapacityExceeded，禁止破坏活跃库。
 //  4. 选择策略优先 LRU（按目录 atime/mtime 最久未访问）。

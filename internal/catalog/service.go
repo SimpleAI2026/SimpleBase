@@ -173,7 +173,7 @@ func (s *Service) GetDatabase(ctx context.Context, principal auth.Principal, pro
 	if IsSystemDatabase(db) && !IsSystemProject(projectID) {
 		return Database{}, fmt.Errorf("%w: database %s in project %s", ErrNotFound, databaseID, projectID)
 	}
-	return db, nil
+	return s.normalizeRetiredOpenStatus(ctx, db), nil
 }
 
 // ListDatabases 校验 principal 可访问 projectID 后分页列出数据库。
@@ -182,10 +182,21 @@ func (s *Service) ListDatabases(ctx context.Context, principal auth.Principal, p
 	if err := s.ensureProjectAccess(ctx, principal, projectID); err != nil {
 		return nil, "", err
 	}
+	var dbs []Database
+	var next string
+	var err error
 	if IsSystemProject(projectID) {
-		return s.repo.ListDatabasesByKind(ctx, projectID, DatabaseKindSystem, page)
+		dbs, next, err = s.repo.ListDatabasesByKind(ctx, projectID, DatabaseKindSystem, page)
+	} else {
+		dbs, next, err = s.repo.ListDatabases(ctx, projectID, page)
 	}
-	return s.repo.ListDatabases(ctx, projectID, page)
+	if err != nil {
+		return nil, "", err
+	}
+	for i := range dbs {
+		dbs[i] = s.normalizeRetiredOpenStatus(ctx, dbs[i])
+	}
+	return dbs, next, nil
 }
 
 // ResolveProjectTenant 返回 project 所属的 tenant ID。
@@ -367,7 +378,13 @@ func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Princi
 	if IsSystemDatabase(current) {
 		return Database{}, fmt.Errorf("%w: %s", ErrSystemProtected, databaseID)
 	}
-	from := []DatabaseStatus{DatabaseCreating, DatabaseOpening, DatabaseReady, DatabaseClosed, DatabaseDegraded, DatabaseRecovering}
+	// 迁移后的正常来源是 creating / ready / degraded。
+	// opening / closing / closed / recovering 仍接受，避免启动写回之前的旧行删不掉。
+	// deleted 不在来源里，不能再变回可用库。
+	from := []DatabaseStatus{
+		DatabaseCreating, DatabaseOpening, DatabaseClosing, DatabaseReady,
+		DatabaseClosed, DatabaseDegraded, DatabaseRecovering,
+	}
 	db, err := s.repo.TransitionDatabase(ctx, current.ID, from, DatabaseDeleting, s.now())
 	if err != nil {
 		return Database{}, err
@@ -427,15 +444,109 @@ func (s *Service) DeleteDatabaseSync(
 	return db, nil
 }
 
-// SetDatabaseReady 将数据库从 creating/opening/recovering 转为 ready。
-// 已是 ready 时幂等成功（open / 重复回调安全）。
+// SetDatabaseReady 将数据库从 creating 或历史 open/close 状态转为 ready。
+// 已是 ready 时幂等成功。不从 degraded / deleting / deleted 转出。
 func (s *Service) SetDatabaseReady(ctx context.Context, id string) error {
-	from := []DatabaseStatus{DatabaseCreating, DatabaseOpening, DatabaseRecovering}
+	from := []DatabaseStatus{
+		DatabaseCreating,
+		DatabaseOpening,
+		DatabaseClosing,
+		DatabaseClosed,
+		DatabaseRecovering,
+	}
 	_, err := s.repo.TransitionDatabase(ctx, id, from, DatabaseReady, s.now())
 	if err != nil && errors.Is(err, ErrInvalidState) {
-		return nil // 已是 ready 或其他终态外的不可转换：创建路径已就绪时忽略
+		return nil // 已是 ready，或当前状态不允许转出（含 degraded）
 	}
 	return err
+}
+
+// isRetiredOpenStatus 报告历史「打开/关闭」状态。这些值不再写入，读到时按 ready 处理。
+func isRetiredOpenStatus(status DatabaseStatus) bool {
+	switch status {
+	case DatabaseClosed, DatabaseOpening, DatabaseClosing, DatabaseRecovering:
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeRetiredOpenStatus 把未软删的历史状态按 ready 返回并写回。
+// 不改 degraded，也不改已软删行。
+func (s *Service) normalizeRetiredOpenStatus(ctx context.Context, db Database) Database {
+	if db.DeletedAt != nil || !isRetiredOpenStatus(db.Status) {
+		return db
+	}
+	if err := s.SetDatabaseReady(ctx, db.ID); err != nil && s.logger != nil {
+		s.logger.Warn("catalog: write back retired database status",
+			zap.String("database_id", db.ID), zap.Error(err))
+	}
+	db.Status = DatabaseReady
+	db.UpdatedAt = s.now()
+	return db
+}
+
+// descriptorHead 探测 descriptor 对象是否存在。objectstore.Client 满足此接口。
+type descriptorHead interface {
+	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
+}
+
+// RepairDatabasesOnStartup 在进程启动、没有进行中的创建时修复残留行。
+// closed/opening/closing/recovering → ready。
+// 残留 creating：descriptor 未启用或对象已存在 → ready；对象存储启用但对象不存在 → degraded。
+// 不改 degraded / deleting / deleted，不改对象存储内容。
+func (s *Service) RepairDatabasesOnStartup(ctx context.Context) error {
+	rows, err := s.repo.ListDatabasesByStatuses(ctx, []DatabaseStatus{
+		DatabaseClosed, DatabaseOpening, DatabaseClosing, DatabaseRecovering, DatabaseCreating,
+	})
+	if err != nil {
+		return fmt.Errorf("catalog: list databases for startup repair: %w", err)
+	}
+	var firstErr error
+	for _, db := range rows {
+		if db.DeletedAt != nil {
+			continue
+		}
+		var err error
+		if isRetiredOpenStatus(db.Status) {
+			err = s.SetDatabaseReady(ctx, db.ID)
+		} else if db.Status == DatabaseCreating {
+			err = s.repairStuckCreating(ctx, db)
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (s *Service) repairStuckCreating(ctx context.Context, db Database) error {
+	if s.descriptor == nil {
+		return s.SetDatabaseReady(ctx, db.ID)
+	}
+	head, ok := s.descriptor.(descriptorHead)
+	if !ok {
+		if s.logger != nil {
+			s.logger.Warn("catalog: descriptor store cannot be probed; leaving creating database",
+				zap.String("database_id", db.ID))
+		}
+		return nil
+	}
+	key, err := s.keys.DescriptorKey(db.TenantID, db.ID)
+	if err != nil {
+		return fmt.Errorf("catalog: descriptor key for %s: %w", db.ID, err)
+	}
+	if _, err := head.Head(ctx, key); err != nil {
+		if errors.Is(err, objectstore.ErrNotFound) {
+			return s.SetDatabaseDegraded(ctx, db.ID, err)
+		}
+		if s.logger != nil {
+			s.logger.Warn("catalog: descriptor head failed; leaving creating database",
+				zap.String("database_id", db.ID), zap.Error(err))
+		}
+		return nil
+	}
+	return s.SetDatabaseReady(ctx, db.ID)
 }
 
 // MarkDatabaseDeleted 将数据库从 deleting 转为 deleted 并记录 deleted_at。

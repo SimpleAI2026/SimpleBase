@@ -40,17 +40,6 @@ type DatabaseService interface {
 	BeginDeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
 	// DeleteDatabase 软删并同步清理平面 B 存储，返回最终记录（通常 status=deleted）。
 	DeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
-	// Acquire 获取数据库访问租约（预热/打开）。
-	Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (Lease, error)
-	// CloseDatabase 主动关闭数据库的本地连接（不删除 S3 数据）。
-	CloseDatabase(ctx context.Context, databaseID string) error
-	// SetDatabaseReady 将 creating/opening/recovering 转为 ready。
-	SetDatabaseReady(ctx context.Context, databaseID string) error
-}
-
-// Lease 是数据库访问租约的抽象接口。registry.Lease 自动满足此接口。
-type Lease interface {
-	Release()
 }
 
 // DatabaseHandler 实现 Plan 5 的全部数据库管理路由。
@@ -210,70 +199,13 @@ func (h *DatabaseHandler) GetDatabase(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-// OpenDatabase: POST /v1/projects/:projectID/databases/:databaseID/open
-// 预热数据库：获取租约后立即释放，触发 registry 打开连接。
-func (h *DatabaseHandler) OpenDatabase(c echo.Context) error {
-	if !h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
-	}
-	principal, ok := PrincipalFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, auth.ErrMissingCredentials)
-	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, errors.New("project context missing"))
-	}
-	databaseID := c.Param("databaseID")
-	if databaseID == "" {
-		return c.JSON(http.StatusBadRequest, APIErrorBody{Error: APIErrorDetail{Code: "invalid_request", Message: "database_id required"}})
-	}
-
-	db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	lease, err := h.svc.Acquire(c.Request().Context(), db, database.ReadWrite)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	lease.Release()
-	// 预热成功后推进状态（兼容历史卡在 creating 的库）。
-	_ = h.svc.SetDatabaseReady(c.Request().Context(), databaseID)
-	if refreshed, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID); err == nil {
-		db = refreshed
-	}
-	return c.JSON(http.StatusOK, toDatabaseResponse(db))
-}
-
-// CloseDatabase: POST /v1/projects/:projectID/databases/:databaseID/close
-// 释放本地资源（关闭连接），不删除 S3 数据。
-func (h *DatabaseHandler) CloseDatabase(c echo.Context) error {
-	if !h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
-	}
-	principal, ok := PrincipalFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, auth.ErrMissingCredentials)
-	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, errors.New("project context missing"))
-	}
-	databaseID := c.Param("databaseID")
-	if databaseID == "" {
-		return c.JSON(http.StatusBadRequest, APIErrorBody{Error: APIErrorDetail{Code: "invalid_request", Message: "database_id required"}})
-	}
-
-	// 先校验归属，再关闭
-	_, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	if err := h.svc.CloseDatabase(c.Request().Context(), databaseID); err != nil {
-		return WriteError(c, err)
-	}
-	return c.NoContent(http.StatusNoContent)
+// removedDatabaseAction 是已删除的 open/close 路由的固定响应。
+func removedDatabaseAction(c echo.Context) error {
+	return c.JSON(http.StatusNotFound, APIErrorBody{Error: APIErrorDetail{
+		Code:      "not_found",
+		Message:   "not found",
+		RequestID: RequestIDFromContext(c.Request().Context()),
+	}})
 }
 
 // DeleteDatabase: DELETE /v1/projects/:projectID/databases/:databaseID

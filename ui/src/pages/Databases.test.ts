@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { ADMIN_PROJECT_ID } from '../stores/project'
 import { api, resetApiMocks } from '../test/api-mock'
-import { clickText, closedDb, mountWithApp, readyDb } from '../test/helpers'
+import { clickText, creatingDb, degradedDb, mountWithApp, readyDb } from '../test/helpers'
 
 vi.mock('../services/api', async () => {
   const m = await import('../test/api-mock')
@@ -65,7 +65,7 @@ function expandButtons(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wrappe
 describe('Databases (数据库管理)', () => {
   beforeEach(() => {
     resetApiMocks()
-    api.databases.list.mockResolvedValue([readyDb, closedDb, deletingDb])
+    api.databases.list.mockResolvedValue([readyDb, creatingDb, degradedDb, deletingDb])
     api.db.collections.mockResolvedValue(['users'])
   })
 
@@ -75,13 +75,19 @@ describe('Databases (数据库管理)', () => {
     expect(wrapper.text()).toContain('数据库列表')
     expect(wrapper.text()).toContain('demo')
     expect(wrapper.text()).toContain('就绪')
-    expect(wrapper.text()).toContain('已关闭')
+    expect(wrapper.text()).toContain('创建中')
+    expect(wrapper.text()).toContain('降级')
     expect(wrapper.text()).toContain('删除中')
+    expect(wrapper.text()).not.toContain('已关闭')
+    expect(wrapper.text()).not.toContain('打开')
+    expect(wrapper.text()).not.toContain('关闭')
     expect(wrapper.text()).toContain('新建数据库')
     expect(wrapper.text()).toContain('SQL')
-    expect(wrapper.text()).toContain('打开')
-    expect(wrapper.text()).toContain('关闭')
     expect(wrapper.text()).toContain('新建集合')
+    const sqlButtons = wrapper.findAll('button').filter((b) => b.text().includes('SQL'))
+    expect(sqlButtons[0].attributes('disabled')).toBeUndefined()
+    expect(sqlButtons[1].attributes('disabled')).toBeDefined()
+    expect(sqlButtons[2].attributes('disabled')).toBeDefined()
   })
 
   it('creates a database after validating the name', async () => {
@@ -105,14 +111,12 @@ describe('Databases (数据库管理)', () => {
     await wrapper.get('.sb-ok').trigger('click')
     await flushPromises()
     expect(api.databases.create).toHaveBeenCalled()
-    expect(toast.success).toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('就绪'))
     expect(wrapper.find('.sb-modal').exists()).toBe(false)
   })
 
-  it('surfaces create / open / close / delete errors', async () => {
+  it('surfaces create and delete errors', async () => {
     api.databases.create.mockRejectedValueOnce(new Error('create-fail'))
-    api.databases.open.mockRejectedValueOnce(new Error('open-fail'))
-    api.databases.close.mockRejectedValueOnce(new Error('close-fail'))
     api.databases.remove.mockRejectedValueOnce(new Error('rm-fail'))
     const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
 
@@ -122,29 +126,20 @@ describe('Databases (数据库管理)', () => {
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('create-fail')
 
-    await clickText(wrapper, '打开')
-    await flushPromises()
-    expect(toast.error).toHaveBeenCalledWith('open-fail')
-
-    await clickText(wrapper, '关闭')
-    await flushPromises()
-    expect(toast.error).toHaveBeenCalledWith('close-fail')
-
     await clickText(wrapper, '删除')
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('rm-fail')
   })
 
-  it('opens / closes / deletes a ready database and pages the table', async () => {
+  it('deletes a ready database and pages the table', async () => {
     const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
-    await clickText(wrapper, '打开')
-    await flushPromises()
-    expect(api.databases.open).toHaveBeenCalledWith(expect.any(String), 'db-1')
-    expect(toast.success).toHaveBeenCalledWith('demo 已打开')
+    await clickText(wrapper, 'SQL')
+    expect(wrapper.get('.sql-m').text()).toContain('demo')
+    await wrapper.get('.sql-close').trigger('click')
 
-    await clickText(wrapper, '关闭')
-    await flushPromises()
-    expect(api.databases.close).toHaveBeenCalledWith(expect.any(String), 'db-1')
+    await clickText(wrapper, '新建集合')
+    expect(wrapper.find('.cc-m').exists()).toBe(true)
+    await wrapper.get('.cc-created').trigger('click')
 
     await clickText(wrapper, '删除')
     await flushPromises()

@@ -38,6 +38,73 @@ func TestApplySystemMigrationsIdempotent(t *testing.T) {
 	}
 }
 
+func TestPlan_MigrateRetiredOpenCloseStatuses(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	if err := ApplySystemMigrations(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	insert := func(id, status string, deleted bool) {
+		t.Helper()
+		var deletedAt any
+		if deleted {
+			deletedAt = now
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO sys_databases(
+			id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at)
+			VALUES(?, 't', 'p', ?, 'user', ?, 'prefix', 1, ?, ?, ?)`,
+			id, id, status, deletedAt, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("closed", "closed", false)
+	insert("opening", "opening", false)
+	insert("closing", "closing", false)
+	insert("recovering", "recovering", false)
+	insert("degraded", "degraded", false)
+	insert("creating", "creating", false)
+	insert("deleted-closed", "closed", true)
+
+	if _, err := db.ExecContext(ctx, retireOpenCloseStatusSQL); err != nil {
+		t.Fatal(err)
+	}
+	statusOf := func(id string) string {
+		t.Helper()
+		var status string
+		var deletedAt sql.NullTime
+		if err := db.QueryRowContext(ctx, `SELECT status, deleted_at FROM sys_databases WHERE id = ?`, id).Scan(&status, &deletedAt); err != nil {
+			t.Fatal(err)
+		}
+		if id == "deleted-closed" {
+			if !deletedAt.Valid || status != "closed" {
+				t.Fatalf("soft-deleted closed row: status=%s deleted=%v", status, deletedAt.Valid)
+			}
+			return status
+		}
+		if deletedAt.Valid {
+			t.Fatalf("%s unexpectedly soft-deleted", id)
+		}
+		return status
+	}
+	for _, id := range []string{"closed", "opening", "closing", "recovering"} {
+		if got := statusOf(id); got != "ready" {
+			t.Fatalf("%s status=%s", id, got)
+		}
+	}
+	if got := statusOf("degraded"); got != "degraded" {
+		t.Fatalf("degraded became %s", got)
+	}
+	if got := statusOf("creating"); got != "creating" {
+		t.Fatalf("creating became %s", got)
+	}
+	statusOf("deleted-closed")
+}
+
 func TestLocatorRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	loc := Locator{DatabaseID: uuid.NewString(), TenantID: catalog.ReservedTenantID, Name: DefaultName, CreatedAt: time.Now().UTC()}

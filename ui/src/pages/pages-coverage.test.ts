@@ -293,7 +293,8 @@ describe('page coverage', () => {
     const dbVm = db.vm as any
     const item = { id: 'd', name: 'n', status: 'ready' }
     expect(dbVm.isReady(item)).toBe(true)
-    expect(dbVm.isOpenable({ status: 'closed' })).toBe(true)
+    expect(dbVm.isReady({ status: 'creating' })).toBe(false)
+    expect(dbVm.isReady({ status: 'degraded' })).toBe(false)
     dbVm.toggleExpand(item)
     dbVm.toggleExpand(item)
     dbVm.openCreate()
@@ -316,12 +317,6 @@ describe('page coverage', () => {
     api.databases.create.mockRejectedValueOnce(new Error('x'))
     dbVm.newName = 'failok'
     await dbVm.create()
-    await dbVm.openDb(item)
-    api.databases.open.mockRejectedValueOnce(new Error('x'))
-    await dbVm.openDb(item)
-    await dbVm.closeDb(item)
-    api.databases.close.mockRejectedValueOnce(new Error('x'))
-    await dbVm.closeDb(item)
     await dbVm.removeDb(item)
     api.databases.remove.mockRejectedValueOnce(new Error('x'))
     await dbVm.removeDb(item)

@@ -14,7 +14,10 @@ import (
 	"time"
 )
 
-// DatabaseStatus 表示数据库生命周期状态（见 plan.md 5.2 状态机）。
+// DatabaseStatus 表示数据库生命周期状态。
+// 用户可见：creating（仅创建请求内部）、ready、degraded、deleting、deleted。
+// opening / closing / closed / recovering 只留给历史行：启动迁移与读取时改为 ready，
+// 不再是现行状态机（不是 ready → closing → closed）。
 type DatabaseStatus string
 
 const (
@@ -95,7 +98,7 @@ type Operation struct {
 	DatabaseID  string
 	ProjectID   string
 	PrincipalID string
-	Kind        string // "create" | "delete" | "open" | "close" | "restore" | ...
+	Kind        string // "create" | "delete" | ...
 	RequestID   string
 	Status      string // "ok" | "error"
 	CreatedAt   time.Time

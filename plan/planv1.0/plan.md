@@ -201,6 +201,8 @@ API 路由只能保证**单进程内**单写。因此部署文档必须将“仅
 
 ### 6.1 管理 API
 
+> open/close 产品面已废弃，见 plan/planv3.0/database-always-open-plan.md。
+
 - `POST /v1/projects/{project}/databases`：创建 logical database。
 - `GET /v1/projects/{project}/databases/{id}`：查询状态、容量和最后持久化信息。
 - `POST /v1/projects/{project}/databases/{id}/open`：预热数据库。

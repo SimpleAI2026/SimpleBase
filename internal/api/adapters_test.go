@@ -32,7 +32,6 @@ type stubCatalog struct {
 	getErr      error
 	listErr     error
 	deleteErr   error
-	readyErr    error
 	resolveErr  error
 	listPrjErr  error
 	createPrj   catalog.Project
@@ -82,7 +81,6 @@ func (s *stubCatalog) DeleteDatabaseSync(_ context.Context, _ auth.Principal, _,
 	s.db.Status = catalog.DatabaseDeleted
 	return s.db, nil
 }
-func (s *stubCatalog) SetDatabaseReady(context.Context, string) error { return s.readyErr }
 func (s *stubCatalog) ResolveProjectTenant(context.Context, string) (string, error) {
 	if s.resolveErr != nil {
 		return "", s.resolveErr
@@ -134,7 +132,7 @@ type stubSystemStore struct {
 }
 
 func (s *stubSystemStore) Meta() catalog.Database { return s.meta }
-func (s *stubSystemStore) DB() *sql.DB           { return s.db }
+func (s *stubSystemStore) DB() *sql.DB            { return s.db }
 
 type memFactory struct{}
 
@@ -175,17 +173,6 @@ func TestDatabaseServiceAdapter(t *testing.T) {
 	if reg.closedID != "db-1" {
 		t.Fatalf("close id=%s", reg.closedID)
 	}
-	lease, err := svc.Acquire(ctx, cat.db, database.ReadOnly)
-	if err != nil || lease == nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	if err := svc.CloseDatabase(ctx, "db-1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.SetDatabaseReady(ctx, "db-1"); err != nil {
-		t.Fatal(err)
-	}
-
 	// nil purger still works
 	svc2 := NewDatabaseServiceAdapter(cat, reg, nil)
 	if _, err := svc2.DeleteDatabase(ctx, p, "p", "db-1"); err != nil {
@@ -193,7 +180,8 @@ func TestDatabaseServiceAdapter(t *testing.T) {
 	}
 
 	reg.acquireErr = errors.New("no lease")
-	if _, err := svc.Acquire(ctx, cat.db, database.ReadWrite); err == nil {
+	sqlSvc := NewSQLServiceAdapter(cat, reg, nil)
+	if _, err := sqlSvc.Acquire(ctx, cat.db, database.ReadWrite); err == nil {
 		t.Fatal("expected acquire error")
 	}
 }

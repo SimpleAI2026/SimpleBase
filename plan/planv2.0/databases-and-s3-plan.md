@@ -1,6 +1,7 @@
 # 数据库管理（DuckLake-only）与 S3 对象存储计划
 
 > **状态**：核心已落地；DeleteDatabaseHandler 已移除；不做 MinIO e2e  
+> open/close 产品面已废弃，见 plan/planv3.0/database-always-open-plan.md。
 > **日期**：2026-09-16  
 > **决策**：Turso 丢弃 · DevMode 用户文件本地盘 · 软删同步清 S3  
 > **范围**：Databases / SqlConsole / DataManager / S3Manager 对应的后端能力收敛与补齐  
@@ -259,7 +260,7 @@
 | 创建后 ready | `catalog.TestPlan_CreateDatabaseBecomesReady`、`api.TestPlan_CreateDatabaseHTTPReturnsReady` |
 | 同步软删清平面 B、不误删平面 A | `catalog.TestPlan_DeleteDatabaseSyncPurgesPlaneBOnly` |
 | creating 可删 / DevMode 无 purger | `catalog.TestPlan_DeleteFromCreatingAllowed`、`TestPlan_DeleteWithoutPurgerStillMarksDeleted` |
-| open 救卡住的 creating | `api.TestPlan_OpenDatabasePromotesCreatingToReady` |
+| 启动修复残留 creating | `catalog.TestPlan_StartupRepairCreating` |
 | 删库 HTTP 返回 deleted | `api.TestPlan_DeleteDatabaseHTTPReturnsDeleted` |
 | descriptor v2 / 拒 turso engine / 拒 v1 | `objectstore.TestPlan_*`、`TestDescriptorValidateRejectsV1Turso` |
 | 无 turso/local factory / 无 DeleteDatabaseHandler | `objectstore.TestPlan_NoTursoUserDatabasePackage` |

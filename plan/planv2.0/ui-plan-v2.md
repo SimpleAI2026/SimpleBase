@@ -1,5 +1,7 @@
 # SimpleBase UI 优化总计划 v2.0（主入口）
 
+> open/close 产品面已废弃，见 plan/planv3.0/database-always-open-plan.md。
+
 > 目标目录：`ui/src`
 > 技术栈：Vue 3.4 + TypeScript + Vite 5 + shadcn-vue（Reka UI + Tailwind CSS v4）+ pinia + axios
 > 制定日期：2026-09-15

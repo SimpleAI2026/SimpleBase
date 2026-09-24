@@ -125,20 +125,11 @@ export interface UpdateUserRequest {
 
 /* ---------- Databases（proto-http.md §3.1） ---------- */
 
-/** 数据库资源。status 枚举共 9 值，新建时为 creating（不是 active） */
+/** 数据库资源。成功创建对 UI 是 ready。creating 只在创建过程中短暂出现。 */
 export interface DatabaseItem {
   id: string
   name: string
-  status:
-    | 'creating'
-    | 'opening'
-    | 'ready'
-    | 'closing'
-    | 'closed'
-    | 'degraded'
-    | 'deleting'
-    | 'deleted'
-    | 'recovering'
+  status: 'creating' | 'ready' | 'degraded' | 'deleting' | 'deleted'
   createdAt: string
   updatedAt: string
   /** 仅详情接口可能返回（服务端注入 SnapshotFor 时） */
@@ -537,8 +528,6 @@ export interface Api {
     list: (projectId: string) => Promise<DatabaseItem[]>
     create: (projectId: string, name: string) => Promise<DatabaseItem>
     get: (projectId: string, databaseId: string) => Promise<DatabaseItem>
-    open: (projectId: string, databaseId: string) => Promise<DatabaseItem>
-    close: (projectId: string, databaseId: string) => Promise<void>
     remove: (projectId: string, databaseId: string) => Promise<void>
   }
   sql: {

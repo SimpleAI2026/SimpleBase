@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useProjectStore } from './stores/project'
 import { api, resetApiMocks } from './test/api-mock'
 import {
-  closedDb,
+  creatingDb,
   mountWithApp,
   readyDb,
   sampleAgent,
@@ -50,7 +50,7 @@ function vmOf(wrapper: { vm: unknown }) {
 describe('remaining coverage gaps', () => {
   beforeEach(() => {
     resetApiMocks()
-    api.databases.list.mockResolvedValue([readyDb, closedDb])
+    api.databases.list.mockResolvedValue([readyDb, creatingDb])
     api.db.collections.mockResolvedValue(['users'])
     api.agents.list.mockResolvedValue([sampleAgent])
     api.agents.modules.mockResolvedValue([
@@ -68,7 +68,7 @@ describe('remaining coverage gaps', () => {
   it('Databases methods cover not-ready, missing active db, and non-Error catches', async () => {
     const { wrapper } = await mountWithApp(Databases)
     const vm = vmOf(wrapper)
-    vm.toggleExpand({ ...closedDb })
+    vm.toggleExpand({ ...creatingDb })
     vm.toggleExpand(readyDb)
     vm.toggleExpand(readyDb)
     vm.activeDb = null
@@ -79,10 +79,6 @@ describe('remaining coverage gaps', () => {
     api.databases.create.mockRejectedValueOnce('create-fail')
     vm.newName = 'okdb'
     await vm.create()
-    api.databases.open.mockRejectedValueOnce('open-fail')
-    await vm.openDb(readyDb)
-    api.databases.close.mockRejectedValueOnce('close-fail')
-    await vm.closeDb(readyDb)
     api.databases.remove.mockRejectedValueOnce('rm-fail')
     await vm.removeDb(readyDb)
     vm.createVisible = true

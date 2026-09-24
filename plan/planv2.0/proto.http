@@ -62,13 +62,9 @@ Content-Type: application/json
 GET {{host}}/v1/projects/{{project}}/databases/{{databaseId}}
 Authorization: {{auth}}
 
-### 1.4 打开数据库（预热：取租约后立即释放）→ 200 DatabaseResponse
-POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/open
-Authorization: {{auth}}
-
-### 1.5 关闭数据库（仅释放本地连接，不删 S3 数据）→ 204 无 body
-POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/close
-Authorization: {{auth}}
+### 1.4 打开 / 关闭数据库
+# 已移除。POST .../open 与 .../close 返回 404 not_found。
+# 创建成功即可查询。见 plan/planv3.0/database-always-open-plan.md
 
 ### 1.6 创建备份 → 501 {"error":{"code":"not_implemented",...}}（尚未实现）
 POST {{host}}/v1/projects/{{project}}/databases/{{databaseId}}/backups

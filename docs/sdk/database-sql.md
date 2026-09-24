@@ -10,9 +10,7 @@ order: 5
 ```ts
 await sb.databases.list({ limit?: number, cursor?: string })
 await sb.databases.get(databaseId)
-await sb.databases.create({ name: string })  // 需 DatabaseAdmin
-await sb.databases.open(databaseId)
-await sb.databases.close(databaseId)
+await sb.databases.create({ name: string })  // 需 DatabaseAdmin；成功后即可查询
 await sb.databases.remove(databaseId)
 ```
 

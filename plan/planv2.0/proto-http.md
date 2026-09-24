@@ -120,13 +120,13 @@
 | POST | `:p/databases` | DatabaseAdmin | 201 | 创建库 `{ "name": "..." }`；body 含未知字段直接 400 |
 | GET | `:p/databases?limit=&cursor=` | DatabaseRead | 200 | 分页列表，仅 `kind=user`；`limit` 默认 50、范围 1–200 |
 | GET | `:p/databases/:databaseID` | DatabaseRead | 200 | 详情（唯一可能带 `snapshot` 的接口） |
-| POST | `:p/databases/:databaseID/open` | DatabaseAdmin | 200 | 预热（取租约后立即释放），返回 DatabaseResponse |
-| POST | `:p/databases/:databaseID/close` | DatabaseAdmin | **204 无 body** | 关闭本地连接（不删数据） |
+| POST | `:p/databases/:databaseID/open` | — | **404** `not_found` | 已移除。创建成功即为 ready，不再提供打开 |
+| POST | `:p/databases/:databaseID/close` | — | **404** `not_found` | 已移除。空闲关句柄仍在进程内部，不是用户操作 |
 | DELETE | `:p/databases/:databaseID` | DatabaseAdmin | **202** | 软删除并**同步**清理平面 B（DuckLake S3 前缀）；成功后 catalog 为 `deleted`，响应 `status` 为 `deleted` |
 
 > 勘误（2026-09-17）：`POST :p/databases/:databaseID/backups` 与 `POST :p/databases/:databaseID/restore` 的 501 占位已删除，不再挂载。
 
-写类接口（create/open/close/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。
+写类接口（create/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。open/close 已移除。
 
 `DatabaseResponse`（创建 / 详情 / open）：
 
@@ -606,13 +606,13 @@ Prompt 组装（禁止密钥）：platform base → module template → `agent.s
 | POST | `:p/databases` | DatabaseAdmin | 201 | 创建库 `{ "name": "..." }`；body 含未知字段直接 400 |
 | GET | `:p/databases?limit=&cursor=` | DatabaseRead | 200 | 分页列表，仅 `kind=user`；`limit` 默认 50、范围 1–200 |
 | GET | `:p/databases/:databaseID` | DatabaseRead | 200 | 详情（唯一可能带 `snapshot` 的接口） |
-| POST | `:p/databases/:databaseID/open` | DatabaseAdmin | 200 | 预热（取租约后立即释放），返回 DatabaseResponse |
-| POST | `:p/databases/:databaseID/close` | DatabaseAdmin | **204 无 body** | 关闭本地连接（不删数据） |
+| POST | `:p/databases/:databaseID/open` | — | **404** `not_found` | 已移除。创建成功即为 ready，不再提供打开 |
+| POST | `:p/databases/:databaseID/close` | — | **404** `not_found` | 已移除。空闲关句柄仍在进程内部，不是用户操作 |
 | DELETE | `:p/databases/:databaseID` | DatabaseAdmin | **202** | 软删除并**同步**清理平面 B（DuckLake S3 前缀）；成功后 catalog 为 `deleted`，响应 `status` 为 `deleted` |
 
 > 勘误（2026-09-17）：`POST :p/databases/:databaseID/backups` 与 `POST :p/databases/:databaseID/restore` 的 501 占位已删除，不再挂载。
 
-写类接口（create/open/close/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。
+写类接口（create/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。open/close 已移除。
 
 `DatabaseResponse`（创建 / 详情 / open）：
 
@@ -1113,13 +1113,13 @@ Metrics（`sys_metric_samples`，项目维度）：`gofunction_invokes`（计数
 | POST | `:p/databases` | DatabaseAdmin | 201 | 创建库 `{ "name": "..." }`；body 含未知字段直接 400 |
 | GET | `:p/databases?limit=&cursor=` | DatabaseRead | 200 | 分页列表，仅 `kind=user`；`limit` 默认 50、范围 1–200 |
 | GET | `:p/databases/:databaseID` | DatabaseRead | 200 | 详情（唯一可能带 `snapshot` 的接口） |
-| POST | `:p/databases/:databaseID/open` | DatabaseAdmin | 200 | 预热（取租约后立即释放），返回 DatabaseResponse |
-| POST | `:p/databases/:databaseID/close` | DatabaseAdmin | **204 无 body** | 关闭本地连接（不删数据） |
+| POST | `:p/databases/:databaseID/open` | — | **404** `not_found` | 已移除。创建成功即为 ready，不再提供打开 |
+| POST | `:p/databases/:databaseID/close` | — | **404** `not_found` | 已移除。空闲关句柄仍在进程内部，不是用户操作 |
 | DELETE | `:p/databases/:databaseID` | DatabaseAdmin | **202** | 软删除并**同步**清理平面 B（DuckLake S3 前缀）；成功后 catalog 为 `deleted`，响应 `status` 为 `deleted` |
 
 > 勘误（2026-09-17）：`POST :p/databases/:databaseID/backups` 与 `POST :p/databases/:databaseID/restore` 的 501 占位已删除，不再挂载。
 
-写类接口（create/open/close/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。
+写类接口（create/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。open/close 已移除。
 
 `DatabaseResponse`（创建 / 详情 / open）：
 
@@ -1599,13 +1599,13 @@ Prompt 组装（禁止密钥）：platform base → module template → `agent.s
 | POST | `:p/databases` | DatabaseAdmin | 201 | 创建库 `{ "name": "..." }`；body 含未知字段直接 400 |
 | GET | `:p/databases?limit=&cursor=` | DatabaseRead | 200 | 分页列表，仅 `kind=user`；`limit` 默认 50、范围 1–200 |
 | GET | `:p/databases/:databaseID` | DatabaseRead | 200 | 详情（唯一可能带 `snapshot` 的接口） |
-| POST | `:p/databases/:databaseID/open` | DatabaseAdmin | 200 | 预热（取租约后立即释放），返回 DatabaseResponse |
-| POST | `:p/databases/:databaseID/close` | DatabaseAdmin | **204 无 body** | 关闭本地连接（不删数据） |
+| POST | `:p/databases/:databaseID/open` | — | **404** `not_found` | 已移除。创建成功即为 ready，不再提供打开 |
+| POST | `:p/databases/:databaseID/close` | — | **404** `not_found` | 已移除。空闲关句柄仍在进程内部，不是用户操作 |
 | DELETE | `:p/databases/:databaseID` | DatabaseAdmin | **202** | 软删除并**同步**清理平面 B（DuckLake S3 前缀）；成功后 catalog 为 `deleted`，响应 `status` 为 `deleted` |
 
 > 勘误（2026-09-17）：`POST :p/databases/:databaseID/backups` 与 `POST :p/databases/:databaseID/restore` 的 501 占位已删除，不再挂载。
 
-写类接口（create/open/close/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。
+写类接口（create/delete）在 `instance.writable = false` 的实例上一律 `503 writer_unavailable`。open/close 已移除。
 
 `DatabaseResponse`（创建 / 详情 / open）：
 

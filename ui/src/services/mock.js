@@ -57,7 +57,7 @@ const genProjectId = () => {
 const state = {
   databases: [
     { id: 'db-default', name: 'default', status: 'ready', createdAt: now(), updatedAt: now(), documentCount: 8 },
-    { id: 'db-analytics', name: 'analytics', status: 'creating', createdAt: now(), updatedAt: now() }
+    { id: 'db-analytics', name: 'analytics', status: 'ready', createdAt: now(), updatedAt: now() }
   ],
   dbStores: {
     'db-default': {
@@ -705,7 +705,7 @@ export const mockApi = {
     },
     async create(projectId, name) {
       await delay()
-      const db = { id: 'db-' + genId(), name, status: 'creating', createdAt: now(), updatedAt: now() }
+      const db = { id: 'db-' + genId(), name, status: 'ready', createdAt: now(), updatedAt: now() }
       state.databases.push(db)
       state.dbStores[db.id] = { collections: [], docs: {} }
       return { ...db }
@@ -715,21 +715,6 @@ export const mockApi = {
       const db = state.databases.find((d) => d.id === databaseId)
       if (!db) throw new Error('数据库不存在')
       return { ...db }
-    },
-    async open(projectId, databaseId) {
-      await delay(400)
-      const db = state.databases.find((d) => d.id === databaseId)
-      if (!db) throw new Error('数据库不存在')
-      db.status = 'ready'
-      db.updatedAt = now()
-      return { ...db }
-    },
-    async close(projectId, databaseId) {
-      await delay(300)
-      const db = state.databases.find((d) => d.id === databaseId)
-      if (!db) throw new Error('数据库不存在')
-      db.status = 'closed'
-      db.updatedAt = now()
     },
     async remove(projectId, databaseId) {
       await delay(400)

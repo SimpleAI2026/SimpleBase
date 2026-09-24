@@ -768,26 +768,6 @@ export const httpApi: Api = {
             encodeURIComponent(databaseId)
         )
         .then((r) => toDatabaseItem(r.data)),
-    open: (projectId, databaseId) =>
-      http
-        .post(
-          '/v1/projects/' +
-            encodeURIComponent(projectId) +
-            '/databases/' +
-            encodeURIComponent(databaseId) +
-            '/open'
-        )
-        .then((r) => toDatabaseItem(r.data)),
-    close: (projectId, databaseId) =>
-      http
-        .post(
-          '/v1/projects/' +
-            encodeURIComponent(projectId) +
-            '/databases/' +
-            encodeURIComponent(databaseId) +
-            '/close'
-        )
-        .then(() => undefined),
     remove: (projectId, databaseId) =>
       http
         .delete(

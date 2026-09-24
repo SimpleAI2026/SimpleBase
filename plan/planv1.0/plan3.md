@@ -75,6 +75,8 @@ func (s *Service) SetDatabaseDegraded(ctx context.Context, id string, cause erro
 ```
 `CreateDatabase`：验证名称 → 验证 project 属于 tenant → UUID → 建立不可猜测 prefix → 状态 creating → 写 DB 记录 → 调用 objectstore 写 descriptor → 失败标记 degraded 或补偿软删 → 返回。不要让 handler 直接写数据库。
 
+> open/close 产品面已废弃，见 plan/planv3.0/database-always-open-plan.md。
+
 ## 状态转换规则
 - `creating → opening → ready`；失败 `creating/opening → degraded`。
 - `ready → closing → closed`；失败可回 `ready` 或 `degraded`，必须记录 operation。
