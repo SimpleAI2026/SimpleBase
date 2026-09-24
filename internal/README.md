@@ -13,7 +13,7 @@
 ### `api`
 HTTP 路由层（Echo v4）。职责：
 - `router.go`：全局中间件（requestID、recover、accessLog、bodyLimit）、`/health/*`、`/metrics`、`/v1` 路由组挂载。
-- `database_handler.go`：数据库管理 API（create/list/get/open/close/delete）。
+- `database_handler.go`：数据库管理 API（create/list/get/delete）。创建成功即 ready，没有用户侧打开/关闭。
 - `sql_handler.go`：SQL 执行 API（query/execute/batch），参数化、超时、行数限制。
 - `llm_handler.go`：LLM Gateway API（chat/stream/providers），SSE 流式转发。
 - `quota_handler.go`、`audit_handler.go`：配额与审计查询。
@@ -26,7 +26,7 @@ HTTP 路由层（Echo v4）。职责：
 认证与权限。`Principal` 表示已认证主体；`Permission` 区分 `database:read/write/admin`、`llm:invoke`、`project:admin`。`APIKeyMiddleware` 解析 Bearer token 并从 catalog 加载 API key。`Require` 在路由层按权限拦截。`api_key_repository` 从 catalog 持久化读取。
 
 ### `catalog`
-单实例元数据。SQL 仓库（`sql_repository.go`）+ 内存模型（`model.go`）+ 系统库迁移（`systemdb/migrate.go`）。表：tenants、projects、databases、api_keys、llm_provider_configs、project_quotas、audit_operations。`sys_jobs` DDL 仅为迁移历史保留，应用层不再读写。`service.go` 提供领域操作与状态机（creating→opening→ready→closing→closed、deleting→deleted、recovering）。`errors.go` 定义领域错误（越权、未找到、状态冲突）。
+单实例元数据。SQL 仓库（`sql_repository.go`）+ 内存模型（`model.go`）+ 系统库迁移（`systemdb/migrate.go`）。表：tenants、projects、databases、api_keys、llm_provider_configs、project_quotas、audit_operations。`sys_jobs` DDL 仅为迁移历史保留，应用层不再读写。`service.go` 提供领域操作与状态机（creating→ready、deleting→deleted；degraded 保持降级。历史 opening/closing/closed/recovering 在启动时改为 ready）。`errors.go` 定义领域错误（越权、未找到、状态冲突）。
 
 ### `database`
 数据库运行时。

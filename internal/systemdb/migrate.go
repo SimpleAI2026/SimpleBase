@@ -556,7 +556,20 @@ var systemMigrations = []migration{
 			created_at TIMESTAMP NOT NULL
 		)`,
 	},
+	{
+		// v37：历史 open/close 状态不再对用户可见。不改 degraded / 软删行，不改对象存储。
+		version: 37,
+		name:    "sys_databases_retire_open_close",
+		stmt:    retireOpenCloseStatusSQL,
+	},
 }
+
+// retireOpenCloseStatusSQL 把未软删的 closed/opening/closing/recovering 写成 ready。
+// 幂等；不改 degraded、deleting、deleted。
+const retireOpenCloseStatusSQL = `UPDATE sys_databases
+SET status = 'ready', updated_at = CURRENT_TIMESTAMP
+WHERE deleted_at IS NULL
+  AND status IN ('closed', 'opening', 'closing', 'recovering')`
 
 // ApplySystemMigrations 按版本顺序应用全部系统表。可重复执行。
 // 任一失败返回 catalog.ErrMigrationFailed，调用方应拒绝 listen。

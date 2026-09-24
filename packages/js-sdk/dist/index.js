@@ -105,12 +105,6 @@ function createDatabasesApi(http) {
     create(input) {
       return http.request("POST", base("/databases"), { body: input });
     },
-    open(databaseId) {
-      return http.request("POST", base(`/databases/${encodeURIComponent(databaseId)}/open`));
-    },
-    close(databaseId) {
-      return http.request("POST", base(`/databases/${encodeURIComponent(databaseId)}/close`));
-    },
     remove(databaseId) {
       return http.request("DELETE", base(`/databases/${encodeURIComponent(databaseId)}`));
     }

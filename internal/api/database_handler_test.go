@@ -12,22 +12,16 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 )
 
 // fakeDBService 是 DatabaseService 的内存假实现，用于 handler 测试。
 type fakeDBService struct {
 	dbs map[string]catalog.Database // key = databaseID
 
-	createErr     error
-	getErr        error
-	listErr       error
-	deleteErr     error
-	acquireErr    error
-	closeErr      error
-	acquiredMode  database.AccessMode
-	closeCalled   string
-	leaseReleased bool
+	createErr error
+	getErr    error
+	listErr   error
+	deleteErr error
 }
 
 func newFakeDBService() *fakeDBService {
@@ -98,41 +92,6 @@ func (f *fakeDBService) DeleteDatabase(ctx context.Context, principal auth.Princ
 	return db, nil
 }
 
-func (f *fakeDBService) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (Lease, error) {
-	if f.acquireErr != nil {
-		return nil, f.acquireErr
-	}
-	f.acquiredMode = mode
-	return &fakeLease{svc: f}, nil
-}
-
-func (f *fakeDBService) CloseDatabase(ctx context.Context, databaseID string) error {
-	if f.closeErr != nil {
-		return f.closeErr
-	}
-	f.closeCalled = databaseID
-	return nil
-}
-
-func (f *fakeDBService) SetDatabaseReady(ctx context.Context, databaseID string) error {
-	db, ok := f.dbs[databaseID]
-	if !ok {
-		return catalog.ErrNotFound
-	}
-	db.Status = catalog.DatabaseReady
-	f.dbs[databaseID] = db
-	return nil
-}
-
-// fakeLease 模拟 registry.Lease 的 Release 方法。
-type fakeLease struct {
-	svc *fakeDBService
-}
-
-func (l *fakeLease) Release() {
-	l.svc.leaseReleased = true
-}
-
 // setupTestRouter 构造一个带 auth + project context 中间件的测试路由。
 // 使用固定 principal 注入，跳过真实 API key 认证。
 func setupTestRouter(t *testing.T, svc *fakeDBService, writable bool) *echo.Echo {
@@ -166,8 +125,8 @@ func setupTestRouter(t *testing.T, svc *fakeDBService, writable bool) *echo.Echo
 	p.POST("/databases", h.CreateDatabase)
 	p.GET("/databases", h.ListDatabases)
 	p.GET("/databases/:databaseID", h.GetDatabase)
-	p.POST("/databases/:databaseID/open", h.OpenDatabase)
-	p.POST("/databases/:databaseID/close", h.CloseDatabase)
+	p.POST("/databases/:databaseID/open", removedDatabaseAction)
+	p.POST("/databases/:databaseID/close", removedDatabaseAction)
 	p.DELETE("/databases/:databaseID", h.DeleteDatabase)
 
 	return e
@@ -280,43 +239,6 @@ func TestDeleteDatabase_StateConflict(t *testing.T) {
 	}
 }
 
-func TestOpenDatabase_Success(t *testing.T) {
-	svc := newFakeDBService()
-	svc.dbs["db-1"] = catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseReady}
-	e := setupTestRouter(t, svc, true)
-	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/open", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if svc.acquiredMode != database.ReadWrite {
-		t.Errorf("expected ReadWrite mode, got %v", svc.acquiredMode)
-	}
-}
-
-func TestOpenDatabase_Degraded(t *testing.T) {
-	svc := newFakeDBService()
-	svc.dbs["db-1"] = catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseDegraded}
-	svc.acquireErr = database.ErrDatabaseNotReady
-	e := setupTestRouter(t, svc, true)
-	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/open", nil)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestCloseDatabase_Success(t *testing.T) {
-	svc := newFakeDBService()
-	svc.dbs["db-1"] = catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseReady}
-	e := setupTestRouter(t, svc, true)
-	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/close", nil)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if svc.closeCalled != "db-1" {
-		t.Errorf("expected close called on db-1, got %s", svc.closeCalled)
-	}
-}
-
 func TestListDatabases_Success(t *testing.T) {
 	svc := newFakeDBService()
 	svc.dbs["db-1"] = catalog.Database{ID: "db-1", ProjectID: "proj-1", Name: "a", Status: catalog.DatabaseReady}
@@ -406,19 +328,23 @@ func TestPlan_DeleteDatabaseHTTPReturnsDeleted(t *testing.T) {
 	}
 }
 
-func TestPlan_OpenDatabasePromotesCreatingToReady(t *testing.T) {
-	svc := newFakeDBService()
-	svc.dbs["db-1"] = catalog.Database{ID: "db-1", ProjectID: "proj-1", Name: "stuck", Status: catalog.DatabaseCreating}
-	e := setupTestRouter(t, svc, true)
-	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/open", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var body DatabaseResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Status != "ready" {
-		t.Fatalf("open should promote creating→ready, got %s", body.Status)
+func TestPlan_OpenCloseRoutesNotFound(t *testing.T) {
+	e := setupTestRouter(t, newFakeDBService(), true)
+	e.HTTPErrorHandler = errorHandler(Dependencies{})
+	for _, path := range []string{
+		"/v1/projects/proj-1/databases/db-1/open",
+		"/v1/projects/proj-1/databases/db-1/close",
+	} {
+		rec := doRequest(e, http.MethodPost, path, nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: expected 404, got %d: %s", path, rec.Code, rec.Body.String())
+		}
+		var body APIErrorBody
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("%s: %v body=%s", path, err, rec.Body.String())
+		}
+		if body.Error.Code != "not_found" {
+			t.Fatalf("%s: code=%q body=%s", path, body.Error.Code, rec.Body.String())
+		}
 	}
 }

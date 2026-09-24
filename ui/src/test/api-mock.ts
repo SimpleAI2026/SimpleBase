@@ -37,8 +37,6 @@ export const api = {
     list: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
-    open: vi.fn(),
-    close: vi.fn(),
     remove: vi.fn()
   },
   sql: {
@@ -220,14 +218,6 @@ export function applyApiDefaults() {
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z'
   })
-  api.databases.open.mockResolvedValue({
-    id: 'db-1',
-    name: 'demo',
-    status: 'ready',
-    createdAt: 't',
-    updatedAt: 't'
-  })
-  api.databases.close.mockResolvedValue(undefined)
   api.databases.remove.mockResolvedValue(undefined)
   api.sql.query.mockResolvedValue({
     columns: ['id'],

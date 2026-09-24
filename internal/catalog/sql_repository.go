@@ -164,6 +164,39 @@ func (r *sqlRepository) ListDatabasesByKind(ctx context.Context, projectID, kind
 	return r.listDatabasesWhere(ctx, projectID, "kind = ?", []any{kind}, page)
 }
 
+// ListDatabasesByStatuses 列出未软删且状态匹配的库（启动修复）。
+func (r *sqlRepository) ListDatabasesByStatuses(ctx context.Context, statuses []DatabaseStatus) ([]Database, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(statuses))
+	args := make([]any, len(statuses))
+	for i, st := range statuses {
+		placeholders[i] = "?"
+		args[i] = string(st)
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at
+		 FROM sys_databases WHERE deleted_at IS NULL AND status IN (`+strings.Join(placeholders, ",")+`)
+		 ORDER BY created_at ASC, id ASC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Database
+	for rows.Next() {
+		d, err := scanDatabase(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *sqlRepository) listDatabasesWhere(ctx context.Context, projectID string, kindWhere string, kindArgs []any, page Page) ([]Database, string, error) {
 	limit := page.Limit
 	if limit <= 0 || limit > 200 {

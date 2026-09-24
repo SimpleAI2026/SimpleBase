@@ -322,6 +322,9 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		KMSKeyIDRef:    cfg.S3.KMSKeyID,
 	}
 	a.catalog = catalog.NewService(repo, keys, descWriter, ducklakeStore, a.logger)
+	if err := a.catalog.RepairDatabasesOnStartup(ctx); err != nil {
+		return fmt.Errorf("repair database availability: %w", err)
+	}
 
 	a.registry = registry.New(userFactory, a.catalog, registry.Options{
 		IdleTimeout: cfg.Database.IdleTimeout,

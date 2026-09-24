@@ -113,8 +113,7 @@ type SimpleBaseClient = {
 ```ts
 sb.databases.list(opts?: { limit?: number; cursor?: string })
 sb.databases.get(databaseId: string)
-sb.databases.create({ name: string })           // DatabaseAdmin
-sb.databases.open(databaseId) / .close(...)    // Admin
+sb.databases.create({ name: string })           // DatabaseAdmin；成功即可查询
 sb.databases.remove(databaseId)                // soft delete
 ```
 

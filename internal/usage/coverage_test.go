@@ -38,6 +38,9 @@ func (s *stubRepo) ListDatabases(context.Context, string, catalog.Page) ([]catal
 func (s *stubRepo) ListDatabasesByKind(context.Context, string, string, catalog.Page) ([]catalog.Database, string, error) {
 	return nil, "", nil
 }
+func (s *stubRepo) ListDatabasesByStatuses(context.Context, []catalog.DatabaseStatus) ([]catalog.Database, error) {
+	return nil, nil
+}
 func (s *stubRepo) TransitionDatabase(context.Context, string, []catalog.DatabaseStatus, catalog.DatabaseStatus, time.Time) (catalog.Database, error) {
 	return catalog.Database{}, nil
 }

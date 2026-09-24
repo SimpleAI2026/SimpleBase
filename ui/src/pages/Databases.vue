@@ -5,7 +5,7 @@
       <CardHeader class="border-b">
         <CardTitle>{{ isAdmin ? '系统数据库' : '数据库列表' }}</CardTitle>
         <CardDescription>
-          {{ isAdmin ? '系统库承载实例元数据、日志与监控，只读且不可删除' : `共 ${databases.length} 个数据库` }}
+          {{ isAdmin ? '系统库承载实例元数据、日志与监控，只读且不可删除' : `共 ${databases.length} 个数据库。新建后即可查询、建集合` }}
         </CardDescription>
         <CardAction v-if="!isAdmin">
           <div class="flex items-center gap-2">
@@ -113,24 +113,6 @@
                       <TooltipContent>{{ isReady(record) ? (isAdmin ? 'SQL 控制台（只读查询）' : 'SQL 工作台') : '数据库未就绪' }}</TooltipContent>
                     </Tooltip>
                     <template v-if="!isAdmin">
-                      <Tooltip>
-                        <TooltipTrigger as-child>
-                          <Button variant="ghost" size="sm" :disabled="!isOpenable(record)" @click="openDb(record)">
-                            <RocketIcon data-icon="inline-start" />
-                            <span class="hidden lg:inline">打开</span>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>打开</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger as-child>
-                          <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="closeDb(record)">
-                            <PowerIcon data-icon="inline-start" />
-                            <span class="hidden lg:inline">关闭</span>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>关闭</TooltipContent>
-                      </Tooltip>
                       <Tooltip>
                         <TooltipTrigger as-child>
                           <span>
@@ -253,9 +235,7 @@ import {
   DatabaseIcon,
   MinusIcon,
   PlusIcon,
-  PowerIcon,
   RefreshCwIcon,
-  RocketIcon,
   ShieldCheckIcon,
   Trash2Icon,
 } from '@lucide/vue'
@@ -336,10 +316,6 @@ function isReady(db: DatabaseItem) {
   return db.status === 'ready'
 }
 
-function isOpenable(db: DatabaseItem) {
-  return ['ready', 'closed', 'degraded'].includes(db.status)
-}
-
 function toggleExpand(db: DatabaseItem) {
   if (!isReady(db)) return
   if (expandedRowKeys.value.includes(db.id)) {
@@ -418,26 +394,6 @@ async function create() {
     toast.error(e instanceof Error ? e.message : '创建失败')
   } finally {
     creating.value = false
-  }
-}
-
-async function openDb(db: DatabaseItem) {
-  try {
-    await api.databases.open(projectStore.id, db.id)
-    toast.success(`${db.name} 已打开`)
-    await doLoad()
-  } catch (e) {
-    toast.error(e instanceof Error ? e.message : '打开失败')
-  }
-}
-
-async function closeDb(db: DatabaseItem) {
-  try {
-    await api.databases.close(projectStore.id, db.id)
-    toast.success(`${db.name} 已关闭（数据保留）`)
-    await doLoad()
-  } catch (e) {
-    toast.error(e instanceof Error ? e.message : '关闭失败')
   }
 }
 

@@ -31,12 +31,9 @@ describe('mockApi', () => {
 
     expect((await flush(mockApi.databases.list(PID))).length).toBeGreaterThan(0)
     const db = await flush(mockApi.databases.create(PID, 'extra'))
+    expect(db.status).toBe('ready')
     expect((await flush(mockApi.databases.get(PID, db.id))).id).toBe(db.id)
     await flushReject(mockApi.databases.get(PID, 'missing'))
-    expect((await flush(mockApi.databases.open(PID, db.id))).status).toBe('ready')
-    await flush(mockApi.databases.close(PID, db.id))
-    await flushReject(mockApi.databases.open(PID, 'missing'))
-    await flushReject(mockApi.databases.close(PID, 'missing'))
 
     const users = await flush(mockApi.sql.query(PID, 'db-default', { sql: 'select * from users' }))
     expect(users.rowCount).toBeGreaterThan(0)

@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks, setIsMock } from '../test/api-mock'
-import { clickText, closedDb, mountWithApp, readyDb } from '../test/helpers'
+import { clickText, creatingDb, mountWithApp, readyDb } from '../test/helpers'
 
 vi.mock('../services/api', async () => {
   const m = await import('../test/api-mock')
@@ -28,7 +28,7 @@ describe('Dashboard (监控大盘)', () => {
   beforeEach(() => {
     resetApiMocks()
     setIsMock(false)
-    api.databases.list.mockResolvedValue([readyDb, closedDb, degradedDb])
+    api.databases.list.mockResolvedValue([readyDb, creatingDb, degradedDb])
     api.s3.list.mockResolvedValue([
       { key: 'a.txt', size: 1, lastModified: 't' },
       { key: 'b.txt', size: 2, lastModified: 't' }

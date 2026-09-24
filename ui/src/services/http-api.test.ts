@@ -135,10 +135,6 @@ describe('httpApi', () => {
     await httpApi.databases.create(pid, 'n')
     http.get.mockResolvedValueOnce({ data: { id: 'd' } })
     await httpApi.databases.get(pid, db)
-    http.post.mockResolvedValueOnce({ data: { id: 'd' } })
-    await httpApi.databases.open(pid, db)
-    http.post.mockResolvedValueOnce({ data: {} })
-    await httpApi.databases.close(pid, db)
     http.delete.mockResolvedValueOnce({ data: {} })
     await httpApi.databases.remove(pid, db)
 

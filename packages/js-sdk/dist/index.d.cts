@@ -96,8 +96,6 @@ interface DatabasesApi {
     create(input: {
         name: string;
     }): Promise<DatabaseInfo>;
-    open(databaseId: string): Promise<DatabaseInfo>;
-    close(databaseId: string): Promise<void>;
     remove(databaseId: string): Promise<DatabaseInfo | void>;
 }
 

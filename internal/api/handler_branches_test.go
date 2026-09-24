@@ -53,16 +53,12 @@ func TestDatabaseHandler_MissingContextAndValidation(t *testing.T) {
 		e.POST("/databases", h.CreateDatabase)
 		e.GET("/databases", h.ListDatabases)
 		e.GET("/databases/:databaseID", h.GetDatabase)
-		e.POST("/databases/:databaseID/open", h.OpenDatabase)
-		e.POST("/databases/:databaseID/close", h.CloseDatabase)
 		e.DELETE("/databases/:databaseID", h.DeleteDatabase)
 	})
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/databases"},
 		{http.MethodGet, "/databases"},
 		{http.MethodGet, "/databases/db-1"},
-		{http.MethodPost, "/databases/db-1/open"},
-		{http.MethodPost, "/databases/db-1/close"},
 		{http.MethodDelete, "/databases/db-1"},
 	} {
 		rec := doRequest(e, tc.method, tc.path, CreateDatabaseRequest{Name: "x"})
@@ -75,16 +71,12 @@ func TestDatabaseHandler_MissingContextAndValidation(t *testing.T) {
 		e.POST("/databases", h.CreateDatabase)
 		e.GET("/databases", h.ListDatabases)
 		e.GET("/databases/:databaseID", h.GetDatabase)
-		e.POST("/databases/:databaseID/open", h.OpenDatabase)
-		e.POST("/databases/:databaseID/close", h.CloseDatabase)
 		e.DELETE("/databases/:databaseID", h.DeleteDatabase)
 	})
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/databases"},
 		{http.MethodGet, "/databases"},
 		{http.MethodGet, "/databases/db-1"},
-		{http.MethodPost, "/databases/db-1/open"},
-		{http.MethodPost, "/databases/db-1/close"},
 		{http.MethodDelete, "/databases/db-1"},
 	} {
 		rec := doRequest(eP, tc.method, tc.path, CreateDatabaseRequest{Name: "x"})
@@ -97,8 +89,6 @@ func TestDatabaseHandler_MissingContextAndValidation(t *testing.T) {
 		e.GET("/databases/:databaseID", h.GetDatabase)
 		e.GET("/databases", h.ListDatabases)
 		e.POST("/databases", h.CreateDatabase)
-		e.POST("/databases/:databaseID/open", h.OpenDatabase)
-		e.POST("/databases/:databaseID/close", h.CloseDatabase)
 		e.DELETE("/databases/:databaseID", h.DeleteDatabase)
 	})
 	rec := doRequest(eOK, http.MethodGet, "/databases/db-1", nil)
@@ -120,7 +110,7 @@ func TestDatabaseHandler_MissingContextAndValidation(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty id get %d", rec.Code)
 	}
-	for _, fn := range []func(echo.Context) error{h.OpenDatabase, h.CloseDatabase, h.DeleteDatabase} {
+	for _, fn := range []func(echo.Context) error{h.DeleteDatabase} {
 		req = httptest.NewRequest(http.MethodPost, "/databases/", nil)
 		rec = httptest.NewRecorder()
 		c = eOK.NewContext(req, rec)
@@ -153,26 +143,13 @@ func TestDatabaseHandler_MissingContextAndValidation(t *testing.T) {
 
 	ro := NewDatabaseHandler(svc, false)
 	eRO := setupBareEcho(true, true, func(e *echo.Echo) {
-		e.POST("/databases/:databaseID/open", ro.OpenDatabase)
-		e.POST("/databases/:databaseID/close", ro.CloseDatabase)
 		e.DELETE("/databases/:databaseID", ro.DeleteDatabase)
 	})
-	for _, path := range []string{"/databases/db-1/open", "/databases/db-1/close"} {
-		rec = doRequest(eRO, http.MethodPost, path, nil)
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("ro %s %d", path, rec.Code)
-		}
-	}
 	rec = doRequest(eRO, http.MethodDelete, "/databases/db-1", nil)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("ro delete %d", rec.Code)
 	}
 
-	svc.closeErr = errors.New("close fail")
-	rec = doRequest(eOK, http.MethodPost, "/databases/db-1/close", nil)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("close err %d", rec.Code)
-	}
 	svc.createErr = catalog.ErrAlreadyExists
 	rec = doRequest(eOK, http.MethodPost, "/databases", CreateDatabaseRequest{Name: "dup"})
 	if rec.Code != http.StatusConflict {

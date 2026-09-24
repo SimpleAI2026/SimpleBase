@@ -315,10 +315,18 @@ export const readyDb = {
   documentCount: 42
 }
 
-export const closedDb = {
+export const creatingDb = {
   id: 'db-2',
-  name: 'closed-db',
-  status: 'closed' as const,
+  name: 'creating-db',
+  status: 'creating' as const,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z'
+}
+
+export const degradedDb = {
+  id: 'db-deg',
+  name: 'degraded-db',
+  status: 'degraded' as const,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z'
 }

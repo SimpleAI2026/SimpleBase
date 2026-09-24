@@ -21,6 +21,8 @@ type Repository interface {
 	ListDatabases(ctx context.Context, projectID string, page Page) ([]Database, string, error)
 	// ListDatabasesByKind 按类型列出数据库（admin 项目查询 kind=system 系统库）。
 	ListDatabasesByKind(ctx context.Context, projectID, kind string, page Page) ([]Database, string, error)
+	// ListDatabasesByStatuses 列出未软删、状态属于 statuses 的库。仅启动修复使用。
+	ListDatabasesByStatuses(ctx context.Context, statuses []DatabaseStatus) ([]Database, error)
 	TransitionDatabase(ctx context.Context, id string, from []DatabaseStatus, to DatabaseStatus, at time.Time) (Database, error)
 	MarkDeleted(ctx context.Context, id string, at time.Time) error
 	UpsertProviderConfig(ctx context.Context, cfg LLMProviderConfig) error

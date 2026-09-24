@@ -29,6 +29,8 @@ func (m *CacheManager) Evict(ctx context.Context, targetBytes int64) (EvictionRe
 func (m *CacheManager) Remove(databaseID string) error
 ```
 
+> open/close 产品面已废弃，见 plan/planv3.0/database-always-open-plan.md。
+
 约束：
 1. `Path` 验证 UUID，使用 `filepath.Join(root, databaseID)` 并检查结果仍在 root 下。
 2. 只能淘汰已 `closed`、registry 中 `active==0` 且非恢复/备份中的库；先调用 `Registry.CloseDatabase`，再删除缓存目录。

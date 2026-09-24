@@ -34,6 +34,8 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool)
 ```
 API key 原文只在接收请求时出现；使用带 server secret 的 hash/HMAC 存储不可逆摘要。拒绝 `Authorization` 缺失、格式错误、已撤销 key、project 不匹配。响应和日志不得回显 key。
 
+> open/close 产品面已废弃，见 plan/planv3.0/database-always-open-plan.md。
+
 ## 路由（`internal/api/router.go`）
 ```go
 v1 := e.Group("/v1", APIKeyMiddleware(auth))

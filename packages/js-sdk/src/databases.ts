@@ -6,8 +6,6 @@ export interface DatabasesApi {
   list(opts?: { limit?: number; cursor?: string }): Promise<{ databases: DatabaseInfo[]; next_cursor?: string }>
   get(databaseId: string): Promise<DatabaseInfo>
   create(input: { name: string }): Promise<DatabaseInfo>
-  open(databaseId: string): Promise<DatabaseInfo>
-  close(databaseId: string): Promise<void>
   remove(databaseId: string): Promise<DatabaseInfo | void>
 }
 
@@ -24,12 +22,6 @@ export function createDatabasesApi(http: HttpClient): DatabasesApi {
     },
     create(input) {
       return http.request('POST', base('/databases'), { body: input })
-    },
-    open(databaseId) {
-      return http.request('POST', base(`/databases/${encodeURIComponent(databaseId)}/open`))
-    },
-    close(databaseId) {
-      return http.request('POST', base(`/databases/${encodeURIComponent(databaseId)}/close`))
     },
     remove(databaseId) {
       return http.request('DELETE', base(`/databases/${encodeURIComponent(databaseId)}`))

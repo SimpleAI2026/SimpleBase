@@ -22,7 +22,6 @@ type CatalogService interface {
 	ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page catalog.Page) ([]catalog.Database, string, error)
 	BeginDeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
 	DeleteDatabaseSync(ctx context.Context, principal auth.Principal, projectID, databaseID string, closer func(context.Context, string) error, purger catalog.StoragePurger) (catalog.Database, error)
-	SetDatabaseReady(ctx context.Context, id string) error
 	ResolveProjectTenant(ctx context.Context, projectID string) (string, error)
 	ListProjects(ctx context.Context, principal auth.Principal) ([]catalog.Project, error)
 	CreateProject(ctx context.Context, principal auth.Principal, in catalog.CreateProjectInput) (catalog.Project, error)
@@ -68,22 +67,6 @@ func (a *dbServiceAdapter) DeleteDatabase(ctx context.Context, principal auth.Pr
 		purger = a.purger
 	}
 	return a.catalog.DeleteDatabaseSync(ctx, principal, projectID, databaseID, a.registry.CloseDatabase, purger)
-}
-
-func (a *dbServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (Lease, error) {
-	l, err := a.registry.Acquire(ctx, db, mode)
-	if err != nil {
-		return nil, err
-	}
-	return l, nil
-}
-
-func (a *dbServiceAdapter) CloseDatabase(ctx context.Context, databaseID string) error {
-	return a.registry.CloseDatabase(ctx, databaseID)
-}
-
-func (a *dbServiceAdapter) SetDatabaseReady(ctx context.Context, databaseID string) error {
-	return a.catalog.SetDatabaseReady(ctx, databaseID)
 }
 
 // sqlServiceAdapter 把 CatalogService + RegistryService 适配为 SQLService。

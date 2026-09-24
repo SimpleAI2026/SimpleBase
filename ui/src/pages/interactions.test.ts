@@ -96,7 +96,7 @@ describe('page template interactions', () => {
     ])
   })
 
-  it('Databases clicks expand, sql, open/close, collection, docs, pager and project watch', async () => {
+  it('Databases clicks expand, sql, collection, docs, delete, pager and project watch', async () => {
     const { wrapper, pinia } = await mountWithApp(Databases, { stubs: collectionStub })
     await clickText(wrapper, '刷新')
     await clickText(wrapper, '新建数据库')
@@ -122,8 +122,6 @@ describe('page template interactions', () => {
     }
     await clickText(wrapper, 'SQL')
     if (wrapper.find('.sql-close').exists()) await wrapper.get('.sql-close').trigger('click')
-    await clickText(wrapper, '打开')
-    await clickText(wrapper, '关闭')
     await clickText(wrapper, '新建集合')
     await clickText(wrapper, '删除')
     await wrapper.get('.pager-next').trigger('click')

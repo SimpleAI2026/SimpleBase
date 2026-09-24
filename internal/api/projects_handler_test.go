@@ -36,9 +36,6 @@ func (f *fakeProjectCatalog) BeginDeleteDatabase(context.Context, auth.Principal
 func (f *fakeProjectCatalog) DeleteDatabaseSync(context.Context, auth.Principal, string, string, func(context.Context, string) error, catalog.StoragePurger) (catalog.Database, error) {
 	return catalog.Database{}, errors.New("unused")
 }
-func (f *fakeProjectCatalog) SetDatabaseReady(context.Context, string) error {
-	return errors.New("unused")
-}
 func (f *fakeProjectCatalog) ResolveProjectTenant(context.Context, string) (string, error) {
 	return "", errors.New("unused")
 }
