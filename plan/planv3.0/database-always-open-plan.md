@@ -1,183 +1,199 @@
 # 数据库默认就绪：去掉打开 / 关闭
 
-> **状态**：plan-only（本文件只规划，不改产品代码）。  
+> **仓库**：SimpleBase（https://github.com/linkxzhou/SimpleBase）。本计划只描述这个仓库里的控制台、HTTP 与 catalog，不涉及别的产品线。  
+> **状态**：plan-only。本 PR 只新增本文，不改产品代码。  
 > **日期**：2026-09-24  
-> **Verified against**：`main` @ `1a1bf75`（`Merge branch 'cursor/docs-wiki-polish-3266'`）。行号对应该提交。  
-> **决策**：数据库列表不再提供「打开 / 关闭」。创建成功即 `ready`、可直接 SQL。连接句柄的空闲关闭仍是进程内部行为。  
-> **范围**：控制台操作、公开 HTTP、catalog 对外状态、JS SDK、mock、测试，以及仍把 open/close 写成用户步骤的文档。  
-> **本计划不改**：DuckLake / S3 对象格式、空闲淘汰、`max_open`、设置页。
+> **Verified against**：`main` @ `1a1bf75`。下面的路径与行为都对过当前代码。  
+> **关联**：同目录计划（中文、决策表、阶段、DoD、文件清单）。实现时以本文的锁定决策为准。
+
+### 已锁定的产品决策
+
+1. **不需要「打开 / 关闭」。** 数据库创建成功后就是可用的（`ready`）。用户不必先预热、也不必手动关掉。
+2. **相关逻辑端到端清掉。** 控制台按钮、HTTP 路由、SDK、mock、状态文案、以及把 open/close 写成使用步骤的文档，都要删。内部空闲关句柄留下。
+3. **本 PR 不实现。** 下面的阶段是下一次实现 PR 的顺序。
 
 ---
 
-## 0. 一句话目标 / One-sentence goal
+## 0. 一句话目标
 
-用户心智是 **创建 → 可用**。列表操作里没有「打开 / 关闭」。进程仍可在空闲时关掉本地句柄；下一次 SQL / 集合请求自己 `Acquire`，不需要用户再点一次。
+创建之后列表显示「就绪」，SQL 与集合可以直接用。列表上没有「打开」「关闭」。进程仍可在空闲时释放本地连接；下一次查询自己重新打开，用户无感知。
 
 ---
 
-## 1. 背景与核实 / Baseline
+## 1. 现状（已核对）
 
-对照本仓库当前代码，而不是旧计划里的九态状态机原文。
+### 1.1 控制台
 
-### 1.1 假设里成立的部分
+`ui/src/pages/Databases.vue`（非 admin 项目）：
 
-| 点 | 位置 |
+| 项 | 现状 |
 |---|---|
-| 列表操作有「打开」「关闭」 | `ui/src/pages/Databases.vue` 约 103–121 行。仅非 admin 项目。关闭 toast：`${name} 已关闭（数据保留）` |
-| 按钮调用 `api.databases.open` / `close` | 同文件 `openDb` / `closeDb`（约 412–429 行） |
-| HTTP | `POST /v1/projects/:projectID/databases/:databaseID/open` 与 `.../close`，挂在 `internal/api/router.go` 204–205 行 |
-| open | `DatabaseHandler.OpenDatabase`：`Acquire(ReadWrite)` 后立刻 `Release`，再 `SetDatabaseReady`（`internal/api/database_handler.go` 188–221 行） |
-| close | `Registry.CloseDatabase`：没有活跃引用时释放本地句柄，不删 S3（`internal/database/registry/registry.go` 190–211 行）。HTTP **204 无 body** |
-| 九态常量还在 | `internal/catalog/model.go` 20–29 行：`creating` / `opening` / `ready` / `closing` / `closed` / `degraded` / `deleting` / `deleted` / `recovering` |
-| 空闲关闭与缓存淘汰仍关句柄 | `Registry.CloseIdle`、`Registry.Shutdown`、`cache.Manager.Evict` → `Closer.CloseDatabase` |
+| 按钮 | 「打开」「关闭」 |
+| 打开 | `openDb` → `api.databases.open`；成功 toast「已打开」 |
+| 关闭 | `closeDb` → `api.databases.close`；成功 toast「`${name} 已关闭（数据保留）`」 |
+| `isOpenable` | `status` 属于 `ready` \| `closed` \| `degraded` 时「打开」可点 |
+| `isReady` | `status === 'ready'`。展开集合、SQL、新建集合都卡在 ready 上 |
+| 关闭可点条件 | 仅 `isReady` |
+| 测试 | `ui/src/pages/Databases.test.ts` 覆盖打开/关闭成功与失败 |
 
-### 1.2 核实后要改写的部分
+客户端：
 
-这些和「今天用户必须先打开才能用」不一致，实现时以这里为准。
+| 文件 | 行为 |
+|---|---|
+| `ui/src/services/http-api.ts` | `POST .../databases/:id/open` 与 `.../close` |
+| `ui/src/services/mock.js` | `open` 把 status 写成 `ready`；`close` 写成 `closed` |
+| `ui/src/services/types.ts` | `DatabaseItem.status` 含 `opening` / `closing` / `closed` 等；`Api.databases` 有 `open` / `close` |
+| `ui/src/lib/status.ts` | `closed` →「已关闭」，`opening` →「打开中」，`closing` →「关闭中」 |
 
-1. **真实创建路径已经停在 `ready`。** `catalog.Service.CreateDatabase` 在 catalog（及可选 descriptor）写成功后调用 `SetDatabaseReady`，返回值 `Status = ready`（`internal/catalog/service.go` 141–149 行）。`plan/planv2.0/proto-http.md` §3.1 也写了：HTTP 201 一般已是 `ready`，`creating` 只在请求内部短暂存在。open 把卡住的 `creating` 推到 `ready`，是历史补救，不是正常创建步骤。
-2. **真实 close 不写 catalog 状态。** `CloseDatabase` handler 只校验归属并调用 `Registry.CloseDatabase`，不 `TransitionDatabase`。关完之后列表状态仍是 `ready`。toast「数据保留」只是文案；服务端本来就不会删数据。
-3. **`closed` 主要是 mock 写出来的。** `ui/src/services/mock.js` 的 `close` 把 `db.status = 'closed'`，`open` 再改回 `ready`。生产 `service.go` 里没有转到 `opening` / `closing` / `closed` 的写入。这三个值出现在删除 / 降级的 **from** 列表，以及单测直接调 `TransitionDatabase`。
-4. **今天的 open 也救不了 `closed`。** `SetDatabaseReady` 的 from 只有 `creating` / `opening` / `recovering`（`service.go` 382–390 行）。`closed` 会落到 `ErrInvalidState` 并被吞掉，响应仍是 `closed`。控制台 `isReady` 只认 `status === 'ready'`，于是 SQL、展开集合、新建集合保持禁用。
-5. **`Registry.Acquire` 并不拒绝 `closed`。** `validateAccess` 只拒绝 `deleting` / `deleted` 和 `degraded`（`registry.go` 174–187 行）。句柄被 `CloseIdle` 删掉之后，下一次 `Acquire` 会重新 `factory.Open`。挡住「已关闭库不能查询」的是控制台，不是引擎。
-6. **云 Agent 不调用 open/close。** `internal/cloudagent` 的工具是 `list_databases`、`list_collections`、`readonly_sql`。这条假设丢弃，实现时不要改 Agent 工具面。
-7. **仓库里没有 OpenAPI 文件。** 契约在 `plan/planv2.0/proto-http.md` 与 `plan/planv2.0/proto.http`。`proto-http.md` 里 §3.1 的 open/close 表重复出现四次（约 123、609、1116、1602 行），改文档时要全部改到。
-8. **没有独立 i18n 目录。** 「打开」「关闭」「已关闭」「打开中」「关闭中」写在 `Databases.vue` 和 `ui/src/lib/status.ts`。
-9. **descriptor 状态不是产品状态。** 创建时 S3 descriptor 写成 `objectstore.StatusCreating`（`service.go` 125 行），随后没有把 descriptor 改成 `ready`。UI 读的是 catalog `sys_databases.status`。本计划不改对象内容。
+没有单独的 i18n 文件，中文写在页面和 `status.ts` 里。admin 系统库用 `v-if="!isAdmin"` 已经藏起打开/关闭；「受保护」、只读 SQL、查看数据留下。
 
-### 1.3 现在用户实际看到什么
+mock 的 `create` 返回 `creating`，要点「打开」才变成 `ready`。真实创建接口成功时已经是 `ready`（见 §1.3）。实现时 mock 必须改成创建即 `ready`，否则 `VITE_USE_MOCK=true` 仍像「建完不能用」。
 
-非 admin 数据库列表的操作是：查看数据、SQL、打开、关闭、新建集合、删除。
+### 1.2 HTTP
 
-| 操作 | 何时可点 | 去掉打开/关闭之后 |
+挂在 `internal/api/router.go`，权限都是 `DatabaseAdmin`（`database:admin`），与创建、删除相同。没有单独的 open scope。`writable = false` 时与其它写接口一样 `503 writer_unavailable`。
+
+| 方法 | 路径 | Handler |
 |---|---|---|
-| 查看数据 / 收起 | `status === 'ready'` | 保留。未就绪 tooltip 仍是「数据库未就绪」 |
-| SQL | 同上；admin 为只读控制台 | 保留 |
-| 打开 | `isOpenable`：`ready` / `closed` / `degraded` | **删除** |
-| 关闭 | 仅 `ready` | **删除** |
-| 新建集合 | `ready` | 保留 |
-| 删除 | `status !== 'deleting'`；确认文案仍是「删除为异步操作」 | 保留。与关闭无关 |
-| admin「受保护」 | 系统库隐藏新建、打开、关闭、删除、新建集合 | 保留。本来就没有打开/关闭 |
+| POST | `/v1/projects/:projectID/databases/:databaseID/open` | `DatabaseHandler.OpenDatabase` |
+| POST | `/v1/projects/:projectID/databases/:databaseID/close` | `DatabaseHandler.CloseDatabase` |
 
-空列表没有单独的「库已关闭」空态。Dashboard 用同一套 `statusText` 画状态徽章（`ui/src/pages/Dashboard.vue`）。
+`OpenDatabase`（`internal/api/database_handler.go`）：`GetDatabase` → `Acquire(ReadWrite)` → `Release` → `SetDatabaseReady`（注释写明兼容历史卡在 `creating` 的库）→ 再读一次并返回数据库 JSON，200。
 
-mock 与真实 API 不一致：`mock.js` 的 `create` 返回 `creating`，必须再点打开才变成 `ready`。真实 API 创建成功已经是 `ready`。实现时 mock 要跟真实行为对齐，否则本地 `VITE_USE_MOCK=true` 仍会看起来「创建完不能用」。
+`CloseDatabase`：注释是「释放本地资源（关闭连接），不删除 S3 数据」。`GetDatabase` 校验归属后调用 `registry.CloseDatabase`，**204 无 body**。不改 catalog 的 `status`。
+
+### 1.3 Catalog
+
+`internal/catalog/model.go` 的 `DatabaseStatus` 九个值都在：
+
+| 常量 | 值 |
+|---|---|
+| `DatabaseCreating` | `creating` |
+| `DatabaseOpening` | `opening` |
+| `DatabaseReady` | `ready` |
+| `DatabaseClosing` | `closing` |
+| `DatabaseClosed` | `closed` |
+| `DatabaseDegraded` | `degraded` |
+| `DatabaseDeleting` | `deleting` |
+| `DatabaseDeleted` | `deleted` |
+| `DatabaseRecovering` | `recovering` |
+
+`sys_databases.status` 是 `VARCHAR`，没有 CHECK（`internal/systemdb/migrate.go`）。
+
+读代码后的补充（实现时按这个，不要按「用户必须先打开」来做）：
+
+- `catalog.Service.CreateDatabase` 在记录写成功后调用 `SetDatabaseReady`，返回值已是 `ready`。`creating` 只活在这次请求内部。open 把卡住的 `creating` 推到 `ready`，是崩溃窗口的补救，不是正常步骤。
+- 生产路径没有把状态写成 `opening`、`closing` 或 `closed`。`closed` 出现在删除允许的来源状态里，以及 mock / 单测。HTTP close 不会把行写成 `closed`。
+- `SetDatabaseReady` 的来源只有 `creating` / `opening` / `recovering`。`closed` 会变成 `ErrInvalidState` 并被 open handler 忽略，所以**今天的打开按钮也不能把 `closed` 变成 `ready`**。控制台仍因 `isReady` 禁用 SQL。
+- 列表查询条件是 `deleted_at IS NULL`，不是 `status != closed`。软删会写 `deleted_at`。
+
+### 1.4 运行时
+
+`internal/database/registry`：
+
+| 方法 | 行为 | 本计划 |
+|---|---|---|
+| `Acquire` | 没有句柄时打开；已有则复用 | **保留**。查询、集合、数据 API 都走它 |
+| `CloseDatabase` | `active == 0` 时丢掉句柄；有引用则报错。不删 S3 | **保留方法**。删除流程和缓存淘汰还在用。去掉的是用户/HTTP 入口 |
+| `CloseIdle` | 空闲且 `active == 0` 的句柄自动关掉 | **保留** |
+| `Shutdown` | 进程退出时关句柄 | **保留** |
+
+`validateAccess` 拒绝 `deleting` / `deleted` 和 `degraded`。不拒绝 `closed`。句柄被 `CloseIdle` 清掉后，下一次 `Acquire` 会重新打开。挡住「已关闭就不能查」的是控制台的 `isReady`，不是 registry。
+
+云 Agent 工具是 `list_databases`、`list_collections`、`readonly_sql`，不调用 open/close。实现时不要改 Agent。
+
+仓库里没有 OpenAPI 文件。契约在 `plan/planv2.0/proto-http.md`（§3.1 的 open/close 表在文件里重复四次，约 123、609、1116、1602 行）和 `plan/planv2.0/proto.http`。JS SDK 在 `packages/js-sdk`（`src/databases.ts` 与已提交的 `dist`）。
 
 ---
 
-## 2. 产品决策 / Decisions
+## 2. 决策表
 
 | # | 决策 | 含义 |
 |---|---|---|
-| 1 | 没有用户级打开/关闭 | 列表、SDK、HTTP 都不再提供这个动作 |
-| 2 | 创建成功即可用 | 心智是 `ready`。不要求用户预热 |
-| 3 | 「始终可用」≠「句柄永不关闭」 | `CloseIdle` / 缓存淘汰 / `Shutdown` 保留。下次查询透明重新打开 |
-| 4 | 关闭 ≠ 删除 | 删除仍是软删：`deleting` → 关句柄 → 清平面 B 前缀 → `deleted` + `deleted_at`。close 从未删 S3，去掉之后也不许用别的按钮偷偷做这件事 |
-| 5 | 公开路由一次删除 | 见 §4。不留一个「只为了按钮」的管理 API |
-| 6 | `Registry.CloseDatabase` 保留 | 删除路径和缓存淘汰还在调用。去掉的是 HTTP/UI/SDK 上的手动入口 |
+| 1 | 用户侧没有打开/关闭 | 列表、HTTP、SDK、mock 都不再提供 |
+| 2 | 创建成功即可用 | 对外状态是 `ready`。不要求预热 |
+| 3 | 始终可用 ≠ 句柄永不关闭 | `CloseIdle`、缓存淘汰、`Shutdown`、`max_open` 都留着。下次请求 `Acquire` |
+| 4 | 关闭 ≠ 删除 | 删除仍是软删：`deleting` → 内部 `CloseDatabase` → 清该库对象前缀 → `deleted` 且写入 `deleted_at`。close 的注释是不删 S3；去掉 close 之后，删除仍是唯一清数据的动作 |
+| 5 | 公开路由一次删除 | 见 §4。不先留一个弃用版本 |
+| 6 | `Registry.CloseDatabase` 不删 | 只从 handler / UI / SDK 上拿掉手动调用 |
 
 ---
 
 ## 3. 产品 / UX
 
-默认心智，写进列表副标题或空态时用这一句即可，不要再解释连接池：
+心智用一句话就够，不要解释连接池：
 
 > 新建数据库后即可查询、建集合。不需要打开或关闭。
 
-### 3.1 从列表拿掉的东西
+### 3.1 拿掉
 
-- `Databases.vue` 的「打开」「关闭」按钮、tooltip、`openDb` / `closeDb`、`isOpenable`。
+- `Databases.vue` 的「打开」「关闭」、tooltip、`openDb`、`closeDb`、`isOpenable`。
 - toast：`已打开`、`已关闭（数据保留）`、`打开失败`、`关闭失败`。
-- 仅因关闭才存在的展示：`statusText` 的 `已关闭`，以及 `opening` →「打开中」、`closing` →「关闭中」。没有单独的 closed 空态要删；不要新做一块「如何打开数据库」的说明。
-- `RocketIcon` / `PowerIcon` 若不再被该页使用，去掉 import。
+- `status.ts` 里只为开关存在的文案：`已关闭`、`打开中`、`关闭中`。没有单独的「库已关闭」空态，不要新做一块说明。
+- 页面上不再使用的 `RocketIcon` / `PowerIcon` import。
 
-### 3.2 仍然可见
+### 3.2 留下
 
-- 刷新、新建数据库（非 admin）。
-- 状态徽章：至少「就绪 / 创建中 / 降级 / 删除中」。`已删除` 行因 `deleted_at IS NULL` 过滤，列表里通常看不到（`sql_repository.go` 174–175 行）。
-- SQL、查看数据、新建集合：仍只在 `ready` 时启用。`creating`（创建请求尚未返回时的极短窗口）、`degraded`、`deleting` 继续显示「数据库未就绪」，这不是打开按钮的替代品。
-- 删除与「受保护」。删除确认可以继续说清理是异步/提交后刷新；不要把「数据保留」挪到删除文案上，那是旧关闭 toast 的句子。
+| 操作 | 条件 |
+|---|---|
+| 刷新、新建数据库 | 非 admin |
+| 查看数据 / SQL / 新建集合 | 仍要 `ready`。`creating`、`degraded`、`deleting` 的 tooltip 继续是「数据库未就绪」 |
+| 删除 | `status !== 'deleting'`，确认后提交。文案不要把「数据保留」挪到删除上 |
+| admin | 只读 SQL、查看数据、「受保护」。本来就没有打开/关闭 |
 
-### 3.3 创建反馈
+创建成功 toast 应让人看出可以直接用（状态为「就绪」）。mock `create` 与真实 API 对齐，直接返回 `ready`。
 
-成功 toast 今天是 `数据库 ${name} 创建成功（状态：${statusText(db.status)}）`。创建响应已是 `ready` 时，文案应让人看出可以直接使用，例如带上「就绪」，而不是暗示还要再操作一步。mock 的 `create` 必须直接返回 `ready`，与 `catalog.Service.CreateDatabase` 一致。
+Dashboard 用同一套 `statusText`（`ui/src/pages/Dashboard.vue`）。`closed` 文案删掉之后，夹具不要再断言「已关闭」。
 
 ---
 
-## 4. API 表面
+## 4. API 怎么删
 
-### 4.1 假设与建议
+**假设：** 仓库外没有需要单独弃用窗口的 open/close 客户端。依据：没有 OpenAPI；调用方是本仓库的控制台、mock 和 `packages/js-sdk`；云 Agent 不调用；真实 close 也不把「已关闭」写进 catalog。
 
-**假设：** 本仓库之外没有已发布、需要单独弃用窗口的 open/close 客户端。依据：
+**做法：一次卸掉路由，不先 deprecate。**
 
-- 没有 OpenAPI 产物。
-- 进程内调用方是控制台 `http-api.ts`、`mock.js`、`packages/js-sdk`（`src/databases.ts` 与已提交的 `dist/index.js`）。
-- 云 Agent 不调用这两条路由。
-- 真实 close 不落库状态，外部调用方并没有在服务端留下一个「已关闭」生命周期可依赖。
+SPA 兜底只注册了 `GET /*`（`internal/web/web.go`）。未注册的 POST 走 Echo 404，`errorHandler` 写成 JSON，`error.code = not_found`。验收按 **404 + `not_found`**，不是 HTML，也不是 `410`。
 
-**建议：一次删除，不要先 deprecate 再删。** 路由从 `mountV1Routes` 卸掉即可。
+若以后确认有仓库外客户端，再单独加一版 `410`。那不是这一次的默认。
 
-卸掉之后的行为：SPA fallback 只注册了 `GET /*`（`internal/web/web.go` 60 行）。未注册的 **POST** 走 Echo 404，经 `errorHandler` 变成 JSON `404`，`error.code = not_found`（`internal/api/error.go` 的 `httpStatusToCode`）。不是 HTML，也不是 `410`。验收按这个写。
-
-不推荐多留一个发行版的 `410 Gone`：没有外部契约，多一个临时 handler 只会把「这个动作还存在」写回 API。若产品负责人后来确认有仓库外客户端，再单独加一版明确的 `410`；那不是本计划的默认路径。
-
-### 4.2 要删的公开入口
-
-| 入口 | 今天 | 之后 |
+| 入口 | 现在 | 之后 |
 |---|---|---|
-| `POST :p/databases/:databaseID/open` | `DatabaseAdmin`，200，`DatabaseResponse` | 不挂载 → POST `404 not_found` |
-| `POST :p/databases/:databaseID/close` | `DatabaseAdmin`，204 | 同上 |
-| `packages/js-sdk` `databases.open` / `close` | `src/databases.ts`、`dist/index.js`、`dist/index.d.ts` | 从 `DatabasesApi` 删除，并重新生成 dist |
-| 控制台 `http-api.ts` / `types.ts` 的 `open` / `close` | 与 mock 同一 `Api` 接口 | 两边一起删，避免签名分叉 |
+| `POST .../open` | `DatabaseAdmin`，200，数据库 JSON | 不挂载 → POST `404 not_found` |
+| `POST .../close` | `DatabaseAdmin`，204 | 同上 |
+| `packages/js-sdk` `databases.open` / `close` | `src/databases.ts`、`dist/index.js`、`dist/index.d.ts` | 从接口删除，并更新已提交的 dist |
+| `http-api.ts` / `types.ts` / `mock.js` | 与 `Api` 同一套签名 | 三处一起删 |
 
-保留：`POST/GET databases`、`GET/DELETE :id`、`query` / `execute` / `batch`、集合与文档 API。
+留下：创建、列表、详情、删除，以及 `query` / `execute` / `batch`、集合与文档。
 
-### 4.3 权限
+`DatabaseAdmin` 权限保留，创建和删除还要用。
 
-open/close 与创建、删除相同，都是 `auth.DatabaseAdmin`（`database:admin`）。没有单独的 open scope。删路由 **不** 删除 `DatabaseAdmin`，创建和删除还要用。
-
-`instance.writable = false` 时，这两条和 create/delete 一样返回 `503 writer_unavailable`。路由删除后，这个 503 不再属于 open/close；create/delete/execute 的只读实例行为不变。`plan/planv2.0/proto-http.md` 里「写类接口（create/open/close/delete）」改成「create/delete」。
-
-### 4.4 handler 接口
-
-`DatabaseHandler` 的 `DatabaseService` 上，仅为 open/close 存在的方法可以从 **handler 接口** 拿掉：
-
-- `CloseDatabase`（handler 侧）
-- `SetDatabaseReady`（只有 `OpenDatabase` 通过 handler 调用；创建路径在 `catalog.Service` 内部）
-- `Acquire`（handler 侧只有 open 用；SQL/Data 用的是另一套 `SQLService.Acquire`）
-
-`dbServiceAdapter` 里对应的三个方法若再无引用，一并删除。`registry.Registry.CloseDatabase` **不** 在此列。
+handler 的 `DatabaseService` 上，只为 open/close 存在的 `Acquire`、`CloseDatabase`、`SetDatabaseReady` 可以从 **handler 接口** 去掉。SQL/数据用的是另一套 `Acquire`。`registry.Registry.CloseDatabase` 不动。`catalog.Service.SetDatabaseReady` 仍由创建成功路径调用。
 
 ---
 
-## 5. Catalog / 状态模型
-
-`sys_databases.status` 是 `VARCHAR`，没有 CHECK（`internal/systemdb/migrate.go` version 3）。改枚举不需要改表结构，需要一次数据修正。
-
-### 5.1 各状态怎么处理
+## 5. 状态与 `closed` 迁移
 
 | 状态 | 决定 | 理由 |
 |---|---|---|
-| `ready` | **保留**，且是创建成功后的正常值 | 已实现。列表、SQL、集合都以它为「可用」 |
-| `creating` | **保留**，仅作创建请求内部的短暂状态 | 插入后、`SetDatabaseReady` 之前。成功响应不应停在这里。进程在这两步之间崩溃时，今天靠 open 补救；open 删除后要有内部补救（§5.2） |
-| `degraded` | **保留，且不要自动改成 ready** | descriptor 失败等会走到这里（`degradeAfterCreateFailure`）。`Acquire` 拒绝并返回 `ErrDatabaseNotReady`。这是故障，不是「关着」 |
-| `deleting` | **保留** | 软删进行中。UI 禁用再次删除 |
-| `deleted` | **保留** | `MarkDatabaseDeleted` 写入，并设 `deleted_at`。列表因 `deleted_at IS NULL` 隐藏。与 close 无关 |
-| `closed` | **对用户消失** | 生产代码不写入。mock 写入。已有行改成 `ready` |
-| `opening` | **对用户消失** | 无生产写入。已有行改成 `ready` |
-| `closing` | **对用户消失** | 无生产写入。已有行改成 `ready` |
-| `recovering` | **对用户消失** | 无生产写入。`backups` / `restore` 路由已按 proto-http 勘误删除。已有行改成 `ready`。不在本计划恢复备份功能 |
+| `ready` | 保留，且是创建成功后的正常值 | 列表、SQL、集合都以它为可用 |
+| `creating` | 保留，仅创建请求内部短暂出现 | 成功响应不应停在这里。进程在写入与 `SetDatabaseReady` 之间崩溃时，今天靠 open 补救；open 去掉后用 §5.1 的启动修复 |
+| `degraded` | 保留，且不要自动改成 `ready` | 创建失败会标降级。`Acquire` 拒绝。这是故障，不是「关着」 |
+| `deleting` / `deleted` | 保留 | 软删。`deleted` 带 `deleted_at`，列表因 `deleted_at IS NULL` 看不到 |
+| `closed` | 对用户消失 | 生产不写，mock 在写。已有行改为 `ready` |
+| `opening` / `closing` | 对用户消失 | `model.go` 有常量，生产不写。已有行改为 `ready` |
+| `recovering` | 对用户消失 | 生产不写，备份/恢复路由已不在契约里。已有行改为 `ready`。本计划不恢复备份 |
 
-软删与关闭必须在实现说明和测试里分开写：
+删除与关闭必须在测试里分开：
 
-- 关闭（即将删除的 API）：不改 `deleted_at`，不调用 `DeletePrefix`，不把状态改为 `deleting` / `deleted`。
-- 删除：`BeginDeleteDatabase` 的 from 今天包含 `closed`。迁移之后 from 改为仍能删的活状态：`creating` / `ready` / `degraded`，以及迁移完成前可能残留的 `opening` / `recovering`。`deleted` 保持终态，不能删回去变成可用库。
+- 即将删除的 close：不写 `deleted_at`，不删对象，不把状态改成 `deleting` / `deleted`。
+- 删除：来源状态在迁移后仍包括 `creating` / `ready` / `degraded`。迁移完成前若还见到 `opening` / `closed` / `recovering`，删除也要能接受，避免旧行删不掉。`deleted` 不能再变回可用库。
 
-### 5.2 `closed` 与卡住的 `creating` 如何变成可用
+### 5.1 怎么把旧行变成可用
 
-推荐 **启动时一次幂等 UPDATE + 读取时兜底**，两步都做：
+两步都做：
 
-1. **一次迁移**（catalog 启动或新的 `systemdb` migration version，幂等）：
+1. **启动时一次幂等更新**（catalog 启动或新的 migration version）：
 
    ```sql
    UPDATE sys_databases
@@ -186,256 +202,209 @@ open/close 与创建、删除相同，都是 `auth.DatabaseAdmin`（`database:ad
      AND status IN ('closed', 'opening', 'closing', 'recovering');
    ```
 
-   不更新 `degraded` / `deleting` / `deleted`。不碰 S3。
+   不改 `degraded` / `deleting` / `deleted`。不改对象存储。
 
-2. **读取兜底**：`GetDatabase` / `ListDatabases` 若仍见到 `closed` / `opening` / `closing` / `recovering`，对响应按 `ready` 返回，并最好写回（覆盖滚动升级时旧进程刚留下的行）。这样不依赖用户再调一次已经不存在的 open。
+2. **读取兜底：** `GetDatabase` / `ListDatabases` 若仍见到这四个值，响应按 `ready` 返回并写回。这样不依赖已经不存在的 open。
 
-3. **卡住的 `creating`：** 不要在每次 list 上把「正在创建」无条件改成 `ready`（descriptor 还没写完时会把失败窗口标成就绪）。替换 open 补救的规则：
+3. **卡住的 `creating`：** 不要在每次 list 上把「正在创建」无条件改成 `ready`。替换 open 补救的规则是进程启动时处理残留行：没有进行中的创建时，descriptor 存储未启用或对象已存在 → `SetDatabaseReady`；启用了对象存储但对象不存在 → `SetDatabaseDegraded`。正常 `CreateDatabase` 返回前已经是 `ready`，这条路径保持。
 
-   - 进程启动时，把 **本进程没有进行中的创建**、且仍为 `creating` 的行：若 descriptor 存储未启用（DevMode 无 descriptor）或 descriptor 已存在，则 `SetDatabaseReady`；若启用了 descriptor 但对象不存在，则 `SetDatabaseDegraded`，而不是假装就绪。
-   - 正常 `CreateDatabase` 成功路径保持现状：函数返回前已经是 `ready`。
-
-`SetDatabaseReady` 今天的 from 不含 `closed`。迁移 SQL 直接写 `ready`，不必把 `closed` 塞进 `SetDatabaseReady`，除非读取兜底想复用那个函数。若复用，from 要加上 `closed` / `opening` / `closing` / `recovering`，并且 **仍然不要** 从 `degraded` 转出。
-
-`objectstore` 的 `StatusOpening` / `StatusClosing` / `StatusClosed` 常量可以在确认无引用后删除。不要为了对齐去回写已有 descriptor JSON。
+`SetDatabaseReady` 今天的来源不含 `closed`。迁移用上面的 SQL 直接写 `ready`。若读取兜底想复用该函数，来源要加上 `closed` / `opening` / `closing` / `recovering`，并且仍然不要从 `degraded` 转出。
 
 ---
 
-## 6. Runtime（Registry / cache）
+## 6. 运行时：留下空闲关闭，去掉手动关闭
 
-用户不控制连接池。下面这些保持内部 API：
+用户不控制连接池。
 
-| 能力 | 保留原因 |
-|---|---|
-| `Registry.Acquire` / `Lease.Release` | SQL、集合、数据 API、云 Agent 只读查询都靠它。entry 不存在时 `factory.Open` |
-| `Registry.CloseIdle` | `active == 0` 且超过 `idleTimeout`（默认 5 分钟）关闭 ready handle |
-| `Registry.Shutdown` | 进程退出 |
-| `Registry.CloseDatabase` | `DeleteDatabaseSync`（`internal/api/adapter.go` 把 `a.registry.CloseDatabase` 传进 closer）、`cache` 淘汰（`internal/database/cache/evict.go`） |
-| `cache.Manager.Evict` | 只淘汰非活跃库；先关句柄再删缓存目录 |
-| `max_open` / `IdleTimeout` | 配置限额。本计划不改默认值 |
+必须留在内部、并写成测试的行为：`CloseIdle`（或缓存淘汰）之后 catalog 仍是 `ready`；下一次 `query` / `execute` / 集合读通过 `Acquire` 重新打开并成功。失败时应是存储或引擎错误，而不是「请先打开数据库」。
 
-要从公开表面去掉的，只是「管理员手动 `CloseDatabase`」：
+`degraded` 的 `Acquire` 拒绝保持不变。
 
-- 删除 `POST .../close` 与 handler。
-- 不要新增替代的 admin/UI 路由。
-- registry 方法、删除路径、淘汰路径留着。单测 `TestCloseDatabase_*` 继续测句柄，不测 HTTP。
-
-**必须写明并做成测试的行为：** `CloseIdle`（或淘汰）之后 catalog 状态仍是 `ready`；下一次 `query` / `execute` / 集合读通过 `Acquire` 重新打开并成功。失败时错误是引擎/存储错误，不是「请先打开数据库」。
-
-`degraded` 的 `Acquire` 拒绝保持不变。本计划不把降级库自动打开。
+`internal/database/cache/evict.go` 开头「只淘汰已关闭」容易读成产品状态 `closed`。注释改成「只淘汰 registry 里没有活跃引用的库」。淘汰逻辑不变：先 `CloseDatabase`，再删缓存目录。
 
 ---
 
-## 7. 前端清理
-
-无 vue-i18n 文件。改组件内中文和 `status.ts`。
+## 7. 前端清理清单
 
 | 文件 | 动作 |
 |---|---|
-| `ui/src/pages/Databases.vue` | 删除打开/关闭按钮、`isOpenable`、`openDb`、`closeDb` 及相关 icon |
-| `ui/src/lib/status.ts` | 删除 `opening` / `closing` / `closed` 的文案与 badge 分支。`recovering` 若不再出现，一并删除。保留 `ready` / `creating` / `degraded` / `deleting` / `deleted` |
-| `ui/src/lib/status.test.ts` | 不再断言 `opening` / `closing` 为 outline；`statusText('closed')` 不应再是「已关闭」 |
-| `ui/src/services/types.ts` | `DatabaseItem.status` 去掉 `opening` / `closing` / `closed` / `recovering`。注释不要再写「新建时为 creating（不是 active）」——成功创建对 UI 而言是 `ready`。`Api.databases` 去掉 `open` / `close` |
-| `ui/src/services/http-api.ts` | 删除 `/open`、`/close` |
-| `ui/src/services/http-api.test.ts` | 删除约 127–129 行的 open/close 调用 |
-| `ui/src/services/mock.js` | `create` 返回 `ready`；删除 `open` / `close`。不要再把状态写成 `closed` |
-| `ui/src/services/mock.test.ts` | 改为断言创建即 `ready`；删除 missing open/close |
-| `ui/src/test/api-mock.ts` | 去掉 `databases.open` / `close` 的 mock |
-| `ui/src/test/helpers.ts` | `closedDb` 改为 `degraded` 或 `creating` 夹具，供「未就绪」用例使用 |
-| `ui/src/pages/Databases.test.ts` | 不再期望按钮「打开」「关闭」、`已关闭`、open/close 失败 toast |
-| `ui/src/pages/pages-coverage.test.ts` | `isOpenable({ status: 'closed' })` 删除 |
-| `ui/src/pages/interactions.test.ts` | 用例名里的 open/close 点击改为 SQL / 集合 / 删除 |
-| `ui/src/coverage-gaps.test.ts` | 去掉 open/close reject 分支 |
-| `ui/src/pages/Dashboard.test.ts` | 若用 `closedDb` 只为渲染徽章，改成仍存在的状态 |
-
-`api.ts` 的 mock/http 切换不用新分支；两边实现同一个更小的 `Api`。
+| `ui/src/pages/Databases.vue` | 删除打开/关闭、`isOpenable`、`openDb`、`closeDb` |
+| `ui/src/pages/Databases.test.ts` | 不再期望「打开」「关闭」和「已关闭」 |
+| `ui/src/pages/pages-coverage.test.ts` | 删除 `isOpenable({ status: 'closed' })` |
+| `ui/src/pages/interactions.test.ts` | 用例里的 open/close 点击改为 SQL / 集合 / 删除 |
+| `ui/src/pages/Dashboard.test.ts` | `closedDb` 若只为徽章，改成仍存在的状态 |
+| `ui/src/coverage-gaps.test.ts` | 去掉 open/close 失败分支 |
+| `ui/src/lib/status.ts` 与 `status.test.ts` | 去掉 `opening` / `closing` / `closed` / `recovering` 的用户文案 |
+| `ui/src/services/types.ts` | 状态联合与 `open` / `close` 方法删除。注释改为：成功创建对 UI 是 `ready` |
+| `ui/src/services/http-api.ts` 与 `http-api.test.ts` | 删除 `/open`、`/close` |
+| `ui/src/services/mock.js` 与 `mock.test.ts` | `create` 返回 `ready`；删除 `open` / `close` |
+| `ui/src/test/api-mock.ts` | 去掉 `databases.open` / `close` |
+| `ui/src/test/helpers.ts` | `closedDb` 改为 `degraded` 或 `creating`，给「未就绪」用例用 |
 
 ---
 
-## 8. 后端清理
+## 8. 后端与 SDK 清理清单
 
 | 文件 | 动作 |
 |---|---|
-| `internal/api/router.go` | 删除 open/close 两行 |
-| `internal/api/database_handler.go` | 删除 `OpenDatabase`、`CloseDatabase`；收窄 `DatabaseService` |
-| `internal/api/adapter.go` | 删除仅服务 handler 的 `CloseDatabase` / `SetDatabaseReady` / `Acquire` 包装。`DeleteDatabaseSync` 仍传 `registry.CloseDatabase` |
-| `internal/api/database_handler_test.go` | 删除 `TestOpenDatabase_*`、`TestCloseDatabase_Success`、`TestPlan_OpenDatabasePromotesCreatingToReady`。改成：创建 HTTP 201 为 `ready`；POST open/close 为 `404` 且 `error.code=not_found` |
-| `internal/api/handler_branches_test.go` | 从 writable / not-found / 只读矩阵里去掉 open/close |
-| `internal/api/adapters_test.go` | 不再把 handler `CloseDatabase` 当公开行为测 |
-| `internal/catalog/service.go` | §5.2 的迁移与读取兜底；收紧 `BeginDeleteDatabase` 的 from。`SetDatabaseReady` 继续服务创建成功路径 |
-| `internal/catalog/model.go` | 常量可留到迁移落地再删，避免半截编译。注释里的「见 plan.md 5.2 状态机」改为指向本文件，不要再描述 `ready → closing → closed` |
-| `internal/catalog/*_test.go` | 直接 `TransitionDatabase(..., DatabaseClosed)` 的用例改为迁移：`closed` 行读出来是 `ready`，且能 `Acquire` + 查询。保留 deleting/deleted/degraded 用例 |
-| `internal/objectstore/descriptor.go` | 仅当 `StatusOpening` / `StatusClosing` / `StatusClosed` 无引用时删除常量。不改已写入的对象 |
-| `internal/database/registry/registry.go` | **不** 删除 `CloseDatabase` / `CloseIdle` / `Shutdown`。补或保持：idle close 后再次 `Acquire` 成功，且不修改 catalog status |
-| `internal/database/cache/evict.go` | 注释第 4 行「只淘汰已关闭」容易读成产品状态 `closed`。改成「只淘汰 registry 中无活跃引用的库」。逻辑不变 |
-| `internal/README.md` | `database_handler.go` 与 catalog 状态机那两句在文档阶段改掉（§9） |
-| `packages/js-sdk/src/databases.ts` 与 `dist/*` | 删除 `open` / `close`。dist 已入库，必须一起更新 |
-| 云 Agent | **不改**。已确认无 open/close 调用 |
+| `internal/api/router.go` | 删除 open、close 两行 |
+| `internal/api/database_handler.go` | 删除 `OpenDatabase`、`CloseDatabase`；收窄 handler 的 `DatabaseService` |
+| `internal/api/adapter.go` | 删除只服务这两个 handler 的包装。删除流程仍把 `registry.CloseDatabase` 传给 closer |
+| `internal/api/database_handler_test.go` | 删掉 open/close 成功用例和 `TestPlan_OpenDatabasePromotesCreatingToReady`。改为：创建 201 的 `status` 为 `ready`；POST open/close 为 `404` 且 `error.code=not_found` |
+| `internal/api/handler_branches_test.go` | 从只读 / 未找到矩阵去掉 open/close |
+| `internal/api/adapters_test.go` | 不再把 handler 的 `CloseDatabase` 当公开行为 |
+| `internal/catalog/service.go` | §5.1 迁移与读取兜底；收紧删除的来源状态。创建路径继续 `SetDatabaseReady` |
+| `internal/catalog/model.go` | 常量可留到迁移落地再删。注释不要再描述 `ready → closing → closed` 为现行状态机 |
+| `internal/catalog/*_test.go` | `closed` 行读出来是 `ready` 且能查询。保留 deleting / deleted / degraded 用例 |
+| `internal/database/registry` | **不**删 `CloseDatabase` / `CloseIdle` / `Shutdown`。补：idle 之后再次 `Acquire` 成功，且不改 catalog status |
+| `internal/database/cache/evict.go` | 只改注释，见 §6 |
+| `packages/js-sdk/src/databases.ts` 与 `dist/*` | 删除 `open` / `close`。`dist` 已入库，必须一起改 |
+| `internal/cloudagent` | 不改 |
 
-`Operation.Kind` 注释里的 `"open" | "close"`（`model.go` 98 行）没有对应的生产 `AppendOperation`。不必回填历史审计行；新代码不要再写这两种 kind。
+`Operation.Kind` 注释里的 `"open" | "close"` 没有对应的生产审计写入。不必回填旧审计行；新代码不要再写这两种 kind。
 
 ---
 
-## 9. 文档（实现 PR 的清单）
+## 9. 文档清单（实现 PR 再改，本 PR 不改）
 
-本计划 PR **不** 改下列文件。实现功能时按清单改。历史计划（planv1 / 已落地的 planv2）加一行「open/close 产品面已废弃，见 `plan/planv3.0/database-always-open-plan.md`」，不要把旧设计文档改写成另一种架构。
+用户能读到、必须去掉「先打开再使用」的：
 
-用户能读到、必须改掉「先打开再使用」的：
+- [ ] `docs/database/index.md`：「创建 / 打开 / 关闭数据库」
+- [ ] `docs/sdk/database-sql.md`：`sb.databases.open` / `close`
+- [ ] `README.md` API 表里的 open/close 两行
+- [ ] `internal/README.md`：handler 列表，以及 `creating→opening→ready→closing→closed` 那句
+- [ ] `plan/planv2.0/proto-http.md`：四处 §3.1，以及「create/open/close/delete」
+- [ ] `plan/planv2.0/proto.http`：打开数据库 / 关闭数据库示例
+- [ ] `plan/planv2.0/js-sdk-plan.md`：`sb.databases.open / close`
 
-- [ ] `docs/database/index.md`：去掉「创建 / 打开 / 关闭数据库」
-- [ ] `docs/sdk/database-sql.md`：去掉 `sb.databases.open` / `close`
-- [ ] `README.md` API 表：删除 open/close 两行
-- [ ] `internal/README.md`：handler 列表与 `creating→opening→ready→closing→closed` 那句
-- [ ] `plan/planv2.0/proto-http.md`：四处 §3.1 表、`DatabaseResponse` 示例里的九态、以及「create/open/close/delete」
-- [ ] `plan/planv2.0/proto.http`：约 65–70 行「打开数据库 / 关闭数据库」
-- [ ] `plan/planv2.0/js-sdk-plan.md`：约 117 行 `sb.databases.open / close`
+历史计划只加一行「open/close 产品面已废弃，见本文」，不整篇重写：
 
-只加废弃说明、不整篇重写的：
-
-- [ ] `plan/planv2.0/databases-and-s3-plan.md`（生命周期仍写 create → open/close；`TestPlan_OpenDatabasePromotesCreatingToReady` 改为启动修复或读取兜底的测试名）
-- [ ] `plan/planv2.0/db-ducklake-plan.md` 约 494 行（open = 预热 ATTACH）
-- [ ] `plan/planv2.0/ui-plan-v2.md` 约 68、133 行（九态、open/close）
+- [ ] `plan/planv2.0/databases-and-s3-plan.md`（生命周期仍写了 open/close；`TestPlan_OpenDatabasePromotesCreatingToReady` 改成启动修复的测试名）
+- [ ] `plan/planv2.0/ui-plan-v2.md`（九态与 open/close）
 - [ ] `plan/planv1.0/plan.md`、`plan3.md`、`plan5.md`、`plan7.md` 里把 open/close 写成用户步骤的段落
 
-`docs/ops/deployment.md` 里的 `max_open`、冷启动、进程 `Shutdown` 关闭连接是运维指标，**保留**。不要改成「用户可以关闭数据库」。`docs/database/ducklake.md` 是引擎长文里的 connection close，不是控制台按钮，不必为这个产品决策重写。
-
-`docs/ops/migration.md` 的「仅能打开」指迁移校验，不是这个 API，不要误改。
+`docs/ops/deployment.md` 里的 `max_open`、冷启动、进程退出时关闭连接是运维描述，保留。不要改成「用户可以关闭数据库」。
 
 ---
 
-## 10. 分阶段、风险、回滚
+## 10. 阶段、风险、回滚
 
-### 10.1 为什么不先只改 UI，也不先只删路由
+不要拆成两个已发布版本。
 
-| 顺序 | 问题 |
+| 若只做这一步 | 会发生什么 |
 |---|---|
-| 只先改 UI | mock 与历史 `closed` 行仍不是 `ready`，SQL 继续禁用，只是按钮没了，用户更无法操作 |
-| 只先删 API | 旧控制台按钮会 toast「打开失败 / 关闭失败」 |
-| 先 deprecate 一个版本 | 仓库内没有需要窗口的外部客户端；close 也不持久化状态 |
+| 只先改 UI | 历史 `closed` 与 mock 的 `creating` 仍让 SQL 禁用，按钮又没了 |
+| 只先删 API | 旧页面 toast「打开失败 / 关闭失败」 |
+| 先 deprecate 一个版本 | 没有需要窗口的外部客户端，close 也不落库 |
 
-**实现用一个 PR，内部按下面的顺序提交或至少按这个顺序改：**
+**一个实现 PR，内部按这个顺序：**
 
-1. **Phase A — 状态兼容（先让旧行可用）**  
-   §5.2 迁移 + 读取兜底 + 启动时处理残留 `creating`。此时路由可以还在，但不再被当成产品步骤。测试：`status=closed` 的行列表为 `ready`，且 query 成功。
-2. **Phase B — 同时拿掉公开表面**  
-   路由、handler、SDK、`http-api`、mock、`Databases.vue`、相关测试一起删。避免 UI 打到已删除路由。
-3. **Phase C — 文档**  
-   §9 清单。可以跟 B 同一 PR，也可以紧接着的文档 PR。不要把文档留在「请先打开数据库」。
+1. **Phase A — 旧行先可用。** §5.1 迁移、读取兜底、启动时处理残留 `creating`。测试：`status=closed` 的行列表为 `ready`，query 成功，且没有被标成已删除。
+2. **Phase B — 同时拿掉公开表面。** 路由、handler、SDK、`http-api`、mock、`Databases.vue`、相关测试一起删。
+3. **Phase C — 文档。** §9。可以跟 B 同一 PR。
 
-Phase A 和 B 不要拆成两个已发布版本。拆开就会出现上表里的窗口。
-
-### 10.2 风险
+### 风险
 
 | 风险 | 处理 |
 |---|---|
-| 仓库外仍有人 POST open/close | 得到 JSON `404 not_found`。默认接受。若事后确认有客户端，再补 `410`，不在本计划第一刀做 |
-| 把残留 `creating` 一律标 `ready`，但 descriptor 没写上 | 启动修复按 §5.2：无对象则 `degraded`，不要标就绪 |
-| 把 `degraded` 迁成 `ready` | 禁止。降级库 `Acquire` 会失败，标成就绪会让 SQL 按钮可点然后报错 |
-| 删除路径误用「关闭」语义 | 测试锁定：delete 设置 `deleted_at` 并清理平面 B；不存在的 close 不会 |
-| 覆盖率只删测试、不补行为 | 用「创建即 ready」「旧 closed 可读可查」「idle 后查询成功」「POST open/close 为 404」替换被删用例 |
-| `proto-http.md` 只改了第一处 | 文件内同一张表有四份 |
-| JS SDK 只改 `src` 不改 `dist` | `dist` 已提交，调用方会继续打到 `/open` |
+| 仓库外仍 POST open/close | JSON `404 not_found`。默认接受 |
+| 残留 `creating` 被标成 `ready` 但对象没写上 | 启动修复按 §5.1：无对象则 `degraded` |
+| `degraded` 被迁成 `ready` | 禁止 |
+| 删除被做成「只关连接」 | 测试锁定 `deleted_at` 与对象前缀清理 |
+| 只删测试、不补行为 | 用「创建即 ready」「旧 closed 可查」「idle 后查询成功」「POST open/close 为 404」替换 |
+| `proto-http.md` 只改第一处 | 同一张表有四份 |
+| SDK 只改 `src` | `dist` 已提交，会继续请求 `/open` |
 
-### 10.3 回滚
+### 回滚
 
-- 代码回滚：revert 实现 PR。路由回来，按钮回来。
-- 数据：`closed|opening|closing|recovering → ready` 的 UPDATE **不需要 down migration**。这些状态没有对应的存储差异，revert 代码后行留在 `ready` 仍然正确，也符合本决策。
-- 不涉及 S3 对象，没有存储格式回滚。
+- 代码：revert 实现 PR。
+- 数据：`closed|opening|closing|recovering → ready` 不需要向下迁移。这些值没有单独的存储差异；revert 之后行留在 `ready` 仍然符合本决策。
+- 不改对象格式，没有存储回滚。
 
 ---
 
-## 11. 验收 / DoD
+## 11. 验收（DoD）
 
-### 11.1 产品
+### 产品
 
-- [ ] 数据库列表没有「打开」「关闭」，tooltip / toast / 空态里也没有。
-- [ ] 新建成功后列表为「就绪」，不点任何打开动作即可打开 SQL 并跑通一条查询；新建集合可用。
-- [ ] admin 系统库仍是只读 SQL + 查看数据 +「受保护」，不能删除。
-- [ ] 删除仍二次确认，成功后行进入删除流程；数据面清理与「曾经的关闭」不是同一件事。
-- [ ] `degraded` 仍显示「降级」，SQL 禁用，文案仍是未就绪，而不是邀请用户去打开。
+- [ ] 数据库列表没有「打开」「关闭」，tooltip 和 toast 里也没有。
+- [ ] 新建成功后列表为「就绪」，不经 open 即可 SQL 查询，并可新建集合。
+- [ ] admin 系统库仍是只读 SQL + 查看数据 +「受保护」。
+- [ ] 删除仍要确认；成功后走软删。与已经去掉的关闭不是同一件事。
+- [ ] `degraded` 仍显示「降级」，SQL 禁用，文案是未就绪。
 
-### 11.2 API 与状态
+### API 与状态
 
-- [ ] `POST .../open` 与 `POST .../close` 返回 `404`，JSON `error.code` 为 `not_found`。
-- [ ] `POST .../databases` 成功体 `status` 为 `ready`。
-- [ ] 已有 `status=closed`（以及 `opening` / `closing` / `recovering`）且 `deleted_at` 为空的行，不经手动 open 即出现为 `ready`，并且 query 成功。
+- [ ] `POST .../open` 与 `POST .../close` 为 `404`，`error.code` 为 `not_found`。
+- [ ] `POST .../databases` 成功体的 `status` 为 `ready`。
+- [ ] 已有 `closed` / `opening` / `closing` / `recovering` 且 `deleted_at` 为空的行，不经手动 open 即变为 `ready`，并且 query 成功。
 - [ ] `degraded` 不会被这次迁移改成 `ready`。
-- [ ] `DELETE` 仍软删：状态 `deleted`（或清理完成前为 `deleting`）、写 `deleted_at`、清理该库平面 B 前缀，不清理用户文件前缀。
+- [ ] `DELETE` 仍软删：`deleted`（清理完成前可为 `deleting`）、写入 `deleted_at`、清理该库对象前缀。close 不再存在，也不能靠别的按钮只关连接就声称删库。
 
-### 11.3 运行时
+### 运行时
 
-- [ ] `CloseIdle` 后 catalog 仍为 `ready`；下一次 query 成功，调用方无额外请求。
-- [ ] 有活跃引用时，内部 `CloseDatabase` 仍拒绝强制关闭（现有 registry 测试保持）。
-- [ ] 删除与缓存淘汰仍会调用 `Registry.CloseDatabase`。
-- [ ] `max_open`、idle timeout、`Shutdown` 行为不因本功能改变。
+- [ ] `CloseIdle` 后 catalog 仍为 `ready`；下一次 query 成功，调用方没有额外的 open 请求。
+- [ ] 有活跃引用时，内部 `CloseDatabase` 仍拒绝强制关闭。
+- [ ] 删除与缓存淘汰仍调用 `Registry.CloseDatabase`。
+- [ ] `max_open`、idle timeout、`Shutdown` 不因本功能改变。
 
-### 11.4 工程
+### 工程
 
-- [ ] `go test` 相关包通过；UI 单测不再引用 `databases.open` / `close`。
-- [ ] 被删的 open/close 用例有 §11.2 / §11.3 的替代断言，而不是只删掉覆盖。
+- [ ] 相关 `go test` 与 UI 单测通过；UI 不再引用 `databases.open` / `close`。
+- [ ] 被删用例有上面的替代断言。
 - [ ] JS SDK 类型与 `dist` 不再导出 `open` / `close`。
-- [ ] §9 用户可见文档不再把打开/关闭写成使用步骤。
+- [ ] §9 里用户可见文档不再把打开/关闭写成使用步骤。
 
-建议在实现 PR 里点名替换的现有测试：
-
-| 现在 | 改成 |
+| 现有测试 | 替换 |
 |---|---|
-| `api.TestPlan_OpenDatabasePromotesCreatingToReady` | 启动修复或读取兜底：残留 `creating`（descriptor 已在）变为 `ready`；无 descriptor 变为 `degraded` |
+| `api.TestPlan_OpenDatabasePromotesCreatingToReady` | 启动修复：残留 `creating` 且对象已在 → `ready`；对象缺失 → `degraded` |
 | `api.TestOpenDatabase_Success` / `TestCloseDatabase_Success` | 路由 `404 not_found` |
-| `catalog.TestPlan_CreateDatabaseBecomesReady` | 保持，作为「创建即 ready」的回归 |
+| `catalog.TestPlan_CreateDatabaseBecomesReady` | 保留，作为「创建即 ready」 |
+| `ui/src/pages/Databases.test.ts` 的打开/关闭 | 断言按钮不存在，创建后 SQL 可用 |
 
 ---
 
-## 12. 明确不做 / Out of scope
+## 12. 不做
 
-- 不改 DuckLake catalog、Parquet、`DATA_PATH` 或 descriptor 的存储格式；不回写历史 descriptor 的 `status` 字段。
-- 不删除 `CloseIdle`、缓存 LRU、`database.max_open`。
-- 不做设置页，也不把空闲超时暴露成控制台开关。
-- 不恢复 backups/restore。
-- 不改云 Agent 工具列表。
-- 不把 `degraded` 做成自动重试打开。
-- 本文件所在 PR 不实现上述代码与文档修改。
+- 不改数据库对象在存储上的格式，不回写历史 descriptor 的 `status`。
+- 不删除 `CloseIdle`、缓存淘汰、`max_open`。
+- 不做设置页，也不把空闲超时做成控制台开关。
+- 不恢复备份/恢复接口。
+- 不改云 Agent 工具。
+- 不把 `degraded` 自动重试打开。
+- 本 PR 不实现 §7–§9。
 
 ---
 
-## 13. 触点一览
+## 13. 文件与 API 触点
 
 ```text
 UI
   ui/src/pages/Databases.vue
+  ui/src/pages/Databases.test.ts
   ui/src/lib/status.ts
-  ui/src/services/{types.ts,http-api.ts,mock.js}
-  ui/src/pages/*test.ts  ui/src/services/*test.ts  ui/src/test/*  ui/src/coverage-gaps.test.ts
+  ui/src/services/types.ts
+  ui/src/services/http-api.ts
+  ui/src/services/mock.js
+  以及 §7 列出的测试夹具
 
-HTTP
-  remove        POST /v1/projects/:projectID/databases/:databaseID/open
-  remove        POST /v1/projects/:projectID/databases/:databaseID/close
-  keep          POST/GET/DELETE databases, query/execute/batch
+HTTP  （卸掉）
+  POST /v1/projects/:projectID/databases/:databaseID/open
+  POST /v1/projects/:projectID/databases/:databaseID/close
+
+HTTP  （保留）
+  POST/GET/DELETE  .../databases
+  POST             .../query | execute | batch
 
 Catalog
-  sys_databases.status  closed|opening|closing|recovering → ready
-  KEEP                  ready, creating, degraded, deleting, deleted
+  closed | opening | closing | recovering  →  ready
+  保留 ready, creating, degraded, deleting, deleted
 
-Registry（内部）
-  keep  Acquire, Release, CloseIdle, Shutdown, CloseDatabase
-  drop  仅 HTTP/UI/SDK 上的手动 close
+Registry（内部，保留）
+  Acquire, Release, CloseIdle, Shutdown, CloseDatabase
 
 SDK
   packages/js-sdk/src/databases.ts
   packages/js-sdk/dist/index.js
   packages/js-sdk/dist/index.d.ts
 ```
-
----
-
-## 14. 与现有文档的关系
-
-| 文档 | 关系 |
-|---|---|
-| `plan/planv2.0/proto-http.md` | 今天的 HTTP 契约。实现时删 open/close，并改四处重复的 §3.1 |
-| `plan/planv2.0/databases-and-s3-plan.md` | 引擎与软删已按该计划落地。其中「生命周期含 open/close」被本计划取代 |
-| `plan/planv2.0/db-ducklake-plan.md` | 句柄打开 = ATTACH / 拉 catalog，仍是 `Acquire` 的内部实现，不再对应一个用户按钮 |
-| `internal/AGENTS.md` | 系统库禁止删除与写入、只读 SELECT，本计划不放宽 |
-| `ui/AGENTS.md` | admin 项目隐藏写操作；打开/关闭本来就在 `v-if="!isAdmin"` 里，删掉后这条仍然成立 |
-
-实现时以本文件的决策为准。planv1 状态机里的 `closing → closed` 视为未在当前生产路径落地的设计，不需要补实现。
