@@ -18,6 +18,59 @@ export interface DbRow {
   [key: string]: unknown
 }
 
+// —— Key-Value 数据服务（key-value-ducklake-plan §3，项目级单端点）——
+
+export type KvType = 'string' | 'list' | 'set' | 'hash' | 'zset'
+
+/** SCAN 回复里的一条 key 元信息（cmd SCAN 展开用） */
+export interface KvKeyMeta {
+  key: string
+  type: KvType
+  /** 元素计数；string 类型为 null */
+  len: number | null
+  /** 剩余 TTL 毫秒；null = 永久 */
+  ttl_ms: number | null
+  mtime_ms: number
+  version: number
+}
+
+/** cmd 请求体：argvs[0] 是命令名，其余为参数（全部字符串，数字由服务端解析） */
+export interface KvCmdBody {
+  type: 'cmd'
+  argvs: string[]
+}
+
+/** 按类型写入一份数据的 args（key 必填；其余字段按类型取用） */
+export interface KvTypedArgs {
+  key: string
+  /** String：文本值 */
+  value?: string
+  /** Hash：字段表（至少一个） */
+  fields?: Record<string, string>
+  /** List / Set：元素数组（非空） */
+  elems?: string[]
+  /** List：back（默认）| front */
+  side?: 'back' | 'front'
+  /** ZSet：成员与分数（非空） */
+  items?: { elem: string; score: number }[]
+  /** 可选：写成功后按毫秒设置过期；0 = 立即过期 */
+  ttl_ms?: number
+  /** String：仅不存在时写入 */
+  nx?: boolean
+  /** String：仅已存在时写入 */
+  xx?: boolean
+  /** String：保留已有 TTL */
+  keep_ttl?: boolean
+}
+
+export interface KvTypedBody {
+  type: 'String' | 'Hash' | 'List' | 'Set' | 'ZSet'
+  args: KvTypedArgs
+}
+
+/** POST /v1/projects/:projectId/kv 的请求体 */
+export type KvExecBody = KvCmdBody | KvTypedBody
+
 export interface S3Object {
   key: string
   size: number
@@ -138,11 +191,6 @@ export interface DatabaseItem {
   documentCount?: number
 }
 
-export interface DatabaseListResult {
-  databases: DatabaseItem[]
-  nextCursor: string
-}
-
 /* ---------- SQL（proto-http.md §3.2） ---------- */
 
 /** query/execute 单语句请求 */
@@ -243,6 +291,8 @@ export interface AgentModuleInfo {
   description: string
   default_tools: string[]
   team_supported: boolean
+  /** 仅 sandbox 模块返回：云沙盒是否已启用 */
+  sandbox_available?: boolean
 }
 
 export interface CloudAgent {
@@ -559,11 +609,24 @@ export interface Api {
     ) => Promise<DbRow>
     remove: (projectId: string, databaseId: string, collection: string, id: string) => Promise<void>
   }
+  /** Key-Value 数据服务：项目级单端点（key-value-ducklake-plan §3） */
+  kv: {
+    /** 单端点执行：body 为 {type:"cmd",argvs:[...]} 或 {type:"String|Hash|List|Set|ZSet",args:{...}}，
+     *  返回该命令的 Redis 回复编码成 JSON（GET 缺失为 null）。 */
+    exec: (projectId: string, body: KvExecBody) => Promise<unknown>
+    /** 批量顺序执行多条命令（事务外逐条）；任一失败即停止，返回已完成的回复。 */
+    execBatch: (projectId: string, bodies: KvExecBody[]) => Promise<unknown[]>
+  }
   s3: {
     list: (projectId: string, prefix?: string) => Promise<S3Object[]>
     presign: (projectId: string, key: string) => Promise<{ url: string }>
     remove: (projectId: string, key: string) => Promise<void>
-    upload: (projectId: string, key: string, file: File) => Promise<S3Object>
+    upload: (
+      projectId: string,
+      key: string,
+      file: File,
+      onProgress?: (percent: number) => void
+    ) => Promise<S3Object>
   }
   logs: {
     list: (projectId: string, q?: LogQuery) => Promise<LogEvent[]>
