@@ -13,7 +13,6 @@ export function setIsMock(v: boolean) {
 export const api = {
   auth: {
     login: vi.fn(),
-    refresh: vi.fn(),
     logout: vi.fn(),
     me: vi.fn(),
     changePassword: vi.fn()
@@ -133,21 +132,6 @@ export function applyApiDefaults() {
     accessToken: 'at',
     expiresIn: 7200,
     refreshToken: 'rt',
-    user: {
-      id: 'u1',
-      username: 'simplebase2026',
-      role: 'superadminl1',
-      displayName: 'Super',
-      email: '',
-      status: 'active',
-      mustChangePassword: false
-    }
-  })
-  api.auth.refresh.mockResolvedValue({
-    tokenType: 'Bearer',
-    accessToken: 'at2',
-    expiresIn: 7200,
-    refreshToken: 'rt2',
     user: {
       id: 'u1',
       username: 'simplebase2026',

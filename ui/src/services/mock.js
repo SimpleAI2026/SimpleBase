@@ -296,10 +296,6 @@ export const mockApi = {
       }
       throw new Error('用户名或密码错误')
     },
-    async refresh() {
-      await delay(60)
-      throw new Error('invalid refresh token')
-    },
     async logout() {
       await delay(30)
     },

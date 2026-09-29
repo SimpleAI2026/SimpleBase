@@ -6,8 +6,8 @@ import {
   getRefreshToken,
   setApiKey,
   setTokens
-} from './http'
-import { mockApi } from './mock'
+} from '@/services/http'
+import { mockApi } from '@/services/mock'
 
 describe('http token helpers', () => {
   beforeEach(() => {
@@ -50,8 +50,7 @@ describe('mockApi auth and users', () => {
     await expect(mockApi.auth.login({ username: 'x', password: 'y' })).rejects.toThrow()
   })
 
-  it('refresh and logout and changePassword', async () => {
-    await expect(mockApi.auth.refresh('rt')).rejects.toThrow()
+  it('logout and changePassword', async () => {
     await expect(mockApi.auth.logout('rt')).resolves.toBeUndefined()
     await expect(mockApi.auth.changePassword('a', 'b')).resolves.toBeUndefined()
   })

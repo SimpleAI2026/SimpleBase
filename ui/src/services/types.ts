@@ -522,7 +522,6 @@ export interface CronJobCreate {
 export interface Api {
   auth: {
     login: (req: LoginRequest) => Promise<TokenPair>
-    refresh: (refreshToken: string) => Promise<TokenPair>
     logout: (refreshToken?: string) => Promise<void>
     me: () => Promise<AuthUser & { projects: { id: string; name?: string; owner: boolean }[] }>
     changePassword: (oldPassword: string, newPassword: string) => Promise<void>

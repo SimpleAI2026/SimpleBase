@@ -1,10 +1,10 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import { httpApi } from './http-api'
-import { clearTokens, setTokens, getAccessToken } from './http'
+import { httpApi } from '@/services/http-api'
+import { clearTokens, setTokens, getAccessToken } from '@/services/http'
 
 // 拦截真实 http，直接测映射与 token 写入
-vi.mock('./http', async () => {
-  const actual = await vi.importActual<typeof import('./http')>('./http')
+vi.mock('@/services/http', async () => {
+  const actual = await vi.importActual<typeof import('@/services/http')>('@/services/http')
   return {
     ...actual,
     http: {
@@ -19,7 +19,7 @@ vi.mock('./http', async () => {
   }
 })
 
-const mocked = await import('./http')
+const mocked = await import('@/services/http')
 const httpMock = mocked.http as unknown as {
   get: ReturnType<typeof vi.fn>
   post: ReturnType<typeof vi.fn>
@@ -63,20 +63,6 @@ describe('httpApi auth/users mapping', () => {
     expect(pair.user.displayName).toBe('S')
     expect(pair.user.mustChangePassword).toBe(false)
     expect(getAccessToken()).toBe('AT')
-  })
-
-  it('refresh maps and stores tokens', async () => {
-    httpMock.post.mockResolvedValue({
-      data: {
-        access_token: 'AT2',
-        refresh_token: 'RT2',
-        expires_in: 1,
-        user: { id: 'u', username: 'a', role: 'user', status: 'active' }
-      }
-    })
-    const pair = await httpApi.auth.refresh('RT')
-    expect(pair.accessToken).toBe('AT2')
-    expect(getAccessToken()).toBe('AT2')
   })
 
   it('logout clears tokens', async () => {

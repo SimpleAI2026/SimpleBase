@@ -582,12 +582,6 @@ export const httpApi: Api = {
           if (pair.accessToken) setTokens(pair.accessToken, pair.refreshToken)
           return pair
         }),
-    refresh: (refreshToken) =>
-      http.post('/v1/auth/refresh', { refresh_token: refreshToken }).then((r) => {
-        const pair = toTokenPair(r.data)
-        if (pair.accessToken) setTokens(pair.accessToken, pair.refreshToken)
-        return pair
-      }),
     logout: (refreshToken) =>
       http
         .post('/v1/auth/logout', { refresh_token: refreshToken || undefined })
