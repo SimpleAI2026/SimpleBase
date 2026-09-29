@@ -259,8 +259,6 @@ describe('httpApi', () => {
     expect((await httpApi.agentThreads.messages(pid, 't'))[0].role).toBe('user')
     http.get.mockResolvedValueOnce({ data: {} })
     expect(await httpApi.agentThreads.messages(pid, 't')).toEqual([])
-    http.post.mockResolvedValueOnce({ data: { run: { id: 'r' }, message: { id: 'm', role: 'assistant', content: 'ok' } } })
-    expect((await httpApi.agentThreads.run(pid, 't', { content: 'hi', mentions: [] })).run.id).toBe('r')
     http.post.mockResolvedValueOnce({ data: { id: 'r', status: 'canceled' } })
     expect((await httpApi.agentThreads.cancel(pid, 'r')).status).toBe('canceled')
 
@@ -563,7 +561,5 @@ describe('httpApi', () => {
     expect(await httpApi.cronjobs.list(pid)).toEqual([])
     http.get.mockResolvedValueOnce({ data: { nope: true } })
     expect(await httpApi.logs.list(pid)).toEqual([])
-    http.post.mockResolvedValueOnce({ data: { run: { id: 'r' } } })
-    expect((await httpApi.agentThreads.run(pid, 't', { content: 'hi', mentions: [] })).message.role).toBe('')
   })
 })

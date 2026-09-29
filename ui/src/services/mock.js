@@ -1016,26 +1016,6 @@ export const mockApi = {
       await delay()
       return (state.agentMessages[threadId] || []).map((m) => ({ ...m }))
     },
-    async run(projectId, threadId, req) {
-      await delay(400)
-      const msgs = state.agentMessages[threadId] || (state.agentMessages[threadId] = [])
-      msgs.push({
-        id: 'm-' + genId(),
-        role: 'user',
-        content: req.content,
-        mentions: req.mentions,
-        created_at: now()
-      })
-      const reply = {
-        id: 'm-' + genId(),
-        role: 'assistant',
-        content: `Mock 云 Agent（项目 ${projectId}）：已收到「${String(req.content).slice(0, 80)}」`,
-        tool_calls: [{ name: 'list_databases', content: '[{"name":"default"}]' }],
-        created_at: now()
-      }
-      msgs.push(reply)
-      return { run: { id: 'run-' + genId(), thread_id: threadId, agent_id: req.mentions?.[0]?.agent_id, status: 'completed' }, message: reply }
-    },
     streamRun(projectId, threadId, req, { onToken, onToolCall, onToolResult, onEnd, onError }) {
       const text = `Mock 流式回复：${String(req.content || '').slice(0, 40)}`
       const chunks = text.match(/[\s\S]{1,4}/g) || []

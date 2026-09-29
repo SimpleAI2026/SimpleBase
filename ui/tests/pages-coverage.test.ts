@@ -35,7 +35,6 @@ const { api } = vi.hoisted(() => {
         get: fn(),
         remove: fn(),
         messages: fn(),
-        run: fn(),
         streamRun: fn(),
         cancel: fn()
       },

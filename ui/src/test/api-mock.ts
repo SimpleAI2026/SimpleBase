@@ -87,7 +87,6 @@ export const api = {
     get: vi.fn(),
     remove: vi.fn(),
     messages: vi.fn(),
-    run: vi.fn(),
     streamRun: vi.fn(),
     cancel: vi.fn()
   },

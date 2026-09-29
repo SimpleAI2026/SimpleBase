@@ -657,7 +657,6 @@ export interface Api {
     get: (projectId: string, threadId: string) => Promise<AgentThread>
     remove: (projectId: string, threadId: string) => Promise<void>
     messages: (projectId: string, threadId: string) => Promise<AgentMessage[]>
-    run: (projectId: string, threadId: string, req: AgentRunRequest) => Promise<{ run: AgentRun; message: AgentMessage }>
     streamRun: (
       projectId: string,
       threadId: string,

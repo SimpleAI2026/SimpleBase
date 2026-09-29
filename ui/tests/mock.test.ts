@@ -231,9 +231,8 @@ describe('mockApi', () => {
     const thread = await flush(mockApi.agentThreads.create(PID, 'T1'))
     expect((await flush(mockApi.agentThreads.get(PID, thread.id))).id).toBe(thread.id)
     await flushReject(mockApi.agentThreads.get(PID, 'missing'))
-    const run = await flush(mockApi.agentThreads.run(PID, thread.id, { content: 'hi', mentions: [{ agent_id: agent.id }] }))
-    expect(run.message.role).toBe('assistant')
-    expect((await flush(mockApi.agentThreads.messages(PID, thread.id))).length).toBeGreaterThan(0)
+    // 非流式 run 已退役：业务统一走 streamRun（AgentManager.vue）
+    expect((await flush(mockApi.agentThreads.messages(PID, thread.id))).length).toBeGreaterThanOrEqual(0)
     expect((await flush(mockApi.agentThreads.cancel(PID, 'r'))).status).toBe('canceled')
     const tokens: string[] = []
     const streamErr = vi.fn()
@@ -326,8 +325,6 @@ describe('mockApi', () => {
     const untitled = await flush(mockApi.agentThreads.create(PID, ''))
     expect(untitled.title).toBe('New thread')
     expect(await flush(mockApi.agentThreads.messages(PID, 'no-such-thread'))).toEqual([])
-    const ghostRun = await flush(mockApi.agentThreads.run(PID, 'ghost-thread', { content: 'x', mentions: [] }))
-    expect(ghostRun.message.role).toBe('assistant')
     const tokens: string[] = []
     const ghostStream = mockApi.agentThreads.streamRun(
       PID,

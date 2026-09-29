@@ -988,17 +988,6 @@ export const httpApi: Api = {
           const list = Array.isArray(r.data?.messages) ? r.data.messages : []
           return list.map(toAgentMessage)
         }),
-    run: (projectId, threadId, req) =>
-      http
-        .post(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/runs'), {
-          content: req.content,
-          mentions: req.mentions,
-          stream: false
-        })
-        .then((r) => ({
-          run: r.data?.run as AgentRun,
-          message: toAgentMessage(r.data?.message || {})
-        })),
     streamRun: streamAgentRun,
     cancel: (projectId, runId) =>
       http
