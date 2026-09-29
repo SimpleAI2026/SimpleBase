@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import router from './index'
+import router from '@/router/index'
 
 describe('router', () => {
   it('registers console pages, docs, and legacy redirects', () => {
     const names = router.getRoutes().map((r) => r.name).filter(Boolean)
     expect(names).toEqual(
       expect.arrayContaining([
+        'home',
         'dashboard',
         'databases',
         's3',
@@ -29,6 +30,37 @@ describe('router', () => {
     expect(settings?.components?.default).toBeUndefined()
     const docs = router.getRoutes().find((r) => r.path === '/docs')
     expect(docs?.meta?.hidden).toBe(true)
+  })
+
+  it('separates the public homepage from the existing console', async () => {
+    await router.push('/')
+    expect(router.currentRoute.value.name).toBe('home')
+    expect(router.currentRoute.value.matched.some((record) => record.path === '/console')).toBe(false)
+    await router.push({ name: 'dashboard' })
+    expect(router.currentRoute.value.path).toBe('/console')
+    expect(router.currentRoute.value.name).toBe('dashboard')
+  })
+
+  it('keeps old console links and settings deep-links working', { timeout: 15000 }, async () => {
+    const oldPaths = ['databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs', 'users']
+    for (const path of oldPaths) {
+      await router.push(`/${path}?from=bookmark`)
+      expect(router.currentRoute.value.fullPath).toBe(`/console/${path}?from=bookmark`)
+    }
+    for (const [source, target] of [
+      ['/sql', '/console/databases'],
+      ['/data', '/console/databases'],
+      ['/llm', '/console/agents']
+    ]) {
+      await router.push(`${source}?from=bookmark`)
+      expect(router.currentRoute.value.fullPath).toBe(`${target}?from=bookmark`)
+    }
+    await router.push('/settings?settings=appearance&from=bookmark')
+    expect(router.currentRoute.value.fullPath).toBe('/console?settings=appearance&from=bookmark')
+    await router.push('/?settings=models&from=bookmark')
+    expect(router.currentRoute.value.fullPath).toBe('/console?settings=models&from=bookmark')
+    await router.push('/')
+    expect(router.currentRoute.value.name).toBe('home')
   })
 
   it('assigns Chinese titles to the seven console feature areas', () => {
