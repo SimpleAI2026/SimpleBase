@@ -74,6 +74,19 @@ describe('settings store', () => {
     expect(store.defaultsFor('p').defaultModel).toBe('from-cred')
   })
 
+  it('persists projectDefaults so they survive a reload', () => {
+    localStorage.setItem('sb_settings_v1', JSON.stringify({ theme: 'light' }))
+    setActivePinia(createPinia())
+    const store = useSettingsStore()
+    store.setDefaultProvider('p1', 'openai')
+    const saved = JSON.parse(localStorage.getItem('sb_settings_v1') || '{}')
+    expect(saved.projectDefaults.p1.defaultProvider).toBe('openai')
+    // 模拟 reload：新 store 从 localStorage 恢复
+    setActivePinia(createPinia())
+    const reloaded = useSettingsStore()
+    expect(reloaded.defaultsFor('p1').defaultProvider).toBe('openai')
+  })
+
   it('falls back for unknown stored theme and custom providers', () => {
     localStorage.setItem(
       'sb_settings_v1',
