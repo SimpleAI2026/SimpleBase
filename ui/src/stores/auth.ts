@@ -19,7 +19,6 @@ export const useAuthStore = defineStore('auth', {
     refreshToken: getRefreshToken(),
     apiKey: getApiKey(),
     user: null as AuthUser | null,
-    booting: false,
     /** 最近一次 401 时间戳；Header 提示 / 打开登录 */
     lastUnauthorizedAt: 0,
     /** 登录弹窗开关 */
@@ -127,7 +126,6 @@ export const useAuthStore = defineStore('auth', {
         this.openLogin()
         return false
       }
-      this.booting = true
       try {
         const me = await api.auth.me()
         this.user = {
@@ -151,8 +149,6 @@ export const useAuthStore = defineStore('auth', {
         this.refreshToken = ''
         this.openLogin()
         return false
-      } finally {
-        this.booting = false
       }
     },
     async changePassword(oldPassword: string, newPassword: string) {

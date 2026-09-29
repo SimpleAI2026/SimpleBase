@@ -67,10 +67,10 @@ yarn dev              # http://127.0.0.1:5173
 
 ```text
 src/
-├─ pages/              路由页面（每页同名 .test.ts）
+├─ pages/              路由页面（Home、Dashboard、Databases、KeyValue 等）
 ├─ components/
 │  ├─ ui/              基础组件库（shadcn 风格，视为本地 fork 的库代码）
-│  ├─ databases/       数据库 / 集合 / 文档 / SQL 相关
+│  ├─ databases/       数据库 / 集合 / 文档 / SQL / KV 相关
 │  ├─ modal/           业务弹窗（SbModal、GoFunctionModal、SqlWorkModal、LoginModal 等）
 │  ├─ ai/ chat/        AI 对话相关
 │  ├─ editor/          Monaco 编辑器封装
@@ -87,7 +87,8 @@ src/
 ├─ lib/                utils（cn 合并 class）/ status 映射
 ├─ utils/              format
 ├─ router/             路由定义
-└─ test/               Vitest setup
+└─ test/               Vitest setup 与测试基建（setup.ts / helpers.ts / api-mock.ts）
+tests/                 全部单测（与 src/ 平级；import 经 `@/` 别名指回 src）
 ```
 
 ## API 层架构
@@ -113,7 +114,7 @@ src/
 
 ## 测试
 
-Vitest + jsdom + `@vue/test-utils`；coverage 用 v8 provider，语句/函数/分支 95% 阈值。不计入覆盖：`src/components/ui/**`、`*.d.ts`、`src/test/**`、`src/main.ts`、`src/services/types.ts`。
+测试位于 `ui/tests/`（85 个文件），与源码 `src/` 分离；import 通过 `@/` 别名指回 `src/`。技术栈：Vitest + jsdom + `@vue/test-utils`；coverage 用 v8 provider，语句/函数/分支 95% 阈值。不计入覆盖：`src/components/ui/**`、`*.d.ts`、`src/test/**`、`src/main.ts`、`src/services/types.ts`。
 
 ## 与后端的构建关系
 

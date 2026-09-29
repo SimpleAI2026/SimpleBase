@@ -13,6 +13,10 @@
   >
     <!-- 登录表单 -->
     <form v-if="mode === 'login'" class="flex flex-col gap-4" @submit.prevent="submitLogin">
+      <Alert v-if="auth.loginReason" variant="destructive">
+        <AlertTitle>请重新登录</AlertTitle>
+        <AlertDescription>{{ auth.loginReason }}</AlertDescription>
+      </Alert>
       <FieldGroup>
         <Field :data-invalid="error ? true : undefined">
           <FieldLabel for="login-username">用户名</FieldLabel>

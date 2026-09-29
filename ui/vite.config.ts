@@ -54,7 +54,8 @@ export default defineConfig({
     proxy: {
       '/v1': { target: apiTarget, changeOrigin: true },
       '/health': { target: apiTarget, changeOrigin: true },
-      // 云函数调用面前缀（ui-gofunction-plan §7.2）
+      // 云函数调用面前缀（ui-gofunction-plan §7.2）：UI 自身不请求此前缀，
+      // 仅供 GoFuncTestModal 展示的 invokeUrl 在 dev 模式下手动 curl 时转发
       '/go': { target: apiTarget, changeOrigin: true }
     }
   },

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview --port 5173",
     "test": "vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@lucide/vue": "^1.46.0",
