@@ -47,7 +47,8 @@ http.interceptors.request.use((config) => {
 // SPA fallback 防御：后端对不存在的路由返回 HTML，axios 按 text/html 解析后 r.data 为字符串
 // 此类响应一律转为错误，避免调用方拿到非预期类型导致 .map() 崩溃
 http.interceptors.response.use((r) => {
-  const ct = r.headers?.['content-type'] || ''
+  // axios 1.x 类型下 content-type 是 string | number | boolean | string[] | AxiosHeaders 联合
+  const ct = String(r.headers?.['content-type'] || '')
   if (ct.includes('text/html')) {
     return Promise.reject(new Error('接口不存在或返回了 HTML 页面'))
   }

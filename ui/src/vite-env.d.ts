@@ -25,10 +25,3 @@ declare module '@docs/_meta.json' {
   }
   export default meta
 }
-
-declare module '../../../docs/_meta.json' {
-  const meta: {
-    modules?: { id: string; title: string; order?: number }[]
-  }
-  export default meta
-}

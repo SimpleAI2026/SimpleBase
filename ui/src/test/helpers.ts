@@ -1,7 +1,7 @@
 import { flushPromises, mount, type ComponentMountingOptions, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, createRouter, type RouteRecordRaw, type Router } from 'vue-router'
-import type { Component } from 'vue'
+import type { Component, Plugin } from 'vue'
 import { DEFAULT_PROJECT_ID, useProjectStore } from '../stores/project'
 
 export const uiStubs = {
@@ -13,7 +13,7 @@ export const uiStubs = {
   CardContent: { template: '<div class="card-content"><slot /></div>' },
   CardAction: { template: '<div class="card-action"><slot /></div>' },
   CardFooter: { template: '<div class="card-footer"><slot /></div>' },
-  Badge: { template: '<span class="badge"><slot /></span>' },
+  Badge: { props: ['as'], template: '<component :is="as || \'span\'" class="badge"><slot /></component>' },
   Skeleton: { template: '<div class="skeleton" />' },
   Spinner: { template: '<span class="spinner" />' },
   Progress: { template: '<div class="progress" />' },
@@ -107,7 +107,7 @@ export const uiStubs = {
     emits: ['update:modelValue'],
     inheritAttrs: false,
     template:
-      '<input :id="id" :type="type || \'text\'" :value="modelValue" :placeholder="placeholder" :disabled="disabled" @input="$emit(\'update:modelValue\', $event.target.value)" />'
+      '<input v-bind="$attrs" :id="id" :type="type || \'text\'" :value="modelValue" :placeholder="placeholder" :disabled="disabled" @input="$emit(\'update:modelValue\', $event.target.value)" />'
   },
   Textarea: {
     props: ['modelValue', 'id', 'rows'],
@@ -289,7 +289,7 @@ export async function mountWithApp(
     ...mountOpts,
     global: {
       ...(mountOpts.global || {}),
-      plugins: [pinia, router, ...((mountOpts.global as { plugins?: unknown[] } | undefined)?.plugins || [])],
+      plugins: [pinia, router, ...(((mountOpts.global as { plugins?: Plugin[] } | undefined)?.plugins || []) as Plugin[])],
       stubs: { ...uiStubs, ...(stubs || {}), ...((mountOpts.global as { stubs?: object } | undefined)?.stubs || {}) }
     }
   })

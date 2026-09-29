@@ -1,4 +1,4 @@
-import metaJson from '../../../docs/_meta.json'
+import metaJson from '@docs/_meta.json'
 
 export interface DocPage {
   moduleId: string
