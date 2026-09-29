@@ -2,13 +2,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { useProjectStore } from '../../stores/project'
-import { api, resetApiMocks } from '../../test/api-mock'
-import { uiStubs } from '../../test/helpers'
-import GoFunctionModal from './GoFunctionModal.vue'
+import { useProjectStore } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { uiStubs } from '@/test/helpers'
+import GoFunctionModal from '@/components/modal/GoFunctionModal.vue'
 
-vi.mock('../../services/api', async () => {
-  const m = await import('../../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 

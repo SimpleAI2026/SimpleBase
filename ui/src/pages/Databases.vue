@@ -2,7 +2,7 @@
   <ProjectScope>
   <PageContainer subtitle="DuckLake 数据库、SQL 工作台与集合文档">
     <Card>
-      <CardHeader class="border-b">
+      <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
         <CardTitle>{{ isAdmin ? '系统数据库' : '数据库列表' }}</CardTitle>
         <CardDescription>
           {{ isAdmin ? '系统库承载实例元数据、日志与监控，只读且不可删除' : `共 ${databases.length} 个数据库。新建后即可查询、建集合` }}
@@ -29,7 +29,46 @@
         </CardAction>
       </CardHeader>
       <CardContent class="p-0">
-        <Table>
+        <div v-if="loading && !databases.length" class="space-y-3 p-4 md:hidden">
+          <Skeleton v-for="n in 3" :key="n" class="h-28 w-full rounded-lg" />
+        </div>
+        <div v-else-if="!paged.length" class="p-4 md:hidden">
+          <SbEmptyState :description="isAdmin ? '暂无系统库' : '暂无数据库'" :action-text="isAdmin ? undefined : '新建数据库'" @action="!isAdmin && openCreate()" />
+        </div>
+        <div v-else class="space-y-3 p-4 md:hidden" aria-label="数据库移动端列表">
+          <article v-for="record in paged" :key="record.id" class="rounded-xl border border-border bg-card p-4 shadow-xs">
+            <div class="flex min-w-0 items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex min-w-0 items-center gap-2">
+                  <DatabaseIcon aria-hidden="true" class="size-4 shrink-0 text-primary" />
+                  <span class="sb-mono truncate font-semibold" :title="record.name">{{ record.name }}</span>
+                </div>
+                <Badge class="mt-2" :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
+              </div>
+              <Button variant="outline" size="sm" :disabled="!isReady(record)" :aria-expanded="expandedRowKeys.includes(record.id)" :aria-controls="`db-mobile-${record.id}`" @click="toggleExpand(record)">
+                {{ expandedRowKeys.includes(record.id) ? '收起数据' : '查看数据' }}
+              </Button>
+            </div>
+            <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
+              <Button variant="outline" size="sm" :disabled="!isReady(record)" @click="openSql(record)">SQL</Button>
+              <Button v-if="!isAdmin" variant="outline" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">新建集合</Button>
+              <ConfirmAction v-if="!isAdmin" :disabled="record.status === 'deleting'" title="删除为异步操作，确认继续？" @confirm="removeDb(record)">
+                <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">删除</Button>
+              </ConfirmAction>
+              <span v-else class="inline-flex items-center gap-1 text-xs text-muted-foreground"><ShieldCheckIcon aria-hidden="true" class="size-3.5" />受保护</span>
+            </div>
+            <div class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span>ID</span><span class="sb-mono min-w-0 break-all">{{ record.id }}</span>
+              <span>数据量</span><span>{{ formatCount(record.documentCount) }}</span>
+              <span>创建时间</span><span>{{ formatTime(record.createdAt) }}</span>
+            </div>
+            <div v-if="expandedRowKeys.includes(record.id)" :id="`db-mobile-${record.id}`" class="mt-4 border-t border-border pt-4">
+              <DataTabs :project-id="projectStore.id" :database="record" :reload-token="collectionReload[record.id] || 0" :readonly="isAdmin" @view-data="(c) => openDocList(record, c)" @add-document="(c) => openKv(record, c)" @create-collection="openCreateCollection(record)" />
+            </div>
+          </article>
+        </div>
+        <div class="hidden md:block">
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead class="w-12 text-center" />
@@ -60,6 +99,9 @@
                         size="icon-sm"
                         class="rounded-full"
                         :disabled="!isReady(record)"
+                        :aria-label="`${expandedRowKeys.includes(record.id) ? '收起' : '查看'} ${record.name} 的数据`"
+                        :aria-expanded="expandedRowKeys.includes(record.id)"
+                        :aria-controls="`db-desktop-${record.id}`"
                         @click="toggleExpand(record)"
                       >
                         <MinusIcon v-if="expandedRowKeys.includes(record.id)" class="size-3" />
@@ -154,8 +196,8 @@
               </TableRow>
               <TableRow v-if="expandedRowKeys.includes(record.id)" class="bg-muted/20 hover:bg-muted/20">
                 <TableCell colspan="7" class="p-0 border-b-0">
-                  <div class="border-y border-border/70 bg-muted/25 px-6 py-4">
-                    <CollectionPanel
+                  <div :id="`db-desktop-${record.id}`" class="border-y border-border/70 bg-muted/25 px-6 py-4">
+                    <DataTabs
                       :project-id="projectStore.id"
                       :database="record"
                       :reload-token="collectionReload[record.id] || 0"
@@ -169,7 +211,8 @@
               </TableRow>
             </template>
           </TableBody>
-        </Table>
+          </Table>
+        </div>
         <TablePager
           variant="footer"
           :page="page"
@@ -274,7 +317,7 @@ import SqlWorkModal from '../components/modal/SqlWorkModal.vue'
 import CreateCollectionModal from '../components/modal/CreateCollectionModal.vue'
 import DocumentListModal from '../components/modal/DocumentListModal.vue'
 import DocumentKvModal from '../components/modal/DocumentKvModal.vue'
-import CollectionPanel from '../components/databases/CollectionPanel.vue'
+import DataTabs from '../components/databases/DataTabs.vue'
 
 const projectStore = useProjectStore()
 const { isAdmin } = storeToRefs(projectStore)

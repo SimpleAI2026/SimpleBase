@@ -1,10 +1,10 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getApiKey, getAccessToken, getRefreshToken, clearTokens, setTokens } from '../services/http'
-import { useAuthStore } from './auth'
+import { getApiKey, getAccessToken, getRefreshToken, clearTokens, setTokens } from '@/services/http'
+import { useAuthStore } from '@/stores/auth'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return {
     api: m.api,
     get isMock() {
@@ -13,7 +13,7 @@ vi.mock('../services/api', async () => {
   }
 })
 
-const mockApi = await import('../test/api-mock')
+const mockApi = await import('@/test/api-mock')
 
 describe('useAuthStore roles and login', () => {
   beforeEach(() => {

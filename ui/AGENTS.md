@@ -1,26 +1,26 @@
 # SimpleBase 前端约束（ui/）
 
-Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tailwind CSS v4、reka-ui（shadcn-vue 风格）、vue-sonner、axios。
+Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tailwind CSS v4、reka-ui（shadcn-vue 风格）、vue-sonner、axios、ECharts（图表）、Monaco Editor（SQL/Go 编辑器）、marked + DOMPurify（文档渲染）。面向使用者的说明见 [README.md](./README.md)。
 
 ## 目录职责
 
 | 目录 | 职责 | 约束 |
 | --- | --- | --- |
-| `src/pages/` | 路由页面（Dashboard / Databases / S3Manager / AgentManager / Logs / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.title`。全局设置不是全页，见 `SettingsModal` |
+| `src/pages/` | 路由页面（Home / Dashboard / Databases / KeyValue / S3Manager / GoFunctions / CronJobs / AgentManager / Logs / Users / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.title`，需角色控制的配 `meta.requiresRole`（如 Users 的 `superadminl1`）。全局设置不是全页，见 `SettingsModal` |
 | `src/components/ui/` | 基础组件库（button / table / dialog / select 等，shadcn 风格） | **视为本地 fork 的库代码**：只增删组件不改风格约定；删除组件前必须全局确认零引用 |
-| `src/components/` | 业务组件（modal/ databases/ chat/ ai/ docs/ 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖 |
-| `src/services/` | API 层：`api.ts`（mock/http 切换）→ `http-api.ts`（实现）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
-| `src/stores/` | Pinia store（project / auth / settings） | 跨页面状态才进 store；组件内状态用 `ref` |
+| `src/components/` | 业务组件：`databases/` `modal/` `ai/` `chat/` `editor/` `settings/` `docs/` 分域，加顶层通用件（ConfirmAction / NavMenu / PageContainer / TablePager / SettingsModal / GlobalProjectSwitcher / TrendChart / SbEmptyState / SbCodeBlock / UserMenu 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖 |
+| `src/services/` | API 层：`api.ts`（mock/http 切换）→ `http-api.ts`（实现）→ `http.ts`（axios 实例、token 存取、401 处理）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
+| `src/stores/` | Pinia store（auth 登录态与角色 / project 项目切换 / settings） | 跨页面状态才进 store；组件内状态用 `ref` |
 | `src/composables/` | 组合函数（usePagination / useAsyncAction / useAiChat） | — |
-| `src/layouts/` | DefaultLayout（控制台）/ DocsLayout（文档站） | — |
+| `src/layouts/` | DefaultLayout（`/console` 控制台）/ DocsLayout（`/docs` 文档站）；Home 页独立于两布局 | — |
 | `src/docs/` | 文档目录与渲染 | — |
 
 ## API 层规则
 
 - 接口契约集中在 `services/types.ts`；后端字段用 snake_case 转 camelCase 的映射函数（`toProjectItem` 风格），不透传 raw。
 - 路径构造函数模式：`xxxPath(projectId, …)` 统一 `encodeURIComponent`。
-- `mock.js` 与 `http-api.ts` 保持同一 `Api` 接口签名；新增接口两边都要实现。
-- Mock 开关：`VITE_USE_MOCK=true`（`.env`），`mock.js` 为纯 JS（无类型），不得 import 项目内部模块。
+- `mock.js` + `mock-kv.js`（KV mock）与 `http-api.ts` 保持同一 `Api` 接口签名；新增接口 mock 与实现两边都要实现。
+- Mock 开关：`VITE_USE_MOCK=true`（`.env`；`.env.development` / `.env.production` 默认均为 `false` 走真实后端）；mock 为纯 JS（无类型），不得 import 项目内部模块。
 
 ## admin（系统）项目规则
 
@@ -29,6 +29,14 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - `Databases.vue`：admin 下**隐藏**新建数据库按钮与删除按钮，**保留**「查看数据」（展开集合）与「SQL」（只读查询）入口。
 - `CollectionPanel` / `DocumentListModal` / `SqlWorkModal` 通过 `readonly` prop 进入只读模式：隐藏写按钮、SQL 仅显示「查询」模式。
 - 前端只读是**体验层**的；真正的保护在后端（`ErrSystemProtected`），前端不得假设后端不校验。
+
+## 登录态与角色（login-auth-plan）
+
+- `stores/auth.ts` 是登录态唯一入口：JWT access/refresh 自动轮换（`services/http.ts` 存取）；未登录可继续用 API Key（SettingsModal 设置）。
+- 角色 `superadminl1` > `admin`（只读管理员）> `user`；判定一律用 getter（`isSuper` / `isAdminRole` / `isUser` / `canWrite` / `canManageUsers` / `canViewUsers`），不得散落比较 role 字符串。
+- `canWrite`：未登录（API Key 通道）沿旧行为可写；登录态下仅 superadminl1 与 user 可写，admin 只读。
+- 401 统一由 auth store 记录 `lastUnauthorizedAt` 并打开 `LoginModal`（含 `must_change_password` 强制改密流程）。
+- 路由级角色控制用 `meta.requiresRole`（Users 页 `superadminl1`）。
 
 ## 样式与 UI 约定
 
@@ -45,8 +53,8 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 
 ## 工程规则
 
-- 构建：`npm run build` 必须通过（改完跑一遍）；本地开发 `npm run dev`。
+- 构建：`yarn build` 必须通过（改完跑一遍）；本地开发 `yarn dev`（推荐仓库根 `./build.sh dev` 一键起前后端）；测试 `yarn test`（coverage 95% 阈值）。
 - 不新增依赖、不升级依赖版本、不改 `package.json` / `tsconfig.json` / `vite.config.ts`，除非用户明确要求。
-- 类型：不使用 `any` 落盘新代码；跨层契约必须走 `types.ts`。
+- 类型：不使用 `any` 落盘新代码；跨层契约必须走 `types.ts`；对象形状一律用 `interface` 定义（不用 `type`）。
 - 已删除的零引用组件（checkbox / drawer / dropdown-menu / pagination / radio-group）不得重新引入——对应能力分别由 switch、sheet、原生方案、TablePager、toggle/radio 内联实现。
-- 路由 redirect 保持现状（`/sql`→`/databases`、`/llm`→`/agents`、`/settings`→`/?settings=1` 等）。
+- 路由 redirect 保持现状（旧控制台路径 `/databases` 等八个 → `/console/*`；`/sql`、`/data` → `/console/databases`；`/llm` → `/console/agents`；`/settings` → `/console?settings=1`）。

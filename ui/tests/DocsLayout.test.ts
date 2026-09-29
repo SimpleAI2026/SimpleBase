@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { mountWithApp } from '../test/helpers'
-import DocsLayout from './DocsLayout.vue'
+import { mountWithApp } from '@/test/helpers'
+import DocsLayout from '@/layouts/DocsLayout.vue'
 
 describe('DocsLayout', () => {
   it('renders the docs chrome and github link', async () => {

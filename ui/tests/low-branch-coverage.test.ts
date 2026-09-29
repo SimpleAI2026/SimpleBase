@@ -1,15 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import PageContainer from './PageContainer.vue'
-import ProjectScope from './ProjectScope.vue'
-import SbCodeBlock from './SbCodeBlock.vue'
-import NavMenu from './NavMenu.vue'
+import PageContainer from '@/components/PageContainer.vue'
+import ProjectScope from '@/components/ProjectScope.vue'
+import SbCodeBlock from '@/components/SbCodeBlock.vue'
+import NavMenu from '@/components/NavMenu.vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { useProjectStore, ADMIN_PROJECT_ID } from '../stores/project'
+import { useProjectStore, ADMIN_PROJECT_ID } from '@/stores/project'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
@@ -62,7 +62,7 @@ describe('low-branch component coverage', () => {
   })
 
   it('MessageScroller scroll and follow', async () => {
-    const { default: MessageScroller } = await import('./chat/MessageScroller.vue')
+    const { default: MessageScroller } = await import('@/components/chat/MessageScroller.vue')
     const w = mount(MessageScroller, {
       props: { followKey: 1 },
       slots: { default: '<div style="height:800px">msg</div>' },
@@ -81,8 +81,8 @@ describe('low-branch component coverage', () => {
   })
 
   it('UserMenu open password and logout', async () => {
-    const { default: UserMenu } = await import('./UserMenu.vue')
-    const { useAuthStore } = await import('../stores/auth')
+    const { default: UserMenu } = await import('@/components/UserMenu.vue')
+    const { useAuthStore } = await import('@/stores/auth')
     const pinia = createPinia()
     setActivePinia(pinia)
     const auth = useAuthStore()
@@ -152,7 +152,7 @@ describe('low-branch component coverage', () => {
 
     const pinia = createPinia()
     setActivePinia(pinia)
-    const { useAuthStore } = await import('../stores/auth')
+    const { useAuthStore } = await import('@/stores/auth')
     const auth = useAuthStore()
     auth.applyTokens({
       accessToken: 'a',

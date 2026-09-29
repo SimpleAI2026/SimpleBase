@@ -20,11 +20,6 @@
                 class="relative items-center gap-2.5"
                 @click="emit('navigate')"
               >
-                <span
-                  v-if="selectedKey === item.name"
-                  class="absolute top-1/2 -left-0.5 h-5 w-[3px] -translate-y-1/2 rounded-full bg-primary"
-                  aria-hidden="true"
-                />
                 <component :is="item.icon" class="size-4 shrink-0 opacity-80" />
                 <span class="truncate">{{ item.title }}</span>
                 <span
@@ -46,6 +41,7 @@ import { computed, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   BotIcon,
+  BracesIcon,
   CloudUploadIcon,
   CodeIcon,
   DatabaseIcon,
@@ -70,6 +66,7 @@ const auth = useAuthStore()
 const iconMap: Record<string, Component> = {
   dashboard: LayoutDashboardIcon,
   databases: DatabaseIcon,
+  'key-value': BracesIcon,
   s3: CloudUploadIcon,
   gofunctions: CodeIcon,
   'cron-jobs': TimerIcon,
@@ -96,7 +93,7 @@ interface MenuItem {
 /** 分类定义（planv3.0 侧栏美化）：工作台 / 数据 / 自动化 / 运维。 */
 const GROUP_DEFS: { key: string; label: string; names: string[] }[] = [
   { key: 'workspace', label: '工作台', names: ['dashboard'] },
-  { key: 'data', label: '数据', names: ['databases', 's3'] },
+  { key: 'data', label: '数据', names: ['databases', 'key-value', 's3'] },
   { key: 'automation', label: '自动化', names: ['gofunctions', 'cron-jobs', 'agents'] },
   { key: 'ops', label: '运维', names: ['logs', 'users'] }
 ]

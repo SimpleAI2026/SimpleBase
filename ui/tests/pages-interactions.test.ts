@@ -1,15 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useProjectStore } from '../stores/project'
-import { api, resetApiMocks } from '../test/api-mock'
-import { clickText, mountWithApp, readyDb, sampleAgent, uiStubs } from '../test/helpers'
-import Databases from './Databases.vue'
-import AgentManager from './AgentManager.vue'
-import Dashboard from './Dashboard.vue'
+import { useProjectStore } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { clickText, mountWithApp, readyDb, sampleAgent, uiStubs } from '@/test/helpers'
+import Databases from '@/pages/Databases.vue'
+import AgentManager from '@/pages/AgentManager.vue'
+import Dashboard from '@/pages/Dashboard.vue'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 

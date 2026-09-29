@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { uiStubs } from '../test/helpers'
-import ConfirmAction from './ConfirmAction.vue'
+import { uiStubs } from '@/test/helpers'
+import ConfirmAction from '@/components/ConfirmAction.vue'
 
 describe('ConfirmAction enabled', () => {
   it('renders the dialog and emits confirm', async () => {

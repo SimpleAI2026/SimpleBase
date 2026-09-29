@@ -1,12 +1,12 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAuthStore } from '../stores/auth'
-import { resetApiMocks } from '../test/api-mock'
-import { mountWithApp } from '../test/helpers'
-import SettingsModal from './SettingsModal.vue'
+import { useAuthStore } from '@/stores/auth'
+import { resetApiMocks } from '@/test/api-mock'
+import { mountWithApp } from '@/test/helpers'
+import SettingsModal from '@/components/SettingsModal.vue'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 

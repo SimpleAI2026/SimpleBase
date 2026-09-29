@@ -1,11 +1,11 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mountWithApp } from '../test/helpers'
-import { resetApiMocks } from '../test/api-mock'
-import { clearTokens, setTokens } from '../services/http'
+import { mountWithApp } from '@/test/helpers'
+import { resetApiMocks } from '@/test/api-mock'
+import { clearTokens, setTokens } from '@/services/http'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return {
     api: m.api,
     get isMock() {
@@ -14,7 +14,7 @@ vi.mock('../services/api', async () => {
   }
 })
 
-const mockApi = await import('../test/api-mock')
+const mockApi = await import('@/test/api-mock')
 
 describe('LoginModal / UserMenu / UserFormModal', () => {
   beforeEach(() => {
@@ -23,7 +23,7 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
   })
 
   it('LoginModal submits credentials', async () => {
-    const { default: LoginModal } = await import('../components/modal/LoginModal.vue')
+    const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
     mockApi.api.auth.login = vi.fn(async () => ({
       tokenType: 'Bearer',
       accessToken: 'a',
@@ -51,7 +51,7 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
   })
 
   it('LoginModal shows error on failure', async () => {
-    const { default: LoginModal } = await import('../components/modal/LoginModal.vue')
+    const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
     mockApi.api.auth.login = vi.fn(async () => {
       throw new Error('用户名或密码错误')
     })
@@ -66,7 +66,7 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
   })
 
   it('LoginModal password mode shows mismatch hint', async () => {
-    const { default: LoginModal } = await import('../components/modal/LoginModal.vue')
+    const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
     const { wrapper } = await mountWithApp(LoginModal, {
       path: '/',
       props: { open: true, mode: 'password' }
@@ -79,10 +79,34 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     expect(wrapper.text()).toContain('两次输入不一致')
   })
 
+  it('LoginModal password mode: 短密码校验与提交链路', async () => {
+    const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
+    mockApi.api.auth.changePassword = vi.fn(async () => undefined)
+    const { wrapper } = await mountWithApp(LoginModal, {
+      path: '/',
+      props: { open: true, mode: 'password' }
+    })
+    const inputs = wrapper.findAll('input')
+    const vm = wrapper.vm as any
+    // canSubmitPassword 要求新密码 ≥8 位，短密码走不了 submitPassword（按钮 disabled），
+    // 直接验证 computed 拦截逻辑
+    vm.oldPassword = 'old12345'
+    vm.newPassword = 'short'
+    vm.confirmPassword = 'short'
+    expect(vm.canSubmitPassword).toBe(false)
+    // 合法提交 → changePassword 调用
+    vm.newPassword = 'new123456'
+    vm.confirmPassword = 'new123456'
+    await vm.submitPassword()
+    await flushPromises()
+    expect(mockApi.api.auth.changePassword).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('UserMenu renders and can logout', async () => {
     setTokens('a', 'r')
-    const { default: UserMenu } = await import('../components/UserMenu.vue')
-    const { useAuthStore } = await import('../stores/auth')
+    const { default: UserMenu } = await import('@/components/UserMenu.vue')
+    const { useAuthStore } = await import('@/stores/auth')
     const { wrapper, pinia } = await mountWithApp(UserMenu, { path: '/' })
     const auth = useAuthStore(pinia)
     auth.applyTokens({
@@ -114,8 +138,8 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
   })
 
   it('UserFormModal creates a user', async () => {
-    const { default: UserFormModal } = await import('../components/modal/UserFormModal.vue')
-    const { useAuthStore } = await import('../stores/auth')
+    const { default: UserFormModal } = await import('@/components/modal/UserFormModal.vue')
+    const { useAuthStore } = await import('@/stores/auth')
     mockApi.api.users.create = vi.fn(async (req) => ({
       id: 'new',
       username: req.username,
@@ -159,8 +183,8 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
   })
 
   it('UserFormModal readonly hides footer for non-manager', async () => {
-    const { default: UserFormModal } = await import('../components/modal/UserFormModal.vue')
-    const { useAuthStore } = await import('../stores/auth')
+    const { default: UserFormModal } = await import('@/components/modal/UserFormModal.vue')
+    const { useAuthStore } = await import('@/stores/auth')
     const { wrapper, pinia } = await mountWithApp(UserFormModal, {
       path: '/',
       props: {

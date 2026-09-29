@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { getApiKey } from '../services/http'
-import { useAuthStore } from './auth'
+import { getApiKey } from '@/services/http'
+import { useAuthStore } from '@/stores/auth'
 
 describe('useAuthStore', () => {
   beforeEach(() => {

@@ -2,13 +2,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { useProjectStore } from '../../stores/project'
-import { api, resetApiMocks } from '../../test/api-mock'
-import { sampleCron, sampleGoFn, uiStubs } from '../../test/helpers'
-import CronJobModal from './CronJobModal.vue'
+import { useProjectStore } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { sampleCron, sampleGoFn, uiStubs } from '@/test/helpers'
+import CronJobModal from '@/components/modal/CronJobModal.vue'
 
-vi.mock('../../services/api', async () => {
-  const m = await import('../../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
@@ -26,6 +26,33 @@ describe('CronJobModal', () => {
   beforeEach(() => {
     resetApiMocks()
     api.gofunctions.list.mockResolvedValue([sampleGoFn])
+  })
+
+  it('associates schedule controls with their labels and help text', async () => {
+    const w = mountModal()
+    await flushPromises()
+    expect(w.get('.sb-modal').attributes('data-max-width')).toBe('720')
+    expect(w.get('.overflow-y-auto').classes()).toContain('px-2')
+    expect(w.get('label[for="cron-name"]').text()).toBe('任务名')
+    expect(w.get('#cron-name').attributes('aria-describedby')).toContain('cron-name-help')
+    expect(w.get('label[for="cron-expression"]').text()).toBe('cron 表达式')
+    expect(w.get('#cron-expression').attributes('aria-describedby')).toBe('cron-expression-help')
+    expect(w.get('[aria-label="常用 cron 预设"]').exists()).toBe(true)
+    expect(w.get('[aria-labelledby="cron-file-label"]').exists()).toBe(true)
+    const vm = w.vm as any
+    vm.form.name = '1invalid'
+    vm.form.inputJson = '{bad'
+    await flushPromises()
+    expect(w.get('#cron-name').attributes('aria-describedby')).toContain('cron-name-error')
+    expect(w.get('#cron-input-json').attributes('aria-describedby')).toContain('cron-json-error')
+    vm.form.scheduleKind = 'interval'
+    await flushPromises()
+    expect(w.get('label[for="cron-interval-value"]').exists()).toBe(true)
+    expect(w.get('[aria-label="间隔单位"]').exists()).toBe(true)
+    vm.form.scheduleKind = 'once'
+    await flushPromises()
+    expect(w.get('label[for="cron-run-at"]').exists()).toBe(true)
+    w.unmount()
   })
 
   it('covers interval math, validation, create and update', async () => {

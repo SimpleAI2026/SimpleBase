@@ -1,14 +1,14 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultModuleId, defaultSlug, docCatalog, getModule } from '../docs/catalog'
-import { mountWithApp } from '../test/helpers'
+import { defaultModuleId, defaultSlug, docCatalog, getModule } from '@/docs/catalog'
+import { mountWithApp } from '@/test/helpers'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import DocsWiki from './DocsWiki.vue'
+import DocsWiki from '@/pages/DocsWiki.vue'
 
 const docsStubs = {
   DocsSidebar: { template: '<aside class="docs-side" />' },
@@ -45,6 +45,8 @@ describe('DocsWiki', () => {
     })
     expect(wrapper.find('.docs-art').exists()).toBe(true)
     expect(wrapper.find('.docs-side').exists()).toBe(true)
+    expect(wrapper.get('[data-docs-progress]').text()).toContain('第 1 /')
+    expect(wrapper.text()).toContain(getModule(id)?.title)
     const bar = wrapper.get('[data-docs-tabs]')
     expect(bar.classes()).toContain('border-b-0')
     expect(bar.classes()).not.toContain('border-b')
@@ -101,6 +103,8 @@ describe('DocsWiki', () => {
       stubs: docsStubs
     })
     expect(wrapper.find('.docs-side').exists()).toBe(false)
+    expect(wrapper.get('#docs-page-label').text()).toBe('选择文档页面')
+    expect(wrapper.get('[data-docs-progress]').text()).toContain('篇')
     if (wrapper.find('.mobile-index').exists()) {
       await wrapper.get('.mobile-index').trigger('click')
       await flushPromises()

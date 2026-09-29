@@ -2,10 +2,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it } from 'vitest'
 import { toast } from 'vue-sonner'
-import { useAuthStore } from '../../stores/auth'
-import { useProjectStore } from '../../stores/project'
-import { uiStubs } from '../../test/helpers'
-import ConnectionPanel from './ConnectionPanel.vue'
+import { useAuthStore } from '@/stores/auth'
+import { useProjectStore } from '@/stores/project'
+import { uiStubs } from '@/test/helpers'
+import ConnectionPanel from '@/components/settings/ConnectionPanel.vue'
 
 describe('ConnectionPanel', () => {
   it('covers save/reset/label and settings open wiring', async () => {

@@ -1,15 +1,15 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { api, resetApiMocks } from '../test/api-mock'
-import { clickText, mountWithApp } from '../test/helpers'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { clickText, mountWithApp } from '@/test/helpers'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import Logs from './Logs.vue'
+import Logs from '@/pages/Logs.vue'
 
 describe('Logs (日志管理)', () => {
   beforeEach(() => {
@@ -56,7 +56,7 @@ describe('Logs (日志管理)', () => {
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('保存失败')
 
-    const { useProjectStore } = await import('../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     const store = useProjectStore(pinia)
     store.projectId = ''
     await clickText(wrapper, '刷新')
@@ -93,7 +93,7 @@ describe('Logs (日志管理)', () => {
 
     const keep = wrapper.find('input[type="number"]')
     await keep.setValue('not-a-number')
-    const { useProjectStore } = await import('../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.logs.list.mock.calls.length).toBeGreaterThan(2)

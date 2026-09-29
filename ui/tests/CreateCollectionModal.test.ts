@@ -1,12 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { api, resetApiMocks } from '../../test/api-mock'
-import { readyDb, uiStubs } from '../../test/helpers'
-import CreateCollectionModal from './CreateCollectionModal.vue'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { readyDb, uiStubs } from '@/test/helpers'
+import CreateCollectionModal from '@/components/modal/CreateCollectionModal.vue'
 
-vi.mock('../../services/api', async () => {
-  const m = await import('../../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 

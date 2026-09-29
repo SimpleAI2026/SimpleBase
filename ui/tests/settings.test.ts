@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { resolvedTheme, useSettingsStore } from './settings'
+import { resolvedTheme, useSettingsStore } from '@/stores/settings'
 
 describe('settings store', () => {
   beforeEach(() => {

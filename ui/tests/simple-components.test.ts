@@ -2,12 +2,12 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
-import PageContainer from './PageContainer.vue'
-import SbCodeBlock from './SbCodeBlock.vue'
-import TablePager from './TablePager.vue'
-import ConfirmAction from './ConfirmAction.vue'
-import ProjectScope from './ProjectScope.vue'
-import { useProjectStore } from '../stores/project'
+import PageContainer from '@/components/PageContainer.vue'
+import SbCodeBlock from '@/components/SbCodeBlock.vue'
+import TablePager from '@/components/TablePager.vue'
+import ConfirmAction from '@/components/ConfirmAction.vue'
+import ProjectScope from '@/components/ProjectScope.vue'
+import { useProjectStore } from '@/stores/project'
 
 describe('simple presentational components', () => {
   it('renders PageContainer subtitle and slot', () => {
@@ -75,7 +75,7 @@ describe('simple presentational components', () => {
 
 describe('router-backed chrome', () => {
   it('NavMenu lists console routes', async () => {
-    const { default: NavMenu } = await import('./NavMenu.vue')
+    const { default: NavMenu } = await import('@/components/NavMenu.vue')
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -105,6 +105,6 @@ describe('router-backed chrome', () => {
     expect(w.text()).toContain('自动化')
     expect(w.text()).toContain('运维')
     const names = (w.vm as { menuItems: { name: string }[] }).menuItems.map((i) => i.name)
-    expect(names).toEqual(['dashboard', 'databases', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs'])
+    expect(names).toEqual(['dashboard', 'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs'])
   })
 })

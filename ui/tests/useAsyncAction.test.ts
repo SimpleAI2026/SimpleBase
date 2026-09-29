@@ -1,6 +1,6 @@
 import { toast } from 'vue-sonner'
 import { describe, expect, it, vi } from 'vitest'
-import { useAsyncAction } from './useAsyncAction'
+import { useAsyncAction } from '@/composables/useAsyncAction'
 
 describe('useAsyncAction', () => {
   it('stores success data and toasts', async () => {

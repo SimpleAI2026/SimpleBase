@@ -1,11 +1,11 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { defineComponent } from 'vue'
-import { tabsListVariants } from '.'
-import Tabs from './Tabs.vue'
-import TabsContent from './TabsContent.vue'
-import TabsList from './TabsList.vue'
-import TabsTrigger from './TabsTrigger.vue'
+import { tabsListVariants } from '@/components/ui/tabs'
+import Tabs from '@/components/ui/tabs/Tabs.vue'
+import TabsContent from '@/components/ui/tabs/TabsContent.vue'
+import TabsList from '@/components/ui/tabs/TabsList.vue'
+import TabsTrigger from '@/components/ui/tabs/TabsTrigger.vue'
 
 describe('tabs orientation classes', () => {
   it('matches data-orientation on the tabs group, not boolean data-horizontal', () => {

@@ -1,11 +1,11 @@
 import { toast } from 'vue-sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAiChat } from './useAiChat'
+import { useAiChat } from '@/composables/useAiChat'
 
 const chat = vi.fn()
 const stream = vi.fn()
 
-vi.mock('../services/api', () => ({
+vi.mock('@/services/api', () => ({
   api: {
     llm: {
       chat: (...args: unknown[]) => chat(...args),

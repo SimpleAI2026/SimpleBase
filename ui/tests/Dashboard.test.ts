@@ -1,11 +1,11 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { api, resetApiMocks, setIsMock } from '../test/api-mock'
-import { clickText, creatingDb, mountWithApp, readyDb } from '../test/helpers'
+import { api, resetApiMocks, setIsMock } from '@/test/api-mock'
+import { clickText, creatingDb, mountWithApp, readyDb } from '@/test/helpers'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return {
     api: m.api,
     get isMock() {
@@ -14,7 +14,7 @@ vi.mock('../services/api', async () => {
   }
 })
 
-import Dashboard from './Dashboard.vue'
+import Dashboard from '@/pages/Dashboard.vue'
 
 const degradedDb = {
   id: 'db-deg',
@@ -116,6 +116,15 @@ describe('Dashboard (监控大盘)', () => {
     expect(toast.error).toHaveBeenCalledWith('部分数据加载失败')
   })
 
+  it('仅趋势失败时也标记 trendFailed 且有资源时不置空', async () => {
+    api.metrics.trend.mockRejectedValueOnce(new Error('trend-only'))
+    const { wrapper } = await mountWithApp(Dashboard)
+    expect(wrapper.text()).toContain('趋势加载失败')
+    // 数据库/函数计数正常展示
+    expect(wrapper.text()).toContain('数据库总数')
+    wrapper.unmount()
+  })
+
   it('shows zero counts when no resources exist', async () => {
     api.databases.list.mockResolvedValue([])
     api.s3.list.mockResolvedValue([])
@@ -133,7 +142,7 @@ describe('Dashboard (监控大盘)', () => {
     const { wrapper, pinia } = await mountWithApp(Dashboard)
     await flushPromises()
     const before = api.databases.list.mock.calls.length
-    const { useProjectStore } = await import('../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.databases.list.mock.calls.length).toBeGreaterThan(before)

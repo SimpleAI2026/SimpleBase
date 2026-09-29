@@ -5,6 +5,21 @@
       <CardHeader class="border-b">
         <CardTitle>对象列表</CardTitle>
         <CardDescription>按前缀筛选，支持上传与删除</CardDescription>
+        <CardAction>
+          <div class="flex items-center gap-2">
+            <Button variant="outline" size="sm" :disabled="loading" @click="load">
+              <Spinner v-if="loading" data-icon="inline-start" />
+              <RefreshCwIcon v-else data-icon="inline-start" />
+              刷新
+            </Button>
+            <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
+            <Button size="sm" :disabled="uploading" @click="triggerUpload">
+              <Spinner v-if="uploading" data-icon="inline-start" />
+              <UploadIcon v-else data-icon="inline-start" />
+              上传对象
+            </Button>
+          </div>
+        </CardAction>
       </CardHeader>
       <CardContent class="flex flex-col gap-3 border-b py-4">
         <div class="flex flex-wrap items-center gap-2.5">
@@ -18,17 +33,6 @@
               @keydown.enter="load"
             />
           </InputGroup>
-          <Button variant="outline" size="sm" :disabled="loading" @click="load">
-            <Spinner v-if="loading" data-icon="inline-start" />
-            <RefreshCwIcon v-else data-icon="inline-start" />
-            刷新
-          </Button>
-          <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
-          <Button size="sm" :disabled="uploading" @click="triggerUpload">
-            <Spinner v-if="uploading" data-icon="inline-start" />
-            <UploadIcon v-else data-icon="inline-start" />
-            上传对象
-          </Button>
         </div>
         <Progress v-if="uploading && uploadPercent > 0" :model-value="uploadPercent" class="w-full" />
       </CardContent>
@@ -94,10 +98,9 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import axios from 'axios'
 import { EyeIcon, FileIcon, RefreshCwIcon, SearchIcon, Trash2Icon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -116,8 +119,6 @@ import type { S3Object } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import { usePagination } from '../composables/usePagination'
 import { formatBytes, formatTime } from '../utils/format'
-import { getApiKey } from '../services/http'
-import { baseURL } from '../services/http'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
@@ -133,7 +134,7 @@ const uploading = ref(false)
 const uploadPercent = ref(0)
 const fileInput = ref<HTMLInputElement | null>(null)
 
-const MAX_UPLOAD_BYTES = isMock ? 1024 * 1024 * 1024 : 10 * 1024 * 1024
+const MAX_UPLOAD_BYTES = isMock ? 1024 * 1024 * 1024 : 50 * 1024 * 1024
 
 function validateKey(key: string): string {
   if (!key) return 'key 不能为空'
@@ -168,39 +169,17 @@ function handleBeforeUpload(file: File) {
 
 function doUpload(file: File) {
   const pid = projectStore.id
-  const fd = new FormData()
-  fd.append('key', file.name)
-  fd.append('file', file)
   uploading.value = true
   uploadPercent.value = 0
-  if (isMock) {
-    api.s3
-      .upload(pid, file.name, file)
-      .then(() => {
-        toast.success(`${file.name} 上传成功`)
-        return load()
-      })
-      .catch((e) => toast.error(e instanceof Error ? e.message : '上传失败'))
-      .finally(() => {
-        uploading.value = false
-      })
-    return
-  }
-  axios
-    .post(`${baseURL}/v1/projects/${encodeURIComponent(pid)}/s3/objects`, fd, {
-      headers: { Authorization: `Bearer ${getApiKey()}` },
-      onUploadProgress: (e) => {
-        if (e.total) uploadPercent.value = Math.round((e.loaded / e.total) * 100)
-      }
+  api.s3
+    .upload(pid, file.name, file, (pct) => {
+      uploadPercent.value = pct
     })
     .then(async () => {
       toast.success(`${file.name} 上传成功`)
       await load()
     })
-    .catch((e) => {
-      const msg = e?.response?.data?.error?.message || e?.message || '上传失败'
-      toast.error(msg)
-    })
+    .catch((e) => toast.error(e instanceof Error ? e.message : '上传失败'))
     .finally(() => {
       uploading.value = false
     })

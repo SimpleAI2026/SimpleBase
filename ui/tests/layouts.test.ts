@@ -2,11 +2,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
-import DefaultLayout from './DefaultLayout.vue'
-import DocsLayout from './DocsLayout.vue'
-import { useAuthStore } from '../stores/auth'
+import DefaultLayout from '@/layouts/DefaultLayout.vue'
+import DocsLayout from '@/layouts/DocsLayout.vue'
+import { useAuthStore } from '@/stores/auth'
 
-vi.mock('../services/api', () => ({
+vi.mock('@/services/api', () => ({
   isMock: true,
   api: {}
 }))
@@ -69,7 +69,11 @@ describe('layouts', () => {
   it('DocsLayout renders console and github links', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: '/docs', component: DocsLayout, children: [{ path: '', component: { template: '<div>doc</div>' } }] }]
+      routes: [
+        { path: '/', component: { template: '<div>home</div>' } },
+        { path: '/console', name: 'dashboard', component: { template: '<div>dash</div>' } },
+        { path: '/docs', component: DocsLayout, children: [{ path: '', component: { template: '<div>doc</div>' } }] }
+      ]
     })
     await router.push('/docs')
     await router.isReady()
@@ -77,6 +81,7 @@ describe('layouts', () => {
       global: {
         plugins: [router],
         stubs: {
+          RouterLink: false,
           Button: { template: '<button><slot /></button>' }
         }
       }
@@ -84,5 +89,7 @@ describe('layouts', () => {
     expect(w.text()).toContain('使用文档')
     expect(w.text()).toContain('doc')
     expect(w.find('a[href*="github.com"]').exists()).toBe(true)
+    expect(w.find('a[title="返回首页"]').attributes('href')).toBe('/')
+    expect(w.findAll('a').find((link) => link.text() === '返回控制台')?.attributes('href')).toBe('/console')
   })
 })

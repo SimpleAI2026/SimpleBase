@@ -1,8 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ADMIN_PROJECT_ID, DEFAULT_PROJECT_ID, useProjectStore } from './project'
+import { ADMIN_PROJECT_ID, DEFAULT_PROJECT_ID, useProjectStore } from '@/stores/project'
 
-vi.mock('../services/api', () => ({
+vi.mock('@/services/api', () => ({
   api: {
     projects: {
       list: vi.fn()
@@ -10,7 +10,7 @@ vi.mock('../services/api', () => ({
   }
 }))
 
-import { api } from '../services/api'
+import { api } from '@/services/api'
 
 describe('useProjectStore', () => {
   beforeEach(() => {
@@ -97,5 +97,22 @@ describe('useProjectStore', () => {
     expect(store.projectName).toBe('')
     store.setProject(DEFAULT_PROJECT_ID)
     expect(store.projectName).toBe('')
+  })
+
+  it('drops remembered projects the server no longer returns', async () => {
+    localStorage.setItem('sb_project_id', 'old-proj')
+    localStorage.setItem('sb_project_id_history', JSON.stringify(['old-proj', DEFAULT_PROJECT_ID]))
+    setActivePinia(createPinia())
+    vi.mocked(api.projects.list).mockResolvedValue([
+      { id: ADMIN_PROJECT_ID, name: 'admin', createdAt: 't' }
+    ])
+    const store = useProjectStore()
+    expect(store.id).toBe('old-proj')
+    await store.loadProjects()
+    expect(store.projects.map((p) => p.id)).toEqual([ADMIN_PROJECT_ID])
+    expect(store.history).not.toContain('old-proj')
+    expect(store.history).not.toContain(DEFAULT_PROJECT_ID)
+    expect(store.id).toBe(ADMIN_PROJECT_ID)
+    expect(store.projectName).toBe('admin')
   })
 })

@@ -50,7 +50,7 @@
     <Button
       v-if="sending"
       size="icon"
-      class="rounded-full bg-destructive text-primary-foreground hover:bg-destructive/90"
+      class="rounded-full bg-destructive text-white hover:bg-destructive/95 dark:text-background dark:hover:bg-destructive/90"
       title="停止"
       aria-label="停止生成"
       @click="$emit('stop')"

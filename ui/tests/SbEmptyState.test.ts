@@ -1,8 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { InboxIcon } from '@lucide/vue'
-import { uiStubs } from '../test/helpers'
-import SbEmptyState from './SbEmptyState.vue'
+import { uiStubs } from '@/test/helpers'
+import SbEmptyState from '@/components/SbEmptyState.vue'
 
 describe('SbEmptyState', () => {
   it('emits action when the button is clicked', async () => {

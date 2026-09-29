@@ -35,7 +35,7 @@ function initialProjectId(): string {
   return stored
 }
 
-/** 当前项目 store：GET /v1/projects 缓存 + 本地历史；缺省 DevMode 种子项目。 */
+/** 当前项目 store。列表只来自 GET /v1/projects；本地历史只记住仍存在的项目。 */
 export const useProjectStore = defineStore('project', {
   state: () => ({
     projectId: initialProjectId(),
@@ -90,11 +90,19 @@ export const useProjectStore = defineStore('project', {
       try {
         const list = await api.projects.list()
         this.projects = Array.isArray(list) ? list : []
-        for (const p of this.projects) {
-          if (p.id) this.remember(p.id)
-        }
+        const ids = new Set(this.projects.map((p) => p.id).filter(Boolean))
+        this.history = this.history.filter((id) => ids.has(id))
+        saveHistory(this.history)
         const hit = this.projects.find((p) => p.id === this.id)
-        if (hit) this.projectName = hit.name || ''
+        if (hit) {
+          this.projectName = hit.name || ''
+          this.remember(hit.id)
+        } else if (ids.size > 0) {
+          const fallback =
+            this.projects.find((p) => p.id && p.id !== ADMIN_PROJECT_ID) ||
+            this.projects.find((p) => p.id)
+          if (fallback) this.setProject(fallback.id, fallback.name || '')
+        }
       } catch {
         this.projects = []
       } finally {

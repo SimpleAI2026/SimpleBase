@@ -4,7 +4,7 @@ describe('api selector', () => {
   it('defaults to httpApi when mock is off', async () => {
     vi.resetModules()
     vi.stubEnv('VITE_USE_MOCK', 'false')
-    const mod = await import('./api')
+    const mod = await import('@/services/api')
     expect(mod.isMock).toBe(false)
     expect(mod.api.projects).toBeDefined()
     vi.unstubAllEnvs()
@@ -13,7 +13,7 @@ describe('api selector', () => {
   it('selects mockApi when VITE_USE_MOCK is true', async () => {
     vi.resetModules()
     vi.stubEnv('VITE_USE_MOCK', 'true')
-    const mod = await import('./api')
+    const mod = await import('@/services/api')
     expect(mod.isMock).toBe(true)
     expect(mod.api.projects).toBeDefined()
     vi.unstubAllEnvs()

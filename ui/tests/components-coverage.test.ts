@@ -1,14 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
-import AiChat from './ai/AiChat.vue'
-import AiChatComposer from './ai/AiChatComposer.vue'
-import MessageScroller from './chat/MessageScroller.vue'
-import CollectionPanel from './databases/CollectionPanel.vue'
-import ConnectionPanel from './settings/ConnectionPanel.vue'
-import CronJobRunsDrawer from './CronJobRunsDrawer.vue'
-import { useAuthStore } from '../stores/auth'
-import { useProjectStore } from '../stores/project'
+import AiChat from '@/components/ai/AiChat.vue'
+import AiChatComposer from '@/components/ai/AiChatComposer.vue'
+import MessageScroller from '@/components/chat/MessageScroller.vue'
+import CollectionPanel from '@/components/databases/CollectionPanel.vue'
+import ConnectionPanel from '@/components/settings/ConnectionPanel.vue'
+import CronJobRunsDrawer from '@/components/CronJobRunsDrawer.vue'
+import { useAuthStore } from '@/stores/auth'
+import { useProjectStore } from '@/stores/project'
 
 const { api } = vi.hoisted(() => ({
   api: {
@@ -18,7 +18,7 @@ const { api } = vi.hoisted(() => ({
   }
 }))
 
-vi.mock('../services/api', () => ({ api, isMock: false }))
+vi.mock('@/services/api', () => ({ api, isMock: false }))
 
 const stubs = {
   Select: { template: '<div><slot /></div>' },

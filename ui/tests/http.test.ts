@@ -25,7 +25,7 @@ describe('http helpers and interceptors', () => {
   })
 
   it('reads and writes the API key', async () => {
-    const httpMod = await import('./http')
+    const httpMod = await import('@/services/http')
     expect(httpMod.getApiKey()).toBe('sb_live_dev_key_12345')
     httpMod.setApiKey('k2')
     expect(httpMod.getApiKey()).toBe('k2')
@@ -33,7 +33,7 @@ describe('http helpers and interceptors', () => {
   })
 
   it('injects Authorization and rejects HTML success bodies', async () => {
-    await import('./http')
+    await import('@/services/http')
     const reqFn = requestUse.mock.calls[0][0]
     const cfg = await reqFn({ headers: {} })
     expect(cfg.headers.Authorization).toMatch(/^Bearer /)
@@ -59,10 +59,10 @@ describe('http helpers and interceptors', () => {
 
   it('normalizes API errors and notifies 401 handlers', async () => {
     const mark = vi.fn()
-    vi.doMock('../stores/auth', () => ({
+    vi.doMock('@/stores/auth', () => ({
       useAuthStore: () => ({ markUnauthorized: mark })
     }))
-    const httpMod = await import('./http')
+    const httpMod = await import('@/services/http')
     const extra = vi.fn()
     httpMod.setUnauthorizedHandler(extra)
     const errFn = responseUse.mock.calls[1][1]

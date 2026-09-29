@@ -1,20 +1,20 @@
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
-import { uiStubs } from '../../test/helpers'
+import { uiStubs } from '@/test/helpers'
 
-vi.mock('../../docs/catalog', () => ({
+vi.mock('@/docs/catalog', () => ({
   githubBlobUrl: (p: string) => `https://github.com/x/blob/${p}`,
   loadMarkdownRaw: (p: string) => (p.includes('empty') ? '   ' : p.includes('missing') ? null : '# Hi')
 }))
 
-vi.mock('../../docs/render', () => ({
+vi.mock('@/docs/render', () => ({
   renderMarkdown: () => {
     throw new Error('boom-render')
   }
 }))
 
-import DocsArticle from './DocsArticle.vue'
+import DocsArticle from '@/components/docs/DocsArticle.vue'
 
 describe('DocsArticle error paths', () => {
   it('renders empty, missing, and markdown-failure states', async () => {

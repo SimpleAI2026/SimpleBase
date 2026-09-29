@@ -3,11 +3,11 @@
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="trend-legend flex items-center gap-4 text-xs text-muted-foreground">
         <span class="inline-flex items-center gap-1.5">
-          <span class="size-2.5 rounded-sm bg-primary" />
+          <span class="size-2.5 rounded-sm bg-chart-1" />
           请求
         </span>
         <span class="inline-flex items-center gap-1.5">
-          <span class="size-2.5 rounded-sm bg-destructive" />
+          <span class="inline-flex size-2.5 rotate-45 items-center justify-center border border-destructive bg-destructive" />
           错误
         </span>
       </div>
@@ -35,13 +35,13 @@
         ref="el"
         class="h-[240px] w-full"
         role="img"
-        :aria-label="`请求趋势${mode === 'bar' ? '柱状图' : '折线图'}`"
+        :aria-label="`请求趋势${mode === 'bar' ? '柱状图' : '折线图'}，请求总计 ${totals.requests}，错误总计 ${totals.errors}`"
       />
     </div>
   </div>
 </template>
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { BarChart3Icon, TrendingUpIcon } from '@lucide/vue'
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart } from 'echarts/charts'
@@ -65,9 +65,15 @@ const props = withDefaults(
 
 const emit = defineEmits<{ 'update:mode': [mode: ChartMode] }>()
 
+const totals = computed(() => props.points.reduce((sum, point) => ({
+  requests: sum.requests + point.requests,
+  errors: sum.errors + point.errors
+}), { requests: 0, errors: 0 }))
+
 const el = ref<HTMLElement | null>(null)
 let chart: ECharts | null = null
 let ro: ResizeObserver | null = null
+let themeObserver: MutationObserver | null = null
 
 /** 读 CSS 变量，保持与现有 UI 同一套 token */
 function cssVar(name: string, fallback: string) {
@@ -79,11 +85,11 @@ function cssVar(name: string, fallback: string) {
 
 function themeColors() {
   return {
-    primary: cssVar('--chart-1', '#d97757'),
-    destructive: cssVar('--chart-2', '#c0452f'),
-    muted: cssVar('--muted-foreground', '#706f6a'),
-    border: cssVar('--border', 'rgba(31,30,29,0.12)'),
-    card: cssVar('--card', '#faf9f5'),
+    primary: cssVar('--chart-1', '#3b82f6'),
+    destructive: cssVar('--chart-2', '#dc2626'),
+    muted: cssVar('--muted-foreground', '#64748b'),
+    border: cssVar('--border', '#e2e8f0'),
+    card: cssVar('--card', '#ffffff'),
     font: cssVar('--font-sans', 'system-ui, sans-serif'),
   }
 }
@@ -130,9 +136,9 @@ function buildOption(): EChartsOption {
           type: 'line',
           data: err,
           smooth: true,
-          symbol: 'circle',
-          symbolSize: 6,
-          lineStyle: { color: c.destructive, width: 2 },
+          symbol: 'diamond',
+          symbolSize: 8,
+          lineStyle: { color: c.destructive, width: 2, type: 'dashed' },
           itemStyle: { color: c.destructive, borderColor: c.card, borderWidth: 1.5 },
         },
       ]
@@ -189,6 +195,8 @@ function init() {
   render()
   ro = new ResizeObserver(() => chart?.resize())
   ro.observe(el.value)
+  themeObserver = new MutationObserver(render)
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 }
 
 watch(() => props.points, render, { deep: true })
@@ -196,6 +204,8 @@ watch(() => props.mode, render)
 
 onMounted(init)
 onBeforeUnmount(() => {
+  themeObserver?.disconnect()
+  themeObserver = null
   ro?.disconnect()
   ro = null
   chart?.dispose()

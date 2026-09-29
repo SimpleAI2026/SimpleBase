@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { describe, expect, it } from 'vitest'
-import { usePagination } from './usePagination'
+import { usePagination } from '@/composables/usePagination'
 
 describe('usePagination', () => {
   it('slices items and clamps the page when the source shrinks', async () => {

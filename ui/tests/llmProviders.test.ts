@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getProviderPreset, LLM_PROVIDER_PRESETS, maskSecret } from './llmProviders'
+import { getProviderPreset, LLM_PROVIDER_PRESETS, maskSecret } from '@/constants/llmProviders'
 
 describe('llm provider catalog', () => {
   it('looks up presets by id', () => {

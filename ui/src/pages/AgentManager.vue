@@ -1,6 +1,6 @@
 <template>
   <ProjectScope>
-    <PageContainer subtitle="按模块的只读 Agent；composer 输入 @ 点名">
+    <PageContainer subtitle="按模块的 Agent；composer 输入 @ 点名；工具默认只读，Sandbox 在云端隔离环境执行">
       <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[300px_minmax(0,1fr)]">
         <Card>
           <CardHeader class="border-b">
@@ -22,33 +22,39 @@
           <CardContent class="p-4">
             <SbEmptyState v-if="!loading && !agents.length" :icon="BotIcon" description="还没有 Agent" action-text="创建" @action="openCreate" />
             <div class="flex flex-col gap-3">
-              <button
+              <article
                 v-for="a in agents"
                 :key="a.id"
-                type="button"
-                class="w-full rounded-xl border p-4 text-left transition-all cursor-pointer"
-                :class="a.id === activeId ? 'border-primary/60 bg-primary/8 shadow-xs' : 'border-border bg-card hover:bg-muted/40 hover:border-border'"
-                @click="activeId = a.id"
+                class="rounded-xl border bg-card p-4 transition-colors"
+                :class="a.id === activeId ? 'border-primary/60 bg-primary/8 shadow-xs' : 'border-border hover:border-primary/30'"
               >
-                <div class="flex items-center justify-between gap-2">
-                  <strong class="text-sm font-semibold text-foreground">{{ a.name }}</strong>
-                  <Badge variant="secondary" class="text-xs">{{ a.module }}</Badge>
-                </div>
-                <div class="mt-1.5 text-xs leading-relaxed text-muted-foreground line-clamp-2">{{ a.description || '无描述' }}</div>
-                <div v-if="scheduleByAgent[a.id]" class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <ClockIcon class="size-3" />
-                  <span>{{ scheduleSummary(scheduleByAgent[a.id]) }}</span>
-                  <span v-if="scheduleByAgent[a.id]?.enabled" class="size-1.5 rounded-full bg-success" />
-                  <span v-else class="size-1.5 rounded-full bg-muted-foreground/40" />
-                </div>
-                <div class="mt-3 flex gap-1 justify-end border-t border-border/60 pt-3" @click.stop>
+                <button
+                  type="button"
+                  class="block w-full rounded-md text-left"
+                  :aria-label="`选择 Agent ${a.name}`"
+                  :aria-pressed="a.id === activeId"
+                  @click="activeId = a.id"
+                >
+                  <span class="flex items-center justify-between gap-2">
+                    <strong class="text-sm font-semibold text-foreground">{{ a.name }}</strong>
+                    <Badge variant="secondary" class="text-xs">{{ a.module }}</Badge>
+                  </span>
+                  <span class="mt-1.5 block text-xs leading-relaxed text-muted-foreground line-clamp-2">{{ a.description || '无描述' }}</span>
+                  <span v-if="scheduleByAgent[a.id]" class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <ClockIcon aria-hidden="true" class="size-3" />
+                    <span>{{ scheduleSummary(scheduleByAgent[a.id]) }}</span>
+                    <span v-if="scheduleByAgent[a.id]?.enabled" aria-hidden="true" class="size-1.5 rounded-full bg-success" />
+                    <span v-else aria-hidden="true" class="size-1.5 rounded-full bg-muted-foreground/40" />
+                  </span>
+                </button>
+                <div class="mt-3 flex flex-wrap gap-1 justify-end border-t border-border/60 pt-3">
                   <Button variant="ghost" size="xs" @click="openEdit(a)">编辑</Button>
                   <Button variant="ghost" size="xs" @click="openSchedule(a)">定时</Button>
                   <ConfirmAction title="确认删除该 Agent？" @confirm="removeAgent(a)">
                     <Button variant="destructiveGhost" size="xs">删除</Button>
                   </ConfirmAction>
                 </div>
-              </button>
+              </article>
             </div>
           </CardContent>
         </Card>
@@ -74,10 +80,10 @@
             >
               <template #toolbar>
                 <Button variant="outline" size="sm" class="shrink-0" :disabled="!chatMessages.length && !sending" @click="resetThread">新会话</Button>
-                <span class="min-w-0 truncate text-xs text-muted-foreground">点名 {{ activeAgent ? '@' + activeAgent.name : '一个 Agent' }} 后发送；工具只读</span>
+                <span class="min-w-0 truncate text-xs text-muted-foreground">{{ toolsHint }}</span>
               </template>
               <template #empty>
-                <SbEmptyState v-if="!chatMessages.length" :icon="BotIcon" description="用 @ 点名左侧 Agent，询问数据库、对象或日志" />
+                <SbEmptyState v-if="!chatMessages.length" :icon="BotIcon" description="用 @ 点名左侧 Agent，询问数据库、对象或日志；Sandbox Agent 可在云端环境运行代码" />
               </template>
             </AiChat>
           </CardContent>
@@ -98,7 +104,14 @@
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem v-for="opt in moduleOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</SelectItem>
+                  <SelectItem
+                    v-for="opt in moduleOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                    :disabled="opt.disabled"
+                  >
+                    {{ opt.label }}{{ opt.disabled ? '（未配置云沙盒）' : '' }}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -112,13 +125,16 @@
             <Textarea id="agent-prompt" v-model="form.system_prompt" :rows="4" placeholder="可选；叠在模块模板之上" />
           </Field>
           <Field>
-            <FieldLabel>只读工具</FieldLabel>
+            <FieldLabel>工具</FieldLabel>
             <div class="flex flex-wrap gap-2">
               <Badge
                 v-for="id in toolOptions"
                 :key="id.value"
+                as="button"
+                type="button"
+                :aria-pressed="form.tool_ids.includes(id.value)"
                 :variant="form.tool_ids.includes(id.value) ? 'default' : 'outline'"
-                class="cursor-pointer"
+                class="h-auto min-h-8 cursor-pointer"
                 @click="toggleTool(id.value)"
               >
                 {{ id.label }}
@@ -203,8 +219,27 @@ const composerPlaceholder = computed(() =>
 )
 
 const moduleOptions = computed(() =>
-  modules.value.map((m) => ({ label: `${m.name}（${m.id}）`, value: m.id }))
+  modules.value.map((m) => ({
+    label: `${m.name}（${m.id}）`,
+    value: m.id,
+    disabled: m.id === 'sandbox' && m.sandbox_available !== true
+  }))
 )
+
+// 当前选中 Agent 是否含沙盒工具；决定 composer 旁的提示文案。
+const activeAgentHasSandboxTools = computed(() => {
+  const a = activeAgent.value
+  if (!a) return false
+  return (a.tool_ids || []).some((id) => id.startsWith('sandbox_'))
+})
+
+const toolsHint = computed(() => {
+  const who = `点名 ${activeAgent.value ? '@' + activeAgent.value.name : '一个 Agent'} 后发送`
+  if (activeAgentHasSandboxTools.value) {
+    return `${who}；沙盒命令在云端隔离环境执行`
+  }
+  return `${who}；工具只读`
+})
 const toolOptions = computed(() => {
   const m = modules.value.find((x) => x.id === form.value.module)
   const ids = m?.default_tools?.length ? m.default_tools : ['list_databases', 'list_collections', 'readonly_sql', 'list_objects', 'head_object', 'search_logs', 'log_level_stats']
@@ -362,6 +397,11 @@ function toggleTool(id: string) {
 async function saveAgent() {
   if (!form.value.name.trim()) {
     toast.warning('请填写名称')
+    return
+  }
+  const mod = modules.value.find((m) => m.id === form.value.module)
+  if (form.value.module === 'sandbox' && mod?.sandbox_available !== true) {
+    toast.warning('云沙盒未配置，无法创建 Sandbox Agent')
     return
   }
   saving.value = true

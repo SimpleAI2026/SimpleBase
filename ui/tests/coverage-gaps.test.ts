@@ -1,8 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useProjectStore } from './stores/project'
-import { api, resetApiMocks } from './test/api-mock'
+import { useProjectStore } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
 import {
   creatingDb,
   mountWithApp,
@@ -11,26 +11,26 @@ import {
   sampleCron,
   sampleGoFn,
   uiStubs
-} from './test/helpers'
-import AgentManager from './pages/AgentManager.vue'
-import CronJobs from './pages/CronJobs.vue'
-import Databases from './pages/Databases.vue'
-import GoFunctions from './pages/GoFunctions.vue'
-import Logs from './pages/Logs.vue'
-import S3Manager from './pages/S3Manager.vue'
-import CronJobModal from './components/modal/CronJobModal.vue'
-import GoFunctionModal from './components/modal/GoFunctionModal.vue'
-import SqlWorkModal from './components/modal/SqlWorkModal.vue'
-import DocumentListModal from './components/modal/DocumentListModal.vue'
-import SbModal from './components/modal/SbModal.vue'
-import AgentScheduleModal from './components/ai/AgentScheduleModal.vue'
-import CronJobRunsDrawer from './components/CronJobRunsDrawer.vue'
-import ConnectionPanel from './components/settings/ConnectionPanel.vue'
-import SettingsPanel from './components/settings/SettingsPanel.vue'
-import GlobalProjectSwitcher from './components/GlobalProjectSwitcher.vue'
+} from '@/test/helpers'
+import AgentManager from '@/pages/AgentManager.vue'
+import CronJobs from '@/pages/CronJobs.vue'
+import Databases from '@/pages/Databases.vue'
+import GoFunctions from '@/pages/GoFunctions.vue'
+import Logs from '@/pages/Logs.vue'
+import S3Manager from '@/pages/S3Manager.vue'
+import CronJobModal from '@/components/modal/CronJobModal.vue'
+import GoFunctionModal from '@/components/modal/GoFunctionModal.vue'
+import SqlWorkModal from '@/components/modal/SqlWorkModal.vue'
+import DocumentListModal from '@/components/modal/DocumentListModal.vue'
+import SbModal from '@/components/modal/SbModal.vue'
+import AgentScheduleModal from '@/components/ai/AgentScheduleModal.vue'
+import CronJobRunsDrawer from '@/components/CronJobRunsDrawer.vue'
+import ConnectionPanel from '@/components/settings/ConnectionPanel.vue'
+import SettingsPanel from '@/components/settings/SettingsPanel.vue'
+import GlobalProjectSwitcher from '@/components/GlobalProjectSwitcher.vue'
 
-vi.mock('./services/api', async () => {
-  const m = await import('./test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 

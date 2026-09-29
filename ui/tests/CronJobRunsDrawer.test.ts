@@ -1,13 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useProjectStore } from '../stores/project'
-import { api, resetApiMocks } from '../test/api-mock'
-import { sampleCron, uiStubs } from '../test/helpers'
-import CronJobRunsDrawer from './CronJobRunsDrawer.vue'
+import { useProjectStore } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { sampleCron, uiStubs } from '@/test/helpers'
+import CronJobRunsDrawer from '@/components/CronJobRunsDrawer.vue'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 

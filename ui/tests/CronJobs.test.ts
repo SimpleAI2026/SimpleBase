@@ -1,16 +1,16 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { ADMIN_PROJECT_ID } from '../stores/project'
-import { api, resetApiMocks } from '../test/api-mock'
-import { clickText, mountWithApp, sampleCron } from '../test/helpers'
+import { ADMIN_PROJECT_ID } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { clickText, mountWithApp, sampleCron } from '@/test/helpers'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import CronJobs from './CronJobs.vue'
+import CronJobs from '@/pages/CronJobs.vue'
 
 const extraStubs = {
   CronJobModal: {
@@ -141,7 +141,7 @@ describe('CronJobs (定时任务)', () => {
     const { wrapper, pinia } = await mountWithApp(CronJobs, { stubs: extraStubs })
     await wrapper.get('.empty-action').trigger('click')
     expect(wrapper.find('.cj-modal').exists()).toBe(true)
-    const { useProjectStore } = await import('../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.cronjobs.list.mock.calls.length).toBeGreaterThan(1)

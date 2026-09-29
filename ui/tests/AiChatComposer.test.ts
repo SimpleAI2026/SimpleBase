@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { uiStubs } from '../../test/helpers'
-import AiChatComposer from './AiChatComposer.vue'
+import { uiStubs } from '@/test/helpers'
+import AiChatComposer from '@/components/ai/AiChatComposer.vue'
 
 const agents = [
   { id: 'a1', name: 'Database', module: 'database' },

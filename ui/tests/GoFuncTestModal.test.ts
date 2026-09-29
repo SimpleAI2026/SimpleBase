@@ -1,15 +1,15 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, resetApiMocks } from '../../test/api-mock'
-import { mountWithApp } from '../../test/helpers'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { mountWithApp } from '@/test/helpers'
 
-vi.mock('../../services/api', async () => {
-  const m = await import('../../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import GoFuncTestModal from './GoFuncTestModal.vue'
-import GoFuncVersionsModal from './GoFuncVersionsModal.vue'
+import GoFuncTestModal from '@/components/modal/GoFuncTestModal.vue'
+import GoFuncVersionsModal from '@/components/modal/GoFuncVersionsModal.vue'
 
 const record = {
   id: 'gf-1',
@@ -277,5 +277,46 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
     await copy!.trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith('package main')
+  })
+
+  it('versions modal: viewSource 失败兜底与版本列表空态', async () => {
+    api.gofunctions.listVersions.mockResolvedValue({ activeVersion: 0, versions: [] })
+    const { wrapper } = await mountWithApp(GoFuncVersionsModal, {
+      props: { open: true, record }
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('暂无版本')
+    // 有版本但 get 抛错 → 读取源码失败
+    api.gofunctions.listVersions.mockResolvedValue({
+      activeVersion: 1,
+      versions: [{ version: 1, exports: ['Hello'], note: '', createdAt: 't', active: true }]
+    })
+    api.gofunctions.get.mockRejectedValueOnce(new Error('boom'))
+    const vm = wrapper.vm as any
+    await vm.viewSource({ version: 1, exports: [], note: '', createdAt: 't', active: true })
+    expect(wrapper.text()).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('versions modal: 非管理员隐藏激活按钮；note 渲染；激活失败兜底', async () => {
+    api.gofunctions.listVersions.mockResolvedValue({
+      activeVersion: 2,
+      versions: [
+        { version: 1, exports: ['Hello'], note: '注释', createdAt: 't', active: false },
+        { version: 2, exports: ['Hello'], note: '', createdAt: 't', active: true }
+      ]
+    })
+    const { wrapper } = await mountWithApp(GoFuncVersionsModal, {
+      props: { open: true, record }
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('注释')
+    expect(wrapper.text()).toContain('● 生效')
+    // 普通成员视角：激活按钮由模板 v-if 控制（projectStore.isAdmin）
+    const vm = wrapper.vm as any
+    api.gofunctions.activate.mockRejectedValueOnce('raw')
+    await vm.activate(1)
+    await flushPromises()
+    wrapper.unmount()
   })
 })

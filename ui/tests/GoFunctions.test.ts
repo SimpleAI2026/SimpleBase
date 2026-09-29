@@ -1,16 +1,16 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { ADMIN_PROJECT_ID } from '../stores/project'
-import { api, resetApiMocks } from '../test/api-mock'
-import { clickText, mountWithApp, sampleGoFn } from '../test/helpers'
+import { ADMIN_PROJECT_ID } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { clickText, mountWithApp, sampleGoFn } from '@/test/helpers'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import GoFunctions from './GoFunctions.vue'
+import GoFunctions from '@/pages/GoFunctions.vue'
 
 const modalStub = {
   GoFunctionModal: {
@@ -31,7 +31,9 @@ describe('GoFunctions (云函数)', () => {
   it('lists functions and copies invoke paths', async () => {
     const { wrapper } = await mountWithApp(GoFunctions, { stubs: modalStub })
     expect(wrapper.text()).toContain('hello.go')
-    await wrapper.findAll('.badge')[0].trigger('click')
+    const copyButton = wrapper.get('button.badge[aria-label="复制 hello.go 的 Hello 完整调用路径"]')
+    expect(copyButton.attributes('type')).toBe('button')
+    await copyButton.trigger('click')
     await flushPromises()
     expect(navigator.clipboard.writeText).toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalled()
@@ -45,7 +47,7 @@ describe('GoFunctions (云函数)', () => {
     await flushPromises()
 
     vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
-    await wrapper.findAll('.badge')[0].trigger('click')
+    await copyButton.trigger('click')
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('复制失败')
   })
@@ -87,7 +89,7 @@ describe('GoFunctions (云函数)', () => {
 
   it('reloads when the project changes', async () => {
     const { pinia } = await mountWithApp(GoFunctions, { stubs: modalStub })
-    const { useProjectStore } = await import('../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-prj')
     await flushPromises()
     expect(api.gofunctions.list.mock.calls.length).toBeGreaterThan(1)

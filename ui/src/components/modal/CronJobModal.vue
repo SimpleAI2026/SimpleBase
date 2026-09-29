@@ -2,29 +2,31 @@
   <SbModal
     :open="open"
     :title="isEdit ? '编辑定时任务' : '新建定时任务'"
-    :width="860"
+    :max-width="720"
     :confirm-loading="saving"
     :ok-button-props="{ disabled: !canSave }"
     @update:open="$emit('update:open', $event)"
     @ok="save"
   >
-    <div class="flex max-h-[70vh] flex-col gap-4 overflow-y-auto py-2 pr-1">
+    <div class="flex max-h-[70vh] flex-col gap-4 overflow-y-auto px-2 py-3">
       <FieldGroup>
         <Field :data-invalid="nameError ? true : undefined">
-          <FieldLabel>任务名</FieldLabel>
+          <FieldLabel for="cron-name">任务名</FieldLabel>
           <Input
+            id="cron-name"
             v-model="form.name"
             class="sb-mono"
             :disabled="isEdit"
             placeholder="nightly-refresh"
             :aria-invalid="nameError ? true : undefined"
+            :aria-describedby="nameError ? 'cron-name-help cron-name-error' : 'cron-name-help'"
           />
-          <FieldDescription>{{ isEdit ? '创建后不可修改' : '字母开头，可含字母数字 _ -' }}</FieldDescription>
-          <FieldError v-if="nameError">{{ nameError }}</FieldError>
+          <FieldDescription id="cron-name-help">{{ isEdit ? '创建后不可修改' : '字母开头，可含字母数字 _ -' }}</FieldDescription>
+          <FieldError v-if="nameError" id="cron-name-error">{{ nameError }}</FieldError>
         </Field>
         <Field>
-          <FieldLabel>描述</FieldLabel>
-          <Input v-model="form.description" placeholder="每天凌晨汇总昨日数据" />
+          <FieldLabel for="cron-description">描述</FieldLabel>
+          <Input id="cron-description" v-model="form.description" placeholder="每天凌晨汇总昨日数据" />
         </Field>
       </FieldGroup>
 
@@ -69,32 +71,34 @@
         </FieldContent>
 
         <Field v-if="form.scheduleKind === 'cron'" class="pt-3">
-          <FieldLabel>cron 表达式</FieldLabel>
-          <div class="flex gap-2">
-            <Input v-model="form.cronExpr" class="sb-mono flex-1" placeholder="0 2 * * *" />
+          <FieldLabel for="cron-expression">cron 表达式</FieldLabel>
+          <div class="flex min-w-0 flex-col gap-2 sm:flex-row">
+            <Input id="cron-expression" v-model="form.cronExpr" class="sb-mono min-w-0 flex-1" placeholder="0 2 * * *" aria-describedby="cron-expression-help" />
             <Select v-model="preset">
-              <SelectTrigger class="w-36 shrink-0"><SelectValue placeholder="常用预设" /></SelectTrigger>
+              <SelectTrigger class="w-full sm:w-36 sm:shrink-0" aria-label="常用 cron 预设"><SelectValue placeholder="常用预设" /></SelectTrigger>
               <SelectContent>
                 <SelectItem v-for="p in presets" :key="p.expr" :value="p.expr">{{ p.label }}</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <FieldDescription>分 时 日 月 周 · 示例 <code class="sb-mono">0 2 * * *</code> = 每天 02:00 UTC</FieldDescription>
+          <FieldDescription id="cron-expression-help">分 时 日 月 周 · 示例 <code class="sb-mono">0 2 * * *</code> = 每天 02:00 UTC</FieldDescription>
         </Field>
 
         <Field v-else-if="form.scheduleKind === 'interval'" class="pt-3">
-          <FieldLabel>执行间隔</FieldLabel>
-          <div class="flex items-center gap-2">
+          <FieldLabel for="cron-interval-value">执行间隔</FieldLabel>
+          <div class="flex flex-wrap items-center gap-2">
             <span class="text-sm text-muted-foreground">每</span>
             <Input
+              id="cron-interval-value"
               v-model.number="intervalValue"
               type="number"
               min="1"
               max="30"
               class="sb-mono w-24"
+              aria-describedby="cron-interval-help"
             />
             <Select v-model="intervalUnit">
-              <SelectTrigger class="w-28 shrink-0"><SelectValue /></SelectTrigger>
+              <SelectTrigger class="w-28 shrink-0" aria-label="间隔单位"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="minute">分钟</SelectItem>
                 <SelectItem value="hour">小时</SelectItem>
@@ -103,17 +107,19 @@
             </Select>
             <span class="text-sm text-muted-foreground">执行一次</span>
           </div>
-          <FieldDescription>范围 1 分钟 ~ 30 天</FieldDescription>
+          <FieldDescription id="cron-interval-help">范围 1 分钟 ~ 30 天</FieldDescription>
         </Field>
 
         <Field v-else class="pt-3">
-          <FieldLabel>执行时刻</FieldLabel>
+          <FieldLabel for="cron-run-at">执行时刻</FieldLabel>
           <Input
+            id="cron-run-at"
             v-model="form.runAtLocal"
             type="datetime-local"
             class="sb-mono w-full sm:w-64"
+            aria-describedby="cron-run-at-help"
           />
-          <FieldDescription>到点执行一次后自动停用；时间按 UTC 解释</FieldDescription>
+          <FieldDescription id="cron-run-at-help">到点执行一次后自动停用；时间按 UTC 解释</FieldDescription>
         </Field>
       </FieldSet>
 
@@ -121,9 +127,9 @@
 
       <FieldGroup>
         <Field>
-          <FieldLabel>云函数文件</FieldLabel>
+          <FieldLabel id="cron-file-label">云函数文件</FieldLabel>
           <Select v-model="form.funcFile" @update:model-value="form.funcExport = ''">
-            <SelectTrigger>
+            <SelectTrigger aria-labelledby="cron-file-label">
               <SelectValue placeholder="选择文件" />
             </SelectTrigger>
             <SelectContent>
@@ -134,20 +140,20 @@
           </Select>
           <FieldDescription v-if="!gofunctions.length">
             项目内还没有云函数，
-            <RouterLink to="/gofunctions" class="text-primary underline">先去创建</RouterLink>
+            <RouterLink :to="{ name: 'gofunctions' }" class="text-primary underline">先去创建</RouterLink>
           </FieldDescription>
           <FieldDescription v-else-if="!availableFunctions.length">
             没有已发布的云函数（需有生效版本），
-            <RouterLink to="/gofunctions" class="text-primary underline">先去发布</RouterLink>
+            <RouterLink :to="{ name: 'gofunctions' }" class="text-primary underline">先去发布</RouterLink>
           </FieldDescription>
           <FieldDescription v-else-if="unpublishedCount > 0">
             仅列出已发布（有生效版）的云函数；{{ unpublishedCount }} 个未发布不可选
           </FieldDescription>
         </Field>
         <Field>
-          <FieldLabel>导出函数</FieldLabel>
+          <FieldLabel id="cron-export-label">导出函数</FieldLabel>
           <Select v-model="form.funcExport">
-            <SelectTrigger>
+            <SelectTrigger aria-labelledby="cron-export-label">
               <SelectValue placeholder="选择函数" />
             </SelectTrigger>
             <SelectContent>
@@ -159,16 +165,18 @@
       </FieldGroup>
 
       <Field :data-invalid="inputJsonError ? true : undefined">
-        <FieldLabel>入参 JSON（可选）</FieldLabel>
+        <FieldLabel for="cron-input-json">入参 JSON（可选）</FieldLabel>
         <Textarea
+          id="cron-input-json"
           v-model="form.inputJson"
           rows="3"
           class="sb-mono"
           :aria-invalid="inputJsonError ? true : undefined"
+          :aria-describedby="inputJsonError ? 'cron-json-help cron-json-error' : 'cron-json-help'"
           placeholder='{ "name": "cron" }'
         />
-        <FieldDescription>将在每次执行时作为请求 body 传入；留空为 {}</FieldDescription>
-        <FieldError v-if="inputJsonError">{{ inputJsonError }}</FieldError>
+        <FieldDescription id="cron-json-help">将在每次执行时作为请求 body 传入；留空为 {}</FieldDescription>
+        <FieldError v-if="inputJsonError" id="cron-json-error">{{ inputJsonError }}</FieldError>
       </Field>
 
       <Alert>

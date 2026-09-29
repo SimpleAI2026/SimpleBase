@@ -1,13 +1,13 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { useSettingsStore } from '../../stores/settings'
-import { api, resetApiMocks } from '../../test/api-mock'
-import { clickText, mountWithApp } from '../../test/helpers'
-import SettingsPanel from './SettingsPanel.vue'
+import { useSettingsStore } from '@/stores/settings'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { clickText, mountWithApp } from '@/test/helpers'
+import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 
-vi.mock('../../services/api', async () => {
-  const m = await import('../../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
@@ -82,7 +82,7 @@ describe('SettingsPanel', () => {
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('prov')
 
-    const { useProjectStore } = await import('../../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.llmSettings.get.mock.calls.length).toBeGreaterThan(1)
@@ -111,7 +111,7 @@ describe('SettingsPanel', () => {
 
   it('shows an empty state when no project is selected', async () => {
     const { wrapper, pinia } = await mountWithApp(SettingsPanel, { props: { section: 'models' } })
-    const { useProjectStore } = await import('../../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).projectId = ''
     await flushPromises()
     expect(wrapper.text()).toMatch(/请先在右上角|创建项目/)

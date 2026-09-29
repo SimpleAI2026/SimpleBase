@@ -2,25 +2,35 @@
   <ProjectScope>
     <PageContainer subtitle="管理项目内的 Go 源文件；导出的大写函数可通过 HTTP+JSON 调用">
       <Card>
-        <CardHeader class="border-b">
+        <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
           <CardTitle>云函数列表</CardTitle>
-          <CardDescription>
+          <CardDescription class="min-w-0 break-words">
             共 {{ total }} 个文件 · 调用前缀
-            <code class="sb-mono text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
+            <code class="sb-mono break-all text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
           </CardDescription>
+          <CardAction v-if="!isAdminProject">
+            <div class="flex items-center gap-2">
+              <Button variant="outline" size="sm" :disabled="loading" @click="load">
+                <Spinner v-if="loading" data-icon="inline-start" />
+                <RefreshCwIcon v-else data-icon="inline-start" />
+                刷新
+              </Button>
+              <Button size="sm" @click="openCreate">
+                <PlusIcon data-icon="inline-start" />
+                新建云函数
+              </Button>
+            </div>
+          </CardAction>
+          <CardAction v-else>
+            <Button variant="outline" size="sm" :disabled="loading" @click="load">
+              <Spinner v-if="loading" data-icon="inline-start" />
+              <RefreshCwIcon v-else data-icon="inline-start" />
+              刷新
+            </Button>
+          </CardAction>
         </CardHeader>
-        <CardContent class="flex flex-wrap items-center gap-2.5 border-b py-4">
-          <Button variant="outline" size="sm" :disabled="loading" @click="load">
-            <Spinner v-if="loading" data-icon="inline-start" />
-            <RefreshCwIcon v-else data-icon="inline-start" />
-            刷新
-          </Button>
-          <Button v-if="!isAdminProject" size="sm" :disabled="loading" @click="openCreate">
-            <PlusIcon data-icon="inline-start" />
-            新建云函数
-          </Button>
-        </CardContent>
         <div class="p-0">
+          <p class="px-4 pt-3 text-xs text-muted-foreground md:hidden">表格可左右滑动，查看版本与操作</p>
           <Table>
             <TableHeader>
               <TableRow>
@@ -54,13 +64,15 @@
                   </span>
                 </TableCell>
                 <TableCell>
-                  <div class="line-clamp-1 max-w-md">
+                  <div class="flex max-w-md flex-wrap gap-1.5">
                     <Badge
                       v-for="fn in record.exports"
                       :key="fn"
+                      as="button"
+                      type="button"
                       variant="secondary"
-                      class="sb-mono mr-1.5 cursor-pointer hover:bg-secondary/70"
-                      title="点击复制完整调用路径"
+                      :aria-label="`复制 ${record.file} 的 ${fn} 完整调用路径`"
+                      class="sb-mono h-auto min-h-8 max-w-full cursor-pointer whitespace-normal break-all text-left hover:bg-secondary/70"
                       @click="copyInvokePath(record, fn)"
                     >
                       {{ fn }}
@@ -79,7 +91,7 @@
                     <span>v{{ record.latestVersion || '—' }}</span>
                     <span
                       v-if="record.latestVersion > record.activeVersion && record.activeVersion > 0"
-                      class="text-[10px] text-warning"
+                      class="text-xs text-warning"
                     >有未发布</span>
                   </div>
                 </TableCell>
@@ -147,7 +159,7 @@ import {
 } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {

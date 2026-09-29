@@ -4,12 +4,21 @@
       <CardHeader class="border-b">
         <CardTitle>用户</CardTitle>
         <CardDescription>superadminl1 可增删改；admin 只读查看</CardDescription>
+        <CardAction>
+          <div class="flex items-center gap-2">
+            <Button variant="outline" size="sm" :disabled="loading" @click="load">
+              <Spinner v-if="loading" data-icon="inline-start" />
+              <RefreshCwIcon v-else data-icon="inline-start" />
+              刷新
+            </Button>
+            <Button v-if="auth.canManageUsers" size="sm" @click="openCreate">
+              <PlusIcon data-icon="inline-start" />
+              新建用户
+            </Button>
+          </div>
+        </CardAction>
       </CardHeader>
       <CardContent class="flex flex-wrap items-end gap-2.5 border-b py-4">
-        <Button v-if="auth.canManageUsers" size="sm" @click="openCreate">
-          <PlusIcon data-icon="inline-start" />
-          新建用户
-        </Button>
         <div class="flex flex-col gap-1">
           <span class="text-xs text-muted-foreground">角色</span>
           <Select v-model="roleFilter">
@@ -41,11 +50,6 @@
           <span class="text-xs text-muted-foreground">搜索</span>
           <Input v-model="keyword" placeholder="搜索用户名" />
         </div>
-        <Button size="sm" :disabled="loading" @click="load">
-          <Spinner v-if="loading" data-icon="inline-start" />
-          <RefreshCwIcon v-else data-icon="inline-start" />
-          刷新
-        </Button>
       </CardContent>
       <div class="p-0">
         <Table>
@@ -115,7 +119,7 @@ import { computed, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import {
   Select,

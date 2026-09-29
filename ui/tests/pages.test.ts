@@ -2,9 +2,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useProjectStore } from '../stores/project'
-import Dashboard from './Dashboard.vue'
-import DocsWiki from './DocsWiki.vue'
+import { useProjectStore } from '@/stores/project'
+import Dashboard from '@/pages/Dashboard.vue'
+import DocsWiki from '@/pages/DocsWiki.vue'
 
 const { api } = vi.hoisted(() => ({
   api: {
@@ -19,7 +19,7 @@ const { api } = vi.hoisted(() => ({
   }
 }))
 
-vi.mock('../services/api', () => ({
+vi.mock('@/services/api', () => ({
   api,
   isMock: false
 }))

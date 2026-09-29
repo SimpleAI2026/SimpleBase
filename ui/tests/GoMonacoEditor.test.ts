@@ -25,7 +25,7 @@ vi.mock('monaco-editor/editor/editor.worker.js?worker', () => ({
 }))
 
 import * as monaco from 'monaco-editor/editor.js'
-import GoMonacoEditor from './GoMonacoEditor.vue'
+import GoMonacoEditor from '@/components/editor/GoMonacoEditor.vue'
 
 describe('GoMonacoEditor', () => {
   it('bootstraps monaco, syncs values, and disposes', async () => {
@@ -49,11 +49,14 @@ describe('GoMonacoEditor', () => {
     const defined = vi.mocked(monaco.editor.defineTheme).mock.calls.map((c) => c[0])
     expect(defined).toContain('sb-light')
     expect(defined).toContain('sb-dark')
+    const light = vi.mocked(monaco.editor.defineTheme).mock.calls.find((c) => c[0] === 'sb-light')
+    const lightColors = (light?.[1] as { colors: Record<string, string> }).colors
+    expect(lightColors['editor.background']).toBe('#ffffff')
+    expect(lightColors['editor.foreground']).toBe('#0f172a')
     const dark = vi.mocked(monaco.editor.defineTheme).mock.calls.find((c) => c[0] === 'sb-dark')
     const colors = (dark?.[1] as { colors: Record<string, string> }).colors
-    expect(colors['editor.background']).toBe('#242322')
-    expect(colors['editor.foreground']).toBe('#f3f1ea')
-    expect(colors['editor.background']).not.toBe('#faf9f5')
+    expect(colors['editor.background']).toBe('#111c2e')
+    expect(colors['editor.foreground']).toBe('#e2e8f0')
 
     document.documentElement.classList.add('dark')
     const w3 = mount(GoMonacoEditor, { props: { modelValue: 'dark' } })

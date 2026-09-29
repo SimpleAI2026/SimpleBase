@@ -9,7 +9,7 @@
     "
     :hide-footer="true"
     :max-width="420"
-    @update:open="noop"
+    @update:open="onOpenChange"
   >
     <!-- 登录表单 -->
     <form v-if="mode === 'login'" class="flex flex-col gap-4" @submit.prevent="submitLogin">
@@ -130,8 +130,15 @@ watch(
   }
 )
 
-function noop() {
-  // 登录弹窗不可通过遮罩关闭
+function onOpenChange(open: boolean) {
+  if (open || mode.value !== 'password' || auth.user?.mustChangePassword) return
+  auth.mustChangePassword = false
+  auth.closeLogin()
+  error.value = ''
+  pwError.value = ''
+  oldPassword.value = ''
+  newPassword.value = ''
+  confirmPassword.value = ''
 }
 
 async function submitLogin() {

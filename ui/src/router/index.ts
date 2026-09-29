@@ -6,14 +6,29 @@ import DocsLayout from '../layouts/DocsLayout.vue'
  * 路由元信息单一数据源：页面标题、菜单名、图标全部收敛到 meta。
  * NavMenu 遍历路由渲染（跳过 hidden），DefaultLayout 从 meta 取面包屑标题。
  * hidden：文档站等非控制台入口不进侧栏。
- * `/settings` 不再是全页，redirect 到 `/?settings=1` 由 DefaultLayout 打开全局 SbModal。
+ * `/settings` 重定向到 `/console?settings=1` 由 DefaultLayout 打开全局 SbModal。
  *
- * 控制台与文档站拆布局：App.vue 只挂 <router-view />，
+ * 主页、控制台与文档站拆布局：App.vue 只挂 <router-view />，
  * 控制台子路由走 DefaultLayout（侧栏 + 项目切换），文档子路由走 DocsLayout。
  */
+const legacyConsolePaths = [
+  'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs', 'users'
+]
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
+    name: 'home',
+    component: () => import('../pages/Home.vue'),
+    meta: { title: '首页', hidden: true },
+    beforeEnter: (to) => to.query.settings == null ? true : ({
+      name: 'dashboard',
+      query: to.query,
+      hash: to.hash
+    })
+  },
+  {
+    path: '/console',
     component: DefaultLayout,
     children: [
       {
@@ -28,8 +43,14 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../pages/Databases.vue'),
         meta: { title: '数据库管理' }
       },
-      { path: 'sql', redirect: '/databases' },
-      { path: 'data', redirect: '/databases' },
+      { path: 'sql', redirect: (to) => ({ name: 'databases', query: to.query, hash: to.hash }) },
+      { path: 'data', redirect: (to) => ({ name: 'databases', query: to.query, hash: to.hash }) },
+      {
+        path: 'key-value',
+        name: 'key-value',
+        component: () => import('../pages/KeyValue.vue'),
+        meta: { title: 'Key-Value' }
+      },
       {
         path: 's3',
         name: 's3',
@@ -54,13 +75,14 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../pages/AgentManager.vue'),
         meta: { title: '云 Agent' }
       },
-      { path: 'llm', redirect: '/agents' },
+      { path: 'llm', redirect: (to) => ({ name: 'agents', query: to.query, hash: to.hash }) },
       {
         path: 'settings',
         name: 'settings',
         redirect: (to) => ({
-          path: '/',
-          query: { ...to.query, settings: typeof to.query.settings === 'string' ? to.query.settings : '1' }
+          name: 'dashboard',
+          query: { ...to.query, settings: typeof to.query.settings === 'string' ? to.query.settings : '1' },
+          hash: to.hash
         })
       },
       {
@@ -77,6 +99,14 @@ const routes: RouteRecordRaw[] = [
       }
     ]
   },
+  ...legacyConsolePaths.map((path): RouteRecordRaw => ({
+    path: `/${path}`,
+    redirect: (to) => ({ path: `/console/${path}`, query: to.query, hash: to.hash })
+  })),
+  ...['sql', 'data', 'llm', 'settings'].map((path): RouteRecordRaw => ({
+    path: `/${path}`,
+    redirect: (to) => ({ path: `/console/${path}`, query: to.query, hash: to.hash })
+  })),
   {
     path: '/docs',
     component: DocsLayout,

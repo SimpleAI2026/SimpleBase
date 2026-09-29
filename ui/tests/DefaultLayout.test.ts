@@ -1,10 +1,10 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetApiMocks } from '../test/api-mock'
-import { mountWithApp } from '../test/helpers'
+import { resetApiMocks } from '@/test/api-mock'
+import { mountWithApp } from '@/test/helpers'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return {
     api: m.api,
     get isMock() {
@@ -13,24 +13,24 @@ vi.mock('../services/api', async () => {
   }
 })
 
-vi.mock('../components/NavMenu.vue', () => ({
+vi.mock('@/components/NavMenu.vue', () => ({
   default: { template: '<nav class="nav-stub">menu</nav>' }
 }))
-vi.mock('../components/SettingsModal.vue', () => ({
+vi.mock('@/components/SettingsModal.vue', () => ({
   default: { template: '<div class="settings-modal" />' }
 }))
-vi.mock('../components/GlobalProjectSwitcher.vue', () => ({
+vi.mock('@/components/GlobalProjectSwitcher.vue', () => ({
   default: { template: '<div class="switcher" />' }
 }))
-vi.mock('../components/UserMenu.vue', () => ({
+vi.mock('@/components/UserMenu.vue', () => ({
   default: { template: '<div class="user-menu" />' }
 }))
-vi.mock('../components/modal/LoginModal.vue', () => ({
+vi.mock('@/components/modal/LoginModal.vue', () => ({
   default: { template: '<div class="login-modal" />' }
 }))
 
-import DefaultLayout from './DefaultLayout.vue'
-import { useAuthStore } from '../stores/auth'
+import DefaultLayout from '@/layouts/DefaultLayout.vue'
+import { useAuthStore } from '@/stores/auth'
 
 describe('DefaultLayout', () => {
   beforeEach(() => {

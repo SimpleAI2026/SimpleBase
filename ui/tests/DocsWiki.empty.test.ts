@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mountWithApp } from '../test/helpers'
+import { mountWithApp } from '@/test/helpers'
 
-vi.mock('../docs/catalog', () => ({
+vi.mock('@/docs/catalog', () => ({
   docCatalog: [],
   defaultModuleId: () => 'getting-started',
   defaultSlug: () => 'index',
@@ -10,12 +10,12 @@ vi.mock('../docs/catalog', () => ({
   loadedMarkdownCount: 0
 }))
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import DocsWiki from './DocsWiki.vue'
+import DocsWiki from '@/pages/DocsWiki.vue'
 
 describe('DocsWiki empty catalog', () => {
   it('shows the failed-load alert when no markdown matched', async () => {

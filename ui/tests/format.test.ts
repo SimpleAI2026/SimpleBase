@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatCount, formatJson, formatTime } from './format'
+import { formatBytes, formatCount, formatJson, formatTime } from '@/utils/format'
 
 describe('formatCount', () => {
   it('formats counts and unknown', () => {

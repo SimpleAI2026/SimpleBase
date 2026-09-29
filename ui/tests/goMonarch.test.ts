@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { goMonarchLanguage } from './goMonarch'
+import { goMonarchLanguage } from '@/components/editor/goMonarch'
 
 describe('goMonarchLanguage', () => {
   it('declares Go keywords, types, and tokenizer states', () => {

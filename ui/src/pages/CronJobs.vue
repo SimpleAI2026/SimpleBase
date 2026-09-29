@@ -7,18 +7,27 @@
           <CardDescription>
             共 {{ total }} 个任务 · 调度按 UTC 执行
           </CardDescription>
+          <CardAction v-if="!isAdminProject">
+            <div class="flex items-center gap-2">
+              <Button variant="outline" size="sm" :disabled="loading" @click="load">
+                <Spinner v-if="loading" data-icon="inline-start" />
+                <RefreshCwIcon v-else data-icon="inline-start" />
+                刷新
+              </Button>
+              <Button size="sm" @click="openCreate">
+                <PlusIcon data-icon="inline-start" />
+                新建定时任务
+              </Button>
+            </div>
+          </CardAction>
+          <CardAction v-else>
+            <Button variant="outline" size="sm" :disabled="loading" @click="load">
+              <Spinner v-if="loading" data-icon="inline-start" />
+              <RefreshCwIcon v-else data-icon="inline-start" />
+              刷新
+            </Button>
+          </CardAction>
         </CardHeader>
-        <CardContent class="flex flex-wrap items-center gap-2.5 border-b py-4">
-          <Button variant="outline" size="sm" :disabled="loading" @click="load">
-            <Spinner v-if="loading" data-icon="inline-start" />
-            <RefreshCwIcon v-else data-icon="inline-start" />
-            刷新
-          </Button>
-          <Button v-if="!isAdminProject" size="sm" :disabled="loading" @click="openCreate">
-            <PlusIcon data-icon="inline-start" />
-            新建定时任务
-          </Button>
-        </CardContent>
         <div class="p-0">
           <Table>
             <TableHeader>
@@ -179,7 +188,7 @@ import {
 } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'

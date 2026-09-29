@@ -1,15 +1,15 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, resetApiMocks } from '../../test/api-mock'
-import { mountWithApp } from '../../test/helpers'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { mountWithApp, uiStubs } from '@/test/helpers'
 
-vi.mock('../../services/api', async () => {
-  const m = await import('../../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import UserFormModal from './UserFormModal.vue'
-import LoginModal from './LoginModal.vue'
+import UserFormModal from '@/components/modal/UserFormModal.vue'
+import LoginModal from '@/components/modal/LoginModal.vue'
 
 describe('UserFormModal + LoginModal branches', () => {
   beforeEach(() => {
@@ -20,7 +20,7 @@ describe('UserFormModal + LoginModal branches', () => {
     const { wrapper, pinia } = await mountWithApp(UserFormModal, {
       props: { open: true, user: null }
     })
-    const { useAuthStore } = await import('../../stores/auth')
+    const { useAuthStore } = await import('@/stores/auth')
     useAuthStore(pinia).applyTokens({
       accessToken: 'a',
       refreshToken: 'r',
@@ -65,7 +65,7 @@ describe('UserFormModal + LoginModal branches', () => {
     const { wrapper, pinia } = await mountWithApp(UserFormModal, {
       props: { open: true, user }
     })
-    const { useAuthStore } = await import('../../stores/auth')
+    const { useAuthStore } = await import('@/stores/auth')
     useAuthStore(pinia).applyTokens({
       accessToken: 'a',
       refreshToken: 'r',
@@ -84,6 +84,40 @@ describe('UserFormModal + LoginModal branches', () => {
     await saveBtn!.trigger('click')
     await flushPromises()
     expect(api.users.update).toHaveBeenCalled()
+  })
+
+  it('closes optional password modal but keeps forced password change and login open', async () => {
+    const { wrapper, pinia } = await mountWithApp(LoginModal, { props: { open: true } })
+    const { useAuthStore } = await import('@/stores/auth')
+    const auth = useAuthStore(pinia)
+    auth.applyTokens({
+      accessToken: 'a',
+      refreshToken: 'r',
+      user: {
+        id: 'u1', username: 'alice', role: 'user', displayName: '', email: '',
+        status: 'active', mustChangePassword: false
+      }
+    })
+    auth.mustChangePassword = true
+    auth.openLogin()
+    await flushPromises()
+    await wrapper.findComponent(uiStubs.SbModal).vm.$emit('update:open', false)
+    expect(auth.mustChangePassword).toBe(false)
+    expect(auth.loginOpen).toBe(false)
+
+    auth.user!.mustChangePassword = true
+    auth.mustChangePassword = true
+    auth.openLogin()
+    await flushPromises()
+    await wrapper.findComponent(uiStubs.SbModal).vm.$emit('update:open', false)
+    expect(auth.mustChangePassword).toBe(true)
+    expect(auth.loginOpen).toBe(true)
+
+    auth.mustChangePassword = false
+    await flushPromises()
+    await wrapper.findComponent(uiStubs.SbModal).vm.$emit('update:open', false)
+    expect(auth.loginOpen).toBe(true)
+    wrapper.unmount()
   })
 
   it('LoginModal password change success path', async () => {

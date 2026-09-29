@@ -1,12 +1,11 @@
 import { flushPromises } from '@vue/test-utils'
-import axios from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { api, resetApiMocks, setIsMock } from '../test/api-mock'
-import { clickText, mountWithApp } from '../test/helpers'
+import { api, resetApiMocks, setIsMock } from '@/test/api-mock'
+import { clickText, mountWithApp } from '@/test/helpers'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return {
     api: m.api,
     get isMock() {
@@ -15,16 +14,7 @@ vi.mock('../services/api', async () => {
   }
 })
 
-vi.mock('axios', () => ({
-  default: { post: vi.fn() }
-}))
-
-vi.mock('../services/http', () => ({
-  getApiKey: () => 'sb_key',
-  baseURL: 'http://api.test'
-}))
-
-import S3Manager from './S3Manager.vue'
+import S3Manager from '@/pages/S3Manager.vue'
 
 function fileNamed(name: string, size = 4) {
   const f = new File(['abcd'], name, { type: 'text/plain' })
@@ -43,8 +33,6 @@ describe('S3Manager (S3 对象存储)', () => {
   beforeEach(() => {
     resetApiMocks()
     setIsMock(false)
-    vi.mocked(axios.post).mockReset()
-    vi.mocked(axios.post).mockResolvedValue({ data: {} })
     vi.stubGlobal('open', vi.fn())
   })
 
@@ -81,10 +69,10 @@ describe('S3Manager (S3 对象存储)', () => {
     expect(click).toHaveBeenCalled()
     await flushPromises()
 
-    expect(axios.post).toHaveBeenCalled()
-    const [url, body] = vi.mocked(axios.post).mock.calls[0]
-    expect(String(url)).toContain('/s3/objects')
-    expect(body).toBeInstanceOf(FormData)
+    expect(api.s3.upload).toHaveBeenCalled()
+    const [, key, file] = api.s3.upload.mock.calls[0]
+    expect(key).toBe('picked.txt')
+    expect(file).toBeInstanceOf(File)
   })
 
   it('handles list / delete / presign errors and empty upload trigger', async () => {
@@ -113,27 +101,27 @@ describe('S3Manager (S3 对象存储)', () => {
     expect(toast.error).toHaveBeenCalledWith('rm')
   })
 
-  it('validates keys and uploads via axios with progress', async () => {
+  it('validates keys and reports upload progress', async () => {
     const { wrapper } = await mountWithApp(S3Manager)
     await changeFile(wrapper, fileNamed('ok.txt'))
-    expect(axios.post).toHaveBeenCalled()
-    const cfg = vi.mocked(axios.post).mock.calls[0][2] as { onUploadProgress: (e: { loaded: number; total: number }) => void }
-    cfg.onUploadProgress({ loaded: 50, total: 100 })
+    expect(api.s3.upload).toHaveBeenCalled()
+    const onProgress = api.s3.upload.mock.calls[0][3] as (pct: number) => void
+    onProgress(50)
 
-    vi.mocked(axios.post).mockRejectedValueOnce({ response: { data: { error: { message: 'denied' } } } })
+    api.s3.upload.mockRejectedValueOnce(new Error('denied'))
     await changeFile(wrapper, fileNamed('fail.txt'))
     expect(toast.error).toHaveBeenCalledWith('denied')
 
-    vi.mocked(axios.post).mockRejectedValueOnce({ message: 'net' })
+    api.s3.upload.mockRejectedValueOnce('net')
     await changeFile(wrapper, fileNamed('fail2.txt'))
-    expect(toast.error).toHaveBeenCalledWith('net')
+    expect(toast.error).toHaveBeenCalledWith('上传失败')
 
     await changeFile(wrapper, fileNamed('../secret'))
     expect(toast.warning).toHaveBeenCalled()
     await changeFile(wrapper, fileNamed('a\\b'))
     await changeFile(wrapper, fileNamed('a\0b'))
     await changeFile(wrapper, fileNamed('a'.repeat(1025)))
-    await changeFile(wrapper, fileNamed('ok.txt', 11 * 1024 * 1024))
+    await changeFile(wrapper, fileNamed('ok.txt', 51 * 1024 * 1024))
     expect(toast.warning).toHaveBeenCalled()
   })
 
@@ -155,7 +143,7 @@ describe('S3Manager (S3 对象存储)', () => {
     const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', { value: [], configurable: true })
     await input.trigger('change')
-    const { useProjectStore } = await import('../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.s3.list.mock.calls.length).toBeGreaterThan(1)

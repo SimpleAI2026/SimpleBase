@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { renderMarkdown } from './render'
+import { renderMarkdown } from '@/docs/render'
 
 describe('renderMarkdown', () => {
   it('rewrites relative doc links and sanitizes HTML', () => {

@@ -2,8 +2,8 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
-import App from './App.vue'
-import { useSettingsStore } from './stores/settings'
+import App from '@/App.vue'
+import { useSettingsStore } from '@/stores/settings'
 
 describe('App', () => {
   it('applies theme on mount and reacts to system/theme changes', async () => {

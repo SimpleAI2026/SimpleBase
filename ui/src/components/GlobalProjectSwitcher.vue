@@ -1,11 +1,11 @@
 <template>
-  <div>
+  <div class="min-w-0 shrink sm:shrink-0">
     <Popover v-model:open="open">
       <PopoverTrigger as-child>
         <Button
           variant="outline"
-          class="h-9 w-56 justify-start gap-2.5 rounded-lg px-3 shadow-xs"
-          aria-label="切换项目"
+          class="h-9 min-w-0 max-w-full justify-start gap-1 rounded-lg px-2 shadow-xs sm:w-56 sm:gap-2.5 sm:px-3"
+          :aria-label="`切换项目，当前项目：${triggerLabel}`"
         >
           <FolderIcon class="size-4 shrink-0 text-primary/80" />
           <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ triggerLabel }}</span>
@@ -29,48 +29,33 @@
               {{ store.loading ? '加载项目…' : '没有匹配的项目' }}
             </CommandEmpty>
 
-            <CommandGroup
-              v-if="adminProjects.length"
-              heading="admin 管理数据库"
-              class="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-1 [&_[cmdk-group-heading]]:pb-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground/70 [&_[cmdk-group-heading]]:uppercase"
-            >
+            <CommandGroup v-if="projects.length" class="p-0">
               <CommandItem
-                v-for="p in adminProjects"
+                v-for="p in projects"
                 :key="p.id"
                 :value="`${p.name || p.id} ${p.id}`"
                 class="mb-0.5 flex items-center gap-2.5 rounded-lg px-2.5 py-2 last:mb-0"
                 @select="() => select(p)"
               >
-                <ShieldIcon class="size-3.5 shrink-0 text-muted-foreground/60" />
+                <ShieldIcon
+                  v-if="isAdminProject(p)"
+                  class="size-3.5 shrink-0 text-muted-foreground/60"
+                />
                 <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span class="truncate text-sm font-medium">
                     {{ p.name || p.id }}
-                    <span class="ml-1 text-xs font-normal text-muted-foreground">（只读）</span>
+                    <span
+                      v-if="isAdminProject(p)"
+                      class="ml-1 text-xs font-normal text-muted-foreground"
+                    >（只读）</span>
                   </span>
                   <span class="sb-mono truncate text-[11px] tracking-wide text-muted-foreground/70">{{ p.id }}</span>
                 </span>
-                <CheckIcon
-                  v-if="p.id === store.id"
-                  class="size-4 shrink-0 text-primary"
-                  :stroke-width="2.5"
-                />
-              </CommandItem>
-            </CommandGroup>
-
-            <CommandGroup
-              :heading="auth.isSuper || auth.isAdminRole ? '全部项目' : '我的项目'"
-              class="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-1 [&_[cmdk-group-heading]]:pb-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground/70 [&_[cmdk-group-heading]]:uppercase"
-            >
-              <CommandItem
-                v-for="p in userProjects"
-                :key="p.id"
-                :value="`${p.name || p.id} ${p.id}`"
-                class="mb-0.5 flex items-center gap-2.5 rounded-lg px-2.5 py-2 last:mb-0"
-                @select="() => select(p)"
-              >
-                <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span class="truncate text-sm font-medium">{{ p.name || p.id }}</span>
-                  <span class="sb-mono truncate text-[11px] tracking-wide text-muted-foreground/70">{{ p.id }}</span>
+                <span
+                  v-if="isAdminProject(p)"
+                  class="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                >
+                  ★
                 </span>
                 <CheckIcon
                   v-if="p.id === store.id"
@@ -133,26 +118,15 @@ const triggerLabel = computed(() => {
   return store.id || '选择项目'
 })
 
-const merged = computed<ProjectItem[]>(() => {
-  const map = new Map<string, ProjectItem>()
-  for (const p of store.projects) {
-    if (p.id) map.set(p.id, p)
-  }
-  for (const id of store.history) {
-    if (!map.has(id)) map.set(id, { id, name: id === store.id ? store.projectName : '', createdAt: '' })
-  }
-  if (store.id && !map.has(store.id)) {
-    map.set(store.id, { id: store.id, name: store.projectName, createdAt: '' })
-  }
-  return Array.from(map.values())
-})
+const merged = computed<ProjectItem[]>(() => store.projects.filter((p) => p.id))
 
 const isAdminProject = (p: ProjectItem) => p.id === ADMIN_PROJECT_ID || p.managed
 
-const adminProjects = computed<ProjectItem[]>(() =>
-  auth.isSuper || auth.isAdminRole ? merged.value.filter(isAdminProject) : []
-)
-const userProjects = computed<ProjectItem[]>(() => merged.value.filter((p) => !isAdminProject(p)))
+const projects = computed<ProjectItem[]>(() => {
+  const users = merged.value.filter((p) => !isAdminProject(p))
+  if (!auth.isSuper && !auth.isAdminRole) return users
+  return [...merged.value.filter(isAdminProject), ...users]
+})
 
 watch(open, (next) => {
   if (next) {

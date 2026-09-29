@@ -1,10 +1,10 @@
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
-import { defaultModuleId, defaultSlug, getPage } from '../../docs/catalog'
-import { uiStubs } from '../../test/helpers'
-import DocsArticle from './DocsArticle.vue'
-import DocsSidebar from './DocsSidebar.vue'
+import { defaultModuleId, defaultSlug, getPage } from '@/docs/catalog'
+import { uiStubs } from '@/test/helpers'
+import DocsArticle from '@/components/docs/DocsArticle.vue'
+import DocsSidebar from '@/components/docs/DocsSidebar.vue'
 
 const routes = [
   { path: '/docs/:module?/:slug?', name: 'docs', component: { template: '<div />' } }
@@ -49,7 +49,7 @@ describe('docs components', () => {
     })
     expect(missing.text()).toMatch(/没有正文|缺失|未找到/)
 
-    vi.mock('../../docs/catalog', async (orig) => {
+    vi.mock('@/docs/catalog', async (orig) => {
       const actual = await orig()
       return {
         ...actual,

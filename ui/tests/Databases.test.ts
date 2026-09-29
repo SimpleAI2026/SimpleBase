@@ -1,16 +1,16 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { ADMIN_PROJECT_ID } from '../stores/project'
-import { api, resetApiMocks } from '../test/api-mock'
-import { clickText, creatingDb, degradedDb, mountWithApp, readyDb } from '../test/helpers'
+import { ADMIN_PROJECT_ID } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { clickText, creatingDb, degradedDb, mountWithApp, readyDb } from '@/test/helpers'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
-import Databases from './Databases.vue'
+import Databases from '@/pages/Databases.vue'
 
 const deletingDb = {
   id: 'db-del',
@@ -151,6 +151,23 @@ describe('Databases (数据库管理)', () => {
     expect(api.databases.list.mock.calls.length).toBeGreaterThan(1)
   })
 
+  it('keeps the mobile database card actions and expanded content accessible', async () => {
+    const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
+    const cards = wrapper.get('[aria-label="数据库移动端列表"]')
+    expect(cards.findAll('article')).toHaveLength(4)
+    const readyCard = cards.findAll('article')[0]
+    expect(readyCard.text()).toContain('demo')
+    expect(readyCard.text()).toContain('就绪')
+    const expand = readyCard.findAll('button').find((button) => button.text() === '查看数据')!
+    expect(expand.attributes('aria-expanded')).toBe('false')
+    await expand.trigger('click')
+    await flushPromises()
+    expect(expand.attributes('aria-expanded')).toBe('true')
+    expect(readyCard.find('.coll-panel').exists()).toBe(true)
+    expect(expandButtons(wrapper)[0].attributes('aria-label')).toContain('demo')
+    expect(expandButtons(wrapper)[0].attributes('aria-expanded')).toBe('true')
+  })
+
   it('expands collections, opens SQL, and wires document modals', async () => {
     const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
     const expand = expandButtons(wrapper)[0]
@@ -224,7 +241,7 @@ describe('Databases (数据库管理)', () => {
     await wrapper.get('.empty-action').trigger('click')
     expect(wrapper.find('.sb-modal').exists()).toBe(true)
 
-    const { useProjectStore } = await import('../stores/project')
+    const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.databases.list.mock.calls.length).toBeGreaterThan(1)

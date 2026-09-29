@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { uiStubs } from '../../test/helpers'
-import SbModal from './SbModal.vue'
+import { uiStubs } from '@/test/helpers'
+import SbModal from '@/components/modal/SbModal.vue'
 
 const stubs = { ...uiStubs, SbModal: false }
 

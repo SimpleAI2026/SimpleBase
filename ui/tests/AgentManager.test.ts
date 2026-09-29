@@ -1,13 +1,13 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { useProjectStore } from '../stores/project'
-import { api, resetApiMocks } from '../test/api-mock'
-import { clickText, mountWithApp, sampleAgent } from '../test/helpers'
-import AgentManager from './AgentManager.vue'
+import { useProjectStore } from '@/stores/project'
+import { api, resetApiMocks } from '@/test/api-mock'
+import { clickText, mountWithApp, sampleAgent } from '@/test/helpers'
+import AgentManager from '@/pages/AgentManager.vue'
 
-vi.mock('../services/api', async () => {
-  const m = await import('../test/api-mock')
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
   return { api: m.api, isMock: false }
 })
 
@@ -72,11 +72,15 @@ describe('AgentManager (云 Agent)', () => {
 
   it('lists agents with schedule summary and selects one', async () => {
     const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
-    expect(wrapper.text()).toContain('按模块的只读 Agent')
+    expect(wrapper.text()).toContain('按模块的 Agent')
     expect(wrapper.text()).toContain('Database')
     expect(wrapper.text()).toContain('每小时')
     expect(wrapper.text()).toContain('已启用')
-    await wrapper.find('button.w-full').trigger('click')
+    const select = wrapper.get('button[aria-label="选择 Agent Database"]')
+    expect(select.attributes('aria-pressed')).toBe('true')
+    expect(select.find('button').exists()).toBe(false)
+    await select.trigger('click')
+    expect(select.attributes('aria-pressed')).toBe('true')
     expect(wrapper.text()).toContain('@Database')
   })
 
@@ -93,8 +97,12 @@ describe('AgentManager (云 Agent)', () => {
     await wrapper.get('#agent-desc').setValue('desc')
     await wrapper.get('#agent-prompt').setValue('sys')
     await wrapper.get('.select-emit').trigger('click')
-    const badges = wrapper.findAll('.badge')
-    if (badges.length) await badges[badges.length - 1].trigger('click')
+    const toolButton = wrapper.findAll('button.badge').at(-1)
+    if (!toolButton) throw new Error('Missing tool selector')
+    const initialPressed = toolButton.attributes('aria-pressed')
+    expect(['true', 'false']).toContain(initialPressed)
+    await toolButton.trigger('click')
+    expect(toolButton.attributes('aria-pressed')).not.toBe(initialPressed)
     await wrapper.get('.sb-ok').trigger('click')
     await flushPromises()
     expect(api.agents.create).toHaveBeenCalled()
@@ -165,6 +173,54 @@ describe('AgentManager (云 Agent)', () => {
     await mountWithApp(AgentManager, { stubs: agentStubs })
     expect(toast.error).toHaveBeenCalledWith('agents')
     expect(toast.error).toHaveBeenCalledWith('sched')
+  })
+
+  it('blocks sandbox module when sandbox_available is false', async () => {
+    api.agents.modules.mockResolvedValue([
+      { id: 'database', name: 'Database', description: 'd', default_tools: ['list_databases'], team_supported: false },
+      { id: 'sandbox', name: 'Sandbox', description: 'cloud microVM', default_tools: ['sandbox_exec', 'sandbox_shell', 'sandbox_read_file', 'sandbox_write_file'], team_supported: false, sandbox_available: false }
+    ])
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await flushPromises()
+    const vm = wrapper.vm as Record<string, any>
+    const sandboxOpt = vm.moduleOptions.find((o: { value: string }) => o.value === 'sandbox')
+    expect(sandboxOpt.disabled).toBe(true)
+
+    vm.openCreate()
+    vm.form.name = 'SB'
+    vm.form.module = 'sandbox'
+    await vm.saveAgent()
+    expect(toast.warning).toHaveBeenCalledWith('云沙盒未配置，无法创建 Sandbox Agent')
+    expect(api.agents.create).not.toHaveBeenCalled()
+  })
+
+  it('allows sandbox module and shows sandbox hint when available', async () => {
+    api.agents.modules.mockResolvedValue([
+      { id: 'sandbox', name: 'Sandbox', description: 'cloud microVM', default_tools: ['sandbox_exec', 'sandbox_shell', 'sandbox_read_file', 'sandbox_write_file'], team_supported: false, sandbox_available: true }
+    ])
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, tool_ids: ['sandbox_exec', 'sandbox_shell'] }
+    ])
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await flushPromises()
+    const vm = wrapper.vm as Record<string, any>
+    const sandboxOpt = vm.moduleOptions.find((o: { value: string }) => o.value === 'sandbox')
+    expect(sandboxOpt.disabled).toBe(false)
+    expect(vm.toolsHint).toContain('沙盒命令在云端隔离环境执行')
+    expect(vm.toolsHint).toContain('@Database')
+
+    vm.openCreate()
+    vm.form.name = 'SB'
+    vm.form.module = 'sandbox'
+    await vm.saveAgent()
+    expect(api.agents.create).toHaveBeenCalled()
+  })
+
+  it('shows readonly hint when active agent has no sandbox tools', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await flushPromises()
+    const vm = wrapper.vm as Record<string, any>
+    expect(vm.toolsHint).toContain('工具只读')
   })
 })
 

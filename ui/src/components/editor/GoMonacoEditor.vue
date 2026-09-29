@@ -44,45 +44,46 @@ function bootstrap() {
     }
   }
   monaco.languages.register(goMonarchLanguage)
-  // sb-light：贴近现有 token（米白背景、关键字 foreground、字符串偏暖）
+  // sb-light：与浅色主题的白色卡片、蓝色强调及冷灰中性色保持一致
   monaco.editor.defineTheme('sb-light', {
     base: 'vs',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: '8a8578', fontStyle: 'italic' },
-      { token: 'keyword', foreground: '44403c' },
-      { token: 'type', foreground: '57534e' },
-      { token: 'string', foreground: 'b45309' },
-      { token: 'string.escape', foreground: '92400e' },
-      { token: 'number', foreground: '92400e' },
-      { token: 'operator', foreground: '57534e' }
+      { token: 'comment', foreground: '64748b', fontStyle: 'italic' },
+      { token: 'keyword', foreground: '1d4ed8' },
+      { token: 'type', foreground: '0369a1' },
+      { token: 'string', foreground: '047857' },
+      { token: 'string.escape', foreground: '0f766e' },
+      { token: 'number', foreground: '7c3aed' },
+      { token: 'operator', foreground: '475569' }
     ],
     colors: {
-      'editor.background': '#faf9f5',
-      'editorLineNumber.foreground': 'a8a29e',
-      'editor.selectionBackground': '#ece7dd',
-      'editor.lineHighlightBackground': '#f5f2ea'
+      'editor.background': '#ffffff',
+      'editor.foreground': '#0f172a',
+      'editorLineNumber.foreground': '#94a3b8',
+      'editor.selectionBackground': '#dbeafe',
+      'editor.lineHighlightBackground': '#f1f5f9'
     }
   })
-  // sb-dark：颜色取自 style.css `.dark` 的 card / foreground / muted-foreground / primary
+  // sb-dark：与 style.css `.dark` 的卡片、正文和蓝色强调保持一致
   monaco.editor.defineTheme('sb-dark', {
     base: 'vs-dark',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: 'a8a59c', fontStyle: 'italic' },
-      { token: 'keyword', foreground: 'f3f1ea' },
-      { token: 'type', foreground: 'a8a59c' },
-      { token: 'string', foreground: 'd97757' },
-      { token: 'string.escape', foreground: 'e06b57' },
-      { token: 'number', foreground: 'd4b04a' },
-      { token: 'operator', foreground: 'a8a59c' }
+      { token: 'comment', foreground: '94a3b8', fontStyle: 'italic' },
+      { token: 'keyword', foreground: '93c5fd' },
+      { token: 'type', foreground: '7dd3fc' },
+      { token: 'string', foreground: '86efac' },
+      { token: 'string.escape', foreground: '5eead4' },
+      { token: 'number', foreground: 'c4b5fd' },
+      { token: 'operator', foreground: 'cbd5e1' }
     ],
     colors: {
-      'editor.background': '#242322',
-      'editor.foreground': '#f3f1ea',
-      'editorLineNumber.foreground': '#a8a59c',
-      'editor.selectionBackground': '#2c2a28',
-      'editor.lineHighlightBackground': '#2c2a28'
+      'editor.background': '#111c2e',
+      'editor.foreground': '#e2e8f0',
+      'editorLineNumber.foreground': '#94a3b8',
+      'editor.selectionBackground': '#1d3556',
+      'editor.lineHighlightBackground': '#1b2940'
     }
   })
 }

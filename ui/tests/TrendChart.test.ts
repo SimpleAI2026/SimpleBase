@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as echartsCore from 'echarts/core'
 
-import TrendChart from './TrendChart.vue'
+import TrendChart from '@/components/TrendChart.vue'
 
 const points = [
   { date: '01-01', requests: 10, errors: 1 },
@@ -65,6 +65,20 @@ describe('TrendChart (echarts)', () => {
     await w.get('.to-line').trigger('click')
     await flushPromises()
     expect(w.emitted('update:mode')?.[0]).toEqual(['line'])
+  })
+
+  it('updates theme colors when the root theme class changes and exposes a trend summary', async () => {
+    document.documentElement.classList.remove('dark')
+    const w = mount(TrendChart, { props: { points, mode: 'bar' }, global: { stubs } })
+    await flushPromises()
+    const inst = lastChart()
+    const before = inst.setOption.mock.calls.length
+    expect(w.get('[role="img"]').attributes('aria-label')).toContain('请求总计 35，错误总计 4')
+    document.documentElement.classList.add('dark')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(inst.setOption.mock.calls.length).toBeGreaterThan(before)
+    w.unmount()
+    document.documentElement.classList.remove('dark')
   })
 
   it('re-renders when points change and disposes on unmount', async () => {
