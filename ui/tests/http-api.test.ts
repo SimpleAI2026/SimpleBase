@@ -8,13 +8,13 @@ const http = vi.hoisted(() => ({
   delete: vi.fn()
 }))
 
-vi.mock('./http', () => ({
+vi.mock('@/services/http', () => ({
   http,
   baseURL: 'http://api.test',
   getApiKey: () => 'test-key'
 }))
 
-import { httpApi } from './http-api'
+import { httpApi } from '@/services/http-api'
 
 const pid = 'proj 1'
 const db = 'db 1'
@@ -41,9 +41,7 @@ describe('httpApi', () => {
     http.get.mockResolvedValueOnce({ data: { name: 'n' } })
     await httpApi.gofunctions.get(pid, 'n')
     http.post.mockResolvedValueOnce({ data: { name: 'n', source: 's2' } })
-    await httpApi.gofunctions.saveVersion(pid, 'n', { source: 's2', note: 'x', activate: false })
-    http.post.mockResolvedValueOnce({ data: { name: 'n', source: 's2' } })
-    await httpApi.gofunctions.update(pid, 'n', 's2')
+    await httpApi.gofunctions.saveVersion(pid, 'n', { source: 's2', note: 'x', activate: true })
     http.post.mockResolvedValueOnce({ data: { active_version: 1 } })
     await httpApi.gofunctions.activate(pid, 'n', 1)
     http.get.mockResolvedValueOnce({
@@ -186,7 +184,16 @@ describe('httpApi', () => {
     http.delete.mockResolvedValueOnce({ data: {} })
     await httpApi.s3.remove(pid, 'k')
     http.post.mockResolvedValueOnce({ data: { key: 'k', size: 1 } })
-    await httpApi.s3.upload(pid, 'k', new File(['x'], 'x.txt'))
+    const onProgress = vi.fn()
+    await httpApi.s3.upload(pid, 'k', new File(['x'], 'x.txt'), onProgress)
+    const uploadCfg = http.post.mock.calls.at(-1)?.[2] as {
+      timeout: number
+      onUploadProgress: (e: { loaded: number; total?: number }) => void
+    }
+    expect(uploadCfg.timeout).toBe(0)
+    uploadCfg.onUploadProgress({ loaded: 1, total: 2 })
+    expect(onProgress).toHaveBeenCalledWith(50)
+    uploadCfg.onUploadProgress({ loaded: 1 })
 
     http.get.mockResolvedValueOnce({
       data: { events: [{ id: '1', project_id: 'p', level: 'info', logger: 'l', message: 'm', occurred_at: 't' }] }

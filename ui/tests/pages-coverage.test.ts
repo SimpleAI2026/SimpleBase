@@ -2,21 +2,21 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useProjectStore } from '../stores/project'
-import Logs from './Logs.vue'
-import GoFunctions from './GoFunctions.vue'
-import CronJobs from './CronJobs.vue'
-import S3Manager from './S3Manager.vue'
-import Databases from './Databases.vue'
-import AgentManager from './AgentManager.vue'
-import SettingsPanel from '../components/settings/SettingsPanel.vue'
-import { uiStubs } from '../test/helpers'
+import { useProjectStore } from '@/stores/project'
+import Logs from '@/pages/Logs.vue'
+import GoFunctions from '@/pages/GoFunctions.vue'
+import CronJobs from '@/pages/CronJobs.vue'
+import S3Manager from '@/pages/S3Manager.vue'
+import Databases from '@/pages/Databases.vue'
+import AgentManager from '@/pages/AgentManager.vue'
+import SettingsPanel from '@/components/settings/SettingsPanel.vue'
+import { uiStubs } from '@/test/helpers'
 
 const { api } = vi.hoisted(() => {
   const fn = () => vi.fn()
   return {
     api: {
-      gofunctions: { list: fn(), create: fn(), get: fn(), update: fn(), remove: fn() },
+      gofunctions: { list: fn(), create: fn(), get: fn(), saveVersion: fn(), remove: fn() },
       cronjobs: { list: fn(), create: fn(), get: fn(), update: fn(), remove: fn(), runs: fn(), trigger: fn() },
       projects: { list: fn(), create: fn() },
       metrics: { summary: fn(), trend: fn() },
@@ -44,7 +44,7 @@ const { api } = vi.hoisted(() => {
   }
 })
 
-vi.mock('../services/api', () => ({ api, isMock: true }))
+vi.mock('@/services/api', () => ({ api, isMock: true }))
 vi.mock('axios', () => ({
   default: {
     create: () => ({

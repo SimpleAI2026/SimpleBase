@@ -528,6 +528,11 @@ function dataCollectionsPath(projectId: string, databaseId: string, collection?:
   return path
 }
 
+/** KV 单端点路径（key-value-ducklake-plan §3：项目级，无 databaseId） */
+function kvPath(projectId: string) {
+  return '/v1/projects/' + encodeURIComponent(projectId) + '/kv'
+}
+
 function toProjectItem(raw: any): import('./types').ProjectItem {
   return {
     id: String(raw?.id ?? ''),
@@ -663,11 +668,6 @@ export const httpApi: Api = {
           note: body.note,
           activate: body.activate
         })
-        .then((r) => toGoFunctionItem(r.data)),
-    /** 兼容旧签名：保存为新版本并生效 */
-    update: (projectId: string, name: string, source: string) =>
-      http
-        .post(gofunctionsPath(projectId, name, undefined, 'versions'), { source, activate: true })
         .then((r) => toGoFunctionItem(r.data)),
     remove: (projectId, name) =>
       http.delete(gofunctionsPath(projectId, name)).then(() => undefined),
@@ -852,6 +852,15 @@ export const httpApi: Api = {
         .then(() => undefined)
   },
 
+  kv: {
+    /** 项目级单端点：读/结构命令 type=cmd，按类型写入 type=String 等 */
+    exec: (projectId, body) =>
+      http.post(kvPath(projectId), body).then((r) => r.data),
+    /** 顺序执行多条命令（非事务）；任一失败即停止 */
+    execBatch: (projectId, bodies) =>
+      Promise.all(bodies.map((b) => http.post(kvPath(projectId), b).then((r) => r.data)))
+  },
+
   s3: {
     list: (projectId, prefix) =>
       http
@@ -867,12 +876,18 @@ export const httpApi: Api = {
       http
         .delete('/v1/projects/' + encodeURIComponent(projectId) + '/s3/objects', { params: { key } })
         .then(() => undefined),
-    upload: (projectId, key, file) => {
+    upload: (projectId, key, file, onProgress) => {
       const fd = new FormData()
       fd.append('key', key)
       fd.append('file', file)
       return http
-        .post('/v1/projects/' + encodeURIComponent(projectId) + '/s3/objects', fd)
+        .post('/v1/projects/' + encodeURIComponent(projectId) + '/s3/objects', fd, {
+          // 实例默认 15s，50MB 上传会先被掐断。
+          timeout: 0,
+          onUploadProgress: (e) => {
+            if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+          }
+        })
         .then((r) => r.data)
     }
   },

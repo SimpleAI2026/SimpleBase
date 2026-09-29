@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mockApi } from './mock'
+import { mockApi } from '@/services/mock'
 
 const PID = 'dev-shop'
 
@@ -124,9 +124,10 @@ describe('mockApi', () => {
     expect(created.exports).toContain('Echo')
     expect((await flush(mockApi.gofunctions.get(PID, 'Echo'))).source).toBeTruthy()
     await flushReject(mockApi.gofunctions.get(PID, 'missing'))
-    await flushReject(mockApi.gofunctions.update(PID, 'Echo', 'package main'))
-    expect((await flush(mockApi.gofunctions.update(PID, 'Echo', 'func Ping() int { return 1 }'))).exports).toContain('Ping')
-    await flushReject(mockApi.gofunctions.update(PID, 'missing', 'func X() {}'))
+    // update 旧签名已退役：保存新版本并立即生效走 saveVersion({ activate: true })
+    expect(
+      (await flush(mockApi.gofunctions.saveVersion(PID, 'Echo', { source: 'func Ping() int { return 1 }', activate: true }))).exports
+    ).toContain('Ping')
     await flush(mockApi.gofunctions.remove(PID, 'Echo'))
     await flushReject(mockApi.gofunctions.remove(PID, 'Echo'))
 

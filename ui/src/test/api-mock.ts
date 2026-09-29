@@ -120,6 +120,11 @@ export const api = {
     remove: vi.fn(),
     runs: vi.fn(),
     trigger: vi.fn()
+  },
+  kv: {
+    /** 项目级单端点：测试里默认模拟「库为空」的语义回复 */
+    exec: vi.fn(),
+    execBatch: vi.fn()
   }
 }
 
@@ -333,17 +338,6 @@ export function applyApiDefaults() {
     createdAt: 't',
     updatedAt: 't'
   })
-  api.gofunctions.update.mockResolvedValue({
-    id: 'gf-1',
-    name: 'hello',
-    file: 'hello.go',
-    activeVersion: 2,
-    latestVersion: 2,
-    published: true,
-    exports: ['Hello'],
-    createdAt: 't',
-    updatedAt: 't'
-  })
   api.gofunctions.saveVersion.mockResolvedValue({
     id: 'gf-1',
     name: 'hello',
@@ -410,6 +404,41 @@ export function applyApiDefaults() {
   api.cronjobs.remove.mockResolvedValue(undefined)
   api.cronjobs.runs.mockResolvedValue([])
   api.cronjobs.trigger.mockResolvedValue(undefined)
+  // kv 默认值：空库语义（SCAN 返回空页；读命令返回空回复），避免组件挂载时报错。
+  // 测试按需 mockResolvedValueOnce 覆盖；exec 的第一参数是 projectId。
+  api.kv.exec.mockImplementation(async (_pid: string, body: { type: string; argvs?: string[] }) => {
+    const argvs = body.argvs ?? []
+    switch (argvs[0]?.toUpperCase()) {
+      case 'SCAN':
+        return ['0', []]
+      case 'TYPE':
+        return 'none'
+      case 'PTTL':
+      case 'TTL':
+        return -2
+      case 'DBSIZE':
+        return 0
+      case 'HLEN':
+      case 'LLEN':
+      case 'SCARD':
+      case 'ZCARD':
+        return 0
+      default:
+        return null
+    }
+  })
+  api.kv.execBatch.mockImplementation(async (_pid: string, bodies: { type: string; argvs?: string[] }[]) =>
+    // 批量默认与单条同语义：逐条委托 exec 的默认实现
+    Promise.all(
+      bodies.map(async (b) => {
+        try {
+          return await (api.kv.exec as any)(_pid, b)
+        } catch {
+          return null
+        }
+      })
+    )
+  )
 }
 
 export function resetApiMocks() {

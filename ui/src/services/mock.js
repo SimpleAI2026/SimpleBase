@@ -3,6 +3,8 @@
  * 内置内存状态，支持增删查改的完整交互闭环
  */
 
+import { createKvMock } from './mock-kv'
+
 const delay = (ms = 260) => new Promise((r) => setTimeout(r, ms))
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min
 const pick = (arr) => arr[rand(0, arr.length - 1)]
@@ -44,6 +46,9 @@ function requireDbStore(databaseId) {
   return state.dbStores[databaseId]
 }
 
+// KV mock 方法组（实现见 mock-kv.js；项目级，不依赖数据库存储）
+const kvMockGroup = createKvMock({ delay })
+
 /* ---------- 初始数据 ---------- */
 
 const DEFAULT_PROJECT = 'dev-shop'
@@ -55,6 +60,7 @@ const genProjectId = () => {
 }
 
 const state = {
+  sandboxAvailable: false,
   databases: [
     { id: 'db-default', name: 'default', status: 'ready', createdAt: now(), updatedAt: now(), documentCount: 8 },
     { id: 'db-analytics', name: 'analytics', status: 'ready', createdAt: now(), updatedAt: now() }
@@ -511,9 +517,6 @@ export const mockApi = {
         error: ''
       }
     },
-    async update(projectId, name, source) {
-      return this.saveVersion(projectId, name, { source, activate: true })
-    },
     async remove(projectId, name) {
       await delay(60)
       const i = state.gofunctions.findIndex((g) => g._projectId === projectId && g.name === name)
@@ -808,6 +811,8 @@ export const mockApi = {
     }
   },
 
+  kv: kvMockGroup,
+
   s3: {
     async list(projectId, prefix) {
       await delay()
@@ -951,6 +956,7 @@ export const mockApi = {
         { id: 'database', name: 'Database', description: 'Readonly SQL', default_tools: ['list_databases', 'list_collections', 'readonly_sql'], team_supported: false },
         { id: 's3', name: 'S3', description: 'List objects', default_tools: ['list_objects', 'head_object'], team_supported: false },
         { id: 'logs', name: 'Logs', description: 'Search logs', default_tools: ['search_logs', 'log_level_stats'], team_supported: false },
+        { id: 'sandbox', name: 'Sandbox', description: 'Run commands and manage files in a cloud microVM', default_tools: ['sandbox_exec', 'sandbox_shell', 'sandbox_read_file', 'sandbox_write_file'], team_supported: false, sandbox_available: state.sandboxAvailable === true },
         { id: 'general', name: 'General', description: 'Custom prompt', default_tools: [], team_supported: false }
       ]
     },
