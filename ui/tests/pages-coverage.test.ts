@@ -26,7 +26,7 @@ const { api } = vi.hoisted(() => {
       s3: { list: fn(), presign: fn(), remove: fn(), upload: fn() },
       logs: { list: fn(), getRetention: fn(), putRetention: fn() },
       quota: { status: fn() },
-      llm: { providers: fn(), chat: fn(), stream: fn() },
+      llm: { chat: fn(), stream: fn() },
       llmSettings: { get: fn(), put: fn() },
       agents: { modules: fn(), list: fn(), create: fn(), get: fn(), patch: fn(), remove: fn() },
       agentThreads: {
@@ -174,7 +174,6 @@ describe('page coverage', () => {
     api.s3.presign.mockResolvedValue({ url: 'http://x' })
     api.databases.list.mockResolvedValue([{ id: 'd', name: 'n', status: 'ready', createdAt: 't', updatedAt: 't' }])
     api.llmSettings.get.mockResolvedValue({ defaultProvider: 'openai', defaultModel: 'm', temperature: 0.2, maxTokens: 10 })
-    api.llm.providers.mockResolvedValue(['openai'])
     api.agents.modules.mockResolvedValue([{ id: 'database', name: 'DB', description: '', default_tools: [], team_supported: false }])
     api.agents.list.mockResolvedValue([
       { id: 'a', name: 'A', module: 'database', description: '', system_prompt: '', tool_ids: [], team_enabled: false, created_at: 't', updated_at: 't' }

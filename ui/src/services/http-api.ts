@@ -923,13 +923,6 @@ export const httpApi: Api = {
   },
 
   llm: {
-    providers: (projectId) =>
-      http
-        .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/providers')
-        .then((r) => {
-          const d = r.data
-          return Array.isArray(d) ? d : Array.isArray(d?.providers) ? d.providers : []
-        }),
     chat: (projectId, req) =>
       http
         .post('/v1/projects/' + encodeURIComponent(projectId) + '/llm/chat', toLlmPayload(req))

@@ -74,7 +74,6 @@ describe('mockApi', () => {
     expect((await flush(mockApi.logs.getRetention(PID))).keepDays).toBe(21)
     expect((await flush(mockApi.logs.getRetention('other'))).keepDays).toBe(14)
     expect((await flush(mockApi.quota.status(PID))).llmAllowed).toBe(true)
-    expect(await flush(mockApi.llm.providers(PID))).toContain('openai')
     const chat = await flush(mockApi.llm.chat(PID, { messages: [{ role: 'user', content: 'hello world' }] }))
     expect(chat.content).toContain('hello')
     expect((await flush(mockApi.metrics.summary(PID))).totalRequests).toBeGreaterThan(0)

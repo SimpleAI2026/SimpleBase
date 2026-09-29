@@ -637,7 +637,6 @@ export interface Api {
     status: (projectId: string) => Promise<QuotaStatus>
   }
   llm: {
-    providers: (projectId: string) => Promise<string[]>
     chat: (projectId: string, req: LlmChatRequest) => Promise<LlmChatResponse>
     stream: (projectId: string, req: LlmChatRequest, handlers: LlmStreamHandlers) => LlmStreamConnection
   }

@@ -211,12 +211,6 @@ describe('httpApi', () => {
     http.get.mockResolvedValueOnce({ data: { llm_allowed: true, database_allowed: false } })
     expect((await httpApi.quota.status(pid)).llmAllowed).toBe(true)
 
-    http.get.mockResolvedValueOnce({ data: { providers: ['openai'] } })
-    expect(await httpApi.llm.providers(pid)).toEqual(['openai'])
-    http.get.mockResolvedValueOnce({ data: ['anthropic'] })
-    expect(await httpApi.llm.providers(pid)).toEqual(['anthropic'])
-    http.get.mockResolvedValueOnce({ data: {} })
-    expect(await httpApi.llm.providers(pid)).toEqual([])
     http.post.mockResolvedValueOnce({ data: { content: 'hi' } })
     expect(await httpApi.llm.chat(pid, { messages: [{ role: 'user', content: 'hi' }], maxTokens: 1, temperature: 0 })).toEqual({
       content: 'hi'

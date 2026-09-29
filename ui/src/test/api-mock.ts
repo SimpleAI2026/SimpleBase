@@ -67,7 +67,6 @@ export const api = {
     status: vi.fn()
   },
   llm: {
-    providers: vi.fn(),
     chat: vi.fn(),
     stream: vi.fn()
   },
@@ -256,7 +255,6 @@ export function applyApiDefaults() {
   api.logs.getRetention.mockResolvedValue({ scope: 'project', keepDays: 14, updatedAt: '2024-01-01T00:00:00Z' })
   api.logs.putRetention.mockResolvedValue(undefined)
   api.quota.status.mockResolvedValue({ llmAllowed: true, databaseAllowed: true })
-  api.llm.providers.mockResolvedValue(['openai'])
   api.llm.chat.mockResolvedValue({ content: 'hi', model: 'm', provider: 'p' })
   api.llm.stream.mockReturnValue({ close: vi.fn() })
   api.llmSettings.get.mockResolvedValue({ defaultProvider: 'openai', defaultModel: 'gpt-4o-mini', temperature: 0.7, maxTokens: 1024 })

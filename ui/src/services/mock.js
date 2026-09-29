@@ -871,10 +871,6 @@ export const mockApi = {
   },
 
   llm: {
-    async providers(projectId) {
-      await delay()
-      return ['openai', 'anthropic', 'gemini']
-    },
     async chat(projectId, req) {
       await delay(rand(500, 1200))
       const last = req.messages?.[req.messages.length - 1]?.content || ''
