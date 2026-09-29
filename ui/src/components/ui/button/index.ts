@@ -12,7 +12,7 @@ export const buttonVariants = cva(
         outline: 'border-border bg-background text-foreground hover:bg-muted hover:text-foreground dark:bg-input/20 dark:hover:bg-input/40 aria-expanded:bg-muted aria-expanded:text-foreground shadow-xs',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground',
         ghost: 'hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground',
-        destructive: 'bg-destructive text-primary-foreground hover:bg-destructive/90 shadow-xs focus-visible:ring-destructive/20',
+        destructive: 'bg-destructive text-white dark:text-background hover:bg-destructive/95 dark:hover:bg-destructive/90 shadow-xs focus-visible:ring-destructive/20',
         destructiveGhost: 'text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20',
         link: 'text-primary underline-offset-4 hover:underline',
       },
