@@ -38,7 +38,7 @@ func TestPhase1_DuckDBVersionAndExtensions(t *testing.T) {
 	if version == "" {
 		t.Fatal("empty duckdb version")
 	}
-	if err := AssertExtensionsLoaded(context.Background(), db); err != nil {
+	if err := AssertExtensionsLoaded(context.Background(), db, ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("duckdb version %s", version)
@@ -188,8 +188,9 @@ func TestPhase1_DataInliningAndCatalogBackup(t *testing.T) {
 		t.Fatalf("expected inlined insert to create 0 parquet files, found %d", n)
 	}
 
-	backup := filepath.Join(layout.Root, "backup.sqlite")
-	if _, err := db.ExecContext(ctx, `ATTACH 'sqlite:`+filepathToSlash(backup)+`' AS backup`); err != nil {
+	// duckdb 引擎：staging 用原生 DuckDB 文件（无需 sqlite 扩展）。
+	backup := filepath.Join(layout.Root, "backup.ducklake")
+	if _, err := db.ExecContext(ctx, `ATTACH '`+filepathToSlash(backup)+`' AS backup (TYPE DUCKDB)`); err != nil {
 		t.Fatalf("attach backup: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `COPY FROM DATABASE __ducklake_metadata_lake TO backup`); err != nil {

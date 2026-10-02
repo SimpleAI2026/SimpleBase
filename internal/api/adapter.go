@@ -91,23 +91,33 @@ func NewSQLServiceAdapter(cat CatalogService, reg RegistryService, system System
 }
 
 func (a *sqlServiceAdapter) GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error) {
+	timer := StageTimerFrom(ctx)
+	scope := timer.StageScope(StageCatalog)
+	defer scope.Done()
 	return a.catalog.GetDatabase(ctx, principal, projectID, databaseID)
 }
 
 func (a *sqlServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error) {
 	// 系统库：桥接到 systemdb 常驻连接（只读查询），不经 registry。
 	if catalog.IsSystemDatabase(db) && a.system != nil && mode == database.ReadOnly {
-		return &systemLeaseAdapter{conn: a.system.DB()}, nil
+		return WrapTimedLease(ctx, &systemLeaseAdapter{conn: a.system.DB()}), nil
 	}
+	timer := StageTimerFrom(ctx)
+	acquireScope := timer.StageScope(StageAcquire)
 	l, err := a.registry.Acquire(ctx, db, mode)
+	acquireScope.Done()
 	if err != nil {
 		return nil, err
 	}
-	return &sqlLeaseAdapter{lease: l}, nil
+	return WrapTimedLease(ctx, &sqlLeaseAdapter{lease: l}), nil
 }
 
 // ListDatabases 使 sqlServiceAdapter 同时满足 DataService。
+// §7.2 M1：catalog 列表查询计入 catalog_lookup 段。
 func (a *sqlServiceAdapter) ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page catalog.Page) ([]catalog.Database, string, error) {
+	timer := StageTimerFrom(ctx)
+	scope := timer.StageScope(StageCatalog)
+	defer scope.Done()
 	return a.catalog.ListDatabases(ctx, principal, projectID, page)
 }
 
@@ -131,6 +141,12 @@ func (s *systemLeaseAdapter) Batch(ctx context.Context, stmts []database.Stateme
 	return nil, catalog.ErrSystemProtected
 }
 
+// Raw 返回系统库常驻连接（只读用途；写由 Execute/Batch 层拒绝）。
+func (s *systemLeaseAdapter) Raw() *sql.DB { return s.conn }
+
+// NotifyWrite 对系统库是 no-op（系统库写已被拒绝，不存在外部写路径）。
+func (s *systemLeaseAdapter) NotifyWrite(ctx context.Context) {}
+
 // sqlLeaseAdapter 包装 registry.Lease，暴露 Handle 的 Query/Execute/Batch。
 type sqlLeaseAdapter struct {
 	lease *registry.Lease
@@ -151,3 +167,9 @@ func (s *sqlLeaseAdapter) Execute(ctx context.Context, stmt database.Statement) 
 func (s *sqlLeaseAdapter) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
 	return s.lease.Handle.Batch(ctx, stmts, transactional)
 }
+
+// Raw 返回底层 *sql.DB（KV 仓库自管事务用；连接生命周期由 Handle 管理）。
+func (s *sqlLeaseAdapter) Raw() *sql.DB { return s.lease.Handle.Conn() }
+
+// NotifyWrite 触发 Handle 的 onWrite 回调（CatalogSyncer.MarkDirty 等）。
+func (s *sqlLeaseAdapter) NotifyWrite(ctx context.Context) { s.lease.Handle.NotifyWrite(ctx) }

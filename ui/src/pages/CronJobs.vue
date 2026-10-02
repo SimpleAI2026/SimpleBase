@@ -37,7 +37,7 @@
                 <TableHead class="sb-col-name">目标函数</TableHead>
                 <TableHead class="sb-col-sm">状态</TableHead>
                 <TableHead class="sb-col-sm">启用</TableHead>
-                <TableHead class="sb-col-act min-w-32">操作</TableHead>
+                <TableHead class="sb-col-act min-w-56">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -121,16 +121,13 @@
                 </TableCell>
                 <TableCell>
                   <div class="flex flex-wrap gap-1">
-                    <Button variant="ghost" size="sm" :disabled="triggering.has(record.id)" @click="trigger(record)">
-                      <PlayIcon data-icon="inline-start" />
+                    <Button variant="ghost" size="sm" @click="openRuns(record, { trigger: true })">
                       立即执行
                     </Button>
                     <Button variant="ghost" size="sm" @click="openRuns(record)">
-                      <HistoryIcon data-icon="inline-start" />
                       记录
                     </Button>
                     <Button v-if="!isAdminProject" variant="ghost" size="sm" @click="openEdit(record)">
-                      <PencilIcon data-icon="inline-start" />
                       编辑
                     </Button>
                     <ConfirmAction
@@ -139,7 +136,6 @@
                       @confirm="remove(record)"
                     >
                       <Button variant="destructiveGhost" size="sm">
-                        <Trash2Icon data-icon="inline-start" />
                         删除
                       </Button>
                     </ConfirmAction>
@@ -160,9 +156,10 @@
       </Card>
 
       <CronJobModal v-model:open="modalOpen" :target="modalTarget" @saved="load" />
-      <CronJobRunsDrawer
+      <CronJobRunsModal
         v-model:open="runsOpen"
         :job="runsJob"
+        :auto-trigger="runsAutoTrigger"
         @triggered="load"
       />
     </PageContainer>
@@ -179,12 +176,8 @@ import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import {
   AlertTriangleIcon,
-  HistoryIcon,
-  PencilIcon,
-  PlayIcon,
   PlusIcon,
-  RefreshCwIcon,
-  Trash2Icon
+  RefreshCwIcon
 } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -214,7 +207,7 @@ import SbEmptyState from '../components/SbEmptyState.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import TablePager from '../components/TablePager.vue'
 import CronJobModal from '../components/modal/CronJobModal.vue'
-import CronJobRunsDrawer from '../components/CronJobRunsDrawer.vue'
+import CronJobRunsModal from '../components/modal/CronJobRunsModal.vue'
 
 const projectStore = useProjectStore()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
@@ -307,9 +300,12 @@ function openEdit(record: CronJobItem) {
 
 const runsOpen = ref(false)
 const runsJob = ref<CronJobItem>()
+const runsAutoTrigger = ref(false)
 
-function openRuns(record: CronJobItem) {
+/** 「记录」只打开弹窗；「立即执行」打开后由弹窗内部触发并轮询 */
+function openRuns(record: CronJobItem, opts?: { trigger?: boolean }) {
   runsJob.value = record
+  runsAutoTrigger.value = !!opts?.trigger
   runsOpen.value = true
 }
 

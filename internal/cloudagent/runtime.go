@@ -51,6 +51,8 @@ type Runtime struct {
 	Obj      ObjectAccess
 	Logs     LogAccess
 	Settings SettingsAccess
+	// Sandbox 为 nil 表示云沙盒未启用（cloud-agent-sandbox-plan §4）。
+	Sandbox Sandbox
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
@@ -76,7 +78,7 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 		Snapshot:       snapshot,
 	})
 
-	tools, err := buildTools(req.Agent.ToolIDs, toolDeps{DB: r.DB, Obj: r.Obj, Logs: r.Logs})
+	tools, err := buildTools(req.Agent.ToolIDs, toolDeps{DB: r.DB, Obj: r.Obj, Logs: r.Logs, Sandbox: r.Sandbox})
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -101,7 +103,7 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	defer r.clearCancel(req.RunID)
 	defer cancel()
 
-	runCtx = withRunContext(runCtx, RunContext{ProjectID: req.ProjectID, Principal: req.Principal})
+	runCtx = withRunContext(runCtx, RunContext{ProjectID: req.ProjectID, Principal: req.Principal, ThreadID: req.ThreadID})
 
 	runner := adk.NewRunner(runCtx, adk.RunnerConfig{Agent: agent, EnableStreaming: req.Stream})
 	msgs := historyToSchema(req.History)

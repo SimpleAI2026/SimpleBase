@@ -11,10 +11,11 @@ import (
 // yamlSecretPresence records whether the YAML file contained non-empty secret values.
 // Production (dev_mode=false) must not load secrets from YAML.
 type yamlSecretPresence struct {
-	s3Access bool
-	s3Secret bool
-	auth     bool
-	llmKeys  bool
+	s3Access   bool
+	s3Secret   bool
+	auth       bool
+	llmKeys    bool
+	sandboxKey bool
 }
 
 func rejectYAMLSecrets(devMode bool, s yamlSecretPresence) error {
@@ -34,6 +35,9 @@ func rejectYAMLSecrets(devMode bool, s yamlSecretPresence) error {
 	if s.llmKeys {
 		which = append(which, "llm.providers.*.api_key")
 	}
+	if s.sandboxKey {
+		which = append(which, "sandbox.api_key")
+	}
 	if len(which) == 0 {
 		return nil
 	}
@@ -47,6 +51,7 @@ type yamlConfig struct {
 	S3             yamlS3             `yaml:"s3"`
 	Auth           yamlAuth           `yaml:"auth"`
 	LLM            yamlLLM            `yaml:"llm"`
+	Sandbox        yamlSandbox        `yaml:"sandbox"`
 	Limits         yamlLimits         `yaml:"limits"`
 	Observability  yamlObservability  `yaml:"observability"`
 	SystemDatabase yamlSystemDatabase `yaml:"system_database"`
@@ -62,8 +67,17 @@ type yamlHTTP struct {
 }
 
 type yamlInstance struct {
-	ID       *string `yaml:"id"`
-	Writable *bool   `yaml:"writable"`
+	ID       *string      `yaml:"id"`
+	Writable *bool        `yaml:"writable"`
+	Lease    yamlInstanceLease `yaml:"lease"`
+}
+
+type yamlInstanceLease struct {
+	Enabled       *bool   `yaml:"enabled"`
+	TTL           yamlDur `yaml:"ttl"`
+	RenewInterval yamlDur `yaml:"renew_interval"`
+	Grace         yamlDur `yaml:"grace"`
+	OnLost        *string `yaml:"on_lost"`
 }
 
 type yamlDatabase struct {
@@ -77,6 +91,7 @@ type yamlDatabase struct {
 }
 
 type yamlDuckLake struct {
+	CatalogEngine        *string           `yaml:"catalog_engine"`
 	MemoryLimit          *string           `yaml:"memory_limit"`
 	Threads              *int              `yaml:"threads"`
 	ExtensionDir         *string           `yaml:"extension_dir"`
@@ -139,11 +154,28 @@ type yamlLimits struct {
 	MaxSQLBytes          *int    `yaml:"max_sql_bytes"`
 }
 
+type yamlSandbox struct {
+	Enabled        *bool   `yaml:"enabled"`
+	APIURL         *string `yaml:"api_url"`
+	APIKey         *string `yaml:"api_key"`
+	Image          *string `yaml:"image"`
+	CPUs           *int    `yaml:"cpus"`
+	MemoryMiB      *int    `yaml:"memory_mib"`
+	MaxDuration    yamlDur `yaml:"max_duration"`
+	IdleTimeout    yamlDur `yaml:"idle_timeout"`
+	ExecTimeout    yamlDur `yaml:"exec_timeout"`
+	MaxOutputBytes *int    `yaml:"max_output_bytes"`
+	MaxFileBytes   *int    `yaml:"max_file_bytes"`
+	Network        *string `yaml:"network"`
+	Workdir        *string `yaml:"workdir"`
+}
+
 type yamlObservability struct {
-	LogLevel    *string `yaml:"log_level"`
-	LogFormat   *string `yaml:"log_format"`
-	LogOutput   *string `yaml:"log_output"`
-	MetricsPath *string `yaml:"metrics_path"`
+	LogLevel        *string `yaml:"log_level"`
+	LogFormat       *string `yaml:"log_format"`
+	LogOutput       *string `yaml:"log_output"`
+	MetricsPath     *string `yaml:"metrics_path"`
+	PerfStageTiming *bool   `yaml:"perf_stage_timing"`
 }
 
 type yamlSystemDatabase struct {
@@ -196,6 +228,19 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 
 	setStr(&cfg.Instance.ID, yc.Instance.ID)
 	setBool(&cfg.Instance.Writable, yc.Instance.Writable)
+	if yc.Instance.Lease.Enabled != nil {
+		cfg.Instance.Lease.Enabled = *yc.Instance.Lease.Enabled
+	}
+	if yc.Instance.Lease.TTL.set {
+		cfg.Instance.Lease.TTL = yc.Instance.Lease.TTL.d
+	}
+	if yc.Instance.Lease.RenewInterval.set {
+		cfg.Instance.Lease.RenewInterval = yc.Instance.Lease.RenewInterval.d
+	}
+	if yc.Instance.Lease.Grace.set {
+		cfg.Instance.Lease.Grace = yc.Instance.Lease.Grace.d
+	}
+	setStr(&cfg.Instance.Lease.OnLost, yc.Instance.Lease.OnLost)
 
 	setStr(&cfg.Database.Engine, yc.Database.Engine)
 	setStr(&cfg.Database.CacheDir, yc.Database.CacheDir)
@@ -266,10 +311,30 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Limits.MaxBatchStatements, yc.Limits.MaxBatchStatements)
 	setInt(&cfg.Limits.MaxSQLBytes, yc.Limits.MaxSQLBytes)
 
+	setBool(&cfg.Sandbox.Enabled, yc.Sandbox.Enabled)
+	setStr(&cfg.Sandbox.APIURL, yc.Sandbox.APIURL)
+	if yc.Sandbox.APIKey != nil {
+		cfg.Sandbox.APIKey = *yc.Sandbox.APIKey
+		if *yc.Sandbox.APIKey != "" {
+			secrets.sandboxKey = true
+		}
+	}
+	setStr(&cfg.Sandbox.Image, yc.Sandbox.Image)
+	setInt(&cfg.Sandbox.CPUs, yc.Sandbox.CPUs)
+	setInt(&cfg.Sandbox.MemoryMiB, yc.Sandbox.MemoryMiB)
+	setDur(&cfg.Sandbox.MaxDuration, yc.Sandbox.MaxDuration)
+	setDur(&cfg.Sandbox.IdleTimeout, yc.Sandbox.IdleTimeout)
+	setDur(&cfg.Sandbox.ExecTimeout, yc.Sandbox.ExecTimeout)
+	setInt(&cfg.Sandbox.MaxOutputBytes, yc.Sandbox.MaxOutputBytes)
+	setInt(&cfg.Sandbox.MaxFileBytes, yc.Sandbox.MaxFileBytes)
+	setStr(&cfg.Sandbox.Network, yc.Sandbox.Network)
+	setStr(&cfg.Sandbox.Workdir, yc.Sandbox.Workdir)
+
 	setStr(&cfg.Observability.LogLevel, yc.Observability.LogLevel)
 	setStr(&cfg.Observability.LogFormat, yc.Observability.LogFormat)
 	setStr(&cfg.Observability.LogOutput, yc.Observability.LogOutput)
 	setStr(&cfg.Observability.MetricsPath, yc.Observability.MetricsPath)
+	setBool(&cfg.Observability.PerfStageTiming, yc.Observability.PerfStageTiming)
 
 	setStr(&cfg.SystemDatabase.Name, yc.SystemDatabase.Name)
 	setDur(&cfg.SystemDatabase.MetricsFlushInterval, yc.SystemDatabase.MetricsFlushInterval)
@@ -281,6 +346,7 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 }
 
 func applyYAMLDuckLake(dst *DuckLakeConfig, y yamlDuckLake) {
+	setStr(&dst.CatalogEngine, y.CatalogEngine)
 	setStr(&dst.MemoryLimit, y.MemoryLimit)
 	setInt(&dst.Threads, y.Threads)
 	setStr(&dst.ExtensionDir, y.ExtensionDir)

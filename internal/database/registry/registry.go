@@ -38,6 +38,8 @@ type Registry struct {
 	metrics *observability.Metrics
 
 	closed bool
+	// writeGate 在 ReadWrite Acquire 前调用；失租时拒绝新写（§4.6）。
+	writeGate func(db catalog.Database) error
 }
 
 // Options 配置 Registry 行为。
@@ -46,6 +48,9 @@ type Options struct {
 	MaxOpen     int            // <=0 表示不限制
 	// Writable 表示本实例是否允许提供 ReadWrite 访问；对应 config.Instance.Writable。
 	Writable bool
+	// WriteGate 在 ReadWrite Acquire 前调用（multi-instance-consistency-plan §4.6）。
+	// 返回非 nil 拒绝获取（例：写租约丢失/被抢占）。nil 表示门禁未启用。
+	WriteGate func(db catalog.Database) error
 }
 
 // New 构造 Registry。factory 用于实际打开数据库连接；catalogSvc 用于状态校验与转换。
@@ -58,6 +63,7 @@ func New(factory database.Factory, catalogSvc *catalog.Service, opts Options, lo
 		factory:     factory,
 		catalog:     catalogSvc,
 		writable:    opts.Writable,
+		writeGate:   opts.WriteGate,
 		entries:     make(map[string]*entry),
 		idleTimeout: idle,
 		maxOpen:     opts.MaxOpen,
@@ -184,6 +190,11 @@ func (r *Registry) validateAccess(db catalog.Database, mode database.AccessMode)
 	if mode == database.ReadWrite && !r.writable {
 		return database.ErrWriterUnavailable
 	}
+	if mode == database.ReadWrite && r.writeGate != nil {
+		if err := r.writeGate(db); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -211,6 +222,35 @@ func (r *Registry) CloseDatabase(ctx context.Context, databaseID string) error {
 	return err
 }
 
+// Remove 失租释放句柄（multi-instance-consistency-plan §4.6 onLost 第 2 步）：
+// 与 CloseDatabase 的区别是（a）跳过 beforeClose 回调（失租后禁止 Flush——
+// CatalogSyncer 已置 CloseNoFlush，物理不 PUT），（b）不等待活跃引用，
+// 立即摘除 entry 并把 handle 置 closing；进行中的请求用完旧 handle 后关闭。
+func (r *Registry) Remove(databaseID string) {
+	r.mu.Lock()
+	e, ok := r.entries[databaseID]
+	if !ok || e.handle == nil {
+		r.mu.Unlock()
+		return
+	}
+	delete(r.entries, databaseID)
+	handle := e.handle
+	handle.state.Store(uint32(stateClosing))
+	r.mu.Unlock()
+
+	go func() {
+		// 等活跃引用清零后真正关闭（上限 30s，超时强制）。
+		deadline := time.Now().Add(30 * time.Second)
+		for handle.active.Load() > 0 && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Millisecond)
+		}
+		_ = handle.closeNoFlushLocked() // 失租：跳过 beforeClose（Flush）
+		if r.metrics != nil {
+			r.metrics.DBOpenHandles.Dec()
+		}
+	}()
+}
+
 // IsActive 返回指定 databaseID 是否在 registry 中有活跃引用（active>0）。
 // CacheManager 仅在 IsActive==false 且 entry 不存在或 ready 时允许淘汰。
 // 不做网络 I/O，不持锁等待。
@@ -222,6 +262,33 @@ func (r *Registry) IsActive(databaseID string) bool {
 		return false
 	}
 	return e.handle.active.Load() > 0
+}
+
+// OpenedIDs 返回当前已打开且就绪（stateReady）的数据库 ID 列表。
+// 供后台任务（如 KV TTL Sweeper）枚举已打开的库；不会打开新连接。
+// 不做网络 I/O。
+func (r *Registry) OpenedIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := make([]string, 0, len(r.entries))
+	for id, e := range r.entries {
+		if e.handle != nil && e.handle.isReady() {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// Snapshot 返回指定 databaseID 已打开 handle 的只读快照（Database 元数据）。
+// 未打开返回 false。不做网络 I/O。
+func (r *Registry) Snapshot(databaseID string) (catalog.Database, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.entries[databaseID]
+	if !ok || e.handle == nil || !e.handle.isReady() {
+		return catalog.Database{}, false
+	}
+	return e.handle.Database, true
 }
 
 // CloseIdle 关闭所有 active==0 且超过 idleTimeout 未使用的 ready handle。

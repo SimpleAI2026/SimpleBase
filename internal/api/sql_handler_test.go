@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +29,8 @@ type fakeSQLLease struct {
 	lastQueryStmt  database.Statement
 	lastExecStmt   database.Statement
 	lastBatchStmts []database.Statement
+	raw            *sql.DB
+	notifyCount    int
 }
 
 func (l *fakeSQLLease) Release() { l.released = true }
@@ -45,6 +49,11 @@ func (l *fakeSQLLease) Batch(ctx context.Context, stmts []database.Statement, tr
 	l.lastBatchStmts = stmts
 	return l.batchResults, l.batchErr
 }
+
+// Raw/NotifyWrite 为 KV 服务预留；测试假实现返回 nil/no-op。
+func (l *fakeSQLLease) Raw() *sql.DB { return l.raw }
+
+func (l *fakeSQLLease) NotifyWrite(ctx context.Context) { l.notifyCount++ }
 
 // fakeSQLService 是 SQLService 的内存假实现。
 type fakeSQLService struct {
@@ -221,7 +230,6 @@ func TestSQLExecute_Success(t *testing.T) {
 	lease := &fakeSQLLease{
 		executeResult: database.QueryResult{
 			RowsAffected: 3,
-			LastInsertID: 42,
 			Duration:     2 * time.Millisecond,
 		},
 	}
@@ -244,8 +252,8 @@ func TestSQLExecute_Success(t *testing.T) {
 	if resp.RowsAffected != 3 {
 		t.Errorf("expected 3 rows affected, got %d", resp.RowsAffected)
 	}
-	if resp.LastInsertID == nil || *resp.LastInsertID != 42 {
-		t.Errorf("expected last insert id 42, got %v", resp.LastInsertID)
+	if strings.Contains(rec.Body.String(), "last_insert_id") {
+		t.Errorf("deprecated last_insert_id must not be serialized: %s", rec.Body.String())
 	}
 	if svc.acquiredMode != database.ReadWrite {
 		t.Errorf("expected ReadWrite mode, got %v", svc.acquiredMode)

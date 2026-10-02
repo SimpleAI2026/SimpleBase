@@ -87,3 +87,21 @@ type LogAccess interface {
 type SettingsAccess interface {
 	LLMSettings(ctx context.Context, projectID string) (systemdb.LLMSettings, error)
 }
+
+// SandboxOutput 是一次沙盒命令的结果（stdout/stderr 已截断）。
+type SandboxOutput struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+// Sandbox 是云沙盒的工具面（cloud-agent-sandbox-plan §4）。
+// 实现方为 internal/sandbox.Client；本包不 import microsandbox SDK。
+type Sandbox interface {
+	Available() bool
+	Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (SandboxOutput, error)
+	Shell(ctx context.Context, projectID, threadID, command string) (SandboxOutput, error)
+	ReadFile(ctx context.Context, projectID, threadID, path string) (string, error)
+	WriteFile(ctx context.Context, projectID, threadID, path, content string) error
+	ReleaseThread(ctx context.Context, projectID, threadID string) error
+}

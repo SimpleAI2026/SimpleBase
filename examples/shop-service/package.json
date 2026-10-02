@@ -1,0 +1,1 @@
+{"name":"simplebase-shop-service-example","private":true,"type":"module","scripts":{"test":"node --test server/*.test.mjs","build":"node deploy/build.mjs","start":"node server/main.mjs"}}

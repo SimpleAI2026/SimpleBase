@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -33,6 +34,64 @@ func (c clientBlob) DownloadFile(ctx context.Context, key, dest string) (objects
 	return c.blob.DownloadFile(ctx, key, dest)
 }
 func (c clientBlob) Delete(ctx context.Context, key string) error { return c.blob.Delete(ctx, key) }
+func (c clientBlob) PutIfAbsent(ctx context.Context, key string, data []byte, ct string) (objectstore.ObjectInfo, error) {
+	return c.blob.PutIfAbsent(ctx, key, data, ct)
+}
+func (c clientBlob) List(ctx context.Context, prefix, cursor string, limit int) ([]string, string, error) {
+	return c.blob.List(ctx, prefix, cursor, limit)
+}
+func (c clientBlob) DeleteMany(ctx context.Context, keys []string) error {
+	return c.blob.DeleteMany(ctx, keys)
+}
+
+func TestResetLeaseEpochsArePerTenantAndDatabase(t *testing.T) {
+	keys := []string{
+		"root/env/tenants/tenant-a/databases/shared/catalog/lease/00000000000000000004.json",
+		"root/env/tenants/tenant-b/databases/shared/catalog/lease/00000000000000000001.json",
+	}
+	got := leaseEpochs(keys)
+	if len(got) != 2 || got["tenant-a/shared"] != 4 || got["tenant-b/shared"] != 1 {
+		t.Fatalf("wrong tenant/database lease grouping: %v", got)
+	}
+}
+
+func TestResetLeaseCheckAlwaysObservesSecondList(t *testing.T) {
+	ctx := context.Background()
+	store := objectstore.NewMemoryBlobStore()
+	base := "root/env/"
+	kb := objectstore.KeyBuilder{RootPrefix: "root", Environment: "env"}
+	key, err := kb.DuckLakeLeaseKey("11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped := &resetLeaseStore{BlobStore: store, onList: func(n int) {
+		if n == 2 {
+			if err := store.PutBytes(ctx, key, []byte("lease"), "application/json"); err != nil {
+				t.Error(err)
+			}
+		}
+	}}
+	if err := checkNoLiveLease(ctx, wrapped, base, time.Millisecond, io.Discard); err == nil {
+		t.Fatal("newly created lease must prevent reset")
+	}
+	if wrapped.calls != 2 {
+		t.Fatalf("expected two lease listings, got %d", wrapped.calls)
+	}
+}
+
+type resetLeaseStore struct {
+	objectstore.BlobStore
+	onList func(int)
+	calls  int
+}
+
+func (s *resetLeaseStore) List(ctx context.Context, prefix, cursor string, limit int) ([]string, string, error) {
+	s.calls++
+	if s.onList != nil {
+		s.onList(s.calls)
+	}
+	return s.BlobStore.List(ctx, prefix, cursor, limit)
+}
 
 func TestNewUserFactoryWithBlobStore(t *testing.T) {
 	a := &App{cfg: testConfig(true), logger: nil, metrics: nil}
@@ -97,16 +156,23 @@ func TestDevModeLLMEnabledAndCronRunner(t *testing.T) {
 	}
 
 	src := "package main\nfunc Hello(m map[string]interface{}) string { return \"ok\" }\n"
-	g, err := a.systemStore.CreateGoFunction(context.Background(), systemdb.GoFunction{
-		ProjectID: uuid.NewString(),
-		Name:      "hello.go",
-		Source:    src,
-		Exports:   []string{"Hello"},
+	pid := uuid.NewString()
+	f, err := a.systemStore.CreateGoFunc(context.Background(), systemdb.GoFunc{
+		ProjectID: pid, Name: "hello.go",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := r.RunFunction(context.Background(), g.ProjectID, "hello.go", "Hello", json.RawMessage(`{}`))
+	v, err := a.systemStore.AppendGoFuncVersion(context.Background(), systemdb.GoFuncVersion{
+		FuncID: f.ID, ProjectID: pid, Name: "hello.go", Source: src, Exports: []string{"Hello"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.systemStore.ActivateGoFuncVersion(context.Background(), pid, "hello.go", v.Version); err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.RunFunction(context.Background(), pid, "hello.go", "Hello", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}

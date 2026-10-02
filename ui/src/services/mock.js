@@ -220,7 +220,9 @@ const state = {
       _projectId: DEFAULT_PROJECT
     }
   ],
-  cronJobRuns: {}
+  cronJobRuns: {},
+  // 项目 API Keys（签发记录；明文只在 create 响应一次性返回）
+  apiKeys: []
 }
 
 /** mock 工具：N 毫秒后的 ISO 时间 */
@@ -670,6 +672,32 @@ export const mockApi = {
       const item = { id, name, createdAt: now() }
       state.projects.push(item)
       return { ...item }
+    }
+  },
+  apiKeys: {
+    async list(projectId) {
+      await delay(80)
+      return (state.apiKeys || [])
+        .filter((k) => k.projectId === projectId && !k.revokedAt)
+        .map((k) => ({ ...k }))
+    },
+    async create(projectId, permissions) {
+      await delay(80)
+      const item = {
+        id: 'key-' + genId(),
+        projectId,
+        permissions: permissions && permissions.length ? permissions : [
+          'database:read', 'database:write', 'database:admin', 'llm:invoke', 'project:admin'
+        ],
+        createdAt: now()
+      }
+      state.apiKeys = [...(state.apiKeys || []), item]
+      return { ...item, secret: 'sb_live_mock_' + genId() }
+    },
+    async revoke(projectId, keyId) {
+      await delay(80)
+      const found = (state.apiKeys || []).find((k) => k.projectId === projectId && k.id === keyId)
+      if (found) found.revokedAt = now()
     }
   },
   metrics: {

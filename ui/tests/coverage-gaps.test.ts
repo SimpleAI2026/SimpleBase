@@ -24,7 +24,7 @@ import SqlWorkModal from '@/components/modal/SqlWorkModal.vue'
 import DocumentListModal from '@/components/modal/DocumentListModal.vue'
 import SbModal from '@/components/modal/SbModal.vue'
 import AgentScheduleModal from '@/components/ai/AgentScheduleModal.vue'
-import CronJobRunsDrawer from '@/components/CronJobRunsDrawer.vue'
+import CronJobRunsModal from '@/components/modal/CronJobRunsModal.vue'
 import ConnectionPanel from '@/components/settings/ConnectionPanel.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import GlobalProjectSwitcher from '@/components/GlobalProjectSwitcher.vue'
@@ -319,7 +319,7 @@ describe('remaining coverage gaps', () => {
     w2.unmount()
   })
 
-  it('CronJobRunsDrawer copy clicks, load/trigger fallbacks, empty job', async () => {
+  it('CronJobRunsModal copy clicks, load/trigger fallbacks, empty job', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     useProjectStore().setProject('dev-shop')
@@ -336,7 +336,7 @@ describe('remaining coverage gaps', () => {
         createdAt: 't'
       }
     ])
-    const w = mount(CronJobRunsDrawer, {
+    const w = mount(CronJobRunsModal, {
       props: { open: true, job: sampleCron },
       global: { plugins: [pinia], stubs: uiStubs }
     })
@@ -351,7 +351,7 @@ describe('remaining coverage gaps', () => {
     await vm.trigger()
     w.unmount()
 
-    const empty = mount(CronJobRunsDrawer, {
+    const empty = mount(CronJobRunsModal, {
       props: { open: true },
       global: { plugins: [pinia], stubs: uiStubs }
     })

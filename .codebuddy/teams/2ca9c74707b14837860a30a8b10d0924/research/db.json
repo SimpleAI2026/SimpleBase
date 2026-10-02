@@ -1,0 +1,56 @@
+[
+  {
+    "id": "msg-1790563718670-wur85l",
+    "from": "team-lead",
+    "to": "db",
+    "type": "message",
+    "content": "注意工作区大量未提交变更，特别 manifest.go/local_state.go/orphan_ledger.go/lease 等已存在；务必基于当前工作树实际实现核对，区别 plan 假设与落地。重点核验当前热点 Sync 是否同步阻塞请求。",
+    "timestamp": "2026-09-28T02:48:38.670Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563808127-kkbb4a",
+    "from": "team-lead",
+    "to": "db",
+    "type": "message",
+    "content": "请核验更高优先级正确性：pruneVersions 删除 manifest/破坏从1读取；closeFast 全局影响全部库；probe失败仍运行；mirrorLegacyKeys 无条件覆盖。请将确认事实与风险纳入结论。",
+    "timestamp": "2026-09-28T02:50:08.127Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563962292-tnm6dt",
+    "from": "team-lead",
+    "to": "db",
+    "type": "message",
+    "content": "请尽快提供阶段性结论（含行号），马上写计划。",
+    "timestamp": "2026-09-28T02:52:42.292Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790564023225-rglh9o",
+    "from": "team-lead",
+    "to": "db",
+    "type": "message",
+    "content": "计划已初稿，尽快返回结果以复核并修订。",
+    "timestamp": "2026-09-28T02:53:43.225Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790564138296-yglyht",
+    "from": "team-lead",
+    "to": "db",
+    "type": "message",
+    "content": "计划写完，若发现架构相关关键反证请立即回报。",
+    "timestamp": "2026-09-28T02:55:38.296Z",
+    "read": true
+  },
+  {
+    "id": "shutdown-1790564327525",
+    "from": "team-lead",
+    "to": "db",
+    "type": "shutdown_request",
+    "content": "{\"type\":\"shutdown_request\",\"request_id\":\"shutdown-1790564327525\",\"timeout_ms\":60000,\"reason\":\"Team lead requested shutdown\",\"from\":\"team-lead\",\"timestamp\":\"2026-09-28T02:58:47.525Z\"}",
+    "timestamp": "2026-09-28T02:58:47.525Z",
+    "read": true
+  }
+]

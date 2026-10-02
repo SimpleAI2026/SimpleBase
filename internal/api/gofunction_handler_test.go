@@ -101,6 +101,9 @@ func postJSON(t *testing.T, e *echo.Echo, method, path, body string) *httptest.R
 func TestGoFunction_CreateListGetUpdateDelete(t *testing.T) {
 	e, _ := setupGoFunctionTestRouter(t, true, "proj-1")
 
+	// goFunctionDTO 是 goFuncDTO 的旧写法别名（纯 JSON 反序列化用途）。
+	type goFunctionDTO = goFuncDTO
+
 	// 创建
 	body, _ := json.Marshal(map[string]string{"name": "hello", "source": testGoFunctionSrc})
 	rec := postJSON(t, e, http.MethodPost, "/v1/projects/proj-1/gofunctions", string(body))
@@ -249,6 +252,7 @@ func TestGoFunction_ReadOnly503(t *testing.T) {
 func TestGoFunction_AdminProjectProtected(t *testing.T) {
 	adminID := "sb-admin"
 	e, _ := setupGoFunctionTestRouter(t, true, adminID)
+	type goFunctionDTO = goFuncDTO
 
 	// 读返回空列表
 	rec := postJSON(t, e, http.MethodGet, "/v1/projects/"+adminID+"/gofunctions", "")

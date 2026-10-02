@@ -39,6 +39,11 @@ type Service struct {
 	storage objectstore.DuckLakeStorage
 	logger  observability.Logger
 	now     Clock
+
+	// §7.2 P1.3/P1.4：读路径进程内缓存（写入路径同步失效）。
+	tenantCache *ttlCache[string]
+	dbCache     *ttlCache[Database]
+	kvCache     *ttlCache[Database]
 }
 
 // Repository 返回底层 Repository，供 usage/audit/jobs 等内部服务共享访问。
@@ -48,7 +53,7 @@ func (s *Service) Repository() Repository { return s.repo }
 // NewService 构造 Service。descriptor 可为 nil（DevMode / 测试未配置 S3 时跳过 descriptor 写入）。
 // storage 在 descriptor 非 nil 时应提供 bucket/region 等（Prefix 按库生成）。
 func NewService(repo Repository, keys objectstore.KeyBuilder, descriptor DescriptorWriter, storage objectstore.DuckLakeStorage, logger observability.Logger) *Service {
-	return &Service{
+	s := &Service{
 		repo:       repo,
 		keys:       keys,
 		descriptor: descriptor,
@@ -56,6 +61,8 @@ func NewService(repo Repository, keys objectstore.KeyBuilder, descriptor Descrip
 		logger:     logger,
 		now:        time.Now,
 	}
+	s.enableCache()
+	return s
 }
 
 // CreateDatabaseInput 是创建数据库的输入。
@@ -68,9 +75,82 @@ type CreateDatabaseInput struct {
 // CreateDatabase 校验名称与 project 归属 → 生成 UUID → 建立不可猜测 prefix →
 // 状态 creating → 写 DB 记录 → 写 S3 descriptor → 同步转为 ready；失败标记 degraded。
 func (s *Service) CreateDatabase(ctx context.Context, in CreateDatabaseInput) (Database, error) {
-	if err := validateName(in.Name); err != nil {
+	if err := validateUserName(in.Name); err != nil {
 		return Database{}, err
 	}
+	return s.createDatabase(ctx, in, DatabaseKindUser)
+}
+
+// CreateKVDatabase 为项目创建 kind=kv 的 KV catalog 行（key-value-ducklake-plan §2）。
+// 与用户库同引擎（DuckLake）：descriptor / prefix / 状态机走同一路径。
+// 已存在时幂等返回现有行（含 degraded 等状态，由调用方决定是否可用）。
+func (s *Service) CreateKVDatabase(ctx context.Context, tenantID, projectID string) (Database, error) {
+	if tenantID == "" || projectID == "" {
+		return Database{}, fmt.Errorf("%w: tenant_id/project_id required", ErrInvalidName)
+	}
+	if existing, err := s.GetKVDatabase(ctx, tenantID, projectID); err == nil {
+		return existing, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return Database{}, err
+	}
+	return s.createDatabase(ctx, CreateDatabaseInput{
+		TenantID:  tenantID,
+		ProjectID: projectID,
+		Name:      KVDatabaseName,
+	}, DatabaseKindKV)
+}
+
+// GetKVDatabase 返回项目专属的 kind=kv catalog 行；不存在返回 ErrNotFound。
+// 不做 principal 校验（内部入口）；HTTP 层负责项目访问控制。
+// §7.2 P1.1：project 中间件已注入解析过的 tenant，命中时跳过归属点查。
+func (s *Service) GetKVDatabase(ctx context.Context, tenantID, projectID string) (Database, error) {
+	if tenantID == "" || projectID == "" {
+		return Database{}, fmt.Errorf("%w: tenant_id/project_id required", ErrInvalidName)
+	}
+	if !tenantMatches(ctx, projectID, tenantID) {
+		belongs, err := s.repo.ProjectBelongsToTenant(ctx, projectID, tenantID)
+		if err != nil {
+			return Database{}, fmt.Errorf("catalog: check project ownership: %w", err)
+		}
+		if !belongs {
+			return Database{}, fmt.Errorf("%w: project %s not in tenant %s", ErrCrossProject, projectID, tenantID)
+		}
+	}
+	// §7.2 P1.4：KV 行按 projectID 缓存（写入路径同步失效）。
+	db, err := s.cachedKVRow(ctx, projectID, func(ctx context.Context, pid string) (Database, error) {
+		db, err := s.repo.GetDatabaseByName(ctx, pid, KVDatabaseName)
+		if err != nil {
+			return Database{}, err
+		}
+		if !IsKVDatabase(db) {
+			return Database{}, fmt.Errorf("%w: kv database in project %s", ErrNotFound, pid)
+		}
+		return db, nil
+	})
+	if err != nil {
+		return Database{}, err
+	}
+	return s.normalizeRetiredOpenStatus(ctx, db), nil
+}
+
+// ensureTenantMatch 校验 project 属于 principal 的租户；ctx 已携带同请求解析出的
+// tenant 时直接比对，否则查库（§7.2 P1.1：消除重复 GetProjectTenant 点查）。
+func (s *Service) ensureTenantMatch(ctx context.Context, principal auth.Principal, projectID string) error {
+	if tenantMatches(ctx, projectID, principal.TenantID) {
+		return nil
+	}
+	tenantID, err := s.repo.GetProjectTenant(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if tenantID != principal.TenantID {
+		return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
+	}
+	return nil
+}
+
+// createDatabase 是 user / kv 共用的建库路径；kind 决定写入的 catalog kind 字段。
+func (s *Service) createDatabase(ctx context.Context, in CreateDatabaseInput, kind string) (Database, error) {
 	if in.TenantID == "" || in.ProjectID == "" {
 		return Database{}, fmt.Errorf("%w: tenant_id/project_id required", ErrInvalidName)
 	}
@@ -94,7 +174,7 @@ func (s *Service) CreateDatabase(ctx context.Context, in CreateDatabaseInput) (D
 		TenantID:      in.TenantID,
 		ProjectID:     in.ProjectID,
 		Name:          in.Name,
-		Kind:          DatabaseKindUser,
+		Kind:          kind,
 		Status:        DatabaseCreating,
 		StoragePrefix: prefix,
 		FormatVersion: objectstore.DescriptorFormatVersion,
@@ -104,6 +184,10 @@ func (s *Service) CreateDatabase(ctx context.Context, in CreateDatabaseInput) (D
 
 	if err := s.repo.CreateDatabase(ctx, db); err != nil {
 		return Database{}, err
+	}
+	s.InvalidateDatabase(in.ProjectID, db.ID)
+	if kind == DatabaseKindKV {
+		s.InvalidateDatabase(in.ProjectID, db.ID)
 	}
 
 	if s.descriptor != nil {
@@ -166,7 +250,8 @@ func (s *Service) GetDatabase(ctx context.Context, principal auth.Principal, pro
 	if err := s.ensureProjectAccess(ctx, principal, projectID); err != nil {
 		return Database{}, err
 	}
-	db, err := s.repo.GetDatabase(ctx, projectID, databaseID)
+	// §7.2 P1.4：database 行缓存（写入路径同步失效 + 短 TTL 兜底）。
+	db, err := s.cachedDatabase(ctx, projectID, databaseID, s.repo.GetDatabase)
 	if err != nil {
 		return Database{}, err
 	}
@@ -202,8 +287,9 @@ func (s *Service) ListDatabases(ctx context.Context, principal auth.Principal, p
 // ResolveProjectTenant 返回 project 所属的 tenant ID。
 // 用于 API 层的 project context 中间件解析 path 参数 :projectID 对应的 tenant。
 // project 不存在返回 ErrNotFound。
+// §7.2 P1.3：project→tenant 近乎不可变，进程内缓存（删项目时失效）。
 func (s *Service) ResolveProjectTenant(ctx context.Context, projectID string) (string, error) {
-	return s.repo.GetProjectTenant(ctx, projectID)
+	return s.cachedProjectTenant(ctx, projectID, s.repo.GetProjectTenant)
 }
 
 // ListProjects 返回当前 principal 可见的项目列表。
@@ -315,6 +401,7 @@ func (s *Service) CreateProject(ctx context.Context, principal auth.Principal, i
 // Role=user：仅 ProjectIDs（owner 收敛）内放行，即使持有 ProjectAdmin；
 // Role=super/admin：租户内全部 + admin 系统项目；
 // API Key：ProjectAdmin 为租户内 + admin，否则仅绑定 ProjectIDs。
+// §7.2 P1.1：project 中间件已在 ctx 注入解析过的 tenant，命中时免重复点查。
 func (s *Service) ensureProjectAccess(ctx context.Context, principal auth.Principal, projectID string) error {
 	if principal.Role.IsUser() {
 		if IsSystemProject(projectID) {
@@ -338,27 +425,13 @@ func (s *Service) ensureProjectAccess(ctx context.Context, principal auth.Princi
 		if principal.TenantID == "" {
 			return fmt.Errorf("%w: tenant required", ErrInvalidName)
 		}
-		tenantID, err := s.repo.GetProjectTenant(ctx, projectID)
-		if err != nil {
-			return err
-		}
-		if tenantID != principal.TenantID {
-			return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
-		}
-		return nil
+		return s.ensureTenantMatch(ctx, principal, projectID)
 	}
 	if principal.HasPermission(auth.ProjectAdmin) {
 		if principal.TenantID == "" {
 			return fmt.Errorf("%w: tenant required", ErrInvalidName)
 		}
-		tenantID, err := s.repo.GetProjectTenant(ctx, projectID)
-		if err != nil {
-			return err
-		}
-		if tenantID != principal.TenantID {
-			return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
-		}
-		return nil
+		return s.ensureTenantMatch(ctx, principal, projectID)
 	}
 	if !principal.CanAccessProject(projectID) {
 		return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
@@ -389,6 +462,7 @@ func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Princi
 	if err != nil {
 		return Database{}, err
 	}
+	s.InvalidateDatabase(projectID, databaseID)
 	_ = s.repo.AppendOperation(ctx, Operation{
 		ID:          uuid.NewString(),
 		DatabaseID:  db.ID,
@@ -457,6 +531,10 @@ func (s *Service) SetDatabaseReady(ctx context.Context, id string) error {
 	_, err := s.repo.TransitionDatabase(ctx, id, from, DatabaseReady, s.now())
 	if err != nil && errors.Is(err, ErrInvalidState) {
 		return nil // 已是 ready，或当前状态不允许转出（含 degraded）
+	}
+	if err == nil {
+		// 状态写回成功：低频路径，全量失效兜底（无 projectID 上下文）。
+		s.InvalidateAllCatalogCache()
 	}
 	return err
 }
@@ -558,11 +636,17 @@ func (s *Service) MarkDatabaseDeleted(ctx context.Context, id string, at time.Ti
 		if errors.Is(err, ErrInvalidState) {
 			// 检查是否已是 deleted（幂等重试）。
 			// 直接依赖 TransitionDatabase 的 affected rows 判断：若非 deleting 则忽略。
+			s.InvalidateAllCatalogCache()
 			return nil
 		}
 		return err
 	}
-	return s.repo.MarkDeleted(ctx, id, at)
+	if err := s.repo.MarkDeleted(ctx, id, at); err != nil {
+		return err
+	}
+	// 删除是低频操作：无法从 repo 按 ID 反查 projectID，直接全量失效兜底。
+	s.InvalidateAllCatalogCache()
+	return nil
 }
 
 // GetLLMProviders 返回 project 的 LLM 供应商配置（含 CredentialRef，不含密钥原文）。
@@ -581,6 +665,7 @@ func (s *Service) SetDatabaseDegraded(ctx context.Context, id string, cause erro
 	if err != nil {
 		return err
 	}
+	s.InvalidateAllCatalogCache()
 	if s.logger != nil && cause != nil {
 		s.logger.Warn("catalog: database marked degraded", zap.String("database_id", id), zap.String("cause", cause.Error()))
 	}
@@ -627,6 +712,18 @@ func validateName(name string) error {
 		if r == '/' || r == '\\' || r < 0x20 {
 			return fmt.Errorf("%w: name contains invalid character", ErrInvalidName)
 		}
+	}
+	return nil
+}
+
+// validateUserName 在 validateName 之上额外拒绝项目内保留名（"kv"），
+// 避免用户库与 kind=kv 内部行的 (project_id, name) 唯一约束冲突。
+func validateUserName(name string) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+	if name == KVDatabaseName {
+		return fmt.Errorf("%w: %q is reserved", ErrInvalidName, name)
 	}
 	return nil
 }

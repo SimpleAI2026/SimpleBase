@@ -2,24 +2,20 @@
   <SbModal
     :open="auth.settingsOpen"
     title="设置"
-    description="主题、连接、默认模型与厂商 API Key"
-    :max-width="900"
+    description="连接、默认模型与厂商 API Key"
+    :max-width="720"
     :hide-footer="true"
     @update:open="onOpen"
   >
     <Tabs :model-value="auth.settingsTab" class="w-full" @update:model-value="onTab">
       <TabsList variant="line" class="w-full justify-start">
         <TabsTrigger value="connection">连接</TabsTrigger>
-        <TabsTrigger value="appearance">外观</TabsTrigger>
         <TabsTrigger value="models">模型</TabsTrigger>
         <TabsTrigger value="providers">供应商</TabsTrigger>
       </TabsList>
-      <div class="max-h-[min(80vh,720px)] overflow-y-auto pt-4">
+      <div class="max-h-[min(80vh,720px)] overflow-y-auto px-1 -mx-1 pt-4">
         <TabsContent value="connection">
           <ConnectionPanel />
-        </TabsContent>
-        <TabsContent value="appearance">
-          <SettingsPanel section="appearance" />
         </TabsContent>
         <TabsContent value="models">
           <SettingsPanel section="models" />
@@ -48,7 +44,7 @@ function onOpen(v: boolean) {
 
 function onTab(v: string | number) {
   const tab = String(v)
-  if (tab === 'connection' || tab === 'appearance' || tab === 'models' || tab === 'providers') {
+  if (tab === 'connection' || tab === 'models' || tab === 'providers') {
     auth.settingsTab = tab as SettingsTab
   }
 }

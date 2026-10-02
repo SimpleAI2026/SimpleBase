@@ -181,6 +181,7 @@ const keepDaysText = computed({
 })
 const savingRetention = ref(false)
 const retentionUpdatedAt = ref('')
+const retentionLoadedFor = ref('')
 const hasFilter = computed(() => Boolean(level.value || keyword.value.trim() || from.value || to.value))
 let timer: number | null = null
 
@@ -188,7 +189,10 @@ function queryParams() {
   return {
     level: level.value || undefined,
     q: keyword.value.trim() || undefined,
-    from: from.value ? new Date(from.value).toISOString() : undefined,
+    // 未指定开始时默认最近 24h，后端据此做文件剪枝（perf §1 P1-D）
+    from: from.value
+      ? new Date(from.value).toISOString()
+      : new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
     to: to.value ? new Date(to.value).toISOString() : undefined,
     limit: 200
   }
@@ -198,13 +202,18 @@ async function load() {
   if (!projectStore.id) return
   loading.value = true
   try {
+    // retention 每项目只取一次（poll 不再重复拉取）
+    const needRetention = retentionLoadedFor.value !== projectStore.id
     const [list, retention] = await Promise.all([
       api.logs.list(projectStore.id, queryParams()),
-      api.logs.getRetention(projectStore.id)
+      needRetention ? api.logs.getRetention(projectStore.id) : Promise.resolve(null)
     ])
     events.value = list
-    keepDays.value = retention.keepDays
-    retentionUpdatedAt.value = retention.updatedAt ? formatTime(retention.updatedAt) : ''
+    if (retention) {
+      keepDays.value = retention.keepDays
+      retentionUpdatedAt.value = retention.updatedAt ? formatTime(retention.updatedAt) : ''
+      retentionLoadedFor.value = projectStore.id
+    }
   } catch (e) {
     toast.error((e as Error)?.message || '加载日志失败')
   } finally {
@@ -226,6 +235,7 @@ async function saveRetention() {
   try {
     await api.logs.putRetention(projectStore.id, keepDays.value)
     toast.success('已保存保留策略')
+    retentionLoadedFor.value = ''
     await load()
   } catch (e) {
     toast.error((e as Error)?.message || '保存失败')

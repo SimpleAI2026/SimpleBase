@@ -125,8 +125,6 @@ func setupTestRouter(t *testing.T, svc *fakeDBService, writable bool) *echo.Echo
 	p.POST("/databases", h.CreateDatabase)
 	p.GET("/databases", h.ListDatabases)
 	p.GET("/databases/:databaseID", h.GetDatabase)
-	p.POST("/databases/:databaseID/open", removedDatabaseAction)
-	p.POST("/databases/:databaseID/close", removedDatabaseAction)
 	p.DELETE("/databases/:databaseID", h.DeleteDatabase)
 
 	return e
@@ -329,6 +327,7 @@ func TestPlan_DeleteDatabaseHTTPReturnsDeleted(t *testing.T) {
 }
 
 func TestPlan_OpenCloseRoutesNotFound(t *testing.T) {
+	// open/close 路由已整体删除：POST 到这些路径应回落 Echo 默认 404/405。
 	e := setupTestRouter(t, newFakeDBService(), true)
 	e.HTTPErrorHandler = errorHandler(Dependencies{})
 	for _, path := range []string{
@@ -336,15 +335,8 @@ func TestPlan_OpenCloseRoutesNotFound(t *testing.T) {
 		"/v1/projects/proj-1/databases/db-1/close",
 	} {
 		rec := doRequest(e, http.MethodPost, path, nil)
-		if rec.Code != http.StatusNotFound {
-			t.Fatalf("%s: expected 404, got %d: %s", path, rec.Code, rec.Body.String())
-		}
-		var body APIErrorBody
-		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-			t.Fatalf("%s: %v body=%s", path, err, rec.Body.String())
-		}
-		if body.Error.Code != "not_found" {
-			t.Fatalf("%s: code=%q body=%s", path, body.Error.Code, rec.Body.String())
+		if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s: expected 404/405, got %d: %s", path, rec.Code, rec.Body.String())
 		}
 	}
 }

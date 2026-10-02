@@ -1,0 +1,38 @@
+[
+  {
+    "id": "msg-1790654679671-tn3uyc",
+    "from": "team-lead",
+    "to": "reset",
+    "type": "message",
+    "content": "请特别核实 reset 无单测、租约首次无记录时提前返回、锁并发风险；返回简洁证据。",
+    "timestamp": "2026-09-29T04:04:39.671Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790654820566-7m1p6z",
+    "from": "team-lead",
+    "to": "reset",
+    "type": "message",
+    "content": "请立即提交现有结论，准备更新计划。",
+    "timestamp": "2026-09-29T04:07:00.566Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790654939316-8jxinu",
+    "from": "team-lead",
+    "to": "reset",
+    "type": "message",
+    "content": "请停止探索并给出最终简短发现。",
+    "timestamp": "2026-09-29T04:08:59.316Z",
+    "read": true
+  },
+  {
+    "id": "shutdown-1790655017787",
+    "from": "team-lead",
+    "to": "reset",
+    "type": "shutdown_request",
+    "content": "{\"type\":\"shutdown_request\",\"request_id\":\"shutdown-1790655017787\",\"timeout_ms\":60000,\"reason\":\"Team lead requested shutdown\",\"from\":\"team-lead\",\"timestamp\":\"2026-09-29T04:10:17.787Z\"}",
+    "timestamp": "2026-09-29T04:10:17.787Z",
+    "read": true
+  }
+]

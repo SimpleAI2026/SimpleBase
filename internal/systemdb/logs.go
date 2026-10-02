@@ -39,7 +39,7 @@ type Retention struct {
 	UpdatedAt time.Time
 }
 
-// RecordLog 缓冲一条运行日志。
+// RecordLog 缓冲一条运行日志（§7.2 P3.1：只入队，满批发信号由后台刷写）。
 func (s *Store) RecordLog(ev LogEvent) {
 	if s == nil {
 		return
@@ -54,49 +54,47 @@ func (s *Store) RecordLog(ev LogEvent) {
 		ev.Level = "info"
 	}
 	s.mu.Lock()
+	if len(s.logBuf) >= flushQueueCap {
+		s.droppedLog++
+		s.mu.Unlock()
+		return
+	}
 	s.logBuf = append(s.logBuf, ev)
 	n := len(s.logBuf)
+	f := s.async
+	closed := s.closed
 	s.mu.Unlock()
 	if n >= 64 {
-		_ = s.FlushLogs(context.Background())
+		switch {
+		case f != nil:
+			f.notify() // 后台批量写，请求路径 O(1)
+		case !closed:
+			// flusher 未启动（未 StartPeriodicFlush）：维持旧的同步兜底语义。
+			_ = s.FlushLogs(context.Background())
+		}
 	}
 }
 
-// FlushLogs 将缓冲日志写入 sys_log_events。
+// FlushLogs 将缓冲日志写入 sys_log_events（批量单事务，§7.2 P3.2）。
 func (s *Store) FlushLogs(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	s.mu.Lock()
-	batch := s.logBuf
-	s.logBuf = nil
-	s.mu.Unlock()
-	if len(batch) == 0 {
-		return nil
-	}
-	for _, e := range batch {
-		var project any
-		if e.ProjectID != "" {
-			project = e.ProjectID
-		}
-		if _, err := s.db.ExecContext(ctx,
-			`INSERT INTO sys_log_events(id, project_id, level, logger, message, fields_json, request_id, occurred_at)
-			 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-			e.ID, project, e.Level, e.Logger, e.Message, e.FieldsJSON, e.RequestID, e.OccurredAt.UTC()); err != nil {
-			return err
-		}
-	}
-	s.notifyWrite(ctx)
-	return nil
+	return s.flushLogsBatch(ctx, s.drainLogs())
 }
 
 // QueryLogs 按条件查询运行日志。ProjectID 为 admin 系统项目时查询全系统。
+// perf §1 P1-D：From 为空时默认取最近 24h（不超过 retention），
+// 让 DuckLake 有机会按 occurred_at 做文件剪枝，避免全表扫描。
 func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
 	if q.Limit <= 0 || q.Limit > 500 {
 		q.Limit = 100
+	}
+	if q.From.IsZero() {
+		q.From = time.Now().UTC().Add(-24 * time.Hour)
 	}
 	sqlStr := `SELECT id, project_id, level, logger, message, fields_json, request_id, occurred_at
 	           FROM sys_log_events WHERE 1=1`

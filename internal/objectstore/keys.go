@@ -152,25 +152,92 @@ func (k KeyBuilder) CatalogPrefix() string {
 	return joinKey(k.base(), "catalog")
 }
 
-// DuckLakeCatalogKey 返回 DuckLake catalog.sqlite 的对象键。
-func (k KeyBuilder) DuckLakeCatalogKey(tenantID, databaseID string) (string, error) {
-	prefix, err := k.DatabasePrefix(tenantID, databaseID)
-	if err != nil {
-		return "", err
-	}
-	return prefix + "/catalog/catalog.sqlite", nil
-}
-
-// DuckLakeCatalogVersionKey 返回按快照 id 命名的 catalog 历史版本键。
-func (k KeyBuilder) DuckLakeCatalogVersionKey(tenantID, databaseID string, snapshotID int64) (string, error) {
+// DuckLakeSnapshotKey 返回不可变快照对象键（multi-instance-consistency-plan §4.4）：
+// snapshots/{snapshot_id:020d}-{writer_epoch:020d}.{ext}。
+// ext 由 catalog engine 决定（duckdb→.ducklake，sqlite→.sqlite）。
+// 两个 writer 即使分配到同一 snapshot_id，epoch 不同则 key 不同，结构上无法互相覆盖。
+func (k KeyBuilder) DuckLakeSnapshotKey(tenantID, databaseID string, snapshotID, writerEpoch int64, engine string) (string, error) {
 	if snapshotID <= 0 {
 		return "", fmt.Errorf("objectstore: snapshot_id must be positive")
 	}
+	if writerEpoch < 0 {
+		return "", fmt.Errorf("objectstore: writer_epoch must be non-negative")
+	}
+	ext, err := CatalogFileExt(engine)
+	if err != nil {
+		return "", err
+	}
 	prefix, err := k.DatabasePrefix(tenantID, databaseID)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s/catalog/versions/%d.sqlite", prefix, snapshotID), nil
+	return fmt.Sprintf("%s/catalog/snapshots/%020d-%020d%s", prefix, snapshotID, writerEpoch, ext), nil
+}
+
+// CatalogFileExt 返回 catalog 引擎对应的文件后缀（含点）。
+// 未知引擎返回错误，防止生成无校验的 key。
+func CatalogFileExt(engine string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "duckdb", "":
+		return ".ducklake", nil
+	case "sqlite":
+		return ".sqlite", nil
+	default:
+		return "", fmt.Errorf("objectstore: unknown catalog engine %q", engine)
+	}
+}
+
+// DuckLakeManifestKey 返回 manifest 序列对象键：manifest/{seq:020d}.json。
+// seq 单调递增；writer 推进 seq 用 PutIfAbsent，冲突即 split-brain 确证。
+func (k KeyBuilder) DuckLakeManifestKey(tenantID, databaseID string, seq int64) (string, error) {
+	if seq <= 0 {
+		return "", fmt.Errorf("objectstore: manifest seq must be positive")
+	}
+	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/catalog/manifest/%020d.json", prefix, seq), nil
+}
+
+// DuckLakeLeaseKey 返回 per-database 写租约对象键：lease/{epoch:020d}.json。
+func (k KeyBuilder) DuckLakeLeaseKey(tenantID, databaseID string, epoch int64) (string, error) {
+	if epoch <= 0 {
+		return "", fmt.Errorf("objectstore: lease epoch must be positive")
+	}
+	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/catalog/lease/%020d.json", prefix, epoch), nil
+}
+
+// InstanceFormatKey 返回实例级 catalog 格式标记对象键（ducklake-duckdb-catalog-plan §4.1）。
+// 与 CAS 探针同在 catalog/ 前缀下；PutIfAbsent 创建，只有 reset 能删除。
+func (k KeyBuilder) InstanceFormatKey() string {
+	return joinKey(k.base(), "catalog", "instance-format.json")
+}
+
+// ResetLockKey 返回 reset 互斥锁对象键（ducklake-duckdb-catalog-plan §5.2）。
+func (k KeyBuilder) ResetLockKey() string {
+	return joinKey(k.base(), "catalog", "reset.lock")
+}
+
+// TenantsPrefix 返回 {base}/tenants/ 前缀（reset 与已有数据探测用）。
+func (k KeyBuilder) TenantsPrefix() string {
+	return joinKey(k.base(), "tenants")
+}
+
+// DuckLakeOrphanLedgerKey 返回孤儿账本对象键：orphans/{uuid}.json（按日分目录便于 lifecycle）。
+func (k KeyBuilder) DuckLakeOrphanLedgerKey(tenantID, databaseID, date, fileUUID string) (string, error) {
+	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+	if err != nil {
+		return "", err
+	}
+	if date == "" || fileUUID == "" {
+		return "", fmt.Errorf("objectstore: orphan ledger date and file uuid are required")
+	}
+	return fmt.Sprintf("%s/orphans/%s/%s.json", prefix, date, fileUUID), nil
 }
 
 // DuckLakeDataURI 返回 DuckLake DATA_PATH（必须以 / 结尾的 s3 URI）。

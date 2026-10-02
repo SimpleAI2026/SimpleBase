@@ -16,7 +16,7 @@ import (
 
 func TestBeforeCloseBindingAndAfterWriteError(t *testing.T) {
 	db, _ := openTestLake(t)
-	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{Mode: "debounce"}, nil, nil)
+	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{Mode: "debounce"}, "", nil, nil)
 	id := uuid.NewString()
 	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111"}
 	cs.Bind(id, db, meta, DefaultLakeAlias)
@@ -57,7 +57,7 @@ func TestInspectClosedDBAndListFiles(t *testing.T) {
 	if _, err := AssertDuckDBVersion(ctx, db); err == nil {
 		t.Fatal("version")
 	}
-	if err := AssertExtensionsLoaded(ctx, db); err == nil {
+	if err := AssertExtensionsLoaded(ctx, db, ""); err == nil {
 		t.Fatal("ext")
 	}
 	if err := validateRemoteDataPath(ctx, db, DefaultLakeAlias, "x"); err == nil {
@@ -82,7 +82,7 @@ func TestCatalogSyncerCloseFlushesBound(t *testing.T) {
 	db, _ := openTestLake(t)
 	id := uuid.NewString()
 	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111"}
-	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, nil, nil)
+	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, "", nil, nil)
 	cs.Bind(id, db, meta, DefaultLakeAlias)
 	if _, err := db.ExecContext(context.Background(), `CREATE TABLE c (x INTEGER)`); err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestEnsureLocalCatalogHeadError(t *testing.T) {
 	store := &errHeadStore{err: errorsNew("head fail")}
 	remote := RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase", Environment: "e"}
 	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111"}
-	_, err := EnsureLocalCatalog(context.Background(), store, remote, t.TempDir(), meta)
+	_, err := EnsureLocalCatalog(context.Background(), store, remote, t.TempDir(), meta, "")
 	if err == nil {
 		t.Fatal("head error")
 	}
@@ -120,6 +120,13 @@ func (e errHeadStore) DownloadFile(ctx context.Context, key, dest string) (objec
 	return objectstore.ObjectInfo{}, e.err
 }
 func (e errHeadStore) Delete(ctx context.Context, key string) error { return e.err }
+func (e errHeadStore) PutIfAbsent(ctx context.Context, key string, data []byte, ct string) (objectstore.ObjectInfo, error) {
+	return objectstore.ObjectInfo{}, e.err
+}
+func (e errHeadStore) List(ctx context.Context, prefix, cursor string, limit int) ([]string, string, error) {
+	return nil, "", e.err
+}
+func (e errHeadStore) DeleteMany(ctx context.Context, keys []string) error { return e.err }
 
 func errorsNew(s string) error { return errStr(s) }
 

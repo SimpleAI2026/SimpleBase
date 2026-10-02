@@ -16,13 +16,11 @@ type Statement struct {
 // QueryResult 是 Query/Execute/Batch 的统一返回结构。
 // Rows 中的每个元素是驱动返回的原生 Go 值（nil/int64/float64/bool/string/[]byte/time.Time）；
 // 面向 HTTP 的 JSON 安全转换由上层 serialize（plan6）负责，本包不做协议假设。
+// DuckLake 无 sequences / last_insert_rowid；需要生成 ID 时用 RETURNING 或应用侧 UUID。
 type QueryResult struct {
 	Columns      []string
 	Rows         [][]any
 	RowsAffected int64
-	// LastInsertID 在 DuckDB/DuckLake 下恒为 0（无 last_insert_rowid，且不支持 sequences）。
-	// API 层已废弃该字段；请使用 RETURNING 或应用侧 UUID。
-	LastInsertID int64
 	Duration     time.Duration
 }
 

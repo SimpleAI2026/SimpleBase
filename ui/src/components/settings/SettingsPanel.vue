@@ -1,26 +1,5 @@
 <template>
-  <div v-if="section === 'appearance'">
-    <FieldGroup class="max-w-md">
-      <Field orientation="horizontal">
-        <FieldTitle id="theme-label">主题</FieldTitle>
-        <ToggleGroup
-          :model-value="settings.theme"
-          type="single"
-          variant="outline"
-          spacing="0"
-          aria-labelledby="theme-label"
-          @update:model-value="onTheme"
-        >
-          <ToggleGroupItem value="light">浅色</ToggleGroupItem>
-          <ToggleGroupItem value="dark">深色</ToggleGroupItem>
-          <ToggleGroupItem value="system">跟随系统</ToggleGroupItem>
-        </ToggleGroup>
-      </Field>
-      <p class="text-sm text-muted-foreground">跟随系统、浅色与深色的选择保存在本机。</p>
-    </FieldGroup>
-  </div>
-
-  <div v-else-if="section === 'models'">
+  <div v-if="section === 'models'">
     <SbEmptyState
       v-if="!project.id"
       description="请先在右上角选择或创建一个项目"
@@ -212,7 +191,7 @@ import {
   ComboboxList,
   ComboboxViewport,
 } from '@/components/ui/combobox'
-import { Field, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -223,16 +202,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import SbEmptyState from '../SbEmptyState.vue'
 import { api } from '../../services/api'
 import { LLM_PROVIDER_PRESETS, getProviderPreset, maskSecret } from '../../constants/llmProviders'
 import type { LlmProviderFieldKey } from '../../constants/llmProviders'
 import { useProjectStore } from '../../stores/project'
-import { useSettingsStore, type ThemeMode } from '../../stores/settings'
+import { useSettingsStore } from '../../stores/settings'
 
 defineProps<{
-  section: 'appearance' | 'models' | 'providers'
+  section: 'models' | 'providers'
 }>()
 
 const project = useProjectStore()
@@ -246,11 +224,6 @@ const modelSuggests = computed(() => {
   const preset = id ? getProviderPreset(id) : undefined
   return preset?.suggestedModels || []
 })
-
-function onTheme(v: string | string[] | undefined) {
-  const mode = (Array.isArray(v) ? v[0] : v) as ThemeMode | undefined
-  if (mode === 'light' || mode === 'dark' || mode === 'system') settings.setTheme(mode)
-}
 
 async function loadServerDefaults() {
   if (!project.id) return

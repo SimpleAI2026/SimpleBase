@@ -354,20 +354,20 @@ func TestCronAndGoFunctionRemainingBranches(t *testing.T) {
 	if _, err := nilStore.ListCronJobRuns(ctx, "p", "j", 0); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
-	if _, err := nilStore.ListGoFunctions(ctx, "p"); !errors.Is(err, ErrUnavailable) {
+	if _, err := nilStore.ListGoFuncs(ctx, "p"); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
-	if _, err := nilStore.GetGoFunction(ctx, "p", "n"); !errors.Is(err, ErrUnavailable) {
+	if _, err := nilStore.GetGoFunc(ctx, "p", "n"); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
-	if _, err := nilStore.CreateGoFunction(ctx, GoFunction{}); !errors.Is(err, ErrUnavailable) {
+	if _, err := nilStore.CreateGoFunc(ctx, GoFunc{}); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
-	if _, err := nilStore.UpdateGoFunction(ctx, GoFunction{}); !errors.Is(err, ErrUnavailable) {
+	if err := nilStore.UpdateGoFuncMeta(ctx, GoFunc{}); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
-	assertUnavailable(t, nilStore.ArchiveGoFunction(ctx, "p", "n"))
-	if _, err := nilStore.CountGoFunctions(ctx, "p"); !errors.Is(err, ErrUnavailable) {
+	assertUnavailable(t, nilStore.ArchiveGoFunc(ctx, "p", "n"))
+	if _, err := nilStore.CountGoFuncs(ctx, "p"); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
 
@@ -420,18 +420,14 @@ func TestCronAndGoFunctionRemainingBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.UpdateGoFunction(ctx, GoFunction{ProjectID: "p", Name: "missing"}); !errors.Is(err, sql.ErrNoRows) {
+	if err := s.UpdateGoFuncMeta(ctx, GoFunc{ID: "missing", ProjectID: "p", Name: "missing"}); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateGoFunction(ctx, GoFunction{ID: uuid.NewString(), ProjectID: "p", Name: "fixed", Source: "package main"}); err != nil {
+	if _, err := s.CreateGoFunc(ctx, GoFunc{ID: uuid.NewString(), ProjectID: "p", Name: "fixed"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO sys_gofunctions(id, project_id, name, source, exports_json, created_at, updated_at, archived_at)
-		VALUES(?, 'p', 'badjson', '', '{', ?, ?, NULL)`, uuid.NewString(), time.Now(), time.Now()); err != nil {
+	if _, err := s.AppendGoFuncVersion(ctx, GoFuncVersion{ProjectID: "p", Name: "fixed", Source: "package main"}); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := s.GetGoFunction(ctx, "p", "badjson"); err == nil {
-		t.Fatal("bad exports json")
 	}
 
 	if nullString("") != nil || nullString("x") == nil {

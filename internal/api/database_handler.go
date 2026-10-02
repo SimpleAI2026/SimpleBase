@@ -49,7 +49,12 @@ type DatabaseHandler struct {
 	// SnapshotFor 可选：填充 DuckLake 同步水位。
 	SnapshotFor func(databaseID string) *DatabaseSnapshot
 	// RowCountFor 可选：统计库内用户表总行数（列表「数据量」列）。
+	// 仅在未接 RowCounts 时使用（兼容装配/测试）；生产装配应接 RowCounts。
 	RowCountFor func(ctx context.Context, db catalog.Database) (int64, error)
+	// RowCounts 可选：行数统计缓存（v2.0 计划 §4-P1）。设置后列表只读
+	// 缓存，未命中省略 document_count 并触发后台有界并发刷新，
+	// 不再同步逐库 COUNT(*)（消除 N+1 同步请求链）。
+	RowCounts *RowCountCache
 }
 
 // NewDatabaseHandler 构造 handler。writable 为 false 时所有写操作返回 503。
@@ -141,29 +146,54 @@ func (h *DatabaseHandler) ListDatabases(c echo.Context) error {
 		return WriteError(c, err)
 	}
 
-	dbs, nextCursor, err := h.svc.ListDatabases(c.Request().Context(), principal, project.ID, page)
+	dbs, nextCursor, err := func() ([]catalog.Database, string, error) {
+		// §7.2 M1：catalog 列表查询计入 catalog_lookup 段（直接实现路径）。
+		timer := StageTimerFrom(c.Request().Context())
+		scope := timer.StageScope(StageCatalog)
+		defer scope.Done()
+		return h.svc.ListDatabases(c.Request().Context(), principal, project.ID, page)
+	}()
 	if err != nil {
 		return WriteError(c, err)
 	}
 	out := make([]DatabaseResponse, 0, len(dbs))
+	var stale []catalog.Database
 	for _, db := range dbs {
 		resp := toDatabaseResponse(db)
-		h.enrich(c.Request().Context(), db, &resp)
+		// v2.0 §4-P1：列表绝不同步逐库 COUNT(*)；未命中仅省略
+		// document_count（前端显示 —），仅对当前页触发后台刷新。
+		if h.enrichList(c.Request().Context(), db, &resp) {
+			stale = append(stale, db)
+		}
 		out = append(out, resp)
+	}
+	if len(stale) > 0 {
+		h.RowCounts.RefreshAsync(stale)
 	}
 	return c.JSON(http.StatusOK, DatabaseListResponse{Databases: out, NextCursor: nextCursor})
 }
 
-// enrich 填充 snapshot 与 document_count（均可选；失败静默，列表不被单库统计拖垮）。
+// enrich 填充 snapshot 与 document_count（GetDatabase 单库路径；
+// 失败静默省略字段）。缓存未命中时同步补一次（单库限时 3s）。
 func (h *DatabaseHandler) enrich(ctx context.Context, db catalog.Database, resp *DatabaseResponse) {
 	if h.SnapshotFor != nil {
 		resp.Snapshot = h.SnapshotFor(db.ID)
 	}
-	if h.RowCountFor == nil {
+	// 仅 ready 库统计；单库限时，避免请求被慢查询拖死。
+	if db.Status != catalog.DatabaseReady {
 		return
 	}
-	// 仅 ready 库统计；单库限时，避免列表请求被慢查询拖死。
-	if db.Status != catalog.DatabaseReady {
+	if h.RowCounts != nil {
+		if n, ok := h.RowCounts.Get(db.ID); ok {
+			resp.DocumentCount = &n
+			return
+		}
+		if n, err := h.RowCounts.RefreshSync(ctx, db, 3*time.Second); err == nil {
+			resp.DocumentCount = &n
+		}
+		return
+	}
+	if h.RowCountFor == nil {
 		return
 	}
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -173,6 +203,27 @@ func (h *DatabaseHandler) enrich(ctx context.Context, db catalog.Database, resp 
 		return
 	}
 	resp.DocumentCount = &n
+}
+
+// enrichList 填充列表项。RowCounts 已装配时 document_count 只读缓存，
+// 未命中返回 true（由调用方触发后台刷新）；未装配缓存时回退旧同步路径
+//（兼容测试装配）。
+func (h *DatabaseHandler) enrichList(ctx context.Context, db catalog.Database, resp *DatabaseResponse) (stale bool) {
+	if h.RowCounts == nil {
+		h.enrich(ctx, db, resp)
+		return false
+	}
+	if h.SnapshotFor != nil {
+		resp.Snapshot = h.SnapshotFor(db.ID)
+	}
+	if db.Status != catalog.DatabaseReady {
+		return false
+	}
+	if n, ok := h.RowCounts.Get(db.ID); ok {
+		resp.DocumentCount = &n
+		return false
+	}
+	return true
 }
 
 // GetDatabase: GET /v1/projects/:projectID/databases/:databaseID
@@ -197,15 +248,6 @@ func (h *DatabaseHandler) GetDatabase(c echo.Context) error {
 	resp := toDatabaseResponse(db)
 	h.enrich(c.Request().Context(), db, &resp)
 	return c.JSON(http.StatusOK, resp)
-}
-
-// removedDatabaseAction 是已删除的 open/close 路由的固定响应。
-func removedDatabaseAction(c echo.Context) error {
-	return c.JSON(http.StatusNotFound, APIErrorBody{Error: APIErrorDetail{
-		Code:      "not_found",
-		Message:   "not found",
-		RequestID: RequestIDFromContext(c.Request().Context()),
-	}})
 }
 
 // DeleteDatabase: DELETE /v1/projects/:projectID/databases/:databaseID
@@ -255,11 +297,16 @@ func projectContextMiddlewareEcho(deps Dependencies) echo.MiddlewareFunc {
 			if deps.Catalog == nil {
 				return c.JSON(http.StatusServiceUnavailable, APIErrorBody{Error: APIErrorDetail{Code: "service_unavailable", Message: "catalog not configured"}})
 			}
+			timer := StageTimerFrom(c.Request().Context())
+			scope := timer.StageScope(StageProject)
 			tenantID, err := deps.Catalog.ResolveProjectTenant(c.Request().Context(), projectID)
+			scope.Done()
 			if err != nil {
 				return WriteError(c, err)
 			}
-			ctx := WithProject(c.Request().Context(), ProjectContext{ID: projectID, TenantID: tenantID})
+			// §7.2 P1.1：把解析结果注入 ctx，下游 catalog 校验免重复点查。
+			ctx := catalog.WithResolvedProjectTenant(c.Request().Context(), projectID, tenantID)
+			ctx = WithProject(ctx, ProjectContext{ID: projectID, TenantID: tenantID})
 			c.SetRequest(c.Request().WithContext(ctx))
 			return next(c)
 		}

@@ -77,6 +77,20 @@ func (h *Handle) Conn() *sql.DB {
 	return h.conn
 }
 
+// notifyWrite 在写成功后回调 onWrite（CatalogSyncer.MarkDirty 等）。
+func (h *Handle) notifyWrite(ctx context.Context) {
+	h.touch()
+	if h.onWrite != nil {
+		_ = h.onWrite(ctx, h)
+	}
+}
+
+// NotifyWrite 通知本 handle 上发生了一次外部写提交（不走 Execute/Batch 的
+// 路径，例如 kv 包自管事务），触发与 Execute/Batch 相同的 onWrite 回调。
+func (h *Handle) NotifyWrite(ctx context.Context) {
+	h.notifyWrite(ctx)
+}
+
 // Query 委托给 internal/database.Query。
 func (h *Handle) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
 	return database.Query(ctx, h.conn, stmt, maxRows)
@@ -88,10 +102,7 @@ func (h *Handle) Execute(ctx context.Context, stmt database.Statement) (database
 	if err != nil {
 		return res, err
 	}
-	h.touch()
-	if h.onWrite != nil {
-		_ = h.onWrite(ctx, h)
-	}
+	h.notifyWrite(ctx)
 	return res, nil
 }
 
@@ -101,22 +112,34 @@ func (h *Handle) Batch(ctx context.Context, stmts []database.Statement, transact
 	if err != nil {
 		return res, err
 	}
-	h.touch()
-	if h.onWrite != nil {
-		_ = h.onWrite(ctx, h)
-	}
+	h.notifyWrite(ctx)
 	return res, nil
 }
 
 // closeLocked 关闭底层连接，只执行一次。调用方必须已将 state 置为 closing/closed
 // 且确认不会再有新的 Acquire 命中该 handle。
+// §3.6：beforeClose（Flush catalog）失败必须传播给调用方——静默吞掉会让
+// 缓存淘汰继续删除本地目录，放大未同步损失。连接仍会关闭，错误如实返回。
 func (h *Handle) closeLocked() error {
 	var err error
 	h.closeOnce.Do(func() {
 		h.state.Store(uint32(stateClosed))
 		if h.beforeClose != nil {
-			_ = h.beforeClose(context.Background(), h)
+			err = h.beforeClose(context.Background(), h)
 		}
+		if cerr := h.conn.Close(); err == nil {
+			err = cerr
+		}
+	})
+	return err
+}
+
+// closeNoFlushLocked 关闭连接但跳过 beforeClose 回调（失租路径：
+// multi-instance-consistency-plan §4.6 要求失租后 Close 不发起任何 PUT）。
+func (h *Handle) closeNoFlushLocked() error {
+	var err error
+	h.closeOnce.Do(func() {
+		h.state.Store(uint32(stateClosed))
 		err = h.conn.Close()
 	})
 	return err

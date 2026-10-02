@@ -64,12 +64,13 @@ type ObjectInfo struct {
 
 // s3Client 是基于 aws-sdk-go-v2 的 Client 实现。
 type s3Client struct {
-	api       s3API
-	bucket    string
-	kmsKeyID  string
-	logger    observability.Logger
-	metrics   *observability.Metrics
-	redacted  redactor
+	api      s3API
+	bucket   string
+	kmsKeyID string
+	endpoint string // 自定义 endpoint（脱敏后仅保留 host），用于 COS 判定
+	logger   observability.Logger
+	metrics  *observability.Metrics
+	redacted redactor
 }
 
 // s3API 抽象 s3.Client 以便测试注入。
@@ -115,6 +116,7 @@ func NewClient(ctx context.Context, cfg Config, logger observability.Logger, met
 		api:      api,
 		bucket:   cfg.Bucket,
 		kmsKeyID: cfg.KMSKeyID,
+		endpoint: cfg.Endpoint,
 		logger:   logger,
 		metrics:  metrics,
 		redacted: redactor{},
@@ -122,6 +124,9 @@ func NewClient(ctx context.Context, cfg Config, logger observability.Logger, met
 }
 
 func loadAWSConfig(ctx context.Context, cfg Config) (aws.Config, error) {
+	if err := checkEndpointBucketScope(cfg.Endpoint, cfg.Bucket); err != nil {
+		return aws.Config{}, err
+	}
 	loadOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
 	}
@@ -134,10 +139,17 @@ func loadAWSConfig(ctx context.Context, cfg Config) (aws.Config, error) {
 		loadOpts = append(loadOpts, config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
 			func(service, region string, options ...any) (aws.Endpoint, error) {
 				if service == s3.ServiceID {
+					// HostnameImmutable 必须为 false：设 true 时 SDK 无条件把 bucket 拼进
+					// path（serializeImmutableHostnameBucket），force_path_style=false 形同
+					// 虚设，所有自定义 endpoint 恒为 path-style 寻址。对要求虚拟主机寻址的
+					// 服务（COS 存储桶强制 virtual-styled domain，区域级域名 path-style 返回
+					// PathStyleDomainForbidden；bucket 级域名下 List 请求被路由为 GetObject，
+					// 误报 404 NoSuchKey）会完全不可用。false 时 SDK 按 UsePathStyle 正常
+					// 寻址：true=path（MinIO），false=vhost（COS/S3/R2/GCS）。
 					return aws.Endpoint{
 						URL:               cfg.Endpoint,
 						SigningRegion:     cfg.Region,
-						HostnameImmutable: true,
+						HostnameImmutable: false,
 					}, nil
 				}
 				return aws.Endpoint{}, &aws.EndpointNotFoundError{}
@@ -145,6 +157,29 @@ func loadAWSConfig(ctx context.Context, cfg Config) (aws.Config, error) {
 		)))
 	}
 	return config.LoadDefaultConfig(ctx, loadOpts...)
+}
+
+// checkEndpointBucketScope 拒绝 bucket 级 COS endpoint（host 已以 {bucket}. 开头，如
+// https://{bucket-appid}.cos.{region}.myqcloud.com）。SDK 寻址规则下 bucket 会被拼到
+// host 前（vhost → {bucket}.{bucket}.cos...，DNS 不存在）或拼进 path（bucket 级域名下
+// path 即对象 key，ListObjectsV2 被路由为 GetObject → 404 NoSuchKey，Get/Head 落到错误
+// key 前缀）。COS bucket 必须以区域级服务域名访问：endpoint=https://cos.{region}.myqcloud.com
+// 且 force_path_style=false。
+func checkEndpointBucketScope(endpoint, bucket string) error {
+	if endpoint == "" || bucket == "" || isAWSHost(endpoint) {
+		return nil
+	}
+	if !isCOSEndpoint(endpoint) {
+		return nil
+	}
+	if strings.HasPrefix(endpointHost(endpoint), bucket+".") {
+		return fmt.Errorf(
+			"objectstore: COS endpoint %s is bucket-scoped (host starts with bucket %q); "+
+				"use the regional service endpoint https://cos.<region>.myqcloud.com with force_path_style=false, "+
+				"otherwise buckets are addressed as {bucket}.{bucket}... (vhost) or list requests are misrouted as GetObject (404 NoSuchKey)",
+			endpointHost(endpoint), bucket)
+	}
+	return nil
 }
 
 func isAWSHost(endpoint string) bool {
@@ -263,9 +298,10 @@ func (c *s3Client) DeletePrefix(ctx context.Context, prefix string) error {
 }
 
 // Check 做最小连通与权限验证。
-// 腾讯云 COS + AWS SDK v2（自定义 Endpoint 且 HostnameImmutable）时，
-// ListObjectsV2 / HeadBucket 常误报 NoSuchKey/404；改用 HeadObject：
-// 对象存在或 404/NotFound 都视为 bucket 可达，其它错误才失败。
+// 历史背景：自定义 endpoint 曾强制 path-style 寻址（HostnameImmutable=true），bucket 级
+// COS 域名下 ListObjectsV2 / HeadBucket 会被 COS 路由为 GetObject 而误报 NoSuchKey/404，
+// 故改用 HeadObject：对象存在或 404/NotFound 都视为 bucket 可达，其它错误才失败。
+// 现已改为按 force_path_style 正确寻址（见 loadAWSConfig），保留 HeadObject 探测语义。
 func (c *s3Client) Check(ctx context.Context) error {
 	_, err := c.api.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(c.bucket),
@@ -402,6 +438,26 @@ func mapNotFoundErr(err error) error {
 	// 通过 smithy http 状态码判断。
 	if isHTTP404(err) {
 		return ErrNotFound
+	}
+	return err
+}
+
+// mapPreconditionErr 将条件写冲突映射为 ErrPreconditionFailed：
+//   - 标准 S3/GCS/R2：If-None-Match: * 冲突返回 HTTP 412，错误码 PreconditionFailed；
+//   - 腾讯云 COS：x-cos-forbid-overwrite 冲突返回 409，错误码 ObjectAlreadyExists。
+//
+// SDK v1.90 未为这两类错误生成结构体类型，只能做状态码 + 错误码文本双检测。
+// 其余错误原样返回。
+func mapPreconditionErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "StatusCode: 412") || strings.Contains(msg, "StatusCode: 409") {
+		return ErrPreconditionFailed
+	}
+	if strings.Contains(msg, "PreconditionFailed") || strings.Contains(msg, "ObjectAlreadyExists") {
+		return ErrPreconditionFailed
 	}
 	return err
 }

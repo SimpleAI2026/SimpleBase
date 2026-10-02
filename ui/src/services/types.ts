@@ -120,6 +120,17 @@ export interface ProjectItem {
   managed?: boolean
 }
 
+/* ---------- 项目 API Keys ---------- */
+
+/** API Key 条目（列表返回；不含明文） */
+export interface ApiKeyItem {
+  id: string
+  projectId: string
+  permissions: string[]
+  createdAt: string
+  revokedAt?: string
+}
+
 /* ---------- Auth / Users（login-auth-plan） ---------- */
 
 export type UserRole = 'superadminl1' | 'admin' | 'user'
@@ -568,6 +579,12 @@ export interface Api {
   projects: {
     list: () => Promise<ProjectItem[]>
     create: (req: { name: string; id?: string; ownerUserId?: string }) => Promise<ProjectItem>
+  }
+  /** 项目 API Key 管理（创建/列表/吊销；明文仅创建响应一次性返回） */
+  apiKeys: {
+    list: (projectId: string) => Promise<ApiKeyItem[]>
+    create: (projectId: string, permissions?: string[]) => Promise<ApiKeyItem & { secret: string }>
+    revoke: (projectId: string, keyId: string) => Promise<void>
   }
   metrics: {
     summary: (projectId: string) => Promise<MetricsSummary>

@@ -37,14 +37,30 @@ func TestKnownModuleAndTools(t *testing.T) {
 	if !KnownTool(ToolReadonlySQL) || KnownTool("delete_object") {
 		t.Fatal("tool catalog")
 	}
-	mods := Modules()
-	if len(mods) != 4 {
+	mods := Modules(false)
+	if len(mods) != 5 {
 		t.Fatalf("modules=%d", len(mods))
 	}
 	for _, m := range mods {
 		if m.TeamSupported {
 			t.Fatalf("team should be stub false: %+v", m)
 		}
+	}
+	if !KnownModule(ModuleSandbox) || !IsSandboxTool(ToolSandboxExec) {
+		t.Fatal("sandbox module/tool catalog")
+	}
+	if !KnownTool(ToolSandboxShell) {
+		t.Fatal("sandbox tools must be known")
+	}
+	sb := Modules(true)
+	var found bool
+	for _, m := range sb {
+		if m.ID == ModuleSandbox {
+			found = m.SandboxAvailable
+		}
+	}
+	if !found {
+		t.Fatal("sandbox_available must reflect the flag")
 	}
 }
 

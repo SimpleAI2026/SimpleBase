@@ -11,7 +11,14 @@ import (
 // MinDuckDBVersion 是 DuckLake v1.0 的硬性下限（§2.1）。
 const MinDuckDBVersion = "1.5.2"
 
-var requiredExtensions = []string{"ducklake", "sqlite", "httpfs"}
+// requiredExtensions 按引擎返回必需扩展（ducklake-duckdb-catalog-plan §3）：
+// duckdb 引擎无需 sqlite 扩展。
+func requiredExtensions(engine string) []string {
+	if NormalizeCatalogEngine(engine) == EngineSQLite {
+		return []string{"ducklake", "sqlite", "httpfs"}
+	}
+	return []string{"ducklake", "httpfs"}
+}
 
 // extensionAliases maps INSTALL 名到 duckdb_extensions() 可能返回的名字。
 var extensionAliases = map[string][]string{
@@ -23,7 +30,7 @@ func extensionBootSQL(opts Options) []string {
 	if opts.ExtensionDir != "" {
 		out = append(out, "SET extension_directory = "+quoteSQLString(opts.ExtensionDir))
 	}
-	for _, ext := range requiredExtensions {
+	for _, ext := range requiredExtensions(opts.CatalogEngine) {
 		out = append(out, "INSTALL "+ext)
 		out = append(out, "LOAD "+ext)
 	}
@@ -47,8 +54,8 @@ func AssertDuckDBVersion(ctx context.Context, db *sql.DB) (string, error) {
 	return version, nil
 }
 
-// AssertExtensionsLoaded 确认 ducklake/sqlite/httpfs 均已加载。
-func AssertExtensionsLoaded(ctx context.Context, db *sql.DB) error {
+// AssertExtensionsLoaded 确认当前引擎所需的扩展均已加载。
+func AssertExtensionsLoaded(ctx context.Context, db *sql.DB, engine string) error {
 	rows, err := db.QueryContext(ctx, `
 		SELECT extension_name, loaded
 		FROM duckdb_extensions()
@@ -70,7 +77,7 @@ func AssertExtensionsLoaded(ctx context.Context, db *sql.DB) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, ext := range requiredExtensions {
+	for _, ext := range requiredExtensions(engine) {
 		if !extensionLoaded(loaded, ext) {
 			return fmt.Errorf("ducklake: required extension %s is not loaded (seen=%v)", ext, loaded)
 		}

@@ -1,0 +1,25 @@
+{
+  "name": "research",
+  "mainConversationId": "2ca9c74707b14837860a30a8b10d0924",
+  "workspacePath": "/Volumes/my/github/SimpleBase",
+  "createdAt": "2026-09-28T02:47:36.360Z",
+  "options": {
+    "workspacePath": "/Volumes/my/github/SimpleBase"
+  },
+  "members": [
+    {
+      "memberId": "db@research",
+      "name": "db",
+      "role": "梳理 DuckLake 数据库实现",
+      "sessionId": "8090113e40544c16854ec25149dd0834",
+      "status": "running"
+    },
+    {
+      "memberId": "latency@research",
+      "name": "latency",
+      "role": "分析多实例接口慢路径",
+      "sessionId": "87f86ff4cb9f4479a5e5d408788998a6",
+      "status": "running"
+    }
+  ]
+}

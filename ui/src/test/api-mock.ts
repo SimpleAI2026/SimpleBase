@@ -118,6 +118,11 @@ export const api = {
     runs: vi.fn(),
     trigger: vi.fn()
   },
+  apiKeys: {
+    list: vi.fn(),
+    create: vi.fn(),
+    revoke: vi.fn()
+  },
   kv: {
     /** 项目级单端点：测试里默认模拟「库为空」的语义回复 */
     exec: vi.fn(),
@@ -385,6 +390,9 @@ export function applyApiDefaults() {
   api.cronjobs.remove.mockResolvedValue(undefined)
   api.cronjobs.runs.mockResolvedValue([])
   api.cronjobs.trigger.mockResolvedValue(undefined)
+  api.apiKeys.list.mockResolvedValue([])
+  api.apiKeys.create.mockResolvedValue({ id: 'k1', secret: 'sb_live_mock_secret', permissions: [] })
+  api.apiKeys.revoke.mockResolvedValue(undefined)
   // kv 默认值：空库语义（SCAN 返回空页；读命令返回空回复），避免组件挂载时报错。
   // 测试按需 mockResolvedValueOnce 覆盖；exec 的第一参数是 projectId。
   api.kv.exec.mockImplementation(async (_pid: string, body: { type: string; argvs?: string[] }) => {

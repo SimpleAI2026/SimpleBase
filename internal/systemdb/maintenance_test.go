@@ -1,0 +1,121 @@
+package systemdb
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
+)
+
+type fakeExec struct {
+	mu      sync.Mutex
+	queries []string
+	args    [][]any
+	failOn  string // 含该子串的 query 返回错误
+}
+
+func (f *fakeExec) run(_ context.Context, query string, args ...any) (sql.Result, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queries = append(f.queries, query)
+	f.args = append(f.args, args)
+	if f.failOn != "" && strings.Contains(query, f.failOn) {
+		return nil, errors.New("boom")
+	}
+	return nil, nil
+}
+
+func newMaintRunner(f *fakeExec, writable func() bool) *MaintenanceRunner {
+	r := NewMaintenanceRunner(nil, ducklake.MaintenanceOptions{
+		CheckpointInterval: time.Hour,
+		ExpireOlderThan:    7 * 24 * time.Hour,
+		DeleteOlderThan:    7 * 24 * time.Hour,
+	}, writable, nil)
+	r.exec = f.run
+	return r
+}
+
+// 三轮步骤按序执行；cleanup 默认 dry-run。
+func TestMaintenanceRunnerStepsInOrder(t *testing.T) {
+	f := &fakeExec{}
+	r := newMaintRunner(f, func() bool { return true })
+	r.runOnce(context.Background())
+
+	if len(f.queries) != 3 {
+		t.Fatalf("steps=%d want 3: %v", len(f.queries), f.queries)
+	}
+	if f.queries[0] != "CALL ducklake_merge_adjacent_files(?)" {
+		t.Fatalf("step1: %s", f.queries[0])
+	}
+	if f.queries[1] != "CALL ducklake_expire_snapshots(?, older_than => ?)" {
+		t.Fatalf("step2: %s", f.queries[1])
+	}
+	if f.queries[2] != "CALL ducklake_cleanup_old_files(?, older_than => ?, dry_run => ?)" {
+		t.Fatalf("step3: %s", f.queries[2])
+	}
+	// dry-run 默认开启
+	last := f.args[2]
+	if dry, ok := last[len(last)-1].(bool); !ok || !dry {
+		t.Fatalf("cleanup dry_run arg=%v want true", last[len(last)-1])
+	}
+	// 不做 delete_orphaned_files
+	for _, q := range f.queries {
+		if strings.Contains(q, "delete_orphaned") {
+			t.Fatalf("must never call delete_orphaned_files: %s", q)
+		}
+	}
+}
+
+// 非 writer 直接跳过。
+func TestMaintenanceRunnerSkipsWhenNotWriter(t *testing.T) {
+	f := &fakeExec{}
+	r := newMaintRunner(f, func() bool { return false })
+	r.runOnce(context.Background())
+	if len(f.queries) != 0 {
+		t.Fatalf("non-writer must skip, got %v", f.queries)
+	}
+}
+
+// 单步失败不 panic、不中断后续步骤。
+func TestMaintenanceRunnerStepErrorContinues(t *testing.T) {
+	f := &fakeExec{failOn: "expire_snapshots"}
+	r := newMaintRunner(f, func() bool { return true })
+	r.runOnce(context.Background())
+	if len(f.queries) != 3 {
+		t.Fatalf("steps=%d want 3（失败步骤不应中断后续）", len(f.queries))
+	}
+}
+
+// Start/Close 可中断：初始延迟 60s 内 Close 必须快速返回。
+func TestMaintenanceRunnerCloseStopsLoop(t *testing.T) {
+	f := &fakeExec{}
+	r := newMaintRunner(f, func() bool { return true })
+	r.Start()
+	done := make(chan struct{})
+	go func() {
+		_ = r.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close 被初始延迟卡住")
+	}
+	// 幂等
+	_ = r.Close()
+}
+
+// exec 为 nil（无连接）时 Start 不启动循环。
+func TestMaintenanceRunnerNoDB(t *testing.T) {
+	r := NewMaintenanceRunner(nil, ducklake.MaintenanceOptions{}, nil, nil)
+	r.Start() // no-op，不 panic
+	_ = r.Close()
+	if r.interval() != time.Hour {
+		t.Fatalf("default interval: %v", r.interval())
+	}
+}

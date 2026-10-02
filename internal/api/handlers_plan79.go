@@ -2,16 +2,36 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
 
 // QuotaHandler 依赖 UsageService。
+// perf §1 P1-D：配额状态按项目缓存 10s + 单飞，仪表盘刷新不再逐次打系统库。
 type QuotaHandler struct {
 	svc UsageService
+
+	mu       sync.Mutex
+	cache    map[string]quotaCacheEntry
+	inflight map[string]*quotaCall
+}
+
+type quotaCacheEntry struct {
+	llmOK     bool
+	dbOK      bool
+	expiresAt time.Time
+}
+
+type quotaCall struct {
+	done  chan struct{}
+	llmOK bool
+	dbOK  bool
 }
 
 // GetQuota 返回当前 project 的配额可用状态。
@@ -20,18 +40,43 @@ func (h *QuotaHandler) GetQuota(c echo.Context) error {
 	if !ok {
 		return WriteError(c, errors.New("project context missing"))
 	}
-	llmOK := true
-	dbOK := true
-	if err := h.svc.CheckQuota(c.Request().Context(), pc.ID, "llm"); err != nil {
-		llmOK = false
-	}
-	if err := h.svc.CheckQuota(c.Request().Context(), pc.ID, "database"); err != nil {
-		dbOK = false
-	}
+	llmOK, dbOK := h.quotaFor(c.Request().Context(), pc.ID)
 	return c.JSON(http.StatusOK, map[string]bool{
 		"llm_allowed":      llmOK,
 		"database_allowed": dbOK,
 	})
+}
+
+// quotaFor 带 10s TTL 与 per-project 单飞的配额查询。
+func (h *QuotaHandler) quotaFor(ctx context.Context, projectID string) (llmOK, dbOK bool) {
+	now := time.Now()
+	h.mu.Lock()
+	if h.cache == nil {
+		h.cache = map[string]quotaCacheEntry{}
+		h.inflight = map[string]*quotaCall{}
+	}
+	if e, hit := h.cache[projectID]; hit && now.Before(e.expiresAt) {
+		h.mu.Unlock()
+		return e.llmOK, e.dbOK
+	}
+	if call, ok := h.inflight[projectID]; ok {
+		h.mu.Unlock()
+		<-call.done
+		return call.llmOK, call.dbOK
+	}
+	call := &quotaCall{done: make(chan struct{})}
+	h.inflight[projectID] = call
+	h.mu.Unlock()
+
+	call.llmOK = h.svc.CheckQuota(ctx, projectID, "llm") == nil
+	call.dbOK = h.svc.CheckQuota(ctx, projectID, "database") == nil
+	close(call.done)
+
+	h.mu.Lock()
+	delete(h.inflight, projectID)
+	h.cache[projectID] = quotaCacheEntry{llmOK: call.llmOK, dbOK: call.dbOK, expiresAt: time.Now().Add(10 * time.Second)}
+	h.mu.Unlock()
+	return call.llmOK, call.dbOK
 }
 
 // AuditHandler 依赖 AuditService。

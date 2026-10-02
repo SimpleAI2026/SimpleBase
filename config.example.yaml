@@ -21,10 +21,17 @@ http:
 # ── Instance ──────────────────────────────────────────
 instance:
   id: "simplebase-dev-1"      # SIMPLEBASE_INSTANCE_ID（必填）；S3 对象前缀 / 日志身份
+                              # 注意：改变 id 等价于换全新空存储；启动检测会拒绝（需走迁移流程）
   writable: true              # SIMPLEBASE_INSTANCE_WRITABLE；单写实例必须为 true
+  lease:                      # per-database 写租约（multi-instance-consistency-plan §4.6）
+    enabled: true             # SIMPLEBASE_INSTANCE_LEASE_ENABLED；writable + 配置 S3 时生效
+    ttl: 30s                  # SIMPLEBASE_INSTANCE_LEASE_TTL；持租判活窗口
+    renew_interval: 10s       # SIMPLEBASE_INSTANCE_LEASE_RENEW_INTERVAL；建议 ttl/3
+    grace: 10s                # SIMPLEBASE_INSTANCE_LEASE_GRACE；观察式判活的等待窗口
+    on_lost: release_db       # SIMPLEBASE_INSTANCE_LEASE_ON_LOST；release_db | exit
 
 # 本地开发：DATA_PATH 落盘、旁路 S3、写入 Dev 种子 API key。生产必须 false。
-dev_mode: false               # SIMPLEBASE_DEV_MODE
+dev_mode: true               # SIMPLEBASE_DEV_MODE
 
 # ── Database / DuckLake ───────────────────────────────
 database:
@@ -35,10 +42,13 @@ database:
   idle_timeout: 5m            # SIMPLEBASE_DB_IDLE_TIMEOUT；空闲库句柄关闭
   max_open: 8                 # SIMPLEBASE_DB_MAX_OPEN；同时打开的用户库数（非 sql.DB pool）
   ducklake:
+    catalog_engine: duckdb    # SIMPLEBASE_DUCKLAKE_CATALOG_ENGINE；新部署推荐 duckdb；已有 SQLite 数据应配置 sqlite，切换需先备份并 reset
     memory_limit: 512MB       # SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT
     threads: 2                # SIMPLEBASE_DUCKLAKE_THREADS
     extension_dir: ""         # SIMPLEBASE_DUCKLAKE_EXTENSION_DIR（生产预置扩展）
-    data_inlining_row_limit: 100  # SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT
+    data_inlining_row_limit: 0   # SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT；远端模式必须为 0（代码强制归零）：
+                                 # 内联会把用户数据行写进 catalog，catalog 覆盖/丢失即丢数据。
+                                 # 见 plan/planv3.0/multi-instance-consistency-plan.md §4.2。本地/DevMode 可保留 100。
     parquet_compression: zstd     # SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION
     target_file_size: 64MB        # SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE
     require_commit_message: false # SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE
@@ -49,18 +59,21 @@ database:
     maintenance:
       checkpoint_interval: 1h # SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL
       expire_older_than: 7d   # SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN（支持 Nd）
-      delete_older_than: 1d   # SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN
+      delete_older_than: 7d   # SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN；孤儿文件保留窗口（勿低于 7d）
       rewrite_delete_threshold: 0.95  # SIMPLEBASE_DUCKLAKE_MAINT_REWRITE_DELETE_THRESHOLD
 
 # ── S3（非密钥）──────────────────────────────────────
 # writable + 非 dev_mode 时 bucket/region/prefix 必填。
 # access_key / secret_key 生产必须走环境变量；留空则使用 AWS 默认凭证链（IAM/IRSA）。
 s3:
-  endpoint: ""                # SIMPLEBASE_S3_ENDPOINT；COS/MinIO 填完整 URL
+  endpoint: ""                # SIMPLEBASE_S3_ENDPOINT；完整 URL。腾讯云 COS 必须用区域级服务域名
+                              # https://cos.<region>.myqcloud.com（勿用 bucket 级域名
+                              # https://<bucket>-<appid>.cos.<region>.myqcloud.com，SDK 会把 bucket
+                              # 再拼进 host/path 导致 List 被误路由为 GetObject）；MinIO 如 http://127.0.0.1:9000
   region: ""                  # SIMPLEBASE_S3_REGION
   bucket: ""                  # SIMPLEBASE_S3_BUCKET
   prefix: "simplebase"        # SIMPLEBASE_S3_PREFIX
-  force_path_style: false     # SIMPLEBASE_S3_FORCE_PATH_STYLE；COS/MinIO 常为 true
+  force_path_style: false     # SIMPLEBASE_S3_FORCE_PATH_STYLE；COS/AWS S3/R2/GCS 用 false（虚拟主机寻址），MinIO 用 true
   kms_key_id: ""              # SIMPLEBASE_S3_KMS_KEY_ID；SSE-KMS CMK id，非密钥材料
   # access_key: ""            # 禁止提交。SIMPLEBASE_S3_ACCESS_KEY
   # secret_key: ""            # 禁止提交。SIMPLEBASE_S3_SECRET_KEY
@@ -68,8 +81,8 @@ s3:
 # ── System database ───────────────────────────────────
 system_database:
   name: "simplebase-system"   # SIMPLEBASE_SYSTEM_DB_NAME
-  metrics_flush_interval: 2s  # SIMPLEBASE_METRICS_FLUSH_INTERVAL； besides 64 条缓冲
-  log_flush_interval: 2s      # SIMPLEBASE_LOG_FLUSH_INTERVAL
+  metrics_flush_interval: 15s # SIMPLEBASE_METRICS_FLUSH_INTERVAL；besides 64 条缓冲
+  log_flush_interval: 15s     # SIMPLEBASE_LOG_FLUSH_INTERVAL
   log_keep_days: 14           # SIMPLEBASE_LOG_KEEP_DAYS；种子 sys_log_retention（无行时）
 
 # ── Auth ──────────────────────────────────────────────

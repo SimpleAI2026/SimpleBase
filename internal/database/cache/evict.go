@@ -100,14 +100,17 @@ func (m *Manager) Evict(ctx context.Context, targetBytes int64) (EvictionResult,
 		default:
 		}
 		// 先关闭 registry 句柄（若提供 closer），再删目录。
+		// §3.6：CloseDatabase 失败（含关闭前 Flush catalog 失败）必须跳过
+		// 淘汰并保留目录——否则可能删除唯一未同步的 catalog 副本。
 		if m.closer != nil {
 			if cerr := m.closer.CloseDatabase(ctx, c.id); cerr != nil {
+				res.SkippedActive++
 				if m.logger != nil {
-					m.logger.Warn("cache: close registry before evict failed",
+					m.logger.Warn("cache: close registry before evict failed; keep local dir",
 						zap.String("database_id", c.id),
 						zap.String("err", cerr.Error()))
 				}
-				// 关闭失败不阻止淘汰：registry 可能已无此库。
+				continue
 			}
 		}
 		if rerr := removeAll(c.path); rerr != nil {

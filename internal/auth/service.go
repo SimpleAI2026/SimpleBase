@@ -11,7 +11,6 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -47,12 +46,13 @@ type Repository interface {
 type Service struct {
 	repo   Repository
 	secret string
+	cache  *apiKeyCache // §7.2 P1.2：keyHash → Principal 缓存
 }
 
 // NewService 构造 Service。secret 对应 config.Auth.APIKeyHashSecret，
 // 用于计算 HMAC，绝不能为空（由 config.Validate 保证）。
 func NewService(repo Repository, secret string) *Service {
-	return &Service{repo: repo, secret: secret}
+	return &Service{repo: repo, secret: secret, cache: newAPIKeyCache()}
 }
 
 // HashKey 计算 API key 的 HMAC-SHA256 摘要，用于存储与比对。
@@ -63,16 +63,21 @@ func (s *Service) HashKey(rawKey string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// InvalidateKeyHash 主动失效指定 keyHash 的缓存（吊销/删除 Key 时调用；
+// 单实例立即生效，多实例由 TTL 兜底）。
+func (s *Service) InvalidateKeyHash(keyHash string) {
+	s.cache.InvalidateKey(keyHash)
+}
+
 // Authenticate 解析并校验 rawKey，返回对应的 Principal。
 // 拒绝：空 key、找不到记录、已撤销 key。
+// §7.2 P1.2：命中进程内缓存时跳过系统库查询（TTL 30s）。
 func (s *Service) Authenticate(ctx context.Context, rawKey string) (Principal, error) {
-	if rawKey == "" {
-		return Principal{}, ErrMissingCredentials
-	}
-	if s.repo == nil {
-		return Principal{}, fmt.Errorf("auth: repository not configured")
-	}
-	hash := s.HashKey(rawKey)
+	return s.CachedAuthenticate(ctx, rawKey)
+}
+
+// authenticateUncached 执行真实的 repo 查询与判定（缓存未命中路径）。
+func (s *Service) authenticateUncached(ctx context.Context, hash string) (Principal, error) {
 	rec, err := s.repo.FindByHash(ctx, hash)
 	if err != nil {
 		return Principal{}, ErrInvalidCredentials

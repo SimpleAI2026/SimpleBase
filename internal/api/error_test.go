@@ -13,6 +13,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/internal/database/lease"
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -58,6 +59,7 @@ func TestError_DomainMapping(t *testing.T) {
 		{"db_deleting", database.ErrDatabaseDeleting, http.StatusConflict, "database_deleting"},
 		{"db_not_ready", database.ErrDatabaseNotReady, http.StatusConflict, "database_not_ready"},
 		{"writer", database.ErrWriterUnavailable, http.StatusServiceUnavailable, "writer_unavailable"},
+		{"lease_acquiring", fmt.Errorf("wrap: %w", lease.ErrAcquiring), http.StatusServiceUnavailable, "lease_acquiring"},
 		{"row_limit", database.ErrRowLimitExceeded, 422, "row_limit_exceeded"},
 		{"registry_closed", database.ErrRegistryClosed, http.StatusServiceUnavailable, "registry_closed"},
 		{"unsupported", database.ErrUnsupportedValue, http.StatusInternalServerError, "unsupported_value_type"},

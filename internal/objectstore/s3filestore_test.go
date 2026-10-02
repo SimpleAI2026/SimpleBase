@@ -212,11 +212,8 @@ func TestDownloadFileErrorAndMemoryPutRead(t *testing.T) {
 
 func TestDuckLakeKeyErrors(t *testing.T) {
 	kb := KeyBuilder{RootPrefix: "r", Environment: "e"}
-	if _, err := kb.DuckLakeCatalogKey("bad", "33333333-3333-3333-3333-333333333333"); err == nil {
-		t.Fatal("catalog key")
-	}
-	if _, err := kb.DuckLakeCatalogVersionKey("bad", "33333333-3333-3333-3333-333333333333", 1); err == nil {
-		t.Fatal("version key")
+	if _, err := kb.DuckLakeSnapshotKey("bad", "33333333-3333-3333-3333-333333333333", 1, 1, "duckdb"); err == nil {
+		t.Fatal("snapshot key")
 	}
 	if _, err := kb.DuckLakeDataURI("b", "bad", "33333333-3333-3333-3333-333333333333"); err == nil {
 		t.Fatal("data uri")

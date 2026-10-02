@@ -55,7 +55,7 @@
               <ConfirmAction v-if="!isAdmin" :disabled="record.status === 'deleting'" title="删除为异步操作，确认继续？" @confirm="removeDb(record)">
                 <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">删除</Button>
               </ConfirmAction>
-              <span v-else class="inline-flex items-center gap-1 text-xs text-muted-foreground"><ShieldCheckIcon aria-hidden="true" class="size-3.5" />受保护</span>
+              <span v-else class="inline-flex items-center gap-1 text-xs text-muted-foreground">受保护</span>
             </div>
             <div class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>ID</span><span class="sb-mono min-w-0 break-all">{{ record.id }}</span>
@@ -147,8 +147,7 @@
                       <TooltipTrigger as-child>
                         <span>
                           <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openSql(record)">
-                            <CodeIcon data-icon="inline-start" />
-                            <span class="hidden lg:inline">SQL</span>
+                            SQL
                           </Button>
                         </span>
                       </TooltipTrigger>
@@ -159,8 +158,7 @@
                         <TooltipTrigger as-child>
                           <span>
                             <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">
-                              <PlusIcon data-icon="inline-start" />
-                              <span class="hidden lg:inline">新建集合</span>
+                              新建集合
                             </Button>
                           </span>
                         </TooltipTrigger>
@@ -171,21 +169,14 @@
                         title="删除为异步操作，确认继续？"
                         @confirm="removeDb(record)"
                       >
-                        <Tooltip>
-                          <TooltipTrigger as-child>
-                            <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">
-                              <Trash2Icon data-icon="inline-start" />
-                              <span class="hidden lg:inline">删除</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>删除</TooltipContent>
-                        </Tooltip>
+                        <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">
+                          删除
+                        </Button>
                       </ConfirmAction>
                     </template>
                     <Tooltip v-else>
                       <TooltipTrigger as-child>
                         <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          <ShieldCheckIcon class="size-3.5" />
                           受保护
                         </span>
                       </TooltipTrigger>
@@ -274,13 +265,10 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
-  CodeIcon,
   DatabaseIcon,
   MinusIcon,
   PlusIcon,
   RefreshCwIcon,
-  ShieldCheckIcon,
-  Trash2Icon,
 } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

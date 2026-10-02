@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -252,7 +251,7 @@ func (h *DataHandler) acquire(c echo.Context, mode database.AccessMode) (SQLLeas
 	if !ok {
 		return nil, errors.New("project context missing")
 	}
-	// Path with :databaseID must use that database. Never fall back to "first DB".
+	// Path with :databaseID must use that database.
 	if databaseID := c.Param("databaseID"); databaseID != "" {
 		db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID)
 		if err != nil {
@@ -260,19 +259,7 @@ func (h *DataHandler) acquire(c echo.Context, mode database.AccessMode) (SQLLeas
 		}
 		return h.svc.Acquire(c.Request().Context(), db, mode)
 	}
-	// Legacy project-scoped routes: first database only.
-	databases, _, err := h.svc.ListDatabases(c.Request().Context(), principal, project.ID, catalog.Page{Limit: 1})
-	if err != nil {
-		return nil, err
-	}
-	if len(databases) == 0 {
-		return nil, fmt.Errorf("no database configured for project")
-	}
-	db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databases[0].ID)
-	if err != nil {
-		return nil, err
-	}
-	return h.svc.Acquire(c.Request().Context(), db, mode)
+	return nil, errors.New("databaseID required")
 }
 
 // systemGuard 写路径前置调用：系统库只读，拒绝改写。
@@ -288,15 +275,7 @@ func (h *DataHandler) systemGuard(c echo.Context) error {
 	}
 	databaseID := c.Param("databaseID")
 	if databaseID == "" {
-		// Legacy project-scoped 路由：取第一个库判定。
-		databases, _, err := h.svc.ListDatabases(c.Request().Context(), principal, project.ID, catalog.Page{Limit: 1})
-		if err != nil {
-			return err
-		}
-		if len(databases) == 0 {
-			return fmt.Errorf("no database configured for project")
-		}
-		databaseID = databases[0].ID
+		return errors.New("databaseID required")
 	}
 	db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID)
 	if err != nil {

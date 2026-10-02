@@ -83,9 +83,6 @@ func setupDataTestRouter(t *testing.T, svc *fakeDataService, writable bool) *ech
 		}
 	})
 	p := e.Group("/v1/projects/:projectID")
-	p.GET("/data/collections", h.ListCollections)
-	p.POST("/data/collections", h.CreateCollection)
-	p.GET("/data/collections/:collection", h.ListDocuments)
 	p.GET("/databases/:databaseID/data/collections", h.ListCollections)
 	p.POST("/databases/:databaseID/data/collections", h.CreateCollection)
 	p.GET("/databases/:databaseID/data/collections/:collection", h.ListDocuments)
@@ -125,34 +122,6 @@ func TestDataListCollections_UsesPathDatabaseID(t *testing.T) {
 	}
 	if len(body.Collections) != 2 || body.Collections[0] != "users" {
 		t.Fatalf("collections = %#v", body.Collections)
-	}
-}
-
-func TestDataListCollections_LegacyUsesFirstDatabase(t *testing.T) {
-	svc := &fakeDataService{
-		dbs: []catalog.Database{
-			{ID: "db-first", Name: "first", ProjectID: "proj-1"},
-			{ID: "db-second", Name: "second", ProjectID: "proj-1"},
-		},
-		lease: &fakeSQLLease{
-			queryResult: database.QueryResult{
-				Columns: []string{"table_name"},
-				Rows:    [][]any{{"users"}},
-			},
-		},
-	}
-	e := setupDataTestRouter(t, svc, true)
-	req := httptest.NewRequest(http.MethodGet, "/v1/projects/proj-1/data/collections", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
-	if !svc.listCalled {
-		t.Fatal("legacy route should ListDatabases")
-	}
-	if svc.lastGetID != "db-first" {
-		t.Fatalf("legacy GetDatabase id = %q, want db-first", svc.lastGetID)
 	}
 }
 

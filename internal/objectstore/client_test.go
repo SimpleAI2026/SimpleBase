@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -201,5 +202,80 @@ func TestSanitizeErrPreservesNotFound(t *testing.T) {
 	err = c.sanitizeErr(mapNotFoundErr(fmt.Errorf("StatusCode: 404 Not Found")))
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("404 mapped+sanitized must be ErrNotFound, got %v", err)
+	}
+}
+
+func TestCheckEndpointBucketScope(t *testing.T) {
+	cases := []struct {
+		name     string
+		endpoint string
+		bucket   string
+		wantErr  bool
+	}{
+		{"empty endpoint", "", "b", false},
+		{"aws endpoint", "https://s3.us-east-1.amazonaws.com", "b", false},
+		{"cos regional", "https://cos.ap-guangzhou.myqcloud.com", "simplebase-1256235179", false},
+		{
+			"cos bucket scoped",
+			"https://simplebase-1256235179.cos.ap-guangzhou.myqcloud.com",
+			"simplebase-1256235179",
+			true,
+		},
+		{"cos bucket scoped with port", "http://simplebase-1256235179.cos.ap-guangzhou.myqcloud.com:8080", "simplebase-1256235179", true},
+		{"minio not affected", "http://127.0.0.1:9000", "minio", false},
+		{"non-cos bucket scoped left alone", "https://b.s3.example.com", "b", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkEndpointBucketScope(tc.endpoint, tc.bucket)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error for endpoint %q bucket %q", tc.endpoint, tc.bucket)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error for endpoint %q bucket %q: %v", tc.endpoint, tc.bucket, err)
+			}
+			if err != nil && !strings.Contains(err.Error(), "regional service endpoint") {
+				t.Fatalf("error should point at regional service endpoint, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestLoadAWSConfigCustomEndpointNotHostnameImmutable 确保 vhost 寻址可用：
+// HostnameImmutable=true 会让 SDK 无条件把 bucket 拼进 path（force_path_style=false
+// 失效），COS 这类强制虚拟主机寻址的服务会完全不可用。
+func TestLoadAWSConfigCustomEndpointNotHostnameImmutable(t *testing.T) {
+	cfg, err := loadAWSConfig(context.Background(), Config{
+		Region:         "ap-guangzhou",
+		Endpoint:       "https://cos.ap-guangzhou.myqcloud.com",
+		Bucket:         "simplebase-1256235179",
+		ForcePathStyle: false,
+	})
+	if err != nil {
+		t.Fatalf("loadAWSConfig: %v", err)
+	}
+	ep, err := cfg.EndpointResolverWithOptions.ResolveEndpoint("S3", "ap-guangzhou")
+	if err != nil {
+		t.Fatalf("resolve endpoint: %v", err)
+	}
+	if ep.HostnameImmutable {
+		t.Fatal("custom endpoint must not set HostnameImmutable (forces path-style addressing)")
+	}
+	if ep.URL != "https://cos.ap-guangzhou.myqcloud.com" {
+		t.Fatalf("unexpected endpoint URL: %s", ep.URL)
+	}
+}
+
+func TestLoadAWSConfigRejectsBucketScopedCOSEndpoint(t *testing.T) {
+	_, err := loadAWSConfig(context.Background(), Config{
+		Region:   "ap-guangzhou",
+		Endpoint: "https://simplebase-1256235179.cos.ap-guangzhou.myqcloud.com",
+		Bucket:   "simplebase-1256235179",
+	})
+	if err == nil {
+		t.Fatal("expected bucket-scoped COS endpoint to be rejected")
+	}
+	if !strings.Contains(err.Error(), "force_path_style=false") {
+		t.Fatalf("error should mention force_path_style=false, got: %v", err)
 	}
 }

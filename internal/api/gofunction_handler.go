@@ -84,31 +84,6 @@ type goFuncDTO struct {
 	UpdatedAt     string                 `json:"updated_at"`
 }
 
-// goFunctionDTO / toGoFunctionDTO：兼容旧测试与 PUT 路径。
-type goFunctionDTO = goFuncDTO
-
-func toGoFunctionDTO(g systemdb.GoFunction, withSource bool) goFuncDTO {
-	exports := g.Exports
-	if exports == nil {
-		exports = []string{}
-	}
-	dto := goFuncDTO{
-		ID:            g.ID,
-		Name:          g.Name,
-		File:          g.Name + ".go",
-		ActiveVersion: 1,
-		LatestVersion: 1,
-		Published:     true,
-		Exports:       exports,
-		CreatedAt:     g.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:     g.UpdatedAt.UTC().Format(time.RFC3339),
-	}
-	if withSource {
-		dto.Source = g.Source
-	}
-	return dto
-}
-
 func toVersionSummary(v systemdb.GoFuncVersion, activeVersion int64) goFuncVersionSummary {
 	exports := v.Exports
 	if exports == nil {

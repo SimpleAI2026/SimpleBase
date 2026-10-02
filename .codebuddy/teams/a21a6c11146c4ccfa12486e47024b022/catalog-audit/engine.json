@@ -1,0 +1,38 @@
+[
+  {
+    "id": "msg-1790654514653-h19wiu",
+    "from": "team-lead",
+    "to": "engine",
+    "type": "message",
+    "content": "额外注意 config.yaml 未含 catalog_engine，config.example.yaml 也未含；检查是否启动校验相关测试缺失。请尽快返回精炼结论。",
+    "timestamp": "2026-09-29T04:01:54.653Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790654800080-4nttwv",
+    "from": "team-lead",
+    "to": "engine",
+    "type": "message",
+    "content": "请立即返回当前发现，无需再扩展搜索。",
+    "timestamp": "2026-09-29T04:06:40.080Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790654928570-x651ra",
+    "from": "team-lead",
+    "to": "engine",
+    "type": "message",
+    "content": "请停止探索并给出最终简短发现。",
+    "timestamp": "2026-09-29T04:08:48.570Z",
+    "read": true
+  },
+  {
+    "id": "shutdown-1790655017739",
+    "from": "team-lead",
+    "to": "engine",
+    "type": "shutdown_request",
+    "content": "{\"type\":\"shutdown_request\",\"request_id\":\"shutdown-1790655017739\",\"timeout_ms\":60000,\"reason\":\"Team lead requested shutdown\",\"from\":\"team-lead\",\"timestamp\":\"2026-09-29T04:10:17.739Z\"}",
+    "timestamp": "2026-09-29T04:10:17.739Z",
+    "read": true
+  }
+]

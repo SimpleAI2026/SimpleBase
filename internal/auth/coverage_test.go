@@ -163,7 +163,7 @@ func TestSQLAPIKeyRepository(t *testing.T) {
 		t.Fatalf("missing: %v", err)
 	}
 
-	if err := RevokeAPIKey(ctx, db, "key-1", now); err != nil {
+	if err := svc.RevokeAPIKeyByID(ctx, db, "key-1", now); err != nil {
 		t.Fatal(err)
 	}
 	_, err = svc.Authenticate(ctx, raw)

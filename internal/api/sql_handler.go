@@ -19,6 +19,7 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -47,11 +48,20 @@ type SQLService interface {
 // SQLLease 是 SQL handler 使用的租约抽象，封装 Handle 的查询能力。
 // registry.Lease.Handle 自动满足此接口的方法集，但为避免暴露 registry 类型，
 // 这里通过适配器在 adapter.go 中桥接。
+//
+// Raw/NotifyWrite 为 KV 服务（key-value-ducklake-plan §5.1 方案 A）预留：
+// KV 仓库层需要 *sql.DB 自管事务（Statement 抽象无法表达读-改-写分支），
+// 写事务提交后经 NotifyWrite 触发与 Execute/Batch 相同的 onWrite 链路
+// （CatalogSyncer.MarkDirty → S3 同步）。
 type SQLLease interface {
 	Release()
 	Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error)
 	Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error)
 	Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error)
+	// Raw 返回底层 *sql.DB（KV 仓库自管事务用；调用方不得关闭该连接）。
+	Raw() *sql.DB
+	// NotifyWrite 通知一次外部写提交（触发 onWrite 同步链路）。
+	NotifyWrite(ctx context.Context)
 }
 
 // SQLLimits 控制 SQL handler 的资源上限。由 config.Limits 转换而来。
@@ -122,7 +132,10 @@ func (h *SQLHandler) Query(c echo.Context) error {
 		return WriteError(c, auth.ErrMissingCredentials)
 	}
 
+	timer := StageTimerFrom(ctx)
+	decodeScope := timer.StageScope(StageDecode)
 	req, err := decodeQueryRequest(c, h.limits)
+	decodeScope.Done()
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -137,9 +150,12 @@ func (h *SQLHandler) Query(c echo.Context) error {
 		return WriteError(c, err)
 	}
 
+	semScope := timer.StageScope(StageSemaphore)
 	if err := h.acquireSem(ctx); err != nil {
+		semScope.Done()
 		return WriteError(c, err)
 	}
+	semScope.Done()
 	defer h.releaseSem()
 
 	lease, err := h.svc.Acquire(ctx, db, database.ReadOnly)
@@ -154,7 +170,9 @@ func (h *SQLHandler) Query(c echo.Context) error {
 		return WriteError(c, err)
 	}
 
+	serScope := timer.StageScope(StageSerialize)
 	serializedRows, err := database.SerializeRows(result.Rows)
+	serScope.Done()
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -185,7 +203,10 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 		return WriteError(c, auth.ErrMissingCredentials)
 	}
 
+	timer := StageTimerFrom(ctx)
+	decodeScope := timer.StageScope(StageDecode)
 	req, err := decodeExecuteRequest(c, h.limits)
+	decodeScope.Done()
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -204,9 +225,12 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 		return WriteError(c, catalog.ErrSystemProtected)
 	}
 
+	semScope := timer.StageScope(StageSemaphore)
 	if err := h.acquireSem(ctx); err != nil {
+		semScope.Done()
 		return WriteError(c, err)
 	}
+	semScope.Done()
 	defer h.releaseSem()
 
 	lease, err := h.svc.Acquire(ctx, db, database.ReadWrite)
@@ -221,18 +245,12 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 	}
 
 	rid := RequestIDFromContext(c.Request().Context())
-	var lastID *int64
-	if result.LastInsertID != 0 {
-		v := result.LastInsertID
-		lastID = &v
-	}
 	dur := "committed_local"
 	if h.DurabilityFor != nil {
 		dur = h.DurabilityFor(databaseID)
 	}
 	return c.JSON(http.StatusOK, ExecuteResponse{
 		RowsAffected: result.RowsAffected,
-		LastInsertID: lastID,
 		Durability:   dur,
 		DurationMS:   result.Duration.Milliseconds(),
 		RequestID:    rid,
@@ -255,7 +273,10 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 		return WriteError(c, auth.ErrMissingCredentials)
 	}
 
+	timer := StageTimerFrom(ctx)
+	decodeScope := timer.StageScope(StageDecode)
 	req, err := decodeBatchRequest(c, h.limits)
+	decodeScope.Done()
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -279,9 +300,12 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 		return WriteError(c, catalog.ErrSystemProtected)
 	}
 
+	semScope := timer.StageScope(StageSemaphore)
 	if err := h.acquireSem(ctx); err != nil {
+		semScope.Done()
 		return WriteError(c, err)
 	}
+	semScope.Done()
 	defer h.releaseSem()
 
 	lease, err := h.svc.Acquire(ctx, db, database.ReadWrite)
@@ -448,15 +472,9 @@ func extractBatchIndex(err error) int {
 func toBatchResultsTransactional(results []database.QueryResult) []BatchResultItem {
 	items := make([]BatchResultItem, len(results))
 	for i, r := range results {
-		var lastID *int64
-		if r.LastInsertID != 0 {
-			v := r.LastInsertID
-			lastID = &v
-		}
 		items[i] = BatchResultItem{
 			Index:        i,
 			RowsAffected: r.RowsAffected,
-			LastInsertID: lastID,
 			DurationMS:   r.Duration.Milliseconds(),
 		}
 	}
@@ -468,15 +486,9 @@ func toBatchResultsTransactional(results []database.QueryResult) []BatchResultIt
 func toBatchResultsNonTransactional(results []database.QueryResult, batchErr error) []BatchResultItem {
 	items := make([]BatchResultItem, 0, len(results)+1)
 	for i, r := range results {
-		var lastID *int64
-		if r.LastInsertID != 0 {
-			v := r.LastInsertID
-			lastID = &v
-		}
 		items = append(items, BatchResultItem{
 			Index:        i,
 			RowsAffected: r.RowsAffected,
-			LastInsertID: lastID,
 			DurationMS:   r.Duration.Milliseconds(),
 		})
 	}

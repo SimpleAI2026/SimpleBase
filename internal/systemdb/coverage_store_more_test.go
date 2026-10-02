@@ -213,9 +213,9 @@ func TestSeedAndIsDuplicate(t *testing.T) {
 	if err != nil || n != 3 {
 		t.Fatalf("seeded agents n=%d err=%v", n, err)
 	}
-	dbs, _, err := s.CatalogRepo().ListDatabases(ctx, catalog.DevProjectID, catalog.Page{Limit: 10})
-	if err != nil || len(dbs) != 1 || dbs[0].Name != "default" {
-		t.Fatalf("seeded default db: %+v err=%v", dbs, err)
+	dbs, _, err := s.CatalogRepo().ListDatabasesByKind(ctx, catalog.DevProjectID, catalog.DatabaseKindKV, catalog.Page{Limit: 10})
+	if err != nil || len(dbs) != 1 || dbs[0].Name != catalog.KVDatabaseName || dbs[0].Kind != catalog.DatabaseKindKV {
+		t.Fatalf("seeded project kv db: %+v err=%v", dbs, err)
 	}
 }
 

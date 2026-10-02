@@ -29,6 +29,9 @@ type SeedInput struct {
 	Catalog *catalog.Service
 	DevMode bool
 	Logger  observability.Logger
+	// InitKV 可选：DevMode 项目 KV catalog 创建后初始化 kv schema
+	// （key-value-ducklake-plan §2）。失败只记日志，不阻断种子。
+	InitKV func(ctx context.Context, db catalog.Database) error
 }
 
 // Seed 幂等写入保留租户 / 系统项目；DevMode 额外写入 UUID 项目、Dev Key 与 default 库。
@@ -74,12 +77,17 @@ func Seed(ctx context.Context, in SeedInput) error {
 			}
 		}
 		if in.Catalog != nil {
-			if _, err := in.Catalog.CreateDatabase(ctx, catalog.CreateDatabaseInput{
-				TenantID:  catalog.ReservedTenantID,
-				ProjectID: catalog.DevProjectID,
-				Name:      "default",
-			}); err != nil && !errors.Is(err, catalog.ErrAlreadyExists) {
-				return fmt.Errorf("systemdb: seed default database: %w", err)
+			// 种子项目建 kind=kv 的项目 KV catalog（key-value-ducklake-plan §2），
+			// 本地开发一进来即可写 KV；不再创建 default 用户库。
+			kvDB, err := in.Catalog.CreateKVDatabase(ctx, catalog.ReservedTenantID, catalog.DevProjectID)
+			if err != nil {
+				return fmt.Errorf("systemdb: seed project kv catalog: %w", err)
+			}
+			if in.InitKV != nil {
+				if kvErr := in.InitKV(ctx, kvDB); kvErr != nil && in.Logger != nil {
+					in.Logger.Warn("seed project kv init failed",
+						zap.String("database_id", kvDB.ID), zap.String("err", kvErr.Error()))
+				}
 			}
 		}
 		if err := repo.UpsertQuota(ctx, catalog.ProjectQuota{

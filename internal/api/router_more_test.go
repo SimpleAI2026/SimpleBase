@@ -1,13 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
@@ -191,6 +194,55 @@ func TestBodyLimitAndRequestTooLarge(t *testing.T) {
 	}
 }
 
+func TestS3UploadUsesDedicatedBodyLimit(t *testing.T) {
+	deps, key := fullRouterDeps(t)
+	deps.Config.Limits.MaxRequestBytes = 1 << 10 // 全局 1KB；S3 上传不受此限
+	e := NewRouter(deps)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/projects/proj-1/databases", strings.NewReader(strings.Repeat("x", 2048)))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer "+key)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("global limit: got %d %s", rec.Code, rec.Body.String())
+	}
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	if err := mw.WriteField("key", "a.txt"); err != nil {
+		t.Fatal(err)
+	}
+	fw, err := mw.CreateFormFile("file", "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(bytes.Repeat([]byte("x"), 2048)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/projects/proj-1/s3/objects", body)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer "+key)
+	req.Header.Set(echo.HeaderContentType, mw.FormDataContentType())
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("s3 upload within dedicated limit: got %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/projects/proj-1/s3/objects", strings.NewReader("x"))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer "+key)
+	req.Header.Set(echo.HeaderContentType, "multipart/form-data; boundary=x")
+	req.ContentLength = s3UploadBodyLimit + 1
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized s3 upload: got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestIsValidRequestID(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -314,6 +366,46 @@ func TestAccessLogAndErrorHandler(t *testing.T) {
 	e3.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("quiet access log %d", rec.Code)
+	}
+}
+
+func TestShouldRecordRequestLog(t *testing.T) {
+	const slow = 600 * time.Millisecond
+	const fast = 10 * time.Millisecond
+	cases := []struct {
+		name    string
+		method  string
+		route   string
+		status  int
+		latency time.Duration
+		want    bool
+	}{
+		{"健康检查跳过", http.MethodGet, "/health/ready", 200, fast, false},
+		{"指标端点跳过", http.MethodGet, "/metrics", 200, fast, false},
+		{"自定义指标路径跳过", http.MethodGet, "/custom/metrics", 200, fast, false},
+		{"SPA 回退跳过", http.MethodGet, "/*", 200, fast, false},
+		{"空路由跳过", http.MethodGet, "", 200, fast, false},
+		{"日志列表自身跳过", http.MethodGet, "/v1/projects/:id/logs", 200, fast, false},
+		{"日志 retention 自身跳过", http.MethodGet, "/v1/projects/:id/logs/retention", 200, fast, false},
+		{"普通 GET 快请求跳过", http.MethodGet, "/v1/projects/:id/databases", 200, fast, false},
+		{"GET 错误保留", http.MethodGet, "/v1/projects/:id/databases", 500, fast, true},
+		{"GET 慢请求保留", http.MethodGet, "/v1/projects/:id/databases", 200, slow, true},
+		{"HEAD 快请求跳过", http.MethodHead, "/v1/x", 200, fast, false},
+		{"POST 写方法保留", http.MethodPost, "/v1/projects/:id/kv", 200, fast, true},
+		{"DELETE 写方法保留", http.MethodDelete, "/v1/projects/:id/kv", 200, fast, true},
+		{"PUT 写方法保留", http.MethodPut, "/v1/projects/:id/logs/retention", 200, fast, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			metricsPath := ""
+			if tc.name == "自定义指标路径跳过" {
+				metricsPath = "/custom/metrics"
+			}
+			if got := shouldRecordRequestLog(tc.method, tc.route, tc.status, tc.latency, metricsPath); got != tc.want {
+				t.Fatalf("shouldRecordRequestLog(%s %s status=%d latency=%v) = %v, want %v",
+					tc.method, tc.route, tc.status, tc.latency, got, tc.want)
+			}
+		})
 	}
 }
 

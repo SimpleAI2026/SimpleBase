@@ -155,6 +155,22 @@ func (r *sqlRepository) GetDatabase(ctx context.Context, projectID, databaseID s
 	return d, nil
 }
 
+// GetDatabaseByName 按 (projectID, name) 查未软删的库（含 kv 等 kind）。
+func (r *sqlRepository) GetDatabaseByName(ctx context.Context, projectID, name string) (Database, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at
+		 FROM sys_databases WHERE project_id = ? AND name = ? AND deleted_at IS NULL`,
+		projectID, name)
+	d, err := scanDatabase(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Database{}, fmt.Errorf("%w: database %q in project %s", ErrNotFound, name, projectID)
+		}
+		return Database{}, err
+	}
+	return d, nil
+}
+
 func (r *sqlRepository) ListDatabases(ctx context.Context, projectID string, page Page) ([]Database, string, error) {
 	return r.listDatabasesWhere(ctx, projectID, "kind = ?", []any{DatabaseKindUser}, page)
 }

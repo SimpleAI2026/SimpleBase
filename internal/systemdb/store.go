@@ -12,6 +12,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"go.uber.org/zap"
 )
 
 // ErrUnavailable 表示系统库连接不可用。
@@ -36,6 +37,16 @@ type Store struct {
 
 	metricsBuf []MetricSample
 	logBuf     []LogEvent
+	// metricAgg 是热指标的内存预聚合桶（§7.2 P3.3）。
+	metricAgg map[string]metricAggregate
+	// async 是后台刷写器（§7.2 P3.1：请求路径永不同步 flush）。
+	async      *asyncFlusher
+	asyncStop  func(ctx context.Context)
+	droppedLog int64
+
+	// 仪表盘读缓存（perf §1 P1-D：10s TTL + 单飞）。
+	summaryCache *queryCache[MetricsSummary]
+	trendCache   *queryCache[[]TrendPoint]
 
 	defaultKeepDays int
 	flushCancel     context.CancelFunc
@@ -43,6 +54,18 @@ type Store struct {
 
 // DB 返回底层连接（供仓储使用）。
 func (s *Store) DB() *sql.DB { return s.db }
+
+// initReadCaches 惰性初始化仪表盘读缓存（10s TTL）。
+func (s *Store) initReadCaches() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.summaryCache == nil {
+		s.summaryCache = newQueryCache[MetricsSummary](10 * time.Second)
+	}
+	if s.trendCache == nil {
+		s.trendCache = newQueryCache[[]TrendPoint](10 * time.Second)
+	}
+}
 
 // NewStoreForTest wraps an already-migrated *sql.DB (unit tests).
 func NewStoreForTest(db *sql.DB) *Store {
@@ -113,6 +136,10 @@ func (s *Store) Close() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	// 先停后台 flusher（含尾部排空），再同步收尾一次兜底。
+	if s.asyncStop != nil {
+		s.asyncStop(ctx)
+	}
 	_ = s.FlushMetrics(ctx)
 	_ = s.FlushLogs(ctx)
 	if s.factory != nil {
@@ -179,6 +206,8 @@ func (s *Store) StartPeriodicFlush(logEvery, metricsEvery time.Duration) {
 	if logEvery <= 0 && metricsEvery <= 0 {
 		return
 	}
+	// §7.2 P3：启动后台 flusher；Record* 满批只发信号，不再在请求路径写库。
+	s.startAsyncFlusher()
 	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	if s.flushCancel != nil {
@@ -186,11 +215,75 @@ func (s *Store) StartPeriodicFlush(logEvery, metricsEvery time.Duration) {
 	}
 	s.flushCancel = cancel
 	s.mu.Unlock()
+	// perf §1 P1-B：周期 flush 也走合批入口（单事务 + 单次 notifyWrite），
+	// 两个 ticker 各自兜底对应缓冲的时效，先醒的一方顺带刷空另一方。
 	if logEvery > 0 {
-		go s.flushLoop(ctx, logEvery, s.FlushLogs)
+		go s.flushLoop(ctx, logEvery, s.flushAllAsync)
 	}
 	if metricsEvery > 0 {
-		go s.flushLoop(ctx, metricsEvery, s.FlushMetrics)
+		go s.flushLoop(ctx, metricsEvery, s.flushAllAsync)
+	}
+	// §7.2 P6：排队观测——周期采样连接池水位与累计等待，暴露系统性瓶颈。
+	go s.observeConnStats(ctx, metricsEvery)
+}
+
+// observeConnStats 周期采集 *sql.DB 统计并记录异常等待（诊断口径，
+// 不落 Prometheus：systemdb 包不依赖 observability 注册器）。
+func (s *Store) observeConnStats(ctx context.Context, every time.Duration) {
+	if every <= 0 {
+		every = 2 * time.Second
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	var lastWait time.Duration
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if s.db == nil {
+				return
+			}
+			st := s.db.Stats()
+			if st.WaitDuration > lastWait {
+				// 有新的连接等待：记录增量供排障（logger 为 nil 时静默）。
+				if s.logger != nil {
+					s.logger.Warn("systemdb connection wait accumulated",
+						zap.Int("open", st.OpenConnections),
+						zap.Int("in_use", st.InUse),
+						zap.Duration("wait_total", st.WaitDuration),
+						zap.Duration("wait_delta", st.WaitDuration-lastWait),
+					)
+				}
+				lastWait = st.WaitDuration
+			}
+		}
+	}
+}
+
+// startAsyncFlusher 幂等启动后台刷写循环。
+func (s *Store) startAsyncFlusher() {
+	s.mu.Lock()
+	if s.async != nil || s.closed {
+		s.mu.Unlock()
+		return
+	}
+	f := newAsyncFlusher(s.flushAllAsync)
+	s.async = f
+	s.mu.Unlock()
+	s.asyncStop = f.start()
+}
+
+// asyncNotifyLocked 通知后台 flusher（不持有 mu 时调用）。
+func (s *Store) asyncNotifyLocked() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	f := s.async
+	s.mu.Unlock()
+	if f != nil {
+		f.notify()
 	}
 }
 

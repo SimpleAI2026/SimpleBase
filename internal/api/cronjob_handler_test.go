@@ -22,12 +22,10 @@ func setupCronJobTestRouter(t *testing.T, writable bool, projectID string) (*ech
 	t.Helper()
 	e, store := setupGoFunctionTestRouter(t, writable, projectID)
 
-	// 种子云函数：hello.go 导出 Hello
-	if _, err := store.CreateGoFunction(t.Context(), systemdb.GoFunction{
-		ProjectID: projectID, Name: "hello",
-		Source: "package main\ntype Request struct {\n\tName string `json:\"name\"`\n}\ntype Response struct {\n\tMessage string `json:\"message\"`\n}\nfunc Hello(req Request) Response {\n\treturn Response{Message: \"hello, \" + req.Name}\n}",
-		Exports: []string{"Hello"},
-	}); err != nil {
+	// 种子云函数：hello.go 导出 Hello（实体 + 生效版本，等价旧 CreateGoFunction 便捷语义）
+	if err := seedGoFunc(t, store, projectID, "hello",
+		"package main\ntype Request struct {\n\tName string `json:\"name\"`\n}\ntype Response struct {\n\tMessage string `json:\"message\"`\n}\nfunc Hello(req Request) Response {\n\treturn Response{Message: \"hello, \" + req.Name}\n}",
+		[]string{"Hello"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,7 +95,36 @@ func TestCronJob_CRUDLifecycle(t *testing.T) {
 	if updated.Enabled || updated.CronExpr != "" || updated.IntervalSeconds == nil || *updated.IntervalSeconds != 600 {
 		t.Fatalf("unexpected updated job: %+v", updated)
 	}
-	// 禁用时 next_run_at 保留（重新启用无需重算；调度器按 enabled=1 过滤天然跳过）。
+	// 禁用时 next_run_at 清空（零值=未排期）；重新启用时按调度重算。
+	if updated.NextRunAt != nil {
+		t.Fatalf("disabled job should have empty next_run_at, got %v", updated.NextRunAt)
+	}
+
+	// 纯开关切换（仅 enabled，无调度字段）：重新启用不应 400，且恢复排期。
+	rec = postJSON(t, e, http.MethodPatch, "/v1/projects/proj-1/cron-jobs/"+job.ID, `{"enabled":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("toggle enable: %d %s", rec.Code, rec.Body.String())
+	}
+	var reenabled cronJobDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &reenabled); err != nil {
+		t.Fatal(err)
+	}
+	if !reenabled.Enabled || reenabled.NextRunAt == nil {
+		t.Fatalf("re-enabled job should be enabled with next_run_at: %+v", reenabled)
+	}
+
+	// 再次暂停：next_run_at 再次清空。
+	rec = postJSON(t, e, http.MethodPatch, "/v1/projects/proj-1/cron-jobs/"+job.ID, `{"enabled":false}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("toggle disable: %d %s", rec.Code, rec.Body.String())
+	}
+	reenabled = cronJobDTO{} // 重置：Unmarshal 不清残留字段，旧 NextRunAt 会污染断言
+	if err := json.Unmarshal(rec.Body.Bytes(), &reenabled); err != nil {
+		t.Fatal(err)
+	}
+	if reenabled.Enabled || reenabled.NextRunAt != nil {
+		t.Fatalf("disabled job should have empty next_run_at: %+v", reenabled)
+	}
 
 	// 运行记录为空
 	rec = postJSON(t, e, http.MethodGet, "/v1/projects/proj-1/cron-jobs/"+job.ID+"/runs", "")
@@ -198,7 +225,7 @@ func TestCronJob_TargetMissingFlag(t *testing.T) {
 	}
 
 	// 归档目标云函数 → target_missing=true
-	if err := store.ArchiveGoFunction(t.Context(), "proj-1", "hello"); err != nil {
+	if err := store.ArchiveGoFunc(t.Context(), "proj-1", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	rec = postJSON(t, e, http.MethodGet, "/v1/projects/proj-1/cron-jobs", "")
@@ -297,9 +324,25 @@ func TestCronJob_TriggerWithScheduler(t *testing.T) {
 type cronJobTestRunner struct{ store *systemdb.Store }
 
 func (r *cronJobTestRunner) RunFunction(ctx context.Context, projectID, file, export string, input json.RawMessage) ([]byte, error) {
-	g, err := r.store.GetGoFunction(ctx, projectID, file)
+	v, err := r.store.ResolveActiveSource(ctx, projectID, file)
 	if err != nil {
 		return nil, err
 	}
-	return gofunction.RunJSON(ctx, "cron-test", file, g.Source, export, input)
+	return gofunction.RunJSON(ctx, "cron-test", file, v.Source, export, input)
+}
+
+// seedGoFunc 建实体 + v1 并设为生效（替代已删除的旧 CreateGoFunction 便捷语义）。
+func seedGoFunc(t *testing.T, store *systemdb.Store, projectID, name, source string, exports []string) error {
+	t.Helper()
+	f, err := store.CreateGoFunc(t.Context(), systemdb.GoFunc{ProjectID: projectID, Name: name})
+	if err != nil {
+		return err
+	}
+	v, err := store.AppendGoFuncVersion(t.Context(), systemdb.GoFuncVersion{
+		FuncID: f.ID, ProjectID: projectID, Name: name, Source: source, Exports: exports,
+	})
+	if err != nil {
+		return err
+	}
+	return store.ActivateGoFuncVersion(t.Context(), projectID, name, v.Version)
 }

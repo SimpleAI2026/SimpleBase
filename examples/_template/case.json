@@ -1,0 +1,6 @@
+{
+  "fn": "ex___prefix___job",
+  "job": "ex___prefix___tick",
+  "cron": "0 * * * *",
+  "sample": { "rows": [] }
+}

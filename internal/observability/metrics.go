@@ -24,6 +24,23 @@ type Metrics struct {
 	CatalogSyncFailures  prometheus.Counter
 	CatalogSyncDuration  prometheus.Histogram
 	CatalogSyncLag       *prometheus.GaugeVec
+
+	// 多实例一致性（multi-instance-consistency-plan §4.9）。
+	LeaseState         *prometheus.GaugeVec   // 1=持租 / 0=未持租
+	LeaseRenewFailures *prometheus.CounterVec // 续约失败
+	LeaseLost          *prometheus.CounterVec // 失租（释放句柄）
+	LeaseEpoch         *prometheus.GaugeVec   // 当前租约 epoch
+	LeaseHeldRejected  *prometheus.CounterVec // 他人持租时被拒的 Acquire
+	CatalogSyncConflicts *prometheus.CounterVec // PutIfAbsent 冲突（split-brain 确证）
+	CatalogLocalAhead    prometheus.Counter     // 本地领先远端（§3.8 路径被拦截）
+	CatalogInlinedRows   *prometheus.GaugeVec   // catalog 内联行数（P0-0 后应恒为 0）
+	CatalogSizeBytes     *prometheus.GaugeVec   // catalog 文件体积（P4 决策前置信号）
+	CASSupported         prometheus.Gauge       // 启动探针结果：1=条件写可用
+	CatalogEngineMismatch prometheus.Gauge      // catalog 引擎与已有数据不一致：1=拒绝启动
+	MaintenanceSkipped   *prometheus.CounterVec // 维护任务跳过（no_lease / sync_lag）
+
+	// 分段计时（api-db-perf-validation-plan §2.1）。route/stage 均为低基数。
+	APIStageSeconds *prometheus.HistogramVec
 }
 
 // ObserveCacheBytes 更新当前缓存字节用量。
@@ -115,5 +132,58 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "simplebase_catalog_sync_lag_snapshots",
 			Help: "DuckLake catalog sync lag in snapshot ids",
 		}, []string{"database_id"}),
+		LeaseState: f.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "simplebase_instance_lease_state",
+			Help: "Per-database write lease state: 1=held, 0=not held.",
+		}, []string{"database_id"}),
+		LeaseRenewFailures: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_instance_lease_renew_failures_total",
+			Help: "Write lease renewal failures by database.",
+		}, []string{"database_id"}),
+		LeaseLost: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_instance_lease_lost_total",
+			Help: "Write leases lost (handle released) by database.",
+		}, []string{"database_id"}),
+		LeaseEpoch: f.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "simplebase_instance_lease_epoch",
+			Help: "Current write lease epoch by database.",
+		}, []string{"database_id"}),
+		LeaseHeldRejected: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_instance_lease_held_rejected_total",
+			Help: "Acquire attempts rejected because another instance holds the lease.",
+		}, []string{"database_id"}),
+		CatalogSyncConflicts: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_catalog_sync_conflicts_total",
+			Help: "PutIfAbsent conflicts on manifest/snapshot writes (split-brain confirmation).",
+		}, []string{"database_id"}),
+		CatalogLocalAhead: f.NewCounter(prometheus.CounterOpts{
+			Name: "simplebase_catalog_local_ahead_total",
+			Help: "Local catalog snapshot ahead of remote at cold start (rollback-overwrite blocked).",
+		}),
+		CatalogInlinedRows: f.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "simplebase_catalog_inlined_rows",
+			Help: "Rows inlined into catalog SQLite (must be 0 after P0-0 disables remote inlining).",
+		}, []string{"database_id"}),
+		CatalogSizeBytes: f.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "simplebase_catalog_size_bytes",
+			Help: "DuckLake catalog file size in bytes (early signal for shared-catalog decision).",
+		}, []string{"database_id"}),
+		CASSupported: f.NewGauge(prometheus.GaugeOpts{
+			Name: "simplebase_objectstore_cas_supported",
+			Help: "Startup probe result for create-if-absent conditional writes: 1=supported, 0=unsupported.",
+		}),
+		CatalogEngineMismatch: f.NewGauge(prometheus.GaugeOpts{
+			Name: "simplebase_catalog_engine_mismatch",
+			Help: "1 when configured catalog engine does not match existing data (startup refused; reset required).",
+		}),
+		MaintenanceSkipped: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_maintenance_skipped_total",
+			Help: "Maintenance runs skipped by reason (no_lease, sync_lag).",
+		}, []string{"reason"}),
+		APIStageSeconds: f.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "simplebase_api_stage_seconds",
+			Help:    "Per-stage request timing (perf validation); buckets span 1ms to 40s.",
+			Buckets: PerfStageBuckets,
+		}, []string{"route", "stage"}),
 	}
 }

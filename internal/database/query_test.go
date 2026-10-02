@@ -22,7 +22,7 @@ func newMemDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestExecute_InsertReturnsRowsAffectedAndLastInsertID(t *testing.T) {
+func TestExecute_InsertReturnsRowsAffected(t *testing.T) {
 	db := newMemDB(t)
 	res, err := Execute(context.Background(), db, Statement{SQL: "INSERT INTO t(name) VALUES(?)", Args: []any{"a"}})
 	if err != nil {
@@ -30,9 +30,6 @@ func TestExecute_InsertReturnsRowsAffectedAndLastInsertID(t *testing.T) {
 	}
 	if res.RowsAffected != 1 {
 		t.Errorf("RowsAffected = %d, want 1", res.RowsAffected)
-	}
-	if res.LastInsertID != 0 {
-		t.Errorf("LastInsertID = %d, want 0 (deprecated on DuckLake)", res.LastInsertID)
 	}
 }
 

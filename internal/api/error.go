@@ -9,8 +9,11 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/internal/database/kv"
+	"github.com/linkxzhou/SimpleBase/internal/database/lease"
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
+	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -152,6 +155,10 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, database.ErrWriterUnavailable) {
 		return NewAPIError(http.StatusServiceUnavailable, "writer_unavailable", "this instance is not writable", requestID)
 	}
+	// 写租约获取在途（perf §1.5）：503 + Retry-After，客户端应稍后重试。
+	if errors.Is(err, lease.ErrAcquiring) {
+		return NewAPIError(http.StatusServiceUnavailable, "lease_acquiring", "write lease acquisition in progress; retry shortly", requestID)
+	}
 	if errors.Is(err, database.ErrRowLimitExceeded) {
 		return NewAPIError(422, "row_limit_exceeded", "query row limit exceeded", requestID)
 	}
@@ -184,6 +191,22 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, sqlguard.ErrWriteInReadOnly) {
 		return NewAPIError(http.StatusBadRequest, "write_in_read_only", "write statement not allowed in read-only intent", requestID)
 	}
+	// kv 错误（key-value-ducklake-plan §5）
+	if errors.Is(err, kv.ErrNotFound) {
+		return NewAPIError(http.StatusNotFound, "kv_not_found", "key not found", requestID)
+	}
+	if errors.Is(err, kv.ErrKeyType) {
+		return NewAPIError(http.StatusConflict, "kv_type_mismatch", "key holds a different type", requestID)
+	}
+	if errors.Is(err, kv.ErrKeyExists) {
+		return NewAPIError(http.StatusConflict, "kv_key_exists", "key already exists", requestID)
+	}
+	if errors.Is(err, kv.ErrValueType) {
+		return NewAPIError(http.StatusBadRequest, "kv_invalid_value", "value is not a valid number", requestID)
+	}
+	if errors.Is(err, kv.ErrArgument) {
+		return NewAPIError(http.StatusBadRequest, "kv_invalid_argument", "invalid argument", requestID)
+	}
 	return nil
 }
 
@@ -194,12 +217,32 @@ func WriteError(c echo.Context, err error) error {
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if ae := Error(err, rid); ae != nil {
+		// 写租约获取在途：附带 Retry-After，客户端据此退避（perf §1.5）。
+		if ae.Body.Error.Code == "lease_acquiring" {
+			c.Response().Header().Set("Retry-After", "5")
+		}
 		return c.JSON(ae.HTTPStatus, ae.Body)
 	}
-	// 未知错误：记录但不泄露细节
+	// 未知错误：记录但不泄露细节（§7 排障：静默 500 不可追踪）。
+	logUnhandledError(c, err, rid)
 	return c.JSON(http.StatusInternalServerError, APIErrorBody{Error: APIErrorDetail{
 		Code: "internal_error", Message: "internal error", RequestID: rid,
 	}})
+}
+
+// requestLogger 是当前 echo 实例注入的 logger（New 装配时设置）。
+var requestLogger observability.Logger
+
+// logUnhandledError 输出未映射错误的原始内容，便于定位静默 500。
+func logUnhandledError(c echo.Context, err error, rid string) {
+	if requestLogger == nil {
+		return
+	}
+	requestLogger.Error("unhandled api error",
+		fieldString("request_id", rid),
+		fieldString("route", c.Path()),
+		fieldString("err", err.Error()),
+	)
 }
 
 // mapEchoError 将 echo.HTTPError 转换为 APIError。其他错误返回 nil。

@@ -40,6 +40,9 @@ func Validate(sql string, intent Intent) error {
 	if err := basicCheck(sql); err != nil {
 		return err
 	}
+	if hasDuckLakeMetadataIdentifier(sql) {
+		return ErrSQLNotAllowed
+	}
 
 	kw := FirstKeyword(sql)
 	if kw == "" {
@@ -62,6 +65,74 @@ func Validate(sql string, intent Intent) error {
 		// DML/DDL 允许；但仍拒绝 isAlwaysDenied
 	}
 	return nil
+}
+
+func hasDuckLakeMetadataIdentifier(sql string) bool {
+	const prefix = "__ducklake_metadata_"
+	for i := 0; i < len(sql); {
+		switch {
+		case sql[i] == '\'':
+			i++
+			for i < len(sql) {
+				if sql[i] == '\'' {
+					i++
+					if i < len(sql) && sql[i] == '\'' {
+						i++
+						continue
+					}
+					break
+				}
+				i++
+			}
+		case i+1 < len(sql) && sql[i:i+2] == "--":
+			i += 2
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+		case i+1 < len(sql) && sql[i:i+2] == "/*":
+			i += 2
+			for i+1 < len(sql) && sql[i:i+2] != "*/" {
+				i++
+			}
+			if i+1 < len(sql) {
+				i += 2
+			}
+		case sql[i] == '"':
+			i++
+			var identifier strings.Builder
+			for i < len(sql) {
+				if sql[i] == '"' {
+					i++
+					if i < len(sql) && sql[i] == '"' {
+						identifier.WriteByte('"')
+						i++
+						continue
+					}
+					break
+				}
+				identifier.WriteByte(sql[i])
+				i++
+			}
+			if strings.HasPrefix(strings.ToLower(identifier.String()), prefix) {
+				return true
+			}
+		case isSQLIdentByte(sql[i]):
+			start := i
+			for i < len(sql) && isSQLIdentByte(sql[i]) {
+				i++
+			}
+			if strings.HasPrefix(strings.ToLower(sql[start:i]), prefix) {
+				return true
+			}
+		default:
+			i++
+		}
+	}
+	return false
+}
+
+func isSQLIdentByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
 }
 
 // basicCheck 执行与意图无关的基础校验。

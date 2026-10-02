@@ -60,10 +60,11 @@ describe('DefaultLayout', () => {
   })
 
   it('opens settings from the settings query deep-link', async () => {
+    // 旧书签 ?settings=appearance 已下线：只打开弹窗，回退默认 connection tab
     const { wrapper, pinia, router } = await mountWithApp(DefaultLayout, { path: '/?settings=appearance' })
     const auth = useAuthStore(pinia)
     expect(auth.settingsOpen).toBe(true)
-    expect(auth.settingsTab).toBe('appearance')
+    expect(auth.settingsTab).toBe('connection')
     expect(router.currentRoute.value.query.settings).toBeUndefined()
     wrapper.unmount()
 
@@ -82,5 +83,33 @@ describe('DefaultLayout', () => {
   it('falls back to SimpleBase when the route has no name', async () => {
     const { wrapper } = await mountWithApp(DefaultLayout, { path: '/unnamed' })
     expect(wrapper.text()).toContain('SimpleBase')
+  })
+
+  it('toggles theme from the header icon button', async () => {
+    const { wrapper, pinia } = await mountWithApp(DefaultLayout, { path: '/' })
+    const { useSettingsStore } = await import('@/stores/settings')
+    const settings = useSettingsStore(pinia)
+    expect(settings.effectiveTheme).toBe('light')
+    const btn = wrapper.get('button[aria-label="切换为深色主题"]')
+    await btn.trigger('click')
+    expect(settings.theme).toBe('dark')
+    await flushPromises()
+    const btnBack = wrapper.get('button[aria-label="切换为浅色主题"]')
+    await btnBack.trigger('click')
+    expect(settings.theme).toBe('light')
+    wrapper.unmount()
+  })
+
+  it('first click resolves a stored system theme to an explicit mode', async () => {
+    const { wrapper, pinia } = await mountWithApp(DefaultLayout, { path: '/' })
+    const { useSettingsStore } = await import('@/stores/settings')
+    const settings = useSettingsStore(pinia)
+    settings.setTheme('system')
+    await flushPromises()
+    const label = settings.effectiveTheme === 'dark' ? '切换为浅色主题' : '切换为深色主题'
+    await wrapper.get(`button[aria-label="${label}"]`).trigger('click')
+    expect(settings.theme).not.toBe('system')
+    expect(['light', 'dark']).toContain(settings.theme)
+    wrapper.unmount()
   })
 })

@@ -26,7 +26,7 @@ describe('docs catalog', () => {
     expect(defaultSlug('no-such-module')).toBe('index')
     expect(getModule('missing')).toBeUndefined()
     expect(getPage(id, 'definitely-missing')).toBeUndefined()
-    expect(getModule('sdk')?.title).toBe('SDK')
+    expect(getModule('sdk')?.title).toBe('JS SDK')
     for (const slug of ['index', 'install', 'quickstart', 'go-install', 'go-quickstart', 'go-database-sql', 'go-documents', 'go-storage', 'go-errors']) {
       expect(getPage('sdk', slug)?.filePath).toBe(`sdk/${slug}.md`)
     }

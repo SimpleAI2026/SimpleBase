@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/web"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -27,7 +29,10 @@ type Dependencies struct {
 	Config  config.Config
 	Logger  observability.Logger
 	Metrics *observability.Metrics
-	Health  HealthChecker
+	// MetricsRegistry 是 Metrics 所属的 Prometheus registry（/metrics 输出源）。
+	// nil 时回退 prometheus 默认 registry（兼容旧装配与测试）。
+	MetricsRegistry prometheus.Gatherer
+	Health          HealthChecker
 	// 业务依赖（Plan 5 起填充）
 	Auth            *auth.Service
 	Catalog         CatalogService
@@ -36,6 +41,12 @@ type Dependencies struct {
 	// Plan 6：SQL 执行 handler。writable=false 时仅 query 可用。
 	SQLHandler  *SQLHandler
 	DataHandler *DataHandler
+	// KVHandler：项目级 Key-Value 数据服务（key-value-ducklake-plan）。
+	KVHandler *KVHandler
+	// KVService：项目 KV catalog 服务（建项目时建 kind=kv 行）。
+	KVService KVService
+	// KVInit：项目 KV catalog 行创建后初始化 kv schema。
+	KVInit KVInitializer
 	// Plan 7-9：缓存、用量、审计、LLM
 	Cache CacheService
 	Usage UsageService
@@ -155,12 +166,25 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	e.HideBanner = true
 	e.HidePort = true
 	e.HTTPErrorHandler = errorHandler(deps)
+	requestLogger = deps.Logger
 
 	e.Use(requestIDMiddleware())
+	// 分段计时（api-db-perf-validation-plan §2.1）：默认关闭，开启后输出
+	// simplebase_api_stage_seconds 与 debug 日志行。必须在 requestID 之后。
+	if deps.Config.Observability.PerfStageTiming {
+		var recorder stageTimingRecorder
+		if deps.Metrics != nil {
+			recorder = deps.Metrics
+		}
+		e.Use(perfStageMiddleware(recorder, deps.Logger))
+	}
 	e.Use(middleware.Recover())
 	e.Use(accessLogMiddleware(deps))
 	e.Use(middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
-		Limit: bodyLimit(deps.Config.Limits.MaxRequestBytes),
+		// S3 上传单独放宽，见 s3UploadBodyLimit。全局 1MB 会让控制台允许的文件先 413，
+		// 开发代理再把未读完的请求体报成 500。
+		Skipper: skipS3UploadBodyLimit(deps.S3FileStore != nil),
+		Limit:   bodyLimit(deps.Config.Limits.MaxRequestBytes),
 	}))
 
 	// /health/live 与 /health/ready 不经认证
@@ -169,7 +193,11 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	e.GET("/health/ready", health.Ready)
 
 	if deps.Metrics != nil {
-		e.GET(deps.Config.Observability.MetricsPath, echo.WrapHandler(promhttp.Handler()))
+		reg := deps.MetricsRegistry
+		if reg == nil {
+			reg = prometheus.DefaultGatherer
+		}
+		e.GET(deps.Config.Observability.MetricsPath, echo.WrapHandler(promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
 	}
 
 	// login-auth-plan：免认证登录/刷新端点。
@@ -196,7 +224,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 // 中间件顺序：AuthMiddleware（JWT/API Key 双通道）→ projectContext。
 // 权限校验通过 auth.Require 在每个路由单独配置。
 func mountV1Routes(e *echo.Echo, deps Dependencies) {
-	authMW := auth.AuthMiddleware(deps.Sessions, deps.Auth, WithPrincipal)
+	authMW := timedAuthMiddleware(auth.AuthMiddleware(deps.Sessions, deps.Auth, WithPrincipal))
 	require := func(perm auth.Permission) echo.MiddlewareFunc {
 		return auth.Require(perm, PrincipalFromContext)
 	}
@@ -224,14 +252,23 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	v1.POST("/projects", ph.CreateProject, require(auth.ProjectAdmin))
 	p := v1.Group("/projects/:projectID", projectContextMiddlewareEcho(deps))
 	h := deps.DatabaseHandler
+	// 项目 KV（key-value-ducklake-plan §2）：新建项目时同步建 kind=kv 行。
+	ph.KV = deps.KVService
+	ph.KVInit = deps.KVInit
+	ph.Logger = deps.Logger
 	p.POST("/databases", h.CreateDatabase, require(auth.DatabaseAdmin))
 	p.GET("/databases", h.ListDatabases, require(auth.DatabaseRead))
 	p.GET("/databases/:databaseID", h.GetDatabase, require(auth.DatabaseRead))
-	// Echo 会把 POST .../databases/:id/open 当成 POST .../databases 的方法不匹配（405）。
-	// 产品面已去掉打开/关闭；这里只回答 404 not_found，不打开连接、不改状态。
-	p.POST("/databases/:databaseID/open", removedDatabaseAction)
-	p.POST("/databases/:databaseID/close", removedDatabaseAction)
 	p.DELETE("/databases/:databaseID", h.DeleteDatabase, require(auth.DatabaseAdmin))
+
+	// API Key 管理（签发 / 列表 / 吊销）。登录态角色与 ProjectAdmin Key 均可；
+	// 权限位校验在 handler 内（canIssue），此处仅要求基础读权限通过认证链路。
+	if deps.Auth != nil && deps.System != nil {
+		kh := NewAPIKeysHandler(deps.Auth, deps.System.DB())
+		p.POST("/api-keys", kh.Create, require(auth.DatabaseRead))
+		p.GET("/api-keys", kh.List, require(auth.DatabaseRead))
+		p.DELETE("/api-keys/:keyID", kh.Delete, require(auth.DatabaseRead))
+	}
 
 	// Plan 6：SQL 执行路由。SQLHandler 为 nil 时不挂载（readonly 实例可仅挂 query）。
 	if deps.SQLHandler != nil {
@@ -243,13 +280,6 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	if deps.DataHandler != nil {
 		dh := deps.DataHandler
-		// Legacy project-scoped routes: implicit first database.
-		p.GET("/data/collections", dh.ListCollections, require(auth.DatabaseRead))
-		p.POST("/data/collections", dh.CreateCollection, require(auth.DatabaseWrite))
-		p.GET("/data/collections/:collection", dh.ListDocuments, require(auth.DatabaseRead))
-		p.POST("/data/collections/:collection/documents", dh.CreateDocument, require(auth.DatabaseWrite))
-		p.PUT("/data/collections/:collection/documents/:id", dh.UpdateDocument, require(auth.DatabaseWrite))
-		p.DELETE("/data/collections/:collection/documents/:id", dh.DeleteDocument, require(auth.DatabaseWrite))
 		// Database-scoped routes: must select the given databaseID.
 		p.GET("/databases/:databaseID/data/collections", dh.ListCollections, require(auth.DatabaseRead))
 		p.POST("/databases/:databaseID/data/collections", dh.CreateCollection, require(auth.DatabaseWrite))
@@ -257,6 +287,14 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.POST("/databases/:databaseID/data/collections/:collection/documents", dh.CreateDocument, require(auth.DatabaseWrite))
 		p.PUT("/databases/:databaseID/data/collections/:collection/documents/:id", dh.UpdateDocument, require(auth.DatabaseWrite))
 		p.DELETE("/databases/:databaseID/data/collections/:collection/documents/:id", dh.DeleteDocument, require(auth.DatabaseWrite))
+	}
+
+	// Key-Value 数据服务（key-value-ducklake-plan §3）：项目级单端点，
+	// 读命令要 database:read，写命令要 database:write（handler 内按命令分类拒绝）。
+	// KVHandler 为 nil 时不挂载。
+	if deps.KVHandler != nil {
+		kvh := deps.KVHandler
+		p.POST("/kv", kvh.Execute, require(auth.DatabaseWrite))
 	}
 
 	// Plan 8：LLM Gateway 路由。deps.LLM 为 nil 时不挂载。
@@ -281,7 +319,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	if deps.S3FileStore != nil {
 		sh := &S3Handler{store: deps.S3FileStore, index: deps.System}
 		p.GET("/s3/objects", sh.ListObjects, require(auth.DatabaseRead))
-		p.POST("/s3/objects", sh.UploadObject, require(auth.DatabaseWrite))
+		p.POST("/s3/objects", sh.UploadObject, require(auth.DatabaseWrite), middleware.BodyLimit(bodyLimit(s3UploadBodyLimit)))
 		p.DELETE("/s3/objects", sh.DeleteObject, require(auth.DatabaseWrite))
 		p.GET("/s3/presign", sh.PresignObject, require(auth.DatabaseRead))
 	}
@@ -382,6 +420,26 @@ func mountGoRoutes(e *echo.Echo, deps Dependencies) {
 	goGrp.GET("/:name/:functionName", h.MethodNotAllowed, require(auth.DatabaseRead))
 }
 
+// s3UploadBodyLimit 是对象上传的请求体上限。
+// 控制台单文件最大 50MiB（S3Manager MAX_UPLOAD_BYTES），另留 64KiB 给 multipart 帧。
+const s3UploadBodyLimit = 50<<20 + 64<<10
+
+// skipS3UploadBodyLimit 让 POST /s3/objects 跳过全局 max_request_bytes，改由路由上的更大上限约束。
+func skipS3UploadBodyLimit(enabled bool) middleware.Skipper {
+	if !enabled {
+		return middleware.DefaultSkipper
+	}
+	const suffix = "/s3/objects"
+	return func(c echo.Context) bool {
+		r := c.Request()
+		if r.Method != http.MethodPost || r.URL == nil {
+			return false
+		}
+		p := r.URL.Path
+		return len(p) >= len(suffix) && p[len(p)-len(suffix):] == suffix
+	}
+}
+
 // bodyLimit 将字节数转换为 echo BodyLimit 字符串（K/M）。
 // BodyLimit 解析支持 1024 形式与 "1M"/"512K" 形式；这里输出后者。
 func bodyLimit(bytes int64) string {
@@ -435,8 +493,39 @@ func isValidRequestID(s string) bool {
 	return true
 }
 
+// shouldRecordRequestLog 访问日志选择性记录（perf §1 P1-A：日志页不再是全量 access log）：
+//   - 跳过：健康检查、Prometheus 指标、SPA 静态回退、日志查询接口自身；
+//   - 保留：status ≥ 400、耗时 ≥ 500ms 的慢请求、所有写方法（POST/PUT/PATCH/DELETE）。
+//
+// 指标（RecordMetric）口径不受影响，仍全量记录。
+func shouldRecordRequestLog(method, route string, status int, latency time.Duration, metricsPath string) bool {
+	if route == "" || route == "/*" || strings.HasPrefix(route, "/health/") {
+		return false
+	}
+	if metricsPath == "" {
+		metricsPath = "/metrics"
+	}
+	if route == metricsPath {
+		return false
+	}
+	// 日志页自身（列表 / retention）不产生日志，避免自我放大。
+	if strings.HasPrefix(route, "/v1/projects/:id/logs") {
+		return false
+	}
+	if status >= 400 || latency >= 500*time.Millisecond {
+		return true
+	}
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	default:
+		return true
+	}
+}
+
 func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 	logger := deps.Logger
+	metricsPath := deps.Config.Observability.MetricsPath
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			start := time.Now()
@@ -470,14 +559,16 @@ func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 				if pc.ID != "" {
 					projectID = pc.ID
 				}
-				deps.System.RecordLog(systemdb.LogEvent{
-					ProjectID:  projectID,
-					Level:      "info",
-					Logger:     "http",
-					Message:    c.Request().Method + " " + c.Path(),
-					FieldsJSON: `{"status":` + itoa(status) + `,"duration_ms":` + itoa(int(latency.Milliseconds())) + `}`,
-					RequestID:  rid,
-				})
+				if shouldRecordRequestLog(c.Request().Method, c.Path(), status, latency, metricsPath) {
+					deps.System.RecordLog(systemdb.LogEvent{
+						ProjectID:  projectID,
+						Level:      "info",
+						Logger:     "http",
+						Message:    c.Request().Method + " " + c.Path(),
+						FieldsJSON: `{"status":` + itoa(status) + `,"duration_ms":` + itoa(int(latency.Milliseconds())) + `}`,
+						RequestID:  rid,
+					})
+				}
 				if projectID != "" {
 					deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_requests", Value: 1})
 					deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_latency_ms", Value: float64(latency.Milliseconds())})

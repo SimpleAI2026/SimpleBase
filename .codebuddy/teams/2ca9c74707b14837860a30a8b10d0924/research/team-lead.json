@@ -1,0 +1,182 @@
+[
+  {
+    "id": "msg-1790563701918-mmp4ff",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "已核对当前代码与计划有落地差异：`EnsureLocalCatalog` 当前不再直接 HEAD 旧键，先 `ReadLatestManifest(..., fromSeq=0)`（`internal/database/ducklake/catalog_syncer.go:641-665`），从 seq=1 连续逐个 `GetBytes`，一次最多扫描 64 个（`manifest.go:41-82,85-104`），然后按本地 state 决定是否 `DownloadFile`（`catalog_syncer.go:667-709`）。每次首次打开 DB（不是每条热请求）会走；热句柄由 `registry.go:94-106` 直接复用，空闲默认 5 分钟（`registry.go:58-61,294-324`）。这会是冷请求时 manifest 扫描成本，应避免错误称每请求全量下载或 O(1) GET。继续排查测量链。",
+    "timestamp": "2026-09-28T02:48:21.918Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563725981-1u7eh9",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "重要实际代码缺陷：`EnsureLocalCatalog(... ReadLatestManifest(..., 0))` (`catalog_syncer.go:641-650`) 每次冷开从 seq=1 起，`ReadLatestManifest` 只循环 64 次便返回 (`manifest.go:52-82`)，所以 seq>64 时冷开永远只能得到 seq=64 快照，最多 64 次串行 S3 Get + 再下载过期 catalog；本地水位>64 时会识别为 local-ahead 并保留本地，若缓存被丢弃则读过期 catalog。优化须正确性优先：用可靠本地已同步 seq 作前探起点并处理空缓存超过 64 版本（LIST/指数探测+二分/远端索引）；不仅仅调大上限。此结论是代码静态推断，不是实际 benchmark。",
+    "timestamp": "2026-09-28T02:48:45.981Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563739897-i2357y",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "更严重纠正我上条：默认 KeepVersions=10（`catalog_syncer.go:72-74`）；每次 seq>10 后 `pruneVersions` 从 seq=1 删除所有早期 manifest（`catalog_syncer.go:562-590`）。然而每次冷开 `ReadLatestManifest(...,0)` 固定 GET manifest/1，缺失则立即返回 nil（`manifest.go:52-73`）；实际从第 11 次 sync 起冷开始终不能发现任何新 manifest，退回旧 catalog.sqlite 的 HEAD+DownloadFile（`catalog_syncer.go:641-665,682-690`），即使本地 state 有水位也因 remoteSnap=0 无法命中相等/领先判定（`:667-676`）。且镜像旧键发生在 manifest 提交之前（`:439-462`），理论上失败 manifest 仍镜像未提交 catalog，存在一致性风险。之前 seq>64 限制仍成立但通常被先删 seq1 的问题遮蔽；均为代码静态推断，需构造 >=11 次同步后重新打开的实测。",
+    "timestamp": "2026-09-28T02:48:59.897Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563755616-iz1t2s",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "额外稳定慢点：`pruneVersions` 每次同步循环 `seq=1..currentSeq-KeepVersions`，每轮对历史所有 seq 调 `getManifestAt`→S3 `GetBytes`，但已删旧版本仍继续每次 GET 404（`catalog_syncer.go:562-590`; `manifest.go:85-95`）。seq=n、keep=10 时单次至少 n-10 次串行 GET，累积 O(n²)；默认写成功 `AfterWrite`→`MarkDirty`→200ms debounce (`factory.go:285-309`; `catalog_syncer.go:179-208`) ，因此成本按写入突发批次而非每 HTTP 读发生。默认 `MaxOpenConns(1)` (`factory.go:89-95`) 与 COPY FROM DATABASE (`catalog_syncer.go:378-415`)共用单连接，后台 sync 的 COPY/扫描快照占用连接，HTTP 查询排队；这是结构性推断，暂无实测延迟数字。建议维护 lastPrunedSeq、只处理新增到期 seq，并统计每次 sync 的 GET/404/DELETE 数与阶段耗时；比较优化前后写突发下 HTTP p95/p99 和 sync_duration。",
+    "timestamp": "2026-09-28T02:49:15.616Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563775265-6q855s",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "仅读调查结论（路径均以 `/Volumes/my/github/SimpleBase/` 为前缀）：请求链 `internal/api/router.go:234-272` 的 project middleware (`internal/api/database_handler.go:248-265` 先查 sys_projects) → `internal/api/data_handler.go:102-133,246-275` 或 SQL `internal/api/sql_handler.go:123-179` → `internal/api/adapter.go:93-106,149-150` → `internal/catalog/service.go:212-223` / `internal/catalog/sql_repository.go:143-155` 查 sys_databases → `internal/database/registry/registry.go:83-106,128-167` 热句柄复用/冷开 singleflight → `internal/database/ducklake/factory.go:53-69,76-115,136-171` 冷开 S3 manifest/catalog GET，INSTALL/LOAD 三扩展 + ATTACH，单连接池 → `internal/database/query.go:32-68` DuckDB 查本地 SQLite catalog 与远端 DATA_PATH parquet（URI `internal/database/ducklake/secret.go:46-52`，读 parquet 的实际远程请求由 DuckDB httpfs 原生执行，非 Go BlobStore）；本地行内联仅 DevMode：远端强制关闭 `factory.go:149-159`。`registry.go:58-61,294-324` 空闲 5 分钟后若调用 CloseIdle 可重开，但全仓仅该处 CloseIdle 定义未找到调用，不能声称周期自动淘汰。关键风险：首次打开 `catalog_syncer.go:641-709` 每次 `ReadLatestManifest(...,0)` (`manifest.go:46-82`) 串行 GET seq1 起；默认 keep10，sync 后 `pruneVersions` 从 seq1 删旧 manifest (`catalog_syncer.go:562-590`)，因此第 11 次成功 sync 后冷开 seq1 404 => 无 manifest => 回退 legacy HEAD + DownloadFile，消耗额外网络，且 seq=0 禁止本地水位快路；事实来源可能从 manifest 偏离。版本裁剪对 n 次成功同步第 n 次读 n−10 个旧键（大多404），累计 O(n²) S3 GET (`catalog_syncer.go:562-590`)。COPY 在唯一 DB 连接上执行 `catalog_syncer.go:365-415` 与 HTTP 查询竞争 `factory.go:89-95`；快照/镜像/manifest 均上传完整 catalog (`catalog_syncer.go:413-456`)，`mirrorLegacyKeys` 明确仍无条件覆盖旧 key（`:540-559`），计划 `plan/planv3.0/multi-instance-consistency-plan.md:476-498` 的“旧 key 只读”与现状矛盾。测量现状：现有 HTTP route 延迟 `api/router.go:479-506`、sync duration `catalog_syncer.go:280-283,594-612`、S3 get_bytes 仅计数 `objectstore/blob.go:126-149`，`observability/metrics.go:74-92` 中 DBOpenSeconds/DBQuerySeconds/S3OperationSeconds虽定义但业务路径未 Observe（仅 client.go put/get JSON 有秒级），`sql_handler.go:177` durationMS 是 query 函数内部计时，不含冷开/认证/排队前等待（`query.go:33-67`）。计划 ATTACH“实测应在10ms量级”写于 `multi-instance-consistency-plan.md:702`，实际措辞‘实测应’是预测，仓库无该压测证据；不要报告为实测。可测量优化优先① 修发现最新 manifest：按 remote 可靠索引/LIST 找最大 seq（避免裁剪后缺首段）+ 保留快照状态校验；加 11 次以上同步/全丢缓存重开集成测试，统计冷开 S3 请求数及延迟；② prune 保留 lastPrunedSeq 只处理新增到期 seq，对比每同步 GET/404/DELETE 与 p95；③ 给 Registry factory.Open、查询 DB pool WaitDuration、S3 GetBytes/DownloadFile 各阶段延迟打点（避免数据库ID高基数 label，`metrics.go:8-9`），测冷/热 HTTP p50/p95/p99 及后台 COPY 并发造成的排队；④ 对比不同 catalog 大小+写 burst 下 sync_on_commit 与 200ms debounce 的吞吐、全量备份字节与 HTTP p99。全部为代码静态分析，没有运行基准。",
+    "timestamp": "2026-09-28T02:49:35.265Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563792489-bv1d8i",
+    "from": "db",
+    "to": "team-lead",
+    "type": "message",
+    "content": "只读研究结论：**当前不是 object-store 原生 catalog**，而是每库本地 SQLite catalog + S3 Parquet DATA_PATH + 后台整库 SQLite 快照到 S3。核心入口 `/Volumes/my/github/SimpleBase/internal/database/ducklake/factory.go:35-126,136-180,224-264`：`Open` 先 `EnsureLocalCatalog` 冷下载，再每库创建 DuckDB `NewConnector(\"\", boot)`，`sql.DB` max-open/idle 都 1，boot `INSTALL/LOAD ducklake/sqlite/httpfs`、`CREATE SECRET`、内存/线程/tmp 白名单、`ATTACH 'ducklake:sqlite:{local catalog.sqlite}' AS lake (DATA_PATH 's3://...', DATA_INLINING_ROW_LIMIT 0, AUTOMATIC_MIGRATION false, OVERRIDE_DATA_PATH true)`，非远端关闭 external access；路径 `{cache_dir}/{dbID}/catalog/catalog.sqlite` + `data/` + `tmp/`。`/Volumes/my/github/SimpleBase/internal/database/ducklake/extension.go:11-29,33-78` 运行时要求 DuckDB >=1.5.2 且三个扩展已加载；`/Volumes/my/github/SimpleBase/go.mod:3-19,52-57` Go 1.25、duckdb-go/v2 v2.10505.0、对应原生 bindings、多平台包、AWS SDK，另有 go-sqlite3（不等于 DuckLake catalog 实现）。`/Volumes/my/github/SimpleBase/internal/database/ducklake/secret.go:9-52` S3 凭据/endpoint/path style 注入 httpfs，DATA URI 从 KeyBuilder 生成；`/Volumes/my/github/SimpleBase/internal/objectstore/keys.go:119-146,155-203,230-240` 数据 `s3://{bucket}/{prefix}/{instance}/tenants/{tenant}/databases/{db}/data/`，catalog snapshot/manifest 存同库 `catalog/snapshots/...sqlite`、`catalog/manifest/...json`。配置 `/Volumes/my/github/SimpleBase/internal/config/config.go:69-115,228-274,322-412` 仅 engine=ducklake，prod writable 必需 S3，默认 cache 1GiB/256、maxOpen=8、memory=512MB、threads=2、zstd、64MB、debounce=200ms/保留10版；`/Volumes/my/github/SimpleBase/internal/app/app.go:640-709,814-834` prod/DevMode 工厂映射，系统库与用户库共享 remote/syncer 但目录隔离。系统库 bootstrap `/Volumes/my/github/SimpleBase/internal/app/app.go:343-390`、`/Volumes/my/github/SimpleBase/internal/systemdb/bootstrap.go:28-105`：本地 `system/locator.json` 持久化身份 ID，系统库目录 `system/dbs`；系统库承载平台 catalog/auth，不仅用户库要迁移；locator 代码 `/Volumes/my/github/SimpleBase/internal/systemdb/locator.go:11-60`。写后 `/Volumes/my/github/SimpleBase/internal/database/registry/handle.go:80-116` notifyWrite；`/Volumes/my/github/SimpleBase/internal/database/ducklake/factory.go:285-336` 快照水位后 MarkDirty + local-state，durability 默认 committed_local，只有同步模式且 lag=0 宣称 synced_s3；`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:179-209,331-502,622-709` debounce 或 sync_on_commit（内部同步错误被 `_ =` 忽略），`COPY FROM DATABASE __ducklake_metadata_lake TO` 临时 SQLite、整文件读内存上传 immutable snapshot，PutIfAbsent manifest，冷启动按 manifest 下载并本地 rename。`/Volumes/my/github/SimpleBase/internal/database/registry/registry.go:25-35,75-167,180-198,294-310` 单进程一库一 handle/复用、只写时租约门禁、idle 淘汰；`/Volumes/my/github/SimpleBase/internal/database/cache/manager.go:35-99,120-164` 仅本地缓存；`/Volumes/my/github/SimpleBase/internal/database/cache/evict.go:32-137` 按目录 mtime LRU、先 CloseDatabase 再删除。`/Volumes/my/github/SimpleBase/internal/app/app.go:304-332,395-475` S3 create-if-absent probe/写租约仅探针通过时启用；`/Volumes/my/github/SimpleBase/internal/objectstore/blob.go:22-44,45-63` 仅支持条件新建，不提供可靠 If-Match CAS。**可行性**：在现有 DuckDB/DuckLake 版本及仓内文档下，不能直接把 `sqlite:` 换成 `s3://` 宣称原生 catalog 可用：仓内 DuckLake 1.0 规范 `/Volumes/my/github/SimpleBase/docs/database/ducklake.md:18-23` 要求 catalog 支持事务与主键；同文档 `1845-1919` 列 DuckDB/SQLite/PostgreSQL/MySQL catalog，S3 是数据存储而非 catalog；须首先验证目标 object-store catalog 引擎/扩展在绑定版本的 ATTACH 语法、事务/冲突、扩展兼容及 S3 端点能力。若自研对象 catalog，则重做事务/CAS/多写者冲突与快照读取；若改 PostgreSQL/其他事务 catalog，虽能迁移 SQLite catalog，但不属于 object-store-only；生产迁移还要改 factory ATTACH、extension/配置、syncer/backups/read-back、KeyBuilder 生命周期与本地缓存、系统库 locator/bootstrap、实例租约/读副本刷新/恢复与回滚，阶段迁移需停写、同步最后快照并验证表/快照/Parquet URI，不能单改 DATA_PATH。**风险（已有代码明显）**：`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:562-590` prune 从 seq=1 开始删旧 manifest；`/Volumes/my/github/SimpleBase/internal/database/ducklake/manifest.go:41-82` ReadLatestManifest 从 seq=1 连续向上找，遇首个缺失就判无 manifest，超过 keepVersions 后冷启动会退回旧镜像、nextSeq 可能重新用 1 并冲突。`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:305-328,244-252` Close 先设置 closed=true 再 Flush，而 Sync 遇 closed 直接错误，无法完成宣称的关停同步。`/Volumes/my/github/SimpleBase/internal/database/cache/evict.go:102-113` CloseDatabase 失败仍删目录（包括 sync/活跃竞争失败），本地未上传变更可能丢失；`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:667-676` local-state 缺失/损坏则旧远端可能覆盖更新的本地 catalog；`/Volumes/my/github/SimpleBase/internal/database/registry/handle.go:80-85` hook 错误被忽略，网络失败下同步水位与客户端写成功可能分离；整文件 COPY/ReadFile/Put (`catalog_syncer.go:363-435`) 和冷启动下载 (`622-709`) 放大大 catalog 读写耗时/内存及恢复窗口。无需将这些代码风险表述为已经复现，属静态分析。",
+    "timestamp": "2026-09-28T02:49:52.489Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563808346-pt27ru",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "按要求拆分，补充核心遗漏：metadata 列表 `GET /v1/projects/:projectID/databases` (`api/router.go:234-242`) 并非纯 sys_databases！每请求 project middleware 先本地系统库查项目 `api/database_handler.go:248-265`; 列表从系统库一次 SQL (`api/database_handler.go:128-154`; `catalog/sql_repository.go:216-249`, 默认50、最高200)，随后对每个 ready 库 **顺序**执行 `enrich` (`api/database_handler.go:148-175`)。实际 wiring 非 nil：`app/app.go:167-176` `RowCountFor = CountDatabaseRows`; 该函数每个库先 Acquire（可能冷开 manifest+下载+扩展安装），再查 information_schema、逐表 `SELECT COUNT(*)` 上限200（`api/db_stats.go:14-47,49-75`），含远程 parquet 扫描成本；每 ready 库独立3秒 timeout (`database_handler.go:165-171`)，最坏 50库 ≈150秒，200库 ≈600秒上界（忽略额外系统查库/写响应，HTTP 网关超时可能先断），并非全列表 3秒；静默忽略失败（`:171-175`），所以 UI 列表实际会阻塞且冷开频次按每次列表 × ready DB 数，在热句柄时仍每次扫描全部表 COUNT。`GET .../databases/:id` 同样 enrich 1次 (`database_handler.go:178-199`)。user DB SQL `POST .../query` (`api/sql_handler.go:123-179`) 只对单库 GetDatabase+Acquire+Query，只有首次冷开可能 S3 catalog，热请求直接 Query DuckDB httpfs Parquet；写 `Execute` 同理并异步 MarkDirty。优化首先给列表去 N+1 实时 COUNT（预聚合/按需统计/异步缓存），先保留元数据响应对比 1/50/200库与表数/每库 S3 GET 量、HTTP p95/p99。`manifest_test.go:21-58,168-203` 只验证 1-3 manifest 和两版本热 reopen，无第11版裁剪回归；没有可引用生产基准，提到“10ms 实测”仍应标计划猜测。",
+    "timestamp": "2026-09-28T02:50:08.346Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563826066-99fvm4",
+    "from": "db",
+    "to": "team-lead",
+    "type": "message",
+    "content": "按当前工作树实现核验热点：**默认 `debounce` 模式写请求不等待 S3 同步，但 `sync_on_commit` 模式会同步阻塞写请求**。链路 `/Volumes/my/github/SimpleBase/internal/api/sql_handler.go:222-248` HTTP Execute 调 `lease.Execute` 后才构造响应；`/Volumes/my/github/SimpleBase/internal/database/registry/handle.go:99-116,80-85` Execute/Batch 成功调用 `notifyWrite`，`notifyWrite` 同步调用 onWrite；`/Volumes/my/github/SimpleBase/internal/database/registry/registry.go:148-156` onWrite 绑定 `Factory.AfterWrite`；`/Volumes/my/github/SimpleBase/internal/database/ducklake/factory.go:285-309` AfterWrite 先查询当前 snapshot，调用 `MarkDirty`，再写 local-state 文件；`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:179-208` 默认用 `time.AfterFunc(debounce, ...)` 异步；当 mode==sync_on_commit 时直接 `_ = s.Sync(context.Background(), dbID)`，没有 goroutine，整段同步在 HTTP 请求链路（并且用 Background 脱离请求超时/取消）；`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:363-435,449-465` Sync 包含本地 SQLite 全量 COPY、读文件、S3 PutIfAbsent 快照、legacy 两份 PutBytes、manifest 新建/查找/裁剪，因此热点写延迟可能显著增加。无论模式，`handle.notifyWrite` 丢弃 AfterWrite 错误，`MarkDirty` 又丢弃 Sync 错误，S3 失败不会向写请求返回失败；`/Volumes/my/github/SimpleBase/internal/database/ducklake/factory.go:324-336` `sync_on_commit` 且 lag==0/last>0 才宣称 synced_s3，但因 `Sync` 碰到 inflight 返回 nil（`catalog_syncer.go:253-255`）以及水位状态，建议严谨评估声明语义。默认配置当前代码 `/Volumes/my/github/SimpleBase/internal/config/config.go:253-263` 是 debounce 200ms。此前结论基于当前文件实际源码；仓内 plan/docs 只用于提出兼容约束，不把未来设计当已实现。",
+    "timestamp": "2026-09-28T02:50:26.066Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563827154-i75m36",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "UI 加权重要：`ui/src/services/http-api.ts:755-762` `databases.list` 固定传 `limit:200`，因此实际控制台列表最高200个 ready 库串行 `RowCountFor`，每库3秒超时，理论最多600秒；HTTP 默认 `internal/config/config.go:233-234` ReadTimeout 15s、WriteTimeout 30s，实际列表很可能在服务端写超时前部分库统计未完成，不能把600秒说成用户可等待的响应时间。建议统计采样在 UI 展示 `documentCount` (`http-api.ts:64`) 时走缓存/独立接口，而元数据列表不得同步逐库 COUNT。",
+    "timestamp": "2026-09-28T02:50:27.154Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563852524-314jat",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "逐项精确复核：① lease `probeMax` 每次都从 epoch=1 顺序 `GetBytes` 至首404，单次 E+1 个 GET，上限100万 (`internal/database/lease/lease.go:73-89,228-245`)；在 `Acquire` 首写执行一次，若他人 owner 则 40s `time.After(TTL+Grace)` 再从1扫一次 (`lease.go:182-205`; 默认 TTL30/Grace10 `internal/config/config.go:242-244`)；租约每10s续约新增 epoch (`lease.go:247-266`,`config.go:242-244`)，因此跨实例首次尝试累积请求随运行时间线性增长。② 重要边界：此延迟仅写的首次 `ReadWrite Acquire` 且租约启用/他人已持有 (`app/app.go:402-450`)，不是读请求或已有租约每次；SQL Execute 的 ctx 是 30s (`api/sql_handler.go:187-188`; `config.go:295-296`)，所以默认 SQL API 在 40s 观察完成之前先超时，往往不能返回预期409 owner；文档创建未加SQL query timeout，可能等满40s (`api/data_handler.go:160-167`)。③ manifest 首次每库冷开 `ReadLatestManifest(...,0)` 最多64连续 GET (`ducklake/catalog_syncer.go:641-645`; `ducklake/manifest.go:46-82`)，与 prune 从1扫至 currentSeq-keep 并删除旧manifest (`catalog_syncer.go:562-590`) 联动：默认 keep10，第11次同步后 seq1 已删，冷开首 GET 404 → legacy HEAD/下载 (`catalog_syncer.go:652-690`)，所以理论64上限通常被先删首段遮盖。④ COPY 与查询竞争单连接：`factory.go:89-95` 一连接；`catalog_syncer.go:378-415` COPY + CurrentSnapshot 共享该连接，`database/query.go:32-68` QueryContext 等锁/连接；后台200ms debounce (`catalog_syncer.go:179-208`) 或 sync_on_commit 同步，后一模式虽 `Sync` 会阻塞，但 `MarkDirty` 在 `Handle.notifyWrite` 中忽略 `AfterWrite` 错 (`registry/handle.go:80-105`)。⑤ 仓库没有 `Benchmark*` 于 internal/database 测试（检索空），只有 `manifest_test.go:21-58,168-203` 少量功能测试；计划 `multi-instance-consistency-plan.md:702` “实测应在10ms量级”是期望而无数据。建议不要虚构毫秒级实测结论，只有算法次数/配置超时可严格算出。",
+    "timestamp": "2026-09-28T02:50:52.524Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563875798-4p38nf",
+    "from": "db",
+    "to": "team-lead",
+    "type": "message",
+    "content": "已复核当前工作树，四项均属**已落地实现的静态正确性问题**（非 plan 假设）：\n1. `/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:562-590` `pruneVersions` 达 `KeepVersions+1` 后从 seq=1 删除早期 manifest 与所指 snapshot；`/Volumes/my/github/SimpleBase/internal/database/ducklake/manifest.go:46-82` `ReadLatestManifest(...,0)` 首查 seq1 不存在即返回 nil。`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:641-663` 冷启动因此回退覆盖式 legacy `catalog.sqlite`；`catalog_syncer.go:505-517` 下次进程初始化 `lastSeq` 空，从 seq1 读不到就取 nextSeq=1（被删的序号重复启用），历史连续性/最新指针均失效；legacy 镜像若落后则可能回退数据。\n2. `/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:51-60,133-146` 单个同步器 `closeFast bool` 是全局字段；`/Volumes/my/github/SimpleBase/internal/app/app.go:640-709` 全部用户库和系统库共用同一同步器；任意库失租 `app.go:419-436` 调 `CloseNoFlush(dbID)` 将其置 true，`catalog_syncer.go:244-252,286-302,349-361` 此后**所有库** Sync/Flush 跳过远端 PUT，且无恢复/reset 路径（代码中 closeFast 仅此处写 true），即使其他库的租约仍有效也失去 S3 catalog 持久化。\n3. `/Volumes/my/github/SimpleBase/internal/app/app.go:304-332` 条件写 probe 失败只记 Error/指标，仍继续装配；`:402-475` 仅跳过写租约并警告 replicas=1；`:640-670` 依旧创建 CatalogSyncer，`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:421-460` 继续以 PutIfAbsent 写快照/manifest；`/Volumes/my/github/SimpleBase/internal/app/app.go:100-120` readiness 只 Ping 系统库和检查 S3，不检查 `casSupported`。所以探针失败仍可能对外 Ready 且接受写、manifest 互斥语义不成立；极端情况下系统库 bootstrap 早于 lease 装配 (`app.go:358-375,395-402`)。\n4. `/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:439-455` 注释说先比较远端水位才写 legacy 镜像，**实际无比较直接调用** `mirrorLegacyKeys`，而实现 `:540-559` 对固定 `catalog/catalog.sqlite` 和 `versions/{snap}.sqlite` 无条件 `PutBytes`；镜像又在 manifest 序列冲突检测之前执行 (`:449-460`)。因此落后/冲突 writer 可以先覆盖供旧客户端及 manifest 缺失时冷启动使用的 catalog，之后即便检测冲突已晚；并发不同 epoch 同 snapshot 还可互相覆盖 legacy version。结合问题1 危险更大。\n特别澄清：这四项是静态路径确认，不声称跑过复现。附加风险 `/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:305-325,244-247` `Close` 置 closed 后自己 Flush 触发 closed 错误（未依赖 plan）。",
+    "timestamp": "2026-09-28T02:51:15.798Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563928444-0ycp9y",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "已确认主要瓶颈（绝对路径统一前缀 `/Volumes/my/github/SimpleBase/`）：1. **控制台 metadata 列表最大瓶颈** `ui/src/services/http-api.ts:755-762` 请求 `limit=200`；`internal/api/database_handler.go:144-175` 逐库串行 `enrich`，每 ready 库限时3秒，`internal/app/app.go:173-176` 始终注入 `RowCountFor`，`internal/api/db_stats.go:17-47,49-75` 每库 Acquire + 列表查询 + 每张表 COUNT(*)(最多200表)，读取远端 parquet 并在冷开走 S3。200库理论等待可达600秒，HTTP 默认30秒写超时 `internal/config/config.go:233-234`。优化元数据列表移除同步 COUNT，改缓存/单库按需，测1/50/200库 × 表数 HTTP p95。2. **冷开 catalog 扫描** `internal/database/ducklake/catalog_syncer.go:641-690` 每次从 seq0 前探 `internal/database/ducklake/manifest.go:46-82` 最多64串行 GET；同步裁剪 `catalog_syncer.go:562-590` 默认keep10，会删 seq1；第11次同步后冷开无法找到 manifest、回退 legacy HEAD + 下载。3. **写租约扫描/观察** `internal/database/lease/lease.go:182-205,228-245` 每次获取从 epoch1 读至404，已有他人 owner 等默认30+10秒后二次全扫（`internal/config/config.go:240-244`），SQL Execute 请求只给30秒 (`internal/api/sql_handler.go:187-188`、`config.go:295-296`)，无法完成默认40秒观察；仅首次写且启用租约，不适用每次读。4. **后台同步拖慢热查询** `internal/database/ducklake/catalog_syncer.go:363-415` 同库 COPY FROM DATABASE 全量 catalog + 两次 CurrentSnapshot；`internal/database/ducklake/factory.go:89-95` 每库连接池仅1，查询 `internal/database/query.go:32-68` 与 COPY 串行竞争；`catalog_syncer.go:179-208` 默认写后200ms debounce。5. **同步裁剪远程请求递增** `catalog_syncer.go:562-590` 每次从1重复 GET 已删旧 seq，seq=n 约 n−10 次 GET、累积二次增长；修成只处理新到期区间。**均为静态代码推断，非实测耗时**；`internal/observability/metrics.go:74-92` DBOpen/DBQuery/S3 时延虽定义但这些核心路径无 Observe，现有 HTTP 耗时 `internal/api/router.go:479-506` 和同步总耗时 `catalog_syncer.go:280-283,594-612` 可作为测量起点。",
+    "timestamp": "2026-09-28T02:52:08.444Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790563972935-g3vgll",
+    "from": "db",
+    "to": "team-lead",
+    "type": "message",
+    "content": "可直接写计划的阶段结论（当前工作树，仅读）：现状 `factory.go:53-54,136-180,235-242` 是本地 `catalog.sqlite` 经 DuckLake `ATTACH 'ducklake:sqlite:...'` 管元数据，S3 仅存 Parquet DATA_PATH 和同步备份；`catalog_syncer.go:363-465,622-709` 每次备份全量 SQLite → S3 不可变快照/manifest、冷启动拉回；`app.go:640-709` 系统库和用户库共用 remote/syncer。默认同步 `config.go:253-263` debounce 200ms，不同步阻塞请求；选择 sync_on_commit 后 `registry/handle.go:99-116` → `ducklake/factory.go:285-309` → `catalog_syncer.go:179-208` 在请求上同步运行完整 Sync（但错误丢弃）。**计划前置 P0**：（1）`ducklake/catalog_syncer.go:562-590` 删除 seq1 manifest，与 `ducklake/manifest.go:46-82` 必须从 seq1 连续扫描冲突，超过 keepVersions 冷启动 `catalog_syncer.go:641-663` 误退 legacy；（2）`catalog_syncer.go:51-60,133-146,244-252` 任意 DB CloseNoFlush 将全局 closeFast 置 true，所有库停同步；（3）`app.go:304-332,402-475,640-670,100-120` 条件写 probe 失败仍装配同步器、仍接受写且 readiness 不查 CAS；（4）`catalog_syncer.go:439-460,540-559` legacy catalog 无条件 PutBytes 并且早于 manifest 冲突检测，落后 writer 可覆盖备份。另 `catalog_syncer.go:305-325,244-247` Close 先 closed 后 Flush 注定错误；`cache/evict.go:102-113` close 报错仍删本地目录；`systemdb/locator.go:11-60` 系统库身份只存本地，迁移需处理冷启动 identity。**可行性**：仓内 DuckLake 规范 `docs/database/ducklake.md:18-23,1845-1919` 要求元数据 catalog 事务/主键，列 DuckDB/SQLite/PostgreSQL/MySQL，不能仅改 S3 URI 视作原生对象 catalog；先验证目标后端支持与版本、事务/CAS，再实施迁移+双读/冻结写/恢复测试。精准位置均在 `/Volumes/my/github/SimpleBase/internal/` 下，`docs/database/ducklake.md` 位于仓根。",
+    "timestamp": "2026-09-28T02:52:52.935Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790564027217-rocv44",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "复核结论已在上一条完整发送；请重点检查初稿是否准确写明：列表 `database_handler.go:144-175` 对最多200库串行逐表 COUNT（非纯 metadata SQL）；默认第11次 catalog sync 后裁剪 seq1 导致冷开 manifest 回退 legacy（`catalog_syncer.go:562-590,641-690`）；租约他人持有默认观察40秒但 SQL Execute timeout 30秒（`lease.go:187-205`, `sql_handler.go:187-188`）；所有毫秒/p95 属待测，无现成生产实测。当前无新补充阻塞项。",
+    "timestamp": "2026-09-28T02:53:47.217Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790564052193-90caav",
+    "from": "db",
+    "to": "team-lead",
+    "type": "message",
+    "content": "复核修订要点请优先纳入初稿：A) `ducklake/catalog_syncer.go:566-590` 清理旧 manifest 后，`ducklake/manifest.go:46-82` 从 seq1 扫描遇缺失即 nil，不是‘回退二分’（注释不等于实现）；`catalog_syncer.go:641-663` 冷启动只能读可覆盖的旧镜像。B) `ducklake/catalog_syncer.go:133-146,244-252` closeFast 是**同步器全局 bool**，且 `app/app.go:640-709` 系统/用户库共用，任一库丢租会让所有库停 S3 catalog 同步。C) `app/app.go:304-332,402-475,100-120` CAS 探针失败仅跳过租约、不阻止 CatalogSyncer 继续使用不可靠 PutIfAbsent、Ready 也不检查；禁止把代码注释的‘Fatal/禁止全部互斥功能’写为已实现。D) `ducklake/catalog_syncer.go:439-460,543-559` 旧镜像无条件覆盖、且发生在 PutIfAbsent manifest 检冲突前，不要沿用注释所述‘仅领先才写’。E) `ducklake/catalog_syncer.go:196-208` 默认 debounce 异步；sync_on_commit 同步阻塞 HTTP 写，且 `_ = Sync(context.Background())` 忽略错误并脱离请求取消；`ducklake/factory.go:324-336` durability 推断不等于严格写成功同步保证。F) `ducklake/catalog_syncer.go:305-325` Close 先闭后 Flush，Sync `:244-247` 直接报 closed；`cache/evict.go:102-113` 关闭失败仍删缓存。结论全部来自当前实际文件静态检查，无运行复现。我在工作区未发现名称含 object/catalog 的新计划文件；若需针对初稿逐段复核，请发文件路径或内容。",
+    "timestamp": "2026-09-28T02:54:12.193Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790564145251-feci4l",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "额外重要后果（静态推断）：裁剪删除 `manifest/1` 后不仅冷开回退旧 catalog；**重启后的同步器 `lastSeq` 初始化为空**（`internal/database/ducklake/catalog_syncer.go:75-89`），下次写同步 `nextManifestSeq` 用 cached=0 查 `ReadLatestManifest`（`:505-517`），而 seq1 已被删 (`:562-590`)，因此返回 nil，`nextSeq=1`，`WriteManifest` 可能重新创建 seq1 (`:449-462`)，造成 manifest 序列非单调、丢失现存更高版本可发现性；先修正确性再做性能优化。另 `mirrorLegacyKeys` 在 manifest 写入前无条件 Put 两个旧键（`:439-462,540-559`），即使后续 manifest 冲突仍已污染兼容期回退所用 catalog.sqlite。当前仅代码分析、未跑复现；可在集成测试中做11次 Sync→全新进程写/读验证。",
+    "timestamp": "2026-09-28T02:55:45.251Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790564150176-v32mzz",
+    "from": "db",
+    "to": "team-lead",
+    "type": "message",
+    "content": "架构相关新增关键反证（当前代码静态路径）：`/Volumes/my/github/SimpleBase/internal/app/app.go:640-670` 用户 `CatalogSyncer` 用 `userCacheDir` 构造，`app.go:687-708` 系统库 `Factory` 改用 `{cache_dir}/system/dbs` 却复用同一个同步器。`/Volumes/my/github/SimpleBase/internal/database/ducklake/catalog_syncer.go:370-375,475-479` 同步器 `syncOnce` 以自己的 `s.CacheDir` 保存 staging 和 `local-state.json`，因此系统库的 synced-state 被写进**用户目录** `{userCacheDir}/{systemDBID}/catalog/local-state.json`，而系统库冷启动 `Factory.Open` 使用其自身 `{cache_dir}/system/dbs` (`ducklake/factory.go:48-54`) 查 state；该路径不会拿到前者水位，遇远端旧版本/无 state 则可能覆盖本地未同步系统 catalog（`catalog_syncer.go:667-690`）。更关键系统库 locator `systemdb/locator.go:25-60` 仅本地，`systemdb/bootstrap.go:41-55` locator 消失便生成新随机 DB ID，即使 S3 原 catalog 完整仍引导新的空系统库，迁移/灾备须将 locator 身份与 remote metadata 一起纳入恢复设计。此项是架构层必须考虑，不等于已复现故障。",
+    "timestamp": "2026-09-28T02:55:50.176Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790564152416-g5skz0",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "message",
+    "content": "紧急更正上一条：**无需重启**。第11次同步裁剪删 seq1 后，第12次 `nextManifestSeq` 虽 cached=11，`ReadLatestManifest(fromSeq=11)` 先 GET seq12→404，再固定回退 GET seq1→404，直接 nil (`manifest.go:52-74`) → `nextSeq=1` (`catalog_syncer.go:505-517`)；后续 PutIfAbsent 会重建 seq1 (`catalog_syncer.go:449-462`)，破坏单调 seq。此问题在当前进程立即发生。",
+    "timestamp": "2026-09-28T02:55:52.416Z",
+    "read": true
+  },
+  {
+    "id": "resp-1790564327795-fsiacv",
+    "from": "db",
+    "to": "team-lead",
+    "type": "shutdown_response",
+    "content": "{\"type\":\"shutdown_response\",\"request_id\":\"shutdown-1790564327525\",\"approve\":true,\"reason\":\"Auto-acknowledged by team-member runtime\",\"from\":\"db\",\"timestamp\":\"2026-09-28T02:58:47.795Z\"}",
+    "timestamp": "2026-09-28T02:58:47.795Z",
+    "read": true
+  },
+  {
+    "id": "resp-1790564327795-2pxzlq",
+    "from": "latency",
+    "to": "team-lead",
+    "type": "shutdown_response",
+    "content": "{\"type\":\"shutdown_response\",\"request_id\":\"shutdown-1790564327564\",\"approve\":true,\"reason\":\"Auto-acknowledged by team-member runtime\",\"from\":\"latency\",\"timestamp\":\"2026-09-28T02:58:47.795Z\"}",
+    "timestamp": "2026-09-28T02:58:47.795Z",
+    "read": true
+  }
+]

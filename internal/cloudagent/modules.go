@@ -7,6 +7,7 @@ const (
 	ModuleS3       = "s3"
 	ModuleLogs     = "logs"
 	ModuleGeneral  = "general"
+	ModuleSandbox  = "sandbox"
 
 	ToolListDatabases   = "list_databases"
 	ToolListCollections = "list_collections"
@@ -15,7 +16,27 @@ const (
 	ToolHeadObject      = "head_object"
 	ToolSearchLogs      = "search_logs"
 	ToolLogLevelStats   = "log_level_stats"
+
+	ToolSandboxExec      = "sandbox_exec"
+	ToolSandboxShell     = "sandbox_shell"
+	ToolSandboxReadFile  = "sandbox_read_file"
+	ToolSandboxWriteFile = "sandbox_write_file"
 )
+
+// SandboxToolIDs 是四个云沙盒工具 id（cloud-agent-sandbox-plan §7）。
+func SandboxToolIDs() []string {
+	return []string{ToolSandboxExec, ToolSandboxShell, ToolSandboxReadFile, ToolSandboxWriteFile}
+}
+
+// IsSandboxTool 报告 id 是否为沙盒工具。
+func IsSandboxTool(id string) bool {
+	switch id {
+	case ToolSandboxExec, ToolSandboxShell, ToolSandboxReadFile, ToolSandboxWriteFile:
+		return true
+	default:
+		return false
+	}
+}
 
 const platformBasePrompt = `You are SimpleBase Cloud Agent, a project-scoped assistant.
 Rules:
@@ -43,6 +64,14 @@ Use search_logs and log_level_stats. Do not change retention.`
 const generalModulePrompt = `Module: general.
 You are a general assistant for this SimpleBase project. You have no extra tools unless the agent config lists them.`
 
+const sandboxModulePrompt = `Module: sandbox.
+Commands and files live only in this thread's cloud sandbox (microVM), working directory /workspace.
+Use sandbox_exec (argv command), sandbox_shell (/bin/sh -c), sandbox_read_file, sandbox_write_file.
+Paths for read/write must be absolute and under /workspace.
+The environment is recycled after the idle timeout or max lifetime; files may not survive.
+Readonly tools (database/s3/logs) still apply to this project; the sandbox has no SimpleBase credentials and cannot reach the system database.
+Never ask for or print S3 keys, provider keys, DSN, or tokens.`
+
 // ModuleInfo is returned by GET /agents/modules.
 type ModuleInfo struct {
 	ID            string   `json:"id"`
@@ -50,14 +79,18 @@ type ModuleInfo struct {
 	Description   string   `json:"description"`
 	DefaultTools  []string `json:"default_tools"`
 	TeamSupported bool     `json:"team_supported"`
+	// SandboxAvailable 仅 sandbox 模块返回：enabled 且 backend 核对为 cloud。
+	SandboxAvailable bool `json:"sandbox_available,omitempty"`
 }
 
 // Modules returns the built-in module catalog (Team is a Phase 4 stub).
-func Modules() []ModuleInfo {
+// sandboxAvailable 控制 sandbox 模块的 sandbox_available 字段；其余模块不含。
+func Modules(sandboxAvailable bool) []ModuleInfo {
 	return []ModuleInfo{
 		{ID: ModuleDatabase, Name: "Database", Description: "Readonly database inspection and SQL", DefaultTools: []string{ToolListDatabases, ToolListCollections, ToolReadonlySQL}, TeamSupported: false},
 		{ID: ModuleS3, Name: "S3", Description: "Readonly object list and head", DefaultTools: []string{ToolListObjects, ToolHeadObject}, TeamSupported: false},
 		{ID: ModuleLogs, Name: "Logs", Description: "Search logs and level stats", DefaultTools: []string{ToolSearchLogs, ToolLogLevelStats}, TeamSupported: false},
+		{ID: ModuleSandbox, Name: "Sandbox", Description: "Run commands and manage files in a cloud microVM", DefaultTools: SandboxToolIDs(), TeamSupported: false, SandboxAvailable: sandboxAvailable},
 		{ID: ModuleGeneral, Name: "General", Description: "No default tools; custom prompt only", DefaultTools: nil, TeamSupported: false},
 	}
 }
@@ -65,7 +98,7 @@ func Modules() []ModuleInfo {
 // KnownModule reports whether module is a built-in id.
 func KnownModule(module string) bool {
 	switch strings.ToLower(strings.TrimSpace(module)) {
-	case ModuleDatabase, ModuleS3, ModuleLogs, ModuleGeneral:
+	case ModuleDatabase, ModuleS3, ModuleLogs, ModuleGeneral, ModuleSandbox:
 		return true
 	default:
 		return false
@@ -81,14 +114,16 @@ func ModuleTemplate(module string) string {
 		return s3ModulePrompt
 	case ModuleLogs:
 		return logsModulePrompt
+	case ModuleSandbox:
+		return sandboxModulePrompt
 	default:
 		return generalModulePrompt
 	}
 }
 
-// DefaultToolsForModule returns the default readonly tool ids.
+// DefaultToolsForModule returns the default tool ids for the module.
 func DefaultToolsForModule(module string) []string {
-	for _, m := range Modules() {
+	for _, m := range Modules(false) {
 		if m.ID == module {
 			return append([]string(nil), m.DefaultTools...)
 		}
@@ -96,12 +131,12 @@ func DefaultToolsForModule(module string) []string {
 	return nil
 }
 
-// KnownTool reports whether id is a Phase-1 readonly tool.
+// KnownTool reports whether id is a built-in tool (readonly or sandbox).
 func KnownTool(id string) bool {
 	switch id {
 	case ToolListDatabases, ToolListCollections, ToolReadonlySQL, ToolListObjects, ToolHeadObject, ToolSearchLogs, ToolLogLevelStats:
 		return true
 	default:
-		return false
+		return IsSandboxTool(id)
 	}
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,8 +9,11 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
+
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/observability"
 )
 
 // ProjectResponse 是项目列表项 / 创建结果（不含敏感字段）。
@@ -36,6 +40,13 @@ type CreateProjectRequest struct {
 type ProjectsHandler struct {
 	catalog CatalogService
 	users   *auth.UserService
+	// KV 可选：项目级 Key-Value 服务（key-value-ducklake-plan §2）。
+	// 非 nil 且可写时，新建项目会同步创建 kind=kv 的 catalog 行并初始化 KV 表。
+	KV KVService
+	// KVInit 可选：项目 KV catalog 行创建成功后初始化 kv schema。
+	KVInit KVInitializer
+	// Logger 可选：后置动作失败时记 warn（不影响项目创建结果）。
+	Logger observability.Logger
 }
 
 // NewProjectsHandler 构造 ProjectsHandler。users 可为 nil（API Key-only 测试）。
@@ -102,7 +113,33 @@ func (h *ProjectsHandler) CreateProject(c echo.Context) error {
 			_ = err
 		}
 	}
-	return c.JSON(http.StatusCreated, toProjectResponse(p))
+	resp := toProjectResponse(p)
+	// 项目 KV catalog（key-value-ducklake-plan §2）：随项目创建同步建立，
+	// 失败不回滚项目（仍 201）；下一次 KV 请求会补建。
+	h.ensureProjectKV(c.Request().Context(), p)
+	return c.JSON(http.StatusCreated, resp)
+}
+
+// ensureProjectKV 为新项目创建 kind=kv 的 catalog 行并初始化 KV 系统表。
+// 任一步失败只记 warn（项目本身仍创建成功）。
+func (h *ProjectsHandler) ensureProjectKV(ctx context.Context, p catalog.Project) {
+	if h.KV == nil {
+		return
+	}
+	db, err := h.KV.CreateKVDatabase(ctx, p.TenantID, p.ID)
+	if err != nil {
+		if errors.Is(err, catalog.ErrAlreadyExists) {
+			return // 幂等：并发创建或重试
+		}
+		if h.Logger != nil {
+			h.Logger.Warn("create project kv catalog failed",
+				zap.String("project_id", p.ID), zap.String("err", err.Error()))
+		}
+		return
+	}
+	if h.KVInit != nil {
+		_ = h.KVInit.InitKV(ctx, db)
+	}
 }
 
 func toProjectResponse(p catalog.Project) ProjectResponse {

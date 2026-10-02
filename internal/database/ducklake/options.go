@@ -1,10 +1,41 @@
 package ducklake
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // DefaultLakeAlias 是每个 DuckDB 实例 ATTACH DuckLake 时使用的固定别名。
 // 用户 SQL 无法 ATTACH/USE，因此不会与用户对象冲突。
 const DefaultLakeAlias = "lake"
+
+// catalog engine 取值（ducklake-duckdb-catalog-plan §2）。
+const (
+	// EngineDuckDB 是默认推荐引擎：每库一个 DuckDB 实例、单连接单写，
+	// 属于 DuckLake 官方「单客户端」形态，无需加载 sqlite 扩展。
+	EngineDuckDB = "duckdb"
+	// EngineSQLite 是已知可用的回退引擎（多本地客户端形态）。
+	EngineSQLite = "sqlite"
+)
+
+// NormalizeCatalogEngine 规范化配置值；空串取默认 duckdb。
+func NormalizeCatalogEngine(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "":
+		return EngineDuckDB
+	default:
+		return strings.ToLower(strings.TrimSpace(s))
+	}
+}
+
+// IsValidCatalogEngine 校验配置取值。
+func IsValidCatalogEngine(s string) bool {
+	switch NormalizeCatalogEngine(s) {
+	case EngineDuckDB, EngineSQLite:
+		return true
+	}
+	return false
+}
 
 // Options 对应 config.DuckLakeConfig，由 app 装配层映射，本包不依赖 config。
 type Options struct {
@@ -16,6 +47,9 @@ type Options struct {
 	TargetFileSize       string
 	RequireCommitMessage bool
 	LakeAlias            string
+	// CatalogEngine 决定本地 catalog 文件、ATTACH 语法与快照 key 后缀
+	//（ducklake-duckdb-catalog-plan §3）。实例级、一次性选择。
+	CatalogEngine string
 
 	CatalogSync CatalogSyncOptions
 	Maintenance MaintenanceOptions
@@ -46,6 +80,7 @@ func DefaultOptions() Options {
 		TargetFileSize:       "64MB",
 		RequireCommitMessage: false,
 		LakeAlias:            DefaultLakeAlias,
+		CatalogEngine:        EngineDuckDB,
 		CatalogSync: CatalogSyncOptions{
 			Mode:         "debounce",
 			Debounce:     200 * time.Millisecond,
@@ -54,7 +89,7 @@ func DefaultOptions() Options {
 		Maintenance: MaintenanceOptions{
 			CheckpointInterval:     time.Hour,
 			ExpireOlderThan:        7 * 24 * time.Hour,
-			DeleteOlderThan:        24 * time.Hour,
+			DeleteOlderThan:        7 * 24 * time.Hour,
 			RewriteDeleteThreshold: 0.95,
 		},
 	}
@@ -80,6 +115,7 @@ func (o Options) normalized() Options {
 	if o.LakeAlias == "" {
 		o.LakeAlias = def.LakeAlias
 	}
+	o.CatalogEngine = NormalizeCatalogEngine(o.CatalogEngine)
 	if o.CatalogSync.Mode == "" {
 		o.CatalogSync.Mode = def.CatalogSync.Mode
 	}

@@ -78,6 +78,17 @@ func RevokeAPIKey(ctx context.Context, db *sql.DB, id string, at time.Time) erro
 	return err
 }
 
+// RevokeAPIKeyByID 吊销并失效本进程缓存（§7.2 P1.2：吊销立即生效契约）。
+// 缓存按 keyHash 索引而吊销按 key ID 执行，无法精确定位 hash，
+// 因此全量失效（Key 数量有限，重建成本可接受）。
+func (s *Service) RevokeAPIKeyByID(ctx context.Context, db *sql.DB, id string, at time.Time) error {
+	if err := RevokeAPIKey(ctx, db, id, at); err != nil {
+		return err
+	}
+	s.cache.InvalidateAll()
+	return nil
+}
+
 func parsePermissions(csv string) []Permission {
 	if csv == "" {
 		return nil

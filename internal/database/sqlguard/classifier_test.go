@@ -26,6 +26,21 @@ func TestFirstKeyword(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsDuckLakeMetadataIdentifier(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT * FROM __ducklake_metadata_lake.main.tables",
+		"SELECT * FROM \"__DuckLake_Metadata_lake\".main.tables",
+		"CREATE TABLE __ducklake_metadata_demo (id INT)",
+	} {
+		if err := Validate(sql, WriteAllowed); err != ErrSQLNotAllowed {
+			t.Errorf("metadata access should be rejected: %q: %v", sql, err)
+		}
+	}
+	if err := Validate("SELECT '__ducklake_metadata_lake' AS literal", ReadOnly); err != nil {
+		t.Fatalf("string literals must remain allowed: %v", err)
+	}
+}
+
 func TestValidate_EmptyAndNul(t *testing.T) {
 	if err := Validate("", ReadOnly); err != ErrEmptySQL {
 		t.Errorf("empty sql: got %v, want ErrEmptySQL", err)

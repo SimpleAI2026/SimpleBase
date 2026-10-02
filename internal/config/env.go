@@ -26,6 +26,13 @@ func applyEnv(cfg *Config) {
 		cfg.Instance.ID = v
 	}
 	setEnvBool(&cfg.Instance.Writable, "SIMPLEBASE_INSTANCE_WRITABLE")
+	setEnvBool(&cfg.Instance.Lease.Enabled, "SIMPLEBASE_INSTANCE_LEASE_ENABLED")
+	setEnvDuration(&cfg.Instance.Lease.TTL, "SIMPLEBASE_INSTANCE_LEASE_TTL")
+	setEnvDuration(&cfg.Instance.Lease.RenewInterval, "SIMPLEBASE_INSTANCE_LEASE_RENEW_INTERVAL")
+	setEnvDuration(&cfg.Instance.Lease.Grace, "SIMPLEBASE_INSTANCE_LEASE_GRACE")
+	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_LEASE_ON_LOST"); ok {
+		cfg.Instance.Lease.OnLost = v
+	}
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_DB_ENGINE"); ok {
 		cfg.Database.Engine = v
@@ -38,6 +45,9 @@ func applyEnv(cfg *Config) {
 	setEnvDuration(&cfg.Database.IdleTimeout, "SIMPLEBASE_DB_IDLE_TIMEOUT")
 	setEnvInt(&cfg.Database.MaxOpen, "SIMPLEBASE_DB_MAX_OPEN")
 
+	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_CATALOG_ENGINE"); ok {
+		cfg.Database.DuckLake.CatalogEngine = v
+	}
 	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT"); ok {
 		cfg.Database.DuckLake.MemoryLimit = v
 	}
@@ -94,6 +104,8 @@ func applyEnv(cfg *Config) {
 		cfg.Auth.APIKeyHashSecret = v
 	}
 
+	applyEnvSandbox(cfg)
+
 	setEnvInt64(&cfg.Limits.MaxRequestBytes, "SIMPLEBASE_LIMITS_MAX_REQUEST_BYTES")
 	setEnvInt(&cfg.Limits.MaxQueryRows, "SIMPLEBASE_LIMITS_MAX_QUERY_ROWS")
 	setEnvDuration(&cfg.Limits.QueryTimeout, "SIMPLEBASE_LIMITS_QUERY_TIMEOUT")
@@ -113,6 +125,7 @@ func applyEnv(cfg *Config) {
 	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_PATH"); ok {
 		cfg.Observability.MetricsPath = v
 	}
+	setEnvBool(&cfg.Observability.PerfStageTiming, "SIMPLEBASE_PERF_STAGE_TIMING")
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_SYSTEM_DB_NAME"); ok {
 		cfg.SystemDatabase.Name = v
@@ -122,6 +135,26 @@ func applyEnv(cfg *Config) {
 	setEnvInt(&cfg.SystemDatabase.LogKeepDays, "SIMPLEBASE_LOG_KEEP_DAYS")
 
 	applyEnvLLM(cfg)
+}
+
+// applyEnvSandbox 映射 SIMPLEBASE_SANDBOX_* 环境变量（cloud-agent-sandbox-plan §5）。
+func applyEnvSandbox(cfg *Config) {
+	setEnvBool(&cfg.Sandbox.Enabled, "SIMPLEBASE_SANDBOX_ENABLED")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_API_KEY"); ok {
+		cfg.Sandbox.APIKey = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_API_URL"); ok {
+		cfg.Sandbox.APIURL = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_IMAGE"); ok {
+		cfg.Sandbox.Image = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_NETWORK"); ok {
+		cfg.Sandbox.Network = v
+	}
+	setEnvDuration(&cfg.Sandbox.ExecTimeout, "SIMPLEBASE_SANDBOX_EXEC_TIMEOUT")
+	setEnvDuration(&cfg.Sandbox.IdleTimeout, "SIMPLEBASE_SANDBOX_IDLE_TIMEOUT")
+	setEnvDuration(&cfg.Sandbox.MaxDuration, "SIMPLEBASE_SANDBOX_MAX_DURATION")
 }
 
 func applyEnvLLM(cfg *Config) {

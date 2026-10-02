@@ -32,6 +32,9 @@ func (s *stubRepo) CreateDatabase(context.Context, catalog.Database) error { ret
 func (s *stubRepo) GetDatabase(context.Context, string, string) (catalog.Database, error) {
 	return catalog.Database{}, nil
 }
+func (s *stubRepo) GetDatabaseByName(context.Context, string, string) (catalog.Database, error) {
+	return catalog.Database{}, nil
+}
 func (s *stubRepo) ListDatabases(context.Context, string, catalog.Page) ([]catalog.Database, string, error) {
 	return nil, "", nil
 }

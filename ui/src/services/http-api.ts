@@ -9,6 +9,7 @@ import type {
   AgentScheduleRun,
   AgentStreamHandlers,
   AgentThread,
+  ApiKeyItem,
   AuthUser,
   CloudAgent,
   CreateUserRequest,
@@ -541,6 +542,17 @@ function toProjectItem(raw: any): import('./types').ProjectItem {
   }
 }
 
+/** ApiKeyItem：后端 snake_case → UI camelCase */
+function toApiKeyItem(raw: any): ApiKeyItem {
+  return {
+    id: String(raw?.id ?? ''),
+    projectId: String(raw?.project_id ?? ''),
+    permissions: Array.isArray(raw?.permissions) ? raw.permissions.map(String) : [],
+    createdAt: String(raw?.created_at ?? ''),
+    revokedAt: raw?.revoked_at || undefined
+  }
+}
+
 /** AuthUser：后端 snake_case → UI camelCase */
 function toAuthUser(d: Record<string, any>): AuthUser {
   return {
@@ -729,6 +741,28 @@ export const httpApi: Api = {
           owner_user_id: req.ownerUserId || undefined
         })
         .then((r) => toProjectItem(r.data))
+  },
+  apiKeys: {
+    list: (projectId) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/api-keys')
+        .then((r) => {
+          const list = Array.isArray(r.data?.keys) ? r.data.keys : []
+          return list.map(toApiKeyItem)
+        }),
+    create: (projectId, permissions) =>
+      http
+        .post('/v1/projects/' + encodeURIComponent(projectId) + '/api-keys', {
+          permissions: permissions && permissions.length ? permissions : undefined
+        })
+        .then((r) => {
+          const item = toApiKeyItem(r.data) as ApiKeyItem & { secret: string }
+          return { ...item, secret: String(r.data?.secret || '') }
+        }),
+    revoke: (projectId, keyId) =>
+      http
+        .delete('/v1/projects/' + encodeURIComponent(projectId) + '/api-keys/' + encodeURIComponent(keyId))
+        .then(() => undefined)
   },
   metrics: {
     summary: (projectId) =>

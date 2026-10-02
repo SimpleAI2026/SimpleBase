@@ -25,6 +25,7 @@ type Config struct {
 	S3             S3Config             `yaml:"s3"`
 	Auth           AuthConfig           `yaml:"auth"`
 	LLM            LLMConfig            `yaml:"llm"`
+	Sandbox        SandboxConfig        `yaml:"sandbox"`
 	Limits         LimitsConfig         `yaml:"limits"`
 	Observability  ObservabilityConfig  `yaml:"observability"`
 	SystemDatabase SystemDatabaseConfig `yaml:"system_database"`
@@ -42,12 +43,28 @@ type HTTPConfig struct {
 }
 
 type InstanceConfig struct {
-	ID       string `yaml:"id"`
-	Writable bool   `yaml:"writable"`
+	ID       string              `yaml:"id"`
+	Writable bool                `yaml:"writable"`
+	Lease    InstanceLeaseConfig `yaml:"lease"`
+}
+
+// InstanceLeaseConfig 控制 per-database 写租约（multi-instance-consistency-plan §4.8）。
+// 仅 writable=true 且配置了 S3 时生效；DevMode / 无 S3 自动跳过。
+type InstanceLeaseConfig struct {
+	Enabled       bool          `yaml:"enabled"`
+	TTL           time.Duration `yaml:"ttl"`
+	RenewInterval time.Duration `yaml:"renew_interval"`
+	Grace         time.Duration `yaml:"grace"`
+	// OnLost 失租行为：release_db（默认，释放该库句柄）| exit（整实例退出）。
+	OnLost string `yaml:"on_lost"`
 }
 
 const (
 	EngineDuckLake = "ducklake"
+
+	// catalog 引擎取值（ducklake-duckdb-catalog-plan §2）。
+	CatalogEngineDuckDB = "duckdb"
+	CatalogEngineSQLite = "sqlite"
 
 	DefaultCacheMaxBytes     int64 = 1 << 30 // 1GiB
 	DefaultCacheMaxDatabases       = 256
@@ -66,6 +83,9 @@ type DatabaseConfig struct {
 
 // DuckLakeConfig 对应 planv2.0 的 database.ducklake section。
 type DuckLakeConfig struct {
+	// CatalogEngine 本地 catalog 引擎：duckdb（默认）| sqlite。实例级一次性选择；
+	// 与已有数据不一致时拒绝启动，只能 `simplebased reset` 后切换。
+	CatalogEngine        string                    `yaml:"catalog_engine"`
 	MemoryLimit          string                    `yaml:"memory_limit"`
 	Threads              int                       `yaml:"threads"`
 	ExtensionDir         string                    `yaml:"extension_dir"`
@@ -126,6 +146,25 @@ type ProviderConfig struct {
 	Timeout       time.Duration `yaml:"timeout"`
 }
 
+// SandboxConfig 控制云 Agent 的 microsandbox Cloud 沙盒
+// （cloud-agent-sandbox-plan §5）。生产环境 api_key 只能来自
+// SIMPLEBASE_SANDBOX_API_KEY，YAML 里的非空值会被拒绝。
+type SandboxConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	APIURL         string        `yaml:"api_url"` // 空 = https://api.microsandbox.dev
+	APIKey         string        `yaml:"api_key"` // 生产必须来自环境变量
+	Image          string        `yaml:"image"`
+	CPUs           int           `yaml:"cpus"`       // 1–4
+	MemoryMiB      int           `yaml:"memory_mib"` // 128–4096
+	MaxDuration    time.Duration `yaml:"max_duration"`
+	IdleTimeout    time.Duration `yaml:"idle_timeout"`
+	ExecTimeout    time.Duration `yaml:"exec_timeout"`
+	MaxOutputBytes int           `yaml:"max_output_bytes"`
+	MaxFileBytes   int           `yaml:"max_file_bytes"`
+	Network        string        `yaml:"network"` // none | public
+	Workdir        string        `yaml:"workdir"`
+}
+
 type LimitsConfig struct {
 	MaxRequestBytes      int64         `yaml:"max_request_bytes"`
 	MaxQueryRows         int           `yaml:"max_query_rows"`
@@ -140,6 +179,9 @@ type ObservabilityConfig struct {
 	LogFormat   string `yaml:"log_format"`
 	LogOutput   string `yaml:"log_output"`
 	MetricsPath string `yaml:"metrics_path"`
+	// PerfStageTiming 开启请求分段计时（api-db-perf-validation-plan §2.1）。
+	// 输出 simplebase_api_stage_seconds 与 debug 日志行；默认关闭。
+	PerfStageTiming bool `yaml:"perf_stage_timing"`
 }
 
 // Load 加载配置：代码默认值 → YAML → SIMPLEBASE_ 环境变量覆盖，然后 Validate。
@@ -205,6 +247,12 @@ func defaults() Config {
 		},
 		Instance: InstanceConfig{
 			Writable: true,
+			Lease: InstanceLeaseConfig{
+				Enabled: true,
+				TTL:     30 * time.Second,
+				Grace:   10 * time.Second,
+				OnLost:  "release_db",
+			},
 		},
 		Database: DatabaseConfig{
 			Engine:            EngineDuckLake,
@@ -213,6 +261,7 @@ func defaults() Config {
 			IdleTimeout:       5 * time.Minute,
 			MaxOpen:           8,
 			DuckLake: DuckLakeConfig{
+				CatalogEngine:        CatalogEngineDuckDB,
 				MemoryLimit:          "512MB",
 				Threads:              2,
 				DataInliningRowLimit: 100,
@@ -226,7 +275,7 @@ func defaults() Config {
 				Maintenance: DuckLakeMaintenanceConfig{
 					CheckpointInterval:     time.Hour,
 					ExpireOlderThan:        7 * 24 * time.Hour,
-					DeleteOlderThan:        24 * time.Hour,
+					DeleteOlderThan:        7 * 24 * time.Hour,
 					RewriteDeleteThreshold: 0.95,
 				},
 			},
@@ -237,6 +286,19 @@ func defaults() Config {
 		LLM: LLMConfig{
 			Enabled:   true,
 			Providers: map[string]ProviderConfig{},
+		},
+		Sandbox: SandboxConfig{
+			Enabled:        false,
+			Image:          "python:3.12",
+			CPUs:           1,
+			MemoryMiB:      512,
+			MaxDuration:    30 * time.Minute,
+			IdleTimeout:    10 * time.Minute,
+			ExecTimeout:    30 * time.Second,
+			MaxOutputBytes: 32768,
+			MaxFileBytes:   262144,
+			Network:        "none",
+			Workdir:        "/workspace",
 		},
 		Limits: LimitsConfig{
 			MaxRequestBytes:      1 << 20,
@@ -254,8 +316,8 @@ func defaults() Config {
 		},
 		SystemDatabase: SystemDatabaseConfig{
 			Name:                 "simplebase-system",
-			MetricsFlushInterval: 2 * time.Second,
-			LogFlushInterval:     2 * time.Second,
+			MetricsFlushInterval: 15 * time.Second,
+			LogFlushInterval:     15 * time.Second,
 			LogKeepDays:          14,
 		},
 	}
@@ -284,6 +346,14 @@ func (c Config) Validate() error {
 	if c.Instance.ID == "" {
 		errs = append(errs, errors.New("instance.id is required"))
 	}
+	switch strings.ToLower(c.Instance.Lease.OnLost) {
+	case "", "release_db", "exit":
+	default:
+		errs = append(errs, fmt.Errorf("instance.lease.on_lost must be release_db or exit (got %q)", c.Instance.Lease.OnLost))
+	}
+	if c.Instance.Lease.TTL < 0 || c.Instance.Lease.Grace < 0 || c.Instance.Lease.RenewInterval < 0 {
+		errs = append(errs, errors.New("instance.lease durations must be non-negative"))
+	}
 	switch strings.ToLower(c.Database.Engine) {
 	case "", EngineDuckLake:
 	default:
@@ -291,6 +361,11 @@ func (c Config) Validate() error {
 	}
 	if c.Database.DuckLake.Threads < 0 {
 		errs = append(errs, errors.New("database.ducklake.threads must be non-negative"))
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Database.DuckLake.CatalogEngine)) {
+	case "", CatalogEngineDuckDB, CatalogEngineSQLite:
+	default:
+		errs = append(errs, fmt.Errorf("database.ducklake.catalog_engine must be duckdb or sqlite (got %q)", c.Database.DuckLake.CatalogEngine))
 	}
 	if c.Database.CacheDir == "" {
 		errs = append(errs, errors.New("database.cache_dir is required"))
@@ -328,6 +403,9 @@ func (c Config) Validate() error {
 	if c.SystemDatabase.LogKeepDays <= 0 {
 		errs = append(errs, errors.New("system_database.log_keep_days must be positive"))
 	}
+	if err := validateSandbox(c.Sandbox); err != nil {
+		errs = append(errs, err)
+	}
 
 	if c.Instance.Writable && !c.DevMode {
 		// Writable 实例必须拥有完整 S3 配置，否则无法作为在线持久层。
@@ -355,6 +433,42 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// validateSandbox 校验 sandbox 配置段（cloud-agent-sandbox-plan §5）。
+// enabled 且 key 为空：Validate 失败，进程不启动。enabled=false 时忽略 key。
+func validateSandbox(s SandboxConfig) error {
+	if !s.Enabled {
+		return nil
+	}
+	var errs []error
+	if strings.TrimSpace(s.APIKey) == "" {
+		errs = append(errs, errors.New("sandbox.api_key is required when sandbox.enabled is true"))
+	}
+	switch strings.ToLower(strings.TrimSpace(s.Network)) {
+	case "", "none", "public":
+	default:
+		errs = append(errs, fmt.Errorf("sandbox.network must be none or public (got %q)", s.Network))
+	}
+	if s.CPUs < 1 || s.CPUs > 4 {
+		errs = append(errs, fmt.Errorf("sandbox.cpus must be 1-4 (got %d)", s.CPUs))
+	}
+	if s.MemoryMiB < 128 || s.MemoryMiB > 4096 {
+		errs = append(errs, fmt.Errorf("sandbox.memory_mib must be 128-4096 (got %d)", s.MemoryMiB))
+	}
+	if s.ExecTimeout < time.Second {
+		errs = append(errs, errors.New("sandbox.exec_timeout must be at least 1s"))
+	}
+	if s.MaxDuration <= 0 || s.IdleTimeout <= 0 {
+		errs = append(errs, errors.New("sandbox.max_duration and sandbox.idle_timeout must be positive"))
+	}
+	if s.MaxOutputBytes <= 0 || s.MaxFileBytes <= 0 {
+		errs = append(errs, errors.New("sandbox.max_output_bytes and sandbox.max_file_bytes must be positive"))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("sandbox validation failed: %w", joinErrors(errs))
+	}
+	return nil
+}
+
 // Redacted 返回用于启动日志的安全视图。绝不包含密钥/DSN。
 func (c Config) Redacted() map[string]any {
 	providers := make(map[string]any, len(c.LLM.Providers))
@@ -378,6 +492,13 @@ func (c Config) Redacted() map[string]any {
 		"instance": map[string]any{
 			"id":       c.Instance.ID,
 			"writable": c.Instance.Writable,
+			"lease": map[string]any{
+				"enabled":        c.Instance.Lease.Enabled,
+				"ttl":            c.Instance.Lease.TTL.String(),
+				"renew_interval": c.Instance.Lease.RenewInterval.String(),
+				"grace":          c.Instance.Lease.Grace.String(),
+				"on_lost":        c.Instance.Lease.OnLost,
+			},
 		},
 		"database": map[string]any{
 			"engine":              c.Database.Engine,
@@ -387,6 +508,7 @@ func (c Config) Redacted() map[string]any {
 			"idle_timeout":        c.Database.IdleTimeout.String(),
 			"max_open":            c.Database.MaxOpen,
 			"ducklake": map[string]any{
+				"catalog_engine":             c.Database.DuckLake.CatalogEngine,
 				"memory_limit":               c.Database.DuckLake.MemoryLimit,
 				"threads":                    c.Database.DuckLake.Threads,
 				"extension_dir":              c.Database.DuckLake.ExtensionDir,
@@ -426,6 +548,21 @@ func (c Config) Redacted() map[string]any {
 		"llm": map[string]any{
 			"enabled":   c.LLM.Enabled,
 			"providers": providers,
+		},
+		"sandbox": map[string]any{
+			"enabled":          c.Sandbox.Enabled,
+			"api_url":          c.Sandbox.APIURL,
+			"has_api_key":      c.Sandbox.APIKey != "",
+			"image":            c.Sandbox.Image,
+			"cpus":             c.Sandbox.CPUs,
+			"memory_mib":       c.Sandbox.MemoryMiB,
+			"max_duration":     c.Sandbox.MaxDuration.String(),
+			"idle_timeout":     c.Sandbox.IdleTimeout.String(),
+			"exec_timeout":     c.Sandbox.ExecTimeout.String(),
+			"max_output_bytes": c.Sandbox.MaxOutputBytes,
+			"max_file_bytes":   c.Sandbox.MaxFileBytes,
+			"network":          c.Sandbox.Network,
+			"workdir":          c.Sandbox.Workdir,
 		},
 		"observability": map[string]any{
 			"log_level":    c.Observability.LogLevel,

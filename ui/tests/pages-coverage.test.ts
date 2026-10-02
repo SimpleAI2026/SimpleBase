@@ -103,7 +103,7 @@ const uiStubs = {
   SbModal: { template: '<div><slot /></div>' },
   GoFunctionModal: { template: '<div />' },
   CronJobModal: { template: '<div />' },
-  CronJobRunsDrawer: { template: '<div />' },
+  CronJobRunsModal: { template: '<div />' },
   CreateProjectModal: { template: '<div />' },
   CreateCollectionModal: { template: '<div />' },
   DocumentListModal: { template: '<div />' },
@@ -327,8 +327,6 @@ describe('page coverage', () => {
     })
     await flushPromises()
     const svm = settings.vm as any
-    svm.onTheme('dark')
-    svm.onTheme(['light'])
     await svm.loadServerDefaults()
     api.llmSettings.get.mockRejectedValueOnce(new Error('x'))
     await svm.loadServerDefaults()

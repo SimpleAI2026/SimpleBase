@@ -6,7 +6,7 @@ import AiChatComposer from '@/components/ai/AiChatComposer.vue'
 import MessageScroller from '@/components/chat/MessageScroller.vue'
 import CollectionPanel from '@/components/databases/CollectionPanel.vue'
 import ConnectionPanel from '@/components/settings/ConnectionPanel.vue'
-import CronJobRunsDrawer from '@/components/CronJobRunsDrawer.vue'
+import CronJobRunsModal from '@/components/modal/CronJobRunsModal.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useProjectStore } from '@/stores/project'
 
@@ -52,11 +52,7 @@ const stubs = {
   TableCell: { template: '<td><slot /></td>' },
   TableEmpty: { template: '<tr><slot /></tr>' },
   Skeleton: { template: '<div />' },
-  Sheet: { template: '<div><slot /></div>' },
-  SheetContent: { template: '<div><slot /></div>' },
-  SheetHeader: { template: '<div><slot /></div>' },
-  SheetTitle: { template: '<div><slot /></div>' },
-  SheetDescription: { template: '<div><slot /></div>' },
+  SbModal: { props: ['open'], template: '<div v-if="open !== false"><slot /></div>' },
   Badge: { template: '<span><slot /></span>' },
   Input: { template: '<input />' }
 }
@@ -155,7 +151,7 @@ describe('component coverage', () => {
     w.unmount()
   })
 
-  it('ConnectionPanel and CronJobRunsDrawer helpers', async () => {
+  it('ConnectionPanel and CronJobRunsModal helpers', async () => {
     setActivePinia(createPinia())
     useProjectStore().setProject('p', 'Proj')
     const auth = useAuthStore()
@@ -167,7 +163,7 @@ describe('component coverage', () => {
     api.cronjobs.runs.mockResolvedValue([
       { id: '1', jobId: 'j', trigger: 'manual', status: 'completed', error: '', durationMs: 1, responseJson: '{"a":1}', createdAt: 't' }
     ])
-    const runs = mount(CronJobRunsDrawer, {
+    const runs = mount(CronJobRunsModal, {
       props: {
         open: true,
         job: {

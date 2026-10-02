@@ -40,11 +40,9 @@ type QueryResponse struct {
 }
 
 // ExecuteResponse 是执行响应。
-// LastInsertID 已废弃：DuckLake 无 sequences / last_insert_rowid，恒为省略。
-// 请使用 RETURNING 或应用侧 UUID。
+// DuckLake 无 sequences / last_insert_rowid；需要生成 ID 时用 RETURNING 或应用侧 UUID。
 type ExecuteResponse struct {
 	RowsAffected int64  `json:"rows_affected"`
-	LastInsertID *int64 `json:"last_insert_id,omitempty"`
 	// Durability 是写持久化级别：committed_local | synced_s3（§4.4）。
 	Durability string `json:"durability"`
 	DurationMS int64  `json:"duration_ms"`
@@ -55,7 +53,6 @@ type ExecuteResponse struct {
 type BatchResultItem struct {
 	Index        int    `json:"index"`
 	RowsAffected int64  `json:"rows_affected,omitempty"`
-	LastInsertID *int64 `json:"last_insert_id,omitempty"`
 	DurationMS   int64  `json:"duration_ms,omitempty"`
 	ErrorCode    string `json:"error_code,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`

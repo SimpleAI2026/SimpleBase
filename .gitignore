@@ -20,3 +20,4 @@ internal/web/dist/*
 ui/dist/
 ui/coverage/
 cov.out
+ui/.yarn

@@ -147,6 +147,8 @@ type upsertCronJobBody struct {
 
 	// enabledValue 是校验后的 resolved 值（缺省 true），供写库使用。
 	enabledValue bool
+	// enabledSet 表示请求显式携带了 enabled；false 时 Update 保留原状态。
+	enabledSet bool
 	// runAtTime 是校验后的 run_at（kind=once）。
 	runAtTime time.Time
 }
@@ -270,6 +272,26 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 	if err := bindCronJobBody(c, &req); err != nil {
 		return WriteError(c, err)
 	}
+	// 纯开关切换（body 只带 enabled，无调度字段）：保留原调度配置，
+	// 仅翻转启停并重算排期——禁用清空 next_run_at（零值=未排期语义），
+	// 启用按原 schedule 从当下重算。避免前端开关 PATCH 因缺 schedule_kind 报 400。
+	if req.ScheduleKind == "" && req.Enabled != nil && req.Name == "" && req.FuncFile == "" {
+		j.Enabled = *req.Enabled
+		j.NextRunAt = time.Time{}
+		if j.Enabled {
+			next, err := computeNextRun(j.ScheduleKind, j.CronExpr, j.IntervalSeconds, j.RunAt)
+			if err != nil {
+				return WriteError(c, err)
+			}
+			j.NextRunAt = next
+		}
+		updated, err := h.store.UpdateCronJob(c.Request().Context(), j)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		h.recordAudit(c, pc.ID, "toggle cron job "+j.Name)
+		return c.JSON(http.StatusOK, toCronJobDTO(updated, false))
+	}
 	req, err = validateCronJobBody(req, rid, false)
 	if err != nil {
 		return WriteError(c, err)
@@ -286,10 +308,16 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 	j.FuncFile = req.FuncFile
 	j.FuncExport = req.FuncExport
 	j.InputJSON = req.InputJSON
-	j.Enabled = req.enabledValue
-	j.NextRunAt, err = computeNextRun(req.ScheduleKind, req.CronExpr, req.IntervalSeconds, req.runAtTime)
-	if err != nil {
+	// enabled 未显式携带时保留原状态（不隐式重新启用已暂停任务）。
+	if req.enabledSet {
+		j.Enabled = req.enabledValue
+	}
+	if j.NextRunAt, err = computeNextRun(req.ScheduleKind, req.CronExpr, req.IntervalSeconds, req.runAtTime); err != nil {
 		return WriteError(c, err)
+	}
+	// 禁用时清空排期（NextRunAt 零值=未排期），启用时保留上面重算的值。
+	if !j.Enabled {
+		j.NextRunAt = time.Time{}
 	}
 	updated, err := h.store.UpdateCronJob(c.Request().Context(), j)
 	if err != nil {
@@ -372,7 +400,10 @@ func (h *CronJobHandler) Trigger(c echo.Context) error {
 	if h.scheduler == nil {
 		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "cron_scheduler_unavailable", "cron scheduler is not running", rid))
 	}
-	if err := h.scheduler.Trigger(c.Request().Context(), j); err != nil {
+	// 异步执行用的是请求 ctx：202 返回后连接关闭、ctx 被取消，后台执行会立刻
+	// 中断（insert run / 执行函数 / 落结果全部失败）。断开取消链再触发，
+	// 与 agent_schedule_handler.TriggerScheduleRun 的 context.WithoutCancel 同款。
+	if err := h.scheduler.Trigger(context.WithoutCancel(c.Request().Context()), j); err != nil {
 		return WriteError(c, NewAPIError(http.StatusConflict, "cron_job_running", "cron job is already executing", rid))
 	}
 	h.recordAudit(c, pc.ID, "trigger cron job "+j.Name)
@@ -437,9 +468,13 @@ func validateCronJobBody(req upsertCronJobBody, rid string, create bool) (upsert
 	if err := json.Unmarshal([]byte(req.InputJSON), &probe); err != nil {
 		return req, NewAPIError(http.StatusBadRequest, "invalid_request", "input_json is not valid JSON: "+err.Error(), rid)
 	}
+	// enabled 缺省语义：未显式指定时不隐式翻转（保留原状态）。
+	// enabledValue=false + enabledSet=false 表示“请求未带 enabled”，由调用方保留原值。
 	req.enabledValue = true
+	req.enabledSet = false
 	if req.Enabled != nil {
 		req.enabledValue = *req.Enabled
+		req.enabledSet = true
 	}
 	return req, nil
 }

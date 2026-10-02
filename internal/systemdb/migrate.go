@@ -288,16 +288,11 @@ var systemMigrations = []migration{
 		)`,
 	},
 	{
+		// v21 sys_log_exports 已废弃删除（无任何读写代码引用；cleanup-plan B6）。
+		// 占位保留版本号，避免后续迁移版本错位。
 		version: 21,
-		name:    "sys_log_exports",
-		stmt: `CREATE TABLE IF NOT EXISTS sys_log_exports (
-			id VARCHAR NOT NULL,
-			project_id VARCHAR NOT NULL,
-			status VARCHAR NOT NULL,
-			filter_json VARCHAR NOT NULL,
-			created_at TIMESTAMP NOT NULL,
-			finished_at TIMESTAMP
-		)`,
+		name:    "sys_log_exports_dropped",
+		stmt:    `SELECT 1`,
 	},
 	{
 		version: 22,
@@ -399,19 +394,12 @@ var systemMigrations = []migration{
 		)`,
 	},
 	{
-		// v28：云函数（ui-gofunction-plan §5）。源码为权威，exports_json 冗余。
+		// v28：云函数（ui-gofunction-plan §5）。旧单表 sys_gofunctions 已废弃
+		// （数据迁移至 v34 sys_go_funcs / sys_go_func_versions 后无读写代码）；
+		// 占位保留版本号，迁移时顺带 DROP 旧表。
 		version: 28,
-		name:    "sys_gofunctions",
-		stmt: `CREATE TABLE IF NOT EXISTS sys_gofunctions (
-			id VARCHAR NOT NULL,
-			project_id VARCHAR NOT NULL,
-			name VARCHAR NOT NULL,
-			source VARCHAR NOT NULL,
-			exports_json VARCHAR NOT NULL,
-			created_at TIMESTAMP NOT NULL,
-			updated_at TIMESTAMP NOT NULL,
-			archived_at TIMESTAMP
-		)`,
+		name:    "sys_gofunctions_dropped",
+		stmt:    `DROP TABLE IF EXISTS sys_gofunctions`,
 	},
 	{
 		// v29：定时任务（ui-cronjob-plan §4.1）。目标为云函数导出函数；两种调度模式。

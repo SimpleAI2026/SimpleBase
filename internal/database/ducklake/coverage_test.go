@@ -131,8 +131,12 @@ func TestSecretAndSQLQuote(t *testing.T) {
 func TestExtensionHelpers(t *testing.T) {
 	t.Parallel()
 	boot := extensionBootSQL(Options{ExtensionDir: "/ext"})
-	if len(boot) < 7 || !strings.Contains(boot[0], "extension_directory") {
-		t.Fatal(boot)
+	if len(boot) != 5 || !strings.Contains(boot[0], "extension_directory") || strings.Contains(strings.Join(boot, ";"), "sqlite") {
+		t.Fatal("duckdb engine must not load sqlite:", boot)
+	}
+	lite := extensionBootSQL(Options{ExtensionDir: "/ext", CatalogEngine: EngineSQLite})
+	if len(lite) != 7 || !strings.Contains(strings.Join(lite, ";"), "LOAD sqlite") {
+		t.Fatal("sqlite engine must load sqlite:", lite)
 	}
 	if normalizeDuckDBVersion(" v1.5.2-dev ") != "1.5.2" {
 		t.Fatal(normalizeDuckDBVersion(" v1.5.2-dev "))
@@ -239,7 +243,7 @@ func TestFactoryHelpersWithoutOpen(t *testing.T) {
 		t.Fatal("remote off")
 	}
 
-	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{Enabled: true, Bucket: "b", Region: "r"}, t.TempDir(), CatalogSyncOptions{Mode: "sync_on_commit"}, nil, nil)
+	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{Enabled: true, Bucket: "b", Region: "r"}, t.TempDir(), CatalogSyncOptions{Mode: "sync_on_commit"}, "", nil, nil)
 	f = &Factory{Syncer: cs, Remote: RemoteStorage{Enabled: true}, Options: Options{CatalogSync: CatalogSyncOptions{Mode: "sync_on_commit"}}}
 	if f.DurabilityFor("id") != DurabilityCommittedLocal {
 		t.Fatal(f.DurabilityFor("id"))
@@ -282,7 +286,7 @@ func TestCatalogSyncerControlPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, observability.NewLogger("debug", "json", io.Discard), observability.NewMetrics(prometheus.NewRegistry()))
+	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, "", observability.NewLogger("debug", "json", io.Discard), observability.NewMetrics(prometheus.NewRegistry()))
 	if cs.Options.Mode != "debounce" || cs.Options.KeepVersions != 10 {
 		t.Fatal(cs.Options)
 	}
@@ -322,22 +326,22 @@ func TestCatalogSyncerControlPaths(t *testing.T) {
 
 func TestEnsureLocalCatalogBranches(t *testing.T) {
 	ctx := context.Background()
-	ok, err := EnsureLocalCatalog(ctx, nil, RemoteStorage{Enabled: true}, t.TempDir(), catalog.Database{})
+	ok, err := EnsureLocalCatalog(ctx, nil, RemoteStorage{Enabled: true}, t.TempDir(), catalog.Database{}, "")
 	if err != nil || ok {
 		t.Fatal(ok, err)
 	}
 	blobs := objectstore.NewMemoryBlobStore()
-	ok, err = EnsureLocalCatalog(ctx, blobs, RemoteStorage{}, t.TempDir(), catalog.Database{})
+	ok, err = EnsureLocalCatalog(ctx, blobs, RemoteStorage{}, t.TempDir(), catalog.Database{}, "")
 	if err != nil || ok {
 		t.Fatal(ok, err)
 	}
 	remote := RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase", Environment: "e"}
 	meta := catalog.Database{ID: uuid.NewString(), TenantID: "bad"}
-	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), meta); err == nil {
+	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), meta, ""); err == nil {
 		t.Fatal("bad tenant")
 	}
 	meta.TenantID = "11111111-1111-1111-1111-111111111111"
-	ok, err = EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), meta)
+	ok, err = EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), meta, "")
 	if err != nil || ok {
 		t.Fatal(ok, err)
 	}
@@ -380,7 +384,7 @@ func TestFactoryAfterWriteWithLake(t *testing.T) {
 		// may error if table missing
 		t.Log(err)
 	}
-	if err := AssertExtensionsLoaded(context.Background(), db); err != nil {
+	if err := AssertExtensionsLoaded(context.Background(), db, ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -389,7 +393,7 @@ func TestCatalogSyncerLocalAdvanceAndRecord(t *testing.T) {
 	db, _ := openTestLake(t)
 	id := uuid.NewString()
 	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111"}
-	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{Mode: "sync_on_commit"}, observability.NewLogger("debug", "json", io.Discard), observability.NewMetrics(prometheus.NewRegistry()))
+	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{Mode: "sync_on_commit"}, "", observability.NewLogger("debug", "json", io.Discard), observability.NewMetrics(prometheus.NewRegistry()))
 	cs.Bind(id, db, meta, DefaultLakeAlias)
 	if _, err := db.ExecContext(context.Background(), `CREATE TABLE z (x INTEGER)`); err != nil {
 		t.Fatal(err)
@@ -446,16 +450,16 @@ func TestFactoryDataPathFor(t *testing.T) {
 }
 
 func TestPruneVersions(t *testing.T) {
-	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{Enabled: true, Bucket: "b", Region: "r", RootPrefix: "simplebase", Environment: "e"}, t.TempDir(), CatalogSyncOptions{KeepVersions: 1}, nil, nil)
+	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{Enabled: true, Bucket: "b", Region: "r", RootPrefix: "simplebase", Environment: "e"}, t.TempDir(), CatalogSyncOptions{KeepVersions: 1}, "", nil, nil)
 	meta := catalog.Database{ID: "33333333-3333-3333-3333-333333333333", TenantID: "11111111-1111-1111-1111-111111111111"}
-	if err := cs.pruneVersions(context.Background(), meta, 1); err != nil {
+	if err := cs.pruneVersions(context.Background(), meta, 1, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := cs.pruneVersions(context.Background(), meta, 5); err != nil {
+	if err := cs.pruneVersions(context.Background(), meta, 5, 5); err != nil {
 		t.Fatal(err)
 	}
 	cs.Options.KeepVersions = 0
-	if err := cs.pruneVersions(context.Background(), meta, 9); err != nil {
+	if err := cs.pruneVersions(context.Background(), meta, 9, 9); err != nil {
 		t.Fatal(err)
 	}
 }

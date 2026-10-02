@@ -1,0 +1,11 @@
+{
+  "name": "simplebase-__name__-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/main.mjs",
+    "build": "node ../shared/node/build.mjs __name__",
+    "publish": "node ../shared/node/publish.mjs __name__",
+    "test": "node --test server/*.test.mjs"
+  }
+}

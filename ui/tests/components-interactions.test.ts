@@ -17,7 +17,7 @@ import AgentScheduleModal from '@/components/ai/AgentScheduleModal.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import AiChatComposer from '@/components/ai/AiChatComposer.vue'
 import CollectionPanel from '@/components/databases/CollectionPanel.vue'
-import CronJobRunsDrawer from '@/components/CronJobRunsDrawer.vue'
+import CronJobRunsModal from '@/components/modal/CronJobRunsModal.vue'
 import GlobalProjectSwitcher from '@/components/GlobalProjectSwitcher.vue'
 import NavMenu from '@/components/NavMenu.vue'
 import ConnectionPanel from '@/components/settings/ConnectionPanel.vue'
@@ -235,7 +235,7 @@ describe('component template interactions', () => {
     w.unmount()
   })
 
-  it('CronJobRunsDrawer copy, filter, sheet close', async () => {
+  it('CronJobRunsModal copy, filter, modal close', async () => {
     api.cronjobs.runs.mockResolvedValue([
       {
         id: 'r1',
@@ -249,15 +249,26 @@ describe('component template interactions', () => {
         createdAt: 't'
       }
     ])
-    const w = mount(CronJobRunsDrawer, {
+    const w = mount(CronJobRunsModal, {
       props: { open: true, job: sampleCron },
-      global: { plugins: [piniaWithProject()], stubs: uiStubs }
+      global: {
+        plugins: [piniaWithProject()],
+        stubs: {
+          ...uiStubs,
+          SbModal: {
+            props: ['open', 'title', 'description', 'maxWidth', 'hideFooter'],
+            emits: ['update:open'],
+            template:
+              '<div v-if="open" class="sb-modal"><button type="button" class="modal-close" @click="$emit(\'update:open\', false)">x</button><slot /></div>'
+          }
+        }
+      }
     })
     await flushPromises()
     const copies = w.findAll('button').filter((b) => b.text().includes('复制'))
     for (const c of copies) await c.trigger('click')
     if (w.find('.select-emit').exists()) await w.get('.select-emit').trigger('click')
-    if (w.find('.sheet-close').exists()) await w.get('.sheet-close').trigger('click')
+    if (w.find('.modal-close').exists()) await w.get('.modal-close').trigger('click')
     expect(w.emitted('update:open')).toBeTruthy()
     w.unmount()
   })

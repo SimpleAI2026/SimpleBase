@@ -3,6 +3,7 @@ package systemdb
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,7 +34,7 @@ type TrendPoint struct {
 	Errors   int64  `json:"errors"`
 }
 
-// RecordMetric 缓冲一条指标样本（异步 flush）。
+// RecordMetric 缓冲一条指标样本（§7.2 P3：热指标内存预聚合，请求路径 O(1)）。
 func (s *Store) RecordMetric(sample MetricSample) {
 	if s == nil {
 		return
@@ -44,40 +45,23 @@ func (s *Store) RecordMetric(sample MetricSample) {
 	if sample.OccurredAt.IsZero() {
 		sample.OccurredAt = time.Now().UTC()
 	}
-	s.mu.Lock()
-	s.metricsBuf = append(s.metricsBuf, sample)
-	n := len(s.metricsBuf)
-	s.mu.Unlock()
-	if n >= 64 {
-		_ = s.FlushMetrics(context.Background())
-	}
+	s.recordMetricAggregated(sample)
 }
 
-// FlushMetrics 将缓冲样本写入 sys_metric_samples。
+// FlushMetrics 将缓冲样本与预聚合桶写入 sys_metric_samples（批量单事务）。
 func (s *Store) FlushMetrics(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	s.mu.Lock()
-	batch := s.metricsBuf
-	s.metricsBuf = nil
-	s.mu.Unlock()
-	if len(batch) == 0 {
-		return nil
-	}
-	for _, m := range batch {
-		if _, err := s.db.ExecContext(ctx,
-			`INSERT INTO sys_metric_samples(id, project_id, name, value_double, labels_json, occurred_at)
-			 VALUES(?, ?, ?, ?, ?, ?)`,
-			m.ID, m.ProjectID, m.Name, m.Value, m.LabelsJSON, m.OccurredAt.UTC()); err != nil {
-			return err
-		}
-	}
-	s.notifyWrite(ctx)
-	return nil
+	batch := s.drainMetrics()
+	agg := s.drainMetricAggregates()
+	batch = append(batch, agg...)
+	return s.flushMetricsBatch(ctx, batch)
 }
 
 // MetricsSummary 聚合项目近期样本与库数量。admin 项目聚合全系统。
+// perf §1 P1-D：三条独立聚合合并为一条条件聚合，单遍扫描 sys_metric_samples；
+// 口径与旧实现一致（latency 仍是对 name='http_latency_ms' 行的 AVG）。
 func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSummary, error) {
 	var out MetricsSummary
 	if s == nil || s.db == nil {
@@ -85,35 +69,19 @@ func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSu
 	}
 	admin := IsAdminProject(projectID)
 	since := time.Now().UTC().Add(-24 * time.Hour)
-	var requests, errors float64
-	if admin {
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
-			 WHERE name = 'http_requests' AND occurred_at >= ?`, since).Scan(&requests)
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
-			 WHERE name = 'http_errors' AND occurred_at >= ?`, since).Scan(&errors)
-	} else {
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
-			 WHERE project_id = ? AND name = 'http_requests' AND occurred_at >= ?`,
-			projectID, since).Scan(&requests)
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT COALESCE(SUM(value_double), 0) FROM sys_metric_samples
-			 WHERE project_id = ? AND name = 'http_errors' AND occurred_at >= ?`,
-			projectID, since).Scan(&errors)
+	var requests, errors, avg float64
+	query := `SELECT
+		COALESCE(SUM(CASE WHEN name = 'http_requests' THEN value_double END), 0),
+		COALESCE(SUM(CASE WHEN name = 'http_errors' THEN value_double END), 0),
+		COALESCE(AVG(CASE WHEN name = 'http_latency_ms' THEN value_double END), 0)
+		FROM sys_metric_samples
+		WHERE occurred_at >= ? AND name IN ('http_requests', 'http_errors', 'http_latency_ms')`
+	args := []any{since}
+	if !admin {
+		query += " AND project_id = ?"
+		args = append(args, projectID)
 	}
-	var avg float64
-	if admin {
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT COALESCE(AVG(value_double), 0) FROM sys_metric_samples
-			 WHERE name = 'http_latency_ms' AND occurred_at >= ?`, since).Scan(&avg)
-	} else {
-		_ = s.db.QueryRowContext(ctx,
-			`SELECT COALESCE(AVG(value_double), 0) FROM sys_metric_samples
-			 WHERE project_id = ? AND name = 'http_latency_ms' AND occurred_at >= ?`,
-			projectID, since).Scan(&avg)
-	}
+	_ = s.db.QueryRowContext(ctx, query, args...).Scan(&requests, &errors, &avg)
 	var active int64
 	if admin {
 		_ = s.db.QueryRowContext(ctx,
@@ -130,6 +98,23 @@ func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSu
 	out.AvgLatencyMS = avg
 	out.ActiveDatabases = active
 	return out, nil
+}
+
+// MetricsSummaryCached / MetricsTrendCached：仪表盘读路径的短 TTL（10s）+ 单飞缓存，
+// 避免每次刷新都打系统库唯一连接与远端对象存储（perf §1 P1-D）。
+// 指标本身是近似值，写入路径无需主动失效。
+func (s *Store) MetricsSummaryCached(ctx context.Context, projectID string) (MetricsSummary, error) {
+	s.initReadCaches()
+	return s.summaryCache.Do(projectID, func() (MetricsSummary, error) {
+		return s.MetricsSummary(ctx, projectID)
+	})
+}
+
+func (s *Store) MetricsTrendCached(ctx context.Context, projectID string, days int) ([]TrendPoint, error) {
+	s.initReadCaches()
+	return s.trendCache.Do(projectID+"/"+strconv.Itoa(days), func() ([]TrendPoint, error) {
+		return s.MetricsTrend(ctx, projectID, days)
+	})
 }
 
 // MetricsTrend 按天聚合最近 days 天的请求/错误。admin 项目聚合全系统。

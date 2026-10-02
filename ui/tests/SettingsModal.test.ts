@@ -15,7 +15,7 @@ describe('SettingsModal', () => {
     resetApiMocks()
   })
 
-  it('opens as a 900px SbModal with tabs and closes from the shell', async () => {
+  it('opens as a 720px SbModal with tabs and closes from the shell', async () => {
     const { wrapper, pinia } = await mountWithApp(SettingsModal)
     const auth = useAuthStore(pinia)
     expect(wrapper.find('.sb-modal').exists()).toBe(false)
@@ -23,11 +23,11 @@ describe('SettingsModal', () => {
     await flushPromises()
     const modal = wrapper.get('.sb-modal')
     expect(modal.attributes('data-title')).toBe('设置')
-    expect(modal.attributes('data-max-width')).toBe('900')
+    expect(modal.attributes('data-max-width')).toBe('720')
     expect(modal.attributes('data-hide-footer')).toBe('true')
-    expect(wrapper.text()).toContain('主题、连接、默认模型与厂商 API Key')
+    expect(wrapper.text()).toContain('连接、默认模型与厂商 API Key')
     expect(wrapper.text()).toContain('连接')
-    expect(wrapper.text()).toContain('外观')
+    expect(wrapper.text()).not.toContain('外观')
     expect(wrapper.text()).toContain('模型')
     expect(wrapper.text()).toContain('供应商')
 
@@ -36,7 +36,7 @@ describe('SettingsModal', () => {
 
     const vm = wrapper.vm as any
     vm.onTab('appearance')
-    expect(auth.settingsTab).toBe('appearance')
+    expect(auth.settingsTab).toBe('connection')
     vm.onTab('models')
     expect(auth.settingsTab).toBe('models')
     vm.onTab('providers')
@@ -52,7 +52,7 @@ describe('SettingsModal', () => {
   it('forces the connection tab on 401', async () => {
     const { wrapper, pinia } = await mountWithApp(SettingsModal)
     const auth = useAuthStore(pinia)
-    auth.openSettings({ tab: 'appearance' })
+    auth.openSettings({ tab: 'models' })
     auth.markUnauthorized()
     await flushPromises()
     expect(auth.settingsOpen).toBe(true)

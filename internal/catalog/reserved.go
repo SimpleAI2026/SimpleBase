@@ -6,6 +6,12 @@ package catalog
 const (
 	DatabaseKindUser   = "user"
 	DatabaseKindSystem = "system"
+	// DatabaseKindKV 承载项目专属的 Key-Value catalog 行（key-value-ducklake-plan §2）。
+	// 与用户库同引擎（DuckLake），但不出现在用户库列表，name 固定为 "kv"。
+	DatabaseKindKV = "kv"
+
+	// KVDatabaseName 是 kind=kv 行在项目内的保留名（唯一性约束 (project_id,name)）。
+	KVDatabaseName = "kv"
 
 	// ReservedTenantID 是实例保留租户，系统库与 Dev 种子项目同属此租户。
 	ReservedTenantID = "00000000-0000-0000-0000-000000000001"
@@ -27,4 +33,9 @@ func IsSystemProject(id string) bool {
 // IsSystemDatabase 判断 catalog 行是否为系统库。
 func IsSystemDatabase(d Database) bool {
 	return d.Kind == DatabaseKindSystem
+}
+
+// IsKVDatabase 判断 catalog 行是否为项目 KV catalog（不出现在用户库列表）。
+func IsKVDatabase(d Database) bool {
+	return d.Kind == DatabaseKindKV
 }

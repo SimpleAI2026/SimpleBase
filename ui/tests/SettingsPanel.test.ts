@@ -16,16 +16,7 @@ describe('SettingsPanel', () => {
     resetApiMocks()
   })
 
-  it('loads remote defaults, patches theme/model, and sets a default provider', async () => {
-    const { wrapper, pinia } = await mountWithApp(SettingsPanel, { props: { section: 'appearance' } })
-    const settings = useSettingsStore(pinia)
-    await wrapper.get('.tg-dark').trigger('click')
-    expect(settings.theme).toBe('dark')
-    await wrapper.get('.tg-system').trigger('click')
-    await wrapper.get('.tg-light').trigger('click')
-    expect(settings.theme).toBe('light')
-    wrapper.unmount()
-
+  it('loads remote defaults, patches model, and sets a default provider', async () => {
     const models = await mountWithApp(SettingsPanel, { props: { section: 'models' } })
     await models.wrapper.get('.select-emit').trigger('click')
     await flushPromises()
@@ -88,8 +79,6 @@ describe('SettingsPanel', () => {
     expect(api.llmSettings.get.mock.calls.length).toBeGreaterThan(1)
 
     const vm = providers.wrapper.vm as any
-    vm.onTheme(undefined)
-    vm.onTheme(['nope'])
     vm.openEditor('openai')
     await flushPromises()
     await clickText(providers.wrapper, '取消')

@@ -261,9 +261,9 @@ func TestSQLHandler_MissingContextAndSystem(t *testing.T) {
 		t.Fatalf("concurrency %d %s", rec.Code, rec.Body.String())
 	}
 
-	// DurabilityFor + last insert + serialize error
+	// DurabilityFor + serialize error
 	svc.lease.executeErr = nil
-	svc.lease.executeResult = database.QueryResult{RowsAffected: 1, LastInsertID: 9}
+	svc.lease.executeResult = database.QueryResult{RowsAffected: 1}
 	h3 := NewSQLHandler(svc, testSQLLimits(), true)
 	h3.DurabilityFor = func(string) string { return "synced_s3" }
 	eD := setupBareEcho(true, true, func(e *echo.Echo) {
@@ -274,7 +274,7 @@ func TestSQLHandler_MissingContextAndSystem(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "synced_s3") {
 		t.Fatalf("durability %d %s", rec.Code, rec.Body.String())
 	}
-	svc.lease.batchResults = []database.QueryResult{{RowsAffected: 1, LastInsertID: 2}}
+	svc.lease.batchResults = []database.QueryResult{{RowsAffected: 1}}
 	rec = doRequest(eD, http.MethodPost, "/b", BatchRequest{Transactional: true, Statements: []SQLStatementRequest{{SQL: "INSERT INTO t VALUES(1)"}}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "synced_s3") {
 		t.Fatalf("batch dur %d %s", rec.Code, rec.Body.String())
@@ -355,65 +355,62 @@ func TestDataHandler_Branches(t *testing.T) {
 	}
 	h := NewDataHandler(svc, true)
 	e := setupBareEcho(true, true, func(e *echo.Echo) {
-		e.GET("/data/collections", h.ListCollections)
-		e.POST("/data/collections", h.CreateCollection)
-		e.GET("/data/collections/:collection", h.ListDocuments)
-		e.POST("/data/collections/:collection/documents", h.CreateDocument)
-		e.PUT("/data/collections/:collection/documents/:id", h.UpdateDocument)
-		e.DELETE("/data/collections/:collection/documents/:id", h.DeleteDocument)
 		e.GET("/databases/:databaseID/data/collections", h.ListCollections)
 		e.POST("/databases/:databaseID/data/collections", h.CreateCollection)
+		e.GET("/databases/:databaseID/data/collections/:collection", h.ListDocuments)
+		e.POST("/databases/:databaseID/data/collections/:collection/documents", h.CreateDocument)
+		e.PUT("/databases/:databaseID/data/collections/:collection/documents/:id", h.UpdateDocument)
+		e.DELETE("/databases/:databaseID/data/collections/:collection/documents/:id", h.DeleteDocument)
 	})
 
-	rec := doRequest(e, http.MethodGet, "/data/collections", nil)
+	rec := doRequest(e, http.MethodGet, "/databases/db-1/data/collections", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doRequest(e, http.MethodPost, "/data/collections", map[string]any{"name": "bad-name"})
+	rec = doRequest(e, http.MethodPost, "/databases/db-1/data/collections", map[string]any{"name": "bad-name"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad collection name %d", rec.Code)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/data/collections", strings.NewReader("{"))
+	req := httptest.NewRequest(http.MethodPost, "/databases/db-1/data/collections", strings.NewReader("{"))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json %d", rec.Code)
 	}
-	rec = doRequest(e, http.MethodPost, "/data/collections", map[string]any{"name": "Users"})
+	rec = doRequest(e, http.MethodPost, "/databases/db-1/data/collections", map[string]any{"name": "Users"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create col %d %s", rec.Code, rec.Body.String())
 	}
 
 	svc.lease.queryResult = database.QueryResult{Rows: [][]any{{"id1", `{"n":1}`}, {"id2", "not-json"}, {"short"}}}
-	rec = doRequest(e, http.MethodGet, "/data/collections/Users", nil)
+	rec = doRequest(e, http.MethodGet, "/databases/db-1/data/collections/Users", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list docs %d %s", rec.Code, rec.Body.String())
 	}
 	svc.lease.queryErr = errors.New("no such table: Users")
-	rec = doRequest(e, http.MethodGet, "/data/collections/Users", nil)
+	rec = doRequest(e, http.MethodGet, "/databases/db-1/data/collections/Users", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("missing table %d", rec.Code)
 	}
 	svc.lease.queryErr = errors.New("other")
-	rec = doRequest(e, http.MethodGet, "/data/collections/Users", nil)
+	rec = doRequest(e, http.MethodGet, "/databases/db-1/data/collections/Users", nil)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("query err %d", rec.Code)
 	}
 	svc.lease.queryErr = nil
 
-	rec = doRequest(e, http.MethodGet, "/data/collections/bad-name", nil)
+	rec = doRequest(e, http.MethodGet, "/databases/db-1/data/collections/bad-name", nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad collection param %d", rec.Code)
 	}
 
-	rec = doRequest(e, http.MethodPost, "/data/collections/Users/documents", map[string]any{"name": "Ada"})
+	rec = doRequest(e, http.MethodPost, "/databases/db-1/data/collections/Users/documents", map[string]any{"name": "Ada"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create doc %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doRequest(e, http.MethodPost, "/data/collections/Users/documents", nil)
 	// nil body
-	req = httptest.NewRequest(http.MethodPost, "/data/collections/Users/documents", strings.NewReader("null"))
+	req = httptest.NewRequest(http.MethodPost, "/databases/db-1/data/collections/Users/documents", strings.NewReader("null"))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -421,46 +418,46 @@ func TestDataHandler_Branches(t *testing.T) {
 		t.Fatalf("null doc %d", rec.Code)
 	}
 
-	rec = doRequest(e, http.MethodPut, "/data/collections/Users/documents/id-1", map[string]any{"n": 2})
+	rec = doRequest(e, http.MethodPut, "/databases/db-1/data/collections/Users/documents/id-1", map[string]any{"n": 2})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update %d %s", rec.Code, rec.Body.String())
 	}
 	svc.lease.executeResult = database.QueryResult{RowsAffected: 0}
-	rec = doRequest(e, http.MethodPut, "/data/collections/Users/documents/id-1", map[string]any{"n": 2})
+	rec = doRequest(e, http.MethodPut, "/databases/db-1/data/collections/Users/documents/id-1", map[string]any{"n": 2})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("update missing %d", rec.Code)
 	}
 	svc.lease.executeResult = database.QueryResult{RowsAffected: 1}
 	svc.lease.executeErr = errors.New("upd")
-	rec = doRequest(e, http.MethodPut, "/data/collections/Users/documents/id-1", map[string]any{"n": 2})
+	rec = doRequest(e, http.MethodPut, "/databases/db-1/data/collections/Users/documents/id-1", map[string]any{"n": 2})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("update err %d", rec.Code)
 	}
 	svc.lease.executeErr = nil
 
-	rec = doRequest(e, http.MethodDelete, "/data/collections/Users/documents/id-1", nil)
+	rec = doRequest(e, http.MethodDelete, "/databases/db-1/data/collections/Users/documents/id-1", nil)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete %d", rec.Code)
 	}
 	svc.lease.executeErr = errors.New("no such table")
-	rec = doRequest(e, http.MethodDelete, "/data/collections/Users/documents/id-1", nil)
+	rec = doRequest(e, http.MethodDelete, "/databases/db-1/data/collections/Users/documents/id-1", nil)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete missing table %d", rec.Code)
 	}
 	svc.lease.executeErr = errors.New("boom")
-	rec = doRequest(e, http.MethodDelete, "/data/collections/Users/documents/id-1", nil)
+	rec = doRequest(e, http.MethodDelete, "/databases/db-1/data/collections/Users/documents/id-1", nil)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("delete err %d", rec.Code)
 	}
 	svc.lease.executeErr = nil
 
 	// missing id
-	req = httptest.NewRequest(http.MethodPut, "/data/collections/Users/documents/", strings.NewReader(`{"n":1}`))
+	req = httptest.NewRequest(http.MethodPut, "/databases/db-1/data/collections/Users/documents/", strings.NewReader(`{"n":1}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	c.SetParamNames("collection", "id")
-	c.SetParamValues("Users", "")
+	c.SetParamNames("databaseID", "collection", "id")
+	c.SetParamValues("db-1", "Users", "")
 	ctx := WithPrincipal(req.Context(), auth.Principal{APIKeyID: "k"})
 	ctx = WithProject(ctx, ProjectContext{ID: "proj-1"})
 	c.SetRequest(req.WithContext(ctx))
@@ -471,16 +468,16 @@ func TestDataHandler_Branches(t *testing.T) {
 
 	ro := NewDataHandler(svc, false)
 	eRO := setupBareEcho(true, true, func(e *echo.Echo) {
-		e.POST("/data/collections", ro.CreateCollection)
-		e.POST("/data/collections/:collection/documents", ro.CreateDocument)
-		e.PUT("/data/collections/:collection/documents/:id", ro.UpdateDocument)
-		e.DELETE("/data/collections/:collection/documents/:id", ro.DeleteDocument)
+		e.POST("/databases/:databaseID/data/collections", ro.CreateCollection)
+		e.POST("/databases/:databaseID/data/collections/:collection/documents", ro.CreateDocument)
+		e.PUT("/databases/:databaseID/data/collections/:collection/documents/:id", ro.UpdateDocument)
+		e.DELETE("/databases/:databaseID/data/collections/:collection/documents/:id", ro.DeleteDocument)
 	})
 	for _, tc := range []struct{ method, path string }{
-		{http.MethodPost, "/data/collections"},
-		{http.MethodPost, "/data/collections/Users/documents"},
-		{http.MethodPut, "/data/collections/Users/documents/1"},
-		{http.MethodDelete, "/data/collections/Users/documents/1"},
+		{http.MethodPost, "/databases/db-1/data/collections"},
+		{http.MethodPost, "/databases/db-1/data/collections/Users/documents"},
+		{http.MethodPut, "/databases/db-1/data/collections/Users/documents/1"},
+		{http.MethodDelete, "/databases/db-1/data/collections/Users/documents/1"},
 	} {
 		rec = doRequest(eRO, tc.method, tc.path, map[string]any{"name": "Users"})
 		if rec.Code != http.StatusServiceUnavailable {
@@ -488,37 +485,33 @@ func TestDataHandler_Branches(t *testing.T) {
 		}
 	}
 
-	// system protected
+	// system protected（scoped 路径）
 	svc.dbs = []catalog.Database{{ID: "sys", Kind: catalog.DatabaseKindSystem, ProjectID: "proj-1"}}
-	rec = doRequest(e, http.MethodPost, "/data/collections", map[string]any{"name": "Users"})
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("system write %d %s", rec.Code, rec.Body.String())
-	}
 	rec = doRequest(e, http.MethodPost, "/databases/sys/data/collections", map[string]any{"name": "Users"})
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("system scoped %d", rec.Code)
 	}
 
-	// no databases
+	// 未知 databaseID → GetDatabase 404
 	svc.dbs = nil
-	rec = doRequest(e, http.MethodGet, "/data/collections", nil)
+	rec = doRequest(e, http.MethodGet, "/databases/db-missing/data/collections", nil)
 	if rec.Code == http.StatusOK {
-		t.Fatal("no db should fail")
+		t.Fatal("missing db should fail")
 	}
 	svc.listErr = catalog.ErrNotFound
-	rec = doRequest(e, http.MethodGet, "/data/collections", nil)
+	rec = doRequest(e, http.MethodGet, "/databases/db-1/data/collections", nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("list err %d", rec.Code)
 	}
 
 	// missing principal/project on acquire
-	eBare := setupBareEcho(false, false, func(e *echo.Echo) { e.GET("/data/collections", h.ListCollections) })
-	rec = doRequest(eBare, http.MethodGet, "/data/collections", nil)
+	eBare := setupBareEcho(false, false, func(e *echo.Echo) { e.GET("/databases/:databaseID/data/collections", h.ListCollections) })
+	rec = doRequest(eBare, http.MethodGet, "/databases/db-1/data/collections", nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no principal %d", rec.Code)
 	}
-	eNP := setupBareEcho(true, false, func(e *echo.Echo) { e.GET("/data/collections", h.ListCollections) })
-	rec = doRequest(eNP, http.MethodGet, "/data/collections", nil)
+	eNP := setupBareEcho(true, false, func(e *echo.Echo) { e.GET("/databases/:databaseID/data/collections", h.ListCollections) })
+	rec = doRequest(eNP, http.MethodGet, "/databases/db-1/data/collections", nil)
 	if rec.Code == http.StatusOK {
 		t.Fatal("no project should fail")
 	}

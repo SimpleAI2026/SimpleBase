@@ -17,7 +17,7 @@ func (h *metricsHandler) Summary(c echo.Context) error {
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
 	}
-	sum, err := h.store.MetricsSummary(c.Request().Context(), pc.ID)
+	sum, err := h.store.MetricsSummaryCached(c.Request().Context(), pc.ID)
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -35,7 +35,7 @@ func (h *metricsHandler) Trend(c echo.Context) error {
 			days = n
 		}
 	}
-	points, err := h.store.MetricsTrend(c.Request().Context(), pc.ID, days)
+	points, err := h.store.MetricsTrendCached(c.Request().Context(), pc.ID, days)
 	if err != nil {
 		return WriteError(c, err)
 	}

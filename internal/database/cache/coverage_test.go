@@ -85,7 +85,19 @@ func TestEvictBranches(t *testing.T) {
 		t.Fatalf("canceled: %v", err)
 	}
 
+	// §3.6：关闭失败（如 Flush 失败）必须跳过淘汰并保留目录，
+	// 不得删除可能唯一未同步的 catalog 副本。
 	res, err = m.Evict(context.Background(), 5)
+	if !errors.Is(err, ErrCacheCapacityExceeded) || res.Achieved || res.EvictedCount != 0 {
+		t.Fatalf("close-fail must skip eviction: %+v %v", res, err)
+	}
+	if _, serr := os.Stat(filepath.Join(p, "d")); serr != nil {
+		t.Fatalf("dir must be kept when close fails: %v", serr)
+	}
+
+	// 关闭成功则正常淘汰。
+	m2, _ := NewManager(Options{Root: dir, Registry: reg, Closer: reg, Logger: log, Metrics: met})
+	res, err = m2.Evict(context.Background(), 5)
 	if err != nil || !res.Achieved || met.evicts.Load() < 1 {
 		t.Fatalf("evict %+v %v evicts=%d", res, err, met.evicts.Load())
 	}

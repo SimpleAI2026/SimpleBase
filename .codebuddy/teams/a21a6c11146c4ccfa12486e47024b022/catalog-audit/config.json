@@ -1,0 +1,32 @@
+{
+  "name": "catalog-audit",
+  "mainConversationId": "a21a6c11146c4ccfa12486e47024b022",
+  "workspacePath": "/Volumes/my/github/SimpleBase",
+  "createdAt": "2026-09-29T03:57:59.457Z",
+  "options": {
+    "workspacePath": "/Volumes/my/github/SimpleBase"
+  },
+  "members": [
+    {
+      "memberId": "engine@catalog-audit",
+      "name": "engine",
+      "role": "核对引擎配置及启动校验",
+      "sessionId": "b388a7404c62410081c29716b4eede2c",
+      "status": "running"
+    },
+    {
+      "memberId": "reset@catalog-audit",
+      "name": "reset",
+      "role": "核对 reset 与对象存储",
+      "sessionId": "5d768cc7d17f4ec488e6a5676383e01f",
+      "status": "running"
+    },
+    {
+      "memberId": "acceptance@catalog-audit",
+      "name": "acceptance",
+      "role": "核对 P0 P1 验收文档",
+      "sessionId": "76b45f5ec34c4ce5a9ee35229cc7c884",
+      "status": "running"
+    }
+  ]
+}

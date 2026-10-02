@@ -10,7 +10,7 @@ import {
 } from '../services/http'
 import type { AuthUser, UserRole } from '../services/types'
 
-export type SettingsTab = 'connection' | 'appearance' | 'models' | 'providers'
+export type SettingsTab = 'connection' | 'models' | 'providers'
 
 /** 登录态 + 角色（login-auth-plan）。API Key 设置仍保留在 SettingsModal。 */
 export const useAuthStore = defineStore('auth', {

@@ -67,12 +67,10 @@
               <TableCell class="w-32">
                 <div class="flex gap-1">
                   <Button variant="ghost" size="sm" @click="open(record.key)">
-                    <EyeIcon data-icon="inline-start" />
                     打开
                   </Button>
                   <ConfirmAction title="确认删除该对象？" @confirm="remove(record.key)">
                     <Button variant="destructiveGhost" size="sm">
-                      <Trash2Icon data-icon="inline-start" />
                       删除
                     </Button>
                   </ConfirmAction>
@@ -98,7 +96,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { EyeIcon, FileIcon, RefreshCwIcon, SearchIcon, Trash2Icon, UploadIcon } from '@lucide/vue'
+import { FileIcon, RefreshCwIcon, SearchIcon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'

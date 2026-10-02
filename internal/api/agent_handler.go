@@ -21,6 +21,11 @@ type cloudAgentHandler struct {
 	audit   AuditService
 }
 
+// sandboxAvailable 报告云沙盒是否启用（由 Runtime.Sandbox 提供）。
+func (h *cloudAgentHandler) sandboxAvailable() bool {
+	return h.runtime != nil && h.runtime.Sandbox != nil && h.runtime.Sandbox.Available()
+}
+
 type agentDTO struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
@@ -101,7 +106,7 @@ func (h *cloudAgentHandler) ensureAgents(ctx context.Context, projectID string) 
 }
 
 func (h *cloudAgentHandler) ListModules(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"modules": cloudagent.Modules()})
+	return c.JSON(http.StatusOK, map[string]any{"modules": cloudagent.Modules(h.sandboxAvailable())})
 }
 
 func (h *cloudAgentHandler) ListAgents(c echo.Context) error {
@@ -142,7 +147,7 @@ func (h *cloudAgentHandler) CreateAgent(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return WriteError(c, err)
 	}
-	a, err := normalizeAgent(pc.ID, body, systemdb.CloudAgent{})
+	a, err := h.normalizeAgent(pc.ID, body, systemdb.CloudAgent{})
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
 	}
@@ -184,7 +189,7 @@ func (h *cloudAgentHandler) PatchAgent(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return WriteError(c, err)
 	}
-	next, err := normalizeAgent(pc.ID, body, cur)
+	next, err := h.normalizeAgent(pc.ID, body, cur)
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
 	}
@@ -210,6 +215,26 @@ func (h *cloudAgentHandler) DeleteAgent(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// normalizeAgent 校验并归一 agent 写入。云沙盒未启用时拒绝 sandbox 模块
+// 与沙盒工具（cloud-agent-sandbox-plan §7）。
+func (h *cloudAgentHandler) normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAgent) (systemdb.CloudAgent, error) {
+	a, err := normalizeAgent(projectID, body, cur)
+	if err != nil {
+		return systemdb.CloudAgent{}, err
+	}
+	if !h.sandboxAvailable() {
+		if strings.EqualFold(a.Module, cloudagent.ModuleSandbox) {
+			return systemdb.CloudAgent{}, errors.New("cloud sandbox is not enabled; sandbox module is unavailable")
+		}
+		for _, id := range a.ToolIDs {
+			if cloudagent.IsSandboxTool(id) {
+				return systemdb.CloudAgent{}, errors.New("cloud sandbox is not enabled; sandbox tools are unavailable")
+			}
+		}
+	}
+	return a, nil
 }
 
 func normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAgent) (systemdb.CloudAgent, error) {
@@ -316,10 +341,17 @@ func (h *cloudAgentHandler) DeleteThread(c echo.Context) error {
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
 	}
-	if err := h.store.ArchiveAgentThread(c.Request().Context(), pc.ID, c.Param("threadID")); errors.Is(err, sql.ErrNoRows) {
+	threadID := c.Param("threadID")
+	if err := h.store.ArchiveAgentThread(c.Request().Context(), pc.ID, threadID); errors.Is(err, sql.ErrNoRows) {
 		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "thread not found"))
 	} else if err != nil {
 		return WriteError(c, err)
+	}
+	// 释放该 thread 的云沙盒；失败只记日志，不阻塞软删（cloud-agent-sandbox-plan §3.2）。
+	if h.runtime != nil && h.runtime.Sandbox != nil && h.runtime.Sandbox.Available() {
+		if err := h.runtime.Sandbox.ReleaseThread(c.Request().Context(), pc.ID, threadID); err != nil {
+			c.Logger().Warnf("release sandbox for thread %s failed: %v", threadID, err)
+		}
 	}
 	return c.NoContent(http.StatusNoContent)
 }

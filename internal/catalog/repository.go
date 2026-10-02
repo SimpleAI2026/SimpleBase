@@ -18,6 +18,9 @@ type Repository interface {
 	ListProjectsByTenant(ctx context.Context, tenantID string) ([]Project, error)
 	CreateDatabase(ctx context.Context, db Database) error
 	GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error)
+	// GetDatabaseByName 按 (projectID, name) 查未软删的库（含非 user kind）。
+	// 供 Service 定位 kind=kv 的项目 KV catalog 行。
+	GetDatabaseByName(ctx context.Context, projectID, name string) (Database, error)
 	ListDatabases(ctx context.Context, projectID string, page Page) ([]Database, string, error)
 	// ListDatabasesByKind 按类型列出数据库（admin 项目查询 kind=system 系统库）。
 	ListDatabasesByKind(ctx context.Context, projectID, kind string, page Page) ([]Database, string, error)

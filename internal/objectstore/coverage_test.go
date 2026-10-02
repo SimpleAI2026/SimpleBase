@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
@@ -95,6 +96,17 @@ func testS3Client(api s3API) *s3Client {
 		logger:   observability.NewLogger("debug", "json", io.Discard),
 		metrics:  observability.NewMetrics(reg),
 		redacted: redactor{},
+	}
+}
+
+func TestDeleteObjectsRejectsPartialErrors(t *testing.T) {
+	api := &fakeS3API{delOut: &s3.DeleteObjectsOutput{Errors: []types.Error{{Key: aws.String("k"), Code: aws.String("AccessDenied")}}}}
+	client := testS3Client(api)
+	if err := client.DeleteMany(context.Background(), []string{"k"}); err == nil {
+		t.Fatal("partial delete errors must fail")
+	}
+	if err := client.Delete(context.Background(), "k"); err == nil {
+		t.Fatal("single delete errors must fail")
 	}
 }
 
@@ -344,7 +356,7 @@ func TestKeyBuilderRemaining(t *testing.T) {
 	kb := KeyBuilder{RootPrefix: "/simplebase/", Environment: "/prod/"}
 	tenant := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 	db := "ffffffff-0000-1111-2222-333333333333"
-	if _, err := kb.DuckLakeCatalogVersionKey(tenant, db, 0); err == nil {
+	if _, err := kb.DuckLakeSnapshotKey(tenant, db, 0, 1, "duckdb"); err == nil {
 		t.Fatal("snapshot must be positive")
 	}
 	if _, err := kb.DuckLakeDataURI("", tenant, db); err == nil {

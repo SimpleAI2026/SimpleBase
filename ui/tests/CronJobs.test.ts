@@ -19,8 +19,8 @@ const extraStubs = {
     template:
       '<div v-if="open" class="cj-modal"><button type="button" class="cj-close" @click="$emit(\'update:open\', false)">x</button>{{ target ? target.name : \'new\' }}</div>'
   },
-  CronJobRunsDrawer: {
-    props: ['open', 'job'],
+  CronJobRunsModal: {
+    props: ['open', 'job', 'autoTrigger'],
     emits: ['triggered', 'update:open'],
     template:
       '<div v-if="open" class="runs"><button type="button" class="runs-close" @click="$emit(\'update:open\', false)">x</button>{{ job && job.name }}</div>'
@@ -97,15 +97,11 @@ describe('CronJobs (定时任务)', () => {
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('toggle')
 
+    // 「立即执行」只负责打开弹窗（autoTrigger），触发由弹窗内部完成
     await clickText(wrapper, '立即执行')
     await flushPromises()
-    expect(api.cronjobs.trigger).toHaveBeenCalled()
     expect(wrapper.find('.runs').exists()).toBe(true)
-
-    api.cronjobs.trigger.mockRejectedValueOnce(new Error('trig'))
-    await wrapper.findAll('button').filter((b) => b.text().includes('立即执行'))[1].trigger('click')
-    await flushPromises()
-    expect(toast.error).toHaveBeenCalledWith('trig')
+    expect(api.cronjobs.trigger).not.toHaveBeenCalled()
 
     await clickText(wrapper, '记录')
     expect(wrapper.find('.runs').exists()).toBe(true)

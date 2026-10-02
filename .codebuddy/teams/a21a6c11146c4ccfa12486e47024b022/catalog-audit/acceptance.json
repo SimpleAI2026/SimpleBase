@@ -1,0 +1,29 @@
+[
+  {
+    "id": "msg-1790654758937-copwmm",
+    "from": "team-lead",
+    "to": "acceptance",
+    "type": "message",
+    "content": "请尽快提交精简结论，重点 P0 未完成证据及 P1/P2 文档、SQL guard。",
+    "timestamp": "2026-09-29T04:05:58.937Z",
+    "read": true
+  },
+  {
+    "id": "msg-1790654946704-b81o16",
+    "from": "team-lead",
+    "to": "acceptance",
+    "type": "message",
+    "content": "请停止探索并给出最终简短发现。",
+    "timestamp": "2026-09-29T04:09:06.704Z",
+    "read": true
+  },
+  {
+    "id": "shutdown-1790655017895",
+    "from": "team-lead",
+    "to": "acceptance",
+    "type": "shutdown_request",
+    "content": "{\"type\":\"shutdown_request\",\"request_id\":\"shutdown-1790655017895\",\"timeout_ms\":60000,\"reason\":\"Team lead requested shutdown\",\"from\":\"team-lead\",\"timestamp\":\"2026-09-29T04:10:17.895Z\"}",
+    "timestamp": "2026-09-29T04:10:17.895Z",
+    "read": true
+  }
+]

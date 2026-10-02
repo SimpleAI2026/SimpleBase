@@ -10,7 +10,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
 func TestRecordAuditHelpers(t *testing.T) {
@@ -153,11 +152,6 @@ func TestSQLSerializeAndDecodeExecute(t *testing.T) {
 }
 
 func TestGoFunctionDTOAndScheduleGet(t *testing.T) {
-	dto := toGoFunctionDTO(systemdb.GoFunction{Name: "Fn", Exports: nil}, true)
-	if dto.Source != "" || dto.File != "Fn.go" || dto.Exports == nil || len(dto.Exports) != 0 {
-		t.Fatalf("%+v", dto)
-	}
-
 	store := openAgentStore(t)
 	e := echo.New()
 	h := &agentScheduleHandler{store: store}
@@ -206,13 +200,8 @@ func TestDataAcquireGetError(t *testing.T) {
 		t.Fatalf("acquire %d", rec.Code)
 	}
 
-	// legacy get after list
 	svc.acquireErr = nil
 	svc.getErr = catalog.ErrNotFound
-	rec = doRequest(e, http.MethodGet, "/v1/projects/proj-1/data/collections", nil)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("legacy get %d", rec.Code)
-	}
 }
 
 func TestCreateCollectionExecuteError(t *testing.T) {
