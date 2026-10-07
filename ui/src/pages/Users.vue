@@ -146,11 +146,11 @@ import UserFormModal from '../components/modal/UserFormModal.vue'
 import { api } from '../services/api'
 import type { UserItem, UserRole } from '../services/types'
 import { useAuthStore } from '../stores/auth'
+import { useAsyncAction } from '../composables/useAsyncAction'
 import { formatTime } from '../utils/format'
 
 const auth = useAuthStore()
 const users = ref<UserItem[]>([])
-const loading = ref(false)
 const keyword = ref('')
 const roleFilter = ref<'all' | UserRole>('all')
 const statusFilter = ref<'all' | UserItem['status']>('all')
@@ -178,17 +178,12 @@ function fmtTime(s?: string) {
   return formatTime(s, '—')
 }
 
-async function load() {
-  loading.value = true
-  try {
-    const res = await api.users.list(100)
-    users.value = res.users
-  } catch (e) {
-    toast.error(errorMessage(e, '加载失败'))
-  } finally {
-    loading.value = false
+const { run: load, loading } = useAsyncAction(() => api.users.list(100), {
+  fallbackMsg: '加载失败',
+  onSuccess: (data) => {
+    users.value = (data as { users: UserItem[] }).users
   }
-}
+})
 
 function openCreate() {
   editing.value = null
