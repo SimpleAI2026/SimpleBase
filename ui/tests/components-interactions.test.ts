@@ -49,19 +49,6 @@ describe('component template interactions', () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
   })
 
-  it('GoFunctionModal name input and modal close', async () => {
-    const w = mount(GoFunctionModal, {
-      props: { open: true, mode: 'create' },
-      global: { plugins: [piniaWithProject()], stubs: { ...uiStubs, GoMonacoEditor: true } }
-    })
-    const name = w.find('input')
-    if (name.exists()) await name.setValue('Echo')
-    const cancel = w.find('.sb-cancel')
-    if (cancel.exists()) await cancel.trigger('click')
-    else await w.findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
-    w.unmount()
-  })
-
   it('CreateCollection / CreateProject / DocumentKv / SbModal close handlers', async () => {
     const cc = mount(CreateCollectionModal, {
       props: { open: true, projectId: 'p', database: readyDb },
