@@ -1,5 +1,5 @@
 // Package observability 提供 SimpleBase 的结构化日志、Prometheus 指标和脱敏工具。
-// 本包是对 internal/log 的薄封装，统一为 API/服务层使用。
+// 服务层统一通过本包创建并使用结构化日志。
 package observability
 
 import (
@@ -7,13 +7,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/linkxzhou/SimpleBase/internal/log"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-// Logger 是服务层使用的结构化日志接口。禁止调用方直接使用 zap 全局变量。
-type Logger = *log.Logger
+// Logger 是服务层使用的结构化日志类型。禁止调用方直接使用 zap 全局变量。
+type Logger = *zapLogger
 
 // WriterFor 将 observability.log_output 映射到进程 writer。未知值回退 stderr。
 func WriterFor(output string) io.Writer {
@@ -32,9 +30,9 @@ func NewLogger(level, format string, w io.Writer) Logger {
 	}
 	lvl := parseLevel(level)
 	if format == "console" {
-		return log.NewConsole(w, lvl)
+		return newZapConsole(w, lvl)
 	}
-	return log.New(w, lvl)
+	return newZapLogger(w, lvl)
 }
 
 func parseLevel(s string) zapcore.Level {
@@ -65,6 +63,3 @@ func Sync(l Logger) error {
 	}
 	return nil
 }
-
-// Field 便于调用方构造结构化字段而不直接依赖 zap。
-type Field = zap.Field

@@ -16,10 +16,10 @@ HTTP 路由层（Echo v4）。职责：
 - `database_handler.go`：数据库管理 API（create/list/get/delete）。创建成功即 ready，没有用户侧打开/关闭。
 - `sql_handler.go`：SQL 执行 API（query/execute/batch），参数化、超时、行数限制。
 - `llm_handler.go`：LLM Gateway API（chat/stream/providers），SSE 流式转发。
-- `quota_handler.go`、`audit_handler.go`：配额与审计查询。
+- `quota_audit_handler.go`：配额与审计查询。
 - `context.go`：请求上下文（Principal、ProjectContext、RequestID）。
 - `error.go`：统一错误协议（JSON + HTTP 状态码映射）。
-- `adapter.go`、`adapters_plan79.go`：`api.Dependencies` 接口到具体实现的适配器桥接。
+- `adapter.go`：数据库接口到具体实现的适配器桥接；其他适配器位于 `adapters_plan79.go`。
 - `health.go`：存活与就绪检查。
 
 ### `auth`
@@ -53,10 +53,7 @@ LLM 服务端封装。项目隔离的 provider 配置（从 catalog `llm_provide
 不可变审计事件。`Record` 写入 catalog `audit_operations`。`Redact` 对 SQL 参数与 LLM 正文脱敏，默认不落库正文。事件覆盖：数据库创建/删除/恢复/DDL/密钥变更/管理操作。
 
 ### `observability`
-日志（Zap，`*log.Logger` 封装）、Prometheus 指标、健康检查聚合。
-
-### `log`
-Logger 本体。旋转/Tee 辅助已删除。
+结构化日志（Zap 封装）、Prometheus 指标、健康检查聚合。
 
 ## 依赖关系
 

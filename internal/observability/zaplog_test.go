@@ -1,4 +1,4 @@
-package log
+package observability
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ func TestDefaultLogger(t *testing.T) {
 
 func TestNewLogger(t *testing.T) {
 	var buf bytes.Buffer
-	l := New(&buf, DebugLevel)
+	l := newZapLogger(&buf, DebugLevel)
 
 	l.Info("info message", String("key", "value"))
 	l.Debug("debug message")
@@ -31,7 +31,7 @@ func TestNewLogger(t *testing.T) {
 
 func TestNewConsoleLogger(t *testing.T) {
 	var buf bytes.Buffer
-	l := NewConsole(&buf, InfoLevel)
+	l := newZapConsole(&buf, InfoLevel)
 	l.Info("console-line", String("k", "v"))
 	out := buf.String()
 	assert.Contains(t, out, "console-line")
@@ -40,7 +40,7 @@ func TestNewConsoleLogger(t *testing.T) {
 
 func TestLogLevels(t *testing.T) {
 	var buf bytes.Buffer
-	l := New(&buf, ErrorLevel)
+	l := newZapLogger(&buf, ErrorLevel)
 
 	l.Info("info message")   // Should be ignored
 	l.Debug("debug message") // Should be ignored
@@ -57,7 +57,7 @@ func TestGlobalFunctions(t *testing.T) {
 	defer ResetDefault(originalStd)
 
 	var buf bytes.Buffer
-	l := New(&buf, InfoLevel)
+	l := newZapLogger(&buf, InfoLevel)
 	ResetDefault(l)
 
 	Info("global info")
@@ -75,7 +75,7 @@ func TestSugarFunctions(t *testing.T) {
 	defer ResetDefault(originalStd)
 
 	var buf bytes.Buffer
-	l := New(&buf, InfoLevel)
+	l := newZapLogger(&buf, InfoLevel)
 	ResetDefault(l)
 
 	SugarInfo("sugar info")

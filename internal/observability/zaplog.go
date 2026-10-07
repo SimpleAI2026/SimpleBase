@@ -1,4 +1,4 @@
-package log
+package observability
 
 import (
 	"io"
@@ -23,19 +23,19 @@ const (
 
 type Field = zap.Field
 
-type Logger struct {
+type zapLogger struct {
 	l     *zap.Logger // zap确保zap.Logger是多协程安全的
 	level Level
 }
 
-var std = New(os.Stderr, InfoLevel)
+var std = newZapLogger(os.Stderr, InfoLevel)
 var sugarStd = std.l.Sugar()
 
-func Default() *Logger {
+func Default() *zapLogger {
 	return std
 }
 
-func ResetDefault(l *Logger) {
+func ResetDefault(l *zapLogger) {
 	std = l
 	Info = std.l.Info
 	Warn = std.l.Warn
@@ -79,16 +79,16 @@ var (
 	AddCallerSkip = zap.AddCallerSkip // 打印文件skip，多个skip则相加
 )
 
-func New(writer io.Writer, level Level, opts ...Option) *Logger {
+func newZapLogger(writer io.Writer, level Level, opts ...Option) *zapLogger {
 	return newLogger(writer, level, false, opts...)
 }
 
 // NewConsole 使用 zap console 编码器（非 JSON 行）。
-func NewConsole(writer io.Writer, level Level, opts ...Option) *Logger {
+func newZapConsole(writer io.Writer, level Level, opts ...Option) *zapLogger {
 	return newLogger(writer, level, true, opts...)
 }
 
-func newLogger(writer io.Writer, level Level, console bool, opts ...Option) *Logger {
+func newLogger(writer io.Writer, level Level, console bool, opts ...Option) *zapLogger {
 	if writer == nil {
 		panic("writer is nil")
 	}
@@ -112,48 +112,48 @@ func newLogger(writer io.Writer, level Level, console bool, opts ...Option) *Log
 	)
 
 	opts = append(opts, WithCaller(true))
-	return &Logger{
+	return &zapLogger{
 		l:     zap.New(core, opts...),
 		level: level,
 	}
 }
 
-func (l *Logger) Sync() error {
+func (l *zapLogger) Sync() error {
 	return l.l.Sync()
 }
 
-func Sync() error {
+func syncDefault() error {
 	if std != nil {
 		return std.Sync()
 	}
 	return nil
 }
 
-func (l *Logger) Debug(msg string, field ...Field) {
+func (l *zapLogger) Debug(msg string, field ...Field) {
 	l.l.Debug(msg, field...)
 }
 
-func (l *Logger) Info(msg string, field ...Field) {
+func (l *zapLogger) Info(msg string, field ...Field) {
 	l.l.Info(msg, field...)
 }
 
-func (l *Logger) Warn(msg string, field ...Field) {
+func (l *zapLogger) Warn(msg string, field ...Field) {
 	l.l.Warn(msg, field...)
 }
 
-func (l *Logger) Error(msg string, field ...Field) {
+func (l *zapLogger) Error(msg string, field ...Field) {
 	l.l.Error(msg, field...)
 }
 
-func (l *Logger) DPanic(msg string, field ...Field) {
+func (l *zapLogger) DPanic(msg string, field ...Field) {
 	l.l.DPanic(msg, field...)
 }
 
-func (l *Logger) Panic(msg string, field ...Field) {
+func (l *zapLogger) Panic(msg string, field ...Field) {
 	l.l.Panic(msg, field...)
 }
 
-func (l *Logger) Fatal(msg string, field ...Field) {
+func (l *zapLogger) Fatal(msg string, field ...Field) {
 	l.l.Fatal(msg, field...)
 }
 
