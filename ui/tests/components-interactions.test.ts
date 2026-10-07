@@ -49,30 +49,6 @@ describe('component template interactions', () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
   })
 
-  it('SqlWorkModal toggles modes, pager, switch, and footer', async () => {
-    api.sql.query.mockResolvedValue({
-      columns: ['id'],
-      rows: [['1']],
-      rowCount: 1,
-      durationMs: 1,
-      requestId: 'r'
-    })
-    const w = mount(SqlWorkModal, {
-      props: { open: true, projectId: 'p', database: readyDb },
-      global: { stubs: uiStubs }
-    })
-    await w.get('.tg-execute').trigger('click')
-    await w.get('.tg-batch').trigger('click')
-    await w.get('.switch').trigger('click')
-    await w.get('.tg-query').trigger('click')
-    await w.get('textarea').setValue('SELECT 1')
-    await w.findAll('button').find((b) => b.text().includes('查询') || b.text() === '查询')?.trigger('click')
-    await flushPromises()
-    if (w.find('.pager-next').exists()) await w.get('.pager-next').trigger('click')
-    await w.findAll('button').find((b) => b.text().includes('关闭'))?.trigger('click')
-    w.unmount()
-  })
-
   it('GoFunctionModal name input and modal close', async () => {
     const w = mount(GoFunctionModal, {
       props: { open: true, mode: 'create' },
@@ -83,24 +59,6 @@ describe('component template interactions', () => {
     const cancel = w.find('.sb-cancel')
     if (cancel.exists()) await cancel.trigger('click')
     else await w.findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
-    w.unmount()
-  })
-
-  it('DocumentListModal add, pager, confirm delete, and close', async () => {
-    api.db.rows.mockResolvedValue([{ id: 'r1', name: 'Ada' }])
-    const w = mount(DocumentListModal, {
-      props: { open: true, projectId: 'p', databaseId: 'db', collection: 'users' },
-      global: { stubs: uiStubs }
-    })
-    await flushPromises()
-    const vm = w.vm as any
-    await vm.load?.()
-    await flushPromises()
-    await w.findAll('button').find((b) => b.text().includes('新增文档'))?.trigger('click')
-    if (w.find('.pager-next').exists()) await w.get('.pager-next').trigger('click')
-    if (w.find('.confirm-action').exists()) await w.get('.confirm-action').trigger('click')
-    await flushPromises()
-    await w.findAll('button').find((b) => b.text().includes('关闭'))?.trigger('click')
     w.unmount()
   })
 
@@ -208,44 +166,6 @@ describe('component template interactions', () => {
     await w.findAll('button').find((b) => b.text().includes('新增文档'))?.trigger('click')
     expect(w.emitted('view-data')?.[0]).toEqual(['users'])
     expect(w.emitted('add-document')?.[0]).toEqual(['users'])
-    w.unmount()
-  })
-
-  it('CronJobRunsModal copy, filter, modal close', async () => {
-    api.cronjobs.runs.mockResolvedValue([
-      {
-        id: 'r1',
-        jobId: 'cj-1',
-        trigger: 'scheduled',
-        status: 'failed',
-        error: 'boom',
-        durationMs: 2,
-        responseJson: '{"ok":1}',
-        finishedAt: '2024-01-01T00:00:00Z',
-        createdAt: 't'
-      }
-    ])
-    const w = mount(CronJobRunsModal, {
-      props: { open: true, job: sampleCron },
-      global: {
-        plugins: [piniaWithProject()],
-        stubs: {
-          ...uiStubs,
-          SbModal: {
-            props: ['open', 'title', 'description', 'maxWidth', 'hideFooter'],
-            emits: ['update:open'],
-            template:
-              '<div v-if="open" class="sb-modal"><button type="button" class="modal-close" @click="$emit(\'update:open\', false)">x</button><slot /></div>'
-          }
-        }
-      }
-    })
-    await flushPromises()
-    const copies = w.findAll('button').filter((b) => b.text().includes('复制'))
-    for (const c of copies) await c.trigger('click')
-    if (w.find('.select-emit').exists()) await w.get('.select-emit').trigger('click')
-    if (w.find('.modal-close').exists()) await w.get('.modal-close').trigger('click')
-    expect(w.emitted('update:open')).toBeTruthy()
     w.unmount()
   })
 

@@ -146,4 +146,43 @@ describe('CronJobRunsModal', () => {
     expect(api.cronjobs.runs.mock.calls.length).toBe(callsAtClose)
     w.unmount()
   })
+
+  it('CronJobRunsModal copy, filter, modal close', async () => {
+    api.cronjobs.runs.mockResolvedValue([
+      {
+        id: 'r1',
+        jobId: 'cj-1',
+        trigger: 'scheduled',
+        status: 'failed',
+        error: 'boom',
+        durationMs: 2,
+        responseJson: '{"ok":1}',
+        finishedAt: '2024-01-01T00:00:00Z',
+        createdAt: 't'
+      }
+    ])
+    const w = mount(CronJobRunsModal, {
+      props: { open: true, job: sampleCron },
+      global: {
+        plugins: [createPinia()],
+        stubs: {
+          ...uiStubs,
+          SbModal: {
+            props: ['open', 'title', 'description', 'maxWidth', 'hideFooter'],
+            emits: ['update:open'],
+            template:
+              '<div v-if="open" class="sb-modal"><button type="button" class="modal-close" @click="$emit(\'update:open\', false)">x</button><slot /></div>'
+          }
+        }
+      }
+    })
+    await flushPromises()
+    const copies = w.findAll('button').filter((b) => b.text().includes('复制'))
+    for (const c of copies) await c.trigger('click')
+    if (w.find('.select-emit').exists()) await w.get('.select-emit').trigger('click')
+    if (w.find('.modal-close').exists()) await w.get('.modal-close').trigger('click')
+    expect(w.emitted('update:open')).toBeTruthy()
+    w.unmount()
+  })
+
 })

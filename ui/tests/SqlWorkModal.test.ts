@@ -120,4 +120,29 @@ describe('SqlWorkModal', () => {
     await flushPromises()
     expect(api.sql.query).toHaveBeenCalled()
   })
+
+  it('SqlWorkModal toggles modes, pager, switch, and footer', async () => {
+    api.sql.query.mockResolvedValue({
+      columns: ['id'],
+      rows: [['1']],
+      rowCount: 1,
+      durationMs: 1,
+      requestId: 'r'
+    })
+    const w = mount(SqlWorkModal, {
+      props: { open: true, projectId: 'p', database: readyDb },
+      global: { stubs: uiStubs }
+    })
+    await w.get('.tg-execute').trigger('click')
+    await w.get('.tg-batch').trigger('click')
+    await w.get('.switch').trigger('click')
+    await w.get('.tg-query').trigger('click')
+    await w.get('textarea').setValue('SELECT 1')
+    await w.findAll('button').find((b) => b.text().includes('查询') || b.text() === '查询')?.trigger('click')
+    await flushPromises()
+    if (w.find('.pager-next').exists()) await w.get('.pager-next').trigger('click')
+    await w.findAll('button').find((b) => b.text().includes('关闭'))?.trigger('click')
+    w.unmount()
+  })
+
 })

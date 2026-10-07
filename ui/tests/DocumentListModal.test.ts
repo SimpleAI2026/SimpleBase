@@ -66,4 +66,23 @@ describe('DocumentListModal (数据库管理 / 文档)', () => {
     await flushPromises()
     w.unmount()
   })
+
+  it('DocumentListModal add, pager, confirm delete, and close', async () => {
+    api.db.rows.mockResolvedValue([{ id: 'r1', name: 'Ada' }])
+    const w = mount(DocumentListModal, {
+      props: { open: true, projectId: 'p', databaseId: 'db', collection: 'users' },
+      global: { stubs: uiStubs }
+    })
+    await flushPromises()
+    const vm = w.vm as any
+    await vm.load?.()
+    await flushPromises()
+    await w.findAll('button').find((b) => b.text().includes('新增文档'))?.trigger('click')
+    if (w.find('.pager-next').exists()) await w.get('.pager-next').trigger('click')
+    if (w.find('.confirm-action').exists()) await w.get('.confirm-action').trigger('click')
+    await flushPromises()
+    await w.findAll('button').find((b) => b.text().includes('关闭'))?.trigger('click')
+    w.unmount()
+  })
+
 })
