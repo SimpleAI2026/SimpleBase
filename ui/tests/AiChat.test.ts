@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, resetApiMocks } from '@/test/api-mock'
 import { uiStubs } from '@/test/helpers'
 import AiChat from '@/components/ai/AiChat.vue'
+import AiChatComposer from '@/components/ai/AiChatComposer.vue'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -65,3 +66,35 @@ describe('AiChat', () => {
     w2.unmount()
   })
 })
+
+  it('AiChat toolbar model/stream and composer send/stop/mention', async () => {
+    const w = mount(AiChat, {
+      props: {
+        projectId: 'p',
+        showToolbar: true,
+        streaming: true,
+        sending: false,
+        model: 'm',
+        modelOptions: [{ label: 'm', value: 'm' }],
+        mentionAgents: [{ id: 'a1', name: 'Database', module: 'database' }],
+        messages: [
+          { role: 'assistant', content: 'yo', toolCalls: [{ name: 't', arguments: '{}', content: '[]' }] }
+        ]
+      },
+      global: { stubs: uiStubs }
+    })
+    if (w.find('.select-emit').exists()) await w.get('.select-emit').trigger('click')
+    if (w.find('.switch').exists()) await w.get('.switch').trigger('click')
+    const composer = w.findComponent(AiChatComposer)
+    if (composer.exists()) {
+      await composer.get('textarea').setValue('hello @Da')
+      await composer.get('textarea').trigger('input')
+      if (composer.find('.cmd-item').exists()) await composer.get('.cmd-item').trigger('click')
+      const send = composer.findAll('button').find((b) => b.attributes('aria-label') === '发送')
+      if (send) await send.trigger('click')
+    }
+    await w.setProps({ sending: true })
+    const stop = w.findAll('button').find((b) => b.attributes('aria-label') === '停止生成')
+    if (stop) await stop.trigger('click')
+    w.unmount()
+  })

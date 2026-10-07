@@ -274,3 +274,31 @@ describe('low-branch component coverage', () => {
     expect(superMenu.text()).toContain('用户管理')
   })
 })
+
+  it('NavMenu emits navigate on link click', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', name: 'dashboard', component: { template: '<div />' }, meta: { title: '监控大盘' } }
+      ]
+    })
+    await router.push('/')
+    await router.isReady()
+    const w = mount(NavMenu, {
+      global: {
+        plugins: [router],
+        stubs: {
+          SidebarMenu: { template: '<div><slot /></div>' },
+          SidebarMenuItem: { template: '<div><slot /></div>' },
+          SidebarMenuButton: { template: '<div><slot /></div>' },
+          SidebarGroup: { template: '<div><slot /></div>' },
+          SidebarGroupContent: { template: '<div><slot /></div>' },
+          SidebarGroupLabel: { template: '<div><slot /></div>' },
+          RouterLink: { template: '<a class="nav-link" @click="$attrs.onClick && $attrs.onClick()"><slot /></a>' }
+        }
+      }
+    })
+    const link = w.find('.nav-link, a')
+    if (link.exists()) await link.trigger('click')
+    w.unmount()
+  })

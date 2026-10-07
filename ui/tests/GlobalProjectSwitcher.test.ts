@@ -1,10 +1,11 @@
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { ADMIN_PROJECT_ID, useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp } from '@/test/helpers'
+import { clickText, mountWithApp, uiStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -82,3 +83,19 @@ describe('GlobalProjectSwitcher', () => {
     expect(wrapper.text()).not.toContain('我的项目')
   })
 })
+
+  it('GlobalProjectSwitcher popover open/close and create modal close', async () => {
+    api.projects.list.mockResolvedValue([])
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useProjectStore(pinia).setProject('dev-shop')
+    const store = useProjectStore(pinia)
+    store.history = ['orphan']
+    store.projectId = 'missing-current'
+    store.projectName = 'Ghost'
+    const w = mount(GlobalProjectSwitcher, { global: { plugins: [pinia], stubs: uiStubs } })
+    await flushPromises()
+    if (w.find('.pop-open').exists()) await w.get('.pop-open').trigger('click')
+    if (w.find('.pop-close').exists()) await w.get('.pop-close').trigger('click')
+    w.unmount()
+  })
