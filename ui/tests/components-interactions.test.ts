@@ -89,40 +89,6 @@ describe('component template interactions', () => {
     sb.unmount()
   })
 
-  it('AgentScheduleModal frequency, switch, custom cron, footer buttons', async () => {
-    const schedule = {
-      id: 'sch-1',
-      agent_id: 'ag-1',
-      thread_id: 'th-1',
-      prompt: 'p',
-      cron_expr: '1 2 3 4 5',
-      enabled: true,
-      created_at: 't',
-      updated_at: 't',
-      last_run_at: '2024-01-01T00:00:00Z',
-      next_run_at: '2024-01-02T00:00:00Z'
-    }
-    api.agentSchedules.runs.mockResolvedValue([
-      { id: 'r1', schedule_id: 'sch-1', run_id: 'x', trigger: 'manual', status: 'completed', created_at: 't' }
-    ])
-    const w = mount(AgentScheduleModal, {
-      props: { open: false, agent: sampleAgent, schedule, projectId: 'p1' },
-      global: { stubs: uiStubs }
-    })
-    await w.setProps({ open: true })
-    await flushPromises()
-    await w.get('.select-emit').trigger('click')
-    await w.get('.switch').trigger('click')
-    await w.get('#schedule-prompt').setValue('hello')
-    if (w.findAll('button').some((b) => b.text().includes('查看会话'))) {
-      await w.findAll('button').find((b) => b.text().includes('查看会话'))!.trigger('click')
-      expect(w.emitted('view-thread')).toBeTruthy()
-    }
-    await w.findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
-    expect(w.emitted('update:open')).toBeTruthy()
-    w.unmount()
-  })
-
   it('AiChat toolbar model/stream and composer send/stop/mention', async () => {
     const w = mount(AiChat, {
       props: {
@@ -152,20 +118,6 @@ describe('component template interactions', () => {
     await w.setProps({ sending: true })
     const stop = w.findAll('button').find((b) => b.attributes('aria-label') === '停止生成')
     if (stop) await stop.trigger('click')
-    w.unmount()
-  })
-
-  it('CollectionPanel view/add buttons', async () => {
-    api.db.collections.mockResolvedValue(['users'])
-    const w = mount(CollectionPanel, {
-      props: { projectId: 'p', database: readyDb },
-      global: { stubs: uiStubs }
-    })
-    await flushPromises()
-    await w.findAll('button').find((b) => b.text().includes('查看数据'))?.trigger('click')
-    await w.findAll('button').find((b) => b.text().includes('新增文档'))?.trigger('click')
-    expect(w.emitted('view-data')?.[0]).toEqual(['users'])
-    expect(w.emitted('add-document')?.[0]).toEqual(['users'])
     w.unmount()
   })
 
@@ -211,11 +163,5 @@ describe('component template interactions', () => {
     w.unmount()
   })
 
-  it('ConnectionPanel mounts without a sheet', async () => {
-    const pinia = piniaWithProject()
-    const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
-    expect(w.find('.sheet').exists()).toBe(false)
-    expect(w.text()).toContain('API Key')
-    w.unmount()
-  })
+
 })

@@ -59,4 +59,18 @@ describe('CollectionPanel (数据库管理 / 集合)', () => {
     expect(ro.find('.empty-action').exists()).toBe(false)
     ro.unmount()
   })
+  it('CollectionPanel view/add buttons', async () => {
+    api.db.collections.mockResolvedValue(['users'])
+    const w = mount(CollectionPanel, {
+      props: { projectId: 'p', database: readyDb },
+      global: { stubs: uiStubs }
+    })
+    await flushPromises()
+    await w.findAll('button').find((b) => b.text().includes('查看数据'))?.trigger('click')
+    await w.findAll('button').find((b) => b.text().includes('新增文档'))?.trigger('click')
+    expect(w.emitted('view-data')?.[0]).toEqual(['users'])
+    expect(w.emitted('add-document')?.[0]).toEqual(['users'])
+    w.unmount()
+  })
+
 })

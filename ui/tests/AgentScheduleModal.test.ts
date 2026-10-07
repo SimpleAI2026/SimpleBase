@@ -98,4 +98,38 @@ describe('AgentScheduleModal', () => {
     create.unmount()
     empty.unmount()
   })
+  it('AgentScheduleModal frequency, switch, custom cron, footer buttons', async () => {
+    const schedule = {
+      id: 'sch-1',
+      agent_id: 'ag-1',
+      thread_id: 'th-1',
+      prompt: 'p',
+      cron_expr: '1 2 3 4 5',
+      enabled: true,
+      created_at: 't',
+      updated_at: 't',
+      last_run_at: '2024-01-01T00:00:00Z',
+      next_run_at: '2024-01-02T00:00:00Z'
+    }
+    api.agentSchedules.runs.mockResolvedValue([
+      { id: 'r1', schedule_id: 'sch-1', run_id: 'x', trigger: 'manual', status: 'completed', created_at: 't' }
+    ])
+    const w = mount(AgentScheduleModal, {
+      props: { open: false, agent: sampleAgent, schedule, projectId: 'p1' },
+      global: { stubs: uiStubs }
+    })
+    await w.setProps({ open: true })
+    await flushPromises()
+    await w.get('.select-emit').trigger('click')
+    await w.get('.switch').trigger('click')
+    await w.get('#schedule-prompt').setValue('hello')
+    if (w.findAll('button').some((b) => b.text().includes('查看会话'))) {
+      await w.findAll('button').find((b) => b.text().includes('查看会话'))!.trigger('click')
+      expect(w.emitted('view-thread')).toBeTruthy()
+    }
+    await w.findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
+    expect(w.emitted('update:open')).toBeTruthy()
+    w.unmount()
+  })
+
 })

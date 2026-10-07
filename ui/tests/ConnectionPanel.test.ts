@@ -141,4 +141,11 @@ describe('ConnectionPanel', () => {
     expect(api.apiKeys.create).not.toHaveBeenCalled()
     w.unmount()
   })
+  it('ConnectionPanel mounts without a sheet', async () => {
+    const { w } = setup()
+    expect(w.find('.sheet').exists()).toBe(false)
+    expect(w.text()).toContain('API Key')
+    w.unmount()
+  })
+
 })
