@@ -116,6 +116,32 @@ function toBatchResult(r: Record<string, any>): SqlBatchResult {
   }
 }
 
+async function readSse(resp: Response, onEvent: (event: Record<string, any>) => void): Promise<void> {
+  const reader = resp.body!.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let idx: number
+    while ((idx = buf.indexOf('\n\n')) >= 0) {
+      const raw = buf.slice(0, idx)
+      buf = buf.slice(idx + 2)
+      for (const line of raw.split('\n')) {
+        if (!line.startsWith('data:')) continue
+        const data = line.slice(5).trim()
+        if (!data) continue
+        try {
+          onEvent(JSON.parse(data))
+        } catch {
+          /* 忽略非 JSON 帧 */
+        }
+      }
+    }
+  }
+}
+
 /** SSE 流式对话：fetch + ReadableStream 逐行解析 `data: {...}` 帧 */
 function llmStream(
   projectId: string,
@@ -151,36 +177,14 @@ function llmStream(
           (data as any)?.error?.message || (data as any)?.message || `请求失败 (${resp.status})`
         )
       }
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        let idx: number
-        while ((idx = buf.indexOf('\n\n')) >= 0) {
-          const raw = buf.slice(0, idx)
-          buf = buf.slice(idx + 2)
-          for (const line of raw.split('\n')) {
-            if (!line.startsWith('data:')) continue
-            const data = line.slice(5).trim()
-            if (!data) continue
-            try {
-              const obj = JSON.parse(data)
-              if (obj?.type === 'end') {
-                fireEnd()
-                continue
-              }
-              // 兼容多种 chunk 结构：{delta} / {content} / OpenAI 风格 choices
-              const text = obj?.delta ?? obj?.content ?? obj?.choices?.[0]?.delta?.content ?? ''
-              if (text) handlers.onChunk?.(text)
-            } catch {
-              /* 忽略非 JSON 帧 */
-            }
-          }
+      await readSse(resp, (obj) => {
+        if (obj?.type === 'end') {
+          fireEnd()
+          return
         }
-      }
+        const text = obj?.delta ?? obj?.content ?? obj?.choices?.[0]?.delta?.content ?? ''
+        if (text) handlers.onChunk?.(text)
+      })
       fireEnd()
     } catch (e) {
       if (!controller.signal.aborted) handlers.onError?.(e)
@@ -509,71 +513,50 @@ function streamAgentRun(
         error.code = detail?.error?.code
         throw error
       }
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        let idx: number
-        while ((idx = buf.indexOf('\n\n')) >= 0) {
-          const raw = buf.slice(0, idx)
-          buf = buf.slice(idx + 2)
-          for (const line of raw.split('\n')) {
-            if (!line.startsWith('data:')) continue
-            const data = line.slice(5).trim()
-            if (!data) continue
-            try {
-              const obj = JSON.parse(data)
-              if (obj?.type === 'end') {
-                fireEnd(typeof obj.reason === 'string' ? obj.reason : undefined)
-                continue
-              }
-              if (obj?.type === 'run' && obj.run_id) {
-                handlers.onRun?.(String(obj.run_id))
-                continue
-              }
-              if (obj?.type === 'error') {
-                failed = true
-                const error = new Error(String(obj.message || '运行失败')) as Error & { code?: string }
-                error.code = typeof obj.code === 'string' ? obj.code : undefined
-                handlers.onError?.(error)
-                continue
-              }
-              if (obj?.type === 'thinking') {
-                handlers.onThinking?.(Number(obj.elapsed_ms || 0), obj.content ? String(obj.content) : undefined)
-                continue
-              }
-              if (obj?.type === 'usage') {
-                const metrics: AgentRunMetrics = {
-                  duration_ms: Number(obj.duration_ms || 0),
-                  prompt_tokens: Number(obj.prompt_tokens || 0),
-                  completion_tokens: Number(obj.completion_tokens || 0),
-                  reasoning_tokens: Number(obj.reasoning_tokens || 0),
-                  tool_calls: Number(obj.tool_calls || 0)
-                }
-                handlers.onUsage?.(metrics)
-                continue
-              }
-              if (obj?.type === 'token' || obj?.type === 'chunk') {
-                const text = obj.content || obj.delta || ''
-                if (text) handlers.onToken?.(text)
-                continue
-              }
-              if (obj?.type === 'tool_call') {
-                handlers.onToolCall?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
-                continue
-              }
-              if (obj?.type === 'tool_result') {
-                handlers.onToolResult?.(obj.name || '', obj.content || '', obj.call_id || undefined, Number(obj.duration_ms || 0))
-              }
-            } catch {
-              /* ignore */
-            }
-          }
+      await readSse(resp, (obj) => {
+        if (obj?.type === 'end') {
+          fireEnd(typeof obj.reason === 'string' ? obj.reason : undefined)
+          return
         }
-      }
+        if (obj?.type === 'run' && obj.run_id) {
+          handlers.onRun?.(String(obj.run_id))
+          return
+        }
+        if (obj?.type === 'error') {
+          failed = true
+          const error = new Error(String(obj.message || '运行失败')) as Error & { code?: string }
+          error.code = typeof obj.code === 'string' ? obj.code : undefined
+          handlers.onError?.(error)
+          return
+        }
+        if (obj?.type === 'thinking') {
+          handlers.onThinking?.(Number(obj.elapsed_ms || 0), obj.content ? String(obj.content) : undefined)
+          return
+        }
+        if (obj?.type === 'usage') {
+          const metrics: AgentRunMetrics = {
+            duration_ms: Number(obj.duration_ms || 0),
+            prompt_tokens: Number(obj.prompt_tokens || 0),
+            completion_tokens: Number(obj.completion_tokens || 0),
+            reasoning_tokens: Number(obj.reasoning_tokens || 0),
+            tool_calls: Number(obj.tool_calls || 0)
+          }
+          handlers.onUsage?.(metrics)
+          return
+        }
+        if (obj?.type === 'token' || obj?.type === 'chunk') {
+          const text = obj.content || obj.delta || ''
+          if (text) handlers.onToken?.(text)
+          return
+        }
+        if (obj?.type === 'tool_call') {
+          handlers.onToolCall?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
+          return
+        }
+        if (obj?.type === 'tool_result') {
+          handlers.onToolResult?.(obj.name || '', obj.content || '', obj.call_id || undefined, Number(obj.duration_ms || 0))
+        }
+      })
       fireEnd()
     } catch (e) {
       if (!controller.signal.aborted && !failed) handlers.onError?.(e)
