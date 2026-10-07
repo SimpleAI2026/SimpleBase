@@ -131,4 +131,29 @@ describe('Logs (日志管理)', () => {
 
   })
 
+  it('Logs load, save retention, and poll', async () => {
+    const { wrapper: w } = await mountWithApp(Logs)
+    await flushPromises()
+    expect(api.logs.list).toHaveBeenCalled()
+    const vm = w.vm as any
+    vm.keepDaysText = '21'
+    await vm.saveRetention()
+    expect(api.logs.putRetention).toHaveBeenCalled()
+    vm.autoRefresh = true
+    await flushPromises()
+    vm.autoRefresh = false
+    await flushPromises()
+    vm.keyword = 'needle'
+    vm.from = '2024-01-01T00:00'
+    await vm.clearFilters()
+    expect(vm.keyword).toBe('')
+    expect(vm.from).toBe('')
+    api.logs.list.mockRejectedValueOnce(new Error('fail'))
+    await vm.load()
+    api.logs.putRetention.mockRejectedValueOnce(new Error('nope'))
+    await vm.saveRetention()
+    w.unmount()
+  })
+
+
 })
