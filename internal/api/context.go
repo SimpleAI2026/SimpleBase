@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"go.uber.org/zap"
 )
@@ -59,6 +60,15 @@ func PrincipalFromContext(ctx context.Context) (auth.Principal, bool) {
 		return v, true
 	}
 	return auth.Principal{}, false
+}
+
+// queryLimit 返回合法的正数 limit；max 为零时不限制上限。
+func queryLimit(c echo.Context, def, max int) int {
+	n, err := strconv.Atoi(c.QueryParam("limit"))
+	if err != nil || n < 1 || (max > 0 && n > max) {
+		return def
+	}
+	return n
 }
 
 // itoa 是 strconv.Itoa 的局部别名，避免在多处 import strconv。

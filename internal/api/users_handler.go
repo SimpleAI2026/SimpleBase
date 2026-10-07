@@ -4,7 +4,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -59,7 +58,7 @@ func (h *UsersHandler) List(c echo.Context) error {
 	if !p.Role.CanViewUsers() {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "role_forbidden", "permission denied", rid))
 	}
-	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	limit := queryLimit(c, 0, 0)
 	cursor := c.QueryParam("cursor")
 	list, next, err := h.users.List(c.Request().Context(), limit, cursor)
 	if err != nil {

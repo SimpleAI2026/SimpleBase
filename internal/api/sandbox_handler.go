@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -104,12 +103,9 @@ func (h *SandboxHandler) List(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	limit := 0
-	if raw := c.QueryParam("limit"); raw != "" {
-		limit, err = strconv.Atoi(raw)
-		if err != nil || limit < 1 {
-			return WriteError(c, NewAPIError(http.StatusBadRequest, "sandbox_invalid_spec", "invalid limit parameter", RequestIDFromContext(c.Request().Context())))
-		}
+	limit := queryLimit(c, 0, 0)
+	if c.QueryParam("limit") != "" && limit == 0 {
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "sandbox_invalid_spec", "invalid limit parameter", RequestIDFromContext(c.Request().Context())))
 	}
 	rows, next, err := h.svc.List(c.Request().Context(), p, c.QueryParam("status"), c.QueryParam("source"), c.QueryParam("cursor"), limit)
 	if err != nil {

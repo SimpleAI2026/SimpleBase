@@ -18,12 +18,11 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/internal/crontab"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
+	"github.com/linkxzhou/SimpleBase/internal/crontab"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -240,7 +239,7 @@ func (h *CronJobHandler) Create(c echo.Context) error {
 	created, err := h.store.CreateCronJob(c.Request().Context(), systemdb.CronJob{
 		ProjectID: pc.ID, Name: req.Name, Description: req.Description,
 		ScheduleKind: req.ScheduleKind, CronExpr: req.CronExpr, IntervalSeconds: req.IntervalSeconds,
-		RunAt: req.runAtTime,
+		RunAt:    req.runAtTime,
 		FuncFile: req.FuncFile, FuncExport: req.FuncExport, InputJSON: req.InputJSON,
 		Enabled: req.enabledValue, NextRunAt: next,
 	})
@@ -366,12 +365,7 @@ func (h *CronJobHandler) ListRuns(c echo.Context) error {
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
-	limit := 20
-	if v := c.QueryParam("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			limit = n
-		}
-	}
+	limit := queryLimit(c, 20, 0)
 	runs, err := h.store.ListCronJobRuns(c.Request().Context(), pc.ID, c.Param("jobID"), limit)
 	if err != nil {
 		return WriteError(c, err)

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
@@ -90,12 +89,7 @@ func (h *AuditHandler) ListOperations(c echo.Context) error {
 	if !ok {
 		return WriteError(c, errors.New("project context missing"))
 	}
-	limit := 50
-	if s := c.QueryParam("limit"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	limit := queryLimit(c, 50, 0)
 	ops, err := h.svc.ListOperations(c.Request().Context(), pc.ID, c.QueryParam("database_id"), limit)
 	if err != nil {
 		return WriteError(c, err)
