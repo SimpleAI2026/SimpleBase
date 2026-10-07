@@ -61,7 +61,7 @@ describe('mockApi auth and users', () => {
     expect(Array.isArray(me.projects)).toBe(true)
   })
 
-  it('users list/create/update/remove', async () => {
+  it('users list/create/update', async () => {
     const list = await mockApi.users.list()
     expect(list.users.length).toBeGreaterThan(0)
     const created = await mockApi.users.create({
@@ -71,14 +71,11 @@ describe('mockApi auth and users', () => {
       displayName: 'Bob'
     })
     expect(created.username).toBe('bob')
-    const got = await mockApi.users.get('user-super')
-    expect(got.username).toBe('simplebase2026')
     const updated = await mockApi.users.update('user-super', { displayName: 'X' })
     expect(updated.displayName).toBe('X')
-    await expect(mockApi.users.remove('user-normal')).resolves.toBeUndefined()
   })
 
-  it('users get missing rejects', async () => {
-    await expect(mockApi.users.get('nope')).rejects.toThrow()
+  it('users update missing rejects', async () => {
+    await expect(mockApi.users.update('nope', { displayName: 'X' })).rejects.toThrow()
   })
 })

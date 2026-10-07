@@ -699,7 +699,6 @@ export const httpApi: Api = {
           email: req.email || ''
         })
         .then((r) => toUserItem({ ...r.data, project_count: 0 })),
-    get: (id) => http.get('/v1/users/' + encodeURIComponent(id)).then((r) => toUserItem(r.data)),
     update: (id, req: UpdateUserRequest) =>
       http
         .patch('/v1/users/' + encodeURIComponent(id), {
@@ -710,8 +709,7 @@ export const httpApi: Api = {
           password: req.password,
           must_change_password: req.mustChangePassword
         })
-        .then((r) => toUserItem(r.data)),
-    remove: (id) => http.delete('/v1/users/' + encodeURIComponent(id)).then(() => undefined)
+        .then((r) => toUserItem(r.data))
   },
   gofunctions: {
     list: (projectId) =>
@@ -799,11 +797,6 @@ export const httpApi: Api = {
       name: body.name, image: body.image, cpus: body.cpus, memory_mib: body.memoryMiB,
       network: body.network, idle_timeout_s: body.idleTimeoutS, start: body.start
     }, { headers: key ? { 'Idempotency-Key': key } : undefined, timeout: body.start ? 90000 : undefined }).then((r) => toSandboxItem(r.data)),
-    get: (projectId, id, refresh) => http.get(sandboxesPath(projectId, id), { params: refresh ? { refresh: 1 } : undefined })
-      .then((r) => toSandboxItem(r.data)),
-    update: (projectId, id, body) => http.patch(sandboxesPath(projectId, id), {
-      name: body.name, idle_timeout_s: body.idleTimeoutS
-    }).then((r) => toSandboxItem(r.data)),
     remove: (projectId, id) => http.delete(sandboxesPath(projectId, id)).then(() => undefined),
     start: (projectId, id) => http.post(sandboxesPath(projectId, id, '/start'), undefined, { timeout: 90000 }).then((r) => toSandboxItem(r.data)),
     stop: (projectId, id) => http.post(sandboxesPath(projectId, id, '/stop')).then((r) => toSandboxItem(r.data)),
@@ -835,8 +828,6 @@ export const httpApi: Api = {
       }),
     create: (projectId, body) =>
       http.post(cronJobsPath(projectId), cronJobBody(body)).then((r) => toCronJobItem(r.data)),
-    get: (projectId, jobId) =>
-      http.get(cronJobsPath(projectId, jobId)).then((r) => toCronJobItem(r.data)),
     update: (projectId, jobId, body) =>
       http.patch(cronJobsPath(projectId, jobId), cronJobBody(body)).then((r) => toCronJobItem(r.data)),
     remove: (projectId, jobId) =>
@@ -910,15 +901,6 @@ export const httpApi: Api = {
     create: (projectId, name) =>
       http
         .post('/v1/projects/' + encodeURIComponent(projectId) + '/databases', { name })
-        .then((r) => toDatabaseItem(r.data)),
-    get: (projectId, databaseId) =>
-      http
-        .get(
-          '/v1/projects/' +
-            encodeURIComponent(projectId) +
-            '/databases/' +
-            encodeURIComponent(databaseId)
-        )
         .then((r) => toDatabaseItem(r.data)),
     remove: (projectId, databaseId) =>
       http
@@ -1111,10 +1093,6 @@ export const httpApi: Api = {
       }),
     create: (projectId, body) =>
       http.post(agentPath(projectId, '/agents'), body).then((r) => toCloudAgent(r.data)),
-    get: (projectId, agentId) =>
-      http
-        .get(agentPath(projectId, '/agents/' + encodeURIComponent(agentId)))
-        .then((r) => toCloudAgent(r.data)),
     patch: (projectId, agentId, body) =>
       http
         .patch(agentPath(projectId, '/agents/' + encodeURIComponent(agentId)), body)
@@ -1136,10 +1114,6 @@ export const httpApi: Api = {
       })),
     create: (projectId, title) =>
       http.post(agentPath(projectId, '/agent-threads'), { title }).then((r) => toAgentThread(r.data)),
-    get: (projectId, threadId) =>
-      http
-        .get(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)))
-        .then((r) => toAgentThread(r.data)),
     rename: (projectId, threadId, title) =>
       http.patch(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)), { title }).then((r) => toAgentThread(r.data)),
     remove: (projectId, threadId) =>

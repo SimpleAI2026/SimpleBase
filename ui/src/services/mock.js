@@ -46,6 +46,13 @@ function requireDbStore(databaseId) {
   return state.dbStores[databaseId]
 }
 
+async function requireSandbox(projectId, id) {
+  await delay(20)
+  const item = state.sandboxes.find((s) => s._projectId === projectId && s.id === id)
+  if (!item) throw new Error('云沙盒不存在')
+  return item
+}
+
 // KV mock 方法组（实现见 mock-kv.js；项目级，不依赖数据库存储）
 const kvMockGroup = createKvMock({ delay })
 
@@ -383,14 +390,9 @@ export const mockApi = {
         projectCount: 0
       }
     },
-    async get(id) {
-      const list = await this.list()
-      const hit = list.users.find((u) => u.id === id)
-      if (!hit) throw new Error('user not found')
-      return hit
-    },
     async update(id, req) {
-      const u = await this.get(id)
+      const u = (await this.list()).users.find((row) => row.id === id)
+      if (!u) throw new Error('user not found')
       return {
         ...u,
         role: req?.role || u.role,
@@ -399,9 +401,6 @@ export const mockApi = {
         status: req?.status || u.status
       }
     },
-    async remove() {
-      await delay(60)
-    }
   },
 /* v8 ignore start -- Mock API 仅为本地开发/演示桩，不计入覆盖率门槛 */
 /** 云函数 mock（gofunction-versions-testplan）：支持版本化与调试台 */
@@ -547,29 +546,18 @@ export const mockApi = {
       state.sandboxFiles[id] = {}
       return item
     },
-    async get(projectId, id) {
-      await delay(20)
-      const item = state.sandboxes.find((s) => s._projectId === projectId && s.id === id)
-      if (!item) throw new Error('云沙盒不存在')
-      return item
-    },
-    async update(projectId, id, body) {
-      const item = await this.get(projectId, id)
-      Object.assign(item, body)
-      return item
-    },
     async remove(projectId, id) {
-      await this.get(projectId, id)
+      await requireSandbox(projectId, id)
       state.sandboxes = state.sandboxes.filter((s) => s.id !== id)
       delete state.sandboxFiles[id]
     },
     async start(projectId, id) {
-      const item = await this.get(projectId, id)
+      const item = await requireSandbox(projectId, id)
       item.status = 'running'
       return item
     },
     async stop(projectId, id) {
-      const item = await this.get(projectId, id)
+      const item = await requireSandbox(projectId, id)
       item.status = 'stopped'
       return item
     },
@@ -594,12 +582,12 @@ export const mockApi = {
     },
     files: {
       async list(projectId, id, path) {
-        await mockApi.sandboxes.get(projectId, id)
+        await requireSandbox(projectId, id)
         return Object.entries(state.sandboxFiles[id]).filter(([p]) => p.startsWith(path + '/'))
           .map(([p, content]) => ({ name: p.split('/').at(-1), path: p, kind: 'file', size: content.length }))
       },
       async read(projectId, id, path) {
-        await mockApi.sandboxes.get(projectId, id)
+        await requireSandbox(projectId, id)
         if (state.sandboxFiles[id][path] == null) throw new Error('文件不存在')
         const data = state.sandboxFiles[id][path]
         return data instanceof Uint8Array
@@ -607,7 +595,7 @@ export const mockApi = {
           : { content: data, encoding: 'utf8', truncated: false }
       },
       async download(projectId, id, path) {
-        await mockApi.sandboxes.get(projectId, id)
+        await requireSandbox(projectId, id)
         const file = state.sandboxFiles[id][path]
         if (file == null) throw new Error('文件不存在')
         return new Blob([file], { type: 'application/octet-stream' })
@@ -621,7 +609,7 @@ export const mockApi = {
         state.sandboxFiles[id][path] = new Uint8Array(content)
       },
       async remove(projectId, id, path) {
-        await mockApi.sandboxes.get(projectId, id)
+        await requireSandbox(projectId, id)
         delete state.sandboxFiles[id][path]
       }
     }
@@ -683,13 +671,6 @@ export const mockApi = {
       state.cronJobs.push(item)
       const { _projectId, ...rest } = item
       return rest
-    },
-    async get(projectId, jobId) {
-      await delay()
-      const found = state.cronJobs.find((j) => j._projectId === projectId && j.id === jobId)
-      if (!found) throw new Error('cron job not found')
-      const { _projectId, ...rest } = found
-      return { ...rest }
     },
     async update(projectId, jobId, body) {
       await delay()
@@ -845,12 +826,6 @@ export const mockApi = {
       const db = { id: 'db-' + genId(), name, status: 'ready', createdAt: now(), updatedAt: now() }
       state.databases.push(db)
       state.dbStores[db.id] = { collections: [], docs: {} }
-      return { ...db }
-    },
-    async get(projectId, databaseId) {
-      await delay()
-      const db = state.databases.find((d) => d.id === databaseId)
-      if (!db) throw new Error('数据库不存在')
       return { ...db }
     },
     async remove(projectId, databaseId) {
@@ -1111,12 +1086,6 @@ export const mockApi = {
       state.agents.push(row)
       return { ...row }
     },
-    async get(projectId, agentId) {
-      await delay(80)
-      const row = state.agents.find((a) => a.id === agentId && a._projectId === projectId)
-      if (!row) throw new Error('agent not found')
-      return { ...row }
-    },
     async patch(projectId, agentId, body) {
       await delay()
       const row = state.agents.find((a) => a.id === agentId && a._projectId === projectId)
@@ -1148,11 +1117,6 @@ export const mockApi = {
       const row = { id: 'th-' + genId(), title: title || 'New thread', created_at: now(), updated_at: now(), _projectId: projectId }
       state.agentThreads.unshift(row)
       state.agentMessages[row.id] = []
-      return { ...row }
-    },
-    async get(projectId, threadId) {
-      const row = state.agentThreads.find((t) => t.id === threadId && t._projectId === projectId)
-      if (!row) throw new Error('thread not found')
       return { ...row }
     },
     async rename(projectId, threadId, title) {

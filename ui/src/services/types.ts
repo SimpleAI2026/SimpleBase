@@ -636,9 +636,7 @@ export interface Api {
   users: {
     list: (limit?: number, cursor?: string) => Promise<UserListResult>
     create: (req: CreateUserRequest) => Promise<UserItem>
-    get: (id: string) => Promise<UserItem>
     update: (id: string, req: UpdateUserRequest) => Promise<UserItem>
-    remove: (id: string) => Promise<void>
   }
   gofunctions: {
     list: (projectId: string) => Promise<GoFunctionItem[]>
@@ -665,8 +663,6 @@ export interface Api {
     capabilities: (projectId: string) => Promise<SandboxCapabilities>
     list: (projectId: string, status?: string, source?: string) => Promise<SandboxItem[]>
     create: (projectId: string, body: SandboxCreate, idempotencyKey?: string) => Promise<SandboxItem>
-    get: (projectId: string, id: string, refresh?: boolean) => Promise<SandboxItem>
-    update: (projectId: string, id: string, body: { name?: string; idleTimeoutS?: number }) => Promise<SandboxItem>
     remove: (projectId: string, id: string) => Promise<void>
     start: (projectId: string, id: string) => Promise<SandboxItem>
     stop: (projectId: string, id: string) => Promise<SandboxItem>
@@ -683,7 +679,6 @@ export interface Api {
   cronjobs: {
     list: (projectId: string) => Promise<CronJobItem[]>
     create: (projectId: string, body: CronJobCreate) => Promise<CronJobItem>
-    get: (projectId: string, jobId: string) => Promise<CronJobItem>
     /** PATCH：name 不可改；调度变更后服务端重算 nextRunAt */
     update: (projectId: string, jobId: string, body: Partial<CronJobCreate>) => Promise<CronJobItem>
     remove: (projectId: string, jobId: string) => Promise<void>
@@ -708,7 +703,6 @@ export interface Api {
   databases: {
     list: (projectId: string) => Promise<DatabaseItem[]>
     create: (projectId: string, name: string) => Promise<DatabaseItem>
-    get: (projectId: string, databaseId: string) => Promise<DatabaseItem>
     remove: (projectId: string, databaseId: string) => Promise<void>
   }
   sql: {
@@ -779,7 +773,6 @@ export interface Api {
     modules: (projectId: string) => Promise<AgentModuleInfo[]>
     list: (projectId: string) => Promise<CloudAgent[]>
     create: (projectId: string, body: Partial<CloudAgent>) => Promise<CloudAgent>
-    get: (projectId: string, agentId: string) => Promise<CloudAgent>
     patch: (projectId: string, agentId: string, body: Partial<CloudAgent>) => Promise<CloudAgent>
     remove: (projectId: string, agentId: string) => Promise<void>
   }
@@ -787,7 +780,6 @@ export interface Api {
     list: (projectId: string) => Promise<AgentThread[]>
     page: (projectId: string, limit?: number, cursor?: string) => Promise<AgentThreadPage>
     create: (projectId: string, title?: string) => Promise<AgentThread>
-    get: (projectId: string, threadId: string) => Promise<AgentThread>
     rename: (projectId: string, threadId: string, title: string) => Promise<AgentThread>
     remove: (projectId: string, threadId: string) => Promise<void>
     runs: (projectId: string, threadId: string, limit?: number) => Promise<AgentRun[]>

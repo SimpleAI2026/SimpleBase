@@ -126,23 +126,16 @@ describe('httpApi auth/users mapping', () => {
     expect(updated.role).toBe('admin')
     expect(updated.status).toBe('disabled')
 
-    httpMock.delete.mockResolvedValue({ data: undefined })
-    await httpApi.users.remove('u2')
-    expect(httpMock.delete).toHaveBeenCalled()
   })
 
-  it('users get and project api keys list/create/revoke', async () => {
-    httpMock.get.mockResolvedValueOnce({ data: { id: 'u/3', username: 'c', role: 'user', status: 'active' } })
-    expect((await httpApi.users.get('u/3')).username).toBe('c')
-    expect(httpMock.get.mock.calls[0][0]).toBe('/v1/users/u%2F3')
-
+  it('project api keys list/create/revoke', async () => {
     httpMock.get.mockResolvedValueOnce({
       data: { keys: [{ id: 'k1', project_id: 'p 1', permissions: ['database:read'], created_at: 't', revoked_at: 'r' }, {}] }
     })
     const keys = await httpApi.apiKeys.list('p 1')
     expect(keys[0]).toEqual({ id: 'k1', projectId: 'p 1', permissions: ['database:read'], createdAt: 't', revokedAt: 'r' })
     expect(keys[1]).toEqual({ id: '', projectId: '', permissions: [], createdAt: '', revokedAt: undefined })
-    expect(httpMock.get.mock.calls[1][0]).toBe('/v1/projects/p%201/api-keys')
+    expect(httpMock.get.mock.calls[0][0]).toBe('/v1/projects/p%201/api-keys')
     httpMock.get.mockResolvedValueOnce({ data: {} })
     expect(await httpApi.apiKeys.list('p')).toEqual([])
 

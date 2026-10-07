@@ -32,8 +32,6 @@ describe('mockApi', () => {
     expect((await flush(mockApi.databases.list(PID))).length).toBeGreaterThan(0)
     const db = await flush(mockApi.databases.create(PID, 'extra'))
     expect(db.status).toBe('ready')
-    expect((await flush(mockApi.databases.get(PID, db.id))).id).toBe(db.id)
-    await flushReject(mockApi.databases.get(PID, 'missing'))
 
     const users = await flush(mockApi.sql.query(PID, 'db-default', { sql: 'select * from users' }))
     expect(users.rowCount).toBeGreaterThan(0)
@@ -200,8 +198,6 @@ describe('mockApi', () => {
         intervalSeconds: 60
       })
     )
-    expect((await flush(mockApi.cronjobs.get(PID, cron.id))).id).toBe(cron.id)
-    await flushReject(mockApi.cronjobs.get(PID, 'missing'))
     expect(
       (await flush(mockApi.cronjobs.update(PID, cron.id, { description: 'n', scheduleKind: 'interval', intervalSeconds: 90, enabled: false, inputJson: '{}' }))).scheduleKind
     ).toBe('interval')
@@ -222,15 +218,11 @@ describe('mockApi', () => {
     expect(listed.length).toBeGreaterThan(0)
     const agent = await flush(mockApi.agents.create(PID, {}))
     expect(agent.name).toBe('Agent')
-    expect((await flush(mockApi.agents.get(PID, agent.id))).name).toBe('Agent')
-    await flushReject(mockApi.agents.get(PID, 'missing'))
     expect((await flush(mockApi.agents.patch(PID, agent.id, { name: 'Custom2' }))).name).toBe('Custom2')
     await flushReject(mockApi.agents.patch(PID, 'missing', {}))
 
     expect(await flush(mockApi.agentThreads.list(PID))).toEqual([])
     const thread = await flush(mockApi.agentThreads.create(PID, 'T1'))
-    expect((await flush(mockApi.agentThreads.get(PID, thread.id))).id).toBe(thread.id)
-    await flushReject(mockApi.agentThreads.get(PID, 'missing'))
     // 非流式 run 已退役：业务统一走 streamRun（AgentManager.vue）
     expect((await flush(mockApi.agentThreads.messages(PID, thread.id))).length).toBeGreaterThanOrEqual(0)
     expect((await flush(mockApi.agentThreads.cancel(PID, 'r'))).status).toBe('canceled')

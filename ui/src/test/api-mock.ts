@@ -177,16 +177,6 @@ export function applyApiDefaults() {
     mustChangePassword: false,
     projectCount: 0
   })
-  api.users.get.mockResolvedValue({
-    id: 'u1',
-    username: 'simplebase2026',
-    role: 'superadminl1',
-    displayName: '',
-    email: '',
-    status: 'active',
-    mustChangePassword: false,
-    projectCount: 0
-  })
   api.users.update.mockResolvedValue({
     id: 'u1',
     username: 'simplebase2026',
@@ -197,7 +187,6 @@ export function applyApiDefaults() {
     mustChangePassword: false,
     projectCount: 0
   })
-  api.users.remove.mockResolvedValue(undefined)
   api.projects.list.mockResolvedValue([])
   api.projects.create.mockResolvedValue({ id: 'p-new', name: 'New', createdAt: 't' })
   api.metrics.summary.mockResolvedValue({
@@ -372,7 +361,6 @@ export function applyApiDefaults() {
     maxPerProject: 5, execTimeoutMaxS: 300, networkOptions: ['none'] })
   api.sandboxes.list.mockResolvedValue([])
   api.sandboxes.create.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'pending', source: 'api' })
-  api.sandboxes.get.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'running', source: 'api' })
   api.sandboxes.start.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'running', source: 'api' })
   api.sandboxes.stop.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'stopped', source: 'api' })
   api.sandboxes.remove.mockResolvedValue(undefined)
