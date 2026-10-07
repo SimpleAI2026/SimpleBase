@@ -374,12 +374,6 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		v1.PUT("/settings", seth.PutGlobal, require(auth.ProjectAdmin))
 
 		sess := &llmSessionHandler{store: deps.System}
-		p.GET("/llm/sessions", sess.List, require(auth.DatabaseRead))
-		p.POST("/llm/sessions", sess.Create, require(auth.DatabaseWrite))
-		p.GET("/llm/sessions/:sessionID", sess.Get, require(auth.DatabaseRead))
-		p.DELETE("/llm/sessions/:sessionID", sess.Delete, require(auth.DatabaseWrite))
-		p.GET("/llm/sessions/:sessionID/messages", sess.ListMessages, require(auth.DatabaseRead))
-		p.POST("/llm/sessions/:sessionID/messages", sess.PostMessage, require(auth.DatabaseWrite))
 		p.GET("/llm/settings", sess.GetSettings, require(auth.DatabaseRead))
 		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin))
 
