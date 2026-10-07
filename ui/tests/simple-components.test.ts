@@ -1,17 +1,14 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PageContainer from '@/components/PageContainer.vue'
 import SbCodeBlock from '@/components/SbCodeBlock.vue'
 import TablePager from '@/components/TablePager.vue'
 import ConfirmAction from '@/components/ConfirmAction.vue'
 import ProjectScope from '@/components/ProjectScope.vue'
-import { useProjectStore } from '@/stores/project'
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import NavMenu from '@/components/NavMenu.vue'
 import { useProjectStore, ADMIN_PROJECT_ID } from '@/stores/project'
+import NavMenu from '@/components/NavMenu.vue'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
