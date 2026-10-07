@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -60,6 +62,18 @@ func PrincipalFromContext(ctx context.Context) (auth.Principal, bool) {
 		return v, true
 	}
 	return auth.Principal{}, false
+}
+
+// decodeJSONBody 解码单个 JSON 请求对象，保持各处理器既有错误协议。
+func decodeJSONBody(c echo.Context, dst any, strict bool) error {
+	dec := json.NewDecoder(c.Request().Body)
+	if strict {
+		dec.DisallowUnknownFields()
+	}
+	if err := dec.Decode(dst); err != nil {
+		return NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
+	}
+	return nil
 }
 
 // queryLimit 返回合法的正数 limit；max 为零时不限制上限。

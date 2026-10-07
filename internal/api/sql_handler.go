@@ -21,7 +21,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -364,11 +363,9 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 
 // decodeQueryRequest 解码并校验 QueryRequest。
 func decodeQueryRequest(c echo.Context, limits SQLLimits) (*QueryRequest, error) {
-	dec := json.NewDecoder(c.Request().Body)
-	dec.DisallowUnknownFields()
 	var req QueryRequest
-	if err := dec.Decode(&req); err != nil {
-		return nil, NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
+	if err := decodeJSONBody(c, &req, true); err != nil {
+		return nil, err
 	}
 	if err := validateSQLStatement(req.SQL, req.Args, limits); err != nil {
 		return nil, err
@@ -384,11 +381,9 @@ func decodeQueryRequest(c echo.Context, limits SQLLimits) (*QueryRequest, error)
 
 // decodeExecuteRequest 解码并校验 ExecuteRequest。
 func decodeExecuteRequest(c echo.Context, limits SQLLimits) (*ExecuteRequest, error) {
-	dec := json.NewDecoder(c.Request().Body)
-	dec.DisallowUnknownFields()
 	var req ExecuteRequest
-	if err := dec.Decode(&req); err != nil {
-		return nil, NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
+	if err := decodeJSONBody(c, &req, true); err != nil {
+		return nil, err
 	}
 	if err := validateSQLStatement(req.SQL, req.Args, limits); err != nil {
 		return nil, err
@@ -398,11 +393,9 @@ func decodeExecuteRequest(c echo.Context, limits SQLLimits) (*ExecuteRequest, er
 
 // decodeBatchRequest 解码并校验 BatchRequest。
 func decodeBatchRequest(c echo.Context, limits SQLLimits) (*BatchRequest, error) {
-	dec := json.NewDecoder(c.Request().Body)
-	dec.DisallowUnknownFields()
 	var req BatchRequest
-	if err := dec.Decode(&req); err != nil {
-		return nil, NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
+	if err := decodeJSONBody(c, &req, true); err != nil {
+		return nil, err
 	}
 	if len(req.Statements) == 0 {
 		return nil, NewAPIError(http.StatusBadRequest, "invalid_request", "statements must not be empty", RequestIDFromContext(c.Request().Context()))

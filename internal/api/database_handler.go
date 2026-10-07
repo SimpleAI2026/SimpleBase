@@ -13,7 +13,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -320,10 +319,8 @@ func projectContextMiddlewareEcho(deps Dependencies) echo.MiddlewareFunc {
 // bindAndValidateCreate 绑定并校验创建请求。不依赖第三方 validator。
 // decode/校验失败返回 APIError(400)，由 WriteError 直接使用。
 func bindAndValidateCreate(c echo.Context, req *CreateDatabaseRequest) error {
-	dec := json.NewDecoder(c.Request().Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(req); err != nil {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
+	if err := decodeJSONBody(c, req, true); err != nil {
+		return err
 	}
 	if err := validateDatabaseName(req.Name); err != nil {
 		return err

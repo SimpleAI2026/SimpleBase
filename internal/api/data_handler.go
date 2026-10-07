@@ -80,8 +80,8 @@ func (h *DataHandler) CreateCollection(c echo.Context) error {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context())))
+	if err := decodeJSONBody(c, &req, false); err != nil {
+		return WriteError(c, err)
 	}
 	if !collectionNamePattern.MatchString(req.Name) {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "集合名称仅支持字母、数字和下划线，且必须以字母开头", RequestIDFromContext(c.Request().Context())))

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -155,10 +154,8 @@ func toProjectResponse(p catalog.Project) ProjectResponse {
 
 func bindCreateProject(c echo.Context) (CreateProjectRequest, error) {
 	var req CreateProjectRequest
-	dec := json.NewDecoder(c.Request().Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		return CreateProjectRequest{}, NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
+	if err := decodeJSONBody(c, &req, true); err != nil {
+		return CreateProjectRequest{}, err
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.ID = strings.TrimSpace(req.ID)
