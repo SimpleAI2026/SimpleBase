@@ -1,4 +1,4 @@
-package log
+package observability
 
 import (
 	"bytes"
@@ -15,12 +15,12 @@ func TestNewNilWriterPanics(t *testing.T) {
 			t.Fatal("expected panic")
 		}
 	}()
-	_ = New(nil, InfoLevel)
+	_ = newZapLogger(nil, InfoLevel)
 }
 
 func TestLoggerMethodsAndSync(t *testing.T) {
 	var buf bytes.Buffer
-	l := New(&buf, DebugLevel)
+	l := newZapLogger(&buf, DebugLevel)
 	l.Warn("warn msg", String("k", "v"))
 	l.DPanic("dpanic msg")
 	require.NoError(t, l.Sync())
@@ -32,7 +32,7 @@ func TestLoggerMethodsAndSync(t *testing.T) {
 	t.Cleanup(func() { ResetDefault(original) })
 
 	var gbuf bytes.Buffer
-	ResetDefault(New(&gbuf, DebugLevel))
+	ResetDefault(newZapLogger(&gbuf, DebugLevel))
 	Debug("g-debug")
 	DPanic("g-dpanic")
 	SugarDebug("s-debug")
@@ -47,7 +47,7 @@ func TestLoggerMethodsAndSync(t *testing.T) {
 	SugarWarnw("s-warnw", "a", 1)
 	SugarErrorw("s-errorw", "a", 1)
 	SugarDPanicw("s-dpanicw", "a", 1)
-	require.NoError(t, Sync())
+	require.NoError(t, syncDefault())
 
 	got := gbuf.String()
 	for _, want := range []string{"g-debug", "g-dpanic", "s-debug", "s-warn", "s-error", "s-debugf", "s-warnf", "s-errorf"} {
@@ -55,18 +55,18 @@ func TestLoggerMethodsAndSync(t *testing.T) {
 	}
 
 	std = nil
-	require.NoError(t, Sync())
-	std = New(io.Discard, InfoLevel)
+	require.NoError(t, syncDefault())
+	std = newZapLogger(io.Discard, InfoLevel)
 }
 
 func TestPanicRecoverable(t *testing.T) {
 	var buf bytes.Buffer
-	l := New(&buf, DebugLevel)
+	l := newZapLogger(&buf, DebugLevel)
 	require.Panics(t, func() { l.Panic("boom") })
 
 	original := std
 	t.Cleanup(func() { ResetDefault(original) })
-	ResetDefault(New(&buf, DebugLevel))
+	ResetDefault(newZapLogger(&buf, DebugLevel))
 	require.Panics(t, func() { Panic("g-boom") })
 	require.Panics(t, func() { SugarPanic("s-boom") })
 	require.Panics(t, func() { SugarPanicf("s-boomf %s", "x") })
