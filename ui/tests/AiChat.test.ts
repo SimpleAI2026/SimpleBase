@@ -98,3 +98,40 @@ describe('AiChat', () => {
     if (stop) await stop.trigger('click')
     w.unmount()
   })
+
+  it('AiChat customSend, default send, stop and clear', async () => {
+    api.llm.chat.mockResolvedValue({ content: 'ok', model: 'm', provider: 'p' })
+    const customSend = vi.fn().mockResolvedValue(undefined)
+    const w = mount(AiChat, {
+      props: {
+        projectId: 'p',
+        model: 'm',
+        streaming: false,
+        customSend,
+        messages: [{ role: 'user', content: 'hi', toolCalls: [{ name: 't', arguments: '{}', content: 'c' }] }],
+        sending: false,
+        modelOptions: [{ label: 'm', value: 'm' }]
+      },
+      global: { stubs: uiStubs }
+    })
+    const vm = w.vm as any
+    vm.draft = '  '
+    await vm.onSend([])
+    vm.draft = 'hello'
+    await vm.onSend([{ agent_id: 'a' }])
+    expect(customSend).toHaveBeenCalled()
+    vm.stop()
+    vm.clear()
+    w.unmount()
+
+    const w2 = mount(AiChat, {
+      props: { projectId: 'p', model: 'm', streaming: false, showToolbar: true },
+      global: { stubs: uiStubs }
+    })
+    const vm2 = w2.vm as any
+    vm2.draft = 'ping'
+    await vm2.onSend([])
+    vm2.stop()
+    vm2.clear()
+    w2.unmount()
+  })

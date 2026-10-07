@@ -9,6 +9,8 @@ import ConfirmAction from '@/components/ConfirmAction.vue'
 import ProjectScope from '@/components/ProjectScope.vue'
 import { useProjectStore, ADMIN_PROJECT_ID } from '@/stores/project'
 import NavMenu from '@/components/NavMenu.vue'
+import MessageScroller from '@/components/chat/MessageScroller.vue'
+import { uiStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -300,5 +302,21 @@ describe('low-branch component coverage', () => {
     })
     const link = w.find('.nav-link, a')
     if (link.exists()) await link.trigger('click')
+    w.unmount()
+  })
+
+  it('MessageScroller stick/scroll helpers', async () => {
+    const w = mount(MessageScroller, { props: { followKey: '1' }, global: { stubs: uiStubs } })
+    const vm = w.vm as any
+    vm.onScroll()
+    vm.viewport = { scrollHeight: 400, scrollTop: 10, clientHeight: 100 }
+    vm.onScroll()
+    expect(vm.stick).toBe(false)
+    vm.viewport = { scrollHeight: 400, scrollTop: 350, clientHeight: 100 }
+    vm.onScroll()
+    expect(vm.stick).toBe(true)
+    vm.scrollToEnd()
+    await w.setProps({ followKey: '2' })
+    await flushPromises()
     w.unmount()
   })

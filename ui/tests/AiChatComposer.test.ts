@@ -1,5 +1,5 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
 import { uiStubs } from '@/test/helpers'
 import AiChatComposer from '@/components/ai/AiChatComposer.vue'
 
@@ -34,3 +34,29 @@ describe('AiChatComposer', () => {
     w.unmount()
   })
 })
+
+  it('AiChatComposer mention parsing and send', async () => {
+    const w = mount(AiChatComposer, {
+      props: {
+        modelValue: 'hi @Bot',
+        mentionAgents: [{ id: 'a1', name: 'Bot', module: 'db' }]
+      },
+      global: { stubs: uiStubs }
+    })
+    const vm = w.vm as any
+    expect(vm.mentionsForSend('hi @Bot')).toEqual([{ agent_id: 'a1' }])
+    vm.parseMentionQuery('hello')
+    vm.parseMentionQuery('hi @Bo')
+    vm.parseMentionQuery('hi @Bo more')
+    vm.pickMention({ id: 'a1', name: 'Bot' })
+    vm.pickMention({ id: 'a1', name: 'Bot' })
+    vm.onInput({ target: { value: 'x @Z' } })
+    vm.onKeydown({ key: 'Escape', preventDefault: vi.fn() })
+    vm.mentionOpen = true
+    vm.onKeydown({ key: 'Escape', preventDefault: vi.fn() })
+    vm.onKeydown({ key: 'Enter', shiftKey: true, preventDefault: vi.fn() })
+    const prevent = vi.fn()
+    vm.onKeydown({ key: 'Enter', shiftKey: false, preventDefault: prevent })
+    await flushPromises()
+    w.unmount()
+  })
