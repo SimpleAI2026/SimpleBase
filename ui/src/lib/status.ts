@@ -1,6 +1,6 @@
 import type { BadgeVariants } from '@/components/ui/badge'
 
-export const statusTextMap: Record<string, string> = {
+const statusTextMap: Record<string, string> = {
   ready: '就绪',
   creating: '创建中',
   degraded: '降级',
@@ -25,7 +25,7 @@ export function logLevelVariant(s: string): BadgeVariants['variant'] {
   return 'secondary'
 }
 
-export const logLevelTextMap: Record<string, string> = {
+const logLevelTextMap: Record<string, string> = {
   info: '信息',
   warn: '警告',
   error: '错误',

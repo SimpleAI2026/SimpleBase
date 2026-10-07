@@ -6,7 +6,6 @@ import {
   logLevelVariant,
   statusBadgeVariant,
   statusText,
-  statusTextMap,
 } from '@/lib/status'
 
 describe('status helpers', () => {
@@ -18,7 +17,6 @@ describe('status helpers', () => {
     expect(statusText('deleted')).toBe('已删除')
     expect(statusText('closed')).toBe('closed')
     expect(statusText('unknown-status')).toBe('unknown-status')
-    expect(Object.keys(statusTextMap)).toEqual(['ready', 'creating', 'degraded', 'deleting', 'deleted'])
   })
 
   it('picks badge variants for status and log level', () => {
