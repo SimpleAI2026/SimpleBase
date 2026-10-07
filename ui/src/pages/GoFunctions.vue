@@ -141,6 +141,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 /**
  * 云函数列表页（ui-gofunction-plan §8.3）。
  * Badge 点击复制完整调用 URL；删除走 ConfirmAction；项目切换重载。
@@ -200,7 +201,7 @@ async function load() {
     records.value = await api.gofunctions.list(projectId.value)
     page.value = 1
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载云函数列表失败')
+    toast.error(errorMessage(e, '加载云函数列表失败'))
   } finally {
     loading.value = false
   }
@@ -249,7 +250,7 @@ async function remove(record: GoFunctionItem) {
     toast.success(`已删除 ${record.file}`)
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 

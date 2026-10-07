@@ -171,6 +171,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
@@ -293,7 +294,7 @@ async function loadSchedules() {
     for (const s of list) map[s.agent_id] = s
     scheduleByAgent.value = map
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载定时任务失败')
+    toast.error(errorMessage(e, '加载定时任务失败'))
   }
 }
 
@@ -346,7 +347,7 @@ async function selectThread(id: string) {
   chatMessages.value = []
   if (router?.replace) void router.replace({ query: { ...route.query, thread: id } })
   try { await loadThreadMessages(id) }
-  catch (e) { toast.error(e instanceof Error ? e.message : '加载会话失败') }
+  catch (e) { toast.error(errorMessage(e, '加载会话失败')) }
 }
 
 async function loadMoreThreads() {
@@ -355,14 +356,14 @@ async function loadMoreThreads() {
     const page = await api.agentThreads.page(project.id, 50, nextCursor.value)
     threads.value.push(...page.threads)
     nextCursor.value = page.next_cursor
-  } catch (e) { toast.error(e instanceof Error ? e.message : '加载会话失败') }
+  } catch (e) { toast.error(errorMessage(e, '加载会话失败')) }
 }
 
 async function renameThread(id: string, title: string) {
   try {
     const renamed = await api.agentThreads.rename(project.id, id, title)
     threads.value = threads.value.map((th) => th.id === id ? renamed : th)
-  } catch (e) { toast.error(e instanceof Error ? e.message : '重命名失败') }
+  } catch (e) { toast.error(errorMessage(e, '重命名失败')) }
 }
 
 async function removeThread(id: string) {
@@ -375,14 +376,14 @@ async function removeThread(id: string) {
       if (threads.value.length) await selectThread(threads.value[0].id)
       else await resetThread()
     }
-  } catch (e) { toast.error(e instanceof Error ? e.message : '删除会话失败') }
+  } catch (e) { toast.error(errorMessage(e, '删除会话失败')) }
 }
 
 async function loadModules() {
   try {
     modules.value = await api.agents.modules(project.id)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载模块失败')
+    toast.error(errorMessage(e, '加载模块失败'))
   }
 }
 
@@ -392,7 +393,7 @@ async function loadAgents() {
     agents.value = await api.agents.list(project.id)
     if (!activeId.value && agents.value.length) activeId.value = agents.value[0].id
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载 Agent 失败')
+    toast.error(errorMessage(e, '加载 Agent 失败'))
   } finally {
     loading.value = false
   }
@@ -413,7 +414,7 @@ async function ensureThread() {
       threadId.value = th.id
     }
     await loadThreadMessages(threadId.value)
-  } catch (e) { toast.error(e instanceof Error ? e.message : '加载会话失败') }
+  } catch (e) { toast.error(errorMessage(e, '加载会话失败')) }
 }
 
 function openCreate() {
@@ -478,7 +479,7 @@ async function saveAgent() {
     modalOpen.value = false
     await loadAgents()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -490,7 +491,7 @@ async function removeAgent(a: CloudAgent) {
     if (activeId.value === a.id) activeId.value = ''
     await loadAgents()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 
@@ -503,7 +504,7 @@ async function resetThread() {
     chatMessages.value = []
     if (router?.replace) void router.replace({ query: { ...route.query, thread: th.id } })
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '新建会话失败')
+    toast.error(errorMessage(e, '新建会话失败'))
   }
 }
 
@@ -550,7 +551,7 @@ async function onSend(text: string, mentions: { agent_id: string }[]) {
         llm_timeout: '模型响应超时', llm_model_not_allowed: '模型不在允许列表中',
         agent_thread_busy: '当前会话仍在运行', quota_exceeded: '模型调用配额已用完'
       }
-      reply.error = labels[e?.code || ''] || (e instanceof Error ? e.message : '运行失败')
+      reply.error = labels[e?.code || ''] || (errorMessage(e, '运行失败'))
       toast.error(reply.error)
     }
   })

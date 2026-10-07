@@ -94,6 +94,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { FileIcon, RefreshCwIcon, SearchIcon, UploadIcon } from '@lucide/vue'
@@ -177,7 +178,7 @@ function doUpload(file: File) {
       toast.success(`${file.name} 上传成功`)
       await load()
     })
-    .catch((e) => toast.error(e instanceof Error ? e.message : '上传失败'))
+    .catch((e) => toast.error(errorMessage(e, '上传失败')))
     .finally(() => {
       uploading.value = false
     })
@@ -192,7 +193,7 @@ async function load() {
   try {
     objects.value = await api.s3.list(projectStore.id, prefix.value || undefined)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载失败')
+    toast.error(errorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -204,7 +205,7 @@ async function remove(key: string) {
     toast.success('删除成功')
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 
@@ -213,7 +214,7 @@ async function open(key: string) {
     const { url } = await api.s3.presign(projectStore.id, key)
     window.open(url, '_blank')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '生成链接失败')
+    toast.error(errorMessage(e, '生成链接失败'))
   }
 }
 

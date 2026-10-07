@@ -190,6 +190,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 /**
  * 定时任务新建/编辑 Modal（ui-cronjob-plan §7.3）。
  * 文件→导出函数两级联动 Select；interval 用数值+单位换算秒；保存走 create/update。
@@ -453,7 +454,7 @@ async function save() {
     emit('saved')
     emit('update:open', false)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }

@@ -111,6 +111,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -235,7 +236,7 @@ async function submit() {
     emit('update:open', false)
     emit('created', key)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '创建失败')
+    toast.error(errorMessage(e, '创建失败'))
   } finally {
     submitting.value = false
   }

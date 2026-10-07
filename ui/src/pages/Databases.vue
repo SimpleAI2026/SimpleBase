@@ -262,6 +262,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
@@ -422,7 +423,7 @@ async function create() {
     createVisible.value = false
     await doLoad()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '创建失败')
+    toast.error(errorMessage(e, '创建失败'))
   } finally {
     creating.value = false
   }
@@ -434,7 +435,7 @@ async function removeDb(db: DatabaseItem) {
     toast.success(`${db.name} 删除请求已提交（异步清理）`)
     await doLoad()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 

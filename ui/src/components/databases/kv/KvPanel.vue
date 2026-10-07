@@ -131,6 +131,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { onUnmounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -289,7 +290,7 @@ async function fetchPage(append: boolean) {
     fetchedAt.value = Date.now()
     ensureTimer()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载失败')
+    toast.error(errorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -341,7 +342,7 @@ async function submitRename() {
     renameOpen.value = false
     reload()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '重命名失败')
+    toast.error(errorMessage(e, '重命名失败'))
   } finally {
     renaming.value = false
   }
@@ -353,7 +354,7 @@ async function removeKey(m: KvKeyMeta) {
     toast.success('已删除')
     rows.value = rows.value.filter((r) => r.key !== m.key)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 

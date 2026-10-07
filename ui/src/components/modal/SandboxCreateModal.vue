@@ -28,6 +28,7 @@
   </SbModal>
 </template>
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { api } from '../../services/api'
@@ -66,7 +67,7 @@ async function save() {
     emit('saved')
     toast.success('云沙盒已创建')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '创建云沙盒失败')
+    toast.error(errorMessage(e, '创建云沙盒失败'))
   } finally {
     saving.value = false
   }

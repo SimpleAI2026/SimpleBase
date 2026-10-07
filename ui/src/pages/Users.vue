@@ -115,6 +115,7 @@
   </PageContainer>
 </template>
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
@@ -183,7 +184,7 @@ async function load() {
     const res = await api.users.list(100)
     users.value = res.users
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载失败')
+    toast.error(errorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -205,7 +206,7 @@ async function toggleStatus(u: UserItem) {
     toast.success(u.status === 'active' ? '已禁用' : '已启用')
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '操作失败')
+    toast.error(errorMessage(e, '操作失败'))
   }
 }
 

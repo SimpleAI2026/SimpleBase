@@ -15,6 +15,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -46,7 +47,7 @@ async function load() {
     value.value = v
     original.value = v
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载失败')
+    toast.error(errorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -63,7 +64,7 @@ async function save() {
     toast.success('已保存')
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -82,7 +83,7 @@ async function incr() {
     original.value = value.value
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'INCR 失败（值需为整数）')
+    toast.error(errorMessage(e, 'INCR 失败（值需为整数）'))
   } finally {
     incring.value = false
   }

@@ -76,6 +76,7 @@
   </SbModal>
 </template>
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -154,7 +155,7 @@ async function submit() {
     }
     emit('saved')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '操作失败'
+    error.value = errorMessage(e, '操作失败')
   } finally {
     submitting.value = false
   }

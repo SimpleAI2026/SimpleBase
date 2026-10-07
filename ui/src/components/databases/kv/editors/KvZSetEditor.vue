@@ -56,6 +56,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -96,7 +97,7 @@ async function load() {
     }
     items.value = out
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载失败')
+    toast.error(errorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -116,7 +117,7 @@ async function addMember() {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '添加失败')
+    toast.error(errorMessage(e, '添加失败'))
   }
 }
 
@@ -137,7 +138,7 @@ async function saveScore(elem: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   }
 }
 
@@ -147,7 +148,7 @@ async function removeMember(elem: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 

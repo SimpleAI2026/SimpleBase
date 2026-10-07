@@ -152,6 +152,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -352,7 +353,7 @@ async function run() {
       }
     }
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '执行失败')
+    toast.error(errorMessage(e, '执行失败'))
   } finally {
     running.value = false
   }

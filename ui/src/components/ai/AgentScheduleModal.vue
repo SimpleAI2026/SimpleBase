@@ -107,6 +107,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
@@ -259,7 +260,7 @@ async function save() {
     emit('saved', saved)
     emit('update:open', false)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -273,7 +274,7 @@ async function remove() {
     emit('removed', props.schedule.id)
     emit('update:open', false)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 
@@ -293,7 +294,7 @@ async function triggerNow() {
       if (!active || polls >= 15) clearInterval(timer)
     }, 2000)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '触发失败')
+    toast.error(errorMessage(e, '触发失败'))
   } finally {
     triggering.value = false
   }

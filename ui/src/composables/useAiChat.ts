@@ -1,3 +1,4 @@
+import { errorMessage } from '@/utils/format'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { api } from '../services/api'
@@ -51,7 +52,7 @@ export function useAiChat(opts: {
         onError: (e) => {
           sending.value = false
           conn = null
-          if (e) toast.error(e instanceof Error ? e.message : '流式请求失败')
+          if (e) toast.error(errorMessage(e, '流式请求失败'))
         }
       })
       return
@@ -61,7 +62,7 @@ export function useAiChat(opts: {
       const resp = await api.llm.chat(opts.projectId(), req)
       messages.value.push({ role: 'assistant', content: resp.content })
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '请求失败')
+      toast.error(errorMessage(e, '请求失败'))
     } finally {
       sending.value = false
     }

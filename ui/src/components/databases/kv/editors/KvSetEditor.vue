@@ -32,6 +32,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
@@ -61,7 +62,7 @@ async function load() {
     })) as string[]
     elems.value = Array.isArray(r) ? r : []
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载失败')
+    toast.error(errorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -76,7 +77,7 @@ async function addMember() {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '添加失败')
+    toast.error(errorMessage(e, '添加失败'))
   }
 }
 
@@ -86,7 +87,7 @@ async function removeMember(v: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '移除失败')
+    toast.error(errorMessage(e, '移除失败'))
   }
 }
 
@@ -97,7 +98,7 @@ async function popRandom() {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '弹出失败')
+    toast.error(errorMessage(e, '弹出失败'))
   }
 }
 

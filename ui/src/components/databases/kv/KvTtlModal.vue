@@ -34,6 +34,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -91,7 +92,7 @@ async function submit() {
     emit('update:open', false)
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '设置失败')
+    toast.error(errorMessage(e, '设置失败'))
   } finally {
     submitting.value = false
   }

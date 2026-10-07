@@ -33,6 +33,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -65,7 +66,7 @@ async function load() {
   try {
     collections.value = await api.db.collections(props.projectId, props.database.id)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '集合加载失败')
+    toast.error(errorMessage(e, '集合加载失败'))
   } finally {
     loading.value = false
   }

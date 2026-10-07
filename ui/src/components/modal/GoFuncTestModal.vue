@@ -119,6 +119,7 @@
   </SbModal>
 </template>
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -213,7 +214,7 @@ function validateBody() {
     saveDraft()
     toast.success('JSON 合法')
   } catch (e) {
-    bodyError.value = e instanceof Error ? e.message : 'JSON 无效'
+    bodyError.value = errorMessage(e, 'JSON 无效')
   }
 }
 
@@ -236,7 +237,7 @@ async function send() {
     payload = JSON.parse(bodyText.value || '{}')
     saveDraft()
   } catch (e) {
-    bodyError.value = e instanceof Error ? e.message : 'JSON 无效'
+    bodyError.value = errorMessage(e, 'JSON 无效')
     return
   }
   sending.value = true
@@ -249,7 +250,7 @@ async function send() {
       payload
     )
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '测试失败')
+    toast.error(errorMessage(e, '测试失败'))
   } finally {
     sending.value = false
   }

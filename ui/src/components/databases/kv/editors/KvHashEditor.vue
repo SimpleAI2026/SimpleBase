@@ -44,6 +44,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -82,7 +83,7 @@ async function load() {
     }
     fields.value = out
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载失败')
+    toast.error(errorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -102,7 +103,7 @@ async function addField() {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   }
 }
 
@@ -121,7 +122,7 @@ async function saveEdit(field: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   }
 }
 
@@ -131,7 +132,7 @@ async function removeField(field: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 

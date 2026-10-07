@@ -54,6 +54,7 @@
   </SbModal>
 </template>
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -88,13 +89,13 @@ async function execute() {
     history.value.unshift({ command: text, ...result })
     command.value = ''
     emit('changed')
-  } catch (e) { toast.error(e instanceof Error ? e.message : '执行失败') }
+  } catch (e) { toast.error(errorMessage(e, '执行失败')) }
   finally { running.value = false }
 }
 async function loadFiles() {
   if (!props.sandbox) return
   try { entries.value = await api.sandboxes.files.list(props.projectId, props.sandbox.id, directory.value) }
-  catch (e) { toast.error(e instanceof Error ? e.message : '加载文件失败') }
+  catch (e) { toast.error(errorMessage(e, '加载文件失败')) }
 }
 async function openEntry(entry: SandboxFileEntry) {
   if (!props.sandbox) return
@@ -105,20 +106,20 @@ async function openEntry(entry: SandboxFileEntry) {
     fileBinary.value = data.encoding === 'base64'
     fileText.value = fileBinary.value ? '' : data.content
     if (data.truncated) toast.warning('文件内容已截断')
-  } catch (e) { toast.error(e instanceof Error ? e.message : '读取失败') }
+  } catch (e) { toast.error(errorMessage(e, '读取失败')) }
 }
 function createFile() { filePath.value = directory.value + '/new.txt'; fileText.value = ''; fileBinary.value = false }
 async function saveFile() {
   if (!props.sandbox || saving.value) return
   saving.value = true
   try { await api.sandboxes.files.write(props.projectId, props.sandbox.id, filePath.value, fileText.value); await loadFiles(); toast.success('文件已保存'); emit('changed') }
-  catch (e) { toast.error(e instanceof Error ? e.message : '保存失败') }
+  catch (e) { toast.error(errorMessage(e, '保存失败')) }
   finally { saving.value = false }
 }
 async function removeFile(path: string) {
   if (!props.sandbox) return
   try { await api.sandboxes.files.remove(props.projectId, props.sandbox.id, path); if (filePath.value === path) filePath.value = ''; await loadFiles(); toast.success('文件已删除') }
-  catch (e) { toast.error(e instanceof Error ? e.message : '删除失败') }
+  catch (e) { toast.error(errorMessage(e, '删除失败')) }
 }
 async function uploadFile(event: Event) {
   const input = event.target as HTMLInputElement
@@ -126,7 +127,7 @@ async function uploadFile(event: Event) {
   if (!props.sandbox || !file) return
   if (file.size > props.maxFileBytes) { toast.error('文件超出大小限制'); return }
   try { await api.sandboxes.files.upload(props.projectId, props.sandbox.id, directory.value + '/' + file.name, new Uint8Array(await file.arrayBuffer())); await loadFiles(); toast.success('上传成功') }
-  catch (e) { toast.error(e instanceof Error ? e.message : '上传失败') }
+  catch (e) { toast.error(errorMessage(e, '上传失败')) }
   finally { input.value = '' }
 }
 async function downloadFile() {
@@ -138,7 +139,7 @@ async function downloadFile() {
     link.download = filePath.value.split('/').at(-1) || 'file'
     link.click()
     URL.revokeObjectURL(link.href)
-  } catch (e) { toast.error(e instanceof Error ? e.message : '下载失败') }
+  } catch (e) { toast.error(errorMessage(e, '下载失败')) }
 }
 async function copyExample() {
   if (!props.sandbox) return

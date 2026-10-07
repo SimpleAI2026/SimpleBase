@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatCount, formatJson, formatTime, shortTime } from '@/utils/format'
+import { errorMessage, formatBytes, formatCount, formatJson, formatTime, shortTime } from '@/utils/format'
 
 describe('formatCount', () => {
   it('formats counts and unknown', () => {
@@ -46,6 +46,14 @@ describe('shortTime', () => {
     expect(shortTime('')).toBe('—')
     expect(shortTime('bad')).toBe('—')
     expect(shortTime('2024-01-15T08:05:00Z')).toMatch(/\d{2}-\d{2} \d{2}:\d{2}/)
+  })
+})
+
+describe('errorMessage', () => {
+  it('uses Error messages and falls back for other values', () => {
+    expect(errorMessage(new Error('failed'), '默认')).toBe('failed')
+    expect(errorMessage('failed', '默认')).toBe('默认')
+    expect(errorMessage(null, '默认')).toBe('默认')
   })
 })
 

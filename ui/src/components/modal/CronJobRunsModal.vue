@@ -83,6 +83,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 /**
  * 定时任务运行记录弹窗。
  * 打开即加载；autoTrigger 时打开后自行触发并 1.5s 轮询直至 running 收敛；关闭即停止轮询。
@@ -132,7 +133,7 @@ async function load() {
   try {
     runs.value = await api.cronjobs.runs(projectId.value, props.job.id, 50)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载运行记录失败')
+    toast.error(errorMessage(e, '加载运行记录失败'))
   } finally {
     loading.value = false
   }
@@ -155,7 +156,7 @@ async function trigger() {
       if (!latest || latest.status !== 'running') break
     }
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '触发失败')
+    toast.error(errorMessage(e, '触发失败'))
   } finally {
     triggering.value = false
   }

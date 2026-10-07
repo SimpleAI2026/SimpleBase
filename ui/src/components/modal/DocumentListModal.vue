@@ -66,6 +66,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
@@ -121,7 +122,7 @@ async function load() {
   try {
     rows.value = await api.db.rows(props.projectId, props.databaseId, props.collection)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '数据加载失败')
+    toast.error(errorMessage(e, '数据加载失败'))
   } finally {
     loading.value = false
   }
@@ -133,7 +134,7 @@ async function removeRow(id: string) {
     toast.success('删除成功')
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 

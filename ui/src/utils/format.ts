@@ -26,6 +26,10 @@ export function shortTime(iso?: string): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+export function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 export function formatJson(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2)

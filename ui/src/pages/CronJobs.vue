@@ -167,6 +167,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 /**
  * 定时任务列表页（ui-cronjob-plan §7.2）。
  * 调度/目标/状态快照/启用 Switch；立即执行触发后刷新；删除走 ConfirmAction。
@@ -225,7 +226,7 @@ async function load() {
     records.value = await api.cronjobs.list(projectId.value)
     page.value = 1
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载定时任务列表失败')
+    toast.error(errorMessage(e, '加载定时任务列表失败'))
   } finally {
     loading.value = false
   }
@@ -255,7 +256,7 @@ async function toggleEnabled(record: CronJobItem) {
     Object.assign(record, updated)
     toast.success(updated.enabled ? `已启用 ${record.name}` : `已暂停 ${record.name}`)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '切换失败')
+    toast.error(errorMessage(e, '切换失败'))
   } finally {
     toggling.value.delete(record.id)
   }
@@ -268,7 +269,7 @@ async function trigger(record: CronJobItem) {
     toast.success(`已触发 ${record.name}`)
     openRuns(record)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '触发失败')
+    toast.error(errorMessage(e, '触发失败'))
   } finally {
     triggering.value.delete(record.id)
   }
@@ -280,7 +281,7 @@ async function remove(record: CronJobItem) {
     toast.success(`已删除 ${record.name}`)
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorMessage(e, '删除失败'))
   }
 }
 

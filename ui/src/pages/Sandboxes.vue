@@ -48,6 +48,7 @@
   </ProjectScope>
 </template>
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
@@ -87,20 +88,20 @@ async function load() {
     capabilities.value = await api.sandboxes.capabilities(projectId.value)
     records.value = capabilities.value.available ? await api.sandboxes.list(projectId.value) : []
     if (selected.value) selected.value = records.value.find((s) => s.id === selected.value?.id) || null
-  } catch (e) { toast.error(e instanceof Error ? e.message : '加载云沙盒失败') }
+  } catch (e) { toast.error(errorMessage(e, '加载云沙盒失败')) }
   finally { loading.value = false }
 }
 async function start(item: SandboxItem) {
   try { await api.sandboxes.start(projectId.value, item.id); await load(); toast.success('沙盒已启动') }
-  catch (e) { toast.error(e instanceof Error ? e.message : '启动失败') }
+  catch (e) { toast.error(errorMessage(e, '启动失败')) }
 }
 async function stop(item: SandboxItem) {
   try { await api.sandboxes.stop(projectId.value, item.id); await load(); toast.success('沙盒已停止') }
-  catch (e) { toast.error(e instanceof Error ? e.message : '停止失败') }
+  catch (e) { toast.error(errorMessage(e, '停止失败')) }
 }
 async function remove(item: SandboxItem) {
   try { await api.sandboxes.remove(projectId.value, item.id); await load(); toast.success('沙盒已删除') }
-  catch (e) { toast.error(e instanceof Error ? e.message : '删除失败') }
+  catch (e) { toast.error(errorMessage(e, '删除失败')) }
 }
 onMounted(load)
 watch(projectId, load)

@@ -43,6 +43,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -75,7 +76,7 @@ async function load() {
     })) as string[]
     elems.value = Array.isArray(r) ? r : []
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载失败')
+    toast.error(errorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -92,7 +93,7 @@ async function push(side: 'front' | 'back') {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '插入失败')
+    toast.error(errorMessage(e, '插入失败'))
   }
 }
 
@@ -106,7 +107,7 @@ async function pop(side: 'front' | 'back') {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '弹出失败')
+    toast.error(errorMessage(e, '弹出失败'))
   }
 }
 
@@ -125,7 +126,7 @@ async function saveEdit(i: number) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   }
 }
 

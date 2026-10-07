@@ -36,6 +36,7 @@
   </SbModal>
 </template>
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
@@ -67,7 +68,7 @@ async function load() {
     const res = await api.gofunctions.listVersions(projectStore.id, props.record.name)
     versions.value = res.versions
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载版本失败')
+    toast.error(errorMessage(e, '加载版本失败'))
   }
 }
 
@@ -81,7 +82,7 @@ async function activate(version: number) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '操作失败')
+    toast.error(errorMessage(e, '操作失败'))
   } finally {
     activating.value = false
   }
@@ -97,7 +98,7 @@ async function viewSource(v: GoFuncVersionSummary) {
     await navigator.clipboard.writeText(src)
     toast.success(`v${v.version} 源码已复制`)
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '读取源码失败')
+    toast.error(errorMessage(e, '读取源码失败'))
   }
 }
 

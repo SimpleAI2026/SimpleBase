@@ -59,6 +59,7 @@
 </template>
 
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 /**
  * 云函数统一弹窗：create / edit / view 三模式共用（ui-gofunction-plan §8.4）。
  * 导出预览用正则即时渲染（不当校验）；保存失败 toast 展示后端编译错误原文。
@@ -183,7 +184,7 @@ async function save() {
     close()
   } catch (e) {
     // 后端编译/签名错误原文透传（G7）
-    toast.error(e instanceof Error ? e.message : '保存失败')
+    toast.error(errorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }

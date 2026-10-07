@@ -87,6 +87,7 @@
   </SbModal>
 </template>
 <script setup lang="ts">
+import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -152,7 +153,7 @@ async function submitLogin() {
   try {
     await auth.login(username.value.trim(), password.value)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '用户名或密码错误'
+    error.value = errorMessage(e, '用户名或密码错误')
   } finally {
     submitting.value = false
   }
@@ -175,7 +176,7 @@ async function submitPassword() {
     // 改密后服务端吊销会话，重新登录
     auth.markUnauthorized()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '修改失败'
+    error.value = errorMessage(e, '修改失败')
   } finally {
     submitting.value = false
   }
