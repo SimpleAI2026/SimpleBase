@@ -176,6 +176,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { api } from '../services/api'
 import type { GoFunctionItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { useAsyncAction } from '../composables/useAsyncAction'
 import { usePagination } from '../composables/usePagination'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
@@ -191,21 +192,15 @@ const projectStore = useProjectStore()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
 
 const records = ref<GoFunctionItem[]>([])
-const loading = ref(false)
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
-
-async function load() {
-  loading.value = true
-  try {
-    records.value = await api.gofunctions.list(projectId.value)
+const { run: load, loading } = useAsyncAction(() => api.gofunctions.list(projectId.value), {
+  fallbackMsg: '加载云函数列表失败',
+  onSuccess: (data) => {
+    records.value = data as GoFunctionItem[]
     page.value = 1
-  } catch (e) {
-    toast.error(errorMessage(e, '加载云函数列表失败'))
-  } finally {
-    loading.value = false
   }
-}
+})
 
 /* ---------- 弹窗 ---------- */
 
