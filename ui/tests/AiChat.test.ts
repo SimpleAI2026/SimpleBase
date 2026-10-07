@@ -12,6 +12,19 @@ vi.mock('@/services/api', async () => {
 describe('AiChat', () => {
   beforeEach(() => resetApiMocks())
 
+  it('renders error retry and canceled assistant with real message scroller', async () => {
+    const w = mount(AiChat, {
+      props: { projectId: 'p', customSend: vi.fn(), messages: [{ role: 'assistant', content: 'partial', error: '模型超时', canceled: true, thinking: '思考中' }] },
+      global: { stubs: { ...uiStubs, MessageScroller: { template: '<div><slot /></div>' }, AiChatComposer: true, AgentToolCard: true } }
+    })
+    expect(w.text()).toContain('模型超时')
+    expect(w.text()).toContain('已停止')
+    expect(w.text()).toContain('思考中')
+    await w.findAll('button').find((button) => button.text() === '重试')?.trigger('click')
+    expect(w.emitted('retry')).toHaveLength(1)
+    w.unmount()
+  })
+
   it('covers custom send, default chat, stop and clear', async () => {
     const customSend = vi.fn().mockResolvedValue(undefined)
     const w = mount(AiChat, {
@@ -21,7 +34,7 @@ describe('AiChat', () => {
         sending: false,
         messages: [
           { role: 'user', content: 'hi' },
-          { role: 'assistant', content: 'yo', toolCalls: [{ name: 't', arguments: '{}', content: '[]' }] }
+          { role: 'assistant', content: 'yo', toolCalls: [{ name: 't', arguments: '{}', content: '[]' }], error: '请求失败', canceled: true, thinking: '推理片段' }
         ],
         modelOptions: [{ label: 'm', value: 'm' }]
       },

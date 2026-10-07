@@ -1,0 +1,1 @@
+[["SET","online:device-01","1","EX","120"],["LPUSH","events:device-01","boot"],["LTRIM","events:device-01","0","99"],["SET","counter:readings","1"]]

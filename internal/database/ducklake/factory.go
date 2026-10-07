@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
 	duckdb "github.com/duckdb/duckdb-go/v2"
+	"github.com/google/uuid"
 
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
@@ -35,7 +35,7 @@ type Factory struct {
 }
 
 // openGuardMu/openGuardPaths 是进程级「同一 catalog 文件只允许打开一次」守卫
-//（ducklake-duckdb-catalog-plan §7-1）：POSIX 文件锁以进程为单位，
+// （ducklake-duckdb-catalog-plan §7-1）：POSIX 文件锁以进程为单位，
 // 拦不住同进程的第二次打开，DuckDB 会导致文件损坏。放在包级而非 Factory
 // 字段上，保证用户库/系统库等多个 Factory 实例之间同样互斥。
 var (
@@ -131,12 +131,28 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 	}
 
 	boot := buildBootSQL(layout, opts, f.Remote, dataPath)
+	// 配置锁与 INSTALL/SET/ATTACH 只允许在第一条连接上执行；
+	// ATTACH 在共享 DuckDB 实例内全局可见，其余连接只需设置 USE。
+	var bootMu sync.Mutex
+	booted := false
 	connector, err := duckdb.NewConnector("", func(execer driver.ExecerContext) error {
-		for _, q := range boot {
-			if _, err := execer.ExecContext(ctx, q, nil); err != nil {
+		bootMu.Lock()
+		defer bootMu.Unlock()
+		queries := boot
+		if booted {
+			queries = []string{"USE " + quoteIdent(opts.LakeAlias)}
+		}
+		initCtx := ctx
+		if booted {
+			// 新连接可能在 Open 返回很久后创建，不能复用已结束的启动 context。
+			initCtx = context.Background()
+		}
+		for _, q := range queries {
+			if _, err := execer.ExecContext(initCtx, q, nil); err != nil {
 				return fmt.Errorf("ducklake: boot %s: %w", summarizeSQL(q), err)
 			}
 		}
+		booted = true
 		return nil
 	})
 	if err != nil {
@@ -147,12 +163,10 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 	// 守卫释放挂在 connector.Close 上：sql.DB.Close 在所有连接关闭后调用它，
 	// 覆盖 BeforeClose 与失租 closeNoFlush 两条路径；once 保证只释放一次。
 	sqlDB := sql.OpenDB(&guardedConnector{Connector: connector, release: releaseOpen})
-	// §7.2 P6 实测结论：连接上限必须保持 1——boot 序列含 ATTACH+USE+
-	// SET lock_configuration，均为连接级语义，第二连接要么配置被锁
-	//（memory_limit 不可 SET）要么丢失 lake search_path；且 DuckLake
-	// 是单写者模型。系统库的并发瓶颈改由缓存（P1）与异步写（P3）消除。
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
+	// 多连接共享一个 DuckDB 实例；每条连接均执行 ATTACH/USE，配置只在首连接设置。
+	// 不预建空闲连接，避免大量库同时打开时占用过多内存。
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(2)
 
 	if err := sqlDB.PingContext(ctx); err != nil {
 		_ = sqlDB.Close()
@@ -239,35 +253,9 @@ func buildBootSQL(layout Layout, opts Options, remote RemoteStorage, dataPath st
 		"SET allowed_directories = ["+strings.Join(allowedDirectorySQL(layout, opts), ", ")+"]",
 	)
 
-	// 远端模式强制关闭 data inlining（multi-instance-consistency-plan §4.2）：
-	// 内联会把用户数据行写进 catalog，使 catalog 覆盖/丢失从「丢指针」
-	// 升级为「丢数据」（§3.1 放大因素 1）。本地/DevMode 保留配置值。
-	if remote.Enabled {
-		opts.DataInliningRowLimit = 0
-	}
+	// 远端模式允许内联小写入；上传 catalog 快照前由同步器刷出内联数据。
 
-	attachOpts := fmt.Sprintf(
-		"DATA_PATH %s, DATA_INLINING_ROW_LIMIT %d, AUTOMATIC_MIGRATION false",
-		quoteSQLString(dataPath),
-		opts.DataInliningRowLimit,
-	)
-	if remote.Enabled {
-		// catalog 可能记录了旧 data_path；冷启动用 OVERRIDE 对齐当前 bucket/prefix。
-		attachOpts += ", OVERRIDE_DATA_PATH true"
-	}
-	engine := NormalizeCatalogEngine(opts.CatalogEngine)
-	// duckdb: 'ducklake:{path}'；sqlite: 'ducklake:sqlite:{path}'
-	dsn := "ducklake:" + filepathToSlash(layout.CatalogFile)
-	if p := enginePrefix(engine); p != "" {
-		dsn = "ducklake:" + p + ":" + filepathToSlash(layout.CatalogFile)
-	}
-	attach := fmt.Sprintf(
-		"ATTACH '%s' AS %s (%s)",
-		dsn,
-		quoteIdent(alias),
-		attachOpts,
-	)
-	out = append(out, attach, "USE "+quoteIdent(alias))
+	out = append(out, bootAttachSQL(layout, opts, remote, dataPath), "USE "+quoteIdent(alias))
 	out = append(out, optionSQL(alias, opts)...)
 	// 本地盘：ATTACH 后关闭外部访问，仅靠 allowed_directories 白名单。
 	// 远端 S3 DATA_PATH：写 parquet 仍需外部访问；关闭会导致
@@ -277,6 +265,22 @@ func buildBootSQL(layout Layout, opts Options, remote RemoteStorage, dataPath st
 	}
 	out = append(out, "SET lock_configuration = true")
 	return out
+}
+
+func bootAttachSQL(layout Layout, opts Options, remote RemoteStorage, dataPath string) string {
+	attachOpts := fmt.Sprintf(
+		"DATA_PATH %s, DATA_INLINING_ROW_LIMIT %d, AUTOMATIC_MIGRATION false",
+		quoteSQLString(dataPath), opts.DataInliningRowLimit,
+	)
+	if remote.Enabled {
+		attachOpts += ", OVERRIDE_DATA_PATH true"
+	}
+	engine := NormalizeCatalogEngine(opts.CatalogEngine)
+	dsn := "ducklake:" + filepathToSlash(layout.CatalogFile)
+	if p := enginePrefix(engine); p != "" {
+		dsn = "ducklake:" + p + ":" + filepathToSlash(layout.CatalogFile)
+	}
+	return fmt.Sprintf("ATTACH '%s' AS %s (%s)", dsn, quoteIdent(opts.LakeAlias), attachOpts)
 }
 
 func allowedDirectorySQL(layout Layout, opts Options) []string {
@@ -419,10 +423,7 @@ func summarizeSQL(q string) string {
 	return q
 }
 
-
-
-// AfterWrite 在 Registry 写成功后推进 CatalogSyncer 水位与 local-state.json
-//（multi-instance-consistency-plan §4.3：EnsureLocalCatalog 依赖它判定本地领先）。
+// AfterWrite 在 Registry 写成功后标记待同步水位；写路径不访问对象存储。
 func (f *Factory) AfterWrite(ctx context.Context, db catalog.Database, sqlDB *sql.DB) error {
 	if f == nil || f.Syncer == nil {
 		return nil
@@ -434,7 +435,7 @@ func (f *Factory) AfterWrite(ctx context.Context, db catalog.Database, sqlDB *sq
 	}
 	f.Syncer.MarkDirty(db.ID, snap)
 
-	// 推进本地水位文件（失败不阻塞写路径）。
+	// 保留每次提交后的本地水位：重启时不得以过期状态覆盖尚未同步的 catalog。
 	if f.CacheDir != "" {
 		st, _ := ReadLocalState(f.CacheDir, db.ID)
 		if snap > st.SnapshotID {
@@ -461,17 +462,7 @@ func (f *Factory) BeforeClose(ctx context.Context, dbID string, sqlDB *sql.DB) e
 }
 
 // DurabilityFor 返回写响应应声明的持久化级别（§4.4）。
-func (f *Factory) DurabilityFor(dbID string) string {
-	if f == nil || !f.Remote.Enabled {
-		return DurabilityCommittedLocal
-	}
-	cs, ok := f.Syncer.(*CatalogSyncer)
-	if !ok || cs == nil {
-		return DurabilityCommittedLocal
-	}
-	if f.Options.CatalogSync.Mode == "sync_on_commit" && cs.SyncLag(dbID) == 0 && cs.LastSynced(dbID) > 0 {
-		return DurabilitySyncedS3
-	}
+func (f *Factory) DurabilityFor(_ string) string {
 	return DurabilityCommittedLocal
 }
 

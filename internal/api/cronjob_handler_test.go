@@ -56,6 +56,12 @@ func decodeCronJobs(t *testing.T, rec *httptest.ResponseRecorder) []cronJobDTO {
 func TestCronJob_CRUDLifecycle(t *testing.T) {
 	e, _ := setupCronJobTestRouter(t, true, "proj-1")
 
+	// 空列表直接返回，不需要查询项目内云函数版本。
+	empty := postJSON(t, e, http.MethodGet, "/v1/projects/proj-1/cron-jobs", "")
+	if empty.Code != http.StatusOK || len(decodeCronJobs(t, empty)) != 0 {
+		t.Fatalf("empty list: %d %s", empty.Code, empty.Body.String())
+	}
+
 	// 创建：cron 模式
 	rec := postJSON(t, e, http.MethodPost, "/v1/projects/proj-1/cron-jobs",
 		`{"name":"nightly","description":"每晚","schedule_kind":"cron","cron_expr":"0 2 * * *","func_file":"hello","func_export":"Hello","input_json":"{\"name\":\"cron\"}"}`)

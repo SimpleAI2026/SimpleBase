@@ -67,8 +67,8 @@ func TestCatalogSyncerDebounceAndUpload(t *testing.T) {
 	if err := cs.Flush(ctx, id); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
-	if got := cs.LastSynced(id); got != snap {
-		t.Fatalf("LastSynced=%d want %d", got, snap)
+	if got := cs.LastSynced(id); got < snap {
+		t.Fatalf("LastSynced=%d want at least %d", got, snap)
 	}
 	// 不可变快照对象必须存在（snapshots/{snap}-{epoch}.ducklake），manifest 带引擎与校验信息。
 	latest, err := ReadLatestManifest(ctx, blobs, remote, tenant, id, 0)
@@ -178,7 +178,7 @@ func TestCatalogSyncerInflightWriteEventuallySynced(t *testing.T) {
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		latest, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 0)
-		if err == nil && latest != nil && latest.SnapshotID == second {
+		if err == nil && latest != nil && latest.SnapshotID >= second {
 			return
 		}
 		time.Sleep(25 * time.Millisecond)

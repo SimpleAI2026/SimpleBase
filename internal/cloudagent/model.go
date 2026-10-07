@@ -5,25 +5,51 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
+	"github.com/voocel/litellm/providers"
 )
 
 // gatewayChatModel adapts the project LLM gateway to eino's ToolCallingChatModel.
-// Native provider tool-calling is not assumed; tools are described in-prompt and
-// parsed from a TOOL_CALL JSON line when the model requests a tool.
 type gatewayChatModel struct {
 	client    ChatClient
 	projectID string
 	modelName string
+	protocol  string
 	bound     []*schema.ToolInfo
+	usage     func(ChatUsage)
 }
 
+var unsupportedNativeTools sync.Map // provider|model -> bool
+
 func newGatewayChatModel(client ChatClient, projectID, modelName string) *gatewayChatModel {
-	return &gatewayChatModel{client: client, projectID: projectID, modelName: modelName}
+	return &gatewayChatModel{client: client, projectID: projectID, modelName: modelName, protocol: "text"}
+}
+
+func (m *gatewayChatModel) useNative() bool {
+	if m.protocol == "text" {
+		return false
+	}
+	if m.protocol == "native" {
+		return true
+	}
+	_, disabled := unsupportedNativeTools.Load(m.projectID + "|" + m.modelName)
+	return !disabled
+}
+
+func (m *gatewayChatModel) fallback(err error) bool {
+	var upstream *providers.LiteLLMError
+	if m.protocol != "auto" || !errors.As(err, &upstream) || upstream.StatusCode != 400 && upstream.StatusCode != 422 ||
+		(!strings.Contains(strings.ToLower(err.Error()), "tool") && !strings.Contains(strings.ToLower(err.Error()), "function")) {
+		return false
+	}
+	unsupportedNativeTools.Store(m.projectID+"|"+m.modelName, true)
+	return true
 }
 
 func (m *gatewayChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
@@ -34,8 +60,20 @@ func (m *gatewayChatModel) Generate(ctx context.Context, input []*schema.Message
 		return nil, err
 	}
 	resp, err := m.client.Chat(ctx, m.projectID, req)
+	if err != nil && len(req.Tools) > 0 && m.fallback(err) {
+		req, err = m.buildRequest(input, tools, options, false)
+		if err == nil {
+			resp, err = m.client.Chat(ctx, m.projectID, req)
+		}
+	}
 	if err != nil {
 		return nil, err
+	}
+	if m.usage != nil {
+		m.usage(resp.Usage)
+	}
+	if len(resp.ToolCalls) > 0 {
+		return assistantToolMessage(resp.ToolCalls), nil
 	}
 	return parseAssistant(resp.Content), nil
 }
@@ -48,11 +86,27 @@ func (m *gatewayChatModel) Stream(ctx context.Context, input []*schema.Message, 
 		return nil, err
 	}
 	stream, err := m.client.Stream(ctx, m.projectID, req)
+	if err != nil && len(req.Tools) > 0 && m.fallback(err) {
+		req, err = m.buildRequest(input, tools, options, false)
+		if err == nil {
+			stream, err = m.client.Stream(ctx, m.projectID, req)
+		}
+	}
 	if err != nil {
-		// Gateway may not support stream; fall back to Chat and emit one chunk.
+		// 上游鉴权、配额、模型白名单及超时不可绕过重试为 Chat。
+		var upstream *providers.LiteLLMError
+		if errors.As(err, &upstream) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
 		resp, cerr := m.client.Chat(ctx, m.projectID, req)
 		if cerr != nil {
-			return nil, err
+			return nil, cerr
+		}
+		if m.usage != nil {
+			m.usage(resp.Usage)
+		}
+		if len(resp.ToolCalls) > 0 {
+			return singleMessageStream(assistantToolMessage(resp.ToolCalls)), nil
 		}
 		return singleMessageStream(parseAssistant(resp.Content)), nil
 	}
@@ -61,34 +115,82 @@ func (m *gatewayChatModel) Stream(ctx context.Context, input []*schema.Message, 
 	go func() {
 		defer sw.Close()
 		defer stream.Close()
-		var buf strings.Builder
+		const marker = "TOOL_CALL"
+		var pending strings.Builder
+		textMode, toolMode := false, false
+		calls := map[int]*ChatToolCall{}
+		var streamErr error
+		next := func() (StreamDelta, error) {
+			if ds, ok := stream.(DeltaStream); ok {
+				return ds.NextDelta()
+			}
+			content, finish, err := stream.Next()
+			return StreamDelta{Content: content, Finish: finish}, err
+		}
 		for {
-			chunk, finish, nerr := stream.Next()
+			delta, nerr := next()
 			if nerr != nil {
 				if !errors.Is(nerr, io.EOF) {
-					sw.Send(nil, nerr)
+					streamErr = nerr
 				}
 				break
 			}
-			if chunk != "" {
-				buf.WriteString(chunk)
+			if delta.Usage != nil && m.usage != nil {
+				m.usage(*delta.Usage)
 			}
-			if finish {
+			if tc := delta.ToolCall; tc != nil {
+				call := calls[tc.Index]
+				if call == nil {
+					call = &ChatToolCall{}
+					calls[tc.Index] = call
+				}
+				if tc.ID != "" {
+					call.ID = tc.ID
+				}
+				call.Name += tc.Name
+				call.Arguments += tc.ArgsDelta
+			}
+			if delta.Content != "" {
+				if textMode {
+					sw.Send(schema.AssistantMessage(delta.Content, nil), nil)
+				} else {
+					pending.WriteString(delta.Content)
+					trimmed := strings.TrimLeft(pending.String(), " \t\r\n")
+					if !strings.HasPrefix(marker, trimmed) && !strings.HasPrefix(trimmed, marker) {
+						textMode = true
+						sw.Send(schema.AssistantMessage(pending.String(), nil), nil)
+						pending.Reset()
+					} else if strings.HasPrefix(trimmed, marker) {
+						toolMode = true
+					}
+				}
+			}
+			if delta.Finish {
 				break
 			}
 		}
-		msg := parseAssistant(buf.String())
-		if len(msg.ToolCalls) > 0 || msg.Content == "" {
-			sw.Send(msg, nil)
+		if streamErr != nil {
+			sw.Send(nil, streamErr)
 			return
 		}
-		runes := []rune(msg.Content)
-		for i := 0; i < len(runes); i += 16 {
-			end := i + 16
-			if end > len(runes) {
-				end = len(runes)
+		if len(calls) > 0 {
+			indices := make([]int, 0, len(calls))
+			for i := range calls {
+				indices = append(indices, i)
 			}
-			sw.Send(&schema.Message{Role: schema.Assistant, Content: string(runes[i:end])}, nil)
+			sort.Ints(indices)
+			ordered := make([]ChatToolCall, 0, len(calls))
+			for _, i := range indices {
+				ordered = append(ordered, *calls[i])
+			}
+			sw.Send(assistantToolMessage(ordered), nil)
+		} else if !textMode {
+			msg := parseAssistant(pending.String())
+			if toolMode && len(msg.ToolCalls) == 0 || !toolMode && msg.Content != "" {
+				sw.Send(schema.AssistantMessage(pending.String(), nil), nil)
+			} else if len(msg.ToolCalls) > 0 {
+				sw.Send(msg, nil)
+			}
 		}
 	}()
 	return sr, nil
@@ -105,22 +207,45 @@ func (m *gatewayChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallin
 	return &cp, nil
 }
 
-func (m *gatewayChatModel) buildRequest(input []*schema.Message, tools []*schema.ToolInfo, options *model.Options) (ChatRequest, error) {
+func (m *gatewayChatModel) buildRequest(input []*schema.Message, tools []*schema.ToolInfo, options *model.Options, forceText ...bool) (ChatRequest, error) {
+	native := m.useNative() && (len(forceText) == 0 || forceText[0])
 	msgs := make([]ChatMessage, 0, len(input)+1)
-	if len(tools) > 0 {
+	if len(tools) > 0 && !native {
 		msgs = append(msgs, ChatMessage{Role: "system", Content: toolProtocolPrompt(tools)})
 	}
 	for _, in := range input {
 		if in == nil {
 			continue
 		}
-		msgs = append(msgs, schemaToChat(in)...)
+		if native {
+			msg := ChatMessage{Role: string(in.Role), Content: in.Content, ToolCallID: in.ToolCallID}
+			for _, tc := range in.ToolCalls {
+				msg.ToolCalls = append(msg.ToolCalls, ChatToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
+			}
+			msgs = append(msgs, msg)
+		} else {
+			msgs = append(msgs, schemaToChat(in)...)
+		}
 	}
 	modelName := m.modelName
 	if options.Model != nil && *options.Model != "" {
 		modelName = *options.Model
 	}
 	req := ChatRequest{Model: modelName, Messages: msgs}
+	if native {
+		for _, t := range tools {
+			if t == nil {
+				continue
+			}
+			spec := ToolSpec{Name: t.Name, Description: t.Desc}
+			if t.ParamsOneOf != nil {
+				if js, err := t.ParamsOneOf.ToJSONSchema(); err == nil && js != nil {
+					spec.Parameters, _ = json.Marshal(js)
+				}
+			}
+			req.Tools = append(req.Tools, spec)
+		}
+	}
 	if options.MaxTokens != nil {
 		req.MaxTokens = options.MaxTokens
 	}
@@ -178,6 +303,22 @@ func toolProtocolPrompt(tools []*schema.ToolInfo) string {
 		"To call a tool, reply with a single line and nothing else:\n" +
 		`TOOL_CALL {"name":"<tool>","arguments":{...}}` + "\n" +
 		"After you receive TOOL_RESULT, continue or give the final answer in plain text. Never include secrets."
+}
+
+func assistantToolMessage(calls []ChatToolCall) *schema.Message {
+	out := schema.AssistantMessage("", nil)
+	for _, tc := range calls {
+		id := tc.ID
+		if id == "" {
+			id = "call_" + uuid.NewString()
+		}
+		args := tc.Arguments
+		if args == "" {
+			args = "{}"
+		}
+		out.ToolCalls = append(out.ToolCalls, schema.ToolCall{ID: id, Type: "function", Function: schema.FunctionCall{Name: tc.Name, Arguments: args}})
+	}
+	return out
 }
 
 func parseAssistant(content string) *schema.Message {

@@ -1,6 +1,7 @@
 ---
 title: 文档集合
 order: 6
+group: JavaScript
 ---
 
 # 文档集合（Document KV）

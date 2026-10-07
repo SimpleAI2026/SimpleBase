@@ -7,7 +7,7 @@ order: 2
 
 ## 端点
 
-```
+```http
 POST /go/{projectID}/{云函数名}/{导出函数名}
 Authorization: Bearer <API_KEY>
 Content-Type: application/json

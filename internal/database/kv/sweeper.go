@@ -45,7 +45,7 @@ func (s *Sweeper) Start(ctx context.Context) {
 	s.cancel = cancel
 	s.done = make(chan struct{})
 	s.mu.Unlock()
-	go s.loop(ctx)
+	go s.loop(ctx, s.done)
 }
 
 // Close 停止后台循环并等待退出。幂等。
@@ -84,8 +84,8 @@ func (s *Sweeper) SweepOnce(ctx context.Context) map[string]int64 {
 	return out
 }
 
-func (s *Sweeper) loop(ctx context.Context) {
-	defer close(s.done)
+func (s *Sweeper) loop(ctx context.Context, done chan struct{}) {
+	defer close(done)
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 	for {

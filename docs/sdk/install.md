@@ -1,6 +1,7 @@
 ---
 title: 安装
 order: 2
+group: JavaScript
 ---
 
 # 安装

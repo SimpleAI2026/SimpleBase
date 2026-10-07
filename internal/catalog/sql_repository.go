@@ -412,6 +412,16 @@ func (r *sqlRepository) AppendUsage(ctx context.Context, events []UsageEvent) er
 		return nil
 	}
 	for _, e := range events {
+		if e.Kind == "sandbox" {
+			if _, err := r.db.ExecContext(ctx,
+				`INSERT INTO sys_usage_events(id, project_id, kind, provider, model, input_tokens, output_tokens, cost_micros, request_id, occurred_at, duration_ms)
+				 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				e.ID, e.ProjectID, e.Kind, e.Provider, e.Model,
+				e.InputTokens, e.OutputTokens, e.CostMicros, e.RequestID, e.OccurredAt.UTC(), e.DurationMs); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := r.db.ExecContext(ctx,
 			`INSERT INTO sys_usage_events(id, project_id, kind, provider, model, input_tokens, output_tokens, cost_micros, request_id, occurred_at)
 			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

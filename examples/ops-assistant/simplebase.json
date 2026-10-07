@@ -1,0 +1,14 @@
+{
+  "project": { "id": "ex-ops01", "name": "示例·运维助理" },
+  "databases": [{ "name": "ops", "migrations": "migrations", "seed": "seed/ops.sql" }],
+  "collections": [{ "database": "ops", "name": "ticket_meta", "seed": [{ "id": "ticket-demo", "owner": "demo-user", "notes": "初始化种子" }] }],
+  "kv": "seed/kv.json",
+  "functions": [{ "name": "sla", "file": "functions/sla.go", "test": { "function_name": "Evaluate", "body": { "tickets": [] } } }],
+  "cron_jobs": [{ "name": "ops_sla_scan", "schedule_kind": "cron", "cron_expr": "0 * * * *", "func_file": "sla", "func_export": "Evaluate", "input_json": "{\"tickets\":[]}", "trigger_once": true }],
+  "api_keys": [
+    { "label": "service", "permissions": ["database:read", "database:write"] },
+    { "label": "readonly", "permissions": ["database:read"] }
+  ],
+  "agents": [{ "name": "ops-daily", "module": "general", "system_prompt": "仅用只读工具检查昨日工单与 5xx 日志，不修改任何数据。", "tool_ids": ["list_databases", "readonly_sql", "search_logs", "log_level_stats"], "schedule": { "cron_expr": "0 2 * * *", "prompt": "汇总昨日新增工单与 5xx 日志" } }],
+  "requires": { "llm": true }
+}

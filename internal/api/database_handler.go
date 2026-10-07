@@ -174,7 +174,7 @@ func (h *DatabaseHandler) ListDatabases(c echo.Context) error {
 }
 
 // enrich 填充 snapshot 与 document_count（GetDatabase 单库路径；
-// 失败静默省略字段）。缓存未命中时同步补一次（单库限时 3s）。
+// 失败静默省略字段）。生产装配缓存未命中时只触发后台刷新。
 func (h *DatabaseHandler) enrich(ctx context.Context, db catalog.Database, resp *DatabaseResponse) {
 	if h.SnapshotFor != nil {
 		resp.Snapshot = h.SnapshotFor(db.ID)
@@ -188,9 +188,7 @@ func (h *DatabaseHandler) enrich(ctx context.Context, db catalog.Database, resp 
 			resp.DocumentCount = &n
 			return
 		}
-		if n, err := h.RowCounts.RefreshSync(ctx, db, 3*time.Second); err == nil {
-			resp.DocumentCount = &n
-		}
+		h.RowCounts.RefreshAsync([]catalog.Database{db})
 		return
 	}
 	if h.RowCountFor == nil {
@@ -207,7 +205,7 @@ func (h *DatabaseHandler) enrich(ctx context.Context, db catalog.Database, resp 
 
 // enrichList 填充列表项。RowCounts 已装配时 document_count 只读缓存，
 // 未命中返回 true（由调用方触发后台刷新）；未装配缓存时回退旧同步路径
-//（兼容测试装配）。
+// （兼容测试装配）。
 func (h *DatabaseHandler) enrichList(ctx context.Context, db catalog.Database, resp *DatabaseResponse) (stale bool) {
 	if h.RowCounts == nil {
 		h.enrich(ctx, db, resp)
@@ -303,6 +301,13 @@ func projectContextMiddlewareEcho(deps Dependencies) echo.MiddlewareFunc {
 			scope.Done()
 			if err != nil {
 				return WriteError(c, err)
+			}
+			principal, ok := PrincipalFromContext(c.Request().Context())
+			if !ok {
+				return WriteError(c, auth.ErrMissingCredentials)
+			}
+			if !auth.CheckProjectAccess(principal, projectID, tenantID, catalog.IsSystemProject(projectID)) {
+				return WriteError(c, catalog.ErrCrossProject)
 			}
 			// §7.2 P1.1：把解析结果注入 ctx，下游 catalog 校验免重复点查。
 			ctx := catalog.WithResolvedProjectTenant(c.Request().Context(), projectID, tenantID)

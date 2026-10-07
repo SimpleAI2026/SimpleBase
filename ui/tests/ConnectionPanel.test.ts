@@ -13,102 +13,132 @@ vi.mock('@/services/api', async () => {
   return { api: m.api, isMock: false }
 })
 
+function setup() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const auth = useAuthStore()
+  const project = useProjectStore()
+  project.setProject('dev-shop', '商城')
+  auth.openSettings()
+  const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
+  return { auth, project, w }
+}
+
 describe('ConnectionPanel', () => {
   beforeEach(() => {
     resetApiMocks()
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
   })
 
-  it('covers save/reset/label and settings open wiring', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const auth = useAuthStore()
-    const project = useProjectStore()
-    project.setProject('dev-shop', '商城')
-    auth.openSettings()
-    const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
+  it('Key 明文可见，保存与恢复默认', async () => {
+    const { auth, project, w } = setup()
     await flushPromises()
     const vm = w.vm as any
-    expect(vm.projectLabel).toContain('商城')
+    expect(w.get('input#api-key').attributes('type')).toBe('text')
+    expect(w.get('input#current-project').element.value).toBe('dev-shop')
+
     vm.key = '  sb_new  '
     vm.saveKey()
     expect(auth.apiKey).toBe('sb_new')
     await w.get('input#api-key').setValue('sb_clicked')
-    const buttons = w.findAll('button')
-    await buttons[0].trigger('click')
+    const save = w.findAll('button').find((b) => b.text() === '保存')!
+    await save.trigger('click')
     expect(toast.success).toHaveBeenCalledWith('设置已保存')
-    await buttons[1].trigger('click')
+    const restore = w.findAll('button').find((b) => b.text().startsWith('恢复默认'))!
+    await restore.trigger('click')
     expect(auth.apiKey).toBe('sb_live_dev_key_12345')
-    project.projectName = ''
-    expect(String(vm.projectLabel)).toBeTruthy()
-    project.projectId = ''
-    expect(vm.projectLabel).toBe('未选择')
+
     auth.markUnauthorized()
     await flushPromises()
     expect(vm.unauthorized).toBe(true)
+    project.projectId = ''
+    await flushPromises()
+    expect(w.get('input#current-project').element.value).toBe('未选择')
     auth.closeSettings()
     auth.openSettings()
     await flushPromises()
     w.unmount()
   })
 
-  it('签发后一键设为当前使用', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const auth = useAuthStore()
-    const project = useProjectStore()
-    project.setProject('dev-shop', '商城')
-    auth.openSettings()
-    const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
+  it('复制项目 ID 与 API Key', async () => {
+    const { w } = setup()
     await flushPromises()
     const vm = w.vm as any
-    vm.issuedSecret = 'sb_live_issued_x'
+    vm.key = 'sb_copy_me'
     await flushPromises()
-    vm.useIssued()
-    expect(vm.key).toBe('sb_live_issued_x')
-    expect(auth.apiKey).toBe('sb_live_issued_x')
-    expect(toast.success).toHaveBeenCalledWith('已设为当前使用的 Key')
+    const copies = w.findAll('button').filter((b) => b.text() === '复制')
+    expect(copies).toHaveLength(2)
+    await copies[0].trigger('click')
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('dev-shop')
+    await copies[1].trigger('click')
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('sb_copy_me')
+    await flushPromises()
+    expect(toast.success).toHaveBeenCalledWith('已复制API Key')
+
+    ;(navigator.clipboard.writeText as any).mockRejectedValueOnce(new Error('x'))
+    await vm.copyText('t', 'T')
+    expect(toast.error).toHaveBeenCalledWith('复制失败')
     w.unmount()
   })
 
-  it('签发、吊销、复制与列表失败兜底', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const auth = useAuthStore()
-    const project = useProjectStore()
-    project.setProject('dev-shop', '商城')
-    auth.openSettings()
-    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
-    const w = mount(ConnectionPanel, { global: { plugins: [pinia], stubs: uiStubs } })
+  it('重置：签发新 Key、吊销旧 Key、切换为当前使用', async () => {
+    const { auth, w } = setup()
     await flushPromises()
     const vm = w.vm as any
-    expect(api.apiKeys.list).toHaveBeenCalled()
-
-    await vm.issueKey()
+    api.apiKeys.list.mockResolvedValueOnce([
+      { id: 'old1', permissions: [] },
+      { id: 'old2', permissions: [] }
+    ])
+    await vm.resetKey()
     expect(api.apiKeys.create).toHaveBeenCalledWith('dev-shop')
-    expect(vm.issuedSecret).toBe('sb_live_mock_secret')
+    expect(api.apiKeys.revoke).toHaveBeenCalledWith('dev-shop', 'old1')
+    expect(api.apiKeys.revoke).toHaveBeenCalledWith('dev-shop', 'old2')
+    expect(vm.key).toBe('sb_live_mock_secret')
+    expect(auth.apiKey).toBe('sb_live_mock_secret')
+    expect(toast.success).toHaveBeenCalledWith('已重置：新 Key 已设为当前使用')
+    w.unmount()
+  })
 
-    await vm.copySecret()
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('sb_live_mock_secret')
-
-    await vm.revokeKey({ id: 'k1', permissions: ['read'] })
-    expect(api.apiKeys.revoke).toHaveBeenCalledWith('dev-shop', 'k1')
-
-    api.apiKeys.create.mockRejectedValueOnce(new Error('issue'))
-    await vm.issueKey()
-    expect(toast.error).toHaveBeenCalledWith('issue')
-
-    api.apiKeys.revoke.mockRejectedValueOnce(new Error('rvk'))
-    await vm.revokeKey({ id: 'k2', permissions: [] })
-    expect(toast.error).toHaveBeenCalledWith('rvk')
+  it('重置：列表失败仍签发；吊销失败给出警告；签发失败报错', async () => {
+    const { w } = setup()
+    await flushPromises()
+    const vm = w.vm as any
 
     api.apiKeys.list.mockRejectedValueOnce(new Error('list'))
-    await vm.loadKeys()
-    expect(vm.keys.length).toBe(0)
+    await vm.resetKey()
+    expect(api.apiKeys.create).toHaveBeenCalledTimes(1)
+    expect(api.apiKeys.revoke).not.toHaveBeenCalled()
 
-    // 无项目时签发/吊销直接返回
+    api.apiKeys.list.mockResolvedValueOnce([{ id: 'o', permissions: [] }])
+    api.apiKeys.revoke.mockRejectedValueOnce(new Error('rvk'))
+    await vm.resetKey()
+    expect(toast.warning).toHaveBeenCalled()
+
+    api.apiKeys.create.mockRejectedValueOnce(new Error('issue'))
+    await vm.resetKey()
+    expect(toast.error).toHaveBeenCalledWith('issue')
+
+    api.apiKeys.create.mockRejectedValueOnce('boom')
+    await vm.resetKey()
+    expect(toast.error).toHaveBeenCalledWith('重置失败')
+    w.unmount()
+  })
+
+  it('无项目或只读角色时不可重置', async () => {
+    const { auth, project, w } = setup()
+    await flushPromises()
+    const vm = w.vm as any
     project.projectId = ''
-    await vm.issueKey()
-    await vm.revokeKey({ id: 'k3', permissions: [] })
+    await vm.resetKey()
+    expect(api.apiKeys.create).not.toHaveBeenCalled()
+    expect(vm.canReset).toBe(false)
+
+    project.setProject('dev-shop', '商城')
+    ;(auth as any).user = { id: 'u', username: 'a', role: 'admin' }
+    await flushPromises()
+    expect(vm.canReset).toBe(false)
+    await vm.resetKey()
+    expect(api.apiKeys.create).not.toHaveBeenCalled()
     w.unmount()
   })
 })

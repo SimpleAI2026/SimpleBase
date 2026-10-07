@@ -1,4 +1,14 @@
-# Summary
+---
+title: DuckLake 上游参考
+order: 99
+description: DuckLake 官方文档的离线镜像；请先阅读 SimpleBase 使用须知。上游版本与同步日期待核实。
+---
+
+# DuckLake 上游参考
+
+> 这是 DuckLake 上游文档的离线镜像，版本与同步日期尚未核实；SimpleBase 的实际限制请以 [DuckLake 使用须知](/docs/database/ducklake-notes) 为准。
+
+## 上游文档目录
 
 This document contains [DuckLake's documentation](https://ducklake.select/) in a single-file easy-to-search form.
 If you find any issues, please report them [as a GitHub issue](https://github.com/duckdb/ducklake-web/issues).
@@ -1849,9 +1859,9 @@ The choice depends on several factors, including whether you need to use multipl
 
 On the technical side, consider the following:
 
-* If you would like to perform **local data warehousing with a single client**, use [DuckDB](#::duckdb) as the catalog database.
-* If you would like to perform **local data warehousing using multiple local clients**, use [SQLite](#::sqlite) as the catalog database.
-* If you would like to operate a **multi-user lakehouse** with potentially remote clients, use [PostgreSQL](#::postgresql) as the catalog database.
+* If you would like to perform **local data warehousing with a single client**, use [DuckDB](#docs:stable:duckdb:usage:choosing_a_catalog_database::duckdb) as the catalog database.
+* If you would like to perform **local data warehousing using multiple local clients**, use [SQLite](#docs:stable:duckdb:usage:choosing_a_catalog_database::sqlite) as the catalog database.
+* If you would like to operate a **multi-user lakehouse** with potentially remote clients, use [PostgreSQL](#docs:stable:duckdb:usage:choosing_a_catalog_database::postgresql) as the catalog database.
 
 #### DuckDB {#docs:stable:duckdb:usage:choosing_a_catalog_database::duckdb}
 

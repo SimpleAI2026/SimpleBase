@@ -41,6 +41,7 @@ import { computed, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   BotIcon,
+  BoxIcon,
   BracesIcon,
   CloudUploadIcon,
   CodeIcon,
@@ -70,6 +71,7 @@ const iconMap: Record<string, Component> = {
   s3: CloudUploadIcon,
   gofunctions: CodeIcon,
   'cron-jobs': TimerIcon,
+  sandboxes: BoxIcon,
   agents: BotIcon,
   logs: FileTextIcon,
   users: UsersIcon
@@ -94,7 +96,7 @@ interface MenuItem {
 const GROUP_DEFS: { key: string; label: string; names: string[] }[] = [
   { key: 'workspace', label: '工作台', names: ['dashboard'] },
   { key: 'data', label: '数据', names: ['databases', 'key-value', 's3'] },
-  { key: 'automation', label: '自动化', names: ['gofunctions', 'cron-jobs', 'agents'] },
+  { key: 'automation', label: '自动化', names: ['gofunctions', 'cron-jobs', 'sandboxes', 'agents'] },
   { key: 'ops', label: '运维', names: ['logs', 'users'] }
 ]
 

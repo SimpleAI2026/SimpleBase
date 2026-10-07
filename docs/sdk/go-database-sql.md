@@ -1,6 +1,7 @@
 ---
 title: Go · 数据库与 SQL
 order: 12
+group: Go
 ---
 
 # 数据库与 SQL

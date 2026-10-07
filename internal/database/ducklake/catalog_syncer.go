@@ -66,22 +66,35 @@ type CatalogSyncer struct {
 	timers      map[string]*time.Timer
 	inflight    map[string]bool
 	closed      bool
-	splitIDs    map[string]bool  // split-brain 已标记的库（需人工按 §9 流程恢复）
-	lostLease   map[string]bool  // 失租的库（§3.2：per-DB 作用域，不再全局连坐）
-	prunedBelow map[string]int64 // 快照清理进度（不含该 seq；限速，见 pruneVersions）
+	splitIDs    map[string]bool        // split-brain 已标记的库（需人工按 §9 流程恢复）
+	lostLease   map[string]bool        // 失租的库（§3.2：per-DB 作用域，不再全局连坐）
+	prunedBelow map[string]int64       // 快照清理进度（不含该 seq；限速，见 pruneVersions）
+	pruneTimers map[string]*time.Timer // 低优先级清理不进入写同步路径
 }
 
 // NewCatalogSyncer 构造 Phase 2 同步器。Store 不可为 nil。
 // writerEpoch <= 0 时生成一个进程级随机 epoch（无租约部署的保守值）。
 func NewCatalogSyncer(store objectstore.BlobStore, remote RemoteStorage, cacheDir string, opts CatalogSyncOptions, engine string, logger observability.Logger, metrics *observability.Metrics) *CatalogSyncer {
 	if opts.Mode == "" {
-		opts.Mode = "debounce"
+		opts.Mode = "interval"
 	}
 	if opts.Debounce <= 0 {
 		opts.Debounce = 200 * time.Millisecond
 	}
 	if opts.KeepVersions <= 0 {
 		opts.KeepVersions = 10
+	}
+	if opts.Interval <= 0 {
+		opts.Interval = 15 * time.Second
+	}
+	if opts.MaxLag <= 0 {
+		opts.MaxLag = 30 * time.Second
+	}
+	if opts.Mode == "sync_on_commit" {
+		opts.Mode = "interval"
+		if logger != nil {
+			logger.Warn("sync_on_commit is deprecated; using interval with committed_local durability")
+		}
 	}
 	return &CatalogSyncer{
 		Store:       store,
@@ -101,6 +114,7 @@ func NewCatalogSyncer(store objectstore.BlobStore, remote RemoteStorage, cacheDi
 		splitIDs:    map[string]bool{},
 		lostLease:   map[string]bool{},
 		prunedBelow: map[string]int64{},
+		pruneTimers: map[string]*time.Timer{},
 	}
 }
 
@@ -222,6 +236,10 @@ func (s *CatalogSyncer) Unbind(ctx context.Context, dbID string) error {
 		delete(s.timers, dbID)
 	}
 	delete(s.dirty, dbID)
+	if t := s.pruneTimers[dbID]; t != nil {
+		t.Stop()
+		delete(s.pruneTimers, dbID)
+	}
 	s.mu.Unlock()
 	return err
 }
@@ -240,24 +258,18 @@ func (s *CatalogSyncer) MarkDirty(dbID string, snapshotID int64) {
 	if snapshotID > s.dirty[dbID] {
 		s.dirty[dbID] = snapshotID
 	}
-	mode := s.Options.Mode
-	debounce := s.Options.Debounce
-	s.mu.Unlock()
-
-	if mode == "sync_on_commit" {
-		// 失败不吞掉：写响应的 durability 由 DurabilityFor 依据 SyncLag
-		// 如实降级为 committed_local；此处显式记日志保证异步失败可观察。
-		if err := s.Sync(context.Background(), dbID); err != nil && s.Logger != nil {
-			s.Logger.Warn("ducklake sync_on_commit sync failed",
-				zap.String("database_id", dbID), zap.Error(err))
+	delay := s.Options.Debounce
+	if s.Options.Mode == "interval" {
+		delay = s.Options.Interval
+		if s.Options.MaxLag < delay {
+			delay = s.Options.MaxLag
 		}
-		return
+		if _, scheduled := s.timers[dbID]; scheduled {
+			s.mu.Unlock()
+			return
+		}
 	}
-
-	s.mu.Lock()
-	if !s.closed && !s.lostLease[dbID] {
-		s.scheduleLocked(dbID, debounce)
-	}
+	s.scheduleLocked(dbID, delay)
 	s.mu.Unlock()
 }
 
@@ -267,6 +279,9 @@ func (s *CatalogSyncer) scheduleLocked(dbID string, delay time.Duration) {
 		t.Stop()
 	}
 	s.timers[dbID] = time.AfterFunc(delay, func() {
+		s.mu.Lock()
+		delete(s.timers, dbID)
+		s.mu.Unlock()
 		if err := s.Sync(context.Background(), dbID); err != nil && s.Logger != nil {
 			s.Logger.Warn("ducklake background catalog sync failed", zap.String("database_id", dbID), zap.Error(err))
 		}
@@ -358,10 +373,18 @@ func (s *CatalogSyncer) sync(ctx context.Context, dbID string, allowClosed, wait
 		s.inflight[dbID] = false
 		if !s.closed && !s.lostLease[dbID] && s.bound[dbID] == b && s.dirty[dbID] > s.last[dbID] {
 			delay := s.Options.Debounce
+			if s.Options.Mode == "interval" {
+				delay = s.Options.Interval
+				if s.Options.MaxLag < delay {
+					delay = s.Options.MaxLag
+				}
+			}
 			if err != nil && delay < time.Second {
 				delay = time.Second
 			}
-			s.scheduleLocked(dbID, delay)
+			if s.timers[dbID] == nil {
+				s.scheduleLocked(dbID, delay)
+			}
 		}
 		s.mu.Unlock()
 		return err
@@ -403,6 +426,10 @@ func (s *CatalogSyncer) Close(ctx context.Context) error {
 	for id, t := range s.timers {
 		t.Stop()
 		delete(s.timers, id)
+	}
+	for id, t := range s.pruneTimers {
+		t.Stop()
+		delete(s.pruneTimers, id)
 	}
 	for id := range s.bound {
 		ids = append(ids, id)
@@ -451,6 +478,11 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 		delete(s.dirty, meta.ID)
 		s.mu.Unlock()
 		return nil
+	}
+
+	// 内联行必须先刷成 Parquet，再复制 catalog；否则远端恢复可能缺数据文件。
+	if _, err := sqlDB.ExecContext(ctx, "CALL ducklake_flush_inlined_data(?)", alias); err != nil {
+		return fmt.Errorf("ducklake: flush inlined data: %w", err)
 	}
 
 	// 顺序修正（§3.1 实现缺陷）：先取 snapshot，COPY 后复核不变，
@@ -564,8 +596,8 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 		return err
 	}
 
-	// 3) 清理不再被保留 manifest 引用的旧快照对象；manifest 索引永不删除。
-	_ = s.pruneVersions(ctx, meta, snap, nextSeq)
+	// 清理快照不进入同步关键路径，独立限频执行。
+	s.schedulePrune(meta, snap, nextSeq)
 
 	s.mu.Lock()
 	s.last[meta.ID] = snap
@@ -576,7 +608,9 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 	s.mu.Unlock()
 
 	if st, ok := ReadLocalState(cacheDir, meta.ID); ok || snap > 0 {
-		st.SnapshotID = snap
+		if st.SnapshotID < snap {
+			st.SnapshotID = snap
+		}
 		st.SyncedSnapshotID = snap
 		st.SyncedSeq = nextSeq
 		if err := SaveLocalState(cacheDir, meta.ID, st); err != nil {
@@ -613,6 +647,9 @@ func (s *CatalogSyncer) nextManifestSeq(ctx context.Context, meta catalog.Databa
 	s.mu.Lock()
 	cached := s.lastSeq[meta.ID]
 	s.mu.Unlock()
+	if cached > 0 {
+		return cached + 1, nil
+	}
 	if cached <= 0 {
 		if st, ok := ReadLocalState(s.cacheDirFor(meta.ID), meta.ID); ok && st.SyncedSeq > 0 {
 			cached = st.SyncedSeq
@@ -671,6 +708,31 @@ func catalogContentTypeFor(engine string) string {
 		return "application/x-sqlite3"
 	}
 	return "application/octet-stream"
+}
+
+func (s *CatalogSyncer) schedulePrune(meta catalog.Database, snap, seq int64) {
+	if seq <= int64(s.Options.KeepVersions) {
+		return
+	}
+	s.mu.Lock()
+	if s.closed || s.lostLease[meta.ID] || s.pruneTimers[meta.ID] != nil {
+		s.mu.Unlock()
+		return
+	}
+	s.pruneTimers[meta.ID] = time.AfterFunc(10*time.Minute, func() {
+		s.mu.Lock()
+		delete(s.pruneTimers, meta.ID)
+		closed := s.closed || s.lostLease[meta.ID]
+		latest := s.lastSeq[meta.ID]
+		s.mu.Unlock()
+		if closed || latest <= 0 {
+			return
+		}
+		if err := s.pruneVersions(context.Background(), meta, snap, latest); err != nil && s.Logger != nil {
+			s.Logger.Warn("ducklake snapshot prune failed", zap.String("database_id", meta.ID), zap.Error(err))
+		}
+	})
+	s.mu.Unlock()
 }
 
 // pruneVersions 清理不再被保留 manifest 引用的旧快照对象

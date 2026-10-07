@@ -66,7 +66,11 @@
               <Badge v-if="activeAgent" variant="secondary" class="text-xs">{{ activeAgent.module }}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent class="p-4 pt-4">
+          <CardContent class="grid min-w-0 gap-4 p-4 pt-4 md:grid-cols-[220px_minmax(0,1fr)]">
+            <AgentThreadList :threads="threads" :active-id="threadId" :next-cursor="nextCursor" :busy="sending"
+              @create="resetThread" @select="selectThread" @rename="renameThread" @remove="removeThread" @more="loadMoreThreads" />
+            <div class="min-w-0">
+              <p v-if="runState.statusText.value" role="status" class="mb-2 text-xs text-muted-foreground">{{ runState.statusText.value }}</p>
             <AiChat
               :project-id="project.id"
               :show-toolbar="true"
@@ -77,15 +81,17 @@
               :streaming="true"
               :placeholder="composerPlaceholder"
               @stop="onStop"
+              @retry="retryLast"
             >
               <template #toolbar>
-                <Button variant="outline" size="sm" class="shrink-0" :disabled="!chatMessages.length && !sending" @click="resetThread">新会话</Button>
                 <span class="min-w-0 truncate text-xs text-muted-foreground">{{ toolsHint }}</span>
+                <router-link v-if="activeAgentHasSandboxTools" :to="{ name: 'sandboxes' }" class="shrink-0 text-xs text-primary hover:underline">在云沙盒页查看</router-link>
               </template>
               <template #empty>
                 <SbEmptyState v-if="!chatMessages.length" :icon="BotIcon" description="用 @ 点名左侧 Agent，询问数据库、对象或日志；Sandbox Agent 可在云端环境运行代码" />
               </template>
             </AiChat>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -117,6 +123,11 @@
             </Select>
           </Field>
           <Field>
+            <FieldLabel for="agent-model">模型</FieldLabel>
+            <Input id="agent-model" v-model="form.model_override" :placeholder="defaultModel ? `使用项目默认（${defaultModel}）` : '使用项目默认模型'" list="agent-model-options" />
+            <datalist id="agent-model-options"><option v-for="model in modelOptions" :key="model" :value="model" /></datalist>
+          </Field>
+          <Field>
             <FieldLabel for="agent-desc">描述</FieldLabel>
             <Input id="agent-desc" v-model="form.description" />
           </Field>
@@ -133,6 +144,7 @@
                 as="button"
                 type="button"
                 :aria-pressed="form.tool_ids.includes(id.value)"
+                :title="`工具：${id.label}`"
                 :variant="form.tool_ids.includes(id.value) ? 'default' : 'outline'"
                 class="h-auto min-h-8 cursor-pointer"
                 @click="toggleTool(id.value)"
@@ -160,6 +172,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { BotIcon, ClockIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
@@ -178,7 +191,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '../services/api'
-import type { AgentModuleInfo, CloudAgent, LlmStreamConnection } from '../services/api'
+import type { AgentModuleInfo, AgentThread, CloudAgent } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
@@ -187,10 +200,15 @@ import ConfirmAction from '../components/ConfirmAction.vue'
 import SbModal from '../components/modal/SbModal.vue'
 import AiChat from '../components/ai/AiChat.vue'
 import AgentScheduleModal from '../components/ai/AgentScheduleModal.vue'
+import AgentThreadList from '../components/ai/AgentThreadList.vue'
+import { useAgentRun } from '../composables/useAgentRun'
 import type { ChatMsg } from '../composables/useAiChat'
 import type { AgentSchedule } from '../services/types'
 
 const project = useProjectStore()
+const route = useRoute()
+const router = useRouter()
+const runState = useAgentRun(() => project.id)
 const loading = ref(false)
 const saving = ref(false)
 const agents = ref<CloudAgent[]>([])
@@ -198,13 +216,16 @@ const modules = ref<AgentModuleInfo[]>([])
 const activeId = ref('')
 const modalOpen = ref(false)
 const editing = ref<CloudAgent | null>(null)
-const form = ref({ name: '', module: 'database', description: '', system_prompt: '', tool_ids: [] as string[] })
-
+const form = ref({ name: '', module: 'database', description: '', system_prompt: '', model_override: '', tool_ids: [] as string[] })
+const defaultModel = ref('')
+const modelOptions = ref<string[]>([])
+const threads = ref<AgentThread[]>([])
+const nextCursor = ref('')
 const threadId = ref('')
 const currentRunId = ref('')
 const chatMessages = ref<ChatMsg[]>([])
 const sending = ref(false)
-let conn: LlmStreamConnection | null = null
+const lastRequest = ref<{ content: string; mentions: { agent_id: string }[] } | null>(null)
 
 const scheduleByAgent = ref<Record<string, AgentSchedule>>({})
 const scheduleModalOpen = ref(false)
@@ -258,6 +279,11 @@ async function bootstrap() {
   await loadAgents()
   await ensureThread()
   await loadSchedules()
+  try {
+    const settings = await api.llmSettings.get(project.id)
+    defaultModel.value = settings.defaultModel || ''
+    modelOptions.value = defaultModel.value ? [defaultModel.value] : []
+  } catch { defaultModel.value = '' }
 }
 
 async function loadSchedules() {
@@ -300,19 +326,56 @@ function onScheduleRemoved(scheduleId: string) {
 }
 
 async function onViewScheduleThread(threadIdToView: string) {
-  onStop()
   scheduleModalOpen.value = false
-  threadId.value = threadIdToView
+  await selectThread(threadIdToView)
+}
+
+async function loadThreadMessages(id: string) {
+  const msgs = await api.agentThreads.messages(project.id, id)
+  if (threadId.value !== id) return
+  chatMessages.value = msgs.map((m) => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content,
+    toolCalls: m.tool_calls
+  }))
+}
+
+async function selectThread(id: string) {
+  if (!id) return
+  onStop()
+  threadId.value = id
+  chatMessages.value = []
+  if (router?.replace) void router.replace({ query: { ...route.query, thread: id } })
+  try { await loadThreadMessages(id) }
+  catch (e) { toast.error(e instanceof Error ? e.message : '加载会话失败') }
+}
+
+async function loadMoreThreads() {
+  if (!nextCursor.value) return
   try {
-    const msgs = await api.agentThreads.messages(project.id, threadId.value)
-    chatMessages.value = msgs.map((m) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-      toolCalls: m.tool_calls
-    }))
-  } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载会话失败')
-  }
+    const page = await api.agentThreads.page(project.id, 50, nextCursor.value)
+    threads.value.push(...page.threads)
+    nextCursor.value = page.next_cursor
+  } catch (e) { toast.error(e instanceof Error ? e.message : '加载会话失败') }
+}
+
+async function renameThread(id: string, title: string) {
+  try {
+    const renamed = await api.agentThreads.rename(project.id, id, title)
+    threads.value = threads.value.map((th) => th.id === id ? renamed : th)
+  } catch (e) { toast.error(e instanceof Error ? e.message : '重命名失败') }
+}
+
+async function removeThread(id: string) {
+  onStop()
+  try {
+    await api.agentThreads.remove(project.id, id)
+    threads.value = threads.value.filter((th) => th.id !== id)
+    if (threadId.value === id) {
+      threadId.value = ''
+      if (threads.value.length) await selectThread(threads.value[0].id)
+      else await resetThread()
+    }
+  } catch (e) { toast.error(e instanceof Error ? e.message : '删除会话失败') }
 }
 
 async function loadModules() {
@@ -337,22 +400,20 @@ async function loadAgents() {
 
 async function ensureThread() {
   try {
-    const list = await api.agentThreads.list(project.id)
-    if (list.length) {
-      threadId.value = list[0].id
+    const page = await api.agentThreads.page(project.id).catch(async () => ({ threads: await api.agentThreads.list(project.id), next_cursor: '' }))
+    threads.value = page.threads
+    nextCursor.value = page.next_cursor
+    const queryId = typeof route.query.thread === 'string' ? route.query.thread : ''
+    if (threads.value.length) {
+      const selected = threads.value.find((th) => th.id === queryId)
+      threadId.value = selected?.id || threads.value[0].id
     } else {
       const th = await api.agentThreads.create(project.id, '云 Agent')
+      threads.value = [th]
       threadId.value = th.id
     }
-    const msgs = await api.agentThreads.messages(project.id, threadId.value)
-    chatMessages.value = msgs.map((m) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-      toolCalls: m.tool_calls
-    }))
-  } catch (e) {
-    toast.error(e instanceof Error ? e.message : '加载会话失败')
-  }
+    await loadThreadMessages(threadId.value)
+  } catch (e) { toast.error(e instanceof Error ? e.message : '加载会话失败') }
 }
 
 function openCreate() {
@@ -363,6 +424,7 @@ function openCreate() {
     module: first?.id || 'database',
     description: first?.description || '',
     system_prompt: '',
+    model_override: '',
     tool_ids: [...(first?.default_tools || [])]
   }
   modalOpen.value = true
@@ -375,6 +437,7 @@ function openEdit(a: CloudAgent) {
     module: a.module,
     description: a.description,
     system_prompt: a.system_prompt,
+    model_override: a.model_override || '',
     tool_ids: [...(a.tool_ids || [])]
   }
   modalOpen.value = true
@@ -435,8 +498,10 @@ async function resetThread() {
   onStop()
   try {
     const th = await api.agentThreads.create(project.id, '云 Agent')
+    threads.value.unshift(th)
     threadId.value = th.id
     chatMessages.value = []
+    if (router?.replace) void router.replace({ query: { ...route.query, thread: th.id } })
   } catch (e) {
     toast.error(e instanceof Error ? e.message : '新建会话失败')
   }
@@ -447,59 +512,66 @@ async function onSend(text: string, mentions: { agent_id: string }[]) {
   if (!content || sending.value) return
   if (!threadId.value) await ensureThread()
   let used = mentions
-  if (!used.length && activeAgent.value) {
-    used = [{ agent_id: activeAgent.value.id }]
-  }
-  if (!used.length) {
-    toast.warning('请先选择或 @ 一个 Agent')
-    return
-  }
+  if (!used.length && activeAgent.value) used = [{ agent_id: activeAgent.value.id }]
+  if (!used.length) { toast.warning('请先选择或 @ 一个 Agent'); return }
+  lastRequest.value = { content, mentions: [...used] }
   chatMessages.value.push({ role: 'user', content })
   const reply: ChatMsg = { role: 'assistant', content: '', toolCalls: [] }
   chatMessages.value.push(reply)
   sending.value = true
   currentRunId.value = ''
-  conn = api.agentThreads.streamRun(
-    project.id,
-    threadId.value,
-    { content, mentions: used, stream: true },
-    {
-      onRun: (id) => {
-        currentRunId.value = id
-      },
-      onToken: (t) => {
-        reply.content += t
-      },
-      onToolCall: (name, args) => {
-        reply.toolCalls = [...(reply.toolCalls || []), { name, arguments: args }]
-      },
-      onToolResult: (name, body) => {
-        const cards = reply.toolCalls || []
-        const last = [...cards].reverse().find((c) => c.name === name && !c.content)
-        if (last) last.content = body
-        else cards.push({ name, content: body })
-        reply.toolCalls = [...cards]
-      },
-      onEnd: () => {
-        sending.value = false
-        conn = null
-      },
-      onError: (e) => {
-        sending.value = false
-        conn = null
-        if (e) toast.error(e instanceof Error ? e.message : '运行失败')
+  runState.start((handlers) => api.agentThreads.streamRun(
+    project.id, threadId.value, { content, mentions: used, stream: true }, handlers
+  ), {
+    onRun: (id) => { currentRunId.value = id },
+    onThinking: (_ms, content) => { if (content) reply.thinking = (reply.thinking || '') + content },
+    onToken: (t) => { reply.content += t },
+    onToolCall: (name, args, callId) => {
+      if (callId && reply.toolCalls?.some((card) => card.call_id === callId)) return
+      reply.toolCalls = [...(reply.toolCalls || []), { call_id: callId, name, arguments: args }]
+    },
+    onToolResult: (name, body, callId, durationMs) => {
+      const cards = reply.toolCalls || []
+      const target = callId ? cards.find((card) => card.call_id === callId) : [...cards].reverse().find((card) => card.name === name && !card.content)
+      if (target) { target.content = body; target.duration_ms = durationMs }
+      else cards.push({ call_id: callId, name, content: body, duration_ms: durationMs })
+      reply.toolCalls = [...cards]
+    },
+    onEnd: (reason) => {
+      sending.value = false
+      if (reason === 'canceled') reply.canceled = true
+      void api.agentThreads.page(project.id).then((page) => { threads.value = page.threads; nextCursor.value = page.next_cursor }).catch(() => undefined)
+    },
+    onError: (error) => {
+      sending.value = false
+      const e = error as Error & { code?: string }
+      const labels: Record<string, string> = {
+        llm_auth_failed: '模型服务鉴权失败', llm_rate_limited: '模型服务限流，请稍后重试',
+        llm_timeout: '模型响应超时', llm_model_not_allowed: '模型不在允许列表中',
+        agent_thread_busy: '当前会话仍在运行', quota_exceeded: '模型调用配额已用完'
       }
+      reply.error = labels[e?.code || ''] || (e instanceof Error ? e.message : '运行失败')
+      toast.error(reply.error)
     }
-  )
+  })
+}
+
+function retryLast() {
+  if (!lastRequest.value || sending.value) return
+  const last = lastRequest.value
+  const reply = chatMessages.value[chatMessages.value.length - 1]
+  if (reply?.role === 'assistant' && reply.error) chatMessages.value.pop()
+  if (chatMessages.value[chatMessages.value.length - 1]?.role === 'user') chatMessages.value.pop()
+  void onSend(last.content, last.mentions)
 }
 
 function onStop() {
-  conn?.close()
-  conn = null
-  sending.value = false
-  if (currentRunId.value) {
-    void api.agentThreads.cancel(project.id, currentRunId.value).catch(() => undefined)
+  if (sending.value) {
+    const reply = chatMessages.value[chatMessages.value.length - 1]
+    if (reply?.role === 'assistant') reply.canceled = true
   }
+  runState.stop()
+  sending.value = false
 }
 
 onMounted(() => {

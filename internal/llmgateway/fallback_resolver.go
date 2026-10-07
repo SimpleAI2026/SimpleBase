@@ -58,10 +58,11 @@ func instanceProviders(projectID string, in map[string]InstanceProvider) Project
 	}
 	for name, p := range in {
 		pp.Providers = append(pp.Providers, ProviderConfig{
-			Name:    name,
-			APIKey:  p.APIKey,
-			BaseURL: p.BaseURL,
-			Model:   p.DefaultModel,
+			Name:          name,
+			APIKey:        p.APIKey,
+			BaseURL:       p.BaseURL,
+			Model:         p.DefaultModel,
+			AllowedModels: p.AllowedModels,
 		})
 		if pp.Default == "" {
 			pp.Default = name

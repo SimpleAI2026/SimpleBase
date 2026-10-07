@@ -1,6 +1,7 @@
 ---
 title: Go · 对象存储
 order: 14
+group: Go
 ---
 
 # 项目对象存储

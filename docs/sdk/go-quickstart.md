@@ -1,11 +1,12 @@
 ---
 title: Go · 快速开始
 order: 11
+group: Go
 ---
 
 # Go SDK 快速开始
 
-本地先运行 `./build.sh dev`，在控制台创建一个普通用户数据库。开发模式提供种子 API Key `sb_live_dev_key_12345`；不要在生产环境使用或硬编码。设置 `SIMPLEBASE_API_KEY`、`SIMPLEBASE_PROJECT_ID` 和 `SIMPLEBASE_DATABASE_ID` 环境变量（示例项目 ID：`00000000-0000-0000-0000-000000000002`）。
+本地先运行 `./build.sh dev`，在控制台创建一个普通用户数据库。开发模式提供种子 API Key `sb_live_dev_key_12345`；不要在生产环境使用或硬编码。设置 `SIMPLEBASE_API_KEY`、`SIMPLEBASE_PROJECT_ID` 和 `SIMPLEBASE_DATABASE_ID` 环境变量（示例项目 ID：`dev-shop`）。
 
 ```go
 package main

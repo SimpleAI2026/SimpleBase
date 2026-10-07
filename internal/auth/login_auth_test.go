@@ -128,11 +128,11 @@ func (m *memUserRepo) ListAllProjectIDs(_ context.Context) ([]string, error) {
 
 // memSessionRepo 是 SessionRepository 内存假实现。
 type memSessionRepo struct {
-	mu       sync.Mutex
-	byID     map[string]Session
-	byHash   map[string]string
-	byUser   map[string][]string
-	revoked  int
+	mu      sync.Mutex
+	byID    map[string]Session
+	byHash  map[string]string
+	byUser  map[string][]string
+	revoked int
 }
 
 func newMemSessionRepo() *memSessionRepo {
@@ -383,6 +383,45 @@ func TestSessionLoginRefreshRevoke(t *testing.T) {
 	// 全部吊销后新 refresh 也失效
 	if _, _, err := sessions.Refresh(ctx, pair2.RefreshToken, "ua", "1.1.1.1"); err == nil {
 		t.Error("expected revoked session fail")
+	}
+}
+
+func TestSessionPrincipalCacheAndInvalidation(t *testing.T) {
+	ctx := context.Background()
+	repo := newMemUserRepo()
+	users := NewUserService(repo, "tenant-1")
+	sessions := NewSessionService(users, newMemSessionRepo(), "secret", SessionConfig{})
+	u, err := users.Create(ctx, CreateUserInput{Username: "cache-user", Password: "password123", Role: RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := JWTClaims{Subject: u.ID, SessionID: "one", JWTID: "jti-one"}
+	first, err := sessions.PrincipalFromClaims(ctx, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetProjectOwner(ctx, "project-one", u.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	claims.SessionID, claims.JWTID = "two", "jti-two"
+	cached, err := sessions.PrincipalFromClaims(ctx, claims)
+	if err != nil || cached.SessionID != "two" || cached.AccessJTI != "jti-two" || len(cached.ProjectIDs) != len(first.ProjectIDs) {
+		t.Fatalf("cached principal: %+v, %v", cached, err)
+	}
+	users.ProjectsChanged()
+	refreshed, err := sessions.PrincipalFromClaims(ctx, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := refreshed.ProjectIDs["project-one"]; !ok {
+		t.Fatal("project change must invalidate cached principal")
+	}
+	st := UserStatusDisabled
+	if _, err := users.Update(ctx, u.ID, UpdateUserInput{Status: &st}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.PrincipalFromClaims(ctx, claims); !errors.Is(err, ErrUserDisabled) {
+		t.Fatalf("disabled user remained cached: %v", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 ---
 title: 数据库与 SQL
 order: 5
+group: JavaScript
 ---
 
 # 数据库与 SQL

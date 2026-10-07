@@ -130,4 +130,40 @@ describe('httpApi auth/users mapping', () => {
     await httpApi.users.remove('u2')
     expect(httpMock.delete).toHaveBeenCalled()
   })
+
+  it('users get and project api keys list/create/revoke', async () => {
+    httpMock.get.mockResolvedValueOnce({ data: { id: 'u/3', username: 'c', role: 'user', status: 'active' } })
+    expect((await httpApi.users.get('u/3')).username).toBe('c')
+    expect(httpMock.get.mock.calls[0][0]).toBe('/v1/users/u%2F3')
+
+    httpMock.get.mockResolvedValueOnce({
+      data: { keys: [{ id: 'k1', project_id: 'p 1', permissions: ['database:read'], created_at: 't', revoked_at: 'r' }, {}] }
+    })
+    const keys = await httpApi.apiKeys.list('p 1')
+    expect(keys[0]).toEqual({ id: 'k1', projectId: 'p 1', permissions: ['database:read'], createdAt: 't', revokedAt: 'r' })
+    expect(keys[1]).toEqual({ id: '', projectId: '', permissions: [], createdAt: '', revokedAt: undefined })
+    expect(httpMock.get.mock.calls[1][0]).toBe('/v1/projects/p%201/api-keys')
+    httpMock.get.mockResolvedValueOnce({ data: {} })
+    expect(await httpApi.apiKeys.list('p')).toEqual([])
+
+    httpMock.post.mockResolvedValueOnce({ data: { id: 'k2', project_id: 'p', permissions: [], secret: 'sb_live_x' } })
+    expect((await httpApi.apiKeys.create('p', ['database:read'])).secret).toBe('sb_live_x')
+    expect(httpMock.post.mock.calls[0][1]).toEqual({ permissions: ['database:read'] })
+    httpMock.post.mockResolvedValueOnce({ data: { id: 'k3' } })
+    expect((await httpApi.apiKeys.create('p', [])).secret).toBe('')
+    expect(httpMock.post.mock.calls[1][1]).toEqual({ permissions: undefined })
+
+    httpMock.delete.mockResolvedValueOnce({ data: undefined })
+    await httpApi.apiKeys.revoke('p', 'k/2')
+    expect(httpMock.delete).toHaveBeenCalledWith('/v1/projects/p/api-keys/k%2F2')
+  })
+
+  it('downloads sandbox files as raw blobs', async () => {
+    const blob = new Blob([new Uint8Array([0, 255])])
+    httpMock.get.mockResolvedValueOnce({ data: blob })
+    expect(await httpApi.sandboxes.files.download('p', 'sbx-1', '/workspace/a.bin')).toBe(blob)
+    const [url, cfg] = httpMock.get.mock.calls[0]
+    expect(url).toBe('/v1/projects/p/sandboxes/sbx-1/files/content')
+    expect(cfg).toEqual({ params: { path: '/workspace/a.bin' }, responseType: 'blob', headers: { Accept: 'application/octet-stream' } })
+  })
 })

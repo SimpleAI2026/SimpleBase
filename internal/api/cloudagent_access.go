@@ -206,28 +206,36 @@ func newLLMChatClient(svc LLMService) cloudagent.ChatClient {
 	return &llmChatClient{svc: svc}
 }
 
-func (c *llmChatClient) Chat(ctx context.Context, projectID string, req cloudagent.ChatRequest) (cloudagent.ChatResponse, error) {
-	msgs := make([]LLMMessage, len(req.Messages))
-	for i, m := range req.Messages {
-		msgs[i] = LLMMessage{Role: m.Role, Content: m.Content}
+func toLLMRequest(req cloudagent.ChatRequest) LLMRequest {
+	out := LLMRequest{Model: req.Model, MaxTokens: req.MaxTokens, Temperature: req.Temperature}
+	for _, m := range req.Messages {
+		msg := LLMMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		for _, tc := range m.ToolCalls {
+			msg.ToolCalls = append(msg.ToolCalls, LLMToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
+		}
+		out.Messages = append(out.Messages, msg)
 	}
-	resp, err := c.svc.Chat(ctx, projectID, LLMRequest{
-		Model: req.Model, Messages: msgs, MaxTokens: req.MaxTokens, Temperature: req.Temperature,
-	})
+	for _, t := range req.Tools {
+		out.Tools = append(out.Tools, LLMTool{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
+	}
+	return out
+}
+
+func (c *llmChatClient) Chat(ctx context.Context, projectID string, req cloudagent.ChatRequest) (cloudagent.ChatResponse, error) {
+	resp, err := c.svc.Chat(ctx, projectID, toLLMRequest(req))
 	if err != nil {
 		return cloudagent.ChatResponse{}, err
 	}
-	return cloudagent.ChatResponse{Content: resp.Content, Model: resp.Model, Provider: resp.Provider, FinishReason: resp.FinishReason}, nil
+	out := cloudagent.ChatResponse{Content: resp.Content, Model: resp.Model, Provider: resp.Provider, FinishReason: resp.FinishReason,
+		Usage: cloudagent.ChatUsage{PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens, ReasoningTokens: resp.Usage.ReasoningTokens}}
+	for _, tc := range resp.ToolCalls {
+		out.ToolCalls = append(out.ToolCalls, cloudagent.ChatToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
+	}
+	return out, nil
 }
 
 func (c *llmChatClient) Stream(ctx context.Context, projectID string, req cloudagent.ChatRequest) (cloudagent.TokenStream, error) {
-	msgs := make([]LLMMessage, len(req.Messages))
-	for i, m := range req.Messages {
-		msgs[i] = LLMMessage{Role: m.Role, Content: m.Content}
-	}
-	reader, err := c.svc.Stream(ctx, projectID, LLMRequest{
-		Model: req.Model, Messages: msgs, MaxTokens: req.MaxTokens, Temperature: req.Temperature,
-	})
+	reader, err := c.svc.Stream(ctx, projectID, toLLMRequest(req))
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +243,24 @@ func (c *llmChatClient) Stream(ctx context.Context, projectID string, req clouda
 }
 
 type llmTokenStream struct{ r LLMStreamReader }
+
+func (s *llmTokenStream) NextDelta() (cloudagent.StreamDelta, error) {
+	chunk, err := s.r.Next()
+	if err != nil {
+		return cloudagent.StreamDelta{}, err
+	}
+	if chunk == nil {
+		return cloudagent.StreamDelta{}, nil
+	}
+	out := cloudagent.StreamDelta{Content: chunk.Content, Finish: chunk.Done || chunk.Type == "end"}
+	if chunk.Type == "tool_call_delta" {
+		out.ToolCall = &cloudagent.ToolCallDelta{Index: chunk.ToolCallIndex, ID: chunk.ToolCallID, Name: chunk.ToolCallName, ArgsDelta: chunk.ToolCallArgs}
+	}
+	if chunk.Usage != nil {
+		out.Usage = &cloudagent.ChatUsage{PromptTokens: chunk.Usage.PromptTokens, CompletionTokens: chunk.Usage.CompletionTokens, ReasoningTokens: chunk.Usage.ReasoningTokens}
+	}
+	return out, nil
+}
 
 func (s *llmTokenStream) Next() (string, bool, error) {
 	chunk, err := s.r.Next()
@@ -244,8 +270,7 @@ func (s *llmTokenStream) Next() (string, bool, error) {
 	if chunk == nil {
 		return "", false, nil
 	}
-	finish := chunk.Type == "end" || chunk.FinishReason != ""
-	return chunk.Content, finish, nil
+	return chunk.Content, chunk.Done || chunk.Type == "end" || chunk.FinishReason != "", nil
 }
 
 func (s *llmTokenStream) Close() error { return s.r.Close() }

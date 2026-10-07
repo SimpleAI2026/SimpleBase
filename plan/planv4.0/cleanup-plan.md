@@ -196,7 +196,7 @@
 | `docs/ops/migration.md` | 文件头已自标 Deprecated 存档，README 链接有效 |
 | `gofunction/` 解释器全部文件（含 testdata/、value/、importer/） | `go build`/`go vet` 全量通过；生产链路 RunJSON/ResolveActiveSource 活跃；`packages/` blank import 被 app.go 依赖 |
 | `benchmarks/gofunction`（含 7 个 Benchmark） | 原 `examples/gofunction` 迁移至独立压测目录，仍纳入 `go test ./...` |
-| `examples/shop-service`、`mini-game-service`、`booking-service`、`community-service`、`ticket-service` | 新业务案例，分别覆盖数据库、KV、云函数、定时任务和可信 BFF/私有前端产物 |
+| `examples/shop`、`community`、`iot-telemetry`、`ops-assistant`、`lib` | 四个独立业务案例及清单驱动初始化共用模块；旧五案例已依照 `examples-business-cases-plan.md` §7 M5 清理 |
 | `mock.js` + `mock-kv.js`（2125 行） | `VITE_USE_MOCK` 开关的 mock 实现，与 http-api 同 `Api` 接口签名（ui/AGENTS.md 约定） |
 | UI 业务组件 `ai/AiChat`、`ai/AgentScheduleModal`、`ProjectScope` | 分别被 `AgentManager.vue`（AiChat×2 处）、`AgentManager.vue`、7 个页面消费——**易被误判为 /llm 退役遗留，实际全部活跃** |
 | UI `src/docs/`（DocsWiki 数据源） | DocsWiki.vue 经 catalog.ts 渲染 `docs/<module>/*.md` |

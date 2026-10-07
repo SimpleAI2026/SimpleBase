@@ -1,4 +1,9 @@
-# SimpleBase 迁移指南
+---
+title: 迁移指南（历史存档）
+order: 99
+---
+
+# SimpleBase 迁移指南（历史存档）
 
 > **Deprecated（历史存档）**：本文描述的是 LessDB/ha-sqlite → Turso/libSQL + S3 的第一次迁移。Turso/libSQL 引擎已退役；当前运行时是 DuckLake-only + S3。保留本文仅供归档查阅，不要当作现行部署指南。
 

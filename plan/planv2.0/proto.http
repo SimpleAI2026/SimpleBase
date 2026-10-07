@@ -201,7 +201,7 @@ Content-Type: application/json
 # Authorization: {{auth}}
 
 ### =====================================================================
-### 4. S3 对象存储
+### 4. 对象存储
 ###
 ### 项目隔离：服务端自动在物理 key 前拼 {projectID}/，返回的 key 已剥掉项目段。
 ### 字段命名例外：本组用 camelCase lastModified（其余接口为 snake_case）。

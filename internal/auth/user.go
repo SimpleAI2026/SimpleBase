@@ -82,9 +82,11 @@ type UserRepository interface {
 
 // UserService 提供账号管理与登录校验。
 type UserService struct {
-	repo   UserRepository
-	tenant string // 默认租户（ReservedTenantID）
-	now    func() time.Time
+	repo             UserRepository
+	tenant           string // 默认租户（ReservedTenantID）
+	now              func() time.Time
+	onChange         func(string)
+	onProjectsChange func()
 }
 
 // NewUserService 构造 UserService。
@@ -96,6 +98,29 @@ func NewUserService(repo UserRepository, tenantID string) *UserService {
 func (s *UserService) WithClock(now func() time.Time) *UserService {
 	s.now = now
 	return s
+}
+
+// OnChange 设置用户和项目归属变更后的缓存失效通知。
+func (s *UserService) OnChange(fn func(string)) {
+	s.onChange = fn
+}
+
+// ProjectsChanged 在项目新增后使管理员的项目集合立即刷新。
+func (s *UserService) ProjectsChanged() {
+	if s.onProjectsChange != nil {
+		s.onProjectsChange()
+	}
+}
+
+// OnProjectsChange 注册全局项目集合变更回调。
+func (s *UserService) OnProjectsChange(fn func()) {
+	s.onProjectsChange = fn
+}
+
+func (s *UserService) changed(userID string) {
+	if s.onChange != nil {
+		s.onChange(userID)
+	}
 }
 
 func normalizeUsername(u string) string { return strings.ToLower(strings.TrimSpace(u)) }
@@ -229,6 +254,7 @@ func (s *UserService) Update(ctx context.Context, id string, in UpdateUserInput)
 	if err := s.repo.Update(ctx, u); err != nil {
 		return User{}, err
 	}
+	s.changed(id)
 	return u, nil
 }
 
@@ -257,7 +283,11 @@ func (s *UserService) ChangePassword(ctx context.Context, id, oldPassword, newPa
 	u.PasswordHash = hash
 	u.MustChangePassword = false
 	u.UpdatedAt = s.now().UTC()
-	return s.repo.Update(ctx, u)
+	if err := s.repo.Update(ctx, u); err != nil {
+		return err
+	}
+	s.changed(id)
+	return nil
 }
 
 // VerifyCredentials 校验用户名口令，返回用户。错误统一语义防枚举。
@@ -292,7 +322,11 @@ func (s *UserService) AssignProjectOwner(ctx context.Context, projectID, userID 
 	if projectID == "" || userID == "" {
 		return errors.New("auth: project and user required")
 	}
-	return s.repo.SetProjectOwner(ctx, projectID, userID, s.now().UTC())
+	if err := s.repo.SetProjectOwner(ctx, projectID, userID, s.now().UTC()); err != nil {
+		return err
+	}
+	s.ProjectsChanged() // owner 转移时旧 owner 的权限也必须立即失效。
+	return nil
 }
 
 // ProjectIDsFor 根据角色展开 Principal.ProjectIDs。

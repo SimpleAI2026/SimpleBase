@@ -40,7 +40,7 @@ LLM 请求体（chat/stream 相同）：
 - SSE 帧兼容三种 chunk 结构：`{delta}`、`{content}`、OpenAI 风格 `{choices:[{delta:{content}}]}`。
 - 以上 LLM 路径与后端 `internal/api/llm_handler.go` 实现一一对应（非约定待实现）。
 
-S3 对象存储路径说明：
+对象存储路径说明：
 - 路由挂在 `/v1/projects/:projectId/s3/*` 下，与其他业务路由一致，通过 API Key 认证 + project context 中间件。
 - **项目隔离**：handler 层自动把 `{projectId}/` 拼到用户 key 前面作为物理前缀，用户可见的 key 不含项目段。
 - 后端实现：`internal/objectstore/filestore.go`（`FileStore` 接口 + S3 实现 + DevMode 内存实现），`internal/api/s3_handler.go`（HTTP handler）。

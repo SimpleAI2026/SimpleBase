@@ -8,12 +8,14 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/kv"
 	"github.com/linkxzhou/SimpleBase/internal/database/lease"
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/sandbox"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -64,12 +66,50 @@ func Error(err error, requestID string) *APIError {
 	if apiErr := mapEchoError(err, requestID); apiErr != nil {
 		return apiErr
 	}
+	// 云 Agent 错误码只使用固定文案，不将上游原文传给前端。
+	var agentError *cloudagent.RunError
+	if errors.Is(err, cloudagent.ErrThreadBusy) || errors.As(err, &agentError) {
+		re := cloudagent.ClassifyError(err)
+		known := map[string]int{
+			"agent_thread_busy":     http.StatusConflict,
+			"llm_not_configured":    http.StatusServiceUnavailable,
+			"llm_auth_failed":       http.StatusBadGateway,
+			"llm_rate_limited":      http.StatusTooManyRequests,
+			"llm_model_not_allowed": http.StatusBadRequest,
+			"llm_timeout":           http.StatusGatewayTimeout,
+		}
+		if status, ok := known[re.Code]; ok {
+			return NewAPIError(status, re.Code, re.Message, requestID)
+		}
+	}
 	// context 语义
 	if errors.Is(err, context.Canceled) {
 		return NewAPIError(http.StatusServiceUnavailable, "request_canceled", "request canceled", requestID)
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return NewAPIError(http.StatusGatewayTimeout, "request_timeout", "request timed out", requestID)
+	}
+	// 云沙盒领域错误（planv4.0 cloud-sandbox-plan §7.3）；不透传 SDK 内部路径。
+	for _, mapping := range []struct {
+		target        error
+		status        int
+		code, message string
+	}{
+		{sandbox.ErrUnavailable, http.StatusServiceUnavailable, "sandbox_unavailable", "cloud sandbox is unavailable"},
+		{sandbox.ErrNotFound, http.StatusNotFound, "sandbox_not_found", "sandbox not found"},
+		{sandbox.ErrFileNotFound, http.StatusNotFound, "sandbox_file_not_found", "file not found"},
+		{sandbox.ErrNameConflict, http.StatusConflict, "sandbox_name_conflict", "sandbox name already exists"},
+		{sandbox.ErrLimitExceeded, http.StatusTooManyRequests, "sandbox_limit_exceeded", "sandbox limit exceeded"},
+		{sandbox.ErrInvalidSpec, http.StatusBadRequest, "sandbox_invalid_spec", "invalid sandbox specification"},
+		{sandbox.ErrInvalidPath, http.StatusBadRequest, "sandbox_invalid_path", "invalid sandbox path"},
+		{sandbox.ErrFileTooLarge, http.StatusRequestEntityTooLarge, "sandbox_file_too_large", "sandbox file too large"},
+		{sandbox.ErrBusy, http.StatusConflict, "sandbox_busy", "sandbox is busy"},
+		{sandbox.ErrGone, http.StatusGone, "sandbox_gone", "sandbox has expired"},
+		{sandbox.ErrBackend, http.StatusBadGateway, "sandbox_backend_error", "sandbox backend error"},
+	} {
+		if errors.Is(err, mapping.target) {
+			return NewAPIError(mapping.status, mapping.code, mapping.message, requestID)
+		}
 	}
 	// auth 错误
 	if errors.Is(err, auth.ErrMissingCredentials) {
@@ -158,6 +198,9 @@ func Error(err error, requestID string) *APIError {
 	// 写租约获取在途（perf §1.5）：503 + Retry-After，客户端应稍后重试。
 	if errors.Is(err, lease.ErrAcquiring) {
 		return NewAPIError(http.StatusServiceUnavailable, "lease_acquiring", "write lease acquisition in progress; retry shortly", requestID)
+	}
+	if errors.Is(err, lease.ErrLeaseHeld) {
+		return NewAPIError(http.StatusServiceUnavailable, "lease_held", "write lease held by another instance; retry shortly", requestID)
 	}
 	if errors.Is(err, database.ErrRowLimitExceeded) {
 		return NewAPIError(422, "row_limit_exceeded", "query row limit exceeded", requestID)

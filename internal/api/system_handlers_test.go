@@ -120,6 +120,12 @@ func TestMetricsAndLogsHandlers(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("summary %d %s", rec.Code, rec.Body.String())
 	}
+	// 无直方图样本时分位数为 null（不能误报 0ms），并带超量程阈值。
+	for _, want := range []string{`"latency_p50_ms":null`, `"latency_p99_ms":null`, `"latency_sample_count":0`, `"latency_overflow_ms":30000`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("summary body missing %s: %s", want, rec.Body.String())
+		}
+	}
 	rec = doRequest(e, http.MethodGet, "/metrics/trend", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("trend %d %s", rec.Code, rec.Body.String())
@@ -296,13 +302,16 @@ func TestSystemHandlers_StoreErrors(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	store := systemdb.NewStoreForTest(db)
 	e := setupSystemRouter(t, store, true, true)
-	for _, path := range []string{"/metrics/summary", "/metrics/trend", "/logs", "/logs/retention", "/settings", "/settings/global", "/llm/sessions", "/llm/settings"} {
+	for _, path := range []string{"/metrics/trend", "/logs", "/logs/retention", "/settings", "/settings/global", "/llm/sessions", "/llm/settings"} {
 		rec := doRequest(e, http.MethodGet, path, nil)
 		if rec.Code == http.StatusOK {
 			// some getters return zero values on missing tables? fail if unexpectedly OK with empty schema
-			// MetricsSummary swallows scan errors and still returns 200.
 			continue
 		}
+	}
+	// MetricsSummary 不再吞查询错误：空 schema 必须返回非 200。
+	if rec := doRequest(e, http.MethodGet, "/metrics/summary", nil); rec.Code == http.StatusOK {
+		t.Fatalf("summary on empty schema should fail, got %s", rec.Body.String())
 	}
 	rec := doRequest(e, http.MethodPut, "/settings", map[string]any{"key": "k", "value_json": "1"})
 	if rec.Code == http.StatusOK {

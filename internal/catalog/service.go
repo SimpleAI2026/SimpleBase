@@ -403,37 +403,19 @@ func (s *Service) CreateProject(ctx context.Context, principal auth.Principal, i
 // API Key：ProjectAdmin 为租户内 + admin，否则仅绑定 ProjectIDs。
 // §7.2 P1.1：project 中间件已在 ctx 注入解析过的 tenant，命中时免重复点查。
 func (s *Service) ensureProjectAccess(ctx context.Context, principal auth.Principal, projectID string) error {
-	if principal.Role.IsUser() {
-		if IsSystemProject(projectID) {
-			return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
-		}
-		if !principal.CanAccessProject(projectID) {
-			return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
-		}
-		return nil
+	if principal.TenantID == "" {
+		return fmt.Errorf("%w: tenant required", ErrInvalidName)
 	}
-	if IsSystemProject(projectID) {
-		if principal.Role.IsSuper() || principal.Role.IsAdmin() {
-			return nil
+	if principal.Role.IsSuper() || principal.Role.IsAdmin() || (!principal.Role.IsUser() && principal.HasPermission(auth.ProjectAdmin)) {
+		if err := s.ensureTenantMatch(ctx, principal, projectID); err != nil {
+			return err
 		}
-		if principal.HasPermission(auth.ProjectAdmin) {
+		if auth.CheckProjectAccess(principal, projectID, principal.TenantID, IsSystemProject(projectID)) {
 			return nil
 		}
 		return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
 	}
-	if principal.Role.IsSuper() || principal.Role.IsAdmin() {
-		if principal.TenantID == "" {
-			return fmt.Errorf("%w: tenant required", ErrInvalidName)
-		}
-		return s.ensureTenantMatch(ctx, principal, projectID)
-	}
-	if principal.HasPermission(auth.ProjectAdmin) {
-		if principal.TenantID == "" {
-			return fmt.Errorf("%w: tenant required", ErrInvalidName)
-		}
-		return s.ensureTenantMatch(ctx, principal, projectID)
-	}
-	if !principal.CanAccessProject(projectID) {
+	if !auth.CheckProjectAccess(principal, projectID, principal.TenantID, IsSystemProject(projectID)) {
 		return fmt.Errorf("%w: project %s", ErrCrossProject, projectID)
 	}
 	return nil

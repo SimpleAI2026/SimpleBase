@@ -30,6 +30,8 @@ type ProviderConfig struct {
 	APIKey  string `json:"api_key"` // 解密后的密钥；不写入日志
 	BaseURL string `json:"base_url"`
 	Model   string `json:"model"`
+	// AllowedModels 非空时，请求的 model 必须在列表内（planv4.0 cloud-agent-optimization-plan §4.7）。
+	AllowedModels []string `json:"allowed_models,omitempty"`
 }
 
 // ProjectProviders 描述一个 project 可用的供应商集合。
@@ -45,6 +47,8 @@ type Request struct {
 	Messages    []providers.Message
 	MaxTokens   *int
 	Temperature *float64
+	// Tools 非空时走原生 function calling。
+	Tools []providers.Tool
 }
 
 // Response 映射 providers.Response。
@@ -54,6 +58,7 @@ type Response struct {
 	Model        string
 	Provider     string
 	FinishReason string
+	ToolCalls    []providers.ToolCall
 }
 
 // Usage 是 LLM token 用量。
@@ -61,6 +66,7 @@ type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
+	ReasoningTokens  int
 }
 
 // StreamReader 抽象流式读取。
@@ -171,11 +177,15 @@ func (s *service) Chat(ctx context.Context, projectID string, req Request) (Resp
 	if model == "" {
 		model = cfg.Model
 	}
+	if err := checkModelAllowed(cfg, model); err != nil {
+		return Response{}, err
+	}
 	lreq := &providers.Request{
 		Model:       model,
 		Messages:    req.Messages,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
+		Tools:       req.Tools,
 	}
 	resp, err := c.Chat(ctx, lreq)
 	if err != nil {
@@ -186,10 +196,12 @@ func (s *service) Chat(ctx context.Context, projectID string, req Request) (Resp
 		Model:        resp.Model,
 		Provider:     resp.Provider,
 		FinishReason: resp.FinishReason,
+		ToolCalls:    resp.ToolCalls,
 		Usage: Usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
+			ReasoningTokens:  resp.Usage.ReasoningTokens,
 		},
 	}
 	if s.recorder != nil {
@@ -214,11 +226,15 @@ func (s *service) Stream(ctx context.Context, projectID string, req Request) (St
 	if model == "" {
 		model = cfg.Model
 	}
+	if err := checkModelAllowed(cfg, model); err != nil {
+		return nil, err
+	}
 	lreq := &providers.Request{
 		Model:       model,
 		Messages:    req.Messages,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
+		Tools:       req.Tools,
 	}
 	reader, err := c.Stream(ctx, lreq)
 	if err != nil {
@@ -252,6 +268,20 @@ func (s *service) ListProviders(ctx context.Context, projectID string) ([]string
 
 // 错误定义。
 var (
-	ErrNoProviders     = errors.New("llmgateway: no providers configured for project")
+	ErrNoProviders      = errors.New("llmgateway: no providers configured for project")
 	ErrProviderNotFound = errors.New("llmgateway: provider not found")
+	ErrModelNotAllowed  = errors.New("llmgateway: model not allowed")
 )
+
+// checkModelAllowed 在发上游前校验白名单；列表为空表示不限制。
+func checkModelAllowed(cfg ProviderConfig, model string) error {
+	if len(cfg.AllowedModels) == 0 || model == "" {
+		return nil
+	}
+	for _, m := range cfg.AllowedModels {
+		if m == model {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s", ErrModelNotAllowed, model)
+}

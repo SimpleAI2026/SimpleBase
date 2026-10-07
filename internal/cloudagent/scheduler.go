@@ -61,7 +61,7 @@ type Scheduler struct {
 
 	tick time.Duration
 
-	mu      sync.Mutex
+	mu       sync.Mutex
 	inFlight map[string]struct{}
 	wg       sync.WaitGroup
 }
@@ -250,6 +250,19 @@ func (s *Scheduler) execute(ctx context.Context, sc systemdb.AgentSchedule, trig
 		History: hist, Stream: false,
 	}, nil)
 	fin := time.Now().UTC()
+	// 旧 ScheduleStore fake 无指标写入方法，真实 Store 支持时同步记录。
+	if metrics, ok := s.Store.(interface {
+		UpdateAgentRunMetrics(context.Context, string, string, systemdb.AgentRun) error
+	}); ok {
+		code := ""
+		if err != nil {
+			code = ClassifyError(err).Code
+		}
+		_ = metrics.UpdateAgentRunMetrics(ctx, sc.ProjectID, agentRun.ID, systemdb.AgentRun{
+			DurationMS: res.DurationMS, PromptTokens: res.PromptTokens, CompletionTokens: res.CompletionTokens,
+			ReasoningTokens: res.ReasoningTokens, ToolCalls: res.ToolCalls, ErrorCode: code,
+		})
+	}
 	if err != nil {
 		status := systemdb.AgentRunFailed
 		if strings.Contains(err.Error(), "context canceled") {

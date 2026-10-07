@@ -103,7 +103,7 @@ func TestLoadSucceedsWithCompleteConfig(t *testing.T) {
 	if cfg.Database.DuckLake.MemoryLimit != "512MB" {
 		t.Fatalf("unexpected ducklake memory_limit: %s", cfg.Database.DuckLake.MemoryLimit)
 	}
-	if cfg.Database.DuckLake.CatalogSync.Mode != "debounce" {
+	if cfg.Database.DuckLake.CatalogSync.Mode != "interval" {
 		t.Fatalf("unexpected sync mode: %s", cfg.Database.DuckLake.CatalogSync.Mode)
 	}
 }

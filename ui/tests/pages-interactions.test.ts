@@ -203,7 +203,7 @@ describe('page template interactions', () => {
     const { wrapper } = await mountWithApp(Dashboard)
     expect(wrapper.text()).toContain('资源类型')
     await clickText(wrapper, '刷新数据')
-    expect(wrapper.text()).toContain('S3 对象存储')
+    expect(wrapper.text()).toContain('对象存储')
     wrapper.unmount()
   })
 })

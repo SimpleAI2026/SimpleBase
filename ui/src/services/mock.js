@@ -60,7 +60,9 @@ const genProjectId = () => {
 }
 
 const state = {
-  sandboxAvailable: false,
+  sandboxAvailable: true,
+  sandboxes: [],
+  sandboxFiles: {},
   databases: [
     { id: 'db-default', name: 'default', status: 'ready', createdAt: now(), updatedAt: now(), documentCount: 8 },
     { id: 'db-analytics', name: 'analytics', status: 'ready', createdAt: now(), updatedAt: now() }
@@ -522,6 +524,108 @@ export const mockApi = {
       state.gofunctions.splice(i, 1)
     }
   },
+  sandboxes: {
+    async capabilities() {
+      await delay(20)
+      return { available: state.sandboxAvailable, backend: 'fake', images: ['python:3.12-slim'],
+        defaultImage: 'python:3.12-slim', cpusMax: 4, memoryMiBMax: 4096, execTimeoutMaxS: 300,
+        maxFileBytes: 1048576, maxOutputBytes: 65536, maxPerProject: 5, networkOptions: ['none'] }
+    },
+    async list(projectId, status, source) {
+      await delay(20)
+      return state.sandboxes.filter((s) => s._projectId === projectId && (!status || s.status === status) && (!source || s.source === source))
+    },
+    async create(projectId, body) {
+      await delay(20)
+      if (!state.sandboxAvailable) throw new Error('云沙盒未启用')
+      const id = 'sbx-' + genId()
+      const item = { id, name: body.name || id, cloudName: id, source: 'console', status: body.start ? 'running' : 'pending',
+        image: body.image || 'python:3.12-slim', cpus: body.cpus || 1, memoryMiB: body.memoryMiB || 256,
+        network: body.network || 'none', idleTimeoutS: body.idleTimeoutS || 300, maxDurationS: 1800,
+        createdAt: now(), _projectId: projectId }
+      state.sandboxes.push(item)
+      state.sandboxFiles[id] = {}
+      return item
+    },
+    async get(projectId, id) {
+      await delay(20)
+      const item = state.sandboxes.find((s) => s._projectId === projectId && s.id === id)
+      if (!item) throw new Error('云沙盒不存在')
+      return item
+    },
+    async update(projectId, id, body) {
+      const item = await this.get(projectId, id)
+      Object.assign(item, body)
+      return item
+    },
+    async remove(projectId, id) {
+      await this.get(projectId, id)
+      state.sandboxes = state.sandboxes.filter((s) => s.id !== id)
+      delete state.sandboxFiles[id]
+    },
+    async start(projectId, id) {
+      const item = await this.get(projectId, id)
+      item.status = 'running'
+      return item
+    },
+    async stop(projectId, id) {
+      const item = await this.get(projectId, id)
+      item.status = 'stopped'
+      return item
+    },
+    async exec(projectId, id, body) {
+      const item = await this.start(projectId, id)
+      const cmd = body.command.trim()
+      let stdout = ''
+      let stderr = ''
+      let exitCode = 0
+      if (cmd.startsWith('echo ')) stdout = cmd.slice(5) + '\n'
+      else if (cmd.startsWith('cat ')) {
+        const file = '/workspace/' + cmd.slice(4).trim()
+        if (state.sandboxFiles[id][file] == null) { stderr = '文件不存在\n'; exitCode = 1 }
+        else {
+          const data = state.sandboxFiles[id][file]
+          stdout = data instanceof Uint8Array ? new TextDecoder().decode(data) : data
+        }
+      } else if (cmd === 'ls') stdout = Object.keys(state.sandboxFiles[id]).map((path) => path.split('/').at(-1)).join('\n') + '\n'
+      else { stderr = '命令不存在\n'; exitCode = 127 }
+      return { exitCode, stdout, stderr, stdoutTruncated: false, stderrTruncated: false,
+        timedOut: false, durationMs: 1, status: item.status }
+    },
+    files: {
+      async list(projectId, id, path) {
+        await mockApi.sandboxes.get(projectId, id)
+        return Object.entries(state.sandboxFiles[id]).filter(([p]) => p.startsWith(path + '/'))
+          .map(([p, content]) => ({ name: p.split('/').at(-1), path: p, kind: 'file', size: content.length }))
+      },
+      async read(projectId, id, path) {
+        await mockApi.sandboxes.get(projectId, id)
+        if (state.sandboxFiles[id][path] == null) throw new Error('文件不存在')
+        const data = state.sandboxFiles[id][path]
+        return data instanceof Uint8Array
+          ? { content: '', encoding: 'base64', truncated: false }
+          : { content: data, encoding: 'utf8', truncated: false }
+      },
+      async download(projectId, id, path) {
+        await mockApi.sandboxes.get(projectId, id)
+        const file = state.sandboxFiles[id][path]
+        if (file == null) throw new Error('文件不存在')
+        return new Blob([file], { type: 'application/octet-stream' })
+      },
+      async write(projectId, id, path, content) {
+        await mockApi.sandboxes.start(projectId, id)
+        state.sandboxFiles[id][path] = content
+      },
+      async upload(projectId, id, path, content) {
+        await mockApi.sandboxes.start(projectId, id)
+        state.sandboxFiles[id][path] = new Uint8Array(content)
+      },
+      async remove(projectId, id, path) {
+        await mockApi.sandboxes.get(projectId, id)
+        delete state.sandboxFiles[id][path]
+      }
+    }
+  },
   // 定时任务（ui-cronjob-plan §7.5）：mock 不追求排期精确，trigger 直接落 completed run
   cronjobs: {
     async list(projectId) {
@@ -703,11 +807,17 @@ export const mockApi = {
   metrics: {
     async summary(_projectId) {
       await delay()
+      const p50 = rand(12, 40)
       return {
         totalRequests: rand(8000, 20000),
         errorRate: +(Math.random() * 2).toFixed(2),
         avgLatencyMs: rand(18, 120),
-        activeDatabases: state.databases.length
+        activeDatabases: state.databases.length,
+        latencyP50Ms: p50,
+        latencyP90Ms: p50 + rand(40, 120),
+        latencyP99Ms: p50 + rand(200, 800),
+        latencySampleCount: rand(6000, 18000),
+        latencyOverflowMs: 30000
       }
     },
     async trend(_projectId) {
@@ -1025,6 +1135,14 @@ export const mockApi = {
       await delay()
       return state.agentThreads.filter((t) => t._projectId === projectId).map((t) => ({ ...t }))
     },
+    async page(projectId, limit = 50, cursor = '') {
+      await delay()
+      const all = state.agentThreads.filter((t) => t._projectId === projectId)
+      const start = cursor ? all.findIndex((t) => t.id === cursor) + 1 : 0
+      if (cursor && start === 0) throw new Error('invalid cursor')
+      const threads = all.slice(start, start + limit).map((t) => ({ ...t }))
+      return { threads, next_cursor: all.length > start + limit ? threads[threads.length - 1].id : '' }
+    },
     async create(projectId, title) {
       await delay()
       const row = { id: 'th-' + genId(), title: title || 'New thread', created_at: now(), updated_at: now(), _projectId: projectId }
@@ -1037,20 +1155,31 @@ export const mockApi = {
       if (!row) throw new Error('thread not found')
       return { ...row }
     },
+    async rename(projectId, threadId, title) {
+      const row = state.agentThreads.find((t) => t.id === threadId && t._projectId === projectId)
+      if (!row) throw new Error('thread not found')
+      row.title = title
+      row.updated_at = now()
+      return { ...row }
+    },
     async remove(projectId, threadId) {
       state.agentThreads = state.agentThreads.filter((t) => t.id !== threadId)
+    },
+    async runs(projectId, threadId) {
+      await delay()
+      return state.agentThreads.some((t) => t.id === threadId && t._projectId === projectId) ? [] : []
     },
     async messages(projectId, threadId) {
       await delay()
       return (state.agentMessages[threadId] || []).map((m) => ({ ...m }))
     },
-    streamRun(projectId, threadId, req, { onToken, onToolCall, onToolResult, onEnd, onError }) {
+    streamRun(projectId, threadId, req, { onToken, onToolCall, onToolResult, onUsage, onEnd, onError }) {
       const text = `Mock 流式回复：${String(req.content || '').slice(0, 40)}`
       const chunks = text.match(/[\s\S]{1,4}/g) || []
       let i = 0
       let closed = false
-      onToolCall?.('list_databases', '{}')
-      onToolResult?.('list_databases', '[{"name":"default"}]')
+      onToolCall?.('list_databases', '{}', 'mock-call-1')
+      onToolResult?.('list_databases', '[{"name":"default"}]', 'mock-call-1')
       const timer = setInterval(() => {
         if (closed) return
         if (i >= chunks.length) {
@@ -1059,7 +1188,8 @@ export const mockApi = {
           const msgs = state.agentMessages[threadId] || (state.agentMessages[threadId] = [])
           msgs.push({ id: 'm-' + genId(), role: 'user', content: req.content, mentions: req.mentions, created_at: now() })
           msgs.push({ id: 'm-' + genId(), role: 'assistant', content: text, created_at: now() })
-          onEnd?.()
+          onUsage?.({ duration_ms: chunks.length * 50, prompt_tokens: 12, completion_tokens: chunks.length, reasoning_tokens: 0, tool_calls: 1 })
+          onEnd?.('stop')
           return
         }
         try {

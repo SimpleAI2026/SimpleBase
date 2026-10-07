@@ -1,6 +1,7 @@
 ---
 title: 对象存储
 order: 7
+group: JavaScript
 ---
 
 # 对象存储（S3）

@@ -62,7 +62,7 @@ describe('Dashboard (监控大盘)', () => {
     // 资源汇总：只展示类型与数量，不列明细名称
     expect(wrapper.text()).toContain('资源类型')
     expect(wrapper.text()).toContain('数据库')
-    expect(wrapper.text()).toContain('S3 对象存储')
+    expect(wrapper.text()).toContain('对象存储')
     expect(wrapper.text()).toContain('云函数')
     expect(wrapper.text()).toContain('定时任务')
     expect(wrapper.text()).toContain('云 Agent')
@@ -136,6 +136,36 @@ describe('Dashboard (监控大盘)', () => {
     expect(wrapper.text()).toContain('暂无趋势数据')
     expect(wrapper.text()).toContain('资源类型')
     expect(wrapper.text()).toContain('云 Agent')
+  })
+
+  it('shows P50/P90/P99 latency percentiles with overflow and seconds formatting', async () => {
+    api.metrics.summary.mockResolvedValue({
+      totalRequests: 100,
+      errorRate: 0,
+      avgLatencyMs: 50,
+      activeDatabases: 1,
+      latencyP50Ms: 18.4,
+      latencyP90Ms: 1520,
+      latencyP99Ms: 30000,
+      latencySampleCount: 100,
+      latencyOverflowMs: 30000
+    })
+    const { wrapper } = await mountWithApp(Dashboard)
+    const block = wrapper.get('[data-testid="latency-percentiles"]').text()
+    expect(block).toContain('接口耗时分位数')
+    expect(block).toContain('全项目所有接口 · 近 24 小时 · 估算值')
+    expect(block).toContain('样本 100')
+    expect(block).toContain('P50')
+    expect(block).toContain('18ms')
+    expect(block).toContain('1.52s')
+    expect(block).toContain('≥30s')
+  })
+
+  it('shows empty state when no latency samples (老数据/字段缺失)', async () => {
+    const { wrapper } = await mountWithApp(Dashboard)
+    const block = wrapper.get('[data-testid="latency-percentiles"]').text()
+    expect(block).toContain('暂无近 24 小时接口样本')
+    expect(block).not.toContain('0ms')
   })
 
   it('reloads when the project changes', async () => {

@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { defaultModuleId, defaultSlug, getPage } from '@/docs/catalog'
 import { uiStubs } from '@/test/helpers'
 import DocsArticle from '@/components/docs/DocsArticle.vue'
@@ -49,13 +49,6 @@ describe('docs components', () => {
     })
     expect(missing.text()).toMatch(/没有正文|缺失|未找到/)
 
-    vi.mock('@/docs/catalog', async (orig) => {
-      const actual = await orig()
-      return {
-        ...actual,
-        loadMarkdownRaw: () => '   '
-      }
-    })
   })
 
   it('builds sidebar links', async () => {
@@ -74,5 +67,12 @@ describe('docs components', () => {
     })
     expect(side.html()).toContain('/docs/ops')
     expect(side.html()).toContain('/docs/ops/deploy')
+    await side.setProps({ pages: [
+      { moduleId: 'ops', slug: 'index', title: 'Index', order: 0, filePath: 'ops/index.md' },
+      { moduleId: 'ops', slug: 'deploy', title: 'Deploy', order: 1, filePath: 'ops/deploy.md', group: 'Guides' },
+      { moduleId: 'ops', slug: 'logs', title: 'Logs', order: 2, filePath: 'ops/logs.md', group: 'Guides' }
+    ] })
+    expect(side.text()).toContain('Guides')
+    expect(side.findAll('p').filter((p) => p.text() === 'Guides')).toHaveLength(1)
   })
 })

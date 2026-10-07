@@ -24,7 +24,7 @@ instance:
                               # 注意：改变 id 等价于换全新空存储；启动检测会拒绝（需走迁移流程）
   writable: true              # SIMPLEBASE_INSTANCE_WRITABLE；单写实例必须为 true
   lease:                      # per-database 写租约（multi-instance-consistency-plan §4.6）
-    enabled: true             # SIMPLEBASE_INSTANCE_LEASE_ENABLED；writable + 配置 S3 时生效
+    enabled: false            # SIMPLEBASE_INSTANCE_LEASE_ENABLED；仅单实例默认关闭，多实例须显式开启
     ttl: 30s                  # SIMPLEBASE_INSTANCE_LEASE_TTL；持租判活窗口
     renew_interval: 10s       # SIMPLEBASE_INSTANCE_LEASE_RENEW_INTERVAL；建议 ttl/3
     grace: 10s                # SIMPLEBASE_INSTANCE_LEASE_GRACE；观察式判活的等待窗口
@@ -46,15 +46,16 @@ database:
     memory_limit: 512MB       # SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT
     threads: 2                # SIMPLEBASE_DUCKLAKE_THREADS
     extension_dir: ""         # SIMPLEBASE_DUCKLAKE_EXTENSION_DIR（生产预置扩展）
-    data_inlining_row_limit: 0   # SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT；远端模式必须为 0（代码强制归零）：
-                                 # 内联会把用户数据行写进 catalog，catalog 覆盖/丢失即丢数据。
-                                 # 见 plan/planv3.0/multi-instance-consistency-plan.md §4.2。本地/DevMode 可保留 100。
+    data_inlining_row_limit: 1000 # SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT；小写入内联在本地 catalog，
+                                   # 同步前刷出 Parquet；崩溃/丢盘可丢最近一个同步周期的提交。
     parquet_compression: zstd     # SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION
     target_file_size: 64MB        # SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE
     require_commit_message: false # SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE
     catalog_sync:
-      mode: debounce          # debounce | sync_on_commit；SIMPLEBASE_DUCKLAKE_SYNC_MODE
-      debounce: 200ms         # SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS（仍接受 debounce_ms 整数）
+      mode: interval          # interval | debounce；旧 sync_on_commit 自动降级 interval
+      interval: 15s           # SIMPLEBASE_DUCKLAKE_SYNC_INTERVAL
+      max_lag: 30s            # SIMPLEBASE_DUCKLAKE_SYNC_MAX_LAG；同步故障仍可能超出此目标
+      debounce: 200ms         # SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS（旧模式兼容）
       keep_versions: 10       # SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS
     maintenance:
       checkpoint_interval: 1h # SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL
@@ -95,6 +96,12 @@ auth:
 # 不要自动发现 OPENAI_API_KEY 等未加前缀的环境变量。
 llm:
   enabled: true               # SIMPLEBASE_LLM_ENABLED；false 则不构造 gateway
+  agent_tool_protocol: auto   # auto | native | text；SIMPLEBASE_LLM_AGENT_TOOL_PROTOCOL
+  agent_max_iterations: 8    # 1–20；SIMPLEBASE_LLM_AGENT_MAX_ITERATIONS
+  agent_run_timeout: 180s    # 10s–15m；SIMPLEBASE_LLM_AGENT_RUN_TIMEOUT
+  # SiliconFlow (OpenAI 兼容): provider=openai；SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL=https://api.siliconflow.cn/v1
+  # SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL=deepseek-ai/DeepSeek-V4-Flash
+  # SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY 仅存进程环境或 .env，不写入 YAML。
   # providers:
   #   openai:
   #     api_key: ""           # SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY（生产走环境）
@@ -103,6 +110,31 @@ llm:
   #     allowed_models: ["gpt-4o-mini", "gpt-4o"]  # SIMPLEBASE_LLM_PROVIDER_OPENAI_ALLOWED_MODELS
   #     timeout: 60s          # SIMPLEBASE_LLM_PROVIDER_OPENAI_TIMEOUT
   # SIMPLEBASE_LLM_PROVIDERS=openai,anthropic 可增补 provider 名。
+
+# ── Sandbox（云沙盒，microsandbox Cloud）──────────────
+# 侧栏「自动化 → 云沙盒」与 /v1/projects/:id/sandboxes/** 接口；云 Agent 沙盒工具复用同一套。
+sandbox:
+  enabled: false              # SIMPLEBASE_SANDBOX_ENABLED
+  backend: cloud              # cloud | fake（fake 为内存假后端，仅 dev_mode=true，用于 e2e）；SIMPLEBASE_SANDBOX_BACKEND
+  api_url: ""                 # 空 = https://api.microsandbox.dev；SIMPLEBASE_SANDBOX_API_URL
+  # api_key 生产只能来自 SIMPLEBASE_SANDBOX_API_KEY，YAML 非空会被拒绝
+  image: "python:3.12-slim"   # 默认镜像；SIMPLEBASE_SANDBOX_IMAGE
+  images:                     # 镜像白名单（逗号分隔：SIMPLEBASE_SANDBOX_IMAGES），须包含 image
+    - "python:3.12-slim"
+    - "node:22-alpine"
+    - "alpine:3.20"
+  cpus: 1                     # 单沙盒上限 1–4
+  memory_mib: 256             # 128–4096
+  max_duration: 30m           # VM 总寿命
+  idle_timeout: 5m            # 空闲回收
+  exec_timeout: 30s           # 单次命令默认时限
+  exec_timeout_max: 300s      # API 可自定 timeout 的上限
+  max_output_bytes: 65536
+  max_file_bytes: 1048576
+  max_per_project: 5          # 项目内未删除沙盒上限；SIMPLEBASE_SANDBOX_MAX_PER_PROJECT
+  reap_interval: 5m           # 过期清理周期；0 = 关闭
+  network: none               # none | public（public 为允许上限）
+  workdir: /workspace
 
 # ── Limits ────────────────────────────────────────────
 limits:

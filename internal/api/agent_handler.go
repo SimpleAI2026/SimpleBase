@@ -5,20 +5,27 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/usage"
 )
 
 type cloudAgentHandler struct {
-	store   *systemdb.Store
-	runtime *cloudagent.Runtime
-	usage   UsageService
-	audit   AuditService
+	store    *systemdb.Store
+	runtime  *cloudagent.Runtime
+	usage    UsageService
+	audit    AuditService
+	writable *bool
 }
 
 // sandboxAvailable 报告云沙盒是否启用（由 Runtime.Sandbox 提供）。
@@ -40,10 +47,11 @@ type agentDTO struct {
 }
 
 type threadDTO struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Title              string    `json:"title"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	LastMessagePreview string    `json:"last_message_preview,omitempty"`
 }
 
 type messageDTO struct {
@@ -58,13 +66,19 @@ type messageDTO struct {
 }
 
 type runDTO struct {
-	ID         string     `json:"id"`
-	ThreadID   string     `json:"thread_id"`
-	AgentID    string     `json:"agent_id"`
-	Status     string     `json:"status"`
-	Error      string     `json:"error,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	ID               string     `json:"id"`
+	ThreadID         string     `json:"thread_id"`
+	AgentID          string     `json:"agent_id"`
+	Status           string     `json:"status"`
+	Error            string     `json:"error,omitempty"`
+	StartedAt        *time.Time `json:"started_at,omitempty"`
+	FinishedAt       *time.Time `json:"finished_at,omitempty"`
+	DurationMS       int64      `json:"duration_ms"`
+	PromptTokens     int        `json:"prompt_tokens"`
+	CompletionTokens int        `json:"completion_tokens"`
+	ReasoningTokens  int        `json:"reasoning_tokens"`
+	ToolCalls        int        `json:"tool_calls"`
+	ErrorCode        string     `json:"error_code,omitempty"`
 }
 
 func toAgentDTO(a systemdb.CloudAgent) agentDTO {
@@ -134,7 +148,7 @@ type upsertAgentBody struct {
 	Description   string   `json:"description"`
 	SystemPrompt  string   `json:"system_prompt"`
 	ToolIDs       []string `json:"tool_ids"`
-	ModelOverride string   `json:"model_override"`
+	ModelOverride *string  `json:"model_override"`
 	TeamEnabled   *bool    `json:"team_enabled"`
 }
 
@@ -255,8 +269,8 @@ func normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAg
 	if body.ToolIDs != nil {
 		a.ToolIDs = body.ToolIDs
 	}
-	if body.ModelOverride != "" || cur.ID == "" {
-		a.ModelOverride = body.ModelOverride
+	if body.ModelOverride != nil {
+		a.ModelOverride = strings.TrimSpace(*body.ModelOverride)
 	}
 	if body.TeamEnabled != nil {
 		a.TeamEnabled = *body.TeamEnabled
@@ -288,15 +302,89 @@ func (h *cloudAgentHandler) ListThreads(c echo.Context) error {
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
 	}
-	list, err := h.store.ListAgentThreads(c.Request().Context(), pc.ID, 50)
+	limit := 50
+	if raw := c.QueryParam("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 200 {
+			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid limit"))
+		}
+		limit = n
+	}
+	list, next, err := h.store.PageAgentThreads(c.Request().Context(), pc.ID, c.QueryParam("cursor"), limit)
+	if errors.Is(err, systemdb.ErrAgentThreadCursor) {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cursor"))
+	}
 	if err != nil {
 		return WriteError(c, err)
 	}
 	out := make([]threadDTO, 0, len(list))
 	for _, t := range list {
-		out = append(out, toThreadDTO(t))
+		row := toThreadDTO(t)
+		row.LastMessagePreview, err = h.store.AgentThreadPreview(c.Request().Context(), pc.ID, t.ID)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		out = append(out, row)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"threads": out})
+	return c.JSON(http.StatusOK, map[string]any{"threads": out, "next_cursor": next})
+}
+
+func (h *cloudAgentHandler) PatchThread(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	if h.writable != nil && !*h.writable {
+		return WriteError(c, database.ErrWriterUnavailable)
+	}
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return WriteError(c, err)
+	}
+	body.Title = strings.TrimSpace(body.Title)
+	if n := len([]rune(body.Title)); n < 1 || n > 80 {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "title must be 1-80 characters"))
+	}
+	th, err := h.store.RenameAgentThread(c.Request().Context(), pc.ID, c.Param("threadID"), body.Title)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "thread not found"))
+	}
+	if err != nil {
+		return WriteError(c, err)
+	}
+	return c.JSON(http.StatusOK, toThreadDTO(th))
+}
+
+func (h *cloudAgentHandler) ListThreadRuns(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	threadID := c.Param("threadID")
+	if _, err := h.store.GetAgentThread(c.Request().Context(), pc.ID, threadID); errors.Is(err, sql.ErrNoRows) {
+		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "thread not found"))
+	} else if err != nil {
+		return WriteError(c, err)
+	}
+	limit := 20
+	if raw := c.QueryParam("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 100 {
+			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid limit"))
+		}
+		limit = n
+	}
+	list, err := h.store.ListAgentRuns(c.Request().Context(), pc.ID, threadID, limit)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	out := make([]runDTO, 0, len(list))
+	for _, r := range list {
+		out = append(out, toRunDTO(r))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"runs": out})
 }
 
 func (h *cloudAgentHandler) CreateThread(c echo.Context) error {
@@ -413,10 +501,27 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
 	}
+	if h.runtime == nil || h.runtime.LLM == nil {
+		if !body.Stream {
+			return WriteError(c, &cloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
+		}
+		// SSE 消费端仍收到规范的 error → end 帧；不持久化用户正文。
+		return h.streamRun(c, pc.ID, systemdb.AgentRun{ID: uuid.NewString()}, agent, cloudagent.RunRequest{})
+	}
 	if h.usage != nil {
 		if err := h.usage.CheckQuota(c.Request().Context(), pc.ID, "llm"); err != nil {
+			if errors.Is(err, usage.ErrQuotaExceeded) {
+				return WriteError(c, NewAPIError(http.StatusTooManyRequests, "quota_exceeded", "项目模型调用配额已用完", RequestIDFromContext(c.Request().Context())))
+			}
 			return WriteError(c, err)
 		}
+	}
+	claimID := uuid.NewString()
+	if h.runtime != nil {
+		if err := h.runtime.ClaimThread(threadID, claimID); err != nil {
+			return WriteError(c, err)
+		}
+		defer h.runtime.ReleaseThread(threadID, claimID)
 	}
 	mentionsJSON, _ := json.Marshal(body.Mentions)
 	if len(body.Mentions) == 0 {
@@ -425,7 +530,7 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 
 	now := time.Now().UTC()
 	run, err := h.store.CreateAgentRun(c.Request().Context(), systemdb.AgentRun{
-		ThreadID: threadID, ProjectID: pc.ID, AgentID: agent.ID,
+		ID: claimID, ThreadID: threadID, ProjectID: pc.ID, AgentID: agent.ID,
 		Status: systemdb.AgentRunRunning, StartedAt: now,
 	})
 	if err != nil {
@@ -458,32 +563,70 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	return h.completeRun(c, pc.ID, run, agent, req)
 }
 
+func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, res cloudagent.RunResult, runErr error) error {
+	status, code := systemdb.AgentRunCompleted, ""
+	if runErr != nil {
+		status = systemdb.AgentRunFailed
+		if errors.Is(runErr, context.Canceled) {
+			status = systemdb.AgentRunCanceled
+		} else {
+			code = cloudagent.ClassifyError(runErr).Code
+		}
+	}
+	if res.Content != "" || len(res.ToolCallsJSON) > 2 {
+		if _, err := h.store.AppendAgentMessage(ctx, systemdb.AgentMessage{
+			ThreadID: run.ThreadID, ProjectID: projectID, Role: "assistant", Content: res.Content,
+			AgentID: agent.ID, ToolCallsJSON: res.ToolCallsJSON, RunID: run.ID,
+		}); err != nil {
+			return err
+		}
+	}
+	finished := time.Now().UTC()
+	if err := h.store.UpdateAgentRunStatus(ctx, projectID, run.ID, status, code, nil, &finished); err != nil {
+		return err
+	}
+	if err := h.store.UpdateAgentRunMetrics(ctx, projectID, run.ID, systemdb.AgentRun{
+		DurationMS: res.DurationMS, PromptTokens: res.PromptTokens, CompletionTokens: res.CompletionTokens,
+		ReasoningTokens: res.ReasoningTokens, ToolCalls: res.ToolCalls, ErrorCode: code,
+	}); err != nil {
+		return err
+	}
+	if h.audit != nil {
+		_ = h.audit.Record(ctx, AuditEvent{ProjectID: projectID, Kind: "agent.run", Status: status,
+			Detail: fmt.Sprintf("run=%s thread=%s agent=%s duration_ms=%d prompt_tokens=%d completion_tokens=%d tool_calls=%d error_code=%s",
+				run.ID, run.ThreadID, agent.ID, res.DurationMS, res.PromptTokens, res.CompletionTokens, res.ToolCalls, code)})
+	}
+	return nil
+}
+
 func (h *cloudAgentHandler) completeRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req cloudagent.RunRequest) error {
 	if h.runtime == nil {
-		_ = h.failRun(c.Request().Context(), projectID, run.ID, "cloud agent runtime is not configured")
-		return WriteError(c, echo.NewHTTPError(http.StatusServiceUnavailable, "cloud agent runtime is not configured"))
+		_ = h.failRun(c.Request().Context(), projectID, run.ID, "llm_not_configured")
+		return WriteError(c, &cloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
 	}
-	res, err := h.runtime.StartRun(c.Request().Context(), req, nil)
-	finished := time.Now().UTC()
-	if err != nil {
-		_ = h.store.UpdateAgentRunStatus(c.Request().Context(), projectID, run.ID, systemdb.AgentRunFailed, err.Error(), nil, &finished)
+	res, runErr := h.runtime.StartRun(c.Request().Context(), req, nil)
+	if err := h.finishAgentRun(context.Background(), projectID, run, agent, res, runErr); err != nil {
 		return WriteError(c, err)
 	}
-	asst, err := h.store.AppendAgentMessage(c.Request().Context(), systemdb.AgentMessage{
-		ThreadID: run.ThreadID, ProjectID: projectID, Role: "assistant", Content: res.Content,
-		AgentID: agent.ID, ToolCallsJSON: res.ToolCallsJSON, RunID: run.ID,
-	})
+	if runErr != nil {
+		return WriteError(c, cloudagent.ClassifyError(runErr))
+	}
+	row, err := h.store.GetAgentRun(c.Request().Context(), projectID, run.ID)
 	if err != nil {
 		return WriteError(c, err)
 	}
-	_ = h.store.UpdateAgentRunStatus(c.Request().Context(), projectID, run.ID, systemdb.AgentRunCompleted, "", nil, &finished)
-	run.Status = systemdb.AgentRunCompleted
-	run.FinishedAt = finished
-	return c.JSON(http.StatusOK, map[string]any{
-		"run":      toRunDTO(run),
-		"message":  toMessageDTO(asst),
-		"agent_id": agent.ID,
-	})
+	msgs, err := h.store.ListAgentMessages(c.Request().Context(), projectID, run.ThreadID, 200)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	var asst messageDTO
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].RunID == run.ID && msgs[i].Role == "assistant" {
+			asst = toMessageDTO(msgs[i])
+			break
+		}
+	}
+	return c.JSON(http.StatusOK, map[string]any{"run": toRunDTO(row), "message": asst, "agent_id": agent.ID})
 }
 
 func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req cloudagent.RunRequest) error {
@@ -491,43 +634,86 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
 	c.Response().WriteHeader(http.StatusOK)
 	flusher, _ := c.Response().Writer.(http.Flusher)
+	var mu sync.Mutex
+	writeBytes := func(data []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		_, _ = c.Response().Write(data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
 	write := func(ev cloudagent.Event) {
 		if ev.RunID == "" {
 			ev.RunID = run.ID
 		}
 		data, _ := json.Marshal(ev)
-		_, _ = c.Response().Write([]byte("data: " + string(data) + "\n\n"))
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeBytes(append(append([]byte("data: "), data...), '\n', '\n'))
 	}
 	write(cloudagent.Event{Type: "run", RunID: run.ID})
-	if h.runtime == nil {
-		_ = h.failRun(c.Request().Context(), projectID, run.ID, "cloud agent runtime is not configured")
-		write(cloudagent.Event{Type: "error", Message: "cloud agent runtime is not configured"})
+	if h.runtime == nil || h.runtime.LLM == nil {
+		write(cloudagent.Event{Type: "error", Code: "llm_not_configured", Message: "模型服务未配置"})
 		write(cloudagent.Event{Type: "end"})
 		return nil
 	}
-	res, err := h.runtime.StartRun(c.Request().Context(), req, write)
-	finished := time.Now().UTC()
-	if err != nil {
-		status := systemdb.AgentRunFailed
-		if errors.Is(err, context.Canceled) {
-			status = systemdb.AgentRunCanceled
+	stopHeartbeat := make(chan struct{})
+	defer close(stopHeartbeat)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				return
+			case <-ticker.C:
+				writeBytes([]byte(": ping\n\n"))
+			}
 		}
-		_ = h.store.UpdateAgentRunStatus(context.Background(), projectID, run.ID, status, err.Error(), nil, &finished)
-		if status == systemdb.AgentRunFailed {
-			write(cloudagent.Event{Type: "error", Message: "run failed"})
+	}()
+	started := time.Now()
+	lastOutput := time.Now()
+	stopThinking := make(chan struct{})
+	defer close(stopThinking)
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopThinking:
+				return
+			case <-ticker.C:
+				mu.Lock()
+				idle := time.Since(lastOutput)
+				mu.Unlock()
+				if idle >= 2*time.Second {
+					write(cloudagent.Event{Type: "thinking", ElapsedMS: time.Since(started).Milliseconds()})
+				}
+			}
 		}
-		write(cloudagent.Event{Type: "end"})
-		return nil
-	}
-	_, _ = h.store.AppendAgentMessage(context.Background(), systemdb.AgentMessage{
-		ThreadID: run.ThreadID, ProjectID: projectID, Role: "assistant", Content: res.Content,
-		AgentID: agent.ID, ToolCallsJSON: res.ToolCallsJSON, RunID: run.ID,
+	}()
+	res, runErr := h.runtime.StartRun(c.Request().Context(), req, func(ev cloudagent.Event) {
+		if ev.Type == "token" || ev.Type == "tool_call" || ev.Type == "tool_result" {
+			mu.Lock()
+			lastOutput = time.Now()
+			mu.Unlock()
+		}
+		write(ev)
 	})
-	_ = h.store.UpdateAgentRunStatus(context.Background(), projectID, run.ID, systemdb.AgentRunCompleted, "", nil, &finished)
-	write(cloudagent.Event{Type: "end"})
+	if err := h.finishAgentRun(context.Background(), projectID, run, agent, res, runErr); err != nil {
+		write(cloudagent.Event{Type: "error", Code: "llm_upstream_error", Message: "保存运行结果失败"})
+		write(cloudagent.Event{Type: "end"})
+		return nil
+	}
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		re := cloudagent.ClassifyError(runErr)
+		write(cloudagent.Event{Type: "error", Code: re.Code, Message: re.Message})
+	}
+	write(cloudagent.Event{Type: "usage", DurationMS: res.DurationMS, PromptTokens: res.PromptTokens,
+		CompletionTokens: res.CompletionTokens, ReasoningTokens: res.ReasoningTokens, ToolCalls: res.ToolCalls})
+	if errors.Is(runErr, context.Canceled) {
+		res.Reason = "canceled"
+	}
+	write(cloudagent.Event{Type: "end", Reason: res.Reason})
 	return nil
 }
 
@@ -580,7 +766,9 @@ func (h *cloudAgentHandler) failRun(ctx context.Context, projectID, runID, msg s
 }
 
 func toRunDTO(r systemdb.AgentRun) runDTO {
-	dto := runDTO{ID: r.ID, ThreadID: r.ThreadID, AgentID: r.AgentID, Status: r.Status, Error: r.Error}
+	dto := runDTO{ID: r.ID, ThreadID: r.ThreadID, AgentID: r.AgentID, Status: r.Status, Error: r.Error,
+		DurationMS: r.DurationMS, PromptTokens: r.PromptTokens, CompletionTokens: r.CompletionTokens,
+		ReasoningTokens: r.ReasoningTokens, ToolCalls: r.ToolCalls, ErrorCode: r.ErrorCode}
 	if !r.StartedAt.IsZero() {
 		t := r.StartedAt
 		dto.StartedAt = &t

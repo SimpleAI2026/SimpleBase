@@ -1,0 +1,1 @@
+[["HSET","cart:demo","sku","sku-01","qty","1"],["EXPIRE","cart:demo","1800"],["SET","cache:hot","[\"sku-01\"]"]]

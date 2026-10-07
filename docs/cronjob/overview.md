@@ -1,3 +1,8 @@
+---
+title: 定时任务概览
+order: 1
+---
+
 # 定时任务（Cron Jobs）
 
 > 定时任务到点自动调用项目内云函数的导出函数。参考 Supabase Cron Jobs 的定位，面向「数据汇总、缓存预热、周期清理」等无人值守场景。
@@ -38,4 +43,4 @@
 
 ## API 概览
 
-前缀 `/v1/projects/:projectID/cron-jobs`：GET 列表 / POST 创建 / GET 详情 / PATCH 更新 / DELETE 删除 / `GET :id/runs` 记录 / `POST :id/trigger` 手动触发。完整契约见 [`plan/planv2.0/proto-http.md` §3.14](../plan/planv2.0/proto-http.md)。
+前缀 `/v1/projects/:projectID/cron-jobs`：GET 列表 / POST 创建 / GET 详情 / PATCH 更新 / DELETE 删除 / `GET :id/runs` 记录 / `POST :id/trigger` 手动触发。接口请求示例见 [定时任务 HTTP API](/docs/cronjob/api)。

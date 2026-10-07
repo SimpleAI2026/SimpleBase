@@ -232,7 +232,7 @@
 - 集合不存在时 `GET` 返回空 `rows`（不 404）；`POST documents` 会自动建表（`CREATE TABLE IF NOT EXISTS`）。
 - 只读实例上所有写操作 → `503 writer_unavailable`。
 
-### 3.4 S3 对象存储（S3Manager 页）
+### 3.4 对象存储（S3Manager 页）
 
 | Method | Path | 权限 | 成功状态 | 说明 |
 |---|---|---|---|---|
@@ -718,7 +718,7 @@ Prompt 组装（禁止密钥）：platform base → module template → `agent.s
 - 集合不存在时 `GET` 返回空 `rows`（不 404）；`POST documents` 会自动建表（`CREATE TABLE IF NOT EXISTS`）。
 - 只读实例上所有写操作 → `503 writer_unavailable`。
 
-### 3.4 S3 对象存储（S3Manager 页）
+### 3.4 对象存储（S3Manager 页）
 
 | Method | Path | 权限 | 成功状态 | 说明 |
 |---|---|---|---|---|
@@ -1225,7 +1225,7 @@ Metrics（`sys_metric_samples`，项目维度）：`gofunction_invokes`（计数
 - 集合不存在时 `GET` 返回空 `rows`（不 404）；`POST documents` 会自动建表（`CREATE TABLE IF NOT EXISTS`）。
 - 只读实例上所有写操作 → `503 writer_unavailable`。
 
-### 3.4 S3 对象存储（S3Manager 页）
+### 3.4 对象存储（S3Manager 页）
 
 | Method | Path | 权限 | 成功状态 | 说明 |
 |---|---|---|---|---|
@@ -1711,7 +1711,7 @@ Prompt 组装（禁止密钥）：platform base → module template → `agent.s
 - 集合不存在时 `GET` 返回空 `rows`（不 404）；`POST documents` 会自动建表（`CREATE TABLE IF NOT EXISTS`）。
 - 只读实例上所有写操作 → `503 writer_unavailable`。
 
-### 3.4 S3 对象存储（S3Manager 页）
+### 3.4 对象存储（S3Manager 页）
 
 | Method | Path | 权限 | 成功状态 | 说明 |
 |---|---|---|---|---|

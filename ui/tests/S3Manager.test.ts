@@ -29,7 +29,7 @@ async function changeFile(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wra
   await flushPromises()
 }
 
-describe('S3Manager (S3 对象存储)', () => {
+describe('S3Manager (对象存储)', () => {
   beforeEach(() => {
     resetApiMocks()
     setIsMock(false)

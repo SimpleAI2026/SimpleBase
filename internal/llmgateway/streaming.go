@@ -32,16 +32,12 @@ func (r *usageRecordingReader) Next() (*providers.StreamChunk, error) {
 		r.maybeRecord()
 		return nil, err
 	}
-	// 累加 usage（部分供应商在每个 chunk 更新累计值）。
-	if chunk.Type == "usage" || chunk.Usage != nil {
-		// providers.StreamChunk 可能携带 Usage 字段；通过反射或类型断言处理。
-		// 这里简化：若 chunk 提供 Usage 则累计。
-		if u := extractUsage(chunk); u != nil {
-			r.accum = *u
-		}
+	// 部分供应商仅在最后一个 chunk 返回完整用量，其他供应商逐帧更新累计值。
+	if u := extractUsage(chunk); u != nil {
+		r.accum = *u
 	}
-	if chunk.FinishReason != "" {
-		// 流结束：记录用量。
+	if chunk.Done {
+		// 真正的流结束（可能在 finish_reason 后还有 usage 帧）。
 		r.maybeRecord()
 	}
 	return chunk, nil
@@ -70,12 +66,15 @@ func (r *usageRecordingReader) maybeRecord() {
 	}
 }
 
-// extractUsage 从 StreamChunk 提取 Usage。
-// providers.StreamChunk 结构可能不含 Usage 字段（取决于版本），
-// 此处通过安全类型断言兼容；若无则返回 nil。
+// extractUsage 从 StreamChunk 提取 Usage（litellm 在末尾 usage 帧携带累计值）。
 func extractUsage(chunk *providers.StreamChunk) *Usage {
-	// providers.StreamChunk 当前无 Usage 字段；预留扩展点。
-	// 若未来 litellm 在 chunk 中携带 usage，在此处提取。
-	_ = chunk
-	return nil
+	if chunk == nil || chunk.Usage == nil {
+		return nil
+	}
+	return &Usage{
+		PromptTokens:     chunk.Usage.PromptTokens,
+		CompletionTokens: chunk.Usage.CompletionTokens,
+		TotalTokens:      chunk.Usage.TotalTokens,
+		ReasoningTokens:  chunk.Usage.ReasoningTokens,
+	}
 }

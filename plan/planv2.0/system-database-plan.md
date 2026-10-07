@@ -177,7 +177,7 @@ GET /v1/projects/:projectID/metrics/trend?days=7
 
 响应从上述表查询，**禁止**再让前端解析 Prometheus 文本。
 
-### 5.3 S3 对象存储列表（索引）
+### 5.3 对象存储列表（索引）
 
 | 表 | 用途 |
 |---|---|

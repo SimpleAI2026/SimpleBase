@@ -1,0 +1,12 @@
+{
+  "project": { "id": "ex-iot01", "name": "示例·物联网" },
+  "databases": [{ "name": "telemetry", "migrations": "migrations", "seed": "seed/telemetry.sql" }],
+  "kv": "seed/kv.json",
+  "objects": [{ "dir": "seed/exports", "prefix": "exports/" }],
+  "functions": [{ "name": "rollup", "file": "functions/rollup.go", "test": { "function_name": "Window", "body": {} } }],
+  "cron_jobs": [
+    { "name": "iot_rollup", "schedule_kind": "interval", "interval_seconds": 300, "func_file": "rollup", "func_export": "Window", "input_json": "{}", "trigger_once": true },
+    { "name": "iot_export_once", "schedule_kind": "once", "func_file": "rollup", "func_export": "Window", "input_json": "{}", "trigger_once": true }
+  ],
+  "api_keys": [{ "label": "service", "permissions": ["database:read", "database:write"] }]
+}

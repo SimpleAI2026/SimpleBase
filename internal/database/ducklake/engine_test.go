@@ -2,6 +2,7 @@ package ducklake
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,44 @@ func TestBuildBootSQLAttachPerEngine(t *testing.T) {
 	boot = strings.Join(buildBootSQL(layout, Options{CatalogEngine: EngineSQLite}.normalized(), RemoteStorage{}, "/d/"), "\n")
 	if !strings.Contains(boot, "ATTACH 'ducklake:sqlite:/c/id/catalog/catalog.sqlite'") || !strings.Contains(boot, "LOAD sqlite") {
 		t.Fatalf("sqlite boot:\n%s", boot)
+	}
+}
+
+func TestOpenInitializesAdditionalConnections(t *testing.T) {
+	dir := t.TempDir()
+	opts := DefaultOptions()
+	opts.ExtensionDir = filepath.Join(dir, "extensions")
+	f := &Factory{CacheDir: dir, Options: opts}
+	openCtx, cancel := context.WithCancel(context.Background())
+	db, err := f.Open(openCtx, catalog.Database{ID: uuid.NewString()}, database.ReadWrite)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cancel() // 后续连接不得继承已结束的 Open context。
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, "CREATE TABLE multi_conn (id INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	for _, conn := range []*sql.Conn{first, second} {
+		var count int
+		if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM multi_conn").Scan(&count); err != nil {
+			t.Fatalf("additional connection must use lake: %v", err)
+		}
+		if _, err := conn.ExecContext(ctx, "INSERT INTO multi_conn VALUES (1)"); err != nil {
+			t.Fatalf("additional connection must write lake: %v", err)
+		}
 	}
 }
 

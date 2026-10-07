@@ -29,7 +29,8 @@ cmd/simplebased → app → api → auth / catalog / database / objectstore
 | `database/cache` | 缓存目录 LRU、路径防穿越 | 淘汰活跃库 |
 | `objectstore` | S3 边界、KeyBuilder、descriptor | 用户可控字符串直接拼对象键 |
 | `systemdb` | 系统库 bootstrap、迁移、常驻连接 | — |
-| `cloudagent` | 只读工具运行时 + 会话线程 | 提供写工具 |
+| `cloudagent` | 只读工具运行时 + 会话线程；沙盒工具经 `Sandbox` 接口 | 写 DuckLake / S3 / 系统库；直接 import `sandbox` 或 microsandbox |
+| `sandbox` | 云沙盒唯一接入：Driver（cloud/fake）+ Manager（资源、限额、路径、reaper） | 读写 DuckLake/S3/系统库凭据；向沙盒注入 SimpleBase 凭据；本地 microVM 回退 |
 | `llmgateway` | provider 配置、Chat/Stream、CredentialRef | 密钥从环境变量自动发现 |
 
 ## 系统库规则（重要）

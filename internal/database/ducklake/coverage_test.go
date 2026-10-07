@@ -30,7 +30,7 @@ func TestOptionsNormalizedAndDefault(t *testing.T) {
 	if n.DataInliningRowLimit != def.DataInliningRowLimit || n.ParquetCompression != def.ParquetCompression {
 		t.Fatal(n)
 	}
-	if n.CatalogSync.Mode != "debounce" || n.CatalogSync.Debounce != 200*time.Millisecond || n.CatalogSync.KeepVersions != 10 {
+	if n.CatalogSync.Mode != "interval" || n.CatalogSync.Interval != 15*time.Second || n.CatalogSync.MaxLag != 30*time.Second || n.CatalogSync.KeepVersions != 10 {
 		t.Fatal(n.CatalogSync)
 	}
 	if n.Maintenance.RewriteDeleteThreshold != 0.95 {
@@ -249,7 +249,7 @@ func TestFactoryHelpersWithoutOpen(t *testing.T) {
 		t.Fatal(f.DurabilityFor("id"))
 	}
 	cs.last["id"] = 3
-	if f.DurabilityFor("id") != DurabilitySyncedS3 {
+	if f.DurabilityFor("id") != DurabilityCommittedLocal {
 		t.Fatal(f.DurabilityFor("id"))
 	}
 	last, lag = f.SnapshotStatus("id")
@@ -287,7 +287,7 @@ func TestCatalogSyncerControlPaths(t *testing.T) {
 	}
 
 	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, "", observability.NewLogger("debug", "json", io.Discard), observability.NewMetrics(prometheus.NewRegistry()))
-	if cs.Options.Mode != "debounce" || cs.Options.KeepVersions != 10 {
+	if cs.Options.Mode != "interval" || cs.Options.KeepVersions != 10 {
 		t.Fatal(cs.Options)
 	}
 	cs.Bind("db", nil, catalog.Database{ID: "db"}, "")
@@ -403,6 +403,12 @@ func TestCatalogSyncerLocalAdvanceAndRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs.MarkDirty(id, snap)
+	if cs.LastSynced(id) != 0 {
+		t.Fatal("write path must not synchronously upload catalog")
+	}
+	if err := cs.Flush(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
 	if cs.LastSynced(id) != snap {
 		t.Fatalf("synced %d want %d", cs.LastSynced(id), snap)
 	}

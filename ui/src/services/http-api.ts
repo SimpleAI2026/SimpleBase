@@ -1,9 +1,10 @@
-import { http, baseURL, getApiKey, setTokens, clearTokens } from './http'
+import { http, baseURL, getApiKey, getAccessToken, setTokens, clearTokens } from './http'
 import type {
   Api,
   AgentMessage,
   AgentModuleInfo,
   AgentRun,
+  AgentRunMetrics,
   AgentRunRequest,
   AgentSchedule,
   AgentScheduleRun,
@@ -16,6 +17,10 @@ import type {
   CronJobCreate,
   CronJobItem,
   CronJobRunItem,
+  SandboxCapabilities,
+  SandboxItem,
+  SandboxExecResult,
+  SandboxFileEntry,
   DatabaseItem,
   GoFunctionItem,
   GoFuncVersionCreate,
@@ -228,6 +233,33 @@ function toGoFunctionItem(raw: Record<string, any>): GoFunctionItem {
 }
 /* v8 ignore stop */
 
+function sandboxesPath(projectId: string, id = '', suffix = '') {
+  return '/v1/projects/' + encodeURIComponent(projectId) + '/sandboxes' +
+    (id ? '/' + encodeURIComponent(id) : '') + suffix
+}
+
+function toSandboxItem(raw: Record<string, unknown>): SandboxItem {
+  return {
+    id: String(raw.id ?? ''), name: String(raw.name ?? ''), cloudName: String(raw.cloud_name ?? ''),
+    source: String(raw.source ?? ''), threadId: raw.thread_id ? String(raw.thread_id) : undefined,
+    status: String(raw.status ?? ''), image: String(raw.image ?? ''), cpus: Number(raw.cpus ?? 0),
+    memoryMiB: Number(raw.memory_mib ?? 0), network: String(raw.network ?? 'none'),
+    idleTimeoutS: Number(raw.idle_timeout_s ?? 0), maxDurationS: Number(raw.max_duration_s ?? 0),
+    lastError: raw.last_error ? String(raw.last_error) : undefined,
+    createdAt: String(raw.created_at ?? ''), startedAt: raw.started_at ? String(raw.started_at) : undefined,
+    lastActiveAt: raw.last_active_at ? String(raw.last_active_at) : undefined,
+    expiresAt: raw.expires_at ? String(raw.expires_at) : undefined
+  }
+}
+
+function toSandboxExecResult(raw: Record<string, unknown>): SandboxExecResult {
+  return {
+    exitCode: Number(raw.exit_code ?? 0), stdout: String(raw.stdout ?? ''), stderr: String(raw.stderr ?? ''),
+    stdoutTruncated: Boolean(raw.stdout_truncated), stderrTruncated: Boolean(raw.stderr_truncated),
+    timedOut: Boolean(raw.timed_out), durationMs: Number(raw.duration_ms ?? 0), status: String(raw.status ?? '')
+  }
+}
+
 /** 定时任务路径：/v1/projects/:pid/cron-jobs[/:jobId[/runs|/trigger]] */
 function cronJobsPath(projectId: string, jobId?: string, suffix?: 'runs' | 'trigger') {
   let path = '/v1/projects/' + encodeURIComponent(projectId) + '/cron-jobs'
@@ -295,13 +327,24 @@ function cronJobBody(body: Partial<CronJobCreate>) {
   return out
 }
 
+function optionalNumber(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
 function toMetricsSummary(d: Record<string, any> | undefined): MetricsSummary {
   const raw = d && typeof d === 'object' ? d : {}
   return {
     totalRequests: Number(raw.total_requests ?? raw.totalRequests ?? 0),
     errorRate: Number(raw.error_rate ?? raw.errorRate ?? 0),
     avgLatencyMs: Number(raw.avg_latency_ms ?? raw.avgLatencyMs ?? 0),
-    activeDatabases: Number(raw.active_databases ?? raw.activeDatabases ?? 0)
+    activeDatabases: Number(raw.active_databases ?? raw.activeDatabases ?? 0),
+    latencyP50Ms: optionalNumber(raw.latency_p50_ms ?? raw.latencyP50Ms),
+    latencyP90Ms: optionalNumber(raw.latency_p90_ms ?? raw.latencyP90Ms),
+    latencyP99Ms: optionalNumber(raw.latency_p99_ms ?? raw.latencyP99Ms),
+    latencySampleCount: Number(raw.latency_sample_count ?? raw.latencySampleCount ?? 0),
+    latencyOverflowMs: Number(raw.latency_overflow_ms ?? raw.latencyOverflowMs ?? 30000)
   }
 }
 
@@ -377,7 +420,8 @@ function toAgentThread(raw: Record<string, any>): AgentThread {
     id: String(raw?.id ?? ''),
     title: String(raw?.title ?? ''),
     created_at: String(raw?.created_at ?? ''),
-    updated_at: String(raw?.updated_at ?? '')
+    updated_at: String(raw?.updated_at ?? ''),
+    last_message_preview: raw?.last_message_preview ? String(raw.last_message_preview) : undefined
   }
 }
 
@@ -433,10 +477,11 @@ function streamAgentRun(
 ): LlmStreamConnection {
   const controller = new AbortController()
   let ended = false
-  const fireEnd = () => {
+  let failed = false
+  const fireEnd = (reason?: string) => {
     if (!ended) {
       ended = true
-      handlers.onEnd?.()
+      if (!failed) handlers.onEnd?.(reason)
     }
   }
   ;(async () => {
@@ -447,7 +492,7 @@ function streamAgentRun(
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${getApiKey()}`
+            Authorization: `Bearer ${getAccessToken() || getApiKey()}`
           },
           body: JSON.stringify({ content: req.content, mentions: req.mentions, stream: true }),
           signal: controller.signal
@@ -459,9 +504,10 @@ function streamAgentRun(
       }
       if (!resp.ok || !resp.body) {
         const data = await resp.json().catch(() => null)
-        throw new Error(
-          (data as any)?.error?.message || (data as any)?.message || `请求失败 (${resp.status})`
-        )
+        const detail = (data as { error?: { code?: string; message?: string }; message?: string } | null)
+        const error = new Error(detail?.error?.message || detail?.message || `请求失败 (${resp.status})`) as Error & { code?: string }
+        error.code = detail?.error?.code
+        throw error
       }
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
@@ -481,7 +527,7 @@ function streamAgentRun(
             try {
               const obj = JSON.parse(data)
               if (obj?.type === 'end') {
-                fireEnd()
+                fireEnd(typeof obj.reason === 'string' ? obj.reason : undefined)
                 continue
               }
               if (obj?.type === 'run' && obj.run_id) {
@@ -489,7 +535,25 @@ function streamAgentRun(
                 continue
               }
               if (obj?.type === 'error') {
-                handlers.onError?.(new Error(obj.message || 'run failed'))
+                failed = true
+                const error = new Error(String(obj.message || '运行失败')) as Error & { code?: string }
+                error.code = typeof obj.code === 'string' ? obj.code : undefined
+                handlers.onError?.(error)
+                continue
+              }
+              if (obj?.type === 'thinking') {
+                handlers.onThinking?.(Number(obj.elapsed_ms || 0), obj.content ? String(obj.content) : undefined)
+                continue
+              }
+              if (obj?.type === 'usage') {
+                const metrics: AgentRunMetrics = {
+                  duration_ms: Number(obj.duration_ms || 0),
+                  prompt_tokens: Number(obj.prompt_tokens || 0),
+                  completion_tokens: Number(obj.completion_tokens || 0),
+                  reasoning_tokens: Number(obj.reasoning_tokens || 0),
+                  tool_calls: Number(obj.tool_calls || 0)
+                }
+                handlers.onUsage?.(metrics)
                 continue
               }
               if (obj?.type === 'token' || obj?.type === 'chunk') {
@@ -498,11 +562,11 @@ function streamAgentRun(
                 continue
               }
               if (obj?.type === 'tool_call') {
-                handlers.onToolCall?.(obj.name || '', obj.arguments || '')
+                handlers.onToolCall?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
                 continue
               }
               if (obj?.type === 'tool_result') {
-                handlers.onToolResult?.(obj.name || '', obj.content || '')
+                handlers.onToolResult?.(obj.name || '', obj.content || '', obj.call_id || undefined, Number(obj.duration_ms || 0))
               }
             } catch {
               /* ignore */
@@ -512,7 +576,7 @@ function streamAgentRun(
       }
       fireEnd()
     } catch (e) {
-      if (!controller.signal.aborted) handlers.onError?.(e)
+      if (!controller.signal.aborted && !failed) handlers.onError?.(e)
     }
   })()
   return { close: () => controller.abort() }
@@ -702,6 +766,66 @@ export const httpApi: Api = {
           data: r.data?.data,
           error: r.data?.error || ''
         }))
+  },
+  sandboxes: {
+    capabilities: (projectId) => http.get(sandboxesPath(projectId, '', '/capabilities')).then((r) => {
+      const raw = r.data as Record<string, unknown>
+      return {
+        available: Boolean(raw.available), backend: String(raw.backend ?? 'cloud'),
+        images: Array.isArray(raw.images) ? raw.images.map(String) : [],
+        defaultImage: String(raw.default_image ?? ''), cpusMax: Number(raw.cpus_max ?? 4),
+        memoryMiBMax: Number(raw.memory_mib_max ?? 4096),
+        execTimeoutMaxS: Number(raw.exec_timeout_max_s ?? 300),
+        maxFileBytes: Number(raw.max_file_bytes ?? 1048576),
+        maxOutputBytes: Number(raw.max_output_bytes ?? 65536),
+        maxPerProject: Number(raw.max_per_project ?? 5),
+        networkOptions: Array.isArray(raw.network_options) ? raw.network_options.map(String) : ['none']
+      } satisfies SandboxCapabilities
+    }),
+    // 服务端按 cursor 分页（单页上限 100）；项目上限同为 100，这里取完全部页。
+    list: async (projectId, status, source) => {
+      const out: SandboxItem[] = []
+      let cursor: string | undefined
+      for (let page = 0; page < 20; page++) {
+        const r = await http.get(sandboxesPath(projectId), { params: { status, source, limit: 100, cursor } })
+        const rows: Record<string, unknown>[] = Array.isArray(r.data?.sandboxes) ? r.data.sandboxes : []
+        out.push(...rows.map((raw) => toSandboxItem(raw)))
+        cursor = r.data?.next_cursor ? String(r.data.next_cursor) : undefined
+        if (!cursor) break
+      }
+      return out
+    },
+    create: (projectId, body, key) => http.post(sandboxesPath(projectId), {
+      name: body.name, image: body.image, cpus: body.cpus, memory_mib: body.memoryMiB,
+      network: body.network, idle_timeout_s: body.idleTimeoutS, start: body.start
+    }, { headers: key ? { 'Idempotency-Key': key } : undefined, timeout: body.start ? 90000 : undefined }).then((r) => toSandboxItem(r.data)),
+    get: (projectId, id, refresh) => http.get(sandboxesPath(projectId, id), { params: refresh ? { refresh: 1 } : undefined })
+      .then((r) => toSandboxItem(r.data)),
+    update: (projectId, id, body) => http.patch(sandboxesPath(projectId, id), {
+      name: body.name, idle_timeout_s: body.idleTimeoutS
+    }).then((r) => toSandboxItem(r.data)),
+    remove: (projectId, id) => http.delete(sandboxesPath(projectId, id)).then(() => undefined),
+    start: (projectId, id) => http.post(sandboxesPath(projectId, id, '/start'), undefined, { timeout: 90000 }).then((r) => toSandboxItem(r.data)),
+    stop: (projectId, id) => http.post(sandboxesPath(projectId, id, '/stop')).then((r) => toSandboxItem(r.data)),
+    exec: (projectId, id, body) => http.post(sandboxesPath(projectId, id, '/exec'), {
+      command: body.command, timeout_s: body.timeoutS
+    }, { timeout: ((body.timeoutS || 30) + 75) * 1000 }).then((r) => toSandboxExecResult(r.data)),
+    files: {
+      list: (projectId, id, path) => http.get(sandboxesPath(projectId, id, '/files'), { params: { path } })
+        .then((r) => (Array.isArray(r.data?.entries) ? r.data.entries : []).map((raw: Record<string, unknown>): SandboxFileEntry => ({
+          name: String(raw.name ?? ''), path: String(raw.path ?? ''), kind: String(raw.kind ?? ''), size: Number(raw.size ?? 0)
+        }))),
+      read: (projectId, id, path) => http.get(sandboxesPath(projectId, id, '/files/content'), { params: { path } })
+        .then((r) => ({ content: String(r.data?.content ?? ''), encoding: String(r.data?.encoding ?? 'utf8'), truncated: Boolean(r.data?.truncated) })),
+      download: (projectId, id, path) => http.get<Blob>(sandboxesPath(projectId, id, '/files/content'), {
+        params: { path }, responseType: 'blob', headers: { Accept: 'application/octet-stream' }
+      }).then((r) => r.data),
+      write: (projectId, id, path, content) => http.put(sandboxesPath(projectId, id, '/files/content'), { content }, { params: { path } }).then(() => undefined),
+      upload: (projectId, id, path, content) => http.put(sandboxesPath(projectId, id, '/files/content'), new Blob([content], { type: 'application/octet-stream' }), {
+        params: { path }, headers: { 'Content-Type': 'application/octet-stream' }
+      }).then(() => undefined),
+      remove: (projectId, id, path) => http.delete(sandboxesPath(projectId, id, '/files/content'), { params: { path } }).then(() => undefined)
+    }
   },
   cronjobs: {
     list: (projectId) =>
@@ -1005,16 +1129,26 @@ export const httpApi: Api = {
         const list = Array.isArray(r.data?.threads) ? r.data.threads : []
         return list.map(toAgentThread)
       }),
+    page: (projectId, limit = 50, cursor = '') =>
+      http.get(agentPath(projectId, '/agent-threads'), { params: { limit, cursor } }).then((r) => ({
+        threads: (Array.isArray(r.data?.threads) ? r.data.threads : []).map(toAgentThread),
+        next_cursor: String(r.data?.next_cursor || '')
+      })),
     create: (projectId, title) =>
       http.post(agentPath(projectId, '/agent-threads'), { title }).then((r) => toAgentThread(r.data)),
     get: (projectId, threadId) =>
       http
         .get(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)))
         .then((r) => toAgentThread(r.data)),
+    rename: (projectId, threadId, title) =>
+      http.patch(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)), { title }).then((r) => toAgentThread(r.data)),
     remove: (projectId, threadId) =>
       http
         .delete(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)))
         .then(() => undefined),
+    runs: (projectId, threadId, limit = 20) =>
+      http.get(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/runs'), { params: { limit } })
+        .then((r) => (Array.isArray(r.data?.runs) ? r.data.runs : []) as AgentRun[]),
     messages: (projectId, threadId) =>
       http
         .get(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/messages'))

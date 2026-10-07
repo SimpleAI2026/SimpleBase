@@ -17,8 +17,8 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
+	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -148,6 +148,38 @@ func TestNewRouter_AuthProjectMetricsSPA(t *testing.T) {
 	}
 }
 
+func TestNewRouter_CrossProjectDeniedBeforeHandlers(t *testing.T) {
+	deps, key := fullRouterDeps(t)
+	deps.Auth = auth.NewService(&memAuthRepo{rec: auth.APIKeyRecord{
+		ID: "key-1", KeyHash: deps.Auth.HashKey(key), TenantID: "tenant-1",
+		ProjectIDs: []string{"proj-1"}, Permissions: []auth.Permission{auth.DatabaseRead, auth.DatabaseWrite},
+	}}, "secret")
+	e := NewRouter(deps)
+	paths := []struct{ method, path, body string }{
+		{http.MethodPost, "/v1/projects/proj-2/kv", `{"type":"cmd","argvs":["GET","k"]}`},
+		{http.MethodGet, "/v1/projects/proj-2/s3/objects", ""},
+		{http.MethodGet, "/v1/projects/proj-2/gofunctions", ""},
+		{http.MethodGet, "/v1/projects/proj-2/cron-jobs", ""},
+		{http.MethodPost, "/go/proj-2/pricing/Quote", `{}`},
+		{http.MethodGet, "/v1/projects/proj-2/llm/providers", ""},
+		{http.MethodGet, "/v1/projects/proj-2/agents", ""},
+		{http.MethodGet, "/v1/projects/proj-2/logs", ""},
+		{http.MethodGet, "/v1/projects/proj-2/databases", ""},
+	}
+	for _, tc := range paths {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			req.Header.Set(echo.HeaderAuthorization, "Bearer "+key)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "cross_project_denied") {
+				t.Fatalf("%s %s: status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestNewRouter_NoMetricsNoAuth(t *testing.T) {
 	deps := testDeps(t, &fakeHealth{})
 	deps.Metrics = nil
@@ -272,6 +304,8 @@ func TestProjectContextMiddleware(t *testing.T) {
 		c := e.NewContext(req, rec)
 		c.SetParamNames("projectID")
 		c.SetParamValues(projectID)
+		ctx := WithPrincipal(c.Request().Context(), auth.Principal{TenantID: "ten", ProjectIDs: map[string]struct{}{projectID: {}}})
+		c.SetRequest(c.Request().WithContext(ctx))
 		h := projectContextMiddlewareEcho(deps)(func(c echo.Context) error {
 			pc, ok := ProjectFromContext(c.Request().Context())
 			if !ok {
@@ -298,6 +332,42 @@ func TestProjectContextMiddleware(t *testing.T) {
 	rec = call(Dependencies{Catalog: &stubCatalog{tenant: "ten"}}, "p1")
 	if rec.Code != http.StatusOK || rec.Body.String() != "p1:ten" {
 		t.Fatalf("ok %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectContextMiddlewareAuthorization(t *testing.T) {
+	principal := auth.Principal{TenantID: "ten", ProjectIDs: map[string]struct{}{"own": {}},
+		Permissions: map[auth.Permission]struct{}{auth.DatabaseRead: {}, auth.ProjectAdmin: {}}}
+	cases := []struct {
+		name            string
+		p               auth.Principal
+		project, tenant string
+		want            int
+	}{
+		{"missing principal", auth.Principal{}, "own", "ten", 401},
+		{"user own", auth.Principal{Role: auth.RoleUser, TenantID: "ten", ProjectIDs: principal.ProjectIDs, Permissions: principal.Permissions}, "own", "ten", 200},
+		{"user other with admin bit", auth.Principal{Role: auth.RoleUser, TenantID: "ten", ProjectIDs: principal.ProjectIDs, Permissions: principal.Permissions}, "other", "ten", 403},
+		{"admin key other", principal, "other", "ten", 200},
+		{"admin key system", principal, catalog.ReservedSystemProjectID, "ten", 200},
+		{"ordinary key system", auth.Principal{TenantID: "ten", ProjectIDs: principal.ProjectIDs}, catalog.ReservedSystemProjectID, "ten", 403},
+		{"cross tenant admin", principal, "other", "foreign", 403},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			e.HTTPErrorHandler = errorHandler(Dependencies{})
+			deps := Dependencies{Catalog: &stubCatalog{tenant: tc.tenant}}
+			e.GET("/:projectID", func(c echo.Context) error { return c.NoContent(http.StatusOK) }, projectContextMiddlewareEcho(deps))
+			req := httptest.NewRequest(http.MethodGet, "/"+tc.project, nil)
+			if tc.name != "missing principal" {
+				req = req.WithContext(WithPrincipal(req.Context(), tc.p))
+			}
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tc.want, rec.Body.String())
+			}
+		})
 	}
 }
 

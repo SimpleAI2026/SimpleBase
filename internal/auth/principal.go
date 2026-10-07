@@ -28,12 +28,12 @@ type Principal struct {
 	APIKeyID string
 	// UserID / Username / Role / SessionID / AccessJTI 仅登录态（JWT 通道）有值；
 	// API Key 通道保持零值，向后兼容。
-	UserID    string
-	Username  string
-	Role      Role
-	SessionID string
-	AccessJTI string
-	TenantID  string
+	UserID      string
+	Username    string
+	Role        Role
+	SessionID   string
+	AccessJTI   string
+	TenantID    string
 	ProjectIDs  map[string]struct{}
 	Permissions map[Permission]struct{}
 }
@@ -54,4 +54,18 @@ func (p Principal) CanAccessProject(projectID string) bool {
 	}
 	_, ok := p.ProjectIDs[projectID]
 	return ok
+}
+
+// CheckProjectAccess 校验租户与项目归属；系统项目仅允许管理员或管理 Key。
+func CheckProjectAccess(p Principal, projectID, tenantID string, isSystem bool) bool {
+	if p.TenantID == "" || p.TenantID != tenantID {
+		return false
+	}
+	if p.Role.IsUser() {
+		return !isSystem && p.CanAccessProject(projectID)
+	}
+	if p.Role.IsSuper() || p.Role.IsAdmin() || p.HasPermission(ProjectAdmin) {
+		return true
+	}
+	return !isSystem && p.CanAccessProject(projectID)
 }

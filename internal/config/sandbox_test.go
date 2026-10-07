@@ -40,7 +40,11 @@ func TestSandboxDefaults(t *testing.T) {
 	if cfg.Sandbox.Enabled {
 		t.Fatal("sandbox must default to disabled")
 	}
-	if cfg.Sandbox.Image != "python:3.12" || cfg.Sandbox.CPUs != 1 || cfg.Sandbox.MemoryMiB != 512 {
+	if cfg.Sandbox.Image != "python:3.12-slim" || cfg.Sandbox.CPUs != 1 || cfg.Sandbox.MemoryMiB != 256 {
+		t.Fatalf("unexpected sandbox defaults: %+v", cfg.Sandbox)
+	}
+	if cfg.Sandbox.EffectiveBackend() != SandboxBackendCloud || cfg.Sandbox.MaxPerProject != 5 ||
+		cfg.Sandbox.IdleTimeout != 5*time.Minute || cfg.Sandbox.ExecTimeoutMax != 300*time.Second {
 		t.Fatalf("unexpected sandbox defaults: %+v", cfg.Sandbox)
 	}
 	if cfg.Sandbox.Network != "none" || cfg.Sandbox.Workdir != "/workspace" {
@@ -182,4 +186,64 @@ func TestSandboxRedactedHasNoKey(t *testing.T) {
 func marshalTestJSON(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
+}
+
+func validEnabledSandbox() SandboxConfig {
+	return SandboxConfig{Enabled: true, APIKey: "k", Network: "none", Image: "python:3.12-slim",
+		CPUs: 1, MemoryMiB: 256, MaxDuration: time.Minute, IdleTimeout: time.Minute,
+		ExecTimeout: time.Second, ExecTimeoutMax: time.Minute, MaxOutputBytes: 1, MaxFileBytes: 1,
+		MaxPerProject: 5}
+}
+
+func TestSandboxValidateFakeBackend(t *testing.T) {
+	cfg := validTestConfig(t)
+	cfg.Sandbox = validEnabledSandbox()
+	cfg.Sandbox.Backend = "fake"
+	cfg.Sandbox.APIKey = ""
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dev_mode") {
+		t.Fatalf("fake backend in production must fail, got %v", err)
+	}
+	cfg.DevMode = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("fake backend in dev_mode must pass without key: %v", err)
+	}
+	cfg.Sandbox.Backend = "local"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sandbox.backend") {
+		t.Fatalf("unknown backend must fail, got %v", err)
+	}
+}
+
+func TestSandboxValidateImagesAndLimits(t *testing.T) {
+	cfg := validTestConfig(t)
+	cfg.Sandbox = validEnabledSandbox()
+	cfg.Sandbox.Images = []string{"node:22-alpine"}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sandbox.images") {
+		t.Fatalf("images without default image must fail, got %v", err)
+	}
+	cfg.Sandbox.Images = []string{"python:3.12-slim", "node:22-alpine"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Sandbox.ExecTimeout = 2 * time.Minute
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "exec_timeout_max") {
+		t.Fatalf("exec_timeout > max must fail, got %v", err)
+	}
+	cfg.Sandbox.ExecTimeout = time.Second
+	cfg.Sandbox.MaxPerProject = 101
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "max_per_project") {
+		t.Fatalf("max_per_project out of range must fail, got %v", err)
+	}
+}
+
+func TestSandboxEnvV4Fields(t *testing.T) {
+	t.Setenv("SIMPLEBASE_SANDBOX_BACKEND", "fake")
+	t.Setenv("SIMPLEBASE_SANDBOX_IMAGES", "python:3.12-slim, alpine:3.20 ,")
+	t.Setenv("SIMPLEBASE_SANDBOX_MAX_PER_PROJECT", "9")
+	cfg := loadFromEnv()
+	if cfg.Sandbox.Backend != "fake" || cfg.Sandbox.MaxPerProject != 9 {
+		t.Fatalf("env not applied: %+v", cfg.Sandbox)
+	}
+	if len(cfg.Sandbox.Images) != 2 || cfg.Sandbox.Images[1] != "alpine:3.20" {
+		t.Fatalf("images = %#v", cfg.Sandbox.Images)
+	}
 }

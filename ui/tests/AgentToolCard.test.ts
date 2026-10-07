@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest'
+import { mountWithApp } from '@/test/helpers'
+import AgentToolCard from '@/components/ai/AgentToolCard.vue'
+
+const sql = JSON.stringify({ Columns: ['name', 'count'], Rows: [['orders', 42]], RowCount: 1 })
+
+describe('AgentToolCard', () => {
+  it('renders SQL result as a table', async () => {
+    const { wrapper } = await mountWithApp(AgentToolCard, { props: { tool: { call_id: 'c1', name: 'readonly_sql', content: sql } } })
+    expect(wrapper.find('table').exists()).toBe(true)
+    expect(wrapper.text()).toContain('orders')
+    expect(wrapper.text()).toContain('共 1 行')
+  })
+  it('renders sandbox output and exit status', async () => {
+    const { wrapper } = await mountWithApp(AgentToolCard, { props: { tool: { name: 'sandbox_shell', content: JSON.stringify({ stdout: 'hello', stderr: 'failed', exit_code: 3 }) } } })
+    expect(wrapper.text()).toContain('exit 3')
+    expect(wrapper.text()).toContain('hello')
+    expect(wrapper.text()).toContain('failed')
+  })
+  it('renders real snake-case SQL shape, pending tool, and plain text fallback', async () => {
+    const { wrapper } = await mountWithApp(AgentToolCard, { props: { tool: { name: 'readonly_sql', content: JSON.stringify({ columns: ['total'], rows: [[7]], row_count: 1 }), duration_ms: 11 } } })
+    expect(wrapper.text()).toContain('total')
+    expect(wrapper.text()).toContain('7')
+    expect(wrapper.text()).toContain('11ms')
+    await wrapper.setProps({ tool: { name: 'list_objects', content: 'plain result' } })
+    expect(wrapper.text()).toContain('plain result')
+    await wrapper.setProps({ tool: { name: 'list_objects' } })
+    expect(wrapper.text()).toContain('正在调用')
+  })
+  it('handles incomplete SQL and sandbox payloads without hiding raw results', async () => {
+    const { wrapper } = await mountWithApp(AgentToolCard, { props: { tool: { name: 'readonly_sql', content: JSON.stringify({ rows: [] }) } } })
+    expect(wrapper.find('table').exists()).toBe(false)
+    await wrapper.setProps({ tool: { name: 'readonly_sql', content: JSON.stringify({ columns: ['x'], rows: [[1]] }), arguments: '{}' } })
+    expect(wrapper.find('table').exists()).toBe(true)
+    expect(wrapper.text()).toContain('共 1 行')
+    await wrapper.setProps({ tool: { name: 'sandbox_exec', content: JSON.stringify({ Stdout: 'legacy' }) } })
+    expect(wrapper.text()).toContain('legacy')
+    expect(wrapper.text()).toContain('exit 0')
+    await wrapper.setProps({ tool: { name: 'sandbox_exec', content: 'error text' } })
+    expect(wrapper.text()).toContain('error text')
+  })
+  it('renders legacy sandbox keys and SQL without optional row count', async () => {
+    const { wrapper } = await mountWithApp(AgentToolCard, { props: { tool: { name: 'sandbox_shell', content: JSON.stringify({ Stdout: 'OK', Stderr: 'warn', ExitCode: 9 }) } } })
+    expect(wrapper.text()).toContain('exit 9')
+    expect(wrapper.text()).toContain('warn')
+    await wrapper.setProps({ tool: { name: 'readonly_sql', content: JSON.stringify({ Columns: ['x'], Rows: [[9]] }) } })
+    expect(wrapper.text()).toContain('共 1 行')
+    await wrapper.setProps({ tool: { name: 'readonly_sql', content: JSON.stringify(null) } })
+    expect(wrapper.find('table').exists()).toBe(false)
+  })
+  it('handles missing sandbox keys and malformed SQL schema', async () => {
+    const { wrapper } = await mountWithApp(AgentToolCard, { props: { tool: { name: 'sandbox_shell', content: JSON.stringify({ exit_code: 0 }) } } })
+    expect(wrapper.text()).toContain('exit 0')
+    await wrapper.setProps({ tool: { name: 'readonly_sql', content: JSON.stringify({ columns: [], rows: {}, row_count: 0 }) } })
+    expect(wrapper.find('table').exists()).toBe(false)
+    await wrapper.setProps({ tool: { name: 'list_objects', content: '{}' } })
+    expect(wrapper.text()).toContain('结果')
+    await wrapper.setProps({ tool: { name: 'sandbox_shell', content: JSON.stringify(null) } })
+    expect(wrapper.text()).toContain('结果')
+    await wrapper.setProps({ tool: { name: 'readonly_sql', content: JSON.stringify({ Columns: ['x'], Rows: [[1]], RowCount: 0 }) } })
+    expect(wrapper.text()).toContain('共 0 行')
+    await wrapper.setProps({ tool: { name: 'sandbox_exec', content: JSON.stringify({ Stdout: '', Stderr: '', ExitCode: 0 }) } })
+    expect(wrapper.text()).toContain('exit 0')
+  })
+  it('keeps long and legacy JSON results collapsible', async () => {
+    const { wrapper } = await mountWithApp(AgentToolCard, { props: { tool: { name: 'list_databases', content: JSON.stringify(Array.from({ length: 30 }, (_, i) => ({ id: i }))) } } })
+    expect(wrapper.get('details').attributes('open')).toBeUndefined()
+    expect(wrapper.text()).toContain('结果')
+  })
+})

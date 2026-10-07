@@ -216,6 +216,83 @@ describe('AgentManager (云 Agent)', () => {
     expect(api.agents.create).toHaveBeenCalled()
   })
 
+  it('manages threads, restores URL selection, and sends selected model', async () => {
+    api.agentThreads.page.mockResolvedValue({ threads: [
+      { id: 'th-1', title: '旧会话', created_at: 't', updated_at: 't' },
+      { id: 'th-2', title: '选中会话', created_at: 't', updated_at: 't' }
+    ], next_cursor: 'th-2' })
+    const { wrapper, router } = await mountWithApp(AgentManager, { stubs: agentStubs, path: '/?thread=th-2' })
+    await flushPromises()
+    const vm = wrapper.vm as Record<string, any>
+    expect(vm.threadId).toBe('th-2')
+    await vm.selectThread('th-1')
+    await flushPromises()
+    expect(router.currentRoute.value.query.thread).toBe('th-1')
+    api.agentThreads.page.mockResolvedValueOnce({ threads: [{ id: 'th-3', title: '更多', created_at: 't', updated_at: 't' }], next_cursor: '' })
+    vm.nextCursor = 'th-2'
+    await vm.loadMoreThreads()
+    expect(vm.threads.some((th: { id: string }) => th.id === 'th-3')).toBe(true)
+    await vm.renameThread('th-1', '新标题')
+    expect(api.agentThreads.rename).toHaveBeenCalledWith(expect.anything(), 'th-1', '新标题')
+    await vm.removeThread('th-3')
+    expect(api.agentThreads.remove).toHaveBeenCalled()
+    vm.openEdit(sampleAgent)
+    vm.form.model_override = 'deepseek-ai/DeepSeek-V4-Flash'
+    await vm.saveAgent()
+    expect(api.agents.patch).toHaveBeenCalledWith(expect.anything(), sampleAgent.id, expect.objectContaining({ model_override: 'deepseek-ai/DeepSeek-V4-Flash' }))
+  })
+
+  it('matches duplicate tool names by call id, retries errors and shows cancel state', async () => {
+    let handlers: Record<string, (...args: unknown[]) => void> = {}
+    api.agentThreads.streamRun.mockImplementation((_p: string, _t: string, _r: unknown, h: Record<string, (...args: unknown[]) => void>) => {
+      handlers = h
+      return { close: vi.fn() }
+    })
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as Record<string, any>
+    await vm.onSend('查库', [{ agent_id: 'ag-1' }])
+    handlers.onRun?.('run-1')
+    handlers.onThinking?.(2000, 'thinking')
+    handlers.onToolCall?.('list_databases', '{}', 'c1')
+    handlers.onToolCall?.('list_databases', '{}', 'c2')
+    handlers.onToolResult?.('list_databases', 'second', 'c2', 20)
+    handlers.onToolResult?.('list_databases', 'first', 'c1', 10)
+    expect(vm.chatMessages[1].toolCalls.map((card: { content: string }) => card.content)).toEqual(['first', 'second'])
+    handlers.onError?.(Object.assign(new Error('rate limit'), { code: 'llm_rate_limited' }))
+    expect(vm.chatMessages[1].error).toContain('限流')
+    vm.retryLast()
+    expect(api.agentThreads.streamRun).toHaveBeenCalledTimes(2)
+    expect(api.agentThreads.streamRun.mock.calls[1][2]).toMatchObject({ content: '查库', mentions: [{ agent_id: 'ag-1' }] })
+    handlers.onRun?.('run-2')
+    vm.onStop()
+    expect(vm.chatMessages.at(-1)?.canceled).toBe(true)
+  })
+
+  it('covers thread errors, empty paging and safe retry guards', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as Record<string, any>
+    await vm.loadMoreThreads()
+    api.agentThreads.page.mockRejectedValueOnce(new Error('page-error'))
+    vm.nextCursor = 't'
+    await vm.loadMoreThreads()
+    expect(toast.error).toHaveBeenCalledWith('page-error')
+    api.agentThreads.rename.mockRejectedValueOnce(new Error('rename-error'))
+    await vm.renameThread('t', 'x')
+    expect(toast.error).toHaveBeenCalledWith('rename-error')
+    api.agentThreads.remove.mockRejectedValueOnce(new Error('remove-error'))
+    await vm.removeThread('th-1')
+    expect(toast.error).toHaveBeenCalledWith('remove-error')
+    await vm.selectThread('')
+    api.agentThreads.messages.mockRejectedValueOnce(new Error('messages-error'))
+    await vm.selectThread('broken')
+    expect(toast.error).toHaveBeenCalledWith('messages-error')
+    vm.lastRequest = null
+    vm.retryLast()
+    api.agentThreads.remove.mockResolvedValueOnce(undefined)
+    await vm.removeThread('broken')
+    expect(api.agentThreads.create).toHaveBeenCalled()
+  })
+
   it('shows readonly hint when active agent has no sandbox tools', async () => {
     const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
     await flushPromises()

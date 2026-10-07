@@ -9,6 +9,9 @@
 # 开发流程（./build.sh dev）：
 #   并行启动后端 (:8080) + Vite 前端 (:5173)，浏览器打开前端地址；
 #   API 经 vite proxy 转发到后端，可用完整前后端功能。
+#
+# 重置（./build.sh reset）：
+#   删除 database.cache_dir（默认 .cache）下的全部本地数据。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,8 +30,9 @@ API_PORT_EXPLICIT=0
 usage() {
   cat <<'USAGE'
 用法:
-  ./build.sh [构建选项]     生产构建（默认）
-  ./build.sh dev [开发选项] 启动本地前后端开发环境
+  ./build.sh [构建选项]       生产构建（默认）
+  ./build.sh dev [开发选项]   启动本地前后端开发环境
+  ./build.sh reset [重置选项] 删除本地数据库缓存，清空全部数据
 
 构建选项:
   -h, --help     显示本帮助并退出
@@ -55,7 +59,19 @@ usage() {
   - DevMode 种子 Key: sb_live_dev_key_12345
   - Ctrl+C 结束前后端进程
 
-环境要求: yarn、go；开发另需 curl（探测就绪）、tee（后端日志）
+重置选项（跟在 reset 后）:
+  -h, --help     显示本帮助并退出
+  -y, --yes      不询问确认，直接删除
+
+重置说明:
+  - 删除 database.cache_dir 整目录（系统库、用户库 catalog/parquet、dev 本地文件）
+  - 路径来源：SIMPLEBASE_DB_CACHE_DIR > config.yaml database.cache_dir > .cache
+  - 保留 config.yaml 与 .env；下次 ./build.sh dev 会重建空库并重新种子
+  - 不清理远程 S3 对象（远程清理请用 ./simplebased reset --confirm=<instance_id>）
+  - 目录被进程占用时拒绝执行，请先 Ctrl+C 停止 ./build.sh dev
+  - 交互终端需输入 yes；非交互请加 -y
+
+环境要求: yarn、go；开发另需 curl（探测就绪）、tee（后端日志）；重置占用检测需 lsof
 默认构建产物: ./simplebased
 USAGE
 }
@@ -483,6 +499,129 @@ cmd_dev() {
   done
 }
 
+resolve_cache_dir() {
+  # 在命令替换中调用，提示必须走 stderr，避免污染路径。
+  load_dotenv >&2
+  local cfg="$ROOT_DIR/config.yaml"
+  local dir="${SIMPLEBASE_DB_CACHE_DIR:-}"
+  if [[ -z "$dir" ]]; then
+    dir="$(yaml_scalar_under "$cfg" "database" "cache_dir" || true)"
+  fi
+  if [[ -z "$dir" ]]; then
+    dir=".cache"
+  fi
+  if [[ "$dir" != /* ]]; then
+    dir="$ROOT_DIR/$dir"
+  fi
+  # 去掉尾部斜杠，避免 rm 顺着符号链接删到目标内容
+  while [[ "$dir" == */ && "$dir" != "/" ]]; do
+    dir="${dir%/}"
+  done
+  if [[ -d "$dir" && ! -L "$dir" ]]; then
+    dir="$(cd "$dir" && pwd -P)"
+  else
+    local parent base
+    parent="$(cd "$(dirname "$dir")" && pwd -P)"
+    base="$(basename "$dir")"
+    dir="$parent/$base"
+  fi
+  printf '%s\n' "$dir"
+}
+
+assert_safe_cache_dir() {
+  local dir="$1"
+  if [[ -z "$dir" || "$dir" == "/" || "$dir" == "$ROOT_DIR" || "$dir" == "${HOME:-}" ]]; then
+    echo "错误: 拒绝删除该路径: ${dir:-<空>}" >&2
+    exit 1
+  fi
+  case "$ROOT_DIR/" in
+    "$dir/"*)
+      echo "错误: cache_dir 覆盖了仓库目录，拒绝删除: $dir" >&2
+      exit 1
+      ;;
+  esac
+  if [[ -L "$dir" ]]; then
+    echo "错误: cache_dir 是符号链接，拒绝删除: $dir -> $(readlink "$dir")" >&2
+    exit 1
+  fi
+}
+
+cache_dir_holders() {
+  local dir="$1"
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "警告: 未找到 lsof，无法检测占用进程。请确认已停止 ./build.sh dev" >&2
+    return 0
+  fi
+  lsof -t +D "$dir" 2>/dev/null || true
+}
+
+cmd_reset() {
+  local YES=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      -y|--yes)
+        YES=1
+        ;;
+      *)
+        echo "错误: 未知重置选项 '$1'" >&2
+        echo >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+    shift
+  done
+
+  local cache_dir
+  cache_dir="$(resolve_cache_dir)"
+  assert_safe_cache_dir "$cache_dir"
+
+  echo "==> 将重置本地数据库并清空全部数据"
+  echo "    目录: $cache_dir"
+
+  if [[ ! -d "$cache_dir" ]]; then
+    echo "==> 目录不存在，无需清理"
+    exit 0
+  fi
+
+  local holders
+  holders="$(cache_dir_holders "$cache_dir")"
+  if [[ -n "$holders" ]]; then
+    echo "错误: 缓存目录正被进程占用，请先停止后端（Ctrl+C 结束 ./build.sh dev）" >&2
+    if command -v lsof >/dev/null 2>&1; then
+      lsof +D "$cache_dir" 2>/dev/null | head -n 20 >&2 || true
+    fi
+    exit 1
+  fi
+
+  if command -v du >/dev/null 2>&1; then
+    echo "    大小: $(du -sh "$cache_dir" 2>/dev/null | awk '{print $1}' || true)"
+  fi
+
+  if [[ "$YES" -ne 1 ]]; then
+    if [[ ! -t 0 ]]; then
+      echo "错误: 非交互终端请加 -y 确认删除" >&2
+      exit 2
+    fi
+    printf '输入 yes 确认删除: '
+    local ans=""
+    read -r ans
+    if [[ "$ans" != "yes" ]]; then
+      echo "已取消"
+      exit 1
+    fi
+  fi
+
+  rm -rf -- "$cache_dir"
+  echo "==> 已删除 $cache_dir"
+  echo "    已保留 config.yaml 与 .env。下次 ./build.sh dev 会重建空库并重新种子。"
+}
+
 # ── 入口 ──
 if [[ $# -gt 0 ]]; then
   case "$1" in
@@ -497,6 +636,10 @@ if [[ $# -gt 0 ]]; then
     build)
       shift
       cmd_build "$@"
+      ;;
+    reset)
+      shift
+      cmd_reset "$@"
       ;;
     *)
       # 兼容旧用法: ./build.sh --skip-ui

@@ -1,3 +1,8 @@
+---
+title: 部署与故障处理
+order: 2
+---
+
 # SimpleBase 部署文档与 Runbook
 
 ## 部署模型

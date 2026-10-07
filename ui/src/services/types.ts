@@ -5,6 +5,14 @@ export interface MetricsSummary {
   errorRate: number
   avgLatencyMs: number
   activeDatabases: number
+  /** 近 24h 接口耗时估算分位数（ms）；无样本为 null */
+  latencyP50Ms?: number | null
+  latencyP90Ms?: number | null
+  latencyP99Ms?: number | null
+  /** 参与分位数统计的请求数（可能少于 totalRequests：升级前样本无直方图） */
+  latencySampleCount?: number
+  /** 最高有限桶上界（ms）；分位数 >= 该值时显示为「≥」 */
+  latencyOverflowMs?: number
 }
 
 export interface TrendPoint {
@@ -324,6 +332,12 @@ export interface AgentThread {
   title: string
   created_at: string
   updated_at: string
+  last_message_preview?: string
+}
+
+export interface AgentThreadPage {
+  threads: AgentThread[]
+  next_cursor: string
 }
 
 export interface AgentMention {
@@ -331,9 +345,11 @@ export interface AgentMention {
 }
 
 export interface AgentToolCallCard {
+  call_id?: string
   name?: string
   content?: string
   arguments?: string
+  duration_ms?: number
 }
 
 export interface AgentMessage {
@@ -347,7 +363,16 @@ export interface AgentMessage {
   created_at: string
 }
 
-export interface AgentRun {
+export interface AgentRunMetrics {
+  duration_ms: number
+  prompt_tokens: number
+  completion_tokens: number
+  reasoning_tokens: number
+  tool_calls: number
+  error_code?: string
+}
+
+export interface AgentRun extends Partial<AgentRunMetrics> {
   id: string
   thread_id: string
   agent_id: string
@@ -400,10 +425,12 @@ export interface AgentRunRequest {
 
 export interface AgentStreamHandlers {
   onRun?: (runId: string) => void
+  onThinking?: (elapsedMs: number, content?: string) => void
   onToken?: (text: string) => void
-  onToolCall?: (name: string, args: string) => void
-  onToolResult?: (name: string, content: string) => void
-  onEnd?: () => void
+  onToolCall?: (name: string, args: string, callId?: string) => void
+  onToolResult?: (name: string, content: string, callId?: string, durationMs?: number) => void
+  onUsage?: (metrics: AgentRunMetrics) => void
+  onEnd?: (reason?: string) => void
   onError?: (e: unknown) => void
 }
 
@@ -525,6 +552,75 @@ export interface CronJobCreate {
   enabled?: boolean
 }
 
+/* ---------- 云沙盒（planv4.0 cloud-sandbox-plan） ---------- */
+
+export interface SandboxCapabilities {
+  available: boolean
+  backend: string
+  images: string[]
+  defaultImage: string
+  cpusMax: number
+  memoryMiBMax: number
+  execTimeoutMaxS: number
+  maxFileBytes: number
+  maxOutputBytes: number
+  maxPerProject: number
+  networkOptions: string[]
+}
+export interface SandboxItem {
+  id: string
+  name: string
+  cloudName: string
+  source: string
+  threadId?: string
+  status: string
+  image: string
+  cpus: number
+  memoryMiB: number
+  network: string
+  idleTimeoutS: number
+  maxDurationS: number
+  lastError?: string
+  createdAt: string
+  startedAt?: string
+  lastActiveAt?: string
+  expiresAt?: string
+}
+export interface SandboxCreate {
+  name?: string
+  image?: string
+  cpus?: number
+  memoryMiB?: number
+  network?: string
+  idleTimeoutS?: number
+  start?: boolean
+}
+export interface SandboxExecInput {
+  command: string
+  timeoutS?: number
+}
+export interface SandboxExecResult {
+  exitCode: number
+  stdout: string
+  stderr: string
+  stdoutTruncated: boolean
+  stderrTruncated: boolean
+  timedOut: boolean
+  durationMs: number
+  status: string
+}
+export interface SandboxFileEntry {
+  name: string
+  path: string
+  kind: string
+  size: number
+}
+export interface SandboxFileContent {
+  content: string
+  encoding: string
+  truncated: boolean
+}
+
 /**
  * API 统一抽象：http 实现与 mock 实现均遵循该接口。
  * projectId 一律为方法首个参数，由调用方从 stores/project.ts 读取后显式传入
@@ -564,6 +660,25 @@ export interface Api {
       functionName: string,
       body: unknown
     ) => Promise<GoFuncTestResult>
+  }
+  sandboxes: {
+    capabilities: (projectId: string) => Promise<SandboxCapabilities>
+    list: (projectId: string, status?: string, source?: string) => Promise<SandboxItem[]>
+    create: (projectId: string, body: SandboxCreate, idempotencyKey?: string) => Promise<SandboxItem>
+    get: (projectId: string, id: string, refresh?: boolean) => Promise<SandboxItem>
+    update: (projectId: string, id: string, body: { name?: string; idleTimeoutS?: number }) => Promise<SandboxItem>
+    remove: (projectId: string, id: string) => Promise<void>
+    start: (projectId: string, id: string) => Promise<SandboxItem>
+    stop: (projectId: string, id: string) => Promise<SandboxItem>
+    exec: (projectId: string, id: string, body: SandboxExecInput) => Promise<SandboxExecResult>
+    files: {
+      list: (projectId: string, id: string, path: string) => Promise<SandboxFileEntry[]>
+      read: (projectId: string, id: string, path: string) => Promise<SandboxFileContent>
+      download: (projectId: string, id: string, path: string) => Promise<Blob>
+      write: (projectId: string, id: string, path: string, content: string) => Promise<void>
+      upload: (projectId: string, id: string, path: string, content: Uint8Array) => Promise<void>
+      remove: (projectId: string, id: string, path: string) => Promise<void>
+    }
   }
   cronjobs: {
     list: (projectId: string) => Promise<CronJobItem[]>
@@ -670,9 +785,12 @@ export interface Api {
   }
   agentThreads: {
     list: (projectId: string) => Promise<AgentThread[]>
+    page: (projectId: string, limit?: number, cursor?: string) => Promise<AgentThreadPage>
     create: (projectId: string, title?: string) => Promise<AgentThread>
     get: (projectId: string, threadId: string) => Promise<AgentThread>
+    rename: (projectId: string, threadId: string, title: string) => Promise<AgentThread>
     remove: (projectId: string, threadId: string) => Promise<void>
+    runs: (projectId: string, threadId: string, limit?: number) => Promise<AgentRun[]>
     messages: (projectId: string, threadId: string) => Promise<AgentMessage[]>
     streamRun: (
       projectId: string,

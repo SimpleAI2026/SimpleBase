@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // flushQueueCap 是日志/指标缓冲的硬上限；超出即丢弃并计数（请求路径 O(1)）。
@@ -202,6 +204,17 @@ func (s *Store) recordMetricAggregated(sample MetricSample) {
 		agg.OccurredAt = sample.OccurredAt
 	}
 	s.metricAgg[key] = agg
+	if sample.Name == "http_latency_ms" {
+		if s.latencyHist == nil {
+			s.latencyHist = map[string]latencyHistogram{}
+		}
+		h, ok := s.latencyHist[sample.ProjectID]
+		if !ok {
+			h = newLatencyHistogram()
+			s.latencyHist[sample.ProjectID] = h
+		}
+		h.observe(sample.Value)
+	}
 	s.mu.Unlock()
 }
 
@@ -212,12 +225,21 @@ func (s *Store) drainMetricAggregates() []MetricSample {
 	s.mu.Lock()
 	aggs := s.metricAgg
 	s.metricAgg = nil
+	hists := s.latencyHist
+	s.latencyHist = nil
 	s.mu.Unlock()
-	if len(aggs) == 0 {
+	if len(aggs) == 0 && len(hists) == 0 {
 		return nil
 	}
-	out := make([]MetricSample, 0, len(aggs)*2)
+	out := make([]MetricSample, 0, len(aggs)*2+len(hists))
 	now := time.Now().UTC()
+	// 直方图：每项目一行；失败时随 metricsBuf 原样重入队，查询侧逐桶相加，不会覆盖。
+	for projectID, h := range hists {
+		out = append(out, MetricSample{
+			ID: uuid.NewString(), ProjectID: projectID, Name: metricLatencyHistogram,
+			Value: float64(h.total()), LabelsJSON: h.encode(), OccurredAt: now,
+		})
+	}
 	for key, agg := range aggs {
 		idx := strings.IndexByte(key, 0)
 		if idx < 0 {

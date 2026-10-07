@@ -166,6 +166,9 @@ func (h *CronJobHandler) List(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
+	if len(jobs) == 0 {
+		return c.JSON(http.StatusOK, map[string]any{"jobs": []cronJobDTO{}})
+	}
 	targets, err := h.buildTargetIndex(c.Request().Context(), pc.ID)
 	if err != nil {
 		return WriteError(c, err)

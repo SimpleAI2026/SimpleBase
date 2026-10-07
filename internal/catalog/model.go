@@ -82,12 +82,13 @@ type LLMProviderConfig struct {
 type UsageEvent struct {
 	ID           string
 	ProjectID    string
-	Kind         string // "database" | "llm"
+	Kind         string // "database" | "llm" | "sandbox"
 	Provider     string
 	Model        string
 	InputTokens  int64
 	OutputTokens int64
 	CostMicros   int64
+	DurationMs   int64 // sandbox 的执行时长；其他 kind 为零
 	RequestID    string
 	OccurredAt   time.Time
 }

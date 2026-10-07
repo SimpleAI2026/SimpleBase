@@ -1,0 +1,14 @@
+{
+  "project": { "id": "ex-cmty1", "name": "示例·社区" },
+  "databases": [
+    { "name": "community", "migrations": "migrations", "seed": "seed/community.sql" },
+    { "name": "media", "migrations": "media-migrations" }
+  ],
+  "collections": [{ "database": "community", "name": "posts", "seed": [{ "id": "demo", "title": "欢迎", "body": "欢迎来到示例社区", "author": "demo-user", "attachment_key": "posts/demo/welcome.txt" }] }],
+  "kv": "seed/kv.json",
+  "objects": [{ "dir": "seed/attachments", "prefix": "posts/demo/" }],
+  "functions": [{ "name": "moderation", "file": "functions/moderation.go", "test": { "function_name": "Check", "body": { "title": "示例", "body": "欢迎" } } }],
+  "cron_jobs": [{ "name": "community_hot", "schedule_kind": "interval", "interval_seconds": 600, "func_file": "moderation", "func_export": "Score", "input_json": "{\"items\":[]}", "trigger_once": true }],
+  "api_keys": [{ "label": "service", "permissions": ["database:read", "database:write"] }],
+  "requires": { "llm": true }
+}

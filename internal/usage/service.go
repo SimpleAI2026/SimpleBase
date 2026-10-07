@@ -65,6 +65,14 @@ func (s *Service) RecordLLM(ctx context.Context, projectID, provider, model stri
 	return s.append(ctx, ev)
 }
 
+// RecordSandbox 记录一次沙盒 exec/run，不做配额拦截。
+func (s *Service) RecordSandbox(ctx context.Context, projectID, requestID string, durationMs int64) error {
+	return s.append(ctx, catalog.UsageEvent{
+		ID: uuid.NewString(), ProjectID: projectID, Kind: "sandbox", RequestID: requestID,
+		DurationMs: durationMs, OccurredAt: s.now(),
+	})
+}
+
 // LLMUsage 是 LLM token 用量（与 llmgateway.Usage 一致，避免循环依赖）。
 type LLMUsage struct {
 	PromptTokens     int

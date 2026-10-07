@@ -1,0 +1,1 @@
+[["SET","idem:demo","1","EX","600"],["LPUSH","queue:pending","ticket-demo"],["HSET","health:demo","status","ok"],["ZADD","priority:demo","1","ticket-demo"]]

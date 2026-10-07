@@ -283,7 +283,7 @@ func (c *s3Client) DeletePrefix(ctx context.Context, prefix string) error {
 		del, err := c.api.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 			Bucket: aws.String(c.bucket),
 			Delete: &types.Delete{Objects: objects, Quiet: aws.Bool(true)},
-		})
+		}, deleteObjectsMD5Option)
 		if err != nil {
 			return c.sanitizeErr(err)
 		}

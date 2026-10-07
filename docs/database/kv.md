@@ -11,13 +11,13 @@ order: 2
 
 ## 请求
 
-```
+```http
 POST /v1/projects/:projectId/kv
 Authorization: Bearer <API_KEY>
 Content-Type: application/json
 ```
 
-一次请求执行一条命令。读命令需要 `database:read`，写命令需要 `database:write`。
+一次请求执行一条命令。读命令需要 `database:read`，写命令需要 `database:write`。只读 Key 可执行读命令，不能执行写命令或按类型写入。
 
 `type` 决定正文：
 

@@ -100,6 +100,8 @@ type DuckLakeConfig struct {
 type CatalogSyncConfig struct {
 	Mode         string        `yaml:"mode"`
 	Debounce     time.Duration `yaml:"debounce"`
+	Interval     time.Duration `yaml:"interval"`
+	MaxLag       time.Duration `yaml:"max_lag"`
 	KeepVersions int           `yaml:"keep_versions"`
 }
 
@@ -136,6 +138,61 @@ type AuthConfig struct {
 type LLMConfig struct {
 	Enabled   bool                      `yaml:"enabled"`
 	Providers map[string]ProviderConfig `yaml:"providers"`
+	// 云 Agent 运行参数（planv4.0 cloud-agent-optimization-plan §6）。零值表示默认。
+	AgentToolProtocol  string        `yaml:"agent_tool_protocol"`  // auto | native | text
+	AgentMaxIterations int           `yaml:"agent_max_iterations"` // 1–20
+	AgentRunTimeout    time.Duration `yaml:"agent_run_timeout"`    // 10s–15m
+}
+
+const (
+	AgentToolProtocolAuto   = "auto"
+	AgentToolProtocolNative = "native"
+	AgentToolProtocolText   = "text"
+
+	defaultAgentMaxIterations = 8
+	defaultAgentRunTimeout    = 180 * time.Second
+)
+
+// EffectiveAgentToolProtocol 返回归一后的工具协议，空值视为 auto。
+func (l LLMConfig) EffectiveAgentToolProtocol() string {
+	switch p := strings.ToLower(strings.TrimSpace(l.AgentToolProtocol)); p {
+	case AgentToolProtocolNative, AgentToolProtocolText:
+		return p
+	default:
+		return AgentToolProtocolAuto
+	}
+}
+
+// EffectiveAgentMaxIterations 返回工具迭代上限，零值为 8。
+func (l LLMConfig) EffectiveAgentMaxIterations() int {
+	if l.AgentMaxIterations <= 0 {
+		return defaultAgentMaxIterations
+	}
+	return l.AgentMaxIterations
+}
+
+// EffectiveAgentRunTimeout 返回单次 run 总时限，零值为 180s。
+func (l LLMConfig) EffectiveAgentRunTimeout() time.Duration {
+	if l.AgentRunTimeout <= 0 {
+		return defaultAgentRunTimeout
+	}
+	return l.AgentRunTimeout
+}
+
+func validateLLMAgent(l LLMConfig) []error {
+	var errs []error
+	switch strings.ToLower(strings.TrimSpace(l.AgentToolProtocol)) {
+	case "", AgentToolProtocolAuto, AgentToolProtocolNative, AgentToolProtocolText:
+	default:
+		errs = append(errs, fmt.Errorf("llm.agent_tool_protocol must be auto, native or text (got %q)", l.AgentToolProtocol))
+	}
+	if l.AgentMaxIterations < 0 || l.AgentMaxIterations > 20 {
+		errs = append(errs, fmt.Errorf("llm.agent_max_iterations must be 1-20 (got %d)", l.AgentMaxIterations))
+	}
+	if l.AgentRunTimeout != 0 && (l.AgentRunTimeout < 10*time.Second || l.AgentRunTimeout > 15*time.Minute) {
+		errs = append(errs, fmt.Errorf("llm.agent_run_timeout must be 10s-15m (got %s)", l.AgentRunTimeout))
+	}
+	return errs
 }
 
 type ProviderConfig struct {
@@ -163,6 +220,28 @@ type SandboxConfig struct {
 	MaxFileBytes   int           `yaml:"max_file_bytes"`
 	Network        string        `yaml:"network"` // none | public
 	Workdir        string        `yaml:"workdir"`
+
+	// 以下为 planv4.0 cloud-sandbox-plan §5 新增字段；零值表示取默认。
+	Backend        string        `yaml:"backend"`          // cloud | fake（fake 仅 dev_mode）
+	Images         []string      `yaml:"images"`           // 镜像白名单；空 = 仅 Image
+	ExecTimeoutMax time.Duration `yaml:"exec_timeout_max"` // API 可自定 timeout 的上限
+	MaxPerProject  int           `yaml:"max_per_project"`  // 项目内未删除沙盒上限
+	ReapInterval   time.Duration `yaml:"reap_interval"`    // 过期清理周期；0 = 关闭
+}
+
+// SandboxBackendCloud / SandboxBackendFake 是 sandbox.backend 的合法取值。
+const (
+	SandboxBackendCloud = "cloud"
+	SandboxBackendFake  = "fake"
+)
+
+// EffectiveBackend 返回归一后的 backend（空 = cloud）。
+func (s SandboxConfig) EffectiveBackend() string {
+	b := strings.ToLower(strings.TrimSpace(s.Backend))
+	if b == "" {
+		return SandboxBackendCloud
+	}
+	return b
 }
 
 type LimitsConfig struct {
@@ -248,7 +327,7 @@ func defaults() Config {
 		Instance: InstanceConfig{
 			Writable: true,
 			Lease: InstanceLeaseConfig{
-				Enabled: true,
+				Enabled: false,
 				TTL:     30 * time.Second,
 				Grace:   10 * time.Second,
 				OnLost:  "release_db",
@@ -264,12 +343,14 @@ func defaults() Config {
 				CatalogEngine:        CatalogEngineDuckDB,
 				MemoryLimit:          "512MB",
 				Threads:              2,
-				DataInliningRowLimit: 100,
+				DataInliningRowLimit: 1000,
 				ParquetCompression:   "zstd",
 				TargetFileSize:       "64MB",
 				CatalogSync: CatalogSyncConfig{
-					Mode:         "debounce",
+					Mode:         "interval",
 					Debounce:     200 * time.Millisecond,
+					Interval:     15 * time.Second,
+					MaxLag:       30 * time.Second,
 					KeepVersions: 10,
 				},
 				Maintenance: DuckLakeMaintenanceConfig{
@@ -284,19 +365,26 @@ func defaults() Config {
 			Prefix: "simplebase",
 		},
 		LLM: LLMConfig{
-			Enabled:   true,
-			Providers: map[string]ProviderConfig{},
+			Enabled:            true,
+			Providers:          map[string]ProviderConfig{},
+			AgentToolProtocol:  AgentToolProtocolAuto,
+			AgentMaxIterations: defaultAgentMaxIterations,
+			AgentRunTimeout:    defaultAgentRunTimeout,
 		},
 		Sandbox: SandboxConfig{
 			Enabled:        false,
-			Image:          "python:3.12",
+			Backend:        SandboxBackendCloud,
+			Image:          "python:3.12-slim",
 			CPUs:           1,
-			MemoryMiB:      512,
+			MemoryMiB:      256,
 			MaxDuration:    30 * time.Minute,
-			IdleTimeout:    10 * time.Minute,
+			IdleTimeout:    5 * time.Minute,
 			ExecTimeout:    30 * time.Second,
-			MaxOutputBytes: 32768,
-			MaxFileBytes:   262144,
+			ExecTimeoutMax: 300 * time.Second,
+			MaxOutputBytes: 65536,
+			MaxFileBytes:   1 << 20,
+			MaxPerProject:  5,
+			ReapInterval:   5 * time.Minute,
 			Network:        "none",
 			Workdir:        "/workspace",
 		},
@@ -403,9 +491,10 @@ func (c Config) Validate() error {
 	if c.SystemDatabase.LogKeepDays <= 0 {
 		errs = append(errs, errors.New("system_database.log_keep_days must be positive"))
 	}
-	if err := validateSandbox(c.Sandbox); err != nil {
+	if err := validateSandbox(c.Sandbox, c.DevMode); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, validateLLMAgent(c.LLM)...)
 
 	if c.Instance.Writable && !c.DevMode {
 		// Writable 实例必须拥有完整 S3 配置，否则无法作为在线持久层。
@@ -433,15 +522,45 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// validateSandbox 校验 sandbox 配置段（cloud-agent-sandbox-plan §5）。
-// enabled 且 key 为空：Validate 失败，进程不启动。enabled=false 时忽略 key。
-func validateSandbox(s SandboxConfig) error {
+// validateSandbox 校验 sandbox 配置段（cloud-agent-sandbox-plan §5；planv4.0 cloud-sandbox-plan §5）。
+// enabled 且 backend=cloud 且 key 为空：Validate 失败，进程不启动。enabled=false 时忽略。
+func validateSandbox(s SandboxConfig, devMode bool) error {
 	if !s.Enabled {
 		return nil
 	}
 	var errs []error
-	if strings.TrimSpace(s.APIKey) == "" {
-		errs = append(errs, errors.New("sandbox.api_key is required when sandbox.enabled is true"))
+	switch s.EffectiveBackend() {
+	case SandboxBackendCloud:
+		if strings.TrimSpace(s.APIKey) == "" {
+			errs = append(errs, errors.New("sandbox.api_key is required when sandbox.enabled is true"))
+		}
+	case SandboxBackendFake:
+		if !devMode {
+			errs = append(errs, errors.New("sandbox.backend=fake is only allowed when dev_mode is true"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("sandbox.backend must be cloud or fake (got %q)", s.Backend))
+	}
+	if len(s.Images) > 0 && strings.TrimSpace(s.Image) != "" {
+		found := false
+		for _, img := range s.Images {
+			if strings.TrimSpace(img) == strings.TrimSpace(s.Image) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			errs = append(errs, fmt.Errorf("sandbox.images must contain sandbox.image (%q)", s.Image))
+		}
+	}
+	if s.ExecTimeoutMax != 0 && s.ExecTimeoutMax < s.ExecTimeout {
+		errs = append(errs, errors.New("sandbox.exec_timeout must not exceed sandbox.exec_timeout_max"))
+	}
+	if s.MaxPerProject < 0 || s.MaxPerProject > 100 {
+		errs = append(errs, fmt.Errorf("sandbox.max_per_project must be 1-100 (got %d)", s.MaxPerProject))
+	}
+	if s.ReapInterval < 0 {
+		errs = append(errs, errors.New("sandbox.reap_interval must not be negative"))
 	}
 	switch strings.ToLower(strings.TrimSpace(s.Network)) {
 	case "", "none", "public":
@@ -518,6 +637,8 @@ func (c Config) Redacted() map[string]any {
 				"require_commit_message":     c.Database.DuckLake.RequireCommitMessage,
 				"catalog_sync_mode":          c.Database.DuckLake.CatalogSync.Mode,
 				"catalog_sync_debounce":      c.Database.DuckLake.CatalogSync.Debounce.String(),
+				"catalog_sync_interval":      c.Database.DuckLake.CatalogSync.Interval.String(),
+				"catalog_sync_max_lag":       c.Database.DuckLake.CatalogSync.MaxLag.String(),
 				"catalog_sync_keep_versions": c.Database.DuckLake.CatalogSync.KeepVersions,
 			},
 		},
@@ -551,6 +672,11 @@ func (c Config) Redacted() map[string]any {
 		},
 		"sandbox": map[string]any{
 			"enabled":          c.Sandbox.Enabled,
+			"backend":          c.Sandbox.EffectiveBackend(),
+			"images":           c.Sandbox.Images,
+			"exec_timeout_max": c.Sandbox.ExecTimeoutMax.String(),
+			"max_per_project":  c.Sandbox.MaxPerProject,
+			"reap_interval":    c.Sandbox.ReapInterval.String(),
 			"api_url":          c.Sandbox.APIURL,
 			"has_api_key":      c.Sandbox.APIKey != "",
 			"image":            c.Sandbox.Image,

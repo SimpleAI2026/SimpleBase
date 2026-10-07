@@ -60,15 +60,21 @@ type AgentMessage struct {
 
 // AgentRun 是 sys_agent_runs 一行。
 type AgentRun struct {
-	ID         string
-	ThreadID   string
-	ProjectID  string
-	AgentID    string
-	Status     string
-	Error      string
-	StartedAt  time.Time
-	FinishedAt time.Time
-	CreatedAt  time.Time
+	ID               string
+	ThreadID         string
+	ProjectID        string
+	AgentID          string
+	Status           string
+	Error            string
+	StartedAt        time.Time
+	FinishedAt       time.Time
+	CreatedAt        time.Time
+	DurationMS       int64
+	PromptTokens     int
+	CompletionTokens int
+	ReasoningTokens  int
+	ToolCalls        int
+	ErrorCode        string
 }
 
 // CreateCloudAgent 写入一个 agent。
@@ -270,6 +276,93 @@ func (s *Store) GetAgentThread(ctx context.Context, projectID, id string) (Agent
 	return t, err
 }
 
+// RenameAgentThread 仅修改项目内未归档会话标题。
+func (s *Store) RenameAgentThread(ctx context.Context, projectID, id, title string) (AgentThread, error) {
+	if s == nil || s.db == nil {
+		return AgentThread{}, ErrUnavailable
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE sys_agent_threads SET title=?, updated_at=? WHERE id=? AND project_id=? AND archived_at IS NULL`, title, time.Now().UTC(), id, projectID)
+	if err != nil {
+		return AgentThread{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return AgentThread{}, sql.ErrNoRows
+	}
+	s.notifyWrite(ctx)
+	return s.GetAgentThread(ctx, projectID, id)
+}
+
+// ErrAgentThreadCursor 表示游标不存在或属于其它项目。
+var ErrAgentThreadCursor = errors.New("systemdb: invalid agent thread cursor")
+
+// PageAgentThreads 按更新时间/id 倒序 keyset 分页。
+func (s *Store) PageAgentThreads(ctx context.Context, projectID, cursor string, limit int) ([]AgentThread, string, error) {
+	if s == nil || s.db == nil {
+		return nil, "", ErrUnavailable
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	query := `SELECT id, project_id, title, created_by, created_at, updated_at FROM sys_agent_threads WHERE project_id=? AND archived_at IS NULL`
+	args := []any{projectID}
+	if cursor != "" {
+		var n int
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_agent_threads WHERE id=? AND project_id=?`, cursor, projectID).Scan(&n); err != nil {
+			return nil, "", err
+		}
+		if n == 0 {
+			return nil, "", ErrAgentThreadCursor
+		}
+		const at = `(SELECT updated_at FROM sys_agent_threads WHERE id=? AND project_id=?)`
+		query += ` AND (updated_at < ` + at + ` OR (updated_at = ` + at + ` AND id < ?))`
+		args = append(args, cursor, projectID, cursor, projectID, cursor)
+	}
+	query += ` ORDER BY updated_at DESC, id DESC LIMIT ?`
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	out := make([]AgentThread, 0)
+	for rows.Next() {
+		var t AgentThread
+		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, "", err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	next := ""
+	if len(out) > limit {
+		out = out[:limit]
+		next = out[limit-1].ID
+	}
+	return out, next, nil
+}
+
+// AgentThreadPreview 只返回当前会话最新消息的前 80 个字符。
+func (s *Store) AgentThreadPreview(ctx context.Context, projectID, threadID string) (string, error) {
+	if s == nil || s.db == nil {
+		return "", ErrUnavailable
+	}
+	var text string
+	err := s.db.QueryRowContext(ctx, `SELECT content FROM sys_agent_messages WHERE project_id=? AND thread_id=? ORDER BY created_at DESC, id DESC LIMIT 1`, projectID, threadID).Scan(&text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	runes := []rune(text)
+	if len(runes) > 80 {
+		text = string(runes[:80])
+	}
+	return text, nil
+}
+
 // ArchiveAgentThread 软删线程。
 func (s *Store) ArchiveAgentThread(ctx context.Context, projectID, id string) error {
 	if s == nil || s.db == nil {
@@ -314,12 +407,12 @@ func (s *Store) AppendAgentMessage(ctx context.Context, msg AgentMessage) (Agent
 		return AgentMessage{}, err
 	}
 	title := strings.TrimSpace(msg.Content)
-	if len(title) > 40 {
-		title = title[:40]
+	if runes := []rune(title); len(runes) > 30 {
+		title = string(runes[:30])
 	}
 	if msg.Role == "user" && title != "" {
 		_, _ = s.db.ExecContext(ctx,
-			`UPDATE sys_agent_threads SET updated_at = ?, title = CASE WHEN title = 'New thread' THEN ? ELSE title END WHERE id = ?`,
+			`UPDATE sys_agent_threads SET updated_at = ?, title = CASE WHEN title IN ('New thread', '云 Agent') THEN ? ELSE title END WHERE id = ?`,
 			now, title, msg.ThreadID)
 	} else {
 		_, _ = s.db.ExecContext(ctx, `UPDATE sys_agent_threads SET updated_at = ? WHERE id = ?`, now, msg.ThreadID)
@@ -338,8 +431,9 @@ func (s *Store) ListAgentMessages(ctx context.Context, projectID, threadID strin
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, thread_id, project_id, role, content, agent_id, mentions_json, tool_calls_json, run_id, created_at
-		 FROM sys_agent_messages WHERE project_id = ? AND thread_id = ?
-		 ORDER BY created_at ASC LIMIT ?`, projectID, threadID, int64(limit))
+		 FROM (SELECT * FROM sys_agent_messages WHERE project_id = ? AND thread_id = ?
+		       ORDER BY created_at DESC, id DESC LIMIT ?) AS recent
+		 ORDER BY created_at ASC, id ASC`, projectID, threadID, int64(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -391,9 +485,10 @@ func (s *Store) GetAgentRun(ctx context.Context, projectID, id string) (AgentRun
 	var r AgentRun
 	var started, finished sql.NullTime
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, thread_id, project_id, agent_id, status, error, started_at, finished_at, created_at
+		`SELECT id, thread_id, project_id, agent_id, status, error, started_at, finished_at, created_at,
+		 duration_ms, prompt_tokens, completion_tokens, reasoning_tokens, tool_calls, error_code
 		 FROM sys_agent_runs WHERE id = ? AND project_id = ?`,
-		id, projectID).Scan(&r.ID, &r.ThreadID, &r.ProjectID, &r.AgentID, &r.Status, &r.Error, &started, &finished, &r.CreatedAt)
+		id, projectID).Scan(&r.ID, &r.ThreadID, &r.ProjectID, &r.AgentID, &r.Status, &r.Error, &started, &finished, &r.CreatedAt, &r.DurationMS, &r.PromptTokens, &r.CompletionTokens, &r.ReasoningTokens, &r.ToolCalls, &r.ErrorCode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentRun{}, sql.ErrNoRows
 	}
@@ -407,6 +502,49 @@ func (s *Store) GetAgentRun(ctx context.Context, projectID, id string) (AgentRun
 		r.FinishedAt = finished.Time
 	}
 	return r, nil
+}
+
+// ListAgentRuns 列出项目内某个会话最近的运行记录。
+func (s *Store) ListAgentRuns(ctx context.Context, projectID, threadID string, limit int) ([]AgentRun, error) {
+	if s == nil || s.db == nil {
+		return nil, ErrUnavailable
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, thread_id, project_id, agent_id, status, error, started_at, finished_at, created_at, duration_ms, prompt_tokens, completion_tokens, reasoning_tokens, tool_calls, error_code FROM sys_agent_runs WHERE project_id=? AND thread_id=? ORDER BY created_at DESC, id DESC LIMIT ?`, projectID, threadID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]AgentRun, 0)
+	for rows.Next() {
+		var r AgentRun
+		var start, finish sql.NullTime
+		if err := rows.Scan(&r.ID, &r.ThreadID, &r.ProjectID, &r.AgentID, &r.Status, &r.Error, &start, &finish, &r.CreatedAt, &r.DurationMS, &r.PromptTokens, &r.CompletionTokens, &r.ReasoningTokens, &r.ToolCalls, &r.ErrorCode); err != nil {
+			return nil, err
+		}
+		if start.Valid {
+			r.StartedAt = start.Time
+		}
+		if finish.Valid {
+			r.FinishedAt = finish.Time
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// UpdateAgentRunMetrics 写入运行指标与安全错误码，不存上游原始错误。
+func (s *Store) UpdateAgentRunMetrics(ctx context.Context, projectID, id string, r AgentRun) error {
+	if s == nil || s.db == nil {
+		return ErrUnavailable
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE sys_agent_runs SET duration_ms=?, prompt_tokens=?, completion_tokens=?, reasoning_tokens=?, tool_calls=?, error_code=? WHERE project_id=? AND id=?`, r.DurationMS, r.PromptTokens, r.CompletionTokens, r.ReasoningTokens, r.ToolCalls, r.ErrorCode, projectID, id)
+	if err == nil {
+		s.notifyWrite(ctx)
+	}
+	return err
 }
 
 // UpdateAgentRunStatus 更新 run 状态与错误。

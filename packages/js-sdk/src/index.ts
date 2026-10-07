@@ -16,3 +16,7 @@ export type { DatabasesApi } from './databases.js'
 export type { SqlApi } from './sql.js'
 export type { CollectionsApi, CollectionApi } from './collections.js'
 export type { StorageApi, UploadBody } from './storage.js'
+export type {
+  SandboxesApi, SandboxInfo, SandboxCapabilities, SandboxCreateInput, SandboxUpdateInput,
+  SandboxExecInput, SandboxExecResult, SandboxRunInput, SandboxFileEntry, SandboxFileContent
+} from './sandboxes.js'

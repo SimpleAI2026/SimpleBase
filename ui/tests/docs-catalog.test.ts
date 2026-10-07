@@ -12,7 +12,10 @@ import {
   loadedMarkdownCount,
   loadMarkdownRaw,
   parseFrontmatter,
-  toPosix
+  toPosix,
+  loadMarkdown,
+  isLargeDoc,
+  searchDocs
 } from '@/docs/catalog'
 
 describe('docs catalog', () => {
@@ -26,7 +29,7 @@ describe('docs catalog', () => {
     expect(defaultSlug('no-such-module')).toBe('index')
     expect(getModule('missing')).toBeUndefined()
     expect(getPage(id, 'definitely-missing')).toBeUndefined()
-    expect(getModule('sdk')?.title).toBe('JS SDK')
+    expect(getModule('sdk')?.title).toBe('SDK')
     for (const slug of ['index', 'install', 'quickstart', 'go-install', 'go-quickstart', 'go-database-sql', 'go-documents', 'go-storage', 'go-errors']) {
       expect(getPage('sdk', slug)?.filePath).toBe(`sdk/${slug}.md`)
     }
@@ -43,6 +46,20 @@ describe('docs catalog', () => {
     )
   })
 
+  it('lazy-loads DuckLake only when requested and searches contents', async () => {
+    const file = 'database/ducklake.md'
+    expect(isLargeDoc(file)).toBe(true)
+    expect(isLargeDoc('getting-started/index.md')).toBe(false)
+    expect((await loadMarkdown(file))?.length).toBeGreaterThan(200000)
+    expect(loadMarkdownRaw(file)).toContain('DuckLake')
+    expect(await loadMarkdown('missing/file.md')).toBeNull()
+    expect((await loadMarkdown('getting-started/index.md'))).toContain('SimpleBase')
+    expect(await searchDocs('')).toEqual([])
+    expect((await searchDocs('云沙盒')).some((item) => item.page.moduleId === 'sandbox')).toBe(true)
+    expect((await searchDocs('sandbox_busy')).some((item) => item.page.filePath === 'sandbox/api.md')).toBe(true)
+    expect((await searchDocs('cursor')).length).toBeGreaterThan(0)
+  })
+
   it('parses frontmatter, glob keys, and leftover modules', () => {
     expect(parseFrontmatter('plain')).toEqual({ data: {}, body: 'plain' })
     expect(parseFrontmatter('---\nno-end').body).toContain('no-end')
@@ -52,6 +69,7 @@ describe('docs catalog', () => {
     expect(quoted.data.order).toBe(3)
     expect(quoted.body).toContain('# Body')
     expect(firstH1('# Title\n')).toBe('Title')
+    expect(firstH1('```bash\n# false\n```\n# Actual {#real}')).toBe('Actual')
     expect(firstH1('no heading')).toBeUndefined()
     expect(toPosix('C\\\\docs\\\\ops\\\\x.md').includes('/')).toBe(true)
     expect(docsRelPath('C:\\repo\\docs\\ops\\x.md')).toBe('ops/x.md')

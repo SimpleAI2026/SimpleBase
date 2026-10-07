@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -56,11 +57,21 @@ type SessionConfig struct {
 
 // SessionService 签发/校验 access JWT 与 refresh token。
 type SessionService struct {
-	users   *UserService
-	repo    SessionRepository
-	secret  string
-	cfg     SessionConfig
-	now     func() time.Time
+	users  *UserService
+	repo   SessionRepository
+	secret string
+	cfg    SessionConfig
+	now    func() time.Time
+
+	principalMu sync.Mutex
+	principals  map[string]cachedPrincipal
+}
+
+const principalCacheTTL = 5 * time.Second
+
+type cachedPrincipal struct {
+	principal Principal
+	expires   time.Time
 }
 
 // NewSessionService 构造 SessionService。secret 与 API Key HMAC 盐共用。
@@ -71,13 +82,19 @@ func NewSessionService(users *UserService, repo SessionRepository, secret string
 	if cfg.RefreshTTL <= 0 {
 		cfg.RefreshTTL = 7 * 24 * time.Hour
 	}
-	return &SessionService{
-		users:  users,
-		repo:   repo,
-		secret: secret,
-		cfg:    cfg,
-		now:    time.Now,
+	s := &SessionService{
+		users:      users,
+		repo:       repo,
+		secret:     secret,
+		cfg:        cfg,
+		now:        time.Now,
+		principals: make(map[string]cachedPrincipal),
 	}
+	if users != nil {
+		users.OnChange(s.InvalidateUser)
+		users.OnProjectsChange(s.InvalidatePrincipals)
+	}
+	return s
 }
 
 // WithClock 注入时钟（测试）。
@@ -235,17 +252,41 @@ func (s *SessionService) Logout(ctx context.Context, sessionID, refreshToken str
 
 // RevokeAllForUser 吊销用户全部会话（禁用/删用户/改密）。
 func (s *SessionService) RevokeAllForUser(ctx context.Context, userID string) error {
-	return s.repo.RevokeByUser(ctx, userID, s.now().UTC())
+	err := s.repo.RevokeByUser(ctx, userID, s.now().UTC())
+	s.InvalidateUser(userID)
+	return err
+}
+
+// InvalidateUser 在账号或项目权限变更后移除已缓存的身份。
+func (s *SessionService) InvalidateUser(userID string) {
+	s.principalMu.Lock()
+	delete(s.principals, userID)
+	s.principalMu.Unlock()
+}
+
+// InvalidatePrincipals 用于项目集合变动时清空身份缓存。
+func (s *SessionService) InvalidatePrincipals() {
+	s.principalMu.Lock()
+	clear(s.principals)
+	s.principalMu.Unlock()
 }
 
 // VerifyAccess 校验 access JWT（签名+exp），不查库。
-// 用户 status 校验由 PrincipalFromClaims 负责（每次请求查 sys_users）。
+// 用户 status 校验由 PrincipalFromClaims 负责（缓存未命中时查 sys_users）。
 func (s *SessionService) VerifyAccess(token string) (JWTClaims, error) {
 	return VerifyJWT(s.secret, token, s.now().UTC())
 }
 
 // PrincipalFromClaims 载入用户并展开 Principal；disabled/缺失返回错误。
 func (s *SessionService) PrincipalFromClaims(ctx context.Context, claims JWTClaims) (Principal, error) {
+	s.principalMu.Lock()
+	defer s.principalMu.Unlock()
+	if entry, ok := s.principals[claims.Subject]; ok && s.now().Before(entry.expires) {
+		p := entry.principal
+		p.SessionID = claims.SessionID
+		p.AccessJTI = claims.JWTID
+		return p, nil
+	}
 	u, err := s.users.GetByID(ctx, claims.Subject)
 	if err != nil {
 		return Principal{}, ErrInvalidToken
@@ -257,6 +298,10 @@ func (s *SessionService) PrincipalFromClaims(ctx context.Context, claims JWTClai
 	if err != nil {
 		return Principal{}, err
 	}
+	if len(s.principals) >= 256 {
+		clear(s.principals)
+	}
+	s.principals[claims.Subject] = cachedPrincipal{principal: p, expires: s.now().Add(principalCacheTTL)}
 	p.AccessJTI = claims.JWTID
 	return p, nil
 }

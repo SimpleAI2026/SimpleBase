@@ -133,6 +133,13 @@ func (h *KVHandler) execTyped(c echo.Context, typ string, args *kvTypedArgs) err
 	if args.TTLms != nil && *args.TTLms < 0 {
 		return WriteError(c, kvInvalidArgument("ttl_ms must be >= 0", c))
 	}
+	principal, ok := PrincipalFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, auth.ErrMissingCredentials)
+	}
+	if !principal.HasPermission(auth.DatabaseWrite) {
+		return WriteError(c, auth.ErrForbidden)
+	}
 	mode := database.ReadWrite
 	l, err := h.acquireStore(c, mode)
 	if err != nil {
@@ -276,6 +283,13 @@ func (h *KVHandler) execCmd(c echo.Context, argvs []string) error {
 	}
 	mode := database.ReadOnly
 	if spec.writable {
+		principal, ok := PrincipalFromContext(c.Request().Context())
+		if !ok {
+			return WriteError(c, auth.ErrMissingCredentials)
+		}
+		if !principal.HasPermission(auth.DatabaseWrite) {
+			return WriteError(c, auth.ErrForbidden)
+		}
 		mode = database.ReadWrite
 	}
 	l, err := h.acquireStore(c, mode)

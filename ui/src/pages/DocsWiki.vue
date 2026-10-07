@@ -34,28 +34,15 @@
         </Tabs>
       </div>
 
-      <div class="mx-auto w-full max-w-[1200px] px-4 pt-8 md:px-8">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-5">
-          <div class="flex min-w-0 items-center gap-3">
-            <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15" aria-hidden="true"><BookOpen class="size-5" /></span>
-            <div class="min-w-0">
-              <p class="text-[11px] font-semibold tracking-[0.16em] text-primary uppercase">SimpleBase · Documentation</p>
-              <p class="truncate text-lg font-semibold tracking-tight text-foreground">{{ currentModule?.title || '使用文档' }}</p>
-            </div>
-          </div>
-          <span v-if="currentModule" data-docs-progress class="rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">第 {{ pageIndex + 1 }} / {{ currentModule.pages.length }} 篇</span>
-        </div>
-      </div>
-
-      <div class="mx-auto flex min-h-0 w-full max-w-[1200px] flex-1 items-start gap-6 px-4 py-[var(--docs-pad-y)] max-md:flex-col md:px-8 lg:gap-10">
+      <div class="mx-auto flex min-h-0 w-full max-w-[1280px] flex-1 items-start gap-6 px-4 py-[var(--docs-pad-y)] max-md:flex-col md:px-8 lg:gap-8">
         <DocsSidebar
-          v-if="!isMobile && currentModule"
+          v-if="currentModule"
           :module-id="currentModule.id"
           :module-title="currentModule.title"
           :pages="currentModule.pages"
           :active-slug="slug"
         />
-        <div v-else-if="currentModule" class="w-full rounded-xl border border-border/70 bg-card/80 p-4 shadow-sm">
+        <div v-if="currentModule" class="w-full rounded-xl border border-border/70 bg-card/80 p-4 shadow-sm md:hidden">
           <p id="docs-page-label" class="mb-2 text-xs font-semibold tracking-wide text-muted-foreground">选择文档页面</p>
           <Select :model-value="slug" @update:model-value="onMobilePage">
             <SelectTrigger class="w-full bg-card" aria-labelledby="docs-page-label">
@@ -76,6 +63,8 @@
           :page="currentPage"
           :prev="prevPage"
           :next="nextPage"
+          :page-index="pageIndex + 1"
+          :page-count="currentModule.pages.length"
         />
         <div v-else class="min-w-0 flex-1">
           <Alert>
@@ -89,9 +78,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { BookOpen } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -118,14 +106,6 @@ const router = useRouter()
 
 const moduleId = ref(defaultModuleId())
 const slug = ref(defaultSlug(moduleId.value))
-const isMobile = ref(window.innerWidth <= 768)
-
-function onResize() {
-  isMobile.value = window.innerWidth <= 768
-}
-onMounted(() => window.addEventListener('resize', onResize))
-onBeforeUnmount(() => window.removeEventListener('resize', onResize))
-
 const currentModule = computed(() => getModule(moduleId.value))
 const currentPage = computed(() => getPage(moduleId.value, slug.value))
 
@@ -170,6 +150,7 @@ function syncFromRoute() {
   }
   moduleId.value = m
   slug.value = page.slug
+  document.title = `${page.title} · ${getModule(m)?.title || '文档'} · SimpleBase 文档`
   if (route.params.slug === 'index') {
     router.replace(`/docs/${m}`)
   }

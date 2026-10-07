@@ -550,6 +550,49 @@ var systemMigrations = []migration{
 		name:    "sys_databases_retire_open_close",
 		stmt:    retireOpenCloseStatusSQL,
 	},
+	{
+		// v38：云沙盒资源（planv4.0 cloud-sandbox-plan §6）。只存元数据，不存命令/输出。
+		version: 38,
+		name:    "sys_sandboxes",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_sandboxes (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			cloud_name VARCHAR NOT NULL,
+			source VARCHAR NOT NULL,
+			thread_id VARCHAR,
+			image VARCHAR NOT NULL,
+			cpus BIGINT NOT NULL,
+			memory_mib BIGINT NOT NULL,
+			network VARCHAR NOT NULL,
+			idle_timeout_s BIGINT NOT NULL,
+			max_duration_s BIGINT NOT NULL,
+			status VARCHAR NOT NULL,
+			last_error VARCHAR NOT NULL DEFAULT '',
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			started_at TIMESTAMP,
+			last_active_at TIMESTAMP,
+			expires_at TIMESTAMP,
+			deleted_at TIMESTAMP
+		)`,
+	},
+	{
+		// v39：沙盒执行耗时写入既有 usage 表；不增加额外流水表。
+		version: 39,
+		name:    "sys_usage_events_sandbox_duration",
+		stmt:    `ALTER TABLE sys_usage_events ADD COLUMN duration_ms BIGINT DEFAULT 0`,
+	},
+	{
+		version: 40,
+		name:    "sys_agent_runs_metrics",
+		stmt: `ALTER TABLE sys_agent_runs ADD COLUMN duration_ms BIGINT DEFAULT 0;
+			ALTER TABLE sys_agent_runs ADD COLUMN prompt_tokens BIGINT DEFAULT 0;
+			ALTER TABLE sys_agent_runs ADD COLUMN completion_tokens BIGINT DEFAULT 0;
+			ALTER TABLE sys_agent_runs ADD COLUMN reasoning_tokens BIGINT DEFAULT 0;
+			ALTER TABLE sys_agent_runs ADD COLUMN tool_calls BIGINT DEFAULT 0;
+			ALTER TABLE sys_agent_runs ADD COLUMN error_code VARCHAR DEFAULT ''`,
+	},
 }
 
 // retireOpenCloseStatusSQL 把未软删的 closed/opening/closing/recovering 写成 ready。

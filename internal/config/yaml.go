@@ -67,8 +67,8 @@ type yamlHTTP struct {
 }
 
 type yamlInstance struct {
-	ID       *string      `yaml:"id"`
-	Writable *bool        `yaml:"writable"`
+	ID       *string           `yaml:"id"`
+	Writable *bool             `yaml:"writable"`
 	Lease    yamlInstanceLease `yaml:"lease"`
 }
 
@@ -107,6 +107,8 @@ type yamlCatalogSync struct {
 	Mode         *string `yaml:"mode"`
 	Debounce     yamlDur `yaml:"debounce"`
 	DebounceMS   *int    `yaml:"debounce_ms"` // compat alias for one release
+	Interval     yamlDur `yaml:"interval"`
+	MaxLag       yamlDur `yaml:"max_lag"`
 	KeepVersions *int    `yaml:"keep_versions"`
 }
 
@@ -133,8 +135,11 @@ type yamlAuth struct {
 }
 
 type yamlLLM struct {
-	Enabled   *bool                   `yaml:"enabled"`
-	Providers map[string]yamlProvider `yaml:"providers"`
+	Enabled            *bool                   `yaml:"enabled"`
+	Providers          map[string]yamlProvider `yaml:"providers"`
+	AgentToolProtocol  *string                 `yaml:"agent_tool_protocol"`
+	AgentMaxIterations *int                    `yaml:"agent_max_iterations"`
+	AgentRunTimeout    yamlDur                 `yaml:"agent_run_timeout"`
 }
 
 type yamlProvider struct {
@@ -168,6 +173,11 @@ type yamlSandbox struct {
 	MaxFileBytes   *int    `yaml:"max_file_bytes"`
 	Network        *string `yaml:"network"`
 	Workdir        *string `yaml:"workdir"`
+	Backend        *string  `yaml:"backend"`
+	Images         []string `yaml:"images"`
+	ExecTimeoutMax yamlDur  `yaml:"exec_timeout_max"`
+	MaxPerProject  *int     `yaml:"max_per_project"`
+	ReapInterval   yamlDur  `yaml:"reap_interval"`
 }
 
 type yamlObservability struct {
@@ -279,6 +289,9 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	if yc.LLM.Enabled != nil {
 		cfg.LLM.Enabled = *yc.LLM.Enabled
 	}
+	setStr(&cfg.LLM.AgentToolProtocol, yc.LLM.AgentToolProtocol)
+	setInt(&cfg.LLM.AgentMaxIterations, yc.LLM.AgentMaxIterations)
+	setDur(&cfg.LLM.AgentRunTimeout, yc.LLM.AgentRunTimeout)
 	if yc.LLM.Providers != nil {
 		if cfg.LLM.Providers == nil {
 			cfg.LLM.Providers = map[string]ProviderConfig{}
@@ -329,6 +342,13 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Sandbox.MaxFileBytes, yc.Sandbox.MaxFileBytes)
 	setStr(&cfg.Sandbox.Network, yc.Sandbox.Network)
 	setStr(&cfg.Sandbox.Workdir, yc.Sandbox.Workdir)
+	setStr(&cfg.Sandbox.Backend, yc.Sandbox.Backend)
+	if yc.Sandbox.Images != nil {
+		cfg.Sandbox.Images = append([]string(nil), yc.Sandbox.Images...)
+	}
+	setDur(&cfg.Sandbox.ExecTimeoutMax, yc.Sandbox.ExecTimeoutMax)
+	setInt(&cfg.Sandbox.MaxPerProject, yc.Sandbox.MaxPerProject)
+	setDur(&cfg.Sandbox.ReapInterval, yc.Sandbox.ReapInterval)
 
 	setStr(&cfg.Observability.LogLevel, yc.Observability.LogLevel)
 	setStr(&cfg.Observability.LogFormat, yc.Observability.LogFormat)
@@ -360,6 +380,8 @@ func applyYAMLDuckLake(dst *DuckLakeConfig, y yamlDuckLake) {
 	} else if y.CatalogSync.DebounceMS != nil {
 		dst.CatalogSync.Debounce = time.Duration(*y.CatalogSync.DebounceMS) * time.Millisecond
 	}
+	setDur(&dst.CatalogSync.Interval, y.CatalogSync.Interval)
+	setDur(&dst.CatalogSync.MaxLag, y.CatalogSync.MaxLag)
 	setInt(&dst.CatalogSync.KeepVersions, y.CatalogSync.KeepVersions)
 	setDur(&dst.Maintenance.CheckpointInterval, y.Maintenance.CheckpointInterval)
 	setDur(&dst.Maintenance.ExpireOlderThan, y.Maintenance.ExpireOlderThan)

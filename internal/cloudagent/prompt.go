@@ -16,6 +16,7 @@ var (
 	secretLineRE = regexp.MustCompile(`(?i)((?:aws_)?(?:secret|access)[_-]?key(?:[_-]?id)?|api[_-]?key|password|credential_ref|authorization)\s*[:=]\s*\S+`)
 	awsKeyRE     = regexp.MustCompile(`AKIA[0-9A-Z]{16}`)
 	bearerRE     = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*`)
+	apiTokenRE   = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{16,}\b`)
 )
 
 // PromptParts is the ordered assembly input. Secrets must never be placed in these fields.
@@ -56,6 +57,7 @@ func RedactSecrets(s string) string {
 	out := secretLineRE.ReplaceAllString(s, "$1=[REDACTED]")
 	out = awsKeyRE.ReplaceAllString(out, "[REDACTED_AWS_KEY]")
 	out = bearerRE.ReplaceAllString(out, "Bearer [REDACTED]")
+	out = apiTokenRE.ReplaceAllString(out, "[REDACTED_API_KEY]")
 	return out
 }
 

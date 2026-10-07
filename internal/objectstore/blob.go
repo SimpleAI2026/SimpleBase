@@ -3,7 +3,9 @@ package objectstore
 import (
 	"bytes"
 	"context"
+	"crypto/md5" //nolint:gosec // 仅用于 COS 要求的 Content-MD5 请求头，非安全用途
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -89,6 +91,33 @@ func cosForbidOverwriteOption(o *s3.Options) {
 				if req, ok := in.Request.(*smithyhttp.Request); ok {
 					req.Header.Set("x-cos-forbid-overwrite", "true")
 				}
+				return next.HandleBuild(ctx, in)
+			}), middleware.After)
+	})
+}
+
+// deleteObjectsMD5Option 为 DeleteObjects 补 Content-MD5 头（Build 阶段，签名之前）。
+// 腾讯云 COS 的批量删除强制要求 Content-MD5，只带 x-amz-checksum-* 会返回
+// 400 InvalidRequest: Missing required header for this request: Content-MD5。
+// 对 AWS S3 / MinIO 同样合法（S3 规范本就要求 MD5 或 checksum 二选一）。
+func deleteObjectsMD5Option(o *s3.Options) {
+	o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+		return stack.Build.Add(middleware.BuildMiddlewareFunc("DeleteObjectsContentMD5",
+			func(ctx context.Context, in middleware.BuildInput, next middleware.BuildHandler) (middleware.BuildOutput, middleware.Metadata, error) {
+				req, ok := in.Request.(*smithyhttp.Request)
+				if !ok || req.GetStream() == nil {
+					return next.HandleBuild(ctx, in)
+				}
+				body, err := io.ReadAll(req.GetStream())
+				if err != nil {
+					return middleware.BuildOutput{}, middleware.Metadata{}, fmt.Errorf("objectstore: read delete body: %w", err)
+				}
+				sum := md5.Sum(body)
+				req.Header.Set("Content-MD5", base64.StdEncoding.EncodeToString(sum[:]))
+				if req, err = req.SetStream(bytes.NewReader(body)); err != nil {
+					return middleware.BuildOutput{}, middleware.Metadata{}, err
+				}
+				in.Request = req
 				return next.HandleBuild(ctx, in)
 			}), middleware.After)
 	})
@@ -217,7 +246,7 @@ func (c *s3Client) Delete(ctx context.Context, key string) error {
 			Objects: []types.ObjectIdentifier{{Key: aws.String(key)}},
 			Quiet:   aws.Bool(true),
 		},
-	})
+	}, deleteObjectsMD5Option)
 	if err != nil {
 		c.recordOp("delete", "error")
 		return c.sanitizeErr(err)
@@ -277,7 +306,7 @@ func (c *s3Client) DeleteMany(ctx context.Context, keys []string) error {
 		out, err := c.api.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 			Bucket: aws.String(c.bucket),
 			Delete: &types.Delete{Objects: objects, Quiet: aws.Bool(true)},
-		})
+		}, deleteObjectsMD5Option)
 		if err != nil {
 			c.recordOp("delete_many", "error")
 			return c.sanitizeErr(err)

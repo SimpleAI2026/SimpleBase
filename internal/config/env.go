@@ -71,6 +71,8 @@ func applyEnv(cfg *Config) {
 			cfg.Database.DuckLake.CatalogSync.Debounce = time.Duration(n) * time.Millisecond
 		}
 	}
+	setEnvDuration(&cfg.Database.DuckLake.CatalogSync.Interval, "SIMPLEBASE_DUCKLAKE_SYNC_INTERVAL")
+	setEnvDuration(&cfg.Database.DuckLake.CatalogSync.MaxLag, "SIMPLEBASE_DUCKLAKE_SYNC_MAX_LAG")
 	setEnvInt(&cfg.Database.DuckLake.CatalogSync.KeepVersions, "SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS")
 	setEnvDuration(&cfg.Database.DuckLake.Maintenance.CheckpointInterval, "SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL")
 	setEnvDuration(&cfg.Database.DuckLake.Maintenance.ExpireOlderThan, "SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN")
@@ -155,10 +157,27 @@ func applyEnvSandbox(cfg *Config) {
 	setEnvDuration(&cfg.Sandbox.ExecTimeout, "SIMPLEBASE_SANDBOX_EXEC_TIMEOUT")
 	setEnvDuration(&cfg.Sandbox.IdleTimeout, "SIMPLEBASE_SANDBOX_IDLE_TIMEOUT")
 	setEnvDuration(&cfg.Sandbox.MaxDuration, "SIMPLEBASE_SANDBOX_MAX_DURATION")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_BACKEND"); ok {
+		cfg.Sandbox.Backend = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_IMAGES"); ok {
+		cfg.Sandbox.Images = nil
+		for _, img := range strings.Split(v, ",") {
+			if img = strings.TrimSpace(img); img != "" {
+				cfg.Sandbox.Images = append(cfg.Sandbox.Images, img)
+			}
+		}
+	}
+	setEnvInt(&cfg.Sandbox.MaxPerProject, "SIMPLEBASE_SANDBOX_MAX_PER_PROJECT")
 }
 
 func applyEnvLLM(cfg *Config) {
 	setEnvBool(&cfg.LLM.Enabled, "SIMPLEBASE_LLM_ENABLED")
+	if v, ok := os.LookupEnv("SIMPLEBASE_LLM_AGENT_TOOL_PROTOCOL"); ok {
+		cfg.LLM.AgentToolProtocol = v
+	}
+	setEnvInt(&cfg.LLM.AgentMaxIterations, "SIMPLEBASE_LLM_AGENT_MAX_ITERATIONS")
+	setEnvDuration(&cfg.LLM.AgentRunTimeout, "SIMPLEBASE_LLM_AGENT_RUN_TIMEOUT")
 	names := map[string]struct{}{}
 	for n := range cfg.LLM.Providers {
 		names[n] = struct{}{}

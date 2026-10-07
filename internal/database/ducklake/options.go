@@ -57,8 +57,10 @@ type Options struct {
 
 // CatalogSyncOptions 控制 catalog.sqlite 同步策略。Phase 1 仅本地空实现。
 type CatalogSyncOptions struct {
-	Mode         string // debounce | sync_on_commit
+	Mode         string // interval | debounce | sync_on_commit (legacy)
 	Debounce     time.Duration
+	Interval     time.Duration
+	MaxLag       time.Duration
 	KeepVersions int
 }
 
@@ -75,15 +77,17 @@ func DefaultOptions() Options {
 	return Options{
 		MemoryLimit:          "512MB",
 		Threads:              2,
-		DataInliningRowLimit: 100,
+		DataInliningRowLimit: 1000,
 		ParquetCompression:   "zstd",
 		TargetFileSize:       "64MB",
 		RequireCommitMessage: false,
 		LakeAlias:            DefaultLakeAlias,
 		CatalogEngine:        EngineDuckDB,
 		CatalogSync: CatalogSyncOptions{
-			Mode:         "debounce",
+			Mode:         "interval",
 			Debounce:     200 * time.Millisecond,
+			Interval:     15 * time.Second,
+			MaxLag:       30 * time.Second,
 			KeepVersions: 10,
 		},
 		Maintenance: MaintenanceOptions{
@@ -121,6 +125,12 @@ func (o Options) normalized() Options {
 	}
 	if o.CatalogSync.Debounce <= 0 {
 		o.CatalogSync.Debounce = def.CatalogSync.Debounce
+	}
+	if o.CatalogSync.Interval <= 0 {
+		o.CatalogSync.Interval = def.CatalogSync.Interval
+	}
+	if o.CatalogSync.MaxLag <= 0 {
+		o.CatalogSync.MaxLag = def.CatalogSync.MaxLag
 	}
 	if o.CatalogSync.KeepVersions <= 0 {
 		o.CatalogSync.KeepVersions = def.CatalogSync.KeepVersions

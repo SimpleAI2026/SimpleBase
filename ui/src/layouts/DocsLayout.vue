@@ -11,6 +11,7 @@
           <router-link to="/docs" class="truncate text-sm font-semibold text-foreground no-underline hover:text-primary">使用文档</router-link>
         </div>
         <div class="flex shrink-0 items-center gap-2">
+          <DocsSearch />
           <Button variant="ghost" size="sm" as-child>
             <router-link :to="{ name: 'dashboard' }">返回控制台</router-link>
           </Button>
@@ -33,4 +34,5 @@
 
 <script setup lang="ts">
 import { Button } from '@/components/ui/button'
+import DocsSearch from '@/components/docs/DocsSearch.vue'
 </script>

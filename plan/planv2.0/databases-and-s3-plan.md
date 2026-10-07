@@ -1,4 +1,4 @@
-# 数据库管理（DuckLake-only）与 S3 对象存储计划
+# 数据库管理（DuckLake-only）与 对象存储计划
 
 > **状态**：核心已落地；DeleteDatabaseHandler 已移除；不做 MinIO e2e  
 > open/close 产品面已废弃，见 plan/planv3.0/database-always-open-plan.md。
@@ -66,7 +66,7 @@
 4. **文档 API** 继续落在 DuckLake 表模型（§3.3）；本轮不改「隐式第一库」路径（另立前端提示 / 后续 §6.2）。
 5. **退役**：删除或剪除 Turso/local 用户库代码、测试双轨、文档与迁移入口中的「可选引擎」表述（迁移工具若保留，仅为「外部数据导入 DuckLake」，不再保留双写运行时）。
 
-### 2.2 S3 对象存储 = AWS S3 标准协议
+### 2.2 对象存储 = AWS S3 标准协议
 
 1. S3Manager 读写经 `FileStore` → aws-sdk-go-v2，操作语义对齐 S3：
    - List：`ListObjectsV2`（prefix、MaxKeys≤1000）

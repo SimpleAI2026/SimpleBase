@@ -77,47 +77,66 @@ func NewAuditService(s *audit.Service) AuditService {
 type llmServiceAdapter struct{ s llmgateway.Service }
 
 func (a *llmServiceAdapter) Chat(ctx context.Context, projectID string, req LLMRequest) (LLMResponse, error) {
-	msgs := make([]providers.Message, len(req.Messages))
-	for i, m := range req.Messages {
-		msgs[i] = providers.Message{Role: m.Role, Content: m.Content}
-	}
-	resp, err := a.s.Chat(ctx, projectID, llmgateway.Request{
-		Model:       req.Model,
-		Messages:    msgs,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-	})
+	resp, err := a.s.Chat(ctx, projectID, toGatewayRequest(req))
 	if err != nil {
 		return LLMResponse{}, err
 	}
-	return LLMResponse{
+	out := LLMResponse{
 		Content: resp.Content,
 		Usage: LLMTokenUsage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
+			ReasoningTokens:  resp.Usage.ReasoningTokens,
 		},
 		Model:        resp.Model,
 		Provider:     resp.Provider,
 		FinishReason: resp.FinishReason,
-	}, nil
+	}
+	for _, tc := range resp.ToolCalls {
+		out.ToolCalls = append(out.ToolCalls, LLMToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
+	}
+	return out, nil
 }
 
 func (a *llmServiceAdapter) Stream(ctx context.Context, projectID string, req LLMRequest) (LLMStreamReader, error) {
-	msgs := make([]providers.Message, len(req.Messages))
-	for i, m := range req.Messages {
-		msgs[i] = providers.Message{Role: m.Role, Content: m.Content}
-	}
-	reader, err := a.s.Stream(ctx, projectID, llmgateway.Request{
-		Model:       req.Model,
-		Messages:    msgs,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-	})
+	reader, err := a.s.Stream(ctx, projectID, toGatewayRequest(req))
 	if err != nil {
 		return nil, err
 	}
 	return &llmStreamReaderAdapter{inner: reader}, nil
+}
+
+// toGatewayRequest 把 api 层请求映射为 litellm 形状；工具与工具往返消息原样透传。
+func toGatewayRequest(req LLMRequest) llmgateway.Request {
+	msgs := make([]providers.Message, len(req.Messages))
+	for i, m := range req.Messages {
+		pm := providers.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		for _, tc := range m.ToolCalls {
+			pm.ToolCalls = append(pm.ToolCalls, providers.ToolCall{
+				ID: tc.ID, Type: "function",
+				Function: providers.FunctionCall{Name: tc.Name, Arguments: tc.Arguments},
+			})
+		}
+		msgs[i] = pm
+	}
+	out := llmgateway.Request{
+		Model:       req.Model,
+		Messages:    msgs,
+		MaxTokens:   req.MaxTokens,
+		Temperature: req.Temperature,
+	}
+	for _, t := range req.Tools {
+		var params any = map[string]any{"type": "object", "properties": map[string]any{}}
+		if len(t.Parameters) > 0 {
+			params = t.Parameters
+		}
+		out.Tools = append(out.Tools, providers.Tool{
+			Type:     "function",
+			Function: providers.FunctionDef{Name: t.Name, Description: t.Description, Parameters: params},
+		})
+	}
+	return out
 }
 
 func (a *llmServiceAdapter) ListProviders(ctx context.Context, projectID string) ([]string, error) {
@@ -140,11 +159,25 @@ func (a *llmStreamReaderAdapter) Next() (*LLMStreamChunk, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &LLMStreamChunk{
+	out := &LLMStreamChunk{
 		Type:         chunk.Type,
 		Content:      chunk.Content,
 		FinishReason: chunk.FinishReason,
-	}, nil
+		Done:         chunk.Done,
+	}
+	if d := chunk.ToolCallDelta; d != nil {
+		out.ToolCallIndex = d.Index
+		out.ToolCallID = d.ID
+		out.ToolCallName = d.FunctionName
+		out.ToolCallArgs = d.ArgumentsDelta
+	}
+	if u := chunk.Usage; u != nil {
+		out.Usage = &LLMTokenUsage{
+			PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens,
+			TotalTokens: u.TotalTokens, ReasoningTokens: u.ReasoningTokens,
+		}
+	}
+	return out, nil
 }
 
 func (a *llmStreamReaderAdapter) Close() error { return a.inner.Close() }

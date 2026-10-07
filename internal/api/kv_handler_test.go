@@ -145,6 +145,45 @@ func TestKVRequestShape(t *testing.T) {
 	}
 }
 
+func TestKVReadOnlyPrincipal(t *testing.T) {
+	_, svc := kvRealEnv(t)
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			p := auth.Principal{TenantID: "tenant-1", ProjectIDs: map[string]struct{}{"proj-1": {}},
+				Permissions: map[auth.Permission]struct{}{auth.DatabaseRead: {}}}
+			ctx := WithPrincipal(c.Request().Context(), p)
+			ctx = WithProject(ctx, ProjectContext{ID: "proj-1", TenantID: "tenant-1"})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	})
+	e.POST("/v1/projects/:projectID/kv", NewKVHandler(svc, true).Execute,
+		auth.Require(auth.DatabaseRead, PrincipalFromContext))
+	cases := []struct {
+		name, body string
+		want       int
+	}{
+		{"GET", `{"type":"cmd","argvs":["GET","missing"]}`, 200},
+		{"HGETALL", `{"type":"cmd","argvs":["HGETALL","missing"]}`, 200},
+		{"SCAN", `{"type":"cmd","argvs":["SCAN","0"]}`, 200},
+		{"ZRANGE", `{"type":"cmd","argvs":["ZRANGE","missing","0","-1"]}`, 200},
+		{"SET", `{"type":"cmd","argvs":["SET","k","v"]}`, 403},
+		{"HSET", `{"type":"cmd","argvs":["HSET","k","f","v"]}`, 403},
+		{"DEL", `{"type":"cmd","argvs":["DEL","k"]}`, 403},
+		{"typed String", `{"type":"String","args":{"key":"k","value":"v"}}`, 403},
+		{"unknown", `{"type":"cmd","argvs":["BOGUS"]}`, 400},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := kvReq(t, e, http.MethodPost, "/v1/projects/proj-1/kv", tc.body)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tc.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestKVWritableFalseRejectsWrites(t *testing.T) {
 	e := setupKVTestRouter(t, &fakeKVService{db: kvKVDB()}, false)
 	rec := kvExec(t, e, `["SET","k","v"]`)
@@ -157,6 +196,26 @@ func TestKVWritableFalseRejectsWrites(t *testing.T) {
 	}
 	if body.Error.Code != "writer_unavailable" {
 		t.Errorf("code = %q, want writer_unavailable", body.Error.Code)
+	}
+}
+
+func TestKVSystemProjectRejected(t *testing.T) {
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := WithPrincipal(c.Request().Context(), auth.Principal{TenantID: "tenant-1",
+				Permissions: map[auth.Permission]struct{}{auth.DatabaseRead: {}, auth.DatabaseWrite: {}}})
+			ctx = WithProject(ctx, ProjectContext{ID: catalog.ReservedSystemProjectID, TenantID: "tenant-1"})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	})
+	e.POST("/v1/projects/:projectID/kv", NewKVHandler(&fakeKVService{db: kvKVDB()}, true).Execute)
+	for _, body := range []string{`{"type":"cmd","argvs":["GET","k"]}`, `{"type":"cmd","argvs":["SET","k","v"]}`} {
+		rec := kvReq(t, e, http.MethodPost, "/v1/projects/sb-admin/kv", body)
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "kv_not_found") {
+			t.Fatalf("system KV status=%d body=%s", rec.Code, rec.Body.String())
+		}
 	}
 }
 

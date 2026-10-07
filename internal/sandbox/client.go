@@ -34,8 +34,8 @@ type Output struct {
 	ExitCode int
 }
 
-// Sandbox 是 cloudagent 声明的工具面（cloud-agent-sandbox-plan §4）。
-type Sandbox interface {
+// ThreadSandbox 是旧版 cloudagent 使用的工具接口；保留兼容既有调用。
+type ThreadSandbox interface {
 	Available() bool
 	Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (Output, error)
 	Shell(ctx context.Context, projectID, threadID, command string) (Output, error)
@@ -90,28 +90,28 @@ func New(cfg config.SandboxConfig, cacheDir string, logger observability.Logger)
 // normalizeConfig 补齐空缺省值（Validate 已保证 enabled 分支的字段合法）。
 func normalizeConfig(cfg config.SandboxConfig) config.SandboxConfig {
 	if cfg.Image == "" {
-		cfg.Image = "python:3.12"
+		cfg.Image = "python:3.12-slim"
 	}
 	if cfg.CPUs == 0 {
 		cfg.CPUs = 1
 	}
 	if cfg.MemoryMiB == 0 {
-		cfg.MemoryMiB = 512
+		cfg.MemoryMiB = 256
 	}
 	if cfg.MaxDuration == 0 {
 		cfg.MaxDuration = 30 * time.Minute
 	}
 	if cfg.IdleTimeout == 0 {
-		cfg.IdleTimeout = 10 * time.Minute
+		cfg.IdleTimeout = 5 * time.Minute
 	}
 	if cfg.ExecTimeout == 0 {
 		cfg.ExecTimeout = 30 * time.Second
 	}
 	if cfg.MaxOutputBytes == 0 {
-		cfg.MaxOutputBytes = 32768
+		cfg.MaxOutputBytes = 65536
 	}
 	if cfg.MaxFileBytes == 0 {
-		cfg.MaxFileBytes = 262144
+		cfg.MaxFileBytes = 1 << 20
 	}
 	if cfg.Network == "" {
 		cfg.Network = "none"

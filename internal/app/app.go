@@ -68,6 +68,7 @@ type App struct {
 	usageSvc      *usage.Service
 	auditSvc      *audit.Service
 	llmSvc        llmgateway.Service
+	sandboxMgr    *sandbox.Manager
 
 	// 多实例一致性（multi-instance-consistency-plan Phase A/B）。
 	casSupported bool           // 启动探针结果；false 时禁用租约/manifest 互斥
@@ -216,13 +217,38 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		kvHandler = api.NewKVHandler(kvService, cfg.Instance.Writable)
 	}
 
+	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
+	if cfg.Sandbox.Enabled && a.systemStore != nil {
+		var driver sandbox.Driver
+		if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendFake && cfg.DevMode {
+			driver = sandbox.NewFakeDriver()
+		} else if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendCloud {
+			cloud, err := sandbox.NewCloudDriver(cfg.Sandbox, cfg.Database.CacheDir, logger)
+			if err == nil {
+				driver = cloud
+			} else if logger != nil {
+				logger.Warn("sandbox disabled: cloud backend unavailable (no local fallback)")
+			}
+		}
+		if driver != nil {
+			a.sandboxMgr = sandbox.NewManager(cfg.Sandbox, sandboxStoreAdapter{s: a.systemStore}, driver)
+			a.registerCloser(a.sandboxMgr)
+			if a.schedulerCancel == nil {
+				a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
+			}
+			a.sandboxMgr.StartReaper(a.schedulerBaseCtx)
+		}
+	}
+
 	// Cloud Agent 定时执行调度器：仅在运行时与系统库齐备时创建。
 	var agentScheduler *cloudagent.Scheduler
 	runtime := a.cloudAgentRuntime()
 	if runtime != nil && a.systemStore != nil {
 		agentScheduler = cloudagent.NewScheduler(a.systemStore, runtime, a.usageSvc)
 		a.agentScheduler = agentScheduler
-		a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
+		if a.schedulerCancel == nil {
+			a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
+		}
 		agentScheduler.Start(a.schedulerBaseCtx)
 	}
 
@@ -274,14 +300,24 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		CloudAgent:      runtime,
 		AgentScheduler:  agentScheduler,
 		CronScheduler:   cronScheduler,
+		Sandbox:         a.sandboxMgr,
+		SandboxUsage:    a.usageSvc,
 	}
 	a.echo = api.NewRouter(deps)
 
+	writeTimeout := cfg.HTTP.WriteTimeout
+	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
+		// 同步执行包含 Cloud 冷启动，写超时须覆盖最长命令及启动预算。
+		minTimeout := cfg.Sandbox.ExecTimeoutMax + time.Minute
+		if minTimeout > writeTimeout {
+			writeTimeout = minTimeout
+		}
+	}
 	a.httpServer = &http.Server{
 		Addr:         cfg.HTTP.Address,
 		Handler:      a.echo,
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
-		WriteTimeout: cfg.HTTP.WriteTimeout,
+		WriteTimeout: writeTimeout,
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
 	}
 
@@ -624,6 +660,9 @@ func (a *App) assembleDeps(ctx context.Context) error {
 
 // Close 反向关闭所有已注册资源。供 New 失败路径和测试 cleanup 调用。
 func (a *App) Close(ctx context.Context) error {
+	if a.schedulerCancel != nil {
+		a.schedulerCancel()
+	}
 	var firstErr error
 	if a.registry != nil {
 		if err := a.registry.Shutdown(ctx); err != nil && firstErr == nil {
@@ -837,56 +876,37 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		Obj:      api.NewCloudAgentObj(a.fileStore, a.systemStore),
 		Logs:     cloudagent.NewLogAccess(a.systemStore),
 		Settings: cloudagent.NewSettingsAccess(a.systemStore),
+		MaxIterations: a.cfg.LLM.EffectiveAgentMaxIterations(),
+		RunTimeout: a.cfg.LLM.EffectiveAgentRunTimeout(),
+		ToolProtocol: a.cfg.LLM.EffectiveAgentToolProtocol(),
 	}
-	if sb := a.sandboxClient(); sb != nil {
-		rt.Sandbox = sb
+	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
+		rt.Sandbox = &sandboxAdapter{m: a.sandboxMgr}
 	}
 	return rt
 }
 
-// sandboxClient 在启用时创建云沙盒 Client；backend 核对失败只关闭沙盒功能
-// （cloud-agent-sandbox-plan §3.1）。只读实例不建（沙盒写不经 registry，但保持
-// 与其它数据面一致的部署语义）。
-func (a *App) sandboxClient() cloudagent.Sandbox {
-	if !a.cfg.Sandbox.Enabled {
-		return nil
-	}
-	c := sandbox.New(a.cfg.Sandbox, a.cfg.Database.CacheDir, a.logger)
-	if !c.Available() {
-		return nil
-	}
-	a.registerCloser(c)
-	return &sandboxAdapter{c: c}
-}
+// sandboxAdapter 只适配 cloudagent 的线程工具接口，业务状态统一由 Manager 管理。
+type sandboxAdapter struct{ m *sandbox.Manager }
 
-// sandboxAdapter 把 sandbox.Client 适配到 cloudagent.Sandbox 接口
-// （两包互不依赖；类型只在 app 层缝合）。
-type sandboxAdapter struct {
-	c *sandbox.Client
-}
-
-func (s *sandboxAdapter) Available() bool { return s.c.Available() }
-
+func (s *sandboxAdapter) Available() bool { return s.m.Available() }
 func (s *sandboxAdapter) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (cloudagent.SandboxOutput, error) {
-	out, err := s.c.Exec(ctx, projectID, threadID, cmd, args)
+	out, err := s.m.ExecForThread(ctx, projectID, threadID, sandbox.ExecInput{Cmd: cmd, Args: args})
 	return cloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
 }
-
 func (s *sandboxAdapter) Shell(ctx context.Context, projectID, threadID, command string) (cloudagent.SandboxOutput, error) {
-	out, err := s.c.Shell(ctx, projectID, threadID, command)
+	out, err := s.m.ExecForThread(ctx, projectID, threadID, sandbox.ExecInput{Command: command})
 	return cloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
 }
-
 func (s *sandboxAdapter) ReadFile(ctx context.Context, projectID, threadID, path string) (string, error) {
-	return s.c.ReadFile(ctx, projectID, threadID, path)
+	file, err := s.m.ReadFileForThread(ctx, projectID, threadID, path)
+	return string(file.Content), err
 }
-
 func (s *sandboxAdapter) WriteFile(ctx context.Context, projectID, threadID, path, content string) error {
-	return s.c.WriteFile(ctx, projectID, threadID, path, content)
+	return s.m.WriteFileForThread(ctx, projectID, threadID, path, []byte(content))
 }
-
 func (s *sandboxAdapter) ReleaseThread(ctx context.Context, projectID, threadID string) error {
-	return s.c.ReleaseThread(ctx, projectID, threadID)
+	return s.m.ReleaseThread(ctx, projectID, threadID)
 }
 
 // snapshotFromFactory maps DuckLake sync watermarks to the API snapshot DTO.
@@ -929,6 +949,8 @@ func duckLakeOptions(cfg config.DuckLakeConfig) ducklake.Options {
 		CatalogSync: ducklake.CatalogSyncOptions{
 			Mode:         cfg.CatalogSync.Mode,
 			Debounce:     cfg.CatalogSync.Debounce,
+			Interval:     cfg.CatalogSync.Interval,
+			MaxLag:       cfg.CatalogSync.MaxLag,
 			KeepVersions: cfg.CatalogSync.KeepVersions,
 		},
 		Maintenance: ducklake.MaintenanceOptions{

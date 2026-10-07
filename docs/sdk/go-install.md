@@ -1,6 +1,7 @@
 ---
 title: Go · 安装
 order: 10
+group: Go
 ---
 
 # 安装 Go SDK

@@ -39,6 +39,8 @@ type Store struct {
 	logBuf     []LogEvent
 	// metricAgg 是热指标的内存预聚合桶（§7.2 P3.3）。
 	metricAgg map[string]metricAggregate
+	// latencyHist 是按项目的接口耗时直方图（P50/P90/P99），每次 flush 每项目落一行。
+	latencyHist map[string]latencyHistogram
 	// async 是后台刷写器（§7.2 P3.1：请求路径永不同步 flush）。
 	async      *asyncFlusher
 	asyncStop  func(ctx context.Context)

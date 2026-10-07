@@ -55,17 +55,12 @@
             )"
           >
             <div v-if="m.toolCalls?.length" class="mb-1.5 flex flex-col gap-1.5">
-              <Card v-for="(t, ti) in m.toolCalls" :key="ti" size="sm">
-                <CardHeader>
-                  <CardTitle class="text-xs text-primary">{{ t.name || 'tool' }}</CardTitle>
-                </CardHeader>
-                <CardContent v-if="t.arguments || t.content" class="px-3">
-                  <pre v-if="t.arguments" class="m-0 max-h-30 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">{{ t.arguments }}</pre>
-                  <pre v-if="t.content" class="m-0 max-h-30 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">{{ t.content }}</pre>
-                </CardContent>
-              </Card>
+              <AgentToolCard v-for="(t, ti) in m.toolCalls" :key="t.call_id || ti" :tool="t" />
             </div>
+            <details v-if="m.thinking" class="mb-2 text-xs text-muted-foreground"><summary>思考过程</summary><pre class="whitespace-pre-wrap">{{ m.thinking }}</pre></details>
             <pre class="m-0 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">{{ m.content }}<span v-if="sending && streaming && i === messages.length - 1" class="text-primary">▍</span></pre>
+            <p v-if="m.error" class="mt-2 text-sm text-destructive">{{ m.error }} <Button size="xs" variant="outline" @click="$emit('retry')">重试</Button></p>
+            <span v-if="m.canceled" class="mt-2 text-xs text-muted-foreground">已停止</span>
           </div>
         </div>
       </div>
@@ -87,7 +82,7 @@
 import { computed, ref } from 'vue'
 import { BotIcon, UserIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import AgentToolCard from './AgentToolCard.vue'
 import {
   Select,
   SelectContent,
@@ -135,6 +130,7 @@ const emit = defineEmits<{
   (e: 'sent', payload: { role: string; content: string }): void
   (e: 'finished'): void
   (e: 'stop'): void
+  (e: 'retry'): void
 }>()
 
 const draft = ref('')

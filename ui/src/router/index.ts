@@ -12,7 +12,7 @@ import DocsLayout from '../layouts/DocsLayout.vue'
  * 控制台子路由走 DefaultLayout（侧栏 + 项目切换），文档子路由走 DocsLayout。
  */
 const legacyConsolePaths = [
-  'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'agents', 'logs', 'users'
+  'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'sandboxes', 'agents', 'logs', 'users'
 ]
 
 const routes: RouteRecordRaw[] = [
@@ -55,7 +55,7 @@ const routes: RouteRecordRaw[] = [
         path: 's3',
         name: 's3',
         component: () => import('../pages/S3Manager.vue'),
-        meta: { title: 'S3 对象存储' }
+        meta: { title: '对象存储' }
       },
       {
         path: 'gofunctions',
@@ -68,6 +68,12 @@ const routes: RouteRecordRaw[] = [
         name: 'cron-jobs',
         component: () => import('../pages/CronJobs.vue'),
         meta: { title: '定时任务' }
+      },
+      {
+        path: 'sandboxes',
+        name: 'sandboxes',
+        component: () => import('../pages/Sandboxes.vue'),
+        meta: { title: '云沙盒' }
       },
       {
         path: 'agents',

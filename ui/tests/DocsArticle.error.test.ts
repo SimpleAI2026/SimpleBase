@@ -1,11 +1,12 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import { uiStubs } from '@/test/helpers'
 
 vi.mock('@/docs/catalog', () => ({
   githubBlobUrl: (p: string) => `https://github.com/x/blob/${p}`,
-  loadMarkdownRaw: (p: string) => (p.includes('empty') ? '   ' : p.includes('missing') ? null : '# Hi')
+  isLargeDoc: () => false,
+  loadMarkdown: async (p: string) => (p.includes('empty') ? '   ' : p.includes('missing') ? null : '# Hi')
 }))
 
 vi.mock('@/docs/render', () => ({
@@ -36,18 +37,21 @@ describe('DocsArticle error paths', () => {
       props: { moduleId: 'm', moduleTitle: 'M', page: page('missing.md') },
       global: { plugins: [router], stubs: uiStubs }
     })
+    await flushPromises()
     expect(missing.text()).toContain('文档文件缺失')
 
     const empty = mount(DocsArticle, {
       props: { moduleId: 'm', moduleTitle: 'M', page: page('empty.md') },
       global: { plugins: [router], stubs: uiStubs }
     })
+    await flushPromises()
     expect(empty.text()).toContain('这篇文档没有正文')
 
     const fail = mount(DocsArticle, {
       props: { moduleId: 'm', moduleTitle: 'M', page: page('ok.md') },
       global: { plugins: [router], stubs: uiStubs }
     })
+    await flushPromises()
     expect(fail.html()).toContain('文档渲染失败')
   })
 })

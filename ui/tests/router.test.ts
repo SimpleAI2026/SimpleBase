@@ -67,7 +67,7 @@ describe('router', () => {
     const titleOf = (name: string) => router.getRoutes().find((r) => r.name === name)?.meta?.title
     expect(titleOf('dashboard')).toBe('监控大盘')
     expect(titleOf('databases')).toBe('数据库管理')
-    expect(titleOf('s3')).toBe('S3 对象存储')
+    expect(titleOf('s3')).toBe('对象存储')
     expect(titleOf('gofunctions')).toBe('云函数')
     expect(titleOf('cron-jobs')).toBe('定时任务')
     expect(titleOf('agents')).toBe('云 Agent')

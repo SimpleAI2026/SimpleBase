@@ -257,3 +257,44 @@ describe('Databases (数据库管理)', () => {
     expect(wrapper.find('.empty-action').exists()).toBe(false)
   })
 })
+
+describe('Databases desktop table actions', () => {
+  beforeEach(() => {
+    resetApiMocks()
+    api.databases.list.mockResolvedValue([readyDb, creatingDb])
+    api.db.collections.mockResolvedValue(['users'])
+  })
+
+  it('wires SQL, collection, delete and expanded panel events from the desktop table', async () => {
+    const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
+    const desktop = wrapper.get('.md\\:block')
+    await desktop.findAll('button').find((b) => b.text() === 'SQL')!.trigger('click')
+    expect(wrapper.get('.sql-m').text()).toContain('demo')
+    await wrapper.get('.sql-close').trigger('click')
+    await desktop.findAll('button').find((b) => b.text() === '新建集合')!.trigger('click')
+    expect(wrapper.find('.cc-m').exists()).toBe(true)
+    await desktop.findAll('.confirm-action')[0].trigger('click')
+    await flushPromises()
+    expect(api.databases.remove).toHaveBeenCalledWith(expect.any(String), 'db-1')
+
+    await expandButtons(wrapper)[0].trigger('click')
+    await flushPromises()
+    const panel = wrapper.get('.md\\:block').get('.coll-panel')
+    await panel.get('.view-data').trigger('click')
+    expect(wrapper.get('.dl-m').text()).toContain('users')
+    await wrapper.get('.dl-close').trigger('click')
+    await panel.get('.add-doc').trigger('click')
+    expect(wrapper.find('.kv-m').exists()).toBe(true)
+    await panel.get('.new-coll').trigger('click')
+    expect(wrapper.find('.cc-m').exists()).toBe(true)
+  })
+
+  it('opens create from the desktop empty state and closes the create modal', async () => {
+    api.databases.list.mockResolvedValueOnce([])
+    const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
+    await wrapper.get('.md\\:block').get('.empty-action').trigger('click')
+    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    await wrapper.get('.sb-cancel').trigger('click')
+    expect(wrapper.find('.sb-modal').exists()).toBe(false)
+  })
+})

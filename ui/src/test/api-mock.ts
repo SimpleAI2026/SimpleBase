@@ -83,9 +83,12 @@ export const api = {
   },
   agentThreads: {
     list: vi.fn(),
+    page: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
+    rename: vi.fn(),
     remove: vi.fn(),
+    runs: vi.fn(),
     messages: vi.fn(),
     streamRun: vi.fn(),
     cancel: vi.fn()
@@ -108,6 +111,11 @@ export const api = {
     listVersions: vi.fn(),
     activate: vi.fn(),
     test: vi.fn()
+  },
+  sandboxes: {
+    capabilities: vi.fn(), list: vi.fn(), create: vi.fn(), get: vi.fn(), update: vi.fn(),
+    remove: vi.fn(), start: vi.fn(), stop: vi.fn(), exec: vi.fn(),
+    files: { list: vi.fn(), read: vi.fn(), download: vi.fn(), write: vi.fn(), upload: vi.fn(), remove: vi.fn() }
   },
   cronjobs: {
     list: vi.fn(),
@@ -196,7 +204,12 @@ export function applyApiDefaults() {
     totalRequests: 10,
     errorRate: 1.5,
     avgLatencyMs: 12.6,
-    activeDatabases: 1
+    activeDatabases: 1,
+    latencyP50Ms: 8.4,
+    latencyP90Ms: 45,
+    latencyP99Ms: 320,
+    latencySampleCount: 10,
+    latencyOverflowMs: 30000
   })
   api.metrics.trend.mockResolvedValue([
     { date: '01-01', requests: 10, errors: 1 },
@@ -278,6 +291,9 @@ export function applyApiDefaults() {
   api.agents.patch.mockResolvedValue({})
   api.agents.remove.mockResolvedValue(undefined)
   api.agentThreads.list.mockResolvedValue([])
+  api.agentThreads.page.mockResolvedValue({ threads: [], next_cursor: '' })
+  api.agentThreads.rename.mockResolvedValue({ id: 'th-1', title: '已重命名', created_at: 't', updated_at: 't' })
+  api.agentThreads.runs.mockResolvedValue([])
   api.agentThreads.create.mockResolvedValue({ id: 'th-1', title: '云 Agent', created_at: 't', updated_at: 't' })
   api.agentThreads.messages.mockResolvedValue([])
   api.agentThreads.streamRun.mockReturnValue({ close: vi.fn() })
@@ -351,6 +367,22 @@ export function applyApiDefaults() {
     error: ''
   })
   api.gofunctions.remove.mockResolvedValue(undefined)
+  api.sandboxes.capabilities.mockResolvedValue({ available: false, backend: 'cloud', images: [], defaultImage: '',
+    cpusMax: 4, memoryMiBMax: 4096, maxFileBytes: 1048576, maxOutputBytes: 65536,
+    maxPerProject: 5, execTimeoutMaxS: 300, networkOptions: ['none'] })
+  api.sandboxes.list.mockResolvedValue([])
+  api.sandboxes.create.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'pending', source: 'api' })
+  api.sandboxes.get.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'running', source: 'api' })
+  api.sandboxes.start.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'running', source: 'api' })
+  api.sandboxes.stop.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'stopped', source: 'api' })
+  api.sandboxes.remove.mockResolvedValue(undefined)
+  api.sandboxes.exec.mockResolvedValue({ stdout: 'ok\n', stderr: '', exitCode: 0, durationMs: 2, timedOut: false })
+  api.sandboxes.files.list.mockResolvedValue([])
+  api.sandboxes.files.read.mockResolvedValue({ content: '', encoding: 'utf8', truncated: false })
+  api.sandboxes.files.download.mockResolvedValue(new Blob([]))
+  api.sandboxes.files.write.mockResolvedValue(undefined)
+  api.sandboxes.files.upload.mockResolvedValue(undefined)
+  api.sandboxes.files.remove.mockResolvedValue(undefined)
   api.cronjobs.list.mockResolvedValue([])
   api.cronjobs.create.mockResolvedValue({
     id: 'cj-1',
@@ -435,6 +467,10 @@ export function resetApiMocks() {
     for (const fn of Object.values(ns)) {
       if (typeof fn === 'function' && 'mockReset' in fn) {
         ;(fn as ReturnType<typeof vi.fn>).mockReset()
+      } else if (fn && typeof fn === 'object') {
+        for (const nested of Object.values(fn)) {
+          if (typeof nested === 'function' && 'mockReset' in nested) (nested as ReturnType<typeof vi.fn>).mockReset()
+        }
       }
     }
   }

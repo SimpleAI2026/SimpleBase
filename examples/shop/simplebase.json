@@ -1,0 +1,9 @@
+{
+  "project": { "id": "ex-shop1", "name": "示例·电商" },
+  "databases": [{ "name": "shop", "migrations": "migrations", "seed": "seed/shop.sql" }],
+  "kv": "seed/kv.json",
+  "objects": [{ "dir": "seed/images", "prefix": "products/" }],
+  "functions": [{ "name": "pricing", "file": "functions/pricing.go", "test": { "function_name": "Quote", "body": { "items": [] } } }],
+  "cron_jobs": [{ "name": "shop_daily", "schedule_kind": "cron", "cron_expr": "0 1 * * *", "func_file": "pricing", "func_export": "Tick", "input_json": "{}", "trigger_once": true }],
+  "api_keys": [{ "label": "service", "permissions": ["database:read", "database:write"] }]
+}

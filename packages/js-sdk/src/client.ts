@@ -3,6 +3,7 @@ import { createDatabasesApi, type DatabasesApi } from './databases.js'
 import { createSqlApi, type SqlApi } from './sql.js'
 import { createCollectionsApi, type CollectionsApi, type CollectionApi } from './collections.js'
 import { createStorageApi, type StorageApi } from './storage.js'
+import { createSandboxesApi, type SandboxesApi } from './sandboxes.js'
 import type { CreateClientOptions } from './types.js'
 import { SimpleBaseError } from './errors.js'
 
@@ -18,6 +19,7 @@ export interface SimpleBaseClient {
   readonly url: string
   databases: DatabasesApi
   storage: StorageApi
+  sandboxes: SandboxesApi
   /** Default-database SQL helpers (requires databaseId in createClient or .database()) */
   sql: SqlApi
   collection(name: string): CollectionApi
@@ -64,6 +66,7 @@ export function createClient(opts: CreateClientOptions): SimpleBaseClient {
     url: http.baseUrl,
     databases,
     storage,
+    sandboxes: createSandboxesApi(http),
     get sql() {
       return createSqlApi(http, requireDbId(defaultDatabaseId, 'sql'))
     },

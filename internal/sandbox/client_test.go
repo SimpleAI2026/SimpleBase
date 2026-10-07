@@ -89,13 +89,13 @@ func TestNewDisabledWithoutKey(t *testing.T) {
 
 func TestNormalizeConfigDefaults(t *testing.T) {
 	cfg := normalizeConfig(config.SandboxConfig{Enabled: true})
-	if cfg.Image != "python:3.12" || cfg.CPUs != 1 || cfg.MemoryMiB != 512 {
+	if cfg.Image != "python:3.12-slim" || cfg.CPUs != 1 || cfg.MemoryMiB != 256 {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 	if cfg.Network != "none" || cfg.Workdir != "/workspace" {
 		t.Fatalf("unexpected network/workdir: %+v", cfg)
 	}
-	if cfg.MaxOutputBytes != 32768 || cfg.MaxFileBytes != 262144 {
+	if cfg.MaxOutputBytes != 65536 || cfg.MaxFileBytes != 1<<20 {
 		t.Fatalf("unexpected byte limits: %+v", cfg)
 	}
 }

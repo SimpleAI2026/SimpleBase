@@ -1,1 +1,0 @@
-{"name":"simplebase-ticket-example","private":true,"type":"module","scripts":{"start":"node server/main.mjs","build":"node ../shared/node/build.mjs ticket-service","publish":"node ../shared/node/publish.mjs ticket-service","test":"node --test server/*.test.mjs"}}

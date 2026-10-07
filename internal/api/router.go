@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -62,6 +63,11 @@ type Dependencies struct {
 	AgentScheduler *cloudagent.Scheduler
 	// CronScheduler 是云函数定时任务调度器；nil 时 trigger 返回 503。
 	CronScheduler *cronjob.Scheduler
+	// Sandbox 是项目级云沙盒服务；未配置时仅 capabilities 路由可用。
+	Sandbox      SandboxService
+	SandboxUsage interface {
+		RecordSandbox(context.Context, string, string, int64) error
+	}
 	// login-auth-plan：登录态与用户管理。
 	Sessions *auth.SessionService
 	Users    *auth.UserService
@@ -113,12 +119,30 @@ type LLMRequest struct {
 	Messages    []LLMMessage
 	MaxTokens   *int
 	Temperature *float64
+	// Tools 非空时走原生 function calling（云 Agent 使用）。
+	Tools []LLMTool
 }
 
 // LLMMessage 是对话消息。
 type LLMMessage struct {
-	Role    string
-	Content string
+	Role       string
+	Content    string
+	ToolCalls  []LLMToolCall
+	ToolCallID string
+}
+
+// LLMTool 是原生工具定义；Parameters 为 JSON Schema。
+type LLMTool struct {
+	Name        string
+	Description string
+	Parameters  json.RawMessage
+}
+
+// LLMToolCall 是一次原生工具调用。
+type LLMToolCall struct {
+	ID        string
+	Name      string
+	Arguments string
 }
 
 // LLMResponse 映射 LLM 响应。
@@ -128,6 +152,7 @@ type LLMResponse struct {
 	Model        string
 	Provider     string
 	FinishReason string
+	ToolCalls    []LLMToolCall
 }
 
 // LLMTokenUsage 是 token 用量。
@@ -135,6 +160,7 @@ type LLMTokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
 }
 
 // LLMStreamReader 抽象流式读取。
@@ -148,6 +174,13 @@ type LLMStreamChunk struct {
 	Type         string `json:"type"`
 	Content      string `json:"content,omitempty"`
 	FinishReason string `json:"finish_reason,omitempty"`
+	Done         bool   `json:"-"`
+	// 以下字段仅供内部（云 Agent）使用，不出现在 /llm/stream 的 JSON 中。
+	ToolCallIndex int            `json:"-"`
+	ToolCallID    string         `json:"-"`
+	ToolCallName  string         `json:"-"`
+	ToolCallArgs  string         `json:"-"`
+	Usage         *LLMTokenUsage `json:"-"`
 }
 
 // HealthChecker 由 App 提供；live 不做 I/O，ready 检查 catalog/S3。
@@ -183,7 +216,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	e.Use(middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
 		// S3 上传单独放宽，见 s3UploadBodyLimit。全局 1MB 会让控制台允许的文件先 413，
 		// 开发代理再把未读完的请求体报成 500。
-		Skipper: skipS3UploadBodyLimit(deps.S3FileStore != nil),
+		Skipper: skipLargeUploadBodyLimit(deps.S3FileStore != nil, deps.Sandbox != nil),
 		Limit:   bodyLimit(deps.Config.Limits.MaxRequestBytes),
 	}))
 
@@ -294,7 +327,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	// KVHandler 为 nil 时不挂载。
 	if deps.KVHandler != nil {
 		kvh := deps.KVHandler
-		p.POST("/kv", kvh.Execute, require(auth.DatabaseWrite))
+		p.POST("/kv", kvh.Execute, require(auth.DatabaseRead))
 	}
 
 	// Plan 8：LLM Gateway 路由。deps.LLM 为 nil 时不挂载。
@@ -350,7 +383,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/llm/settings", sess.GetSettings, require(auth.DatabaseRead))
 		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin))
 
-		ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit}
+		ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit, writable: &deps.Config.Instance.Writable}
 		p.GET("/agents/modules", ah.ListModules, require(auth.DatabaseRead))
 		p.GET("/agents", ah.ListAgents, require(auth.DatabaseRead))
 		p.POST("/agents", ah.CreateAgent, require(auth.DatabaseWrite))
@@ -360,8 +393,10 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/agent-threads", ah.ListThreads, require(auth.DatabaseRead))
 		p.POST("/agent-threads", ah.CreateThread, require(auth.DatabaseWrite))
 		p.GET("/agent-threads/:threadID", ah.GetThread, require(auth.DatabaseRead))
+		p.PATCH("/agent-threads/:threadID", ah.PatchThread, require(auth.DatabaseWrite))
 		p.DELETE("/agent-threads/:threadID", ah.DeleteThread, require(auth.DatabaseWrite))
 		p.GET("/agent-threads/:threadID/messages", ah.ListMessages, require(auth.DatabaseRead))
+		p.GET("/agent-threads/:threadID/runs", ah.ListThreadRuns, require(auth.DatabaseRead))
 		p.POST("/agent-threads/:threadID/runs", ah.CreateRun, require(auth.DatabaseRead))
 		p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseRead))
 
@@ -400,6 +435,25 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/cron-jobs/:jobID/runs", cj.ListRuns, require(auth.DatabaseRead))
 		p.POST("/cron-jobs/:jobID/trigger", cj.Trigger, require(auth.DatabaseWrite))
 	}
+
+	// 云沙盒项目接口。未启用时保留 capabilities，供控制台展示配置空态。
+	sh := NewSandboxHandler(deps.Sandbox, deps.Config.Instance.Writable, deps.Audit, deps.System, deps.SandboxUsage)
+	p.GET("/sandboxes/capabilities", sh.Capabilities, require(auth.DatabaseRead))
+	if deps.Sandbox != nil && deps.Sandbox.Available() {
+		p.GET("/sandboxes", sh.List, require(auth.DatabaseRead))
+		p.POST("/sandboxes", sh.Create, require(auth.DatabaseWrite))
+		p.POST("/sandboxes/run", sh.RunOnce, require(auth.DatabaseWrite), middleware.BodyLimit(bodyLimit(int64(deps.Config.Sandbox.MaxFileBytes+64<<10))))
+		p.GET("/sandboxes/:sandboxID", sh.Get, require(auth.DatabaseRead))
+		p.PATCH("/sandboxes/:sandboxID", sh.Update, require(auth.DatabaseWrite))
+		p.DELETE("/sandboxes/:sandboxID", sh.Delete, require(auth.DatabaseWrite))
+		p.POST("/sandboxes/:sandboxID/start", sh.Start, require(auth.DatabaseWrite))
+		p.POST("/sandboxes/:sandboxID/stop", sh.Stop, require(auth.DatabaseWrite))
+		p.POST("/sandboxes/:sandboxID/exec", sh.Exec, require(auth.DatabaseWrite))
+		p.GET("/sandboxes/:sandboxID/files", sh.ListDir, require(auth.DatabaseRead))
+		p.GET("/sandboxes/:sandboxID/files/content", sh.ReadFile, require(auth.DatabaseRead))
+		p.PUT("/sandboxes/:sandboxID/files/content", sh.WriteFile, require(auth.DatabaseWrite), middleware.BodyLimit(bodyLimit(int64(deps.Config.Sandbox.MaxFileBytes+64<<10))))
+		p.DELETE("/sandboxes/:sandboxID/files/content", sh.RemoveFile, require(auth.DatabaseWrite))
+	}
 }
 
 // mountGoRoutes 挂载对外调用面 /go/:projectID/:name/:functionName（§7.2）。
@@ -437,6 +491,22 @@ func skipS3UploadBodyLimit(enabled bool) middleware.Skipper {
 		}
 		p := r.URL.Path
 		return len(p) >= len(suffix) && p[len(p)-len(suffix):] == suffix
+	}
+}
+
+// skipLargeUploadBodyLimit 允许沙盒文件与一次性运行请求使用各自独立的上限。
+func skipLargeUploadBodyLimit(s3Enabled, sandboxEnabled bool) middleware.Skipper {
+	s3 := skipS3UploadBodyLimit(s3Enabled)
+	return func(c echo.Context) bool {
+		if s3(c) {
+			return true
+		}
+		if !sandboxEnabled || c.Request().URL == nil {
+			return false
+		}
+		p := c.Request().URL.Path
+		return strings.Contains(p, "/sandboxes/") && ((c.Request().Method == http.MethodPut && strings.HasSuffix(p, "/files/content")) ||
+			(c.Request().Method == http.MethodPost && strings.HasSuffix(p, "/sandboxes/run")))
 	}
 }
 
@@ -571,7 +641,7 @@ func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 				}
 				if projectID != "" {
 					deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_requests", Value: 1})
-					deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_latency_ms", Value: float64(latency.Milliseconds())})
+					deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_latency_ms", Value: float64(latency.Microseconds()) / 1000})
 					if status >= 500 {
 						deps.System.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "http_errors", Value: 1})
 					}

@@ -102,6 +102,9 @@ func (h *ProjectsHandler) CreateProject(c echo.Context) error {
 		}
 		return WriteError(c, err)
 	}
+	if h.users != nil {
+		h.users.ProjectsChanged()
+	}
 	// 记录项目归属（login-auth-plan §4.5）：user/super 创建后 owner=自己或指定用户。
 	if h.users != nil && principal.UserID != "" {
 		ownerID := principal.UserID

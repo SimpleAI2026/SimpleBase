@@ -11,7 +11,8 @@ const http = vi.hoisted(() => ({
 vi.mock('@/services/http', () => ({
   http,
   baseURL: 'http://api.test',
-  getApiKey: () => 'test-key'
+  getApiKey: () => 'test-key',
+  getAccessToken: () => ''
 }))
 
 import { httpApi } from '@/services/http-api'
@@ -26,6 +27,57 @@ function ok(data: unknown) {
 describe('httpApi', () => {
   beforeEach(() => {
     Object.values(http).forEach((fn) => fn.mockReset())
+  })
+
+  it('maps sandbox resources, execution and file paths', async () => {
+    const row = { id: 'sb-1', name: 'demo', cloud_name: 'vm-1', source: 'api', status: 'pending',
+      image: 'python:3.12-slim', cpus: 1, memory_mib: 256, idle_timeout_s: 300, created_at: 'today' }
+    http.get.mockResolvedValueOnce({ data: { available: true, backend: 'fake', images: ['python:3.12-slim'],
+      default_image: 'python:3.12-slim', network_options: ['none'] } })
+    expect((await httpApi.sandboxes.capabilities(pid)).available).toBe(true)
+    http.get.mockResolvedValueOnce({ data: { sandboxes: [row] } })
+    expect((await httpApi.sandboxes.list(pid))[0].memoryMiB).toBe(256)
+    http.post.mockResolvedValueOnce({ data: row })
+    await httpApi.sandboxes.create(pid, { name: 'demo' }, 'idem')
+    expect(http.post.mock.calls[0][2].headers['Idempotency-Key']).toBe('idem')
+    http.get.mockResolvedValueOnce({ data: row })
+    await httpApi.sandboxes.get(pid, row.id, true)
+    http.patch.mockResolvedValueOnce({ data: row })
+    await httpApi.sandboxes.update(pid, row.id, { name: 'rename' })
+    http.post.mockResolvedValueOnce({ data: row })
+    await httpApi.sandboxes.start(pid, row.id)
+    http.post.mockResolvedValueOnce({ data: row })
+    await httpApi.sandboxes.stop(pid, row.id)
+    http.post.mockResolvedValueOnce({ data: { stdout: 'ok', exit_code: 3, duration_ms: 2 } })
+    expect((await httpApi.sandboxes.exec(pid, row.id, { command: 'exit 3' })).exitCode).toBe(3)
+    http.get.mockResolvedValueOnce({ data: { entries: [{ name: 'a.txt', path: '/workspace/a.txt', kind: 'file', size: 2 }] } })
+    expect((await httpApi.sandboxes.files.list(pid, row.id, '/workspace'))[0].name).toBe('a.txt')
+    http.get.mockResolvedValueOnce({ data: { content: 'hi', encoding: 'utf8' } })
+    expect((await httpApi.sandboxes.files.read(pid, row.id, '/workspace/a.txt')).content).toBe('hi')
+    http.put.mockResolvedValueOnce({ data: undefined })
+    await httpApi.sandboxes.files.write(pid, row.id, '/workspace/a.txt', 'hi')
+    http.put.mockResolvedValueOnce({ data: undefined })
+    await httpApi.sandboxes.files.upload(pid, row.id, '/workspace/data.bin', new Uint8Array([0, 255]))
+    expect(http.put.mock.calls[1][1]).toBeInstanceOf(Blob)
+    expect(http.put.mock.calls[1][2].headers['Content-Type']).toBe('application/octet-stream')
+    http.delete.mockResolvedValueOnce({ data: undefined })
+    await httpApi.sandboxes.files.remove(pid, row.id, '/workspace/a.txt')
+    http.delete.mockResolvedValueOnce({ data: undefined })
+    await httpApi.sandboxes.remove(pid, row.id)
+    expect(http.get.mock.calls[3][1].params.path).toBe('/workspace')
+    expect(http.put.mock.calls[0][2].params.path).toBe('/workspace/a.txt')
+  })
+
+  it('follows sandbox list cursors until the last page', async () => {
+    http.get.mockResolvedValueOnce({ data: { sandboxes: [{ id: 'a' }], next_cursor: 'a' } })
+    http.get.mockResolvedValueOnce({ data: { sandboxes: [{ id: 'b' }] } })
+    const rows = await httpApi.sandboxes.list(pid, 'running', 'api')
+    expect(rows.map((r) => r.id)).toEqual(['a', 'b'])
+    expect(http.get).toHaveBeenCalledTimes(2)
+    expect(http.get.mock.calls[0][1].params).toEqual({ status: 'running', source: 'api', limit: 100, cursor: undefined })
+    expect(http.get.mock.calls[1][1].params.cursor).toBe('a')
+    http.get.mockResolvedValueOnce({ data: {} })
+    expect(await httpApi.sandboxes.list(pid)).toEqual([])
   })
 
   it('maps gofunctions and cron jobs including interval/manual variants', async () => {
@@ -113,7 +165,29 @@ describe('httpApi', () => {
     await httpApi.projects.create({ name: 'n', id: 'p' })
 
     http.get.mockResolvedValueOnce({ data: { total_requests: 1, error_rate: 2, avg_latency_ms: 3, active_databases: 4 } })
-    expect((await httpApi.metrics.summary(pid)).totalRequests).toBe(1)
+    const legacySummary = await httpApi.metrics.summary(pid)
+    expect(legacySummary.totalRequests).toBe(1)
+    // 旧后端无分位数字段：保持 null，不转成 0
+    expect(legacySummary.latencyP50Ms).toBeNull()
+    expect(legacySummary.latencySampleCount).toBe(0)
+    expect(legacySummary.latencyOverflowMs).toBe(30000)
+    http.get.mockResolvedValueOnce({
+      data: {
+        total_requests: 5,
+        latency_p50_ms: 12.5,
+        latency_p90_ms: 80,
+        latency_p99_ms: null,
+        latency_sample_count: 5,
+        latency_overflow_ms: 30000
+      }
+    })
+    const pct = await httpApi.metrics.summary(pid)
+    expect(pct.latencyP50Ms).toBe(12.5)
+    expect(pct.latencyP90Ms).toBe(80)
+    expect(pct.latencyP99Ms).toBeNull()
+    expect(pct.latencySampleCount).toBe(5)
+    http.get.mockResolvedValueOnce({ data: { latency_p50_ms: 'NaN' } })
+    expect((await httpApi.metrics.summary(pid)).latencyP50Ms).toBeNull()
     http.get.mockResolvedValueOnce({ data: undefined })
     expect((await httpApi.metrics.summary(pid)).totalRequests).toBe(0)
     http.get.mockResolvedValueOnce({ data: { points: [{ date: 'd', requests: 1, errors: 0 }] } })
@@ -247,10 +321,20 @@ describe('httpApi', () => {
     expect((await httpApi.agentThreads.list(pid))[0].id).toBe('t')
     http.get.mockResolvedValueOnce({ data: {} })
     expect(await httpApi.agentThreads.list(pid)).toEqual([])
+    http.get.mockResolvedValueOnce({ data: { threads: [{ id: 't', title: 'x', last_message_preview: '预览' }], next_cursor: 't' } })
+    expect((await httpApi.agentThreads.page(pid, 1)).threads[0].last_message_preview).toBe('预览')
+    http.get.mockResolvedValueOnce({ data: {} })
+    expect((await httpApi.agentThreads.page(pid)).next_cursor).toBe('')
     http.post.mockResolvedValueOnce({ data: { id: 't' } })
     await httpApi.agentThreads.create(pid, 'title')
     http.get.mockResolvedValueOnce({ data: { id: 't' } })
     await httpApi.agentThreads.get(pid, 't')
+    http.patch.mockResolvedValueOnce({ data: { id: 't', title: 'new' } })
+    expect((await httpApi.agentThreads.rename(pid, 't', 'new')).title).toBe('new')
+    http.get.mockResolvedValueOnce({ data: { runs: [{ id: 'r', duration_ms: 20 }] } })
+    expect((await httpApi.agentThreads.runs(pid, 't'))[0].duration_ms).toBe(20)
+    http.get.mockResolvedValueOnce({ data: {} })
+    expect(await httpApi.agentThreads.runs(pid, 't')).toEqual([])
     http.delete.mockResolvedValueOnce({ data: {} })
     await httpApi.agentThreads.remove(pid, 't')
     http.get.mockResolvedValueOnce({
@@ -418,7 +502,8 @@ describe('httpApi', () => {
       onError: () => ev.push('err'),
       onEnd: () => ev.push('end')
     })
-    await vi.waitFor(() => expect(ev).toContain('end'))
+    await vi.waitFor(() => expect(ev).toContain('err'))
+    expect(ev).not.toContain('end')
     expect(ev).toEqual(expect.arrayContaining(['run:r1', 'tok:hi', 'tok:!', 'call:sql', 'res:sql', 'err']))
 
     fetchMock.mockResolvedValueOnce({
@@ -435,11 +520,12 @@ describe('httpApi', () => {
       status: 400,
       headers: { get: () => 'application/json' },
       body: null,
-      json: async () => ({ message: 'bad' })
+      json: async () => ({ error: { code: 'agent_thread_busy', message: 'busy' } })
     })
     const bad = vi.fn()
     httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: bad })
     await vi.waitFor(() => expect(bad).toHaveBeenCalled())
+    expect(bad.mock.calls[0][0].code).toBe('agent_thread_busy')
 
     fetchMock.mockResolvedValueOnce({
       ok: true,

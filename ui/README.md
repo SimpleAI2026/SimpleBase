@@ -82,7 +82,7 @@ src/
 ├─ stores/             Pinia（auth 登录态与角色 / project 项目切换 / settings）
 ├─ composables/        usePagination / useAsyncAction / useAiChat
 ├─ layouts/            DefaultLayout（控制台）/ DocsLayout（文档站）
-├─ docs/               文档目录与渲染（catalog.ts / render.ts）
+├─ docs/               文档目录、按需加载 / 搜索与 Markdown 渲染（catalog.ts / render.ts）
 ├─ constants/          常量（llmProviders）
 ├─ lib/                utils（cn 合并 class）/ status 映射
 ├─ utils/              format
@@ -90,6 +90,10 @@ src/
 └─ test/               Vitest setup 与测试基建（setup.ts / helpers.ts / api-mock.ts）
 tests/                 全部单测（与 src/ 平级；import 经 `@/` 别名指回 src）
 ```
+
+## 文档站
+
+`/docs` 直接读取仓库根目录的 `docs/<模块>/*.md`：`_meta.json` 管模块顺序，frontmatter `title` / `order` / `group` 管侧栏。`catalog.ts` 将小文档打入文档页 chunk；大型 DuckLake 上游镜像只在打开或搜索时异步加载。`render.ts` 负责安全渲染、标题锚点、提示块、代码复制和站内链接；`DocsToc.vue` 提供页内导航，`DocsSearch.vue` 提供懒构建本地全文索引。新增文档前请阅读 [`docs/README.md`](../docs/README.md)，并运行 `yarn test` 中的 `docs-content.test.ts` 校验链接、锚点、frontmatter 和围栏语言。
 
 ## API 层架构
 

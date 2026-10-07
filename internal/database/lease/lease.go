@@ -258,23 +258,41 @@ func (m *Manager) Acquire(ctx context.Context, tenantID, dbID, instanceID string
 	return l, nil
 }
 
-// probeMax 从 epoch 1 前探到最大存在的 epoch（首个 404 停止），
-// 返回 (maxEpoch, payload, err)；无任何 epoch 返回 (0, nil, nil)。
+// probeMax 用指数探测 + 二分定位当前租约 epoch，避免长时运行后线性 GET。
+// 依赖租约对象从 1 连续且不可删除的协议；外部删除历史对象不受支持。
 func (m *Manager) probeMax(ctx context.Context, p *storeProxy) (int64, *Payload, error) {
-	var maxEpoch int64
-	var maxPayload *Payload
-	for e := int64(1); e <= 1_000_000; e++ {
-		pl, err := p.get(ctx, e)
+	last, err := p.get(ctx, 1)
+	if err != nil || last == nil {
+		return 0, nil, err
+	}
+	lo, hi := int64(1), int64(2)
+	for hi <= 1_000_000 {
+		pl, err := p.get(ctx, hi)
 		if err != nil {
 			return 0, nil, err
 		}
 		if pl == nil {
 			break
 		}
-		maxEpoch = e
-		maxPayload = pl
+		lo, last = hi, pl
+		hi *= 2
 	}
-	return maxEpoch, maxPayload, nil
+	if hi > 1_000_000 {
+		hi = 1_000_001
+	}
+	for hi-lo > 1 {
+		mid := lo + (hi-lo)/2
+		pl, err := p.get(ctx, mid)
+		if err != nil {
+			return 0, nil, err
+		}
+		if pl == nil {
+			hi = mid
+		} else {
+			lo, last = mid, pl
+		}
+	}
+	return lo, last, nil
 }
 
 // renewLoop 每 RenewInterval 用 PutIfAbsent 写 lease/{epoch+1}；

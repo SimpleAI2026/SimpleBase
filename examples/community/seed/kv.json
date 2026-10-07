@@ -1,0 +1,1 @@
+[["SADD","liked:demo-user","demo"],["ZADD","rank:hot","1","demo"],["SET","post:demo","{\"title\":\"欢迎\"}","EX","300"]]

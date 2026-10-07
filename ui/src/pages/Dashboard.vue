@@ -49,6 +49,33 @@
         </CardAction>
       </CardHeader>
       <CardContent class="flex flex-col gap-6 pt-6">
+        <!-- 接口耗时分位数：全项目所有接口，近 24 小时，固定桶估算 -->
+        <div data-testid="latency-percentiles" class="flex flex-col gap-2">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <span class="text-sm font-medium text-foreground">接口耗时分位数</span>
+            <span class="text-xs text-muted-foreground">
+              全项目所有接口 · 近 24 小时 · 估算值<template v-if="hasLatencySamples">
+                · 样本 {{ summary.latencySampleCount }}</template>
+            </span>
+          </div>
+          <div v-if="loading && !hasLatencySamples" class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Skeleton v-for="n in 3" :key="'lp-' + n" class="h-16 w-full rounded-lg" />
+          </div>
+          <div v-else-if="hasLatencySamples" class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div
+              v-for="item in latencyItems"
+              :key="item.label"
+              class="rounded-lg border border-border px-4 py-3"
+            >
+              <div class="text-xs font-medium text-muted-foreground">{{ item.label }}</div>
+              <div class="mt-1 text-xl font-semibold tabular-nums text-foreground">{{ item.value }}</div>
+            </div>
+          </div>
+          <div v-else class="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+            — 暂无近 24 小时接口样本
+          </div>
+        </div>
+
         <TrendChart
           v-if="trend.length"
           :points="trend"
@@ -134,7 +161,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { api, isMock } from '../services/api'
-import type { QuotaStatus, TrendPoint } from '../services/api'
+import type { MetricsSummary, QuotaStatus, TrendPoint } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
@@ -150,7 +177,26 @@ const trendFailed = ref(false)
 const lastUpdate = ref('')
 const trend = ref<TrendPoint[]>([])
 const chartMode = ref<ChartMode>('bar')
-const summary = ref({ totalRequests: 0, errorRate: 0, avgLatencyMs: 0, activeDatabases: 0 })
+const summary = ref<MetricsSummary>({ totalRequests: 0, errorRate: 0, avgLatencyMs: 0, activeDatabases: 0 })
+
+const hasLatencySamples = computed(
+  () => (summary.value.latencySampleCount ?? 0) > 0 && summary.value.latencyP50Ms != null
+)
+
+/** 格式化分位数：null → —；>= 超量程阈值 → ≥30s；>= 1s 用秒，否则整数毫秒 */
+function formatLatency(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return '—'
+  const overflow = summary.value.latencyOverflowMs ?? 30000
+  if (v >= overflow) return `≥${Math.round(overflow / 1000)}s`
+  if (v >= 1000) return `${(v / 1000).toFixed(2)}s`
+  return `${Math.round(v)}ms`
+}
+
+const latencyItems = computed(() => [
+  { label: 'P50', value: formatLatency(summary.value.latencyP50Ms) },
+  { label: 'P90', value: formatLatency(summary.value.latencyP90Ms) },
+  { label: 'P99', value: formatLatency(summary.value.latencyP99Ms) },
+])
 
 /** 资源计数（按类型汇总，不列明细） */
 const counts = ref({
@@ -201,7 +247,7 @@ const resourceRows = computed(() => [
   },
   {
     key: 's3',
-    label: 'S3 对象存储',
+    label: '对象存储',
     icon: CloudUploadIcon,
     count: counts.value.s3Objects,
     hint: '当前项目前缀下的对象文件',
