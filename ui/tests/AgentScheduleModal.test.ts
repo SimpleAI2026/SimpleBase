@@ -37,11 +37,6 @@ describe('AgentScheduleModal', () => {
     })
     await flushPromises()
     const vm = w.vm as any
-    expect(vm.statusVariant('completed')).toBe('default')
-    expect(vm.statusVariant('failed')).toBe('destructive')
-    expect(vm.statusVariant('running')).toBe('secondary')
-    expect(vm.statusVariant('queued')).toBe('secondary')
-    expect(vm.statusVariant('x')).toBe('outline')
     vm.onFrequencyChange('custom')
     vm.onFrequencyChange('0 * * * *')
     vm.form.cron_expr = 'bad'

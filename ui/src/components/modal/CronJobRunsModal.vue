@@ -99,6 +99,7 @@ import SbEmptyState from '../SbEmptyState.vue'
 import { api } from '../../services/api'
 import type { CronJobItem, CronJobRunItem } from '../../services/api'
 import { useProjectStore } from '../../stores/project'
+import { runStatusVariant } from '@/lib/status'
 import { formatTime } from '../../utils/format'
 
 const props = defineProps<{
@@ -172,9 +173,7 @@ watch(
 )
 
 function runVariant(status: string) {
-  if (status === 'completed') return 'default' as const
-  if (status === 'failed') return 'destructive' as const
-  return 'secondary' as const
+  return runStatusVariant(status) === 'outline' ? 'secondary' : runStatusVariant(status)
 }
 function runText(status: string) {
   if (status === 'completed') return '成功'

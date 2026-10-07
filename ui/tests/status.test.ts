@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   cronStatusText,
   cronStatusVariant,
+  runStatusVariant,
   logLevelText,
   logLevelVariant,
   statusBadgeVariant,
@@ -41,5 +42,10 @@ describe('status helpers', () => {
     expect(cronStatusVariant('failed')).toBe('destructive')
     expect(cronStatusVariant('running')).toBe('secondary')
     expect(cronStatusVariant('')).toBe('outline')
+    expect(runStatusVariant('completed')).toBe('default')
+    expect(runStatusVariant('failed')).toBe('destructive')
+    expect(runStatusVariant('running')).toBe('secondary')
+    expect(runStatusVariant('queued')).toBe('secondary')
+    expect(runStatusVariant('')).toBe('outline')
   })
 })

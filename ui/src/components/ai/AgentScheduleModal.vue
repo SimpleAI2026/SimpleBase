@@ -73,7 +73,7 @@
               class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
             >
               <div class="flex min-w-0 items-center gap-2">
-                <Badge :variant="statusVariant(r.status)" class="shrink-0">
+                <Badge :variant="runStatusVariant(r.status)" class="shrink-0">
                   <Spinner v-if="r.status === 'running'" data-icon="inline-start" class="size-3" />
                   {{ r.status }}
                 </Badge>
@@ -122,6 +122,7 @@ import SbEmptyState from '@/components/SbEmptyState.vue'
 import SbModal from '@/components/modal/SbModal.vue'
 import { api } from '@/services/api'
 import type { AgentSchedule, AgentScheduleRun, CloudAgent } from '@/services/types'
+import { runStatusVariant } from '@/lib/status'
 import { formatTime, shortTime } from '@/utils/format'
 
 const props = withDefaults(
@@ -296,13 +297,6 @@ async function triggerNow() {
   } finally {
     triggering.value = false
   }
-}
-
-function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
-  if (status === 'completed') return 'default'
-  if (status === 'failed') return 'destructive'
-  if (status === 'running' || status === 'queued') return 'secondary'
-  return 'outline'
 }
 
 

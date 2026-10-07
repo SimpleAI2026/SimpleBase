@@ -43,6 +43,13 @@ export function cronStatusText(status: string) {
   return '未运行'
 }
 
+export function runStatusVariant(status: string): BadgeVariants['variant'] {
+  if (status === 'completed') return 'default'
+  if (status === 'failed') return 'destructive'
+  if (status === 'running' || status === 'queued') return 'secondary'
+  return 'outline'
+}
+
 export function cronStatusVariant(status: string): BadgeVariants['variant'] {
   if (status === 'completed') return 'success'
   if (status === 'failed') return 'destructive'
