@@ -81,4 +81,25 @@ describe('GoFunctionModal', () => {
   })
 
 
+  it('GoFunctionModal monaco, close emit, and save catch', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useProjectStore().setProject('dev-shop')
+    const w = mount(GoFunctionModal, {
+      props: { open: true, mode: 'create' },
+      global: { plugins: [pinia], stubs: uiStubs }
+    })
+    if (w.find('.monaco').exists()) {
+      await w.get('.monaco').setValue('func Ping() int { return 1 }')
+    }
+    const vm = w.vm as Record<string, any>
+    api.gofunctions.create.mockRejectedValueOnce('save')
+    vm.nameValue = 'Ping'
+    await vm.save()
+    if (w.find('.sb-cancel').exists()) await w.get('.sb-cancel').trigger('click')
+    else await w.findAll('button').find((b) => b.text().includes('取消') || b.text().includes('关闭'))?.trigger('click')
+    w.unmount()
+  })
+
+
 })

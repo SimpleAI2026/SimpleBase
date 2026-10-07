@@ -206,4 +206,45 @@ describe('CronJobModal', () => {
   })
 
 
+  it('CronJobModal interval unit selects, json error, and save catches', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useProjectStore().setProject('dev-shop')
+    const w = mount(CronJobModal, {
+      props: { open: true },
+      global: { plugins: [pinia], stubs: uiStubs }
+    })
+    await flushPromises()
+    const radios = w.findAll('input[type="radio"]')
+    await radios[1].setValue()
+    const nums = w.findAll('input[type="number"]')
+    if (nums[0]) await nums[0].setValue('2')
+    if (w.find('.select-hour').exists()) await w.get('.select-hour').trigger('click')
+    if (w.find('.select-day').exists()) await w.get('.select-day').trigger('click')
+    const vm = w.vm as Record<string, any>
+    vm.form.inputJson = '{bad'
+    expect(vm.inputJsonError).toBeTruthy()
+    vm.form.inputJson = ''
+    vm.form.name = 'JobA'
+    vm.form.funcFile = 'hello'
+    vm.form.funcExport = 'Hello'
+    vm.form.scheduleKind = 'cron'
+    vm.form.cronExpr = '* * * * *'
+    api.cronjobs.create.mockRejectedValueOnce('save-fail')
+    await vm.save()
+    await w.setProps({
+      open: true,
+      target: { ...sampleCron, scheduleKind: 'interval', intervalSeconds: 7200 }
+    })
+    await flushPromises()
+    api.cronjobs.update.mockRejectedValueOnce(new Error('upd'))
+    vm.form.name = sampleCron.name
+    vm.form.funcFile = 'hello'
+    vm.form.funcExport = 'Hello'
+    vm.form.scheduleKind = 'interval'
+    await vm.save()
+    w.unmount()
+  })
+
+
 })

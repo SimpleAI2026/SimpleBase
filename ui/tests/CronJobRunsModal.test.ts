@@ -185,4 +185,45 @@ describe('CronJobRunsModal', () => {
     w.unmount()
   })
 
+  it('CronJobRunsModal copy clicks, load/trigger fallbacks, empty job', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useProjectStore().setProject('dev-shop')
+    api.cronjobs.runs.mockResolvedValue([
+      {
+        id: 'r1',
+        jobId: 'cj-1',
+        trigger: 'scheduled',
+        status: 'failed',
+        error: 'boom',
+        durationMs: 2,
+        responseJson: 'not-json',
+        finishedAt: '2024-01-01T00:00:00Z',
+        createdAt: 't'
+      }
+    ])
+    const w = mount(CronJobRunsModal, {
+      props: { open: true, job: sampleCron },
+      global: { plugins: [pinia], stubs: uiStubs }
+    })
+    await flushPromises()
+    for (const b of w.findAll('button')) {
+      if (b.text().includes('复制')) await b.trigger('click')
+    }
+    const vm = w.vm as Record<string, any>
+    api.cronjobs.runs.mockRejectedValueOnce('load')
+    await vm.load()
+    api.cronjobs.trigger.mockRejectedValueOnce('trig')
+    await vm.trigger()
+    w.unmount()
+
+    const empty = mount(CronJobRunsModal, {
+      props: { open: true },
+      global: { plugins: [pinia], stubs: uiStubs }
+    })
+    await flushPromises()
+    empty.unmount()
+  })
+
+
 })

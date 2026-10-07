@@ -132,4 +132,52 @@ describe('AgentScheduleModal', () => {
     w.unmount()
   })
 
+  it('AgentScheduleModal custom cron, 409 retry, and catch fallbacks', async () => {
+    const w = mount(AgentScheduleModal, {
+      props: { open: true, agent: sampleAgent, schedule: null, projectId: 'p1' },
+      global: { stubs: uiStubs }
+    })
+    await flushPromises()
+    if (w.find('.select-custom').exists()) await w.get('.select-custom').trigger('click')
+    if (w.find('input[placeholder="*/15 * * * *"]').exists()) {
+      await w.get('input[placeholder="*/15 * * * *"]').setValue('1 2 3 4 5')
+      await w.get('input[placeholder="*/15 * * * *"]').trigger('blur')
+    }
+    const vm = w.vm as Record<string, any>
+    vm.form.prompt = 'ping'
+    vm.form.cron_expr = '* * * * *'
+    const err409 = Object.assign(new Error('exists'), { status: 409 })
+    api.agentSchedules.create.mockRejectedValueOnce(err409)
+    await vm.save().catch(() => undefined)
+    api.agentSchedules.create.mockRejectedValueOnce(new Error('already exists'))
+    await vm.save()
+    api.agentSchedules.create.mockRejectedValueOnce('plain')
+    await vm.save()
+    w.unmount()
+
+    const schedule = {
+      id: 'sch-1',
+      agent_id: 'ag-1',
+      thread_id: 'th-1',
+      prompt: 'p',
+      cron_expr: '* * * * *',
+      enabled: true,
+      created_at: 't',
+      updated_at: 't'
+    }
+    const w2 = mount(AgentScheduleModal, {
+      props: { open: true, agent: sampleAgent, schedule, projectId: 'p1' },
+      global: { stubs: uiStubs }
+    })
+    await flushPromises()
+    const vm2 = w2.vm as Record<string, any>
+    api.agentSchedules.remove.mockRejectedValueOnce('rm')
+    await vm2.remove()
+    api.agentSchedules.trigger.mockRejectedValueOnce('trig')
+    await vm2.triggerNow()
+    if (w2.find('.sb-cancel').exists()) await w2.get('.sb-cancel').trigger('click')
+    w2.unmount()
+  })
+
+
 })

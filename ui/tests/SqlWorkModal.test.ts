@@ -145,4 +145,36 @@ describe('SqlWorkModal', () => {
     w.unmount()
   })
 
+  it('SqlWorkModal inputs, pager, and empty query result', async () => {
+    api.sql.query.mockResolvedValue({ columns: [], rows: [], rowCount: 0, durationMs: 1, requestId: 'r' })
+    const w = mount(SqlWorkModal, {
+      props: { open: true, projectId: 'p', database: readyDb },
+      global: { stubs: uiStubs }
+    })
+    await w.get('.tg-execute').trigger('click')
+    for (const i of w.findAll('input')) {
+      if (i.attributes('type') === 'number') await i.setValue('10')
+      else await i.setValue('["1"]')
+    }
+    await w.get('.tg-batch').trigger('click')
+    await w.get('.tg-query').trigger('click')
+    for (const i of w.findAll('input')) {
+      if (i.attributes('type') === 'number') await i.setValue('5')
+      else await i.setValue('[]')
+    }
+    await w.get('textarea').setValue('SELECT 1')
+    api.sql.query.mockResolvedValueOnce({
+      columns: ['id'],
+      rows: [['1'], ['2']],
+      rowCount: 2,
+      durationMs: 1,
+      requestId: 'r'
+    })
+    await (w.vm as Record<string, any>).run()
+    await flushPromises()
+    if (w.find('.pager-next').exists()) await w.get('.pager-next').trigger('click')
+    w.unmount()
+  })
+
+
 })
