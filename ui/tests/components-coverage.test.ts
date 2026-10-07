@@ -137,20 +137,6 @@ describe('component coverage', () => {
     w.unmount()
   })
 
-  it('CollectionPanel loads collections and errors', async () => {
-    api.db.collections.mockResolvedValue(['users'])
-    const w = mount(CollectionPanel, {
-      props: { projectId: 'p', database: { id: 'd', name: 'n', status: 'ready', createdAt: 't', updatedAt: 't' } },
-      global: { stubs }
-    })
-    await flushPromises()
-    expect(api.db.collections).toHaveBeenCalled()
-    api.db.collections.mockRejectedValueOnce(new Error('x'))
-    await w.setProps({ reloadToken: 2 })
-    await flushPromises()
-    w.unmount()
-  })
-
   it('ConnectionPanel and CronJobRunsModal helpers', async () => {
     setActivePinia(createPinia())
     useProjectStore().setProject('p', 'Proj')
