@@ -177,3 +177,39 @@ func TestDataCreateDocument_ScopedToPathDatabase(t *testing.T) {
 		t.Fatalf("mode = %v, want ReadWrite", svc.acquiredMode)
 	}
 }
+
+func TestDataAcquireGetError(t *testing.T) {
+	svc := &fakeDataService{getErr: catalog.ErrNotFound, dbs: []catalog.Database{{ID: "db-1", ProjectID: "proj-1"}}}
+	e := setupDataTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-1/data/collections", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	svc.getErr = nil
+	svc.acquireErr = database.ErrWriterUnavailable
+	rec = doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-1/data/collections", nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("acquire %d", rec.Code)
+	}
+
+	svc.acquireErr = nil
+	svc.getErr = catalog.ErrNotFound
+}
+
+func TestCreateCollectionExecuteError(t *testing.T) {
+	svc := &fakeDataService{
+		dbs:   []catalog.Database{{ID: "db-1", ProjectID: "proj-1"}},
+		lease: &fakeSQLLease{executeErr: errorsNew("exec")},
+	}
+	e := setupDataTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/data/collections", map[string]any{"name": "Users"})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("exec err %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func errorsNew(s string) error { return &simpleErr{s} }
+
+type simpleErr struct{ s string }
+
+func (e *simpleErr) Error() string { return e.s }

@@ -110,3 +110,38 @@ func TestAgentCRUDAndSeed(t *testing.T) {
 		t.Fatalf("thread status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestGoFunctionDTOAndScheduleGet(t *testing.T) {
+	store := openAgentStore(t)
+	e := echo.New()
+	h := &agentScheduleHandler{store: store}
+	e.GET("/s/:scheduleID", h.GetSchedule)
+	e.GET("/s/:scheduleID/runs", h.ListScheduleRuns)
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := WithProject(c.Request().Context(), ProjectContext{ID: catalog.DevProjectID})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	})
+	// re-register after middleware? echo Use is global; routes already registered.
+	// Serve with injected context via wrapper
+	wrap := echo.New()
+	wrap.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := WithProject(c.Request().Context(), ProjectContext{ID: catalog.DevProjectID})
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
+	})
+	wrap.GET("/s/:scheduleID", h.GetSchedule)
+	wrap.GET("/s/:scheduleID/runs", h.ListScheduleRuns)
+	rec := doRequest(wrap, http.MethodGet, "/s/missing", nil)
+	if rec.Code == http.StatusOK {
+		t.Fatal("missing schedule")
+	}
+	rec = doRequest(wrap, http.MethodGet, "/s/missing/runs", nil)
+	if rec.Code == http.StatusOK {
+		t.Fatal("missing schedule runs")
+	}
+}

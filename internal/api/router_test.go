@@ -119,3 +119,75 @@ func TestMetricsEndpointExposed(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }
+
+func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
+	e := echo.New()
+	gh := NewGoFunctionHandler(nil, true, nil)
+	cj := NewCronJobHandler(nil, true, nil, nil)
+	sch := &agentScheduleHandler{}
+
+	mount := func(injectProject bool) *echo.Echo {
+		ee := echo.New()
+		ee.HideBanner = true
+		ee.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				ctx := c.Request().Context()
+				if injectProject {
+					ctx = WithProject(ctx, ProjectContext{ID: "proj-1"})
+				}
+				c.SetRequest(c.Request().WithContext(ctx))
+				return next(c)
+			}
+		})
+		ee.GET("/gf", gh.List)
+		ee.GET("/gf/:name", gh.Get)
+		ee.DELETE("/gf/:name", gh.Delete)
+		ee.POST("/gf", gh.Create)
+		ee.GET("/cj", cj.List)
+		ee.GET("/cj/:jobID", cj.Get)
+		ee.GET("/cj/:jobID/runs", cj.ListRuns)
+		ee.DELETE("/cj/:jobID", cj.Delete)
+		ee.GET("/as", sch.ListSchedules)
+		ee.GET("/as/:scheduleID", sch.GetSchedule)
+		ee.GET("/as/:scheduleID/runs", sch.ListScheduleRuns)
+		ee.DELETE("/as/:scheduleID", sch.DeleteSchedule)
+		ee.PATCH("/as/:scheduleID", sch.PatchSchedule)
+		ee.POST("/as", sch.CreateSchedule)
+		ee.POST("/as/:scheduleID/run", sch.TriggerScheduleRun)
+		return ee
+	}
+
+	eNo := mount(false)
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/gf"},
+		{http.MethodGet, "/gf/n"},
+		{http.MethodDelete, "/gf/n"},
+		{http.MethodPost, "/gf"},
+		{http.MethodGet, "/cj"},
+		{http.MethodGet, "/cj/j"},
+		{http.MethodGet, "/cj/j/runs"},
+		{http.MethodDelete, "/cj/j"},
+		{http.MethodGet, "/as"},
+		{http.MethodGet, "/as/s"},
+		{http.MethodGet, "/as/s/runs"},
+		{http.MethodDelete, "/as/s"},
+		{http.MethodPatch, "/as/s"},
+		{http.MethodPost, "/as"},
+		{http.MethodPost, "/as/s/run"},
+	} {
+		rec := doRequest(eNo, tc.method, tc.path, map[string]any{"name": "X", "source": "package main"})
+		if rec.Code == http.StatusOK || rec.Code == http.StatusCreated || rec.Code == http.StatusNoContent {
+			t.Fatalf("%s %s expected missing project, got %d", tc.method, tc.path, rec.Code)
+		}
+	}
+
+	eYes := mount(true)
+	for _, path := range []string{"/gf", "/gf/n", "/cj", "/cj/j", "/cj/j/runs"} {
+		rec := doRequest(eYes, http.MethodGet, path, nil)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s nil store status=%d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	_ = e
+}

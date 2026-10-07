@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -596,4 +597,35 @@ func containsStr(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestSQLSerializeAndDecodeExecute(t *testing.T) {
+	svc := &fakeSQLService{
+		db: catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseReady},
+		lease: &fakeSQLLease{
+			queryResult: database.QueryResult{Columns: []string{"f"}, Rows: [][]any{{func() {}}}},
+		},
+	}
+	e := setupSQLTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/query", QueryRequest{
+		SQLStatementRequest: SQLStatementRequest{SQL: "SELECT 1"},
+	})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("serialize %d %s", rec.Code, rec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/projects/proj-1/databases/db-1/execute", strings.NewReader("{"))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad execute json %d", rec.Code)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/projects/proj-1/databases/db-1/batch", strings.NewReader("{"))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad batch json %d", rec.Code)
+	}
 }

@@ -428,3 +428,36 @@ func TestGoFunction_InvokeMetricsOnFailure(t *testing.T) {
 		t.Fatalf("want 2 invoke errors, got %+v", seen)
 	}
 }
+
+func TestRecordAuditHelpers(t *testing.T) {
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	gh := NewGoFunctionHandler(nil, true, nil)
+	gh.recordAudit(c, "p", "create:fn") // nil audit
+
+	aud := &fakeAudit{}
+	gh2 := NewGoFunctionHandler(nil, true, aud)
+	gh2.recordAudit(c, "p", "create:fn")
+	if aud.last.Kind != "gofunction" || aud.last.PrincipalID != "" {
+		t.Fatalf("no principal audit=%+v", aud.last)
+	}
+	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+	req2 = req2.WithContext(WithPrincipal(req2.Context(), auth.Principal{APIKeyID: "k"}))
+	c2 := e.NewContext(req2, httptest.NewRecorder())
+	gh2.recordAudit(c2, "p", "update:fn")
+	if aud.last.PrincipalID != "k" {
+		t.Fatalf("principal=%q", aud.last.PrincipalID)
+	}
+
+	ch := NewCronJobHandler(nil, true, nil, nil)
+	ch.recordAudit(c, "p", "create:job")
+	aud2 := &fakeAudit{}
+	ch2 := NewCronJobHandler(nil, true, nil, aud2)
+	ch2.recordAudit(c2, "p", "create:job")
+	if aud2.last.Kind != "cronjob" || aud2.last.PrincipalID != "k" {
+		t.Fatalf("cron audit=%+v", aud2.last)
+	}
+}
