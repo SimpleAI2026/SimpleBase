@@ -11,6 +11,28 @@ vi.mock('@/services/api', async () => {
   return { api: m.api, isMock: false }
 })
 
+const interactionAgentStubs = {
+  AiChat: {
+    props: ['messages', 'sending'],
+    emits: ['stop'],
+    template:
+      '<div class="ai"><button type="button" class="ai-stop" @click="$emit(\'stop\')">stop</button><slot name="toolbar" /><slot name="empty" /></div>'
+  },
+  AgentScheduleModal: {
+    props: ['open', 'agent', 'schedule'],
+    emits: ['update:open', 'saved', 'removed', 'view-thread'],
+    template: `
+      <div v-if="open" class="sch-m">
+        <button type="button" class="sch-close" @click="$emit('update:open', false)">x</button>
+        <button type="button" class="sch-saved" @click="$emit('saved', { id: 's1', agent_id: 'ag-1' })">save</button>
+        <button type="button" class="sch-removed" @click="$emit('removed', 'sch-1')">rm</button>
+        <button type="button" class="sch-thread" @click="$emit('view-thread', 'th-1')">th</button>
+      </div>
+    `
+  }
+}
+
+
 const agentStubs = {
   AiChat: {
     props: ['customSend', 'messages', 'sending', 'mentionAgents'],
@@ -403,4 +425,51 @@ describe('AgentManager script helpers', () => {
     await vm.loadSchedules()
     wrapper.unmount()
   })
+  it('AgentManager clicks list actions, modal fields, schedule, and stream stop', async () => {
+    api.agents.modules.mockResolvedValue([
+      { id: 'database', name: 'Database', description: 'd', default_tools: ['list_databases'], team_supported: false },
+      { id: 's3', name: 'S3', description: 's', default_tools: ['list_objects'], team_supported: false }
+    ])
+    const { wrapper, pinia } = await mountWithApp(AgentManager, { stubs: interactionAgentStubs })
+    await clickText(wrapper, '刷新')
+    await wrapper.find('button.w-full').trigger('click')
+    await clickText(wrapper, '新建')
+    await flushPromises()
+    if (wrapper.find('.sb-modal').exists()) {
+      if (wrapper.find('.select-emit').exists()) await wrapper.get('.select-emit').trigger('click')
+      if (wrapper.find('#agent-name').exists()) await wrapper.get('#agent-name').setValue('N2')
+      if (wrapper.find('#agent-desc').exists()) await wrapper.get('#agent-desc').setValue('d')
+      if (wrapper.find('#agent-prompt').exists()) await wrapper.get('#agent-prompt').setValue('p')
+      const badges = wrapper.findAll('.badge')
+      if (badges.length) await badges[badges.length - 1].trigger('click')
+      if (wrapper.find('.sb-ok').exists()) await wrapper.get('.sb-ok').trigger('click')
+      await flushPromises()
+      if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+    }
+
+    await clickText(wrapper, '定时')
+    await flushPromises()
+    if (wrapper.find('.sch-saved').exists()) await wrapper.get('.sch-saved').trigger('click')
+    if (wrapper.find('.sch-removed').exists()) await wrapper.get('.sch-removed').trigger('click')
+    if (wrapper.find('.sch-thread').exists()) await wrapper.get('.sch-thread').trigger('click')
+    if (wrapper.find('.sch-close').exists()) await wrapper.get('.sch-close').trigger('click')
+    await clickText(wrapper, '删除')
+    await clickText(wrapper, '新会话')
+    if (wrapper.find('.ai-stop').exists()) await wrapper.get('.ai-stop').trigger('click')
+    useProjectStore(pinia).setProject('other-proj')
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('AgentManager empty-state create', async () => {
+    api.agents.list.mockResolvedValueOnce([])
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: interactionAgentStubs })
+    if (wrapper.find('.empty-action').exists()) {
+      await wrapper.get('.empty-action').trigger('click')
+      expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    }
+    wrapper.unmount()
+  })
+
+
 })

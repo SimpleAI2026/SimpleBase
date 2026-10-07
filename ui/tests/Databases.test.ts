@@ -1,9 +1,10 @@
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { toast } from 'vue-sonner'
-import { ADMIN_PROJECT_ID } from '@/stores/project'
+import { ADMIN_PROJECT_ID, useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, creatingDb, degradedDb, mountWithApp, readyDb } from '@/test/helpers'
+import { clickText, creatingDb, degradedDb, mountWithApp, readyDb, uiStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -11,6 +12,45 @@ vi.mock('@/services/api', async () => {
 })
 
 import Databases from '@/pages/Databases.vue'
+
+const interactionCollectionStub = {
+  CollectionPanel: {
+    props: ['database', 'readonly'],
+    emits: ['view-data', 'add-document', 'create-collection'],
+    template: `
+      <div class="coll-panel">
+        <button type="button" class="view-data" @click="$emit('view-data', 'users')">view</button>
+        <button type="button" class="add-doc" @click="$emit('add-document', 'users')">add</button>
+        <button type="button" class="new-coll" @click="$emit('create-collection')">new</button>
+      </div>
+    `
+  },
+  SqlWorkModal: {
+    props: ['open'],
+    emits: ['update:open'],
+    template:
+      '<div v-if="open" class="sql-m"><button type="button" class="sql-close" @click="$emit(\'update:open\', false)">x</button></div>'
+  },
+  CreateCollectionModal: {
+    props: ['open'],
+    emits: ['created', 'update:open'],
+    template:
+      '<div v-if="open" class="cc-m"><button type="button" class="cc-created" @click="$emit(\'created\', \'users\')">ok</button><button type="button" class="cc-close" @click="$emit(\'update:open\', false)">x</button></div>'
+  },
+  DocumentListModal: {
+    props: ['open'],
+    emits: ['add-document', 'update:open'],
+    template:
+      '<div v-if="open" class="dl-m"><button type="button" class="dl-add" @click="$emit(\'add-document\')">add</button><button type="button" class="dl-close" @click="$emit(\'update:open\', false)">x</button></div>'
+  },
+  DocumentKvModal: {
+    props: ['open'],
+    emits: ['created', 'update:open'],
+    template:
+      '<div v-if="open" class="kv-m"><button type="button" class="kv-created" @click="$emit(\'created\')">ok</button><button type="button" class="kv-close" @click="$emit(\'update:open\', false)">x</button></div>'
+  }
+}
+
 
 const deletingDb = {
   id: 'db-del',
@@ -296,5 +336,75 @@ describe('Databases desktop table actions', () => {
     expect(wrapper.find('.sb-modal').exists()).toBe(true)
     await wrapper.get('.sb-cancel').trigger('click')
     expect(wrapper.find('.sb-modal').exists()).toBe(false)
+  })
+  it('Databases clicks expand, sql, collection, docs, delete, pager and project watch', async () => {
+    const { wrapper, pinia } = await mountWithApp(Databases, { stubs: interactionCollectionStub })
+    await clickText(wrapper, '刷新')
+    await clickText(wrapper, '新建数据库')
+    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    await wrapper.get('#db-name').setValue('okdb')
+    await wrapper.get('.sb-ok').trigger('click')
+    await flushPromises()
+    if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+
+    const expand = wrapper.findAll('button').find((b) => b.attributes('class')?.includes('rounded-full'))
+    if (expand) await expand.trigger('click')
+    await flushPromises()
+    if (wrapper.find('.view-data').exists()) {
+      await wrapper.get('.view-data').trigger('click')
+      await wrapper.get('.dl-add').trigger('click')
+      await wrapper.get('.dl-close').trigger('click')
+      await wrapper.get('.add-doc').trigger('click')
+      await wrapper.get('.kv-created').trigger('click')
+      await wrapper.get('.kv-close').trigger('click')
+      await wrapper.get('.new-coll').trigger('click')
+      await wrapper.get('.cc-created').trigger('click')
+      await wrapper.get('.cc-close').trigger('click')
+    }
+    await clickText(wrapper, 'SQL')
+    if (wrapper.find('.sql-close').exists()) await wrapper.get('.sql-close').trigger('click')
+    await clickText(wrapper, '新建集合')
+    await clickText(wrapper, '删除')
+    await wrapper.get('.pager-next').trigger('click')
+    useProjectStore(pinia).setProject('other-proj')
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('Databases empty-state create and admin refresh', async () => {
+    api.databases.list.mockResolvedValueOnce([])
+    const { wrapper } = await mountWithApp(Databases, { stubs: interactionCollectionStub })
+    await wrapper.get('.empty-action').trigger('click')
+    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    wrapper.unmount()
+
+    api.databases.list.mockResolvedValue([readyDb])
+    const admin = await mountWithApp(Databases, {
+      projectId: 'sb-admin',
+      stubs: interactionCollectionStub
+    })
+    await clickText(admin.wrapper, '刷新')
+    admin.wrapper.unmount()
+  })
+
+  it('Databases onDocumentCreated reopens list when closed', async () => {
+    setActivePinia(createPinia())
+    useProjectStore().setProject('dev-shop')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useProjectStore().setProject('dev-shop')
+    const w = mount(Databases, {
+      global: { plugins: [pinia], stubs: { ...uiStubs, ...interactionCollectionStub } }
+    })
+    await flushPromises()
+    const vm = w.vm as any
+    vm.activeDb = readyDb
+    vm.activeCollection = 'users'
+    vm.docListOpen = false
+    vm.onDocumentCreated()
+    expect(vm.docListOpen).toBe(true)
+    vm.onAddDocumentFromList()
+    expect(vm.kvOpen).toBe(true)
+    w.unmount()
   })
 })
