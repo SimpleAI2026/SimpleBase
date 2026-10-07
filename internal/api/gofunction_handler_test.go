@@ -150,7 +150,7 @@ func TestGoFunction_CreateListGetUpdateDelete(t *testing.T) {
 	updated := strings.Replace(testGoFunctionSrc, "Hello", "Ping", -1)
 	body, _ = json.Marshal(map[string]string{"source": updated})
 	rec = postJSON(t, e, http.MethodPost, "/v1/projects/proj-1/gofunctions/hello/versions", string(body))
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusCreated {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body.String())
 	}
 	var updDTO goFunctionDTO

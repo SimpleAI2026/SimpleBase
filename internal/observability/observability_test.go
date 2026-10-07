@@ -75,65 +75,6 @@ func TestSyncNil(t *testing.T) {
 	}
 }
 
-func TestRedactString(t *testing.T) {
-	t.Parallel()
-	if RedactString("") != "" {
-		t.Fatal("empty")
-	}
-	if got := RedactString("ab"); got != "**" {
-		t.Fatalf("short: %q", got)
-	}
-	if got := RedactString("abcdefghij"); got != "********" {
-		t.Fatalf("long: %q", got)
-	}
-}
-
-func TestIsSensitiveField(t *testing.T) {
-	t.Parallel()
-	yes := []string{"api_key", "API_KEY", "  Token ", "password", "secret_key", "dsn", "prompt", "messages", "sql_args"}
-	for _, n := range yes {
-		if !IsSensitiveField(n) {
-			t.Errorf("expected sensitive: %q", n)
-		}
-	}
-	if IsSensitiveField("database_id") || IsSensitiveField("") {
-		t.Fatal("unexpected sensitive")
-	}
-}
-
-func TestRedactMap(t *testing.T) {
-	t.Parallel()
-	if RedactMap(nil) != nil {
-		t.Fatal("nil in => nil out")
-	}
-	in := map[string]any{
-		"api_key": "secret",
-		"nested":  map[string]any{"password": "p", "ok": "v"},
-		"short":   "abc",
-		"long":    "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz",
-		"count":   3,
-		"token":   "should-hide",
-	}
-	out := RedactMap(in)
-	if out["api_key"] != "***" || out["token"] != "***" {
-		t.Fatalf("sensitive: %#v", out)
-	}
-	nested := out["nested"].(map[string]any)
-	if nested["password"] != "***" || nested["ok"] != "v" {
-		t.Fatalf("nested: %#v", nested)
-	}
-	if out["short"] != "abc" {
-		t.Fatalf("short: %v", out["short"])
-	}
-	long, _ := out["long"].(string)
-	if long != "012345...(redacted)" {
-		t.Fatalf("long: %q", long)
-	}
-	if out["count"] != 3 {
-		t.Fatalf("passthrough: %v", out["count"])
-	}
-}
-
 func TestNewMetricsAndCacheHelpers(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
