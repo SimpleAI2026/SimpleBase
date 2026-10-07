@@ -10,7 +10,6 @@ import S3Manager from '@/pages/S3Manager.vue'
 import Databases from '@/pages/Databases.vue'
 import AgentManager from '@/pages/AgentManager.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
-import { uiStubs } from '@/test/helpers'
 
 const { api } = vi.hoisted(() => {
   const fn = () => vi.fn()
