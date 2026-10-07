@@ -145,6 +145,7 @@ import UserFormModal from '../components/modal/UserFormModal.vue'
 import { api } from '../services/api'
 import type { UserItem, UserRole } from '../services/types'
 import { useAuthStore } from '../stores/auth'
+import { formatTime } from '../utils/format'
 
 const auth = useAuthStore()
 const users = ref<UserItem[]>([])
@@ -173,12 +174,7 @@ function roleText(r: UserRole | string) {
 }
 
 function fmtTime(s?: string) {
-  if (!s) return '—'
-  try {
-    return new Date(s).toLocaleString()
-  } catch {
-    return s
-  }
+  return formatTime(s, '—')
 }
 
 async function load() {

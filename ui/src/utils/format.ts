@@ -12,10 +12,18 @@ export function formatCount(n?: number): string {
   return `${n.toLocaleString('zh-CN')} 条`
 }
 
-export function formatTime(iso?: string): string {
-  if (!iso) return '-'
+export function formatTime(iso?: string, empty = '-'): string {
+  if (!iso) return empty
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false })
+}
+
+export function shortTime(iso?: string): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export function formatJson(value: unknown): string {

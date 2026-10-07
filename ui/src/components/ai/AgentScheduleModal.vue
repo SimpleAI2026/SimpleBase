@@ -53,11 +53,11 @@
           <div class="grid grid-cols-2 gap-2 text-sm">
             <div class="rounded-lg border bg-muted/30 px-3 py-2">
               <div class="text-xs text-muted-foreground">下次执行</div>
-              <div>{{ formatTime(schedule.next_run_at) || '—' }}</div>
+              <div>{{ formatTime(schedule.next_run_at, '—') }}</div>
             </div>
             <div class="rounded-lg border bg-muted/30 px-3 py-2">
               <div class="text-xs text-muted-foreground">上次执行</div>
-              <div>{{ formatTime(schedule.last_run_at) || '—' }}</div>
+              <div>{{ formatTime(schedule.last_run_at, '—') }}</div>
             </div>
           </div>
           <p class="mt-1.5 text-xs text-muted-foreground">结果会话：Scheduled: {{ agent?.name }}</p>
@@ -122,6 +122,7 @@ import SbEmptyState from '@/components/SbEmptyState.vue'
 import SbModal from '@/components/modal/SbModal.vue'
 import { api } from '@/services/api'
 import type { AgentSchedule, AgentScheduleRun, CloudAgent } from '@/services/types'
+import { formatTime, shortTime } from '@/utils/format'
 
 const props = withDefaults(
   defineProps<{
@@ -304,18 +305,5 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
   return 'outline'
 }
 
-function formatTime(v?: string) {
-  if (!v) return ''
-  const d = new Date(v)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('zh-CN', { hour12: false }) + ' UTC'
-}
 
-function shortTime(v?: string) {
-  if (!v) return '—'
-  const d = new Date(v)
-  if (Number.isNaN(d.getTime())) return '—'
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
 </script>

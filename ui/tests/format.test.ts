@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatCount, formatJson, formatTime } from '@/utils/format'
+import { formatBytes, formatCount, formatJson, formatTime, shortTime } from '@/utils/format'
 
 describe('formatCount', () => {
   it('formats counts and unknown', () => {
@@ -30,6 +30,7 @@ describe('formatTime', () => {
   it('handles empty and invalid dates', () => {
     expect(formatTime()).toBe('-')
     expect(formatTime('')).toBe('-')
+    expect(formatTime('', '—')).toBe('—')
     expect(formatTime('not-a-date')).toBe('not-a-date')
   })
 
@@ -37,6 +38,14 @@ describe('formatTime', () => {
     const out = formatTime('2026-01-02T03:04:05.000Z')
     expect(out).not.toBe('-')
     expect(out).not.toBe('2026-01-02T03:04:05.000Z')
+  })
+})
+
+describe('shortTime', () => {
+  it('handles missing and invalid timestamps', () => {
+    expect(shortTime('')).toBe('—')
+    expect(shortTime('bad')).toBe('—')
+    expect(shortTime('2024-01-15T08:05:00Z')).toMatch(/\d{2}-\d{2} \d{2}:\d{2}/)
   })
 })
 

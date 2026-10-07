@@ -42,12 +42,6 @@ describe('AgentScheduleModal', () => {
     expect(vm.statusVariant('running')).toBe('secondary')
     expect(vm.statusVariant('queued')).toBe('secondary')
     expect(vm.statusVariant('x')).toBe('outline')
-    expect(vm.formatTime('')).toBe('')
-    expect(vm.formatTime('bad')).toBe('')
-    expect(vm.formatTime('2024-01-01T00:00:00Z')).toContain('UTC')
-    expect(vm.shortTime('')).toBe('—')
-    expect(vm.shortTime('bad')).toBe('—')
-    expect(vm.shortTime('2024-01-15T08:05:00Z')).toMatch(/\d{2}-\d{2}/)
     vm.onFrequencyChange('custom')
     vm.onFrequencyChange('0 * * * *')
     vm.form.cron_expr = 'bad'
