@@ -733,4 +733,5 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
     expect(w.emitted('deleted')).toBeTruthy()
     w.unmount()
   })
-})}
+})
+}

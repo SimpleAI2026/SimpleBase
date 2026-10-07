@@ -496,7 +496,8 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
     ro.unmount()
     w.unmount()
   })
-})}
+})
+}
 
 {
 const meta = { key: 'k', type: 'string', len: null, ttl_ms: null, mtime_ms: 1, version: 1 }
@@ -712,7 +713,8 @@ describe('KV 模板内联回调与 v-model', () => {
     })
     z.unmount()
   })
-})}
+})
+}
 
 {
 const meta = { key: 'k', type: 'string', len: null, ttl_ms: null, mtime_ms: 1, version: 1 }
@@ -905,4 +907,5 @@ describe('KV 模板 keydown/事件回调', () => {
     expect(api.kv.exec).toHaveBeenCalledWith('p', { type: 'cmd', argvs: ['RENAME', 'k', 'nk'] })
     w.unmount()
   })
-})}
+})
+}

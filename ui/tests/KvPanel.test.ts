@@ -474,4 +474,5 @@ describe('KvPanel 模板交互', () => {
     expect(vm.timer).toBeNull()
     w.unmount()
   })
-})}
+})
+}
