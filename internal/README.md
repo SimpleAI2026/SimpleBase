@@ -19,7 +19,7 @@ HTTP 路由层（Echo v4）。职责：
 - `quota_audit_handler.go`：配额与审计查询。
 - `context.go`：请求上下文（Principal、ProjectContext、RequestID）。
 - `error.go`：统一错误协议（JSON + HTTP 状态码映射）。
-- `adapter.go`：数据库接口到具体实现的适配器桥接；其他适配器位于 `adapters_plan79.go`。
+- `adapter.go`：`api.Dependencies` 接口到具体实现的适配器桥接。
 - `health.go`：存活与就绪检查。
 
 ### `auth`
