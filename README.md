@@ -134,7 +134,7 @@ docker run -p 8080:8080 --env-file .env simplebased
 - [内部模块说明](internal/README.md)
 - [部署文档与 runbook](docs/ops/deployment.md)
 - [迁移指南](docs/ops/migration.md)
-- [重构计划](plan/plan.md)
+- [v4.0 精简合并计划](plan/planv4.0/simplify-merge-plan.md)
 
 ## 目录结构
 
@@ -151,13 +151,20 @@ internal/database/      DuckLake 连接、事务、查询、错误映射
   ├─ cache/             本地缓存目录、配额、LRU 淘汰
   ├─ ducklake/          用户库 / 系统库工厂与 catalog 同步
   ├─ sqlguard/          SQL 执行边界（超时、行数、批量）
+  ├─ kv/                键值数据操作
+  ├─ lease/             数据库租约与写入门控
   └─ serialize.go       行序列化
 internal/cloudagent/    云 Agent 运行时与只读工具
-internal/llmgateway/    litellm 服务端封装、流式转发、用量计量
+internal/sandbox/       云沙盒 Driver、Manager 与路径校验
+internal/llmgateway/    LLM 服务端封装、流式转发、用量计量
 internal/objectstore/   S3 client、KeyBuilder、descriptor、health
 internal/observability/ 日志、指标、健康检查
+internal/systemdb/      系统库迁移、会话与日志存储
 internal/usage/         配额检查与用量聚合
-litellm/                多供应商 LLM 客户端（独立保留）
+ui/                     Vue 控制台与文档站
+packages/               Go 与 JavaScript SDK
+examples/               示例应用
+docs/                   用户文档
 ```
 
 ## 技术栈

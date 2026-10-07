@@ -1,14 +1,11 @@
 # internal/database — 数据库运行时
 
-SimpleBase 数据库运行时层。用户库默认基于 DuckDB + DuckLake（`duckdb` 驱动）与 `database/sql`，提供连接管理、单写路由、本地缓存、SQL 执行边界与行序列化。平台 catalog 仍使用 SQLite / 遗留 Turso。
+SimpleBase 数据库运行时层。用户库基于 DuckDB + DuckLake（`duckdb` 驱动）与 `database/sql`，提供连接管理、单写路由、本地缓存、SQL 执行边界与行序列化。系统库使用 DuckLake。
 
 ## 子包
 
 ### `ducklake/`
 DuckLake 工厂：每库一个 DuckDB 实例，`ATTACH ducklake:sqlite:{cache}/catalog.sqlite`，Phase 1 使用本地 `DATA_PATH`。包含扩展引导、选项、快照检查、提交消息与本地 Syncer 空实现。
-
-### `turso/`
-遗留 libSQL DSN 构建与连接工厂（`engine=turso` 回退，Phase 4 退役）。
 
 ### `registry/`
 进程内每库唯一 writer。
@@ -31,14 +28,17 @@ SQL 执行边界。
 - 最大返回行数、最大批次数限制。
 - 只读检测：query 路径禁止 DML/DDL。
 
+### `kv/`
+键值数据结构、TTL、扫描与事务执行。
+
+### `lease/`
+数据库租约与写入门控。
+
 ## 顶层文件
 
 - `runtime.go` — 运行时核心接口。
 - `query.go` — 查询执行（参数化、行数限制）。
-- `transaction.go` — 事务执行（绑定同一 handle 与连接）。
 - `serialize.go` — 行序列化为 JSON。
-- `errors.go` — 运行时错误映射。
-- `tursofactory.go` — Turso 连接工厂入口。
 
 ## 约束
 
