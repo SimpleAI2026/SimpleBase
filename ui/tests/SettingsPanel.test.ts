@@ -1,4 +1,5 @@
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { useSettingsStore } from '@/stores/settings'
@@ -119,6 +120,32 @@ describe('SettingsPanel', () => {
     }
     settings.wrapper.unmount()
     providers.wrapper.unmount()
+
+  })
+
+  it('covers extended SettingsPanel helpers', async () => {
+    const settings = mount(SettingsPanel, {
+      props: { section: 'providers' },
+      global: { plugins: [createPinia()], stubs: { default: true } },
+      shallow: true
+    })
+    await flushPromises()
+    const svm = settings.vm as any
+    await svm.loadServerDefaults()
+    api.llmSettings.get.mockRejectedValueOnce(new Error('x'))
+    await svm.loadServerDefaults()
+    await svm.patchDefaults({ temperature: 0.1 })
+    api.llmSettings.put.mockRejectedValueOnce(new Error('x'))
+    await svm.patchDefaults({})
+    svm.localCfg('openai')
+    svm.configured('openai')
+    svm.mask('sk-abcdefghijk')
+    svm.mask('')
+    await svm.setDefault('openai')
+    svm.openEditor('openai')
+    svm.saveEditor()
+    svm.clearEditor()
+    settings.unmount()
 
   })
 

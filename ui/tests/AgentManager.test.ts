@@ -1,4 +1,5 @@
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { useProjectStore } from '@/stores/project'
@@ -510,5 +511,41 @@ describe('AgentManager script helpers', () => {
     wrapper.unmount()
   })
 
+
+  it('covers extended AgentManager helpers', async () => {
+    const agents = mount(AgentManager, {
+      global: { plugins: [createPinia()], stubs: { default: true } },
+      shallow: true
+    })
+    await flushPromises()
+    const avm = agents.vm as any
+    await avm.bootstrap?.()
+    await avm.loadSchedules?.()
+    api.agentSchedules.list.mockRejectedValueOnce(new Error('x'))
+    await avm.loadSchedules?.()
+    expect(avm.scheduleSummary?.({ cron_expr: '* * * * *', enabled: true, next_run_at: 't' })).toBeTruthy()
+    avm.openSchedule?.({ id: 'a' })
+    avm.onScheduleSaved?.({ id: 's', agent_id: 'a' })
+    avm.onScheduleRemoved?.('s')
+    await avm.onViewScheduleThread?.('th')
+    await avm.loadModules?.()
+    await avm.loadAgents?.()
+    api.agents.list.mockRejectedValueOnce(new Error('x'))
+    await avm.loadAgents?.()
+    await avm.ensureThread?.()
+    avm.openCreate?.()
+    avm.openEdit?.({ id: 'a', name: 'A', module: 'database', tool_ids: [] })
+    avm.onModuleChange?.('s3')
+    avm.toggleTool?.('list_databases')
+    await avm.saveAgent?.()
+    await avm.removeAgent?.({ id: 'a', name: 'A' })
+    api.agents.remove.mockRejectedValueOnce(new Error('x'))
+    await avm.removeAgent?.({ id: 'a', name: 'A' })
+    await avm.resetThread?.()
+    avm.onStop?.()
+    api.agentThreads.streamRun.mockReturnValue({ close: vi.fn() })
+    await avm.onSend?.('hi', [{ agent_id: 'a' }])
+    agents.unmount()
+  })
 
 })

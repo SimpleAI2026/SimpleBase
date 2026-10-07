@@ -429,4 +429,42 @@ describe('Databases desktop table actions', () => {
   })
 
 
+  it('covers database status and operation boundaries', async () => {
+    const { wrapper: db } = await mountWithApp(Databases, { stubs: dbStubs })
+    await flushPromises()
+    expect(api.databases.list).toHaveBeenCalled()
+    const dbVm = db.vm as any
+    const item = { id: 'd', name: 'n', status: 'ready' }
+    expect(dbVm.isReady(item)).toBe(true)
+    expect(dbVm.isReady({ status: 'creating' })).toBe(false)
+    expect(dbVm.isReady({ status: 'degraded' })).toBe(false)
+    dbVm.toggleExpand(item)
+    dbVm.toggleExpand(item)
+    dbVm.openCreate()
+    dbVm.openSql(item)
+    dbVm.openCreateCollection(item)
+    dbVm.openDocList(item, 'users')
+    dbVm.openKv(item, 'users')
+    dbVm.onCollectionCreated()
+    dbVm.onAddDocumentFromList()
+    dbVm.onDocumentCreated()
+    api.databases.create.mockResolvedValue(item)
+    dbVm.newName = 'newdb'
+    await dbVm.create()
+    dbVm.newName = ''
+    await dbVm.create()
+    dbVm.newName = 'bad/name'
+    await dbVm.create()
+    dbVm.newName = 'x'.repeat(80)
+    await dbVm.create()
+    api.databases.create.mockRejectedValueOnce(new Error('x'))
+    dbVm.newName = 'failok'
+    await dbVm.create()
+    await dbVm.removeDb(item)
+    api.databases.remove.mockRejectedValueOnce(new Error('x'))
+    await dbVm.removeDb(item)
+    db.unmount()
+
+  })
+
 })
