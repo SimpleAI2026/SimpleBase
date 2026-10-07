@@ -49,30 +49,6 @@ describe('component template interactions', () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
   })
 
-  it('CronJobModal radios, selects, inputs, and cancel', async () => {
-    const w = mount(CronJobModal, {
-      props: { open: true },
-      global: { plugins: [piniaWithProject()], stubs: uiStubs }
-    })
-    await flushPromises()
-    const radios = w.findAll('input[type="radio"]')
-    await radios[1].setValue()
-    await radios[0].setValue()
-    for (const sel of w.findAll('.select-emit')) await sel.trigger('click')
-    const inputs = w.findAll('input')
-    for (const i of inputs) {
-      const t = i.attributes('type')
-      if (t === 'radio') continue
-      if (t === 'number') await i.setValue('2')
-      else await i.setValue('job-a')
-    }
-    await w.get('textarea').setValue('{"a":1}')
-    const cancel = w.find('.sb-cancel')
-    if (cancel.exists()) await cancel.trigger('click')
-    else await w.findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
-    w.unmount()
-  })
-
   it('SqlWorkModal toggles modes, pager, switch, and footer', async () => {
     api.sql.query.mockResolvedValue({
       columns: ['id'],

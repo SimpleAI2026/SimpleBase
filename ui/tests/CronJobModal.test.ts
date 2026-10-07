@@ -184,4 +184,26 @@ describe('CronJobModal', () => {
     edit.unmount()
     w.unmount()
   })
+  it('CronJobModal radios, selects, inputs, and cancel', async () => {
+    const w = mountModal()
+    await flushPromises()
+    const radios = w.findAll('input[type="radio"]')
+    await radios[1].setValue()
+    await radios[0].setValue()
+    for (const sel of w.findAll('.select-emit')) await sel.trigger('click')
+    const inputs = w.findAll('input')
+    for (const i of inputs) {
+      const t = i.attributes('type')
+      if (t === 'radio') continue
+      if (t === 'number') await i.setValue('2')
+      else await i.setValue('job-a')
+    }
+    await w.get('textarea').setValue('{"a":1}')
+    const cancel = w.find('.sb-cancel')
+    if (cancel.exists()) await cancel.trigger('click')
+    else await w.findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
+    w.unmount()
+  })
+
+
 })
