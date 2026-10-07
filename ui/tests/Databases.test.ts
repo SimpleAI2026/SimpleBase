@@ -407,4 +407,26 @@ describe('Databases desktop table actions', () => {
     expect(vm.kvOpen).toBe(true)
     w.unmount()
   })
+  it('Databases methods cover not-ready, missing active db, and non-Error catches', async () => {
+    const { wrapper } = await mountWithApp(Databases)
+    const vm = wrapper.vm as Record<string, any>
+    vm.toggleExpand({ ...creatingDb })
+    vm.toggleExpand(readyDb)
+    vm.toggleExpand(readyDb)
+    vm.activeDb = null
+    vm.onCollectionCreated()
+    vm.activeCollection = ''
+    vm.onAddDocumentFromList()
+
+    api.databases.create.mockRejectedValueOnce('create-fail')
+    vm.newName = 'okdb'
+    await vm.create()
+    api.databases.remove.mockRejectedValueOnce('rm-fail')
+    await vm.removeDb(readyDb)
+    vm.createVisible = true
+    if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+    wrapper.unmount()
+  })
+
+
 })

@@ -472,4 +472,43 @@ describe('AgentManager script helpers', () => {
   })
 
 
+  it('AgentManager clicks edit/schedule/delete and non-Error catches', async () => {
+    api.agentThreads.list.mockResolvedValue([{ id: 'th-1', title: 'T', created_at: 't', updated_at: 't' }])
+    const { wrapper } = await mountWithApp(AgentManager)
+    const edit = wrapper.findAll('button').find((b) => b.text() === '编辑')
+    const sched = wrapper.findAll('button').find((b) => b.text() === '定时')
+    if (edit) await edit.trigger('click')
+    if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+    if (sched) await sched.trigger('click')
+    if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+    const confirm = wrapper.find('.confirm-action')
+    if (confirm.exists()) await confirm.trigger('click')
+    await flushPromises()
+
+    const vm = wrapper.vm as Record<string, any>
+    api.agentSchedules.list.mockRejectedValueOnce('sched')
+    await vm.loadSchedules()
+    api.agents.modules.mockRejectedValueOnce('mods')
+    await vm.loadModules()
+    api.agents.list.mockRejectedValueOnce('agents')
+    await vm.loadAgents()
+    api.agentThreads.list.mockRejectedValueOnce('threads')
+    await vm.ensureThread()
+    api.agentThreads.messages.mockRejectedValueOnce('msgs')
+    await vm.onViewScheduleThread('th-x')
+    api.agents.patch.mockRejectedValueOnce('save')
+    vm.editing = sampleAgent
+    vm.form = { ...sampleAgent, name: 'n' }
+    await vm.saveAgent()
+    api.agents.remove.mockRejectedValueOnce('rm')
+    await vm.removeAgent(sampleAgent)
+    api.agentThreads.create.mockRejectedValueOnce('th')
+    await vm.resetThread()
+    vm.openCreate()
+    vm.onModuleChange('database')
+    vm.onModuleChange('missing')
+    wrapper.unmount()
+  })
+
+
 })
