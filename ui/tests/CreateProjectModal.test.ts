@@ -40,4 +40,11 @@ describe('CreateProjectModal', () => {
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('dup')
   })
+  it('closes on cancel', async () => {
+    const w = mount(CreateProjectModal, { props: { open: true }, global: { stubs: uiStubs } })
+    await w.get('.sb-cancel').trigger('click')
+    expect(w.emitted('update:open')).toBeTruthy()
+    w.unmount()
+  })
+
 })

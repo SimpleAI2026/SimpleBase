@@ -35,4 +35,11 @@ describe('DocumentKvModal', () => {
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('no')
   })
+  it('closes on cancel', async () => {
+    const w = mount(DocumentKvModal, { props: { open: true, projectId: 'p', databaseId: 'db', collection: 'users' }, global: { stubs: uiStubs } })
+    await w.get('.sb-cancel').trigger('click')
+    expect(w.emitted('update:open')).toBeTruthy()
+    w.unmount()
+  })
+
 })

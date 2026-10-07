@@ -43,4 +43,11 @@ describe('CreateCollectionModal', () => {
     await noDb.get('#collection-name').setValue('x')
     await noDb.get('.sb-ok').trigger('click')
   })
+  it('closes on cancel', async () => {
+    const w = mount(CreateCollectionModal, { props: { open: true, projectId: 'p', database: readyDb }, global: { stubs: uiStubs } })
+    await w.get('.sb-cancel').trigger('click')
+    expect(w.emitted('update:open')).toBeTruthy()
+    w.unmount()
+  })
+
 })
