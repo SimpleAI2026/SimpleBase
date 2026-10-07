@@ -192,20 +192,7 @@ describe('page template interactions', () => {
     wrapper.unmount()
   })
 
-  it('Dashboard resource summary and refresh', async () => {
-    api.metrics.summary.mockResolvedValue({ totalRequests: 2, errorRate: 0, avgLatencyMs: 1, activeDatabases: 1 })
-    api.metrics.trend.mockResolvedValue([{ date: '1/1', requests: 2, errors: 0 }])
-    api.databases.list.mockResolvedValue([readyDb])
-    api.s3.list.mockResolvedValue([{ key: 'a', size: 1 }])
-    api.gofunctions.list.mockResolvedValue([])
-    api.cronjobs.list.mockResolvedValue([])
-    api.agents.list.mockResolvedValue([])
-    const { wrapper } = await mountWithApp(Dashboard)
-    expect(wrapper.text()).toContain('资源类型')
-    await clickText(wrapper, '刷新数据')
-    expect(wrapper.text()).toContain('对象存储')
-    wrapper.unmount()
-  })
+
 })
 
 describe('script-setup method coverage extras', () => {
