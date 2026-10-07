@@ -199,6 +199,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { api } from '../services/api'
 import type { CronJobItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { useAsyncAction } from '../composables/useAsyncAction'
 import { usePagination } from '../composables/usePagination'
 import { cronStatusText, cronStatusVariant } from '@/lib/status'
 import { formatTime } from '../utils/format'
@@ -214,23 +215,17 @@ const projectStore = useProjectStore()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
 
 const records = ref<CronJobItem[]>([])
-const loading = ref(false)
 const toggling = ref(new Set<string>())
 const triggering = ref(new Set<string>())
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
-
-async function load() {
-  loading.value = true
-  try {
-    records.value = await api.cronjobs.list(projectId.value)
+const { run: load, loading } = useAsyncAction(() => api.cronjobs.list(projectId.value), {
+  fallbackMsg: '加载定时任务列表失败',
+  onSuccess: (data) => {
+    records.value = data as CronJobItem[]
     page.value = 1
-  } catch (e) {
-    toast.error(errorMessage(e, '加载定时任务列表失败'))
-  } finally {
-    loading.value = false
   }
-}
+})
 
 /** 调度人类化：cron 原样等宽；interval 转「每 N 分钟/小时/天」；once 显示执行时刻 */
 function scheduleText(record: CronJobItem): string {
