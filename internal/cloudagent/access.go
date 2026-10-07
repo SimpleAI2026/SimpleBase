@@ -147,7 +147,7 @@ type SandboxOutput struct {
 }
 
 // Sandbox 是云沙盒的工具面（cloud-agent-sandbox-plan §4）。
-// 实现方为 internal/sandbox.Client；本包不 import microsandbox SDK。
+// 实现方为 app.sandboxAdapter（包装 sandbox.Manager）；本包不 import microsandbox SDK。
 type Sandbox interface {
 	Available() bool
 	Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (SandboxOutput, error)

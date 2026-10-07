@@ -12,7 +12,7 @@ import (
 	microsandbox "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// CloudDriver 是 microsandbox Cloud 驱动。除本文件与兼容层 client.go 外，其余业务文件不使用 SDK。
+// CloudDriver 是 microsandbox Cloud 驱动；其余业务文件不直接使用 SDK。
 type CloudDriver struct{ cfg config.SandboxConfig }
 
 // NewCloudDriver 显式配置 Cloud backend，校验失败绝不回退到本地 runtime。
