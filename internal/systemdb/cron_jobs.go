@@ -34,7 +34,7 @@ type CronJob struct {
 	CronExpr        string // kind=cron 时非空
 	IntervalSeconds int64  // kind=interval 时非空
 	RunAt           time.Time // kind=once 时非空：一次性执行时刻
-	FuncFile        string // sys_go_funcs.name
+	FuncFile        string // sys_go_funcs.name（云函数文件名）
 	FuncExport      string // 导出函数名
 	InputJSON       string // 固定入参 JSON 原文，默认 "{}"
 	Enabled         bool

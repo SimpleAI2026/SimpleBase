@@ -16,6 +16,20 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
+func newTestStore(t *testing.T) *Store {
+	t.Helper()
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	if err := ApplySystemMigrations(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return NewStoreForTest(db)
+}
+
 func TestApplySystemMigrationsIdempotent(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
