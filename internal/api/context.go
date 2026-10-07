@@ -78,11 +78,19 @@ func decodeJSONBody(c echo.Context, dst any, strict bool) error {
 
 // queryLimit 返回合法的正数 limit；max 为零时不限制上限。
 func queryLimit(c echo.Context, def, max int) int {
+	limit, _ := parseQueryLimit(c, def, max)
+	return limit
+}
+
+func parseQueryLimit(c echo.Context, def, max int) (int, bool) {
+	if c.QueryParam("limit") == "" {
+		return def, true
+	}
 	n, err := strconv.Atoi(c.QueryParam("limit"))
 	if err != nil || n < 1 || (max > 0 && n > max) {
-		return def
+		return def, false
 	}
-	return n
+	return n, true
 }
 
 // itoa 是 strconv.Itoa 的局部别名，避免在多处 import strconv。

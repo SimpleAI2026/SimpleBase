@@ -347,10 +347,11 @@ func validateDatabaseName(name string) error {
 
 // parseListParams 解析分页参数 limit 和 cursor。
 func parseListParams(c echo.Context) (catalog.Page, error) {
-	page := catalog.Page{Limit: queryLimit(c, 50, 200)}
-	if c.QueryParam("limit") != "" && page.Limit == 50 && c.QueryParam("limit") != "50" {
+	limit, ok := parseQueryLimit(c, 50, 200)
+	if !ok {
 		return catalog.Page{}, fmt.Errorf("invalid limit parameter")
 	}
+	page := catalog.Page{Limit: limit}
 	page.Cursor = c.QueryParam("cursor")
 	return page, nil
 }
