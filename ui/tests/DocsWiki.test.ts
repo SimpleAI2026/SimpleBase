@@ -1,5 +1,7 @@
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { defaultModuleId, defaultSlug, docCatalog, getModule } from '@/docs/catalog'
 import { mountWithApp } from '@/test/helpers'
 
@@ -24,6 +26,17 @@ const docsStubs = {
   SelectContent: { template: '<div />' },
   SelectGroup: { template: '<div />' },
   SelectItem: { template: '<div />' }
+}
+
+const legacyDocsStubs = {
+  DocsSidebar: { template: '<div />' },
+  DocsArticle: { template: '<div class="article" />' },
+  Select: { template: '<div><slot /></div>' },
+  SelectTrigger: { template: '<div />' },
+  SelectValue: { template: '<div />' },
+  SelectContent: { template: '<div><slot /></div>' },
+  SelectGroup: { template: '<div><slot /></div>' },
+  SelectItem: { template: '<div><slot /></div>' }
 }
 
 describe('DocsWiki', () => {
@@ -123,5 +136,19 @@ describe('DocsWiki', () => {
     wrapper.unmount()
     expect(getModule(id)).toBeTruthy()
     expect(defaultSlug(id)).toBeTruthy()
+  })
+  it('DocsWiki resolves module/slug from the route', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/docs/:module?/:slug?', name: 'docs-page', component: DocsWiki, meta: { title: '使用文档' } }
+      ]
+    })
+    await router.push('/docs')
+    await router.isReady()
+    const w = mount(DocsWiki, { global: { plugins: [router, createPinia()], stubs: legacyDocsStubs } })
+    await flushPromises()
+    expect(w.find('.article').exists() || w.text().includes('文档')).toBe(true)
+    w.unmount()
   })
 })

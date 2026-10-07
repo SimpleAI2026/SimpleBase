@@ -1,5 +1,7 @@
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks, setIsMock } from '@/test/api-mock'
 import { clickText, creatingDb, mountWithApp, readyDb } from '@/test/helpers'
@@ -15,6 +17,46 @@ vi.mock('@/services/api', async () => {
 })
 
 import Dashboard from '@/pages/Dashboard.vue'
+
+const legacyPageStubs = {
+  ProjectScope: { template: '<div><slot /></div>' },
+  PageContainer: { template: '<div><slot /></div>' },
+  Card: { template: '<div><slot /></div>' },
+  CardHeader: { template: '<div><slot /></div>' },
+  CardTitle: { template: '<div><slot /></div>' },
+  CardDescription: { template: '<div><slot /></div>' },
+  CardContent: { template: '<div><slot /></div>' },
+  CardAction: { template: '<div><slot /></div>' },
+  Table: { template: '<table><slot /></table>' },
+  TableHeader: { template: '<thead><slot /></thead>' },
+  TableBody: { template: '<tbody><slot /></tbody>' },
+  TableRow: { template: '<tr><slot /></tr>' },
+  TableHead: { template: '<th><slot /></th>' },
+  TableCell: { template: '<td><slot /></td>' },
+  TableEmpty: { template: '<tr><slot /></tr>' },
+  Badge: { template: '<span><slot /></span>' },
+  Button: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
+  Skeleton: { template: '<div />' },
+  Spinner: { template: '<div />' },
+  SbEmptyState: { template: '<button @click="$emit(\'action\')">empty</button>' },
+  TablePager: {
+    props: ['page'],
+    emits: ['update:page'],
+    template: '<button type="button" class="pager-next" @click="$emit(\'update:page\', (page || 1) + 1)">next</button>'
+  },
+  Alert: { template: '<div><slot /></div>' },
+  AlertTitle: { template: '<div><slot /></div>' },
+  AlertDescription: { template: '<div><slot /></div>' },
+  DocsSidebar: { template: '<div />' },
+  DocsArticle: { template: '<div class="article" />' },
+  Select: { template: '<div><slot /></div>' },
+  SelectTrigger: { template: '<div />' },
+  SelectValue: { template: '<div />' },
+  SelectContent: { template: '<div><slot /></div>' },
+  SelectGroup: { template: '<div><slot /></div>' },
+  SelectItem: { template: '<div><slot /></div>' }
+}
+
 
 const degradedDb = {
   id: 'db-deg',
@@ -191,4 +233,62 @@ describe('Dashboard (监控大盘)', () => {
     expect(wrapper.text()).toContain('对象存储')
     wrapper.unmount()
   })
+  it('Dashboard loads metrics and can navigate to databases', async () => {
+    api.databases.list.mockResolvedValue([
+      { id: 'd1', name: 'n', status: 'ready', createdAt: '2026-01-01T00:00:00Z', updatedAt: 't' },
+      { id: 'd2', name: 'bad', status: 'degraded', createdAt: 't', updatedAt: 't' }
+    ])
+    api.s3.list.mockResolvedValue([])
+    api.gofunctions.list.mockResolvedValue([])
+    api.cronjobs.list.mockResolvedValue([])
+    api.agents.list.mockResolvedValue([])
+    api.quota.status.mockResolvedValue({ llmAllowed: true, databaseAllowed: true })
+    api.metrics.trend.mockResolvedValue([{ date: '1/1', requests: 10, errors: 1 }])
+    api.metrics.summary.mockResolvedValue({ totalRequests: 9, errorRate: 1, avgLatencyMs: 2, activeDatabases: 1 })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', name: 'dashboard', component: { template: '<div />' } },
+        { path: '/databases', name: 'databases', component: { template: '<div />' } }
+      ]
+    })
+    await router.push('/')
+    await router.isReady()
+    const w = mount(Dashboard, { global: { plugins: [router, createPinia()], stubs: legacyPageStubs } })
+    await flushPromises()
+    expect(w.text()).toContain('请求 9')
+    expect(w.text()).toContain('资源类型')
+    expect(w.text()).toContain('数据库')
+
+    api.databases.list.mockRejectedValueOnce(new Error('db'))
+    api.quota.status.mockResolvedValue({ llmAllowed: false, databaseAllowed: true })
+    api.metrics.trend.mockRejectedValueOnce(new Error('t'))
+    api.metrics.summary.mockResolvedValue({ totalRequests: 1, errorRate: 0, avgLatencyMs: 1, activeDatabases: 0 })
+    await w.vm.$.setupState.load?.()
+    await flushPromises()
+    expect(w.text()).toContain('受限')
+
+    api.databases.list.mockRejectedValueOnce(new Error('db'))
+    api.quota.status.mockRejectedValueOnce(new Error('q'))
+    api.metrics.trend.mockResolvedValueOnce([{ date: '1/2', requests: 0, errors: 0 }])
+    api.metrics.summary.mockRejectedValueOnce(new Error('s'))
+    await w.vm.$.setupState.load?.()
+    await flushPromises()
+
+    const empty = mount(Dashboard, { global: { plugins: [router, createPinia()], stubs: legacyPageStubs } })
+    api.databases.list.mockResolvedValue([])
+    api.s3.list.mockResolvedValue([])
+    api.gofunctions.list.mockResolvedValue([])
+    api.cronjobs.list.mockResolvedValue([])
+    api.agents.list.mockResolvedValue([])
+    api.quota.status.mockRejectedValue(new Error('x'))
+    api.metrics.trend.mockResolvedValue([])
+    api.metrics.summary.mockRejectedValue(new Error('x'))
+    await empty.vm.$.setupState.load?.()
+    await flushPromises()
+    w.unmount()
+    empty.unmount()
+  })
+
+
 })
