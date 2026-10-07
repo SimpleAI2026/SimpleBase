@@ -104,4 +104,12 @@ describe('GoFunctions (云函数)', () => {
     await flushPromises()
     expect(api.gofunctions.list.mock.calls.length).toBeGreaterThan(1)
   })
+  it('handles non-Error responses', async () => {
+    const go = await mountWithApp(GoFunctions)
+    const gvm = go.wrapper.vm as Record<string, any>
+    api.gofunctions.remove.mockRejectedValueOnce('rm-fn')
+    await gvm.remove?.(sampleGoFn).catch(() => undefined)
+    go.wrapper.unmount()
+  })
+
 })

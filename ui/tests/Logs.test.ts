@@ -119,4 +119,16 @@ describe('Logs (日志管理)', () => {
     expect(wrapper.text()).toContain('2 条')
     expect(wrapper.findAll('.card-title').map((n) => n.text()).filter((t) => t === '日志')).toHaveLength(1)
   })
+  it('handles non-Error responses', async () => {
+    const logs = await mountWithApp(Logs)
+    const lvm = logs.wrapper.vm as Record<string, any>
+    if (logs.wrapper.find('.select-empty').exists()) await logs.wrapper.get('.select-empty').trigger('click')
+    lvm.keepDaysText = 'nope'
+    expect(lvm.keepDays).toBe(14)
+    api.logs.list.mockRejectedValueOnce('load-logs')
+    await lvm.load()
+    logs.wrapper.unmount()
+
+  })
+
 })

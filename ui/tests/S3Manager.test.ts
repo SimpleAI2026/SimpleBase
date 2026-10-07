@@ -159,4 +159,20 @@ describe('S3Manager (对象存储)', () => {
     expect(api.s3.list).toHaveBeenCalledWith(expect.any(String), 'images/')
     expect(wrapper.text()).toContain('images/a.png')
   })
+  it('handles non-Error responses', async () => {
+    const s3 = await mountWithApp(S3Manager)
+    const svm = s3.wrapper.vm as Record<string, any>
+    if (s3.wrapper.find('.ig-input').exists()) {
+      await s3.wrapper.get('.ig-input').setValue('images/')
+    }
+    api.s3.list.mockRejectedValueOnce('list')
+    await svm.load()
+    api.s3.remove.mockRejectedValueOnce('rm')
+    await svm.remove('k')
+    api.s3.presign.mockRejectedValueOnce('url')
+    await svm.open('k')
+    s3.wrapper.unmount()
+
+  })
+
 })

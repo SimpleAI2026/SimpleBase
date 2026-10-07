@@ -151,4 +151,20 @@ describe('CronJobs (定时任务)', () => {
     expect(api.cronjobs.list.mock.calls.length).toBeGreaterThan(before)
     expect(wrapper.text()).toContain('定时任务列表')
   })
+  it('handles non-Error responses', async () => {
+    const cron = await mountWithApp(CronJobs)
+    const cvm = cron.wrapper.vm as Record<string, any>
+    expect(cvm.scheduleText({ scheduleKind: 'interval', intervalSeconds: undefined })).toContain('每')
+    api.cronjobs.update.mockRejectedValueOnce('tog')
+    await cvm.toggleEnabled(sampleCron)
+    api.cronjobs.trigger.mockRejectedValueOnce('trig')
+    await cvm.trigger(sampleCron)
+    api.cronjobs.remove.mockRejectedValueOnce('rm')
+    await cvm.remove(sampleCron)
+    cvm.openCreate()
+    cvm.modalOpen = false
+    cron.wrapper.unmount()
+
+  })
+
 })

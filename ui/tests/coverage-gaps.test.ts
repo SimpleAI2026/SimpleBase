@@ -65,63 +65,6 @@ describe('remaining coverage gaps', () => {
     api.logs.getRetention.mockResolvedValue({ keepDays: 14, updatedAt: '', scope: 'project' })
   })
 
-  it('CronJobs / S3 / Logs / Settings / GoFunctions non-Error paths', async () => {
-    const cron = await mountWithApp(CronJobs)
-    const cvm = vmOf(cron.wrapper)
-    expect(cvm.scheduleText({ scheduleKind: 'interval', intervalSeconds: undefined })).toContain('每')
-    api.cronjobs.update.mockRejectedValueOnce('tog')
-    await cvm.toggleEnabled(sampleCron)
-    api.cronjobs.trigger.mockRejectedValueOnce('trig')
-    await cvm.trigger(sampleCron)
-    api.cronjobs.remove.mockRejectedValueOnce('rm')
-    await cvm.remove(sampleCron)
-    cvm.openCreate()
-    cvm.modalOpen = false
-    cron.wrapper.unmount()
-
-    const s3 = await mountWithApp(S3Manager)
-    const svm = vmOf(s3.wrapper)
-    if (s3.wrapper.find('.ig-input').exists()) {
-      await s3.wrapper.get('.ig-input').setValue('images/')
-    }
-    api.s3.list.mockRejectedValueOnce('list')
-    await svm.load()
-    api.s3.remove.mockRejectedValueOnce('rm')
-    await svm.remove('k')
-    api.s3.presign.mockRejectedValueOnce('url')
-    await svm.open('k')
-    s3.wrapper.unmount()
-
-    const logs = await mountWithApp(Logs)
-    const lvm = vmOf(logs.wrapper)
-    if (logs.wrapper.find('.select-empty').exists()) await logs.wrapper.get('.select-empty').trigger('click')
-    lvm.keepDaysText = 'nope'
-    expect(lvm.keepDays).toBe(14)
-    api.logs.list.mockRejectedValueOnce('load-logs')
-    await lvm.load()
-    logs.wrapper.unmount()
-
-    const settings = await mountWithApp(SettingsPanel, { props: { section: 'models' } })
-    const st = vmOf(settings.wrapper)
-    api.llmSettings.put.mockRejectedValueOnce({ nope: true })
-    await st.patchDefaults({ maxTokens: 1 })
-    api.llmSettings.put.mockRejectedValueOnce({ nope: true })
-    const providers = await mountWithApp(SettingsPanel, { props: { section: 'providers' } })
-    await vmOf(providers.wrapper).setDefault('openai')
-    if (settings.wrapper.find('#max-tokens').exists()) {
-      await settings.wrapper.get('#max-tokens').setValue('')
-      await flushPromises()
-    }
-    settings.wrapper.unmount()
-    providers.wrapper.unmount()
-
-    const go = await mountWithApp(GoFunctions)
-    const gvm = vmOf(go.wrapper)
-    api.gofunctions.remove.mockRejectedValueOnce('rm-fn')
-    await gvm.remove?.(sampleGoFn).catch(() => undefined)
-    go.wrapper.unmount()
-  })
-
   it('DocumentListModal / SbModal / ApiKey / Switcher close handlers', async () => {
     api.db.rows.mockResolvedValue([{ id: 'r1', name: 'Ada' }])
     const dl = mount(DocumentListModal, {

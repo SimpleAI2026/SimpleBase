@@ -105,4 +105,21 @@ describe('SettingsPanel', () => {
     await flushPromises()
     expect(wrapper.text()).toMatch(/请先在右上角|创建项目/)
   })
+  it('handles non-Error responses', async () => {
+    const settings = await mountWithApp(SettingsPanel, { props: { section: 'models' } })
+    const st = settings.wrapper.vm as Record<string, any>
+    api.llmSettings.put.mockRejectedValueOnce({ nope: true })
+    await st.patchDefaults({ maxTokens: 1 })
+    api.llmSettings.put.mockRejectedValueOnce({ nope: true })
+    const providers = await mountWithApp(SettingsPanel, { props: { section: 'providers' } })
+    await (providers.wrapper.vm as Record<string, any>).setDefault('openai')
+    if (settings.wrapper.find('#max-tokens').exists()) {
+      await settings.wrapper.get('#max-tokens').setValue('')
+      await flushPromises()
+    }
+    settings.wrapper.unmount()
+    providers.wrapper.unmount()
+
+  })
+
 })
