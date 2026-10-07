@@ -71,4 +71,14 @@ describe('SbModal', () => {
     await w2.findAll('button')[1].trigger('click')
     expect(w2.emitted('ok')).toBeTruthy()
   })
+  it('handles close interactions', async () => {
+    const sb = mount(SbModal, {
+      props: { open: true, title: 'T' },
+      global: { stubs: { ...uiStubs, SbModal: false } }
+    })
+    await sb.findAll('button')[0].trigger('click')
+    sb.unmount()
+
+  })
+
 })

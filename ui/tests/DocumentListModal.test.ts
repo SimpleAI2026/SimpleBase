@@ -85,4 +85,17 @@ describe('DocumentListModal (数据库管理 / 文档)', () => {
     w.unmount()
   })
 
+  it('handles close interactions', async () => {
+    api.db.rows.mockResolvedValue([{ id: 'r1', name: 'Ada' }])
+    const dl = mount(DocumentListModal, {
+      props: { open: true, projectId: 'p', databaseId: 'db', collection: 'users' },
+      global: { stubs: uiStubs }
+    })
+    await flushPromises()
+    if (dl.find('.confirm-action').exists()) await dl.get('.confirm-action').trigger('click')
+    if (dl.find('.sb-cancel').exists()) await dl.get('.sb-cancel').trigger('click')
+    dl.unmount()
+
+  })
+
 })

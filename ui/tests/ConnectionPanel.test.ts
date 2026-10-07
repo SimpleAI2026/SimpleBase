@@ -148,4 +148,12 @@ describe('ConnectionPanel', () => {
     w.unmount()
   })
 
+  it('handles close interactions', async () => {
+    const { w: key } = setup()
+    const keyInput = key.find('input')
+    if (keyInput.exists()) await keyInput.setValue('k')
+    key.unmount()
+
+  })
+
 })

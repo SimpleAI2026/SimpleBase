@@ -82,6 +82,20 @@ describe('GlobalProjectSwitcher', () => {
     expect(wrapper.text()).not.toContain('全部项目')
     expect(wrapper.text()).not.toContain('我的项目')
   })
+  it('handles close interactions', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useProjectStore(pinia).setProject('dev-shop')
+    const sw = mount(GlobalProjectSwitcher, { global: { plugins: [pinia], stubs: uiStubs } })
+    const store = useProjectStore(pinia)
+    store.openCreateModal()
+    await flushPromises()
+    const modal = sw.findComponent({ name: 'CreateProjectModal' })
+    await modal.vm.$emit('update:open', false)
+    expect(store.createModalOpen).toBe(false)
+    sw.unmount()
+  })
+
 })
 
   it('GlobalProjectSwitcher popover open/close and create modal close', async () => {
