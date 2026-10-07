@@ -112,4 +112,22 @@ describe('GoFunctions (云函数)', () => {
     go.wrapper.unmount()
   })
 
+  it('GoFunctions create/edit/view/remove/copy', async () => {
+    const { wrapper: w } = await mountWithApp(GoFunctions, { stubs: modalStub })
+    await flushPromises()
+    const vm = w.vm as any
+    vm.openCreate()
+    vm.openEdit({ name: 'hello', file: 'hello.go', exports: ['Hello'] })
+    vm.openView({ name: 'hello' })
+    await vm.remove({ name: 'hello', file: 'hello.go' })
+    vm.copyInvokePath({ name: 'hello', exports: [] })
+    vm.copyInvokePath({ name: 'hello', exports: ['Hello'] }, 'Hello')
+    api.gofunctions.list.mockRejectedValueOnce('bad')
+    await vm.load()
+    api.gofunctions.remove.mockRejectedValueOnce(new Error('x'))
+    await vm.remove({ name: 'hello', file: 'hello.go' })
+    w.unmount()
+  })
+
+
 })

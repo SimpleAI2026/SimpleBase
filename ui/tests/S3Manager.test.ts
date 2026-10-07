@@ -175,4 +175,29 @@ describe('S3Manager (对象存储)', () => {
 
   })
 
+  it('S3Manager list/open/remove/upload validation', async () => {
+    const { wrapper: w } = await mountWithApp(S3Manager)
+    await flushPromises()
+    const vm = w.vm as any
+    expect(vm.validateKey('')).toBeTruthy()
+    expect(vm.validateKey('a'.repeat(1025))).toBeTruthy()
+    expect(vm.validateKey('a\0b')).toBeTruthy()
+    expect(vm.validateKey('/abs')).toBeTruthy()
+    expect(vm.validateKey('../x')).toBeTruthy()
+    expect(vm.validateKey('ok.txt')).toBe('')
+    await vm.open('a.txt')
+    api.s3.presign.mockRejectedValueOnce(new Error('x'))
+    await vm.open('a.txt')
+    await vm.remove('a.txt')
+    api.s3.remove.mockRejectedValueOnce(new Error('x'))
+    await vm.remove('a.txt')
+    api.s3.list.mockRejectedValueOnce(new Error('x'))
+    await vm.load()
+    vm.handleBeforeUpload(new File(['x'], '../bad'))
+    vm.handleBeforeUpload(new File([new Uint8Array(2)], 'ok.txt'))
+    await flushPromises()
+    w.unmount()
+  })
+
+
 })

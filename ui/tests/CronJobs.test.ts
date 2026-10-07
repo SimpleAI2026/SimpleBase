@@ -167,4 +167,40 @@ describe('CronJobs (定时任务)', () => {
 
   })
 
+  it('CronJobs toggle/trigger/remove and schedule text', async () => {
+    const { wrapper: w } = await mountWithApp(CronJobs, { stubs: extraStubs })
+    await flushPromises()
+    const vm = w.vm as any
+    const rec = {
+      id: 'j',
+      name: 'night',
+      scheduleKind: 'interval',
+      intervalSeconds: 120,
+      enabled: true
+    }
+    expect(vm.scheduleText({ scheduleKind: 'cron', cronExpr: '* * * * *' })).toContain('*')
+    expect(vm.scheduleText({ scheduleKind: 'interval', intervalSeconds: 86400 })).toContain('天')
+    expect(vm.scheduleText({ scheduleKind: 'interval', intervalSeconds: 3600 })).toContain('小时')
+    expect(vm.scheduleText({ scheduleKind: 'interval', intervalSeconds: 120 })).toContain('分钟')
+    expect(vm.scheduleText({ scheduleKind: 'interval', intervalSeconds: 61 })).toContain('秒')
+    expect(vm.scheduleText({ scheduleKind: 'interval', intervalSeconds: 61 })).toContain('秒')
+    api.cronjobs.update.mockResolvedValue({ ...rec, enabled: false })
+    await vm.toggleEnabled(rec)
+    api.cronjobs.update.mockRejectedValueOnce(new Error('x'))
+    await vm.toggleEnabled(rec)
+    await vm.trigger(rec)
+    api.cronjobs.trigger.mockRejectedValueOnce(new Error('x'))
+    await vm.trigger(rec)
+    await vm.remove(rec)
+    api.cronjobs.remove.mockRejectedValueOnce(new Error('x'))
+    await vm.remove(rec)
+    vm.openCreate()
+    vm.openEdit(rec)
+    vm.openRuns(rec)
+    api.cronjobs.list.mockRejectedValueOnce('bad')
+    await vm.load()
+    w.unmount()
+  })
+
+
 })
