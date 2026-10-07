@@ -361,12 +361,6 @@ type goFuncVersionCreateRequest struct {
 	Activate *bool  `json:"activate"`
 }
 
-// Update 兼容旧 PUT：保存为新版本并生效，响应 200。
-func (h *GoFunctionHandler) Update(c echo.Context) error {
-	err := h.CreateVersion(c)
-	return err
-}
-
 // ListVersions: GET /gofunctions/:name/versions
 func (h *GoFunctionHandler) ListVersions(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())

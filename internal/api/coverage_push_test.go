@@ -66,7 +66,6 @@ func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
 		})
 		ee.GET("/gf", gh.List)
 		ee.GET("/gf/:name", gh.Get)
-		ee.PUT("/gf/:name", gh.Update)
 		ee.DELETE("/gf/:name", gh.Delete)
 		ee.POST("/gf", gh.Create)
 		ee.GET("/cj", cj.List)
@@ -87,7 +86,6 @@ func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodGet, "/gf"},
 		{http.MethodGet, "/gf/n"},
-		{http.MethodPut, "/gf/n"},
 		{http.MethodDelete, "/gf/n"},
 		{http.MethodPost, "/gf"},
 		{http.MethodGet, "/cj"},

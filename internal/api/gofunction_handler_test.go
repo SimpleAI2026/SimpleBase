@@ -74,7 +74,7 @@ func setupGoFunctionTestRouter(t *testing.T, writable bool, projectID string) (*
 	p.GET("/gofunctions", h.List)
 	p.POST("/gofunctions", h.Create)
 	p.GET("/gofunctions/:name", h.Get)
-	p.PUT("/gofunctions/:name", h.Update)
+	p.POST("/gofunctions/:name/versions", h.CreateVersion)
 	p.DELETE("/gofunctions/:name", h.Delete)
 
 	goGrp := e.Group("/go/:projectID")
@@ -149,7 +149,7 @@ func TestGoFunction_CreateListGetUpdateDelete(t *testing.T) {
 	// 更新（改函数名）
 	updated := strings.Replace(testGoFunctionSrc, "Hello", "Ping", -1)
 	body, _ = json.Marshal(map[string]string{"source": updated})
-	rec = postJSON(t, e, http.MethodPut, "/v1/projects/proj-1/gofunctions/hello", string(body))
+	rec = postJSON(t, e, http.MethodPost, "/v1/projects/proj-1/gofunctions/hello/versions", string(body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body.String())
 	}
