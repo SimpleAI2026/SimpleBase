@@ -28,7 +28,7 @@
             为 AI 数据和应用构建的<span class="block text-primary">一体化工作台</span>
           </h1>
           <p class="mt-7 max-w-lg text-base leading-8 text-muted-foreground sm:text-lg">
-            管理数据库、对象存储与云函数，通过 LLM Gateway 接入模型并创建云 Agent，在一个控制台中构建 AI 数据和应用。
+            管理数据库、对象存储与云函数，通过 LLM Gateway 接入模型并创建云助手，在一个控制台中构建 AI 数据和应用。
           </p>
           <div class="mt-9 flex flex-wrap items-center gap-3">
             <router-link :to="{ name: 'dashboard' }" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-[0_12px_32px_-16px_var(--primary)] transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
@@ -104,13 +104,13 @@ const previewItems = [
   { label: '数据库', code: 'DATABASE', icon: DatabaseIcon },
   { label: '对象存储', code: 'STORAGE', icon: CloudUploadIcon },
   { label: '云函数', code: 'FUNCTIONS', icon: CodeIcon },
-  { label: '云 Agent', code: 'AGENTS', icon: BotIcon }
+  { label: '云助手', code: 'AGENTS', icon: BotIcon }
 ]
 
 const capabilities = [
   { title: '数据库管理', description: '统一管理数据库与数据集合，让查询和日常维护保持清晰。', icon: DatabaseIcon },
   { title: '对象存储', description: '在工作台中管理项目文件与对象，轻松查看和组织资源。', icon: CloudUploadIcon },
   { title: '云函数', description: '编写、发布并管理云函数，将应用逻辑与数据连接起来。', icon: CodeIcon },
-  { title: '云 Agent', description: '基于项目数据创建云 Agent，借助模型开展对话与只读查询。', icon: BotIcon }
+  { title: '云助手', description: '基于项目数据创建云助手，借助模型开展对话与只读查询。', icon: BotIcon }
 ]
 </script>

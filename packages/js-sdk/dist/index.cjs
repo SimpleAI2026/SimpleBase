@@ -134,6 +134,15 @@ function createDatabasesApi(http) {
     },
     remove(databaseId) {
       return http.request("DELETE", base(`/databases/${encodeURIComponent(databaseId)}`));
+    },
+    schema(databaseId) {
+      return http.request("GET", base(`/databases/${encodeURIComponent(databaseId)}/schema`));
+    },
+    createTable(databaseId, table) {
+      return http.request("POST", base(`/databases/${encodeURIComponent(databaseId)}/schema/tables`), { body: table });
+    },
+    addColumn(databaseId, column) {
+      return http.request("POST", base(`/databases/${encodeURIComponent(databaseId)}/schema/columns`), { body: column });
     }
   };
 }
@@ -257,6 +266,40 @@ function createStorageApi(http) {
   };
 }
 
+// src/sandboxes.ts
+function createSandboxesApi(http) {
+  const base = projectPath(http.projectId, "/sandboxes");
+  const resource = (id) => `${base}/${encodeURIComponent(id)}`;
+  const content = (id) => `${resource(id)}/files/content`;
+  const listPage = (opts = {}) => http.request("GET", base, {
+    query: { status: opts.status, source: opts.source, limit: opts.limit, cursor: opts.cursor }
+  });
+  return {
+    capabilities: () => http.request("GET", `${base}/capabilities`),
+    async list(opts = {}) {
+      return (await listPage(opts)).sandboxes;
+    },
+    listPage,
+    create: (input, key) => http.request("POST", base, { body: input, headers: key ? { "Idempotency-Key": key } : void 0 }),
+    get: (id, refresh = false) => http.request("GET", resource(id), { query: refresh ? { refresh: 1 } : void 0 }),
+    update: (id, input) => http.request("PATCH", resource(id), { body: input }),
+    delete: (id) => http.request("DELETE", resource(id)),
+    start: (id) => http.request("POST", `${resource(id)}/start`),
+    stop: (id) => http.request("POST", `${resource(id)}/stop`),
+    exec: (id, input) => http.request("POST", `${resource(id)}/exec`, { body: input }),
+    run: (input) => http.request("POST", `${base}/run`, { body: input }),
+    files: {
+      async list(id, path = "/workspace") {
+        const res = await http.request("GET", `${resource(id)}/files`, { query: { path } });
+        return res.entries;
+      },
+      read: (id, path) => http.request("GET", content(id), { query: { path } }),
+      write: (id, path, text) => http.request("PUT", content(id), { query: { path }, body: { content: text } }),
+      remove: (id, path) => http.request("DELETE", content(id), { query: { path } })
+    }
+  };
+}
+
 // src/client.ts
 function requireDbId(id, action) {
   if (!id) {
@@ -291,6 +334,7 @@ function createClient(opts) {
     url: http.baseUrl,
     databases,
     storage,
+    sandboxes: createSandboxesApi(http),
     get sql() {
       return createSqlApi(http, requireDbId(defaultDatabaseId, "sql"));
     },

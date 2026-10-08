@@ -440,7 +440,7 @@ func (s *Store) AppendAgentMessage(ctx context.Context, msg AgentMessage) (Agent
 	}
 	if msg.Role == "user" && title != "" {
 		_, _ = s.db.ExecContext(ctx,
-			`UPDATE sys_agent_threads SET updated_at = ?, title = CASE WHEN title IN ('New thread', '云 Agent') THEN ? ELSE title END WHERE id = ?`,
+			`UPDATE sys_agent_threads SET updated_at = ?, title = CASE WHEN title IN ('New thread', '云 Agent', '云助手') THEN ? ELSE title END WHERE id = ?`,
 			now, title, msg.ThreadID)
 	} else {
 		_, _ = s.db.ExecContext(ctx, `UPDATE sys_agent_threads SET updated_at = ? WHERE id = ?`, now, msg.ThreadID)

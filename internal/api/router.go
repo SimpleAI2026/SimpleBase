@@ -45,6 +45,8 @@ type Dependencies struct {
 	// Plan 6：SQL 执行 handler。writable=false 时仅 query 可用。
 	SQLHandler  *SQLHandler
 	DataHandler *DataHandler
+	// SchemaHandler 管理 SQL 数据库的表结构。nil 时不挂载。
+	SchemaHandler *SchemaHandler
 	// KVHandler：项目级 Key-Value 数据服务（key-value-ducklake-plan）。
 	KVHandler *KVHandler
 	// KVService：项目 KV catalog 服务（建项目时建 kind=kv 行）。
@@ -334,6 +336,13 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.POST("/databases/:databaseID/query", sh.Query, require(auth.DatabaseRead))
 		p.POST("/databases/:databaseID/execute", sh.Execute, require(auth.DatabaseWrite))
 		p.POST("/databases/:databaseID/batch", sh.Batch, require(auth.DatabaseWrite))
+	}
+
+	if deps.SchemaHandler != nil {
+		sh := deps.SchemaHandler
+		p.GET("/databases/:databaseID/schema", sh.ListSchema, require(auth.DatabaseRead))
+		p.POST("/databases/:databaseID/schema/tables", sh.CreateTable, require(auth.DatabaseWrite))
+		p.POST("/databases/:databaseID/schema/columns", sh.AddColumn, require(auth.DatabaseWrite))
 	}
 
 	if deps.DataHandler != nil {

@@ -6,7 +6,7 @@
     { "id": "gofunction", "title": "云函数", "order": 4 },
     { "id": "cronjob", "title": "定时任务", "order": 5 },
     { "id": "sandbox", "title": "云沙盒", "order": 6 },
-    { "id": "agent", "title": "云 Agent", "order": 7 },
+    { "id": "agent", "title": "云助手", "order": 7 },
     { "id": "ops", "title": "运维", "order": 8 },
     { "id": "sdk", "title": "SDK", "order": 9 }
   ]

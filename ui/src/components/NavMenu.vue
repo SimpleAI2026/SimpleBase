@@ -94,9 +94,9 @@ interface MenuItem {
 
 /** 分类定义（planv3.0 侧栏美化）：工作台 / 数据 / 自动化 / 运维。 */
 const GROUP_DEFS: { key: string; label: string; names: string[] }[] = [
-  { key: 'workspace', label: '工作台', names: ['dashboard'] },
+  { key: 'workspace', label: '工作台', names: ['agents', 'dashboard'] },
   { key: 'data', label: '数据', names: ['databases', 'key-value', 's3'] },
-  { key: 'automation', label: '自动化', names: ['gofunctions', 'cron-jobs', 'sandboxes', 'agents'] },
+  { key: 'automation', label: '自动化', names: ['gofunctions', 'cron-jobs', 'sandboxes'] },
   { key: 'ops', label: '运维', names: ['logs', 'users'] }
 ]
 

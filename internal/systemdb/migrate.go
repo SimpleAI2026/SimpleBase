@@ -617,6 +617,14 @@ var systemMigrations = []migration{
 			updated_at TIMESTAMP NOT NULL
 		)`,
 	},
+	{
+		// v43：用户库数据形态。已有行默认集合文档，不改 DuckLake 文件。
+		// v3 的 CREATE TABLE 已经在现网执行过，这里只追加列。
+		version: 43,
+		name:    "sys_databases_data_model",
+		stmt: `ALTER TABLE sys_databases ADD COLUMN data_model VARCHAR DEFAULT 'collection';
+			UPDATE sys_databases SET data_model = 'collection' WHERE data_model IS NULL OR data_model = ''`,
+	},
 }
 
 // retireOpenCloseStatusSQL 把未软删的 closed/opening/closing/recovering 写成 ready。

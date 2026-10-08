@@ -20,6 +20,8 @@ interface DatabaseInfo {
     name?: string;
     status?: string;
     kind?: string;
+    /** collection（默认，含存量库）或 sql */
+    data_model?: 'collection' | 'sql';
     [key: string]: unknown;
 }
 /** SQL query response — rows are positional arrays matching columns. */
@@ -84,6 +86,29 @@ interface HttpClient {
     }): Promise<T>;
 }
 
+interface CreateDatabaseInput {
+    name: string;
+    data_model?: 'collection' | 'sql';
+    init_sql?: string;
+}
+interface SchemaColumn {
+    name: string;
+    type: string;
+    nullable?: boolean;
+}
+interface SchemaTable {
+    name: string;
+    columns: SchemaColumn[];
+}
+interface DatabaseSchema {
+    tables: SchemaTable[];
+}
+interface AddColumnInput {
+    table: string;
+    name: string;
+    type: string;
+    nullable?: boolean;
+}
 interface DatabasesApi {
     list(opts?: {
         limit?: number;
@@ -93,10 +118,11 @@ interface DatabasesApi {
         next_cursor?: string;
     }>;
     get(databaseId: string): Promise<DatabaseInfo>;
-    create(input: {
-        name: string;
-    }): Promise<DatabaseInfo>;
+    create(input: CreateDatabaseInput): Promise<DatabaseInfo>;
     remove(databaseId: string): Promise<DatabaseInfo | void>;
+    schema(databaseId: string): Promise<DatabaseSchema>;
+    createTable(databaseId: string, table: SchemaTable): Promise<SchemaTable>;
+    addColumn(databaseId: string, column: AddColumnInput): Promise<SchemaColumn>;
 }
 
 interface SqlApi {
@@ -143,6 +169,119 @@ interface StorageApi {
     }>;
 }
 
+interface SandboxInfo {
+    id: string;
+    project_id: string;
+    name: string;
+    cloud_name: string;
+    source: string;
+    image: string;
+    cpus: number;
+    memory_mib: number;
+    network: string;
+    idle_timeout_s: number;
+    max_duration_s: number;
+    status: string;
+    created_at: string;
+    started_at: string | null;
+    last_active_at: string | null;
+    expires_at: string | null;
+}
+interface SandboxCapabilities {
+    available: boolean;
+    backend: string;
+    images: string[];
+    default_image: string;
+    cpus_max: number;
+    memory_mib_max: number;
+    exec_timeout_max_s: number;
+    max_file_bytes: number;
+    max_output_bytes: number;
+    max_per_project: number;
+    network_options: string[];
+}
+interface SandboxCreateInput {
+    name?: string;
+    image?: string;
+    cpus?: number;
+    memory_mib?: number;
+    network?: 'none' | 'public';
+    idle_timeout_s?: number;
+    start?: boolean;
+}
+interface SandboxUpdateInput {
+    name?: string;
+    idle_timeout_s?: number;
+}
+interface SandboxExecInput {
+    command?: string;
+    cmd?: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    timeout_s?: number;
+}
+interface SandboxExecResult {
+    exit_code: number;
+    stdout: string;
+    stderr: string;
+    stdout_truncated: boolean;
+    stderr_truncated: boolean;
+    timed_out: boolean;
+    duration_ms: number;
+    status: string;
+    sandbox_id?: string;
+}
+interface SandboxFileEntry {
+    name: string;
+    path: string;
+    kind: string;
+    size: number;
+}
+interface SandboxFileContent {
+    content: string;
+    encoding: 'utf8' | 'base64';
+    truncated: boolean;
+}
+interface SandboxRunInput extends SandboxExecInput {
+    image?: string;
+    files?: Array<{
+        path: string;
+        content: string;
+    }>;
+    keep?: boolean;
+}
+interface SandboxListOptions {
+    status?: string;
+    source?: string;
+    limit?: number;
+    cursor?: string;
+}
+/** One page of sandboxes, newest first. `next_cursor` is absent on the last page. */
+interface SandboxPage {
+    sandboxes: SandboxInfo[];
+    next_cursor?: string;
+}
+interface SandboxesApi {
+    capabilities(): Promise<SandboxCapabilities>;
+    list(opts?: SandboxListOptions): Promise<SandboxInfo[]>;
+    listPage(opts?: SandboxListOptions): Promise<SandboxPage>;
+    create(input: SandboxCreateInput, idempotencyKey?: string): Promise<SandboxInfo>;
+    get(id: string, refresh?: boolean): Promise<SandboxInfo>;
+    update(id: string, input: SandboxUpdateInput): Promise<SandboxInfo>;
+    delete(id: string): Promise<void>;
+    start(id: string): Promise<SandboxInfo>;
+    stop(id: string): Promise<SandboxInfo>;
+    exec(id: string, input: SandboxExecInput): Promise<SandboxExecResult>;
+    run(input: SandboxRunInput): Promise<SandboxExecResult>;
+    files: {
+        list(id: string, path?: string): Promise<SandboxFileEntry[]>;
+        read(id: string, path: string): Promise<SandboxFileContent>;
+        write(id: string, path: string, content: string): Promise<void>;
+        remove(id: string, path: string): Promise<void>;
+    };
+}
+
 interface DatabaseRef {
     readonly id: string;
     sql: SqlApi;
@@ -154,6 +293,7 @@ interface SimpleBaseClient {
     readonly url: string;
     databases: DatabasesApi;
     storage: StorageApi;
+    sandboxes: SandboxesApi;
     /** Default-database SQL helpers (requires databaseId in createClient or .database()) */
     sql: SqlApi;
     collection(name: string): CollectionApi;
@@ -178,4 +318,4 @@ declare class SimpleBaseError extends Error {
     });
 }
 
-export { type BatchResult, type BatchResultItem, type BatchStatement, type CollectionApi, type CollectionsApi, type CreateClientOptions, type DatabaseInfo, type DatabaseRef, type DatabasesApi, type ExecuteResult, type Json, type QueryResult, type S3ObjectMeta, type SimpleBaseClient, SimpleBaseError, type SqlApi, type StorageApi, type UploadBody, createClient };
+export { type AddColumnInput, type BatchResult, type BatchResultItem, type BatchStatement, type CollectionApi, type CollectionsApi, type CreateClientOptions, type CreateDatabaseInput, type DatabaseInfo, type DatabaseRef, type DatabaseSchema, type DatabasesApi, type ExecuteResult, type Json, type QueryResult, type S3ObjectMeta, type SandboxCapabilities, type SandboxCreateInput, type SandboxExecInput, type SandboxExecResult, type SandboxFileContent, type SandboxFileEntry, type SandboxInfo, type SandboxRunInput, type SandboxUpdateInput, type SandboxesApi, type SchemaColumn, type SchemaTable, type SimpleBaseClient, SimpleBaseError, type SqlApi, type StorageApi, type UploadBody, createClient };

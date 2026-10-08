@@ -70,7 +70,7 @@ describe('router', () => {
     expect(titleOf('s3')).toBe('对象存储')
     expect(titleOf('gofunctions')).toBe('云函数')
     expect(titleOf('cron-jobs')).toBe('定时任务')
-    expect(titleOf('agents')).toBe('云 Agent')
+    expect(titleOf('agents')).toBe('云助手')
     expect(titleOf('logs')).toBe('日志管理')
   })
 

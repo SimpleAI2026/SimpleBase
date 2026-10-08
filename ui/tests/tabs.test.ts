@@ -41,6 +41,41 @@ describe('tabs orientation classes', () => {
     const trigger = wrapper.get('[data-slot="tabs-trigger"]')
     expect(trigger.classes()).toContain('group-data-[orientation=horizontal]/tabs:after:h-0.5')
     expect(trigger.classes()).toContain('group-data-[orientation=vertical]/tabs:w-full')
+    expect(trigger.classes()).toContain('justify-center')
+    expect(trigger.classes()).toContain('text-center')
+    expect(trigger.classes().join(' ')).not.toContain('justify-start')
     expect(wrapper.text()).toContain('panel')
+  })
+
+  it('centers trigger labels in vertical, line, and flex-none layouts', () => {
+    const Harness = defineComponent({
+      components: { Tabs, TabsList, TabsTrigger },
+      template: `
+        <div>
+          <Tabs orientation="vertical" default-value="a">
+            <TabsList>
+              <TabsTrigger value="a">纵向</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Tabs default-value="b">
+            <TabsList variant="line" class="w-full justify-start">
+              <TabsTrigger value="b" class="flex-none px-4">文档</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      `
+    })
+    const wrapper = mount(Harness)
+    const triggers = wrapper.findAll('[data-slot="tabs-trigger"]')
+    expect(wrapper.get('[data-slot="tabs"]').attributes('data-orientation')).toBe('vertical')
+    const lists = wrapper.findAll('[data-slot="tabs-list"]')
+    expect(lists[1].attributes('data-variant')).toBe('line')
+    for (const trigger of triggers) {
+      expect(trigger.classes()).toContain('justify-center')
+      expect(trigger.classes()).toContain('text-center')
+      expect(trigger.classes().join(' ')).not.toContain('justify-start')
+    }
+    expect(triggers[1].classes()).toContain('flex-none')
+    expect(triggers[0].classes()).toContain('group-data-[orientation=vertical]/tabs:w-full')
   })
 })

@@ -219,6 +219,31 @@ export interface DatabaseItem {
   snapshot?: { lastSyncedSnapshot: number; syncLag: number }
   /** 库内用户表总行数；未知/未就绪时省略 */
   documentCount?: number
+  /** 数据形态。缺省按集合文档处理，与存量库迁移默认一致 */
+  dataModel?: 'collection' | 'sql'
+}
+
+/** 创建数据库。省略 dataModel 时服务端按集合文档创建。 */
+export interface CreateDatabaseInput {
+  name: string
+  dataModel?: 'collection' | 'sql'
+  initSql?: string
+}
+
+/** 表结构列。nullable 省略视为可空。 */
+export interface SchemaColumn {
+  name: string
+  type: string
+  nullable?: boolean
+}
+
+export interface SchemaTable {
+  name: string
+  columns: SchemaColumn[]
+}
+
+export interface DatabaseSchema {
+  tables: SchemaTable[]
 }
 
 /* ---------- SQL（proto-http.md §3.2） ---------- */
@@ -313,7 +338,7 @@ export interface LlmStreamConnection {
   close: () => void
 }
 
-/* ---------- 云 Agent（proto-http.md §3.12） ---------- */
+/* ---------- 云助手（proto-http.md §3.12） ---------- */
 
 export interface AgentModuleInfo {
   id: string
@@ -732,8 +757,19 @@ export interface Api {
   }
   databases: {
     list: (projectId: string) => Promise<DatabaseItem[]>
-    create: (projectId: string, name: string) => Promise<DatabaseItem>
+    create: (projectId: string, input: CreateDatabaseInput) => Promise<DatabaseItem>
     remove: (projectId: string, databaseId: string) => Promise<void>
+    schema: (projectId: string, databaseId: string) => Promise<DatabaseSchema>
+    createTable: (
+      projectId: string,
+      databaseId: string,
+      table: SchemaTable
+    ) => Promise<SchemaTable>
+    addColumn: (
+      projectId: string,
+      databaseId: string,
+      column: { table: string; name: string; type: string; nullable?: boolean }
+    ) => Promise<SchemaColumn>
   }
   sql: {
     query: (projectId: string, databaseId: string, req: SqlRequest) => Promise<SqlQueryResult>

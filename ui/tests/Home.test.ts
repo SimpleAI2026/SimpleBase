@@ -27,7 +27,7 @@ describe('Home', () => {
     expect(wrapper.find('main a[href="/console"]').text()).toContain('进入控制台')
     expect(wrapper.find('a[href="/docs"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('数据库管理')
-    expect(wrapper.text()).toContain('云 Agent')
+    expect(wrapper.text()).toContain('云助手')
     expect(wrapper.find('aside[aria-label="产品能力示意"]').exists()).toBe(true)
     expect(wrapper.find('form').exists()).toBe(false)
   })

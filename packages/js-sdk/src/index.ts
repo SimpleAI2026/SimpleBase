@@ -12,7 +12,14 @@ export type {
   S3ObjectMeta,
   Json
 } from './types.js'
-export type { DatabasesApi } from './databases.js'
+export type {
+  DatabasesApi,
+  CreateDatabaseInput,
+  SchemaColumn,
+  SchemaTable,
+  DatabaseSchema,
+  AddColumnInput
+} from './databases.js'
 export type { SqlApi } from './sql.js'
 export type { CollectionsApi, CollectionApi } from './collections.js'
 export type { StorageApi, UploadBody } from './storage.js'

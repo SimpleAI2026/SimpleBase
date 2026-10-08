@@ -194,11 +194,75 @@ describe('httpApi', () => {
         databases: [{ id: 'd', name: 'n', status: 'ready', created_at: 'a', updated_at: 'b', snapshot: { last_synced_snapshot: 1, sync_lag: 2 } }]
       }
     })
-    expect((await httpApi.databases.list(pid))[0].snapshot?.syncLag).toBe(2)
+    const listed = await httpApi.databases.list(pid)
+    expect(listed[0].snapshot?.syncLag).toBe(2)
+    expect(listed[0].dataModel).toBe('collection')
+    http.get.mockResolvedValueOnce({
+      data: { databases: [{ id: 'd', name: 'n', status: 'ready', created_at: 'a', updated_at: 'b', data_model: 'sql' }] }
+    })
+    expect((await httpApi.databases.list(pid))[0].dataModel).toBe('sql')
     http.get.mockResolvedValueOnce({ data: {} })
     expect(await httpApi.databases.list(pid)).toEqual([])
-    http.post.mockResolvedValueOnce({ data: { id: 'd', name: 'n', status: 'creating' } })
-    await httpApi.databases.create(pid, 'n')
+    http.post.mockResolvedValueOnce({ data: { id: 'd', name: 'n', status: 'creating', data_model: 'sql' } })
+    const created = await httpApi.databases.create(pid, {
+      name: 'n',
+      dataModel: 'sql',
+      initSql: 'CREATE TABLE t (id INTEGER)'
+    })
+    expect(created.dataModel).toBe('sql')
+    expect(http.post.mock.calls.at(-1)?.[1]).toEqual({
+      name: 'n',
+      data_model: 'sql',
+      init_sql: 'CREATE TABLE t (id INTEGER)'
+    })
+    http.post.mockResolvedValueOnce({ data: { id: 'd', name: 'plain', status: 'ready' } })
+    expect((await httpApi.databases.create(pid, { name: 'plain' })).dataModel).toBe('collection')
+    http.get.mockResolvedValueOnce({
+      data: {
+        tables: [
+          { name: 't', columns: [{ name: 'id', type: 'INTEGER', nullable: false }, 1, { name: 2, type: 3 }] }
+        ]
+      }
+    })
+    const schema = await httpApi.databases.schema(pid, db)
+    expect(schema.tables[0].columns[0]).toEqual({ name: 'id', type: 'INTEGER', nullable: false })
+    expect(schema.tables[0].columns[1]).toEqual({ name: '', type: '', nullable: true })
+    expect(schema.tables[0].columns[2].name).toBe('')
+    expect(http.get.mock.calls.at(-1)?.[0]).toContain('/schema')
+    http.get.mockResolvedValueOnce({ data: undefined })
+    expect(await httpApi.databases.schema(pid, db)).toEqual({ tables: [] })
+    http.get.mockResolvedValueOnce({ data: { tables: [1, { name: 'x' }] } })
+    const partial = await httpApi.databases.schema(pid, db)
+    expect(partial.tables[0]).toEqual({ name: '', columns: [] })
+    expect(partial.tables[1]).toEqual({ name: 'x', columns: [] })
+    http.post.mockResolvedValueOnce({ data: { name: 't', columns: [{ name: 'id', type: 'INTEGER', nullable: false }] } })
+    expect(
+      (
+        await httpApi.databases.createTable(pid, db, {
+          name: 't',
+          columns: [{ name: 'id', type: 'INTEGER', nullable: false }]
+        })
+      ).columns[0].nullable
+    ).toBe(false)
+    expect(http.post.mock.calls.at(-1)?.[0]).toContain('/schema/tables')
+    expect(http.post.mock.calls.at(-1)?.[1]).toEqual({
+      name: 't',
+      columns: [{ name: 'id', type: 'INTEGER', nullable: false }]
+    })
+    http.post.mockResolvedValueOnce({ data: null })
+    expect(await httpApi.databases.createTable(pid, db, { name: 't', columns: [] })).toEqual({
+      name: '',
+      columns: []
+    })
+    http.post.mockResolvedValueOnce({ data: { name: 'email', type: 'VARCHAR', nullable: true } })
+    expect(
+      (await httpApi.databases.addColumn(pid, db, { table: 't', name: 'email', type: 'VARCHAR' })).nullable
+    ).toBe(true)
+    expect(http.post.mock.calls.at(-1)?.[0]).toContain('/schema/columns')
+    http.post.mockResolvedValueOnce({ data: 'nope' })
+    expect(
+      await httpApi.databases.addColumn(pid, db, { table: 't', name: 'a', type: 'JSON', nullable: false })
+    ).toEqual({ name: '', type: '', nullable: true })
     http.delete.mockResolvedValueOnce({ data: {} })
     await httpApi.databases.remove(pid, db)
 
@@ -306,6 +370,18 @@ describe('httpApi', () => {
     await httpApi.agents.patch(pid, 'a', { name: 'n2' })
     http.delete.mockResolvedValueOnce({ data: {} })
     await httpApi.agents.remove(pid, 'a')
+    http.get.mockResolvedValueOnce({
+      data: { default_model: 'm', models: [{ provider: 'p', name: 'n' }, {}] }
+    })
+    expect(await httpApi.agents.models(pid)).toEqual({
+      default_model: 'm',
+      models: [
+        { provider: 'p', name: 'n' },
+        { provider: '', name: '' }
+      ]
+    })
+    http.get.mockResolvedValueOnce({ data: {} })
+    expect(await httpApi.agents.models(pid)).toEqual({ default_model: '', models: [] })
 
     http.get.mockResolvedValueOnce({ data: { threads: [{ id: 't', title: 'x', created_at: 'c', updated_at: 'u' }] } })
     expect((await httpApi.agentThreads.list(pid))[0].id).toBe('t')

@@ -1,6 +1,6 @@
 # SimpleBase 控制台（ui/）
 
-Vue 3 + TypeScript + Vite 单页应用，管理 SimpleBase 后端的全部能力：数据库、SQL、文档数据、Key-Value、S3 对象、云函数、定时任务、云 Agent、日志与用户。构建产物经 `go:embed` 嵌入后端二进制（`internal/web/dist`），单进程部署即可拥有完整控制台；开发时也可独立启动，API 经 Vite proxy 转发到后端。
+Vue 3 + TypeScript + Vite 单页应用，管理 SimpleBase 后端的全部能力：数据库、SQL、文档数据、Key-Value、S3 对象、云函数、定时任务、云助手、日志与用户。构建产物经 `go:embed` 嵌入后端二进制（`internal/web/dist`），单进程部署即可拥有完整控制台；开发时也可独立启动，API 经 Vite proxy 转发到后端。
 
 修改代码前请先阅读 [AGENTS.md](./AGENTS.md)（目录职责、API 层规则、样式定稿等硬约束）。
 
@@ -55,7 +55,7 @@ yarn dev              # http://127.0.0.1:5173
 | `/console/s3` | S3Manager | 对象存储管理（上传 / 删除 / 预签名） |
 | `/console/gofunctions` | GoFunctions | 云函数（版本、激活、在线测试） |
 | `/console/cron-jobs` | CronJobs | 定时任务管理 |
-| `/console/agents` | AgentManager | 云 Agent 会话与定时调度 |
+| `/console/agents` | AgentManager | 云助手（工作台第一项）：会话与定时调度 |
 | `/console/logs` | Logs | 日志查询与保留策略 |
 | `/console/users` | Users | 用户管理（`meta.requiresRole: 'superadminl1'`） |
 | `/docs`、`/docs/:module/:slug` | DocsWiki | 内嵌文档站（渲染仓库 `docs/`，DocsLayout） |

@@ -23,6 +23,8 @@ var (
 	ErrMigrationFailed = errors.New("catalog: migration failed")
 	// ErrSystemProtected 禁止删除或改写系统库（403）。
 	ErrSystemProtected = errors.New("catalog: system database is protected")
+	// ErrInvalidDataModel 表示 data_model 不是 collection 或 sql（400）。
+	ErrInvalidDataModel = errors.New("catalog: invalid data model")
 )
 
 // IsNotFound 判断错误是否为 ErrNotFound（含 wrapped）。

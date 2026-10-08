@@ -5,7 +5,7 @@ order: 1
 
 # 云沙盒
 
-云沙盒是项目级隔离 Linux 环境。控制台「自动化 → 云沙盒」、HTTP API、SDK 和云 Agent 使用同一个资源管理器；命令与文件只在 Cloud VM 内执行，不读写 SimpleBase 用户库 / S3 / 系统库。默认网络无出站权限。
+云沙盒是项目级隔离 Linux 环境。控制台「自动化 → 云沙盒」、HTTP API、SDK 和云助手使用同一个资源管理器；命令与文件只在 Cloud VM 内执行，不读写 SimpleBase 用户库 / S3 / 系统库。默认网络无出站权限。
 
 ## 启用
 

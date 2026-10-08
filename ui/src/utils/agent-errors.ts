@@ -1,4 +1,4 @@
-// agent-errors.ts：云 Agent 错误码 → 用户文案（planv4.1 BUG-05）。
+// agent-errors.ts：云助手错误码 → 用户文案（planv4.1 BUG-05）。
 // 后端错误码见 internal/cloudagent/errors.go；未知码回退原始 message。
 
 export interface AgentError {

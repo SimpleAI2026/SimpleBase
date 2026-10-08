@@ -266,7 +266,7 @@ export const defaultRoutes: RouteRecordRaw[] = [
   { path: '/s3', name: 's3', component: { template: '<div>s3</div>' }, meta: { title: '对象存储' } },
   { path: '/gofunctions', name: 'gofunctions', component: { template: '<div>go</div>' }, meta: { title: '云函数' } },
   { path: '/cron-jobs', name: 'cron-jobs', component: { template: '<div>cron</div>' }, meta: { title: '定时任务' } },
-  { path: '/agents', name: 'agents', component: { template: '<div>ag</div>' }, meta: { title: '云 Agent' } },
+  { path: '/agents', name: 'agents', component: { template: '<div>ag</div>' }, meta: { title: '云助手' } },
   { path: '/settings', name: 'settings', component: { template: '<div>set</div>' }, meta: { title: '设置' } },
   { path: '/logs', name: 'logs', component: { template: '<div>log</div>' }, meta: { title: '日志管理' } },
   { path: '/docs/:module?/:slug?', name: 'docs-page', component: { template: '<div>docs</div>' }, meta: { title: '使用文档' } },

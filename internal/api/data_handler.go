@@ -257,6 +257,9 @@ func (h *DataHandler) acquire(c echo.Context, mode database.AccessMode) (SQLLeas
 		if err != nil {
 			return nil, err
 		}
+		if catalog.IsSQLDataModel(db) {
+			return nil, NewAPIError(http.StatusBadRequest, "data_model_mismatch", "SQL 数据库不支持集合与文档", RequestIDFromContext(c.Request().Context()))
+		}
 		return h.svc.Acquire(c.Request().Context(), db, mode)
 	}
 	return nil, errors.New("databaseID required")

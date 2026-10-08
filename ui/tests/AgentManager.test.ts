@@ -92,7 +92,7 @@ function clickExact(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wrapper']
   return el.trigger('click')
 }
 
-describe('AgentManager (云 Agent)', () => {
+describe('AgentManager (云助手)', () => {
   beforeEach(() => {
     resetApiMocks()
     api.agents.list.mockResolvedValue([sampleAgent])

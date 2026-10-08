@@ -264,7 +264,7 @@ const resourceRows = computed(() => [
   },
   {
     key: 'agents',
-    label: '云 Agent',
+    label: '云助手',
     icon: BotIcon,
     count: counts.value.agents,
     hint: '项目内智能体配置',
