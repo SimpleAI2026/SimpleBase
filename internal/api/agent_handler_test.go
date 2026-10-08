@@ -82,8 +82,11 @@ func TestAgentCRUDAndSeed(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Agents) != 3 {
+	if len(listed.Agents) != 4 {
 		t.Fatalf("seeded agents=%d", len(listed.Agents))
+	}
+	if listed.Agents[0].BuiltinKey != "general" {
+		t.Fatalf("general agent should sort first, got %+v", listed.Agents[0])
 	}
 
 	rec = agentReq(e, http.MethodPost, "/agents", map[string]any{

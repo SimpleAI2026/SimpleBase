@@ -26,6 +26,8 @@ type cloudAgentHandler struct {
 	usage    UsageService
 	audit    AuditService
 	writable *bool
+	// llm 提供模型列表（BUG-07）；可为 nil（LLM 未启用）。
+	llm LLMService
 }
 
 // sandboxAvailable 报告云沙盒是否启用（由 Runtime.Sandbox 提供）。
@@ -41,6 +43,7 @@ type agentDTO struct {
 	SystemPrompt  string    `json:"system_prompt"`
 	ToolIDs       []string  `json:"tool_ids"`
 	ModelOverride string    `json:"model_override,omitempty"`
+	BuiltinKey    string    `json:"builtin_key,omitempty"`
 	TeamEnabled   bool      `json:"team_enabled"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
@@ -62,7 +65,10 @@ type messageDTO struct {
 	Mentions  json.RawMessage `json:"mentions,omitempty"`
 	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
 	RunID     string          `json:"run_id,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
+	// RunStatus / ErrorCode 来自所属 run（BUG-06）：刷新后还原「已停止 / 失败」。
+	RunStatus string    `json:"run_status,omitempty"`
+	ErrorCode string    `json:"error_code,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type runDTO struct {
@@ -89,7 +95,7 @@ func toAgentDTO(a systemdb.CloudAgent) agentDTO {
 	return agentDTO{
 		ID: a.ID, Name: a.Name, Module: a.Module, Description: a.Description,
 		SystemPrompt: a.SystemPrompt, ToolIDs: ids, ModelOverride: a.ModelOverride,
-		TeamEnabled: a.TeamEnabled, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
+		BuiltinKey: a.BuiltinKey, TeamEnabled: a.TeamEnabled, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
 	}
 }
 
@@ -109,6 +115,7 @@ func toMessageDTO(m systemdb.AgentMessage) messageDTO {
 	return messageDTO{
 		ID: m.ID, Role: m.Role, Content: m.Content, AgentID: m.AgentID,
 		Mentions: mentions, ToolCalls: tools, RunID: m.RunID, CreatedAt: m.CreatedAt,
+		RunStatus: m.RunStatus, ErrorCode: m.ErrorCode,
 	}
 }
 
@@ -116,7 +123,7 @@ func (h *cloudAgentHandler) ensureAgents(ctx context.Context, projectID string) 
 	if h.store == nil {
 		return systemdb.ErrUnavailable
 	}
-	return h.store.SeedDefaultCloudAgents(ctx, projectID)
+	return h.store.SeedDefaultCloudAgentsWithSandbox(ctx, projectID, h.sandboxAvailable())
 }
 
 func (h *cloudAgentHandler) ListModules(c echo.Context) error {
@@ -128,8 +135,10 @@ func (h *cloudAgentHandler) ListAgents(c echo.Context) error {
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
 	}
-	if err := h.ensureAgents(c.Request().Context(), pc.ID); err != nil {
-		return WriteError(c, err)
+	if h.writable == nil || *h.writable {
+		if err := h.ensureAgents(c.Request().Context(), pc.ID); err != nil {
+			return WriteError(c, err)
+		}
 	}
 	list, err := h.store.ListCloudAgents(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -473,6 +482,8 @@ type createRunBody struct {
 	Content  string       `json:"content"`
 	Mentions []mentionDTO `json:"mentions"`
 	Stream   bool         `json:"stream"`
+	// RetryOfRunID 非空表示重试该 run：复用其 user 消息，不重复落库（BUG-03）。
+	RetryOfRunID string `json:"retry_of_run_id"`
 }
 
 func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
@@ -491,7 +502,8 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return WriteError(c, err)
 	}
-	if strings.TrimSpace(body.Content) == "" {
+	// 重试请求 content 由被重试 run 的原消息提供（BUG-03）。
+	if strings.TrimSpace(body.Content) == "" && body.RetryOfRunID == "" {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "content is required"))
 	}
 	if err := h.ensureAgents(c.Request().Context(), pc.ID); err != nil {
@@ -500,6 +512,41 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	agent, err := h.resolveMentionedAgent(c.Request().Context(), pc.ID, body.Mentions)
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
+	}
+	// 重试校验（BUG-03）：目标 run 必须属于本 thread、状态 failed/canceled、且是 thread 最新一次 run。
+	var retryUser systemdb.AgentMessage
+	if body.RetryOfRunID != "" {
+		prev, err := h.store.GetAgentRun(c.Request().Context(), pc.ID, body.RetryOfRunID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid_retry"))
+		}
+		if err != nil {
+			return WriteError(c, err)
+		}
+		if prev.ThreadID != threadID || (prev.Status != systemdb.AgentRunFailed && prev.Status != systemdb.AgentRunCanceled) {
+			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid_retry"))
+		}
+		latest, err := h.store.ListAgentRuns(c.Request().Context(), pc.ID, threadID, 1)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		if len(latest) == 0 || latest[0].ID != prev.ID {
+			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid_retry"))
+		}
+		msgs, err := h.store.ListAgentMessages(c.Request().Context(), pc.ID, threadID, 200)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].RunID == prev.ID && msgs[i].Role == "user" {
+				retryUser = msgs[i]
+				break
+			}
+		}
+		if retryUser.ID == "" {
+			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid_retry"))
+		}
+		body.Content = retryUser.Content
 	}
 	if h.runtime == nil || h.runtime.LLM == nil {
 		if !body.Stream {
@@ -531,26 +578,41 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	now := time.Now().UTC()
 	run, err := h.store.CreateAgentRun(c.Request().Context(), systemdb.AgentRun{
 		ID: claimID, ThreadID: threadID, ProjectID: pc.ID, AgentID: agent.ID,
-		Status: systemdb.AgentRunRunning, StartedAt: now,
+		Status: systemdb.AgentRunRunning, StartedAt: now, RetryOfRunID: body.RetryOfRunID,
 	})
 	if err != nil {
 		return WriteError(c, err)
 	}
-	userMsg, err := h.store.AppendAgentMessage(c.Request().Context(), systemdb.AgentMessage{
-		ThreadID: threadID, ProjectID: pc.ID, Role: "user", Content: body.Content,
-		AgentID: agent.ID, MentionsJSON: string(mentionsJSON), RunID: run.ID,
-	})
-	if err != nil {
-		return WriteError(c, err)
+	// 重试复用原 user 消息，不再 Append（BUG-03）。
+	var userMsg systemdb.AgentMessage
+	if body.RetryOfRunID != "" {
+		userMsg = retryUser
+	} else {
+		userMsg, err = h.store.AppendAgentMessage(c.Request().Context(), systemdb.AgentMessage{
+			ThreadID: threadID, ProjectID: pc.ID, Role: "user", Content: body.Content,
+			AgentID: agent.ID, MentionsJSON: string(mentionsJSON), RunID: run.ID,
+		})
+		if err != nil {
+			return WriteError(c, err)
+		}
 	}
 	hist, err := h.store.ListAgentMessages(c.Request().Context(), pc.ID, threadID, 40)
 	if err != nil {
 		return WriteError(c, err)
 	}
 	// Drop the just-appended user turn from history (passed separately).
-	if len(hist) > 0 && hist[len(hist)-1].ID == userMsg.ID {
-		hist = hist[:len(hist)-1]
+	// 重试时历史中该 user 消息属于旧 run，同样不能重复出现在模型上下文。
+	filtered := hist[:0]
+	for _, m := range hist {
+		if m.ID == userMsg.ID {
+			continue
+		}
+		if body.RetryOfRunID != "" && m.RunID == body.RetryOfRunID {
+			continue
+		}
+		filtered = append(filtered, m)
 	}
+	hist = filtered
 
 	req := cloudagent.RunRequest{
 		ProjectID: pc.ID, Principal: principal, Agent: agent,
@@ -672,6 +734,7 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 	}()
 	started := time.Now()
 	lastOutput := time.Now()
+	toolStarted := map[string]time.Time{}
 	stopThinking := make(chan struct{})
 	defer close(stopThinking)
 	go func() {
@@ -684,8 +747,16 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 			case <-ticker.C:
 				mu.Lock()
 				idle := time.Since(lastOutput)
+				var activeID string
+				var activeSince time.Time
+				for id, since := range toolStarted {
+					activeID, activeSince = id, since
+					break
+				}
 				mu.Unlock()
-				if idle >= 2*time.Second {
+				if activeID != "" {
+					write(cloudagent.Event{Type: "tool_progress", CallID: activeID, ElapsedMS: time.Since(activeSince).Milliseconds()})
+				} else if idle >= 2*time.Second {
 					write(cloudagent.Event{Type: "thinking", ElapsedMS: time.Since(started).Milliseconds()})
 				}
 			}
@@ -695,6 +766,11 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 		if ev.Type == "token" || ev.Type == "tool_call" || ev.Type == "tool_result" {
 			mu.Lock()
 			lastOutput = time.Now()
+			if ev.Type == "tool_call" && ev.CallID != "" {
+				toolStarted[ev.CallID] = lastOutput
+			} else if ev.Type == "tool_result" {
+				delete(toolStarted, ev.CallID)
+			}
 			mu.Unlock()
 		}
 		write(ev)
@@ -754,15 +830,61 @@ func (h *cloudAgentHandler) resolveMentionedAgent(ctx context.Context, projectID
 	if err != nil {
 		return systemdb.CloudAgent{}, err
 	}
-	if len(list) == 0 {
-		return systemdb.CloudAgent{}, errors.New("no agents in project")
+	for _, agent := range list {
+		if agent.BuiltinKey == cloudagent.ModuleGeneral {
+			return agent, nil
+		}
 	}
-	return list[0], nil
+	return systemdb.CloudAgent{}, &cloudagent.RunError{Code: "agent_required", Message: "请先选择一个 Agent"}
 }
 
 func (h *cloudAgentHandler) failRun(ctx context.Context, projectID, runID, msg string) error {
 	finished := time.Now().UTC()
 	return h.store.UpdateAgentRunStatus(ctx, projectID, runID, systemdb.AgentRunFailed, msg, nil, &finished)
+}
+
+// agentModelDTO 是 /agents/models 返回的单个模型（只含名字，无 base_url/key）。
+type agentModelDTO struct {
+	Provider string `json:"provider"`
+	Name     string `json:"name"`
+}
+
+// ListAgentModels 返回项目可用模型列表（BUG-07）。
+// 来源为 provider allowed_models；只返回名字，不暴露 base_url / api_key。
+// LLM 未启用时返回空列表（200）。
+func (h *cloudAgentHandler) ListAgentModels(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	out := struct {
+		DefaultModel string          `json:"default_model"`
+		Models       []agentModelDTO `json:"models"`
+	}{Models: []agentModelDTO{}}
+	if h.llm == nil {
+		return c.JSON(http.StatusOK, out)
+	}
+	models, err := h.llm.ProviderModels(c.Request().Context(), pc.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	defaultModel := ""
+	if h.runtime != nil && h.runtime.Settings != nil {
+		if st, serr := h.runtime.Settings.LLMSettings(c.Request().Context(), pc.ID); serr == nil && st.DefaultModel != "" {
+			defaultModel = st.DefaultModel
+		}
+	}
+	providers, _ := h.llm.ListProviders(c.Request().Context(), pc.ID)
+	for _, p := range providers {
+		for _, m := range models[p] {
+			if defaultModel == "" {
+				defaultModel = m
+			}
+			out.Models = append(out.Models, agentModelDTO{Provider: p, Name: m})
+		}
+	}
+	out.DefaultModel = defaultModel
+	return c.JSON(http.StatusOK, out)
 }
 
 func toRunDTO(r systemdb.AgentRun) runDTO {

@@ -51,6 +51,9 @@ func (f *fakeLLMSvc) ListProviders(context.Context, string) ([]string, error) {
 	}
 	return f.names, nil
 }
+func (f *fakeLLMSvc) ProviderModels(context.Context, string) (map[string][]string, error) {
+	return map[string][]string{}, nil
+}
 
 type seqStream struct {
 	chunks []*LLMStreamChunk

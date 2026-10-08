@@ -111,6 +111,8 @@ type LLMService interface {
 	Chat(ctx context.Context, projectID string, req LLMRequest) (LLMResponse, error)
 	Stream(ctx context.Context, projectID string, req LLMRequest) (LLMStreamReader, error)
 	ListProviders(ctx context.Context, projectID string) ([]string, error)
+	// ProviderModels 返回各 provider 可用模型名（planv4.1 BUG-07）。
+	ProviderModels(ctx context.Context, projectID string) (map[string][]string, error)
 }
 
 // LLMRequest 是对外请求抽象。
@@ -378,8 +380,12 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin))
 
 		ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit, writable: &deps.Config.Instance.Writable}
+		if deps.LLM != nil {
+			ah.llm = deps.LLM
+		}
 		p.GET("/agents/modules", ah.ListModules, require(auth.DatabaseRead))
 		p.GET("/agents", ah.ListAgents, require(auth.DatabaseRead))
+		p.GET("/agents/models", ah.ListAgentModels, require(auth.DatabaseRead))
 		p.POST("/agents", ah.CreateAgent, require(auth.DatabaseWrite))
 		p.GET("/agents/:agentID", ah.GetAgent, require(auth.DatabaseRead))
 		p.PATCH("/agents/:agentID", ah.PatchAgent, require(auth.DatabaseWrite))

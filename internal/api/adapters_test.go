@@ -374,6 +374,9 @@ func (f *fakeGW) ListProviders(context.Context, string) ([]string, error) {
 	}
 	return f.names, nil
 }
+func (f *fakeGW) ProviderModels(context.Context, string) (map[string][]string, error) {
+	return map[string][]string{"openai": {"gpt-4o-mini"}}, nil
+}
 
 type fakeGWStream struct {
 	chunks []*providers.StreamChunk

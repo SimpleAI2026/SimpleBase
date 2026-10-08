@@ -310,6 +310,12 @@ func (a *llmServiceAdapter) ListProviders(ctx context.Context, projectID string)
 	return a.s.ListProviders(ctx, projectID)
 }
 
+// ProviderModels 暴露各 provider 可用模型名（无 base_url/api_key），
+// 供云 Agent 模型列表（planv4.1 BUG-07）。
+func (a *llmServiceAdapter) ProviderModels(ctx context.Context, projectID string) (map[string][]string, error) {
+	return a.s.ProviderModels(ctx, projectID)
+}
+
 // NewLLMService 构造 LLMService 适配器。
 func NewLLMService(s llmgateway.Service) LLMService {
 	if s == nil {
