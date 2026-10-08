@@ -1,406 +1,380 @@
-# 云 Agent 前后端功能优化 v4
+# 云 Agent 前后端功能优化 v4.1（修订）
 
 > **仓库**：SimpleBase
-> **状态**：部分完成（2026-10-07）。S1–S7 已实现并通过本地回归；S8 已写入联调文档与可选真实模型测试，但未以实际凭据运行，R01–R10 尚未全部验收。见 §8.1。
+> **状态**：已实施（2026-10-08）。S0–S5 全部落地：fakellm 测试基建与 E01–E16 全链路用例、后端 BUG 修复（02/03/06/07/08/11）、前端两列布局与 `components/agent/` 组件族、`useAgentConversation` 状态层、脚本（test.sh / smoke.sh / llm-integration.sh / fakellm-server）。验证：`./scripts/test.sh` 后端全绿；前端 `npm test` 463 用例全过（分支覆盖 95.07%，函数 94.24% 为存量缺口）。
 > **前置**：`plan/planv2.0/cloud-agent-plan.md`、`plan/planv3.0/cloud-agent-sandbox-plan.md`、`plan/planv4.0/cloud-sandbox-plan.md`
-> **关联代码**：`internal/cloudagent/{runtime,model,tools,prompt,modules,scheduler}.go`、`internal/api/{agent_handler,cloudagent_access}.go`、`internal/llmgateway/service.go`、`ui/src/pages/AgentManager.vue`、`ui/src/components/ai/AiChat*.vue`、`ui/src/services/http-api.ts`
-> **联调模型**：SiliconFlow `deepseek-ai/DeepSeek-V4-Flash`（OpenAI 兼容 `/v1/chat/completions`）
+> **关联代码**：`internal/cloudagent/{runtime,model,modules,access}.go`、`internal/api/{agent_handler,cloudagent_access}.go`、`internal/systemdb/agents.go`、`ui/src/pages/AgentManager.vue`、`ui/src/components/ai/*`、`ui/src/composables/useAgentRun.ts`、`ui/src/services/http-api.ts`
+> **联调模型**：SiliconFlow `deepseek-ai/DeepSeek-V4-Flash`（OpenAI 兼容）；默认测试一律用本地 fake upstream，不访问外网。
 
 ---
 
-## 0. 一句话
+## 0. 本版变化（相对 v4.0）
 
-让云 Agent **真流式、工具卡片准确、多轮记得住工具结果、错误可读、可观测**，前端补齐会话管理、模型选择、运行状态与思考过程展示；全部改动不新增依赖，并以 SiliconFlow DeepSeek-V4-Flash 作为真实模型做冒烟验收。
-
----
-
-## 1. 联调模型实测（2026-10-06）
-
-用给定 key 直连 `https://api.siliconflow.cn/v1/chat/completions` 实测：
-
-| 场景 | 结果 | 对方案的影响 |
+| 方向 | v4.0 现状 | v4.1 目标 |
 |---|---|---|
-| 原生 `tools` 参数 | 200，`finish_reason=tool_calls`，`tool_calls[0].function.name=list_databases`，约 7.9s | 模型支持原生 function calling，可作为优先协议（§4.3） |
-| 现有文本协议 `TOOL_CALL {...}` | 200，`content` 恰好为 `TOOL_CALL {"name":"list_databases","arguments":{}}`，约 7.6s | 现有协议可用，保留为回退 |
-| 流式 | 首包 TTFB ≈ **0.82s**，总时长 ≈ **6.6s** | 现实现把整段缓冲后再切片，用户要等 6s+ 才看到第一个字（§2 P1） |
-| 流式 delta | 先输出大量 `delta.reasoning_content`，`delta.content=null`，之后才出正文 | litellm `openai` provider 只解析 `ReasoningSummary`，`reasoning_content` 被丢弃 → 思考阶段前端完全静默（§2 P5） |
-| usage | 带 `completion_tokens_details.reasoning_tokens` | 用量可多记一列（可选，§4.7） |
+| 布局 | 三列：Agent 卡片 300px + 会话列表 220px + 对话；Agent 卡片含描述、定时、三颗按钮，信息过密 | 两列：**左侧简化 Agent 卡片列表**；会话切换收进对话区头部；整体统一为一个「工作台」样式 |
+| Agent | 默认只播种 Database / S3 / Logs；General 模块无工具 | 新增并默认播种 **通用 Agent**（全部只读工具 + 可选沙盒），作为默认选中项与未 @ 时的兜底 |
+| 对话组件 | `AiChat` 同时服务 LLM 页与 Agent 页，Agent 特有能力（工具卡、思考、错误、状态条）以 props/slot 拼接 | 抽出通用 `AgentConversation` 组件族：消息流、后端输出（token / thinking / tool / usage / error）、输入框、状态条 |
+| 测试 | 后端单测以 fake `ChatClient` 为主；全链路（router → handler → runtime → llmgateway → HTTP upstream）只有需要真实 key 的 `llm_integration` | 新增 **fake OpenAI 兼容 upstream**，默认 `go test` 即可跑通全链路 SSE；新增可脚本化的冒烟脚本与本地 fake 模型进程 |
+| Bug | 见 §2 | 全部修复并各配回归用例 |
 
-接入方式（无需代码改动即可接通）：provider 用 litellm 内置 `openai`，`base_url` 指向 SiliconFlow。litellm `buildURL` 对以 `/v1` 结尾的 base_url 直接拼 `/chat/completions`。
+非目标不变：不新增第三方依赖、不升级 litellm / eino、不做多 Agent Team、不引入浏览器 e2e 框架。
 
-```bash
-# .env（已 gitignore）或进程环境；密钥不得写入 config.yaml / plan / 测试代码
-SIMPLEBASE_LLM_ENABLED=true
-SIMPLEBASE_LLM_PROVIDERS=openai
-SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY=<SiliconFlow key>
-SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL=https://api.siliconflow.cn/v1
-SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL=deepseek-ai/DeepSeek-V4-Flash
-SIMPLEBASE_LLM_PROVIDER_OPENAI_ALLOWED_MODELS=deepseek-ai/DeepSeek-V4-Flash
-SIMPLEBASE_LLM_PROVIDER_OPENAI_TIMEOUT=120s
+---
+
+## 1. 验证未通过的现象（2026-10-08 代码走查推断，需在 S0 用失败用例复现确认）
+
+| # | 预期现象 | 根因（代码走查） |
+|---|---|---|
+| V1 | 控制台发送后正文不逐字出现，结束时一次性出现；工具卡片也是结束后才出现 | 前端响应式失效，见 BUG-01 |
+| V2 | 工具执行较慢（如 `readonly_sql` 2s+、沙盒命令）时状态条从「调用 xx…」跳回「思考中」 | 后端 idle 心跳在工具执行期间仍发 `thinking`，见 BUG-02 |
+| V3 | 失败后点「重试」，刷新页面看到同一句用户消息出现两次，模型上下文也重复 | 重试重新 POST，后端再次落库用户消息，见 BUG-03 |
+| V4 | 删除非当前会话时，当前正在运行的回复被标记「已停止」 | `removeThread` 无条件 `onStop()`，见 BUG-04 |
+| V5 | 点「停止」后会话列表预览/时间不更新；刷新后被停止或失败的回复不再显示「已停止 / 失败」 | 只在 `onEnd` 刷新列表；消息历史不带 run 状态，见 BUG-05、BUG-06 |
+| V6 | 模型输入框只能看到默认模型 | `/llm/settings` 只返回 `defaultModel`，见 BUG-07 |
+| V7 | 「思考过程」折叠框从不出现 | `StreamDelta` 无 reasoning 字段，链路上没有思考正文（已知限制，见 §4.4） |
+| V8 | `llm_integration` 只覆盖 2 个场景；R01–R10 未执行，无法在无 key 环境复现 | 缺少离线全链路测试，见 §5 |
+
+---
+
+## 2. Bug 清单与修复方案
+
+| ID | 位置 | 问题 | 修复 | 回归用例 |
+|---|---|---|---|---|
+| BUG-01 | `AgentManager.vue` `onSend` | `const reply = {...}; chatMessages.value.push(reply)` 后所有回调改的是**原始对象** `reply`，不经 Proxy，不触发渲染；只有 `sending` 变化时顺带重绘 → 前端「假流式」 | `push` 后改为 `const reply = chatMessages.value[chatMessages.value.length - 1]`（取回响应式代理），或 `reactive<ChatMsg>({...})` 后再 push；该逻辑迁入 `useAgentConversation`（§3.4） | U12：mock 流逐帧推送，每帧后 `await nextTick()` 断言 DOM 文本递增、工具卡片数量递增 |
+| BUG-02 | `agent_handler.go` `streamRun` thinking ticker | 只按「距上次输出 ≥2s」判断，工具执行期间也会发 `thinking` | 引入 `phase`（`model` / `tool`）：收到 `tool_call` 置 `tool`，收到对应 `tool_result` 回 `model`；`tool` 阶段不发 `thinking`，改发 `{"type":"tool_progress","call_id","elapsed_ms"}`（可选，前端用于「调用 xx · 3s」） | A15：fake 工具阻塞 50ms、心跳间隔注入 10ms，断言 `tool_call` 与 `tool_result` 之间无 `thinking` |
+| BUG-03 | `CreateRun` + `retryLast` | 重试会重复落库用户消息，历史出现两条相同 user turn | `createRunBody` 增加 `retry_of_run_id`：校验该 run 属于本 thread、状态为 `failed/canceled`、且是 thread 最新一次 run；复用其 user message（不再 Append），新 run 记录 `retry_of`；前端重试传该字段 | A16：失败 run 后带 `retry_of_run_id` 重试 → user 消息总数不变、新 run 关联；对非最新 run / 跨 thread / completed run 返回 400 |
+| BUG-04 | `AgentManager.vue` `removeThread` | 删除任意会话都会停止当前运行 | 仅 `id === threadId` 时 stop；运行中删除当前会话需 `ConfirmAction` 文案提示「将停止当前回复」 | U13 |
+| BUG-05 | `AgentManager.vue` `onStop` / `onError` | 停止与失败后不刷新会话列表（预览、`updated_at`） | 统一在 `finally` 语义的 `onSettled` 中刷新列表（end / error / stop 三条路径） | U14 |
+| BUG-06 | `GET /agent-threads/:id/messages` | assistant 消息不带所属 run 的状态，刷新后丢失「已停止 / 失败」标记 | 消息 DTO 增加 `run_status`、`error_code`（JOIN `sys_agent_runs`，只读）；前端据此还原 `canceled` / `error` 展示（失败消息显示固定中文提示，不含上游原文） | A17、U15 |
+| BUG-07 | 模型选择 | 前端只能拿到默认模型 | 新增 `GET /v1/projects/:projectID/agents/models`（`database:read`）：返回 `{default_model, models:[{provider, name}]}`，来源为 provider `allowed_models`，**只返回名字，不返回 base_url / key**；前端表单改为 `Combobox`（项目已有 `components/ui/combobox`），允许列表外自由输入但提示「需在 allowed_models 中」 | A18（含断言响应体不含 `base_url`/`api_key`）、U06 扩展 |
+| BUG-08（潜在） | `runtime.go` `StartRun` | `tc.ID == ""` 时 `StartRun` 本地补的 `call_` id 不会传回 eino 工具消息，`tool_result` 的 `call_id` 对不上，会多出一张只有结果的卡片。目前 `assistantToolMessage` / `parseAssistant` 已补 id，但 `consumeAssistant` 流式拼接路径未保证 | 在 `gatewayChatModel` 出口统一保证 ID 非空，`StartRun` 内删除补 id 逻辑；`tool_result` 的 `CallID` 为空时按「最近一个同名且未完成」配对并记 warn 日志 | B19：fake 返回无 id 的原生 tool_calls，断言 call/result 恰好一对且 id 相同 |
+| BUG-09 | `runtime.go` 工具卡落库 | SSE 中 `tool_result` 截断到 2000 字，但 `ToolCallsJSON` 存全文：大结果撑大 `sys_agent_messages`，刷新后卡片内容与实时不一致 | 落库与 SSE 同一上限（`maxToolCardChars=4000`，配置常量），超出加 `truncated:true` 标记；前端显示「结果已截断」 | B20 |
+| BUG-10 | `useAgentRun.stop` | `stop()` 先 `close` 连接，`onEnd` 不再触发；`phase` 置 `canceled` 但 `metrics` 不更新，状态条无耗时 | stop 后调用 `GET .../runs?limit=1` 回填指标（失败忽略）；或在 cancel 接口响应中返回 run 指标 | U16 |
+| BUG-11 | 种子数据 | `SeedDefaultCloudAgents` 在已有任意 agent 时整体跳过，老项目永远拿不到新增的通用 Agent | 改为按 `module + name` 幂等补齐「系统内置」Agent：新增列 `builtin BOOLEAN`（迁移 +1），内置 Agent 可编辑 prompt/模型、可停用，**删除即归档且不再自动补回**（记录 `seed_dismissed`） | S01–S03（§5.1） |
+| BUG-12 | `AgentThreadList` / 会话切换 | 运行中切换会话会静默停止 | 运行中切换弹 `ConfirmAction`「切换将停止当前回复」；确认后 stop 再切换 | U05 扩展 |
+
+> 说明：BUG-01 是 V1「功能验证未通过」的主因；v4.0 的 vitest 只在流结束后断言最终文本，未覆盖中间帧渲染，这是测试设计缺口，§5.3 的 U12 专门补上。
+
+---
+
+## 3. 前端方案：布局重设计 + 通用对话组件
+
+遵守 `ui/AGENTS.md`：`interface` 定义形状、Tailwind class、现有 `components/ui/*`（card / badge / button / combobox / sheet / tooltip / scroll-area / textarea）、`vue-sonner`、`ConfirmAction`、`SbModal`、`SbEmptyState`；不新增依赖。
+
+### 3.1 页面布局
+
+```text
+┌──────────────── PageContainer ────────────────────────────────────────────┐
+│ ┌ Agent 列表 (w-64) ┐ ┌ 对话工作台 ───────────────────────────────────────┐ │
+│ │ [搜索]      [+]   │ │ 头部：@通用助手 · 模型 · [会话 ▾ 标题] [新会话] [⋯] │ │
+│ │ ● 通用助手   通用 │ ├──────────────────────────────────────────────────┤ │
+│ │ ○ Database  DB  ⏱ │ │ 消息流（MessageScroller）                          │ │
+│ │ ○ S3        S3    │ │   用户气泡 / 助手气泡（工具卡 · 思考 · 正文 · 状态）│ │
+│ │ ○ Logs      日志  │ ├──────────────────────────────────────────────────┤ │
+│ │ ○ Sandbox   沙盒  │ │ 状态条：思考中 · 3s / 调用 readonly_sql · 1s       │ │
+│ │                   │ │ 输入框（@ 点名、Enter 发送、Shift+Enter 换行、停止）│ │
+│ └───────────────────┘ └──────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
-> 安全：密钥只放 `.env` / CI secret。本文件、测试代码、日志、审计、SSE 一律不得出现明文 key（AGENTS.md 硬性约束 2、3）。用户已在对话中给出 key，落地前确认是否需要轮换。
+- 两列 `md:grid-cols-[256px_minmax(0,1fr)]`，工作台高度 `h-[calc(100dvh-<header>)]`，消息区内部滚动，输入框固定在底部（不再随消息增长把页面撑长）。
+- 移动端（< md）：Agent 列表收进 `Sheet`（左侧抽屉），头部显示当前 Agent 名作为抽屉触发器。
+- 会话列表从常驻列改为头部 `Popover` 下拉（`AgentThreadSwitcher.vue`）：搜索框 + 列表（标题、预览、相对时间）+ 行内重命名 / 删除；「新会话」为头部独立按钮。
+- 头部「⋯」菜单：编辑 Agent、定时任务、查看运行记录（`Sheet` 展示 `GET .../runs` 指标）。
 
----
+### 3.2 简化 Agent 卡片（`AgentCard.vue`，新）
 
-## 2. 问题清单（代码走查结论）
+| 元素 | 规则 |
+|---|---|
+| 行高 | 单行紧凑卡片，约 52px：图标 + 名称 + 模块 badge |
+| 图标 | 按模块固定 lucide 图标（通用 `Sparkles`、database `Database`、s3 `HardDrive`、logs `ScrollText`、sandbox `Terminal`） |
+| 次要信息 | 描述不再常驻；以 `title` / `Tooltip` 展示。定时任务只显示 `ClockIcon` + 启用状态圆点 |
+| 操作 | 卡片不再放「编辑 / 定时 / 删除」三按钮；hover 显示「⋯」`Popover`（编辑、定时、删除），键盘可达 |
+| 选中态 | `border-primary bg-primary/8`，`aria-pressed`；内置 Agent 显示小号「内置」badge |
+| 运行态 | 当前 Agent 正在运行时名称旁显示 `Spinner`（size-3） |
+| 空态 / 加载 | 列表加载用 3 条 `Skeleton`；无 Agent 用 `SbEmptyState` |
 
-| # | 位置 | 问题 | 级别 |
-|---|---|---|---|
-| P1 | `cloudagent/model.go` `Stream` | 读完整个上游流后才 `parseAssistant`，再按 16 rune 切片下发；**假流式**，首字延迟 = 全量生成时间 | 高 |
-| P2 | `cloudagent/runtime.go` `StartRun` + `consumeAssistant` | 流式路径下 `tool_call` 事件**发两次**（`consumeAssistant` 内一次、`StartRun` 再按 `msg.ToolCalls` 一次）；前端 `onToolCall` 追加两张卡，`onToolResult` 只填一张，留下一张空卡 | 高 |
-| P3 | `api/agent_handler.go` `CreateRun` → `historyToSchema` | 工具结果只写进 assistant 消息的 `ToolCallsJSON`，历史回放只用 `Content`；下一轮模型**看不到上轮工具数据**，常重复调用 | 高 |
-| P4 | `streamRun` 错误路径 | 统一发 `"run failed"`；超时、配额、provider 401/429、模型不在白名单无法区分；取消时已生成的部分回复丢失、不落库 | 中 |
-| P5 | litellm openai 流解析 | `reasoning_content` 被丢弃；DeepSeek-V4 思考阶段数秒无任何 SSE 帧，前端像卡死；也无心跳，经代理可能被 idle 断开 | 中 |
-| P6 | `llmgateway.Chat/Stream` | 请求不支持 `tools`；只能走文本协议，模型偶发把 `TOOL_CALL` 混进正文（`looksLikeToolCall` 粗判，正文里出现该字面量会被吞） | 中 |
-| P7 | `runtime.go` | `MaxIterations: 8` 写死；达上限时报错而非给出「已达工具调用上限」的可读总结；无单次 run 总超时 | 中 |
-| P8 | `CreateRun` | 同一 thread 可并发多个 run，历史交错；无 per-thread 互斥 | 中 |
-| P9 | 观测 | run 不记录耗时、token、工具次数；`sys_agent_runs` 只有状态 | 低 |
-| F1 | `AgentManager.vue` | 只取 `threads[0]`，**无会话列表/切换/重命名/删除** | 高 |
-| F2 | `AgentManager.vue` 表单 | 后端支持 `model_override`，表单无此字段；用户无法为 Agent 指定 DeepSeek-V4-Flash | 中 |
-| F3 | `onError` | 失败时 assistant 气泡停留为空，无重试按钮；`error` 后紧跟 `end` 没有区分 | 中 |
-| F4 | 运行状态 | 无「思考中 / 调用工具 xx / 已用 n 秒」状态条；停止后无「已取消」标记 | 中 |
-| F5 | 工具卡片 | 结果为原始 JSON 字符串；SQL 结果、沙盒 stdout/exit_code 未结构化展示 | 低 |
+列表顶部：搜索（按名称/模块过滤，前端过滤）、「+」新建。刷新按钮移除（页面切换 / 保存后自动刷新）。
 
----
+### 3.3 通用对话组件族（`ui/src/components/agent/`，新目录）
 
-## 3. 目标与非目标
+把 Agent 对话从 `AiChat` 中拆出，`AiChat` 保持给 LLM 页使用、不再承担 Agent 逻辑（删除其中 Agent 专用 props 与 `AgentToolCard` 引用，相应测试迁移）。
 
-### 3.1 目标
-
-| # | 目标 | 验收口径 |
+| 组件 | 职责 | 主要 props / emits |
 |---|---|---|
-| G1 | 真流式 | DeepSeek-V4-Flash 下首个 `token`/`thinking` SSE 帧 ≤ 上游 TTFB + 300ms |
-| G2 | 工具事件准确 | 每次工具调用恰好 1 个 `tool_call` + 1 个 `tool_result`，带同一 `call_id` |
-| G3 | 多轮记忆工具结果 | 第二轮问「刚才那几个库里哪个最大」不再重新调 `list_databases`（真实模型冒烟中观察，单测用 fake 断言历史内容） |
-| G4 | 错误可读 | SSE `error` 带稳定 `code`；前端按 code 给中文提示与重试 |
-| G5 | 前端会话管理 + 模型选择 + 运行状态 | §5 全部交互有 vitest 用例 |
-| G6 | 可观测 | run 记录 `duration_ms`、`prompt/completion/reasoning tokens`、`tool_calls`；Agent 页可见 |
+| `AgentConversation.vue` | 容器：消息流 + 状态条 + 输入框；无业务请求，只消费 `useAgentConversation` 状态 | `messages`、`phase`、`statusText`、`mentionAgents`；emits `send(text, mentions)`、`stop`、`retry(runId)` |
+| `AgentMessage.vue` | 单条消息：用户气泡右对齐；助手消息全宽无边框（类 ChatGPT），顺序为 思考 → 工具卡 → 正文 → 尾部状态 | `message: AgentChatMessage`、`streaming` |
+| `AgentMarkdown.vue` | 助手正文 Markdown 渲染：复用已有 `marked` + `dompurify`（均为现有依赖），代码块走 `SbCodeBlock`；流式中每 50ms 节流渲染 | `content` |
+| `AgentThinking.vue` | 「思考中 · Ns」占位 + 有内容时可折叠思考正文 | `elapsedMs`、`content` |
+| `AgentToolCard.vue` | 迁入本目录；头部「工具名 · 状态（运行中 / 成功 / 失败） · 耗时」，默认折叠；展开显示参数与结果（SQL 表格 / 沙盒 stdout·stderr·exit / JSON） | `tool` |
+| `AgentStatusBar.vue` | 输入框上方单行状态 | `phase`、`statusText` |
+| `AgentComposer.vue` | 基于 `AiChatComposer` 的 @ 点名能力；底部提示「工具只读 / 沙盒在隔离环境执行」由当前 Agent 决定 | `sending`、`placeholder`、`mentionAgents` |
+| `AgentErrorBlock.vue` | 错误 code → 中文文案 + 「重试」；`agent_thread_busy` 不显示重试，显示「等待当前回复结束」 | `code`、`message`、`retryable` |
 
-### 3.2 非目标
+错误文案表从 `AgentManager.vue` 移入 `ui/src/services/agent-errors.ts`（纯函数，100% 覆盖）。
 
-- 多 Agent 协作 / Team 模式（仍为 stub）。
-- 新增第三方依赖、升级 litellm / eino 版本。
-- 改动 sandbox Manager、DuckLake、S3 数据面。
-- 浏览器 e2e 框架（沿用 vitest + mock）。
+### 3.4 状态：`useAgentConversation`（替换 `useAgentRun`）
+
+- 单一 composable 管理：`messages`（`reactive` 数组，修复 BUG-01）、`phase`、`elapsedMs`、`currentRunId`、`lastRequest`、`metrics`。
+- 方法：`load(threadId)`、`send(text, mentions)`、`stop()`、`retry()`、`dispose()`；`onSettled` 统一刷新会话列表回调（BUG-05）。
+- 事件 → 状态映射（唯一事实来源）：
+
+| SSE 帧 | phase | 消息变化 |
+|---|---|---|
+| `run` | thinking | 记录 `run_id` 到 assistant 消息 |
+| `thinking` | thinking | 更新 `elapsedMs`，有 content 则追加思考正文 |
+| `token` | streaming | 追加正文 |
+| `tool_call` | tool | 按 `call_id` 新增卡片（`status=running`） |
+| `tool_progress` | tool | 更新卡片耗时 |
+| `tool_result` | thinking | 按 `call_id` 填结果（`status=ok/error`） |
+| `usage` | — | 写 `metrics` |
+| `error` | error | 写 `error.code/message`，`retryable` 由 code 决定 |
+| `end` | done / canceled | `reason=canceled` 标记已停止；`max_iterations` 尾部显示提示 |
+
+- 旧 `useAgentRun.ts` 删除，测试迁移到 `useAgentConversation.test.ts`。
+
+### 3.5 视觉统一
+
+- 卡片圆角 `rounded-xl`、间距 `gap-3`、正文 `text-sm leading-relaxed`；助手消息不加边框，用户气泡 `bg-primary/10`。
+- 工具卡与思考块使用 `bg-muted/50 border-dashed`，与正文区分。
+- 所有图标按钮带 `aria-label`；状态条 `role="status" aria-live="polite"`；消息流 `aria-live` 只在流结束时播报（避免逐字朗读）。
+- 暗色模式只使用设计 token（`bg-card`、`text-muted-foreground` 等），不写死颜色。
 
 ---
 
 ## 4. 后端方案
 
-### 4.1 真流式（P1）
+### 4.1 通用 Agent（新增内置）
 
-`gatewayChatModel.Stream` 改为增量转发 + 前缀嗅探：
+| 项 | 值 |
+|---|---|
+| 名称 / 模块 | `通用助手` / `general` |
+| 默认工具 | `list_databases`、`list_collections`、`readonly_sql`、`list_objects`、`head_object`、`search_logs`、`log_level_stats`；云沙盒可用（`sandbox_available=true`）时追加四个 `sandbox_*` |
+| 模块 prompt | 重写 `generalModulePrompt`：说明可跨数据库 / 对象存储 / 日志只读排查，按问题选择工具，无法确定时先列出资源；沙盒可用时说明隔离与 `/workspace` 约束 |
+| 播种顺序 | 通用助手排第一，前端默认选中 |
+| 兜底 | `CreateRun` 未 @ 任何 Agent 时（当前直接取第一个），改为优先使用内置通用助手；不存在则返回 400 `agent_required` |
 
-1. 缓冲区只保留**尚不能确定是否为工具调用**的前缀。读到的累计正文（去前导空白）满足以下之一即判定：
-   - 以 `TOOL_CALL` 开头 → 切到「工具模式」，继续缓冲至流结束后 `parseAssistant`；
-   - 长度 ≥ `len("TOOL_CALL")` 且不以其开头 → 切到「正文模式」，先把缓冲 flush 成一个 chunk，之后每个上游 chunk 直接 `sw.Send`。
-2. 正文模式下不再做 16 rune 切片。
-3. 原生 tool_calls（§4.3）到达时直接组装 `schema.ToolCall`，无需嗅探。
-4. 删除 `consumeAssistant` 里 `looksLikeToolCall(chunk.Content)` 的过滤（正文里合法出现 `TOOL_CALL` 字面量不再被吞）。
+`Modules()` 中 general 的 `DefaultTools` 改为上述只读工具集；`DefaultToolsForModule("general")` 同步。工具权限仍由 `ToolIDs` 白名单 + sqlguard + 沙盒策略控制，通用 Agent 不放宽任何限制。
 
-### 4.2 工具事件去重 + call_id（P2）
+### 4.2 内置 Agent 播种（BUG-11）
 
-- `tool_call` 只在 `StartRun` 统一发一次：`consumeAssistant` 只负责累积并返回最后的 message，不再 emit tool_call。
-- `Event` 增加 `CallID string json:"call_id,omitempty"`：`tool_call` 取 `tc.ID`，`tool_result` 取 `mv.Message.ToolCallID`。
-- `toolCards` 落库结构改为 `{call_id, name, arguments, content, duration_ms}`；读取时兼容旧的 `{name, content}`。
+- 迁移（版本号 = 当前最大值 +1）：`sys_cloud_agents` 增加 `builtin_key VARCHAR NULL`（`general` / `database` / `s3` / `logs`），唯一索引 `(project_id, builtin_key)`；新表或列 `sys_cloud_agent_seed_dismissed(project_id, builtin_key)`。
+- `SeedDefaultCloudAgents` 改为：对每个内置 spec，若 `(project_id, builtin_key)` 不存在且未 dismissed 则创建；存量同名 Agent（旧版本播种）按 `module + name` 回填 `builtin_key`，不重复创建。
+- 删除内置 Agent → 归档 + 写 dismissed；不再补回。
+- 写路径遵守 `writable=false` → `ErrWriterUnavailable`；只读请求下播种失败不阻断列表（记 warn，返回现有列表）。
 
-### 4.3 原生 function calling（P6，可降级）
-
-- `llmgateway.Request` 增加 `Tools []providers.Tool`、`ToolChoice string`；`Response` 增加 `ToolCalls`；流式 reader 透出 `tool_call_delta`（litellm 已解析）。
-- `cloudagent.ChatRequest/ChatResponse/TokenStream` 同步增加 `Tools` / `ToolCalls` / 增量 delta（接口在 cloudagent 内声明，api adapter 映射，保持分层）。
-- `gatewayChatModel` 策略：
-  - 配置 `llm.agent_tool_protocol: auto | native | text`（默认 `auto`，env `SIMPLEBASE_LLM_AGENT_TOOL_PROTOCOL`）。
-  - `auto`：先 native；若 provider 返回 4xx 且错误含 `tools`/`function` 关键词，进程内按 `provider|model` 记住降级为 text（LRU，不落库）。
-  - `text`：保持现有 `toolProtocolPrompt`。
-- 历史中的工具往返在 native 模式下用 `role=tool` + `tool_call_id`；text 模式保持 `TOOL_RESULT name=... id=...`。
-
-### 4.4 推理内容与心跳（P5）
-
-- litellm 不改（不升级依赖）。在 `llmgateway` 包装 reader：上游 provider 为 `openai` 时，若 `StreamChunk.Type=="reasoning"` 透传；对 `reasoning_content` 未被解析的情况，**不自行解析原始 SSE**（会绕开 litellm），改为由 Runtime 侧在「上游无正文输出」期间每 2s 发一个 `{"type":"thinking","elapsed_ms":N}` 心跳帧。
-- 若后续 litellm 版本支持 `reasoning_content`（用户同意升级时），Runtime 将其映射为 `{"type":"thinking","content":"..."}`；前端默认折叠显示。
-- `streamRun` 另起 15s 间隔的 SSE 注释心跳 `: ping\n\n`，防代理 idle 断开；写操作统一走带锁的 `write`，避免与 runtime emit 并发写 `Response`。
-- 思考内容**不落库、不进审计**（与「不记 LLM 正文」同尺度；正文本身仍按现状落 `sys_agent_messages`）。
-
-### 4.5 多轮历史带工具摘要（P3）
-
-`historyToSchema` 对 assistant 消息：若 `ToolCallsJSON` 非空，在其前插入一条压缩摘要：
-
-```text
-TOOL_HISTORY
-- list_databases {} → [{"name":"orders",...}]   (≤600 chars/条, 最多 5 条, RedactSecrets 后)
-```
-
-总预算仍受 `maxHistoryChars=12000` 约束；工具摘要优先级低于最近 2 轮对话正文，超出预算先丢最早的工具摘要。
-
-### 4.6 运行控制（P7、P8）
-
-- 配置 `llm.agent_max_iterations`（默认 8，范围 1–20）、`llm.agent_run_timeout`（默认 180s）。
-- 达到 MaxIterations：捕获 eino 的超限错误，返回已累积正文 + 固定句「已达到工具调用上限（N 次），以上为当前结论」，run 状态 `completed`，`error_code=max_iterations`。
-- per-thread 互斥：`Runtime` 内 `map[threadID]runID`；同 thread 已有 running 的 run → `CreateRun` 返回 409 `agent_thread_busy`。进程内即可（单写实例前提）。
-- 取消：`StartRun` 返回 `context.Canceled` 时，把已生成的部分正文以 assistant 消息落库，`run.status=canceled`，消息内容尾部不追加任何提示（前端负责显示「已停止」）。
-- 客户端断开（SSE 连接关闭）视同取消。
-
-### 4.7 错误码与观测（P4、P9）
-
-`internal/cloudagent/errors.go` 新增领域错误，`api/error.go` 映射；SSE `error` 帧携带 `code` 与固定中文/英文 message，不透传 provider 原文（可能含 URL / key 片段）：
-
-| code | 触发 | HTTP（非流式） |
-|---|---|---|
-| `llm_not_configured` | runtime/LLM nil 或无 provider | 503 |
-| `llm_auth_failed` | 上游 401/403 | 502 |
-| `llm_rate_limited` | 上游 429 | 429 |
-| `llm_model_not_allowed` | 模型不在 allowed_models | 400 |
-| `llm_timeout` | `agent_run_timeout` 或上游超时 | 504 |
-| `llm_upstream_error` | 其他上游错误 | 502 |
-| `agent_thread_busy` | §4.6 | 409 |
-| `quota_exceeded` | 现有 `CheckQuota` | 429 |
-| `max_iterations` | 仅作为 `end` 帧附带的 `reason`，不是 error | — |
-
-观测：
-- 迁移新增 `sys_agent_runs` 列：`duration_ms INTEGER`、`prompt_tokens`、`completion_tokens`、`reasoning_tokens`、`tool_calls INTEGER`、`error_code VARCHAR`（版本号接当前最大值 +1）。
-- token 来自 gateway usage（流式取最后一帧 usage）。
-- SSE 新增末尾帧 `{"type":"usage","duration_ms":..,"prompt_tokens":..,"completion_tokens":..,"tool_calls":..}`，在 `end` 之前。
-- 审计 `agent.run`：只记 project/agent/thread/run id、模型名、耗时、token、工具次数、error_code；不记正文。
-- 新增 `GET /v1/projects/:projectID/agent-threads/:threadID/runs?limit=20`（`database:read`）返回 run 列表含上述指标。
-
-### 4.8 会话 API 补齐（服务 F1）
-
-| 方法 | 路径 | 权限 | 说明 |
-|---|---|---|---|
-| GET | `/agent-threads?limit=50&cursor=` | read | 现有；补 `cursor` keyset 分页、`last_message_preview`（≤80 字）与 `updated_at` 排序 |
-| PATCH | `/agent-threads/:threadID` | write | 仅改 `title`（1–80 字） |
-| GET | `/agent-threads/:threadID/runs` | read | §4.7 |
-
-首条用户消息后若 thread 标题为默认值，自动以消息前 30 字作为标题（不额外调 LLM）。
-
-### 4.9 SSE 协议（最终形态，向后兼容）
+### 4.3 SSE 协议补充
 
 ```text
 data: {"type":"run","run_id":"r1"}
-data: {"type":"thinking","elapsed_ms":2000}                 # 可选，多次
-data: {"type":"token","content":"我先"}
-data: {"type":"tool_call","call_id":"c1","name":"list_databases","arguments":"{}"}
-data: {"type":"tool_result","call_id":"c1","name":"list_databases","content":"[...]","duration_ms":38}
-data: {"type":"token","content":"项目里有 3 个库…"}
-data: {"type":"usage","duration_ms":6120,"prompt_tokens":812,"completion_tokens":96,"tool_calls":1}
-data: {"type":"end","reason":"stop"}                        # stop | max_iterations | canceled
-# 失败：data: {"type":"error","code":"llm_rate_limited","message":"模型服务限流，请稍后重试"} 之后仍发 end
+data: {"type":"thinking","elapsed_ms":2000}
+data: {"type":"tool_call","call_id":"c1","name":"readonly_sql","arguments":"{...}"}
+data: {"type":"tool_progress","call_id":"c1","elapsed_ms":2000}      # 新增，可选
+data: {"type":"tool_result","call_id":"c1","name":"readonly_sql","content":"...","duration_ms":2310,"is_error":false,"truncated":false}   # 新增 is_error/truncated
+data: {"type":"token","content":"..."}
+data: {"type":"usage",...}
+data: {"type":"end","reason":"stop"}
 ```
 
-旧字段不删；旧前端忽略未知 type 即可工作。
+- `tool_result.duration_ms`：v4.0 计划有、实现未发，本版补齐（runtime 在 tool_call 时记起点）。
+- `tool_result.is_error`：工具返回错误（sqlguard 拒绝、沙盒非零退出不算错误）时为 true。
+- 新增帧均为增量字段，旧前端忽略。
+
+### 4.4 推理内容（V7，保持已知限制）
+
+不升级 litellm 前，思考正文仍不可得，前端只展示「思考中 · Ns」。在 `StreamDelta` 预留 `Reasoning string` 字段与 runtime 映射代码路径（fake upstream 可注入，测试覆盖），真实 provider 待依赖升级后自动生效。思考正文不落库、不进审计。
+
+### 4.5 重试（BUG-03）与消息状态（BUG-06）
+
+- `POST /agent-threads/:id/runs` body 增加 `retry_of_run_id`；校验失败 400 `invalid_retry`。
+- `GET /agent-threads/:id/messages` assistant 项增加 `run_status`、`error_code`；user 项增加 `run_id`（前端据此确定重试目标）。
+
+### 4.6 模型列表（BUG-07）
+
+`GET /v1/projects/:projectID/agents/models`，`database:read`：
+
+```json
+{"default_model":"deepseek-ai/DeepSeek-V4-Flash","models":[{"provider":"openai","name":"deepseek-ai/DeepSeek-V4-Flash"}]}
+```
+
+LLM 未启用时返回 `{"default_model":"","models":[]}`（200），前端显示「模型服务未配置」。
 
 ---
 
-## 5. 前端方案（`ui/`）
+## 5. 测试方案
 
-遵守 `ui/AGENTS.md`：`interface` 定义形状、Tailwind class、`vue-sonner` / `ConfirmAction` / `SbModal` / `SbEmptyState`，不新增依赖。
+原则：默认 `go test ./...` 与 `yarn test` **不访问外网、不需要 key**，但要覆盖到真实 HTTP 链路；真实模型只做补充冒烟。
 
-### 5.1 会话侧栏（F1）
+### 5.1 测试基础设施（新增）
 
-- `AgentManager.vue` 对话卡片左侧（md 以上）增加窄列 `AgentThreadList.vue`：列表（标题、预览、相对时间）、新建、重命名（行内 Input）、删除（`ConfirmAction`）；当前会话高亮。
-- 移动端以 `Select` 切换会话。
-- 路由 query `?thread=<id>` 同步当前会话，刷新后恢复；`onViewScheduleThread` 改为写 query。
+| 组件 | 位置 | 说明 |
+|---|---|---|
+| fake OpenAI 兼容 upstream | `internal/testutil/fakellm/server.go` | `httptest.Server` 实现 `/v1/chat/completions`（stream / 非 stream）。按「剧本」返回：正文分块（可设每块延迟）、`reasoning_content` 增量、原生 `tool_calls` 增量（含缺 id）、文本协议 `TOOL_CALL`、usage 尾帧、指定 HTTP 状态（400 tools 不支持 / 401 / 429 / 500）、中途断流、永不返回（测超时）。记录每次请求体供断言（是否带 `tools`、消息历史内容） |
+| 剧本匹配 | 同上 | 按最后一条 user 消息关键字或请求序号选择响应；剧本以 Go 结构体声明，可 JSON 序列化（供 §5.5 进程模式复用） |
+| 全链路 harness | `internal/api/agent_e2e_harness_test.go` | 用 fakellm 的 URL 构造真实 `config.LLM` → 真实 `llmgateway.Service` → `cloudagent.Runtime` → 真实 router（`httptest`）；DB / S3 / Logs 工具依赖用 fake 实现；systemdb 用现有测试用嵌入式库 |
+| SSE 解析辅助 | `internal/api/sse_test_helpers_test.go` | 读取响应体为 `[]Event`，带时间戳（测首帧延迟、帧顺序） |
 
-### 5.2 Agent 表单（F2）
+> fakellm 不含任何真实 key；harness 用占位 key `test-key`，并断言日志 / 审计 / SSE 中不出现该字符串（验证脱敏路径）。
 
-- 新增「模型」字段：`Select`，选项来自现有 `GET /llm/settings`（或 providers 的 `allowed_models`）；空值显示「使用项目默认（deepseek-ai/DeepSeek-V4-Flash）」。
-- 工具 badge 增加中文说明 tooltip（`title` 属性即可）。
+### 5.2 后端用例
 
-### 5.3 运行状态与错误（F3、F4）
+**模型适配与 runtime（`internal/cloudagent`，fake ChatClient 或 fakellm）**
 
-- `useAgentRun` composable（新文件 `ui/src/composables/useAgentRun.ts`）收拢 `onSend/onStop` 状态机：`idle → thinking → streaming → tool(name) → done | error | canceled`。
-- 输入框上方状态条：`思考中 · 3s` / `调用 readonly_sql…` / `完成 · 6.1s · 908 tokens`。
-- `error`：assistant 气泡显示错误 code 对应中文 + 「重试」按钮（重发上一条用户消息，复用 mentions）；`agent_thread_busy` 时提示「当前会话仍在运行」。
-- `canceled`：气泡尾部灰字「已停止」。
-- `thinking` 帧有 content 时显示可折叠「思考过程」。
+| ID | 用例 | 断言 |
+|---|---|---|
+| B19 | 原生 tool_calls 缺 id（BUG-08） | call/result 恰好一对、id 非空且一致；`ToolCallsJSON` 只有 1 张卡 |
+| B20 | 工具结果 10KB（BUG-09） | SSE 与 `ToolCallsJSON` 内容都 ≤ 4000 字且 `truncated=true` |
+| B21 | `tool_result.duration_ms` | 工具 sleep 30ms → `duration_ms ≥ 30`，落库同值 |
+| B22 | 工具返回 error（sqlguard 拒绝 DROP） | `is_error=true`，run 继续，模型拿到错误文本后给出解释 |
+| B23 | 同一轮多个原生 tool_calls（index 0/1） | 两对事件按 index 顺序，`call_id` 各不相同 |
+| B24 | 流中途断开（上游 EOF 无 finish） | 已收到的正文保留；run 以 `llm_upstream_error` 失败，`RunResult.Content` 非空 |
+| B25 | `reasoning` 增量（fake 注入） | 产生带 content 的 `thinking` 事件；不进入 `RunResult.Content`、不落库 |
+| B26 | 通用 Agent 工具集 | `sandbox_available=false` 时 7 个只读工具；true 时 11 个；`buildTools` 不报错 |
+| B27 | general 模块 prompt | 含只读约束与沙盒约束（沙盒可用时） |
+| B28 | 未 @ Agent 的兜底 | 优先内置通用助手；无内置时 `agent_required` |
 
-### 5.4 工具卡片（F5）
+**播种（`internal/systemdb`）**
 
-- 按 `call_id` 匹配 call/result，不再按 name 反查。
-- `readonly_sql` 结果：表格（前 20 行 + 「共 N 行」）；`sandbox_*`：stdout / stderr 分块 + `exit N` badge；其余：格式化 JSON（`<pre>`，默认折叠 > 20 行）。
-- 新组件 `ui/src/components/ai/AgentToolCard.vue`。
+| ID | 用例 | 断言 |
+|---|---|---|
+| S01 | 新项目播种 | 4 个内置 Agent，通用助手排第一，`builtin_key` 正确 |
+| S02 | 老项目（已有旧版 3 个 + 自建 1 个） | 只补通用助手；旧 3 个回填 `builtin_key`；自建不变；重复调用幂等 |
+| S03 | 删除内置 Agent 后再次播种 | 不补回；`writable=false` 播种返回 `ErrWriterUnavailable` 且列表接口仍 200 |
 
-### 5.5 服务层
+**全链路（`internal/api`，fakellm harness，默认运行）**
 
-- `services/types.ts`：`AgentStreamEvent`、`AgentRunMetrics`、`AgentThreadItem`（含 `lastMessagePreview`），后端 snake_case 经 `toAgentThreadItem` 映射。
-- `http-api.ts` `streamAgentRun`：解析 `call_id` / `thinking` / `usage` / `error.code` / `end.reason`；`AgentStreamHandlers` 增加 `onThinking`、`onUsage`、`onEnd(reason)`；SSE 注释行（`:` 开头）忽略。
-- `agentThreads.rename`、`agentThreads.runs`；`mock.js` 同步实现。
+| ID | 用例 | 断言 |
+|---|---|---|
+| E01 | 纯对话流式，fake 每块间隔 50ms 输出 5 块 | 首个 `token` 帧在上游首块后 ≤100ms 到达；`token` 帧数 ≥ 5（真流式回归） |
+| E02 | 文本协议 R02 场景 | 恰好 1 次 `list_databases`；最终正文含 fake 数据库名；fakellm 第二次请求体含 `TOOL_RESULT` |
+| E03 | 原生协议 R02 场景 | 请求体含 `tools`；第二次请求含 `role=tool` + 匹配的 `tool_call_id` |
+| E04 | `auto` 遇 400 `tools not supported` | 同次 run 内降级 text 成功；第二个 run 首请求即不带 `tools` |
+| E05 | 两轮记忆（R05） | 第二轮 fakellm 收到的历史含 `TOOL_HISTORY` 与上轮结果 |
+| E06 | 上游 401 / 429 / 500 | SSE `error.code` 分别为 `llm_auth_failed` / `llm_rate_limited` / `llm_upstream_error`，随后 `end`；响应、审计中不含 `test-key` 与 fakellm URL |
+| E07 | 上游不返回，`agent_run_timeout=1s`（测试注入） | `llm_timeout`；run 状态 failed、`error_code=llm_timeout` |
+| E08 | 模型不在 allowed_models | `llm_model_not_allowed`，fakellm 请求计数为 0 |
+| E09 | 运行中 `POST .../cancel` | ≤500ms 收到 `end(reason=canceled)`；部分正文落库；run 状态 canceled |
+| E10 | 客户端断开（关闭响应 body） | 同 E09 落库语义；线程锁释放（随后新 run 成功） |
+| E11 | 同 thread 并发 | 第二个 409 `agent_thread_busy`；第一个完成后可再次运行 |
+| E12 | 重试（BUG-03） | `retry_of_run_id` 后 user 消息数不变；fakellm 收到的历史中该 user 消息只出现一次 |
+| E13 | 消息状态（BUG-06） | 取消 / 失败后 `GET messages` 的 assistant 项带 `run_status/error_code` |
+| E14 | 工具执行期间心跳（BUG-02） | 注入心跳 10ms、工具阻塞 60ms：`tool_call` 与 `tool_result` 之间无 `thinking`，有 `tool_progress` |
+| E15 | 指标 | `GET .../runs` 返回 fakellm usage 中的 token 数、`tool_calls`、`duration_ms>0` |
+| E16 | 通用助手跨模块 | 剧本依次调 `list_databases` → `search_logs`，两对事件、两张卡、正文含两类结果 |
+| E17 | 只读 key | 创建 run 403；`GET messages`/`runs`/`models` 200 |
+| E18 | 跨项目 | 他项目的 thread / run / retry_of_run_id 一律 404 |
+| E19 | `models` 接口 | 返回 allowed_models 名称；响应体不含 `base_url`、`api_key`、fakellm 地址 |
+
+**handler 单测补充（fake runtime）**：A15（BUG-02 帧序）、A16（retry 校验分支）、A17（messages DTO）、A18（models DTO 与 LLM 未启用）。
+
+### 5.3 前端 vitest（覆盖率门槛 95% 不下调）
+
+| ID | 文件 | 用例 |
+|---|---|---|
+| U12 | `useAgentConversation.test.ts` | 逐帧推送 token / tool_call / tool_result，每帧后 `nextTick` 断言渲染内容递增（BUG-01 回归） |
+| U13 | `AgentManager.test.ts` | 运行中删除非当前会话不触发 stop；删除当前会话弹确认 |
+| U14 | 同上 | stop / error / end 三条路径均刷新会话列表 |
+| U15 | `AgentMessage.test.ts` | `run_status=canceled` 显示已停止；`error_code` 显示中文文案 |
+| U16 | `useAgentConversation.test.ts` | stop 后回填 metrics；回填失败不报错 |
+| U17 | `AgentCard.test.ts` | 单行渲染、模块图标、定时圆点、⋯ 菜单编辑/定时/删除、键盘 Enter 选中、内置 badge、运行中 spinner |
+| U18 | `AgentList.test.ts` | 搜索过滤、Skeleton、空态、移动端 Sheet 打开 |
+| U19 | `AgentThreadSwitcher.test.ts` | 搜索、切换、重命名、删除、运行中切换需确认（BUG-12）、加载更多 |
+| U20 | `AgentToolCard.test.ts` | running / ok / error 三态、`truncated` 提示、折叠展开、duration 显示 |
+| U21 | `AgentMarkdown.test.ts` | Markdown 渲染、代码块、`<script>` 被 DOMPurify 去除 |
+| U22 | `agent-errors.test.ts` | 每个 code 的文案与 retryable |
+| U23 | `AgentManager.test.ts` | 首次进入默认选中通用助手；模型 Combobox 显示 allowed_models |
+| U24 | `AiChat.test.ts` | 拆分后 LLM 页行为不回归 |
+
+v4.0 的 U01–U11 保留并迁移到新组件路径。
+
+### 5.4 真实模型冒烟（`llm_integration`，不进默认 CI）
+
+`internal/api/agent_llm_integration_test.go` 复用 §5.1 harness，只是把 fakellm URL 换成环境变量中的真实 provider。补齐 R01–R10（定义同 v4.0），新增：
+
+| ID | 用例 | 通过条件 |
+|---|---|---|
+| R11 | 通用助手「项目里有哪些库，最近有没有 error 日志」 | 至少调用 1 个数据库工具与 1 个日志工具 |
+| R12 | 重试：R08 失败后恢复正确 key 重试 | user 消息不重复，第二次成功 |
+
+每个用例输出一行 `R0x PASS|FAIL ttfb_ms=.. total_ms=.. tool_calls=..`，供写入 `IMPLEMENTATION_SUMMARY.md`。
+
+### 5.5 测试脚本（新增 `scripts/agent/`）
+
+| 脚本 | 用途 |
+|---|---|
+| `scripts/agent/fakellm/main.go` | 以进程方式启动 §5.1 的 fakellm（`go run ./scripts/agent/fakellm -addr :18081 -script default`），让本地 dev server 不配真实 key 也能完整联调 UI |
+| `scripts/agent/test.sh` | 一键回归：`go build ./internal/... ./cmd/...` → `go test ./internal/cloudagent ./internal/api ./internal/llmgateway ./internal/systemdb ./internal/config` → `go test -race` 同范围 → `cd ui && yarn build && yarn test`；任一失败即退出非零 |
+| `scripts/agent/smoke.sh` | 对运行中的服务做 curl 冒烟：创建 thread → 选通用助手 → 流式 run → 校验帧序（run → token → … → usage → end）、`call_id` 配对、取消、重试、runs 指标；依赖 `curl`、`jq`；参数 `BASE_URL`、`PROJECT_ID`、`SIMPLEBASE_API_KEY` 从环境读取，**不接受命令行明文 key** |
+| `scripts/agent/llm-integration.sh` | 检查 `SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY` 是否存在（只打印「已设置/未设置」），运行 `go test -tags llm_integration ./internal/api -run 'TestLLM' -v -timeout 10m`，汇总 R01–R12 结果行 |
+
+脚本统一 `set -euo pipefail`、变量加引号；`smoke.sh` 对 SSE 输出做脱敏后再打印（过滤 `Authorization`）。`docs/agent/e2e.md` 改为引用这些脚本，删除内联长命令。
+
+本地 UI 联调流程：
+
+```bash
+go run ./scripts/agent/fakellm -addr :18081 &
+SIMPLEBASE_LLM_ENABLED=true SIMPLEBASE_LLM_PROVIDERS=openai \
+SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL=http://127.0.0.1:18081/v1 \
+SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY=test-key \
+SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL=fake-model \
+SIMPLEBASE_LLM_PROVIDER_OPENAI_ALLOWED_MODELS=fake-model \
+./build.sh dev --no-open
+PROJECT_ID=<id> SIMPLEBASE_API_KEY=<dev key> ./scripts/agent/smoke.sh
+```
 
 ---
 
 ## 6. 配置变更
 
-```yaml
-llm:
-  enabled: true
-  agent_tool_protocol: auto     # auto | native | text；SIMPLEBASE_LLM_AGENT_TOOL_PROTOCOL
-  agent_max_iterations: 8       # 1–20；SIMPLEBASE_LLM_AGENT_MAX_ITERATIONS
-  agent_run_timeout: 180s       # SIMPLEBASE_LLM_AGENT_RUN_TIMEOUT
-```
-
-`Validate`：协议枚举、迭代范围、超时 10s–15m。`config.example.yaml` 补注释与 SiliconFlow 示例（key 只写 env 变量名）。
+沿用 v4.0 的 `agent_tool_protocol`、`agent_max_iterations`、`agent_run_timeout`。新增仅测试可注入的内部参数（不进 YAML）：`streamRun` 心跳 / thinking 间隔、`maxToolCardChars`，通过 handler 构造选项传入。
 
 ---
 
-## 7. 测试用例
+## 7. 实施顺序
 
-### 7.1 后端单元测试（默认 `go test ./...`，不访问外网）
-
-fake `ChatClient` 以脚本化 chunk 序列驱动。
-
-| ID | 包 / 文件 | 用例 | 断言 |
-|---|---|---|---|
-| B01 | `cloudagent/model_stream_test.go` | 上游依次吐 `"你"`、`"好"`、`"，世界"` | 下游收到 ≥2 个 chunk，首 chunk 在第 1 个上游 chunk 后（用 channel 阻塞上游第 2 块，断言此时已收到首块） |
-| B02 | 同上 | 上游吐 `"TOOL"`、`"_CALL {\"name\":\"list_databases\",\"arguments\":{}}"` | 下游仅 1 条含 `ToolCalls[0].Function.Name=list_databases`，无正文 chunk |
-| B03 | 同上 | 正文中含字面量 `"示例：TOOL_CALL 是协议关键字"` | 正文完整下发，不被解析为工具 |
-| B04 | 同上 | 上游前导空白 `"\n  TOOL_CALL {...}"` | 判定为工具模式 |
-| B05 | `cloudagent/runtime_events_test.go` | 流式 run，一次工具调用 | `tool_call` 事件恰好 1 个、`tool_result` 1 个，`call_id` 相同且非空 |
-| B06 | 同上 | 非流式 run，两次工具调用 | `ToolCallsJSON` 两条，含 `call_id/arguments/duration_ms` |
-| B07 | 同上 | 模型连续请求工具 9 次，`agent_max_iterations=8` | 返回 nil error、内容含「已达到工具调用上限（8 次）」、reason=`max_iterations` |
-| B08 | 同上 | run 中途 cancel | 返回 `context.Canceled`，`RunResult.Content` 为已生成部分 |
-| B09 | 同上 | 上游 8s 无输出、心跳间隔注入为 10ms | 收到 ≥1 个 `thinking` 事件，含 `elapsed_ms` 递增 |
-| B10 | `cloudagent/prompt_history_test.go` | 历史 assistant 带 `ToolCallsJSON` | 生成的 schema 消息含 `TOOL_HISTORY` 与工具名；含 `AKIA...`/`sk-...` 的结果被 `RedactSecrets` |
-| B11 | 同上 | 工具摘要超预算 | 最近 2 轮正文保留，最早工具摘要被丢弃，总长 ≤ `maxHistoryChars` |
-| B12 | `cloudagent/model_native_test.go` | `protocol=native`，fake 返回 `ToolCalls` | 请求带 `Tools`，不注入 `toolProtocolPrompt` system 消息 |
-| B13 | 同上 | `protocol=auto`，首次 400 `tools not supported` | 自动降级 text 重试成功；同 `provider|model` 第二次直接走 text |
-| B14 | `cloudagent/errors_test.go` | 上游错误分别为 401 / 429 / timeout / 其它 | 映射为 `llm_auth_failed / llm_rate_limited / llm_timeout / llm_upstream_error`，message 不含上游原文与 URL |
-| B15 | `llmgateway/service_tools_test.go` | `httptest` 模拟 OpenAI 兼容服务，返回 `tool_calls` | `Response.ToolCalls` 正确；请求 JSON 含 `tools` |
-| B16 | 同上 | `httptest` 流式返回 usage 尾帧 | recorder 收到 prompt/completion tokens |
-| B17 | `config/agent_config_test.go` | env 覆盖三项；非法协议、迭代 0/21、超时 5s | Validate 失败信息明确 |
-| B18 | 同上 | YAML 写入 `llm.providers.openai.api_key` 且 `dev_mode=false` | 被 `rejectYAMLSecrets` 拒绝（回归） |
-
-### 7.2 API / handler 测试（fake runtime，`internal/api`）
-
-| ID | 用例 | 断言 |
-|---|---|---|
-| A01 | `POST /agent-threads/:id/runs` stream=true 正常 | 帧顺序 `run → token* → usage → end`，`Content-Type: text/event-stream` |
-| A02 | 同 thread 并发两个 run（第一个阻塞在 fake 上） | 第二个 409 `agent_thread_busy` |
-| A03 | runtime 返回 `llm_rate_limited` | 流式：`error.code=llm_rate_limited` 后紧跟 `end`；非流式：HTTP 429 + `code` |
-| A04 | 客户端在首个 token 后断开 | run 状态 `canceled`；部分正文落为 assistant 消息 |
-| A05 | run 完成 | `sys_agent_runs` 写入 `duration_ms/tokens/tool_calls`；`GET .../runs` 返回这些字段 |
-| A06 | `PATCH /agent-threads/:id` title 为空 / 81 字 / 正常 | 400 / 400 / 200 |
-| A07 | 只读 key `PATCH /agent-threads/:id` | 403 |
-| A08 | 跨项目 thread id | 404（不暴露存在性） |
-| A09 | `GET /agent-threads?limit=2` 共 3 条 | 返回 2 条 + `next_cursor`；带 cursor 取到第 3 条；伪造 cursor 400 |
-| A10 | 首条消息后默认标题 | 标题变为消息前 30 字 |
-| A11 | 实例 `writable=false` 下 `PATCH` thread | 503 `ErrWriterUnavailable` |
-| A12 | admin 系统项目下 Agent 运行 `readonly_sql` 写语句 | 仍被 sqlguard 拒绝（回归，系统库保护） |
-| A13 | 审计记录 | 含 run/agent/thread id、tokens、error_code；**不含** 用户消息正文与模型输出（扫描断言） |
-| A14 | SSE 心跳 | 注入 10ms 间隔，响应体含 `: ping` 行 |
-
-### 7.3 前端 vitest（`ui/tests/`，覆盖率门槛 95% 不下调）
-
-| ID | 文件 | 用例 |
-|---|---|---|
-| U01 | `http-api.agentStream.test.ts` | mock fetch 返回分段 SSE（跨 chunk 切断的 `\n\n`、`: ping` 注释行）：handlers 依次收到 run/token/tool_call/tool_result/usage/end(reason) |
-| U02 | 同上 | `error` 帧带 code → `onError` 的 Error 带 `code` 属性；之后 `end` 不再重复触发 onEnd |
-| U03 | `useAgentRun.test.ts` | 状态机：thinking → streaming → tool → done；cancel → canceled；error → error |
-| U04 | `AgentThreadList.test.ts` | 渲染列表、新建、行内重命名提交、删除确认后从列表移除、当前项高亮 |
-| U05 | `AgentManager.test.ts`（扩展） | `?thread=` 恢复会话；切换会话写回 query；运行中切换会话先 stop |
-| U06 | 同上 | 表单模型下拉：默认「使用项目默认」，选择 DeepSeek-V4-Flash 后 create/patch payload 含 `model_override` |
-| U07 | 同上 | 错误气泡显示「模型服务限流」，点击「重试」以相同 content + mentions 重发 |
-| U08 | 同上 | `agent_thread_busy` 显示 toast「当前会话仍在运行」 |
-| U09 | `AgentToolCard.test.ts` | 同名工具两次调用按 `call_id` 各自配对；SQL 结果渲染表格；sandbox 结果显示 `exit 3`；超长 JSON 默认折叠 |
-| U10 | 同上 | 旧格式 `{name, content}`（无 call_id）兼容显示 |
-| U11 | `AgentManager.test.ts` | 状态条显示 `思考中 · Ns`，收到 usage 后显示耗时与 tokens |
-
-### 7.4 真实模型冒烟（不进默认 CI）
-
-实际测试文件：`internal/api/agent_llm_integration_test.go`，`//go:build llm_integration`。无 `SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY` 时 `t.Skip`。用真实 `llmgateway` + fake DB 访问层；现已覆盖 native/text 工具往返与模型白名单，其余 R01–R10 场景尚待补充及真实执行。
-
-```bash
-set -a; source .env; set +a      # 含 §1 的 SIMPLEBASE_LLM_* 变量
-go test -tags llm_integration ./internal/api -run 'TestLLMRealStreamAndToolRoundtrip|TestLLMModelAllowlistRejectsBeforeUpstream' -v -timeout 5m
-```
-
-| ID | 用例 | 通过条件 |
-|---|---|---|
-| R01 | 纯对话「1+1=? 只回答数字」流式 | 首个 token/thinking 事件 ≤ 3s；最终正文含 `2` |
-| R02 | database 模块「列出项目里的数据库」，fake 返回 `orders, users` | 恰好 1 次 `list_databases` 调用；正文同时出现 `orders` 与 `users` |
-| R03 | `protocol=text` 重复 R02 | 同 R02（验证文本协议回退） |
-| R04 | `protocol=native` 重复 R02 | 同 R02，且请求带 `tools` |
-| R05 | 两轮：R02 后问「其中第二个库叫什么」 | 第二轮 0 次工具调用，正文含 `users`（验证 §4.5） |
-| R06 | readonly_sql「统计 orders 行数」，fake SQL 返回 `[[42]]` | 调用 `readonly_sql` 且 SQL 为 SELECT；正文含 `42` |
-| R07 | 诱导写入「删除 orders 表」 | 不产生 DROP/DELETE 工具调用，或调用被 sqlguard 拒绝且正文解释原因 |
-| R08 | 错误 key（环境里临时替换） | 得到 `llm_auth_failed`，错误与日志中不含 key 片段 |
-| R09 | 不存在的模型名 | `llm_model_not_allowed`（被 allowed_models 拦截，不发上游） |
-| R10 | 取消：发出后 1s 调 `CancelRun` | 返回 canceled，≤2s 内结束 |
-
-### 7.5 端到端 curl 脚本（手工验收）
-
-`scripts` 不新增目录；放在文档 `docs/agent/e2e.md`：
-
-```bash
-./build.sh dev --no-open                       # 读取 .env 中的 SIMPLEBASE_LLM_*
-KEY=sb_live_dev_key_12345; P=<project_id>; H="Authorization: Bearer $KEY"
-TH=$(curl -s -XPOST localhost:8080/v1/projects/$P/agent-threads -H "$H" -d '{"title":"e2e"}' -H 'Content-Type: application/json' | jq -r .id)
-AG=$(curl -s localhost:8080/v1/projects/$P/agents -H "$H" | jq -r '.agents[] | select(.module=="database") | .id')
-curl -N -XPOST localhost:8080/v1/projects/$P/agent-threads/$TH/runs -H "$H" -H 'Content-Type: application/json' \
-  -d "{\"content\":\"列出项目里的数据库\",\"mentions\":[{\"agent_id\":\"$AG\"}],\"stream\":true}"
-# 期望：run → (thinking)* → token… → tool_call(call_id) → tool_result(同 call_id) → token… → usage → end
-curl -s localhost:8080/v1/projects/$P/agent-threads/$TH/runs -H "$H" | jq '.runs[0] | {status,duration_ms,completion_tokens,tool_calls}'
-```
-
-控制台手工：新建 Agent 选模型 DeepSeek-V4-Flash → 发送 → 观察「思考中」→ 逐字输出 → 工具卡片 → 状态条耗时/tokens → 新建/切换/重命名会话 → 刷新恢复 → 停止显示「已停止」。
-
----
-
-## 8. 实施顺序
-
-每步结束保持 `go build ./internal/... ./cmd/...`、`go test ./...`、`cd ui && yarn build && yarn test` 通过。
+每步结束 `./scripts/agent/test.sh` 通过（S0 前用等价命令）。
 
 | 步骤 | 内容 | 测试 |
 |---|---|---|
-| S1 | 配置项 + 错误码 + `cloudagent/errors.go` 映射 | B14、B17、B18 |
-| S2 | 真流式 + 事件去重 + call_id（P1、P2） | B01–B06、A01 |
-| S3 | 历史工具摘要、迭代上限、超时、per-thread 互斥、取消落库（P3、P7、P8） | B07、B08、B10、B11、A02、A04 |
-| S4 | 心跳 + thinking 帧 + usage 帧 + runs 指标迁移（P4、P5、P9） | B09、A03、A05、A13、A14 |
-| S5 | gateway 原生 tools + auto 降级（P6） | B12、B13、B15、B16 |
-| S6 | 会话 API（rename、分页、预览、runs 列表） | A06–A11 |
-| S7 | 前端：服务层 + useAgentRun + 线程列表 + 模型选择 + 工具卡片 + 状态条 | U01–U11 |
-| S8 | 真实模型冒烟 + 文档（`docs/agent/`、`config.example.yaml`、`IMPLEMENTATION_SUMMARY.md`） | R01–R10、§7.5 |
+| S0 | 测试基础设施：fakellm、全链路 harness、SSE 辅助、`scripts/agent/test.sh` | E01–E03 先以**失败用例**落地，确认能复现 V1/V8 |
+| S1 | 后端 bug：BUG-02、03、06、08、09 + `tool_result.duration_ms/is_error` | B19–B24、E06–E15、A15–A17 |
+| S2 | 通用 Agent + 内置播种迁移 + 模型列表接口（BUG-07、11） | B26–B28、S01–S03、E16–E19、A18 |
+| S3 | 前端状态层：`useAgentConversation`、`agent-errors.ts`（BUG-01、05、10） | U12、U14、U16、U22 |
+| S4 | 前端 UI：Agent 列表/卡片、会话切换器、对话组件族、AiChat 拆分（BUG-04、12） | U13、U15、U17–U21、U23、U24 + 迁移 U01–U11 |
+| S5 | 脚本：fakellm 进程、`smoke.sh`、`llm-integration.sh`；文档 `docs/agent/e2e.md` 更新 | 本地 fakellm 跑通 smoke；有 key 时跑 R01–R12 |
 
-S1–S3 一个 PR；S4–S6 一个 PR；S7–S8 一个 PR。S5 可独立推迟，不影响其余步骤。
+S0–S2 一个 PR（后端）；S3–S4 一个 PR（前端）；S5 单独 PR。
 
-### 8.1 实施记录（2026-10-07）
+### 7.1 v4.0 已完成项（保留，不重复实施）
 
-| 步骤 | 当前状态 | 证据 / 说明 |
-|---|---|---|
-| S1 | 已实现 | `internal/config/` 新增工具协议、迭代上限、运行超时；`internal/cloudagent/errors.go` 固定错误码；`agent_config_test.go`、`errors_test.go` |
-| S2 | 已实现 | `model.go` 流式前缀嗅探及增量输出；`runtime.go` 去重工具卡、生成 call_id；`optimization_test.go` 首块、跨块工具协议和事件配对测试 |
-| S3 | 已实现 | 工具历史摘要、上限/超时、线程锁与取消部分回复落库；最近 40 条会话历史修复；`run_limits_test.go` 覆盖迭代上限与取消保留正文，HTTP 断连需手工验收 |
-| S4 | 已实现 | SSE 心跳、`thinking` 空闲帧、`usage` 帧、系统库 v40 run 指标迁移、审计元数据；`agent_optimization_test.go` 指标与无正文审计测试；心跳间隔注入用例未实现 |
-| S5 | 已实现 | gateway 原生 function calling、流式工具 delta/usage、400/422 协议降级及模型白名单；`agent_tools_test.go`、`model_native_test.go` |
-| S6 | 已实现 | 会话分页/预览/重命名与运行记录接口，原项目隔离与权限；`agent_optimization_test.go`、`agent_history_test.go` |
-| S7 | 已实现 | 会话列表及 URL 恢复、自由输入模型、运行状态/重试、call_id 工具配对、SQL/沙盒卡片；`yarn test` 四项覆盖率达标（branches **95.01%**） |
-| S8 | 部分完成 | `docs/agent/e2e.md`、`config.example.yaml` 与 `//go:build llm_integration` 可选测试已就绪；未在本次实现会话真实模型全量 R01–R10 / 手工浏览器验收，不标记为完成 |
-
-**已运行验证**：`go build ./internal/... ./cmd/...`、`go test ./...`、`go test -race ./internal/cloudagent ./internal/api ./internal/llmgateway ./internal/systemdb`、`cd ui && yarn build && yarn test` 均通过。前端 `yarn typecheck` 报项目原有的 vitest/vite 类型冲突和 Vue SFC 类型声明缺失，不修改 `tsconfig.json` 或依赖。
-
-**偏离原计划**：模型表单以 `Input + datalist` 接收模型名，而非受限 Select（项目 `/llm/settings` 只返回默认模型，不返回所有 allowed_models）；真实冒烟测试文件位于 `internal/api/agent_llm_integration_test.go`，不在 `internal/cloudagent`，用于复用项目真实 LLM 适配链。此文件无密钥常量，未配置环境变量时跳过。
+真流式前缀嗅探、事件去重与 call_id、工具历史摘要、迭代上限 / 超时 / 线程锁 / 取消落库、SSE 心跳与 usage 帧、run 指标迁移（v40）、原生 tools + auto 降级、会话分页 / 重命名 / runs 接口。v4.0 详细设计见 git 历史中本文件的上一版本。
 
 ---
 
-## 9. 验收
+## 8. 验收
 
-1. DeepSeek-V4-Flash 下，控制台发送后 ≤ 3s 出现「思考中」或首个字；正文逐字出现而非一次性出现。
-2. 一次工具调用只出现一张卡片，结果与调用正确配对；SQL 结果表格化。
-3. 两轮对话中第二轮能引用第一轮工具结果，不重复调用（R05）。
-4. 限流 / 鉴权失败 / 超时 / 会话忙均有中文提示且可重试；日志、审计、SSE 中无 key、无正文。
-5. 会话可新建、切换、重命名、删除，刷新恢复；Agent 可指定模型。
-6. `GET .../runs` 与界面状态条可见耗时、tokens、工具次数。
-7. 默认 `go test ./...` 不访问外网；`llm_integration` 冒烟 R01–R10 全部通过并把结果记入 `IMPLEMENTATION_SUMMARY.md`。
+1. 无 key 环境：`./scripts/agent/test.sh` 全绿；fakellm + dev server 下 `smoke.sh` 全部检查通过。
+2. 控制台（fakellm 或 DeepSeek-V4-Flash）：正文逐字出现；工具卡在调用时即出现「运行中」，结果到达后变「成功 / 失败」并显示耗时；工具执行期间状态条不回跳「思考中」。
+3. 左侧为单行简化 Agent 卡片，默认选中「通用助手」；会话在头部切换；移动端抽屉可用；键盘可完成选择 Agent、切换会话、发送、停止。
+4. 失败后重试不产生重复用户消息；刷新后已停止 / 失败状态仍可见。
+5. 老项目自动补出通用助手，删除后不再补回。
+6. 模型下拉显示 allowed_models；接口与页面不暴露 base_url / key。
+7. 有 key 时 `llm-integration.sh` 的 R01–R12 结果记入 `IMPLEMENTATION_SUMMARY.md`；未执行则明确标注「未执行」。
+
+WCAG 相关只做到语义与键盘可达；完整无障碍合规仍需借助辅助技术人工测试。
 
 ---
 
-## 10. 风险与取舍
+## 9. 风险与取舍
 
 | 风险 | 取舍 |
 |---|---|
-| 不升级 litellm，`reasoning_content` 拿不到正文 | 先用 `thinking` 心跳（只含耗时）解决「卡死感」；思考正文待用户同意升级依赖后再做 |
-| 前缀嗅探在正文以 `TOOL_CALL` 开头时误判 | 仅在去空白后**以其开头**才判工具；解析失败回退为正文整体下发 |
-| 原生 tools 各 provider 兼容性不一 | `auto` 降级 + 进程内记忆；可配置强制 `text` |
-| per-thread 互斥仅进程内 | 与当前单写实例架构一致；多实例随 `multi-instance-consistency-plan.md` 迁到系统库租约 |
-| 历史工具摘要占用上下文 | 硬预算 + 优先级裁剪；摘要单条 ≤600 字 |
-| 取消时部分正文落库可能是半句 | 前端标「已停止」；这是用户可见的真实输出，保留优于丢失 |
+| 拆分 AiChat 影响 LLM 页 | AiChat 只删 Agent 专用代码路径，U24 回归；不改其对外 props 语义 |
+| 内置 Agent 迁移改变老项目列表 | 只补通用助手，存量 Agent 只回填 `builtin_key` 不改内容；删除可永久关闭 |
+| 通用 Agent 工具多导致模型乱调工具 | prompt 明确「先判断问题类别」；`agent_max_iterations` 兜底；R11 观察实际表现 |
+| fakellm 与真实 provider 行为偏差 | 剧本按 §1 实测（v4.0）的帧格式编写；真实差异由 `llm_integration` 补充 |
+| Markdown 渲染 XSS | 统一经 DOMPurify；U21 覆盖 |
+| `retry_of_run_id` 被滥用重放 | 仅允许 thread 最新且 failed/canceled 的 run，且受原有配额检查 |
+| 思考正文仍不可见 | 保持 v4.0 取舍：只显示耗时，待 litellm 升级（需用户同意） |
+| `scripts/` 新增 Go main 包会被 `go test ./...` 编译 | 包内无外部依赖、无 init 副作用；`go vet` 覆盖 |
