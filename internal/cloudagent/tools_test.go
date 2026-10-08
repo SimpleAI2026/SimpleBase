@@ -3,6 +3,7 @@ package cloudagent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -65,8 +66,12 @@ func TestReadonlySQLToolRejectsWrite(t *testing.T) {
 	}
 	inv := tools[0].(tool.InvokableTool)
 	ctx := withRunContext(context.Background(), RunContext{ProjectID: "p1"})
-	_, err = inv.InvokableRun(ctx, `{"database_id":"d1","sql":"DELETE FROM users"}`)
-	if err == nil {
-		t.Fatal("expected write sql to fail")
+	// BUG-02：写 SQL 被拒绝时以 is_error 文本返回，不终止流。
+	out, err := inv.InvokableRun(ctx, `{"database_id":"d1","sql":"DELETE FROM users"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"is_error":true`) {
+		t.Fatalf("expected write sql to fail as error text, got %s", out)
 	}
 }

@@ -36,6 +36,8 @@ type Event struct {
 	CompletionTokens int    `json:"completion_tokens,omitempty"`
 	ReasoningTokens  int    `json:"reasoning_tokens,omitempty"`
 	ToolCalls        int    `json:"tool_calls,omitempty"`
+	IsError          bool   `json:"is_error,omitempty"`
+	Truncated        bool   `json:"truncated,omitempty"`
 }
 
 // RunRequest starts a single-agent turn.
@@ -158,6 +160,7 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	var assistant strings.Builder
 	var toolCards []map[string]any
 	calls := map[string]map[string]any{}
+	callStarts := map[string]time.Time{}
 	var runErr error
 	for {
 		event, ok := iter.Next()
@@ -184,12 +187,30 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 			}
 			card := calls[id]
 			if card == nil {
+				for i := len(toolCards) - 1; i >= 0; i-- {
+					if toolCards[i]["name"] == name && toolCards[i]["content"] == nil {
+						card = toolCards[i]
+						id, _ = card["call_id"].(string)
+						break
+					}
+				}
+			}
+			if card == nil {
 				card = map[string]any{"call_id": id, "name": name}
 				toolCards = append(toolCards, card)
 			}
+			const maxToolCardChars = 4000
+			truncated := len([]rune(content)) > maxToolCardChars
+			content = truncate(content, maxToolCardChars)
+			duration := time.Since(callStarts[id]).Milliseconds()
+			if callStarts[id].IsZero() {
+				duration = 0
+			}
 			card["content"] = content
+			card["duration_ms"] = duration
+			card["truncated"] = truncated
 			if emit != nil {
-				emit(Event{Type: "tool_result", CallID: id, Name: name, Content: truncate(content, 2000)})
+				emit(Event{Type: "tool_result", CallID: id, Name: name, Content: content, DurationMS: duration, Truncated: truncated})
 			}
 			continue
 		}
@@ -207,6 +228,7 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 					}
 					card := map[string]any{"call_id": id, "name": tc.Function.Name, "arguments": tc.Function.Arguments}
 					calls[id] = card
+					callStarts[id] = time.Now()
 					toolCards = append(toolCards, card)
 					if emit != nil {
 						emit(Event{Type: "tool_call", CallID: id, Name: tc.Function.Name, Arguments: tc.Function.Arguments})

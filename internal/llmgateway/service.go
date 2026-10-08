@@ -85,6 +85,9 @@ type Service interface {
 	Chat(ctx context.Context, projectID string, req Request) (Response, error)
 	Stream(ctx context.Context, projectID string, req Request) (StreamReader, error)
 	ListProviders(ctx context.Context, projectID string) ([]string, error)
+	// ProviderModels 返回各 provider 的可用模型名列表（无密钥/URL），
+	// 供云 Agent 模型选择（planv4.1 BUG-07）。
+	ProviderModels(ctx context.Context, projectID string) (map[string][]string, error)
 }
 
 // ProviderResolver 从 catalog 解析 project 的供应商配置（含解密密钥）。
@@ -115,6 +118,22 @@ func NewService(resolver ProviderResolver, recorder UsageRecorder, logger observ
 // clientKey 构造缓存 key。
 func clientKey(projectID, providerName string) string {
 	return projectID + "|" + providerName
+}
+
+// ProviderModels 解析各 provider 的 allowed_models（planv4.1 BUG-07）。
+// 解析失败时返回空 map 而非错误（模型列表缺失不应阻塞 Agent 功能）。
+func (s *service) ProviderModels(ctx context.Context, projectID string) (map[string][]string, error) {
+	pp, err := s.resolver.Resolve(ctx, projectID)
+	if err != nil {
+		return map[string][]string{}, nil
+	}
+	out := make(map[string][]string, len(pp.Providers))
+	for _, p := range pp.Providers {
+		if len(p.AllowedModels) > 0 {
+			out[p.Name] = p.AllowedModels
+		}
+	}
+	return out, nil
 }
 
 // getClient 获取或创建指定 project+provider 的 litellm client。

@@ -44,7 +44,7 @@ func TestModulesCatalogAndDefaults(t *testing.T) {
 	if tools := DefaultToolsForModule(ModuleLogs); len(tools) != 2 {
 		t.Fatalf("logs tools=%v", tools)
 	}
-	if tools := DefaultToolsForModule(ModuleGeneral); tools != nil {
+	if tools := DefaultToolsForModule(ModuleGeneral); len(tools) != 7 {
 		t.Fatalf("general tools=%v", tools)
 	}
 	if tools := DefaultToolsForModule("nope"); tools != nil {

@@ -3,6 +3,7 @@ package cloudagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -263,7 +264,40 @@ func buildTools(ids []string, deps toolDeps) ([]tool.BaseTool, error) {
 	if err := buildSandboxTools(&out, want, deps); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return wrapToolErrors(out), nil
+}
+
+// wrapToolErrors 把工具执行错误转换为结构化错误文本（BUG-02）：
+// 单个工具失败不应终止整个 run；错误以 is_error=true 的 TOOL_RESULT 回给模型，
+// 模型可向用户解释失败原因或换一种方式继续。
+// context 取消不转换（需真正终止流）。
+func wrapToolErrors(tools []tool.BaseTool) []tool.BaseTool {
+	out := make([]tool.BaseTool, 0, len(tools))
+	for _, t := range tools {
+		inv, ok := t.(tool.InvokableTool)
+		if !ok {
+			out = append(out, t)
+			continue
+		}
+		out = append(out, &errorTolerantTool{InvokableTool: inv})
+	}
+	return out
+}
+
+// errorTolerantTool 包装 InvokableTool：错误转为 {"error": "..."} 文本。
+type errorTolerantTool struct {
+	tool.InvokableTool
+}
+
+func (w *errorTolerantTool) InvokableRun(ctx context.Context, args string, opts ...tool.Option) (string, error) {
+	out, err := w.InvokableTool.InvokableRun(ctx, args, opts...)
+	if err == nil {
+		return out, nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "", err
+	}
+	return marshalToolJSON(map[string]any{"error": err.Error(), "is_error": true})
 }
 
 // buildSandboxTools 装配四个云沙盒工具（cloud-agent-sandbox-plan §7）。

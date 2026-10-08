@@ -62,7 +62,9 @@ You search sys_log_events for this project.
 Use search_logs and log_level_stats. Do not change retention.`
 
 const generalModulePrompt = `Module: general.
-You are a general assistant for this SimpleBase project. You have no extra tools unless the agent config lists them.`
+You help with database, object storage, and log inspection in this project. Choose tools according to the user's request; list resources before assuming names.
+Database, object storage, and log tools are read-only. Never perform writes to project data.
+If sandbox tools are available, commands and files are isolated in this thread's cloud sandbox under /workspace. Do not request or expose credentials.`
 
 const sandboxModulePrompt = `Module: sandbox.
 Commands and files live only in this thread's cloud sandbox (microVM), working directory /workspace.
@@ -87,12 +89,21 @@ type ModuleInfo struct {
 // sandboxAvailable 控制 sandbox 模块的 sandbox_available 字段；其余模块不含。
 func Modules(sandboxAvailable bool) []ModuleInfo {
 	return []ModuleInfo{
+		{ID: ModuleGeneral, Name: "通用助手", Description: "跨数据库、对象存储和日志的项目助手", DefaultTools: GeneralTools(sandboxAvailable), TeamSupported: false, SandboxAvailable: sandboxAvailable},
 		{ID: ModuleDatabase, Name: "Database", Description: "Readonly database inspection and SQL", DefaultTools: []string{ToolListDatabases, ToolListCollections, ToolReadonlySQL}, TeamSupported: false},
 		{ID: ModuleS3, Name: "S3", Description: "Readonly object list and head", DefaultTools: []string{ToolListObjects, ToolHeadObject}, TeamSupported: false},
 		{ID: ModuleLogs, Name: "Logs", Description: "Search logs and level stats", DefaultTools: []string{ToolSearchLogs, ToolLogLevelStats}, TeamSupported: false},
 		{ID: ModuleSandbox, Name: "Sandbox", Description: "Run commands and manage files in a cloud microVM", DefaultTools: SandboxToolIDs(), TeamSupported: false, SandboxAvailable: sandboxAvailable},
-		{ID: ModuleGeneral, Name: "General", Description: "No default tools; custom prompt only", DefaultTools: nil, TeamSupported: false},
 	}
+}
+
+// GeneralTools returns project-scoped read-only tools plus optional cloud sandbox tools.
+func GeneralTools(sandboxAvailable bool) []string {
+	tools := []string{ToolListDatabases, ToolListCollections, ToolReadonlySQL, ToolListObjects, ToolHeadObject, ToolSearchLogs, ToolLogLevelStats}
+	if sandboxAvailable {
+		tools = append(tools, SandboxToolIDs()...)
+	}
+	return tools
 }
 
 // KnownModule reports whether module is a built-in id.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,18 @@ func invokeTool(t *testing.T, tools []tool.BaseTool, idx int, ctx context.Contex
 		t.Fatal("not invokable")
 	}
 	return inv.InvokableRun(ctx, args)
+}
+
+// expectToolErrorText 断言工具返回 is_error 结构化错误文本（BUG-02 语义）。
+func expectToolErrorText(t *testing.T, tools []tool.BaseTool, idx int, ctx context.Context, args, wantSub string) {
+	t.Helper()
+	out, err := invokeTool(t, tools, idx, ctx, args)
+	if err != nil {
+		t.Fatalf("tool %d must surface error as text, got err=%v", idx, err)
+	}
+	if !strings.Contains(out, `"is_error":true`) || (wantSub != "" && !strings.Contains(out, wantSub)) {
+		t.Fatalf("tool %d error text=%s want=%q", idx, out, wantSub)
+	}
 }
 
 func TestBuildToolsAllAndErrorPaths(t *testing.T) {
@@ -80,65 +93,31 @@ func TestBuildToolsAllAndErrorPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// missing run context
-	if _, err := invokeTool(t, tools, 0, context.Background(), `{}`); err == nil {
-		t.Fatal("missing context")
-	}
-	if _, err := invokeTool(t, tools, 1, context.Background(), `{"database_id":"d1"}`); err == nil {
-		t.Fatal("missing context")
-	}
-	if _, err := invokeTool(t, tools, 2, context.Background(), `{"database_id":"d1","sql":"SELECT 1"}`); err == nil {
-		t.Fatal("missing context")
-	}
-	if _, err := invokeTool(t, tools, 3, context.Background(), `{}`); err == nil {
-		t.Fatal("missing context")
-	}
-	if _, err := invokeTool(t, tools, 4, context.Background(), `{"key":"k"}`); err == nil {
-		t.Fatal("missing context")
-	}
-	if _, err := invokeTool(t, tools, 5, context.Background(), `{}`); err == nil {
-		t.Fatal("missing context")
-	}
-	if _, err := invokeTool(t, tools, 6, context.Background(), `{}`); err == nil {
-		t.Fatal("missing context")
-	}
+	// missing run context（错误转文本）
+	expectToolErrorText(t, tools, 0, context.Background(), `{}`, "run context")
+	expectToolErrorText(t, tools, 1, context.Background(), `{"database_id":"d1"}`, "")
+	expectToolErrorText(t, tools, 2, context.Background(), `{"database_id":"d1","sql":"SELECT 1"}`, "")
+	expectToolErrorText(t, tools, 3, context.Background(), `{}`, "")
+	expectToolErrorText(t, tools, 4, context.Background(), `{"key":"k"}`, "")
+	expectToolErrorText(t, tools, 5, context.Background(), `{}`, "")
+	expectToolErrorText(t, tools, 6, context.Background(), `{}`, "")
 
 	// validation
-	if _, err := invokeTool(t, tools, 1, ctx, `{"database_id":""}`); err == nil {
-		t.Fatal("collections require id")
-	}
-	if _, err := invokeTool(t, tools, 2, ctx, `{"database_id":"","sql":""}`); err == nil {
-		t.Fatal("sql required")
-	}
-	if _, err := invokeTool(t, tools, 4, ctx, `{"key":"  "}`); err == nil {
-		t.Fatal("key required")
-	}
+	expectToolErrorText(t, tools, 1, ctx, `{"database_id":""}`, "")
+	expectToolErrorText(t, tools, 2, ctx, `{"database_id":"","sql":""}`, "")
+	expectToolErrorText(t, tools, 4, ctx, `{"key":"  "}`, "")
 
 	// dep errors
 	db.err = errors.New("db")
 	obj.err = errors.New("obj")
 	logs.err = errors.New("logs")
-	if _, err := invokeTool(t, tools, 0, ctx, `{}`); err == nil {
-		t.Fatal("db list err")
-	}
-	if _, err := invokeTool(t, tools, 1, ctx, `{"database_id":"d1"}`); err == nil {
-		t.Fatal("coll err")
-	}
-	if _, err := invokeTool(t, tools, 2, ctx, `{"database_id":"d1","sql":"SELECT 1"}`); err == nil {
-		t.Fatal("sql err")
-	}
-	if _, err := invokeTool(t, tools, 3, ctx, `{}`); err == nil {
-		t.Fatal("obj list err")
-	}
-	if _, err := invokeTool(t, tools, 4, ctx, `{"key":"k"}`); err == nil {
-		t.Fatal("head err")
-	}
-	if _, err := invokeTool(t, tools, 5, ctx, `{"limit":2}`); err == nil {
-		t.Fatal("search err")
-	}
-	if _, err := invokeTool(t, tools, 6, ctx, `{}`); err == nil {
-		t.Fatal("stats err")
-	}
+	expectToolErrorText(t, tools, 0, ctx, `{}`, "db")
+	expectToolErrorText(t, tools, 1, ctx, `{"database_id":"d1"}`, "coll")
+	expectToolErrorText(t, tools, 2, ctx, `{"database_id":"d1","sql":"SELECT 1"}`, "sql")
+	expectToolErrorText(t, tools, 3, ctx, `{}`, "obj")
+	expectToolErrorText(t, tools, 4, ctx, `{"key":"k"}`, "head")
+	expectToolErrorText(t, tools, 5, ctx, `{"limit":2}`, "search")
+	expectToolErrorText(t, tools, 6, ctx, `{}`, "stats")
 
 	// nil deps
 	nilTools, err := buildTools(ids, toolDeps{})
@@ -146,9 +125,7 @@ func TestBuildToolsAllAndErrorPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, args := range []string{`{}`, `{"database_id":"d1"}`, `{"database_id":"d1","sql":"SELECT 1"}`, `{}`, `{"key":"k"}`, `{}`, `{}`} {
-		if _, err := invokeTool(t, nilTools, i, ctx, args); err == nil {
-			t.Fatalf("nil dep tool %d", i)
-		}
+		expectToolErrorText(t, nilTools, i, ctx, args, "")
 	}
 
 	if _, err := marshalToolJSON(make(chan int)); err == nil {

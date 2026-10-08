@@ -134,9 +134,13 @@ func TestSandboxExecRequiresWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	it := sandboxToolByName(t, tools, ToolSandboxExec)
-	_, err = it.InvokableRun(sandboxRunCtx(false), `{"cmd":"ls"}`)
-	if err == nil || !strings.Contains(err.Error(), "database:write") {
-		t.Fatalf("readonly principal must be rejected, got %v", err)
+	out, err := it.InvokableRun(sandboxRunCtx(false), `{"cmd":"ls"}`)
+	// BUG-02：工具错误转为 is_error 文本回给模型，不再以 error 终止流。
+	if err != nil {
+		t.Fatalf("readonly principal must surface as error text, got %v", err)
+	}
+	if !strings.Contains(out, "database:write") || !strings.Contains(out, `"is_error":true`) {
+		t.Fatalf("readonly principal must be rejected, got %s", out)
 	}
 }
 
@@ -148,9 +152,12 @@ func TestSandboxShellLengthLimit(t *testing.T) {
 	}
 	it := sandboxToolByName(t, tools, ToolSandboxShell)
 	long := strings.Repeat("a", maxShellCommandBytes+1)
-	_, err = it.InvokableRun(sandboxRunCtx(true), `{"command":"`+long+`"}`)
-	if err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("oversized command must be rejected, got %v", err)
+	out, err := it.InvokableRun(sandboxRunCtx(true), `{"command":"`+long+`"}`)
+	if err != nil {
+		t.Fatalf("oversized command must surface as error text, got %v", err)
+	}
+	if !strings.Contains(out, "exceeds") || !strings.Contains(out, `"is_error":true`) {
+		t.Fatalf("oversized command must be rejected, got %s", out)
 	}
 }
 
@@ -196,9 +203,12 @@ func TestSandboxToolErrorSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	it := sandboxToolByName(t, tools, ToolSandboxExec)
-	_, err = it.InvokableRun(sandboxRunCtx(true), `{"cmd":"ls"}`)
-	if err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("transport error must surface, got %v", err)
+	out, err := it.InvokableRun(sandboxRunCtx(true), `{"cmd":"ls"}`)
+	if err != nil {
+		t.Fatalf("transport error must surface as error text, got %v", err)
+	}
+	if !strings.Contains(out, "boom") || !strings.Contains(out, `"is_error":true`) {
+		t.Fatalf("transport error must surface, got %s", out)
 	}
 }
 
@@ -213,9 +223,12 @@ func TestSandboxThreadIDRequired(t *testing.T) {
 		ProjectID: "proj-1",
 		Principal: auth.Principal{Permissions: map[auth.Permission]struct{}{auth.DatabaseWrite: {}}},
 	})
-	_, err = it.InvokableRun(ctx, `{"cmd":"ls"}`)
-	if err == nil || !strings.Contains(err.Error(), "thread") {
-		t.Fatalf("missing thread id must be rejected, got %v", err)
+	out, err := it.InvokableRun(ctx, `{"cmd":"ls"}`)
+	if err != nil {
+		t.Fatalf("missing thread id must surface as error text, got %v", err)
+	}
+	if !strings.Contains(out, "thread") || !strings.Contains(out, `"is_error":true`) {
+		t.Fatalf("missing thread id must be rejected, got %s", out)
 	}
 }
 
