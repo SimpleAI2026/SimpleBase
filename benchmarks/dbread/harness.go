@@ -1,4 +1,6 @@
-// harness.go 为「系统库读路径」基准提供可复现的本地环境。
+// Package dbread 为「系统库读路径」基准提供可复现的本地环境。
+//
+// 普通库包，随 go build ./... 一起编译。入口是 README 里的 go test。
 //
 // 为什么需要这个 harness：生产环境系统库在远端（COS）上，每次读取都要为
 // 小 parquet 文件付远端读取代价。本地基准无法复现网络，
@@ -6,7 +8,7 @@
 // 把 DataInliningRowLimit 设为 0 模拟最坏情况（不是当前生产设置；
 // 当前配置为 1000，但 catalog 同步前 flush 仍可能产生小文件），
 // 每次 INSERT 就落一个独立小 parquet 文件。
-package main
+package dbread
 
 import (
 	"context"
