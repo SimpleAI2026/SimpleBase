@@ -101,11 +101,7 @@ var kvCommandTable = map[string]kvCmdSpec{
 				return nil, err
 			}
 			keys := append([]string(nil), argv...)
-			return func(tx *kv.Tx) (any, error) {
-				n, err := tx.Key().Count(kvCtx(c), "")
-				_ = keys // 精确计数在下方实现
-				return n, err
-			}, nil
+			return func(tx *kv.Tx) (any, error) { return tx.Key().Exists(kvCtx(c), keys...) }, nil
 		},
 		empty: func(ctx context.Context) (any, error) { return 0, nil },
 	},
@@ -1067,7 +1063,7 @@ var kvCommandTable = map[string]kvCmdSpec{
 				case "WITHSCORES":
 					withScores = true
 				default:
-					return nil, kvArgErr(c, "unknown option " + opt)
+					return nil, kvArgErr(c, "unknown option "+opt)
 				}
 			}
 			return func(tx *kv.Tx) (any, error) {
@@ -1116,7 +1112,7 @@ var kvCommandTable = map[string]kvCmdSpec{
 					}
 					i += 3
 				default:
-					return nil, kvArgErr(c, "unknown option " + argv[i])
+					return nil, kvArgErr(c, "unknown option "+argv[i])
 				}
 			}
 			return func(tx *kv.Tx) (any, error) {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -344,6 +345,39 @@ func TestKVCmdKeyTTL(t *testing.T) {
 	// DEL → 1；EXISTS → 0
 	if rec := kvExec(t, e, `["DEL","tmp"]`); strings.TrimSpace(rec.Body.String()) != "1" {
 		t.Errorf("del = %s, want 1", rec.Body.String())
+	}
+}
+
+// EXISTS 是 Redis 语义：只统计给定 key 中存在的个数，而不是库内键总数。
+func TestKVCmdExists(t *testing.T) {
+	e, _ := kvRealEnv(t)
+
+	kvExec(t, e, `["SET","ex:a","1"]`)
+	kvExec(t, e, `["SET","ex:b","1"]`)
+
+	// 库内已有 2 个键，但只查 1 个不存在的 key 必须返回 0
+	if rec := kvExec(t, e, `["EXISTS","ex:missing"]`); strings.TrimSpace(rec.Body.String()) != "0" {
+		t.Errorf("exists missing = %s, want 0", rec.Body.String())
+	}
+	// 存在的单个 key → 1
+	if rec := kvExec(t, e, `["EXISTS","ex:a"]`); strings.TrimSpace(rec.Body.String()) != "1" {
+		t.Errorf("exists hit = %s, want 1", rec.Body.String())
+	}
+	// 多个 key：命中 2 个、总数不得超过参数个数
+	if rec := kvExec(t, e, `["EXISTS","ex:a","ex:b","ex:missing"]`); strings.TrimSpace(rec.Body.String()) != "2" {
+		t.Errorf("exists multi = %s, want 2", rec.Body.String())
+	}
+	// 重复参数按 Redis 语义各计一次
+	if rec := kvExec(t, e, `["EXISTS","ex:a","ex:a"]`); strings.TrimSpace(rec.Body.String()) != "2" {
+		t.Errorf("exists dup = %s, want 2", rec.Body.String())
+	}
+	// 已过期的 key 不计入
+	if rec := kvExec(t, e, `["SET","ex:tmp","1","PX","1"]`); rec.Code != http.StatusOK {
+		t.Fatalf("set px = %d", rec.Code)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if rec := kvExec(t, e, `["EXISTS","ex:tmp"]`); strings.TrimSpace(rec.Body.String()) != "0" {
+		t.Errorf("exists expired = %s, want 0", rec.Body.String())
 	}
 }
 

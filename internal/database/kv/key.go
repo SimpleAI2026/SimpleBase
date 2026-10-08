@@ -167,6 +167,27 @@ func (r *KeyRepo) Count(ctx context.Context, pattern string) (int64, error) {
 	return n, nil
 }
 
+// Exists 返回给出的 key 中实际存在（且未过期）的个数，最多为 len(keys)。
+// Redis EXISTS 语义：重复的 key 各计一次。
+func (r *KeyRepo) Exists(ctx context.Context, keys ...string) (int64, error) {
+	var n int64
+	now := r.t.nowMs()
+	for _, key := range keys {
+		var one int64
+		err := r.t.tx.QueryRowContext(ctx,
+			`SELECT 1 FROM kv.keys WHERE "key" = ? AND (etime IS NULL OR etime > ?) LIMIT 1`,
+			key, now).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return n, fmt.Errorf("kv: exists key: %w", err)
+		}
+		n++
+	}
+	return n, nil
+}
+
 // Delete 删除多个 key，返回实际删除数（不存在/已过期的 key 不计）。
 func (r *KeyRepo) Delete(ctx context.Context, keys ...string) (int64, error) {
 	var n int64
