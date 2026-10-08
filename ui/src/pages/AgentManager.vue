@@ -411,7 +411,7 @@ async function ensureThread() {
       const selected = threads.value.find((th) => th.id === queryId)
       threadId.value = selected?.id || threads.value[0].id
     } else {
-      const th = await api.agentThreads.create(project.id, '云 Agent')
+      const th = await api.agentThreads.create(project.id, '云助手')
       threads.value = [th]
       threadId.value = th.id
     }
@@ -500,7 +500,7 @@ async function removeAgent(a: CloudAgent) {
 async function resetThread() {
   onStop()
   try {
-    const th = await api.agentThreads.create(project.id, '云 Agent')
+    const th = await api.agentThreads.create(project.id, '云助手')
     threads.value.unshift(th)
     threadId.value = th.id
     chatMessages.value = []

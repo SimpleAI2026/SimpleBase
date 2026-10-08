@@ -55,6 +55,7 @@ func TestError_DomainMapping(t *testing.T) {
 		{"descriptor", catalog.ErrDescriptorWrite, http.StatusServiceUnavailable, "descriptor_write_failed"},
 		{"migration", catalog.ErrMigrationFailed, http.StatusServiceUnavailable, "migration_failed"},
 		{"system_protected", catalog.ErrSystemProtected, http.StatusForbidden, "system_database_protected"},
+		{"data_model", catalog.ErrInvalidDataModel, http.StatusBadRequest, "data_model_invalid"},
 		{"system_unavailable", systemdb.ErrUnavailable, http.StatusServiceUnavailable, "system_store_unavailable"},
 		{"db_deleting", database.ErrDatabaseDeleting, http.StatusConflict, "database_deleting"},
 		{"db_not_ready", database.ErrDatabaseNotReady, http.StatusConflict, "database_not_ready"},

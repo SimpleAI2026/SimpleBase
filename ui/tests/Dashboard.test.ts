@@ -103,7 +103,7 @@ describe('Dashboard (监控大盘)', () => {
     expect(wrapper.text()).toContain('对象存储')
     expect(wrapper.text()).toContain('云函数')
     expect(wrapper.text()).toContain('定时任务')
-    expect(wrapper.text()).toContain('云 Agent')
+    expect(wrapper.text()).toContain('云助手')
     expect(wrapper.text()).not.toContain('demo')
     expect(wrapper.text()).not.toContain('flaky')
     expect(wrapper.find('.trend-legend').text()).toContain('请求')
@@ -171,7 +171,7 @@ describe('Dashboard (监控大盘)', () => {
     const { wrapper } = await mountWithApp(Dashboard)
     expect(wrapper.text()).toContain('暂无趋势数据')
     expect(wrapper.text()).toContain('资源类型')
-    expect(wrapper.text()).toContain('云 Agent')
+    expect(wrapper.text()).toContain('云助手')
   })
 
   it('shows P50/P90/P99 latency percentiles with overflow and seconds formatting', async () => {

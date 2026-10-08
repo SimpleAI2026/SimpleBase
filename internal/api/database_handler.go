@@ -23,6 +23,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 )
 
 // DatabaseService 抽象 handler 所需的 catalog + registry 能力。
@@ -53,6 +54,8 @@ type DatabaseHandler struct {
 	// 缓存，未命中省略 document_count 并触发后台有界并发刷新，
 	// 不再同步逐库 COUNT(*)（消除 N+1 同步请求链）。
 	RowCounts *RowCountCache
+	// InitSQL 可选：创建 SQL 库后执行 init_sql。未注入时拒绝非空 init_sql。
+	InitSQL SQLService
 }
 
 // NewDatabaseHandler 构造 handler。writable 为 false 时所有写操作返回 503。
@@ -62,7 +65,9 @@ func NewDatabaseHandler(svc DatabaseService, writable bool) *DatabaseHandler {
 
 // CreateDatabaseRequest 是创建数据库的请求体。
 type CreateDatabaseRequest struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	DataModel string `json:"data_model,omitempty"`
+	InitSQL   string `json:"init_sql,omitempty"`
 }
 
 // DatabaseResponse 是数据库资源的对外表示。绝不包含 StoragePrefix/DSN/凭据。
@@ -76,6 +81,8 @@ type DatabaseResponse struct {
 	Snapshot *DatabaseSnapshot `json:"snapshot,omitempty"`
 	// DocumentCount 是库内用户表总行数；未知/未就绪时省略（UI 显示 —）。
 	DocumentCount *int64 `json:"document_count,omitempty"`
+	// DataModel 是 collection 或 sql。旧行与未填列读出来是 collection。
+	DataModel string `json:"data_model"`
 }
 
 // DatabaseSnapshot 暴露 last_synced / sync_lag（§八 API）。
@@ -109,23 +116,69 @@ func (h *DatabaseHandler) CreateDatabase(c echo.Context) error {
 	if !ok {
 		return WriteError(c, auth.ErrMissingCredentials)
 	}
-	// 权限校验由 Require(DatabaseAdmin) 中间件完成，但 handler 需 principal 传递给 service
-	_ = principal
-
 	var req CreateDatabaseRequest
 	if err := bindAndValidateCreate(c, &req); err != nil {
 		return WriteError(c, err)
+	}
+	dataModel, err := catalog.NormalizeDataModel(req.DataModel)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	initSQL := strings.TrimSpace(req.InitSQL)
+	if initSQL != "" && dataModel != catalog.DataModelSQL {
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "初始化 SQL 只能用于 SQL 数据库", RequestIDFromContext(c.Request().Context())))
+	}
+	stmts, err := prepareInitSQL(initSQL)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	if len(stmts) > 0 && h.InitSQL == nil {
+		return WriteError(c, database.ErrWriterUnavailable)
 	}
 
 	db, err := h.svc.CreateDatabase(c.Request().Context(), catalog.CreateDatabaseInput{
 		TenantID:  project.TenantID,
 		ProjectID: project.ID,
 		Name:      req.Name,
+		DataModel: dataModel,
 	})
 	if err != nil {
 		return WriteError(c, err)
 	}
+	if len(stmts) > 0 {
+		if err := h.runInitSQL(c, principal, project, db, stmts); err != nil {
+			return WriteError(c, err)
+		}
+	}
 	return c.JSON(http.StatusCreated, toDatabaseResponse(db))
+}
+
+// runInitSQL 逐条执行初始化语句。失败时删除刚创建的库，让同一个名称可以重试。
+func (h *DatabaseHandler) runInitSQL(c echo.Context, principal auth.Principal, project ProjectContext, db catalog.Database, stmts []string) error {
+	lease, err := h.InitSQL.Acquire(c.Request().Context(), db, database.ReadWrite)
+	if err != nil {
+		h.rollbackCreate(c, principal, project.ID, db.ID)
+		return err
+	}
+	defer lease.Release()
+	for i, stmt := range stmts {
+		if err := sqlguard.Validate(stmt, sqlguard.WriteAllowed); err != nil {
+			h.rollbackCreate(c, principal, project.ID, db.ID)
+			return err
+		}
+		if _, err := lease.Execute(c.Request().Context(), database.Statement{SQL: stmt}); err != nil {
+			h.rollbackCreate(c, principal, project.ID, db.ID)
+			return NewAPIError(http.StatusBadRequest, "init_sql_failed", fmt.Sprintf("初始化 SQL 第 %d 条执行失败：%s", i+1, err.Error()), RequestIDFromContext(c.Request().Context()))
+		}
+	}
+	return nil
+}
+
+func (h *DatabaseHandler) rollbackCreate(c echo.Context, principal auth.Principal, projectID, databaseID string) {
+	if _, err := h.svc.DeleteDatabase(c.Request().Context(), principal, projectID, databaseID); err != nil && h.svc != nil {
+		// 删除失败只保留数据库 ID，不记录 SQL。
+		_ = err
+	}
 }
 
 // ListDatabases: GET /v1/projects/:projectID/databases
@@ -364,5 +417,6 @@ func toDatabaseResponse(db catalog.Database) DatabaseResponse {
 		Status:    string(db.Status),
 		CreatedAt: db.CreatedAt,
 		UpdatedAt: db.UpdatedAt,
+		DataModel: catalog.EffectiveDataModel(db),
 	}
 }

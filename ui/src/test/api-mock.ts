@@ -26,7 +26,10 @@ export const api = {
     list: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
-    remove: vi.fn()
+    remove: vi.fn(),
+    schema: vi.fn(),
+    createTable: vi.fn(),
+    addColumn: vi.fn()
   },
   sql: {
     query: vi.fn(),
@@ -208,6 +211,9 @@ export function applyApiDefaults() {
     updatedAt: '2024-01-01T00:00:00Z'
   })
   api.databases.remove.mockResolvedValue(undefined)
+  api.databases.schema.mockResolvedValue({ tables: [] })
+  api.databases.createTable.mockResolvedValue({ name: 't', columns: [] })
+  api.databases.addColumn.mockResolvedValue({ name: 'c', type: 'VARCHAR', nullable: true })
   api.sql.query.mockResolvedValue({
     columns: ['id'],
     rows: [['1']],
@@ -288,7 +294,7 @@ export function applyApiDefaults() {
   api.agentThreads.page.mockResolvedValue({ threads: [], next_cursor: '' })
   api.agentThreads.rename.mockResolvedValue({ id: 'th-1', title: '已重命名', created_at: 't', updated_at: 't' })
   api.agentThreads.runs.mockResolvedValue([])
-  api.agentThreads.create.mockResolvedValue({ id: 'th-1', title: '云 Agent', created_at: 't', updated_at: 't' })
+  api.agentThreads.create.mockResolvedValue({ id: 'th-1', title: '云助手', created_at: 't', updated_at: 't' })
   api.agentThreads.messages.mockResolvedValue([])
   api.agentThreads.streamRun.mockReturnValue({ close: vi.fn() })
   api.agentThreads.cancel.mockResolvedValue({ id: 'run-1', thread_id: 'th-1', agent_id: 'ag-1', status: 'canceled' })

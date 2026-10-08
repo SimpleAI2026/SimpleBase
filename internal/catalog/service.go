@@ -70,6 +70,8 @@ type CreateDatabaseInput struct {
 	TenantID  string
 	ProjectID string
 	Name      string
+	// DataModel 是 collection 或 sql。空表示集合文档。
+	DataModel string
 }
 
 // CreateDatabase 校验名称与 project 归属 → 生成 UUID → 建立不可猜测 prefix →
@@ -151,6 +153,10 @@ func (s *Service) ensureTenantMatch(ctx context.Context, principal auth.Principa
 
 // createDatabase 是 user / kv 共用的建库路径；kind 决定写入的 catalog kind 字段。
 func (s *Service) createDatabase(ctx context.Context, in CreateDatabaseInput, kind string) (Database, error) {
+	dataModel, err := NormalizeDataModel(in.DataModel)
+	if err != nil {
+		return Database{}, err
+	}
 	if in.TenantID == "" || in.ProjectID == "" {
 		return Database{}, fmt.Errorf("%w: tenant_id/project_id required", ErrInvalidName)
 	}
@@ -175,6 +181,7 @@ func (s *Service) createDatabase(ctx context.Context, in CreateDatabaseInput, ki
 		ProjectID:     in.ProjectID,
 		Name:          in.Name,
 		Kind:          kind,
+		DataModel:     dataModel,
 		Status:        DatabaseCreating,
 		StoragePrefix: prefix,
 		FormatVersion: objectstore.DescriptorFormatVersion,

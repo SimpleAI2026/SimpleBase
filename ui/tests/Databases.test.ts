@@ -95,6 +95,10 @@ const dbStubs = {
     emits: ['created', 'update:open'],
     template:
       '<div v-if="open" class="kv-m">{{ collection }}<button type="button" class="kv-created" @click="$emit(\'created\')">ok</button></div>'
+  },
+  SchemaPanel: {
+    props: ['database', 'readonly'],
+    template: '<div class="schema-panel" :data-readonly="readonly ? \'1\' : \'0\'">{{ database.name }}</div>'
   }
 }
 
@@ -111,7 +115,7 @@ describe('Databases (数据库管理)', () => {
 
   it('lists databases with status labels and write actions', async () => {
     const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
-    expect(wrapper.text()).toContain('DuckLake 数据库、SQL 工作台与集合文档')
+    expect(wrapper.text()).toContain('DuckLake 数据库：集合文档或 SQL 表，新建后即可使用')
     expect(wrapper.text()).toContain('数据库列表')
     expect(wrapper.text()).toContain('demo')
     expect(wrapper.text()).toContain('就绪')
@@ -150,9 +154,59 @@ describe('Databases (数据库管理)', () => {
     await wrapper.get('#db-name').setValue('okdb')
     await wrapper.get('.sb-ok').trigger('click')
     await flushPromises()
-    expect(api.databases.create).toHaveBeenCalled()
+    expect(api.databases.create).toHaveBeenCalledWith(expect.any(String), {
+      name: 'okdb',
+      dataModel: 'collection',
+      initSql: undefined
+    })
     expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('就绪'))
     expect(wrapper.find('.sb-modal').exists()).toBe(false)
+  })
+
+  it('creates a SQL database with init SQL and manages schema instead of collections', async () => {
+    const sqlDb = {
+      id: 'db-sql',
+      name: 'sqldb',
+      status: 'ready' as const,
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      dataModel: 'sql' as const
+    }
+    api.databases.list.mockResolvedValue([readyDb, sqlDb])
+    const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
+    expect(wrapper.text()).toContain('集合')
+
+    await clickText(wrapper, '新建数据库')
+    expect(wrapper.find('#db-init-sql').exists()).toBe(false)
+    await clickText(wrapper, 'SQL 数据')
+    expect(wrapper.find('#db-init-sql').exists()).toBe(true)
+    await clickText(wrapper, '集合文档')
+    expect(wrapper.find('#db-init-sql').exists()).toBe(false)
+    await clickText(wrapper, 'SQL 数据')
+    await wrapper.get('#db-init-sql').setValue('  CREATE TABLE t (id INTEGER);  ')
+    await wrapper.get('#db-name').setValue('orders')
+    await wrapper.get('.sb-ok').trigger('click')
+    await flushPromises()
+    expect(api.databases.create).toHaveBeenCalledWith(expect.any(String), {
+      name: 'orders',
+      dataModel: 'sql',
+      initSql: 'CREATE TABLE t (id INTEGER);'
+    })
+
+    const cards = wrapper.get('[aria-label="数据库移动端列表"]').findAll('article')
+    const sqlCard = cards.find((card) => card.text().includes('sqldb'))!
+    expect(sqlCard.text()).toContain('SQL')
+    expect(sqlCard.findAll('button').some((button) => button.text().trim() === '新建集合')).toBe(false)
+    await sqlCard.findAll('button').find((button) => button.text() === '查看数据')!.trigger('click')
+    expect(sqlCard.find('.schema-panel').exists()).toBe(true)
+    expect(sqlCard.find('.coll-panel').exists()).toBe(false)
+
+    const collectionCard = cards.find((card) => card.text().includes('demo'))!
+    expect(collectionCard.text()).toContain('集合')
+    expect(collectionCard.findAll('button').some((button) => button.text().trim() === '新建集合')).toBe(true)
+    await collectionCard.findAll('button').find((button) => button.text() === '查看数据')!.trigger('click')
+    expect(collectionCard.find('.coll-panel').exists()).toBe(true)
+    expect(wrapper.find('.schema-panel').exists()).toBe(true)
   })
 
   it('surfaces create and delete errors', async () => {

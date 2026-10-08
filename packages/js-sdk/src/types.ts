@@ -26,6 +26,8 @@ export interface DatabaseInfo {
   name?: string
   status?: string
   kind?: string
+  /** collection（默认，含存量库）或 sql */
+  data_model?: 'collection' | 'sql'
   [key: string]: unknown
 }
 

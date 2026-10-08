@@ -21,7 +21,11 @@ import type {
   SandboxItem,
   SandboxExecResult,
   SandboxFileEntry,
+  CreateDatabaseInput,
   DatabaseItem,
+  DatabaseSchema,
+  SchemaColumn,
+  SchemaTable,
   GoFunctionItem,
   GoFuncVersionCreate,
   GoFuncVersionSummary,
@@ -68,8 +72,44 @@ function toDatabaseItem(d: Record<string, any>): DatabaseItem {
     snapshot: d.snapshot
       ? { lastSyncedSnapshot: d.snapshot.last_synced_snapshot, syncLag: d.snapshot.sync_lag }
       : undefined,
-    documentCount: typeof d.document_count === 'number' ? d.document_count : undefined
+    documentCount: typeof d.document_count === 'number' ? d.document_count : undefined,
+    dataModel: d.data_model === 'sql' ? 'sql' : 'collection'
   }
+}
+
+function schemaText(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function toSchemaColumn(raw: unknown): SchemaColumn {
+  const column = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
+  return {
+    name: schemaText(column?.name),
+    type: schemaText(column?.type),
+    nullable: column?.nullable !== false
+  }
+}
+
+function toSchemaTable(raw: unknown): SchemaTable {
+  const table = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
+  const columns = Array.isArray(table?.columns) ? table.columns.map(toSchemaColumn) : []
+  return { name: schemaText(table?.name), columns }
+}
+
+function toDatabaseSchema(raw: unknown): DatabaseSchema {
+  const body = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
+  const tables = Array.isArray(body?.tables) ? body.tables.map(toSchemaTable) : []
+  return { tables }
+}
+
+function databaseResourcePath(projectId: string, databaseId: string, suffix: string) {
+  return (
+    '/v1/projects/' +
+    encodeURIComponent(projectId) +
+    '/databases/' +
+    encodeURIComponent(databaseId) +
+    suffix
+  )
 }
 
 /** SQL 请求：UI camelCase → 后端 snake_case */
@@ -913,9 +953,13 @@ export const httpApi: Api = {
           const list = Array.isArray(r.data?.databases) ? r.data.databases : []
           return list.map(toDatabaseItem)
         }),
-    create: (projectId, name) =>
+    create: (projectId, input: CreateDatabaseInput) =>
       http
-        .post('/v1/projects/' + encodeURIComponent(projectId) + '/databases', { name })
+        .post('/v1/projects/' + encodeURIComponent(projectId) + '/databases', {
+          name: input.name,
+          data_model: input.dataModel,
+          init_sql: input.initSql
+        })
         .then((r) => toDatabaseItem(r.data)),
     remove: (projectId, databaseId) =>
       http
@@ -925,7 +969,31 @@ export const httpApi: Api = {
             '/databases/' +
             encodeURIComponent(databaseId)
         )
-        .then(() => undefined)
+        .then(() => undefined),
+    schema: (projectId, databaseId) =>
+      http
+        .get(databaseResourcePath(projectId, databaseId, '/schema'))
+        .then((r) => toDatabaseSchema(r.data)),
+    createTable: (projectId, databaseId, table) =>
+      http
+        .post(databaseResourcePath(projectId, databaseId, '/schema/tables'), {
+          name: table.name,
+          columns: table.columns.map((column) => ({
+            name: column.name,
+            type: column.type,
+            nullable: column.nullable
+          }))
+        })
+        .then((r) => toSchemaTable(r.data)),
+    addColumn: (projectId, databaseId, column) =>
+      http
+        .post(databaseResourcePath(projectId, databaseId, '/schema/columns'), {
+          table: column.table,
+          name: column.name,
+          type: column.type,
+          nullable: column.nullable
+        })
+        .then((r) => toSchemaColumn(r.data))
   },
 
   sql: {

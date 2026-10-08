@@ -10,7 +10,8 @@ func applyTestSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS sys_databases (
 			id VARCHAR NOT NULL, tenant_id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, name VARCHAR NOT NULL,
 			kind VARCHAR NOT NULL, status VARCHAR NOT NULL, storage_prefix VARCHAR NOT NULL, format_version BIGINT NOT NULL,
-			deleted_at TIMESTAMP, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL)`,
+			deleted_at TIMESTAMP, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL,
+			data_model VARCHAR NOT NULL DEFAULT 'collection')`,
 		`CREATE TABLE IF NOT EXISTS sys_api_keys (
 			id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, key_hash VARCHAR NOT NULL, permissions VARCHAR NOT NULL,
 			created_at TIMESTAMP NOT NULL, revoked_at TIMESTAMP)`,

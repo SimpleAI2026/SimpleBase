@@ -1,11 +1,11 @@
 <template>
   <ProjectScope>
-  <PageContainer subtitle="DuckLake 数据库、SQL 工作台与集合文档">
+  <PageContainer subtitle="DuckLake 数据库：集合文档或 SQL 表，新建后即可使用">
     <Card>
       <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
         <CardTitle>{{ isAdmin ? '系统数据库' : '数据库列表' }}</CardTitle>
         <CardDescription>
-          {{ isAdmin ? '系统库承载实例元数据、日志与监控，只读且不可删除' : `共 ${databases.length} 个数据库。新建后即可查询、建集合` }}
+          {{ isAdmin ? '系统库承载实例元数据、日志与监控，只读且不可删除' : `共 ${databases.length} 个数据库。集合文档可建集合，SQL 表可管理结构` }}
         </CardDescription>
         <CardAction v-if="!isAdmin">
           <div class="flex items-center gap-2">
@@ -42,6 +42,7 @@
                 <div class="flex min-w-0 items-center gap-2">
                   <DatabaseIcon aria-hidden="true" class="size-4 shrink-0 text-primary" />
                   <span class="sb-mono truncate font-semibold" :title="record.name">{{ record.name }}</span>
+                  <Badge v-if="!isAdmin" variant="outline">{{ isSqlDatabase(record) ? 'SQL' : '集合' }}</Badge>
                 </div>
                 <Badge class="mt-2" :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
               </div>
@@ -51,7 +52,7 @@
             </div>
             <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
               <Button variant="outline" size="sm" :disabled="!isReady(record)" @click="openSql(record)">SQL</Button>
-              <Button v-if="!isAdmin" variant="outline" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">新建集合</Button>
+              <Button v-if="!isAdmin && !isSqlDatabase(record)" variant="outline" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">新建集合</Button>
               <ConfirmAction v-if="!isAdmin" :disabled="record.status === 'deleting'" title="删除为异步操作，确认继续？" @confirm="removeDb(record)">
                 <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">删除</Button>
               </ConfirmAction>
@@ -63,7 +64,8 @@
               <span>创建时间</span><span>{{ formatTime(record.createdAt) }}</span>
             </div>
             <div v-if="expandedRowKeys.includes(record.id)" :id="`db-mobile-${record.id}`" class="mt-4 border-t border-border pt-4">
-              <DataTabs :project-id="projectStore.id" :database="record" :reload-token="collectionReload[record.id] || 0" :readonly="isAdmin" @view-data="(c) => openDocList(record, c)" @add-document="(c) => openKv(record, c)" @create-collection="openCreateCollection(record)" />
+              <SchemaPanel v-if="isSqlDatabase(record)" :project-id="projectStore.id" :database="record" :readonly="isAdmin" />
+              <DataTabs v-else :project-id="projectStore.id" :database="record" :reload-token="collectionReload[record.id] || 0" :readonly="isAdmin" @view-data="(c) => openDocList(record, c)" @add-document="(c) => openKv(record, c)" @create-collection="openCreateCollection(record)" />
             </div>
           </article>
         </div>
@@ -117,6 +119,7 @@
                   <span class="sb-mono inline-flex items-center gap-1.5 font-medium text-foreground">
                     <DatabaseIcon class="size-4 shrink-0 text-primary" />
                     <span class="truncate">{{ record.name }}</span>
+                    <Badge v-if="!isAdmin" variant="outline">{{ isSqlDatabase(record) ? 'SQL' : '集合' }}</Badge>
                   </span>
                 </TableCell>
                 <TableCell class="sb-col-id">
@@ -154,7 +157,7 @@
                       <TooltipContent>{{ isReady(record) ? (isAdmin ? 'SQL 控制台（只读查询）' : 'SQL 工作台') : '数据库未就绪' }}</TooltipContent>
                     </Tooltip>
                     <template v-if="!isAdmin">
-                      <Tooltip>
+                      <Tooltip v-if="!isSqlDatabase(record)">
                         <TooltipTrigger as-child>
                           <span>
                             <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">
@@ -188,7 +191,14 @@
               <TableRow v-if="expandedRowKeys.includes(record.id)" class="bg-muted/20 hover:bg-muted/20">
                 <TableCell colspan="7" class="p-0 border-b-0">
                   <div :id="`db-desktop-${record.id}`" class="border-y border-border/70 bg-muted/25 px-6 py-4">
+                    <SchemaPanel
+                      v-if="isSqlDatabase(record)"
+                      :project-id="projectStore.id"
+                      :database="record"
+                      :readonly="isAdmin"
+                    />
                     <DataTabs
+                      v-else
                       :project-id="projectStore.id"
                       :database="record"
                       :reload-token="collectionReload[record.id] || 0"
@@ -231,6 +241,24 @@
           :aria-invalid="nameError ? true : undefined"
         />
         <FieldDescription v-if="nameError">{{ nameError }}</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel>数据类型</FieldLabel>
+        <div class="flex flex-wrap gap-2">
+          <Button type="button" size="sm" :variant="dataModel === 'collection' ? 'default' : 'outline'" @click="dataModel = 'collection'">集合文档</Button>
+          <Button type="button" size="sm" :variant="dataModel === 'sql' ? 'default' : 'outline'" @click="dataModel = 'sql'">SQL 数据</Button>
+        </div>
+        <FieldDescription>集合文档沿用集合与文档；SQL 数据使用关系表，创建后可管理表结构。</FieldDescription>
+      </Field>
+      <Field v-if="dataModel === 'sql'">
+        <FieldLabel for="db-init-sql">初始化 SQL</FieldLabel>
+        <Textarea
+          id="db-init-sql"
+          v-model="initSql"
+          placeholder="可选。例如 CREATE TABLE orders (id INTEGER);"
+          class="min-h-28 font-mono text-xs"
+        />
+        <FieldDescription>仅 CREATE、ALTER、INSERT。多条语句用分号分隔。</FieldDescription>
       </Field>
     </SbModal>
 
@@ -276,6 +304,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
@@ -307,6 +336,7 @@ import CreateCollectionModal from '../components/modal/CreateCollectionModal.vue
 import DocumentListModal from '../components/modal/DocumentListModal.vue'
 import DocumentKvModal from '../components/modal/DocumentKvModal.vue'
 import DataTabs from '../components/databases/DataTabs.vue'
+import SchemaPanel from '../components/databases/SchemaPanel.vue'
 
 const projectStore = useProjectStore()
 const { isAdmin } = storeToRefs(projectStore)
@@ -316,6 +346,8 @@ const { page, pageSize, total, pageCount, items: paged } = usePagination(databas
 const createVisible = ref(false)
 const creating = ref(false)
 const newName = ref('')
+const dataModel = ref<'collection' | 'sql'>('collection')
+const initSql = ref('')
 const expandedRowKeys = ref<string[]>([])
 const collectionReload = reactive<Record<string, number>>({})
 
@@ -348,6 +380,10 @@ function isReady(db: DatabaseItem) {
   return db.status === 'ready'
 }
 
+function isSqlDatabase(db: DatabaseItem) {
+  return db.dataModel === 'sql'
+}
+
 function toggleExpand(db: DatabaseItem) {
   if (!isReady(db)) return
   if (expandedRowKeys.value.includes(db.id)) {
@@ -359,6 +395,8 @@ function toggleExpand(db: DatabaseItem) {
 
 function openCreate() {
   newName.value = ''
+  dataModel.value = 'collection'
+  initSql.value = ''
   createVisible.value = true
 }
 
@@ -416,9 +454,14 @@ async function create() {
     toast.warning(nameError.value)
     return
   }
+  const sql = initSql.value.trim()
   creating.value = true
   try {
-    const db = await api.databases.create(projectStore.id, name)
+    const db = await api.databases.create(projectStore.id, {
+      name,
+      dataModel: dataModel.value,
+      initSql: sql ? sql : undefined
+    })
     toast.success(`数据库 ${db.name} 创建成功（状态：${statusText(db.status)}）`)
     createVisible.value = false
     await doLoad()

@@ -23,7 +23,7 @@ SimpleBase 以**项目**为隔离单位，集中管理 DuckLake 数据库、项�
 | 上传和下载对象 | [对象存储](/docs/storage) |
 | 运行 Go 代码或定时作业 | [云函数](/docs/gofunction/overview)、[定时任务](/docs/cronjob/overview) |
 | 隔离执行脚本与 CI 用例 | [云沙盒](/docs/sandbox) |
-| 用自然语言调用工具 | [云 Agent](/docs/agent) |
+| 用自然语言调用工具 | [云助手](/docs/agent) |
 | 观察服务与管理成员 | [部署](/docs/ops/deployment)、[日志](/docs/ops/logs)、[用户与角色](/docs/ops/users) |
 
 ## 使用边界

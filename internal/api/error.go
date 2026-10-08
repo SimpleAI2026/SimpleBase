@@ -182,6 +182,9 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, catalog.ErrSystemProtected) {
 		return NewAPIError(http.StatusForbidden, "system_database_protected", "system database cannot be modified or deleted", requestID)
 	}
+	if errors.Is(err, catalog.ErrInvalidDataModel) {
+		return NewAPIError(http.StatusBadRequest, "data_model_invalid", "data_model must be collection or sql", requestID)
+	}
 	if errors.Is(err, systemdb.ErrUnavailable) {
 		return NewAPIError(http.StatusServiceUnavailable, "system_store_unavailable", "system database unavailable", requestID)
 	}

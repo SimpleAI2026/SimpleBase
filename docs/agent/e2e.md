@@ -1,9 +1,9 @@
 ---
-title: 云 Agent 模型联调与验收
+title: 云助手模型联调与验收
 order: 3
 ---
 
-# 云 Agent 模型联调与验收
+# 云助手模型联调与验收
 
 本页用于验证 `plan/planv4.0/cloud-agent-optimization-plan.md` 的前后端能力。默认单元测试不访问外网；真实模型的 key 只放进被 Git 忽略的 `.env` 或 CI secret。
 

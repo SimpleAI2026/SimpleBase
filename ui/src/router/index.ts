@@ -79,7 +79,7 @@ const routes: RouteRecordRaw[] = [
         path: 'agents',
         name: 'agents',
         component: () => import('../pages/AgentManager.vue'),
-        meta: { title: '云 Agent' }
+        meta: { title: '云助手' }
       },
       { path: 'llm', redirect: (to) => ({ name: 'agents', query: to.query, hash: to.hash }) },
       {

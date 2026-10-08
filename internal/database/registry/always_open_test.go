@@ -28,7 +28,8 @@ func newAlwaysOpenCatalog(t *testing.T) (*catalog.Service, catalog.Repository, a
 		`CREATE TABLE sys_databases (
 			id VARCHAR NOT NULL, tenant_id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, name VARCHAR NOT NULL,
 			kind VARCHAR NOT NULL, status VARCHAR NOT NULL, storage_prefix VARCHAR NOT NULL, format_version BIGINT NOT NULL,
-			deleted_at TIMESTAMP, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL)`,
+			deleted_at TIMESTAMP, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL,
+			data_model VARCHAR NOT NULL DEFAULT 'collection')`,
 	} {
 		if _, err := raw.Exec(stmt); err != nil {
 			t.Fatal(err)

@@ -29,6 +29,7 @@ type fakeSQLLease struct {
 	batchErr       error
 	lastQueryStmt  database.Statement
 	lastExecStmt   database.Statement
+	execStmts      []database.Statement
 	lastBatchStmts []database.Statement
 	raw            *sql.DB
 	notifyCount    int
@@ -43,6 +44,7 @@ func (l *fakeSQLLease) Query(ctx context.Context, stmt database.Statement, maxRo
 
 func (l *fakeSQLLease) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
 	l.lastExecStmt = stmt
+	l.execStmts = append(l.execStmts, stmt)
 	return l.executeResult, l.executeErr
 }
 

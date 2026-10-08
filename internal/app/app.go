@@ -194,6 +194,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	// query 路由也只在 writable 实例提供（首期 readonly 不开放 SQL API）。
 	var sqlHandler *api.SQLHandler
 	var dataHandler *api.DataHandler
+	var schemaHandler *api.SchemaHandler
 	var kvHandler *api.KVHandler
 	var kvService api.KVService
 	if cfg.Instance.Writable && a.registry != nil {
@@ -212,6 +213,8 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 			sqlHandler.DurabilityFor = f.DurabilityFor
 		}
 		dataHandler = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable)
+		schemaHandler = api.NewSchemaHandler(sqlService.(api.DataService), cfg.Instance.Writable)
+		dbHandler.InitSQL = sqlService
 		// 项目级 KV（key-value-ducklake-plan §2/§3）：catalog + registry 桥接。
 		kvService = api.NewKVServiceAdapter(a.catalog, a.registry)
 		kvHandler = api.NewKVHandler(kvService, cfg.Instance.Writable)
@@ -288,6 +291,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		DatabaseHandler: dbHandler,
 		SQLHandler:      sqlHandler,
 		DataHandler:     dataHandler,
+		SchemaHandler:   schemaHandler,
 		KVHandler:       kvHandler,
 		KVService:       kvService,
 		KVInit:          kvInit,
@@ -871,14 +875,14 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		return nil
 	}
 	rt := &cloudagent.Runtime{
-		LLM:      api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
-		DB:       api.NewCloudAgentDB(a.catalog, a.registry),
-		Obj:      api.NewCloudAgentObj(a.fileStore, a.systemStore),
-		Logs:     cloudagent.NewLogAccess(a.systemStore),
-		Settings: cloudagent.NewSettingsAccess(a.systemStore),
+		LLM:           api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
+		DB:            api.NewCloudAgentDB(a.catalog, a.registry),
+		Obj:           api.NewCloudAgentObj(a.fileStore, a.systemStore),
+		Logs:          cloudagent.NewLogAccess(a.systemStore),
+		Settings:      cloudagent.NewSettingsAccess(a.systemStore),
 		MaxIterations: a.cfg.LLM.EffectiveAgentMaxIterations(),
-		RunTimeout: a.cfg.LLM.EffectiveAgentRunTimeout(),
-		ToolProtocol: a.cfg.LLM.EffectiveAgentToolProtocol(),
+		RunTimeout:    a.cfg.LLM.EffectiveAgentRunTimeout(),
+		ToolProtocol:  a.cfg.LLM.EffectiveAgentToolProtocol(),
 	}
 	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
 		rt.Sandbox = &sandboxAdapter{m: a.sandboxMgr}

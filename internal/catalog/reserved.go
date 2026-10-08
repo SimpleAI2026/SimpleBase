@@ -39,3 +39,9 @@ func IsSystemDatabase(d Database) bool {
 func IsKVDatabase(d Database) bool {
 	return d.Kind == DatabaseKindKV
 }
+
+// 用户库数据形态。创建时选定；省略视为集合文档。
+const (
+	DataModelCollection = "collection"
+	DataModelSQL        = "sql"
+)

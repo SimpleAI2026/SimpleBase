@@ -50,11 +50,14 @@ type Project struct {
 // Database 描述一个 logical database 的 catalog 记录。
 // 注意：StoragePrefix 由 KeyBuilder 产生的 data 前缀，不含用户输入 name。
 type Database struct {
-	ID            string
-	TenantID      string
-	ProjectID     string
-	Name          string
-	Kind          string // "user" | "system"；空视为 user
+	ID        string
+	TenantID  string
+	ProjectID string
+	Name      string
+	Kind      string // "user" | "system"；空视为 user
+	// DataModel 是用户库的数据形态："collection" | "sql"。
+	// 空字符串在读取时视为 collection（迁移前的旧行）。系统库与 KV 不使用该字段做分流。
+	DataModel     string
 	Status        DatabaseStatus
 	StoragePrefix string
 	FormatVersion int

@@ -87,6 +87,14 @@ func TestPlan_MigrateRetiredOpenCloseStatuses(t *testing.T) {
 	insert("creating", "creating", false)
 	insert("deleted-closed", "closed", true)
 
+	var dataModel string
+	if err := db.QueryRowContext(ctx, `SELECT data_model FROM sys_databases WHERE id = ?`, "creating").Scan(&dataModel); err != nil {
+		t.Fatal(err)
+	}
+	if dataModel != catalog.DataModelCollection {
+		t.Fatalf("existing/default data_model=%q", dataModel)
+	}
+
 	if _, err := db.ExecContext(ctx, retireOpenCloseStatusSQL); err != nil {
 		t.Fatal(err)
 	}

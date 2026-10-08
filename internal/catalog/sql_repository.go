@@ -11,6 +11,10 @@ import (
 
 // sqlRepository 基于 database/sql 访问系统 DuckLake（sys_* 表）。
 // 不依赖 PRIMARY KEY / 序列；唯一性由应用层检查。测试可用同一 SQL 跑在 SQLite 上。
+
+// databaseSelectList 是所有读取 sys_databases 的列清单，必须与 scanDatabase 一致。
+const databaseSelectList = `id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at, data_model`
+
 type sqlRepository struct {
 	db         *sql.DB
 	afterWrite func(context.Context)
@@ -106,6 +110,9 @@ func (r *sqlRepository) CreateDatabase(ctx context.Context, d Database) error {
 	if d.Kind == "" {
 		d.Kind = DatabaseKindUser
 	}
+	if d.DataModel == "" {
+		d.DataModel = DataModelCollection
+	}
 	var existing string
 	err := r.db.QueryRowContext(ctx, `SELECT id FROM sys_databases WHERE id = ?`, d.ID).Scan(&existing)
 	if err == nil {
@@ -126,10 +133,10 @@ func (r *sqlRepository) CreateDatabase(ctx context.Context, d Database) error {
 		}
 	}
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO sys_databases(id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sys_databases(id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at, data_model)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ID, d.TenantID, d.ProjectID, d.Name, d.Kind, string(d.Status), d.StoragePrefix,
-		int64(d.FormatVersion), nullTime(d.DeletedAt), d.CreatedAt.UTC(), d.UpdatedAt.UTC())
+		int64(d.FormatVersion), nullTime(d.DeletedAt), d.CreatedAt.UTC(), d.UpdatedAt.UTC(), d.DataModel)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("%w: database name %q in project %s", ErrAlreadyExists, d.Name, d.ProjectID)
@@ -142,7 +149,7 @@ func (r *sqlRepository) CreateDatabase(ctx context.Context, d Database) error {
 
 func (r *sqlRepository) GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at
+		`SELECT `+databaseSelectList+`
 		 FROM sys_databases WHERE id = ? AND project_id = ?`,
 		databaseID, projectID)
 	d, err := scanDatabase(row)
@@ -158,7 +165,7 @@ func (r *sqlRepository) GetDatabase(ctx context.Context, projectID, databaseID s
 // GetDatabaseByName 按 (projectID, name) 查未软删的库（含 kv 等 kind）。
 func (r *sqlRepository) GetDatabaseByName(ctx context.Context, projectID, name string) (Database, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at
+		`SELECT `+databaseSelectList+`
 		 FROM sys_databases WHERE project_id = ? AND name = ? AND deleted_at IS NULL`,
 		projectID, name)
 	d, err := scanDatabase(row)
@@ -192,7 +199,7 @@ func (r *sqlRepository) ListDatabasesByStatuses(ctx context.Context, statuses []
 		args[i] = string(st)
 	}
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at
+		`SELECT `+databaseSelectList+`
 		 FROM sys_databases WHERE deleted_at IS NULL AND status IN (`+strings.Join(placeholders, ",")+`)
 		 ORDER BY created_at ASC, id ASC`, args...)
 	if err != nil {
@@ -220,7 +227,7 @@ func (r *sqlRepository) listDatabasesWhere(ctx context.Context, projectID string
 	}
 	args := append([]any{projectID}, kindArgs...)
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at
+		`SELECT `+databaseSelectList+`
 		 FROM sys_databases WHERE project_id = ? AND deleted_at IS NULL AND `+kindWhere+`
 		 ORDER BY created_at ASC, id ASC LIMIT ?`,
 		append(args, int64(limit+1))...)
@@ -258,14 +265,21 @@ func scanDatabase(s scanner) (Database, error) {
 	var status string
 	var formatVersion int64
 	var deletedAt sql.NullTime
+	var dataModel sql.NullString
 	err := s.Scan(
 		&d.ID, &d.TenantID, &d.ProjectID, &d.Name, &d.Kind, &status, &d.StoragePrefix,
-		&formatVersion, &deletedAt, &d.CreatedAt, &d.UpdatedAt)
+		&formatVersion, &deletedAt, &d.CreatedAt, &d.UpdatedAt, &dataModel)
 	if err != nil {
 		return Database{}, err
 	}
 	if d.Kind == "" {
 		d.Kind = DatabaseKindUser
+	}
+	if dataModel.Valid {
+		d.DataModel = strings.TrimSpace(dataModel.String)
+	}
+	if d.DataModel == "" {
+		d.DataModel = DataModelCollection
 	}
 	d.Status = DatabaseStatus(status)
 	d.FormatVersion = int(formatVersion)
@@ -314,7 +328,7 @@ func (r *sqlRepository) TransitionDatabase(ctx context.Context, id string, from 
 	}
 	r.touch(ctx)
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at
+		`SELECT `+databaseSelectList+`
 		 FROM sys_databases WHERE id = ?`, id)
 	return scanDatabase(row)
 }

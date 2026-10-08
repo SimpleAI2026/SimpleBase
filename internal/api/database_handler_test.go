@@ -37,6 +37,7 @@ func (f *fakeDBService) CreateDatabase(ctx context.Context, in catalog.CreateDat
 		TenantID:  in.TenantID,
 		ProjectID: in.ProjectID,
 		Name:      in.Name,
+		DataModel: in.DataModel,
 		Status:    catalog.DatabaseReady,
 	}
 	f.dbs[db.ID] = db
@@ -95,11 +96,16 @@ func (f *fakeDBService) DeleteDatabase(ctx context.Context, principal auth.Princ
 // setupTestRouter 构造一个带 auth + project context 中间件的测试路由。
 // 使用固定 principal 注入，跳过真实 API key 认证。
 func setupTestRouter(t *testing.T, svc *fakeDBService, writable bool) *echo.Echo {
+	return setupTestRouterSQL(t, svc, writable, nil)
+}
+
+func setupTestRouterSQL(t *testing.T, svc *fakeDBService, writable bool, init SQLService) *echo.Echo {
 	t.Helper()
 	e := echo.New()
 	e.HideBanner = true
 
 	h := NewDatabaseHandler(svc, writable)
+	h.InitSQL = init
 
 	// 注入固定 principal 和 project context 的中间件
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -323,6 +329,75 @@ func TestPlan_DeleteDatabaseHTTPReturnsDeleted(t *testing.T) {
 	}
 	if svc.dbs["db-1"].Status != catalog.DatabaseDeleted {
 		t.Fatalf("fake store status=%s want deleted", svc.dbs["db-1"].Status)
+	}
+}
+
+func TestCreateDatabase_SQLWithInitSQL(t *testing.T) {
+	svc := newFakeDBService()
+	lease := &fakeSQLLease{}
+	init := &fakeSQLService{lease: lease}
+	e := setupTestRouterSQL(t, svc, true, init)
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases", CreateDatabaseRequest{
+		Name: "shop", DataModel: "sql", InitSQL: "CREATE TABLE users (id INTEGER); INSERT INTO users VALUES (1)",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp DatabaseResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.DataModel != catalog.DataModelSQL || resp.Name != "shop" {
+		t.Fatalf("resp=%+v", resp)
+	}
+	if len(lease.execStmts) != 2 || lease.execStmts[0].SQL != "CREATE TABLE users (id INTEGER)" {
+		t.Fatalf("stmts=%+v", lease.execStmts)
+	}
+	if svc.dbs["db-shop"].Status != catalog.DatabaseReady {
+		t.Fatalf("status=%s", svc.dbs["db-shop"].Status)
+	}
+}
+
+func TestCreateDatabase_InitSQLRejectedForCollection(t *testing.T) {
+	svc := newFakeDBService()
+	e := setupTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases", CreateDatabaseRequest{
+		Name: "docs", InitSQL: "CREATE TABLE t (id INTEGER)",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(svc.dbs) != 0 {
+		t.Fatalf("created despite rejection: %+v", svc.dbs)
+	}
+}
+
+func TestCreateDatabase_InvalidDataModel(t *testing.T) {
+	svc := newFakeDBService()
+	e := setupTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases", CreateDatabaseRequest{
+		Name: "docs", DataModel: "graph",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(svc.dbs) != 0 {
+		t.Fatal("database was created")
+	}
+}
+
+func TestCreateDatabase_InitSQLExecutionRollsBack(t *testing.T) {
+	svc := newFakeDBService()
+	lease := &fakeSQLLease{executeErr: errors.New("parser error")}
+	e := setupTestRouterSQL(t, svc, true, &fakeSQLService{lease: lease})
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases", CreateDatabaseRequest{
+		Name: "shop", DataModel: "sql", InitSQL: "CREATE TABLE users (id INTEGER)",
+	})
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("init_sql_failed")) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.dbs["db-shop"].Status != catalog.DatabaseDeleted {
+		t.Fatalf("rollback status=%s", svc.dbs["db-shop"].Status)
 	}
 }
 

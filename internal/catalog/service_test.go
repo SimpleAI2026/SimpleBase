@@ -91,8 +91,37 @@ func TestCreateDatabase_Success(t *testing.T) {
 	if db.Status != DatabaseReady {
 		t.Fatalf("expected status ready after create, got %s", db.Status)
 	}
+	if db.DataModel != DataModelCollection {
+		t.Fatalf("default data model %s", db.DataModel)
+	}
 	if descriptor.calls != 1 {
 		t.Fatalf("expected 1 descriptor write, got %d", descriptor.calls)
+	}
+}
+
+func TestCreateDatabase_SQLDataModelRoundTrip(t *testing.T) {
+	svc, _, tenantID, projectID := setupService(t, &fakeDescriptorWriter{})
+	ctx := context.Background()
+	db, err := svc.CreateDatabase(ctx, CreateDatabaseInput{
+		TenantID: tenantID, ProjectID: projectID, Name: "sqldb", DataModel: " SQL ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if db.DataModel != DataModelSQL {
+		t.Fatalf("created model %s", db.DataModel)
+	}
+	got, err := svc.GetDatabase(ctx, newTestPrincipal(tenantID, projectID), projectID, db.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DataModel != DataModelSQL {
+		t.Fatalf("loaded model %s", got.DataModel)
+	}
+	if _, err := svc.CreateDatabase(ctx, CreateDatabaseInput{
+		TenantID: tenantID, ProjectID: projectID, Name: "bad", DataModel: "document",
+	}); !errors.Is(err, ErrInvalidDataModel) {
+		t.Fatalf("invalid model: %v", err)
 	}
 }
 

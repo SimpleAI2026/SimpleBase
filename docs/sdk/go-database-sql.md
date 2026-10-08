@@ -12,8 +12,21 @@ group: Go
 page, err := client.ListDatabases(ctx, 50, "")
 if err != nil { return err }
 if page.NextCursor != "" { /* 传入 NextCursor 读取下一页 */ }
-created, err := client.CreateDatabase(ctx, "analytics")
+created, err := client.CreateDatabase(ctx, "analytics") // 集合文档
 if err != nil { return err }
+sqlDB, err := client.CreateDatabaseWith(ctx, gosdk.CreateDatabaseInput{
+    Name: "shop", DataModel: "sql", InitSQL: "CREATE TABLE users (id INTEGER)",
+})
+if err != nil { return err }
+schema, err := client.DatabaseSchema(ctx, sqlDB.ID)
+if err != nil { return err }
+_, err = client.CreateTable(ctx, sqlDB.ID, gosdk.SchemaTable{
+    Name: "events", Columns: []gosdk.SchemaColumn{{Name: "id", Type: "INTEGER"}},
+})
+if err != nil { return err }
+_, err = client.AddColumn(ctx, sqlDB.ID, "events", gosdk.SchemaColumn{Name: "email", Type: "VARCHAR"})
+if err != nil { return err }
+_ = schema
 db := client.Database(created.ID)
 result, err := db.Query(ctx, "SELECT ? AS value", []any{42}, 100)
 if err != nil { return err }
@@ -23,7 +36,7 @@ if err != nil { return err }
 fmt.Println(write.RowsAffected, write.Durability)
 ```
 
-`GetDatabase(ctx, id)` 获取资源，`DeleteDatabase(ctx, id)` 返回 `{database_id,status}` 对应的 `DeleteDatabaseResult`（HTTP 202），不可当成数据库详情。创建和写入分别需要 `database:admin`、`database:write`；查询与列表需要 `database:read`。系统数据库只能 SELECT，不可写入或删除。SQL 请始终使用 `?` 参数占位符，不拼接不受信任的输入。
+`GetDatabase(ctx, id)` 获取资源，`DeleteDatabase(ctx, id)` 返回 `{database_id,status}` 对应的 `DeleteDatabaseResult`（HTTP 202），不可当成数据库详情。`CreateDatabase` 创建集合文档库。`CreateDatabaseWith` 可指定 `DataModel`（`collection` 或 `sql`）和 `InitSQL`。`DatabaseSchema`、`CreateTable`、`AddColumn` 只用于 SQL 库。创建和写入分别需要 `database:admin`、`database:write`；查询与列表需要 `database:read`。系统数据库只能 SELECT，不可写入或删除。SQL 请始终使用 `?` 参数占位符，不拼接不受信任的输入。
 
 批处理由调用方明确选择事务模式：
 

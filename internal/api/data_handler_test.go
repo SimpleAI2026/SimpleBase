@@ -125,6 +125,35 @@ func TestDataListCollections_UsesPathDatabaseID(t *testing.T) {
 	}
 }
 
+func TestDataListCollections_SQLDatabaseRejected(t *testing.T) {
+	svc := &fakeDataService{
+		dbs: []catalog.Database{{ID: "db-sql", ProjectID: "proj-1", DataModel: catalog.DataModelSQL}},
+	}
+	e := setupDataTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-sql/data/collections", nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "data_model_mismatch") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.acquiredMode != 0 {
+		t.Fatal("sql database must not acquire a collection lease")
+	}
+}
+
+func TestDataCreateCollection_CollectionDatabaseStillWorks(t *testing.T) {
+	svc := &fakeDataService{
+		dbs:   []catalog.Database{{ID: "db-1", ProjectID: "proj-1", DataModel: catalog.DataModelCollection}},
+		lease: &fakeSQLLease{},
+	}
+	e := setupDataTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/data/collections", map[string]any{"name": "users"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.acquiredMode != database.ReadWrite {
+		t.Fatalf("mode=%v", svc.acquiredMode)
+	}
+}
+
 func TestDataCreateCollection_UnknownDatabaseID(t *testing.T) {
 	svc := &fakeDataService{
 		dbs: []catalog.Database{{ID: "db-first", Name: "first", ProjectID: "proj-1"}},
