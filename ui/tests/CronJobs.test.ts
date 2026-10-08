@@ -7,7 +7,7 @@ import { clickText, mountWithApp, sampleCron } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 import CronJobs from '@/pages/CronJobs.vue'

@@ -8,7 +8,7 @@ import { clickText, creatingDb, degradedDb, mountWithApp, readyDb, uiStubs } fro
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 import Databases from '@/pages/Databases.vue'

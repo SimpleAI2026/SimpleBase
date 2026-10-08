@@ -9,7 +9,7 @@ import CronJobModal from '@/components/modal/CronJobModal.vue'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 function mountModal(props: Record<string, unknown> = {}) {
@@ -134,6 +134,25 @@ describe('CronJobModal', () => {
     evm.saving = true
     await evm.save()
     edit.unmount()
+  })
+
+  it('round-trips once schedules between ISO runAt and datetime-local input', async () => {
+    const runAt = '2026-01-02T03:04:00.000Z'
+    const w = mountModal({ target: { ...sampleCron, scheduleKind: 'once', runAt, funcFile: 'hello', funcExport: 'Hello' } })
+    await flushPromises()
+    const vm = w.vm as any
+    expect(vm.form.runAtLocal).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+    vm.form.inputJson = '{}'
+    await vm.save()
+    expect(api.cronjobs.update.mock.calls[0][2]).toMatchObject({ scheduleKind: 'once', runAt })
+    w.unmount()
+
+    const bad = mountModal({ target: { ...sampleCron, scheduleKind: 'once', runAt: 'not-a-date' } })
+    await flushPromises()
+    expect((bad.vm as any).form.runAtLocal).toBe('')
+    ;(bad.vm as any).form.runAtLocal = 'garbage'
+    await flushPromises()
+    bad.unmount()
   })
 
   it('filters unpublished go functions and validates name format', async () => {

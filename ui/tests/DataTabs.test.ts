@@ -6,7 +6,7 @@ import DataTabs from '@/components/databases/DataTabs.vue'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 describe('DataTabs (数据库数据页签)', () => {

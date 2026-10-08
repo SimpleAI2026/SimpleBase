@@ -113,7 +113,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { api, isMock } from '../services/api'
+import { api } from '../services/api'
 import type { S3Object } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import { usePagination } from '../composables/usePagination'
@@ -133,7 +133,7 @@ const uploading = ref(false)
 const uploadPercent = ref(0)
 const fileInput = ref<HTMLInputElement | null>(null)
 
-const MAX_UPLOAD_BYTES = isMock ? 1024 * 1024 * 1024 : 50 * 1024 * 1024
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 function validateKey(key: string): string {
   if (!key) return 'key 不能为空'

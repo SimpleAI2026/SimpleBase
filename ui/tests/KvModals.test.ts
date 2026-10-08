@@ -13,7 +13,7 @@ import KvSetEditor from '@/components/databases/kv/editors/KvSetEditor.vue'
 import KvZSetEditor from '@/components/databases/kv/editors/KvZSetEditor.vue'
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 const meta = { key: 'k', type: 'string', len: null, ttl_ms: null, mtime_ms: 1, version: 1 }

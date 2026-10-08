@@ -8,7 +8,7 @@ import { KV_COMMANDS, KV_COMMAND_GROUPS, kvBasePath, kvCurlSnippet } from '@/com
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 async function mountPanel(props: Record<string, unknown> = {}) {

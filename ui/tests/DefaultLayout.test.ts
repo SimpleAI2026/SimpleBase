@@ -7,9 +7,6 @@ vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
   return {
     api: m.api,
-    get isMock() {
-      return true
-    }
   }
 })
 
@@ -45,7 +42,6 @@ describe('DefaultLayout', () => {
     })
     const { wrapper, pinia } = await mountWithApp(DefaultLayout, { path: '/' })
     expect(wrapper.text()).toContain('监控大盘')
-    expect(wrapper.text()).toContain('Mock')
     expect(wrapper.text()).toContain('使用文档')
     const auth = useAuthStore(pinia)
     const iconBtns = wrapper.findAll('button')

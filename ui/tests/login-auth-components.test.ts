@@ -8,9 +8,6 @@ vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
   return {
     api: m.api,
-    get isMock() {
-      return true
-    }
   }
 })
 

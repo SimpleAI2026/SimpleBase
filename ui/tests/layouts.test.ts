@@ -7,7 +7,6 @@ import DocsLayout from '@/layouts/DocsLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 
 vi.mock('@/services/api', () => ({
-  isMock: true,
   api: {}
 }))
 
@@ -58,7 +57,6 @@ describe('layouts', () => {
     })
     await flushPromises()
     expect(w.text()).toContain('监控大盘')
-    expect(w.text()).toContain('Mock')
     const store = useAuthStore()
     await w.findAll('button').at(-2)?.trigger('click')
     store.openSettings()

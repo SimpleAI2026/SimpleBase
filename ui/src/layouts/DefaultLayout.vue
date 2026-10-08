@@ -68,7 +68,6 @@
           <div class="mx-0.5 hidden h-5 w-px bg-border/80 sm:block" />
 
           <GlobalProjectSwitcher />
-          <Badge v-if="isMock" variant="warning" class="hidden h-5 px-1.5 text-[11px] md:inline-flex">Mock</Badge>
 
           <div class="mx-0.5 hidden h-5 w-px bg-border/80 sm:block" />
 
@@ -129,7 +128,6 @@
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { BookOpenIcon, MoonIcon, RefreshCwIcon, SettingsIcon, SunIcon } from '@lucide/vue'
-import { Badge } from '@/components/ui/badge'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
 import {
@@ -142,7 +140,6 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { isMock } from '../services/api'
 import { useAuthStore, type SettingsTab } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
 import NavMenu from '../components/NavMenu.vue'

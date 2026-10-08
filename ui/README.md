@@ -16,7 +16,7 @@ Vue 3 · TypeScript 5 · Vite 5 · Pinia · vue-router · Tailwind CSS v4 · rek
 ./build.sh dev        # 前端 http://127.0.0.1:5173 + 后端 :8080
 ```
 
-仅启动前端（需后端已在运行，或使用 mock）：
+仅启动前端（需后端已在运行）：
 
 ```bash
 cd ui
@@ -38,7 +38,6 @@ yarn dev              # http://127.0.0.1:5173
 
 | 变量 | 说明 |
 | --- | --- |
-| `VITE_USE_MOCK` | `true` 使用内置 mock 数据；`.env.development` / `.env.production` 默认均为 `false`（走真实后端），`.env.example` 演示了 mock 开启方式 |
 | `VITE_API_BASE_URL` | API 基础路径；留空走相对路径 `/v1/...`——开发由 Vite proxy 转发，生产由后端直接服务 |
 
 开发代理：`/v1`、`/health`、`/go` 转发到 `SIMPLEBASE_DEV_API_PROXY`（默认 `http://127.0.0.1:8080`，由 `./build.sh dev` 注入），见 `vite.config.ts`。
@@ -98,16 +97,15 @@ tests/                 全部单测（与 src/ 平级；import 经 `@/` 别名�
 ## API 层架构
 
 ```text
-页面/组件 ──> services/api.ts（按 VITE_USE_MOCK 切换）
-                ├─ mock:   mock.js + mock-kv.js（纯 JS，无类型）
-                └─ http:   http-api.ts（实现）→ http.ts（axios 实例、token 存取、401 处理）
+页面/组件 ──> services/api.ts（固定导出 httpApi）
+                └─ http-api.ts（实现）→ http.ts（axios 实例、token 存取、401 处理）
              └─ services/types.ts（唯一契约：Api 接口 + DTO）
 ```
 
 - 后端 snake_case → camelCase 一律走映射函数（`toProjectItem` 风格），不透传 raw。
 - 路径构造函数模式：`xxxPath(projectId, …)` 统一 `encodeURIComponent`。
 - 页面/组件**禁止**直接 import axios 或 `http-api`，只能 `api.*`。
-- 新增接口：mock 与实现两边都要实现，保持同一 `Api` 接口签名。
+- 新增接口：改 `types.ts` 契约 + `http-api.ts` 实现；单测桩在 `src/test/api-mock.ts`。
 
 ## 登录态与权限
 

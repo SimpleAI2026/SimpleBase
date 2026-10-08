@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { requestUse, responseUse } = vi.hoisted(() => ({
+const { requestUse, responseUse, axiosPost, instanceRequest } = vi.hoisted(() => ({
   requestUse: vi.fn(),
-  responseUse: vi.fn()
+  responseUse: vi.fn(),
+  axiosPost: vi.fn(),
+  instanceRequest: vi.fn()
 }))
 
 vi.mock('axios', () => ({
   default: {
+    post: axiosPost,
     create: () => ({
+      request: instanceRequest,
       interceptors: {
         request: { use: requestUse },
         response: { use: responseUse }
@@ -20,6 +24,8 @@ describe('http helpers and interceptors', () => {
   beforeEach(() => {
     requestUse.mockReset()
     responseUse.mockReset()
+    axiosPost.mockReset()
+    instanceRequest.mockReset()
     vi.resetModules()
     localStorage.clear()
   })
@@ -78,5 +84,64 @@ describe('http helpers and interceptors', () => {
       'oops'
     )
     await expect(errFn({})).rejects.toThrow('网络请求失败')
+  })
+
+  it('refreshes the access token once and retries the request on 401', async () => {
+    const httpMod = await import('@/services/http')
+    httpMod.setTokens('old-access', 'old-refresh')
+    axiosPost.mockResolvedValueOnce({ data: { access_token: 'new-access' } })
+    instanceRequest.mockResolvedValueOnce({ data: { ok: true } })
+    const errFn = responseUse.mock.calls[1][1]
+    const res = await errFn({ response: { status: 401 }, config: {} })
+    expect(res).toEqual({ data: { ok: true } })
+    expect(axiosPost.mock.calls[0][1]).toEqual({ refresh_token: 'old-refresh' })
+    expect(instanceRequest.mock.calls[0][0].headers.Authorization).toBe('Bearer new-access')
+    // refresh 响应未返回新 refresh_token 时沿用旧值
+    expect(httpMod.getRefreshToken()).toBe('old-refresh')
+    expect(httpMod.getAccessToken()).toBe('new-access')
+  })
+
+  it('marks unauthorized when refresh fails or is unavailable', async () => {
+    const mark = vi.fn()
+    vi.doMock('@/stores/auth', () => ({
+      useAuthStore: () => ({ markUnauthorized: mark })
+    }))
+    const httpMod = await import('@/services/http')
+    const extra = vi.fn()
+    httpMod.setUnauthorizedHandler(extra)
+    const errFn = responseUse.mock.calls[1][1]
+
+    httpMod.setTokens('a1', 'r1')
+    axiosPost.mockRejectedValueOnce(new Error('refresh down'))
+    await expect(errFn({ response: { status: 401, data: { message: 'expired' } } })).rejects.toThrow('expired')
+    expect(httpMod.getAccessToken()).toBe('')
+    expect(extra).toHaveBeenCalledTimes(1)
+
+    httpMod.setTokens('a2', 'r2')
+    axiosPost.mockResolvedValueOnce({ data: {} })
+    await expect(errFn({ response: { status: 401 }, config: {} })).rejects.toThrow('网络请求失败')
+    expect(extra).toHaveBeenCalledTimes(2)
+
+    localStorage.setItem('sb_access_token', 'only-access')
+    localStorage.removeItem('sb_refresh_token')
+    await expect(errFn({ response: { status: 401 }, config: { __retried: false } })).rejects.toThrow()
+    expect(axiosPost).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(mark).toHaveBeenCalled())
+  })
+
+  it('shares one in-flight refresh between concurrent 401s', async () => {
+    const httpMod = await import('@/services/http')
+    httpMod.setTokens('a', 'r')
+    let resolve!: (v: unknown) => void
+    axiosPost.mockReturnValueOnce(new Promise((r) => { resolve = r }))
+    instanceRequest.mockResolvedValue({ data: 1 })
+    const errFn = responseUse.mock.calls[1][1]
+    const p1 = errFn({ response: { status: 401 }, config: {} })
+    const p2 = errFn({ response: { status: 401 }, config: { headers: { X: '1' } } })
+    resolve({ data: { access_token: 'n', refresh_token: 'nr' } })
+    await Promise.all([p1, p2])
+    expect(axiosPost).toHaveBeenCalledTimes(1)
+    expect(instanceRequest).toHaveBeenCalledTimes(2)
+    expect(httpMod.getRefreshToken()).toBe('nr')
   })
 })

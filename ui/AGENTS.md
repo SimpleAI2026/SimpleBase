@@ -9,7 +9,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 | `src/pages/` | 路由页面（Home / Dashboard / Databases / KeyValue / S3Manager / GoFunctions / CronJobs / AgentManager / Logs / Users / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.title`，需角色控制的配 `meta.requiresRole`（如 Users 的 `superadminl1`）。全局设置不是全页，见 `SettingsModal` |
 | `src/components/ui/` | 基础组件库（button / table / dialog / select 等，shadcn 风格） | **视为本地 fork 的库代码**：只增删组件不改风格约定；删除组件前必须全局确认零引用 |
 | `src/components/` | 业务组件：`databases/` `modal/` `ai/` `chat/` `editor/` `settings/` `docs/` 分域，加顶层通用件（ConfirmAction / NavMenu / PageContainer / TablePager / SettingsModal / GlobalProjectSwitcher / TrendChart / SbEmptyState / SbCodeBlock / UserMenu 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖 |
-| `src/services/` | API 层：`api.ts`（mock/http 切换）→ `http-api.ts`（实现）→ `http.ts`（axios 实例、token 存取、401 处理）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
+| `src/services/` | API 层：`api.ts`（固定导出 `httpApi`）→ `http-api.ts`（实现）→ `http.ts`（axios 实例、token 存取、401 处理）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
 | `src/stores/` | Pinia store（auth 登录态与角色 / project 项目切换 / settings） | 跨页面状态才进 store；组件内状态用 `ref` |
 | `src/composables/` | 组合函数（usePagination / useAsyncAction / useAiChat） | — |
 | `src/layouts/` | DefaultLayout（`/console` 控制台）/ DocsLayout（`/docs` 文档站）；Home 页独立于两布局 | — |
@@ -19,8 +19,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 
 - 接口契约集中在 `services/types.ts`；后端字段用 snake_case 转 camelCase 的映射函数（`toProjectItem` 风格），不透传 raw。
 - 路径构造函数模式：`xxxPath(projectId, …)` 统一 `encodeURIComponent`。
-- `mock.js` + `mock-kv.js`（KV mock）与 `http-api.ts` 保持同一 `Api` 接口签名；新增接口 mock 与实现两边都要实现。
-- Mock 开关：`VITE_USE_MOCK=true`（`.env`；`.env.development` / `.env.production` 默认均为 `false` 走真实后端）；mock 为纯 JS（无类型），不得 import 项目内部模块。
+- 运行时 mock 层（`mock.js` / `mock-kv.js` / `VITE_USE_MOCK` / `isMock` 徽标）已于 v4.0 退役，**不得重新引入**；新增接口只需改 `types.ts` + `http-api.ts`，单测桩统一走 `src/test/api-mock.ts`。
 
 ## admin（系统）项目规则
 

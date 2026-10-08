@@ -1,21 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-describe('api selector', () => {
-  it('defaults to httpApi when mock is off', async () => {
-    vi.resetModules()
-    vi.stubEnv('VITE_USE_MOCK', 'false')
+describe('api entry', () => {
+  it('exports httpApi as the only implementation', async () => {
     const mod = await import('@/services/api')
-    expect(mod.isMock).toBe(false)
-    expect(mod.api.projects).toBeDefined()
-    vi.unstubAllEnvs()
-  })
-
-  it('selects mockApi when VITE_USE_MOCK is true', async () => {
-    vi.resetModules()
-    vi.stubEnv('VITE_USE_MOCK', 'true')
-    const mod = await import('@/services/api')
-    expect(mod.isMock).toBe(true)
-    expect(mod.api.projects).toBeDefined()
-    vi.unstubAllEnvs()
+    const { httpApi } = await import('@/services/http-api')
+    expect(mod.api).toBe(httpApi)
   })
 })

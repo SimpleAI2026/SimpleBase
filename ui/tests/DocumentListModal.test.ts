@@ -7,7 +7,7 @@ import DocumentListModal from '@/components/modal/DocumentListModal.vue'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 describe('DocumentListModal (数据库管理 / 文档)', () => {

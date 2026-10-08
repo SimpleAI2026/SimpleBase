@@ -1,15 +1,5 @@
 import { vi } from 'vitest'
 
-let mockFlag = false
-
-export function getIsMock() {
-  return mockFlag
-}
-
-export function setIsMock(v: boolean) {
-  mockFlag = v
-}
-
 export const api = {
   auth: {
     login: vi.fn(),
@@ -462,7 +452,6 @@ export function resetApiMocks() {
       }
     }
   }
-  mockFlag = false
   applyApiDefaults()
 }
 

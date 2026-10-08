@@ -7,7 +7,7 @@ import KvPanel from '@/components/databases/kv/KvPanel.vue'
 import { toast } from 'vue-sonner'
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 // SCAN 第一页：两个 key；随后 execBatch 返回 [TYPE, PTTL]，非 string 再取长度
@@ -409,6 +409,27 @@ describe('KvPanel 模板交互', () => {
     await flushPromises()
     expect(vm.detailOpen).toBe(false)
     expect(api.kv.exec).toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('非 string 类型按类型取长度；点击行打开详情', async () => {
+    const types: Record<string, string> = { h: 'hash', l: 'list', s: 'set', z: 'zset', x: 'stream' }
+    const lens: Record<string, number> = { HLEN: 2, LLEN: 3, SCARD: 4, ZCARD: 5 }
+    api.kv.exec.mockImplementation(async (_pid: string, body: { argvs?: string[] }) => {
+      const cmd = body.argvs?.[0]?.toUpperCase() ?? ''
+      if (cmd === 'SCAN') return ['0', Object.keys(types)]
+      return lens[cmd] ?? null
+    })
+    api.kv.execBatch.mockImplementation(async (_pid: string, bodies: { argvs?: string[] }[]) =>
+      bodies.map((b) => (b.argvs?.[0] === 'TYPE' ? types[b.argvs[1]] : -1))
+    )
+    const w = await mountPanel()
+    const vm = w.vm as any
+    const byKey = Object.fromEntries(vm.rows.map((r: { key: string; len: number | null }) => [r.key, r.len]))
+    expect(byKey).toEqual({ h: 2, l: 3, s: 4, z: 5, x: null })
+    await w.findAll('tbody tr, tr').filter((r) => r.text().includes('hash'))[0].trigger('click')
+    expect(vm.detailOpen).toBe(true)
+    expect(vm.detailTarget.key).toBe('h')
     w.unmount()
   })
 

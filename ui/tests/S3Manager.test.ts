@@ -1,16 +1,13 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { api, resetApiMocks, setIsMock } from '@/test/api-mock'
+import { api, resetApiMocks } from '@/test/api-mock'
 import { clickText, mountWithApp } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
   return {
     api: m.api,
-    get isMock() {
-      return m.getIsMock()
-    }
   }
 })
 
@@ -32,7 +29,6 @@ async function changeFile(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wra
 describe('S3Manager (对象存储)', () => {
   beforeEach(() => {
     resetApiMocks()
-    setIsMock(false)
     vi.stubGlobal('open', vi.fn())
   })
 
@@ -125,8 +121,7 @@ describe('S3Manager (对象存储)', () => {
     expect(toast.warning).toHaveBeenCalled()
   })
 
-  it('uses mock upload path when isMock is on', async () => {
-    setIsMock(true)
+  it('uploads small files and reports upload errors', async () => {
     const { wrapper } = await mountWithApp(S3Manager)
     api.s3.upload.mockResolvedValueOnce({ key: 'm.txt', size: 1 })
     await changeFile(wrapper, fileNamed('m.txt'))

@@ -7,7 +7,7 @@ import { clickText, mountWithApp, sampleGoFn } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 import GoFunctions from '@/pages/GoFunctions.vue'
@@ -61,6 +61,9 @@ describe('GoFunctions (云函数)', () => {
     await clickText(wrapper, '查看')
     expect(wrapper.get('.gf-modal').text()).toContain('view')
     await wrapper.get('.gf-close').trigger('click')
+    await clickText(wrapper, '版本')
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'GoFuncVersionsModal' }).props('open')).toBe(true)
 
     await clickText(wrapper, '删除')
     await flushPromises()

@@ -9,7 +9,7 @@ import AgentManager from '@/pages/AgentManager.vue'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 const interactionAgentStubs = {

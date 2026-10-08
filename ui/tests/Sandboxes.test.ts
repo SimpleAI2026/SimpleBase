@@ -5,7 +5,7 @@ import { mountWithApp, clickText } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 import Sandboxes from '@/pages/Sandboxes.vue'

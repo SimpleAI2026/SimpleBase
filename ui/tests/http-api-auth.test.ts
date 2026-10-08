@@ -65,7 +65,23 @@ describe('httpApi auth/users mapping', () => {
     expect(getAccessToken()).toBe('AT')
   })
 
-  it('logout clears tokens', async () => {
+  it('login tolerates sparse token payloads and me without projects', async () => {
+    httpMock.post.mockResolvedValue({ data: {} })
+    const pair = await httpApi.auth.login({ username: 'u', password: 'p' })
+    expect(pair).toMatchObject({ tokenType: 'Bearer', accessToken: '', expiresIn: 0, refreshToken: '' })
+    expect(getAccessToken()).toBe('')
+    httpMock.get.mockResolvedValue({ data: { id: 'u1', projects: [{ id: 'p1' }] } })
+    expect((await httpApi.auth.me()).projects[0]).toEqual({ id: 'p1', name: '', owner: false })
+    httpMock.get.mockResolvedValue({ data: undefined })
+    expect((await httpApi.auth.me()).projects).toEqual([])
+    httpMock.get.mockResolvedValue({ data: undefined })
+    expect(await httpApi.users.list(5, 'c')).toEqual({ users: [], nextCursor: '' })
+    httpMock.post.mockResolvedValue({ data: undefined })
+    await httpApi.auth.logout('')
+    expect(httpMock.post.mock.calls.at(-1)?.[1]).toEqual({ refresh_token: undefined })
+  })
+
+    it('logout clears tokens', async () => {
     setTokens('a', 'r')
     httpMock.post.mockResolvedValue({ data: undefined })
     await httpApi.auth.logout('r')

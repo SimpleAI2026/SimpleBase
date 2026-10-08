@@ -12,7 +12,7 @@ vi.mock('@/docs/catalog', () => ({
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
-  return { api: m.api, isMock: false }
+  return { api: m.api }
 })
 
 import DocsWiki from '@/pages/DocsWiki.vue'

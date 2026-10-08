@@ -3,16 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { api, resetApiMocks, setIsMock } from '@/test/api-mock'
+import { api, resetApiMocks } from '@/test/api-mock'
 import { clickText, creatingDb, mountWithApp, readyDb } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
   return {
     api: m.api,
-    get isMock() {
-      return m.getIsMock()
-    }
   }
 })
 
@@ -69,7 +66,6 @@ const degradedDb = {
 describe('Dashboard (监控大盘)', () => {
   beforeEach(() => {
     resetApiMocks()
-    setIsMock(false)
     api.databases.list.mockResolvedValue([readyDb, creatingDb, degradedDb])
     api.s3.list.mockResolvedValue([
       { key: 'a.txt', size: 1, lastModified: 't' },
@@ -128,10 +124,8 @@ describe('Dashboard (监控大盘)', () => {
     expect(wrapper.find('.trend-chart').exists()).toBe(true)
   })
 
-  it('shows Mock badge and refreshes data from the toolbar', async () => {
-    setIsMock(true)
+  it('refreshes data from the toolbar', async () => {
     const { wrapper } = await mountWithApp(Dashboard)
-    expect(wrapper.text()).toContain('Mock')
     const before = api.metrics.summary.mock.calls.length
     await clickText(wrapper, '刷新数据')
     await flushPromises()

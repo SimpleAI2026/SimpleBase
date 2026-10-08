@@ -31,7 +31,6 @@
       <CardHeader class="border-b">
         <CardTitle class="flex items-center gap-2">
           请求趋势
-          <Badge v-if="isMock" variant="warning">Mock</Badge>
         </CardTitle>
         <CardDescription v-if="summary.totalRequests || lastUpdate" class="flex flex-wrap gap-3">
           <span v-if="summary.totalRequests">
@@ -128,7 +127,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import {
   BotIcon,
@@ -140,7 +138,6 @@ import {
   TimerIcon,
   TriangleAlertIcon
 } from '@lucide/vue'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -160,7 +157,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { api, isMock } from '../services/api'
+import { api } from '../services/api'
 import type { MetricsSummary, QuotaStatus, TrendPoint } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
@@ -168,7 +165,6 @@ import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 import TrendChart, { type ChartMode } from '../components/TrendChart.vue'
 
-const router = useRouter()
 const projectStore = useProjectStore()
 
 const quota = ref<QuotaStatus | null>(null)
@@ -325,10 +321,6 @@ async function load() {
     lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   }
   loading.value = false
-}
-
-function goDatabases() {
-  router.push({ name: 'databases' })
 }
 
 onMounted(load)
