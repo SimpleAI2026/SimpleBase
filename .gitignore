@@ -11,6 +11,7 @@
 .box-desens
 .session_tmps
 /simplebased
+/fakellm-server
 config.yaml
 *.test
 thirdparty
