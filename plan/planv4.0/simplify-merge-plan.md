@@ -6,7 +6,7 @@
 > 方法：非测试代码引用追踪（grep）+ UI/JS-SDK/Go-SDK/docs 端点消费核对 + `Api` 契约方法逐项消费扫描 + 重复实现比对
 > 基线：`go build ./internal/... ./cmd/...` 通过（2026-10-06 复核）
 > 原则：只删「零消费」与合并「重复实现」，不改对外协议字段、不新增依赖、不动 `go.mod` / `package.json` / `tsconfig.json` / `vite.config.ts`
-> **状态：已执行（v1.1，2026-10-08）**——R/S/M/U/V/T 组全部完成，D 组按默认不动；逐项提交见文末「执行记录」。
+> **状态：已执行（v1.2，2026-10-08）**——R/S/M/U/V/T 组全部完成；D 组按建议执行（D2 退役 mock、D5 合并目录、D1/D4 补文档、D3 保留）；逐项提交见文末「执行记录」。
 
 ---
 
@@ -204,7 +204,7 @@
 | `CronJobRunsModal.vue` | CronJobs 页在用（U1 删的是 Drawer 版） |
 | `composables/usePagination.ts` + `TablePager` | 7 页在用 |
 | `editor/goMonarch.ts`、`databases/kv/kv-endpoints.ts` | 经 import 链消费（basename grep 计 0 属误判） |
-| `isMock` 徽标 | 若 D2 退役 mock，则一并删除 DefaultLayout/Dashboard 徽标与 S3Manager 上限分支 |
+| `isMock` 徽标 | D2 已退役：DefaultLayout/Dashboard 徽标与 S3Manager 上限分支已删除 |
 | `systemdb` 全部 `sys_*` DDL | 迁移历史保留 |
 | `db.update` 契约 | U2 中保留项 |
 
@@ -279,11 +279,16 @@ grep -rn "CronJobRunsDrawer" ui/                                                
 | V5 | 完成（方案 a） | `9ee4b00`、`ad46859`、`4834be3`（GoFunctions / CronJobs / Users / Databases） |
 | T1 | 完成 | KV 测试合并为 `KvPanel/KvEditors/KvModals/KvApiPanel` 4 个；拼盘按域拆分，测试文件 93 → 82；`simple-components.test.ts` 作为展示组件集合保留 |
 | T2 | 完成 | `601125e`、`7c34cf6`、`1d29776`、`76dd75d`；`coverage_*_test.go` 与 `app/more_test.go` 已归位 |
-| D1–D5 | 未执行 | 按默认不动，待决策 |
+| D1 | 完成（保留 + 文档） | `6763003` `docs/ops/dashboard.md` 补 `/quota`、`/llm/providers`，`docs/ops/logs.md` 补 `/audit` |
+| D2 | 完成（退役） | `205ccbd` 删 `mock.js`/`mock-kv.js`/`mock.d.ts` 与 3 个 mock 测试（约 2200 + 1000 行）；`api.ts` 固定导出 `httpApi`；去掉 `VITE_USE_MOCK`、`isMock`、DefaultLayout/Dashboard 徽标与 S3Manager 上限分支；`ui/AGENTS.md`、`ui/README.md` 同步。顺带删 Dashboard 死函数 `goDatabases`，并补 http 刷新令牌、映射兜底、KvPanel 长度、CronJob once 往返用例，覆盖率回到阈值之上（语句 99.34% / 分支 95.69% / 函数 95.32%） |
+| D3 | 保留 | perfbench + stage_timing 按建议不动 |
+| D4 | 完成（文档标注） | `6763003` 在 `docs/ops/dashboard.md` 标注通用 settings 端点为保留接口，后续可收紧；路由暂不动 |
+| D5 | 完成 | `examples/shared/goexample/cmd/build` 迁至 `examples/lib/goexample/cmd/build`，用法提示同步。注意该目录命中 `.gitignore` 的 `**/build` 规则，原本即未入库，本次仅本地移动 |
 
-验证：`go build ./... && go vet ./internal/... ./cmd/...`、`go test ./internal/... -count=1` 全绿（2026-10-08）。
+验证：`go build ./... && go vet ./internal/... ./cmd/...`、`go test ./internal/... -count=1` 全绿；`cd ui && yarn build && yarn test` 通过（79 文件 / 441 用例，2026-10-08）。
 
 ## 修订记录
 
 - **v1.0**（2026-10-06）：初版。汇总 cleanup-plan 遗留 7 项；新增 sandbox 旧 Client、GoFunction Update、Redact 死代码、LLM sessions 读路由；后端 limit/JSON 解码/log 包/plan79 文件合并；前端 CronJobRunsDrawer、9 个零消费 Api 方法、错误消息/时间格式/SSE 循环合并；测试拼盘归并。
 - **v1.1**（2026-10-08）：标记执行完成；补齐 S4 handler 与 store 读方法删除、清理空 `internal/log/` 目录；新增执行记录。
+- **v1.2**（2026-10-08）：按建议执行 D 组——D2 退役前端 mock 层，D5 合并 goexample 目录，D1/D4 补运维与保留接口文档，D3 保留。
