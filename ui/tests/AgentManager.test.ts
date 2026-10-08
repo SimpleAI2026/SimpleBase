@@ -13,11 +13,21 @@ vi.mock('@/services/api', async () => {
 })
 
 const interactionAgentStubs = {
-  AiChat: {
-    props: ['messages', 'sending'],
-    emits: ['stop'],
+  AgentComposer: {
+    props: ['sending', 'mentionAgents', 'modelValue'],
+    emits: ['send', 'stop', 'update:modelValue'],
     template:
-      '<div class="ai"><button type="button" class="ai-stop" @click="$emit(\'stop\')">stop</button><slot name="toolbar" /><slot name="empty" /></div>'
+      '<div class="ai"><button type="button" class="ai-stop" @click="$emit(\'stop\')">stop</button><slot /></div>'
+  },
+  ConversationView: {
+    props: ['messages', 'sending'],
+    template: '<div class="conv" />'
+  },
+  ThreadSwitcher: {
+    props: ['threads', 'activeId', 'busy'],
+    emits: ['create', 'select', 'remove'],
+    template:
+      '<div class="ts"><button type="button" class="ts-create" @click="$emit(\'create\')">新会话</button></div>'
   },
   AgentScheduleModal: {
     props: ['open', 'agent', 'schedule'],
@@ -35,16 +45,29 @@ const interactionAgentStubs = {
 
 
 const agentStubs = {
-  AiChat: {
-    props: ['customSend', 'messages', 'sending', 'mentionAgents'],
-    emits: ['stop'],
+  AgentComposer: {
+    props: ['sending', 'mentionAgents', 'modelValue'],
+    emits: ['send', 'stop', 'update:modelValue'],
     template: `
       <div class="ai-chat">
-        <button type="button" class="ai-send" @click="customSend && customSend('hello', mentionAgents && mentionAgents[0] ? [{ agent_id: mentionAgents[0].id }] : [])">send</button>
-        <button type="button" class="ai-blank" @click="customSend && customSend('   ', [])">blank</button>
+        <button type="button" class="ai-send" @click="$emit('send', 'hello', mentionAgents && mentionAgents[0] ? [{ agent_id: mentionAgents[0].id }] : [])">send</button>
+        <button type="button" class="ai-blank" @click="$emit('send', '   ', [])">blank</button>
         <button type="button" class="ai-stop" @click="$emit('stop')">stop</button>
-        <slot name="toolbar" />
-        <slot name="empty" />
+      </div>
+    `
+  },
+  ConversationView: {
+    props: ['messages', 'sending', 'canRetry'],
+    emits: ['retry'],
+    template: '<div class="conv" />'
+  },
+  ThreadSwitcher: {
+    props: ['threads', 'activeId', 'busy'],
+    emits: ['create', 'select', 'remove'],
+    template: `
+      <div class="ts">
+        <button type="button" class="ts-create" @click="$emit('create')">新会话</button>
+        <button type="button" class="ts-select" @click="$emit('select', threads[0] && threads[0].id)">pick</button>
       </div>
     `
   },
@@ -251,13 +274,9 @@ describe('AgentManager (云 Agent)', () => {
     await vm.selectThread('th-1')
     await flushPromises()
     expect(router.currentRoute.value.query.thread).toBe('th-1')
-    api.agentThreads.page.mockResolvedValueOnce({ threads: [{ id: 'th-3', title: '更多', created_at: 't', updated_at: 't' }], next_cursor: '' })
-    vm.nextCursor = 'th-2'
-    await vm.loadMoreThreads()
-    expect(vm.threads.some((th: { id: string }) => th.id === 'th-3')).toBe(true)
     await vm.renameThread('th-1', '新标题')
     expect(api.agentThreads.rename).toHaveBeenCalledWith(expect.anything(), 'th-1', '新标题')
-    await vm.removeThread('th-3')
+    await vm.removeThread('th-1')
     expect(api.agentThreads.remove).toHaveBeenCalled()
     vm.openEdit(sampleAgent)
     vm.form.model_override = 'deepseek-ai/DeepSeek-V4-Flash'
@@ -283,22 +302,21 @@ describe('AgentManager (云 Agent)', () => {
     expect(vm.chatMessages[1].toolCalls.map((card: { content: string }) => card.content)).toEqual(['first', 'second'])
     handlers.onError?.(Object.assign(new Error('rate limit'), { code: 'llm_rate_limited' }))
     expect(vm.chatMessages[1].error).toContain('限流')
+    // 重试走后端 retry_of_run_id（BUG-03）：失败 run id 已记录。
+    expect(vm.failedRunId).toBe('run-1')
     vm.retryLast()
     expect(api.agentThreads.streamRun).toHaveBeenCalledTimes(2)
-    expect(api.agentThreads.streamRun.mock.calls[1][2]).toMatchObject({ content: '查库', mentions: [{ agent_id: 'ag-1' }] })
+    expect(api.agentThreads.streamRun.mock.calls[1][2]).toMatchObject({ retry_of_run_id: 'run-1' })
     handlers.onRun?.('run-2')
     vm.onStop()
     expect(vm.chatMessages.at(-1)?.canceled).toBe(true)
   })
 
-  it('covers thread errors, empty paging and safe retry guards', async () => {
+  it('covers thread errors and safe retry guards', async () => {
     const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
     const vm = wrapper.vm as Record<string, any>
-    await vm.loadMoreThreads()
     api.agentThreads.page.mockRejectedValueOnce(new Error('page-error'))
     vm.nextCursor = 't'
-    await vm.loadMoreThreads()
-    expect(toast.error).toHaveBeenCalledWith('page-error')
     api.agentThreads.rename.mockRejectedValueOnce(new Error('rename-error'))
     await vm.renameThread('t', 'x')
     expect(toast.error).toHaveBeenCalledWith('rename-error')
@@ -309,8 +327,10 @@ describe('AgentManager (云 Agent)', () => {
     api.agentThreads.messages.mockRejectedValueOnce(new Error('messages-error'))
     await vm.selectThread('broken')
     expect(toast.error).toHaveBeenCalledWith('messages-error')
-    vm.lastRequest = null
+    // 无失败 run 时重试是安全的空操作（BUG-03）。
+    vm.failedRunId = ''
     vm.retryLast()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
     api.agentThreads.remove.mockResolvedValueOnce(undefined)
     await vm.removeThread('broken')
     expect(api.agentThreads.create).toHaveBeenCalled()
@@ -393,9 +413,12 @@ describe('AgentManager script helpers', () => {
     })
     await vm.onSend('hello', [{ agent_id: 'ag-1' }])
     await vm.onSend('   ', [])
-    vm.sending = true
+    // sending 是 computed：模拟运行中通过新开一个未完成的流。
+    const close2 = vi.fn()
+    api.agentThreads.streamRun.mockImplementation(() => ({ close: close2 }))
     await vm.onSend('again', [{ agent_id: 'ag-1' }])
-    vm.sending = false
+    await vm.onSend('during', [{ agent_id: 'ag-1' }])
+    vm.onStop()
     vm.activeId = ''
     await vm.onSend('no-agent', [])
     expect(toast.warning).toHaveBeenCalledWith('请先选择或 @ 一个 Agent')
@@ -410,7 +433,6 @@ describe('AgentManager script helpers', () => {
       return { close }
     })
     await vm.onSend('y', [{ agent_id: 'ag-1' }])
-    vm.currentRunId = 'run-1'
     vm.onStop()
 
     api.agents.modules.mockRejectedValueOnce('m')

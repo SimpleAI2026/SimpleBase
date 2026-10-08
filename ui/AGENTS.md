@@ -45,6 +45,8 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
   - 主内容区铺满全宽（不加 `max-w-*` 限制）；
   - 右上角顺序：使用文档 → 项目切换器（`w-56`）→ 设置 → 刷新，间距 `gap-4 sm:gap-5`；
   - 页面标题只用 PageContainer 的 subtitle 单行（不加 h2 大标题）。
+- **状态样式必须匹配 reka-ui 2.10.5 的真实属性**：它输出 `data-state`（`checked`/`unchecked`、`active`/`inactive`、`open`/`closed`）与 `data-disabled`/`data-highlighted`/`data-selected` 等，**没有**裸 `data-checked`/`data-unchecked`/`data-active`/`data-open`/`data-closed`。写 `data-[state=checked]:…`，不要写 `data-checked:…`；后者编译出的选择器永不命中，开关会「点了没反应」且无报错（`Switch` / `TabsTrigger` / `Dialog*` / `PopoverContent` / `SelectContent` / `Sheet*` / `TooltipContent` / `Combobox*` 都在这个坑里，见 planv5.0 §4.1）。
+- 组件测试**不要桩掉 `src/components/ui/` 的交互组件**（尤其 `Switch`）。`src/test/helpers.ts` 的 `Switch` 桩用的是废弃的 `checked`/`update:checked`，会把失效的开关测成通过（planv5.0 §7.3）。
 - 图标用 `@lucide/vue`；按钮内图标加 `data-icon="inline-start"`（或 inline-end）配合样式钩子。
 - 提示统一 `vue-sonner` 的 `toast`；确认操作统一 `ConfirmAction` 组件。
 - 弹窗用 `SbModal`；空态用 `SbEmptyState`；分页用 `TablePager`（配合 `usePagination`）。
@@ -53,6 +55,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 ## 工程规则
 
 - 构建：`yarn build` 必须通过（改完跑一遍）；本地开发 `yarn dev`（推荐仓库根 `./build.sh dev` 一键起前后端）；测试 `yarn test`（coverage 95% 阈值）。
+- `yarn typecheck`（`tsc --noEmit`）当前**不干净**：`src/vite-env.d.ts` 缺 `*.vue` 模块 shim，导致 `tests/**` 里 241 处 TS2307；改前端时以 `yarn build` + `yarn test` 为准，类型检查现状见 planv5.0 §7.1。
 - 不新增依赖、不升级依赖版本、不改 `package.json` / `tsconfig.json` / `vite.config.ts`，除非用户明确要求。
 - 类型：不使用 `any` 落盘新代码；跨层契约必须走 `types.ts`；对象形状一律用 `interface` 定义（不用 `type`）。
 - 已删除的零引用组件（checkbox / drawer / dropdown-menu / pagination / radio-group）不得重新引入——对应能力分别由 switch、sheet、原生方案、TablePager、toggle/radio 内联实现。

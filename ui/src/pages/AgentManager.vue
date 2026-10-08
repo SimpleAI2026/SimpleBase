@@ -1,7 +1,8 @@
 <template>
   <ProjectScope>
     <PageContainer subtitle="按模块的 Agent；composer 输入 @ 点名；工具默认只读，Sandbox 在云端隔离环境执行">
-      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[300px_minmax(0,1fr)]">
+      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
+        <!-- 左列：Agent 简化卡片（planv4.1 §3.2）。 -->
         <Card>
           <CardHeader class="border-b">
             <CardTitle>Agents</CardTitle>
@@ -19,79 +20,65 @@
               </div>
             </CardAction>
           </CardHeader>
-          <CardContent class="p-4">
+          <CardContent class="p-3">
             <SbEmptyState v-if="!loading && !agents.length" :icon="BotIcon" description="还没有 Agent" action-text="创建" @action="openCreate" />
-            <div class="flex flex-col gap-3">
-              <article
+            <div class="flex flex-col gap-2.5">
+              <AgentCard
                 v-for="a in agents"
                 :key="a.id"
-                class="rounded-xl border bg-card p-4 transition-colors"
-                :class="a.id === activeId ? 'border-primary/60 bg-primary/8 shadow-xs' : 'border-border hover:border-primary/30'"
-              >
-                <button
-                  type="button"
-                  class="block w-full rounded-md text-left"
-                  :aria-label="`选择 Agent ${a.name}`"
-                  :aria-pressed="a.id === activeId"
-                  @click="activeId = a.id"
-                >
-                  <span class="flex items-center justify-between gap-2">
-                    <strong class="text-sm font-semibold text-foreground">{{ a.name }}</strong>
-                    <Badge variant="secondary" class="text-xs">{{ a.module }}</Badge>
-                  </span>
-                  <span class="mt-1.5 block text-xs leading-relaxed text-muted-foreground line-clamp-2">{{ a.description || '无描述' }}</span>
-                  <span v-if="scheduleByAgent[a.id]" class="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <ClockIcon aria-hidden="true" class="size-3" />
-                    <span>{{ scheduleSummary(scheduleByAgent[a.id]) }}</span>
-                    <span v-if="scheduleByAgent[a.id]?.enabled" aria-hidden="true" class="size-1.5 rounded-full bg-success" />
-                    <span v-else aria-hidden="true" class="size-1.5 rounded-full bg-muted-foreground/40" />
-                  </span>
-                </button>
-                <div class="mt-3 flex flex-wrap gap-1 justify-end border-t border-border/60 pt-3">
-                  <Button variant="ghost" size="xs" @click="openEdit(a)">编辑</Button>
-                  <Button variant="ghost" size="xs" @click="openSchedule(a)">定时</Button>
-                  <ConfirmAction title="确认删除该 Agent？" @confirm="removeAgent(a)">
-                    <Button variant="destructiveGhost" size="xs">删除</Button>
-                  </ConfirmAction>
-                </div>
-              </article>
+                :agent="a"
+                :active="a.id === activeId"
+                :schedule-summary="scheduleByAgent[a.id] ? scheduleSummary(scheduleByAgent[a.id]) : undefined"
+                :schedule-enabled="!!scheduleByAgent[a.id]?.enabled"
+                @select="activeId = a.id"
+                @edit="openEdit(a)"
+                @schedule="openSchedule(a)"
+                @remove="removeAgent(a)"
+              />
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <!-- 右列：对话区（头部含会话切换器，planv4.1 §3.2）。 -->
+        <Card class="flex min-h-[560px] flex-col">
           <CardHeader class="border-b">
-            <CardTitle class="flex items-center gap-2">
-              {{ activeAgent ? '@' + activeAgent.name : '对话' }}
-              <Badge v-if="activeAgent" variant="secondary" class="text-xs">{{ activeAgent.module }}</Badge>
+            <CardTitle class="flex w-full items-center gap-3">
+              <span class="shrink-0">{{ activeAgent ? '@' + activeAgent.name : '对话' }}</span>
+              <ThreadSwitcher
+                :threads="threads"
+                :active-id="threadId"
+                :busy="sending"
+                @create="resetThread"
+                @select="selectThread"
+                @remove="removeThread"
+              />
             </CardTitle>
           </CardHeader>
-          <CardContent class="grid min-w-0 gap-4 p-4 pt-4 md:grid-cols-[220px_minmax(0,1fr)]">
-            <AgentThreadList :threads="threads" :active-id="threadId" :next-cursor="nextCursor" :busy="sending"
-              @create="resetThread" @select="selectThread" @rename="renameThread" @remove="removeThread" @more="loadMoreThreads" />
-            <div class="min-w-0">
-              <p v-if="runState.statusText.value" role="status" class="mb-2 text-xs text-muted-foreground">{{ runState.statusText.value }}</p>
-            <AiChat
-              :project-id="project.id"
-              :show-toolbar="true"
-              :mention-agents="mentionAgents"
+          <CardContent class="flex min-w-0 flex-1 flex-col gap-3 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p v-if="statusText" role="status" class="text-xs text-muted-foreground">{{ statusText }}</p>
+              <p v-else class="min-w-0 truncate text-xs text-muted-foreground">{{ toolsHint }}</p>
+              <router-link v-if="activeAgentHasSandboxTools" :to="{ name: 'sandboxes' }" class="shrink-0 text-xs text-primary hover:underline">在云沙盒页查看</router-link>
+            </div>
+            <ConversationView
               :messages="chatMessages"
               :sending="sending"
-              :custom-send="onSend"
-              :streaming="true"
-              :placeholder="composerPlaceholder"
-              @stop="onStop"
+              :can-retry="canRetry"
               @retry="retryLast"
             >
-              <template #toolbar>
-                <span class="min-w-0 truncate text-xs text-muted-foreground">{{ toolsHint }}</span>
-                <router-link v-if="activeAgentHasSandboxTools" :to="{ name: 'sandboxes' }" class="shrink-0 text-xs text-primary hover:underline">在云沙盒页查看</router-link>
-              </template>
               <template #empty>
                 <SbEmptyState v-if="!chatMessages.length" :icon="BotIcon" description="用 @ 点名左侧 Agent，询问数据库、对象或日志；Sandbox Agent 可在云端环境运行代码" />
               </template>
-            </AiChat>
-            </div>
+            </ConversationView>
+            <AgentComposer
+              v-model="draft"
+              :sending="sending"
+              :disabled="!threadId"
+              :placeholder="composerPlaceholder"
+              :mention-agents="mentionAgents"
+              @send="onSend"
+              @stop="onStop"
+            />
           </CardContent>
         </Card>
       </div>
@@ -175,7 +162,7 @@ import { errorMessage } from '@/utils/format'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { BotIcon, ClockIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { BotIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -197,19 +184,19 @@ import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
-import ConfirmAction from '../components/ConfirmAction.vue'
 import SbModal from '../components/modal/SbModal.vue'
-import AiChat from '../components/ai/AiChat.vue'
+import AgentCard from '../components/agent/AgentCard.vue'
+import ThreadSwitcher from '../components/agent/ThreadSwitcher.vue'
+import ConversationView from '../components/agent/ConversationView.vue'
+import AgentComposer from '../components/agent/AgentComposer.vue'
 import AgentScheduleModal from '../components/ai/AgentScheduleModal.vue'
-import AgentThreadList from '../components/ai/AgentThreadList.vue'
-import { useAgentRun } from '../composables/useAgentRun'
+import { useAgentConversation } from '../composables/useAgentConversation'
 import type { ChatMsg } from '../composables/useAiChat'
 import type { AgentSchedule } from '../services/types'
 
 const project = useProjectStore()
 const route = useRoute()
 const router = useRouter()
-const runState = useAgentRun(() => project.id)
 const loading = ref(false)
 const saving = ref(false)
 const agents = ref<CloudAgent[]>([])
@@ -223,14 +210,22 @@ const modelOptions = ref<string[]>([])
 const threads = ref<AgentThread[]>([])
 const nextCursor = ref('')
 const threadId = ref('')
-const currentRunId = ref('')
 const chatMessages = ref<ChatMsg[]>([])
-const sending = ref(false)
-const lastRequest = ref<{ content: string; mentions: { agent_id: string }[] } | null>(null)
+const draft = ref('')
 
 const scheduleByAgent = ref<Record<string, AgentSchedule>>({})
 const scheduleModalOpen = ref(false)
 const scheduleAgent = ref<CloudAgent | null>(null)
+
+/** 会话状态层（planv4.1 BUG-01/03/09/10）。 */
+const conv = useAgentConversation({
+  projectId: () => project.id,
+  threadId: () => threadId.value,
+  messages: () => chatMessages.value
+})
+const sending = conv.sending
+const statusText = conv.statusText
+const failedRunId = conv.failedRunId
 
 const activeAgent = computed(() => agents.value.find((a) => a.id === activeId.value))
 const mentionAgents = computed(() => agents.value.map((a) => ({ id: a.id, name: a.name, module: a.module })))
@@ -268,6 +263,13 @@ const toolOptions = computed(() => {
   return ids.map((id) => ({ label: id, value: id }))
 })
 
+/** 最后一条消息失败且记录了失败 run id 时可重试（BUG-03：走后端 retry_of_run_id）。 */
+const canRetry = computed(() => {
+  if (sending.value || !failedRunId.value) return false
+  const last = chatMessages.value[chatMessages.value.length - 1]
+  return last?.role === 'assistant' && !!last.error
+})
+
 watch(
   () => project.id,
   () => {
@@ -281,9 +283,11 @@ async function bootstrap() {
   await ensureThread()
   await loadSchedules()
   try {
-    const settings = await api.llmSettings.get(project.id)
-    defaultModel.value = settings.defaultModel || ''
-    modelOptions.value = defaultModel.value ? [defaultModel.value] : []
+    // BUG-07：优先用 /agents/models 提供模型候选。
+    const res = await api.agents.models(project.id)
+    defaultModel.value = res.default_model || ''
+    modelOptions.value = res.models.map((m) => m.name)
+    if (!modelOptions.value.length && defaultModel.value) modelOptions.value = [defaultModel.value]
   } catch { defaultModel.value = '' }
 }
 
@@ -336,7 +340,10 @@ async function loadThreadMessages(id: string) {
   if (threadId.value !== id) return
   chatMessages.value = msgs.map((m) => ({
     role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content,
-    toolCalls: m.tool_calls
+    toolCalls: m.tool_calls,
+    // BUG-06：刷新后按 run 状态还原失败态。
+    error: m.error_code ? errorMessage({ code: m.error_code } as Error & { code?: string }, '运行失败') : undefined,
+    canceled: m.run_status === 'canceled'
   }))
 }
 
@@ -348,15 +355,6 @@ async function selectThread(id: string) {
   if (router?.replace) void router.replace({ query: { ...route.query, thread: id } })
   try { await loadThreadMessages(id) }
   catch (e) { toast.error(errorMessage(e, '加载会话失败')) }
-}
-
-async function loadMoreThreads() {
-  if (!nextCursor.value) return
-  try {
-    const page = await api.agentThreads.page(project.id, 50, nextCursor.value)
-    threads.value.push(...page.threads)
-    nextCursor.value = page.next_cursor
-  } catch (e) { toast.error(errorMessage(e, '加载会话失败')) }
 }
 
 async function renameThread(id: string, title: string) {
@@ -391,7 +389,11 @@ async function loadAgents() {
   loading.value = true
   try {
     agents.value = await api.agents.list(project.id)
-    if (!activeId.value && agents.value.length) activeId.value = agents.value[0].id
+    // BUG-11：通用助手默认选中。
+    if (!activeId.value && agents.value.length) {
+      const general = agents.value.find((a) => a.builtin_key === 'general')
+      activeId.value = general?.id || agents.value[0].id
+    }
   } catch (e) {
     toast.error(errorMessage(e, '加载 Agent 失败'))
   } finally {
@@ -515,55 +517,28 @@ async function onSend(text: string, mentions: { agent_id: string }[]) {
   let used = mentions
   if (!used.length && activeAgent.value) used = [{ agent_id: activeAgent.value.id }]
   if (!used.length) { toast.warning('请先选择或 @ 一个 Agent'); return }
-  lastRequest.value = { content, mentions: [...used] }
-  chatMessages.value.push({ role: 'user', content })
-  const reply: ChatMsg = { role: 'assistant', content: '', toolCalls: [] }
-  chatMessages.value.push(reply)
-  sending.value = true
-  currentRunId.value = ''
-  runState.start((handlers) => api.agentThreads.streamRun(
-    project.id, threadId.value, { content, mentions: used, stream: true }, handlers
-  ), {
-    onRun: (id) => { currentRunId.value = id },
-    onThinking: (_ms, content) => { if (content) reply.thinking = (reply.thinking || '') + content },
-    onToken: (t) => { reply.content += t },
-    onToolCall: (name, args, callId) => {
-      if (callId && reply.toolCalls?.some((card) => card.call_id === callId)) return
-      reply.toolCalls = [...(reply.toolCalls || []), { call_id: callId, name, arguments: args }]
-    },
-    onToolResult: (name, body, callId, durationMs) => {
-      const cards = reply.toolCalls || []
-      const target = callId ? cards.find((card) => card.call_id === callId) : [...cards].reverse().find((card) => card.name === name && !card.content)
-      if (target) { target.content = body; target.duration_ms = durationMs }
-      else cards.push({ call_id: callId, name, content: body, duration_ms: durationMs })
-      reply.toolCalls = [...cards]
-    },
-    onEnd: (reason) => {
-      sending.value = false
-      if (reason === 'canceled') reply.canceled = true
+  draft.value = ''
+  conv.start({ content, mentions: [...used] }, {
+    onEnd: () => {
       void api.agentThreads.page(project.id).then((page) => { threads.value = page.threads; nextCursor.value = page.next_cursor }).catch(() => undefined)
     },
-    onError: (error) => {
-      sending.value = false
-      const e = error as Error & { code?: string }
-      const labels: Record<string, string> = {
-        llm_auth_failed: '模型服务鉴权失败', llm_rate_limited: '模型服务限流，请稍后重试',
-        llm_timeout: '模型响应超时', llm_model_not_allowed: '模型不在允许列表中',
-        agent_thread_busy: '当前会话仍在运行', quota_exceeded: '模型调用配额已用完'
-      }
-      reply.error = labels[e?.code || ''] || (errorMessage(e, '运行失败'))
-      toast.error(reply.error)
-    }
+    onError: (e) => { toast.error(errorMessage(e, '运行失败')) }
   })
 }
 
+/** 重试：移除失败气泡后走后端 retry_of_run_id（BUG-03：不重复落 user 消息）。 */
 function retryLast() {
-  if (!lastRequest.value || sending.value) return
-  const last = lastRequest.value
-  const reply = chatMessages.value[chatMessages.value.length - 1]
-  if (reply?.role === 'assistant' && reply.error) chatMessages.value.pop()
-  if (chatMessages.value[chatMessages.value.length - 1]?.role === 'user') chatMessages.value.pop()
-  void onSend(last.content, last.mentions)
+  if (sending.value || !failedRunId.value) return
+  const retryId = failedRunId.value
+  // 移除末尾失败气泡（user 消息保留展示）。
+  const last = chatMessages.value[chatMessages.value.length - 1]
+  if (last?.role === 'assistant' && (last.error || last.canceled)) chatMessages.value.pop()
+  conv.start({ content: '', mentions: [], retry_of_run_id: retryId }, {
+    onEnd: () => {
+      void api.agentThreads.page(project.id).then((page) => { threads.value = page.threads; nextCursor.value = page.next_cursor }).catch(() => undefined)
+    },
+    onError: (e) => { toast.error(errorMessage(e, '运行失败')) }
+  })
 }
 
 function onStop() {
@@ -571,8 +546,7 @@ function onStop() {
     const reply = chatMessages.value[chatMessages.value.length - 1]
     if (reply?.role === 'assistant') reply.canceled = true
   }
-  runState.stop()
-  sending.value = false
+  conv.stop()
 }
 
 onMounted(() => {
