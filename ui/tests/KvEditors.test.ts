@@ -198,7 +198,6 @@ describe('KV 类型编辑器', () => {
     const w = mount(KvSetEditor, { props: base, global: { stubs: uiStubs } })
     await flushPromises()
     expect(w.text()).toContain('集合为空')
-    api.kv.popSet?.mockClear?.()
     const vm = w.vm as any
     api.kv.exec.mockRejectedValueOnce(new Error('pop'))
     await vm.popRandom()
@@ -324,7 +323,7 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
     w0.unmount()
 
     // 未知类型 → 无编辑器渲染（空内容区）
-    api.kv.execBatch.mockImplementation(async (_p, bodies) => Promise.all(bodies.map(() => null)))
+    api.kv.execBatch.mockImplementation(async (_p: string, bodies: { argvs?: string[] }[]) => Promise.all(bodies.map(() => null)))
     const w1 = mount(KvDetailSheet, {
       props: { open: true, projectId: 'p', kvKey: { ...meta, type: 'unknown' as never } },
       global: { stubs: uiStubs }
@@ -334,7 +333,7 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
     w1.unmount()
 
     // readonly → 无 SheetFooter 删除
-    api.kv.execBatch.mockImplementation(async (_p, bodies) =>
+    api.kv.execBatch.mockImplementation(async (_p: string, bodies: { argvs?: string[] }[]) =>
       Promise.all(bodies.map((b) => (b.argvs?.[0]?.toUpperCase() === 'TYPE' ? 'string' : -1)))
     )
     const w2 = mount(KvDetailSheet, {
@@ -355,7 +354,7 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
       zset: 'KvZSetEditor'
     } as const
     for (const [t, name] of Object.entries(editors)) {
-      api.kv.execBatch.mockImplementation(async (_p, bodies) =>
+      api.kv.execBatch.mockImplementation(async (_p: string, bodies: { argvs?: string[] }[]) =>
         Promise.all(bodies.map((b) => (b.argvs?.[0]?.toUpperCase() === 'TYPE' ? t : b.argvs?.[0]?.toUpperCase() === 'PTTL' ? -1 : 3)))
       )
       const w = mount(KvDetailSheet, {
@@ -405,12 +404,12 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
     await flushPromises()
     const { toast } = await import('vue-sonner')
     expect(toast.error).toHaveBeenCalledWith('加载失败')
-    toast.error.mockClear()
+    vi.mocked(toast.error).mockClear()
     mockExec((cmd) => (cmd === 'LRANGE' ? ['a'] : 'OK'))
     api.kv.exec.mockRejectedValueOnce('x')
     await (w.vm as any).pop('front')
     expect(toast.error).toHaveBeenCalledWith('弹出失败')
-    toast.error.mockClear()
+    vi.mocked(toast.error).mockClear()
     api.kv.exec.mockRejectedValueOnce('y')
     ;(w.vm as any).pushValue = 'v'
     await (w.vm as any).push('back')
@@ -554,7 +553,7 @@ describe('KV 模板内联回调与 v-model', () => {
 
   it('KvPanel: pattern/typeFilter v-model 与各弹窗开合状态', async () => {
     api.kv.exec.mockImplementation(async (_p, b) => (b.argvs?.[0] === 'SCAN' ? ['0', []] : null))
-    api.kv.execBatch.mockImplementation(async (_p, bodies) => Promise.all(bodies.map(() => 'string')))
+    api.kv.execBatch.mockImplementation(async (_p: string, bodies: { argvs?: string[] }[]) => Promise.all(bodies.map(() => 'string')))
     const w = mount(KvPanel, { props: { projectId: 'p' }, global: { stubs: uiStubs } })
     await flushPromises()
     const vm = w.vm as any
@@ -889,7 +888,7 @@ describe('KV 模板 keydown/事件回调', () => {
     api.kv.exec.mockImplementation(async (_p, b) =>
       b.argvs?.[0] === 'SCAN' ? ['0', []] : 'OK'
     )
-    api.kv.execBatch.mockImplementation(async (_p, bodies) => Promise.all(bodies.map(() => 'string')))
+    api.kv.execBatch.mockImplementation(async (_p: string, bodies: { argvs?: string[] }[]) => Promise.all(bodies.map(() => 'string')))
     const w = mount(KvPanel, {
       props: { projectId: 'p', readonly: false },
       global: { stubs: keydownStubs }

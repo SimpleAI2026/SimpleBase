@@ -30,7 +30,7 @@ describe('DocsToc', () => {
     expect(wrapper.text()).toContain('本页目录')
     expect(wrapper.findAll('a')).toHaveLength(3)
     expect(observed).toHaveLength(3)
-    onIntersect([{ isIntersecting: true, target: refs[1] } as IntersectionObserverEntry], {} as IntersectionObserver)
+    onIntersect([{ isIntersecting: true, target: refs[1] } as unknown as IntersectionObserverEntry], {} as IntersectionObserver)
     await flushPromises()
     expect(wrapper.find('a[href="#b"]').classes()).toContain('text-primary')
     await wrapper.find('a[href="#c"]').trigger('click')

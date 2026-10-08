@@ -58,7 +58,7 @@ describe('DocsWiki', () => {
     })
     expect(wrapper.find('.docs-art').exists()).toBe(true)
     expect(wrapper.find('.docs-side').exists()).toBe(true)
-    expect(wrapper.get('.docs-art').exists()).toBe(true)
+    expect(wrapper.find('.docs-art').exists()).toBe(true)
     expect(wrapper.text()).toContain(getModule(id)?.title)
     const bar = wrapper.get('[data-docs-tabs]')
     expect(bar.classes()).toContain('border-b-0')
@@ -117,7 +117,7 @@ describe('DocsWiki', () => {
     })
     expect(wrapper.find('.docs-side').exists()).toBe(true) // CSS 响应式隐藏，jsdom 不计算断点
     expect(wrapper.get('#docs-page-label').text()).toBe('选择文档页面')
-    expect(wrapper.get('#docs-page-label').exists()).toBe(true)
+    expect(wrapper.find('#docs-page-label').exists()).toBe(true)
     if (wrapper.find('.mobile-index').exists()) {
       await wrapper.get('.mobile-index').trigger('click')
       await flushPromises()

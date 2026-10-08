@@ -25,7 +25,7 @@ describe('SbModal', () => {
       props: { open: true, title: 'Sized', maxWidth: 900, minWidth: 480 },
       global: { stubs }
     })
-    const vm = w.vm as { contentStyle: Record<string, string>; contentClass: string }
+    const vm = w.vm as unknown as { contentStyle: Record<string, string>; contentClass: string }
     expect(vm.contentStyle['--sb-modal-max-w']).toBe('900px')
     expect(vm.contentStyle['--sb-modal-min-w']).toBe('480px')
     expect(vm.contentClass).toContain('sm:max-w-[var(--sb-modal-max-w)]')
@@ -41,7 +41,7 @@ describe('SbModal', () => {
       props: { open: true, title: 'Css', maxWidth: '40rem', minWidth: '20rem' },
       global: { stubs }
     })
-    const vm2 = w2.vm as { contentStyle: Record<string, string> }
+    const vm2 = w2.vm as unknown as { contentStyle: Record<string, string> }
     expect(vm2.contentStyle['--sb-modal-max-w']).toBe('40rem')
     expect(vm2.contentStyle['--sb-modal-min-w']).toBe('20rem')
     w2.unmount()

@@ -8,11 +8,16 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "esModuleInterop": true,
+    // vitest 3.x 自带一份 vite，与顶层 vite 的 ViteHotContext 声明互相冲突
+    // （TS2430 出现在 node_modules 内）。跳过依赖声明文件的类型检查是标准做法，
+    // 本项目源码与测试仍受完整类型检查。
+    "skipLibCheck": true,
     "lib": ["ES2020", "DOM"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist", "coverage"]
 }

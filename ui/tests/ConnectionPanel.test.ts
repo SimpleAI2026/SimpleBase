@@ -35,7 +35,7 @@ describe('ConnectionPanel', () => {
     await flushPromises()
     const vm = w.vm as any
     expect(w.get('input#api-key').attributes('type')).toBe('text')
-    expect(w.get('input#current-project').element.value).toBe('dev-shop')
+    expect((w.get('input#current-project').element as HTMLInputElement).value).toBe('dev-shop')
 
     vm.key = '  sb_new  '
     vm.saveKey()
@@ -53,7 +53,7 @@ describe('ConnectionPanel', () => {
     expect(vm.unauthorized).toBe(true)
     project.projectId = ''
     await flushPromises()
-    expect(w.get('input#current-project').element.value).toBe('未选择')
+    expect((w.get('input#current-project').element as HTMLInputElement).value).toBe('未选择')
     auth.closeSettings()
     auth.openSettings()
     await flushPromises()

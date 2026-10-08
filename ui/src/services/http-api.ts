@@ -809,7 +809,9 @@ export const httpApi: Api = {
         params: { path }, responseType: 'blob', headers: { Accept: 'application/octet-stream' }
       }).then((r) => r.data),
       write: (projectId, id, path, content) => http.put(sandboxesPath(projectId, id, '/files/content'), { content }, { params: { path } }).then(() => undefined),
-      upload: (projectId, id, path, content) => http.put(sandboxesPath(projectId, id, '/files/content'), new Blob([content], { type: 'application/octet-stream' }), {
+      // TS 5.7 起 Uint8Array 带 ArrayBufferLike 泛型，不再直接满足 BlobPart；
+      // 重新构造一个 ArrayBuffer 视图既满足类型也保证按字节拷贝。
+      upload: (projectId, id, path, content) => http.put(sandboxesPath(projectId, id, '/files/content'), new Blob([new Uint8Array(content)], { type: 'application/octet-stream' }), {
         params: { path }, headers: { 'Content-Type': 'application/octet-stream' }
       }).then(() => undefined),
       remove: (projectId, id, path) => http.delete(sandboxesPath(projectId, id, '/files/content'), { params: { path } }).then(() => undefined)

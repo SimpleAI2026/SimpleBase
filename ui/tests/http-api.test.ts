@@ -355,7 +355,7 @@ describe('httpApi', () => {
     http.post.mockResolvedValueOnce({ data: {} })
     expect((await httpApi.sql.execute(pid, db, { sql: 'update x' })).rowsAffected).toBe(0)
     http.post.mockResolvedValueOnce({ data: { results: [{}] } })
-    expect((await httpApi.sql.batch(pid, db, { statements: [{ sql: 's' }] })).results[0].index).toBe(0)
+    expect((await httpApi.sql.batch(pid, db, { statements: [{ sql: 's' }], transactional: false })).results[0].index).toBe(0)
     http.get.mockResolvedValueOnce({
       data: { functions: [{}] }
     })

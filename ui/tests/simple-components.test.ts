@@ -112,7 +112,7 @@ describe('router-backed chrome', () => {
     expect(w.text()).toContain('数据')
     expect(w.text()).toContain('自动化')
     expect(w.text()).toContain('运维')
-    const names = (w.vm as { menuItems: { name: string }[] }).menuItems.map((i) => i.name)
+    const names = (w.vm as unknown as { menuItems: { name: string }[] }).menuItems.map((i) => i.name)
     expect(names).toEqual(['dashboard', 'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'sandboxes', 'agents', 'logs'])
     expect(w.text()).toContain('云沙盒')
   })

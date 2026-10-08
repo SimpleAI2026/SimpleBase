@@ -258,7 +258,7 @@ describe('Dashboard (监控大盘)', () => {
     api.quota.status.mockResolvedValue({ llmAllowed: false, databaseAllowed: true })
     api.metrics.trend.mockRejectedValueOnce(new Error('t'))
     api.metrics.summary.mockResolvedValue({ totalRequests: 1, errorRate: 0, avgLatencyMs: 1, activeDatabases: 0 })
-    await w.vm.$.setupState.load?.()
+    await (w.vm as unknown as { $: { setupState: { load?: () => Promise<void> } } }).$.setupState.load?.()
     await flushPromises()
     expect(w.text()).toContain('受限')
 
@@ -266,7 +266,7 @@ describe('Dashboard (监控大盘)', () => {
     api.quota.status.mockRejectedValueOnce(new Error('q'))
     api.metrics.trend.mockResolvedValueOnce([{ date: '1/2', requests: 0, errors: 0 }])
     api.metrics.summary.mockRejectedValueOnce(new Error('s'))
-    await w.vm.$.setupState.load?.()
+    await (w.vm as unknown as { $: { setupState: { load?: () => Promise<void> } } }).$.setupState.load?.()
     await flushPromises()
 
     const empty = mount(Dashboard, { global: { plugins: [router, createPinia()], stubs: legacyPageStubs } })
@@ -278,7 +278,7 @@ describe('Dashboard (监控大盘)', () => {
     api.quota.status.mockRejectedValue(new Error('x'))
     api.metrics.trend.mockResolvedValue([])
     api.metrics.summary.mockRejectedValue(new Error('x'))
-    await empty.vm.$.setupState.load?.()
+    await (empty.vm as unknown as { $: { setupState: { load?: () => Promise<void> } } }).$.setupState.load?.()
     await flushPromises()
     w.unmount()
     empty.unmount()

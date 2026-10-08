@@ -26,6 +26,6 @@ describe('http token helpers', () => {
     expect(getApiKey()).toBe('sb_live_dev_key_12345')
     setApiKey('  sb_live_x  ')
     // setApiKey 不 trim（与历史行为一致）
-    expect(getApiKey()).toBe('  sb_live_x  ' || getApiKey())
+    expect(getApiKey()).toBe('  sb_live_x  ')
   })
 })

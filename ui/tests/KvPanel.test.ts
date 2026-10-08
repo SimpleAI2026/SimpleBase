@@ -81,7 +81,7 @@ describe('KvPanel (项目级 Key-Value 列表)', () => {
     const w = await mountPanel()
     expect(w.text()).toContain('暂无 Key')
     expect(w.text()).toContain('新建 Key')
-    const vm = w.vm as { openCreate: () => void; createOpen: boolean }
+    const vm = w.vm as unknown as { openCreate: () => void; createOpen: boolean }
     vm.openCreate()
     expect(vm.createOpen).toBe(true)
 
@@ -89,7 +89,7 @@ describe('KvPanel (项目级 Key-Value 列表)', () => {
     expect(ro.text()).toContain('暂无 Key')
     expect(ro.text()).toContain('只读实例')
     expect(ro.text()).not.toContain('新建 Key')
-    const roVm = ro.vm as { openCreate: () => void; createOpen: boolean }
+    const roVm = ro.vm as unknown as { openCreate: () => void; createOpen: boolean }
     roVm.openCreate()
     expect(roVm.createOpen).toBe(false)
     ro.unmount()
