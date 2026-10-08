@@ -662,17 +662,7 @@ func TestLLMSessionsAndSettings(t *testing.T) {
 	if _, err := nilStore.CreateLLMSession(ctx, LLMSession{}); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
-	if _, err := nilStore.ListLLMSessions(ctx, "p", 0); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	if _, err := nilStore.GetLLMSession(ctx, "p", "id"); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	assertUnavailable(t, nilStore.ArchiveLLMSession(ctx, "p", "id"))
 	if _, err := nilStore.AppendLLMMessage(ctx, LLMMessage{}); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	if _, err := nilStore.ListLLMMessages(ctx, "p", "s", 0); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
 	if _, err := nilStore.GetLLMSettings(ctx, "p"); !errors.Is(err, ErrUnavailable) {
@@ -689,16 +679,9 @@ func TestLLMSessionsAndSettings(t *testing.T) {
 	if _, err := s.CreateLLMSession(ctx, LLMSession{ID: fixedID, ProjectID: "p1", Title: "named"}); err != nil {
 		t.Fatal(err)
 	}
-	list, err := s.ListLLMSessions(ctx, "p1", 0)
-	if err != nil || len(list) != 2 {
-		t.Fatalf("list: n=%d err=%v", len(list), err)
-	}
-	got, err := s.GetLLMSession(ctx, "p1", sess.ID)
-	if err != nil || got.ID != sess.ID {
-		t.Fatalf("get: %+v err=%v", got, err)
-	}
-	if _, err := s.GetLLMSession(ctx, "p1", uuid.NewString()); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("missing: %v", err)
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_llm_sessions WHERE project_id = ?`, "p1").Scan(&n); err != nil || n != 2 {
+		t.Fatalf("sessions: n=%d err=%v", n, err)
 	}
 
 	long := "abcdefghijklmnopqrstuvwxyz0123456789XXXXX" // >40
@@ -708,23 +691,12 @@ func TestLLMSessionsAndSettings(t *testing.T) {
 	if _, err := s.AppendLLMMessage(ctx, LLMMessage{ID: uuid.NewString(), SessionID: sess.ID, ProjectID: "p1", Role: "assistant", Content: "ok"}); err != nil {
 		t.Fatal(err)
 	}
-	msgs, err := s.ListLLMMessages(ctx, "p1", sess.ID, 0)
-	if err != nil || len(msgs) != 2 {
-		t.Fatalf("msgs: n=%d err=%v", len(msgs), err)
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_llm_messages WHERE session_id = ?`, sess.ID).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("msgs: n=%d err=%v", n, err)
 	}
-	msgs, err = s.ListLLMMessages(ctx, "p1", sess.ID, 600)
-	if err != nil || len(msgs) != 2 {
-		t.Fatalf("clamped msgs: n=%d err=%v", len(msgs), err)
-	}
-	updated, err := s.GetLLMSession(ctx, "p1", sess.ID)
-	if err != nil || updated.Title == "New chat" || len(updated.Title) > 40 {
-		t.Fatalf("title should truncate: %+v", updated)
-	}
-	if err := s.ArchiveLLMSession(ctx, "p1", sess.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.GetLLMSession(ctx, "p1", sess.ID); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("archived: %v", err)
+	var title string
+	if err := s.db.QueryRowContext(ctx, `SELECT title FROM sys_llm_sessions WHERE id = ?`, sess.ID).Scan(&title); err != nil || title == "New chat" || len(title) > 40 {
+		t.Fatalf("title should truncate: %q err=%v", title, err)
 	}
 
 	st, err := s.GetLLMSettings(ctx, "p1")

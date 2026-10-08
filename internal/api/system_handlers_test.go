@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -62,12 +60,6 @@ func setupSystemRouter(t *testing.T, store *systemdb.Store, withProject, withPri
 	e.GET("/settings/global", seth.GetGlobal)
 	e.PUT("/settings/global", seth.PutGlobal)
 	sess := &llmSessionHandler{store: store}
-	e.GET("/llm/sessions", sess.List)
-	e.POST("/llm/sessions", sess.Create)
-	e.GET("/llm/sessions/:sessionID", sess.Get)
-	e.DELETE("/llm/sessions/:sessionID", sess.Delete)
-	e.GET("/llm/sessions/:sessionID/messages", sess.ListMessages)
-	e.POST("/llm/sessions/:sessionID/messages", sess.PostMessage)
 	e.GET("/llm/settings", sess.GetSettings)
 	e.PUT("/llm/settings", sess.PutSettings)
 	return e
@@ -87,12 +79,6 @@ func TestSystemHandlers_MissingProject(t *testing.T) {
 		{http.MethodPut, "/logs/retention", `{"keep_days":7}`},
 		{http.MethodGet, "/settings", ""},
 		{http.MethodPut, "/settings", `{"key":"a","value_json":"1"}`},
-		{http.MethodGet, "/llm/sessions", ""},
-		{http.MethodPost, "/llm/sessions", `{}`},
-		{http.MethodGet, "/llm/sessions/s1", ""},
-		{http.MethodDelete, "/llm/sessions/s1", ""},
-		{http.MethodGet, "/llm/sessions/s1/messages", ""},
-		{http.MethodPost, "/llm/sessions/s1/messages", `{"role":"user","content":"x"}`},
 		{http.MethodGet, "/llm/settings", ""},
 		{http.MethodPut, "/llm/settings", `{}`},
 	}
@@ -211,52 +197,11 @@ func TestSettingsHandlers(t *testing.T) {
 	}
 }
 
-func TestLLMSessionHandlers(t *testing.T) {
+func TestLLMSettingsHandlers(t *testing.T) {
 	store := openSystemAPI(t)
 	e := setupSystemRouter(t, store, true, true)
 
-	rec := doRequest(e, http.MethodGet, "/llm/sessions", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("list empty %d %s", rec.Code, rec.Body.String())
-	}
-	rec = doRequest(e, http.MethodPost, "/llm/sessions", map[string]any{"title": "chat", "provider": "openai", "model": "gpt"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create %d %s", rec.Code, rec.Body.String())
-	}
-	var created llmSessionDTO
-	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
-		t.Fatal(err)
-	}
-	rec = doRequest(e, http.MethodGet, "/llm/sessions/"+created.ID, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("get %d %s", rec.Code, rec.Body.String())
-	}
-	rec = doRequest(e, http.MethodGet, "/llm/sessions/missing", nil)
-	if rec.Code == http.StatusOK {
-		t.Fatal("missing session should error")
-	}
-
-	rec = doRequest(e, http.MethodPost, "/llm/sessions/"+created.ID+"/messages", map[string]any{"role": "user", "content": "hello"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("post msg %d %s", rec.Code, rec.Body.String())
-	}
-	rec = doRequest(e, http.MethodPost, "/llm/sessions/"+created.ID+"/messages", map[string]any{"role": "", "content": ""})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("empty msg %d %s", rec.Code, rec.Body.String())
-	}
-	req := httptest.NewRequest(http.MethodPost, "/llm/sessions/"+created.ID+"/messages", bytes.NewReader([]byte("{")))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	rec = httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code == http.StatusCreated {
-		t.Fatal("bad message body")
-	}
-	rec = doRequest(e, http.MethodGet, "/llm/sessions/"+created.ID+"/messages", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "hello") {
-		t.Fatalf("list msgs %d %s", rec.Code, rec.Body.String())
-	}
-
-	rec = doRequest(e, http.MethodGet, "/llm/settings", nil)
+	rec := doRequest(e, http.MethodGet, "/llm/settings", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get settings %d %s", rec.Code, rec.Body.String())
 	}
@@ -272,7 +217,7 @@ func TestLLMSessionHandlers(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put defaults %d %s", rec.Code, rec.Body.String())
 	}
-	req = httptest.NewRequest(http.MethodPut, "/llm/settings", strings.NewReader("{"))
+	req := httptest.NewRequest(http.MethodPut, "/llm/settings", strings.NewReader("{"))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -280,17 +225,6 @@ func TestLLMSessionHandlers(t *testing.T) {
 		t.Fatal("bad llm settings body")
 	}
 
-	rec = doRequest(e, http.MethodDelete, "/llm/sessions/"+created.ID, nil)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete %d %s", rec.Code, rec.Body.String())
-	}
-
-	// create without principal (createdBy empty)
-	e2 := setupSystemRouter(t, store, true, false)
-	rec = doRequest(e2, http.MethodPost, "/llm/sessions", map[string]any{"title": "anon"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("anon create %d %s", rec.Code, rec.Body.String())
-	}
 }
 
 func TestSystemHandlers_StoreErrors(t *testing.T) {
@@ -302,7 +236,7 @@ func TestSystemHandlers_StoreErrors(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	store := systemdb.NewStoreForTest(db)
 	e := setupSystemRouter(t, store, true, true)
-	for _, path := range []string{"/metrics/trend", "/logs", "/logs/retention", "/settings", "/settings/global", "/llm/sessions", "/llm/settings"} {
+	for _, path := range []string{"/metrics/trend", "/logs", "/logs/retention", "/settings", "/settings/global", "/llm/settings"} {
 		rec := doRequest(e, http.MethodGet, path, nil)
 		if rec.Code == http.StatusOK {
 			// some getters return zero values on missing tables? fail if unexpectedly OK with empty schema
@@ -324,10 +258,6 @@ func TestSystemHandlers_StoreErrors(t *testing.T) {
 	rec = doRequest(e, http.MethodPut, "/logs/retention", map[string]any{"keep_days": 3})
 	if rec.Code == http.StatusOK {
 		t.Fatal("put retention on empty schema should fail")
-	}
-	rec = doRequest(e, http.MethodPost, "/llm/sessions", map[string]any{"title": "x"})
-	if rec.Code == http.StatusCreated {
-		t.Fatal("create session on empty schema should fail")
 	}
 	rec = doRequest(e, http.MethodPut, "/llm/settings", map[string]any{"default_model": "m"})
 	if rec.Code == http.StatusOK {

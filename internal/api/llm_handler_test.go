@@ -158,9 +158,9 @@ func TestLLMHandler_Chat(t *testing.T) {
 		if aud.last.Kind != "llm_chat" || aud.last.Status != "ok" || aud.last.PrincipalID != "key-llm" {
 			t.Fatalf("audit=%+v", aud.last)
 		}
-		sessions, err := store.ListLLMSessions(context.Background(), "proj-1", 10)
-		if err != nil || len(sessions) != 1 {
-			t.Fatalf("sessions=%v err=%v", sessions, err)
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sys_llm_sessions WHERE project_id = ?`, "proj-1").Scan(&n); err != nil || n != 1 {
+			t.Fatalf("sessions=%d err=%v", n, err)
 		}
 	})
 	t.Run("persist_existing_session", func(t *testing.T) {

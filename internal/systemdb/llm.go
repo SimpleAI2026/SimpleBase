@@ -70,64 +70,6 @@ func (s *Store) CreateLLMSession(ctx context.Context, sess LLMSession) (LLMSessi
 	return sess, nil
 }
 
-// ListLLMSessions 列出未归档会话。
-func (s *Store) ListLLMSessions(ctx context.Context, projectID string, limit int) ([]LLMSession, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, title, provider, model, created_by, created_at, updated_at
-		 FROM sys_llm_sessions WHERE project_id = ? AND archived_at IS NULL
-		 ORDER BY updated_at DESC LIMIT ?`, projectID, int64(limit))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]LLMSession, 0)
-	for rows.Next() {
-		var sess LLMSession
-		if err := rows.Scan(&sess.ID, &sess.ProjectID, &sess.Title, &sess.Provider, &sess.Model, &sess.CreatedBy, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, sess)
-	}
-	return out, rows.Err()
-}
-
-// GetLLMSession 按 ID 取会话（必须属于 project）。
-func (s *Store) GetLLMSession(ctx context.Context, projectID, id string) (LLMSession, error) {
-	if s == nil || s.db == nil {
-		return LLMSession{}, ErrUnavailable
-	}
-	var sess LLMSession
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, title, provider, model, created_by, created_at, updated_at
-		 FROM sys_llm_sessions WHERE id = ? AND project_id = ? AND archived_at IS NULL`,
-		id, projectID).Scan(&sess.ID, &sess.ProjectID, &sess.Title, &sess.Provider, &sess.Model, &sess.CreatedBy, &sess.CreatedAt, &sess.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return LLMSession{}, sql.ErrNoRows
-	}
-	return sess, err
-}
-
-// ArchiveLLMSession 软删会话。
-func (s *Store) ArchiveLLMSession(ctx context.Context, projectID, id string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE sys_llm_sessions SET archived_at = ?, updated_at = ? WHERE id = ? AND project_id = ?`,
-		time.Now().UTC(), time.Now().UTC(), id, projectID)
-	if err != nil {
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
-}
-
 // AppendLLMMessage 写入一条消息并刷新会话 updated_at。
 func (s *Store) AppendLLMMessage(ctx context.Context, msg LLMMessage) (LLMMessage, error) {
 	if s == nil || s.db == nil {
@@ -158,33 +100,6 @@ func (s *Store) AppendLLMMessage(ctx context.Context, msg LLMMessage) (LLMMessag
 	}
 	s.notifyWrite(ctx)
 	return msg, nil
-}
-
-// ListLLMMessages 按时间顺序列出会话消息。
-func (s *Store) ListLLMMessages(ctx context.Context, projectID, sessionID string, limit int) ([]LLMMessage, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
-	if limit <= 0 || limit > 500 {
-		limit = 200
-	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, project_id, role, content, token_input, token_output, request_id, created_at
-		 FROM sys_llm_messages WHERE project_id = ? AND session_id = ?
-		 ORDER BY created_at ASC LIMIT ?`, projectID, sessionID, int64(limit))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]LLMMessage, 0)
-	for rows.Next() {
-		var m LLMMessage
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.ProjectID, &m.Role, &m.Content, &m.TokenInput, &m.TokenOutput, &m.RequestID, &m.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
 }
 
 // GetLLMSettings 返回项目默认；无记录时返回零值。
