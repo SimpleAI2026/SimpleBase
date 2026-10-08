@@ -413,6 +413,7 @@ function toCloudAgent(raw: Record<string, any>): CloudAgent {
     system_prompt: String(raw?.system_prompt ?? ''),
     tool_ids: Array.isArray(raw?.tool_ids) ? raw.tool_ids.map(String) : [],
     model_override: raw?.model_override || undefined,
+    builtin_key: raw?.builtin_key || undefined,
     team_enabled: !!raw?.team_enabled,
     created_at: String(raw?.created_at ?? ''),
     updated_at: String(raw?.updated_at ?? '')
@@ -438,6 +439,8 @@ function toAgentMessage(raw: Record<string, any>): AgentMessage {
     mentions: Array.isArray(raw?.mentions) ? raw.mentions : [],
     tool_calls: Array.isArray(raw?.tool_calls) ? raw.tool_calls : [],
     run_id: raw?.run_id || undefined,
+    run_status: raw?.run_status || undefined,
+    error_code: raw?.error_code || undefined,
     created_at: String(raw?.created_at ?? '')
   }
 }
@@ -498,7 +501,12 @@ function streamAgentRun(
             'Content-Type': 'application/json',
             Authorization: `Bearer ${getAccessToken() || getApiKey()}`
           },
-          body: JSON.stringify({ content: req.content, mentions: req.mentions, stream: true }),
+          body: JSON.stringify({
+            content: req.content,
+            mentions: req.mentions,
+            stream: true,
+            ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {})
+          }),
           signal: controller.signal
         }
       )
@@ -551,6 +559,10 @@ function streamAgentRun(
         }
         if (obj?.type === 'tool_call') {
           handlers.onToolCall?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
+          return
+        }
+        if (obj?.type === 'tool_progress') {
+          handlers.onToolProgress?.(obj.name || '', Number(obj.elapsed_ms || 0), obj.call_id || undefined)
           return
         }
         if (obj?.type === 'tool_result') {
@@ -1081,7 +1093,15 @@ export const httpApi: Api = {
         .patch(agentPath(projectId, '/agents/' + encodeURIComponent(agentId)), body)
         .then((r) => toCloudAgent(r.data)),
     remove: (projectId, agentId) =>
-      http.delete(agentPath(projectId, '/agents/' + encodeURIComponent(agentId))).then(() => undefined)
+      http.delete(agentPath(projectId, '/agents/' + encodeURIComponent(agentId))).then(() => undefined),
+    models: (projectId) =>
+      http.get(agentPath(projectId, '/agents/models')).then((r) => ({
+        default_model: String(r.data?.default_model || ''),
+        models: (Array.isArray(r.data?.models) ? r.data.models : []).map((m: Record<string, any>) => ({
+          provider: String(m?.provider || ''),
+          name: String(m?.name || '')
+        }))
+      }))
   },
 
   agentThreads: {

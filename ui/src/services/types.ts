@@ -322,6 +322,8 @@ export interface CloudAgent {
   system_prompt: string
   tool_ids: string[]
   model_override?: string
+  /** 内置助手标识（general/database/s3/logs/sandbox）；空为自定义（planv4.1 BUG-11）。 */
+  builtin_key?: string
   team_enabled: boolean
   created_at: string
   updated_at: string
@@ -350,6 +352,10 @@ export interface AgentToolCallCard {
   content?: string
   arguments?: string
   duration_ms?: number
+  /** 工具执行失败（planv4.1 BUG-02）。 */
+  is_error?: boolean
+  /** 结果超长被截断。 */
+  truncated?: boolean
 }
 
 export interface AgentMessage {
@@ -360,6 +366,9 @@ export interface AgentMessage {
   mentions?: AgentMention[]
   tool_calls?: AgentToolCallCard[]
   run_id?: string
+  /** 所属 run 状态（planv4.1 BUG-06）：刷新后还原「已停止/失败」。 */
+  run_status?: string
+  error_code?: string
   created_at: string
 }
 
@@ -421,6 +430,8 @@ export interface AgentRunRequest {
   content: string
   mentions: AgentMention[]
   stream?: boolean
+  /** 重试指定失败 run（planv4.1 BUG-03）：复用原 user 消息，不重复落库。 */
+  retry_of_run_id?: string
 }
 
 export interface AgentStreamHandlers {
@@ -429,9 +440,17 @@ export interface AgentStreamHandlers {
   onToken?: (text: string) => void
   onToolCall?: (name: string, args: string, callId?: string) => void
   onToolResult?: (name: string, content: string, callId?: string, durationMs?: number) => void
+  /** 工具执行心跳（planv4.1 BUG-04）：长工具期间周期推送。 */
+  onToolProgress?: (name: string, elapsedMs: number, callId?: string) => void
   onUsage?: (metrics: AgentRunMetrics) => void
   onEnd?: (reason?: string) => void
   onError?: (e: unknown) => void
+}
+
+/** /agents/models 响应（planv4.1 BUG-07）。 */
+export interface AgentModelsResponse {
+  default_model: string
+  models: { provider: string; name: string }[]
 }
 
 /* ---------- GoFunctions（gofunction-versions-testplan） ---------- */
@@ -775,6 +794,8 @@ export interface Api {
     create: (projectId: string, body: Partial<CloudAgent>) => Promise<CloudAgent>
     patch: (projectId: string, agentId: string, body: Partial<CloudAgent>) => Promise<CloudAgent>
     remove: (projectId: string, agentId: string) => Promise<void>
+    /** 可用模型列表（planv4.1 BUG-07）。 */
+    models: (projectId: string) => Promise<AgentModelsResponse>
   }
   agentThreads: {
     list: (projectId: string) => Promise<AgentThread[]>

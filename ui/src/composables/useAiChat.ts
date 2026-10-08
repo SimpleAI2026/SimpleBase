@@ -3,11 +3,12 @@ import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { api } from '../services/api'
 import type { LlmMessage, LlmStreamConnection } from '../services/api'
+import type { AgentToolCallCard } from '../services/types'
 
 export interface ChatMsg {
   role: 'user' | 'assistant' | 'tool'
   content: string
-  toolCalls?: { call_id?: string; name?: string; content?: string; arguments?: string; duration_ms?: number }[]
+  toolCalls?: AgentToolCallCard[]
   error?: string
   canceled?: boolean
   thinking?: string
