@@ -97,10 +97,14 @@ export const uiStubs = {
     emits: ['update:modelValue'],
     template: '<button type="button" class="slider-emit" @click="$emit(\'update:modelValue\', [0.5])">slider</button>'
   },
+  // reka-ui 2.10.5 的 SwitchRoot 契约是 modelValue / update:modelValue
+  // （node_modules/reka-ui/dist/Switch/SwitchRoot.js:15-66），旧桩用的
+  // checked / update:checked 会让失效的开关在测试里假通过。
   Switch: {
-    props: ['checked'],
-    emits: ['update:checked'],
-    template: '<button type="button" class="switch" @click="$emit(\'update:checked\', !checked)">sw</button>'
+    props: ['modelValue', 'disabled'],
+    emits: ['update:modelValue'],
+    template:
+      '<button type="button" class="switch" :disabled="disabled" @click="!disabled && $emit(\'update:modelValue\', !modelValue)">sw</button>'
   },
   Input: {
     props: ['modelValue', 'id', 'type', 'placeholder', 'disabled'],

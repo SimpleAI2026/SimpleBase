@@ -38,7 +38,7 @@
       <div v-else class="flex flex-wrap items-center gap-2">
         <span class="text-sm text-muted-foreground">每行一条 SQL（可带 -- args=[...] 注释）</span>
         <div class="flex items-center gap-2">
-          <Switch :checked="transactional" @update:checked="transactional = $event" />
+          <Switch :model-value="transactional" @update:model-value="transactional = $event" />
           <span class="text-sm">{{ transactional ? '事务' : '独立' }}</span>
         </div>
       </div>

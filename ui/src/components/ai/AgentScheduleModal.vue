@@ -35,7 +35,7 @@
             </SelectContent>
           </Select>
           <div class="flex items-center gap-2">
-            <Switch :checked="form.enabled" @update:checked="(v: boolean) => (form.enabled = v)" />
+            <Switch :model-value="form.enabled" @update:model-value="(v: boolean) => (form.enabled = v)" />
             <span class="text-sm">{{ form.enabled ? '已启用' : '已停用' }}</span>
           </div>
         </div>

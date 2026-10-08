@@ -100,7 +100,7 @@ Tailwind 的裸 `data-*:` 变体会被编译成属性存在性选择器（与属
 | --- | --- | --- |
 | `SwitchRoot` | `data-state="checked" \| "unchecked"` | `dist/Switch/SwitchRoot.js:99` |
 | `SwitchThumb` | `data-state="checked" \| "unchecked"` | `dist/Switch/SwitchThumb.js:25` |
-| `TabsTrigger` | `data-state="active" \| "inactive"` + `data-orientation` | `dist/Tabs/TabsTrigger.js:53` |
+| `TabsTrigger` | `data-state="active" \| "inactive"` + `data-orientation` + **空 `data-active`**（由 `RovingFocusItem` 渲染） | `dist/Tabs/TabsTrigger.js:53`；`dist/RovingFocus/RovingFocusItem.js:82` |
 | `DialogContentImpl` / `DialogOverlayImpl` | `data-state="open" \| "closed"` | `DialogContentImpl.js:86` / `DialogOverlayImpl.js:35` |
 | `TooltipContentImpl` | `data-state`（`delayed-open` 等） | `TooltipContentImpl.js:123` |
 | `SelectContentImpl` / `PopoverContent` | `data-state="open" \| "closed"` | 同上模式 |
@@ -115,7 +115,7 @@ Tailwind 的裸 `data-*:` 变体会被编译成属性存在性选择器（与属
 | --- | --- |
 | `ui/switch/Switch.vue:33` | `data-checked:bg-primary`、`data-unchecked:bg-input`、`dark:data-unchecked:bg-input/80` |
 | `ui/switch/Switch.vue:39` | `dark:data-unchecked:bg-foreground`、`dark:data-checked:bg-primary-foreground`、`group-data-[size=*]/switch:data-checked:translate-x-*`、`group-data-[size=*]/switch:data-unchecked:translate-x-0` |
-| `ui/tabs/TabsTrigger.vue:19,20,21,22` | `group-data-[variant=default]/tabs-list:data-active:shadow-sm`、`data-active:bg-background`、`data-active:text-foreground`、`dark:data-active:*`、`group-data-[variant=line]/tabs-list:data-active:bg-transparent`、`…:data-active:after:opacity-100` |
+| `ui/tabs/TabsTrigger.vue:19,20,21,22` | `group-data-[variant=default]/tabs-list:data-active:shadow-sm` 等。**实施时更正：这一组原本是有效的** —— reka 的 `RovingFocusItem` 会给选中项渲染空的 `data-active` 属性（`dist/RovingFocus/RovingFocusItem.js:82`），所以裸 `data-active:` 能命中。本次仅为与其它组件统一写法而改成 `data-[state=active]:`（两者对选中态等价，`RovingFocusGroup` 自己也在用 `getAttribute("data-active") === ""` 判活跃项 —— 未来若升级 reka 需复查这里） |
 | `ui/dialog/DialogContent.vue:37`、`DialogOverlay.vue:17` | `data-open:*` / `data-closed:*` |
 | `ui/alert-dialog/AlertDialogContent.vue:37,45` | 同上 |
 | `ui/popover/PopoverContent.vue:37` | 同上 |
@@ -139,7 +139,7 @@ Tailwind 的裸 `data-*:` 变体会被编译成属性存在性选择器（与属
 1. 把 13 个 `ui/` 组件里的裸属性变体全部换成 `data-[state=…]` 形式：
    - `data-checked:` → `data-[state=checked]:`
    - `data-unchecked:` → `data-[state=unchecked]:`
-   - `data-active:` → `data-[state=active]:`
+   - `data-active:` → `data-[state=active]:`（Tabs 原本有效，统一写法即可；见上表说明）
    - `data-open:` → `data-[state=open]:`
    - `data-closed:` → `data-[state=closed]:`
    - 带分组前缀的（`group-data-[size=default]/switch:data-checked:translate-x-…`）要写成 `group-data-[size=default]/switch:data-[state=checked]:translate-x-…`，`group-data-[variant=line]/tabs-list:data-active:*` 同理。
@@ -681,7 +681,7 @@ internal/testutil/fakellm/server.go
 
 | 结论 | 复核命令 |
 | --- | --- |
-| §2.1 裸属性变体不生效 | `grep -o '\[data-checked\]\|\[data-active\]\|\[data-open\]' ui/dist/assets/index-*.css`；`grep -rn '"data-state"' ui/node_modules/reka-ui/dist/Switch/SwitchRoot.js` |
+| §2.1 裸属性变体不生效 | `grep -o '\[data-checked\]\|\[data-unchecked\]\|\[data-open\]\|\[data-closed\]' ui/dist/assets/index-*.css`；`grep -rn '"data-state"' ui/node_modules/reka-ui/dist/Switch/SwitchRoot.js`；反例见 `grep -rn '"data-active"' ui/node_modules/reka-ui/dist/RovingFocus/RovingFocusItem.js` |
 | §2.1 `Switch` 无 `checked` prop | `sed -n '15,66p' ui/node_modules/reka-ui/dist/Switch/SwitchRoot.js` |
 | §2.2 401 未区分端点 | `sed -n '89,117p' ui/src/services/http.ts`；`sed -n '75,84p' ui/src/stores/auth.ts` |
 | §3.1 `EXISTS` 语义 | `sed -n '98,111p' internal/api/kv_commands.go`；`sed -n '155,158p' internal/database/kv/key.go`；`grep -n 'EXISTS' internal/api/kv_handler_test.go` |

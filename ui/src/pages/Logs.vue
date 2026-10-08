@@ -48,7 +48,7 @@
           刷新
         </Button>
         <div class="flex items-center gap-2 pb-1">
-          <Switch :checked="autoRefresh" @update:checked="autoRefresh = $event" />
+          <Switch :model-value="autoRefresh" @update:model-value="autoRefresh = $event" />
           <span class="text-sm text-muted-foreground">{{ autoRefresh ? `每 ${POLL_SEC} 秒轮询` : '手动刷新' }}</span>
         </div>
         <span class="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto sm:pb-1">已加载 {{ events.length }} 条 / 最多 200</span>

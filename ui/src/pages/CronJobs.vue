@@ -114,9 +114,9 @@
                 </TableCell>
                 <TableCell>
                   <Switch
-                    :checked="record.enabled"
+                    :model-value="record.enabled"
                     :disabled="isAdminProject || toggling.has(record.id)"
-                    @update:checked="toggleEnabled(record)"
+                    @update:model-value="toggleEnabled(record)"
                   />
                 </TableCell>
                 <TableCell>
