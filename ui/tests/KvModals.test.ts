@@ -4,7 +4,7 @@ import { api, resetApiMocks } from '@/test/api-mock'
 import { uiStubs } from '@/test/helpers'
 import KvCreateKeyModal from '@/components/databases/kv/KvCreateKeyModal.vue'
 import KvTtlModal from '@/components/databases/kv/KvTtlModal.vue'
-import KvDetailSheet from '@/components/databases/kv/KvDetailSheet.vue'
+import KvDetailModal from '@/components/databases/kv/KvDetailModal.vue'
 
 import { toast } from 'vue-sonner'
 import KvHashEditor from '@/components/databases/kv/editors/KvHashEditor.vue'
@@ -230,7 +230,7 @@ describe('KvTtlModal (TTL 设置)', () => {
   })
 })
 
-describe('KvDetailSheet (详情抽屉)', () => {
+describe('KvDetailModal (详情弹窗)', () => {
   beforeEach(() => resetApiMocks())
 
   /** DetailSheet 用 execBatch 取 TYPE/PTTL/长度拼 meta */
@@ -249,7 +249,7 @@ describe('KvDetailSheet (详情抽屉)', () => {
 
   it('按类型选择编辑器并展示 meta', async () => {
     mockMeta('hash')
-    const w = mount(KvDetailSheet, {
+    const w = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: { ...meta, key: 'h', type: 'hash' } },
       global: { stubs: uiStubs }
     })
@@ -270,7 +270,7 @@ describe('KvDetailSheet (详情抽屉)', () => {
     } as const
     for (const [t, name] of Object.entries(editors)) {
       mockMeta(t)
-      const w = mount(KvDetailSheet, {
+      const w = mount(KvDetailModal, {
         props: { open: true, projectId: 'p', kvKey: { ...meta, type: t as never } },
         global: { stubs: uiStubs }
       })
@@ -282,7 +282,7 @@ describe('KvDetailSheet (详情抽屉)', () => {
 
   it('删除 key（DEL）后 emit deleted 并关闭', async () => {
     mockMeta('string')
-    const w = mount(KvDetailSheet, {
+    const w = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
       global: { stubs: uiStubs }
     })
@@ -297,7 +297,7 @@ describe('KvDetailSheet (详情抽屉)', () => {
 
   it('meta 加载失败回退传入 kvKey', async () => {
     api.kv.execBatch.mockRejectedValueOnce(new Error('x'))
-    const w = mount(KvDetailSheet, {
+    const w = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
       global: { stubs: uiStubs }
     })
@@ -308,7 +308,7 @@ describe('KvDetailSheet (详情抽屉)', () => {
   })
 
   it('未选 key 显示占位；readonly 无删除按钮', async () => {
-    const w0 = mount(KvDetailSheet, {
+    const w0 = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: null },
       global: { stubs: uiStubs }
     })
@@ -317,7 +317,7 @@ describe('KvDetailSheet (详情抽屉)', () => {
     w0.unmount()
 
     mockMeta('string')
-    const w1 = mount(KvDetailSheet, {
+    const w1 = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta, readonly: true },
       global: { stubs: uiStubs }
     })
@@ -527,7 +527,7 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
         })
       )
     )
-    const w = mount(KvDetailSheet, {
+    const w = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
       global: { stubs: uiStubs }
     })
@@ -537,8 +537,8 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
     await flushPromises()
     expect(api.kv.execBatch).toHaveBeenCalledTimes(2)
     expect(w.emitted('changed')).toBeTruthy()
-    // Sheet close 事件透传
-    await w.find('.sheet-close').trigger('click')
+    // Modal close 事件透传（SbModal stub 的关闭按钮）
+    await w.find('.sb-modal-close').trigger('click')
     expect(w.emitted('update:open')?.at(-1)).toEqual([false])
     w.unmount()
   })
@@ -721,7 +721,7 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
     api.kv.execBatch.mockImplementation(async (_pid: string, bodies: { argvs?: string[] }[]) =>
       Promise.all(bodies.map((b) => (b.argvs?.[0]?.toUpperCase() === 'TYPE' ? 'string' : -1)))
     )
-    const w = mount(KvDetailSheet, {
+    const w = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
       global: { stubs: uiStubs }
     })

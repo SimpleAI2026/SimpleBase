@@ -231,6 +231,8 @@ func (s *Store) StartPeriodicFlush(logEvery, metricsEvery time.Duration) {
 
 // observeConnStats 周期采集 *sql.DB 统计并记录异常等待（诊断口径，
 // 不落 Prometheus：systemdb 包不依赖 observability 注册器）。
+// planv5.0 §4 P0.2：水位字段补 max_open；全局累计等待只做整池拥塞信号，
+// 不可归因到单个请求。
 func (s *Store) observeConnStats(ctx context.Context, every time.Duration) {
 	if every <= 0 {
 		every = 2 * time.Second
@@ -238,6 +240,7 @@ func (s *Store) observeConnStats(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	var lastWait time.Duration
+	var lastCount int64
 	for {
 		select {
 		case <-ctx.Done():
@@ -247,17 +250,31 @@ func (s *Store) observeConnStats(ctx context.Context, every time.Duration) {
 				return
 			}
 			st := s.db.Stats()
+			if s.logger != nil {
+				// 每轮输出完整水位（debug 级），供 P0 窗口差分析。
+				s.logger.Debug("systemdb connection pool stats",
+					zap.Int("open", st.OpenConnections),
+					zap.Int("in_use", st.InUse),
+					zap.Int("idle", st.Idle),
+					zap.Int("max_open", st.MaxOpenConnections),
+					zap.Int64("wait_count_total", st.WaitCount),
+					zap.Duration("wait_total", st.WaitDuration),
+				)
+			}
 			if st.WaitDuration > lastWait {
 				// 有新的连接等待：记录增量供排障（logger 为 nil 时静默）。
 				if s.logger != nil {
 					s.logger.Warn("systemdb connection wait accumulated",
 						zap.Int("open", st.OpenConnections),
 						zap.Int("in_use", st.InUse),
+						zap.Int("max_open", st.MaxOpenConnections),
+						zap.Int64("wait_count_delta", st.WaitCount-lastCount),
 						zap.Duration("wait_total", st.WaitDuration),
 						zap.Duration("wait_delta", st.WaitDuration-lastWait),
 					)
 				}
 				lastWait = st.WaitDuration
+				lastCount = st.WaitCount
 			}
 		}
 	}

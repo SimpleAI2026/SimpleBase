@@ -118,6 +118,17 @@ export interface LlmSettings {
   maxTokens?: number
 }
 
+/** 厂商凭证（服务端 sys_llm_provider_creds 表；API 返回脱敏视图） */
+export interface LlmProviderCred {
+  provider: string
+  defaultModel?: string
+  enabled: boolean
+  /** secret 字段为掩码（如 sk-...abcd）；非 secret 字段为原文 */
+  credentials: Record<string, string>
+  hasApiKey: boolean
+  updatedAt?: string
+}
+
 /* ---------- Projects ---------- */
 
 export interface ProjectItem {
@@ -787,6 +798,16 @@ export interface Api {
   llmSettings: {
     get: (projectId: string) => Promise<LlmSettings>
     put: (projectId: string, settings: LlmSettings) => Promise<LlmSettings>
+  }
+  llmProviderCreds: {
+    list: (projectId: string) => Promise<LlmProviderCred[]>
+    /** secret 字段留空表示沿用服务端既有值 */
+    put: (
+      projectId: string,
+      provider: string,
+      body: { credentials: Record<string, string>; defaultModel?: string }
+    ) => Promise<LlmProviderCred>
+    remove: (projectId: string, provider: string) => Promise<void>
   }
   agents: {
     modules: (projectId: string) => Promise<AgentModuleInfo[]>

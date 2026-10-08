@@ -2,7 +2,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
-import { useSettingsStore } from '@/stores/settings'
 import { api, resetApiMocks } from '@/test/api-mock'
 import { clickText, mountWithApp } from '@/test/helpers'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
@@ -40,24 +39,35 @@ describe('SettingsPanel', () => {
     providers.wrapper.unmount()
   })
 
-  it('opens the inline editor, validates, saves, and clears keys', async () => {
-    const { wrapper, pinia } = await mountWithApp(SettingsPanel, { props: { section: 'providers' } })
+  it('opens the inline editor, validates, saves, and clears keys (server-side)', async () => {
+    const { wrapper } = await mountWithApp(SettingsPanel, { props: { section: 'providers' } })
     await clickText(wrapper, '配置')
     expect(wrapper.text()).toContain('配置 OpenAI')
-    await clickText(wrapper, '保存到本地')
+    await clickText(wrapper, '保存')
     expect(toast.warning).toHaveBeenCalled()
 
     const inputs = wrapper.findAll('input')
     const keyInput = inputs.find((i) => i.attributes('type') === 'password')
     await keyInput!.setValue('sk-test-key')
     await wrapper.get('.combo-emit').trigger('click')
-    await clickText(wrapper, '保存到本地')
-    expect(toast.success).toHaveBeenCalledWith('已保存到本地')
-    expect(useSettingsStore(pinia).isProviderConfigured(useSettingsStore(pinia).defaultsFor as never, 'openai') || true).toBe(true)
+    // 保存后服务端凭证列表返回已配置条目，驱动「已配置」徽标与清除按钮可用
+    api.llmProviderCreds.list.mockResolvedValue([
+      { provider: 'openai', defaultModel: '', enabled: true, credentials: { api_key: 'sk-...key' }, hasApiKey: true, updatedAt: 't' }
+    ])
+    await clickText(wrapper, '保存')
+    await flushPromises()
+    expect(api.llmProviderCreds.put).toHaveBeenCalledWith(
+      expect.any(String),
+      'openai',
+      expect.objectContaining({ credentials: expect.objectContaining({ api_key: 'sk-test-key' }) })
+    )
+    expect(toast.success).toHaveBeenCalledWith('已保存到服务端')
 
     await clickText(wrapper, '配置')
     await clickText(wrapper, '清除 Key')
-    expect(toast.success).toHaveBeenCalledWith('已清除本地 Key')
+    await flushPromises()
+    expect(api.llmProviderCreds.remove).toHaveBeenCalledWith(expect.any(String), 'openai')
+    expect(toast.success).toHaveBeenCalledWith('已清除该厂商 Key')
   })
 
   it('keeps local defaults when remote load fails and toasts put errors', async () => {
@@ -96,6 +106,7 @@ describe('SettingsPanel', () => {
     vm.saveEditor()
     useProjectStore(pinia).projectId = ''
     await vm.loadServerDefaults()
+    await vm.loadCreds()
     vm.closeEditor()
   })
 
@@ -137,10 +148,9 @@ describe('SettingsPanel', () => {
     await svm.patchDefaults({ temperature: 0.1 })
     api.llmSettings.put.mockRejectedValueOnce(new Error('x'))
     await svm.patchDefaults({})
-    svm.localCfg('openai')
+    svm.remoteCred('openai')
     svm.configured('openai')
-    svm.mask('sk-abcdefghijk')
-    svm.mask('')
+    svm.remoteMask('openai')
     await svm.setDefault('openai')
     svm.openEditor('openai')
     svm.saveEditor()

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/web"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	// pprof 仅在 PerfStageTiming 诊断模式挂载（planv5.0 §4 P0.1）。
+	"net/http/pprof"
 )
 
 // Dependencies 是 NewRouter 注入的全部运行期依赖。各字段可由后续 plan 逐步填充。
@@ -212,6 +215,26 @@ func NewRouter(deps Dependencies) *echo.Echo {
 			recorder = deps.Metrics
 		}
 		e.Use(perfStageMiddleware(recorder, deps.Logger))
+		// planv5.0 §4 P0.1：认证子阶段（锁等待/缓存/查库/项目集）注入
+		// 认证服务；观察者从请求 ctx 取 timer，关闭时零开销。
+		if deps.Sessions != nil {
+			deps.Sessions.WithAuthObserver(newStageAuthObserver())
+		}
+		if deps.Auth != nil {
+			deps.Auth.WithAuthObserver(newStageAuthObserver())
+		}
+		// planv5.0 §4 P0.1：开启 mutex/block 事件采样，供 /debug/pprof
+		// 取证 principalMu 锁 convoy；1/1000 采样率足够诊断且开销可忽略。
+		runtime.SetMutexProfileFraction(1000)
+		runtime.SetBlockProfileRate(1000)
+		pprofRoute := func(path string, h http.Handler) {
+			e.GET(path, echo.WrapHandler(h))
+		}
+		pprofRoute("/debug/pprof/", http.HandlerFunc(pprof.Index))
+		pprofRoute("/debug/pprof/heap", pprof.Handler("heap"))
+		pprofRoute("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+		pprofRoute("/debug/pprof/mutex", pprof.Handler("mutex"))
+		pprofRoute("/debug/pprof/block", pprof.Handler("block"))
 	}
 	e.Use(middleware.Recover())
 	e.Use(accessLogMiddleware(deps))
@@ -378,6 +401,11 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		sess := &llmSessionHandler{store: deps.System}
 		p.GET("/llm/settings", sess.GetSettings, require(auth.DatabaseRead))
 		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin))
+
+		credh := &llmProviderCredHandler{store: deps.System}
+		p.GET("/llm/providers", credh.ListProviderCreds, require(auth.DatabaseRead))
+		p.PUT("/llm/providers/:provider", credh.PutProviderCred, require(auth.ProjectAdmin))
+		p.DELETE("/llm/providers/:provider", credh.DeleteProviderCred, require(auth.ProjectAdmin))
 
 		ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit, writable: &deps.Config.Instance.Writable}
 		if deps.LLM != nil {

@@ -77,6 +77,7 @@ func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSu
 	if s == nil || s.db == nil {
 		return out, ErrUnavailable
 	}
+	start := time.Now()
 	admin := IsAdminProject(projectID)
 	since := time.Now().UTC().Add(-24 * time.Hour)
 	var requests, errors, latencySum, latencyCount, latencyAvg float64
@@ -127,6 +128,7 @@ func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSu
 	out.LatencyP50MS = hist.quantile(0.50)
 	out.LatencyP90MS = hist.quantile(0.90)
 	out.LatencyP99MS = hist.quantile(0.99)
+	s.observeRead("metrics_summary", time.Since(start), int(out.LatencySampleCount), nil)
 	return out, nil
 }
 

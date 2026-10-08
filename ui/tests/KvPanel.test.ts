@@ -445,7 +445,7 @@ describe('KvPanel 模板交互', () => {
     expect(vm.createOpen).toBe(false)
     await w.findComponent({ name: 'KvTtlModal' }).vm.$emit('update:open', false)
     expect(vm.ttlOpen).toBe(false)
-    await w.findComponent({ name: 'KvDetailSheet' }).vm.$emit('update:open', false)
+    await w.findComponent({ name: 'KvDetailModal' }).vm.$emit('update:open', false)
     expect(vm.detailOpen).toBe(false)
     // 重命名 SbModal 的 update:open 内联回调
     vm.renameOpen = true

@@ -78,9 +78,9 @@ export const useAuthStore = defineStore('auth', {
       clearTokens()
       this.accessToken = ''
       this.refreshToken = ''
-      // 登录态失效 → 弹登录框；同时打开设置「连接」方便配 API Key。
+      // 会话失效只弹登录框；设置弹窗由用户从顶栏齿轮自行打开
+      // （planv5.0 §2.2：此前同时开两个弹窗，输错密码就会被告知去配 API Key）。
       this.openLogin('登录态已失效，请重新登录')
-      this.openSettings({ tab: 'connection' })
     },
     /** API Key 通道（Settings 连接页 / DevMode） */
     updateKey(key: string) {

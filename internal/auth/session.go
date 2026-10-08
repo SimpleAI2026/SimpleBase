@@ -65,13 +65,40 @@ type SessionService struct {
 
 	principalMu sync.Mutex
 	principals  map[string]cachedPrincipal
+
+	// inFlightMu 保护 per-user 加载单飞表（planv5.0 §4 P1.1）。
+	// 同一用户缓存未命中时只有一个 goroutine 查库，其余等待复用结果；
+	// 不同用户互不阻塞，缓存读写仍走 principalMu（仅 map 操作，无 I/O）。
+	inFlightMu sync.Mutex
+	inFlight   map[string]*principalFlight
+
+	// generation 是缓存失效代数：InvalidateUser/InvalidatePrincipals 前进，
+	// 用于阻止「查询期间权限被改，旧结果晚到写回」（P1.1）。
+	generation uint64
+
+	// authObs 是 P0 诊断观察者（planv5.0 §4 P0.1）；nil 时全部 no-op。
+	authObs AuthObserver
 }
 
-const principalCacheTTL = 5 * time.Second
+// principalCacheTTL 是 Principal/User 缓存的 TTL。
+// planv5.0 §4 P1.1 后续：失效链路（Update/Disable/ChangePassword/MarkLogin
+// → InvalidateUser；CreateProject/AssignProjectOwner → InvalidatePrincipals）
+// 均即时失效并有代数保护，TTL 只是兜底；从 5s 延长到 30s 把 5s TTL 过期
+// 波次的 auth_user_load 远端点查（1.4–2.4s/次）频率降为 1/6。
+// 多实例部署时其他实例仍受此 TTL 兜底约束。
+const principalCacheTTL = 30 * time.Second
 
 type cachedPrincipal struct {
 	principal Principal
+	user      User
 	expires   time.Time
+	// generation 记录写入时的失效代数；回填时代数已前进则丢弃（P1.1）。
+	generation uint64
+}
+
+// principalFlight 是同用户加载单飞的共享载体：owner 查库，follower 等 done。
+type principalFlight struct {
+	done chan struct{}
 }
 
 // NewSessionService 构造 SessionService。secret 与 API Key HMAC 盐共用。
@@ -89,11 +116,22 @@ func NewSessionService(users *UserService, repo SessionRepository, secret string
 		cfg:        cfg,
 		now:        time.Now,
 		principals: make(map[string]cachedPrincipal),
+		inFlight:   make(map[string]*principalFlight),
 	}
 	if users != nil {
 		users.OnChange(s.InvalidateUser)
 		users.OnProjectsChange(s.InvalidatePrincipals)
 	}
+	return s
+}
+
+// WithAuthObserver 注入认证阶段观察者（P0 诊断；多次调用以最后一个为准，
+// 传 nil 恢复 no-op）。观察者只收到低基数标签与时长，不含凭据。
+func (s *SessionService) WithAuthObserver(o AuthObserver) *SessionService {
+	if o == nil {
+		o = noopAuthObserver{}
+	}
+	s.authObs = o
 	return s
 }
 
@@ -194,7 +232,13 @@ func (s *SessionService) Refresh(ctx context.Context, refreshToken, userAgent, i
 		return User{}, TokenPair{}, ErrInvalidRefreshToken
 	}
 	hash := HashRefresh(refreshToken)
+	obs := s.authObs
+	if obs == nil {
+		obs = noopAuthObserver{}
+	}
+	sessStart := time.Now()
 	sess, err := s.repo.GetByRefreshHash(ctx, hash)
+	obs.ObserveAuthStage(ctx, AuthStageSessionLoad, time.Since(sessStart))
 	if err != nil {
 		return User{}, TokenPair{}, ErrInvalidRefreshToken
 	}
@@ -207,7 +251,9 @@ func (s *SessionService) Refresh(ctx context.Context, refreshToken, userAgent, i
 	if now.After(sess.ExpiresAt) {
 		return User{}, TokenPair{}, ErrInvalidRefreshToken
 	}
+	userStart := time.Now()
 	u, err := s.users.GetByID(ctx, sess.UserID)
+	obs.ObserveAuthStage(ctx, AuthStageUserLoad, time.Since(userStart))
 	if err != nil {
 		return User{}, TokenPair{}, ErrInvalidRefreshToken
 	}
@@ -218,10 +264,14 @@ func (s *SessionService) Refresh(ctx context.Context, refreshToken, userAgent, i
 	// 轮转：旧会话作废，发新会话。
 	rev := now
 	sess.RevokedAt = &rev
+	updStart := time.Now()
 	if err := s.repo.Update(ctx, sess); err != nil {
 		return User{}, TokenPair{}, err
 	}
+	obs.ObserveAuthStage(ctx, AuthStageSessionUpdate, time.Since(updStart))
+	issueStart := time.Now()
 	pair, err := s.issue(ctx, u, userAgent, ip)
+	obs.ObserveAuthStage(ctx, AuthStageSessionIssue, time.Since(issueStart))
 	if err != nil {
 		return User{}, TokenPair{}, err
 	}
@@ -258,9 +308,11 @@ func (s *SessionService) RevokeAllForUser(ctx context.Context, userID string) er
 }
 
 // InvalidateUser 在账号或项目权限变更后移除已缓存的身份。
+// 代数 +1 使仍在途的旧查询结果失效（P1.1）。
 func (s *SessionService) InvalidateUser(userID string) {
 	s.principalMu.Lock()
 	delete(s.principals, userID)
+	s.generation++
 	s.principalMu.Unlock()
 }
 
@@ -268,6 +320,7 @@ func (s *SessionService) InvalidateUser(userID string) {
 func (s *SessionService) InvalidatePrincipals() {
 	s.principalMu.Lock()
 	clear(s.principals)
+	s.generation++
 	s.principalMu.Unlock()
 }
 
@@ -278,32 +331,117 @@ func (s *SessionService) VerifyAccess(token string) (JWTClaims, error) {
 }
 
 // PrincipalFromClaims 载入用户并展开 Principal；disabled/缺失返回错误。
+// P1.1（planv5.0 §4 P1.1）：全局锁内只做 map 查询/回填，库 I/O 移到锁外；
+// 同用户未命中单飞共享一次加载，不同用户并行认证互不阻塞；失效代数
+// 阻止查询期间权限变更后旧结果写回；错误不缓存。
 func (s *SessionService) PrincipalFromClaims(ctx context.Context, claims JWTClaims) (Principal, error) {
+	obs := s.authObs
+	if obs == nil {
+		obs = noopAuthObserver{}
+	}
+
+	// 快路径：锁内仅 map 查询。
+	lockStart := time.Now()
 	s.principalMu.Lock()
-	defer s.principalMu.Unlock()
 	if entry, ok := s.principals[claims.Subject]; ok && s.now().Before(entry.expires) {
 		p := entry.principal
+		s.principalMu.Unlock()
+		obs.ObserveAuthStage(ctx, AuthStageLockWait, time.Since(lockStart))
+		p.SessionID = claims.SessionID
+		p.AccessJTI = claims.JWTID
+		obs.ObserveAuthCache(ctx, AuthCacheHit)
+		return p, nil
+	}
+	s.principalMu.Unlock()
+	obs.ObserveAuthStage(ctx, AuthStageLockWait, time.Since(lockStart))
+	obs.ObserveAuthCache(ctx, AuthCacheMiss)
+
+	// 同用户单飞：抢先者加载，后来者等待结果。不同用户各自独立加载。
+	flight, owner := s.joinFlight(claims.Subject)
+	if !owner {
+		<-flight.done
+		s.principalMu.Lock()
+		entry, ok := s.principals[claims.Subject]
+		p := entry.principal
+		valid := ok && s.now().Before(entry.expires)
+		s.principalMu.Unlock()
+		if !valid {
+			// owner 加载失败或结果已被失效：本请求自行重查一次。
+			return s.loadPrincipal(ctx, claims, obs)
+		}
 		p.SessionID = claims.SessionID
 		p.AccessJTI = claims.JWTID
 		return p, nil
 	}
+
+	p, err := s.loadPrincipal(ctx, claims, obs)
+	close(flight.done)
+	s.inFlightMu.Lock()
+	delete(s.inFlight, claims.Subject)
+	s.inFlightMu.Unlock()
+	return p, err
+}
+
+// joinFlight 返回该用户的单飞载体与是否为 owner（负责加载）。
+func (s *SessionService) joinFlight(userID string) (*principalFlight, bool) {
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
+	if f, ok := s.inFlight[userID]; ok {
+		return f, false
+	}
+	f := &principalFlight{done: make(chan struct{})}
+	s.inFlight[userID] = f
+	return f, true
+}
+
+// loadPrincipal 在锁外完成查用户与项目集展开，并按当前代数回填缓存。
+// 加载开始前记录失效代数，回填时代数已前进则丢弃（权限已变更，不得写回）；
+// 本次响应仍返回刚读出的数据，可见性不劣于改前路径。
+func (s *SessionService) loadPrincipal(ctx context.Context, claims JWTClaims, obs AuthObserver) (Principal, error) {
+	s.principalMu.Lock()
+	gen := s.generation
+	s.principalMu.Unlock()
+
+	loadStart := time.Now()
 	u, err := s.users.GetByID(ctx, claims.Subject)
+	obs.ObserveAuthStage(ctx, AuthStageUserLoad, time.Since(loadStart))
 	if err != nil {
 		return Principal{}, ErrInvalidToken
 	}
 	if u.Status != UserStatusActive {
 		return Principal{}, ErrUserDisabled
 	}
+	expandStart := time.Now()
 	p, err := s.users.PrincipalFromUser(ctx, u, claims.SessionID)
+	obs.ObserveAuthStage(ctx, AuthStageProjectExpand, time.Since(expandStart))
 	if err != nil {
 		return Principal{}, err
 	}
-	if len(s.principals) >= 256 {
-		clear(s.principals)
+	s.principalMu.Lock()
+	if s.generation == gen {
+		if len(s.principals) >= 256 {
+			clear(s.principals)
+		}
+		s.principals[claims.Subject] = cachedPrincipal{principal: p, user: u, expires: s.now().Add(principalCacheTTL), generation: gen}
 	}
-	s.principals[claims.Subject] = cachedPrincipal{principal: p, expires: s.now().Add(principalCacheTTL)}
+	s.principalMu.Unlock()
 	p.AccessJTI = claims.JWTID
 	return p, nil
+}
+
+// CachedUser 返回 Principal 缓存条目内同源的 sys_users 行（P1.3）。
+// 新鲜度与 Principal 完全一致：5s TTL + OnChange/Disable 即时失效；
+// 未命中或已过期返回 false，调用方回查仓储。禁用用户的条目在
+// 加载时即被拒且失效链路清缓存，不会经此返回。
+func (s *SessionService) CachedUser(userID string) (User, bool) {
+	s.principalMu.Lock()
+	entry, ok := s.principals[userID]
+	valid := ok && s.now().Before(entry.expires)
+	s.principalMu.Unlock()
+	if !valid {
+		return User{}, false
+	}
+	return entry.user, true
 }
 
 // TouchSession 更新会话当前 access jti（审计用，可选）。

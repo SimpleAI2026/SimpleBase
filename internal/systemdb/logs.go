@@ -121,8 +121,10 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 	}
 	sqlStr += " ORDER BY occurred_at DESC LIMIT ?"
 	args = append(args, int64(q.Limit))
+	start := time.Now()
 	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
+		s.observeRead("query_logs", time.Since(start), 0, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -131,6 +133,7 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 		var e LogEvent
 		var project sql.NullString
 		if err := rows.Scan(&e.ID, &project, &e.Level, &e.Logger, &e.Message, &e.FieldsJSON, &e.RequestID, &e.OccurredAt); err != nil {
+			s.observeRead("query_logs", time.Since(start), len(out), err)
 			return nil, err
 		}
 		if project.Valid {
@@ -138,7 +141,9 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 		}
 		out = append(out, e)
 	}
-	return out, rows.Err()
+	rerr := rows.Err()
+	s.observeRead("query_logs", time.Since(start), len(out), rerr)
+	return out, rerr
 }
 
 // LogLevelCount 是按级别聚合的条数。

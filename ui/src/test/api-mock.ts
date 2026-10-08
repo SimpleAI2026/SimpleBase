@@ -63,6 +63,11 @@ export const api = {
     get: vi.fn(),
     put: vi.fn()
   },
+  llmProviderCreds: {
+    list: vi.fn(),
+    put: vi.fn(),
+    remove: vi.fn()
+  },
   agents: {
     modules: vi.fn(),
     list: vi.fn(),
@@ -239,6 +244,16 @@ export function applyApiDefaults() {
   api.llm.stream.mockReturnValue({ close: vi.fn() })
   api.llmSettings.get.mockResolvedValue({ defaultProvider: 'openai', defaultModel: 'gpt-4o-mini', temperature: 0.7, maxTokens: 1024 })
   api.llmSettings.put.mockResolvedValue({ defaultProvider: 'openai' })
+  api.llmProviderCreds.list.mockResolvedValue([])
+  api.llmProviderCreds.put.mockResolvedValue({
+    provider: 'openai',
+    defaultModel: '',
+    enabled: true,
+    credentials: {},
+    hasApiKey: true,
+    updatedAt: '2024-01-01T00:00:00Z'
+  })
+  api.llmProviderCreds.remove.mockResolvedValue(undefined)
   api.agents.modules.mockResolvedValue([
     {
       id: 'database',

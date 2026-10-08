@@ -214,3 +214,62 @@ func (h *llmSessionHandler) PutSettings(c echo.Context) error {
 		"max_tokens":       st.MaxTokens,
 	})
 }
+
+type llmProviderCredHandler struct{ store *systemdb.Store }
+
+// ListProviderCreds 返回项目全部厂商凭证（脱敏：secret 字段仅掩码）。
+func (h *llmProviderCredHandler) ListProviderCreds(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	rows, err := h.store.ListLLMProviderCreds(c.Request().Context(), pc.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"providers": systemdb.MaskedLLMProviderCreds(rows)})
+}
+
+// PutProviderCred 保存单个厂商凭证。secret 字段留空表示沿用既有值。
+func (h *llmProviderCredHandler) PutProviderCred(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	provider := c.Param("provider")
+	if provider == "" {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "provider is required"))
+	}
+	var body struct {
+		Credentials map[string]string `json:"credentials"`
+		DefaultModel string           `json:"default_model"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return WriteError(c, err)
+	}
+	if err := h.store.UpsertLLMProviderCred(c.Request().Context(), pc.ID, provider, body.DefaultModel, body.Credentials); err != nil {
+		return WriteError(c, err)
+	}
+	row, err := h.store.GetLLMProviderCred(c.Request().Context(), pc.ID, provider)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	masked := systemdb.MaskedLLMProviderCreds([]systemdb.LLMProviderCred{row})
+	return c.JSON(http.StatusOK, masked[0])
+}
+
+// DeleteProviderCred 清除单个厂商凭证。
+func (h *llmProviderCredHandler) DeleteProviderCred(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	provider := c.Param("provider")
+	if provider == "" {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "provider is required"))
+	}
+	if err := h.store.DeleteLLMProviderCred(c.Request().Context(), pc.ID, provider); err != nil {
+		return WriteError(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}

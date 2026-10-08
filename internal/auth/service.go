@@ -47,12 +47,22 @@ type Service struct {
 	repo   Repository
 	secret string
 	cache  *apiKeyCache // §7.2 P1.2：keyHash → Principal 缓存
+
+	// authObs 是 P0 诊断观察者（planv5.0 §4 P0.1）；nil 时全部 no-op。
+	authObs AuthObserver
 }
 
 // NewService 构造 Service。secret 对应 config.Auth.APIKeyHashSecret，
 // 用于计算 HMAC，绝不能为空（由 config.Validate 保证）。
 func NewService(repo Repository, secret string) *Service {
 	return &Service{repo: repo, secret: secret, cache: newAPIKeyCache()}
+}
+
+// WithAuthObserver 注入 API Key 通道的认证阶段观察者（P0 诊断；
+// 传 nil 恢复 no-op）。观察者只收到低基数标签与时长，不含 key/hash。
+func (s *Service) WithAuthObserver(o AuthObserver) *Service {
+	s.authObs = o
+	return s
 }
 
 // HashKey 计算 API key 的 HMAC-SHA256 摘要，用于存储与比对。

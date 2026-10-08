@@ -65,8 +65,17 @@ func (h *UsersHandler) List(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	out := userListResponse{NextCursor: next}
+	// planv5.0 §4 P0.1：记录逐用户 ProjectIDsFor 的调用次数（N+1 证据），
+	// 不记录用户身份。
+	projectQueries := int64(0)
+	timer := StageTimerFrom(c.Request().Context())
+	var n1Scope *StageScope
+	if timer != nil {
+		n1Scope = timer.StageScope(StageSystemDB)
+	}
 	for _, u := range list {
 		item := userListItem{userResponse: toUserResponse(u)}
+		projectQueries++
 		if ids, err := h.users.ProjectIDsFor(c.Request().Context(), u); err == nil {
 			n := 0
 			for id := range ids {
@@ -77,6 +86,11 @@ func (h *UsersHandler) List(c echo.Context) error {
 			item.ProjectCount = n
 		}
 		out.Users = append(out.Users, item)
+	}
+	n1Scope.Done() // nil-safe
+	if timer != nil {
+		timer.SetMeta("users", int64(len(list)))
+		timer.SetMeta("project_queries", projectQueries)
 	}
 	return c.JSON(http.StatusOK, out)
 }

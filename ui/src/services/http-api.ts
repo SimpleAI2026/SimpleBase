@@ -26,6 +26,7 @@ import type {
   GoFuncVersionCreate,
   GoFuncVersionSummary,
   LlmChatRequest,
+  LlmProviderCred,
   LlmSettings,
   LlmStreamHandlers,
   LlmStreamConnection,
@@ -401,6 +402,23 @@ function toLlmSettings(raw: Record<string, any> | undefined): LlmSettings {
     defaultModel: d.default_model || d.defaultModel || undefined,
     temperature: d.temperature ?? undefined,
     maxTokens: d.max_tokens ?? d.maxTokens ?? undefined
+  }
+}
+
+/** 厂商凭证：后端 snake_case → UI camelCase（secret 已由服务端脱敏） */
+function toLlmProviderCred(raw: Record<string, any> | undefined): LlmProviderCred {
+  const d = raw && typeof raw === 'object' ? raw : {}
+  const creds: Record<string, string> = {}
+  if (d.credentials && typeof d.credentials === 'object') {
+    for (const [k, v] of Object.entries(d.credentials)) creds[k] = String(v ?? '')
+  }
+  return {
+    provider: String(d.provider ?? ''),
+    defaultModel: d.default_model || d.defaultModel || undefined,
+    enabled: !!d.enabled,
+    credentials: creds,
+    hasApiKey: !!d.has_api_key,
+    updatedAt: d.updated_at || undefined
   }
 }
 
@@ -1075,6 +1093,27 @@ export const httpApi: Api = {
           max_tokens: settings.maxTokens
         })
         .then((r) => toLlmSettings(r.data))
+  },
+
+  llmProviderCreds: {
+    list: (projectId) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/providers')
+        .then((r) => {
+          const list = Array.isArray(r.data?.providers) ? r.data.providers : []
+          return list.map(toLlmProviderCred)
+        }),
+    put: (projectId, provider, body) =>
+      http
+        .put('/v1/projects/' + encodeURIComponent(projectId) + '/llm/providers/' + encodeURIComponent(provider), {
+          credentials: body.credentials,
+          default_model: body.defaultModel || ''
+        })
+        .then((r) => toLlmProviderCred(r.data)),
+    remove: (projectId, provider) =>
+      http
+        .delete('/v1/projects/' + encodeURIComponent(projectId) + '/llm/providers/' + encodeURIComponent(provider))
+        .then(() => undefined)
   },
 
   agents: {

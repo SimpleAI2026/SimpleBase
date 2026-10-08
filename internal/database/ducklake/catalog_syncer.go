@@ -481,9 +481,14 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 	}
 
 	// 内联行必须先刷成 Parquet，再复制 catalog；否则远端恢复可能缺数据文件。
+	// planv5.0 §4 P0.3：分段计量 flush/copy/upload/manifest 各阶段耗时。
+	flushStart := time.Now()
 	if _, err := sqlDB.ExecContext(ctx, "CALL ducklake_flush_inlined_data(?)", alias); err != nil {
-		return fmt.Errorf("ducklake: flush inlined data: %w", err)
+		err = fmt.Errorf("ducklake: flush inlined data: %w", err)
+		s.recordSyncStage(meta.ID, "flush_inlined_data", time.Since(flushStart), err)
+		return err
 	}
+	s.recordSyncStage(meta.ID, "flush_inlined_data", time.Since(flushStart), nil)
 
 	// 顺序修正（§3.1 实现缺陷）：先取 snapshot，COPY 后复核不变，
 	// 确保 snapshots/{snap}-{epoch} 写入的文件体与 snap 严格匹配。
@@ -492,6 +497,7 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 		return err
 	}
 
+	copyStart := time.Now()
 	cacheDir := s.cacheDirFor(meta.ID)
 	engine := s.engineFor()
 	layout := layoutForEngine(cacheDir, meta.ID, engine)
@@ -554,11 +560,15 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 
 	data, err := os.ReadFile(staging)
 	if err != nil {
-		return fmt.Errorf("ducklake: read staging catalog: %w", err)
+		err = fmt.Errorf("ducklake: read staging catalog: %w", err)
+		s.recordSyncStage(meta.ID, "copy_catalog", time.Since(copyStart), err)
+		return err
 	}
+	s.recordSyncStage(meta.ID, "copy_catalog", time.Since(copyStart), nil)
 	sum := sha256.Sum256(data)
 	sha := hex.EncodeToString(sum[:])
 
+	uploadStart := time.Now()
 	kb := s.Remote.keyBuilder()
 	epoch := s.writerEpochFor(meta.ID)
 
@@ -576,13 +586,17 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 					zap.String("database_id", meta.ID), zap.Int64("snapshot_id", snap))
 			}
 		} else {
-			return fmt.Errorf("ducklake: put snapshot: %w", err)
+			err = fmt.Errorf("ducklake: put snapshot: %w", err)
+			s.recordSyncStage(meta.ID, "upload_snapshot", time.Since(uploadStart), err)
+			return err
 		}
 	}
+	s.recordSyncStage(meta.ID, "upload_snapshot", time.Since(uploadStart), nil)
 
 	// 2) manifest 推进：PutIfAbsent 写 manifest/{seq}.json。
 	//    冲突 = split-brain 确证（第二个 writer 存在）。
 	//    必须先于一切可覆盖写：manifest 失败时不得污染任何回退源（§3.1）。
+	manifestStart := time.Now()
 	nextSeq, err := s.nextManifestSeq(ctx, meta)
 	if err != nil {
 		return err
@@ -591,10 +605,14 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 	if err := WriteManifest(ctx, s.Store, s.Remote, meta.TenantID, meta.ID, m); err != nil {
 		if errors.Is(err, objectstore.ErrPreconditionFailed) {
 			s.markSplitBrain(meta, snap, nextSeq)
-			return fmt.Errorf("ducklake: split-brain detected on manifest seq %d: %w", nextSeq, objectstore.ErrPreconditionFailed)
+			serr := fmt.Errorf("ducklake: split-brain detected on manifest seq %d: %w", nextSeq, objectstore.ErrPreconditionFailed)
+			s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), serr)
+			return serr
 		}
+		s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), err)
 		return err
 	}
+	s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), nil)
 
 	// 清理快照不进入同步关键路径，独立限频执行。
 	s.schedulePrune(meta, snap, nextSeq)
@@ -824,6 +842,47 @@ func (s *CatalogSyncer) setPruneProgress(dbID, cacheDir string, seq int64) {
 	if err := SaveLocalState(cacheDir, dbID, st); err != nil && s.Logger != nil {
 		s.Logger.Warn("ducklake prune progress save failed",
 			zap.String("database_id", dbID), zap.Error(err))
+	}
+}
+
+// recordSyncStage 记录 syncOnce 内部分段（planv5.0 §4 P0.3）：
+// flush_inlined_data / copy_catalog / upload_snapshot / manifest。
+// 只输出固定 stage 标签、耗时与错误类别（不落错误正文，可能含 SQL 上下文）。
+func (s *CatalogSyncer) recordSyncStage(dbID, stage string, d time.Duration, err error) {
+	if s.Logger == nil {
+		return
+	}
+	fields := []zap.Field{
+		zap.String("database_id", dbID),
+		zap.String("stage", stage),
+		zap.Duration("duration", d),
+	}
+	if err != nil {
+		fields = append(fields,
+			zap.Bool("error", true),
+			zap.String("error_class", classifySyncError(err)),
+		)
+	}
+	s.Logger.Debug("ducklake catalog sync stage", fields...)
+}
+
+// classifySyncError 把同步错误映射到固定低基数类别。
+// 事务冲突（如 flush inlined data 与并发写争用同一表索引）单独归类，
+// 便于统计 sys_cloud_agents 等表的冲突频率（planv5.0 §1 异常）。
+func classifySyncError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "Transaction conflict"):
+		return "transaction_conflict"
+	case errors.Is(err, objectstore.ErrPreconditionFailed):
+		return "precondition_failed"
+	case strings.Contains(msg, "snapshot changed during copy"):
+		return "snapshot_moved"
+	default:
+		return "other"
 	}
 }
 

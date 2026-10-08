@@ -314,7 +314,13 @@ func (s *UserService) MarkLogin(ctx context.Context, id string) error {
 	now := s.now().UTC()
 	u.LastLoginAt = &now
 	u.UpdatedAt = now
-	return s.repo.Update(ctx, u)
+	if err := s.repo.Update(ctx, u); err != nil {
+		return err
+	}
+	// last_login_at 会经 /auth/me 等响应展示，变更后失效 Principal 缓存
+	// 同源的 sys_users 行，避免延长 TTL 后读到旧登录时间。
+	s.changed(id)
+	return nil
 }
 
 // AssignProjectOwner 记录项目归属（user 项目隔离）。

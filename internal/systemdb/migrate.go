@@ -602,6 +602,21 @@ var systemMigrations = []migration{
 			CREATE TABLE IF NOT EXISTS sys_cloud_agent_seed_dismissed (project_id VARCHAR NOT NULL, builtin_key VARCHAR NOT NULL);
 			ALTER TABLE sys_agent_runs ADD COLUMN retry_of_run_id VARCHAR DEFAULT ''`,
 	},
+	{
+		// v42：项目级 LLM 厂商凭证（替代浏览器 localStorage 明文存储）。
+		// credentials_json 存各字段值（含 api_key 原文，仅服务端可读）；
+		// API 返回时脱敏。enabled 供后续按厂商禁用。
+		version: 42,
+		name:    "sys_llm_provider_creds",
+		stmt: `CREATE TABLE IF NOT EXISTS sys_llm_provider_creds (
+			project_id VARCHAR NOT NULL,
+			provider VARCHAR NOT NULL,
+			credentials_json VARCHAR NOT NULL,
+			default_model VARCHAR NOT NULL DEFAULT '',
+			enabled BIGINT NOT NULL DEFAULT 1,
+			updated_at TIMESTAMP NOT NULL
+		)`,
+	},
 }
 
 // retireOpenCloseStatusSQL 把未软删的 closed/opening/closing/recovering 写成 ready。

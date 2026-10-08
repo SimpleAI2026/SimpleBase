@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"go.uber.org/zap"
 )
@@ -51,6 +52,24 @@ const (
 	StageOnWrite Stage = "on_write"
 	// StageUnattributed 归因不到任何段的剩余时间（total - 其余段之和）。
 	StageUnattributed Stage = "unattributed"
+
+	// —— 认证子阶段（planv5.0 §4 P0.1）：只细分 StageAuth，不与其重叠双算 ——
+	// StageAuthLock 等 待认证锁（principalMu / apiKeyCache）的耗时；
+	// StageAuthUser 为库查用户，StageAuthProjectSet 为展开项目集，
+	// StageAuthSession 为 refresh 按 hash 查会话，StageAuthKey 为 API Key 仓储查询。
+	// 这些子阶段包含在 StageAuth 总耗时内，归因时不得再计入 attributed。
+	StageAuthLock     Stage = "auth_lock_wait"
+	StageAuthUser     Stage = "auth_user_load"
+	StageAuthProject  Stage = "auth_project_expand"
+	StageAuthSession  Stage = "auth_session_load"
+	StageAuthKey      Stage = "auth_key_load"
+	// StageAuthSessionUpdate / StageAuthSessionIssue 细分 refresh 轮转：
+	// 前者为作废旧会话的 UPDATE，后者为新会话写入 + token 签发。
+	StageAuthSessionUpdate Stage = "auth_session_update"
+	StageAuthSessionIssue  Stage = "auth_session_issue"
+	// StageSystemDB 系统库直连读（systemdb.Store 关键读入口）的细分段；
+	// 不计入 perfStages（与 db_exec 口径不同：未经 registry lease）。
+	StageSystemDB Stage = "systemdb_read"
 )
 
 // perfStages 是除 total/unattributed 外的全部阶段，顺序即链路顺序。
@@ -257,11 +276,13 @@ func perfStageMiddleware(recorder stageTimingRecorder, logger loggerLike) echo.M
 	}
 }
 
-// stageDurationsJSON 把各段耗时转为毫秒 map（日志行用）。
-func stageDurationsJSON(spent map[Stage]time.Duration) map[string]int64 {
-	out := make(map[string]int64, len(spent))
+// stageDurationsJSON 把各段耗时转为毫秒浮点（日志行用）。
+// P0 修正（planv5.0 §4 P0.2）：Duration.Milliseconds() 会把 <1ms 截断成 0，
+// 造成「无开销」假象；改用 float64 毫秒保留亚毫秒精度。
+func stageDurationsJSON(spent map[Stage]time.Duration) map[string]float64 {
+	out := make(map[string]float64, len(spent))
 	for k, v := range spent {
-		out[string(k)] = v.Milliseconds()
+		out[string(k)] = float64(v.Microseconds()) / 1000.0
 	}
 	return out
 }
@@ -384,4 +405,53 @@ func (t *timedLease) NotifyWrite(ctx context.Context) {
 	scope := timer.StageScope(StageOnWrite)
 	defer scope.Done()
 	t.inner.NotifyWrite(ctx)
+}
+
+// stageAuthObserver 把 auth.AuthObserver 事件写入请求级 StageTimer
+//（planv5.0 §4 P0.1）。子阶段只细分 StageAuth，不进入 perfStages 归因求和，
+// 与既有 StageAuth 总口径不重叠双算；缓存命中状态记录为 meta。
+//
+// 观察者是服务级单例：每次回调从 ctx 提取当前请求的 StageTimer，
+// 无 timer（分段计时关闭）时静默丢弃。
+type stageAuthObserver struct{}
+
+// newStageAuthObserver 返回桥接观察者；auth 侧接口已 nil-safe。
+func newStageAuthObserver() *stageAuthObserver {
+	return &stageAuthObserver{}
+}
+
+func (o *stageAuthObserver) ObserveAuthStage(ctx context.Context, stage auth.AuthStage, d time.Duration) {
+	timer := StageTimerFrom(ctx)
+	if timer == nil {
+		return
+	}
+	switch stage {
+	case auth.AuthStageLockWait:
+		timer.Observe(StageAuthLock, d)
+	case auth.AuthStageUserLoad:
+		timer.Observe(StageAuthUser, d)
+	case auth.AuthStageProjectExpand:
+		timer.Observe(StageAuthProject, d)
+	case auth.AuthStageSessionLoad:
+		timer.Observe(StageAuthSession, d)
+	case auth.AuthStageKeyLoad:
+		timer.Observe(StageAuthKey, d)
+	case auth.AuthStageSessionUpdate:
+		timer.Observe(StageAuthSessionUpdate, d)
+	case auth.AuthStageSessionIssue:
+		timer.Observe(StageAuthSessionIssue, d)
+	}
+}
+
+func (o *stageAuthObserver) ObserveAuthCache(ctx context.Context, state auth.AuthCacheState) {
+	timer := StageTimerFrom(ctx)
+	if timer == nil {
+		return
+	}
+	switch state {
+	case auth.AuthCacheHit:
+		timer.SetMeta("auth_cache", 1)
+	case auth.AuthCacheMiss:
+		timer.SetMeta("auth_cache", 0)
+	}
 }

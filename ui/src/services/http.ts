@@ -86,6 +86,17 @@ async function tryRefresh(): Promise<string | null> {
   return refreshing
 }
 
+// 匿名认证端点：这些请求自己携带凭据（用户名密码 / refresh token），
+// 收到 401 说明「本次凭据不对」，而不是「已登录会话失效」。
+// 若走 markUnauthorized 会清空 token 并弹出登录框+设置框，用户输错一次密码
+// 就会被告知去配 API Key（planv5.0 §2.2）。
+const ANONYMOUS_AUTH_PATHS = ['/v1/auth/login', '/v1/auth/refresh']
+
+function isAnonymousAuthRequest(url: string | undefined): boolean {
+  const path = (url || '').split('?')[0]
+  return ANONYMOUS_AUTH_PATHS.some((p) => path.endsWith(p))
+}
+
 http.interceptors.response.use(
   (r) => r,
   async (e) => {
@@ -93,6 +104,9 @@ http.interceptors.response.use(
     const data = e?.response?.data
     const msg = data?.error?.message || data?.message || e?.message || '网络请求失败'
     const cfg = e?.config || {}
+    if (isAnonymousAuthRequest(cfg.url)) {
+      return Promise.reject(new Error(msg))
+    }
     if (status === 401 && !cfg.__retried && getAccessToken()) {
       cfg.__retried = true
       const access = await tryRefresh()
@@ -101,18 +115,20 @@ http.interceptors.response.use(
         cfg.headers.Authorization = `Bearer ${access}`
         return http.request(cfg)
       }
-      import('../stores/auth').then(({ useAuthStore }) => {
-        useAuthStore().markUnauthorized()
-      })
-      onUnauthorized?.()
+      notifyUnauthorized()
       return Promise.reject(new Error(msg))
     }
     if (status === 401) {
-      import('../stores/auth').then(({ useAuthStore }) => {
-        useAuthStore().markUnauthorized()
-      })
-      onUnauthorized?.()
+      notifyUnauthorized()
     }
     return Promise.reject(new Error(msg))
   }
 )
+
+/** 统一处理「会话失效」：清登录态并打开登录框（不打开设置框）。 */
+function notifyUnauthorized() {
+  import('../stores/auth').then(({ useAuthStore }) => {
+    useAuthStore().markUnauthorized()
+  })
+  onUnauthorized?.()
+}

@@ -1,34 +1,35 @@
 <template>
-  <Sheet :open="open" @update:open="emit('update:open', $event)">
-    <SheetContent side="right" class="w-full overflow-y-auto sm:max-w-xl">
-      <SheetHeader class="border-b">
-        <SheetTitle class="sb-mono break-all pr-6">{{ kvKey?.key || 'Key 详情' }}</SheetTitle>
-        <SheetDescription v-if="meta" class="flex items-center gap-2">
-          <Badge variant="secondary">{{ meta.type }}</Badge>
-          <span v-if="meta.len != null" class="text-xs">{{ meta.len }} 个元素</span>
-          <span class="text-xs">{{ meta.ttl_ms == null ? '永久' : 'TTL ' + Math.ceil(meta.ttl_ms / 1000) + 's' }}</span>
-        </SheetDescription>
-      </SheetHeader>
+  <SbModal
+    :open="open"
+    :title="kvKey?.key || 'Key 详情'"
+    :width="720"
+    hide-footer
+    @update:open="emit('update:open', $event)"
+  >
+    <div class="mb-3 flex items-center gap-2 text-sm text-muted-foreground" v-if="meta">
+      <Badge variant="secondary">{{ meta.type }}</Badge>
+      <span v-if="meta.len != null" class="text-xs">{{ meta.len }} 个元素</span>
+      <span class="text-xs">{{ meta.ttl_ms == null ? '永久' : 'TTL ' + Math.ceil(meta.ttl_ms / 1000) + 's' }}</span>
+    </div>
 
-      <div class="flex-1 px-4 py-4">
-        <div v-if="!kvKey" class="py-6 text-center text-sm text-muted-foreground">未选择 Key</div>
-        <component
-          :is="editorComponent"
-          v-else-if="editorComponent"
-          :project-id="projectId"
-          :kv-key="kvKey.key"
-          :readonly="readonly"
-          @changed="onChanged"
-        />
-      </div>
+    <div class="max-h-[60vh] overflow-y-auto pr-1">
+      <div v-if="!kvKey" class="py-6 text-center text-sm text-muted-foreground">未选择 Key</div>
+      <component
+        :is="editorComponent"
+        v-else-if="editorComponent"
+        :project-id="projectId"
+        :kv-key="kvKey.key"
+        :readonly="readonly"
+        @changed="onChanged"
+      />
+    </div>
 
-      <SheetFooter v-if="kvKey && !readonly" class="border-t">
-        <ConfirmAction title="确认删除该 Key？此操作不可恢复。" @confirm="removeKey">
-          <Button variant="destructiveGhost" size="sm">删除 Key</Button>
-        </ConfirmAction>
-      </SheetFooter>
-    </SheetContent>
-  </Sheet>
+    <div v-if="kvKey && !readonly" class="mt-4 flex justify-end border-t pt-3">
+      <ConfirmAction title="确认删除该 Key？此操作不可恢复。" @confirm="removeKey">
+        <Button variant="destructiveGhost" size="sm">删除 Key</Button>
+      </ConfirmAction>
+    </div>
+  </SbModal>
 </template>
 
 <script setup lang="ts">
@@ -37,17 +38,10 @@ import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle
-} from '@/components/ui/sheet'
 import { api } from '../../../services/api'
 import type { KvKeyMeta } from '../../../services/api'
 import ConfirmAction from '../../ConfirmAction.vue'
+import SbModal from '../../modal/SbModal.vue'
 import KvStringEditor from './editors/KvStringEditor.vue'
 import KvHashEditor from './editors/KvHashEditor.vue'
 import KvListEditor from './editors/KvListEditor.vue'

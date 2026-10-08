@@ -49,14 +49,21 @@ describe('SettingsModal', () => {
     expect(auth.settingsOpen).toBe(false)
   })
 
-  it('forces the connection tab on 401', async () => {
+  it('401 no longer forces the connection tab (planv5.0 §2.2)', async () => {
     const { wrapper, pinia } = await mountWithApp(SettingsModal)
     const auth = useAuthStore(pinia)
+    // 未打开设置时 401：只弹登录框，不强制打开设置弹窗
+    auth.markUnauthorized()
+    await flushPromises()
+    expect(auth.settingsOpen).toBe(false)
+    expect(auth.loginOpen).toBe(true)
+
+    // 已打开设置（models）时 401：设置保持原 tab，不被强制切到 connection
     auth.openSettings({ tab: 'models' })
     auth.markUnauthorized()
     await flushPromises()
     expect(auth.settingsOpen).toBe(true)
-    expect(auth.settingsTab).toBe('connection')
+    expect(auth.settingsTab).toBe('models')
     expect(wrapper.find('.sb-modal').exists()).toBe(true)
   })
 })

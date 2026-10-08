@@ -101,7 +101,7 @@
             </CardHeader>
             <CardContent class="flex-1 p-4 pt-1">
               <p v-if="configured(p.id)" class="font-mono text-xs text-muted-foreground truncate">
-                Key {{ mask(localCfg(p.id)?.credentials.api_key) }}
+                Key {{ remoteMask(p.id) }}
               </p>
               <p v-else class="text-xs text-muted-foreground/60 italic">尚未配置 API Key</p>
             </CardContent>
@@ -123,7 +123,7 @@
       <Card v-if="editorPreset" class="border-t">
         <CardHeader class="border-b">
           <CardTitle>配置 {{ editorPreset.name }}</CardTitle>
-          <CardDescription>Key 仅保存在本机浏览器</CardDescription>
+          <CardDescription>Key 保存在服务端系统表（按项目隔离），不再存本地浏览器</CardDescription>
         </CardHeader>
         <CardContent class="pt-5">
           <FieldGroup>
@@ -154,8 +154,11 @@
               </Combobox>
             </Field>
             <div class="flex gap-2">
-              <Button @click="saveEditor">保存到本地</Button>
-              <Button variant="destructive" :disabled="!configured(editorPreset.id)" @click="clearEditor">
+              <Button :disabled="saving" @click="saveEditor">
+                <Spinner v-if="saving" data-icon="inline-start" />
+                保存
+              </Button>
+              <Button variant="destructive" :disabled="!configured(editorPreset.id) || saving" @click="clearEditor">
                 清除 Key
               </Button>
               <Button variant="ghost" @click="closeEditor">取消</Button>
@@ -202,9 +205,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
+import { Spinner } from '@/components/ui/spinner'
 import SbEmptyState from '../SbEmptyState.vue'
 import { api } from '../../services/api'
-import { LLM_PROVIDER_PRESETS, getProviderPreset, maskSecret } from '../../constants/llmProviders'
+import type { LlmProviderCred } from '../../services/types'
+import { LLM_PROVIDER_PRESETS, getProviderPreset } from '../../constants/llmProviders'
 import type { LlmProviderFieldKey } from '../../constants/llmProviders'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -235,6 +240,41 @@ async function loadServerDefaults() {
   }
 }
 
+/* ---------- 厂商凭证（服务端 sys_llm_provider_creds） ---------- */
+
+const remoteCreds = ref<LlmProviderCred[]>([])
+const credsLoading = ref(false)
+const saving = ref(false)
+
+function remoteCred(providerId: string): LlmProviderCred | undefined {
+  return remoteCreds.value.find((c) => c.provider === providerId)
+}
+
+async function loadCreds() {
+  if (!project.id) return
+  credsLoading.value = true
+  try {
+    remoteCreds.value = await api.llmProviderCreds.list(project.id)
+  } catch {
+    remoteCreds.value = []
+  } finally {
+    credsLoading.value = false
+  }
+}
+
+function configured(providerId: string): boolean {
+  const cred = remoteCred(providerId)
+  if (cred) return cred.hasApiKey
+  const preset = getProviderPreset(providerId)
+  if (!preset) return false
+  return preset.fields.filter((f) => f.required).length === 0
+}
+
+/** 服务端返回的掩码 Key（如 sk-...abcd） */
+function remoteMask(providerId: string): string {
+  return remoteCred(providerId)?.credentials.api_key || '••••••••'
+}
+
 async function patchDefaults(patch: Record<string, unknown>) {
   const next = { ...defaults.value, ...patch }
   settings.setProjectDefaults(project.id, next)
@@ -245,26 +285,12 @@ async function patchDefaults(patch: Record<string, unknown>) {
   }
 }
 
-function localCfg(providerId: string) {
-  return settings.configsFor(project.id)[providerId]
-}
-
-function configured(providerId: string) {
-  return settings.isProviderConfigured(project.id, providerId)
-}
-
-function mask(v?: string) {
-  return maskSecret(v)
-}
-
 async function setDefault(providerId: string) {
-  settings.setDefaultProvider(project.id, providerId)
-  try {
-    await api.llmSettings.put(project.id, settings.defaultsFor(project.id))
-    toast.success('已设为默认供应商')
-  } catch (e) {
-    toast.error((e as Error)?.message || '保存默认供应商失败')
-  }
+  const cred = remoteCred(providerId)
+  const preset = getProviderPreset(providerId)
+  const model = cred?.defaultModel || preset?.suggestedModels[0] || undefined
+  await patchDefaults({ defaultProvider: providerId, defaultModel: model })
+  toast.success('已设为默认供应商')
 }
 
 const editorProviderId = ref('')
@@ -274,59 +300,72 @@ const editorDefaultModel = ref('')
 
 function openEditor(providerId: string) {
   editorProviderId.value = providerId
-  const cfg = localCfg(providerId)
   Object.keys(editorForm).forEach((k) => delete editorForm[k as LlmProviderFieldKey])
   const preset = getProviderPreset(providerId)
+  const cred = remoteCred(providerId)
   preset?.fields.forEach((f) => {
     if (f.secret) editorForm[f.key] = ''
-    else editorForm[f.key] = cfg?.credentials[f.key] || ''
+    else editorForm[f.key] = cred?.credentials[f.key] || ''
   })
-  editorDefaultModel.value = cfg?.defaultModel || ''
+  editorDefaultModel.value = cred?.defaultModel || ''
 }
 
 function closeEditor() {
   editorProviderId.value = ''
 }
 
-function saveEditor() {
+/** 保存到服务端系统表；secret 留空由后端沿用既有值 */
+async function saveEditor() {
   const preset = editorPreset.value
-  if (!preset) return
+  if (!preset || !project.id || saving.value) return
+  const cred = remoteCred(preset.id)
   for (const f of preset.fields) {
     if (!f.required) continue
-    const existing = localCfg(preset.id)?.credentials[f.key]
     const next = (editorForm[f.key] || '').trim()
-    if (!next && !(f.secret && existing)) {
+    if (!next && !(f.secret && cred?.hasApiKey)) {
       toast.warning(`请填写 ${f.label}`)
       return
     }
   }
-  const credentials: Partial<Record<LlmProviderFieldKey, string>> = {
-    ...(localCfg(preset.id)?.credentials || {})
-  }
+  const credentials: Partial<Record<LlmProviderFieldKey, string>> = {}
   for (const f of preset.fields) {
     const v = (editorForm[f.key] || '').trim()
     if (f.secret) {
       if (v) credentials[f.key] = v
-    } else if (v) {
-      credentials[f.key] = v
     } else {
-      delete credentials[f.key]
+      credentials[f.key] = v
     }
   }
-  settings.upsertProviderConfig(project.id, preset.id, {
-    enabled: true,
-    defaultModel: editorDefaultModel.value || undefined,
-    credentials
-  })
-  closeEditor()
-  toast.success('已保存到本地')
+  saving.value = true
+  try {
+    await api.llmProviderCreds.put(project.id, preset.id, {
+      credentials: credentials as Record<string, string>,
+      defaultModel: editorDefaultModel.value || undefined
+    })
+    await loadCreds()
+    closeEditor()
+    toast.success('已保存到服务端')
+  } catch (e) {
+    toast.error((e as Error)?.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 
-function clearEditor() {
+async function clearEditor() {
   const id = editorProviderId.value
-  settings.clearProviderCredentials(project.id, id)
-  closeEditor()
-  toast.success('已清除本地 Key')
+  if (!id || !project.id || saving.value) return
+  saving.value = true
+  try {
+    await api.llmProviderCreds.remove(project.id, id)
+    await loadCreds()
+    closeEditor()
+    toast.success('已清除该厂商 Key')
+  } catch (e) {
+    toast.error((e as Error)?.message || '清除失败')
+  } finally {
+    saving.value = false
+  }
 }
 
 watch(
@@ -334,10 +373,12 @@ watch(
   () => {
     closeEditor()
     void loadServerDefaults()
+    void loadCreds()
   }
 )
 
 onMounted(() => {
   void loadServerDefaults()
+  void loadCreds()
 })
 </script>

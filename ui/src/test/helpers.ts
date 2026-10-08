@@ -32,7 +32,12 @@ export const uiStubs = {
   TooltipTrigger: { template: '<div><slot /></div>' },
   TooltipContent: { template: '<div><slot /></div>' },
   TooltipProvider: { template: '<div><slot /></div>' },
-  Dialog: { template: '<div class="dialog"><slot /></div>' },
+  Dialog: {
+    props: ['open'],
+    emits: ['update:open'],
+    template:
+      '<div v-if="open !== false" class="dialog"><slot /><button type="button" class="dialog-close" @click="$emit(\'update:open\', false)">x</button></div>'
+  },
   DialogContent: {
     inheritAttrs: false,
     template: '<div class="dialog-content" :class="$attrs.class" :style="$attrs.style"><slot /></div>'
@@ -225,6 +230,7 @@ export const uiStubs = {
     emits: ['ok', 'update:open', 'cancel'],
     template: `
       <div v-if="open" class="sb-modal" :data-title="title" :data-width="width" :data-max-width="maxWidth" :data-min-width="minWidth" :data-hide-footer="hideFooter ? 'true' : 'false'">
+        <button type="button" class="sb-modal-close" @click="$emit('update:open', false)">x</button>
         <p v-if="description" class="sb-modal-desc">{{ description }}</p>
         <slot />
         <slot v-if="!hideFooter" name="footer">

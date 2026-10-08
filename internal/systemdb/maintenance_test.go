@@ -119,3 +119,85 @@ func TestMaintenanceRunnerNoDB(t *testing.T) {
 		t.Fatalf("default interval: %v", r.interval())
 	}
 }
+
+// —— compactAuthTables（planv5.0 §4 P2.2）——
+
+func newCompactRunner(f *fakeExec, writable func() bool, liveFor map[string]int) *MaintenanceRunner {
+	r := newMaintRunner(f, writable)
+	r.liveFiles = func(_ context.Context, table string) int {
+		return liveFor[table]
+	}
+	return r
+}
+
+// 达到阈值的表按序 merge，阈值外/统计失败的表跳过。
+func TestCompactAuthTablesMergesOnlyHotTables(t *testing.T) {
+	f := &fakeExec{}
+	liveFor := map[string]int{
+		"sys_user_sessions":  18,
+		"sys_project_owners": 19,
+		"sys_users":          2,  // 低于阈值：跳过
+	}
+	r := newCompactRunner(f, func() bool { return true }, liveFor)
+	r.compactAuthTables(context.Background())
+
+	if len(f.queries) != 2 {
+		t.Fatalf("merge calls=%d want 2: %v", len(f.queries), f.queries)
+	}
+	for i, want := range []string{"sys_user_sessions", "sys_project_owners"} {
+		if got := f.args[i][1]; got != want {
+			t.Fatalf("merge #%d table=%v want %v", i, got, want)
+		}
+		if f.queries[i] != "CALL ducklake_merge_adjacent_files(?, ?)" {
+			t.Fatalf("merge #%d query=%s", i, f.queries[i])
+		}
+	}
+}
+
+// 统计失败的表（liveFiles 返回 -1）跳过但不阻塞后续表。
+func TestCompactAuthTablesSkipsOnStatsFailure(t *testing.T) {
+	f := &fakeExec{}
+	liveFor := map[string]int{
+		"sys_user_sessions":  -1, // 统计失败
+		"sys_project_owners": 10,
+	}
+	r := newCompactRunner(f, func() bool { return true }, liveFor)
+	r.compactAuthTables(context.Background())
+	if len(f.queries) != 1 || f.args[0][1] != "sys_project_owners" {
+		t.Fatalf("must skip failed stats and merge rest: %v", f.queries)
+	}
+}
+
+// 非 writer 直接跳过。
+func TestCompactAuthTablesSkipsWhenNotWriter(t *testing.T) {
+	f := &fakeExec{}
+	r := newCompactRunner(f, func() bool { return false }, map[string]int{"sys_users": 10})
+	r.compactAuthTables(context.Background())
+	if len(f.queries) != 0 {
+		t.Fatal("non-writer must skip compactAuthTables")
+	}
+}
+
+// liveFiles 为 nil（无连接）时不 panic、不发 merge。
+func TestCompactAuthTablesSkipsWithoutLiveFiles(t *testing.T) {
+	f := &fakeExec{}
+	r := newMaintRunner(f, func() bool { return true })
+	r.compactAuthTables(context.Background())
+	if len(f.queries) != 0 {
+		t.Fatal("nil liveFiles must skip compactAuthTables")
+	}
+}
+
+// 单表 merge 失败不中断后续表。
+func TestCompactAuthTablesStepErrorContinues(t *testing.T) {
+	f := &fakeExec{failOn: "merge_adjacent_files"}
+	liveFor := map[string]int{
+		"sys_user_sessions":  10,
+		"sys_project_owners": 10,
+	}
+	r := newCompactRunner(f, func() bool { return true }, liveFor)
+	r.compactAuthTables(context.Background())
+	if len(f.queries) != 2 {
+		t.Fatalf("merge calls=%d want 2（失败不中断）", len(f.queries))
+	}
+}

@@ -171,12 +171,12 @@ describe('useAuthStore roles and login', () => {
     expect(store.mustChangePassword).toBe(false)
   })
 
-  it('markUnauthorized opens login and settings', () => {
+  it('markUnauthorized opens login only (planv5.0 §2.2)', () => {
     const store = useAuthStore()
     store.markUnauthorized()
     expect(store.lastUnauthorizedAt).toBeGreaterThan(0)
     expect(store.loginOpen).toBe(true)
-    expect(store.settingsOpen).toBe(true)
-    expect(store.settingsTab).toBe('connection')
+    // 会话失效只弹登录框；设置弹窗由用户从顶栏齿轮自行打开
+    expect(store.settingsOpen).toBe(false)
   })
 })

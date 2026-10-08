@@ -155,6 +155,7 @@ func (c *apiKeyCache) invalidateTenant(tenantID string) {
 
 // CachedAuthenticate 是带缓存的认证入口（Service 内部使用）。
 // 返回值与 Authenticate 完全一致；缓存只影响查询次数，不改判定逻辑。
+// P0 诊断（planv5.0 §4 P0.1）：记录缓存命中状态与未命中时的仓储查询耗时。
 func (s *Service) CachedAuthenticate(ctx context.Context, rawKey string) (Principal, error) {
 	if rawKey == "" {
 		return Principal{}, ErrMissingCredentials
@@ -164,12 +165,25 @@ func (s *Service) CachedAuthenticate(ctx context.Context, rawKey string) (Princi
 	}
 	hash := s.HashKey(rawKey)
 	if p, ok := s.cache.get(hash); ok {
+		if s.authObs != nil {
+			s.authObs.ObserveAuthCache(ctx, AuthCacheHit)
+		}
 		return p, nil
 	}
 	if s.cache.isNegative(hash) {
+		if s.authObs != nil {
+			s.authObs.ObserveAuthCache(ctx, AuthCacheHit) // 负缓存命中：同样免除仓储查询
+		}
 		return Principal{}, ErrInvalidCredentials
 	}
+	if s.authObs != nil {
+		s.authObs.ObserveAuthCache(ctx, AuthCacheMiss)
+	}
+	start := time.Now()
 	p, err := s.authenticateUncached(ctx, hash)
+	if s.authObs != nil {
+		s.authObs.ObserveAuthStage(ctx, AuthStageKeyLoad, time.Since(start))
+	}
 	if err != nil {
 		if isInvalidCredentialsErr(err) {
 			s.cache.putNegative(hash)

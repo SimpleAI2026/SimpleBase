@@ -9,7 +9,7 @@ import KvListEditor from '@/components/databases/kv/editors/KvListEditor.vue'
 import KvSetEditor from '@/components/databases/kv/editors/KvSetEditor.vue'
 import KvZSetEditor from '@/components/databases/kv/editors/KvZSetEditor.vue'
 
-import KvDetailSheet from '@/components/databases/kv/KvDetailSheet.vue'
+import KvDetailModal from '@/components/databases/kv/KvDetailModal.vue'
 import DataTabs from '@/components/databases/DataTabs.vue'
 import KvCreateKeyModal from '@/components/databases/kv/KvCreateKeyModal.vue'
 import KvPanel from '@/components/databases/kv/KvPanel.vue'
@@ -312,9 +312,9 @@ function mockExec(impl: (cmd: string, argvs: string[]) => unknown) {
 describe('KV 编辑器与 DetailSheet 分支补盲', () => {
   beforeEach(() => resetApiMocks())
 
-  // ---------- KvDetailSheet ----------
+  // ---------- KvDetailModal ----------
   it('DetailSheet: 未选 key / 不支持类型 / readonly 无删除按钮', async () => {
-    const w0 = mount(KvDetailSheet, {
+    const w0 = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: null },
       global: { stubs: uiStubs }
     })
@@ -324,7 +324,7 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
 
     // 未知类型 → 无编辑器渲染（空内容区）
     api.kv.execBatch.mockImplementation(async (_p: string, bodies: { argvs?: string[] }[]) => Promise.all(bodies.map(() => null)))
-    const w1 = mount(KvDetailSheet, {
+    const w1 = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: { ...meta, type: 'unknown' as never } },
       global: { stubs: uiStubs }
     })
@@ -336,7 +336,7 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
     api.kv.execBatch.mockImplementation(async (_p: string, bodies: { argvs?: string[] }[]) =>
       Promise.all(bodies.map((b) => (b.argvs?.[0]?.toUpperCase() === 'TYPE' ? 'string' : -1)))
     )
-    const w2 = mount(KvDetailSheet, {
+    const w2 = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta, readonly: true },
       global: { stubs: uiStubs }
     })
@@ -357,7 +357,7 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
       api.kv.execBatch.mockImplementation(async (_p: string, bodies: { argvs?: string[] }[]) =>
         Promise.all(bodies.map((b) => (b.argvs?.[0]?.toUpperCase() === 'TYPE' ? t : b.argvs?.[0]?.toUpperCase() === 'PTTL' ? -1 : 3)))
       )
-      const w = mount(KvDetailSheet, {
+      const w = mount(KvDetailModal, {
         props: { open: true, projectId: 'p', kvKey: { ...meta, type: t as never, len: 3 } },
         global: { stubs: uiStubs }
       })
@@ -370,7 +370,7 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
 
   it('DetailSheet: meta 加载失败回退到 kvKey 展示', async () => {
     api.kv.execBatch.mockRejectedValueOnce(new Error('meta-load-fail'))
-    const w = mount(KvDetailSheet, {
+    const w = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
       global: { stubs: uiStubs }
     })
@@ -665,7 +665,7 @@ describe('KV 模板内联回调与 v-model', () => {
         })
       )
     )
-    const w = mount(KvDetailSheet, {
+    const w = mount(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
       global: { stubs: uiStubs }
     })

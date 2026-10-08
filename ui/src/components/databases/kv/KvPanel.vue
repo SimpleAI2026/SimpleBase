@@ -102,7 +102,7 @@
 
     <KvCreateKeyModal v-model:open="createOpen" :project-id="projectId" :readonly="readonly" @created="onCreated" />
     <KvTtlModal v-model:open="ttlOpen" :project-id="projectId" :kv-key="ttlTarget" @changed="reload" />
-    <KvDetailSheet
+    <KvDetailModal
       v-model:open="detailOpen"
       :project-id="projectId"
       :kv-key="detailTarget"
@@ -152,7 +152,7 @@ import KvApiPanel from './KvApiPanel.vue'
 import SbModal from '../../modal/SbModal.vue'
 import KvCreateKeyModal from './KvCreateKeyModal.vue'
 import KvTtlModal from './KvTtlModal.vue'
-import KvDetailSheet from './KvDetailSheet.vue'
+import KvDetailModal from './KvDetailModal.vue'
 
 const props = defineProps<{
   projectId: string

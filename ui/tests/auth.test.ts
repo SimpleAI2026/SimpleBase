@@ -19,8 +19,8 @@ describe('useAuthStore', () => {
     const store = useAuthStore()
     store.markUnauthorized()
     expect(store.lastUnauthorizedAt).toBeGreaterThan(0)
-    expect(store.settingsOpen).toBe(true)
-    expect(store.settingsTab).toBe('connection')
+    // 会话失效只弹登录框；设置弹窗由用户自行打开（planv5.0 §2.2）
+    expect(store.settingsOpen).toBe(false)
     store.updateKey('  sb_live_new  ')
     expect(store.apiKey).toBe('sb_live_new')
     expect(getApiKey()).toBe('sb_live_new')

@@ -148,9 +148,33 @@ func (h *AuthHandler) Me(c echo.Context) error {
 	if !ok || p.UserID == "" {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
 	}
-	u, err := h.users.GetByID(c.Request().Context(), p.UserID)
-	if err != nil {
-		return WriteError(c, err)
+	// planv5.0 §4 P1.3：身份字段复用 Principal 缓存条目内同源的 sys_users 行
+	//（新鲜度与 Principal 一致：5s TTL + 变更即时失效），消除每请求重复点查；
+	// 仅缓存过期/失效时回查仓储。
+	var u auth.User
+	if cached, hit := h.sessions.CachedUser(p.UserID); hit {
+		u = cached
+		if timer := StageTimerFrom(c.Request().Context()); timer != nil {
+			timer.SetMeta("me_cache", 1)
+		}
+	} else {
+		if timer := StageTimerFrom(c.Request().Context()); timer != nil {
+			timer.SetMeta("me_cache", 0)
+			scope := timer.StageScope(StageSystemDB)
+			var err error
+			u, err = h.users.GetByID(c.Request().Context(), p.UserID)
+			scope.Done()
+			if err != nil {
+				return WriteError(c, err)
+			}
+			timer.SetMeta("me_rows", 1)
+		} else {
+			var err error
+			u, err = h.users.GetByID(c.Request().Context(), p.UserID)
+			if err != nil {
+				return WriteError(c, err)
+			}
+		}
 	}
 	out := meResponse{userResponse: toUserResponse(u)}
 	// 可见项目：从 Principal.ProjectIDs 展开（服务端已按角色收敛）。
