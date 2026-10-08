@@ -101,4 +101,4 @@ cmd/simplebased → app → api → auth / catalog / database / objectstore
 
 - `plan/` 存放设计计划文档（路由注释中的 `planX §Y` 指向这些文件），改动行为前先查对应 plan。
 - `internal/web/dist` 是前端构建产物的 embed 目录，**不要手工编辑**；由 `./build.sh` 同步生成。
-- `output/perf/` 为压测原始数据，`datasets/`、`examples/`、`docs/`、`skills/` 为文档与示例资源。
+- `output/perf/` 为压测原始数据，`examples/`、`docs/` 为文档与示例资源。

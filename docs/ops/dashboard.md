@@ -22,3 +22,14 @@ curl -sS "$BASE/v1/projects/$PROJECT/metrics/summary" \
 ```
 
 设置项目和 Key 的方法见[5 分钟上手](/docs/getting-started/quickstart)。指标可能存在聚合、缓存和采样延迟，不用于替代审计记录或远端存储一致性检查；容量和异常处理参见[部署指南](/docs/ops/deployment)。
+
+## 运维只读接口
+
+以下接口控制台不直接展示或只用于状态卡，供运维脚本与外部系统查询，均要求当前项目的 `database:read` 权限：
+
+| 方法 | 路径 | 响应 | 说明 |
+|---|---|---|---|
+| GET | `/v1/projects/:projectID/quota` | `{ "llm_allowed": bool, "database_allowed": bool }` | 配额是否可用；服务端按项目缓存 10 秒 |
+| GET | `/v1/projects/:projectID/llm/providers` | `{ "providers": […] }` | 当前项目可用的 LLM 供应商名称；未启用 LLM 时不挂载 |
+
+项目级与全局键值设置接口 `GET/PUT /v1/projects/:projectID/settings`、`GET/PUT /v1/settings`（`{"key","value_json"}`）为**保留接口**：控制台不使用，后续版本可能收紧或移除，新集成请改用对应业务接口（如 `/llm/settings`）。

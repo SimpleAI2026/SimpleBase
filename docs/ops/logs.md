@@ -24,4 +24,6 @@ curl -sS "$BASE/v1/projects/$PROJECT/logs?level=error&limit=20" \
 
 ## 审计边界
 
-服务端会记录操作类别、项目、请求 ID、结果与必要的资源 ID；云沙盒执行只记录命令摘要和用量，不记录命令原文、环境变量值或输出。排查线上问题时先用请求 ID 对齐事件，再核对操作权限与实例状态。部署与故障处理参见[部署指南](/docs/ops/deployment)。
+服务端会记录操作类别、项目、请求 ID、结果与必要的资源 ID；云沙盒执行只记录命令摘要和用量，不记录命令原文、环境变量值或输出。排查线上问题时先用请求 ID 对齐事件，再核对操作权限与实例状态。
+
+审计记录可经 `GET /v1/projects/:projectID/audit?database_id=&limit=50` 只读查询（`database:read` 权限），响应 `{ "operations": […], "limit": 50 }`；控制台暂不展示，供运维脚本使用。部署与故障处理参见[部署指南](/docs/ops/deployment)。
