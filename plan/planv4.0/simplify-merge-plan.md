@@ -6,6 +6,7 @@
 > 方法：非测试代码引用追踪（grep）+ UI/JS-SDK/Go-SDK/docs 端点消费核对 + `Api` 契约方法逐项消费扫描 + 重复实现比对
 > 基线：`go build ./internal/... ./cmd/...` 通过（2026-10-06 复核）
 > 原则：只删「零消费」与合并「重复实现」，不改对外协议字段、不新增依赖、不动 `go.mod` / `package.json` / `tsconfig.json` / `vite.config.ts`
+> **状态：已执行（v1.1，2026-10-08）**——R/S/M/U/V/T 组全部完成，D 组按默认不动；逐项提交见文末「执行记录」。
 
 ---
 
@@ -251,6 +252,38 @@ grep -rn "CronJobRunsDrawer" ui/                                                
 - T 组只搬迁用例，以覆盖率不降为闸门。
 - 每项独立 commit，按 commit revert；不动 `go.mod`、`package.json`、`tsconfig.json`、`vite.config.ts`（R1 仅改 `.gitignore`，已在旧计划授权范围内）。
 
+## 执行记录（2026-10-08 复核）
+
+| 项 | 状态 | 提交 / 说明 |
+| --- | --- | --- |
+| 前置 | 完成 | `549f10c` 提交 sandbox / docs / examples 现有改动 |
+| R1/R2 | 完成 | `0d082c2`；`.gitignore` 已含 `*.test`，残留检查为空 |
+| R3 | 完成 | 根目录 `simplebased` 本地产物已删除 |
+| R4 | 完成 | `2757751` workflow 对齐 Go 1.25 + 现有 Dockerfile |
+| R5 | 完成 | `b8c9757` 删除 `systemdb/gofunctions.go` 兼容层 |
+| R6/R7 | 完成 | `499416a` 根 README 链接/结构、`internal/database/README.md`（去 turso，补 `kv/`、`lease/`）；README 中剩余 `litellm` 字样为真实依赖说明，保留 |
+| S1 | 完成 | `79176e3` 删除 `sandbox/client.go`，路径测试迁至 `paths_test.go`；`microsandbox` 仅剩 `driver_cloud.go`、`config.go`（配置项）、`access.go`（注释） |
+| S2/S5 | 完成 | `0ae0058` |
+| S3 | 完成（方案 a） | `01f7185` |
+| S4 | 完成 | `e3f5e21` 摘路由；`4436e51` 删除 `llmSessionHandler` 的 List/Create/Get/Delete/ListMessages/PostMessage 及 `systemdb` 的 `ListLLMSessions/GetLLMSession/ArchiveLLMSession/ListLLMMessages`（`GetSettings/PutSettings`、`CreateLLMSession/AppendLLMMessage` 仍活跃保留） |
+| S6 | 不动 | 见 D1 |
+| M1/M2 | 完成 | `63bc8b5` `queryLimit`、`3e4e0ae` `decodeJSONBody`（`8636131` 修复前导零 limit）；`data_handler` 文档写入、`sandbox_handler`、`api_keys_handler` 因错误协议差异保留原解码 |
+| M3 | 完成 | `ec6c67d`、`a957c3f`；空目录 `internal/log/` 已清理 |
+| M4 | 完成 | `ef35c05` `quota_audit_handler.go`、`59a9cdb` adapters 并入 `adapter.go` |
+| M5 | 完成 | `fb518bd` |
+| U1/U4 | 完成 | `409f0e5` |
+| U2 | 完成 | `215b1cc`（`db.update`、`agentThreads.remove` 按计划保留） |
+| U3 | 不动 | 活跃组件，列入 K |
+| V1 | 完成 | `5f1d31b`；剩余 2 处为 `String(e)` 兜底拼接（KvApiPanel、SqlWorkModal），语义不同保留 |
+| V2/V3/V4 | 完成 | `e428579`、`f0243e6`、`400254c` |
+| V5 | 完成（方案 a） | `9ee4b00`、`ad46859`、`4834be3`（GoFunctions / CronJobs / Users / Databases） |
+| T1 | 完成 | KV 测试合并为 `KvPanel/KvEditors/KvModals/KvApiPanel` 4 个；拼盘按域拆分，测试文件 93 → 82；`simple-components.test.ts` 作为展示组件集合保留 |
+| T2 | 完成 | `601125e`、`7c34cf6`、`1d29776`、`76dd75d`；`coverage_*_test.go` 与 `app/more_test.go` 已归位 |
+| D1–D5 | 未执行 | 按默认不动，待决策 |
+
+验证：`go build ./... && go vet ./internal/... ./cmd/...`、`go test ./internal/... -count=1` 全绿（2026-10-08）。
+
 ## 修订记录
 
 - **v1.0**（2026-10-06）：初版。汇总 cleanup-plan 遗留 7 项；新增 sandbox 旧 Client、GoFunction Update、Redact 死代码、LLM sessions 读路由；后端 limit/JSON 解码/log 包/plan79 文件合并；前端 CronJobRunsDrawer、9 个零消费 Api 方法、错误消息/时间格式/SSE 循环合并；测试拼盘归并。
+- **v1.1**（2026-10-08）：标记执行完成；补齐 S4 handler 与 store 读方法删除、清理空 `internal/log/` 目录；新增执行记录。
