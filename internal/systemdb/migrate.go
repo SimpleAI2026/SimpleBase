@@ -593,6 +593,15 @@ var systemMigrations = []migration{
 			ALTER TABLE sys_agent_runs ADD COLUMN tool_calls BIGINT DEFAULT 0;
 			ALTER TABLE sys_agent_runs ADD COLUMN error_code VARCHAR DEFAULT ''`,
 	},
+	{
+		// v41：内置 Agent 标识 + 播种关闭记录 + 重试关联（planv4.1 BUG-03/11）。
+		// DuckLake 不支持 partial index 与 PRIMARY KEY；唯一性由播种逻辑应用层保证。
+		version: 41,
+		name:    "sys_cloud_agent_builtin_and_retry",
+		stmt: `ALTER TABLE sys_cloud_agents ADD COLUMN builtin_key VARCHAR DEFAULT '';
+			CREATE TABLE IF NOT EXISTS sys_cloud_agent_seed_dismissed (project_id VARCHAR NOT NULL, builtin_key VARCHAR NOT NULL);
+			ALTER TABLE sys_agent_runs ADD COLUMN retry_of_run_id VARCHAR DEFAULT ''`,
+	},
 }
 
 // retireOpenCloseStatusSQL 把未软删的 closed/opening/closing/recovering 写成 ready。

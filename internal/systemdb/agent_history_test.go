@@ -120,9 +120,14 @@ func TestCloudAgentsThreadsAndRuns(t *testing.T) {
 	if err := s.SeedDefaultCloudAgents(ctx, pid); err != nil {
 		t.Fatal(err)
 	}
+	// 已有任意 agent 时播种补齐 4 个内置助手（BUG-11：按 builtin_key 幂等补齐）。
 	n, err := s.CountCloudAgents(ctx, pid)
-	if err != nil || n != 2 {
+	if err != nil || n != 6 {
 		t.Fatalf("count existing: %d err=%v", n, err)
+	}
+	list, err = s.ListCloudAgents(ctx, pid)
+	if err != nil || len(list) == 0 || list[0].BuiltinKey != "general" {
+		t.Fatalf("general agent should sort first: %+v err=%v", list, err)
 	}
 	if err := s.ArchiveCloudAgent(ctx, pid, a.ID); err != nil {
 		t.Fatal(err)
@@ -218,7 +223,7 @@ func TestCloudAgentsThreadsAndRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	n, err = empty.CountCloudAgents(ctx, "fresh")
-	if err != nil || n != 3 {
+	if err != nil || n != 4 {
 		t.Fatalf("seeded n=%d err=%v", n, err)
 	}
 }

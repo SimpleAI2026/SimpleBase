@@ -210,14 +210,14 @@ func TestSQLRepositoryOnSystemSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	agents, err := store.ListCloudAgents(ctx, projectID)
-	if err != nil || len(agents) != 3 {
+	if err != nil || len(agents) != 4 {
 		t.Fatalf("agents n=%d err=%v", len(agents), err)
 	}
 	if err := store.SeedDefaultCloudAgents(ctx, projectID); err != nil {
 		t.Fatal(err)
 	}
 	agents, err = store.ListCloudAgents(ctx, projectID)
-	if err != nil || len(agents) != 3 {
+	if err != nil || len(agents) != 4 {
 		t.Fatalf("agents idempotent n=%d err=%v", len(agents), err)
 	}
 	th, err := store.CreateAgentThread(ctx, AgentThread{ProjectID: projectID, Title: "t1"})
@@ -470,7 +470,7 @@ func TestSeedAndIsDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	n, err := s.CountCloudAgents(ctx, catalog.DevProjectID)
-	if err != nil || n != 3 {
+	if err != nil || n != 4 {
 		t.Fatalf("seeded agents n=%d err=%v", n, err)
 	}
 	dbs, _, err := s.CatalogRepo().ListDatabasesByKind(ctx, catalog.DevProjectID, catalog.DatabaseKindKV, catalog.Page{Limit: 10})

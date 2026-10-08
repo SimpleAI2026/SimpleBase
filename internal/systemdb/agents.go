@@ -29,6 +29,7 @@ type CloudAgent struct {
 	SystemPrompt  string
 	ToolIDs       []string
 	ModelOverride string
+	BuiltinKey    string
 	TeamEnabled   bool
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -55,6 +56,8 @@ type AgentMessage struct {
 	MentionsJSON  string
 	ToolCallsJSON string
 	RunID         string
+	RunStatus     string
+	ErrorCode     string
 	CreatedAt     time.Time
 }
 
@@ -75,6 +78,7 @@ type AgentRun struct {
 	ReasoningTokens  int
 	ToolCalls        int
 	ErrorCode        string
+	RetryOfRunID     string
 }
 
 // CreateCloudAgent 写入一个 agent。
@@ -97,9 +101,9 @@ func (s *Store) CreateCloudAgent(ctx context.Context, a CloudAgent) (CloudAgent,
 		team = 1
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO sys_cloud_agents(id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at, archived_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-		a.ID, a.ProjectID, a.Name, a.Module, a.Description, a.SystemPrompt, toolJSON, a.ModelOverride, team, now, now)
+		`INSERT INTO sys_cloud_agents(id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at, archived_at, builtin_key)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+		a.ID, a.ProjectID, a.Name, a.Module, a.Description, a.SystemPrompt, toolJSON, a.ModelOverride, team, now, now, a.BuiltinKey)
 	if err != nil {
 		return CloudAgent{}, err
 	}
@@ -113,9 +117,9 @@ func (s *Store) ListCloudAgents(ctx context.Context, projectID string) ([]CloudA
 		return nil, ErrUnavailable
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at
+		`SELECT id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at, builtin_key
 		 FROM sys_cloud_agents WHERE project_id = ? AND archived_at IS NULL
-		 ORDER BY created_at ASC`, projectID)
+		 ORDER BY CASE WHEN builtin_key = 'general' THEN 0 ELSE 1 END, created_at ASC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +141,7 @@ func (s *Store) GetCloudAgent(ctx context.Context, projectID, id string) (CloudA
 		return CloudAgent{}, ErrUnavailable
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at
+		`SELECT id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at, builtin_key
 		 FROM sys_cloud_agents WHERE id = ? AND project_id = ? AND archived_at IS NULL`,
 		id, projectID)
 	a, err := scanCloudAgent(row)
@@ -183,7 +187,12 @@ func (s *Store) ArchiveCloudAgent(ctx context.Context, projectID, id string) err
 		return ErrUnavailable
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
 		`UPDATE sys_cloud_agents SET archived_at=?, updated_at=? WHERE id=? AND project_id=? AND archived_at IS NULL`,
 		now, now, id, projectID)
 	if err != nil {
@@ -192,6 +201,25 @@ func (s *Store) ArchiveCloudAgent(ctx context.Context, projectID, id string) err
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return sql.ErrNoRows
+	}
+	// 内置 Agent 删除后写 dismissed，播种不再补回（DuckLake 无 PK 约束，存在性由应用层判断）。
+	var key string
+	if err := tx.QueryRowContext(ctx, `SELECT builtin_key FROM sys_cloud_agents WHERE id=? AND project_id=?`, id, projectID).Scan(&key); err != nil {
+		return err
+	}
+	if key != "" {
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_cloud_agent_seed_dismissed WHERE project_id=? AND builtin_key=?`, projectID, key).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO sys_cloud_agent_seed_dismissed(project_id, builtin_key) VALUES(?, ?)`, projectID, key); err != nil {
+				return err
+			}
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return err
 	}
 	s.notifyWrite(ctx)
 	return nil
@@ -430,10 +458,13 @@ func (s *Store) ListAgentMessages(ctx context.Context, projectID, threadID strin
 		limit = 200
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, thread_id, project_id, role, content, agent_id, mentions_json, tool_calls_json, run_id, created_at
+		`SELECT recent.id, recent.thread_id, recent.project_id, recent.role, recent.content, recent.agent_id,
+		 recent.mentions_json, recent.tool_calls_json, recent.run_id, recent.created_at,
+		 COALESCE(r.status, ''), COALESCE(r.error_code, '')
 		 FROM (SELECT * FROM sys_agent_messages WHERE project_id = ? AND thread_id = ?
 		       ORDER BY created_at DESC, id DESC LIMIT ?) AS recent
-		 ORDER BY created_at ASC, id ASC`, projectID, threadID, int64(limit))
+		 LEFT JOIN sys_agent_runs r ON r.id = recent.run_id AND r.project_id = recent.project_id
+		 ORDER BY recent.created_at ASC, recent.id ASC`, projectID, threadID, int64(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +472,7 @@ func (s *Store) ListAgentMessages(ctx context.Context, projectID, threadID strin
 	out := make([]AgentMessage, 0)
 	for rows.Next() {
 		var m AgentMessage
-		if err := rows.Scan(&m.ID, &m.ThreadID, &m.ProjectID, &m.Role, &m.Content, &m.AgentID, &m.MentionsJSON, &m.ToolCallsJSON, &m.RunID, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ThreadID, &m.ProjectID, &m.Role, &m.Content, &m.AgentID, &m.MentionsJSON, &m.ToolCallsJSON, &m.RunID, &m.CreatedAt, &m.RunStatus, &m.ErrorCode); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -580,7 +611,7 @@ func scanCloudAgent(sc rowScanner) (CloudAgent, error) {
 	var a CloudAgent
 	var toolJSON string
 	var team int64
-	if err := sc.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Module, &a.Description, &a.SystemPrompt, &toolJSON, &a.ModelOverride, &team, &a.CreatedAt, &a.UpdatedAt); err != nil {
+	if err := sc.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Module, &a.Description, &a.SystemPrompt, &toolJSON, &a.ModelOverride, &team, &a.CreatedAt, &a.UpdatedAt, &a.BuiltinKey); err != nil {
 		return CloudAgent{}, err
 	}
 	ids, err := unmarshalStringSlice(toolJSON)
@@ -617,41 +648,73 @@ func unmarshalStringSlice(s string) ([]string, error) {
 	return ids, nil
 }
 
-// defaultCloudAgentSpecs 是新项目 / DevMode 的三个模块 agent。
+// defaultCloudAgentSpecs 是新项目与存量项目的内置助手。
 var defaultCloudAgentSpecs = []CloudAgent{
 	{
+		Name:        "通用助手",
+		Module:      "general",
+		BuiltinKey:  "general",
+		Description: "跨数据库、对象存储与日志的项目助手",
+		ToolIDs:     []string{"list_databases", "list_collections", "readonly_sql", "list_objects", "head_object", "search_logs", "log_level_stats"},
+	},
+	{
 		Name:        "Database",
+		BuiltinKey:  "database",
 		Module:      "database",
 		Description: "Inspect project databases and run readonly SQL",
 		ToolIDs:     []string{"list_databases", "list_collections", "readonly_sql"},
 	},
 	{
 		Name:        "S3",
+		BuiltinKey:  "s3",
 		Module:      "s3",
 		Description: "List and inspect project object storage",
 		ToolIDs:     []string{"list_objects", "head_object"},
 	},
 	{
 		Name:        "Logs",
+		BuiltinKey:  "logs",
 		Module:      "logs",
 		Description: "Search project logs and summarize levels",
 		ToolIDs:     []string{"search_logs", "log_level_stats"},
 	},
 }
 
-// SeedDefaultCloudAgents 幂等写入 3 个默认 agent；已有任意未归档 agent 则跳过。
+// SeedDefaultCloudAgents 为新旧项目幂等补齐未被删除的内置助手。
 func (s *Store) SeedDefaultCloudAgents(ctx context.Context, projectID string) error {
+	return s.SeedDefaultCloudAgentsWithSandbox(ctx, projectID, false)
+}
+
+func (s *Store) SeedDefaultCloudAgentsWithSandbox(ctx context.Context, projectID string, sandboxAvailable bool) error {
 	if s == nil || s.db == nil {
 		return ErrUnavailable
 	}
-	n, err := s.CountCloudAgents(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	if n > 0 {
-		return nil
-	}
 	for _, spec := range defaultCloudAgentSpecs {
+		var count int
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_cloud_agent_seed_dismissed WHERE project_id=? AND builtin_key=?`, projectID, spec.BuiltinKey).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_cloud_agents WHERE project_id=? AND builtin_key=?`, projectID, spec.BuiltinKey).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+		res, err := s.db.ExecContext(ctx, `UPDATE sys_cloud_agents SET builtin_key=? WHERE project_id=? AND module=? AND name=? AND builtin_key='' AND archived_at IS NULL`, spec.BuiltinKey, projectID, spec.Module, spec.Name)
+		if err != nil {
+			return err
+		}
+		matched, _ := res.RowsAffected()
+		if matched > 0 {
+			s.notifyWrite(ctx)
+			continue
+		}
+		if spec.BuiltinKey == "general" && sandboxAvailable {
+			spec.ToolIDs = append(append([]string(nil), spec.ToolIDs...), "sandbox_exec", "sandbox_shell", "sandbox_read_file", "sandbox_write_file")
+		}
 		spec.ProjectID = projectID
 		if _, err := s.CreateCloudAgent(ctx, spec); err != nil {
 			return err
