@@ -8,7 +8,7 @@
 //
 //	go test -run='^$' -bench=. -benchtime=20x ./benchmarks/dbread
 //	go test -run='TestReadAmplificationReport' -v ./benchmarks/dbread   # 打印文件数与耗时对照
-package main
+package dbread
 
 import (
 	"context"

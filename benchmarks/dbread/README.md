@@ -15,6 +15,8 @@
 
 ## 运行
 
+本目录是普通包 `dbread`。下面的 `go test` 就是入口。
+
 ```bash
 # 读放大的可读报告（文件数 → 查询耗时）
 go test -run='TestReadAmplificationReport' -v ./benchmarks/dbread
