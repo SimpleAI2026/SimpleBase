@@ -642,7 +642,13 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	a.auditSvc = audit.NewService(catRepo, a.logger)
 
 	if cfg.LLM.Enabled {
+		// 设置页把厂商凭证写进 sys_llm_provider_creds。每次请求现读该表，
+		// 保存后无需重启。catalog CredentialRef 与 YAML 实例供应商仅作回退。
 		var resolver llmgateway.ProviderResolver = llmgateway.NewCatalogResolver(a.catalog, nil)
+		resolver = llmgateway.NewFirstUsableResolver(
+			llmgateway.NewProjectCredResolver(llmgateway.NewSystemCredSource(a.systemStore)),
+			resolver,
+		)
 		if inst := instanceLLMProviders(cfg.LLM.Providers); len(inst) > 0 {
 			resolver = llmgateway.NewFallbackResolver(resolver, inst)
 		}
