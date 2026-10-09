@@ -4,9 +4,6 @@
   >
     <ScrollArea class="h-full">
       <nav class="flex flex-col gap-0.5 py-1">
-        <div class="px-3 pt-1 pb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-          {{ moduleTitle }}
-        </div>
         <template v-for="p in pages" :key="p.slug">
           <p v-if="p.group && p.group !== previousGroup(p)" class="px-3 pt-4 pb-1 text-xs font-semibold text-muted-foreground">{{ p.group }}</p>
           <router-link
@@ -26,7 +23,6 @@ import type { DocPage } from '../../docs/catalog'
 
 const props = defineProps<{
   moduleId: string
-  moduleTitle: string
   pages: DocPage[]
   activeSlug: string
 }>()

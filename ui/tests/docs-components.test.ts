@@ -57,7 +57,6 @@ describe('docs components', () => {
     const side = mount(DocsSidebar, {
       props: {
         moduleId: 'ops',
-        moduleTitle: 'Ops',
         activeSlug: 'index',
         pages: [
           { moduleId: 'ops', slug: 'index', title: 'Index', order: 0, filePath: 'ops/index.md' },
@@ -68,6 +67,8 @@ describe('docs components', () => {
     })
     expect(side.html()).toContain('/docs/ops')
     expect(side.html()).toContain('/docs/ops/deploy')
+    expect(side.html()).not.toContain('uppercase')
+    expect(side.text()).not.toContain('Ops')
     await side.setProps({ pages: [
       { moduleId: 'ops', slug: 'index', title: 'Index', order: 0, filePath: 'ops/index.md' },
       { moduleId: 'ops', slug: 'deploy', title: 'Deploy', order: 1, filePath: 'ops/deploy.md', group: 'Guides' },
