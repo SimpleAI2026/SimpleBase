@@ -10,7 +10,7 @@
         <TableHeader>
           <TableRow>
             <TableHead class="min-w-44 max-w-80">集合名称</TableHead>
-            <TableHead class="w-52 text-right">操作</TableHead>
+            <TableHead class="w-52">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -19,8 +19,8 @@
           </TableEmpty>
           <TableRow v-for="record in rows" :key="record.name">
             <TableCell class="sb-mono max-w-80 truncate font-medium" :title="record.name">{{ record.name }}</TableCell>
-            <TableCell class="w-52 text-right">
-              <div class="flex items-center justify-end gap-1">
+            <TableCell class="w-52">
+              <div class="flex items-center justify-center gap-1">
                 <Button variant="ghost" size="sm" @click="emit('view-data', record.name)">查看数据</Button>
                 <Button v-if="!readonly" variant="ghost" size="sm" @click="emit('add-document', record.name)">新增文档</Button>
               </div>

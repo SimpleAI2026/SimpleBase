@@ -65,7 +65,7 @@
               <TableCell class="sb-col-sm text-xs text-muted-foreground">{{ formatBytes(record.size) }}</TableCell>
               <TableCell class="sb-col-md text-xs text-muted-foreground">{{ formatTime(record.lastModified) }}</TableCell>
               <TableCell class="w-32">
-                <div class="flex gap-1">
+                <div class="flex justify-center gap-1">
                   <Button variant="ghost" size="sm" @click="open(record.key)">
                     打开
                   </Button>

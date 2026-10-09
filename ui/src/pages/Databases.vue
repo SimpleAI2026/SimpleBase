@@ -77,7 +77,7 @@
               <TableHead class="sb-col-name">名称</TableHead>
               <TableHead class="sb-col-id">ID</TableHead>
               <TableHead class="sb-col-sm">状态</TableHead>
-              <TableHead class="w-24 text-right">数据量</TableHead>
+              <TableHead class="w-24">数据量</TableHead>
               <TableHead class="sb-col-md">创建时间</TableHead>
               <TableHead class="sb-col-act min-w-36">操作</TableHead>
             </TableRow>
@@ -133,7 +133,7 @@
                 <TableCell class="sb-col-sm">
                   <Badge :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
                 </TableCell>
-                <TableCell class="w-24 text-right tabular-nums text-sm">
+                <TableCell class="w-24 tabular-nums text-sm">
                   <Tooltip>
                     <TooltipTrigger as-child>
                       <span class="cursor-default">{{ formatCount(record.documentCount) }}</span>
@@ -145,7 +145,7 @@
                 </TableCell>
                 <TableCell class="sb-col-md text-xs text-muted-foreground">{{ formatTime(record.createdAt) }}</TableCell>
                 <TableCell>
-                  <div class="flex flex-wrap items-center gap-1">
+                  <div class="flex flex-wrap items-center justify-center gap-1">
                     <Tooltip>
                       <TooltipTrigger as-child>
                         <span>
@@ -189,7 +189,7 @@
                 </TableCell>
               </TableRow>
               <TableRow v-if="expandedRowKeys.includes(record.id)" class="bg-muted/20 hover:bg-muted/20">
-                <TableCell colspan="7" class="p-0 border-b-0">
+                <TableCell colspan="7" class="border-b-0 p-0 text-left">
                   <div :id="`db-desktop-${record.id}`" class="border-y border-border/70 bg-muted/25 px-6 py-4">
                     <SchemaPanel
                       v-if="isSqlDatabase(record)"
@@ -232,34 +232,36 @@
       :ok-button-props="{ disabled: !!nameError && !!newName.trim() }"
       @ok="create"
     >
-      <Field :data-invalid="nameError ? true : undefined">
-        <FieldLabel for="db-name">名称</FieldLabel>
-        <Input
-          id="db-name"
-          v-model="newName"
-          placeholder="名称（1-63 字节，不含 / \\ 与控制字符）"
-          :aria-invalid="nameError ? true : undefined"
-        />
-        <FieldDescription v-if="nameError">{{ nameError }}</FieldDescription>
-      </Field>
-      <Field>
-        <FieldLabel>数据类型</FieldLabel>
-        <div class="flex flex-wrap gap-2">
-          <Button type="button" size="sm" :variant="dataModel === 'collection' ? 'default' : 'outline'" @click="dataModel = 'collection'">集合文档</Button>
-          <Button type="button" size="sm" :variant="dataModel === 'sql' ? 'default' : 'outline'" @click="dataModel = 'sql'">SQL 数据</Button>
-        </div>
-        <FieldDescription>集合文档沿用集合与文档；SQL 数据使用关系表，创建后可管理表结构。</FieldDescription>
-      </Field>
-      <Field v-if="dataModel === 'sql'">
-        <FieldLabel for="db-init-sql">初始化 SQL</FieldLabel>
-        <Textarea
-          id="db-init-sql"
-          v-model="initSql"
-          placeholder="可选。例如 CREATE TABLE orders (id INTEGER);"
-          class="min-h-28 font-mono text-xs"
-        />
-        <FieldDescription>仅 CREATE、ALTER、INSERT。多条语句用分号分隔。</FieldDescription>
-      </Field>
+      <FieldGroup>
+        <Field :data-invalid="nameError ? true : undefined">
+          <FieldLabel for="db-name">名称</FieldLabel>
+          <Input
+            id="db-name"
+            v-model="newName"
+            placeholder="名称（1-63 字节，不含 / \\ 与控制字符）"
+            :aria-invalid="nameError ? true : undefined"
+          />
+          <FieldDescription v-if="nameError">{{ nameError }}</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel>数据类型</FieldLabel>
+          <div class="flex flex-wrap gap-2">
+            <Button type="button" size="sm" :variant="dataModel === 'collection' ? 'default' : 'outline'" @click="dataModel = 'collection'">集合文档</Button>
+            <Button type="button" size="sm" :variant="dataModel === 'sql' ? 'default' : 'outline'" @click="dataModel = 'sql'">SQL 数据</Button>
+          </div>
+          <FieldDescription>集合文档沿用集合与文档；SQL 数据使用关系表，创建后可管理表结构。</FieldDescription>
+        </Field>
+        <Field v-if="dataModel === 'sql'">
+          <FieldLabel for="db-init-sql">初始化 SQL</FieldLabel>
+          <Textarea
+            id="db-init-sql"
+            v-model="initSql"
+            placeholder="可选。例如 CREATE TABLE orders (id INTEGER);"
+            class="min-h-28 font-mono text-xs"
+          />
+          <FieldDescription>仅 CREATE、ALTER、INSERT。多条语句用分号分隔。</FieldDescription>
+        </Field>
+      </FieldGroup>
     </SbModal>
 
     <SqlWorkModal v-model:open="sqlOpen" :project-id="projectStore.id" :database="activeDb" :readonly="isAdmin" />
@@ -302,7 +304,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'

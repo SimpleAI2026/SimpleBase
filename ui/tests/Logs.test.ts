@@ -35,6 +35,8 @@ describe('Logs (日志管理)', () => {
   it('loads events and retention, then saves a new keep-days value', async () => {
     const { wrapper } = await mountWithApp(Logs)
     expect(wrapper.text()).toContain('boom')
+    expect(wrapper.findAll('th').find((el) => el.text() === '消息')?.classes()).toContain('text-left')
+    expect(wrapper.findAll('td').find((el) => el.text() === 'boom')?.classes()).toContain('text-left')
     expect(wrapper.text()).toContain('更新于')
     const keep = wrapper.find('input[type="number"]')
     await keep.setValue('7')

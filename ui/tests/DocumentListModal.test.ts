@@ -21,6 +21,8 @@ describe('DocumentListModal (数据库管理 / 文档)', () => {
     })
     await flushPromises()
     expect(w.text()).toContain('r1')
+    expect(w.findAll('th').find((el) => el.text() === '数据')?.classes()).toContain('text-left')
+    expect(w.findAll('td').some((el) => el.classes().includes('text-left'))).toBe(true)
     await w.findAll('button').find((b) => b.text().includes('新增文档'))!.trigger('click')
     expect(w.emitted('add-document')).toBeTruthy()
     await w.findAll('button').find((b) => b.text().includes('删除'))!.trigger('click')

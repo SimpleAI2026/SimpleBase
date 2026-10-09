@@ -6,23 +6,23 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="w-14 text-right">#</TableHead>
-              <TableHead class="min-w-40">元素</TableHead>
-              <TableHead v-if="!readonly" class="w-20 text-right">操作</TableHead>
+              <TableHead class="w-14">#</TableHead>
+              <TableHead class="min-w-40 text-left">元素</TableHead>
+              <TableHead v-if="!readonly" class="w-20">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableEmpty v-if="!elems.length" :colspan="readonly ? 2 : 3">列表为空</TableEmpty>
             <TableRow v-for="(el, i) in elems" :key="i">
-              <TableCell class="text-right text-xs text-muted-foreground tabular-nums">{{ i }}</TableCell>
-              <TableCell>
+              <TableCell class="text-xs text-muted-foreground tabular-nums">{{ i }}</TableCell>
+              <TableCell class="text-left">
                 <span v-if="editIndex !== i" class="sb-mono text-xs break-all">{{ el }}</span>
                 <div v-else class="flex items-center gap-1">
                   <Input v-model="editValue" class="h-7 text-xs" @keydown.enter="saveEdit(i)" />
                   <Button size="sm" variant="ghost" @click="saveEdit(i)">存</Button>
                 </div>
               </TableCell>
-              <TableCell v-if="!readonly" class="text-right">
+              <TableCell v-if="!readonly">
                 <Button size="sm" variant="ghost" @click="startEdit(i, el)">改</Button>
               </TableCell>
             </TableRow>

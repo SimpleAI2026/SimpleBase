@@ -13,7 +13,7 @@
         <div class="flex shrink-0 items-center gap-2">
           <DocsSearch />
           <Button variant="ghost" size="sm" as-child>
-            <router-link :to="{ name: 'dashboard' }">返回控制台</router-link>
+            <router-link :to="{ name: 'agents' }">返回控制台</router-link>
           </Button>
           <Button variant="ghost" size="sm" as-child>
             <a href="https://github.com/linkxzhou/SimpleBase" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5">

@@ -58,7 +58,7 @@
               <TableHead class="sb-col-name">用户名</TableHead>
               <TableHead class="sb-col-sm">角色</TableHead>
               <TableHead class="sb-col-sm">状态</TableHead>
-              <TableHead class="w-20 text-right">项目数</TableHead>
+              <TableHead class="w-20">项目数</TableHead>
               <TableHead class="sb-col-md">最后登录</TableHead>
               <TableHead class="w-48">操作</TableHead>
             </TableRow>
@@ -90,7 +90,7 @@
               <TableCell>{{ u.projectCount }}</TableCell>
               <TableCell class="text-xs text-muted-foreground">{{ fmtTime(u.lastLoginAt) }}</TableCell>
               <TableCell>
-                <div class="flex gap-1">
+                <div class="flex justify-center gap-1">
                   <Button size="sm" variant="outline" @click="openEdit(u)">查看</Button>
                   <template v-if="auth.canManageUsers && u.id !== auth.user?.id && u.username !== 'simplebase2026'">
                     <Button size="sm" variant="outline" @click="openEdit(u)">编辑</Button>

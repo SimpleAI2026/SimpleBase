@@ -7,23 +7,23 @@
           <TableHeader>
             <TableRow>
               <TableHead class="min-w-32">字段</TableHead>
-              <TableHead class="min-w-40">值</TableHead>
-              <TableHead v-if="!readonly" class="w-28 text-right">操作</TableHead>
+              <TableHead class="min-w-40 text-left">值</TableHead>
+              <TableHead v-if="!readonly" class="w-28">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableEmpty v-if="!fields.length" :colspan="readonly ? 2 : 3">暂无字段</TableEmpty>
             <TableRow v-for="f in fields" :key="f.field">
               <TableCell class="sb-mono font-medium">{{ f.field }}</TableCell>
-              <TableCell>
+              <TableCell class="text-left">
                 <span v-if="editField !== f.field" class="sb-mono text-xs break-all">{{ f.value }}</span>
                 <div v-else class="flex items-center gap-1">
                   <Input v-model="editValue" class="h-7 text-xs" @keydown.enter="saveEdit(f.field)" />
                   <Button size="sm" variant="ghost" @click="saveEdit(f.field)">存</Button>
                 </div>
               </TableCell>
-              <TableCell v-if="!readonly" class="text-right">
-                <div class="flex justify-end gap-1">
+              <TableCell v-if="!readonly">
+                <div class="flex justify-center gap-1">
                   <Button size="sm" variant="ghost" @click="startEdit(f)">改</Button>
                   <ConfirmAction title="删除该字段？" @confirm="removeField(f.field)">
                     <Button size="sm" variant="destructiveGhost">删</Button>

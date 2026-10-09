@@ -32,7 +32,7 @@
               <TableCell>{{ item.source === 'agent' ? 'Agent' : item.source === 'api' ? 'API' : item.source === 'run' ? '一次性' : '控制台' }}</TableCell>
               <TableCell>{{ item.lastActiveAt ? formatTime(item.lastActiveAt) : '未启动' }}</TableCell>
               <TableCell>{{ item.expiresAt ? formatTime(item.expiresAt) : '—' }}</TableCell>
-              <TableCell><div class="flex flex-wrap gap-1">
+              <TableCell><div class="flex flex-wrap justify-center gap-1">
                 <Button variant="ghost" size="sm" @click="selected = item">打开</Button>
                 <Button v-if="auth.canWrite && item.status === 'running'" variant="ghost" size="sm" @click="stop(item)">停止</Button>
                 <Button v-if="auth.canWrite && ['stopped','expired','error'].includes(item.status)" variant="ghost" size="sm" @click="start(item)">启动</Button>

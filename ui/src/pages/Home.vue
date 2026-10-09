@@ -11,7 +11,7 @@
         </router-link>
         <div class="flex shrink-0 items-center gap-2 sm:gap-5">
           <router-link to="/docs" class="hidden text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline-flex">使用文档</router-link>
-          <router-link :to="{ name: 'dashboard' }" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4">
+          <router-link :to="{ name: 'agents' }" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4">
             控制台 <ArrowUpRightIcon aria-hidden="true" class="size-4" />
           </router-link>
         </div>
@@ -31,7 +31,7 @@
             管理数据库、对象存储与云函数，通过 LLM Gateway 接入模型并创建云助手，在一个控制台中构建 AI 数据和应用。
           </p>
           <div class="mt-9 flex flex-wrap items-center gap-3">
-            <router-link :to="{ name: 'dashboard' }" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-[0_12px_32px_-16px_var(--primary)] transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+            <router-link :to="{ name: 'agents' }" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-[0_12px_32px_-16px_var(--primary)] transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
               进入控制台 <ArrowRightIcon aria-hidden="true" class="size-4" />
             </router-link>
             <router-link to="/docs" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-card/80 px-6 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">

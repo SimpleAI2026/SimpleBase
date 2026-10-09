@@ -31,9 +31,9 @@
             <TableHeader>
               <TableRow>
                 <TableHead class="w-40">命令</TableHead>
-                <TableHead class="min-w-56">参数</TableHead>
-                <TableHead>语义</TableHead>
-                <TableHead class="w-40 text-right">操作</TableHead>
+                <TableHead class="min-w-56 text-left">参数</TableHead>
+                <TableHead class="text-left">语义</TableHead>
+                <TableHead class="w-40">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -41,12 +41,12 @@
                 <TableCell>
                   <Badge :variant="cmd.write ? 'default' : 'outline'">{{ cmd.name }}</Badge>
                 </TableCell>
-                <TableCell class="sb-mono max-w-96 truncate text-xs" :title="cmd.args">
+                <TableCell class="sb-mono max-w-96 truncate text-left text-xs" :title="cmd.args">
                   {{ cmd.args || '—' }}
                 </TableCell>
-                <TableCell class="text-xs text-muted-foreground">{{ cmd.desc }}</TableCell>
-                <TableCell class="text-right">
-                  <div class="flex items-center justify-end gap-1">
+                <TableCell class="text-left text-xs text-muted-foreground">{{ cmd.desc }}</TableCell>
+                <TableCell>
+                  <div class="flex items-center justify-center gap-1">
                     <Button
                       variant="ghost"
                       size="sm"

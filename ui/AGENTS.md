@@ -59,4 +59,4 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - 不新增依赖、不升级依赖版本、不改 `package.json` / `tsconfig.json` / `vite.config.ts`，除非用户明确要求。
 - 类型：不使用 `any` 落盘新代码；跨层契约必须走 `types.ts`；对象形状一律用 `interface` 定义（不用 `type`）。
 - 已删除的零引用组件（checkbox / drawer / dropdown-menu / pagination / radio-group）不得重新引入——对应能力分别由 switch、sheet、原生方案、TablePager、toggle/radio 内联实现。
-- 路由 redirect 保持现状（旧控制台路径 `/databases` 等八个 → `/console/*`；`/sql`、`/data` → `/console/databases`；`/llm` → `/console/agents`；`/settings` → `/console?settings=1`）。
+- 路由 redirect：`/console` 与控制台入口（首页「进入控制台」、文档站「返回控制台」）落到 `agents`（`/console/agents`）；监控大盘是 `/console/dashboard`。旧路径仍是 `/databases` 等八个 → `/console/*`，`/sql`、`/data` → `/console/databases`，`/llm` → `/console/agents`，`/settings` → `/console/agents?settings=1`。

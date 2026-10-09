@@ -99,7 +99,7 @@
                   {{ formatTime(record.updatedAt) }}
                 </TableCell>
                 <TableCell class="min-w-72">
-                  <div class="flex flex-nowrap items-center gap-1">
+                  <div class="flex flex-nowrap items-center justify-center gap-1">
                     <Button v-if="!isAdminProject" variant="outline" size="sm" class="px-2" @click="openTest(record)">
                       测试
                     </Button>

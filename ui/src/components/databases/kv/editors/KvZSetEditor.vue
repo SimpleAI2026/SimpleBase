@@ -18,24 +18,24 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="min-w-32">成员</TableHead>
-              <TableHead class="w-28 text-right">分数</TableHead>
-              <TableHead v-if="!readonly" class="w-32 text-right">操作</TableHead>
+              <TableHead class="min-w-32 text-left">成员</TableHead>
+              <TableHead class="w-28">分数</TableHead>
+              <TableHead v-if="!readonly" class="w-32">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableEmpty v-if="!items.length" :colspan="readonly ? 2 : 3">暂无成员</TableEmpty>
             <TableRow v-for="it in items" :key="it.elem">
-              <TableCell class="sb-mono font-medium">{{ it.elem }}</TableCell>
+              <TableCell class="sb-mono text-left font-medium">{{ it.elem }}</TableCell>
               <TableCell>
-                <div v-if="editElem === it.elem" class="flex items-center justify-end gap-1">
+                <div v-if="editElem === it.elem" class="flex items-center justify-center gap-1">
                   <Input v-model="editScore" type="number" class="h-7 w-24 text-xs" @keydown.enter="saveScore(it.elem)" />
                   <Button size="sm" variant="ghost" @click="saveScore(it.elem)">存</Button>
                 </div>
-                <span v-else class="block text-right tabular-nums">{{ it.score }}</span>
+                <span v-else class="block tabular-nums">{{ it.score }}</span>
               </TableCell>
-              <TableCell v-if="!readonly" class="text-right">
-                <div class="flex justify-end gap-1">
+              <TableCell v-if="!readonly">
+                <div class="flex justify-center gap-1">
                   <Button size="sm" variant="ghost" @click="startEdit(it)">改分</Button>
                   <ConfirmAction title="移除该成员？" @confirm="removeMember(it.elem)">
                     <Button size="sm" variant="destructiveGhost">删</Button>

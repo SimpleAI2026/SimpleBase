@@ -8,7 +8,7 @@ async function mountHome() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', name: 'home', component: Home },
-      { path: '/console', name: 'dashboard', component: { template: '<div>dashboard</div>' } },
+      { path: '/console/agents', name: 'agents', component: { template: '<div>agents</div>' } },
       { path: '/docs', name: 'docs', component: { template: '<div>docs</div>' } }
     ]
   })
@@ -23,8 +23,8 @@ describe('Home', () => {
     const { wrapper } = await mountHome()
     expect(wrapper.find('h1').text()).toContain('为 AI 数据和应用构建的一体化工作台')
     expect(wrapper.text()).toContain('从数据管理到 AI 应用构建')
-    expect(wrapper.find('header a[href="/console"]').text()).toContain('控制台')
-    expect(wrapper.find('main a[href="/console"]').text()).toContain('进入控制台')
+    expect(wrapper.find('header a[href="/console/agents"]').text()).toContain('控制台')
+    expect(wrapper.find('main a[href="/console/agents"]').text()).toContain('进入控制台')
     expect(wrapper.find('a[href="/docs"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('数据库管理')
     expect(wrapper.text()).toContain('云助手')
@@ -32,10 +32,13 @@ describe('Home', () => {
     expect(wrapper.find('form').exists()).toBe(false)
   })
 
-  it('navigates from the public homepage into the existing dashboard', async () => {
+  it('navigates from the public homepage into cloud agents', async () => {
     const { wrapper, router } = await mountHome()
-    await wrapper.find('header a[href="/console"]').trigger('click')
+    await wrapper.find('header a[href="/console/agents"]').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('dashboard')
+    expect(router.currentRoute.value.name).toBe('agents')
+    await wrapper.find('main a[href="/console/agents"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/console/agents')
   })
 })

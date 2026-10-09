@@ -49,7 +49,8 @@ yarn dev              # http://127.0.0.1:5173
 | 路由 | 页面 | 说明 |
 | --- | --- | --- |
 | `/` | Home | 产品首页（独立布局，与控制台拆分） |
-| `/console` | Dashboard | 监控大盘（指标趋势、项目用量） |
+| `/console` | — | 重定向到云助手 `/console/agents` |
+| `/console/dashboard` | Dashboard | 监控大盘（指标趋势、项目用量） |
 | `/console/databases` | Databases | 数据库管理、文档数据浏览、SQL 工作台 |
 | `/console/key-value` | KeyValue | 项目 KV 数据管理 |
 | `/console/s3` | S3Manager | 对象存储管理（上传 / 删除 / 预签名） |
@@ -60,7 +61,7 @@ yarn dev              # http://127.0.0.1:5173
 | `/console/users` | Users | 用户管理（`meta.requiresRole: 'superadminl1'`） |
 | `/docs`、`/docs/:module/:slug` | DocsWiki | 内嵌文档站（渲染仓库 `docs/`，DocsLayout） |
 
-旧路径 redirect：`/databases` 等旧控制台路径 → `/console/*`；`/sql`、`/data` → `/console/databases`；`/llm` → `/console/agents`；`/settings` → `/console?settings=1`（全局设置是 SettingsModal 弹窗，不是页面）。
+旧路径 redirect：`/databases` 等旧控制台路径 → `/console/*`；`/sql`、`/data` → `/console/databases`；`/llm` → `/console/agents`；`/settings` → `/console/agents?settings=1`（全局设置是 SettingsModal 弹窗，不是页面）。
 
 ## 目录结构
 

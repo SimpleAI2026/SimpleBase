@@ -1,9 +1,9 @@
 # 控制台表格居中、默认进入云助手、新建数据库间距
 
 > **仓库**：SimpleBase（https://github.com/linkxzhou/SimpleBase）
-> **状态**：**待实施**（本文件只做盘点与方案，不含应用代码改动）
+> **状态**：**已实施**（2026-10-09，按本文落地，没有被迫改设计）
 > **日期**：2026-10-09
-> **Verified against**：`main` @ `707b7ae`。路径、class 与路由按该提交核对。
+> **Verified against**：`main` @ `707b7ae`。路径、class 与路由按该提交核对。#31 实施结束时仍未合入 `main`，因此没有做冲突合并。
 > **并行**：[#31](https://github.com/linkxzhou/SimpleBase/pull/31)（`cursor/console-loading-states-plan-a0aa`）只新增 `plan/planv5.0/console-loading-states-plan.md`，实施时会改多张表的骨架与空态。本计划与它对齐方式不同：默认对齐落在共享 `TableHead` / `TableCell`，页面只改会盖住默认值的 class。预期冲突文件见 §6。
 
 ## 0. 目标
@@ -258,3 +258,20 @@
 - `DialogContent` / `Field` / `SbModal` 的全局间距。其他弹窗已经用 `FieldGroup`。
 - 后端、路由权限、`go.mod`、前端依赖与 `vite.config.ts`。
 - 把 functions 覆盖率从 94.24% 补到 95%。
+
+## 8. 实施记录
+
+2026-10-09 按 §1.3–§4 落地，没有被迫改设计。共享组件默认居中、左对齐例外、`/console` → `/console/agents`、监控大盘 `/console/dashboard`、新建数据库 `FieldGroup` 的 `gap-5` 均与本文一致。
+
+实施时 `main` 仍是 `707b7ae`，#31 未合入，未做冲突合并。
+
+验收命令：
+
+| 命令 | 结果 |
+| --- | --- |
+| `cd ui && yarn test` | 86 个文件、489 个用例通过。statements 99.04%、branches 95.22%、functions **95.02%**、lines 99.04%，四项都过 95% 阈值。§5 所写 94.24% 是更早基线，当前仓库已高于阈值 |
+| `cd ui && yarn typecheck` | 通过 |
+| `cd ui && yarn build` | 通过 |
+| 浏览器 | `/console` 落到 `/console/agents`；`/console/dashboard`、`/console/databases`、`/databases?from=bookmark` 仍是原页面。用户表表头（含「操作」「项目数」）计算样式为 `center`；日志「消息」为 `left`。新建数据库弹窗的 `[data-slot=field-group]` 行间距 20px，SQL 模式下「初始化 SQL」在同一组 |
+
+后端未改，未跑 `go test`。

@@ -42,7 +42,7 @@
                 <TableHead class="w-20">类型</TableHead>
                 <TableHead class="w-24">长度</TableHead>
                 <TableHead class="w-32">TTL</TableHead>
-                <TableHead class="text-right">操作</TableHead>
+                <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -67,7 +67,7 @@
                   </TableCell>
                   <TableCell class="sb-mono">{{ m.len ?? '—' }}</TableCell>
                   <TableCell class="text-muted-foreground">{{ ttlText(m) }}</TableCell>
-                  <TableCell class="text-right">
+                  <TableCell>
                     <div class="inline-flex gap-1" @click.stop>
                       <Button size="sm" variant="ghost" :disabled="readonly" @click="openTtl(m)">TTL</Button>
                       <Button size="sm" variant="ghost" :disabled="readonly" @click="openRename(m)">重命名</Button>
