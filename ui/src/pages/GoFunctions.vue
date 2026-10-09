@@ -6,7 +6,7 @@
           <CardTitle>云函数列表</CardTitle>
           <CardDescription class="min-w-0 break-words">
             共 {{ total }} 个文件 · 调用前缀
-            <code class="sb-mono break-all text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
+            <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
           </CardDescription>
           <CardAction v-if="!isAdminProject">
             <div class="flex items-center gap-2">
@@ -73,7 +73,7 @@
                       type="button"
                       variant="secondary"
                       :aria-label="`复制 ${record.file} 的 ${fn} 完整调用路径`"
-                      class="sb-mono h-auto min-h-8 max-w-full cursor-pointer whitespace-normal break-all text-left hover:bg-secondary/70"
+                      class="sb-code-view sb-mono h-auto min-h-8 max-w-full min-w-0 cursor-pointer whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-left hover:bg-secondary/70"
                       @click="copyInvokePath(record, fn)"
                     >
                       {{ fn }}

@@ -1,5 +1,5 @@
 <template>
-  <pre class="sb-code" :style="{ maxHeight }"><slot>{{ formatted }}</slot></pre>
+  <pre class="sb-code sb-code-view max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]" :style="{ maxHeight }"><slot>{{ formatted }}</slot></pre>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'

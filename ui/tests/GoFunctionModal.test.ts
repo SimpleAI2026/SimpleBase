@@ -31,6 +31,11 @@ describe('GoFunctionModal', () => {
       props: { open: true, mode: 'create' },
       global: { plugins: [pinia], stubs: { ...uiStubs, GoMonacoEditor: true } }
     })
+    const sourceCode = w.get('code')
+    expect(sourceCode.classes()).toContain('sb-code-view')
+    expect(sourceCode.classes()).toContain('whitespace-pre-wrap')
+    expect(sourceCode.attributes('class') || '').toContain('[overflow-wrap:anywhere]')
+    expect(w.find('.max-w-full.overflow-hidden').exists()).toBe(true)
     const vm = w.vm as any
     vm.nameValue = 'hello'
     vm.sourceValue = 'package main\nfunc Hello() {}\nfunc hello() {}\nfunc Ping() {}'

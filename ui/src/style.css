@@ -218,6 +218,15 @@
   max-width: var(--sb-col-act);
 }
 
+/* 代码查看：限制在容器宽度内换行，保留行首缩进 */
+@utility sb-code-view {
+  max-width: 100%;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 @utility sb-code {
   margin: 0;
   padding: 10px 12px;
@@ -228,10 +237,13 @@
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.7;
+  max-width: 100%;
+  min-width: 0;
   max-height: 240px;
   overflow: auto;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 @utility sb-terminal {
