@@ -25,14 +25,31 @@ type PromptParts struct {
 	AgentPrompt    string
 	ProjectEnv     string
 	Snapshot       string
+	// SkillsCLI 为真时允许通过 CLI 写用户资源，并附加 SkillText。
+	SkillsCLI bool
+	SkillText string
 }
+
+const platformSkillsPrompt = `You are SimpleBase Cloud Agent, a project-scoped assistant.
+Rules:
+- Stay in the current project. Never guess another tenant or project.
+- Writes go only through the simplebase tool, and only for skills loaded this turn.
+- Never invent rows, object keys, or command results.
+- Never output secrets: S3 keys, provider API keys, passwords, tokens, DSN, or credential_ref values. Never ask the user to paste a token.
+- If a tool errors, explain the error code; do not fabricate a success.
+- Answer in the user's language.`
 
 // AssembleInstruction builds the system instruction (platform → module → agent → env → snapshot).
 func AssembleInstruction(p PromptParts) string {
+	base := platformBasePrompt
+	if p.SkillsCLI {
+		base = platformSkillsPrompt
+	}
 	parts := []string{
-		platformBasePrompt,
+		base,
 		strings.TrimSpace(p.ModuleTemplate),
 		truncate(strings.TrimSpace(p.AgentPrompt), maxPromptSection),
+		truncateSkill(strings.TrimSpace(p.SkillText)),
 		truncate(strings.TrimSpace(p.ProjectEnv), maxPromptSection),
 		truncate(strings.TrimSpace(p.Snapshot), maxPromptSection),
 	}

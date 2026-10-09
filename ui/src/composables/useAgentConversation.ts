@@ -5,7 +5,7 @@ import type { AgentRunMetrics, AgentStreamHandlers, LlmStreamConnection } from '
 import type { ChatMsg } from './useAiChat'
 
 /** 运行阶段（BUG-01：前端必须追踪流式回调，工具期间不回落）。 */
-export type AgentPhase = 'idle' | 'thinking' | 'streaming' | 'tool' | 'done' | 'error' | 'canceled'
+export type AgentPhase = 'idle' | 'thinking' | 'streaming' | 'tool' | 'awaiting_confirm' | 'done' | 'error' | 'canceled'
 
 export interface ConversationOptions {
   projectId: () => string
@@ -29,15 +29,17 @@ export function useAgentConversation(opts: ConversationOptions) {
   const lastError = ref<{ code?: string; text: string } | null>(null)
   /** 待重试的失败 run id（空表示无失败 run）。 */
   const failedRunId = ref('')
+  const confirmation = ref<{ callId: string; argv: string[]; message: string } | null>(null)
 
   let conn: LlmStreamConnection | null = null
   let timer: ReturnType<typeof setInterval> | null = null
   let started = 0
 
-  const sending = computed(() => phase.value === 'thinking' || phase.value === 'streaming' || phase.value === 'tool')
+  const sending = computed(() => phase.value === 'thinking' || phase.value === 'streaming' || phase.value === 'tool' || phase.value === 'awaiting_confirm')
 
   const statusText = computed(() => {
     if (phase.value === 'thinking') return `思考中 · ${Math.floor(elapsedMs.value / 1000)}s`
+    if (phase.value === 'awaiting_confirm') return '等待确认'
     if (phase.value === 'tool') return `执行工具 ${toolName.value}…`
     if (phase.value === 'streaming') return `回复中 · ${Math.floor(elapsedMs.value / 1000)}s`
     if (phase.value === 'done' && metrics.value) {
@@ -51,7 +53,7 @@ export function useAgentConversation(opts: ConversationOptions) {
   })
 
   function start(
-    body: { content: string; mentions: { agent_id: string }[]; retry_of_run_id?: string },
+    body: { content: string; mentions: { agent_id: string }[]; skills?: string[]; module?: string; retry_of_run_id?: string },
     handlers: AgentStreamHandlers & { onReply?: (reply: ChatMsg) => void }
   ) {
     stop(false)
@@ -62,6 +64,7 @@ export function useAgentConversation(opts: ConversationOptions) {
     runId.value = ''
     lastError.value = null
     failedRunId.value = ''
+    confirmation.value = null
     started = Date.now()
     timer = setInterval(() => { elapsedMs.value = Date.now() - started }, 1000)
 
@@ -70,7 +73,7 @@ export function useAgentConversation(opts: ConversationOptions) {
     if (!body.retry_of_run_id) {
       messages.push({ role: 'user', content: body.content })
     }
-    const reply: ChatMsg = { role: 'assistant', content: '', toolCalls: [] }
+    const reply: ChatMsg = { role: 'assistant', content: '', toolCalls: [], module: body.module }
     messages.push(reply)
     handlers.onReply?.(reply)
 
@@ -82,29 +85,86 @@ export function useAgentConversation(opts: ConversationOptions) {
       onThinking: (ms, content) => {
         elapsedMs.value = ms
         // BUG-09：工具执行期间的 thinking 心跳不应把 phase 拉回 thinking。
-        if (phase.value !== 'tool') phase.value = 'thinking'
+        if (phase.value !== 'tool' && phase.value !== 'awaiting_confirm') phase.value = 'thinking'
         if (content) reply.thinking = (reply.thinking || '') + content
         handlers.onThinking?.(ms, content)
       },
       onToken: (text) => { phase.value = 'streaming'; reply.content += text; handlers.onToken?.(text) },
-      onToolCall: (name, args, callId) => {
+      onToolCallDelta: (name, argsDelta, callId) => {
         toolName.value = name
         phase.value = 'tool'
-        if (callId && reply.toolCalls?.some((c) => c.call_id === callId)) return
-        reply.toolCalls = [...(reply.toolCalls || []), { call_id: callId, name, arguments: args }]
+        const cards = reply.toolCalls || []
+        const target = callId ? cards.find((c) => c.call_id === callId) : undefined
+        if (!target) {
+          reply.toolCalls = [...cards, { call_id: callId, name, arguments: argsDelta, status: 'generating' }]
+        } else if (target.status === 'generating' || !target.status) {
+          target.arguments = (target.arguments || '') + argsDelta
+          target.status = 'generating'
+          reply.toolCalls = [...cards]
+        }
+        handlers.onToolCallDelta?.(name, argsDelta, callId)
+      },
+      onToolCall: (name, args, callId) => {
+        toolName.value = name
+        if (phase.value !== 'awaiting_confirm') phase.value = 'tool'
+        const cards = reply.toolCalls || []
+        const target = callId ? cards.find((c) => c.call_id === callId) : undefined
+        if (target) {
+          target.arguments = args
+          target.name = name
+          if (target.status === 'generating' || !target.status) target.status = 'pending'
+          reply.toolCalls = [...cards]
+        } else {
+          reply.toolCalls = [...cards, { call_id: callId, name, arguments: args, status: 'pending' }]
+        }
         handlers.onToolCall?.(name, args, callId)
       },
-      onToolResult: (name, content, callId, durationMs) => {
+      onToolStart: (name, callId) => {
+        toolName.value = name
+        phase.value = 'tool'
+        const cards = reply.toolCalls || []
+        const target = callId ? cards.find((c) => c.call_id === callId) : [...cards].reverse().find((c) => c.name === name)
+        if (target) {
+          target.status = 'running'
+          reply.toolCalls = [...cards]
+        } else {
+          reply.toolCalls = [...cards, { call_id: callId, name, status: 'running' }]
+        }
+        handlers.onToolStart?.(name, callId)
+      },
+      onConfirmationRequired: (callId, argv, message) => {
+        phase.value = 'awaiting_confirm'
+        confirmation.value = { callId, argv, message }
+        const cards = reply.toolCalls || []
+        const target = cards.find((c) => c.call_id === callId)
+        if (target) {
+          target.status = 'awaiting_confirm'
+          target.argv = argv
+          reply.toolCalls = [...cards]
+        }
+        handlers.onConfirmationRequired?.(callId, argv, message)
+      },
+      onConfirmationResolved: (callId, approved) => {
+        if (confirmation.value?.callId === callId) confirmation.value = null
+        if (phase.value === 'awaiting_confirm') phase.value = 'tool'
+        handlers.onConfirmationResolved?.(callId, approved)
+      },
+      onToolResult: (name, content, callId, durationMs, isError) => {
         // 工具结果到达后保持 tool → thinking（等下一个 token），而非立即 streaming。
         phase.value = 'thinking'
+        confirmation.value = null
         const cards = reply.toolCalls || []
         const target = callId
           ? cards.find((c) => c.call_id === callId)
           : [...cards].reverse().find((c) => c.name === name && !c.content)
-        if (target) { target.content = content; target.duration_ms = durationMs }
-        else cards.push({ call_id: callId, name, content, duration_ms: durationMs })
+        if (target) {
+          target.content = content
+          target.duration_ms = durationMs
+          target.is_error = !!isError
+          target.status = isError ? 'error' : 'success'
+        } else cards.push({ call_id: callId, name, content, duration_ms: durationMs, is_error: !!isError, status: isError ? 'error' : 'success' })
         reply.toolCalls = [...cards]
-        handlers.onToolResult?.(name, content, callId, durationMs)
+        handlers.onToolResult?.(name, content, callId, durationMs, isError)
       },
       onToolProgress: (name, elapsed, callId) => {
         // 心跳同步运行时长（BUG-04：长工具期间前端可见进度，不回落 thinking）。
@@ -137,6 +197,14 @@ export function useAgentConversation(opts: ConversationOptions) {
     conn = null
   }
 
+  async function resolveConfirm(approve: boolean) {
+    const pending = confirmation.value
+    if (!pending || !runId.value) return
+    confirmation.value = null
+    if (phase.value === 'awaiting_confirm') phase.value = 'tool'
+    await api.agentThreads.confirm(opts.projectId(), runId.value, pending.callId, approve).catch(() => undefined)
+  }
+
   function stop(cancel = true) {
     const active = conn
     active?.close()
@@ -147,5 +215,5 @@ export function useAgentConversation(opts: ConversationOptions) {
     cleanup()
   }
 
-  return { phase, statusText, metrics, runId, sending, lastError, failedRunId, elapsedMs, start, stop }
+  return { phase, statusText, metrics, runId, sending, lastError, failedRunId, elapsedMs, confirmation, start, stop, resolveConfirm }
 }

@@ -20,15 +20,24 @@ var (
 )
 
 // JWTClaims 是 access token 载荷（planv3.0 §4.3.6）。
+// 委托令牌额外携带 aud/typ/project_id/perms，普通登录态这些字段为空。
 type JWTClaims struct {
-	Issuer    string `json:"iss"`
-	Subject   string `json:"sub"`
-	Username  string `json:"username"`
-	Role      string `json:"role"`
-	SessionID string `json:"sid"`
-	JWTID     string `json:"jti"`
-	IssuedAt  int64  `json:"iat"`
-	ExpiresAt int64  `json:"exp"`
+	Issuer    string   `json:"iss"`
+	Subject   string   `json:"sub"`
+	Username  string   `json:"username"`
+	Role      string   `json:"role"`
+	SessionID string   `json:"sid"`
+	JWTID     string   `json:"jti"`
+	IssuedAt  int64    `json:"iat"`
+	ExpiresAt int64    `json:"exp"`
+	Audience  string   `json:"aud,omitempty"`
+	Type      string   `json:"typ,omitempty"`
+	ProjectID string   `json:"project_id,omitempty"`
+	TenantID  string   `json:"tenant_id,omitempty"`
+	Perms     []string `json:"perms,omitempty"`
+	APIKeyID  string   `json:"api_key_id,omitempty"`
+	UserID    string   `json:"uid,omitempty"`
+	RunID     string   `json:"run_id,omitempty"`
 }
 
 const jwtIssuer = "simplebase"

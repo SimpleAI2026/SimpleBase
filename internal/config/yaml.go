@@ -51,6 +51,7 @@ type yamlConfig struct {
 	S3             yamlS3             `yaml:"s3"`
 	Auth           yamlAuth           `yaml:"auth"`
 	LLM            yamlLLM            `yaml:"llm"`
+	Agent          yamlAgent          `yaml:"agent"`
 	Sandbox        yamlSandbox        `yaml:"sandbox"`
 	Limits         yamlLimits         `yaml:"limits"`
 	Observability  yamlObservability  `yaml:"observability"`
@@ -142,6 +143,13 @@ type yamlLLM struct {
 	AgentRunTimeout    yamlDur                 `yaml:"agent_run_timeout"`
 }
 
+type yamlAgent struct {
+	SkillsCLI      *bool   `yaml:"skills_cli"`
+	CLIPath        *string `yaml:"cli_path"`
+	DelegationTTL  yamlDur `yaml:"delegation_ttl"`
+	ConfirmTimeout yamlDur `yaml:"confirm_timeout"`
+}
+
 type yamlProvider struct {
 	APIKey        *string  `yaml:"api_key"`
 	BaseURL       *string  `yaml:"base_url"`
@@ -160,19 +168,19 @@ type yamlLimits struct {
 }
 
 type yamlSandbox struct {
-	Enabled        *bool   `yaml:"enabled"`
-	APIURL         *string `yaml:"api_url"`
-	APIKey         *string `yaml:"api_key"`
-	Image          *string `yaml:"image"`
-	CPUs           *int    `yaml:"cpus"`
-	MemoryMiB      *int    `yaml:"memory_mib"`
-	MaxDuration    yamlDur `yaml:"max_duration"`
-	IdleTimeout    yamlDur `yaml:"idle_timeout"`
-	ExecTimeout    yamlDur `yaml:"exec_timeout"`
-	MaxOutputBytes *int    `yaml:"max_output_bytes"`
-	MaxFileBytes   *int    `yaml:"max_file_bytes"`
-	Network        *string `yaml:"network"`
-	Workdir        *string `yaml:"workdir"`
+	Enabled        *bool    `yaml:"enabled"`
+	APIURL         *string  `yaml:"api_url"`
+	APIKey         *string  `yaml:"api_key"`
+	Image          *string  `yaml:"image"`
+	CPUs           *int     `yaml:"cpus"`
+	MemoryMiB      *int     `yaml:"memory_mib"`
+	MaxDuration    yamlDur  `yaml:"max_duration"`
+	IdleTimeout    yamlDur  `yaml:"idle_timeout"`
+	ExecTimeout    yamlDur  `yaml:"exec_timeout"`
+	MaxOutputBytes *int     `yaml:"max_output_bytes"`
+	MaxFileBytes   *int     `yaml:"max_file_bytes"`
+	Network        *string  `yaml:"network"`
+	Workdir        *string  `yaml:"workdir"`
 	Backend        *string  `yaml:"backend"`
 	Images         []string `yaml:"images"`
 	ExecTimeoutMax yamlDur  `yaml:"exec_timeout_max"`
@@ -289,6 +297,11 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	if yc.LLM.Enabled != nil {
 		cfg.LLM.Enabled = *yc.LLM.Enabled
 	}
+	setBool(&cfg.Agent.SkillsCLI, yc.Agent.SkillsCLI)
+	setStr(&cfg.Agent.CLIPath, yc.Agent.CLIPath)
+	setDur(&cfg.Agent.DelegationTTL, yc.Agent.DelegationTTL)
+	setDur(&cfg.Agent.ConfirmTimeout, yc.Agent.ConfirmTimeout)
+
 	setStr(&cfg.LLM.AgentToolProtocol, yc.LLM.AgentToolProtocol)
 	setInt(&cfg.LLM.AgentMaxIterations, yc.LLM.AgentMaxIterations)
 	setDur(&cfg.LLM.AgentRunTimeout, yc.LLM.AgentRunTimeout)

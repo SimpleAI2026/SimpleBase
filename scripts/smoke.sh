@@ -10,6 +10,7 @@ echo "==> go vet（云 Agent 相关包）"
 go vet ./internal/cloudagent ./internal/systemdb ./internal/api ./internal/llmgateway
 echo "==> 云 Agent 全链路测试（fakellm，无需 API key）"
 go test -timeout 300s -count=1 ./internal/cloudagent ./internal/systemdb ./internal/api ./internal/llmgateway
+go test -timeout 300s -count=1 -run TestAgentSkillsE2E ./internal/api
 
 if [[ -d ui && -f ui/package.json ]]; then
   echo "==> 前端构建"

@@ -21,6 +21,10 @@ type RunContext struct {
 	Principal auth.Principal
 	// ThreadID 供沙盒工具定位该 thread 的云沙盒；其余工具不使用。
 	ThreadID string
+	RunID    string
+	Skills   []string
+	Headless bool
+	Emit     func(Event)
 }
 
 func withRunContext(ctx context.Context, rc RunContext) context.Context {

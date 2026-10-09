@@ -13,7 +13,9 @@
         )"
       >
         <UserIcon v-if="m.role === 'user'" />
-        <BotIcon v-else />
+        <span v-else class="flex size-4 items-center justify-center" :data-agent-icon="navKeyForAgentModule(m.module)">
+          <component :is="iconForAgentModule(m.module)" class="size-4" aria-hidden="true" />
+        </span>
       </div>
       <div class="flex min-w-0 max-w-[75%] flex-col gap-1 max-[768px]:max-w-[85%]">
         <div
@@ -29,7 +31,7 @@
             <summary>思考过程</summary>
             <pre class="whitespace-pre-wrap">{{ m.thinking }}</pre>
           </details>
-          <pre class="m-0 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">{{ m.content }}<span v-if="sending && i === messages.length - 1" class="text-primary">▍</span></pre>
+          <pre class="m-0 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">{{ m.content }}<span v-if="sending && !confirmation && i === messages.length - 1" class="text-primary">▍</span></pre>
           <p v-if="m.error" class="mt-2 flex items-center gap-2 text-sm text-destructive">
             {{ m.error }}
             <Button v-if="canRetry" size="xs" variant="outline" @click="$emit('retry')">重试</Button>
@@ -38,18 +40,34 @@
         </div>
       </div>
     </div>
+    <ConfirmAction
+      v-if="confirmation"
+      controlled
+      :open="true"
+      title="确认破坏性操作"
+      :description="confirmText"
+      @confirm="$emit('confirm')"
+      @cancel="$emit('deny')"
+    />
   </MessageScroller>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { BotIcon, UserIcon } from '@lucide/vue'
+import { iconForAgentModule, navKeyForAgentModule } from '@/components/nav-icons'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import SbEmptyState from '../SbEmptyState.vue'
 import MessageScroller from '../chat/MessageScroller.vue'
 import AgentToolCard from './AgentToolCard.vue'
+import ConfirmAction from '../ConfirmAction.vue'
 import type { ChatMsg } from '@/composables/useAiChat'
+
+interface ConfirmationPrompt {
+  message: string
+  argv: string[]
+}
 
 interface Props {
   messages: ChatMsg[]
@@ -58,14 +76,27 @@ interface Props {
   canRetry?: boolean
   /** 历史尚未返回时不要画出空会话文案。 */
   historyLoading?: boolean
+  confirmation?: ConfirmationPrompt | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   sending: false,
   canRetry: false,
-  historyLoading: false
+  historyLoading: false,
+  confirmation: null
 })
-defineEmits<{ (e: 'retry'): void }>()
+defineEmits<{
+  (e: 'retry'): void
+  (e: 'confirm'): void
+  (e: 'deny'): void
+}>()
+
+const confirmText = computed(() => {
+  const prompt = props.confirmation
+  if (!prompt) return ''
+  const argv = prompt.argv.join(' ')
+  return argv ? `${prompt.message} ${argv}` : prompt.message
+})
 
 const followKey = computed(() => {
   const list = props.messages

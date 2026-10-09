@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/crontab"
+	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -19,6 +20,7 @@ type agentScheduleHandler struct {
 	store     *systemdb.Store
 	scheduler *cloudagent.Scheduler
 	usage     UsageService
+	writable  *bool
 }
 
 type agentScheduleDTO struct {
@@ -110,7 +112,17 @@ func (h *agentScheduleHandler) ListSchedules(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"schedules": out})
 }
 
+func (h *agentScheduleHandler) denyReadonly(c echo.Context) error {
+	if h.writable != nil && !*h.writable {
+		return WriteError(c, database.ErrWriterUnavailable)
+	}
+	return nil
+}
+
 func (h *agentScheduleHandler) CreateSchedule(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
@@ -195,6 +207,9 @@ func (h *agentScheduleHandler) GetSchedule(c echo.Context) error {
 }
 
 func (h *agentScheduleHandler) PatchSchedule(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
@@ -254,6 +269,9 @@ func (h *agentScheduleHandler) PatchSchedule(c echo.Context) error {
 }
 
 func (h *agentScheduleHandler) DeleteSchedule(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
@@ -288,6 +306,9 @@ func (h *agentScheduleHandler) ListScheduleRuns(c echo.Context) error {
 }
 
 func (h *agentScheduleHandler) TriggerScheduleRun(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))

@@ -739,6 +739,148 @@ describe('httpApi', () => {
     expect(await httpApi.logs.list(pid)).toEqual([])
   })
 
+  it('reconnects an agent run and posts confirmation', async () => {
+    async function* chunks(parts: string[]) {
+      for (const p of parts) yield new TextEncoder().encode(p)
+    }
+    const makeReader = (parts: string[]) => {
+      const it = chunks(parts)[Symbol.asyncIterator]()
+      return { read: () => it.next().then((r) => ({ done: !!r.done, value: r.value })) }
+    }
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    let hold = false
+    const held: Array<() => void> = []
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: TimerHandler) => {
+      if (hold) {
+        held.push(() => (fn as () => void)())
+        return held.length as unknown as ReturnType<typeof setTimeout>
+      }
+      queueMicrotask(() => (fn as () => void)())
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as unknown as typeof setTimeout)
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => 'text/event-stream' },
+      body: {
+        getReader: () => {
+          const encoded = [
+            new TextEncoder().encode('id: 7\n: ping\ndata: {"type":"run","run_id":"r9"}\n\n'),
+            new TextEncoder().encode('id: 8\ndata: {"type":"tool_call_delta","name":"simplebase","arguments":"{","call_id":"c1"}\n\n')
+          ]
+          let i = 0
+          return {
+            read: async () => {
+              if (i < encoded.length) return { done: false, value: encoded[i++] }
+              throw new Error('socket')
+            }
+          }
+        }
+      }
+    })
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => 'text/event-stream' },
+      body: {
+        getReader: () => makeReader([
+          'id: 9\ndata: {"type":"tool_start","name":"simplebase","call_id":"c1"}\n\n',
+          'id: 10\ndata: {"type":"confirmation_required","call_id":"c1","argv":["database","delete"],"message":"sure?"}\n\n',
+          'id: 11\ndata: {"type":"confirmation_resolved","call_id":"c1","approve":true}\n\n',
+          'id: 12\ndata: {"type":"tool_progress","name":"simplebase","elapsed_ms":4,"call_id":"c1"}\n\n',
+          'id: 13\ndata: {"type":"tool_result","name":"simplebase","content":"{}","is_error":false,"duration_ms":1,"call_id":"c1"}\n\n',
+          'id: 14\ndata: {"type":"thinking","elapsed_ms":2,"content":"..."}\n\n',
+          'id: 15\ndata: {"type":"usage","duration_ms":1,"prompt_tokens":1,"completion_tokens":1,"reasoning_tokens":0,"tool_calls":1}\n\n',
+          'id: 16\ndata: {"type":"end","reason":"stop"}\n\n'
+        ])
+      }
+    })
+    const seen: string[] = []
+    httpApi.agentThreads.streamRun(pid, 'th', { content: '删库', mentions: [], skills: ['database'] }, {
+      onRun: () => seen.push('run'),
+      onToolCallDelta: () => seen.push('delta'),
+      onToolStart: () => seen.push('start'),
+      onConfirmationRequired: () => seen.push('confirm'),
+      onConfirmationResolved: () => seen.push('resolved'),
+      onToolProgress: () => seen.push('progress'),
+      onToolResult: (_n, _c, _id, _d, isErr) => seen.push('result:' + String(isErr)),
+      onThinking: () => seen.push('think'),
+      onUsage: () => seen.push('usage'),
+      onEnd: (reason) => seen.push('end:' + reason),
+      onError: () => seen.push('err')
+    })
+    await vi.waitFor(() => expect(seen).toContain('end:stop'))
+    expect(seen).not.toContain('err')
+    const replay = String(fetchMock.mock.calls[1][0])
+    expect(replay).toContain('/agent-runs/r9/events?after=8')
+    const firstBody = JSON.parse(String(fetchMock.mock.calls[0][1].body))
+    expect(firstBody.skills).toEqual(['database'])
+
+    hold = true
+    const heldBefore = held.length
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => 'text/event-stream' },
+      body: {
+        getReader: () => {
+          let sent = false
+          return {
+            read: async () => {
+              if (!sent) {
+                sent = true
+                return { done: false, value: new TextEncoder().encode('id: 1\ndata: {"type":"run","run_id":"r-abort"}\n\n') }
+              }
+              throw new Error('socket')
+            }
+          }
+        }
+      }
+    })
+    const aborted = vi.fn()
+    const conn = httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: aborted })
+    await vi.waitFor(() => expect(held.length).toBeGreaterThan(heldBefore))
+    conn.close()
+    held.splice(heldBefore).forEach((fire) => fire())
+    await Promise.resolve()
+    expect(aborted).not.toHaveBeenCalled()
+    hold = false
+
+    for (let n = 0; n < 4; n++) {
+      fetchMock.mockResolvedValueOnce({
+        ok: n === 0,
+        status: n === 0 ? 200 : 500,
+        headers: { get: () => 'text/event-stream' },
+        body: n === 0
+          ? {
+              getReader: () => {
+                let sent = false
+                return {
+                  read: async () => {
+                    if (!sent) {
+                      sent = true
+                      return { done: false, value: new TextEncoder().encode('id: 2\ndata: {"type":"run","run_id":"r-fail"}\n\n') }
+                    }
+                    throw new Error('socket')
+                  }
+                }
+              }
+            }
+          : null
+      })
+    }
+    const failed = vi.fn()
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: failed })
+    await vi.waitFor(() => expect(failed).toHaveBeenCalled(), { timeout: 3000 })
+
+    vi.unstubAllGlobals()
+    vi.mocked(globalThis.setTimeout).mockRestore()
+
+    http.post.mockResolvedValueOnce({ data: {} })
+    await httpApi.agentThreads.confirm(pid, 'run 1', 'call 1', true)
+    expect(http.post.mock.calls.at(-1)?.[0]).toContain('/agent-runs/run%201/confirmations/call%201')
+    expect(http.post.mock.calls.at(-1)?.[1]).toEqual({ approve: true })
+  })
+
   it('falls back to defaults when sandbox and function payloads are sparse', async () => {
     http.get.mockResolvedValueOnce({ data: {} })
     const caps = await httpApi.sandboxes.capabilities(pid)

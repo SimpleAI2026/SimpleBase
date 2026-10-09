@@ -12,8 +12,8 @@
       @click="$emit('select')"
     >
       <span class="flex items-center gap-2">
-        <span class="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground">
-          <BotIcon class="size-4" aria-hidden="true" />
+        <span class="flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground" :data-agent-icon="navKey">
+          <component :is="logo" class="size-4" aria-hidden="true" />
         </span>
         <strong class="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{{ agent.name }}</strong>
         <Badge v-if="agent.builtin_key" variant="secondary" class="shrink-0 text-[10px]">内置</Badge>
@@ -40,9 +40,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BotIcon, ClockIcon } from '@lucide/vue'
+import { ClockIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { iconForAgentModule, navKeyForAgentModule } from '@/components/nav-icons'
 import ConfirmAction from '../ConfirmAction.vue'
 import type { CloudAgent } from '@/services/types'
 
@@ -68,4 +69,6 @@ const MODULE_LABELS: Record<string, string> = {
   sandbox: '沙盒'
 }
 const moduleLabel = computed(() => MODULE_LABELS[props.agent.module] || props.agent.module)
+const navKey = computed(() => navKeyForAgentModule(props.agent.module))
+const logo = computed(() => iconForAgentModule(props.agent.module))
 </script>

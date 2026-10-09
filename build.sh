@@ -292,6 +292,7 @@ cmd_build() {
   echo "==> [3/3] 编译后端 (go build)"
   cd "$ROOT_DIR"
   go build -o "$OUTPUT_BIN" ./cmd/simplebased
+  go build -o "$ROOT_DIR/simplebase" ./cmd/simplebase
   echo "    产物: $OUTPUT_BIN"
 
   echo "==> 构建完成: $OUTPUT_BIN"

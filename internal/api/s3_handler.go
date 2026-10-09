@@ -18,14 +18,16 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
 // S3Handler 依赖 objectstore.FileStore，可选系统库对象索引。
 type S3Handler struct {
-	store objectstore.FileStore
-	index *systemdb.Store
+	store    objectstore.FileStore
+	index    *systemdb.Store
+	writable *bool
 }
 
 // s3ObjectDTO 是列表/上传返回的对象元数据。
@@ -107,6 +109,9 @@ func (h *S3Handler) ListObjects(c echo.Context) error {
 
 // UploadObject 上传一个文件。使用 multipart/form-data，字段：key + file。
 func (h *S3Handler) UploadObject(c echo.Context) error {
+	if h.writable != nil && !*h.writable {
+		return WriteError(c, database.ErrWriterUnavailable)
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, errors.New("project context missing"))
@@ -140,6 +145,9 @@ func (h *S3Handler) UploadObject(c echo.Context) error {
 
 // DeleteObject 删除指定 key 的对象。
 func (h *S3Handler) DeleteObject(c echo.Context) error {
+	if h.writable != nil && !*h.writable {
+		return WriteError(c, database.ErrWriterUnavailable)
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, errors.New("project context missing"))

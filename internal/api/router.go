@@ -76,6 +76,8 @@ type Dependencies struct {
 	// login-auth-plan：登录态与用户管理。
 	Sessions *auth.SessionService
 	Users    *auth.UserService
+	// Delegations 校验助手 CLI 委托 JWT。nil 时不接受委托令牌。
+	Delegations *auth.DelegationRegistry
 }
 
 // CacheService 抽象缓存管理（plan7.md）。
@@ -284,7 +286,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 // 中间件顺序：AuthMiddleware（JWT/API Key 双通道）→ projectContext。
 // 权限校验通过 auth.Require 在每个路由单独配置。
 func mountV1Routes(e *echo.Echo, deps Dependencies) {
-	authMW := timedAuthMiddleware(auth.AuthMiddleware(deps.Sessions, deps.Auth, WithPrincipal))
+	authMW := timedAuthMiddleware(auth.AuthMiddlewareWithDelegation(deps.Sessions, deps.Auth, WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations))
 	require := func(perm auth.Permission) echo.MiddlewareFunc {
 		return auth.Require(perm, PrincipalFromContext)
 	}
@@ -385,7 +387,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	// S3 用户文件存储路由。deps.S3FileStore 为 nil 时不挂载。
 	if deps.S3FileStore != nil {
-		sh := &S3Handler{store: deps.S3FileStore, index: deps.System}
+		sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: &deps.Config.Instance.Writable}
 		p.GET("/s3/objects", sh.ListObjects, require(auth.DatabaseRead))
 		p.POST("/s3/objects", sh.UploadObject, require(auth.DatabaseWrite), middleware.BodyLimit(bodyLimit(s3UploadBodyLimit)))
 		p.DELETE("/s3/objects", sh.DeleteObject, require(auth.DatabaseWrite))
@@ -417,7 +419,12 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.PUT("/llm/providers/:provider", credh.PutProviderCred, require(auth.ProjectAdmin))
 		p.DELETE("/llm/providers/:provider", credh.DeleteProviderCred, require(auth.ProjectAdmin))
 
-		ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit, writable: &deps.Config.Instance.Writable}
+		events := newRunEventHub()
+		confirms := newConfirmHub()
+		if deps.CloudAgent != nil && deps.CloudAgent.Confirm == nil {
+			deps.CloudAgent.Confirm = confirms
+		}
+		ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit, writable: &deps.Config.Instance.Writable, events: events, confirms: confirms}
 		if deps.LLM != nil {
 			ah.llm = deps.LLM
 		}
@@ -437,9 +444,11 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/agent-threads/:threadID/runs", ah.ListThreadRuns, require(auth.DatabaseRead))
 		p.POST("/agent-threads/:threadID/runs", ah.CreateRun, require(auth.DatabaseRead))
 		p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseRead))
+		p.POST("/agent-runs/:runID/confirmations/:callID", ah.ConfirmRun, require(auth.DatabaseRead))
+		p.GET("/agent-runs/:runID/events", ah.ReplayEvents, require(auth.DatabaseRead))
 
 		// Cloud Agent 定时执行路由。
-		sch := &agentScheduleHandler{store: deps.System, scheduler: deps.AgentScheduler, usage: deps.Usage}
+		sch := &agentScheduleHandler{store: deps.System, scheduler: deps.AgentScheduler, usage: deps.Usage, writable: &deps.Config.Instance.Writable}
 		p.GET("/agent-schedules", sch.ListSchedules, require(auth.DatabaseRead))
 		p.POST("/agent-schedules", sch.CreateSchedule, require(auth.DatabaseWrite))
 		p.GET("/agent-schedules/:scheduleID", sch.GetSchedule, require(auth.DatabaseRead))
@@ -501,7 +510,7 @@ func mountGoRoutes(e *echo.Echo, deps Dependencies) {
 	if deps.System == nil {
 		return
 	}
-	authMW := auth.AuthMiddleware(deps.Sessions, deps.Auth, WithPrincipal)
+	authMW := auth.AuthMiddlewareWithDelegation(deps.Sessions, deps.Auth, WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations)
 	require := func(perm auth.Permission) echo.MiddlewareFunc {
 		return auth.Require(perm, PrincipalFromContext)
 	}

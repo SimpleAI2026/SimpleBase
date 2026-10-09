@@ -154,6 +154,8 @@ func registerAgentRoutes(e *echo.Echo, h *cloudAgentHandler) {
 	e.GET("/agent-threads/:threadID/runs", h.ListThreadRuns)
 	e.POST("/agent-threads/:threadID/runs", h.CreateRun)
 	e.POST("/agent-runs/:runID/cancel", h.CancelRun)
+	e.POST("/agent-runs/:runID/confirmations/:callID", h.ConfirmRun)
+	e.GET("/agent-runs/:runID/events", h.ReplayEvents)
 	e.GET("/agents/models", h.ListAgentModels)
 }
 

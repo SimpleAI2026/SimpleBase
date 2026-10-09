@@ -25,6 +25,7 @@ type Config struct {
 	S3             S3Config             `yaml:"s3"`
 	Auth           AuthConfig           `yaml:"auth"`
 	LLM            LLMConfig            `yaml:"llm"`
+	Agent          AgentConfig          `yaml:"agent"`
 	Sandbox        SandboxConfig        `yaml:"sandbox"`
 	Limits         LimitsConfig         `yaml:"limits"`
 	Observability  ObservabilityConfig  `yaml:"observability"`
@@ -191,6 +192,39 @@ func validateLLMAgent(l LLMConfig) []error {
 	}
 	if l.AgentRunTimeout != 0 && (l.AgentRunTimeout < 10*time.Second || l.AgentRunTimeout > 15*time.Minute) {
 		errs = append(errs, fmt.Errorf("llm.agent_run_timeout must be 10s-15m (got %s)", l.AgentRunTimeout))
+	}
+	return errs
+}
+
+// AgentConfig 控制云助手 CLI skill（planv5.0 cloud-assistant-skills-cli）。
+type AgentConfig struct {
+	SkillsCLI      bool          `yaml:"skills_cli"`
+	CLIPath        string        `yaml:"cli_path"`
+	DelegationTTL  time.Duration `yaml:"delegation_ttl"`
+	ConfirmTimeout time.Duration `yaml:"confirm_timeout"`
+}
+
+func (a AgentConfig) EffectiveDelegationTTL() time.Duration {
+	if a.DelegationTTL <= 0 {
+		return 15 * time.Minute
+	}
+	return a.DelegationTTL
+}
+
+func (a AgentConfig) EffectiveConfirmTimeout() time.Duration {
+	if a.ConfirmTimeout <= 0 {
+		return 2 * time.Minute
+	}
+	return a.ConfirmTimeout
+}
+
+func validateAgent(a AgentConfig) []error {
+	var errs []error
+	if a.DelegationTTL != 0 && (a.DelegationTTL < time.Minute || a.DelegationTTL > 30*time.Minute) {
+		errs = append(errs, fmt.Errorf("agent.delegation_ttl must be 1m-30m (got %s)", a.DelegationTTL))
+	}
+	if a.ConfirmTimeout != 0 && (a.ConfirmTimeout < 10*time.Second || a.ConfirmTimeout > 10*time.Minute) {
+		errs = append(errs, fmt.Errorf("agent.confirm_timeout must be 10s-10m (got %s)", a.ConfirmTimeout))
 	}
 	return errs
 }
@@ -371,6 +405,11 @@ func defaults() Config {
 			AgentMaxIterations: defaultAgentMaxIterations,
 			AgentRunTimeout:    defaultAgentRunTimeout,
 		},
+		Agent: AgentConfig{
+			SkillsCLI:      true,
+			DelegationTTL:  15 * time.Minute,
+			ConfirmTimeout: 2 * time.Minute,
+		},
 		Sandbox: SandboxConfig{
 			Enabled:        false,
 			Backend:        SandboxBackendCloud,
@@ -495,6 +534,7 @@ func (c Config) Validate() error {
 		errs = append(errs, err)
 	}
 	errs = append(errs, validateLLMAgent(c.LLM)...)
+	errs = append(errs, validateAgent(c.Agent)...)
 
 	if c.Instance.Writable && !c.DevMode {
 		// Writable 实例必须拥有完整 S3 配置，否则无法作为在线持久层。

@@ -77,6 +77,7 @@ type App struct {
 	leaseGate    *lease.Gate       // 同库并发首写串行化（perf §1.5）
 	onLostLease  func(dbID string) // 失租回调（租约获取处闭包捕获）
 
+	delegations      *auth.DelegationRegistry
 	agentScheduler   *cloudagent.Scheduler
 	cronScheduler    *cronjob.Scheduler
 	kvSweeper        *kv.Sweeper
@@ -302,6 +303,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		S3FileStore:     a.fileStore,
 		System:          a.systemStore,
 		CloudAgent:      runtime,
+		Delegations:     a.delegations,
 		AgentScheduler:  agentScheduler,
 		CronScheduler:   cronScheduler,
 		Sandbox:         a.sandboxMgr,
@@ -874,15 +876,30 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 	if a.systemStore == nil {
 		return nil
 	}
+	cliPath := strings.TrimSpace(a.cfg.Agent.CLIPath)
+	if cliPath == "" {
+		if exe, err := os.Executable(); err == nil {
+			cliPath = filepath.Join(filepath.Dir(exe), "simplebase")
+		}
+	}
+	reg := auth.NewDelegationRegistry()
+	a.delegations = reg
 	rt := &cloudagent.Runtime{
-		LLM:           api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
-		DB:            api.NewCloudAgentDB(a.catalog, a.registry),
-		Obj:           api.NewCloudAgentObj(a.fileStore, a.systemStore),
-		Logs:          cloudagent.NewLogAccess(a.systemStore),
-		Settings:      cloudagent.NewSettingsAccess(a.systemStore),
-		MaxIterations: a.cfg.LLM.EffectiveAgentMaxIterations(),
-		RunTimeout:    a.cfg.LLM.EffectiveAgentRunTimeout(),
-		ToolProtocol:  a.cfg.LLM.EffectiveAgentToolProtocol(),
+		LLM:            api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
+		DB:             api.NewCloudAgentDB(a.catalog, a.registry),
+		Obj:            api.NewCloudAgentObj(a.fileStore, a.systemStore),
+		Logs:           cloudagent.NewLogAccess(a.systemStore),
+		Settings:       cloudagent.NewSettingsAccess(a.systemStore),
+		MaxIterations:  a.cfg.LLM.EffectiveAgentMaxIterations(),
+		RunTimeout:     a.cfg.LLM.EffectiveAgentRunTimeout(),
+		ToolProtocol:   a.cfg.LLM.EffectiveAgentToolProtocol(),
+		SkillsCLI:      a.cfg.Agent.SkillsCLI,
+		CLIPath:        cliPath,
+		CLI:            cloudagent.SubprocessCLI{Path: cliPath},
+		APIBaseURL:     loopbackBase(a.cfg.HTTP.Address),
+		ConfirmTimeout: a.cfg.Agent.EffectiveConfirmTimeout(),
+		DelegationTTL:  a.cfg.Agent.EffectiveDelegationTTL(),
+		Issuer:         auth.HMACDelegationIssuer{Secret: a.cfg.Auth.APIKeyHashSecret, Reg: reg},
 	}
 	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
 		rt.Sandbox = &sandboxAdapter{m: a.sandboxMgr}
@@ -892,6 +909,42 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 
 // sandboxAdapter 只适配 cloudagent 的线程工具接口，业务状态统一由 Manager 管理。
 type sandboxAdapter struct{ m *sandbox.Manager }
+
+func loopbackBase(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		addr = ":8080"
+	}
+	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+		return strings.TrimRight(addr, "/")
+	}
+	if strings.HasPrefix(addr, ":") {
+		return "http://127.0.0.1" + addr
+	}
+	host, port, err := splitHostPortLoose(addr)
+	if err != nil {
+		return "http://" + addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "127.0.0.1"
+	}
+	return "http://" + host + ":" + port
+}
+
+func splitHostPortLoose(addr string) (string, string, error) {
+	if strings.HasPrefix(addr, "[") {
+		end := strings.LastIndex(addr, "]")
+		if end < 0 || end+1 >= len(addr) || addr[end+1] != ':' {
+			return "", "", errors.New("bad addr")
+		}
+		return addr[:end+1], addr[end+2:], nil
+	}
+	i := strings.LastIndex(addr, ":")
+	if i < 0 {
+		return "", "", errors.New("bad addr")
+	}
+	return addr[:i], addr[i+1:], nil
+}
 
 func (s *sandboxAdapter) Available() bool { return s.m.Available() }
 func (s *sandboxAdapter) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (cloudagent.SandboxOutput, error) {

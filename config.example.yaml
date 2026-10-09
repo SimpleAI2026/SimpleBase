@@ -111,6 +111,16 @@ llm:
   #     timeout: 60s          # SIMPLEBASE_LLM_PROVIDER_OPENAI_TIMEOUT
   # SIMPLEBASE_LLM_PROVIDERS=openai,anthropic 可增补 provider 名。
 
+# ── Agent（云助手 CLI skill）──────────────────────────
+# 代码默认 skills_cli 为 true。已有部署的 config.yaml 不自动改；要关闭：
+#   agent.skills_cli: false
+#   或 SIMPLEBASE_AGENT_SKILLS_CLI=false
+agent:
+  skills_cli: true            # SIMPLEBASE_AGENT_SKILLS_CLI
+  cli_path: ""                # 空则使用 simplebased 同目录的 simplebase；SIMPLEBASE_AGENT_CLI_PATH
+  delegation_ttl: 15m         # 1m–30m，0 表示 15m；SIMPLEBASE_AGENT_DELEGATION_TTL
+  confirm_timeout: 2m         # 10s–10m，0 表示 2m；SIMPLEBASE_AGENT_CONFIRM_TIMEOUT
+
 # ── Sandbox（云沙盒，microsandbox Cloud）──────────────
 # 侧栏「自动化 → 云沙盒」与 /v1/projects/:id/sandboxes/** 接口；云 Agent 沙盒工具复用同一套。
 sandbox:

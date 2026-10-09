@@ -144,6 +144,27 @@ func (c *Client) AddColumn(ctx context.Context, databaseID, table string, column
 	return &out, err
 }
 
+// TableRows is a page of rows from a SQL table.
+type TableRows struct {
+	Columns []string `json:"columns"`
+	Rows    [][]any  `json:"rows"`
+}
+
+// ListTableRows reads rows from one SQL table.
+func (c *Client) ListTableRows(ctx context.Context, databaseID, table string, limit int) (*TableRows, error) {
+	path, err := c.schemaPath(databaseID, "/schema/tables/"+url.PathEscape(table)+"/rows")
+	if err != nil {
+		return nil, err
+	}
+	q := url.Values{}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	var out TableRows
+	err = c.requestJSON(ctx, http.MethodGet, path, q, nil, &out)
+	return &out, err
+}
+
 // DeleteDatabase requests deletion; the response is not a DatabaseInfo.
 func (c *Client) DeleteDatabase(ctx context.Context, id string) (*DeleteDatabaseResult, error) {
 	if id == "" {
