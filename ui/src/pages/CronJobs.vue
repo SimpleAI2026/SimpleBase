@@ -120,7 +120,7 @@
                   />
                 </TableCell>
                 <TableCell>
-                  <div class="flex flex-wrap gap-1">
+                  <div class="flex flex-wrap justify-center gap-1">
                     <Button variant="ghost" size="sm" @click="openRuns(record, { trigger: true })">
                       立即执行
                     </Button>

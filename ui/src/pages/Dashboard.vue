@@ -94,7 +94,7 @@
             <TableHeader>
               <TableRow>
                 <TableHead class="sb-col-name">资源类型</TableHead>
-                <TableHead class="w-28 text-right">数量</TableHead>
+                <TableHead class="w-28">数量</TableHead>
                 <TableHead class="max-w-md">说明</TableHead>
               </TableRow>
             </TableHeader>
@@ -111,7 +111,7 @@
                     {{ row.label }}
                   </span>
                 </TableCell>
-                <TableCell class="w-28 text-right text-base font-semibold tabular-nums">
+                <TableCell class="w-28 text-base font-semibold tabular-nums">
                   {{ row.count }}
                 </TableCell>
                 <TableCell class="max-w-md text-xs text-muted-foreground">{{ row.hint }}</TableCell>

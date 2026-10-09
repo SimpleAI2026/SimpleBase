@@ -60,7 +60,7 @@
               <TableHead class="sb-col-md">时间</TableHead>
               <TableHead class="sb-col-sm">级别</TableHead>
               <TableHead class="sb-col-sm">来源</TableHead>
-              <TableHead class="max-w-lg">消息</TableHead>
+              <TableHead class="max-w-lg text-left">消息</TableHead>
               <TableHead class="sb-col-id">Request ID</TableHead>
             </TableRow>
           </TableHeader>
@@ -83,7 +83,7 @@
                 <Badge :variant="logLevelVariant(record.level)">{{ logLevelText(record.level) }}</Badge>
               </TableCell>
               <TableCell class="text-muted-foreground">{{ record.logger }}</TableCell>
-              <TableCell class="max-w-md truncate font-sans text-xs text-foreground">{{ record.message }}</TableCell>
+              <TableCell class="max-w-md truncate text-left font-sans text-xs text-foreground">{{ record.message }}</TableCell>
               <TableCell class="max-w-48 truncate text-muted-foreground">{{ record.requestId }}</TableCell>
             </TableRow>
           </TableBody>

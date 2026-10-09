@@ -72,6 +72,10 @@ describe('KV 类型编辑器', () => {
     await flushPromises()
     expect(w.text()).toContain('name')
     expect(w.text()).toContain('alice')
+    expect(w.findAll('th').find((el) => el.text() === '值')?.classes()).toContain('text-left')
+    expect(w.findAll('td').find((el) => el.text().includes('alice'))?.classes()).toContain('text-left')
+    expect(w.html()).toContain('justify-center')
+    expect(w.html()).not.toContain('text-right')
     const vm = w.vm as any
     vm.newField = 'age'
     vm.newValue = '30'
@@ -92,6 +96,9 @@ describe('KV 类型编辑器', () => {
     const w = mount(KvListEditor, { props: base, global: { stubs: uiStubs } })
     await flushPromises()
     expect(w.text()).toContain('a')
+    expect(w.findAll('th').find((el) => el.text() === '元素')?.classes()).toContain('text-left')
+    expect(w.findAll('td').find((el) => el.text().includes('a'))?.classes()).toContain('text-left')
+    expect(w.html()).not.toContain('text-right')
     const vm = w.vm as any
     vm.pushValue = 'z'
     await vm.push('front')
@@ -124,6 +131,10 @@ describe('KV 类型编辑器', () => {
     await flushPromises()
     expect(w.text()).toContain('a')
     expect(w.text()).toContain('90')
+    expect(w.findAll('th').find((el) => el.text() === '成员')?.classes()).toContain('text-left')
+    expect(w.findAll('td').find((el) => el.text() === 'a')?.classes()).toContain('text-left')
+    expect(w.html()).toContain('justify-center')
+    expect(w.html()).not.toContain('text-right')
     const vm = w.vm as any
     vm.newElem = 'b'
     vm.newScore = '85'

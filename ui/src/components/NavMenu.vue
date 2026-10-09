@@ -141,5 +141,5 @@ const menuGroups = computed<MenuGroup[]>(() =>
 
 const emit = defineEmits<{ (e: 'navigate'): void }>()
 const currentRoute = useRoute()
-const selectedKey = computed(() => (currentRoute.name as string) || 'dashboard')
+const selectedKey = computed(() => (currentRoute.name as string) || 'agents')
 </script>

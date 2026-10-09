@@ -55,7 +55,7 @@
               <span class="font-mono text-xs text-muted-foreground">request_id: {{ queryResult.requestId }}</span>
             </div>
             <div v-if="queryResult.columns.length && queryResult.rowCount > 0" class="overflow-x-auto rounded-lg border border-border">
-              <Table>
+              <Table class="[&_td]:text-left [&_th]:text-left">
                 <TableHeader>
                   <TableRow>
                     <TableHead v-for="c in queryResult.columns" :key="c" class="min-w-32">{{ c }}</TableHead>
@@ -114,7 +114,7 @@
                     <TableHead class="w-20">状态</TableHead>
                     <TableHead class="w-28">受影响行数</TableHead>
                     <TableHead class="w-24">耗时</TableHead>
-                    <TableHead>错误详情</TableHead>
+                    <TableHead class="text-left">错误详情</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -127,7 +127,7 @@
                     </TableCell>
                     <TableCell class="font-mono">{{ record.rowsAffected ?? '-' }}</TableCell>
                     <TableCell class="font-mono">{{ (record.durationMs ?? '-') + ' ms' }}</TableCell>
-                    <TableCell>
+                    <TableCell class="text-left">
                       <span v-if="record.errorMessage" class="text-xs text-destructive font-mono">{{ record.errorMessage }}</span>
                       <span v-else>-</span>
                     </TableCell>

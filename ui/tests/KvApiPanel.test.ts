@@ -37,6 +37,10 @@ describe('KvApiPanel（项目级单端点 API 子页签）', () => {
     // key 分组命令可见
     expect(w.text()).toContain('SCAN')
     expect(w.text()).toContain('EXPIRE')
+    expect(w.findAll('th').find((el) => el.text() === '参数')?.classes()).toContain('text-left')
+    expect(w.findAll('th').find((el) => el.text() === '语义')?.classes()).toContain('text-left')
+    expect(w.html()).toContain('justify-center')
+    expect(w.html()).not.toContain('text-right')
     w.unmount()
   })
 

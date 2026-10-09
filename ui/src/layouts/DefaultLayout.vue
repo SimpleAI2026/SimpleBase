@@ -191,7 +191,7 @@ watch(
     const r = router.getRoutes().find((rr) => rr.name === name)
     const need = r?.meta?.requiresRole as string | undefined
     if (need === 'superadminl1' && authStore.isAuthenticated && !authStore.isSuper) {
-      void vueRouter.replace({ name: 'dashboard' })
+      void vueRouter.replace({ name: 'agents' })
     }
   },
   { immediate: true }

@@ -10,7 +10,7 @@ const props = defineProps<{
 <template>
   <td
     data-slot="table-cell"
-    :class="cn('px-4 py-3 align-middle text-sm whitespace-nowrap [&:has([role=checkbox])]:pr-0', props.class)"
+    :class="cn('px-4 py-3 text-center align-middle text-sm whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>.flex]:justify-center', props.class)"
   >
     <slot />
   </td>

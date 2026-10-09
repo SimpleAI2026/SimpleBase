@@ -66,6 +66,8 @@ describe('SqlWorkModal', () => {
       error: { failedIndex: 0, code: 'e', message: 'bad' }
     })
     await vm.run()
+    expect(w.findAll('th').find((el) => el.text() === '错误详情')?.classes()).toContain('text-left')
+    expect(w.findAll('th').find((el) => el.text() === '#')?.classes()).not.toContain('text-left')
     api.sql.batch.mockResolvedValueOnce({
       results: [{ errorCode: 'e' }, { rowsAffected: 1 }],
       durability: 'ok',
@@ -106,6 +108,9 @@ describe('SqlWorkModal', () => {
     expect(api.sql.query).toHaveBeenCalledWith('p', 'db-1', expect.objectContaining({ sql: 'SELECT 1' }))
     expect(w.text()).toContain('1 行')
     expect(w.text()).toContain('request_id: r1')
+    const resultTable = w.get('table')
+    expect(resultTable.classes()).toContain('[&_th]:text-left')
+    expect(resultTable.classes()).toContain('[&_td]:text-left')
   })
 
   it('hides write modes in readonly and still allows query', async () => {

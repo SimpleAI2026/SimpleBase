@@ -132,6 +132,8 @@ describe('Databases (数据库管理)', () => {
     expect(sqlButtons[0].attributes('disabled')).toBeUndefined()
     expect(sqlButtons[1].attributes('disabled')).toBeDefined()
     expect(sqlButtons[2].attributes('disabled')).toBeDefined()
+    await expandButtons(wrapper)[0].trigger('click')
+    expect(wrapper.get('[colspan="7"]').classes()).toContain('text-left')
   })
 
   it('creates a database after validating the name', async () => {
@@ -173,13 +175,21 @@ describe('Databases (数据库管理)', () => {
       dataModel: 'sql' as const
     }
     api.databases.list.mockResolvedValue([readyDb, sqlDb])
-    const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
+    const { wrapper } = await mountWithApp(Databases, { stubs: { ...dbStubs, FieldGroup: false } })
     expect(wrapper.text()).toContain('集合')
+    expect(wrapper.html()).toContain('justify-center')
+    expect(wrapper.html()).not.toContain('text-right')
 
     await clickText(wrapper, '新建数据库')
+    const group = wrapper.get('[data-slot="field-group"]')
+    expect(group.classes()).toContain('gap-5')
+    expect(group.text()).toContain('名称')
+    expect(group.text()).toContain('数据类型')
     expect(wrapper.find('#db-init-sql').exists()).toBe(false)
     await clickText(wrapper, 'SQL 数据')
     expect(wrapper.find('#db-init-sql').exists()).toBe(true)
+    expect(group.text()).toContain('初始化 SQL')
+    expect(wrapper.get('[data-slot="field-group"]').classes()).toContain('gap-5')
     await clickText(wrapper, '集合文档')
     expect(wrapper.find('#db-init-sql').exists()).toBe(false)
     await clickText(wrapper, 'SQL 数据')

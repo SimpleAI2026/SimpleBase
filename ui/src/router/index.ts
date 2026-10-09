@@ -6,7 +6,7 @@ import DocsLayout from '../layouts/DocsLayout.vue'
  * 路由元信息单一数据源：页面标题、菜单名、图标全部收敛到 meta。
  * NavMenu 遍历路由渲染（跳过 hidden），DefaultLayout 从 meta 取面包屑标题。
  * hidden：文档站等非控制台入口不进侧栏。
- * `/settings` 重定向到 `/console?settings=1` 由 DefaultLayout 打开全局 SbModal。
+ * `/settings` 重定向到 `/console/agents?settings=1` 由 DefaultLayout 打开全局 SbModal。
  *
  * 主页、控制台与文档站拆布局：App.vue 只挂 <router-view />，
  * 控制台子路由走 DefaultLayout（侧栏 + 项目切换），文档子路由走 DocsLayout。
@@ -22,7 +22,7 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../pages/Home.vue'),
     meta: { title: '首页', hidden: true },
     beforeEnter: (to) => to.query.settings == null ? true : ({
-      name: 'dashboard',
+      name: 'agents',
       query: to.query,
       hash: to.hash
     })
@@ -33,6 +33,10 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
+        redirect: (to) => ({ name: 'agents', query: to.query, hash: to.hash })
+      },
+      {
+        path: 'dashboard',
         name: 'dashboard',
         component: () => import('../pages/Dashboard.vue'),
         meta: { title: '监控大盘' }
@@ -86,7 +90,7 @@ const routes: RouteRecordRaw[] = [
         path: 'settings',
         name: 'settings',
         redirect: (to) => ({
-          name: 'dashboard',
+          name: 'agents',
           query: { ...to.query, settings: typeof to.query.settings === 'string' ? to.query.settings : '1' },
           hash: to.hash
         })

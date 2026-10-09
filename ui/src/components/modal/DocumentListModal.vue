@@ -22,7 +22,7 @@
           <TableHeader>
             <TableRow>
               <TableHead class="sb-col-id">ID</TableHead>
-              <TableHead class="max-w-md">数据</TableHead>
+              <TableHead class="max-w-md text-left">数据</TableHead>
               <TableHead class="w-28">操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -38,7 +38,7 @@
             <TableEmpty v-else-if="!paged.length" :colspan="3">暂时未查询到数据</TableEmpty>
             <TableRow v-for="record in paged" :key="record.id">
               <TableCell class="sb-mono font-medium truncate text-xs">{{ record.id }}</TableCell>
-              <TableCell>
+              <TableCell class="text-left">
                 <SbCodeBlock :value="docFields(record)" max-height="160px" />
               </TableCell>
               <TableCell>
