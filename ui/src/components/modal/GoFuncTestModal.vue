@@ -7,7 +7,7 @@
     :max-width="960"
     @update:open="emit('update:open', $event)"
   >
-    <div class="flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-border/60 bg-card lg:flex-row">
+    <div class="flex min-h-[520px] min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card lg:flex-row">
       <!-- 左栏：版本 + 导出函数 -->
       <aside class="flex w-full shrink-0 flex-col gap-4 border-b bg-card p-4 lg:w-60 lg:border-r lg:border-b-0">
         <div class="flex flex-col gap-2">
@@ -79,7 +79,7 @@
           </div>
           <textarea
             v-model="bodyText"
-            class="sb-mono min-h-[160px] flex-1 resize-y rounded-lg border border-border bg-card p-3 text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="sb-code-view sb-mono min-h-[160px] w-full min-w-0 max-w-full flex-1 resize-y whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] rounded-lg border border-border bg-card p-3 text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
             spellcheck="false"
           />
           <p v-if="bodyError" class="text-xs text-destructive">{{ bodyError }}</p>
@@ -105,11 +105,11 @@
           </div>
           <Alert v-if="result && !result.ok" variant="destructive">
             <AlertTitle>执行失败</AlertTitle>
-            <AlertDescription>{{ result.error }}</AlertDescription>
+            <AlertDescription class="sb-code-view max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">{{ result.error }}</AlertDescription>
           </Alert>
           <pre
             v-if="result"
-            class="sb-mono max-h-56 overflow-auto rounded-lg border bg-card p-3 text-xs leading-relaxed whitespace-pre-wrap"
+            class="sb-code-view sb-mono max-h-56 max-w-full min-w-0 overflow-auto whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] rounded-lg border bg-card p-3 text-xs leading-relaxed"
           >{{ prettyData }}</pre>
           <p v-else class="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
             尚未发送请求

@@ -71,6 +71,35 @@ describe('SbModal', () => {
     await w2.findAll('button')[1].trigger('click')
     expect(w2.emitted('ok')).toBeTruthy()
   })
+  it('caps height to the viewport and scrolls only the body', () => {
+    const w = mount(SbModal, {
+      props: { open: true, title: '表数据', description: '只读', maxWidth: 900, minWidth: 480 },
+      slots: { default: '<p class="tall-row">row</p>' },
+      global: { stubs }
+    })
+    const vm = w.vm as unknown as { contentClass: string; contentStyle: Record<string, string> }
+    expect(vm.contentClass).toContain('max-h-[calc(100vh-2rem)]')
+    expect(vm.contentClass).toContain('flex')
+    expect(vm.contentClass).toContain('flex-col')
+    expect(vm.contentClass).toContain('sm:max-w-[var(--sb-modal-max-w)]')
+    expect(vm.contentClass).not.toContain('sm:max-w-5xl')
+    expect(vm.contentStyle['--sb-modal-max-w']).toBe('900px')
+
+    const content = w.get('.dialog-content')
+    expect(content.attributes('class') || '').toContain('max-h-[calc(100vh-2rem)]')
+    expect(content.attributes('class') || '').toContain('sm:max-w-[var(--sb-modal-max-w)]')
+
+    const body = w.get('[data-slot="sb-modal-body"]')
+    expect(body.classes()).toEqual(expect.arrayContaining(['min-h-0', 'min-w-0', 'overflow-y-auto', 'overflow-x-hidden']))
+    expect(body.find('.tall-row').exists()).toBe(true)
+    expect(body.text()).not.toContain('表数据')
+    expect(body.text()).not.toContain('只读')
+    expect(w.get('.pr-8').text()).toContain('表数据')
+    expect(w.get('.dialog-footer').classes()).toContain('shrink-0')
+    expect(w.get('.dialog-footer').text()).toContain('确定')
+    w.unmount()
+  })
+
   it('handles close interactions', async () => {
     const sb = mount(SbModal, {
       props: { open: true, title: 'T' },

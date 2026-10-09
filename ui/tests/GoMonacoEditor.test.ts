@@ -30,6 +30,13 @@ import GoMonacoEditor from '@/components/editor/GoMonacoEditor.vue'
 describe('GoMonacoEditor', () => {
   it('bootstraps monaco, syncs values, and disposes', async () => {
     const w = mount(GoMonacoEditor, { props: { modelValue: 'package main', minHeight: 200 } })
+    expect(w.get('div').classes()).toEqual(
+      expect.arrayContaining(['sb-code-view', 'max-w-full', 'min-w-0', 'overflow-hidden', 'whitespace-pre-wrap'])
+    )
+    expect(monaco.editor.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ wordWrap: 'on', wrappingIndent: 'same' })
+    )
     expect(editor.onDidChangeModelContent).toHaveBeenCalled()
     expect(w.emitted('update:modelValue')?.[0]).toEqual(['package main'])
     editor.getValue.mockReturnValueOnce('package main')

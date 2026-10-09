@@ -28,6 +28,9 @@ describe('SettingsModal', () => {
     expect(wrapper.text()).toContain('连接、默认模型与厂商 API Key')
     expect(wrapper.text()).toContain('连接')
     expect(wrapper.text()).not.toContain('外观')
+    const scroller = wrapper.get('.overflow-y-auto')
+    expect(scroller.classes().join(' ')).toContain('max-h-[min(calc(100vh-14rem),720px)]')
+    expect(scroller.classes()).toContain('px-1')
     expect(wrapper.text()).toContain('模型')
     expect(wrapper.text()).toContain('供应商')
 
@@ -47,6 +50,26 @@ describe('SettingsModal', () => {
     expect(auth.settingsOpen).toBe(true)
     vm.onOpen(false)
     expect(auth.settingsOpen).toBe(false)
+  })
+
+  it('keeps the settings max-width inside the viewport-capped shell', async () => {
+    const { wrapper, pinia } = await mountWithApp(SettingsModal, { stubs: { SbModal: false } })
+    const auth = useAuthStore(pinia)
+    auth.openSettings()
+    await flushPromises()
+    const content = wrapper.get('.dialog-content')
+    const cls = content.attributes('class') || ''
+    expect(cls).toContain('max-h-[calc(100vh-2rem)]')
+    expect(cls).toContain('flex')
+    expect(cls).toContain('sm:max-w-[var(--sb-modal-max-w)]')
+    expect(cls).not.toContain('sm:max-w-5xl')
+    expect(content.attributes('style') || '').toContain('--sb-modal-max-w: 720px')
+    const body = wrapper.get('[data-slot="sb-modal-body"]')
+    expect(body.classes()).toContain('overflow-y-auto')
+    expect(body.text()).toContain('连接')
+    expect(body.text()).toContain('模型')
+    expect(wrapper.get('.pr-8').text()).toContain('设置')
+    expect(wrapper.find('.dialog-footer').exists()).toBe(false)
   })
 
   it('401 no longer forces the connection tab (planv5.0 §2.2)', async () => {

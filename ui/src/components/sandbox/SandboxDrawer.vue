@@ -1,6 +1,6 @@
 <template>
   <SbModal :open="open" :title="sandbox?.name || '云沙盒'" :max-width="900" hide-footer @update:open="$emit('update:open', $event)">
-    <div v-if="sandbox" class="flex max-h-[72vh] min-h-80 flex-col gap-3 overflow-y-auto py-2">
+    <div v-if="sandbox" class="flex max-h-[min(72vh,calc(100vh-12rem))] min-h-80 min-w-0 max-w-full flex-col gap-3 overflow-y-auto py-2">
       <div class="flex gap-2 border-b pb-2">
         <Button v-for="name in ['终端', '文件', '信息']" :key="name" size="sm" :variant="tab === name ? 'default' : 'ghost'" @click="tab = name">{{ name }}</Button>
       </div>

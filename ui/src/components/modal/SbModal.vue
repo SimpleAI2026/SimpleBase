@@ -1,14 +1,15 @@
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent :class="contentClass" :style="contentStyle" :show-close-button="true">
-      <DialogHeader>
+      <DialogHeader class="shrink-0 pr-8">
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription v-if="description">{{ description }}</DialogDescription>
       </DialogHeader>
-      <div class="min-w-0">
+      <!-- 标题和底栏留在视口内，长内容只在 body 里滚动 -->
+      <div data-slot="sb-modal-body" class="min-h-0 min-w-0 max-w-full overflow-x-hidden overflow-y-auto">
         <slot />
       </div>
-      <DialogFooter v-if="!hideFooter">
+      <DialogFooter v-if="!hideFooter" class="shrink-0">
         <slot name="footer">
           <Button variant="outline" @click="onCancel">{{ cancelText }}</Button>
           <Button :disabled="okDisabled || confirmLoading" @click="emit('ok')">
@@ -81,7 +82,8 @@ const contentStyle = computed(() => {
 })
 
 const contentClass = computed(() => {
-  const classes: string[] = []
+  // flex 列 + 视口高度上限：覆盖 DialogContent 默认的 grid，短弹窗仍按内容高度居中
+  const classes: string[] = ['flex max-h-[calc(100vh-2rem)] min-h-0 min-w-0 flex-col']
   if (props.maxWidth != null) {
     classes.push('sm:max-w-[var(--sb-modal-max-w)]')
   } else {

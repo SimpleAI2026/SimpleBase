@@ -7,7 +7,7 @@
     @update:open="emit('update:open', $event)"
   >
     <SbAsyncRegion
-      class="flex max-h-[420px] flex-col gap-2 overflow-y-auto"
+      class="flex max-h-[420px] min-w-0 max-w-full flex-col gap-2 overflow-y-auto"
       block="lines"
       :pending="pending"
       :show-skeleton="showSkeleton"
@@ -20,14 +20,14 @@
       <template #empty>
         <p class="py-6 text-center text-sm text-muted-foreground">暂无版本</p>
       </template>
-      <div v-for="v in versions" :key="v.version" class="rounded-lg border border-border/60 p-3">
+      <div v-for="v in versions" :key="v.version" class="min-w-0 max-w-full rounded-lg border border-border/60 p-3">
         <div class="flex flex-wrap items-center gap-2">
           <span class="sb-mono font-semibold">v{{ v.version }}</span>
           <Badge v-if="v.active" variant="success">● 生效</Badge>
           <span class="text-xs text-muted-foreground">{{ formatTime(v.createdAt) }}</span>
           <span v-if="v.note" class="text-xs text-muted-foreground">· {{ v.note }}</span>
         </div>
-        <div class="mt-1 text-xs text-muted-foreground">导出：{{ v.exports.join('、') || '—' }}</div>
+        <div class="sb-code-view mt-1 max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs text-muted-foreground">导出：{{ v.exports.join('、') || '—' }}</div>
         <div class="mt-2 flex gap-1">
           <Button
             v-if="!v.active && !projectStore.isAdmin"
