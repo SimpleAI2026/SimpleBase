@@ -106,6 +106,14 @@ cmd/simplebased → app → api → auth / catalog / database / objectstore
 5. 日志/审计无密钥、无 SQL 参数、无 LLM 正文。
 6. 前端改动未违反 `ui/AGENTS.md` 的样式定稿与组件约定，且新写的状态类用的是 reka 真实属性（`data-[state=…]`）。
 
+## Cursor Cloud specific instructions
+
+- 本地 `dev_mode` 不需要 S3。`./build.sh dev --no-open` 在缺少 `config.yaml` 时从 `config.example.yaml` 生成副本（gitignore）。种子 API Key 是 `sb_live_dev_key_12345`，项目 ID 是 `dev-shop`。控制台无 access token 时会弹出登录框；同一把种子 Key 仍可直接调 API。引导账号 `simplebase2026` / `simplebase2026`，首次登录必须改密。
+- `ui/yarn.lock` 是 Yarn 4。`ui/.yarnrc.yml` 里的 `approvedGitRepositories` 会被 Yarn 4.9 及更早版本拒绝。在 `ui/` 使用 Yarn 4.17：`corepack prepare yarn@4.17.0 --activate`，然后 `yarn install --immutable`。Yarn Classic 1 会把这份 lockfile 重写成 v1 格式。
+- `packages/js-sdk/yarn.lock` 是 Yarn Classic 1.22。不要在该目录运行 Yarn 4，否则会迁移 lockfile。使用 `~/.cache/node/corepack/v1/yarn/1.22.22/bin/yarn install --frozen-lockfile`。
+- 默认 PATH 上的 `/exec-daemon/node` 是 v22.14.0，排在 nvm 之前。UI 依赖要求 Node `^22.22.2`。镜像里的 nvm Node v22.23.3 必须排在 `/exec-daemon` 前面；环境安装脚本把它链接到 `/usr/local/cargo/bin`。
+- DuckDB 需要 CGO。镜像已有 gcc，编译与测试保持 `CGO_ENABLED=1`。
+
 ## 备注
 
 - `plan/` 存放设计计划文档（路由注释中的 `planX §Y` 指向这些文件），改动行为前先查对应 plan。
