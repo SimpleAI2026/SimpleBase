@@ -1,7 +1,7 @@
 // async_flush.go 实现 §7.2 P3：请求路径永不 flush、后台批量写、指标预聚合。
 //
 // 改造前：Record* 缓冲到 64 条时由当前请求 goroutine 同步逐条 INSERT
-//（每条一个事务），长尾 max 300–560ms 且独占系统库单连接。
+// （每条一个事务），长尾 max 300–560ms 且独占系统库单连接。
 // 改造后：
 //   - Record* 只入队并非阻塞通知后台 flusher（O(1) 请求路径）；
 //   - flusher 单事务批量 INSERT（64 行 1 事务），notifyWrite 每批 1 次；
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 )
 
 // flushQueueCap 是日志/指标缓冲的硬上限；超出即丢弃并计数（请求路径 O(1)）。
@@ -272,26 +273,27 @@ func (s *Store) flushAllAsync(ctx context.Context) error {
 		s.requeue(logs, metrics)
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	// 整批未提交即可重放。冲突时不要先退回缓冲，否则重试会再插一遍已入队的行。
+	err := ducklake.RetryOnConflict(ctx, func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if len(logs) > 0 {
+			if err := insertLogs(ctx, tx, logs); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		if len(metrics) > 0 {
+			if err := insertMetrics(ctx, tx, metrics); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		return tx.Commit()
+	})
 	if err != nil {
-		s.requeue(logs, metrics)
-		return err
-	}
-	if len(logs) > 0 {
-		if err := insertLogs(ctx, tx, logs); err != nil {
-			_ = tx.Rollback()
-			s.requeue(logs, metrics)
-			return err
-		}
-	}
-	if len(metrics) > 0 {
-		if err := insertMetrics(ctx, tx, metrics); err != nil {
-			_ = tx.Rollback()
-			s.requeue(logs, metrics)
-			return err
-		}
-	}
-	if err := tx.Commit(); err != nil {
 		s.requeue(logs, metrics)
 		return err
 	}

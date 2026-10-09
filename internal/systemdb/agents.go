@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 )
 
 const (
@@ -187,38 +188,42 @@ func (s *Store) ArchiveCloudAgent(ctx context.Context, projectID, id string) err
 		return ErrUnavailable
 	}
 	now := time.Now().UTC()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx,
-		`UPDATE sys_cloud_agents SET archived_at=?, updated_at=? WHERE id=? AND project_id=? AND archived_at IS NULL`,
-		now, now, id, projectID)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	// 内置 Agent 删除后写 dismissed，播种不再补回（DuckLake 无 PK 约束，存在性由应用层判断）。
-	var key string
-	if err := tx.QueryRowContext(ctx, `SELECT builtin_key FROM sys_cloud_agents WHERE id=? AND project_id=?`, id, projectID).Scan(&key); err != nil {
-		return err
-	}
-	if key != "" {
-		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_cloud_agent_seed_dismissed WHERE project_id=? AND builtin_key=?`, projectID, key).Scan(&count); err != nil {
+	// 软删是幂等的：冲突表示提交失败，整段事务重放；已归档时第二次得到 ErrNoRows，不再重试。
+	err := ducklake.RetryOnConflict(ctx, func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
 			return err
 		}
-		if count == 0 {
-			if _, err = tx.ExecContext(ctx, `INSERT INTO sys_cloud_agent_seed_dismissed(project_id, builtin_key) VALUES(?, ?)`, projectID, key); err != nil {
+		defer tx.Rollback()
+		res, err := tx.ExecContext(ctx,
+			`UPDATE sys_cloud_agents SET archived_at=?, updated_at=? WHERE id=? AND project_id=? AND archived_at IS NULL`,
+			now, now, id, projectID)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return sql.ErrNoRows
+		}
+		// 内置 Agent 删除后写 dismissed，播种不再补回（DuckLake 无 PK 约束，存在性由应用层判断）。
+		var key string
+		if err := tx.QueryRowContext(ctx, `SELECT builtin_key FROM sys_cloud_agents WHERE id=? AND project_id=?`, id, projectID).Scan(&key); err != nil {
+			return err
+		}
+		if key != "" {
+			var count int
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_cloud_agent_seed_dismissed WHERE project_id=? AND builtin_key=?`, projectID, key).Scan(&count); err != nil {
 				return err
 			}
+			if count == 0 {
+				if _, err = tx.ExecContext(ctx, `INSERT INTO sys_cloud_agent_seed_dismissed(project_id, builtin_key) VALUES(?, ?)`, projectID, key); err != nil {
+					return err
+				}
+			}
 		}
-	}
-	if err = tx.Commit(); err != nil {
+		return tx.Commit()
+	})
+	if err != nil {
 		return err
 	}
 	s.notifyWrite(ctx)

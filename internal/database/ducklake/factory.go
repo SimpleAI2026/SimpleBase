@@ -162,7 +162,13 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 
 	// 守卫释放挂在 connector.Close 上：sql.DB.Close 在所有连接关闭后调用它，
 	// 覆盖 BeforeClose 与失租 closeNoFlush 两条路径；once 保证只释放一次。
-	sqlDB := sql.OpenDB(&guardedConnector{Connector: connector, release: releaseOpen})
+	// 写锁与连接池绑定：读可并行，写事务与 sync flush/copy 互斥。
+	// 系统库额外对 Transaction conflict 做有限次重放（提交失败，语句未生效）。
+	gate := &writeGate{retryConflicts: db.Kind == catalog.DatabaseKindSystem}
+	gc := &guardedConnector{Connector: connector, release: releaseOpen, gate: gate}
+	sqlDB := sql.OpenDB(gc)
+	gc.db = sqlDB
+	registerDBGate(sqlDB, gate)
 	// 多连接共享一个 DuckDB 实例；每条连接均执行 ATTACH/USE，配置只在首连接设置。
 	// 不预建空闲连接，避免大量库同时打开时占用过多内存。
 	sqlDB.SetMaxOpenConns(10)
@@ -218,6 +224,16 @@ type guardedConnector struct {
 	driver.Connector
 	release func()
 	once    sync.Once
+	gate    *writeGate
+	db      *sql.DB
+}
+
+func (c *guardedConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	raw, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newGatedConn(raw, c.gate), nil
 }
 
 func (c *guardedConnector) Close() error {
@@ -226,6 +242,7 @@ func (c *guardedConnector) Close() error {
 		err = cl.Close()
 	}
 	c.once.Do(func() {
+		unregisterDBGate(c.db)
 		if c.release != nil {
 			c.release()
 		}

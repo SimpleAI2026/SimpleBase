@@ -80,6 +80,10 @@ func Bootstrap(ctx context.Context, in BootstrapInput) (*Store, error) {
 		UpdatedAt:     now,
 	}
 
+	// 第一次 MarkDirty（backfill / notifyWrite）会按 interval 排上 15s 同步。
+	// seed 还要写 owner 等行，必须等 seed 结束再放行，否则 flush 与 seed 抢同一张表。
+	pauseCatalogSync(in.Factory, loc.DatabaseID)
+
 	db, err := in.Factory.Open(ctx, meta, database.ReadWrite)
 	if err != nil {
 		return nil, fmt.Errorf("systemdb: open: %w", err)
@@ -112,6 +116,31 @@ func Bootstrap(ctx context.Context, in BootstrapInput) (*Store, error) {
 		)
 	}
 	return store, nil
+}
+
+// pauseCatalogSync 在系统库第一次写提交之前暂停周期同步。
+// LocalSyncer 没有这个方法，开发模式保持原行为。
+func pauseCatalogSync(f *ducklake.Factory, dbID string) {
+	if f == nil || f.Syncer == nil || dbID == "" {
+		return
+	}
+	p, ok := f.Syncer.(interface{ PausePeriodic(string) })
+	if !ok {
+		return
+	}
+	p.PausePeriodic(dbID)
+}
+
+// resumeCatalogSync 在 seed 成功后恢复周期同步，并补上暂停期间积累的 dirty。
+func resumeCatalogSync(s *Store) {
+	if s == nil || s.factory == nil || s.factory.Syncer == nil || s.meta.ID == "" {
+		return
+	}
+	p, ok := s.factory.Syncer.(interface{ ResumePeriodic(string) })
+	if !ok {
+		return
+	}
+	p.ResumePeriodic(s.meta.ID)
 }
 
 func backfillSystemRow(ctx context.Context, store *Store, meta catalog.Database) error {

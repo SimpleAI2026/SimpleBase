@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -282,6 +283,70 @@ func TestBootstrapDuckLake(t *testing.T) {
 		t.Fatalf("sys_databases kind=%s", got.Kind)
 	}
 	if _, _, err := LoadLocator(filepath.Join(dir, "system")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// pauseProbe 记录周期同步的暂停/恢复，嵌入 LocalSyncer 以免 MarkDirty 空指针。
+type pauseProbe struct {
+	*ducklake.LocalSyncer
+	mu      sync.Mutex
+	paused  []string
+	resumed []string
+}
+
+func (p *pauseProbe) PausePeriodic(id string) {
+	p.mu.Lock()
+	p.paused = append(p.paused, id)
+	p.mu.Unlock()
+}
+
+func (p *pauseProbe) ResumePeriodic(id string) {
+	p.mu.Lock()
+	p.resumed = append(p.resumed, id)
+	p.mu.Unlock()
+}
+
+func TestBootstrapPausesSyncUntilSeed(t *testing.T) {
+	dir := t.TempDir()
+	probe := &pauseProbe{LocalSyncer: ducklake.NewLocalSyncer()}
+	f := &ducklake.Factory{
+		CacheDir: filepath.Join(dir, "system", "dbs"),
+		Options:  ducklake.DefaultOptions(),
+		Syncer:   probe,
+	}
+	store, err := Bootstrap(context.Background(), BootstrapInput{
+		LocatorDir: filepath.Join(dir, "system"),
+		Name:       DefaultName,
+		Factory:    f,
+		Keys:       objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	probe.mu.Lock()
+	paused := append([]string(nil), probe.paused...)
+	resumed := append([]string(nil), probe.resumed...)
+	probe.mu.Unlock()
+	if len(paused) != 1 || paused[0] != store.Meta().ID {
+		t.Fatalf("pause = %v, want [%s]", paused, store.Meta().ID)
+	}
+	if len(resumed) != 0 {
+		t.Fatalf("resumed before seed: %v", resumed)
+	}
+	if err := Seed(context.Background(), SeedInput{Store: store}); err != nil {
+		t.Fatal(err)
+	}
+	probe.mu.Lock()
+	resumed = append([]string(nil), probe.resumed...)
+	probe.mu.Unlock()
+	if len(resumed) != 1 || resumed[0] != store.Meta().ID {
+		t.Fatalf("resume = %v, want [%s]", resumed, store.Meta().ID)
+	}
+	// seed 保持幂等，第二次不再把周期同步提前到写入过程中。
+	if err := Seed(context.Background(), SeedInput{Store: store}); err != nil {
 		t.Fatal(err)
 	}
 }

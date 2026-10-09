@@ -10,13 +10,13 @@ import (
 
 // Snapshot 是 lake.snapshots() 的一行。
 type Snapshot struct {
-	ID         int64
-	Time       time.Time
-	SchemaVer  int64
-	Changes    string
-	Author     string
-	Message    string
-	ExtraInfo  string
+	ID        int64
+	Time      time.Time
+	SchemaVer int64
+	Changes   string
+	Author    string
+	Message   string
+	ExtraInfo string
 }
 
 // Setting 是 lake.settings() 的一行。
@@ -33,8 +33,14 @@ type TableFile struct {
 	FileSize   int64
 }
 
+// queryRower 是 *sql.DB 与 *sql.Conn 都能满足的点查面。
+// sync 在持有写锁期间必须用已经借出的 *sql.Conn，不能再向池申请连接。
+type queryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // CurrentSnapshot 返回 lake.current_snapshot() 的最新快照 id。
-func CurrentSnapshot(ctx context.Context, db *sql.DB, alias string) (int64, error) {
+func CurrentSnapshot(ctx context.Context, db queryRower, alias string) (int64, error) {
 	if !isSafeIdent(alias) {
 		return 0, fmt.Errorf("ducklake: invalid lake alias")
 	}
@@ -77,8 +83,9 @@ func ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, e
 
 // ListSettings 返回 lake.settings()。
 // DuckLake 扩展存在两套形态：
-//  1) 旧：行式 option_name / value / scope
-//  2) 新：宽表，列即配置项（如 data_path、extension_version）
+//  1. 旧：行式 option_name / value / scope
+//  2. 新：宽表，列即配置项（如 data_path、extension_version）
+//
 // Open 路径的 data_path 校验依赖本函数，必须兼容当前已加载的扩展。
 func ListSettings(ctx context.Context, db *sql.DB, alias string) ([]Setting, error) {
 	if !isSafeIdent(alias) {

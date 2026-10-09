@@ -68,6 +68,7 @@ type CatalogSyncer struct {
 	closed      bool
 	splitIDs    map[string]bool        // split-brain 已标记的库（需人工按 §9 流程恢复）
 	lostLease   map[string]bool        // 失租的库（§3.2：per-DB 作用域，不再全局连坐）
+	paused      map[string]bool        // 暂停周期调度（seed 完成前不启动 interval sync）
 	prunedBelow map[string]int64       // 快照清理进度（不含该 seq；限速，见 pruneVersions）
 	pruneTimers map[string]*time.Timer // 低优先级清理不进入写同步路径
 }
@@ -113,6 +114,7 @@ func NewCatalogSyncer(store objectstore.BlobStore, remote RemoteStorage, cacheDi
 		inflight:    map[string]bool{},
 		splitIDs:    map[string]bool{},
 		lostLease:   map[string]bool{},
+		paused:      map[string]bool{},
 		prunedBelow: map[string]int64{},
 		pruneTimers: map[string]*time.Timer{},
 	}
@@ -258,6 +260,12 @@ func (s *CatalogSyncer) MarkDirty(dbID string, snapshotID int64) {
 	if snapshotID > s.dirty[dbID] {
 		s.dirty[dbID] = snapshotID
 	}
+	// seed 完成前只记账，不启动周期同步。interval 模式不会因为后续 MarkDirty
+	// 推迟已有计时器，所以必须在第一次 MarkDirty 之前就置上暂停。
+	if s.paused[dbID] {
+		s.mu.Unlock()
+		return
+	}
 	delay := s.Options.Debounce
 	if s.Options.Mode == "interval" {
 		delay = s.Options.Interval
@@ -286,6 +294,51 @@ func (s *CatalogSyncer) scheduleLocked(dbID string, delay time.Duration) {
 			s.Logger.Warn("ducklake background catalog sync failed", zap.String("database_id", dbID), zap.Error(err))
 		}
 	})
+}
+
+// PausePeriodic 暂停该库的周期同步调度。已有计时器会被取消。
+// 进行中的 Sync 会跑完，但结束时若仍处于暂停则不再预约下一轮。
+// Bootstrap 在第一次 MarkDirty 之前调用，避免 seed 与 15s interval flush 重叠。
+func (s *CatalogSyncer) PausePeriodic(dbID string) {
+	if s == nil || dbID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.paused == nil {
+		s.paused = map[string]bool{}
+	}
+	s.paused[dbID] = true
+	if t := s.timers[dbID]; t != nil {
+		t.Stop()
+		delete(s.timers, dbID)
+	}
+}
+
+// ResumePeriodic 恢复周期同步。暂停期间积累的 dirty 会按当前模式预约一轮。
+func (s *CatalogSyncer) ResumePeriodic(dbID string) {
+	if s == nil || dbID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.paused == nil || !s.paused[dbID] {
+		return
+	}
+	delete(s.paused, dbID)
+	if s.closed || s.lostLease[dbID] {
+		return
+	}
+	if s.dirty[dbID] > s.last[dbID] && s.timers[dbID] == nil {
+		delay := s.Options.Debounce
+		if s.Options.Mode == "interval" {
+			delay = s.Options.Interval
+			if s.Options.MaxLag < delay {
+				delay = s.Options.MaxLag
+			}
+		}
+		s.scheduleLocked(dbID, delay)
+	}
 }
 
 // LastSynced 返回内存中的 last_synced_snapshot_id。
@@ -371,7 +424,7 @@ func (s *CatalogSyncer) sync(ctx context.Context, dbID string, allowClosed, wait
 
 		s.mu.Lock()
 		s.inflight[dbID] = false
-		if !s.closed && !s.lostLease[dbID] && s.bound[dbID] == b && s.dirty[dbID] > s.last[dbID] {
+		if !s.closed && !s.lostLease[dbID] && !s.paused[dbID] && s.bound[dbID] == b && s.dirty[dbID] > s.last[dbID] {
 			delay := s.Options.Debounce
 			if s.Options.Mode == "interval" {
 				delay = s.Options.Interval
@@ -446,6 +499,106 @@ func (s *CatalogSyncer) Close(ctx context.Context) error {
 	return first
 }
 
+// captureCatalog 在写锁内完成 flush_inlined_data 与 catalog 复制，返回快照号和文件体。
+// 锁覆盖 flush 到 copy 复核结束；调用方在锁外上传，避免把对象存储往返算进写临界区。
+func (s *CatalogSyncer) captureCatalog(ctx context.Context, sqlDB *sql.DB, meta catalog.Database, alias string) (int64, []byte, error) {
+	conn, err := sqlDB.Conn(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer conn.Close()
+	// 先拿到连接，再持有写锁。wctx 让锁内的 CALL/COPY 不再重复加锁。
+	wctx, release := holdWriteGate(ctx, sqlDB)
+	defer release()
+
+	// 内联行必须先刷成 Parquet，再复制 catalog；否则远端恢复可能缺数据文件。
+	// planv5.0 §4 P0.3：分段计量 flush/copy/upload/manifest 各阶段耗时。
+	flushStart := time.Now()
+	if _, err := conn.ExecContext(wctx, "CALL ducklake_flush_inlined_data(?)", alias); err != nil {
+		err = fmt.Errorf("ducklake: flush inlined data: %w", err)
+		s.recordSyncStage(meta.ID, "flush_inlined_data", time.Since(flushStart), err)
+		return 0, nil, err
+	}
+	s.recordSyncStage(meta.ID, "flush_inlined_data", time.Since(flushStart), nil)
+
+	// 顺序修正（§3.1 实现缺陷）：先取 snapshot，COPY 后复核不变，
+	// 确保 snapshots/{snap}-{epoch} 写入的文件体与 snap 严格匹配。
+	snapBefore, err := CurrentSnapshot(wctx, conn, alias)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	copyStart := time.Now()
+	cacheDir := s.cacheDirFor(meta.ID)
+	engine := s.engineFor()
+	layout := layoutForEngine(cacheDir, meta.ID, engine)
+	stagingDir := filepath.Join(layout.Root, "sync-staging")
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		return 0, nil, fmt.Errorf("ducklake: staging dir: %w", err)
+	}
+	staging := filepath.Join(stagingDir, fmt.Sprintf("catalog-%d%s", time.Now().UnixNano(), catalogExtFor(engine)))
+	defer os.Remove(staging)
+	defer os.Remove(staging + ".wal")
+
+	backupAlias := "sb_catalog_backup"
+	var attach string
+	if engine == EngineSQLite {
+		attach = fmt.Sprintf("ATTACH %s AS %s (TYPE SQLITE)", sqlPath(staging), quoteIdent(backupAlias))
+	} else {
+		// 显式 TYPE DUCKDB：避免 .ducklake 后缀被扩展自动识别为 DuckLake 目录。
+		attach = fmt.Sprintf("ATTACH %s AS %s (TYPE DUCKDB)", sqlPath(staging), quoteIdent(backupAlias))
+	}
+	if _, err := conn.ExecContext(wctx, attach); err != nil {
+		return 0, nil, fmt.Errorf("ducklake: attach staging catalog: %w", err)
+	}
+	detach := func() {
+		// 必须沿用持锁的 wctx，否则 DETACH 会在同一 goroutine 上再次抢写锁。
+		_, _ = conn.ExecContext(wctx, "DETACH "+quoteIdent(backupAlias))
+	}
+
+	// DuckLake catalog 在 ATTACH 后通常暴露为 __ducklake_metadata_{alias}
+	metaName := "__ducklake_metadata_" + alias
+	copySQL := fmt.Sprintf("COPY FROM DATABASE %s TO %s", quoteIdent(metaName), quoteIdent(backupAlias))
+	if _, err := conn.ExecContext(wctx, copySQL); err != nil {
+		detach()
+		return 0, nil, fmt.Errorf("ducklake: copy catalog backup: %w", err)
+	}
+	// duckdb 引擎：COPY 的内容可能仍在 staging 的 WAL 里；显式 CHECKPOINT
+	// 合并进主文件，保证下面 ReadFile 读到的是完整快照。
+	if engine == EngineDuckDB {
+		if _, err := conn.ExecContext(wctx, "CHECKPOINT "+quoteIdent(backupAlias)); err != nil {
+			detach()
+			return 0, nil, fmt.Errorf("ducklake: checkpoint catalog backup: %w", err)
+		}
+	}
+	detach()
+
+	snap, err := CurrentSnapshot(wctx, conn, alias)
+	if err != nil {
+		return 0, nil, err
+	}
+	if snap != snapBefore {
+		// 写锁下不应再出现。保留检查：锁外的路径或未装写锁的连接仍可能插入。
+		if s.Logger != nil {
+			s.Logger.Warn("ducklake catalog snapshot moved during copy; retry next sync",
+				zap.String("database_id", meta.ID),
+				zap.Int64("before", snapBefore),
+				zap.Int64("after", snap),
+			)
+		}
+		return 0, nil, fmt.Errorf("ducklake: snapshot changed during copy (%d -> %d)", snapBefore, snap)
+	}
+
+	data, err := os.ReadFile(staging)
+	if err != nil {
+		err = fmt.Errorf("ducklake: read staging catalog: %w", err)
+		s.recordSyncStage(meta.ID, "copy_catalog", time.Since(copyStart), err)
+		return 0, nil, err
+	}
+	s.recordSyncStage(meta.ID, "copy_catalog", time.Since(copyStart), nil)
+	return snap, data, nil
+}
+
 func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalog.Database, alias string) error {
 	if !s.Remote.Enabled {
 		// 无远程时只推进水位（与 LocalSyncer 语义对齐，便于单测）。
@@ -480,96 +633,18 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 		return nil
 	}
 
-	// 内联行必须先刷成 Parquet，再复制 catalog；否则远端恢复可能缺数据文件。
-	// planv5.0 §4 P0.3：分段计量 flush/copy/upload/manifest 各阶段耗时。
-	flushStart := time.Now()
-	if _, err := sqlDB.ExecContext(ctx, "CALL ducklake_flush_inlined_data(?)", alias); err != nil {
-		err = fmt.Errorf("ducklake: flush inlined data: %w", err)
-		s.recordSyncStage(meta.ID, "flush_inlined_data", time.Since(flushStart), err)
-		return err
-	}
-	s.recordSyncStage(meta.ID, "flush_inlined_data", time.Since(flushStart), nil)
-
-	// 顺序修正（§3.1 实现缺陷）：先取 snapshot，COPY 后复核不变，
-	// 确保 snapshots/{snap}-{epoch} 写入的文件体与 snap 严格匹配。
-	snapBefore, err := CurrentSnapshot(ctx, sqlDB, alias)
+	// flush/copy 与同一库的写事务互斥，且不把 S3 上传算进临界区。
+	// 先借出连接再拿写锁，避免和「占着连接等锁」的写路径交叉死锁。
+	snap, data, err := s.captureCatalog(ctx, sqlDB, meta, alias)
 	if err != nil {
 		return err
 	}
-
-	copyStart := time.Now()
-	cacheDir := s.cacheDirFor(meta.ID)
-	engine := s.engineFor()
-	layout := layoutForEngine(cacheDir, meta.ID, engine)
-	stagingDir := filepath.Join(layout.Root, "sync-staging")
-	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-		return fmt.Errorf("ducklake: staging dir: %w", err)
-	}
-	staging := filepath.Join(stagingDir, fmt.Sprintf("catalog-%d%s", time.Now().UnixNano(), catalogExtFor(engine)))
-	defer os.Remove(staging)
-	defer os.Remove(staging + ".wal")
-
-	backupAlias := "sb_catalog_backup"
-	var attach string
-	if engine == EngineSQLite {
-		attach = fmt.Sprintf("ATTACH %s AS %s (TYPE SQLITE)", sqlPath(staging), quoteIdent(backupAlias))
-	} else {
-		// 显式 TYPE DUCKDB：避免 .ducklake 后缀被扩展自动识别为 DuckLake 目录。
-		attach = fmt.Sprintf("ATTACH %s AS %s (TYPE DUCKDB)", sqlPath(staging), quoteIdent(backupAlias))
-	}
-	if _, err := sqlDB.ExecContext(ctx, attach); err != nil {
-		return fmt.Errorf("ducklake: attach staging catalog: %w", err)
-	}
-	detach := func() {
-		_, _ = sqlDB.ExecContext(context.Background(), "DETACH "+quoteIdent(backupAlias))
-	}
-
-	// DuckLake catalog 在 ATTACH 后通常暴露为 __ducklake_metadata_{alias}
-	metaName := "__ducklake_metadata_" + alias
-	copySQL := fmt.Sprintf("COPY FROM DATABASE %s TO %s", quoteIdent(metaName), quoteIdent(backupAlias))
-	if _, err := sqlDB.ExecContext(ctx, copySQL); err != nil {
-		detach()
-		return fmt.Errorf("ducklake: copy catalog backup: %w", err)
-	}
-	// duckdb 引擎：COPY 的内容可能仍在 staging 的 WAL 里；显式 CHECKPOINT
-	// 合并进主文件，保证下面 ReadFile 读到的是完整快照。
-	if engine == EngineDuckDB {
-		if _, err := sqlDB.ExecContext(ctx, "CHECKPOINT "+quoteIdent(backupAlias)); err != nil {
-			detach()
-			return fmt.Errorf("ducklake: checkpoint catalog backup: %w", err)
-		}
-	}
-	detach()
-
-	snap, err := CurrentSnapshot(ctx, sqlDB, alias)
-	if err != nil {
-		return err
-	}
-	if snap != snapBefore {
-		// COPY 期间发生了新提交：放弃本次上传（下次 Sync 重做），
-		// 避免把与 snap 不匹配的文件体写成不可变快照。
-		if s.Logger != nil {
-			s.Logger.Warn("ducklake catalog snapshot moved during copy; retry next sync",
-				zap.String("database_id", meta.ID),
-				zap.Int64("before", snapBefore),
-				zap.Int64("after", snap),
-			)
-		}
-		return fmt.Errorf("ducklake: snapshot changed during copy (%d -> %d)", snapBefore, snap)
-	}
-
-	data, err := os.ReadFile(staging)
-	if err != nil {
-		err = fmt.Errorf("ducklake: read staging catalog: %w", err)
-		s.recordSyncStage(meta.ID, "copy_catalog", time.Since(copyStart), err)
-		return err
-	}
-	s.recordSyncStage(meta.ID, "copy_catalog", time.Since(copyStart), nil)
 	sum := sha256.Sum256(data)
 	sha := hex.EncodeToString(sum[:])
 
 	uploadStart := time.Now()
 	kb := s.Remote.keyBuilder()
+	engine := s.engineFor()
 	epoch := s.writerEpochFor(meta.ID)
 
 	// 1) 不可变快照对象：PutIfAbsent。同 snapshot_id 不同 epoch 写不同 key，
@@ -625,6 +700,7 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 	}
 	s.mu.Unlock()
 
+	cacheDir := s.cacheDirFor(meta.ID)
 	if st, ok := ReadLocalState(cacheDir, meta.ID); ok || snap > 0 {
 		if st.SnapshotID < snap {
 			st.SnapshotID = snap

@@ -9,6 +9,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"go.uber.org/zap"
 )
@@ -35,10 +36,22 @@ type SeedInput struct {
 }
 
 // Seed 幂等写入保留租户 / 系统项目；DevMode 额外写入 UUID 项目、Dev Key 与 default 库。
+// 整段可重入：DuckLake Transaction conflict 表示提交失败，重放不会叠写。
+// 周期同步在成功返回后才恢复，避免 flush 与 seed 写并发。
 func Seed(ctx context.Context, in SeedInput) error {
 	if in.Store == nil {
 		return fmt.Errorf("systemdb: seed store is required")
 	}
+	if err := ducklake.RetryOnConflict(ctx, func() error {
+		return seedOnce(ctx, in)
+	}); err != nil {
+		return err
+	}
+	resumeCatalogSync(in.Store)
+	return nil
+}
+
+func seedOnce(ctx context.Context, in SeedInput) error {
 	repo := in.Store.CatalogRepo()
 	now := time.Now().UTC()
 
