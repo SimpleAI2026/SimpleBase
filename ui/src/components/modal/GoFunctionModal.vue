@@ -22,12 +22,12 @@
         <TerminalIcon class="size-4" />
         <AlertTitle>HTTP+JSON 约定</AlertTitle>
         <AlertDescription class="space-y-1">
-          <p>每个导出函数必须是 <code class="sb-mono">func Name(req T) R</code>（1 个入参、1 个返回值）。</p>
+          <p>每个导出函数必须是 <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">func Name(req T) R</code>（1 个入参、1 个返回值）。</p>
           <p>
-            调用：<code class="sb-mono">POST /go/{{ projectId }}/{{ nameValue || '{name}' }}/{Name}</code>，
+            调用：<code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">POST /go/{{ projectId }}/{{ nameValue || '{name}' }}/{Name}</code>，
             Content-Type: application/json。Body 映射到 req，响应体是 R 的 JSON。
           </p>
-          <p>请使用大写函数名，否则不会出现在列表、也无法调用。入参为基本类型时，body 用对应 JSON 字面量（如 <code class="sb-mono">"abc"</code>）；入参为 struct 时用 JSON 对象。</p>
+          <p>请使用大写函数名，否则不会出现在列表、也无法调用。入参为基本类型时，body 用对应 JSON 字面量（如 <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">"abc"</code>）；入参为 struct 时用 JSON 对象。</p>
         </AlertDescription>
       </Alert>
 
@@ -39,7 +39,7 @@
         <span class="text-xs text-muted-foreground">← 前端正则预览；保存以服务端校验为准</span>
       </div>
 
-      <div :style="{ minHeight: editorMinHeight + 'px' }" class="min-w-0">
+      <div :style="{ minHeight: editorMinHeight + 'px' }" class="min-w-0 max-w-full overflow-hidden">
         <GoMonacoEditor v-model="sourceValue" :read-only="mode === 'view'" :min-height="editorMinHeight" />
       </div>
     </div>

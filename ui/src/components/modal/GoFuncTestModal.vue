@@ -7,12 +7,13 @@
     :max-width="960"
     @update:open="emit('update:open', $event)"
   >
-    <div class="flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-border/60 bg-card lg:flex-row">
+    <div class="flex min-h-[520px] min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card lg:flex-row">
       <!-- 左栏：版本 + 导出函数 -->
       <aside class="flex w-full shrink-0 flex-col gap-4 border-b bg-card p-4 lg:w-60 lg:border-r lg:border-b-0">
         <div class="flex flex-col gap-2">
           <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">版本</div>
-          <div class="flex max-h-40 flex-col gap-1 overflow-y-auto">
+          <SbBlockSkeleton v-if="versionsLoading" variant="lines" :count="3" />
+          <div v-else class="flex max-h-40 flex-col gap-1 overflow-y-auto">
             <button
               v-for="v in versions"
               :key="v.version"
@@ -78,7 +79,7 @@
           </div>
           <textarea
             v-model="bodyText"
-            class="sb-mono min-h-[160px] flex-1 resize-y rounded-lg border border-border bg-card p-3 text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="sb-code-view sb-mono min-h-[160px] w-full min-w-0 max-w-full flex-1 resize-y whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] rounded-lg border border-border bg-card p-3 text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
             spellcheck="false"
           />
           <p v-if="bodyError" class="text-xs text-destructive">{{ bodyError }}</p>
@@ -104,11 +105,11 @@
           </div>
           <Alert v-if="result && !result.ok" variant="destructive">
             <AlertTitle>执行失败</AlertTitle>
-            <AlertDescription>{{ result.error }}</AlertDescription>
+            <AlertDescription class="sb-code-view max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">{{ result.error }}</AlertDescription>
           </Alert>
           <pre
             v-if="result"
-            class="sb-mono max-h-56 overflow-auto rounded-lg border bg-card p-3 text-xs leading-relaxed whitespace-pre-wrap"
+            class="sb-code-view sb-mono max-h-56 max-w-full min-w-0 overflow-auto whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] rounded-lg border bg-card p-3 text-xs leading-relaxed"
           >{{ prettyData }}</pre>
           <p v-else class="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
             尚未发送请求
@@ -126,6 +127,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
 import SbModal from './SbModal.vue'
 import { api } from '../../services/api'
 import type { GoFuncTestResult, GoFunctionItem, GoFuncVersionSummary } from '../../services/types'
@@ -141,6 +143,7 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const projectStore = useProjectStore()
 const versions = ref<GoFuncVersionSummary[]>([])
+const versionsLoading = ref(false)
 const selectedVersion = ref(0)
 const selectedFn = ref('')
 const bodyText = ref('{\n  \n}')
@@ -260,22 +263,29 @@ watch(
   () => [props.open, props.record?.id] as const,
   async ([open]) => {
     /* v8 ignore next -- 弹窗关闭/无记录 */
-    if (!open || !props.record) return
+    if (!open || !props.record) {
+      versionsLoading.value = false
+      return
+    }
+    const record = props.record
+    versionsLoading.value = true
     result.value = null
     bodyError.value = ''
     try {
-      const res = await api.gofunctions.listVersions(projectStore.id, props.record.name)
+      const res = await api.gofunctions.listVersions(projectStore.id, record.name)
       versions.value = res.versions
       selectedVersion.value = res.activeVersion || res.versions[0]?.version || 0
     } catch {
       /* v8 ignore start -- 列表失败回退 record.versions */
-      versions.value = props.record.versions || []
+      versions.value = record.versions || []
       selectedVersion.value =
         versions.value.find((x) => x.active)?.version ||
         versions.value[0]?.version ||
-        props.record.activeVersion ||
+        record.activeVersion ||
         0
       /* v8 ignore stop */
+    } finally {
+      versionsLoading.value = false
     }
     selectedFn.value = currentExports.value[0] || ''
     loadDraft()

@@ -1,7 +1,16 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div v-if="loading" class="flex justify-center py-6"><Spinner /></div>
-    <template v-else>
+    <SbAsyncRegion
+      class="flex flex-col gap-3"
+      block="spinner"
+      :pending="pending"
+      :show-skeleton="showSkeleton"
+      :show-empty="false"
+      :show-error="showError"
+      :refreshing="refreshing"
+      :error="error"
+      @retry="load"
+    >
       <Textarea v-model="value" :rows="6" :disabled="readonly" class="sb-mono text-xs" placeholder="值" />
       <div v-if="!readonly" class="flex flex-wrap items-center gap-2">
         <Button size="sm" :disabled="saving || value === original" @click="save">保存</Button>
@@ -10,7 +19,7 @@
           <Button variant="outline" size="sm" :disabled="incring" @click="incr">INCR</Button>
         </div>
       </div>
-    </template>
+    </SbAsyncRegion>
   </div>
 </template>
 
@@ -20,9 +29,10 @@ import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '../../../../services/api'
+import SbAsyncRegion from '../../../SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 
 const props = defineProps<{
   projectId: string
@@ -35,22 +45,18 @@ const emit = defineEmits<{ changed: [] }>()
 const value = ref('')
 const original = ref('')
 const delta = ref('1')
-const loading = ref(false)
 const saving = ref(false)
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
 const incring = ref(false)
 
-async function load() {
-  loading.value = true
-  try {
+function load() {
+  return run(async () => {
     const r = await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['GET', props.kvKey] })
     const v = typeof r === 'string' ? r : ''
     value.value = v
     original.value = v
-  } catch (e) {
-    toast.error(errorMessage(e, '加载失败'))
-  } finally {
-    loading.value = false
-  }
+    return true
+  })
 }
 
 async function save() {

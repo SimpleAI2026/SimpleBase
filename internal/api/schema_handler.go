@@ -12,20 +12,23 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 )
 
-// SchemaHandler 管理 SQL 数据库的表与列。集合库与系统库不能走这些路由。
+// SchemaHandler 管理 SQL 数据库的表与列。集合库不能走这些路由。
+// 系统库只读：可以列出表和分页读行，DDL 被拒绝。
 type SchemaHandler struct {
 	svc      DataService
 	writable bool
+	limits   SQLLimits
 }
 
-func NewSchemaHandler(svc DataService, writable bool) *SchemaHandler {
-	return &SchemaHandler{svc: svc, writable: writable}
+func NewSchemaHandler(svc DataService, writable bool, limits SQLLimits) *SchemaHandler {
+	return &SchemaHandler{svc: svc, writable: writable, limits: limits}
 }
 
 type schemaColumnJSON struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Nullable bool   `json:"nullable"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Nullable  bool   `json:"nullable"`
+	Sensitive bool   `json:"sensitive,omitempty"`
 }
 
 type schemaTableJSON struct {
@@ -88,7 +91,8 @@ func (h *SchemaHandler) ListSchema(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	return c.JSON(http.StatusOK, schemaResponse{Tables: groupSchemaRows(result.Rows)})
+	tables := finishSchemaTables(groupSchemaRows(result.Rows), catalog.IsSystemDatabase(db))
+	return c.JSON(http.StatusOK, schemaResponse{Tables: tables})
 }
 
 // CreateTable: POST .../schema/tables

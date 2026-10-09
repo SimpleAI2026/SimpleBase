@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -27,8 +29,29 @@ describe('simple presentational components', () => {
   it('formats JSON in SbCodeBlock and falls back to slot', () => {
     const json = mount(SbCodeBlock, { props: { value: { a: 1 }, maxHeight: '80px' } })
     expect(json.text()).toContain('"a"')
+    const pre = json.get('pre')
+    expect(pre.classes()).toEqual(
+      expect.arrayContaining(['sb-code', 'sb-code-view', 'whitespace-pre-wrap', 'max-w-full', 'min-w-0'])
+    )
+    expect(pre.attributes('class') || '').toContain('[overflow-wrap:anywhere]')
+    expect(pre.attributes('class') || '').toContain('[word-break:break-word]')
     const slotted = mount(SbCodeBlock, { slots: { default: 'raw' } })
     expect(slotted.text()).toContain('raw')
+  })
+
+  it('code view utility wraps long lines without dropping indentation', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/style.css'), 'utf8')
+    const view = css.match(/@utility sb-code-view \{[^}]+\}/)?.[0] ?? ''
+    expect(view).toContain('max-width: 100%')
+    expect(view).toContain('min-width: 0')
+    expect(view).toContain('white-space: pre-wrap')
+    expect(view).toContain('word-break: break-word')
+    expect(view).toContain('overflow-wrap: anywhere')
+    const block = css.match(/@utility sb-code \{[^}]+\}/)?.[0] ?? ''
+    expect(block).toContain('white-space: pre-wrap')
+    expect(block).toContain('word-break: break-word')
+    expect(block).toContain('overflow-wrap: anywhere')
+    expect(block).not.toContain('break-all')
   })
 
   it('emits pager updates only when there are multiple pages', async () => {

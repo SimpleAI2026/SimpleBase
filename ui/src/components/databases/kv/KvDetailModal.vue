@@ -6,10 +6,16 @@
     hide-footer
     @update:open="emit('update:open', $event)"
   >
-    <div class="mb-3 flex items-center gap-2 text-sm text-muted-foreground" v-if="meta">
-      <Badge variant="secondary">{{ meta.type }}</Badge>
-      <span v-if="meta.len != null" class="text-xs">{{ meta.len }} 个元素</span>
-      <span class="text-xs">{{ meta.ttl_ms == null ? '永久' : 'TTL ' + Math.ceil(meta.ttl_ms / 1000) + 's' }}</span>
+    <div
+      v-if="metaPending || meta"
+      class="mb-3 flex min-h-6 items-center gap-2 text-sm text-muted-foreground"
+    >
+      <Skeleton v-if="metaPending" class="h-5 w-40" aria-hidden="true" />
+      <template v-else-if="meta">
+        <Badge variant="secondary">{{ meta.type }}</Badge>
+        <span v-if="meta.len != null" class="text-xs">{{ meta.len }} 个元素</span>
+        <span class="text-xs">{{ meta.ttl_ms == null ? '永久' : 'TTL ' + Math.ceil(meta.ttl_ms / 1000) + 's' }}</span>
+      </template>
     </div>
 
     <div class="max-h-[60vh] overflow-y-auto pr-1">
@@ -38,6 +44,7 @@ import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '../../../services/api'
 import type { KvKeyMeta } from '../../../services/api'
 import ConfirmAction from '../../ConfirmAction.vue'
@@ -62,6 +69,8 @@ const emit = defineEmits<{
 }>()
 
 const meta = ref<KvKeyMeta | null>(null)
+const metaPending = ref(false)
+let metaRequest = 0
 
 const editorComponent = computed(() => {
   switch (props.kvKey?.type) {
@@ -82,25 +91,37 @@ const editorComponent = computed(() => {
 
 /** 用 TYPE / PTTL / 长度命令重建列表行元数据 */
 async function refreshMeta() {
-  if (!props.open || !props.kvKey) return
-  const key = props.kvKey.key
+  if (!props.open || !props.kvKey) {
+    metaRequest += 1
+    metaPending.value = false
+    if (!props.kvKey) meta.value = null
+    return
+  }
+  const request = ++metaRequest
+  const current = props.kvKey
+  const key = current.key
+  metaPending.value = true
   try {
     const [type, pttl, lenCmd] = await api.kv.execBatch(props.projectId, [
       { type: 'cmd', argvs: ['TYPE', key] },
       { type: 'cmd', argvs: ['PTTL', key] },
-      { type: 'cmd', argvs: lenArgv(props.kvKey.type, key) }
+      { type: 'cmd', argvs: lenArgv(current.type, key) }
     ])
+    if (request !== metaRequest) return
     const len = typeof lenCmd === 'number' ? lenCmd : null
     meta.value = {
       key,
-      type: (typeof type === 'string' ? type : props.kvKey.type) as KvKeyMeta['type'],
-      len: props.kvKey.type === 'string' ? null : (len ?? 0),
+      type: (typeof type === 'string' ? type : current.type) as KvKeyMeta['type'],
+      len: current.type === 'string' ? null : (len ?? 0),
       ttl_ms: typeof pttl === 'number' && pttl >= 0 ? pttl : null,
-      mtime_ms: props.kvKey.mtime_ms,
-      version: props.kvKey.version
+      mtime_ms: current.mtime_ms,
+      version: current.version
     }
   } catch {
-    meta.value = props.kvKey
+    if (request !== metaRequest) return
+    meta.value = current
+  } finally {
+    if (request === metaRequest) metaPending.value = false
   }
 }
 

@@ -43,7 +43,8 @@ describe('SchemaPanel', () => {
         })
     )
     const wrapper = mountPanel()
-    expect(wrapper.text()).toContain('加载表结构')
+    expect(wrapper.find('[aria-busy="true"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('还没有表')
     expect(wrapper.find('form').exists()).toBe(false)
     resolveSchema({ tables: [] })
     await flushPromises()
@@ -60,6 +61,10 @@ describe('SchemaPanel', () => {
     const wrapper = mountPanel()
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('schema-down')
+    api.databases.schema.mockResolvedValueOnce({ tables: [] })
+    await wrapper.findAll('button').find((button) => button.text() === '重试')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('还没有表')
 
     api.databases.schema.mockResolvedValueOnce({
       tables: [{ name: 'orders', columns: [{ name: 'id', type: 'INTEGER', nullable: true }] }]
@@ -76,12 +81,21 @@ describe('SchemaPanel', () => {
 
   it('hides forms when readonly and marks NOT NULL columns', async () => {
     api.databases.schema.mockResolvedValue({
-      tables: [{ name: 'orders', columns: [{ name: 'id', type: 'INTEGER', nullable: false }] }]
+      tables: [{ name: 'orders', columns: [{ name: 'id', type: 'INTEGER', nullable: false, sensitive: true }] }]
     })
     const wrapper = mountPanel({ readonly: true })
     await flushPromises()
     expect(wrapper.text()).toContain('NOT NULL')
+    expect(wrapper.text()).toContain('已隐藏')
+    expect(wrapper.text()).toContain('系统库只读，不能新建表或修改字段')
     expect(wrapper.find('form').exists()).toBe(false)
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(api.databases.tableRows).toHaveBeenCalledWith('proj', 'db-1', 'orders', { limit: 50, offset: 0 })
+    const modal = wrapper.findComponent({ name: 'SchemaRowsModal' })
+    modal.vm.$emit('update:open', false)
+    await flushPromises()
+    expect(modal.props('open')).toBe(false)
   })
 
   it('validates table and column names, then creates a table', async () => {

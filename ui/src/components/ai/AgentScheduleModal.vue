@@ -65,8 +65,20 @@
 
         <Field>
           <FieldLabel>执行历史（最近 5 次）</FieldLabel>
-          <SbEmptyState v-if="!runs.length" description="暂无执行记录" />
-          <div v-else class="flex flex-col gap-1.5">
+          <SbAsyncRegion
+            block="spinner"
+            :pending="pending"
+            :show-skeleton="showSkeleton"
+            :show-empty="showEmpty"
+            :show-error="showError"
+            :refreshing="refreshing"
+            :error="error"
+            @retry="loadRuns"
+          >
+            <template #empty>
+              <SbEmptyState description="暂无执行记录" />
+            </template>
+            <div class="flex flex-col gap-1.5">
             <div
               v-for="r in runs.slice(0, 5)"
               :key="r.id"
@@ -84,6 +96,7 @@
               <Button variant="ghost" size="xs" @click="emit('view-thread', schedule.thread_id)">查看会话</Button>
             </div>
           </div>
+          </SbAsyncRegion>
         </Field>
       </template>
     </FieldGroup>
@@ -119,8 +132,10 @@ import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import ConfirmAction from '@/components/ConfirmAction.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import SbEmptyState from '@/components/SbEmptyState.vue'
 import SbModal from '@/components/modal/SbModal.vue'
+import { useLoadState } from '@/composables/useLoadState'
 import { api } from '@/services/api'
 import type { AgentSchedule, AgentScheduleRun, CloudAgent } from '@/services/types'
 import { runStatusVariant } from '@/lib/status'
@@ -154,6 +169,9 @@ const frequencyOptions = [
 const form = ref({ prompt: '', cron_expr: '0 8 * * *', enabled: true })
 const frequencyKey = ref('0 8 * * *')
 const runs = ref<AgentScheduleRun[]>([])
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载执行记录失败'
+})
 const saving = ref(false)
 const triggering = ref(false)
 const cronError = ref('')
@@ -189,11 +207,13 @@ watch(
 
 async function loadRuns() {
   if (!props.schedule || !props.projectId) return
-  try {
-    runs.value = await api.agentSchedules.runs(props.projectId, props.schedule.id)
-  } catch {
-    runs.value = []
-  }
+  const scheduleId = props.schedule.id
+  const project = props.projectId
+  return run(async () => {
+    const list = await api.agentSchedules.runs(project, scheduleId)
+    runs.value = list
+    return list.length > 0
+  })
 }
 
 function onFrequencyChange(v: string) {

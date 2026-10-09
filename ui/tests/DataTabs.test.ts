@@ -46,6 +46,8 @@ describe('DataTabs (数据库数据页签)', () => {
     await flushPromises()
     await w.findAll('button').find((b) => b.text().includes('查看数据'))!.trigger('click')
     expect(w.emitted('view-data')?.[0]).toEqual(['users'])
+    await w.findAll('button').find((b) => b.text().includes('新增文档'))!.trigger('click')
+    expect(w.emitted('add-document')?.[0]).toEqual(['users'])
     w.unmount()
   })
 })

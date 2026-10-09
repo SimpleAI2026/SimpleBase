@@ -1,7 +1,16 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div v-if="loading" class="flex justify-center py-6"><Spinner /></div>
-    <template v-else>
+    <SbAsyncRegion
+      class="flex flex-col gap-3"
+      block="spinner"
+      :pending="pending"
+      :show-skeleton="showSkeleton"
+      :show-empty="false"
+      :show-error="showError"
+      :refreshing="refreshing"
+      :error="error"
+      @retry="load"
+    >
       <div class="overflow-x-auto rounded-md border border-border/70">
         <Table>
           <TableHeader>
@@ -38,7 +47,7 @@
           <Button size="sm" variant="ghost" :disabled="!elems.length" @click="pop('back')">弹尾</Button>
         </div>
       </div>
-    </template>
+    </SbAsyncRegion>
   </div>
 </template>
 
@@ -48,9 +57,10 @@ import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '../../../../services/api'
+import SbAsyncRegion from '../../../SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 
 const props = defineProps<{
   projectId: string
@@ -61,25 +71,21 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [] }>()
 
 const elems = ref<string[]>([])
-const loading = ref(false)
 const pushValue = ref('')
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
 const editIndex = ref(-1)
 const editValue = ref('')
 
-async function load() {
-  loading.value = true
-  try {
+function load() {
+  return run(async () => {
     // v1 展示前 200 个元素
     const r = (await api.kv.exec(props.projectId, {
       type: 'cmd',
       argvs: ['LRANGE', props.kvKey, '0', '199']
     })) as string[]
     elems.value = Array.isArray(r) ? r : []
-  } catch (e) {
-    toast.error(errorMessage(e, '加载失败'))
-  } finally {
-    loading.value = false
-  }
+    return true
+  })
 }
 
 async function push(side: 'front' | 'back') {

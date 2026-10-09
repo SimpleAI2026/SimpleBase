@@ -72,6 +72,12 @@ describe('SettingsPanel', () => {
 
   it('keeps local defaults when remote load fails and toasts put errors', async () => {
     api.llmSettings.get.mockRejectedValueOnce(new Error('nope'))
+    const failed = await mountWithApp(SettingsPanel, { props: { section: 'models' } })
+    expect(failed.wrapper.text()).toContain('加载失败')
+    expect(failed.wrapper.text()).toContain('nope')
+    expect(failed.wrapper.find('.select-emit').exists()).toBe(false)
+    failed.wrapper.unmount()
+
     api.llmSettings.put.mockRejectedValueOnce(new Error('save def'))
     const { wrapper, pinia } = await mountWithApp(SettingsPanel, { props: { section: 'models' } })
     await wrapper.get('.select-emit').trigger('click')

@@ -38,7 +38,6 @@
         <DocsSidebar
           v-if="currentModule"
           :module-id="currentModule.id"
-          :module-title="currentModule.title"
           :pages="currentModule.pages"
           :active-slug="slug"
         />

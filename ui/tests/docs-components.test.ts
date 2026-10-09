@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import { defaultModuleId, defaultSlug, getPage } from '@/docs/catalog'
@@ -47,8 +47,9 @@ describe('docs components', () => {
       },
       global: { plugins: [router], stubs: uiStubs }
     })
+    await flushPromises()
     expect(missing.text()).toMatch(/没有正文|缺失|未找到/)
-
+    missing.unmount()
   })
 
   it('builds sidebar links', async () => {
@@ -56,7 +57,6 @@ describe('docs components', () => {
     const side = mount(DocsSidebar, {
       props: {
         moduleId: 'ops',
-        moduleTitle: 'Ops',
         activeSlug: 'index',
         pages: [
           { moduleId: 'ops', slug: 'index', title: 'Index', order: 0, filePath: 'ops/index.md' },
@@ -67,6 +67,8 @@ describe('docs components', () => {
     })
     expect(side.html()).toContain('/docs/ops')
     expect(side.html()).toContain('/docs/ops/deploy')
+    expect(side.html()).not.toContain('uppercase')
+    expect(side.text()).not.toContain('Ops')
     await side.setProps({ pages: [
       { moduleId: 'ops', slug: 'index', title: 'Index', order: 0, filePath: 'ops/index.md' },
       { moduleId: 'ops', slug: 'deploy', title: 'Deploy', order: 1, filePath: 'ops/deploy.md', group: 'Guides' },

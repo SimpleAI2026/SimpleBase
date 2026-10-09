@@ -53,6 +53,10 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
     await flushPromises()
     expect(api.gofunctions.listVersions).toHaveBeenCalled()
     expect(wrapper.text()).toContain('版本')
+    const body = wrapper.get('textarea')
+    expect(body.classes()).toContain('sb-code-view')
+    expect(body.classes()).toContain('whitespace-pre-wrap')
+    expect(body.attributes('class') || '').toContain('[overflow-wrap:anywhere]')
     expect(wrapper.text()).toContain('导出函数')
     const send = wrapper.findAll('button').find((b) => b.text().includes('发送请求'))
     await send!.trigger('click')
@@ -60,6 +64,12 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
     expect(api.gofunctions.test).toHaveBeenCalled()
     expect(wrapper.text()).toContain('200')
     expect(wrapper.text()).toContain('hi')
+    const pre = wrapper.get('pre')
+    expect(pre.classes()).toEqual(
+      expect.arrayContaining(['sb-code-view', 'whitespace-pre-wrap', 'max-w-full', 'min-w-0', 'overflow-auto'])
+    )
+    expect(pre.attributes('class') || '').toContain('[word-break:break-word]')
+    expect(pre.attributes('class') || '').toContain('[overflow-wrap:anywhere]')
   })
 
   it('test modal rejects invalid JSON and validates body', async () => {
@@ -106,6 +116,10 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('v1')
     expect(wrapper.text()).toContain('生效')
+    const exportsLine = wrapper.findAll('.sb-code-view').find((n) => n.text().includes('导出'))
+    expect(exportsLine).toBeTruthy()
+    expect(exportsLine!.classes()).toContain('whitespace-pre-wrap')
+    expect(exportsLine!.attributes('class') || '').toContain('[overflow-wrap:anywhere]')
     const activateBtn = wrapper.findAll('button').find((b) => b.text().includes('设为生效'))
     await activateBtn!.trigger('click')
     await flushPromises()
@@ -215,7 +229,9 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       props: { open: true, record }
     })
     await flushPromises()
-    expect(w1.text()).toContain('暂无版本')
+    expect(w1.text()).toContain('加载失败')
+    expect(w1.text()).toContain('load fail')
+    expect(w1.text()).not.toContain('暂无版本')
 
     api.gofunctions.listVersions.mockResolvedValue({
       activeVersion: 1,

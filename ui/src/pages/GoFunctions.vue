@@ -6,12 +6,12 @@
           <CardTitle>云函数列表</CardTitle>
           <CardDescription class="min-w-0 break-words">
             共 {{ total }} 个文件 · 调用前缀
-            <code class="sb-mono break-all text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
+            <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
           </CardDescription>
           <CardAction v-if="!isAdminProject">
             <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" :disabled="loading" @click="load">
-                <Spinner v-if="loading" data-icon="inline-start" />
+              <Button variant="outline" size="sm" :disabled="pending" @click="load">
+                <Spinner v-if="pending" data-icon="inline-start" />
                 <RefreshCwIcon v-else data-icon="inline-start" />
                 刷新
               </Button>
@@ -22,8 +22,8 @@
             </div>
           </CardAction>
           <CardAction v-else>
-            <Button variant="outline" size="sm" :disabled="loading" @click="load">
-              <Spinner v-if="loading" data-icon="inline-start" />
+            <Button variant="outline" size="sm" :disabled="pending" @click="load">
+              <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
               刷新
             </Button>
@@ -42,20 +42,21 @@
                 <TableHead class="min-w-72">操作</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              <template v-if="loading && !records.length">
-                <TableRow v-for="n in 3" :key="'sk-' + n">
-                  <TableCell colspan="6"><Skeleton class="h-8 w-full" /></TableCell>
-                </TableRow>
-              </template>
-              <TableEmpty v-else-if="!paged.length" :colspan="6">
-                <SbEmptyState
-                  :title="isAdminProject ? '系统项目不支持云函数' : '还没有云函数'"
-                  :description="isAdminProject ? '系统项目不提供此功能' : '新建一个 .go 文件，导出大写函数后即可 HTTP 调用'"
-                  :action-text="isAdminProject ? undefined : '新建云函数'"
-                  @action="!isAdminProject && openCreate()"
-                />
-              </TableEmpty>
+            <SbAsyncRegion
+              as="tbody"
+              :columns="6"
+              :pending="pending"
+              :show-skeleton="showSkeleton"
+              :show-empty="showEmpty"
+              :show-error="showError"
+              :refreshing="refreshing"
+              :error="error"
+              :empty-title="isAdminProject ? '系统项目不支持云函数' : '还没有云函数'"
+              :empty-description="isAdminProject ? '系统项目不提供此功能' : '新建一个 .go 文件，导出大写函数后即可 HTTP 调用'"
+              :empty-action-text="isAdminProject ? undefined : '新建云函数'"
+              @retry="load"
+              @empty-action="openCreate"
+            >
               <TableRow v-for="record in paged" :key="record.id">
                 <TableCell class="max-w-52">
                   <span class="sb-mono inline-flex items-center gap-2 font-medium">
@@ -72,7 +73,7 @@
                       type="button"
                       variant="secondary"
                       :aria-label="`复制 ${record.file} 的 ${fn} 完整调用路径`"
-                      class="sb-mono h-auto min-h-8 max-w-full cursor-pointer whitespace-normal break-all text-left hover:bg-secondary/70"
+                      class="sb-code-view sb-mono h-auto min-h-8 max-w-full min-w-0 cursor-pointer whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-left hover:bg-secondary/70"
                       @click="copyInvokePath(record, fn)"
                     >
                       {{ fn }}
@@ -116,7 +117,7 @@
                   </div>
                 </TableCell>
               </TableRow>
-            </TableBody>
+            </SbAsyncRegion>
           </Table>
           <TablePager
             variant="footer"
@@ -146,7 +147,7 @@ import { errorMessage } from '@/utils/format'
  * 云函数列表页（ui-gofunction-plan §8.3）。
  * Badge 点击复制完整调用 URL；删除走 ConfirmAction；项目切换重载。
  */
-import { onMounted, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import {
@@ -161,13 +162,10 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeader,
   TableRow
@@ -176,12 +174,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { api } from '../services/api'
 import type { GoFunctionItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
-import { useAsyncAction } from '../composables/useAsyncAction'
+import { useLoadState } from '../composables/useLoadState'
+import SbAsyncRegion from '../components/SbAsyncRegion.vue'
 import { usePagination } from '../composables/usePagination'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
-import SbEmptyState from '../components/SbEmptyState.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import TablePager from '../components/TablePager.vue'
 import GoFunctionModal from '../components/modal/GoFunctionModal.vue'
@@ -194,13 +192,18 @@ const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
 const records = ref<GoFunctionItem[]>([])
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
-const { run: load, loading } = useAsyncAction(() => api.gofunctions.list(projectId.value), {
-  fallbackMsg: '加载云函数列表失败',
-  onSuccess: (data) => {
-    records.value = data as GoFunctionItem[]
-    page.value = 1
-  }
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载云函数列表失败'
 })
+
+function load() {
+  return run(async () => {
+    const data = await api.gofunctions.list(projectId.value)
+    records.value = data
+    page.value = 1
+    return data.length > 0
+  })
+}
 
 /* ---------- 弹窗 ---------- */
 
@@ -261,6 +264,8 @@ function copyInvokePath(record: GoFunctionItem, fn?: string) {
     .catch(() => toast.error('复制失败'))
 }
 
-onMounted(load)
-watch(projectId, load)
+void load()
+watch(projectId, () => {
+  void load()
+})
 </script>

@@ -1,11 +1,6 @@
 <template>
   <div class="py-1">
-    <div v-if="loading && !collections.length" class="flex flex-col gap-2 py-2">
-      <Skeleton class="h-8 w-full" />
-      <Skeleton class="h-8 w-2/3" />
-      <Skeleton class="h-8 w-1/2" />
-    </div>
-    <div v-else class="overflow-x-auto rounded-lg border border-border/70 bg-card/60">
+    <div class="overflow-x-auto rounded-lg border border-border/70 bg-card/60">
       <Table>
         <TableHeader>
           <TableRow>
@@ -13,10 +8,20 @@
             <TableHead class="w-52">操作</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
-          <TableEmpty v-if="!rows.length" :colspan="2">
-            <SbEmptyState :description="readonly ? '暂无数据表' : '暂无集合'" :action-text="readonly ? undefined : '新建集合'" @action="!readonly && emit('create-collection')" />
-          </TableEmpty>
+        <SbAsyncRegion
+          as="tbody"
+          :columns="2"
+          :pending="pending"
+          :show-skeleton="showSkeleton"
+          :show-empty="showEmpty"
+          :show-error="showError"
+          :refreshing="refreshing"
+          :error="error"
+          :empty-description="readonly ? '暂无数据表' : '暂无集合'"
+          :empty-action-text="readonly ? undefined : '新建集合'"
+          @retry="load"
+          @empty-action="emit('create-collection')"
+        >
           <TableRow v-for="record in rows" :key="record.name">
             <TableCell class="sb-mono max-w-80 truncate font-medium" :title="record.name">{{ record.name }}</TableCell>
             <TableCell class="w-52">
@@ -26,22 +31,20 @@
               </div>
             </TableCell>
           </TableRow>
-        </TableBody>
+        </SbAsyncRegion>
       </Table>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
-import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '../../services/api'
 import type { DatabaseItem } from '../../services/api'
-import SbEmptyState from '../SbEmptyState.vue'
+import SbAsyncRegion from '../SbAsyncRegion.vue'
+import { useLoadState } from '../../composables/useLoadState'
 
 const props = defineProps<{
   projectId: string
@@ -58,18 +61,17 @@ const emit = defineEmits<{
 }>()
 
 const collections = ref<string[]>([])
-const loading = ref(false)
 const rows = computed(() => collections.value.map((name) => ({ name })))
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '集合加载失败'
+})
 
-async function load() {
-  loading.value = true
-  try {
-    collections.value = await api.db.collections(props.projectId, props.database.id)
-  } catch (e) {
-    toast.error(errorMessage(e, '集合加载失败'))
-  } finally {
-    loading.value = false
-  }
+function load() {
+  return run(async () => {
+    const data = await api.db.collections(props.projectId, props.database.id)
+    collections.value = data
+    return data.length > 0
+  })
 }
 
 watch(

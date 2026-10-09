@@ -13,7 +13,7 @@
         <TabsTrigger value="models">模型</TabsTrigger>
         <TabsTrigger value="providers">供应商</TabsTrigger>
       </TabsList>
-      <div class="max-h-[min(80vh,720px)] overflow-y-auto px-1 -mx-1 pt-4">
+      <div class="max-h-[min(calc(100vh-14rem),720px)] overflow-y-auto px-1 -mx-1 pt-4">
         <TabsContent value="connection">
           <ConnectionPanel />
         </TabsContent>

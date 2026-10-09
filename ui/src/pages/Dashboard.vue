@@ -1,17 +1,16 @@
 <template>
   <ProjectScope>
   <PageContainer subtitle="系统运行状态与项目资源概览">
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <SbBlockSkeleton
+      v-if="pending && !hasData"
+      variant="cards"
+      :count="4"
+      :class="['gap-4 sm:grid-cols-2 lg:grid-cols-4', !showSkeleton && 'invisible']"
+    />
+    <div v-else-if="!showError" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <Card v-for="card in cards" :key="card.label">
         <CardContent class="p-5">
-          <div v-if="loading" class="flex items-start gap-4">
-            <Skeleton class="size-12 rounded-lg" />
-            <div class="flex flex-1 flex-col gap-2.5">
-              <Skeleton class="h-3 w-20" />
-              <Skeleton class="h-7 w-16" />
-            </div>
-          </div>
-          <div v-else class="flex items-start gap-4">
+          <div class="flex items-start gap-4">
             <div
               class="flex size-12 shrink-0 items-center justify-center rounded-lg"
               :class="card.tone"
@@ -40,8 +39,8 @@
           <span v-if="lastUpdate">最近更新：{{ lastUpdate }}</span>
         </CardDescription>
         <CardAction>
-          <Button variant="outline" size="sm" :disabled="loading" @click="load">
-            <Spinner v-if="loading" data-icon="inline-start" />
+          <Button variant="outline" size="sm" :disabled="pending" @click="load">
+            <Spinner v-if="pending" data-icon="inline-start" />
             <RefreshCwIcon v-else data-icon="inline-start" />
             刷新数据
           </Button>
@@ -57,7 +56,7 @@
                 · 样本 {{ summary.latencySampleCount }}</template>
             </span>
           </div>
-          <div v-if="loading && !hasLatencySamples" class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div v-if="pending && !hasData" class="grid grid-cols-1 gap-3 sm:grid-cols-3" :class="showSkeleton ? '' : 'invisible'" aria-hidden="true">
             <Skeleton v-for="n in 3" :key="'lp-' + n" class="h-16 w-full rounded-lg" />
           </div>
           <div v-else-if="hasLatencySamples" class="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -70,7 +69,7 @@
               <div class="mt-1 text-xl font-semibold tabular-nums text-foreground">{{ item.value }}</div>
             </div>
           </div>
-          <div v-else class="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+          <div v-else-if="!showError" class="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
             — 暂无近 24 小时接口样本
           </div>
         </div>
@@ -81,9 +80,13 @@
           :mode="chartMode"
           @update:mode="chartMode = $event"
         />
-        <Skeleton v-else-if="loading" class="h-44 w-full rounded-xl" />
+        <SbBlockSkeleton
+          v-else-if="pending && !hasData"
+          variant="chart"
+          :class="!showSkeleton && 'invisible'"
+        />
         <SbEmptyState
-          v-else
+          v-else-if="!showError"
           :title="trendFailed ? '趋势加载失败' : '暂无数据'"
           :description="trendFailed ? '请求未完成，请刷新后重试' : '暂无趋势数据'"
         />
@@ -98,13 +101,19 @@
                 <TableHead class="max-w-md">说明</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              <template v-if="loading && !resourcesLoaded">
-                <TableRow v-for="n in 3" :key="'sk-' + n">
-                  <TableCell colspan="3"><Skeleton class="h-8 w-full" /></TableCell>
-                </TableRow>
-              </template>
-              <TableRow v-for="row in resourceRows" v-else :key="row.key">
+            <SbAsyncRegion
+              as="tbody"
+              :columns="3"
+              :rows="5"
+              :pending="pending"
+              :show-skeleton="showSkeleton"
+              :show-empty="false"
+              :show-error="showError"
+              :refreshing="refreshing"
+              :error="loadError"
+              @retry="load"
+            >
+              <TableRow v-for="row in resourceRows" :key="row.key">
                 <TableCell class="font-medium">
                   <span class="inline-flex items-center gap-2">
                     <component :is="row.icon" class="size-4 shrink-0 text-primary opacity-80" />
@@ -116,7 +125,7 @@
                 </TableCell>
                 <TableCell class="max-w-md text-xs text-muted-foreground">{{ row.hint }}</TableCell>
               </TableRow>
-            </TableBody>
+            </SbAsyncRegion>
           </Table>
         </div>
       </CardContent>
@@ -126,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   BotIcon,
@@ -151,7 +160,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -162,13 +170,15 @@ import type { MetricsSummary, QuotaStatus, TrendPoint } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
+import { useLoadState } from '@/composables/useLoadState'
 import TrendChart, { type ChartMode } from '../components/TrendChart.vue'
 
 const projectStore = useProjectStore()
 
 const quota = ref<QuotaStatus | null>(null)
-const loading = ref(false)
 const trendFailed = ref(false)
 const lastUpdate = ref('')
 const trend = ref<TrendPoint[]>([])
@@ -271,59 +281,72 @@ const resourceRows = computed(() => [
   },
 ])
 
-async function load() {
-  loading.value = true
-  const [dbRes, s3Res, fnRes, cronRes, agentRes, quotaRes, trendRes, summaryRes] =
-    await Promise.allSettled([
-      api.databases.list(projectStore.id),
-      api.s3.list(projectStore.id),
-      api.gofunctions.list(projectStore.id),
-      api.cronjobs.list(projectStore.id),
-      api.agents.list(projectStore.id),
-      api.quota.status(projectStore.id),
-      api.metrics.trend(projectStore.id),
-      api.metrics.summary(projectStore.id),
-    ])
+const {
+  pending,
+  hasData,
+  showSkeleton,
+  showError,
+  refreshing,
+  error: loadError,
+  run
+} = useLoadState({ fallback: '部分数据加载失败' })
 
-  if (dbRes.status === 'fulfilled') {
-    const dbs = Array.isArray(dbRes.value) ? dbRes.value : []
-    counts.value.databases = dbs.length
-    dbStatus.value = {
-      ready: dbs.filter((d) => d.status === 'ready').length,
-      abnormal: dbs.filter((d) => ['degraded', 'deleting'].includes(d.status)).length,
+function load() {
+  return run(async () => {
+    const [dbRes, s3Res, fnRes, cronRes, agentRes, quotaRes, trendRes, summaryRes] =
+      await Promise.allSettled([
+        api.databases.list(projectStore.id),
+        api.s3.list(projectStore.id),
+        api.gofunctions.list(projectStore.id),
+        api.cronjobs.list(projectStore.id),
+        api.agents.list(projectStore.id),
+        api.quota.status(projectStore.id),
+        api.metrics.trend(projectStore.id),
+        api.metrics.summary(projectStore.id),
+      ])
+
+    if (dbRes.status === 'fulfilled') {
+      const dbs = Array.isArray(dbRes.value) ? dbRes.value : []
+      counts.value.databases = dbs.length
+      dbStatus.value = {
+        ready: dbs.filter((d) => d.status === 'ready').length,
+        abnormal: dbs.filter((d) => ['degraded', 'deleting'].includes(d.status)).length,
+      }
     }
-  }
-  if (s3Res.status === 'fulfilled') counts.value.s3Objects = Array.isArray(s3Res.value) ? s3Res.value.length : 0
-  if (fnRes.status === 'fulfilled') counts.value.gofunctions = Array.isArray(fnRes.value) ? fnRes.value.length : 0
-  if (cronRes.status === 'fulfilled') counts.value.cronjobs = Array.isArray(cronRes.value) ? cronRes.value.length : 0
-  if (agentRes.status === 'fulfilled') counts.value.agents = Array.isArray(agentRes.value) ? agentRes.value.length : 0
-  resourcesLoaded.value =
-    dbRes.status === 'fulfilled' ||
-    s3Res.status === 'fulfilled' ||
-    fnRes.status === 'fulfilled' ||
-    cronRes.status === 'fulfilled' ||
-    agentRes.status === 'fulfilled'
+    if (s3Res.status === 'fulfilled') counts.value.s3Objects = Array.isArray(s3Res.value) ? s3Res.value.length : 0
+    if (fnRes.status === 'fulfilled') counts.value.gofunctions = Array.isArray(fnRes.value) ? fnRes.value.length : 0
+    if (cronRes.status === 'fulfilled') counts.value.cronjobs = Array.isArray(cronRes.value) ? cronRes.value.length : 0
+    if (agentRes.status === 'fulfilled') counts.value.agents = Array.isArray(agentRes.value) ? agentRes.value.length : 0
+    resourcesLoaded.value =
+      dbRes.status === 'fulfilled' ||
+      s3Res.status === 'fulfilled' ||
+      fnRes.status === 'fulfilled' ||
+      cronRes.status === 'fulfilled' ||
+      agentRes.status === 'fulfilled'
 
-  if (quotaRes.status === 'fulfilled') quota.value = quotaRes.value
-  if (trendRes.status === 'fulfilled') {
-    trend.value = trendRes.value
-    trendFailed.value = false
-  } else {
-    trendFailed.value = true
-  }
-  if (summaryRes.status === 'fulfilled') summary.value = summaryRes.value
+    if (quotaRes.status === 'fulfilled') quota.value = quotaRes.value
+    if (trendRes.status === 'fulfilled') {
+      trend.value = trendRes.value
+      trendFailed.value = false
+    } else {
+      trendFailed.value = true
+    }
+    if (summaryRes.status === 'fulfilled') summary.value = summaryRes.value
 
-  const all = [dbRes, s3Res, fnRes, cronRes, agentRes, quotaRes, trendRes, summaryRes]
-  if (all.some((r) => r.status === 'rejected')) {
-    toast.error('部分数据加载失败')
-  }
-  if (all.slice(0, 6).some((r) => r.status === 'fulfilled')) {
-    lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-  }
-  loading.value = false
+    const all = [dbRes, s3Res, fnRes, cronRes, agentRes, quotaRes, trendRes, summaryRes]
+    const rejected = all.filter((r) => r.status === 'rejected').length
+    if (rejected === all.length) {
+      throw new Error('部分数据加载失败')
+    }
+    if (rejected > 0) toast.error('部分数据加载失败')
+    if (all.slice(0, 6).some((r) => r.status === 'fulfilled')) {
+      lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    }
+    return true
+  })
 }
 
-onMounted(load)
+void load()
 watch(
   () => projectStore.id,
   () => {

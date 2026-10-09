@@ -31,20 +31,27 @@
         <ExternalLinkIcon class="size-3.5" />
       </a>
     </div>
-    <div v-if="loadError" class="py-6">
-      <Alert>
-        <AlertTitle>{{ loadError }}</AlertTitle>
-        <AlertDescription>请检查文档路径和网络连接后刷新重试。</AlertDescription>
-      </Alert>
-    </div>
-    <Skeleton v-else-if="loading" class="h-40 w-full" />
-    <div v-else-if="!html" class="py-6">
-      <Alert>
-        <AlertTitle>这篇文档没有正文</AlertTitle>
-        <AlertDescription>docs/{{ page.filePath }}</AlertDescription>
-      </Alert>
-    </div>
-    <div v-else class="docs-md" v-html="html" @click="onContentClick" />
+    <SbAsyncRegion
+      block="lines"
+      class="min-h-40"
+      :pending="pending"
+      :show-skeleton="showSkeleton"
+      :show-empty="showEmpty"
+      :show-error="showError"
+      :refreshing="refreshing"
+      :error="docError"
+      @retry="reload"
+    >
+      <template #empty>
+        <div class="py-6">
+          <Alert>
+            <AlertTitle>这篇文档没有正文</AlertTitle>
+            <AlertDescription>docs/{{ page.filePath }}</AlertDescription>
+          </Alert>
+        </div>
+      </template>
+      <div class="docs-md" v-html="html" @click="onContentClick" />
+    </SbAsyncRegion>
     <div v-if="prev || next" class="mt-12 grid gap-4 border-t border-border/70 pt-8 sm:grid-cols-2">
       <router-link
         v-if="prev"
@@ -72,9 +79,10 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { Skeleton } from '@/components/ui/skeleton'
 import { ExternalLinkIcon } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -84,7 +92,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 import type { DocPage } from '../../docs/catalog'
-import { githubBlobUrl, isLargeDoc, loadMarkdown } from '../../docs/catalog'
+import { githubBlobUrl, loadMarkdown } from '../../docs/catalog'
 import { renderMarkdown, type DocHeading } from '../../docs/render'
 import DocsToc from './DocsToc.vue'
 
@@ -101,8 +109,15 @@ const props = defineProps<{
 const route = useRoute()
 const title = computed(() => props.page.title)
 const raw = ref<string | null>(null)
-const loading = ref(false)
-const loadError = ref<string | null>(null)
+const {
+  pending,
+  showSkeleton,
+  showEmpty,
+  showError,
+  refreshing,
+  error: docError,
+  run
+} = useLoadState()
 const rendered = computed(() => {
   if (!raw.value?.trim()) return { html: '', toc: [] as DocHeading[] }
   try { return renderMarkdown(raw.value, props.moduleId) }
@@ -111,25 +126,36 @@ const rendered = computed(() => {
 const html = computed(() => rendered.value.html)
 const githubUrl = computed(() => githubBlobUrl(props.page.filePath))
 let generation = 0
-watch(() => props.page.filePath, async (filePath) => {
+
+function loadDoc(filePath: string) {
   const current = ++generation
-  raw.value = null
-  loadError.value = null
-  loading.value = isLargeDoc(filePath)
-  try {
-    const body = await loadMarkdown(filePath)
-    if (current !== generation) return
+  return run(async () => {
+    if (current !== generation) return false
+    raw.value = null
+    let body: string | null
+    try {
+      body = await loadMarkdown(filePath)
+    } catch {
+      throw new Error(`文档加载失败：docs/${filePath}`)
+    }
+    if (current !== generation) return false
+    if (body === null) throw new Error(`文档文件缺失：docs/${filePath}`)
     raw.value = body
-    if (body === null) loadError.value = `文档文件缺失：docs/${filePath}`
-    else if (route.hash) {
+    if (route.hash) {
       await nextTick()
+      if (current !== generation) return body.trim().length > 0
       document.getElementById(decodeURIComponent(route.hash.slice(1)))?.scrollIntoView()
     }
-  } catch {
-    if (current === generation) loadError.value = `文档加载失败：docs/${filePath}`
-  } finally {
-    if (current === generation) loading.value = false
-  }
+    return body.trim().length > 0
+  }, { replace: true, fallback: `文档加载失败：docs/${filePath}` })
+}
+
+function reload() {
+  void loadDoc(props.page.filePath)
+}
+
+watch(() => props.page.filePath, (filePath) => {
+  void loadDoc(filePath)
 }, { immediate: true })
 
 async function onContentClick(event: MouseEvent) {

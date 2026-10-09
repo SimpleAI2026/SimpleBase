@@ -37,12 +37,14 @@ type QueryResponse struct {
 	RowCount   int      `json:"row_count"`
 	DurationMS int64    `json:"duration_ms"`
 	RequestID  string   `json:"request_id"`
+	// RedactedColumns 是系统库查询里被抹掉的凭证列名。用户库不返回该字段。
+	RedactedColumns []string `json:"redacted_columns,omitempty"`
 }
 
 // ExecuteResponse 是执行响应。
 // DuckLake 无 sequences / last_insert_rowid；需要生成 ID 时用 RETURNING 或应用侧 UUID。
 type ExecuteResponse struct {
-	RowsAffected int64  `json:"rows_affected"`
+	RowsAffected int64 `json:"rows_affected"`
 	// Durability 是写持久化级别：committed_local | synced_s3（§4.4）。
 	Durability string `json:"durability"`
 	DurationMS int64  `json:"duration_ms"`

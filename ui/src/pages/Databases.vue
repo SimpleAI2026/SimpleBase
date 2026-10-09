@@ -9,8 +9,8 @@
         </CardDescription>
         <CardAction v-if="!isAdmin">
           <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" :disabled="loading" @click="doLoad">
-              <Spinner v-if="loading" data-icon="inline-start" />
+            <Button variant="outline" size="sm" :disabled="pending" @click="doLoad">
+              <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
               刷新
             </Button>
@@ -21,28 +21,36 @@
           </div>
         </CardAction>
         <CardAction v-else>
-          <Button variant="outline" size="sm" :disabled="loading" @click="doLoad">
-            <Spinner v-if="loading" data-icon="inline-start" />
+          <Button variant="outline" size="sm" :disabled="pending" @click="doLoad">
+            <Spinner v-if="pending" data-icon="inline-start" />
             <RefreshCwIcon v-else data-icon="inline-start" />
             刷新
           </Button>
         </CardAction>
       </CardHeader>
       <CardContent class="p-0">
-        <div v-if="loading && !databases.length" class="space-y-3 p-4 md:hidden">
-          <Skeleton v-for="n in 3" :key="n" class="h-28 w-full rounded-lg" />
-        </div>
-        <div v-else-if="!paged.length" class="p-4 md:hidden">
-          <SbEmptyState :description="isAdmin ? '暂无系统库' : '暂无数据库'" :action-text="isAdmin ? undefined : '新建数据库'" @action="!isAdmin && openCreate()" />
-        </div>
-        <div v-else class="space-y-3 p-4 md:hidden" aria-label="数据库移动端列表">
+        <SbAsyncRegion
+          class="p-4 md:hidden"
+          block="cards"
+          :pending="pending"
+          :show-skeleton="showSkeleton"
+          :show-empty="showEmpty"
+          :show-error="showError"
+          :refreshing="refreshing"
+          :error="error"
+          :empty-description="isAdmin ? '暂无系统库' : '暂无数据库'"
+          :empty-action-text="isAdmin ? undefined : '新建数据库'"
+          @retry="doLoad"
+          @empty-action="openCreate"
+        >
+        <div class="space-y-3" aria-label="数据库移动端列表">
           <article v-for="record in paged" :key="record.id" class="rounded-xl border border-border bg-card p-4 shadow-xs">
             <div class="flex min-w-0 items-start justify-between gap-2">
               <div class="min-w-0">
                 <div class="flex min-w-0 items-center gap-2">
                   <DatabaseIcon aria-hidden="true" class="size-4 shrink-0 text-primary" />
                   <span class="sb-mono truncate font-semibold" :title="record.name">{{ record.name }}</span>
-                  <Badge v-if="!isAdmin" variant="outline">{{ isSqlDatabase(record) ? 'SQL' : '集合' }}</Badge>
+                  <Badge variant="outline">{{ showSqlPanel(record) ? 'SQL' : '集合' }}</Badge>
                 </div>
                 <Badge class="mt-2" :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
               </div>
@@ -64,11 +72,12 @@
               <span>创建时间</span><span>{{ formatTime(record.createdAt) }}</span>
             </div>
             <div v-if="expandedRowKeys.includes(record.id)" :id="`db-mobile-${record.id}`" class="mt-4 border-t border-border pt-4">
-              <SchemaPanel v-if="isSqlDatabase(record)" :project-id="projectStore.id" :database="record" :readonly="isAdmin" />
+              <SchemaPanel v-if="showSqlPanel(record)" :project-id="projectStore.id" :database="record" :readonly="isAdmin" />
               <DataTabs v-else :project-id="projectStore.id" :database="record" :reload-token="collectionReload[record.id] || 0" :readonly="isAdmin" @view-data="(c) => openDocList(record, c)" @add-document="(c) => openKv(record, c)" @create-collection="openCreateCollection(record)" />
             </div>
           </article>
         </div>
+        </SbAsyncRegion>
         <div class="hidden md:block">
           <Table>
           <TableHeader>
@@ -82,15 +91,20 @@
               <TableHead class="sb-col-act min-w-36">操作</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            <template v-if="loading && !databases.length">
-              <TableRow v-for="n in 3" :key="'sk-' + n">
-                <TableCell colspan="7"><Skeleton class="h-8 w-full" /></TableCell>
-              </TableRow>
-            </template>
-            <TableEmpty v-else-if="!paged.length" :colspan="7">
-              <SbEmptyState :description="isAdmin ? '暂无系统库' : '暂无数据库'" :action-text="isAdmin ? undefined : '新建数据库'" @action="!isAdmin && openCreate()" />
-            </TableEmpty>
+          <SbAsyncRegion
+            as="tbody"
+            :columns="7"
+            :pending="pending"
+            :show-skeleton="showSkeleton"
+            :show-empty="showEmpty"
+            :show-error="showError"
+            :refreshing="refreshing"
+            :error="error"
+            :empty-description="isAdmin ? '暂无系统库' : '暂无数据库'"
+            :empty-action-text="isAdmin ? undefined : '新建数据库'"
+            @retry="doLoad"
+            @empty-action="openCreate"
+          >
             <template v-for="record in paged" :key="record.id">
               <TableRow>
                 <TableCell class="text-center">
@@ -119,7 +133,7 @@
                   <span class="sb-mono inline-flex items-center gap-1.5 font-medium text-foreground">
                     <DatabaseIcon class="size-4 shrink-0 text-primary" />
                     <span class="truncate">{{ record.name }}</span>
-                    <Badge v-if="!isAdmin" variant="outline">{{ isSqlDatabase(record) ? 'SQL' : '集合' }}</Badge>
+                    <Badge variant="outline">{{ showSqlPanel(record) ? 'SQL' : '集合' }}</Badge>
                   </span>
                 </TableCell>
                 <TableCell class="sb-col-id">
@@ -192,7 +206,7 @@
                 <TableCell colspan="7" class="border-b-0 p-0 text-left">
                   <div :id="`db-desktop-${record.id}`" class="border-y border-border/70 bg-muted/25 px-6 py-4">
                     <SchemaPanel
-                      v-if="isSqlDatabase(record)"
+                      v-if="showSqlPanel(record)"
                       :project-id="projectStore.id"
                       :database="record"
                       :readonly="isAdmin"
@@ -211,7 +225,7 @@
                 </TableCell>
               </TableRow>
             </template>
-          </TableBody>
+          </SbAsyncRegion>
           </Table>
         </div>
         <TablePager
@@ -293,7 +307,7 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   DatabaseIcon,
@@ -307,13 +321,10 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
@@ -323,13 +334,13 @@ import { api } from '../services/api'
 import type { DatabaseItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import { storeToRefs } from 'pinia'
-import { useAsyncAction } from '../composables/useAsyncAction'
+import { useLoadState } from '../composables/useLoadState'
 import { usePagination } from '../composables/usePagination'
 import { statusBadgeVariant, statusText } from '@/lib/status'
 import { formatCount, formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
-import SbEmptyState from '../components/SbEmptyState.vue'
+import SbAsyncRegion from '../components/SbAsyncRegion.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import TablePager from '../components/TablePager.vue'
 import SbModal from '../components/modal/SbModal.vue'
@@ -361,13 +372,16 @@ const activeDb = ref<DatabaseItem | null>(null)
 const activeCollection = ref('')
 const docReload = ref(0)
 
-const { run: load, loading } = useAsyncAction(() => api.databases.list(projectStore.id), {
-  fallbackMsg: '数据库列表加载失败'
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '数据库列表加载失败'
 })
 
-async function doLoad() {
-  const list = await load()
-  if (list) databases.value = list
+function doLoad() {
+  return run(async () => {
+    const list = await api.databases.list(projectStore.id)
+    databases.value = list
+    return list.length > 0
+  })
 }
 
 const nameError = computed(() => {
@@ -384,6 +398,10 @@ function isReady(db: DatabaseItem) {
 
 function isSqlDatabase(db: DatabaseItem) {
   return db.dataModel === 'sql'
+}
+
+function showSqlPanel(db: DatabaseItem) {
+  return isAdmin.value || isSqlDatabase(db)
 }
 
 function toggleExpand(db: DatabaseItem) {
@@ -489,7 +507,7 @@ watch(databases, (list) => {
   expandedRowKeys.value = expandedRowKeys.value.filter((id) => ready.has(id))
 })
 
-onMounted(doLoad)
+void doLoad()
 watch(
   () => projectStore.id,
   () => {
