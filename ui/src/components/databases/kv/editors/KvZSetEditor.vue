@@ -12,8 +12,17 @@
         @click="desc = true"
       >分数降序</Button>
     </div>
-    <div v-if="loading" class="flex justify-center py-6"><Spinner /></div>
-    <template v-else>
+    <SbAsyncRegion
+      class="flex flex-col gap-3"
+      block="spinner"
+      :pending="pending"
+      :show-skeleton="showSkeleton"
+      :show-empty="false"
+      :show-error="showError"
+      :refreshing="refreshing"
+      :error="error"
+      @retry="load"
+    >
       <div class="overflow-x-auto rounded-md border border-border/70">
         <Table>
           <TableHeader>
@@ -51,7 +60,7 @@
         <Input v-model="newScore" type="number" placeholder="分数" class="w-28" />
         <Button size="sm" :disabled="!newElem.trim() || newScore === ''" @click="addMember">添加</Button>
       </div>
-    </template>
+    </SbAsyncRegion>
   </div>
 </template>
 
@@ -61,8 +70,9 @@ import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import SbAsyncRegion from '../../../SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 import { api } from '../../../../services/api'
 import ConfirmAction from '../../../ConfirmAction.vue'
 
@@ -75,16 +85,15 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [] }>()
 
 const items = ref<{ elem: string; score: number }[]>([])
-const loading = ref(false)
 const desc = ref(false)
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
 const newElem = ref('')
 const newScore = ref('')
 const editElem = ref('')
 const editScore = ref('')
 
-async function load() {
-  loading.value = true
-  try {
+function load() {
+  return run(async () => {
     // ZRANGE WITHSCORES：member/score 交替扁平数组
     const argv = ['ZRANGE', props.kvKey, '0', '199', 'WITHSCORES']
     if (desc.value) argv.push('REV')
@@ -96,11 +105,8 @@ async function load() {
       }
     }
     items.value = out
-  } catch (e) {
-    toast.error(errorMessage(e, '加载失败'))
-  } finally {
-    loading.value = false
-  }
+    return true
+  })
 }
 
 async function addMember() {

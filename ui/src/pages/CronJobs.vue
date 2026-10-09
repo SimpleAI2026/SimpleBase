@@ -9,8 +9,8 @@
           </CardDescription>
           <CardAction v-if="!isAdminProject">
             <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" :disabled="loading" @click="load">
-                <Spinner v-if="loading" data-icon="inline-start" />
+              <Button variant="outline" size="sm" :disabled="pending" @click="load">
+                <Spinner v-if="pending" data-icon="inline-start" />
                 <RefreshCwIcon v-else data-icon="inline-start" />
                 刷新
               </Button>
@@ -21,8 +21,8 @@
             </div>
           </CardAction>
           <CardAction v-else>
-            <Button variant="outline" size="sm" :disabled="loading" @click="load">
-              <Spinner v-if="loading" data-icon="inline-start" />
+            <Button variant="outline" size="sm" :disabled="pending" @click="load">
+              <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
               刷新
             </Button>
@@ -40,20 +40,21 @@
                 <TableHead class="sb-col-act min-w-56">操作</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              <template v-if="loading && !records.length">
-                <TableRow v-for="n in 3" :key="'sk-' + n">
-                  <TableCell colspan="6"><Skeleton class="h-8 w-full" /></TableCell>
-                </TableRow>
-              </template>
-              <TableEmpty v-else-if="!paged.length" :colspan="6">
-                <SbEmptyState
-                  :title="isAdminProject ? '系统项目不支持定时任务' : '还没有定时任务'"
-                  :description="isAdminProject ? '系统项目不提供此功能' : '新建定时任务，到点自动调用云函数'"
-                  :action-text="isAdminProject ? undefined : '新建定时任务'"
-                  @action="!isAdminProject && openCreate()"
-                />
-              </TableEmpty>
+            <SbAsyncRegion
+              as="tbody"
+              :columns="6"
+              :pending="pending"
+              :show-skeleton="showSkeleton"
+              :show-empty="showEmpty"
+              :show-error="showError"
+              :refreshing="refreshing"
+              :error="error"
+              :empty-title="isAdminProject ? '系统项目不支持定时任务' : '还没有定时任务'"
+              :empty-description="isAdminProject ? '系统项目不提供此功能' : '新建定时任务，到点自动调用云函数'"
+              :empty-action-text="isAdminProject ? undefined : '新建定时任务'"
+              @retry="load"
+              @empty-action="openCreate"
+            >
               <TableRow v-for="record in paged" :key="record.id">
                 <TableCell>
                   <TooltipProvider :delay-duration="200">
@@ -142,7 +143,7 @@
                   </div>
                 </TableCell>
               </TableRow>
-            </TableBody>
+            </SbAsyncRegion>
           </Table>
           <TablePager
             variant="footer"
@@ -172,7 +173,7 @@ import { errorMessage } from '@/utils/format'
  * 定时任务列表页（ui-cronjob-plan §7.2）。
  * 调度/目标/状态快照/启用 Switch；立即执行触发后刷新；删除走 ConfirmAction。
  */
-import { onMounted, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import {
@@ -183,14 +184,11 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import {
   Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeader,
   TableRow
@@ -199,13 +197,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { api } from '../services/api'
 import type { CronJobItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
-import { useAsyncAction } from '../composables/useAsyncAction'
+import { useLoadState } from '../composables/useLoadState'
 import { usePagination } from '../composables/usePagination'
 import { cronStatusText, cronStatusVariant } from '@/lib/status'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
-import SbEmptyState from '../components/SbEmptyState.vue'
+import SbAsyncRegion from '../components/SbAsyncRegion.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import TablePager from '../components/TablePager.vue'
 import CronJobModal from '../components/modal/CronJobModal.vue'
@@ -219,13 +217,18 @@ const toggling = ref(new Set<string>())
 const triggering = ref(new Set<string>())
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
-const { run: load, loading } = useAsyncAction(() => api.cronjobs.list(projectId.value), {
-  fallbackMsg: '加载定时任务列表失败',
-  onSuccess: (data) => {
-    records.value = data as CronJobItem[]
-    page.value = 1
-  }
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载定时任务列表失败'
 })
+
+function load() {
+  return run(async () => {
+    const data = await api.cronjobs.list(projectId.value)
+    records.value = data
+    page.value = 1
+    return data.length > 0
+  })
+}
 
 /** 调度人类化：cron 原样等宽；interval 转「每 N 分钟/小时/天」；once 显示执行时刻 */
 function scheduleText(record: CronJobItem): string {
@@ -305,6 +308,8 @@ function openRuns(record: CronJobItem, opts?: { trigger?: boolean }) {
   runsOpen.value = true
 }
 
-onMounted(load)
-watch(projectId, load)
+void load()
+watch(projectId, () => {
+  void load()
+})
 </script>

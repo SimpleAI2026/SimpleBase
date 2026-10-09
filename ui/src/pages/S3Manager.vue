@@ -7,8 +7,8 @@
         <CardDescription>按前缀筛选，支持上传与删除</CardDescription>
         <CardAction>
           <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" :disabled="loading" @click="load">
-              <Spinner v-if="loading" data-icon="inline-start" />
+            <Button variant="outline" size="sm" :disabled="pending" @click="load">
+              <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
               刷新
             </Button>
@@ -46,15 +46,20 @@
               <TableHead class="w-32">操作</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            <template v-if="loading && !objects.length">
-              <TableRow v-for="n in 3" :key="'sk-' + n">
-                <TableCell colspan="4"><Skeleton class="h-8 w-full" /></TableCell>
-              </TableRow>
-            </template>
-            <TableEmpty v-else-if="!paged.length" :colspan="4">
-              <SbEmptyState description="暂无对象" action-text="上传对象" @action="triggerUpload" />
-            </TableEmpty>
+          <SbAsyncRegion
+            as="tbody"
+            :columns="4"
+            :pending="pending"
+            :show-skeleton="showSkeleton"
+            :show-empty="showEmpty"
+            :show-error="showError"
+            :refreshing="refreshing"
+            :error="error"
+            empty-description="暂无对象"
+            empty-action-text="上传对象"
+            @retry="load"
+            @empty-action="triggerUpload"
+          >
             <TableRow v-for="record in paged" :key="record.key">
               <TableCell class="max-w-lg">
                 <span class="sb-mono inline-flex items-center gap-2 font-medium">
@@ -77,7 +82,7 @@
                 </div>
               </TableCell>
             </TableRow>
-          </TableBody>
+          </SbAsyncRegion>
         </Table>
         <TablePager
           variant="footer"
@@ -95,20 +100,17 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
-import { onMounted, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { FileIcon, RefreshCwIcon, SearchIcon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
@@ -116,11 +118,12 @@ import {
 import { api } from '../services/api'
 import type { S3Object } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { useLoadState } from '../composables/useLoadState'
 import { usePagination } from '../composables/usePagination'
 import { formatBytes, formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
-import SbEmptyState from '../components/SbEmptyState.vue'
+import SbAsyncRegion from '../components/SbAsyncRegion.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import TablePager from '../components/TablePager.vue'
 
@@ -128,7 +131,9 @@ const projectStore = useProjectStore()
 const prefix = ref('')
 const objects = ref<S3Object[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(objects)
-const loading = ref(false)
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载失败'
+})
 const uploading = ref(false)
 const uploadPercent = ref(0)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -188,15 +193,12 @@ function triggerUpload() {
   fileInput.value?.click()
 }
 
-async function load() {
-  loading.value = true
-  try {
-    objects.value = await api.s3.list(projectStore.id, prefix.value || undefined)
-  } catch (e) {
-    toast.error(errorMessage(e, '加载失败'))
-  } finally {
-    loading.value = false
-  }
+function load() {
+  return run(async () => {
+    const data = await api.s3.list(projectStore.id, prefix.value || undefined)
+    objects.value = data
+    return data.length > 0
+  })
 }
 
 async function remove(key: string) {
@@ -218,7 +220,7 @@ async function open(key: string) {
   }
 }
 
-onMounted(load)
+void load()
 watch(() => projectStore.id, () => {
   void load()
 })

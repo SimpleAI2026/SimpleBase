@@ -6,7 +6,20 @@
     :max-width="520"
     @update:open="emit('update:open', $event)"
   >
-    <div class="flex max-h-[420px] flex-col gap-2 overflow-y-auto">
+    <SbAsyncRegion
+      class="flex max-h-[420px] flex-col gap-2 overflow-y-auto"
+      block="lines"
+      :pending="pending"
+      :show-skeleton="showSkeleton"
+      :show-empty="showEmpty"
+      :show-error="showError"
+      :refreshing="refreshing"
+      :error="error"
+      @retry="load"
+    >
+      <template #empty>
+        <p class="py-6 text-center text-sm text-muted-foreground">暂无版本</p>
+      </template>
       <div v-for="v in versions" :key="v.version" class="rounded-lg border border-border/60 p-3">
         <div class="flex flex-wrap items-center gap-2">
           <span class="sb-mono font-semibold">v{{ v.version }}</span>
@@ -23,13 +36,13 @@
             :disabled="activating"
             @click="activate(v.version)"
           >
+            <Spinner v-if="activating" data-icon="inline-start" />
             设为生效
           </Button>
           <Button variant="ghost" size="sm" @click="viewSource(v)">复制源码</Button>
         </div>
       </div>
-      <p v-if="!versions.length" class="py-6 text-center text-sm text-muted-foreground">暂无版本</p>
-    </div>
+    </SbAsyncRegion>
     <template #footer>
       <Button variant="outline" @click="emit('update:open', false)">关闭</Button>
     </template>
@@ -41,7 +54,10 @@ import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import SbModal from './SbModal.vue'
+import SbAsyncRegion from '../SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 import { api } from '../../services/api'
 import type { GoFunctionItem, GoFuncVersionSummary } from '../../services/types'
 import { useProjectStore } from '../../stores/project'
@@ -60,16 +76,19 @@ const emit = defineEmits<{
 const projectStore = useProjectStore()
 const versions = ref<GoFuncVersionSummary[]>([])
 const activating = ref(false)
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载版本失败'
+})
 
-async function load() {
+function load() {
+  const record = props.record
   /* v8 ignore next */
-  if (!props.record) return
-  try {
-    const res = await api.gofunctions.listVersions(projectStore.id, props.record.name)
+  if (!record) return Promise.resolve()
+  return run(async () => {
+    const res = await api.gofunctions.listVersions(projectStore.id, record.name)
     versions.value = res.versions
-  } catch (e) {
-    toast.error(errorMessage(e, '加载版本失败'))
-  }
+    return res.versions.length > 0
+  })
 }
 
 async function activate(version: number) {

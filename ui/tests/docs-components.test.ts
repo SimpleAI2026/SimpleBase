@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import { defaultModuleId, defaultSlug, getPage } from '@/docs/catalog'
@@ -47,8 +47,9 @@ describe('docs components', () => {
       },
       global: { plugins: [router], stubs: uiStubs }
     })
+    await flushPromises()
     expect(missing.text()).toMatch(/没有正文|缺失|未找到/)
-
+    missing.unmount()
   })
 
   it('builds sidebar links', async () => {

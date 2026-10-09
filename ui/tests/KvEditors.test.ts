@@ -398,7 +398,9 @@ describe('KV 编辑器与 DetailSheet 分支补盲', () => {
     await flushPromises()
     const { toast } = await import('vue-sonner')
     expect(toast.error).toHaveBeenCalledWith('加载失败')
-    expect(w.text()).toContain('暂无字段')
+    expect(w.text()).toContain('加载失败')
+    expect(w.text()).toContain('重试')
+    expect(w.text()).not.toContain('暂无字段')
     // 保存失败兜底文案
     api.kv.exec.mockRejectedValueOnce('x')
     const vm = w.vm as any

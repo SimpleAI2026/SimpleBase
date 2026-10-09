@@ -8,7 +8,10 @@
         <p v-if="sandbox.source === 'agent'" class="text-sm text-muted-foreground">此沙盒由 Agent 会话使用，终端只读。</p>
         <div v-else class="flex gap-2">
           <Input v-model="command" aria-label="沙盒命令" placeholder="输入命令，例如 python -V" :disabled="running" @keyup.enter="execute" />
-          <Button :disabled="running || !command.trim()" @click="execute">{{ running ? '冷启动中…' : '执行' }}</Button>
+          <Button :disabled="running || !command.trim()" @click="execute">
+            <Spinner v-if="running" data-icon="inline-start" />
+            {{ running ? '冷启动中…' : '执行' }}
+          </Button>
         </div>
         <div v-if="history.length" class="space-y-3 rounded-lg border bg-muted/30 p-3">
           <div v-for="(entry, index) in history" :key="index" class="border-b pb-2 last:border-0">
@@ -27,18 +30,39 @@
           <Button v-if="sandbox.source !== 'agent'" size="sm" variant="outline" @click="createFile">新建文件</Button>
           <label v-if="sandbox.source !== 'agent'" class="inline-flex cursor-pointer items-center rounded-md border px-3 text-sm">上传文件<input type="file" class="sr-only" @change="uploadFile" /></label>
         </div>
-        <div v-if="entries.length" class="divide-y rounded-md border">
-          <div v-for="entry in entries" :key="entry.path" class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-            <button class="sb-mono truncate text-left hover:underline" @click="openEntry(entry)">{{ entry.kind === 'directory' ? '[目录] ' : '' }}{{ entry.name }}</button>
-            <ConfirmAction v-if="entry.kind !== 'directory' && sandbox.source !== 'agent'" :title="`确认删除 ${entry.name}？`" @confirm="removeFile(entry.path)"><Button variant="destructiveGhost" size="sm">删除</Button></ConfirmAction>
+        <SbAsyncRegion
+          :pending="pending"
+          :show-skeleton="showSkeleton"
+          :show-empty="showEmpty"
+          :show-error="showError"
+          :refreshing="refreshing"
+          :error="error"
+          block="spinner"
+          empty-title="目录为空"
+          empty-description="文件写入后会显示在此处"
+          @retry="loadFiles"
+        >
+          <div v-if="entries.length" class="divide-y rounded-md border">
+            <div v-for="entry in entries" :key="entry.path" class="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+              <button class="sb-mono truncate text-left hover:underline" @click="openEntry(entry)">{{ entry.kind === 'directory' ? '[目录] ' : '' }}{{ entry.name }}</button>
+              <ConfirmAction v-if="entry.kind !== 'directory' && sandbox.source !== 'agent'" :title="`确认删除 ${entry.name}？`" @confirm="removeFile(entry.path)"><Button variant="destructiveGhost" size="sm">删除</Button></ConfirmAction>
+            </div>
           </div>
-        </div>
-        <SbEmptyState v-else title="目录为空" description="文件写入后会显示在此处" />
+        </SbAsyncRegion>
         <div v-if="filePath" class="space-y-2 rounded-md border p-3">
           <span class="sb-mono text-xs">{{ filePath }}</span>
-          <Textarea v-model="fileText" rows="8" aria-label="文件内容" :readonly="sandbox.source === 'agent' || fileBinary" />
-          <div class="flex gap-2"><Button v-if="sandbox.source !== 'agent' && !fileBinary" size="sm" :disabled="saving" @click="saveFile">保存</Button><Button size="sm" variant="outline" @click="downloadFile">下载</Button></div>
-          <p v-if="fileBinary" class="text-xs text-muted-foreground">二进制文件无法编辑；可下载原始文件。</p>
+          <SbBlockSkeleton v-if="reading" variant="lines" />
+          <template v-else>
+            <Textarea v-model="fileText" rows="8" aria-label="文件内容" :readonly="sandbox.source === 'agent' || fileBinary" />
+            <div class="flex gap-2">
+              <Button v-if="sandbox.source !== 'agent' && !fileBinary" size="sm" :disabled="saving" @click="saveFile">
+                <Spinner v-if="saving" data-icon="inline-start" />
+                保存
+              </Button>
+              <Button size="sm" variant="outline" @click="downloadFile">下载</Button>
+            </div>
+            <p v-if="fileBinary" class="text-xs text-muted-foreground">二进制文件无法编辑；可下载原始文件。</p>
+          </template>
         </div>
       </template>
       <div v-else class="space-y-2 text-sm">
@@ -59,12 +83,15 @@ import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
+import { useLoadState } from '@/composables/useLoadState'
 import type { SandboxItem, SandboxExecResult, SandboxFileEntry } from '../../services/types'
 import { api } from '../../services/api'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
 import SbModal from '../modal/SbModal.vue'
 import ConfirmAction from '../ConfirmAction.vue'
-import SbEmptyState from '../SbEmptyState.vue'
 
 const props = defineProps<{ open: boolean; projectId: string; sandbox: SandboxItem | null; maxFileBytes: number }>()
 const emit = defineEmits<{ 'update:open': [value: boolean]; changed: [] }>()
@@ -78,7 +105,19 @@ const entries = ref<SandboxFileEntry[]>([])
 const filePath = ref('')
 const fileText = ref('')
 const fileBinary = ref(false)
-watch(() => props.sandbox?.id, () => { tab.value = '终端'; history.value = []; directory.value = '/workspace'; entries.value = []; filePath.value = '' })
+const reading = ref(false)
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run, reset } = useLoadState({
+  fallback: '加载文件失败'
+})
+watch(() => props.sandbox?.id, () => {
+  tab.value = '终端'
+  history.value = []
+  directory.value = '/workspace'
+  entries.value = []
+  filePath.value = ''
+  reading.value = false
+  reset()
+})
 watch(tab, (value) => { if (value === '文件' && props.open) loadFiles() })
 async function execute() {
   if (!props.sandbox || props.sandbox.source === 'agent' || !command.value.trim() || running.value) return
@@ -94,19 +133,26 @@ async function execute() {
 }
 async function loadFiles() {
   if (!props.sandbox) return
-  try { entries.value = await api.sandboxes.files.list(props.projectId, props.sandbox.id, directory.value) }
-  catch (e) { toast.error(errorMessage(e, '加载文件失败')) }
+  const sandbox = props.sandbox
+  const dir = directory.value
+  return run(async () => {
+    const list = await api.sandboxes.files.list(props.projectId, sandbox.id, dir)
+    entries.value = list
+    return list.length > 0
+  })
 }
 async function openEntry(entry: SandboxFileEntry) {
   if (!props.sandbox) return
   if (entry.kind === 'directory') { directory.value = entry.path; filePath.value = ''; await loadFiles(); return }
   filePath.value = entry.path
+  reading.value = true
   try {
     const data = await api.sandboxes.files.read(props.projectId, props.sandbox.id, entry.path)
     fileBinary.value = data.encoding === 'base64'
     fileText.value = fileBinary.value ? '' : data.content
     if (data.truncated) toast.warning('文件内容已截断')
   } catch (e) { toast.error(errorMessage(e, '读取失败')) }
+  finally { reading.value = false }
 }
 function createFile() { filePath.value = directory.value + '/new.txt'; fileText.value = ''; fileBinary.value = false }
 async function saveFile() {

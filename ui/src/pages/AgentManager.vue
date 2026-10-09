@@ -8,8 +8,8 @@
             <CardTitle>Agents</CardTitle>
             <CardAction>
               <div class="flex gap-2">
-                <Button variant="outline" size="sm" :disabled="loading" @click="loadAgents">
-                  <Spinner v-if="loading" data-icon="inline-start" />
+                <Button variant="outline" size="sm" :disabled="agentsPending" @click="loadAgents">
+                  <Spinner v-if="agentsPending" data-icon="inline-start" />
                   <RefreshCwIcon v-else data-icon="inline-start" />
                   刷新
                 </Button>
@@ -21,21 +21,34 @@
             </CardAction>
           </CardHeader>
           <CardContent class="p-3">
-            <SbEmptyState v-if="!loading && !agents.length" :icon="BotIcon" description="还没有 Agent" action-text="创建" @action="openCreate" />
-            <div class="flex flex-col gap-2.5">
-              <AgentCard
-                v-for="a in agents"
-                :key="a.id"
-                :agent="a"
-                :active="a.id === activeId"
-                :schedule-summary="scheduleByAgent[a.id] ? scheduleSummary(scheduleByAgent[a.id]) : undefined"
-                :schedule-enabled="!!scheduleByAgent[a.id]?.enabled"
-                @select="activeId = a.id"
-                @edit="openEdit(a)"
-                @schedule="openSchedule(a)"
-                @remove="removeAgent(a)"
-              />
-            </div>
+            <SbAsyncRegion
+              block="cards"
+              :pending="agentsPending"
+              :show-skeleton="agentsShowSkeleton"
+              :show-empty="agentsShowEmpty"
+              :show-error="agentsShowError"
+              :refreshing="agentsRefreshing"
+              :error="agentsError"
+              @retry="loadAgents"
+            >
+              <template #empty>
+                <SbEmptyState :icon="BotIcon" description="还没有 Agent" action-text="创建" @action="openCreate" />
+              </template>
+              <div class="flex flex-col gap-2.5">
+                <AgentCard
+                  v-for="a in agents"
+                  :key="a.id"
+                  :agent="a"
+                  :active="a.id === activeId"
+                  :schedule-summary="scheduleByAgent[a.id] ? scheduleSummary(scheduleByAgent[a.id]) : undefined"
+                  :schedule-enabled="!!scheduleByAgent[a.id]?.enabled"
+                  @select="activeId = a.id"
+                  @edit="openEdit(a)"
+                  @schedule="openSchedule(a)"
+                  @remove="removeAgent(a)"
+                />
+              </div>
+            </SbAsyncRegion>
           </CardContent>
         </Card>
 
@@ -48,6 +61,7 @@
                 :threads="threads"
                 :active-id="threadId"
                 :busy="sending"
+                :pending="threadPending && !threadHasData"
                 @create="resetThread"
                 @select="selectThread"
                 @remove="removeThread"
@@ -60,16 +74,28 @@
               <p v-else class="min-w-0 truncate text-xs text-muted-foreground">{{ toolsHint }}</p>
               <router-link v-if="activeAgentHasSandboxTools" :to="{ name: 'sandboxes' }" class="shrink-0 text-xs text-primary hover:underline">在云沙盒页查看</router-link>
             </div>
-            <ConversationView
-              :messages="chatMessages"
-              :sending="sending"
-              :can-retry="canRetry"
-              @retry="retryLast"
+            <SbAsyncRegion
+              class="min-h-40 flex-1"
+              block="lines"
+              :pending="threadPending"
+              :show-skeleton="threadShowSkeleton"
+              :show-empty="threadShowEmpty"
+              :show-error="threadShowError"
+              :refreshing="threadRefreshing"
+              :error="threadError"
+              @retry="reloadThread"
             >
               <template #empty>
-                <SbEmptyState v-if="!chatMessages.length" :icon="BotIcon" description="用 @ 点名左侧 Agent，询问数据库、对象或日志；Sandbox Agent 可在云端环境运行代码" />
+                <SbEmptyState :icon="BotIcon" description="用 @ 点名左侧 Agent，询问数据库、对象或日志；Sandbox Agent 可在云端环境运行代码" />
               </template>
-            </ConversationView>
+              <ConversationView
+                :messages="chatMessages"
+                :sending="sending"
+                :can-retry="canRetry"
+                :history-loading="threadPending && !threadHasData"
+                @retry="retryLast"
+              />
+            </SbAsyncRegion>
             <AgentComposer
               v-model="draft"
               :sending="sending"
@@ -159,7 +185,7 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { BotIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
@@ -191,13 +217,34 @@ import ConversationView from '../components/agent/ConversationView.vue'
 import AgentComposer from '../components/agent/AgentComposer.vue'
 import AgentScheduleModal from '../components/ai/AgentScheduleModal.vue'
 import { useAgentConversation } from '../composables/useAgentConversation'
+import { useLoadState } from '@/composables/useLoadState'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import type { ChatMsg } from '../composables/useAiChat'
 import type { AgentSchedule } from '../services/types'
 
 const project = useProjectStore()
 const route = useRoute()
 const router = useRouter()
-const loading = ref(false)
+const {
+  pending: agentsPending,
+  showSkeleton: agentsShowSkeleton,
+  showEmpty: agentsShowEmpty,
+  showError: agentsShowError,
+  refreshing: agentsRefreshing,
+  error: agentsError,
+  run: runAgents
+} = useLoadState({ fallback: '加载 Agent 失败' })
+const {
+  pending: threadPending,
+  hasData: threadHasData,
+  showSkeleton: threadShowSkeleton,
+  showEmpty: threadShowEmpty,
+  showError: threadShowError,
+  refreshing: threadRefreshing,
+  error: threadError,
+  run: runThread,
+  settle: settleThread
+} = useLoadState({ fallback: '加载会话失败' })
 const saving = ref(false)
 const agents = ref<CloudAgent[]>([])
 const modules = ref<AgentModuleInfo[]>([])
@@ -277,11 +324,7 @@ watch(
   }
 )
 
-async function bootstrap() {
-  await loadModules()
-  await loadAgents()
-  await ensureThread()
-  await loadSchedules()
+async function loadModelOptions() {
   try {
     // BUG-07：优先用 /agents/models 提供模型候选。
     const res = await api.agents.models(project.id)
@@ -289,6 +332,11 @@ async function bootstrap() {
     modelOptions.value = res.models.map((m) => m.name)
     if (!modelOptions.value.length && defaultModel.value) modelOptions.value = [defaultModel.value]
   } catch { defaultModel.value = '' }
+}
+
+async function bootstrap() {
+  // 模块列表和 Agent 列表在同一次 run 里；会话确保与它们互不依赖，一起开始。
+  await Promise.all([loadAgents(), ensureThread(), loadSchedules(), loadModelOptions()])
 }
 
 async function loadSchedules() {
@@ -335,9 +383,9 @@ async function onViewScheduleThread(threadIdToView: string) {
   await selectThread(threadIdToView)
 }
 
-async function loadThreadMessages(id: string) {
+async function loadThreadMessages(id: string): Promise<boolean> {
   const msgs = await api.agentThreads.messages(project.id, id)
-  if (threadId.value !== id) return
+  if (threadId.value !== id) return false
   chatMessages.value = msgs.map((m) => ({
     role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content,
     toolCalls: m.tool_calls,
@@ -345,16 +393,20 @@ async function loadThreadMessages(id: string) {
     error: m.error_code ? errorMessage({ code: m.error_code } as Error & { code?: string }, '运行失败') : undefined,
     canceled: m.run_status === 'canceled'
   }))
+  return chatMessages.value.length > 0
 }
 
 async function selectThread(id: string) {
   if (!id) return
   onStop()
   threadId.value = id
-  chatMessages.value = []
   if (router?.replace) void router.replace({ query: { ...route.query, thread: id } })
-  try { await loadThreadMessages(id) }
-  catch (e) { toast.error(errorMessage(e, '加载会话失败')) }
+  await runThread(async () => loadThreadMessages(id), { replace: true })
+}
+
+function reloadThread() {
+  if (threadId.value) void selectThread(threadId.value)
+  else void ensureThread()
 }
 
 async function renameThread(id: string, title: string) {
@@ -386,23 +438,20 @@ async function loadModules() {
 }
 
 async function loadAgents() {
-  loading.value = true
-  try {
+  await runAgents(async () => {
+    await loadModules()
     agents.value = await api.agents.list(project.id)
     // BUG-11：通用助手默认选中。
     if (!activeId.value && agents.value.length) {
       const general = agents.value.find((a) => a.builtin_key === 'general')
       activeId.value = general?.id || agents.value[0].id
     }
-  } catch (e) {
-    toast.error(errorMessage(e, '加载 Agent 失败'))
-  } finally {
-    loading.value = false
-  }
+    return agents.value.length > 0
+  })
 }
 
 async function ensureThread() {
-  try {
+  await runThread(async () => {
     const page = await api.agentThreads.page(project.id).catch(async () => ({ threads: await api.agentThreads.list(project.id), next_cursor: '' }))
     threads.value = page.threads
     nextCursor.value = page.next_cursor
@@ -415,8 +464,8 @@ async function ensureThread() {
       threads.value = [th]
       threadId.value = th.id
     }
-    await loadThreadMessages(threadId.value)
-  } catch (e) { toast.error(errorMessage(e, '加载会话失败')) }
+    return loadThreadMessages(threadId.value)
+  }, { replace: true })
 }
 
 function openCreate() {
@@ -504,6 +553,7 @@ async function resetThread() {
     threads.value.unshift(th)
     threadId.value = th.id
     chatMessages.value = []
+    settleThread(false)
     if (router?.replace) void router.replace({ query: { ...route.query, thread: th.id } })
   } catch (e) {
     toast.error(errorMessage(e, '新建会话失败'))
@@ -549,7 +599,5 @@ function onStop() {
   conv.stop()
 }
 
-onMounted(() => {
-  void bootstrap()
-})
+void bootstrap()
 </script>

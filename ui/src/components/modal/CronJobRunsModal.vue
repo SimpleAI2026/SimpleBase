@@ -9,11 +9,13 @@
   >
     <div class="flex items-center gap-2 border-b pb-3">
       <Button size="sm" :disabled="!job || triggering" @click="trigger">
-        <PlayIcon data-icon="inline-start" />
+        <Spinner v-if="triggering" data-icon="inline-start" />
+        <PlayIcon v-else data-icon="inline-start" />
         立即执行
       </Button>
-      <Button size="sm" variant="outline" :disabled="loading" @click="load">
-        <RefreshCwIcon data-icon="inline-start" />
+      <Button size="sm" variant="outline" :disabled="pending" @click="load">
+        <Spinner v-if="pending" data-icon="inline-start" />
+        <RefreshCwIcon v-else data-icon="inline-start" />
         刷新
       </Button>
       <Select v-model="statusFilter">
@@ -28,14 +30,24 @@
       </Select>
     </div>
 
-    <div class="max-h-[60vh] space-y-3 overflow-y-auto pt-3">
-      <div v-if="loading && !runs.length" class="flex justify-center py-8">
-        <Spinner />
-      </div>
+    <div class="max-h-[60vh] overflow-y-auto pt-3">
+      <SbAsyncRegion
+        class="space-y-3"
+        block="spinner"
+        :pending="pending"
+        :show-skeleton="showSkeleton"
+        :show-empty="showEmpty"
+        :show-error="showError"
+        :refreshing="refreshing"
+        :error="error"
+        :empty-title="statusFilter === 'all' ? '还没有运行记录' : '没有匹配的记录'"
+        :empty-description="statusFilter === 'all' ? '到点或手动触发后此处显示每次执行' : ''"
+        @retry="load"
+      >
       <SbEmptyState
-        v-else-if="!filteredRuns.length"
-        :title="statusFilter === 'all' ? '还没有运行记录' : '没有匹配的记录'"
-        :description="statusFilter === 'all' ? '到点或手动触发后此处显示每次执行' : ''"
+        v-if="hasData && !filteredRuns.length"
+        title="没有匹配的记录"
+        description=""
       />
       <div
         v-for="run in filteredRuns"
@@ -78,6 +90,7 @@
           <pre class="max-h-32 overflow-auto rounded-md bg-destructive/10 p-2 text-xs whitespace-pre-wrap text-destructive">{{ run.error }}</pre>
         </div>
       </div>
+      </SbAsyncRegion>
     </div>
   </SbModal>
 </template>
@@ -96,7 +109,9 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import SbModal from './SbModal.vue'
+import SbAsyncRegion from '../SbAsyncRegion.vue'
 import SbEmptyState from '../SbEmptyState.vue'
+import { useLoadState } from '../../composables/useLoadState'
 import { api } from '../../services/api'
 import type { CronJobItem, CronJobRunItem } from '../../services/api'
 import { useProjectStore } from '../../stores/project'
@@ -118,8 +133,10 @@ const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.projectId)
 
 const runs = ref<CronJobRunItem[]>([])
-const loading = ref(false)
 const triggering = ref(false)
+const { pending, hasData, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载运行记录失败'
+})
 const statusFilter = ref<'all' | 'completed' | 'failed'>('all')
 
 const filteredRuns = computed(() => {
@@ -127,16 +144,14 @@ const filteredRuns = computed(() => {
   return runs.value.filter((r) => r.status === statusFilter.value)
 })
 
-async function load() {
-  if (!props.job) return
-  loading.value = true
-  try {
-    runs.value = await api.cronjobs.runs(projectId.value, props.job.id, 50)
-  } catch (e) {
-    toast.error(errorMessage(e, '加载运行记录失败'))
-  } finally {
-    loading.value = false
-  }
+function load() {
+  const job = props.job
+  if (!job) return Promise.resolve()
+  return run(async () => {
+    const data = await api.cronjobs.runs(projectId.value, job.id, 50)
+    runs.value = data
+    return data.length > 0
+  })
 }
 
 /** 触发后轮询直至最新记录不再 running；弹窗关闭后立即停止轮询 */

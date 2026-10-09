@@ -45,21 +45,21 @@
                 <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              <template v-if="loading && !rows.length">
-                <TableRow v-for="i in 5" :key="i">
-                  <TableCell colspan="5"><Skeleton class="h-5 w-full" /></TableCell>
-                </TableRow>
-              </template>
-              <TableEmpty v-else-if="!rows.length" :colspan="5">
-                <SbEmptyState
-                  title="暂无 Key"
-                  description="项目 Key-Value 会随项目自动准备，新建一个 Key 即可开始使用。"
-                  :action-text="readonly ? undefined : '新建 Key'"
-                  @action="openCreate"
-                />
-              </TableEmpty>
-              <template v-else>
+            <SbAsyncRegion
+              as="tbody"
+              :columns="5"
+              :pending="pending"
+              :show-skeleton="showSkeleton"
+              :show-empty="showEmpty"
+              :show-error="showError"
+              :refreshing="refreshing"
+              :error="error"
+              empty-title="暂无 Key"
+              empty-description="项目 Key-Value 会随项目自动准备，新建一个 Key 即可开始使用。"
+              :empty-action-text="readonly ? undefined : '新建 Key'"
+              @retry="load"
+              @empty-action="openCreate"
+            >
                 <TableRow v-for="m in rows" :key="m.key" class="cursor-pointer" @click="openDetail(m)">
                   <TableCell class="sb-mono max-w-0 truncate">{{ m.key }}</TableCell>
                   <TableCell>
@@ -82,14 +82,13 @@
                     </div>
                   </TableCell>
                 </TableRow>
-              </template>
-            </TableBody>
+            </SbAsyncRegion>
           </Table>
         </div>
 
         <div v-if="hasMore" class="flex justify-center">
-          <Button size="sm" variant="outline" :disabled="loading" @click="loadMore">
-            <Spinner v-if="loading" class="mr-2 h-3.5 w-3.5" />
+          <Button size="sm" variant="outline" :disabled="pending || loadingMore" @click="loadMore">
+            <Spinner v-if="loadingMore" class="mr-2 h-3.5 w-3.5" />
             加载更多
           </Button>
         </div>
@@ -140,13 +139,13 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import SbAsyncRegion from '../../SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 import { api } from '../../../services/api'
 import type { KvKeyMeta } from '../../../services/api'
-import SbEmptyState from '../../SbEmptyState.vue'
 import ConfirmAction from '../../ConfirmAction.vue'
 import KvApiPanel from './KvApiPanel.vue'
 import SbModal from '../../modal/SbModal.vue'
@@ -169,8 +168,11 @@ const cursor = ref('')
 const hasMore = ref(false)
 const pattern = ref('')
 const typeFilter = ref('all')
-const loading = ref(false)
-watch(loading, (value) => emit('loading', value), { immediate: true })
+const loadingMore = ref(false)
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载失败'
+})
+watch(pending, (value) => emit('loading', value), { immediate: true })
 
 const createOpen = ref(false)
 const detailOpen = ref(false)
@@ -245,60 +247,61 @@ function lenCommand(type: string, key: string): string[] | null {
   }
 }
 
-/** SCAN 拿 key 列表，再批量取 TYPE / PTTL / 长度拼出列表行 */
-async function fetchPage(append: boolean) {
-  loading.value = true
-  try {
-    const argv = ['SCAN', append && cursor.value ? cursor.value : '0', 'COUNT', '100']
-    if (pattern.value.trim()) argv.push('MATCH', pattern.value.trim())
-    if (typeFilter.value !== 'all') argv.push('TYPE', typeFilter.value)
-    const reply = (await api.kv.exec(props.projectId, { type: 'cmd', argvs: argv })) as [
-      string,
-      string[]
-    ]
-    const nextCursor = Array.isArray(reply) ? reply[0] : '0'
-    const keys = Array.isArray(reply) ? reply[1] || [] : []
-    const page = await Promise.all(
-      keys.map(async (key) => {
-        const metas = (await api.kv.execBatch(props.projectId, [
-          { type: 'cmd', argvs: ['TYPE', key] },
-          { type: 'cmd', argvs: ['PTTL', key] }
-        ])) as [string, number]
-        const type = metas[0] || 'string'
-        const pttl = typeof metas[1] === 'number' ? metas[1] : -1
-        let len: number | null = null
-        if (type !== 'string') {
-          const lc = lenCommand(type, key)
-          if (lc) {
-            const l = await api.kv.exec(props.projectId, { type: 'cmd', argvs: lc })
-            len = typeof l === 'number' ? l : null
-          }
+/** SCAN 拿 key 列表，再批量取 TYPE / PTTL / 长度拼出列表行。抛错前不改已有行。 */
+async function scanPage(append: boolean): Promise<KvKeyMeta[]> {
+  const argv = ['SCAN', append && cursor.value ? cursor.value : '0', 'COUNT', '100']
+  if (pattern.value.trim()) argv.push('MATCH', pattern.value.trim())
+  if (typeFilter.value !== 'all') argv.push('TYPE', typeFilter.value)
+  const reply = (await api.kv.exec(props.projectId, { type: 'cmd', argvs: argv })) as [
+    string,
+    string[]
+  ]
+  const nextCursor = Array.isArray(reply) ? reply[0] : '0'
+  const keys = Array.isArray(reply) ? reply[1] || [] : []
+  const page = await Promise.all(
+    keys.map(async (key) => {
+      const metas = (await api.kv.execBatch(props.projectId, [
+        { type: 'cmd', argvs: ['TYPE', key] },
+        { type: 'cmd', argvs: ['PTTL', key] }
+      ])) as [string, number]
+      const type = metas[0] || 'string'
+      const pttl = typeof metas[1] === 'number' ? metas[1] : -1
+      let len: number | null = null
+      if (type !== 'string') {
+        const lc = lenCommand(type, key)
+        if (lc) {
+          const l = await api.kv.exec(props.projectId, { type: 'cmd', argvs: lc })
+          len = typeof l === 'number' ? l : null
         }
-        return {
-          key,
-          type: type as KvKeyMeta['type'],
-          len,
-          ttl_ms: pttl >= 0 ? pttl : null,
-          mtime_ms: 0,
-          version: 0
-        } satisfies KvKeyMeta
-      })
-    )
-    rows.value = append ? rows.value.concat(page) : page
-    cursor.value = nextCursor === '0' ? '' : nextCursor
-    hasMore.value = cursor.value !== ''
-    fetchedAt.value = Date.now()
-    ensureTimer()
-  } catch (e) {
-    toast.error(errorMessage(e, '加载失败'))
-  } finally {
-    loading.value = false
-  }
+      }
+      return {
+        key,
+        type: type as KvKeyMeta['type'],
+        len,
+        ttl_ms: pttl >= 0 ? pttl : null,
+        mtime_ms: 0,
+        version: 0
+      } satisfies KvKeyMeta
+    })
+  )
+  rows.value = append ? rows.value.concat(page) : page
+  cursor.value = nextCursor === '0' ? '' : nextCursor
+  hasMore.value = cursor.value !== ''
+  fetchedAt.value = Date.now()
+  ensureTimer()
+  return page
+}
+
+function load() {
+  cursor.value = ''
+  return run(async () => {
+    const page = await scanPage(false)
+    return page.length > 0
+  })
 }
 
 function reload() {
-  cursor.value = ''
-  void fetchPage(false)
+  return load()
 }
 
 function openCreate() {
@@ -308,8 +311,15 @@ function openCreate() {
 
 defineExpose({ reload, openCreate })
 
-function loadMore() {
-  void fetchPage(true)
+async function loadMore() {
+  loadingMore.value = true
+  try {
+    await scanPage(true)
+  } catch (e) {
+    toast.error(errorMessage(e, '加载失败'))
+  } finally {
+    loadingMore.value = false
+  }
 }
 
 function openDetail(m: KvKeyMeta) {

@@ -1,7 +1,15 @@
 <template>
   <div class="space-y-4" data-testid="schema-panel">
-    <p v-if="loading" class="text-sm text-muted-foreground">加载表结构</p>
-    <template v-else>
+    <SbAsyncRegion
+      block="lines"
+      :pending="pending"
+      :show-skeleton="showSkeleton"
+      :show-empty="false"
+      :show-error="showError"
+      :refreshing="refreshing"
+      :error="error"
+      @retry="load"
+    >
       <SbEmptyState v-if="!tables.length" description="还没有表" />
       <div v-else class="space-y-3">
         <section v-for="table in tables" :key="table.name" class="rounded-lg border border-border p-3">
@@ -15,7 +23,8 @@
           </ul>
         </section>
       </div>
-      <div v-if="!readonly" class="grid gap-4 border-t border-border pt-4 md:grid-cols-2">
+    </SbAsyncRegion>
+    <div v-if="settled && !showError && !readonly" class="grid gap-4 border-t border-border pt-4 md:grid-cols-2">
         <form class="create-table space-y-2" @submit.prevent="submitTable">
           <h4 class="text-sm font-medium">新建表</h4>
           <Input id="schema-table-name" v-model="tableName" placeholder="表名" />
@@ -50,19 +59,20 @@
           <Button type="submit" size="sm" :disabled="busy || !tables.length">添加列</Button>
         </form>
       </div>
-    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/services/api'
 import type { DatabaseItem, SchemaColumn, SchemaTable } from '@/services/api'
 import { errorMessage } from '@/utils/format'
+import SbAsyncRegion from '../SbAsyncRegion.vue'
 import SbEmptyState from '../SbEmptyState.vue'
+import { useLoadState } from '@/composables/useLoadState'
 
 const columnTypes = ['INTEGER', 'BIGINT', 'DOUBLE', 'VARCHAR', 'BOOLEAN', 'TIMESTAMP', 'DATE', 'JSON']
 const selectClass =
@@ -81,8 +91,10 @@ interface ColumnDraft {
   nullable: boolean
 }
 
-const loading = ref(true)
 const busy = ref(false)
+const { pending, settled, showSkeleton, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载表结构失败'
+})
 const tables = ref<SchemaTable[]>([])
 const tableName = ref('')
 const drafts = ref<ColumnDraft[]>([{ name: '', type: 'VARCHAR', nullable: true }])
@@ -95,9 +107,8 @@ function blankDraft(): ColumnDraft {
   return { name: '', type: 'VARCHAR', nullable: true }
 }
 
-async function load() {
-  loading.value = true
-  try {
+function load() {
+  return run(async () => {
     const schema = await api.databases.schema(props.projectId, props.database.id)
     tables.value = schema.tables
     if (schema.tables.length > 0) {
@@ -105,11 +116,8 @@ async function load() {
     } else {
       addTable.value = ''
     }
-  } catch (error) {
-    toast.error(errorMessage(error, '加载表结构失败'))
-  } finally {
-    loading.value = false
-  }
+    return true
+  })
 }
 
 function addDraft() {
@@ -174,12 +182,10 @@ async function submitColumn() {
   }
 }
 
-onMounted(() => {
-  void load()
-})
+void load()
 
 watch(
-  () => props.database.id,
+  () => [props.projectId, props.database.id],
   () => {
     void load()
   }
