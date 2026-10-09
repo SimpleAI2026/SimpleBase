@@ -213,7 +213,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 			sqlHandler.DurabilityFor = f.DurabilityFor
 		}
 		dataHandler = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable)
-		schemaHandler = api.NewSchemaHandler(sqlService.(api.DataService), cfg.Instance.Writable)
+		schemaHandler = api.NewSchemaHandler(sqlService.(api.DataService), cfg.Instance.Writable, sqlLimits)
 		dbHandler.InitSQL = sqlService
 		// 项目级 KV（key-value-ducklake-plan §2/§3）：catalog + registry 桥接。
 		kvService = api.NewKVServiceAdapter(a.catalog, a.registry)

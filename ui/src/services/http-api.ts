@@ -26,6 +26,7 @@ import type {
   DatabaseSchema,
   SchemaColumn,
   SchemaTable,
+  SchemaTableRows,
   GoFunctionItem,
   GoFuncVersionCreate,
   GoFuncVersionSummary,
@@ -83,10 +84,31 @@ function schemaText(value: unknown): string {
 
 function toSchemaColumn(raw: unknown): SchemaColumn {
   const column = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
-  return {
+  const mapped: SchemaColumn = {
     name: schemaText(column?.name),
     type: schemaText(column?.type),
     nullable: column?.nullable !== false
+  }
+  if (column?.sensitive === true) mapped.sensitive = true
+  return mapped
+}
+
+function toSchemaTableRows(raw: unknown): SchemaTableRows {
+  const body = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
+  const columns = Array.isArray(body?.columns) ? body.columns.map(toSchemaColumn) : []
+  const rows: unknown[][] = []
+  if (Array.isArray(body?.rows)) {
+    for (const row of body.rows) {
+      rows.push(Array.isArray(row) ? Array.from(row) : [])
+    }
+  }
+  return {
+    table: schemaText(body?.table),
+    columns,
+    rows,
+    limit: typeof body?.limit === 'number' ? body.limit : 0,
+    offset: typeof body?.offset === 'number' ? body.offset : 0,
+    total: typeof body?.total === 'number' ? body.total : 0
   }
 }
 
@@ -974,6 +996,12 @@ export const httpApi: Api = {
       http
         .get(databaseResourcePath(projectId, databaseId, '/schema'))
         .then((r) => toDatabaseSchema(r.data)),
+    tableRows: (projectId, databaseId, table, query) =>
+      http
+        .get(databaseResourcePath(projectId, databaseId, '/schema/tables/' + encodeURIComponent(table) + '/rows'), {
+          params: { limit: query.limit, offset: query.offset }
+        })
+        .then((r) => toSchemaTableRows(r.data)),
     createTable: (projectId, databaseId, table) =>
       http
         .post(databaseResourcePath(projectId, databaseId, '/schema/tables'), {

@@ -73,6 +73,7 @@ func Bootstrap(ctx context.Context, in BootstrapInput) (*Store, error) {
 		Name:          loc.Name,
 		Kind:          catalog.DatabaseKindSystem,
 		Status:        catalog.DatabaseReady,
+		DataModel:     catalog.DataModelSQL,
 		StoragePrefix: prefix,
 		FormatVersion: objectstore.DescriptorFormatVersion,
 		CreatedAt:     loc.CreatedAt,

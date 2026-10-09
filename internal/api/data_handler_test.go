@@ -237,6 +237,21 @@ func TestCreateCollectionExecuteError(t *testing.T) {
 	}
 }
 
+func TestDataListCollections_SystemDatabaseRejected(t *testing.T) {
+	svc := &fakeDataService{dbs: []catalog.Database{{
+		ID: "db-sys", ProjectID: "proj-1", Kind: catalog.DatabaseKindSystem, DataModel: catalog.DataModelCollection,
+	}}}
+	e := setupDataTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-sys/data/collections", nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "data_model_mismatch") {
+		t.Fatalf("list %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-sys/data/collections/sys_users/documents", map[string]any{"data": "{}"})
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "system_database_protected") {
+		t.Fatalf("write %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func errorsNew(s string) error { return &simpleErr{s} }
 
 type simpleErr struct{ s string }

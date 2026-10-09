@@ -23,11 +23,20 @@ func TestIsSQLDataModel(t *testing.T) {
 	if IsSQLDataModel(Database{Kind: DatabaseKindUser}) {
 		t.Fatal("empty model is collection")
 	}
-	if IsSQLDataModel(Database{Kind: DatabaseKindSystem, DataModel: DataModelSQL}) {
-		t.Fatal("system is not a sql data model")
+	if !IsSQLDataModel(Database{Kind: DatabaseKindSystem}) {
+		t.Fatal("system empty column is sql")
+	}
+	if !IsSQLDataModel(Database{Kind: DatabaseKindSystem, DataModel: DataModelCollection}) {
+		t.Fatal("system collection column is still sql")
+	}
+	if EffectiveDataModel(Database{Kind: DatabaseKindSystem, DataModel: DataModelCollection}) != DataModelSQL {
+		t.Fatal("system effective model")
 	}
 	if IsSQLDataModel(Database{Kind: DatabaseKindKV, DataModel: DataModelSQL}) {
 		t.Fatal("kv is not a sql data model")
+	}
+	if EffectiveDataModel(Database{Kind: DatabaseKindKV, DataModel: DataModelSQL}) != DataModelSQL {
+		t.Fatal("kv effective model follows the column")
 	}
 	if EffectiveDataModel(Database{}) != DataModelCollection {
 		t.Fatal("effective default")

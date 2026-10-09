@@ -148,6 +148,10 @@ func (h *SQLHandler) Query(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
+	// 系统库凭证列不允许通过别名或表达式读出。SELECT * 的列名在执行后抹掉。
+	if catalog.IsSystemDatabase(db) && systemSQLReferencesSensitive(req.SQL) {
+		return WriteError(c, NewAPIError(http.StatusForbidden, "system_column_redacted", "system database credential columns are hidden", RequestIDFromContext(c.Request().Context())))
+	}
 
 	semScope := timer.StageScope(StageSemaphore)
 	if err := h.acquireSem(ctx); err != nil {
@@ -177,13 +181,17 @@ func (h *SQLHandler) Query(c echo.Context) error {
 	}
 
 	rid := RequestIDFromContext(c.Request().Context())
-	return c.JSON(http.StatusOK, QueryResponse{
+	resp := QueryResponse{
 		Columns:    result.Columns,
 		Rows:       serializedRows,
 		RowCount:   len(serializedRows),
 		DurationMS: result.Duration.Milliseconds(),
 		RequestID:  rid,
-	})
+	}
+	if catalog.IsSystemDatabase(db) {
+		resp.RedactedColumns = redactSystemResult(resp.Columns, resp.Rows)
+	}
+	return c.JSON(http.StatusOK, resp)
 }
 
 // Execute: POST /v1/projects/:projectID/databases/:databaseID/execute

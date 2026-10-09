@@ -28,6 +28,7 @@ export const api = {
     get: vi.fn(),
     remove: vi.fn(),
     schema: vi.fn(),
+    tableRows: vi.fn(),
     createTable: vi.fn(),
     addColumn: vi.fn()
   },
@@ -212,6 +213,14 @@ export function applyApiDefaults() {
   })
   api.databases.remove.mockResolvedValue(undefined)
   api.databases.schema.mockResolvedValue({ tables: [] })
+  api.databases.tableRows.mockResolvedValue({
+    table: '',
+    columns: [],
+    rows: [],
+    limit: 50,
+    offset: 0,
+    total: 0
+  })
   api.databases.createTable.mockResolvedValue({ name: 't', columns: [] })
   api.databases.addColumn.mockResolvedValue({ name: 'c', type: 'VARCHAR', nullable: true })
   api.sql.query.mockResolvedValue({

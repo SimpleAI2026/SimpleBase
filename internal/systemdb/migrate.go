@@ -625,6 +625,14 @@ var systemMigrations = []migration{
 		stmt: `ALTER TABLE sys_databases ADD COLUMN data_model VARCHAR DEFAULT 'collection';
 			UPDATE sys_databases SET data_model = 'collection' WHERE data_model IS NULL OR data_model = ''`,
 	},
+	{
+		// v44：系统库对外是 SQL 表。已有 kind=system 行从默认 collection 回填为 sql。
+		// 不改用户库和 KV 行。
+		version: 44,
+		name:    "sys_databases_system_data_model_sql",
+		stmt: `UPDATE sys_databases SET data_model = 'sql'
+			WHERE kind = 'system' AND (data_model IS NULL OR data_model <> 'sql')`,
+	},
 }
 
 // retireOpenCloseStatusSQL 把未软删的 closed/opening/closing/recovering 写成 ready。

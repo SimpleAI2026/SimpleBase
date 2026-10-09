@@ -235,6 +235,32 @@ describe('httpApi', () => {
     const partial = await httpApi.databases.schema(pid, db)
     expect(partial.tables[0]).toEqual({ name: '', columns: [] })
     expect(partial.tables[1]).toEqual({ name: 'x', columns: [] })
+    http.get.mockResolvedValueOnce({
+      data: {
+        table: 'sys_users',
+        columns: [{ name: 'password_hash', type: 'VARCHAR', nullable: false, sensitive: true }, { name: 'id' }],
+        rows: [[null, 'u1'], 'bad'],
+        limit: 50,
+        offset: 0,
+        total: 1
+      }
+    })
+    const rows = await httpApi.databases.tableRows(pid, db, 'sys/users', { limit: 50, offset: 0 })
+    expect(rows.columns[0].sensitive).toBe(true)
+    expect(rows.columns[1].sensitive).toBeUndefined()
+    expect(rows.rows).toEqual([[null, 'u1'], []])
+    expect(rows.total).toBe(1)
+    expect(String(http.get.mock.calls.at(-1)?.[0])).toContain('/schema/tables/sys%2Fusers/rows')
+    expect(http.get.mock.calls.at(-1)?.[1]).toEqual({ params: { limit: 50, offset: 0 } })
+    http.get.mockResolvedValueOnce({ data: undefined })
+    expect(await httpApi.databases.tableRows(pid, db, 't', { limit: 50, offset: 0 })).toEqual({
+      table: '',
+      columns: [],
+      rows: [],
+      limit: 0,
+      offset: 0,
+      total: 0
+    })
     http.post.mockResolvedValueOnce({ data: { name: 't', columns: [{ name: 'id', type: 'INTEGER', nullable: false }] } })
     expect(
       (
