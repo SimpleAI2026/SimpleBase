@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"sort"
 	"strings"
 	"sync"
 
@@ -149,6 +148,22 @@ func (m *gatewayChatModel) Stream(ctx context.Context, input []*schema.Message, 
 				}
 				call.Name += tc.Name
 				call.Arguments += tc.ArgsDelta
+				id := call.ID
+				if id == "" {
+					id = "pending"
+				}
+				if tc.Name != "" || tc.ArgsDelta != "" || tc.ID != "" {
+					// Index 让 ConcatMessages 把增量收成一次调用。
+					// 不带 index 时每个片段都是独立 ToolCall，空 name 的片段会让工具节点报 not found。
+					idx := tc.Index
+					sw.Send(&schema.Message{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
+						Index:    &idx,
+						ID:       id,
+						Type:     "function",
+						Function: schema.FunctionCall{Name: tc.Name, Arguments: tc.ArgsDelta},
+						Extra:    map[string]any{"delta": true},
+					}}}, nil)
+				}
 			}
 			if delta.Content != "" {
 				if textMode {
@@ -173,18 +188,7 @@ func (m *gatewayChatModel) Stream(ctx context.Context, input []*schema.Message, 
 			sw.Send(nil, streamErr)
 			return
 		}
-		if len(calls) > 0 {
-			indices := make([]int, 0, len(calls))
-			for i := range calls {
-				indices = append(indices, i)
-			}
-			sort.Ints(indices)
-			ordered := make([]ChatToolCall, 0, len(calls))
-			for _, i := range indices {
-				ordered = append(ordered, *calls[i])
-			}
-			sw.Send(assistantToolMessage(ordered), nil)
-		} else if !textMode {
+		if len(calls) == 0 && !textMode {
 			msg := parseAssistant(pending.String())
 			if toolMode && len(msg.ToolCalls) == 0 || !toolMode && msg.Content != "" {
 				sw.Send(schema.AssistantMessage(pending.String(), nil), nil)

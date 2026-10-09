@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
@@ -21,23 +22,25 @@ import (
 
 // Event is a streaming run event for SSE/NDJSON.
 type Event struct {
-	Type             string `json:"type"`
-	Content          string `json:"content,omitempty"`
-	Name             string `json:"name,omitempty"`
-	Arguments        string `json:"arguments,omitempty"`
-	CallID           string `json:"call_id,omitempty"`
-	RunID            string `json:"run_id,omitempty"`
-	Message          string `json:"message,omitempty"`
-	Code             string `json:"code,omitempty"`
-	Reason           string `json:"reason,omitempty"`
-	ElapsedMS        int64  `json:"elapsed_ms,omitempty"`
-	DurationMS       int64  `json:"duration_ms,omitempty"`
-	PromptTokens     int    `json:"prompt_tokens,omitempty"`
-	CompletionTokens int    `json:"completion_tokens,omitempty"`
-	ReasoningTokens  int    `json:"reasoning_tokens,omitempty"`
-	ToolCalls        int    `json:"tool_calls,omitempty"`
-	IsError          bool   `json:"is_error,omitempty"`
-	Truncated        bool   `json:"truncated,omitempty"`
+	Type             string   `json:"type"`
+	Content          string   `json:"content,omitempty"`
+	Name             string   `json:"name,omitempty"`
+	Arguments        string   `json:"arguments,omitempty"`
+	CallID           string   `json:"call_id,omitempty"`
+	RunID            string   `json:"run_id,omitempty"`
+	Message          string   `json:"message,omitempty"`
+	Code             string   `json:"code,omitempty"`
+	Reason           string   `json:"reason,omitempty"`
+	ElapsedMS        int64    `json:"elapsed_ms,omitempty"`
+	DurationMS       int64    `json:"duration_ms,omitempty"`
+	PromptTokens     int      `json:"prompt_tokens,omitempty"`
+	CompletionTokens int      `json:"completion_tokens,omitempty"`
+	ReasoningTokens  int      `json:"reasoning_tokens,omitempty"`
+	ToolCalls        int      `json:"tool_calls,omitempty"`
+	IsError          bool     `json:"is_error,omitempty"`
+	Truncated        bool     `json:"truncated,omitempty"`
+	Argv             []string `json:"argv,omitempty"`
+	Approve          *bool    `json:"approve,omitempty"`
 }
 
 // RunRequest starts a single-agent turn.
@@ -50,6 +53,9 @@ type RunRequest struct {
 	UserText  string
 	History   []systemdb.AgentMessage
 	Stream    bool
+	// Skills 是本轮已校验的 skill id。Headless 为定时任务，不能确认破坏性命令。
+	Skills   []string
+	Headless bool
 }
 
 // RunResult is the completed assistant turn.
@@ -77,10 +83,21 @@ type Runtime struct {
 	MaxIterations int
 	RunTimeout    time.Duration
 	ToolProtocol  string
+	// SkillsCLI 为真时用 simplebase CLI 工具替换只读数据工具。
+	SkillsCLI      bool
+	CLI            CLIRunner
+	CLIPath        string
+	APIBaseURL     string
+	Issuer         DelegationIssuer
+	Confirm        ConfirmationWaiter
+	ConfirmTimeout time.Duration
+	DelegationTTL  time.Duration
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
 	threads map[string]string
+	tokens  map[string]string
+	gate    *callGate
 }
 
 // StartRun executes the agent. emit is optional (streaming).
@@ -101,14 +118,40 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	}
 
 	snapshot := r.buildSnapshot(ctx, req)
-	instruction := AssembleInstruction(PromptParts{
+	parts := PromptParts{
 		ModuleTemplate: ModuleTemplate(req.Agent.Module),
 		AgentPrompt:    req.Agent.SystemPrompt,
 		ProjectEnv:     fmt.Sprintf("Project env:\n- project_id: %s\n- agent: %s (%s)\n- module: %s", req.ProjectID, req.Agent.Name, req.Agent.ID, req.Agent.Module),
 		Snapshot:       snapshot,
-	})
+	}
+	if r.SkillsCLI {
+		parts.SkillsCLI = true
+		parts.SkillText = SkillPrompt(req.Skills)
+		if len(req.Skills) > 0 {
+			parts.ProjectEnv += "\n- skills: " + strings.Join(req.Skills, ",")
+		}
+		if !containsSkill(req.Skills, ModuleDatabase) && req.Agent.Module != ModuleDatabase {
+			parts.Snapshot = ""
+		}
+	}
+	instruction := AssembleInstruction(parts)
 
-	tools, err := buildTools(req.Agent.ToolIDs, toolDeps{DB: r.DB, Obj: r.Obj, Logs: r.Logs, Sandbox: r.Sandbox})
+	var tools []tool.BaseTool
+	var err error
+	if r.SkillsCLI {
+		if r.Issuer != nil {
+			tok, ierr := r.Issuer.Issue(req.Principal, req.ProjectID, req.RunID, r.delegationTTL())
+			if ierr != nil {
+				return RunResult{}, ierr
+			}
+			r.rememberToken(req.RunID, tok)
+			defer r.forgetToken(req.RunID)
+			defer r.Issuer.RevokeRun(req.RunID)
+		}
+		tools, err = r.buildSkillTools(req)
+	} else {
+		tools, err = buildTools(req.Agent.ToolIDs, toolDeps{DB: r.DB, Obj: r.Obj, Logs: r.Logs, Sandbox: r.Sandbox})
+	}
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -150,7 +193,10 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	defer r.clearCancel(req.RunID)
 	defer cancel()
 
-	runCtx = withRunContext(runCtx, RunContext{ProjectID: req.ProjectID, Principal: req.Principal, ThreadID: req.ThreadID})
+	runCtx = withRunContext(runCtx, RunContext{
+		ProjectID: req.ProjectID, Principal: req.Principal, ThreadID: req.ThreadID,
+		RunID: req.RunID, Skills: req.Skills, Headless: req.Headless, Emit: emit,
+	})
 
 	runner := adk.NewRunner(runCtx, adk.RunnerConfig{Agent: agent, EnableStreaming: req.Stream})
 	msgs := historyToSchema(req.History)
@@ -209,8 +255,10 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 			card["content"] = content
 			card["duration_ms"] = duration
 			card["truncated"] = truncated
+			isErr := toolResultIsError(content)
+			card["is_error"] = isErr
 			if emit != nil {
-				emit(Event{Type: "tool_result", CallID: id, Name: name, Content: content, DurationMS: duration, Truncated: truncated})
+				emit(Event{Type: "tool_result", CallID: id, Name: name, Content: content, DurationMS: duration, Truncated: truncated, IsError: isErr})
 			}
 			continue
 		}
@@ -230,6 +278,9 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 					calls[id] = card
 					callStarts[id] = time.Now()
 					toolCards = append(toolCards, card)
+					if r.SkillsCLI {
+						r.ensureGate().release(id)
+					}
 					if emit != nil {
 						emit(Event{Type: "tool_call", CallID: id, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
 					}
@@ -477,21 +528,73 @@ func consumeVariant(mv *adk.MessageVariant) (content, name string) {
 	return "", mv.ToolName
 }
 
+func isToolDelta(tc schema.ToolCall) bool {
+	if strings.HasPrefix(tc.ID, "delta:") {
+		return true
+	}
+	if tc.Extra == nil {
+		return false
+	}
+	v, ok := tc.Extra["delta"].(bool)
+	return ok && v
+}
+
+func mergeStreamToolCall(dst []schema.ToolCall, tc schema.ToolCall) []schema.ToolCall {
+	idx := 0
+	if tc.Index != nil {
+		idx = *tc.Index
+	}
+	id := strings.TrimPrefix(tc.ID, "delta:")
+	for i := range dst {
+		di := 0
+		if dst[i].Index != nil {
+			di = *dst[i].Index
+		}
+		if di != idx {
+			continue
+		}
+		if dst[i].ID == "" {
+			dst[i].ID = id
+		}
+		if dst[i].Function.Name == "" {
+			dst[i].Function.Name = tc.Function.Name
+		}
+		dst[i].Function.Arguments += tc.Function.Arguments
+		return dst
+	}
+	cp := tc
+	cp.ID = id
+	cp.Extra = nil
+	return append(dst, cp)
+}
+
 func consumeAssistant(mv *adk.MessageVariant, emit func(Event), acc *strings.Builder) (*schema.Message, error) {
 	if mv == nil {
 		return nil, nil
 	}
 	if mv.IsStreaming && mv.MessageStream != nil {
 		var last *schema.Message
+		var merged []schema.ToolCall
 		for {
 			chunk, err := mv.MessageStream.Recv()
 			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
+				if len(merged) > 0 {
+					return schema.AssistantMessage("", merged), err
+				}
 				return last, err
 			}
 			if chunk == nil {
+				continue
+			}
+			if len(chunk.ToolCalls) > 0 && isToolDelta(chunk.ToolCalls[0]) {
+				tc := chunk.ToolCalls[0]
+				if emit != nil {
+					emit(Event{Type: "tool_call_delta", CallID: strings.TrimPrefix(tc.ID, "delta:"), Name: tc.Function.Name, Arguments: tc.Function.Arguments})
+				}
+				merged = mergeStreamToolCall(merged, tc)
 				continue
 			}
 			last = chunk
@@ -501,6 +604,9 @@ func consumeAssistant(mv *adk.MessageVariant, emit func(Event), acc *strings.Bui
 					emit(Event{Type: "token", Content: chunk.Content})
 				}
 			}
+		}
+		if len(merged) > 0 {
+			return schema.AssistantMessage("", merged), nil
 		}
 		return last, nil
 	}
@@ -522,6 +628,15 @@ func safeAgentName(name string) string {
 		return "agent"
 	}
 	return name
+}
+
+func containsSkill(ids []string, id string) bool {
+	for _, s := range ids {
+		if s == id {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(a, b string) string {

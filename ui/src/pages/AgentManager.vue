@@ -90,10 +90,13 @@
               </template>
               <ConversationView
                 :messages="chatMessages"
-                :sending="sending"
+                :sending="streaming"
+                :confirmation="confirmation"
                 :can-retry="canRetry"
                 :history-loading="threadPending && !threadHasData"
                 @retry="retryLast"
+                @confirm="conv.resolveConfirm(true)"
+                @deny="conv.resolveConfirm(false)"
               />
             </SbAsyncRegion>
             <AgentComposer
@@ -271,6 +274,8 @@ const conv = useAgentConversation({
   messages: () => chatMessages.value
 })
 const sending = conv.sending
+const streaming = computed(() => conv.phase.value === 'streaming')
+const confirmation = conv.confirmation
 const statusText = conv.statusText
 const failedRunId = conv.failedRunId
 
@@ -388,6 +393,7 @@ async function loadThreadMessages(id: string): Promise<boolean> {
   if (threadId.value !== id) return false
   chatMessages.value = msgs.map((m) => ({
     role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content,
+    module: m.role === 'assistant' ? agents.value.find((a) => a.id === m.agent_id)?.module : undefined,
     toolCalls: m.tool_calls,
     // BUG-06：刷新后按 run 状态还原失败态。
     error: m.error_code ? errorMessage({ code: m.error_code } as Error & { code?: string }, '运行失败') : undefined,
@@ -560,15 +566,16 @@ async function resetThread() {
   }
 }
 
-async function onSend(text: string, mentions: { agent_id: string }[]) {
+async function onSend(text: string, mentions: { agent_id: string }[], skills: string[] = []) {
   const content = text.trim()
   if (!content || sending.value) return
   if (!threadId.value) await ensureThread()
   let used = mentions
   if (!used.length && activeAgent.value) used = [{ agent_id: activeAgent.value.id }]
   if (!used.length) { toast.warning('请先选择或 @ 一个 Agent'); return }
+  const speaker = agents.value.find((a) => a.id === used[0]?.agent_id)
   draft.value = ''
-  conv.start({ content, mentions: [...used] }, {
+  conv.start({ content, mentions: [...used], skills, module: speaker?.module }, {
     onEnd: () => {
       void api.agentThreads.page(project.id).then((page) => { threads.value = page.threads; nextCursor.value = page.next_cursor }).catch(() => undefined)
     },

@@ -191,12 +191,20 @@ async function readSse(resp: Response, onEvent: (event: Record<string, any>) => 
     while ((idx = buf.indexOf('\n\n')) >= 0) {
       const raw = buf.slice(0, idx)
       buf = buf.slice(idx + 2)
+      let eventId = ''
       for (const line of raw.split('\n')) {
+        if (line.startsWith(':')) continue
+        if (line.startsWith('id:')) {
+          eventId = line.slice(3).trim()
+          continue
+        }
         if (!line.startsWith('data:')) continue
         const data = line.slice(5).trim()
         if (!data) continue
         try {
-          onEvent(JSON.parse(data))
+          const parsed = JSON.parse(data) as Record<string, any>
+          if (eventId) parsed._sse_id = eventId
+          onEvent(parsed)
         } catch {
           /* 忽略非 JSON 帧 */
         }
@@ -565,10 +573,79 @@ function streamAgentRun(
   const controller = new AbortController()
   let ended = false
   let failed = false
+  let lastId = ''
+  let runId = ''
   const fireEnd = (reason?: string) => {
     if (!ended) {
       ended = true
       if (!failed) handlers.onEnd?.(reason)
+    }
+  }
+  const onEvent = (obj: Record<string, any>) => {
+    if (obj?._sse_id != null && String(obj._sse_id) !== '') lastId = String(obj._sse_id)
+    if (obj?.type === 'end') {
+      fireEnd(typeof obj.reason === 'string' ? obj.reason : undefined)
+      return
+    }
+    if (obj?.type === 'run' && obj.run_id) {
+      runId = String(obj.run_id)
+      handlers.onRun?.(runId)
+      return
+    }
+    if (obj?.type === 'error') {
+      failed = true
+      const error = new Error(String(obj.message || '运行失败')) as Error & { code?: string }
+      error.code = typeof obj.code === 'string' ? obj.code : undefined
+      handlers.onError?.(error)
+      return
+    }
+    if (obj?.type === 'thinking') {
+      handlers.onThinking?.(Number(obj.elapsed_ms || 0), obj.content ? String(obj.content) : undefined)
+      return
+    }
+    if (obj?.type === 'usage') {
+      const metrics: AgentRunMetrics = {
+        duration_ms: Number(obj.duration_ms || 0),
+        prompt_tokens: Number(obj.prompt_tokens || 0),
+        completion_tokens: Number(obj.completion_tokens || 0),
+        reasoning_tokens: Number(obj.reasoning_tokens || 0),
+        tool_calls: Number(obj.tool_calls || 0)
+      }
+      handlers.onUsage?.(metrics)
+      return
+    }
+    if (obj?.type === 'token' || obj?.type === 'chunk') {
+      const text = obj.content || obj.delta || ''
+      if (text) handlers.onToken?.(text)
+      return
+    }
+    if (obj?.type === 'tool_call_delta') {
+      handlers.onToolCallDelta?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
+      return
+    }
+    if (obj?.type === 'tool_start') {
+      handlers.onToolStart?.(obj.name || '', obj.call_id || undefined)
+      return
+    }
+    if (obj?.type === 'confirmation_required') {
+      const argv = Array.isArray(obj.argv) ? obj.argv.map((part: unknown) => String(part)) : []
+      handlers.onConfirmationRequired?.(String(obj.call_id || ''), argv, String(obj.message || ''))
+      return
+    }
+    if (obj?.type === 'confirmation_resolved') {
+      handlers.onConfirmationResolved?.(String(obj.call_id || ''), obj.approve === true)
+      return
+    }
+    if (obj?.type === 'tool_call') {
+      handlers.onToolCall?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
+      return
+    }
+    if (obj?.type === 'tool_progress') {
+      handlers.onToolProgress?.(obj.name || '', Number(obj.elapsed_ms || 0), obj.call_id || undefined)
+      return
+    }
+    if (obj?.type === 'tool_result') {
+      handlers.onToolResult?.(obj.name || '', obj.content || '', obj.call_id || undefined, Number(obj.duration_ms || 0), obj.is_error === true)
     }
   }
   ;(async () => {
@@ -585,6 +662,7 @@ function streamAgentRun(
             content: req.content,
             mentions: req.mentions,
             stream: true,
+            ...(req.skills && req.skills.length ? { skills: req.skills } : {}),
             ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {})
           }),
           signal: controller.signal
@@ -601,57 +679,41 @@ function streamAgentRun(
         error.code = detail?.error?.code
         throw error
       }
-      await readSse(resp, (obj) => {
-        if (obj?.type === 'end') {
-          fireEnd(typeof obj.reason === 'string' ? obj.reason : undefined)
-          return
-        }
-        if (obj?.type === 'run' && obj.run_id) {
-          handlers.onRun?.(String(obj.run_id))
-          return
-        }
-        if (obj?.type === 'error') {
-          failed = true
-          const error = new Error(String(obj.message || '运行失败')) as Error & { code?: string }
-          error.code = typeof obj.code === 'string' ? obj.code : undefined
-          handlers.onError?.(error)
-          return
-        }
-        if (obj?.type === 'thinking') {
-          handlers.onThinking?.(Number(obj.elapsed_ms || 0), obj.content ? String(obj.content) : undefined)
-          return
-        }
-        if (obj?.type === 'usage') {
-          const metrics: AgentRunMetrics = {
-            duration_ms: Number(obj.duration_ms || 0),
-            prompt_tokens: Number(obj.prompt_tokens || 0),
-            completion_tokens: Number(obj.completion_tokens || 0),
-            reasoning_tokens: Number(obj.reasoning_tokens || 0),
-            tool_calls: Number(obj.tool_calls || 0)
-          }
-          handlers.onUsage?.(metrics)
-          return
-        }
-        if (obj?.type === 'token' || obj?.type === 'chunk') {
-          const text = obj.content || obj.delta || ''
-          if (text) handlers.onToken?.(text)
-          return
-        }
-        if (obj?.type === 'tool_call') {
-          handlers.onToolCall?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
-          return
-        }
-        if (obj?.type === 'tool_progress') {
-          handlers.onToolProgress?.(obj.name || '', Number(obj.elapsed_ms || 0), obj.call_id || undefined)
-          return
-        }
-        if (obj?.type === 'tool_result') {
-          handlers.onToolResult?.(obj.name || '', obj.content || '', obj.call_id || undefined, Number(obj.duration_ms || 0))
-        }
-      })
+      await readSse(resp, onEvent)
       fireEnd()
     } catch (e) {
-      if (!controller.signal.aborted && !failed) handlers.onError?.(e)
+      if (controller.signal.aborted || failed) return
+      let delay = 1000
+      let err: unknown = e
+      for (let attempt = 0; attempt < 3 && runId && !ended; attempt++) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, delay)
+            controller.signal.addEventListener('abort', () => {
+              clearTimeout(timer)
+              reject(e)
+            }, { once: true })
+          })
+          if (controller.signal.aborted) return
+          const resp = await fetch(
+            `${baseURL}${agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/events')}?after=${encodeURIComponent(lastId)}`,
+            {
+              method: 'GET',
+              headers: { Authorization: `Bearer ${getAccessToken() || getApiKey()}` },
+              signal: controller.signal
+            }
+          )
+          if (!resp.ok || !resp.body) throw new Error(`请求失败 (${resp.status})`)
+          await readSse(resp, onEvent)
+          fireEnd()
+          return
+        } catch (next) {
+          if (controller.signal.aborted) return
+          err = next
+          delay *= 2
+        }
+      }
+      if (!controller.signal.aborted && !failed) handlers.onError?.(err)
     }
   })()
   return { close: () => controller.abort() }
@@ -1274,7 +1336,11 @@ export const httpApi: Api = {
     cancel: (projectId, runId) =>
       http
         .post(agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/cancel'))
-        .then((r) => r.data as AgentRun)
+        .then((r) => r.data as AgentRun),
+    confirm: (projectId, runId, callId, approve) =>
+      http
+        .post(agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/confirmations/' + encodeURIComponent(callId)), { approve })
+        .then(() => undefined)
   },
 
   agentSchedules: {

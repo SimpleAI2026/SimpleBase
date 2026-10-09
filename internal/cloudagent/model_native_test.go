@@ -73,8 +73,26 @@ func TestAgentNativeToolsAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg, err := sr.Recv()
-	if err != nil || len(msg.ToolCalls) != 1 || msg.ToolCalls[0].ID != "call1" || msg.ToolCalls[0].Function.Arguments != "{}" {
+	var chunks []*schema.Message
+	var sawDelta bool
+	for {
+		msg, err := sr.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		chunks = append(chunks, msg)
+		if len(msg.ToolCalls) > 0 && msg.ToolCalls[0].Extra != nil && msg.ToolCalls[0].Extra["delta"] == true {
+			sawDelta = true
+		}
+	}
+	if !sawDelta {
+		t.Fatal("expected tool call deltas")
+	}
+	msg, err := schema.ConcatMessages(chunks)
+	if err != nil || len(msg.ToolCalls) != 1 || msg.ToolCalls[0].ID != "call1" || msg.ToolCalls[0].Function.Name != "list_databases" || msg.ToolCalls[0].Function.Arguments != "{}" {
 		t.Fatalf("stream=%+v err=%v", msg, err)
 	}
 	if tokens != 11 {
@@ -155,8 +173,16 @@ func TestAgentStreamRejectsIncompleteToolAfterReadError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sr.Close()
-	msg, err := sr.Recv()
-	if err == nil || msg != nil {
-		t.Fatalf("tool must not execute on broken stream, message=%+v err=%v", msg, err)
+	for {
+		msg, err := sr.Recv()
+		if err != nil {
+			if msg != nil {
+				t.Fatalf("tool must not execute on broken stream, message=%+v err=%v", msg, err)
+			}
+			return
+		}
+		if msg != nil && len(msg.ToolCalls) > 0 && !isToolDelta(msg.ToolCalls[0]) {
+			t.Fatalf("complete tool call on broken stream: %+v", msg)
+		}
 	}
 }

@@ -40,18 +40,6 @@
 import { computed, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  BotIcon,
-  BoxIcon,
-  BracesIcon,
-  CloudUploadIcon,
-  CodeIcon,
-  DatabaseIcon,
-  FileTextIcon,
-  LayoutDashboardIcon,
-  TimerIcon,
-  UsersIcon
-} from '@lucide/vue'
-import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -59,23 +47,13 @@ import {
   SidebarMenuButton,
   SidebarMenuItem
 } from '@/components/ui/sidebar'
+import { sidebarIcons } from './nav-icons'
 import router from '../router'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 
-const iconMap: Record<string, Component> = {
-  dashboard: LayoutDashboardIcon,
-  databases: DatabaseIcon,
-  'key-value': BracesIcon,
-  s3: CloudUploadIcon,
-  gofunctions: CodeIcon,
-  'cron-jobs': TimerIcon,
-  sandboxes: BoxIcon,
-  agents: BotIcon,
-  logs: FileTextIcon,
-  users: UsersIcon
-}
+const iconMap: Record<string, Component> = sidebarIcons
 
 /** 侧栏分组：key 稳定，label 展示用；items 按组内顺序。 */
 interface MenuGroup {

@@ -36,6 +36,7 @@
                 :value="a.name"
                 @select="() => pickMention(a)"
               >
+                <component :is="iconForAgentModule(a.module)" class="size-4 shrink-0 opacity-80" aria-hidden="true" />
                 <span class="font-semibold text-primary">@</span>{{ a.name }}
                 <span class="ml-auto text-xs text-muted-foreground">{{ a.module }}</span>
               </CommandItem>
@@ -65,7 +66,7 @@
       :disabled="disabled || !modelValue.trim()"
       title="发送"
       aria-label="发送"
-      @click="$emit('send', mentionsForSend(modelValue))"
+      @click="$emit('send', mentionsForSend(modelValue), skillsForSend(modelValue))"
     >
       <ArrowUpIcon />
     </Button>
@@ -76,6 +77,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { ArrowUpIcon, MicIcon, PlusIcon, SquareIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
+import { iconForAgentModule } from '@/components/nav-icons'
+import { resolveSkillAlias, skillsInText } from '@/utils/agent-skills'
 import {
   Command,
   CommandEmpty,
@@ -109,7 +112,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: string): void
-  (e: 'send', mentions: { agent_id: string }[]): void
+  (e: 'send', mentions: { agent_id: string }[], skills: string[]): void
   (e: 'stop'): void
 }>()
 
@@ -151,15 +154,25 @@ function pickMention(a: MentionAgent) {
   nextTick(() => ta.value?.focus())
 }
 
+function agentNames() {
+  return (props.mentionAgents || []).map((a) => a.name)
+}
+
 function mentionsForSend(text: string) {
+  const names = agentNames()
   const found: { agent_id: string }[] = []
   for (const a of props.mentionAgents) {
-    if (text.includes('@' + a.name)) found.push({ agent_id: a.id })
+    if (text.includes('@' + a.name) && !resolveSkillAlias(a.name, names)) found.push({ agent_id: a.id })
   }
   for (const m of selected.value) {
+    if (resolveSkillAlias(m.name, names)) continue
     if (!found.some((x) => x.agent_id === m.agent_id)) found.push({ agent_id: m.agent_id })
   }
   return found
+}
+
+function skillsForSend(text: string) {
+  return skillsInText(text, agentNames())
 }
 
 function onInput(e: Event) {
@@ -177,7 +190,7 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     if (!props.sending && props.modelValue.trim()) {
-      emit('send', mentionsForSend(props.modelValue))
+      emit('send', mentionsForSend(props.modelValue), skillsForSend(props.modelValue))
     }
   }
 }

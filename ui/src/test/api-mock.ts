@@ -90,7 +90,8 @@ export const api = {
     runs: vi.fn(),
     messages: vi.fn(),
     streamRun: vi.fn(),
-    cancel: vi.fn()
+    cancel: vi.fn(),
+    confirm: vi.fn()
   },
   agentSchedules: {
     list: vi.fn(),
@@ -307,6 +308,7 @@ export function applyApiDefaults() {
   api.agentThreads.messages.mockResolvedValue([])
   api.agentThreads.streamRun.mockReturnValue({ close: vi.fn() })
   api.agentThreads.cancel.mockResolvedValue({ id: 'run-1', thread_id: 'th-1', agent_id: 'ag-1', status: 'canceled' })
+  api.agentThreads.confirm.mockResolvedValue(undefined)
   api.agentSchedules.list.mockResolvedValue([])
   api.agentSchedules.create.mockResolvedValue({
     id: 'sch-1',

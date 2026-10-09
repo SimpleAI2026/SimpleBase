@@ -403,6 +403,9 @@ export interface AgentToolCallCard {
   is_error?: boolean
   /** 结果超长被截断。 */
   truncated?: boolean
+  /** 卡片阶段：generating / pending / awaiting_confirm / running / success / error。 */
+  status?: string
+  argv?: string[]
 }
 
 export interface AgentMessage {
@@ -477,6 +480,8 @@ export interface AgentRunRequest {
   content: string
   mentions: AgentMention[]
   stream?: boolean
+  /** 本轮 @ 加载的 skill id。 */
+  skills?: string[]
   /** 重试指定失败 run（planv4.1 BUG-03）：复用原 user 消息，不重复落库。 */
   retry_of_run_id?: string
 }
@@ -486,7 +491,11 @@ export interface AgentStreamHandlers {
   onThinking?: (elapsedMs: number, content?: string) => void
   onToken?: (text: string) => void
   onToolCall?: (name: string, args: string, callId?: string) => void
-  onToolResult?: (name: string, content: string, callId?: string, durationMs?: number) => void
+  onToolCallDelta?: (name: string, argsDelta: string, callId?: string) => void
+  onToolStart?: (name: string, callId?: string) => void
+  onConfirmationRequired?: (callId: string, argv: string[], message: string) => void
+  onConfirmationResolved?: (callId: string, approved: boolean) => void
+  onToolResult?: (name: string, content: string, callId?: string, durationMs?: number, isError?: boolean) => void
   /** 工具执行心跳（planv4.1 BUG-04）：长工具期间周期推送。 */
   onToolProgress?: (name: string, elapsedMs: number, callId?: string) => void
   onUsage?: (metrics: AgentRunMetrics) => void
@@ -886,6 +895,7 @@ export interface Api {
       handlers: AgentStreamHandlers
     ) => LlmStreamConnection
     cancel: (projectId: string, runId: string) => Promise<AgentRun>
+    confirm: (projectId: string, runId: string, callId: string, approve: boolean) => Promise<void>
   }
   agentSchedules: {
     list: (projectId: string) => Promise<AgentSchedule[]>

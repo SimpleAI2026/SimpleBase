@@ -247,7 +247,7 @@ func (s *Scheduler) execute(ctx context.Context, sc systemdb.AgentSchedule, trig
 	res, err := s.Runner.StartRun(ctx, RunRequest{
 		ProjectID: sc.ProjectID, Principal: principal, Agent: agent,
 		ThreadID: thread.ID, RunID: agentRun.ID, UserText: sc.Prompt,
-		History: hist, Stream: false,
+		History: hist, Stream: false, Headless: true,
 	}, nil)
 	fin := time.Now().UTC()
 	// 旧 ScheduleStore fake 无指标写入方法，真实 Store 支持时同步记录。

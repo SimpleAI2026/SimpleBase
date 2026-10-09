@@ -226,8 +226,8 @@ func TestGatewayChatModelStreamPaths(t *testing.T) {
 
 func TestExtractToolCallBranches(t *testing.T) {
 	cases := []struct {
-		in      string
-		wantOK  bool
+		in       string
+		wantOK   bool
 		wantName string
 	}{
 		{"hello", false, ""},
@@ -545,12 +545,12 @@ func TestStoreAccessWrappers(t *testing.T) {
 }
 
 type scriptedChat struct {
-	content      string
-	err          error
-	streamErr    error
+	content       string
+	err           error
+	streamErr     error
 	streamNextErr error
-	streamChunks []string
-	last         ChatRequest
+	streamChunks  []string
+	last          ChatRequest
 }
 
 func (s *scriptedChat) Chat(_ context.Context, _ string, req ChatRequest) (ChatResponse, error) {

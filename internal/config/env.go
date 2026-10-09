@@ -137,6 +137,16 @@ func applyEnv(cfg *Config) {
 	setEnvInt(&cfg.SystemDatabase.LogKeepDays, "SIMPLEBASE_LOG_KEEP_DAYS")
 
 	applyEnvLLM(cfg)
+	applyEnvAgent(cfg)
+}
+
+func applyEnvAgent(cfg *Config) {
+	setEnvBool(&cfg.Agent.SkillsCLI, "SIMPLEBASE_AGENT_SKILLS_CLI")
+	if v, ok := os.LookupEnv("SIMPLEBASE_AGENT_CLI_PATH"); ok {
+		cfg.Agent.CLIPath = v
+	}
+	setEnvDuration(&cfg.Agent.DelegationTTL, "SIMPLEBASE_AGENT_DELEGATION_TTL")
+	setEnvDuration(&cfg.Agent.ConfirmTimeout, "SIMPLEBASE_AGENT_CONFIRM_TIMEOUT")
 }
 
 // applyEnvSandbox 映射 SIMPLEBASE_SANDBOX_* 环境变量（cloud-agent-sandbox-plan §5）。

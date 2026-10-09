@@ -27,7 +27,9 @@ type cloudAgentHandler struct {
 	audit    AuditService
 	writable *bool
 	// llm 提供模型列表（BUG-07）；可为 nil（LLM 未启用）。
-	llm LLMService
+	llm      LLMService
+	events   *runEventHub
+	confirms *confirmHub
 }
 
 // sandboxAvailable 报告云沙盒是否启用（由 Runtime.Sandbox 提供）。
@@ -161,7 +163,17 @@ type upsertAgentBody struct {
 	TeamEnabled   *bool    `json:"team_enabled"`
 }
 
+func (h *cloudAgentHandler) denyReadonly(c echo.Context) error {
+	if h.writable != nil && !*h.writable {
+		return WriteError(c, database.ErrWriterUnavailable)
+	}
+	return nil
+}
+
 func (h *cloudAgentHandler) CreateAgent(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
@@ -197,6 +209,9 @@ func (h *cloudAgentHandler) GetAgent(c echo.Context) error {
 }
 
 func (h *cloudAgentHandler) PatchAgent(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
@@ -228,6 +243,9 @@ func (h *cloudAgentHandler) PatchAgent(c echo.Context) error {
 }
 
 func (h *cloudAgentHandler) DeleteAgent(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
@@ -397,6 +415,9 @@ func (h *cloudAgentHandler) ListThreadRuns(c echo.Context) error {
 }
 
 func (h *cloudAgentHandler) CreateThread(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
@@ -434,6 +455,9 @@ func (h *cloudAgentHandler) GetThread(c echo.Context) error {
 }
 
 func (h *cloudAgentHandler) DeleteThread(c echo.Context) error {
+	if err := h.denyReadonly(c); err != nil {
+		return err
+	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
@@ -481,6 +505,7 @@ type mentionDTO struct {
 type createRunBody struct {
 	Content  string       `json:"content"`
 	Mentions []mentionDTO `json:"mentions"`
+	Skills   []string     `json:"skills"`
 	Stream   bool         `json:"stream"`
 	// RetryOfRunID 非空表示重试该 run：复用其 user 消息，不重复落库（BUG-03）。
 	RetryOfRunID string `json:"retry_of_run_id"`
@@ -513,6 +538,11 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
 	}
+	skills, err := cloudagent.NormalizeSkills(body.Skills, agent.Module)
+	if err != nil {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
+	}
+	body.Skills = skills
 	// 重试校验（BUG-03）：目标 run 必须属于本 thread、状态 failed/canceled、且是 thread 最新一次 run。
 	var retryUser systemdb.AgentMessage
 	if body.RetryOfRunID != "" {
@@ -617,6 +647,7 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	req := cloudagent.RunRequest{
 		ProjectID: pc.ID, Principal: principal, Agent: agent,
 		ThreadID: threadID, RunID: run.ID, UserText: body.Content, History: hist, Stream: body.Stream,
+		Skills: skills,
 	}
 
 	if body.Stream {
@@ -705,12 +736,18 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 			flusher.Flush()
 		}
 	}
+	var seq int64
 	write := func(ev cloudagent.Event) {
 		if ev.RunID == "" {
 			ev.RunID = run.ID
 		}
+		seq++
+		id := seq
+		if h.events != nil {
+			id = h.events.append(run.ID, ev)
+		}
 		data, _ := json.Marshal(ev)
-		writeBytes(append(append([]byte("data: "), data...), '\n', '\n'))
+		writeBytes([]byte(fmt.Sprintf("id: %d\ndata: %s\n\n", id, data)))
 	}
 	write(cloudagent.Event{Type: "run", RunID: run.ID})
 	if h.runtime == nil || h.runtime.LLM == nil {
@@ -763,10 +800,11 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 		}
 	}()
 	res, runErr := h.runtime.StartRun(c.Request().Context(), req, func(ev cloudagent.Event) {
-		if ev.Type == "token" || ev.Type == "tool_call" || ev.Type == "tool_result" {
+		switch ev.Type {
+		case "token", "tool_call", "tool_call_delta", "tool_start", "tool_result", "confirmation_required", "confirmation_resolved":
 			mu.Lock()
 			lastOutput = time.Now()
-			if ev.Type == "tool_call" && ev.CallID != "" {
+			if (ev.Type == "tool_call" || ev.Type == "tool_start") && ev.CallID != "" {
 				toolStarted[ev.CallID] = lastOutput
 			} else if ev.Type == "tool_result" {
 				delete(toolStarted, ev.CallID)

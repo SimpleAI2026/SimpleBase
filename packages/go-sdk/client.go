@@ -9,9 +9,12 @@ import (
 )
 
 // Options configures a project-scoped client. HTTPClient defaults to http.DefaultClient.
+// Token and APIKey are both sent as Authorization: Bearer. Token wins when both are set,
+// so a short-lived JWT can be used without a long-lived API key.
 type Options struct {
 	URL        string
 	APIKey     string
+	Token      string
 	ProjectID  string
 	DatabaseID string
 	HTTPClient *http.Client
@@ -28,9 +31,14 @@ type Client struct {
 
 // NewClient validates the endpoint and credentials without contacting the server.
 func NewClient(opts Options) (*Client, error) {
-	if strings.TrimSpace(opts.APIKey) == "" || strings.TrimSpace(opts.ProjectID) == "" {
-		return nil, errors.New("gosdk: APIKey and ProjectID are required")
+	cred := strings.TrimSpace(opts.APIKey)
+	if tok := strings.TrimSpace(opts.Token); tok != "" {
+		cred = tok
 	}
+	if cred == "" || strings.TrimSpace(opts.ProjectID) == "" {
+		return nil, errors.New("gosdk: APIKey or Token, and ProjectID, are required")
+	}
+	opts.APIKey = cred
 	u, err := url.Parse(opts.URL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return nil, errors.New("gosdk: URL must be an HTTP(S) origin")

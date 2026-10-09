@@ -12,6 +12,8 @@ export interface ChatMsg {
   error?: string
   canceled?: boolean
   thinking?: string
+  /** 发出该条助手消息的 Agent module，用于头像与侧栏图标对齐。 */
+  module?: string
 }
 
 export function useAiChat(opts: {

@@ -1,7 +1,7 @@
 <template>
   <!-- AgentToolCard：工具执行卡（planv4.1 §3.2）。
        相比旧版：错误结果标红 + is_error 徽标；长执行显示进度心跳；结果截断提示。 -->
-  <Card size="sm" :class="isError && 'border-destructive/40'">
+  <Card size="sm" :data-status="status" :class="isError && 'border-destructive/40'">
     <CardHeader>
       <CardTitle class="flex items-center gap-1.5 text-xs">
         <span :class="isError ? 'text-destructive' : 'text-primary'">{{ tool.name || 'tool' }}</span>
@@ -14,7 +14,7 @@
     <CardContent class="space-y-2 px-3 text-xs">
       <details v-if="tool.arguments"><summary class="cursor-pointer text-muted-foreground">参数</summary><pre class="max-h-32 overflow-auto whitespace-pre-wrap">{{ pretty(tool.arguments) }}</pre></details>
       <template v-if="tool.content">
-        <template v-if="tool.name === 'readonly_sql' && sqlResult">
+        <template v-if="(tool.name === 'readonly_sql' || tool.name === 'simplebase') && sqlResult">
           <div class="max-h-60 overflow-auto">
             <table class="w-full border-collapse text-left">
               <thead><tr><th v-for="column in sqlResult.Columns" :key="column" class="border-b px-1 py-1">{{ column }}</th></tr></thead>
@@ -65,16 +65,23 @@ const isError = computed(() => {
   const raw = parse(props.tool.content)
   return !!raw && typeof raw === 'object' && 'error' in (raw as Record<string, unknown>)
 })
-const running = computed(() => !props.tool.content)
+const running = computed(() => !props.tool.content && props.tool.status !== 'awaiting_confirm' && props.tool.status !== 'pending' && props.tool.status !== 'generating')
+const status = computed(() => {
+  if (props.tool.status) return props.tool.status
+  if (isError.value) return 'error'
+  if (props.tool.content) return 'success'
+  return 'pending'
+})
 const progressSecs = computed(() => (props.tool.duration_ms ? Math.floor(props.tool.duration_ms / 1000) : 0))
 
 const sqlResult = computed(() => {
   const raw = parse(props.tool.content)
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Record<string, unknown>
-  const columns = value.Columns ?? value.columns
-  const rows = value.Rows ?? value.rows
-  const count = value.RowCount ?? value.row_count
+  const data = value.data && typeof value.data === 'object' ? value.data as Record<string, unknown> : value
+  const columns = data.Columns ?? data.columns
+  const rows = data.Rows ?? data.rows
+  const count = data.RowCount ?? data.row_count
   return Array.isArray(columns) && Array.isArray(rows) ? { Columns: columns as string[], Rows: rows as unknown[][], RowCount: Number(count ?? rows.length) } as SQLToolResult : null
 })
 const sandboxResult = computed(() => {

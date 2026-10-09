@@ -23,7 +23,7 @@ describe('AgentComposer passthrough', () => {
     const send = wrapper.emitted('send')
     expect(send).toBeTruthy()
     // 未在输入框选择 @ 时 mentions 为空（页面层会兜底用当前选中 Agent）。
-    expect(send![0]).toEqual(['查一下订单', []])
+    expect(send![0]).toEqual(['查一下订单', [], []])
   })
 
   it('shows stop state while sending', () => {

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -68,6 +70,12 @@ type SessionAuthenticator interface {
 // AuthMiddleware 是双通道认证（login-auth-plan §4.6）：
 // Bearer 形如 JWT → 登录态；否则回落 API Key。两者都注入 Principal。
 func AuthMiddleware(sessions SessionAuthenticator, keys *Service, inject func(ctx context.Context, p Principal) context.Context) echo.MiddlewareFunc {
+	return AuthMiddlewareWithDelegation(sessions, keys, inject, "", nil)
+}
+
+// AuthMiddlewareWithDelegation 在 JWT 通道里识别助手委托令牌。
+// registry 为 nil 时委托令牌走原登录态校验（通常会 401）。
+func AuthMiddlewareWithDelegation(sessions SessionAuthenticator, keys *Service, inject func(ctx context.Context, p Principal) context.Context, secret string, registry *DelegationRegistry) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			raw, err := ExtractBearerToken(c.Request().Header.Get(echo.HeaderAuthorization))
@@ -75,6 +83,28 @@ func AuthMiddleware(sessions SessionAuthenticator, keys *Service, inject func(ct
 				return echo.NewHTTPError(http.StatusUnauthorized, "missing or malformed authorization header")
 			}
 			if LooksLikeJWT(raw) {
+				if secret != "" {
+					claims, err := VerifyJWT(secret, raw, time.Now())
+					if err == nil && claims.Type == DelegationType {
+						if registry == nil || registry.Revoked(claims.JWTID, time.Now()) {
+							return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+						}
+						p, err := PrincipalFromDelegation(claims)
+						if err != nil {
+							return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+						}
+						path := c.Path()
+						if path == "" {
+							path = c.Request().URL.Path
+						}
+						if strings.HasPrefix(path, "/v1/auth") || strings.Contains(path, "/llm/providers") {
+							return echo.NewHTTPError(http.StatusForbidden, "permission denied")
+						}
+						ctx := inject(c.Request().Context(), p)
+						c.SetRequest(c.Request().WithContext(ctx))
+						return next(c)
+					}
+				}
 				if sessions == nil {
 					return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
 				}

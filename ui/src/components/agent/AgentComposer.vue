@@ -6,7 +6,7 @@
     :disabled="disabled"
     :placeholder="placeholder"
     :mention-agents="mentionAgents"
-    @send="(mentions) => $emit('send', model, mentions)"
+    @send="(mentions, skills) => $emit('send', model, mentions, skills || [])"
     @stop="$emit('stop')"
   />
 </template>
@@ -28,7 +28,7 @@ withDefaults(
 )
 
 defineEmits<{
-  (e: 'send', text: string, mentions: { agent_id: string }[]): void
+  (e: 'send', text: string, mentions: { agent_id: string }[], skills: string[]): void
   (e: 'stop'): void
 }>()
 </script>
