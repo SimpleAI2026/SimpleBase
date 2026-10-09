@@ -12,7 +12,9 @@
           m.role === 'user' && 'border-primary text-primary',
         )"
       >
-        <UserIcon v-if="m.role === 'user'" />
+        <span v-if="m.role === 'user'" data-user-avatar class="flex size-4 items-center justify-center">
+          <UserIcon class="size-4" aria-hidden="true" />
+        </span>
         <span v-else class="flex size-4 items-center justify-center" :data-agent-icon="navKeyForAgentModule(m.module)">
           <component :is="iconForAgentModule(m.module)" class="size-4" aria-hidden="true" />
         </span>

@@ -13,8 +13,11 @@ package llmgateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/linkxzhou/SimpleBase/internal/observability"
@@ -102,7 +105,13 @@ type service struct {
 	logger   observability.Logger
 
 	mu      sync.Mutex
-	clients map[string]*litellm.Client // key: projectID|providerName
+	clients map[string]cachedClient // key: projectID|providerName
+}
+
+// cachedClient 按凭证指纹缓存。设置里改了 key 或 base_url 后，下一次请求换新 client，无需重启。
+type cachedClient struct {
+	client *litellm.Client
+	fp     string
 }
 
 // NewService 构造 Service。
@@ -111,7 +120,7 @@ func NewService(resolver ProviderResolver, recorder UsageRecorder, logger observ
 		resolver: resolver,
 		recorder: recorder,
 		logger:   logger,
-		clients:  make(map[string]*litellm.Client),
+		clients:  make(map[string]cachedClient),
 	}
 }
 
@@ -159,19 +168,27 @@ func (s *service) getClient(ctx context.Context, projectID, providerName string)
 			break
 		}
 	}
+	if len(pp.Providers) == 0 {
+		return nil, ProviderConfig{}, ErrNoProviders
+	}
 	if !found {
 		return nil, cfg, fmt.Errorf("%w: %s", ErrProviderNotFound, providerName)
 	}
 
+	fp := credFingerprint(cfg)
 	key := clientKey(projectID, providerName)
 	s.mu.Lock()
-	c, ok := s.clients[key]
-	s.mu.Unlock()
-	if ok {
-		return c, cfg, nil
+	if hit, ok := s.clients[key]; ok && hit.fp == fp {
+		s.mu.Unlock()
+		return hit.client, cfg, nil
 	}
-	// 创建单供应商 client。禁止自动发现。
-	c, err = litellm.NewWithProvider(cfg.Name, litellm.ProviderConfig{
+	s.mu.Unlock()
+	// 创建单供应商 client。禁止自动发现；逻辑名（如 custom_openai）映射到 litellm 驱动。
+	driver := cfg.Name
+	if mapped, ok := litellmDriver(cfg.Name); ok {
+		driver = mapped
+	}
+	c, err := litellm.NewWithProvider(driver, litellm.ProviderConfig{
 		APIKey:  cfg.APIKey,
 		BaseURL: cfg.BaseURL,
 	})
@@ -179,9 +196,20 @@ func (s *service) getClient(ctx context.Context, projectID, providerName string)
 		return nil, cfg, fmt.Errorf("llmgateway: create client for %s: %w", providerName, err)
 	}
 	s.mu.Lock()
-	s.clients[key] = c
+	s.clients[key] = cachedClient{client: c, fp: fp}
 	s.mu.Unlock()
 	return c, cfg, nil
+}
+
+// credFingerprint 只用于判断缓存是否过期，不进入日志。
+func credFingerprint(cfg ProviderConfig) string {
+	h := sha256.New()
+	_, _ = io.WriteString(h, cfg.APIKey)
+	_, _ = h.Write([]byte{0})
+	_, _ = io.WriteString(h, cfg.BaseURL)
+	_, _ = h.Write([]byte{0})
+	_, _ = io.WriteString(h, cfg.Name)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Chat 执行非流式对话。

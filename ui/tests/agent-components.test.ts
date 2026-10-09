@@ -71,6 +71,12 @@ describe('ConversationView', () => {
     expect(wrapper.text()).toContain('查库')
     expect(wrapper.text()).toContain('list_databases')
     expect(wrapper.text()).toContain('▍')
+    const circles = wrapper.findAll('.size-7.rounded-full')
+    expect(circles.length).toBe(2)
+    const userIcon = wrapper.get('[data-user-avatar] svg')
+    expect(userIcon.classes()).toContain('size-4')
+    const assistantIcon = wrapper.get('[data-agent-icon] svg')
+    expect(assistantIcon.classes()).toContain('size-4')
   })
 
   it('shows error text with retry button when canRetry', async () => {
