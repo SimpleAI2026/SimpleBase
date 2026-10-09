@@ -28,6 +28,8 @@ type fakeSQLLease struct {
 	batchResults   []database.QueryResult
 	batchErr       error
 	lastQueryStmt  database.Statement
+	queryStmts     []database.Statement
+	queryQueue     []database.QueryResult
 	lastExecStmt   database.Statement
 	execStmts      []database.Statement
 	lastBatchStmts []database.Statement
@@ -39,6 +41,12 @@ func (l *fakeSQLLease) Release() { l.released = true }
 
 func (l *fakeSQLLease) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
 	l.lastQueryStmt = stmt
+	l.queryStmts = append(l.queryStmts, stmt)
+	if len(l.queryQueue) > 0 {
+		result := l.queryQueue[0]
+		l.queryQueue = l.queryQueue[1:]
+		return result, nil
+	}
 	return l.queryResult, l.queryErr
 }
 
@@ -629,5 +637,58 @@ func TestSQLSerializeAndDecodeExecute(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad batch json %d", rec.Code)
+	}
+}
+
+func TestSQLQuery_SystemCredentialColumns(t *testing.T) {
+	lease := &fakeSQLLease{}
+	svc := &fakeSQLService{
+		db:         catalog.Database{ID: "sys", ProjectID: "proj-1", Kind: catalog.DatabaseKindSystem, Status: catalog.DatabaseReady},
+		lease:      lease,
+		acquireErr: errors.New("should not acquire"),
+	}
+	e := setupSQLTestRouter(t, svc, true)
+	for _, sqlText := range []string{
+		`SELECT password_hash FROM sys_users`,
+		`SELECT password_hash AS h FROM sys_users`,
+		`SELECT substr(password_hash, 1, 4)`,
+		`SELECT "password_hash" FROM sys_users`,
+	} {
+		rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/sys/query", QueryRequest{
+			SQLStatementRequest: SQLStatementRequest{SQL: sqlText},
+		})
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "system_column_redacted") {
+			t.Fatalf("%s -> %d %s", sqlText, rec.Code, rec.Body.String())
+		}
+	}
+	if len(lease.queryStmts) != 0 {
+		t.Fatal("blocked query must not run")
+	}
+
+	svc.acquireErr = nil
+	lease.queryResult = database.QueryResult{
+		Columns: []string{"password_hash", "id"},
+		Rows:    [][]any{{"secret", "u1"}},
+	}
+	rec := doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/sys/query", QueryRequest{
+		SQLStatementRequest: SQLStatementRequest{SQL: "SELECT * FROM sys_users"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("star %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"redacted_columns":["password_hash"]`) || strings.Contains(rec.Body.String(), "secret") {
+		t.Fatalf("redaction %s", rec.Body.String())
+	}
+
+	user := &fakeSQLService{
+		db:    catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseReady, DataModel: catalog.DataModelSQL},
+		lease: &fakeSQLLease{queryResult: database.QueryResult{Columns: []string{"password_hash"}, Rows: [][]any{{"hash"}}}},
+	}
+	e = setupSQLTestRouter(t, user, true)
+	rec = doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/query", QueryRequest{
+		SQLStatementRequest: SQLStatementRequest{SQL: "SELECT password_hash FROM users"},
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "hash") || strings.Contains(rec.Body.String(), "redacted_columns") {
+		t.Fatalf("user %d %s", rec.Code, rec.Body.String())
 	}
 }

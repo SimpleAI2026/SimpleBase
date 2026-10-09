@@ -341,6 +341,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	if deps.SchemaHandler != nil {
 		sh := deps.SchemaHandler
 		p.GET("/databases/:databaseID/schema", sh.ListSchema, require(auth.DatabaseRead))
+		p.GET("/databases/:databaseID/schema/tables/:table/rows", sh.ListTableRows, require(auth.DatabaseRead))
 		p.POST("/databases/:databaseID/schema/tables", sh.CreateTable, require(auth.DatabaseWrite))
 		p.POST("/databases/:databaseID/schema/columns", sh.AddColumn, require(auth.DatabaseWrite))
 	}

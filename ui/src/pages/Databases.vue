@@ -50,7 +50,7 @@
                 <div class="flex min-w-0 items-center gap-2">
                   <DatabaseIcon aria-hidden="true" class="size-4 shrink-0 text-primary" />
                   <span class="sb-mono truncate font-semibold" :title="record.name">{{ record.name }}</span>
-                  <Badge v-if="!isAdmin" variant="outline">{{ isSqlDatabase(record) ? 'SQL' : '集合' }}</Badge>
+                  <Badge variant="outline">{{ showSqlPanel(record) ? 'SQL' : '集合' }}</Badge>
                 </div>
                 <Badge class="mt-2" :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
               </div>
@@ -72,7 +72,7 @@
               <span>创建时间</span><span>{{ formatTime(record.createdAt) }}</span>
             </div>
             <div v-if="expandedRowKeys.includes(record.id)" :id="`db-mobile-${record.id}`" class="mt-4 border-t border-border pt-4">
-              <SchemaPanel v-if="isSqlDatabase(record)" :project-id="projectStore.id" :database="record" :readonly="isAdmin" />
+              <SchemaPanel v-if="showSqlPanel(record)" :project-id="projectStore.id" :database="record" :readonly="isAdmin" />
               <DataTabs v-else :project-id="projectStore.id" :database="record" :reload-token="collectionReload[record.id] || 0" :readonly="isAdmin" @view-data="(c) => openDocList(record, c)" @add-document="(c) => openKv(record, c)" @create-collection="openCreateCollection(record)" />
             </div>
           </article>
@@ -133,7 +133,7 @@
                   <span class="sb-mono inline-flex items-center gap-1.5 font-medium text-foreground">
                     <DatabaseIcon class="size-4 shrink-0 text-primary" />
                     <span class="truncate">{{ record.name }}</span>
-                    <Badge v-if="!isAdmin" variant="outline">{{ isSqlDatabase(record) ? 'SQL' : '集合' }}</Badge>
+                    <Badge variant="outline">{{ showSqlPanel(record) ? 'SQL' : '集合' }}</Badge>
                   </span>
                 </TableCell>
                 <TableCell class="sb-col-id">
@@ -206,7 +206,7 @@
                 <TableCell colspan="7" class="border-b-0 p-0 text-left">
                   <div :id="`db-desktop-${record.id}`" class="border-y border-border/70 bg-muted/25 px-6 py-4">
                     <SchemaPanel
-                      v-if="isSqlDatabase(record)"
+                      v-if="showSqlPanel(record)"
                       :project-id="projectStore.id"
                       :database="record"
                       :readonly="isAdmin"
@@ -398,6 +398,10 @@ function isReady(db: DatabaseItem) {
 
 function isSqlDatabase(db: DatabaseItem) {
   return db.dataModel === 'sql'
+}
+
+function showSqlPanel(db: DatabaseItem) {
+  return isAdmin.value || isSqlDatabase(db)
 }
 
 function toggleExpand(db: DatabaseItem) {

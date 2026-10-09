@@ -230,11 +230,22 @@ export interface CreateDatabaseInput {
   initSql?: string
 }
 
-/** 表结构列。nullable 省略视为可空。 */
+/** 表结构列。nullable 省略视为可空。sensitive 仅系统库凭证列。 */
 export interface SchemaColumn {
   name: string
   type: string
   nullable?: boolean
+  sensitive?: boolean
+}
+
+/** 一张表的分页行。rows 与 columns 按下标对齐。 */
+export interface SchemaTableRows {
+  table: string
+  columns: SchemaColumn[]
+  rows: unknown[][]
+  limit: number
+  offset: number
+  total: number
 }
 
 export interface SchemaTable {
@@ -760,6 +771,12 @@ export interface Api {
     create: (projectId: string, input: CreateDatabaseInput) => Promise<DatabaseItem>
     remove: (projectId: string, databaseId: string) => Promise<void>
     schema: (projectId: string, databaseId: string) => Promise<DatabaseSchema>
+    tableRows: (
+      projectId: string,
+      databaseId: string,
+      table: string,
+      query: { limit: number; offset: number }
+    ) => Promise<SchemaTableRows>
     createTable: (
       projectId: string,
       databaseId: string,

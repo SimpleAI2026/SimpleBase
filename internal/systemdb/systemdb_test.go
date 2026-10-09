@@ -354,6 +354,54 @@ func TestIsAdminProjectAndStoreLifecycle(t *testing.T) {
 	}
 }
 
+func TestSystemDatabaseDataModelMigration(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	if err := ApplySystemMigrations(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	insert := func(id, kind, model string) {
+		t.Helper()
+		if _, err := db.ExecContext(ctx, `INSERT INTO sys_databases(
+			id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, created_at, updated_at, data_model)
+			VALUES(?, 't', 'p', ?, ?, 'ready', 'prefix', 1, ?, ?, ?)`,
+			id, id, kind, now, now, model); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("sys", "system", "collection")
+	insert("user-col", "user", "collection")
+	insert("user-sql", "user", "sql")
+	if _, err := db.ExecContext(ctx, `DELETE FROM sys_migration_versions WHERE version = 44`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySystemMigrations(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySystemMigrations(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	modelOf := func(id string) string {
+		t.Helper()
+		var model string
+		if err := db.QueryRowContext(ctx, `SELECT data_model FROM sys_databases WHERE id = ?`, id).Scan(&model); err != nil {
+			t.Fatal(err)
+		}
+		return model
+	}
+	if modelOf("sys") != catalog.DataModelSQL {
+		t.Fatalf("system model %s", modelOf("sys"))
+	}
+	if modelOf("user-col") != catalog.DataModelCollection || modelOf("user-sql") != catalog.DataModelSQL {
+		t.Fatalf("user models changed: %s %s", modelOf("user-col"), modelOf("user-sql"))
+	}
+}
+
 func TestApplySystemMigrationsNilAndSplit(t *testing.T) {
 	if err := ApplySystemMigrations(context.Background(), nil); err == nil || !errors.Is(err, catalog.ErrMigrationFailed) {
 		t.Fatalf("nil db: %v", err)
