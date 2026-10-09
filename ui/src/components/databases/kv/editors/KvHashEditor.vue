@@ -1,7 +1,16 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div v-if="loading" class="flex justify-center py-6"><Spinner /></div>
-    <template v-else>
+    <SbAsyncRegion
+      class="flex flex-col gap-3"
+      block="spinner"
+      :pending="pending"
+      :show-skeleton="showSkeleton"
+      :show-empty="false"
+      :show-error="showError"
+      :refreshing="refreshing"
+      :error="error"
+      @retry="load"
+    >
       <div class="overflow-x-auto rounded-md border border-border/70">
         <Table>
           <TableHeader>
@@ -39,7 +48,7 @@
         <Input v-model="newValue" placeholder="值" class="flex-1" />
         <Button size="sm" :disabled="!newField.trim()" @click="addField">添加</Button>
       </div>
-    </template>
+    </SbAsyncRegion>
   </div>
 </template>
 
@@ -49,9 +58,10 @@ import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '../../../../services/api'
+import SbAsyncRegion from '../../../SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 import ConfirmAction from '../../../ConfirmAction.vue'
 
 const props = defineProps<{
@@ -63,15 +73,14 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [] }>()
 
 const fields = ref<{ field: string; value: string }[]>([])
-const loading = ref(false)
 const newField = ref('')
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
 const newValue = ref('')
 const editField = ref('')
 const editValue = ref('')
 
-async function load() {
-  loading.value = true
-  try {
+function load() {
+  return run(async () => {
     // HGETALL 返回扁平数组（field,value 交替），转回对象列表
     const flat = (await api.kv.exec(props.projectId, {
       type: 'cmd',
@@ -82,11 +91,8 @@ async function load() {
       for (let i = 0; i + 1 < flat.length; i += 2) out.push({ field: flat[i], value: flat[i + 1] })
     }
     fields.value = out
-  } catch (e) {
-    toast.error(errorMessage(e, '加载失败'))
-  } finally {
-    loading.value = false
-  }
+    return true
+  })
 }
 
 async function addField() {

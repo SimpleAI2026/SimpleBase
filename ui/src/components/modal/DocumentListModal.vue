@@ -11,8 +11,8 @@
           <PlusIcon data-icon="inline-start" />
           新增文档
         </Button>
-        <Button size="sm" variant="outline" :disabled="loading" @click="load">
-          <Spinner v-if="loading" data-icon="inline-start" />
+        <Button size="sm" variant="outline" :disabled="pending" @click="load">
+          <Spinner v-if="pending" data-icon="inline-start" />
           <RefreshCwIcon v-else data-icon="inline-start" />
           刷新
         </Button>
@@ -26,16 +26,18 @@
               <TableHead class="w-28">操作</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            <TableRow v-if="loading && !paged.length">
-              <TableCell colspan="3">
-                <div class="flex flex-col gap-2 py-2">
-                  <Skeleton class="h-8 w-full" />
-                  <Skeleton class="h-8 w-2/3" />
-                </div>
-              </TableCell>
-            </TableRow>
-            <TableEmpty v-else-if="!paged.length" :colspan="3">暂时未查询到数据</TableEmpty>
+          <SbAsyncRegion
+            as="tbody"
+            :columns="3"
+            :pending="pending"
+            :show-skeleton="showSkeleton"
+            :show-empty="showEmpty"
+            :show-error="showError"
+            :refreshing="refreshing"
+            :error="error"
+            @retry="load"
+          >
+            <template #empty>暂时未查询到数据</template>
             <TableRow v-for="record in paged" :key="record.id">
               <TableCell class="sb-mono font-medium truncate text-xs">{{ record.id }}</TableCell>
               <TableCell class="text-left">
@@ -48,7 +50,7 @@
                 <span v-else class="text-xs text-muted-foreground">只读</span>
               </TableCell>
             </TableRow>
-          </TableBody>
+          </SbAsyncRegion>
         </Table>
       </div>
       <TablePager
@@ -71,20 +73,19 @@ import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
 import { api } from '../../services/api'
 import type { DbRow } from '../../services/api'
+import { useLoadState } from '../../composables/useLoadState'
 import { usePagination } from '../../composables/usePagination'
+import SbAsyncRegion from '../SbAsyncRegion.vue'
 import ConfirmAction from '../ConfirmAction.vue'
 import TablePager from '../TablePager.vue'
 import SbCodeBlock from '../SbCodeBlock.vue'
@@ -106,8 +107,10 @@ const emit = defineEmits<{
 }>()
 
 const rows = ref<DbRow[]>([])
-const loading = ref(false)
 const title = ref('文档')
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '数据加载失败'
+})
 const { page, pageSize, total, pageCount, items: paged } = usePagination(rows)
 
 function docFields(row: DbRow): Record<string, unknown> {
@@ -116,16 +119,13 @@ function docFields(row: DbRow): Record<string, unknown> {
   return rest
 }
 
-async function load() {
-  if (!props.databaseId || !props.collection) return
-  loading.value = true
-  try {
-    rows.value = await api.db.rows(props.projectId, props.databaseId, props.collection)
-  } catch (e) {
-    toast.error(errorMessage(e, '数据加载失败'))
-  } finally {
-    loading.value = false
-  }
+function load() {
+  if (!props.databaseId || !props.collection) return Promise.resolve()
+  return run(async () => {
+    const data = await api.db.rows(props.projectId, props.databaseId, props.collection)
+    rows.value = data
+    return data.length > 0
+  })
 }
 
 async function removeRow(id: string) {

@@ -42,8 +42,8 @@
             <Input v-model="to" type="datetime-local" class="w-full" />
           </div>
         </div>
-        <Button size="sm" :disabled="loading" @click="load">
-          <Spinner v-if="loading" data-icon="inline-start" />
+        <Button size="sm" :disabled="pending" @click="load">
+          <Spinner v-if="pending" data-icon="inline-start" />
           <RefreshCwIcon v-else data-icon="inline-start" />
           刷新
         </Button>
@@ -64,19 +64,20 @@
               <TableHead class="sb-col-id">Request ID</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            <template v-if="loading && !events.length">
-              <TableRow v-for="n in 3" :key="'sk-' + n">
-                <TableCell colspan="5"><Skeleton class="h-8 w-full" /></TableCell>
-              </TableRow>
-            </template>
-            <TableEmpty v-else-if="!paged.length" :colspan="5">
-              <SbEmptyState
-                description="暂无匹配日志"
-                :action-text="hasFilter ? '清除筛选' : undefined"
-                @action="clearFilters"
-              />
-            </TableEmpty>
+          <SbAsyncRegion
+            as="tbody"
+            :columns="5"
+            :pending="pending"
+            :show-skeleton="showSkeleton"
+            :show-empty="showEmpty"
+            :show-error="showError"
+            :refreshing="refreshing"
+            :error="error"
+            empty-description="暂无匹配日志"
+            :empty-action-text="hasFilter ? '清除筛选' : undefined"
+            @retry="load"
+            @empty-action="clearFilters"
+          >
             <TableRow v-for="record in paged" :key="record.id" class="font-mono text-xs">
               <TableCell class="text-muted-foreground">{{ formatTime(record.occurredAt) }}</TableCell>
               <TableCell>
@@ -86,7 +87,7 @@
               <TableCell class="max-w-md truncate text-left font-sans text-xs text-foreground">{{ record.message }}</TableCell>
               <TableCell class="max-w-48 truncate text-muted-foreground">{{ record.requestId }}</TableCell>
             </TableRow>
-          </TableBody>
+          </SbAsyncRegion>
         </Table>
         <TablePager
           variant="footer"
@@ -120,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { FilterIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
@@ -136,14 +137,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import {
   Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
@@ -151,12 +149,13 @@ import {
 import { api } from '../services/api'
 import type { LogEvent } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { useLoadState } from '../composables/useLoadState'
 import { usePagination } from '../composables/usePagination'
 import { logLevelText, logLevelVariant } from '@/lib/status'
 import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
-import SbEmptyState from '../components/SbEmptyState.vue'
+import SbAsyncRegion from '../components/SbAsyncRegion.vue'
 import TablePager from '../components/TablePager.vue'
 
 const POLL_MS = 10000
@@ -169,7 +168,9 @@ const from = ref('')
 const to = ref('')
 const events = ref<LogEvent[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(events)
-const loading = ref(false)
+const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载日志失败'
+})
 const autoRefresh = ref(false)
 const keepDays = ref(14)
 const keepDaysText = computed({
@@ -198,10 +199,9 @@ function queryParams() {
   }
 }
 
-async function load() {
-  if (!projectStore.id) return
-  loading.value = true
-  try {
+function load() {
+  if (!projectStore.id) return Promise.resolve()
+  return run(async () => {
     // retention 每项目只取一次（poll 不再重复拉取）
     const needRetention = retentionLoadedFor.value !== projectStore.id
     const [list, retention] = await Promise.all([
@@ -214,11 +214,8 @@ async function load() {
       retentionUpdatedAt.value = retention.updatedAt ? formatTime(retention.updatedAt) : ''
       retentionLoadedFor.value = projectStore.id
     }
-  } catch (e) {
-    toast.error((e as Error)?.message || '加载日志失败')
-  } finally {
-    loading.value = false
-  }
+    return list.length > 0
+  })
 }
 
 function clearFilters() {
@@ -267,6 +264,6 @@ watch(
   }
 )
 
-onMounted(load)
+void load()
 onBeforeUnmount(stopPolling)
 </script>

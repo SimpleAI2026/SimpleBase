@@ -12,7 +12,8 @@
       <aside class="flex w-full shrink-0 flex-col gap-4 border-b bg-card p-4 lg:w-60 lg:border-r lg:border-b-0">
         <div class="flex flex-col gap-2">
           <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">版本</div>
-          <div class="flex max-h-40 flex-col gap-1 overflow-y-auto">
+          <SbBlockSkeleton v-if="versionsLoading" variant="lines" :count="3" />
+          <div v-else class="flex max-h-40 flex-col gap-1 overflow-y-auto">
             <button
               v-for="v in versions"
               :key="v.version"
@@ -126,6 +127,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
 import SbModal from './SbModal.vue'
 import { api } from '../../services/api'
 import type { GoFuncTestResult, GoFunctionItem, GoFuncVersionSummary } from '../../services/types'
@@ -141,6 +143,7 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
 const projectStore = useProjectStore()
 const versions = ref<GoFuncVersionSummary[]>([])
+const versionsLoading = ref(false)
 const selectedVersion = ref(0)
 const selectedFn = ref('')
 const bodyText = ref('{\n  \n}')
@@ -260,22 +263,29 @@ watch(
   () => [props.open, props.record?.id] as const,
   async ([open]) => {
     /* v8 ignore next -- 弹窗关闭/无记录 */
-    if (!open || !props.record) return
+    if (!open || !props.record) {
+      versionsLoading.value = false
+      return
+    }
+    const record = props.record
+    versionsLoading.value = true
     result.value = null
     bodyError.value = ''
     try {
-      const res = await api.gofunctions.listVersions(projectStore.id, props.record.name)
+      const res = await api.gofunctions.listVersions(projectStore.id, record.name)
       versions.value = res.versions
       selectedVersion.value = res.activeVersion || res.versions[0]?.version || 0
     } catch {
       /* v8 ignore start -- 列表失败回退 record.versions */
-      versions.value = props.record.versions || []
+      versions.value = record.versions || []
       selectedVersion.value =
         versions.value.find((x) => x.active)?.version ||
         versions.value[0]?.version ||
-        props.record.activeVersion ||
+        record.activeVersion ||
         0
       /* v8 ignore stop */
+    } finally {
+      versionsLoading.value = false
     }
     selectedFn.value = currentExports.value[0] || ''
     loadDraft()

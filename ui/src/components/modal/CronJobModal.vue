@@ -128,8 +128,9 @@
       <FieldGroup>
         <Field>
           <FieldLabel id="cron-file-label">云函数文件</FieldLabel>
-          <Select v-model="form.funcFile" @update:model-value="form.funcExport = ''">
-            <SelectTrigger aria-labelledby="cron-file-label">
+          <SbBlockSkeleton v-if="pending && gofunctions.length === 0" variant="lines" :count="3" />
+          <Select v-else v-model="form.funcFile" @update:model-value="form.funcExport = ''">
+            <SelectTrigger aria-labelledby="cron-file-label" :disabled="showError">
               <SelectValue placeholder="选择文件" />
             </SelectTrigger>
             <SelectContent>
@@ -138,11 +139,16 @@
               </SelectItem>
             </SelectContent>
           </Select>
-          <FieldDescription v-if="!gofunctions.length">
+          <Alert v-if="showError" variant="destructive">
+            <AlertTitle>加载失败</AlertTitle>
+            <AlertDescription>{{ error }}</AlertDescription>
+          </Alert>
+          <Button v-if="showError" variant="outline" size="sm" class="w-fit" @click="loadFunctions">重试</Button>
+          <FieldDescription v-if="settled && !pending && !showError && gofunctions.length === 0">
             项目内还没有云函数，
             <RouterLink :to="{ name: 'gofunctions' }" class="text-primary underline">先去创建</RouterLink>
           </FieldDescription>
-          <FieldDescription v-else-if="!availableFunctions.length">
+          <FieldDescription v-else-if="gofunctions.length > 0 && !availableFunctions.length">
             没有已发布的云函数（需有生效版本），
             <RouterLink :to="{ name: 'gofunctions' }" class="text-primary underline">先去发布</RouterLink>
           </FieldDescription>
@@ -199,8 +205,10 @@ import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { InfoIcon } from '@lucide/vue'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { useLoadState } from '@/composables/useLoadState'
+import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
 import {
   Field,
   FieldContent,
@@ -312,6 +320,9 @@ function schedulePayload() {
 /* ---------- 云函数联动 ---------- */
 
 const gofunctions = ref<GoFunctionItem[]>([])
+const { pending, settled, showError, error, run } = useLoadState({
+  fallback: '加载云函数失败'
+})
 const currentExports = computed(() => {
   const g = gofunctions.value.find((x) => x.name === form.funcFile)
   return g ? g.exports : []
@@ -319,12 +330,18 @@ const currentExports = computed(() => {
 
 /** 换文件清空函数选择：由 Select 的 @update:model-value 驱动（避免初始化被异步 watch 误重置） */
 
-async function loadFunctions() {
-  try {
-    gofunctions.value = await api.gofunctions.list(projectId.value)
-  } catch {
-    gofunctions.value = []
-  }
+function loadFunctions() {
+  const id = projectId.value
+  return run(async () => {
+    try {
+      const data = await api.gofunctions.list(id)
+      gofunctions.value = data
+      return data.length > 0
+    } catch (e) {
+      gofunctions.value = []
+      throw e
+    }
+  }, { replace: true })
 }
 
 /* ---------- 打开时初始化 ---------- */

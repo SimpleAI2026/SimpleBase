@@ -2,7 +2,7 @@
   <!-- ConversationView：消息流渲染（planv4.1 §3.2）。
        工具卡支持 is_error 徽标与进度心跳；错误消息支持基于 retry_of_run_id 的重试。 -->
   <MessageScroller :follow-key="followKey">
-    <slot name="empty">
+    <slot v-if="!historyLoading" name="empty">
       <SbEmptyState v-if="!messages.length" :icon="BotIcon" description="开始一段对话吧" />
     </slot>
     <div v-for="(m, i) in messages" :key="i" :class="cn('flex items-start gap-2', m.role === 'user' && 'flex-row-reverse')">
@@ -51,12 +51,20 @@ import MessageScroller from '../chat/MessageScroller.vue'
 import AgentToolCard from './AgentToolCard.vue'
 import type { ChatMsg } from '@/composables/useAiChat'
 
-const props = defineProps<{
+interface Props {
   messages: ChatMsg[]
   sending?: boolean
   /** 最后一条消息是否失败且可重试（依赖后端 retry_of_run_id）。 */
   canRetry?: boolean
-}>()
+  /** 历史尚未返回时不要画出空会话文案。 */
+  historyLoading?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  sending: false,
+  canRetry: false,
+  historyLoading: false
+})
 defineEmits<{ (e: 'retry'): void }>()
 
 const followKey = computed(() => {

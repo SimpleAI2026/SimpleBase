@@ -3,7 +3,7 @@
   <div class="flex min-w-0 flex-1 items-center gap-2">
     <Select :model-value="activeId" @update:model-value="(id: string) => $emit('select', id)">
       <SelectTrigger class="h-8 min-w-0 flex-1" aria-label="切换会话">
-        <SelectValue placeholder="选择会话" />
+        <SelectValue :placeholder="triggerPlaceholder" />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
@@ -35,7 +35,18 @@ import ConfirmAction from '../ConfirmAction.vue'
 import { relativeTime } from '@/utils/relative-time'
 import type { AgentThread } from '@/services/types'
 
-const props = defineProps<{ threads: AgentThread[]; activeId: string; busy?: boolean }>()
+interface Props {
+  threads: AgentThread[]
+  activeId: string
+  busy?: boolean
+  /** 会话历史尚未返回，且触发器还没有可显示的标题。 */
+  pending?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  busy: false,
+  pending: false
+})
 defineEmits<{
   (e: 'create'): void
   (e: 'select', id: string): void
@@ -43,4 +54,7 @@ defineEmits<{
 }>()
 
 const activeThread = computed(() => props.threads.find((t) => t.id === props.activeId))
+const triggerPlaceholder = computed(() =>
+  props.pending && !activeThread.value ? '正在加载会话' : '选择会话'
+)
 </script>

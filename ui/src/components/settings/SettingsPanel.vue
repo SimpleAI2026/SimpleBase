@@ -6,7 +6,19 @@
       action-text="创建项目"
       @action="project.openCreateModal()"
     />
-    <FieldGroup v-else class="max-w-lg">
+    <SbAsyncRegion
+      v-else
+      block="lines"
+      class="min-h-40"
+      :pending="modelsPending"
+      :show-skeleton="modelsSkeleton"
+      :show-empty="false"
+      :show-error="modelsFailed"
+      :refreshing="modelsRefreshing"
+      :error="modelsErrorText"
+      @retry="loadServerDefaults"
+    >
+    <FieldGroup class="max-w-lg">
       <Field>
         <FieldLabel>默认供应商</FieldLabel>
         <Select
@@ -70,6 +82,7 @@
         />
       </Field>
     </FieldGroup>
+    </SbAsyncRegion>
   </div>
 
   <div v-else-if="section === 'providers'" class="flex flex-col gap-6">
@@ -80,6 +93,16 @@
       @action="project.openCreateModal()"
     />
     <template v-else>
+      <SbAsyncRegion
+        block="cards"
+        :pending="credsPending"
+        :show-skeleton="credsSkeleton"
+        :show-empty="false"
+        :show-error="credsFailed"
+        :refreshing="credsRefreshing"
+        :error="credsErrorText"
+        @retry="loadCreds"
+      >
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Card v-for="p in presets" :key="p.id" size="sm" class="flex flex-col justify-between">
           <div class="flex flex-1 flex-col">
@@ -119,6 +142,7 @@
           </CardFooter>
         </Card>
       </div>
+      </SbAsyncRegion>
 
       <Card v-if="editorPreset" class="border-t">
         <CardHeader class="border-b">
@@ -171,7 +195,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 import { toast } from 'vue-sonner'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -230,36 +256,47 @@ const modelSuggests = computed(() => {
   return preset?.suggestedModels || []
 })
 
-async function loadServerDefaults() {
+const {
+  pending: modelsPending,
+  showSkeleton: modelsSkeleton,
+  showError: modelsFailed,
+  refreshing: modelsRefreshing,
+  error: modelsErrorText,
+  run: runModels
+} = useLoadState({ fallback: '加载模型设置失败' })
+const {
+  pending: credsPending,
+  showSkeleton: credsSkeleton,
+  showError: credsFailed,
+  refreshing: credsRefreshing,
+  error: credsErrorText,
+  run: runCreds
+} = useLoadState({ fallback: '加载厂商凭证失败' })
+
+async function loadServerDefaults(replace = false) {
   if (!project.id) return
-  try {
+  return runModels(async () => {
     const remote = await api.llmSettings.get(project.id)
     settings.setProjectDefaults(project.id, remote)
-  } catch {
-    /* 保留本地缓存默认值 */
-  }
+    return true
+  }, { replace })
 }
 
 /* ---------- 厂商凭证（服务端 sys_llm_provider_creds） ---------- */
 
 const remoteCreds = ref<LlmProviderCred[]>([])
-const credsLoading = ref(false)
 const saving = ref(false)
 
 function remoteCred(providerId: string): LlmProviderCred | undefined {
   return remoteCreds.value.find((c) => c.provider === providerId)
 }
 
-async function loadCreds() {
+async function loadCreds(replace = false) {
   if (!project.id) return
-  credsLoading.value = true
-  try {
+  return runCreds(async () => {
     remoteCreds.value = await api.llmProviderCreds.list(project.id)
-  } catch {
-    remoteCreds.value = []
-  } finally {
-    credsLoading.value = false
-  }
+    return true
+  }, { replace })
 }
 
 function configured(providerId: string): boolean {
@@ -372,13 +409,11 @@ watch(
   () => project.id,
   () => {
     closeEditor()
-    void loadServerDefaults()
-    void loadCreds()
+    void loadServerDefaults(true)
+    void loadCreds(true)
   }
 )
 
-onMounted(() => {
-  void loadServerDefaults()
-  void loadCreds()
-})
+void loadServerDefaults()
+void loadCreds()
 </script>

@@ -6,8 +6,8 @@
         <CardDescription>superadminl1 可增删改；admin 只读查看</CardDescription>
         <CardAction>
           <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" :disabled="loading" @click="load">
-              <Spinner v-if="loading" data-icon="inline-start" />
+            <Button variant="outline" size="sm" :disabled="pending" @click="load">
+              <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
               刷新
             </Button>
@@ -63,18 +63,22 @@
               <TableHead class="w-48">操作</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            <template v-if="loading && !filtered.length">
-              <TableRow v-for="n in 3" :key="'sk-' + n">
-                <TableCell colspan="6"><Skeleton class="h-8 w-full" /></TableCell>
-              </TableRow>
-            </template>
-            <TableEmpty v-else-if="!filtered.length" :colspan="6">
-              <SbEmptyState
-                description="暂无用户"
-                :action-text="auth.canManageUsers ? '新建用户' : undefined"
-                @action="openCreate"
-              />
+          <SbAsyncRegion
+            as="tbody"
+            :columns="6"
+            :pending="pending"
+            :show-skeleton="showSkeleton"
+            :show-empty="showEmpty"
+            :show-error="showError"
+            :refreshing="refreshing"
+            :error="error"
+            empty-description="暂无用户"
+            :empty-action-text="auth.canManageUsers ? '新建用户' : undefined"
+            @retry="load"
+            @empty-action="openCreate"
+          >
+            <TableEmpty v-if="hasData && !filtered.length" :colspan="6">
+              <SbEmptyState description="暂无用户" />
             </TableEmpty>
             <TableRow v-for="u in filtered" :key="u.id">
               <TableCell class="font-medium">
@@ -101,7 +105,7 @@
                 </div>
               </TableCell>
             </TableRow>
-          </TableBody>
+          </SbAsyncRegion>
         </Table>
       </div>
     </Card>
@@ -116,7 +120,7 @@
 </template>
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -129,10 +133,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
-  TableBody,
   TableCell,
   TableEmpty,
   TableHead,
@@ -141,12 +143,13 @@ import {
 } from '@/components/ui/table'
 import { Spinner } from '@/components/ui/spinner'
 import PageContainer from '../components/PageContainer.vue'
+import SbAsyncRegion from '../components/SbAsyncRegion.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 import UserFormModal from '../components/modal/UserFormModal.vue'
 import { api } from '../services/api'
 import type { UserItem, UserRole } from '../services/types'
 import { useAuthStore } from '../stores/auth'
-import { useAsyncAction } from '../composables/useAsyncAction'
+import { useLoadState } from '../composables/useLoadState'
 import { formatTime } from '../utils/format'
 
 const auth = useAuthStore()
@@ -178,12 +181,17 @@ function fmtTime(s?: string) {
   return formatTime(s, '—')
 }
 
-const { run: load, loading } = useAsyncAction(() => api.users.list(100), {
-  fallbackMsg: '加载失败',
-  onSuccess: (data) => {
-    users.value = (data as { users: UserItem[] }).users
-  }
+const { pending, hasData, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+  fallback: '加载失败'
 })
+
+function load() {
+  return run(async () => {
+    const data = await api.users.list(100)
+    users.value = data.users
+    return users.value.length > 0
+  })
+}
 
 function openCreate() {
   editing.value = null
@@ -210,5 +218,5 @@ function onSaved() {
   void load()
 }
 
-onMounted(load)
+void load()
 </script>

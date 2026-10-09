@@ -1,7 +1,16 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div v-if="loading" class="flex justify-center py-6"><Spinner /></div>
-    <template v-else>
+    <SbAsyncRegion
+      class="flex flex-col gap-3"
+      block="spinner"
+      :pending="pending"
+      :show-skeleton="showSkeleton"
+      :show-empty="false"
+      :show-error="showError"
+      :refreshing="refreshing"
+      :error="error"
+      @retry="load"
+    >
       <div v-if="!elems.length" class="rounded-md border border-dashed border-border/70 py-6 text-center text-xs text-muted-foreground">
         集合为空
       </div>
@@ -27,7 +36,7 @@
           @click="popRandom"
         >随机弹出</Button>
       </div>
-    </template>
+    </SbAsyncRegion>
   </div>
 </template>
 
@@ -38,8 +47,9 @@ import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/ui/spinner'
 import { api } from '../../../../services/api'
+import SbAsyncRegion from '../../../SbAsyncRegion.vue'
+import { useLoadState } from '@/composables/useLoadState'
 
 const props = defineProps<{
   projectId: string
@@ -50,22 +60,18 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [] }>()
 
 const elems = ref<string[]>([])
-const loading = ref(false)
 const newMember = ref('')
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
 
-async function load() {
-  loading.value = true
-  try {
+function load() {
+  return run(async () => {
     const r = (await api.kv.exec(props.projectId, {
       type: 'cmd',
       argvs: ['SMEMBERS', props.kvKey]
     })) as string[]
     elems.value = Array.isArray(r) ? r : []
-  } catch (e) {
-    toast.error(errorMessage(e, '加载失败'))
-  } finally {
-    loading.value = false
-  }
+    return true
+  })
 }
 
 async function addMember() {

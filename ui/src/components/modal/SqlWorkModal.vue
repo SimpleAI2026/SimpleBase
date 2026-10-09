@@ -47,6 +47,25 @@
       <Separator />
 
       <div class="min-h-30">
+        <SbAsyncRegion
+          :pending="running"
+          :show-skeleton="showSkeleton"
+          :show-empty="showEmpty"
+          :show-error="showError"
+          :refreshing="refreshing"
+          :error="loadError"
+          :block="mode === 'query' ? 'lines' : 'spinner'"
+          empty-description="暂时未查询到数据"
+          @retry="run"
+        >
+          <template #skeleton>
+            <Table v-if="mode === 'query'">
+              <TableBody>
+                <SbTableSkeleton :columns="4" :rows="4" />
+              </TableBody>
+            </Table>
+            <SbBlockSkeleton v-else variant="spinner" />
+          </template>
         <template v-if="mode === 'query'">
           <template v-if="queryResult">
             <div class="mb-3 flex flex-wrap items-center gap-2">
@@ -138,6 +157,7 @@
           </template>
           <SbEmptyState v-else description="执行后结果将显示在这里" />
         </template>
+        </SbAsyncRegion>
       </div>
     </div>
 
@@ -174,8 +194,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api } from '../../services/api'
 import type { DatabaseItem, SqlBatchResult, SqlExecuteResult, SqlQueryResult } from '../../services/api'
+import { useLoadState } from '@/composables/useLoadState'
 import { usePagination } from '../../composables/usePagination'
+import SbAsyncRegion from '../SbAsyncRegion.vue'
+import SbBlockSkeleton from '../SbBlockSkeleton.vue'
 import SbEmptyState from '../SbEmptyState.vue'
+import SbTableSkeleton from '../SbTableSkeleton.vue'
 import TablePager from '../TablePager.vue'
 import SbModal from './SbModal.vue'
 
@@ -204,7 +228,16 @@ const sqlText = ref('')
 const argsText = ref('')
 const maxRowsText = ref('')
 const transactional = ref(true)
-const running = ref(false)
+const {
+  pending: running,
+  showSkeleton,
+  showEmpty,
+  showError,
+  refreshing,
+  error: loadError,
+  run: runLoad,
+  reset: resetLoad
+} = useLoadState({ fallback: '执行失败' })
 const queryResult = ref<SqlQueryResult | null>(null)
 const executeResult = ref<SqlExecuteResult | null>(null)
 const batchResult = ref<SqlBatchResult | null>(null)
@@ -296,15 +329,18 @@ function resetAll() {
   argsText.value = ''
   maxRowsText.value = ''
   transactional.value = true
-  running.value = false
   resetResults()
+  resetLoad()
 }
 
 function onOpenChange(v: boolean) {
   emit('update:open', v)
 }
 
-watch(mode, resetResults)
+watch(mode, () => {
+  resetResults()
+  resetLoad()
+}, { flush: 'sync' })
 
 watch(
   () => [props.open, props.database?.id],
@@ -320,42 +356,50 @@ async function run() {
   }
   const pid = props.projectId
   const dbId = props.database.id
-  try {
-    running.value = true
-    const maxRows = maxRowsText.value ? Number(maxRowsText.value) : undefined
-    if (mode.value === 'query') {
+  const currentMode = mode.value
+  let args: unknown[] = []
+  if (currentMode !== 'batch') {
+    try {
+      args = parseArgs()
+    } catch (e) {
+      toast.error(errorMessage(e, '执行失败'))
+      return
+    }
+  }
+  const statements = currentMode === 'batch' ? parseBatch() : []
+  if (currentMode === 'batch' && !statements.length) {
+    toast.warning('请输入至少一条 SQL')
+    return
+  }
+  const maxRows = maxRowsText.value ? Number(maxRowsText.value) : undefined
+  await runLoad(async () => {
+    if (currentMode === 'query') {
       const result = await api.sql.query(pid, dbId, {
         sql: sqlText.value.trim(),
-        args: parseArgs(),
+        args,
         maxRows
       })
       queryResult.value = result
-    } else if (mode.value === 'execute') {
+      return result.columns.length > 0 && result.rowCount > 0
+    }
+    if (currentMode === 'execute') {
       executeResult.value = await api.sql.execute(pid, dbId, {
         sql: sqlText.value.trim(),
-        args: parseArgs()
+        args
       })
       toast.success(`执行成功：${executeResult.value.rowsAffected} 行受影响`)
-    } else {
-      const statements = parseBatch()
-      if (!statements.length) {
-        toast.warning('请输入至少一条 SQL')
-        return
-      }
-      batchResult.value = await api.sql.batch(pid, dbId, { statements, transactional: transactional.value })
-      const failed = batchResult.value.results.filter((r) => r.errorCode).length
-      if (batchResult.value.error) {
-        toast.warning(`事务回滚：第 ${batchResult.value.error.failedIndex + 1} 条失败`)
-      } else if (failed) {
-        toast.warning(`执行完成：${failed} 条失败`)
-      } else {
-        toast.success(`批量执行成功（${statements.length} 条）`)
-      }
+      return true
     }
-  } catch (e) {
-    toast.error(errorMessage(e, '执行失败'))
-  } finally {
-    running.value = false
-  }
+    batchResult.value = await api.sql.batch(pid, dbId, { statements, transactional: transactional.value })
+    const failed = batchResult.value.results.filter((r) => r.errorCode).length
+    if (batchResult.value.error) {
+      toast.warning(`事务回滚：第 ${batchResult.value.error.failedIndex + 1} 条失败`)
+    } else if (failed) {
+      toast.warning(`执行完成：${failed} 条失败`)
+    } else {
+      toast.success(`批量执行成功（${statements.length} 条）`)
+    }
+    return true
+  })
 }
 </script>

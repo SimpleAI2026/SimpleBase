@@ -412,3 +412,15 @@ slots: default（数据）, skeleton, empty（可选，默认 SbEmptyState）
 6. 区域在加载和刷新时 `aria-busy="true"`，骨架 `aria-hidden`，读屏文案是「正在加载」。
 7. 深色模式下占位使用 `bg-muted`。`prefers-reduced-motion` 下占位仍在，只是不脉冲。
 8. `yarn build` 通过；`yarn test` 的三项覆盖率不低于实施前基线。
+
+---
+
+## 9. 实施注记
+
+相对 §3 的伪代码，落地时补了这些调用面，状态机本身没有改：
+
+- `run` 接受 `LoadRunOptions.replace`（丢掉旧数据，走首次占位）和单次 `fallback`。会话切换、SQL 模式切换、云函数下拉失败都要丢掉上一份内容。
+- `settle(ok)` 让新建空白会话直接进入空态；`reset()` 让 SQL 模式切换回到「尚未执行」。
+- 安静等待用 `invisible` 骨架占住高度，避免先空白再跳。这段时间区域同样 `aria-busy="true"`（§3 只写了骨架出现之后）。
+- `SbAsyncRegion` 增加 `pending`，用来区分「还在安静等待」和「已经可以画空态」。
+- 首次失败仍然 toast，同时在没有旧数据时显示 Alert。已有 toast 断言不用改；刷新失败只 toast，行留下。

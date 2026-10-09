@@ -28,15 +28,19 @@
             @keydown.enter="saveKey"
           />
           <Button variant="outline" class="shrink-0" :disabled="!key" @click="copyText(key, 'API Key')">复制</Button>
-          <Button class="shrink-0" @click="saveAll">保存</Button>
+          <Button class="shrink-0" :disabled="saving" @click="saveAll">
+            <Spinner v-if="saving" data-icon="inline-start" />
+            保存
+          </Button>
           <Button variant="outline" class="shrink-0" @click="restoreDevKey">恢复默认（DevMode）</Button>
           <ConfirmAction
             title="重置 API Key？"
             description="将为当前项目签发新 Key 并设为当前使用，同时吊销该项目已有的 Key，使用旧 Key 的调用方将失效。"
-            :disabled="!canReset"
+            :disabled="!canReset || resetting"
             @confirm="resetKey"
           >
-            <Button variant="outline" class="shrink-0" :disabled="!canReset" :title="canReset ? '' : '请先选择项目，且当前角色需可写'">
+            <Button variant="outline" class="shrink-0" :disabled="!canReset || resetting" :title="canReset ? '' : '请先选择项目，且当前角色需可写'">
+              <Spinner v-if="resetting" data-icon="inline-start" />
               重置
             </Button>
           </ConfirmAction>
@@ -56,6 +60,7 @@ import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import ConfirmAction from '../ConfirmAction.vue'
@@ -72,6 +77,8 @@ const projectStore = useProjectStore()
 const unauthorized = computed(() => authStore.lastUnauthorizedAt > 0)
 
 const key = ref(authStore.apiKey)
+const saving = ref(false)
+const resetting = ref(false)
 
 watch(
   () => authStore.settingsOpen,
@@ -86,8 +93,13 @@ function saveKey() {
 }
 
 function saveAll() {
-  saveKey()
-  toast.success('设置已保存')
+  saving.value = true
+  try {
+    saveKey()
+    toast.success('设置已保存')
+  } finally {
+    saving.value = false
+  }
 }
 
 function restoreDevKey() {
@@ -116,7 +128,8 @@ const canReset = computed(() => {
  */
 async function resetKey() {
   const pid = projectStore.id
-  if (!pid || !canReset.value) return
+  if (!pid || !canReset.value || resetting.value) return
+  resetting.value = true
   try {
     let oldKeys: { id: string }[] = []
     try {
@@ -137,6 +150,8 @@ async function resetKey() {
     }
   } catch (e) {
     toast.error(errorMessage(e, '重置失败'))
+  } finally {
+    resetting.value = false
   }
 }
 </script>

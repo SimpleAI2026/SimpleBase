@@ -215,7 +215,9 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       props: { open: true, record }
     })
     await flushPromises()
-    expect(w1.text()).toContain('暂无版本')
+    expect(w1.text()).toContain('加载失败')
+    expect(w1.text()).toContain('load fail')
+    expect(w1.text()).not.toContain('暂无版本')
 
     api.gofunctions.listVersions.mockResolvedValue({
       activeVersion: 1,
