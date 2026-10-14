@@ -87,6 +87,7 @@ type UserService struct {
 	now              func() time.Time
 	onChange         func(string)
 	onProjectsChange func()
+	onWrite          func(ctx context.Context) // SYNC-01：写成功后的同步通知
 }
 
 // NewUserService 构造 UserService。
@@ -115,6 +116,20 @@ func (s *UserService) ProjectsChanged() {
 // OnProjectsChange 注册全局项目集合变更回调。
 func (s *UserService) OnProjectsChange(fn func()) {
 	s.onProjectsChange = fn
+}
+
+// OnWrite 注册写成功后的同步通知（SYNC-01）：user/session 仓储直接写
+// sys_users 等表，不经过 systemdb 的 notifyWrite；改密/禁用这类安全敏感
+// 写若是唯一一次写入，必须在写后立即标记 catalog 待同步。
+func (s *UserService) OnWrite(fn func(ctx context.Context)) {
+	s.onWrite = fn
+}
+
+// written 在写成功后触发同步通知（SYNC-01）；回调异常不打断业务路径。
+func (s *UserService) written(ctx context.Context) {
+	if s.onWrite != nil {
+		s.onWrite(ctx)
+	}
 }
 
 func (s *UserService) changed(userID string) {
@@ -172,6 +187,7 @@ func (s *UserService) Create(ctx context.Context, in CreateUserInput) (User, err
 	if err := s.repo.Create(ctx, u); err != nil {
 		return User{}, err
 	}
+	s.written(ctx) // SYNC-01
 	return u, nil
 }
 
@@ -255,6 +271,7 @@ func (s *UserService) Update(ctx context.Context, id string, in UpdateUserInput)
 		return User{}, err
 	}
 	s.changed(id)
+	s.written(ctx) // SYNC-01
 	return u, nil
 }
 
@@ -287,6 +304,7 @@ func (s *UserService) ChangePassword(ctx context.Context, id, oldPassword, newPa
 		return err
 	}
 	s.changed(id)
+	s.written(ctx) // SYNC-01：改密是安全敏感写
 	return nil
 }
 

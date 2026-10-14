@@ -1,66 +1,66 @@
 <template>
-  <PageContainer subtitle="管理系统内全部账号与角色">
+  <PageContainer :subtitle="t('pages.users.subtitle')">
     <Card>
       <CardHeader class="border-b">
-        <CardTitle>用户</CardTitle>
-        <CardDescription>superadminl1 可增删改；admin 只读查看</CardDescription>
+        <CardTitle>{{ t('pages.users.cardTitle') }}</CardTitle>
+        <CardDescription>{{ t('pages.users.cardDesc') }}</CardDescription>
         <CardAction>
           <div class="flex items-center gap-2">
             <Button variant="outline" size="sm" :disabled="pending" @click="load">
               <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
-              刷新
+              {{ t('common.refresh') }}
             </Button>
             <Button v-if="auth.canManageUsers" size="sm" @click="openCreate">
               <PlusIcon data-icon="inline-start" />
-              新建用户
+              {{ t('pages.users.create') }}
             </Button>
           </div>
         </CardAction>
       </CardHeader>
       <CardContent class="flex flex-wrap items-end gap-2.5 border-b py-4">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-muted-foreground">角色</span>
+          <span class="text-xs text-muted-foreground">{{ t('pages.users.filterRole') }}</span>
           <Select v-model="roleFilter">
             <SelectTrigger class="w-32" size="sm">
-              <SelectValue placeholder="全部" />
+              <SelectValue :placeholder="t('common.all')" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">全部</SelectItem>
-              <SelectItem value="superadminl1">超管</SelectItem>
-              <SelectItem value="admin">管理员</SelectItem>
-              <SelectItem value="user">普通用户</SelectItem>
+              <SelectItem value="all">{{ t('common.all') }}</SelectItem>
+              <SelectItem value="superadminl1">{{ t('components.userMenu.roleSuper') }}</SelectItem>
+              <SelectItem value="admin">{{ t('components.userMenu.roleAdmin') }}</SelectItem>
+              <SelectItem value="user">{{ t('pages.users.roleUser') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-muted-foreground">状态</span>
+          <span class="text-xs text-muted-foreground">{{ t('pages.users.filterStatus') }}</span>
           <Select v-model="statusFilter">
             <SelectTrigger class="w-28" size="sm">
-              <SelectValue placeholder="全部" />
+              <SelectValue :placeholder="t('common.all')" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">全部</SelectItem>
-              <SelectItem value="active">启用</SelectItem>
-              <SelectItem value="disabled">禁用</SelectItem>
+              <SelectItem value="all">{{ t('common.all') }}</SelectItem>
+              <SelectItem value="active">{{ t('common.enabledState') }}</SelectItem>
+              <SelectItem value="disabled">{{ t('common.disabledState') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div class="flex min-w-55 flex-1 flex-col gap-1 sm:max-w-80">
-          <span class="text-xs text-muted-foreground">搜索</span>
-          <Input v-model="keyword" placeholder="搜索用户名" />
+          <span class="text-xs text-muted-foreground">{{ t('pages.users.filterSearch') }}</span>
+          <Input v-model="keyword" :placeholder="t('pages.users.searchPlaceholder')" />
         </div>
       </CardContent>
       <div class="p-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="sb-col-name">用户名</TableHead>
-              <TableHead class="sb-col-sm">角色</TableHead>
-              <TableHead class="sb-col-sm">状态</TableHead>
-              <TableHead class="w-20">项目数</TableHead>
-              <TableHead class="sb-col-md">最后登录</TableHead>
-              <TableHead class="w-48">操作</TableHead>
+              <TableHead class="sb-col-name">{{ t('pages.users.colUsername') }}</TableHead>
+              <TableHead class="sb-col-sm">{{ t('pages.users.colRole') }}</TableHead>
+              <TableHead class="sb-col-sm">{{ t('pages.users.colStatus') }}</TableHead>
+              <TableHead class="w-20">{{ t('pages.users.colProjects') }}</TableHead>
+              <TableHead class="sb-col-md">{{ t('pages.users.colLastLogin') }}</TableHead>
+              <TableHead class="w-48">{{ t('pages.users.colActions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <SbAsyncRegion
@@ -72,13 +72,13 @@
             :show-error="showError"
             :refreshing="refreshing"
             :error="error"
-            empty-description="暂无用户"
-            :empty-action-text="auth.canManageUsers ? '新建用户' : undefined"
+            :empty-description="t('pages.users.emptyDesc')"
+            :empty-action-text="auth.canManageUsers ? t('pages.users.create') : undefined"
             @retry="load"
             @empty-action="openCreate"
           >
             <TableEmpty v-if="hasData && !filtered.length" :colspan="6">
-              <SbEmptyState description="暂无用户" />
+              <SbEmptyState :description="t('pages.users.emptyDesc')" />
             </TableEmpty>
             <TableRow v-for="u in filtered" :key="u.id">
               <TableCell class="font-medium">
@@ -88,18 +88,18 @@
               <TableCell>{{ roleText(u.role) }}</TableCell>
               <TableCell>
                 <span :class="u.status === 'active' ? 'text-success' : 'text-muted-foreground'">
-                  {{ u.status === 'active' ? '● 启用' : '○ 禁用' }}
+                  {{ u.status === 'active' ? t('pages.users.activeBadge') : t('pages.users.disabledBadge') }}
                 </span>
               </TableCell>
               <TableCell>{{ u.projectCount }}</TableCell>
               <TableCell class="text-xs text-muted-foreground">{{ fmtTime(u.lastLoginAt) }}</TableCell>
               <TableCell>
                 <div class="flex justify-center gap-1">
-                  <Button size="sm" variant="outline" @click="openEdit(u)">查看</Button>
+                  <Button size="sm" variant="outline" @click="openEdit(u)">{{ t('pages.users.view') }}</Button>
                   <template v-if="auth.canManageUsers && u.id !== auth.user?.id && u.username !== 'simplebase2026'">
-                    <Button size="sm" variant="outline" @click="openEdit(u)">编辑</Button>
+                    <Button size="sm" variant="outline" @click="openEdit(u)">{{ t('pages.users.edit') }}</Button>
                     <Button size="sm" variant="outline" @click="toggleStatus(u)">
-                      {{ u.status === 'active' ? '禁用' : '启用' }}
+                      {{ u.status === 'active' ? t('pages.users.disable') : t('pages.users.enable') }}
                     </Button>
                   </template>
                 </div>
@@ -121,6 +121,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -153,6 +154,7 @@ import { useLoadState } from '../composables/useLoadState'
 import { formatTime } from '../utils/format'
 
 const auth = useAuthStore()
+const { t } = useI18n()
 const users = ref<UserItem[]>([])
 const keyword = ref('')
 const roleFilter = ref<'all' | UserRole>('all')
@@ -172,9 +174,9 @@ const filtered = computed(() =>
 )
 
 function roleText(r: UserRole | string) {
-  if (r === 'superadminl1') return '超管'
-  if (r === 'admin') return '管理员'
-  return '普通用户'
+  if (r === 'superadminl1') return t('components.userMenu.roleSuper')
+  if (r === 'admin') return t('components.userMenu.roleAdmin')
+  return t('pages.users.roleUser')
 }
 
 function fmtTime(s?: string) {
@@ -182,7 +184,7 @@ function fmtTime(s?: string) {
 }
 
 const { pending, hasData, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载失败'
+  fallback: 'pages.users.loadFailed'
 })
 
 function load() {
@@ -206,10 +208,10 @@ function openEdit(u: UserItem) {
 async function toggleStatus(u: UserItem) {
   try {
     await api.users.update(u.id, { status: u.status === 'active' ? 'disabled' : 'active' })
-    toast.success(u.status === 'active' ? '已禁用' : '已启用')
+    toast.success(u.status === 'active' ? t('pages.users.disabledToast') : t('pages.users.enabledToast'))
     await load()
   } catch (e) {
-    toast.error(errorMessage(e, '操作失败'))
+    toast.error(errorMessage(e, t('pages.users.failedToast')))
   }
 }
 

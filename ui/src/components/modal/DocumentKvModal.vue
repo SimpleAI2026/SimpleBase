@@ -1,7 +1,7 @@
 <template>
   <SbModal
     :open="open"
-    title="新增文档"
+    :title="t('components.documentKv.title')"
     :width="480"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: !canSubmit }"
@@ -11,7 +11,7 @@
     <FieldGroup>
       <Field>
         <FieldLabel for="doc-key">Key</FieldLabel>
-        <Input id="doc-key" v-model="key" placeholder="字段名，例如 name" @keydown.enter="submit" />
+        <Input id="doc-key" v-model="key" :placeholder="t('components.documentKv.keyPlaceholder')" @keydown.enter="submit" />
       </Field>
       <Field>
         <FieldLabel for="doc-value">Value</FieldLabel>
@@ -19,7 +19,7 @@
           id="doc-value"
           v-model="value"
           :rows="6"
-          placeholder='字符串，或 JSON（如 1、true、{"city":"SZ"}）'
+          :placeholder="t('components.documentKv.valuePlaceholder')"
         />
       </Field>
     </FieldGroup>
@@ -29,6 +29,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -48,6 +49,8 @@ const emit = defineEmits<{
   created: []
 }>()
 
+const { t } = useI18n()
+
 const key = ref('')
 const value = ref('')
 const submitting = ref(false)
@@ -57,10 +60,10 @@ const canSubmit = computed(
 )
 
 function parseValue(raw: string): unknown {
-  const t = raw.trim()
-  if (!t) return ''
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
   try {
-    return JSON.parse(t)
+    return JSON.parse(trimmed)
   } catch {
     return raw
   }
@@ -80,18 +83,18 @@ watch(
 async function submit() {
   const k = key.value.trim()
   if (!k) {
-    toast.warning('请输入 Key')
+    toast.warning(t('components.documentKv.keyRequired'))
     return
   }
   submitting.value = true
   try {
     const payload: Record<string, unknown> = { [k]: parseValue(value.value) }
     await api.db.insert(props.projectId, props.databaseId, props.collection, payload)
-    toast.success('创建成功')
+    toast.success(t('components.documentKv.created'))
     emit('created')
     emit('update:open', false)
   } catch (e) {
-    toast.error(errorMessage(e, '创建失败'))
+    toast.error(errorMessage(e, t('components.documentKv.createFailed')))
   } finally {
     submitting.value = false
   }

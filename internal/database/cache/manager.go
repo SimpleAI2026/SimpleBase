@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/google/uuid"
@@ -62,6 +63,9 @@ type Options struct {
 	Root         string
 	MaxBytes     int64
 	MaxDatabases int
+	// DataRoot 是持久数据目录（storage.data_dir）。设置时校验缓存根
+	// 不得等于或落在数据目录内：缓存淘汰随时删除文件，绝不能波及数据。
+	DataRoot string
 	// Registry 用于检查库是否活跃；可为 nil（此时 Evict 视为不可淘汰）。
 	Registry ActiveChecker
 	// Closer 用于淘汰前关闭句柄；若为 nil 则淘汰前不关闭 registry。
@@ -81,6 +85,18 @@ func NewManager(opts Options) (*Manager, error) {
 	abs, err := filepath.Abs(opts.Root)
 	if err != nil {
 		return nil, fmt.Errorf("cache: resolve root: %w", err)
+	}
+	if opts.DataRoot != "" {
+		dataAbs, err := filepath.Abs(opts.DataRoot)
+		if err != nil {
+			return nil, fmt.Errorf("cache: resolve data root: %w", err)
+		}
+		if abs == dataAbs {
+			return nil, fmt.Errorf("cache: root %s must not equal data dir %s", abs, dataAbs)
+		}
+		if rel, err := filepath.Rel(dataAbs, abs); err == nil && !strings.HasPrefix(rel, "..") {
+			return nil, fmt.Errorf("cache: root %s must not live inside data dir %s", abs, dataAbs)
+		}
 	}
 	if opts.MaxBytes <= 0 {
 		opts.MaxBytes = 1 << 30 // 默认 1GiB

@@ -106,7 +106,7 @@ func TestS3_IndexAndRefresh(t *testing.T) {
 	}
 
 	// lastModified formatting
-	dto := toDTO(objectstore.FileObject{Key: "p/k", Size: 1, LastModified: time.Unix(1, 0).UTC()}, "p")
+	dto := toDTO(objectstore.FileObject{Key: "p/files/k", Size: 1, LastModified: time.Unix(1, 0).UTC()}, "p")
 	if dto.LastModified == "" || dto.Key != "k" {
 		t.Fatalf("%+v", dto)
 	}

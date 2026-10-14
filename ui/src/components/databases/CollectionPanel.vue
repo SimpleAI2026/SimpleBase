@@ -4,8 +4,8 @@
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="min-w-44 max-w-80">集合名称</TableHead>
-            <TableHead class="w-52">操作</TableHead>
+            <TableHead class="min-w-44 max-w-80">{{ t('components.collectionPanel.colName') }}</TableHead>
+            <TableHead class="w-52">{{ t('common.actions') }}</TableHead>
           </TableRow>
         </TableHeader>
         <SbAsyncRegion
@@ -17,8 +17,8 @@
           :show-error="showError"
           :refreshing="refreshing"
           :error="error"
-          :empty-description="readonly ? '暂无数据表' : '暂无集合'"
-          :empty-action-text="readonly ? undefined : '新建集合'"
+          :empty-description="readonly ? t('components.collectionPanel.emptyReadonly') : t('components.collectionPanel.empty')"
+          :empty-action-text="readonly ? undefined : t('components.collectionPanel.create')"
           @retry="load"
           @empty-action="emit('create-collection')"
         >
@@ -26,8 +26,8 @@
             <TableCell class="sb-mono max-w-80 truncate font-medium" :title="record.name">{{ record.name }}</TableCell>
             <TableCell class="w-52">
               <div class="flex items-center justify-center gap-1">
-                <Button variant="ghost" size="sm" @click="emit('view-data', record.name)">查看数据</Button>
-                <Button v-if="!readonly" variant="ghost" size="sm" @click="emit('add-document', record.name)">新增文档</Button>
+                <Button variant="ghost" size="sm" @click="emit('view-data', record.name)">{{ t('components.collectionPanel.viewData') }}</Button>
+                <Button v-if="!readonly" variant="ghost" size="sm" @click="emit('add-document', record.name)">{{ t('components.collectionPanel.addDocument') }}</Button>
               </div>
             </TableCell>
           </TableRow>
@@ -39,6 +39,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '../../services/api'
@@ -54,6 +55,8 @@ const props = defineProps<{
   readonly?: boolean
 }>()
 
+const { t } = useI18n()
+
 const emit = defineEmits<{
   'view-data': [collection: string]
   'add-document': [collection: string]
@@ -63,7 +66,7 @@ const emit = defineEmits<{
 const collections = ref<string[]>([])
 const rows = computed(() => collections.value.map((name) => ({ name })))
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '集合加载失败'
+  fallback: 'components.collectionPanel.loadFailed'
 })
 
 function load() {

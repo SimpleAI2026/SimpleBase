@@ -148,9 +148,9 @@ type Tx struct {
 
 func (t *Tx) nowMs() int64 { return t.now().UnixMilli() }
 
-func (t *Tx) Key() *KeyRepo       { return &KeyRepo{t: t} }
-func (t *Tx) Str() *StringRepo    { return &StringRepo{t: t} }
-func (t *Tx) Hash() *HashRepo     { return &HashRepo{t: t} }
-func (t *Tx) List() *ListRepo     { return &ListRepo{t: t} }
-func (t *Tx) Set() *SetRepo       { return &SetRepo{t: t} }
-func (t *Tx) ZSet() *ZSetRepo     { return &ZSetRepo{t: t} }
+func (t *Tx) Key() *KeyRepo    { return &KeyRepo{t: t} }
+func (t *Tx) Str() *StringRepo { return &StringRepo{t: t} }
+func (t *Tx) Hash() *HashRepo  { return &HashRepo{t: t} }
+func (t *Tx) List() *ListRepo  { return &ListRepo{t: t} }
+func (t *Tx) Set() *SetRepo    { return &SetRepo{t: t} }
+func (t *Tx) ZSet() *ZSetRepo  { return &ZSetRepo{t: t} }

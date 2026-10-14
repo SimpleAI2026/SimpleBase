@@ -1,7 +1,7 @@
 <template>
   <SbModal
     :open="open"
-    title="新建项目"
+    :title="t('components.createProject.title')"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: !canSubmit }"
     @ok="submit"
@@ -9,11 +9,11 @@
   >
     <FieldGroup>
       <Field :data-invalid="nameError ? true : undefined">
-        <FieldLabel for="project-name">项目名称</FieldLabel>
+        <FieldLabel for="project-name">{{ t('components.createProject.name') }}</FieldLabel>
         <Input
           id="project-name"
           v-model="name"
-          placeholder="例如：商城后台"
+          :placeholder="t('components.createProject.namePlaceholder')"
           maxlength="128"
           :aria-invalid="nameError ? true : undefined"
           @keydown.enter="submit"
@@ -21,17 +21,17 @@
         <FieldDescription v-if="nameError">{{ nameError }}</FieldDescription>
       </Field>
       <Field :data-invalid="idError ? true : undefined">
-        <FieldLabel for="project-id">项目 ID</FieldLabel>
+        <FieldLabel for="project-id">{{ t('components.createProject.projectId') }}</FieldLabel>
         <Input
           id="project-id"
           v-model="customId"
-          placeholder="可选，8 位字母数字或 -"
+          :placeholder="t('components.createProject.projectIdPlaceholder')"
           class="font-mono"
           maxlength="8"
           :aria-invalid="idError ? true : undefined"
           @keydown.enter="submit"
         />
-        <FieldDescription>{{ idError || '可选。留空由服务端生成 8 位 ID。' }}</FieldDescription>
+        <FieldDescription>{{ idError || t('components.createProject.projectIdHint') }}</FieldDescription>
       </Field>
     </FieldGroup>
   </SbModal>
@@ -40,6 +40,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -58,6 +59,8 @@ const emit = defineEmits<{
   created: [project: ProjectItem]
 }>()
 
+const { t } = useI18n()
+
 const name = ref('')
 const customId = ref('')
 const submitting = ref(false)
@@ -65,15 +68,15 @@ const submitting = ref(false)
 const nameError = computed(() => {
   const n = name.value.trim()
   if (!n) return ''
-  if (n.length > 128) return '名称不能超过 128 个字符'
-  if (/[/\\]/.test(n) || /[\x00-\x1f]/.test(n)) return '名称不能包含路径分隔符或控制字符'
+  if (n.length > 128) return t('components.createProject.nameTooLong')
+  if (/[/\\]/.test(n) || /[\x00-\x1f]/.test(n)) return t('components.createProject.nameInvalid')
   return ''
 })
 
 const idError = computed(() => {
   const id = customId.value.trim()
   if (!id) return ''
-  if (!PROJECT_ID_RE.test(id)) return '须为 8 位字母、数字或连字符'
+  if (!PROJECT_ID_RE.test(id)) return t('components.createProject.projectIdInvalid')
   return ''
 })
 
@@ -92,7 +95,7 @@ watch(
 
 async function submit() {
   if (!canSubmit.value) {
-    if (!name.value.trim()) toast.warning('请输入项目名称')
+    if (!name.value.trim()) toast.warning(t('components.createProject.nameRequired'))
     return
   }
   submitting.value = true
@@ -101,11 +104,11 @@ async function submit() {
       name: name.value.trim(),
       id: customId.value.trim() || undefined
     })
-    toast.success(`已创建项目「${created.name || created.id}」`)
+    toast.success(t('components.createProject.created', { name: created.name || created.id }))
     emit('created', created)
     emit('update:open', false)
   } catch (e) {
-    toast.error(errorMessage(e, '创建项目失败'))
+    toast.error(errorMessage(e, t('components.createProject.createFailed')))
   } finally {
     submitting.value = false
   }

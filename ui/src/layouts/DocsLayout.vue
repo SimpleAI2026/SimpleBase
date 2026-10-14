@@ -3,17 +3,17 @@
     <header class="sticky top-0 z-20 border-b bg-background/90 backdrop-blur-xl">
       <div class="mx-auto flex h-[var(--header-height)] w-full max-w-[1200px] items-center justify-between gap-3 px-4 md:px-6">
         <div class="flex min-w-0 items-center gap-2.5">
-          <router-link to="/" class="inline-flex items-center gap-2.5 text-foreground no-underline hover:text-primary" title="返回首页">
+          <router-link to="/" class="inline-flex items-center gap-2.5 text-foreground no-underline hover:text-primary" :title="t('layout.backToHome')">
             <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary font-serif text-base font-semibold text-primary-foreground">S</span>
             <span class="hidden font-serif text-base font-bold sm:inline">SimpleBase</span>
           </router-link>
           <span class="text-muted-foreground/70" aria-hidden="true">/</span>
-          <router-link to="/docs" class="truncate text-sm font-semibold text-foreground no-underline hover:text-primary">使用文档</router-link>
+          <router-link to="/docs" class="truncate text-sm font-semibold text-foreground no-underline hover:text-primary">{{ t('layout.docs') }}</router-link>
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <DocsSearch />
           <Button variant="ghost" size="sm" as-child>
-            <router-link :to="{ name: 'agents' }">返回控制台</router-link>
+            <router-link :to="{ name: 'agents' }">{{ t('layout.backToConsole') }}</router-link>
           </Button>
           <Button variant="ghost" size="sm" as-child>
             <a href="https://github.com/linkxzhou/SimpleBase" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5">
@@ -33,6 +33,9 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import DocsSearch from '@/components/docs/DocsSearch.vue'
+
+const { t } = useI18n()
 </script>

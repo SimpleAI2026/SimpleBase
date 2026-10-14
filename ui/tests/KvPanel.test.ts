@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, resetApiMocks } from '@/test/api-mock'
 import { uiStubs } from '@/test/helpers'
 import KvPanel from '@/components/databases/kv/KvPanel.vue'
+import KvKeyListPanel from '@/components/databases/kv/KvKeyListPanel.vue'
 
 import { toast } from 'vue-sonner'
 vi.mock('@/services/api', async () => {
@@ -68,12 +69,38 @@ describe('KvPanel (项目级 Key-Value 列表)', () => {
   })
 
   it('类型徽章映射', async () => {
-    const vm0 = (await mountPanel()).vm as any
-    expect(vm0.typeBadge('hash')).toBe('secondary')
-    expect(vm0.typeBadge('list')).toBe('outline')
-    expect(vm0.typeBadge('set')).toBe('default')
-    expect(vm0.typeBadge('zset')).toBe('destructive')
-    expect(vm0.typeBadge('string')).toBe('default')
+    // typeBadge 已随键列表拆到 KvKeyListPanel（plan v3 §3.6），
+    // 断言改为直接打在拆出的组件上。
+    const list = mount(KvKeyListPanel, {
+      props: {
+        rows: [
+          { key: 'k:hash', type: 'hash', len: 1, ttl_ms: null },
+          { key: 'k:list', type: 'list', len: 1, ttl_ms: null },
+          { key: 'k:set', type: 'set', len: 1, ttl_ms: null },
+          { key: 'k:zset', type: 'zset', len: 1, ttl_ms: null },
+          { key: 'k:string', type: 'string', len: null, ttl_ms: null }
+        ],
+        pattern: '',
+        typeFilter: 'all',
+        hasMore: false,
+        loadingMore: false,
+        pending: false,
+        showSkeleton: false,
+        showEmpty: false,
+        showError: false,
+        refreshing: false,
+        error: '',
+        ttlText: () => '—'
+      },
+      global: { stubs: uiStubs }
+    })
+    const vm = list.vm as unknown as { typeBadge: (t: string) => string }
+    expect(vm.typeBadge('hash')).toBe('secondary')
+    expect(vm.typeBadge('list')).toBe('outline')
+    expect(vm.typeBadge('set')).toBe('default')
+    expect(vm.typeBadge('zset')).toBe('destructive')
+    expect(vm.typeBadge('string')).toBe('default')
+    list.unmount()
   })
 
   it('空态展示新建入口；readonly 时 openCreate 不打开弹窗', async () => {

@@ -21,14 +21,13 @@ import (
 func TestCatalogSyncerDebounceAndUpload(t *testing.T) {
 	dir := t.TempDir()
 	id := uuid.NewString()
-	tenant := "11111111-1111-1111-1111-111111111111"
+	tenant := "prj12345" // 存储路径按项目 ID 组织
 	blobs := objectstore.NewMemoryBlobStore()
 	remote := RemoteStorage{
-		Enabled:     true,
-		Region:      "us-east-1",
-		Bucket:      "test-bucket",
-		RootPrefix:  "simplebase",
-		Environment: "test",
+		Enabled:    true,
+		Region:     "us-east-1",
+		Bucket:     "test-bucket",
+		RootPrefix: "simplebase",
 	}
 	opts := DefaultOptions()
 	opts.ExtensionDir = filepath.Join(dir, "extensions")
@@ -44,7 +43,7 @@ func TestCatalogSyncerDebounceAndUpload(t *testing.T) {
 		Blobs:    blobs,
 	}
 	// Force remote keys to work while DATA_PATH stays local: syncer.Remote enabled, factory remote off.
-	meta := catalog.Database{ID: id, TenantID: tenant, ProjectID: "pro-test"}
+	meta := catalog.Database{ID: id, TenantID: tenant, ProjectID: "prj12345"}
 	db, err := f.Open(context.Background(), meta, database.ReadWrite)
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -94,7 +93,7 @@ func TestCatalogSyncerDebounceAndUpload(t *testing.T) {
 		t.Fatalf("idle flush advanced manifest: %v %v", idle, err)
 	}
 	// 兼容镜像 catalog/catalog.sqlite 已删除：远端 catalog/ 下不应再出现 .sqlite 对象。
-	keys, _, err := blobs.List(ctx, "simplebase/test/tenants/", "", 1000)
+	keys, _, err := blobs.List(ctx, "simplebase/prj12345/", "", 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +101,76 @@ func TestCatalogSyncerDebounceAndUpload(t *testing.T) {
 		if strings.HasSuffix(k, ".sqlite") {
 			t.Fatalf("legacy sqlite object written: %s", k)
 		}
+	}
+}
+
+type failCatalogPutStore struct {
+	objectstore.BlobStore
+	failSnapshot bool
+	failManifest bool
+}
+
+func (b *failCatalogPutStore) PutIfAbsent(ctx context.Context, key string, data []byte, ct string) (objectstore.ObjectInfo, error) {
+	if (b.failSnapshot && strings.Contains(key, "/snapshots/")) ||
+		(b.failManifest && strings.Contains(key, "/manifest/")) {
+		return objectstore.ObjectInfo{}, context.DeadlineExceeded
+	}
+	return b.BlobStore.PutIfAbsent(ctx, key, data, ct)
+}
+
+func TestCatalogSyncFailureKeepsUnsyncedAgeAndManifest(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
+	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "test", RootPrefix: "simplebase"}
+	for _, failManifest := range []bool{false, true} {
+		t.Run(map[bool]string{false: "snapshot", true: "manifest"}[failManifest], func(t *testing.T) {
+			store := &failCatalogPutStore{BlobStore: objectstore.NewMemoryBlobStore(), failSnapshot: !failManifest, failManifest: failManifest}
+			opts := DefaultOptions()
+			opts.ExtensionDir = filepath.Join(dir, uuid.NewString(), "extensions")
+			opts.CatalogSync.Interval = time.Hour
+			cache := filepath.Join(dir, uuid.NewString())
+			cs := NewCatalogSyncer(store, remote, cache, opts.CatalogSync, EngineDuckDB, nil, nil)
+			f := &Factory{CacheDir: cache, Options: opts, Syncer: cs}
+			db, err := f.Open(ctx, meta, database.ReadWrite)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+			cs.Bind(meta.ID, db, meta, DefaultLakeAlias)
+			if _, err := db.ExecContext(ctx, `CREATE TABLE t (x INTEGER)`); err != nil {
+				t.Fatal(err)
+			}
+			snap, err := CurrentSnapshot(ctx, db, DefaultLakeAlias)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cs.MarkDirty(meta.ID, snap)
+			if age := cs.OldestUnsyncedAge(meta.ID); age < 0 {
+				t.Fatalf("unsynced age=%s", age)
+			}
+			if err := cs.Sync(ctx, meta.ID); err == nil {
+				t.Fatal("expected injected upload failure")
+			}
+			if cs.LastSynced(meta.ID) >= snap || cs.SyncLag(meta.ID) == 0 {
+				t.Fatal("failed sync advanced watermark")
+			}
+			latest, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0)
+			if err != nil || latest != nil {
+				t.Fatalf("failed sync published manifest: %+v %v", latest, err)
+			}
+			store.failSnapshot, store.failManifest = false, false
+			if err := cs.Sync(ctx, meta.ID); err != nil {
+				t.Fatalf("recover sync: %v", err)
+			}
+			if age := cs.OldestUnsyncedAge(meta.ID); age != 0 {
+				t.Fatalf("synced age=%s", age)
+			}
+			latest, err = ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0)
+			if err != nil || latest == nil || latest.SnapshotID < snap {
+				t.Fatalf("recovery manifest: %+v %v", latest, err)
+			}
+		})
 	}
 }
 
@@ -127,8 +196,8 @@ func (b *delayedSnapshotStore) PutIfAbsent(ctx context.Context, key string, data
 
 func TestCatalogSyncerInflightWriteEventuallySynced(t *testing.T) {
 	dir := t.TempDir()
-	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111"}
-	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase", Environment: "test"}
+	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
+	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase"}
 	store := &delayedSnapshotStore{BlobStore: objectstore.NewMemoryBlobStore(), started: make(chan struct{}), release: make(chan struct{})}
 	opts := DefaultOptions()
 	opts.ExtensionDir = filepath.Join(dir, "extensions")
@@ -177,7 +246,7 @@ func TestCatalogSyncerInflightWriteEventuallySynced(t *testing.T) {
 	close(store.release)
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		latest, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 0)
+		latest, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0)
 		if err == nil && latest != nil && latest.SnapshotID >= second {
 			return
 		}
@@ -190,10 +259,10 @@ func TestEnsureLocalCatalogDownload(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	id := uuid.NewString()
-	tenant := "11111111-1111-1111-1111-111111111111"
+	tenant := "prj12345" // 存储路径按项目 ID 组织
 	blobs := objectstore.NewMemoryBlobStore()
-	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase", Environment: "test"}
-	meta := catalog.Database{ID: id, TenantID: tenant}
+	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase"}
+	meta := catalog.Database{ID: id, TenantID: tenant, ProjectID: "prj12345"}
 
 	// 旧 key catalog/catalog.sqlite 不再被读取：无 manifest 即新库。
 	prefix, _ := remote.keyBuilder().DatabasePrefix(tenant, id)
@@ -246,9 +315,9 @@ func TestVerifySnapshotBodyRejectsMissingIntegrityFields(t *testing.T) {
 func TestEnsureLocalCatalogChecksumMismatch(t *testing.T) {
 	ctx := context.Background()
 	id := uuid.NewString()
-	tenant := "11111111-1111-1111-1111-111111111111"
+	tenant := "prj12345" // 存储路径按项目 ID 组织
 	blobs := objectstore.NewMemoryBlobStore()
-	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase", Environment: "test"}
+	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase"}
 	key, _ := remote.keyBuilder().DuckLakeSnapshotKey(tenant, id, 5, 1, EngineDuckDB)
 	_ = blobs.PutBytes(ctx, key, []byte("tampered"), "")
 	m := NewManifest(1, 5, key, EngineDuckDB, 1, 8, strings.Repeat("0", 64))
@@ -256,7 +325,7 @@ func TestEnsureLocalCatalogChecksumMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if _, err := EnsureLocalCatalog(ctx, blobs, remote, dir, catalog.Database{ID: id, TenantID: tenant}, EngineDuckDB); err == nil {
+	if _, err := EnsureLocalCatalog(ctx, blobs, remote, dir, catalog.Database{ID: id, TenantID: tenant, ProjectID: "prj12345"}, EngineDuckDB); err == nil {
 		t.Fatal("checksum mismatch must fail")
 	}
 	if _, err := os.Stat(layoutForEngine(dir, id, EngineDuckDB).CatalogFile); !os.IsNotExist(err) {
@@ -267,12 +336,12 @@ func TestEnsureLocalCatalogChecksumMismatch(t *testing.T) {
 func TestEnsureLocalCatalogLegacyManifestRejected(t *testing.T) {
 	ctx := context.Background()
 	id := uuid.NewString()
-	tenant := "11111111-1111-1111-1111-111111111111"
+	tenant := "prj12345" // 存储路径按项目 ID 组织
 	blobs := objectstore.NewMemoryBlobStore()
-	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase", Environment: "test"}
+	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase"}
 	mk, _ := remote.keyBuilder().DuckLakeManifestKey(tenant, id, 1)
 	_ = blobs.PutBytes(ctx, mk, []byte(`{"seq":1,"snapshot_id":3,"snapshot_key":"x.sqlite","writer_epoch":1}`), "")
-	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), catalog.Database{ID: id, TenantID: tenant}, EngineDuckDB); !IsCatalogEngineUnknown(err) {
+	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), catalog.Database{ID: id, TenantID: tenant, ProjectID: "prj12345"}, EngineDuckDB); !IsCatalogEngineUnknown(err) {
 		t.Fatalf("legacy manifest without engine must be rejected, got %v", err)
 	}
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import router from '@/router/index'
+import { setI18nLocale, t } from '@/locales'
 
 describe('router', () => {
   it('registers console pages, docs, and legacy redirects', () => {
@@ -74,15 +75,22 @@ describe('router', () => {
     expect(router.currentRoute.value.name).toBe('home')
   })
 
-  it('assigns Chinese titles to the seven console feature areas', () => {
-    const titleOf = (name: string) => router.getRoutes().find((r) => r.name === name)?.meta?.title
-    expect(titleOf('dashboard')).toBe('监控大盘')
-    expect(titleOf('databases')).toBe('数据库管理')
-    expect(titleOf('s3')).toBe('对象存储')
-    expect(titleOf('gofunctions')).toBe('云函数')
-    expect(titleOf('cron-jobs')).toBe('定时任务')
-    expect(titleOf('agents')).toBe('云助手')
-    expect(titleOf('logs')).toBe('日志管理')
+  it('assigns i18n title keys to the seven console feature areas', () => {
+    const keyOf = (name: string) => router.getRoutes().find((r) => r.name === name)?.meta?.titleKey
+    expect(keyOf('dashboard')).toBe('nav.dashboard')
+    expect(keyOf('databases')).toBe('nav.databases')
+    expect(keyOf('s3')).toBe('nav.s3')
+    expect(keyOf('gofunctions')).toBe('nav.gofunctions')
+    expect(keyOf('cron-jobs')).toBe('nav.cronJobs')
+    expect(keyOf('agents')).toBe('nav.agents')
+    expect(keyOf('logs')).toBe('nav.logs')
+    // 路由只存 key，标题文案在语言包里；中文界面下求值就是原来的中文标题。
+    setI18nLocale('zh-CN')
+    expect(t(keyOf('dashboard') as string)).toBe('监控大盘')
+    expect(t(keyOf('databases') as string)).toBe('数据库管理')
+    setI18nLocale('en-US')
+    expect(t(keyOf('dashboard') as string)).toBe('Dashboard')
+    setI18nLocale('zh-CN')
   })
 
   it('resolves lazy page loaders', async () => {

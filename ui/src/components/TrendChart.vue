@@ -4,11 +4,11 @@
       <div class="trend-legend flex items-center gap-4 text-xs text-muted-foreground">
         <span class="inline-flex items-center gap-1.5">
           <span class="size-2.5 rounded-sm bg-chart-1" />
-          请求
+          {{ t('components.trendChart.requests') }}
         </span>
         <span class="inline-flex items-center gap-1.5">
           <span class="inline-flex size-2.5 rotate-45 items-center justify-center border border-destructive bg-destructive" />
-          错误
+          {{ t('components.trendChart.errors') }}
         </span>
       </div>
       <ToggleGroup
@@ -21,11 +21,11 @@
       >
         <ToggleGroupItem value="bar" class="h-8 gap-1 px-2.5 text-xs">
           <BarChart3Icon class="size-3.5" />
-          柱状图
+          {{ t('components.trendChart.bar') }}
         </ToggleGroupItem>
         <ToggleGroupItem value="line" class="h-8 gap-1 px-2.5 text-xs">
           <TrendingUpIcon class="size-3.5" />
-          折线图
+          {{ t('components.trendChart.line') }}
         </ToggleGroupItem>
       </ToggleGroup>
     </div>
@@ -35,13 +35,18 @@
         ref="el"
         class="h-[240px] w-full"
         role="img"
-        :aria-label="`请求趋势${mode === 'bar' ? '柱状图' : '折线图'}，请求总计 ${totals.requests}，错误总计 ${totals.errors}`"
+        :aria-label="t('components.trendChart.ariaLabel', {
+          mode: mode === 'bar' ? t('components.trendChart.bar') : t('components.trendChart.line'),
+          requests: totals.requests,
+          errors: totals.errors
+        })"
       />
     </div>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { BarChart3Icon, TrendingUpIcon } from '@lucide/vue'
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart } from 'echarts/charts'
@@ -60,10 +65,12 @@ const props = withDefaults(
     points: TrendPoint[]
     mode?: ChartMode
   }>(),
-  { mode: 'bar' }
+  { mode: 'line' }
 )
 
 const emit = defineEmits<{ 'update:mode': [mode: ChartMode] }>()
+
+const { t } = useI18n()
 
 const totals = computed(() => props.points.reduce((sum, point) => ({
   requests: sum.requests + point.requests,
@@ -104,7 +111,7 @@ function buildOption(): EChartsOption {
   const series: SeriesOption[] = isBar
     ? [
         {
-          name: '请求',
+          name: t('components.trendChart.requests'),
           type: 'bar',
           data: req,
           itemStyle: { color: c.primary, borderRadius: [3, 3, 0, 0] },
@@ -112,7 +119,7 @@ function buildOption(): EChartsOption {
           barGap: '20%',
         },
         {
-          name: '错误',
+          name: t('components.trendChart.errors'),
           type: 'bar',
           data: err,
           itemStyle: { color: c.destructive, borderRadius: [3, 3, 0, 0] },
@@ -121,7 +128,7 @@ function buildOption(): EChartsOption {
       ]
     : [
         {
-          name: '请求',
+          name: t('components.trendChart.requests'),
           type: 'line',
           data: req,
           smooth: true,
@@ -132,7 +139,7 @@ function buildOption(): EChartsOption {
           areaStyle: { color: c.primary, opacity: 0.08 },
         },
         {
-          name: '错误',
+          name: t('components.trendChart.errors'),
           type: 'line',
           data: err,
           smooth: true,

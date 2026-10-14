@@ -39,14 +39,9 @@ func TestHealthLiveAndReady(t *testing.T) {
 		t.Fatalf("want system not ready, got %v", err)
 	}
 
-	// Writable + DevMode skips S3 even if bucket empty.
+	// Writable + remote storage still fails first on the missing system store.
 	h.app.systemStore = nil
-	h.app.cfg.DevMode = true
-	if err := h.Ready(context.Background()); err == nil {
-		t.Fatal("still missing system store")
-	}
-
-	h.app.cfg.DevMode = false
+	h.app.cfg.Storage.Database = config.StorageModeS3
 	h.app.cfg.S3.Bucket = ""
 	// systemStore still nil -> fails before S3
 	if err := h.Ready(context.Background()); err == nil {
@@ -56,7 +51,7 @@ func TestHealthLiveAndReady(t *testing.T) {
 
 func TestHealthReadyS3Check(t *testing.T) {
 	cfg := testConfig(true)
-	cfg.DevMode = true
+	cfg.Storage = config.StorageConfig{Database: config.StorageModeLocal, Files: config.StorageModeLocal, DataDir: t.TempDir()}
 	cfg.S3 = config.S3Config{}
 	cfg.Database.CacheDir = t.TempDir()
 	a, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry())
@@ -76,7 +71,7 @@ func TestHealthReadyS3Check(t *testing.T) {
 	}
 
 	// Flip to production-like ready checks against a fake object store.
-	a.cfg.DevMode = false
+	a.cfg.Storage.Database = config.StorageModeS3
 	a.cfg.S3.Bucket = ""
 	if err := a.health.Ready(context.Background()); err == nil || err.Error() != "s3 bucket not configured" {
 		t.Fatalf("bucket: %v", err)
@@ -120,7 +115,7 @@ func TestDuckLakeOptionsAndFactories(t *testing.T) {
 	}
 
 	a := &App{cfg: testConfig(true)}
-	a.cfg.DevMode = true
+	a.cfg.Storage.Database = config.StorageModeLocal
 	a.cfg.Database.CacheDir = t.TempDir()
 	a.cfg.Database.DuckLake = cfg
 	f := a.newUserDatabaseFactory(a.cfg.Database.CacheDir)
@@ -138,7 +133,7 @@ func TestDuckLakeOptionsAndFactories(t *testing.T) {
 
 func TestNewUserFactoryRemoteWithoutBlobs(t *testing.T) {
 	a := &App{cfg: testConfig(true)}
-	a.cfg.DevMode = false
+	a.cfg.Storage.Database = config.StorageModeS3
 	a.cfg.S3.Bucket = "b"
 	f := a.newUserDatabaseFactory(t.TempDir()).(*ducklake.Factory)
 	if !f.Remote.Enabled || f.Syncer == nil {
@@ -194,7 +189,7 @@ func TestCloseRegistryErrorWins(t *testing.T) {
 
 func TestCloudAgentRuntimeWithStore(t *testing.T) {
 	cfg := testConfig(true)
-	cfg.DevMode = true
+	cfg.Storage = config.StorageConfig{Database: config.StorageModeLocal, Files: config.StorageModeLocal, DataDir: t.TempDir()}
 	cfg.S3 = config.S3Config{}
 	cfg.Database.CacheDir = t.TempDir()
 	a, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry())
@@ -255,21 +250,21 @@ func (c clientBlob) DeleteMany(ctx context.Context, keys []string) error {
 
 func TestResetLeaseEpochsArePerTenantAndDatabase(t *testing.T) {
 	keys := []string{
-		"root/env/tenants/tenant-a/databases/shared/catalog/lease/00000000000000000004.json",
-		"root/env/tenants/tenant-b/databases/shared/catalog/lease/00000000000000000001.json",
+		"root/env/prjaaaa1/databases/shared/catalog/lease/00000000000000000004.json",
+		"root/env/prjbbbb2/databases/shared/catalog/lease/00000000000000000001.json",
 	}
 	got := leaseEpochs(keys)
-	if len(got) != 2 || got["tenant-a/shared"] != 4 || got["tenant-b/shared"] != 1 {
-		t.Fatalf("wrong tenant/database lease grouping: %v", got)
+	if len(got) != 2 || got["prjaaaa1/shared"] != 4 || got["prjbbbb2/shared"] != 1 {
+		t.Fatalf("wrong project/database lease grouping: %v", got)
 	}
 }
 
 func TestResetLeaseCheckAlwaysObservesSecondList(t *testing.T) {
 	ctx := context.Background()
 	store := objectstore.NewMemoryBlobStore()
-	base := "root/env/"
-	kb := objectstore.KeyBuilder{RootPrefix: "root", Environment: "env"}
-	key, err := kb.DuckLakeLeaseKey("11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", 1)
+	base := "root/"
+	kb := objectstore.KeyBuilder{RootPrefix: "root"}
+	key, err := kb.DuckLakeLeaseKey("prjaaaa1", "22222222-2222-2222-2222-222222222222", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +299,7 @@ func (s *resetLeaseStore) List(ctx context.Context, prefix, cursor string, limit
 
 func TestNewUserFactoryWithBlobStore(t *testing.T) {
 	a := &App{cfg: testConfig(true), logger: nil, metrics: nil}
-	a.cfg.DevMode = false
+	a.cfg.Storage.Database = config.StorageModeS3
 	a.cfg.S3.Bucket = "b"
 	a.objectStore = clientBlob{blob: objectstore.NewMemoryBlobStore()}
 	f := a.newUserDatabaseFactory(t.TempDir()).(*ducklake.Factory)
@@ -335,9 +330,9 @@ func TestAssembleDepsCreatesS3ClientsThenFailsBootstrap(t *testing.T) {
 	}
 }
 
-func TestDevModeLLMEnabledAndCronRunner(t *testing.T) {
+func TestLocalStorageLLMEnabledAndCronRunner(t *testing.T) {
 	cfg := testConfig(true)
-	cfg.DevMode = true
+	cfg.Storage = config.StorageConfig{Database: config.StorageModeLocal, Files: config.StorageModeLocal, DataDir: t.TempDir()}
 	cfg.S3 = config.S3Config{}
 	cfg.Database.CacheDir = t.TempDir()
 	cfg.LLM.Enabled = true
@@ -391,7 +386,7 @@ func TestDevModeLLMEnabledAndCronRunner(t *testing.T) {
 
 	// empty system name uses default
 	cfg2 := testConfig(true)
-	cfg2.DevMode = true
+	cfg2.Storage = config.StorageConfig{Database: config.StorageModeLocal, Files: config.StorageModeLocal, DataDir: t.TempDir()}
 	cfg2.S3 = config.S3Config{}
 	cfg2.Database.CacheDir = t.TempDir()
 	cfg2.SystemDatabase.Name = ""
@@ -420,7 +415,7 @@ func TestNewWrapperAndShutdownTimeouts(t *testing.T) {
 	}()
 
 	cfg = testConfig(true)
-	cfg.DevMode = true
+	cfg.Storage = config.StorageConfig{Database: config.StorageModeLocal, Files: config.StorageModeLocal, DataDir: t.TempDir()}
 	cfg.S3 = config.S3Config{}
 	cfg.Database.CacheDir = t.TempDir()
 	a, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry())
@@ -453,9 +448,9 @@ func TestReadyPingFailAndCronOtherError(t *testing.T) {
 	}
 }
 
-func TestAssembleDepsDevModeMkdirFail(t *testing.T) {
+func TestAssembleDepsLocalStorageMkdirFail(t *testing.T) {
 	cfg := testConfig(true)
-	cfg.DevMode = true
+	cfg.Storage = config.StorageConfig{Database: config.StorageModeLocal, Files: config.StorageModeLocal, DataDir: t.TempDir()}
 	cfg.S3 = config.S3Config{}
 	dir := t.TempDir()
 	file := dir + "/notdir"

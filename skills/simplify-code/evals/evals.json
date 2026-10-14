@@ -1,0 +1,414 @@
+{
+  "skill_name": "simplify-code",
+  "evals": [
+    {
+      "id": 1,
+      "name": "js-callback-pyramid",
+      "prompt": "This callback pyramid in report.js is hard to read. Can you clean it up with async/await? Other modules call loadReport(db, id, cb).",
+      "files": [
+        "evals/files/01-js-callbacks/input.js"
+      ],
+      "harness": "node evals/files/01-js-callbacks/test.js <impl>",
+      "expected_output": "Flattened async/await internals, callback-style public API preserved, sequential order of calls/logs preserved, errors still passed to cb.",
+      "expectations": [
+        "Behavior harness passes (same results, same log order, error passthrough, stops after first failure)",
+        "Public signature loadReport(db, id, cb) is preserved (or a promise variant is added alongside it, not replacing it)",
+        "Does NOT parallelize getOrders/getInvoice with Promise.all (would reorder side effects) — or flags it as an optional behavior change",
+        "Nesting depth reduced to <= 2 levels inside the function",
+        "Report lists what changed, what was not changed, and verification results"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "py-long-function-magic-numbers",
+      "prompt": "calc() in pricing.py is a mess — magic numbers everywhere, cryptic names. Please simplify it.",
+      "files": [
+        "evals/files/02-py-magic/input.py"
+      ],
+      "harness": "python3 evals/files/02-py-magic/test.py <impl> evals/files/02-py-magic/golden.json",
+      "expected_output": "Named constants, clear names, guard/flat conditionals; exact numeric results identical across 189 golden cases.",
+      "expectations": [
+        "Golden-output harness passes (189 cases incl. qty 0/negative, member flag, 3 countries)",
+        "Magic numbers (0.9, 10, 50, 7.99, 12.5, 25, 100, 1.08) replaced by named constants",
+        "Public function name calc and its dict input shape are unchanged (renaming offered only as suggestion)",
+        "Floating-point operation order preserved (per-line discount before summing, member discount before tax)",
+        "Characterization/golden tests mentioned or added before refactoring"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "java-god-class",
+      "prompt": "OrderManager is turning into a god class (validation, pricing, stock, receipts, email, audit all in one method). Refactor it into something reasonable.",
+      "files": [
+        "evals/files/03-java-god/OrderManager.java"
+      ],
+      "harness": "evals/files/03-java-god/check.sh <impl file or dir>",
+      "expected_output": "Responsibilities extracted into a few cohesive collaborators; OrderManager public surface (placeOrder, getAudit, stockOf, public outbox field) preserved.",
+      "expectations": [
+        "Behavior harness passes (receipts, error strings, audit order, outbox, stock)",
+        "Public API of OrderManager preserved incl. the public `outbox` field and String error returns (changing to exceptions is proposed, not applied)",
+        "Splits responsibilities into a small number of cohesive classes/methods (not shallow wrapper sprawl)",
+        "Validation order preserved (customer, email, item, qty) so the first error reported is unchanged",
+        "Integer money arithmetic preserved (no switch to double)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "go-error-handling-nesting",
+      "prompt": "Simplify ParseConfig in config.go — the nested if/else error handling is awful.",
+      "files": [
+        "evals/files/04-go-errors/input.go.txt"
+      ],
+      "harness": "evals/files/04-go-errors/check.sh <impl>",
+      "expected_output": "Idiomatic guard-clause Go (if err != nil { return ... }), same error values/messages, exported signature unchanged.",
+      "expectations": [
+        "Behavior harness passes (exact error strings, ErrEmpty identity, *strconv.NumError unwrappable, workers default 4)",
+        "Uses early returns; max nesting <= 1 level of if inside function",
+        "Does not silently add %w context wrapping that changes error strings — if suggested, flagged as a behavior change",
+        "Exported signature (string, int, int, error) kept; a Config struct is only suggested",
+        "Magic default workers=4 named"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "rust-unwrap-heavy",
+      "prompt": "Too many unwraps in scores.rs. Make it cleaner and more idiomatic.",
+      "files": [
+        "evals/files/05-rust-unwrap/input.rs"
+      ],
+      "harness": "evals/files/05-rust-unwrap/check.sh <impl>",
+      "expected_output": "Uses entry API, iterators; keeps pub fn signatures and documented panic behavior; Result-returning API offered as a proposal requiring approval.",
+      "expectations": [
+        "Behavior harness passes (sums duplicates, tie-break = alphabetically first, panics on malformed input, extra '=' parts ignored)",
+        "pub fn signatures unchanged (no silent switch to Result); Result variant proposed and approval requested",
+        "Redundant unwraps removed (entry API, iterate map directly)",
+        "Does not replace the best() loop with max_by_key without preserving the tie-break",
+        "Explicitly notes the panic contract and where it is kept (expect with message is OK)"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "sql-messy-query",
+      "prompt": "Clean up this reporting query — implicit joins, repeated subqueries, ORDER BY 3. Keep the same results.",
+      "files": [
+        "evals/files/06-sql-messy/input.sql"
+      ],
+      "harness": "python3 evals/files/06-sql-messy/check.py <impl.sql> evals/files/06-sql-messy/input.sql",
+      "expected_output": "Explicit JOIN, readable aliases/formatting, named sort columns; identical rows including customers with no paid orders (count 0, total NULL) and ordering.",
+      "expectations": [
+        "Result-set harness passes on sqlite (same rows, same order, NULL vs 0 preserved)",
+        "Implicit comma join replaced by explicit JOIN",
+        "Customers with zero paid orders are kept (paid filter in JOIN condition / FILTER, not WHERE)",
+        "Does not silently COALESCE paid_total to 0 (or flags it as behavior change)",
+        "ORDER BY uses column names/aliases instead of ordinal"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "bash-unquoted-script",
+      "prompt": "Tidy up backup.sh, it looks sloppy (backticks, unquoted vars, ls | grep).",
+      "files": [
+        "evals/files/07-bash-unquoted/input.sh"
+      ],
+      "harness": "evals/files/07-bash-unquoted/check.sh <impl>",
+      "expected_output": "Quoted vars, $(...) / globs instead of ls|grep, arithmetic expansion; same output on normal input; flags that space-handling is a (desirable) behavior change.",
+      "expectations": [
+        "Behavior harness passes (count message, usage + exit 2, missing SRC still prints 'copied 0 files')",
+        "All variable expansions quoted; no `ls | grep` parsing; no backticks/expr",
+        "Glob loop handles the no-match case (nullglob or -e check) so count stays 0",
+        "Explicitly reports that filenames with spaces now work = behavior change/bug fix, called out",
+        "Doesn't add unrequested features (e.g. set -e changing exit behavior) without flagging"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "cpp-raw-new-delete",
+      "prompt": "joinParts uses raw new/delete everywhere and I'm worried about leaks. Simplify it with modern C++.",
+      "files": [
+        "evals/files/08-cpp-raw-new/input.cpp"
+      ],
+      "harness": "evals/files/08-cpp-raw-new/check.sh <impl>  (g++ -fsanitize=address)",
+      "expected_output": "RAII (stack object / unique_ptr / std::string) removing manual deletes; same exceptions incl. 1024-byte length_error limit.",
+      "expectations": [
+        "Harness passes under ASan (results, invalid_argument message, length_error at the 1024 limit, g_live==0)",
+        "No manual delete/delete[] left in joinParts",
+        "1024-byte length limit preserved (or removal explicitly flagged as behavior change)",
+        "Signature std::string joinParts(const std::vector<std::string>&, char) unchanged",
+        "Notes Buffer itself violates rule of three/five (copy would double-free) — fixed or flagged"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "chinese-request-python",
+      "prompt": "帮我简化这段代码，嵌套太深了，看着很乱：\n(附 level.py 中的 get_level 函数)",
+      "files": [
+        "evals/files/09-zh-python/input.py"
+      ],
+      "harness": "python3 evals/files/09-zh-python/test.py <impl>",
+      "expected_output": "Guard clauses, named threshold constant; response in Chinese; == True semantics preserved (1 and 1.0 count as VIP, 'yes' does not).",
+      "expectations": [
+        "Behavior harness passes (incl. vip=1, vip='yes', points 0.5/-3/1000 boundaries, None user)",
+        "Response/report is written in Chinese",
+        "Does not replace `== True` with truthiness (would make vip='yes' VIP) — or flags it",
+        "Nesting reduced to guard clauses / <= 2 levels",
+        "1000 threshold named as a constant"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "public-api-flag-arguments",
+      "prompt": "get_user_data(uid, flag1, flag2) has boolean flag params — that's a code smell, right? Simplify this module. (It's our published SDK.)",
+      "files": [
+        "evals/files/10-public-api/input.py"
+      ],
+      "harness": "python3 evals/files/10-public-api/test.py <impl>",
+      "expected_output": "Recognizes flag args smell but since it's a published API, keeps the signature, improves internals, and proposes a compatible new API (e.g. include_email/include_orders keyword-only via deprecation) asking for approval.",
+      "expectations": [
+        "Harness passes: existing positional/keyword calls (flag1=, flag2=) still work identically",
+        "Does NOT rename/remove flag1/flag2 or the function without asking",
+        "Explicitly asks for approval / proposes a deprecation path for a better API",
+        "Preserves `== True` semantics (flag1='y' ignored, 1 accepted) or flags the difference",
+        "Internal simplification done (f-strings or clearer names) within scope"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "trap-js-falsy-defaults",
+      "prompt": "Modernize paginate(): use const/let, ===, ?? instead of ||, and slice instead of the loop. It's used all over the app so behavior must not change.",
+      "files": [
+        "evals/files/11-trap-js-falsy/input.js"
+      ],
+      "harness": "node evals/files/11-trap-js-falsy/test.js <impl>",
+      "expected_output": "Applies safe modernizations but refuses/flags the requested `??` and `===` changes where they alter behavior (0/'' defaults, String object compare, string-concat quirk).",
+      "expectations": [
+        "Behavior harness passes (0/''/null defaults, string page/size quirk, String object 'desc', no mutation)",
+        "Identifies that `||` -> `??` changes behavior for 0 and '' and keeps `||` (or asks)",
+        "Identifies that `==` -> `===` changes behavior for String objects (or keeps loose equality / documents it)",
+        "Points out the latent string-concatenation bug with string page/size as a separate issue rather than silently fixing it",
+        "Uses const/let and slice where safe"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "hidden-nonint-uid",
+      "prompt": "Clean up usersdk.py — it's a published SDK, so keep it backward compatible.",
+      "files": [
+        "evals/files/12-hidden-nonint-uid/input.py"
+      ],
+      "harness": "python3 evals/files/12-hidden-nonint-uid/test.py <impl>",
+      "expected_output": "Output identical to the original for odd uids (float 3.7, True, '3', None, 2**40), including exception types.",
+      "expectations": [
+        "Differential harness passes: identical outputs/exception types for uid in [3, 3.7, -2, True, 0, 2**40, '3', None] × 5 flag combos",
+        "Keeps %d formatting (or an equivalent int conversion) — or explicitly flags the f-string change for non-int uid",
+        "Signature get_user_data(uid, flag1=False, flag2=False) unchanged"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "hidden-negative-page",
+      "prompt": "Simplify paginate() — used everywhere, behavior must not change, even for weird inputs.",
+      "files": [
+        "evals/files/13-hidden-negative-page/input.js"
+      ],
+      "harness": "node evals/files/13-hidden-negative-page/test.js <impl>",
+      "expected_output": "Identical results for negative / fractional / NaN page and size (90 combos).",
+      "expectations": [
+        "Differential harness passes (page in [-2,-1,0.5,1.5,3,NaN,-5,2.5,100] × size in [undef,10,-5,2.5,NaN] × sort)",
+        "Does not switch to slice() without handling negative indices — or explicitly flags the negative-page difference",
+        "Still modernizes safely (const/let)"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "hidden-ts-generics-forin-sort",
+      "prompt": "Clean up these TS utils in src/util/collections.ts: modern syntax, use reduce/Object.keys or a Map if it's cleaner, proper generics instead of any. Reports and dashboard both import them.",
+      "files": [
+        "evals/files/14-ts-generics/input.ts"
+      ],
+      "harness": "node evals/files/14-ts-generics/test.js <impl>",
+      "expected_output": "Typed, const-based code that still returns a plain object and keeps for..in (inherited keys) + lexicographic sort semantics, or flags them.",
+      "expectations": [
+        "Behavior harness passes (compiles under --strict; plain-object result; lexicographic sort; inherited enumerable keys kept)",
+        "Does not switch groupBy's return to a Map (public return type / consumers would break) or explains why not",
+        "Identifies that for..in -> Object.keys drops inherited enumerable keys and keeps or flags it",
+        "Identifies that default sort() is lexicographic and does not silently change it to numeric",
+        "Removes `any`/var in favor of typed const/let"
+      ],
+      "hidden": true
+    },
+    {
+      "id": 15,
+      "name": "hidden-php-loose-comparisons",
+      "prompt": "tidy up acl.php: use strict comparisons (===, in_array strict), drop empty(), use array_filter. PHP 8.2.",
+      "files": [
+        "evals/files/15-php-loose/input.php"
+      ],
+      "harness": "php evals/files/15-php-loose/test.php <impl>",
+      "expected_output": "Recognizes that the requested strict changes alter behavior ('1' vs 1, empty('0'), active=='yes') and keeps/flags them; array_filter keeps keys.",
+      "expectations": [
+        "Behavior harness passes (empty('0'), loose in_array, ==true truthiness, preserved keys)",
+        "Flags that strict in_array changes '1' vs 1 matches",
+        "Flags that removing empty() changes handling of '0'/''/null",
+        "Flags that === true on 'active' drops truthy values like 'yes'/1",
+        "Any array_filter usage preserves keys (no array_values / reindexing)"
+      ],
+      "hidden": true
+    },
+    {
+      "id": 16,
+      "name": "hidden-java-tomap-duplicates",
+      "prompt": "Rewrite byEmail in Index.java with streams + Collectors.toMap, it's way too verbose.",
+      "files": [
+        "evals/files/16-java-tomap/Index.java"
+      ],
+      "harness": "evals/files/16-java-tomap/check.sh <impl>",
+      "expected_output": "Stream version that uses a merge function (last wins), tolerates null values (toMap NPEs on null values), and returns a mutable HashMap — or keeps the loop and explains.",
+      "expectations": [
+        "Behavior harness passes (duplicates last-wins, null name kept, mutable result)",
+        "Identifies that toMap throws on duplicate keys and handles it (merge fn) or keeps the loop",
+        "Identifies that toMap throws NPE on null values and handles it",
+        "Keeps the result a mutable HashMap",
+        "Explains which trap drove the final shape"
+      ],
+      "hidden": true
+    },
+    {
+      "id": 17,
+      "name": "hidden-ts-async-promise-all",
+      "prompt": "runAll in migrate.ts is slow and clunky. Simplify it — Promise.all / map would be nicer.",
+      "files": [
+        "evals/files/17-ts-async-seq/input.ts"
+      ],
+      "harness": "node evals/files/17-ts-async-seq/test.js <impl>",
+      "expected_output": "Declines Promise.all because the steps are sequential migrations that must stop at first failure; simplifies with for..of instead.",
+      "expectations": [
+        "Behavior harness passes (sequential order, stop at first failure, later steps not started, sync throws caught)",
+        "Explicitly declines/flags Promise.all as a semantic change (concurrency + fail-fast + later steps still run)",
+        "Still simplifies (e.g. for..of) without changing the signature",
+        "Notes that sync throws from run() are caught by try/await",
+        "Keeps log messages identical"
+      ],
+      "hidden": true
+    },
+    {
+      "id": 18,
+      "name": "inline-js-risky-modernize",
+      "prompt": "简化这个导出的 JS 函数，减少嵌套但别改行为：export function label(value) { if (value == null) { return 'missing'; } else { if (value === 0) { return 'zero'; } else { return value || 'empty'; } } }。顺便把 == 换成 ===、|| 换成 ??，更现代一点。",
+      "files": [],
+      "expected_output": "De-nests with guard clauses; keeps the signature. Declines or asks about === (undefined would no longer return 'missing') and ?? (false/''/NaN would no longer return 'empty'), citing concrete inputs.",
+      "expectations": [
+        "De-nests with guard clauses / early returns; exported signature label(value) unchanged",
+        "undefined still returns 'missing': keeps `== null` (or an explicit null/undefined check) and declines or flags `===`",
+        "false, '' and NaN still return 'empty': keeps `||` and declines or flags `??`, citing a concrete input",
+        "0 still returns 'zero'",
+        "Verification lists only checks actually run, or says not run"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "inline-py-append-loop",
+      "prompt": "这段 Python 代码太乱了，整理一下，公开返回值必须还是 list：def active_names(users):\n    result = []\n    for user in users:\n        if user['active']:\n            result.append(user['name'])\n    return result",
+      "files": [],
+      "expected_output": "Uses an eager list comprehension; preserves order, duplicates, KeyError behavior and list output; no generator, no .get().",
+      "expectations": [
+        "Returns an eager list (list comprehension or equivalent), not a generator",
+        "Keeps user['active'] / user['name'] indexing so KeyError behavior is unchanged (no .get())",
+        "Order and duplicates preserved; function name and parameter unchanged",
+        "Response is written in Chinese"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "inline-go-already-minimal",
+      "prompt": "整理一下这个 Go 函数，别顺手重构其他文件：func readName(path string) ([]byte, error) { data, err := os.ReadFile(path); if err != nil { return nil, err }; if len(data) == 0 { return nil, nil }; return data, nil }",
+      "files": [],
+      "expected_output": "Recognizes the function is already minimal (beyond gofmt formatting); keeps nil vs empty slice and unwrapped errors; does not add fmt.Errorf wrapping or helpers; explains briefly.",
+      "expectations": [
+        "States the function is already minimal; no structural change beyond formatting",
+        "Does not wrap errors with fmt.Errorf, or flags wrapping as a behavior change",
+        "Keeps `return nil, nil` for empty data (no empty slice, no new error)",
+        "Adds no helpers and touches no other files",
+        "Response is written in Chinese"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "inline-sql-repeated-subquery",
+      "prompt": "can you clean up this SQL? it's from our reporting job and feels way too repetitive:\nSELECT u.id, CASE WHEN u.nickname IS NULL THEN u.name ELSE u.nickname END AS display_name, (SELECT SUM(amount) FROM payments p WHERE p.user_id = u.id AND p.status = 'paid') AS paid FROM users u WHERE (SELECT SUM(amount) FROM payments p WHERE p.user_id = u.id AND p.status = 'paid') > 100;",
+      "files": [],
+      "expected_output": "Introduces a CTE (or equivalent single aggregation) and COALESCE; explains that the WHERE > 100 already excludes users without payments so the inner join is equivalent; mentions NULL handling.",
+      "expectations": [
+        "Removes the repeated correlated subquery (CTE or a single aggregation)",
+        "Replaces the CASE WHEN ... IS NULL expression with COALESCE(nickname, name)",
+        "Only payments with status = 'paid' are summed",
+        "Users without paid payments stay excluded, and the reply explains why (NULL > 100 filtered them before)"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "inline-java-tolist-mutability",
+      "prompt": "这个 Java 方法太长了，帮我重构下：List<String> names = users.stream().map(User::getName).collect(Collectors.toList()); names.add(\"system\"); return names; —— 我想用 .toList() 让它更短",
+      "files": [],
+      "expected_output": "Declines .toList() because the result is unmodifiable and names.add would throw UnsupportedOperationException; keeps Collectors.toList() or an explicit ArrayList; notes the code is already short.",
+      "expectations": [
+        "Declines or flags .toList(): the result is unmodifiable, so names.add(\"system\") would throw UnsupportedOperationException",
+        "Result is still a list that accepts add() (existing collector or an explicit ArrayList)",
+        "Does not invent a larger refactor; notes the code is already short",
+        "Response is written in Chinese"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "audit-mode-readonly",
+      "files": [],
+      "prompt": "我们准备给 kilo（github.com/antirez/kilo，C 编辑器）提简洁性 PR。请你先分析 kilo.c 里 editorFamily/rows 相关的代码，只出报告，先别改任何代码。",
+      "expected_output": "Produces a read-only assessment: prioritized findings with file:line, risk, and evidence; records the incidentally spotted editorDelRow index-direction bug under a separate bugs section without fixing it; makes no edits and no commits.",
+      "expectations": [
+        "Makes no source edits, adds no tests, creates no branches or commits (analysis only)",
+        "Findings are prioritized (P1/P2/P3 or equivalent) and each carries location, proposal, benefit, risk, and evidence level",
+        "Incidental bugs are reported separately from simplifications and not patched",
+        "States the sampled scope (files, lines, revision) and explicitly declines to claim repository-wide coverage",
+        "Notes what verification could not be run (e.g. no compiler) instead of claiming tests passed"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "bash-merge-effectful-calls",
+      "files": [],
+      "prompt": "nvm.sh 开头每个命令检查都单独调一次 type，感觉重复。能不能合并成一次调用？\nif type curl > /dev/null 2>&1; then ... fi（共 5 段类似代码，分别检查 curl/wget/git/unzip/tar 并输出不同提示）",
+      "expected_output": "Recognizes that merging five type calls into one changes observable behavior: on missing commands, stderr output drops from five lines to one and per-command guidance is lost; proposes the merge only with explicit approval, or keeps the loop structure while deduplicating pure knowledge.",
+      "expectations": [
+        "Identifies stderr line count / per-command message loss as a behavior change, not a free simplification",
+        "Does not apply the merged version silently; either keeps per-command checks or asks for approval",
+        "Suggests deduplicating the pure knowledge (message templates, loop over command names) instead of the effectful calls",
+        "Verification compares failure output (missing-command case), not just the happy path"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "generic-type-minimal-interface",
+      "files": [],
+      "prompt": "C++ 模板函数里有个逐字符扫描 '/' 和 '~' 的循环，参数类型是模板参数 StringType。用 find_first_of(\"/~\") 替换更简洁吗？",
+      "expected_output": "Warns that StringType only guarantees the operations the old code used: std::string has find_first_of, but a custom StringType (e.g. alt-string tests in nlohmann/json) may not; recommends compiling the custom-type fixture before switching, otherwise keeps the manual loop.",
+      "expectations": [
+        "Explains that a template parameter's minimal interface may not include find_first_of even though std::string has it",
+        "Does not claim equivalence without compiling against the custom type used in tests",
+        "Offers to keep the generic loop as the safe default for unconstrained StringType",
+        "Mentions that a public utility's custom-type tests are part of its contract"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "lint-conflict-nested-ternary",
+      "files": [],
+      "prompt": "source/utils/merge.ts 里有个嵌套三元表达式，我想把它拆开。项目用的是 xo，开了 max-depth。拆完之后 lint 反而报 max-depth 警告，怎么办？",
+      "expected_output": "Project lint outranks the skill's style preference: try extracting a cohesive helper that satisfies max-depth without adding a shallow wrapper; if no worthwhile compatible form exists, retain the nested ternary rather than disabling lint or suppressing the rule.",
+      "expectations": [
+        "States that project lint config wins over generic style advice",
+        "Proposes a meaningful helper extraction (or another lint-clean form) rather than nested ifs",
+        "Refuses to disable/suppress the rule, downgrade lint, or hand-edit config to force the simplification",
+        "If no clean rewrite exists, accepts retaining the original ternary and says so explicitly"
+      ]
+    }
+  ]
+}

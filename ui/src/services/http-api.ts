@@ -1,4 +1,5 @@
 import { http, baseURL, getApiKey, getAccessToken, setTokens, clearTokens } from './http'
+import { t } from '@/locales'
 import type {
   Api,
   AgentMessage,
@@ -9,6 +10,7 @@ import type {
   AgentSchedule,
   AgentScheduleRun,
   AgentStreamHandlers,
+  AgentUsageEventWire,
   AgentThread,
   ApiKeyItem,
   AuthUser,
@@ -17,10 +19,14 @@ import type {
   CronJobCreate,
   CronJobItem,
   CronJobRunItem,
+  CronJobRunWire,
+  CronJobWire,
   SandboxCapabilities,
   SandboxItem,
   SandboxExecResult,
   SandboxFileEntry,
+  StorageSettings,
+  StorageUpdateResult,
   CreateDatabaseInput,
   DatabaseItem,
   DatabaseSchema,
@@ -31,11 +37,14 @@ import type {
   GoFuncVersionCreate,
   GoFuncVersionSummary,
   LlmChatRequest,
-  LlmProviderCred,
   LlmSettings,
   LlmStreamHandlers,
   LlmStreamConnection,
   LogEvent,
+  LogEventWire,
+  LogRetentionWire,
+  MetricsSummaryWire,
+  TrendPointWire,
   LogQuery,
   LogRetention,
   MetricsSummary,
@@ -345,13 +354,24 @@ function cronJobsPath(projectId: string, jobId?: string, suffix?: 'runs' | 'trig
   return path
 }
 
-/** GoFunctionItem：后端 snake_case → UI camelCase（§3.13） */
-function toCronJobItem(raw: Record<string, any>): CronJobItem {
+/** 未识别的调度类型回退 cron（旧数据兼容）。 */
+function toCronScheduleKind(raw: unknown): CronJobItem['scheduleKind'] {
+  if (raw === 'interval') return 'interval'
+  if (raw === 'once') return 'once'
+  return 'cron'
+}
+
+/** CronJobItem：后端 snake_case → UI camelCase（§3.13）。raw 可能缺失（响应体为空）。 */
+function toCronJobItem(raw: CronJobWire | null | undefined): CronJobItem {
   return {
     id: String(raw?.id ?? ''),
     name: String(raw?.name ?? ''),
     description: String(raw?.description ?? ''),
-    scheduleKind: raw?.schedule_kind === 'interval' ? 'interval' : raw?.schedule_kind === 'once' ? 'once' : 'cron',
+    targetKind: raw?.target_kind === 'agent' ? 'agent' : 'function',
+    agentId: raw?.agent_id ? String(raw.agent_id) : undefined,
+    agentThreadId: raw?.agent_thread_id ? String(raw.agent_thread_id) : undefined,
+    agentPrompt: raw?.agent_prompt ? String(raw.agent_prompt) : undefined,
+    scheduleKind: toCronScheduleKind(raw?.schedule_kind),
     cronExpr: String(raw?.cron_expr ?? ''),
     intervalSeconds: raw?.interval_seconds != null ? Number(raw.interval_seconds) : undefined,
     runAt: raw?.run_at || undefined,
@@ -370,7 +390,7 @@ function toCronJobItem(raw: Record<string, any>): CronJobItem {
   }
 }
 
-function toCronJobRunItem(raw: Record<string, any>): CronJobRunItem {
+function toCronJobRunItem(raw: CronJobRunWire | null | undefined): CronJobRunItem {
   return {
     id: String(raw?.id ?? ''),
     jobId: String(raw?.job_id ?? ''),
@@ -390,9 +410,15 @@ function cronJobBody(body: Partial<CronJobCreate>) {
   const out: Record<string, unknown> = {
     description: body.description ?? '',
     schedule_kind: body.scheduleKind,
-    func_file: body.funcFile,
-    func_export: body.funcExport,
-    input_json: body.inputJson ?? '{}'
+    target_kind: body.targetKind ?? 'function'
+  }
+  if (body.targetKind === 'agent') {
+    out.agent_id = body.agentId ?? ''
+    out.agent_prompt = body.agentPrompt ?? ''
+  } else {
+    out.func_file = body.funcFile
+    out.func_export = body.funcExport
+    out.input_json = body.inputJson ?? '{}'
   }
   if (body.name != null) out.name = body.name
   if (body.cronExpr != null) out.cron_expr = body.cronExpr
@@ -408,8 +434,8 @@ function optionalNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-function toMetricsSummary(d: Record<string, any> | undefined): MetricsSummary {
-  const raw = d && typeof d === 'object' ? d : {}
+function toMetricsSummary(d: unknown): MetricsSummary {
+  const raw: MetricsSummaryWire = d && typeof d === 'object' ? d : {}
   return {
     totalRequests: Number(raw.total_requests ?? raw.totalRequests ?? 0),
     errorRate: Number(raw.error_rate ?? raw.errorRate ?? 0),
@@ -423,13 +449,22 @@ function toMetricsSummary(d: Record<string, any> | undefined): MetricsSummary {
   }
 }
 
-function toTrendPoints(d: Record<string, any> | unknown[] | undefined): TrendPoint[] {
-  const list = Array.isArray(d) ? d : Array.isArray((d as any)?.points) ? (d as any).points : []
-  return list.map((p: Record<string, any>) => ({
-    date: String(p?.date ?? ''),
-    requests: Number(p?.requests ?? 0),
-    errors: Number(p?.errors ?? 0)
-  }))
+/** 趋势接口兼容两种形状：裸数组，或 `{ points: [...] }`；其余视为空。 */
+function trendPointList(d: unknown): unknown[] {
+  if (Array.isArray(d)) return d
+  const points = (d as { points?: unknown } | null | undefined)?.points
+  return Array.isArray(points) ? points : []
+}
+
+function toTrendPoints(d: unknown): TrendPoint[] {
+  return trendPointList(d).map((item) => {
+    const p = item as TrendPointWire | null | undefined
+    return {
+      date: String(p?.date ?? ''),
+      requests: Number(p?.requests ?? 0),
+      errors: Number(p?.errors ?? 0)
+    }
+  })
 }
 
 function logQueryParams(q?: LogQuery) {
@@ -443,7 +478,7 @@ function logQueryParams(q?: LogQuery) {
   return params
 }
 
-function toLogEvent(raw: Record<string, any>): LogEvent {
+function toLogEvent(raw: LogEventWire | null | undefined): LogEvent {
   return {
     id: String(raw?.id ?? raw?.ID ?? ''),
     projectId: String(raw?.project_id ?? raw?.projectId ?? raw?.ProjectID ?? ''),
@@ -456,8 +491,8 @@ function toLogEvent(raw: Record<string, any>): LogEvent {
   }
 }
 
-function toLogRetention(raw: Record<string, any> | undefined): LogRetention {
-  const d = raw && typeof raw === 'object' ? raw : {}
+function toLogRetention(raw: unknown): LogRetention {
+  const d: LogRetentionWire = raw && typeof raw === 'object' ? raw : {}
   return {
     scope: String(d.scope ?? d.Scope ?? ''),
     keepDays: Number(d.keep_days ?? d.keepDays ?? d.KeepDays ?? 14),
@@ -470,25 +505,11 @@ function toLlmSettings(raw: Record<string, any> | undefined): LlmSettings {
   return {
     defaultProvider: d.default_provider || d.defaultProvider || undefined,
     defaultModel: d.default_model || d.defaultModel || undefined,
+    baseUrl: d.base_url || d.baseUrl || undefined,
+    apiKeyMasked: d.api_key_masked || d.apiKeyMasked || undefined,
+    hasApiKey: Boolean(d.has_api_key ?? d.hasApiKey),
     temperature: d.temperature ?? undefined,
     maxTokens: d.max_tokens ?? d.maxTokens ?? undefined
-  }
-}
-
-/** 厂商凭证：后端 snake_case → UI camelCase（secret 已由服务端脱敏） */
-function toLlmProviderCred(raw: Record<string, any> | undefined): LlmProviderCred {
-  const d = raw && typeof raw === 'object' ? raw : {}
-  const creds: Record<string, string> = {}
-  if (d.credentials && typeof d.credentials === 'object') {
-    for (const [k, v] of Object.entries(d.credentials)) creds[k] = String(v ?? '')
-  }
-  return {
-    provider: String(d.provider ?? ''),
-    defaultModel: d.default_model || d.defaultModel || undefined,
-    enabled: !!d.enabled,
-    credentials: creds,
-    hasApiKey: !!d.has_api_key,
-    updatedAt: d.updated_at || undefined
   }
 }
 
@@ -503,6 +524,7 @@ function toCloudAgent(raw: Record<string, any>): CloudAgent {
     model_override: raw?.model_override || undefined,
     builtin_key: raw?.builtin_key || undefined,
     team_enabled: !!raw?.team_enabled,
+    writable: !!raw?.writable,
     created_at: String(raw?.created_at ?? ''),
     updated_at: String(raw?.updated_at ?? '')
   }
@@ -512,6 +534,7 @@ function toAgentThread(raw: Record<string, any>): AgentThread {
   return {
     id: String(raw?.id ?? ''),
     title: String(raw?.title ?? ''),
+    agent_id: raw?.agent_id ? String(raw.agent_id) : undefined,
     created_at: String(raw?.created_at ?? ''),
     updated_at: String(raw?.updated_at ?? ''),
     last_message_preview: raw?.last_message_preview ? String(raw.last_message_preview) : undefined
@@ -564,6 +587,17 @@ function toAgentScheduleRun(raw: Record<string, any>): AgentScheduleRun {
   }
 }
 
+/** usage 帧 → 运行指标。`||` 兜底仅覆盖 falsy；非数字字符串仍得 NaN（保持现状）。 */
+function toAgentRunMetrics(obj: AgentUsageEventWire): AgentRunMetrics {
+  return {
+    duration_ms: Number(obj.duration_ms || 0),
+    prompt_tokens: Number(obj.prompt_tokens || 0),
+    completion_tokens: Number(obj.completion_tokens || 0),
+    reasoning_tokens: Number(obj.reasoning_tokens || 0),
+    tool_calls: Number(obj.tool_calls || 0)
+  }
+}
+
 function streamAgentRun(
   projectId: string,
   threadId: string,
@@ -604,14 +638,7 @@ function streamAgentRun(
       return
     }
     if (obj?.type === 'usage') {
-      const metrics: AgentRunMetrics = {
-        duration_ms: Number(obj.duration_ms || 0),
-        prompt_tokens: Number(obj.prompt_tokens || 0),
-        completion_tokens: Number(obj.completion_tokens || 0),
-        reasoning_tokens: Number(obj.reasoning_tokens || 0),
-        tool_calls: Number(obj.tool_calls || 0)
-      }
-      handlers.onUsage?.(metrics)
+      handlers.onUsage?.(toAgentRunMetrics(obj))
       return
     }
     if (obj?.type === 'token' || obj?.type === 'chunk') {
@@ -645,7 +672,7 @@ function streamAgentRun(
       return
     }
     if (obj?.type === 'tool_result') {
-      handlers.onToolResult?.(obj.name || '', obj.content || '', obj.call_id || undefined, Number(obj.duration_ms || 0), obj.is_error === true)
+      handlers.onToolResult?.(obj.name || '', obj.content || '', obj.call_id || undefined, Number(obj.duration_ms || 0), obj.is_error === true, obj.truncated === true)
     }
   }
   ;(async () => {
@@ -679,8 +706,15 @@ function streamAgentRun(
         error.code = detail?.error?.code
         throw error
       }
+      // BUG-B5（planv6.0 v2 §2.2）：runID 此前只由首个 SSE 帧下发，连接在 run 帧
+      // 到达前断开时无法续传。响应头先给一份，后续 run 事件仍会覆盖同一值。
+      const headerRunId = resp.headers.get('x-run-id')
+      if (headerRunId) {
+        runId = headerRunId
+        handlers.onRun?.(runId)
+      }
       await readSse(resp, onEvent)
-      fireEnd()
+      if (!ended && !failed) throw new Error(t('error.streamFailed'))
     } catch (e) {
       if (controller.signal.aborted || failed) return
       let delay = 1000
@@ -705,7 +739,7 @@ function streamAgentRun(
           )
           if (!resp.ok || !resp.body) throw new Error(`请求失败 (${resp.status})`)
           await readSse(resp, onEvent)
-          fireEnd()
+          if (!ended && !failed) throw new Error(t('error.streamFailed'))
           return
         } catch (next) {
           if (controller.signal.aborted) return
@@ -963,7 +997,7 @@ export const httpApi: Api = {
     list: (projectId) =>
       http.get(cronJobsPath(projectId)).then((r) => {
         const list = Array.isArray(r.data?.jobs) ? r.data.jobs : []
-        return list.map((raw: Record<string, any>) => toCronJobItem(raw))
+        return list.map((raw: CronJobWire) => toCronJobItem(raw))
       }),
     create: (projectId, body) =>
       http.post(cronJobsPath(projectId), cronJobBody(body)).then((r) => toCronJobItem(r.data)),
@@ -976,7 +1010,7 @@ export const httpApi: Api = {
         .get(cronJobsPath(projectId, jobId, 'runs'), { params: limit ? { limit } : undefined })
         .then((r) => {
           const list = Array.isArray(r.data?.runs) ? r.data.runs : []
-          return list.map((raw: Record<string, any>) => toCronJobRunItem(raw))
+          return list.map((raw: CronJobRunWire) => toCronJobRunItem(raw))
         }),
     trigger: (projectId, jobId) =>
       http.post(cronJobsPath(projectId, jobId, 'trigger')).then(() => undefined)
@@ -1242,36 +1276,17 @@ export const httpApi: Api = {
       http
         .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/settings')
         .then((r) => toLlmSettings(r.data)),
-    put: (projectId, settings) =>
+    put: (projectId, settings, apiKey) =>
       http
         .put('/v1/projects/' + encodeURIComponent(projectId) + '/llm/settings', {
           default_provider: settings.defaultProvider || '',
           default_model: settings.defaultModel || '',
+          api_key: apiKey || '',
+          base_url: settings.baseUrl || '',
           temperature: settings.temperature,
           max_tokens: settings.maxTokens
         })
         .then((r) => toLlmSettings(r.data))
-  },
-
-  llmProviderCreds: {
-    list: (projectId) =>
-      http
-        .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/providers')
-        .then((r) => {
-          const list = Array.isArray(r.data?.providers) ? r.data.providers : []
-          return list.map(toLlmProviderCred)
-        }),
-    put: (projectId, provider, body) =>
-      http
-        .put('/v1/projects/' + encodeURIComponent(projectId) + '/llm/providers/' + encodeURIComponent(provider), {
-          credentials: body.credentials,
-          default_model: body.defaultModel || ''
-        })
-        .then((r) => toLlmProviderCred(r.data)),
-    remove: (projectId, provider) =>
-      http
-        .delete('/v1/projects/' + encodeURIComponent(projectId) + '/llm/providers/' + encodeURIComponent(provider))
-        .then(() => undefined)
   },
 
   agents: {
@@ -1304,18 +1319,18 @@ export const httpApi: Api = {
   },
 
   agentThreads: {
-    list: (projectId) =>
-      http.get(agentPath(projectId, '/agent-threads')).then((r) => {
+    list: (projectId, agentId = '') =>
+      http.get(agentPath(projectId, '/agent-threads'), { params: agentId ? { agent_id: agentId } : {} }).then((r) => {
         const list = Array.isArray(r.data?.threads) ? r.data.threads : []
         return list.map(toAgentThread)
       }),
-    page: (projectId, limit = 50, cursor = '') =>
-      http.get(agentPath(projectId, '/agent-threads'), { params: { limit, cursor } }).then((r) => ({
+    page: (projectId, agentId = '', limit = 50, cursor = '') =>
+      http.get(agentPath(projectId, '/agent-threads'), { params: { limit, cursor, ...(agentId ? { agent_id: agentId } : {}) } }).then((r) => ({
         threads: (Array.isArray(r.data?.threads) ? r.data.threads : []).map(toAgentThread),
         next_cursor: String(r.data?.next_cursor || '')
       })),
-    create: (projectId, title) =>
-      http.post(agentPath(projectId, '/agent-threads'), { title }).then((r) => toAgentThread(r.data)),
+    create: (projectId, title, agentId = '') =>
+      http.post(agentPath(projectId, '/agent-threads'), { title, agent_id: agentId }).then((r) => toAgentThread(r.data)),
     rename: (projectId, threadId, title) =>
       http.patch(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)), { title }).then((r) => toAgentThread(r.data)),
     remove: (projectId, threadId) =>
@@ -1370,5 +1385,9 @@ export const httpApi: Api = {
       http
         .post(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId) + '/run'))
         .then(() => undefined)
+  },
+  storage: {
+    get: () => http.get('/v1/system/storage').then((r) => r.data as StorageSettings),
+    put: (body) => http.put('/v1/system/storage', body).then((r) => r.data as StorageUpdateResult)
   }
 }

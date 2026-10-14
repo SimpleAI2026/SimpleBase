@@ -3,6 +3,8 @@ package auth
 import (
 	"sync"
 	"time"
+
+	"github.com/labstack/echo/v4"
 )
 
 const (
@@ -14,33 +16,46 @@ const (
 type DelegationRegistry struct {
 	mu      sync.Mutex
 	revoked map[string]time.Time
-	byRun   map[string][]string
+	byRun   map[string][]delegationToken
+}
+
+// delegationToken 记录一次签发的 jti 与其过期时间，作废后的保留时间按 exp 计算。
+type delegationToken struct {
+	jti string
+	exp time.Time
 }
 
 func NewDelegationRegistry() *DelegationRegistry {
-	return &DelegationRegistry{revoked: map[string]time.Time{}, byRun: map[string][]string{}}
+	return &DelegationRegistry{revoked: map[string]time.Time{}, byRun: map[string][]delegationToken{}}
 }
 
-// Remember 记下一次签发，供 RevokeRun 找到 jti。
+// Remember 记下一次签发，供 RevokeRun 找到 jti；exp 为该令牌的过期时间，
+// 作废记录的保留时间据此计算，不再使用固定时长。
 func (r *DelegationRegistry) Remember(runID, jti string, exp time.Time) {
 	if r == nil || jti == "" {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.byRun[runID] = append(r.byRun[runID], jti)
-	_ = exp
+	r.byRun[runID] = append(r.byRun[runID], delegationToken{jti: jti, exp: exp})
 }
 
-// RevokeRun 作废该 run 签发过的全部 jti。
+// RevokeRun 作废该 run 签发过的全部 jti。每条作废记录保留到 exp 加一分钟
+// 时钟偏移余量，过期后由 Revoked 惰性清理。
 func (r *DelegationRegistry) RevokeRun(runID string) {
 	if r == nil {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, jti := range r.byRun[runID] {
-		r.revoked[jti] = time.Now().Add(31 * time.Minute)
+	for _, tok := range r.byRun[runID] {
+		retain := tok.exp.Add(time.Minute)
+		if tok.exp.IsZero() {
+			retain = time.Now().Add(31 * time.Minute)
+		}
+		if old, ok := r.revoked[tok.jti]; !ok || retain.After(old) {
+			r.revoked[tok.jti] = retain
+		}
 	}
 	delete(r.byRun, runID)
 }
@@ -146,4 +161,16 @@ func PrincipalFromDelegation(c JWTClaims) (Principal, error) {
 		ProjectIDs:  map[string]struct{}{c.ProjectID: {}},
 		Permissions: perms,
 	}, nil
+}
+
+// DelegationMark 返回路由级 delegable 标记中间件（planv6.0 D1）。
+// 挂在可委托路由上：置 Echo context 标记，RequireDelegable 据此放行
+// Principal.Delegated 主体；未挂标记的路由对委托令牌默认 403。
+func DelegationMark() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set(DelegableContextKey, true)
+			return next(c)
+		}
+	}
 }

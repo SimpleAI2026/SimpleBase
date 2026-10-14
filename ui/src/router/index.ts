@@ -8,6 +8,9 @@ import DocsLayout from '../layouts/DocsLayout.vue'
  * hidden：文档站等非控制台入口不进侧栏。
  * `/settings` 重定向到 `/console/agents?settings=1` 由 DefaultLayout 打开全局 SbModal。
  *
+ * titleKey 是 i18n 消息键（locales/zh-CN.ts 的 nav.* 命名空间），
+ * 由 NavMenu 与 DefaultLayout 的 t() 消费；这里不再存放中文字面量。
+ *
  * 主页、控制台与文档站拆布局：App.vue 只挂 <router-view />，
  * 控制台子路由走 DefaultLayout（侧栏 + 项目切换），文档子路由走 DocsLayout。
  */
@@ -20,7 +23,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'home',
     component: () => import('../pages/Home.vue'),
-    meta: { title: '首页', hidden: true },
+    meta: { titleKey: 'nav.home', hidden: true },
     beforeEnter: (to) => to.query.settings == null ? true : ({
       name: 'agents',
       query: to.query,
@@ -39,13 +42,13 @@ const routes: RouteRecordRaw[] = [
         path: 'dashboard',
         name: 'dashboard',
         component: () => import('../pages/Dashboard.vue'),
-        meta: { title: '监控大盘' }
+        meta: { titleKey: 'nav.dashboard' }
       },
       {
         path: 'databases',
         name: 'databases',
         component: () => import('../pages/Databases.vue'),
-        meta: { title: '数据库管理' }
+        meta: { titleKey: 'nav.databases' }
       },
       { path: 'sql', redirect: (to) => ({ name: 'databases', query: to.query, hash: to.hash }) },
       { path: 'data', redirect: (to) => ({ name: 'databases', query: to.query, hash: to.hash }) },
@@ -53,37 +56,37 @@ const routes: RouteRecordRaw[] = [
         path: 'key-value',
         name: 'key-value',
         component: () => import('../pages/KeyValue.vue'),
-        meta: { title: 'Key-Value' }
+        meta: { titleKey: 'nav.keyValue' }
       },
       {
         path: 's3',
         name: 's3',
         component: () => import('../pages/S3Manager.vue'),
-        meta: { title: '对象存储' }
+        meta: { titleKey: 'nav.s3' }
       },
       {
         path: 'gofunctions',
         name: 'gofunctions',
         component: () => import('../pages/GoFunctions.vue'),
-        meta: { title: '云函数' }
+        meta: { titleKey: 'nav.gofunctions' }
       },
       {
         path: 'cron-jobs',
         name: 'cron-jobs',
         component: () => import('../pages/CronJobs.vue'),
-        meta: { title: '定时任务' }
+        meta: { titleKey: 'nav.cronJobs' }
       },
       {
         path: 'sandboxes',
         name: 'sandboxes',
         component: () => import('../pages/Sandboxes.vue'),
-        meta: { title: '云沙盒' }
+        meta: { titleKey: 'nav.sandboxes' }
       },
       {
         path: 'agents',
         name: 'agents',
         component: () => import('../pages/AgentManager.vue'),
-        meta: { title: '云助手' }
+        meta: { titleKey: 'nav.agents' }
       },
       { path: 'llm', redirect: (to) => ({ name: 'agents', query: to.query, hash: to.hash }) },
       {
@@ -99,13 +102,13 @@ const routes: RouteRecordRaw[] = [
         path: 'logs',
         name: 'logs',
         component: () => import('../pages/Logs.vue'),
-        meta: { title: '日志管理' }
+        meta: { titleKey: 'nav.logs' }
       },
       {
         path: 'users',
         name: 'users',
         component: () => import('../pages/Users.vue'),
-        meta: { title: '用户管理', requiresRole: 'superadminl1' }
+        meta: { titleKey: 'nav.users', requiresRole: 'superadminl1' }
       }
     ]
   },
@@ -120,25 +123,25 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/docs',
     component: DocsLayout,
-    meta: { title: '使用文档', hidden: true },
+    meta: { titleKey: 'nav.docs', hidden: true },
     children: [
       {
         path: '',
         name: 'docs',
         component: () => import('../pages/DocsWiki.vue'),
-        meta: { title: '使用文档', hidden: true }
+        meta: { titleKey: 'nav.docs', hidden: true }
       },
       {
         path: ':module',
         name: 'docs-module',
         component: () => import('../pages/DocsWiki.vue'),
-        meta: { title: '使用文档', hidden: true }
+        meta: { titleKey: 'nav.docs', hidden: true }
       },
       {
         path: ':module/:slug',
         name: 'docs-page',
         component: () => import('../pages/DocsWiki.vue'),
-        meta: { title: '使用文档', hidden: true }
+        meta: { titleKey: 'nav.docs', hidden: true }
       }
     ]
   }

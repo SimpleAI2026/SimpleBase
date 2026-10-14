@@ -62,7 +62,7 @@ func Bootstrap(ctx context.Context, in BootstrapInput) (*Store, error) {
 	}
 
 	prefix := ""
-	if p, err := in.Keys.DataPrefix(loc.TenantID, loc.DatabaseID); err == nil {
+	if p, err := in.Keys.DataPrefix(catalog.ReservedSystemProjectID, loc.DatabaseID); err == nil {
 		prefix = p
 	}
 

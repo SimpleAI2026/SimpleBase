@@ -1,13 +1,13 @@
 <template>
   <div class="space-y-4" data-testid="schema-panel">
-    <p v-if="readonly" class="text-sm text-muted-foreground">系统库只读，不能新建表或修改字段</p>
+    <p v-if="readonly" class="text-sm text-muted-foreground">{{ t('components.schemaPanel.readonlyHint') }}</p>
     <div class="overflow-x-auto rounded-lg border border-border/70">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead class="text-left">表名</TableHead>
-            <TableHead class="text-left">字段</TableHead>
-            <TableHead>操作</TableHead>
+            <TableHead class="text-left">{{ t('components.schemaPanel.colTable') }}</TableHead>
+            <TableHead class="text-left">{{ t('components.schemaPanel.colColumns') }}</TableHead>
+            <TableHead>{{ t('common.actions') }}</TableHead>
           </TableRow>
         </TableHeader>
         <SbAsyncRegion
@@ -20,7 +20,7 @@
           :show-error="showError"
           :refreshing="refreshing"
           :error="error"
-          empty-description="还没有表"
+          :empty-description="t('components.schemaPanel.emptyDesc')"
           @retry="load()"
         >
           <TableRow v-for="table in tables" :key="table.name">
@@ -28,7 +28,7 @@
             <TableCell class="max-w-xl truncate text-left" :title="columnSummary(table)">{{ columnSummary(table) }}</TableCell>
             <TableCell>
               <div class="flex items-center justify-center">
-                <Button type="button" variant="ghost" size="sm" @click="openRows(table.name)">查看数据</Button>
+                <Button type="button" variant="ghost" size="sm" @click="openRows(table.name)">{{ t('components.schemaPanel.viewData') }}</Button>
               </div>
             </TableCell>
           </TableRow>
@@ -37,37 +37,70 @@
     </div>
     <div v-if="settled && !showError && !readonly" class="grid gap-4 border-t border-border pt-4 md:grid-cols-2">
         <form class="create-table space-y-2" @submit.prevent="submitTable">
-          <h4 class="text-sm font-medium">新建表</h4>
-          <Input id="schema-table-name" v-model="tableName" placeholder="表名" />
+          <h4 class="text-sm font-medium">{{ t('components.schemaPanel.createTable') }}</h4>
+          <Input id="schema-table-name" v-model="tableName" :placeholder="t('components.schemaPanel.tableNamePlaceholder')" />
           <div v-for="(draft, index) in drafts" :key="index" class="flex flex-wrap items-center gap-2">
-            <Input :id="'schema-col-' + index" v-model="draft.name" placeholder="字段名" class="min-w-28 flex-1" />
-            <select :id="'schema-type-' + index" v-model="draft.type" :class="selectClass">
-              <option v-for="item in columnTypes" :key="item" :value="item">{{ item }}</option>
-            </select>
+            <Input
+              :id="'schema-col-' + index"
+              v-model="draft.name"
+              :placeholder="t('components.schemaPanel.columnNamePlaceholder')"
+              class="min-w-28 flex-1"
+            />
+            <Select v-model="draft.type">
+              <SelectTrigger
+                :id="'schema-type-' + index"
+                class="w-32 shrink-0"
+                :aria-label="t('components.schemaPanel.columnType')"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="item in columnTypes" :key="item" :value="item">{{ item }}</SelectItem>
+              </SelectContent>
+            </Select>
             <label class="flex items-center gap-1 text-xs text-muted-foreground">
               <input :id="'schema-null-' + index" v-model="draft.nullable" type="checkbox" />
-              可空
+              {{ t('components.schemaPanel.nullable') }}
             </label>
           </div>
           <div class="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" @click="addDraft">添加字段</Button>
-            <Button type="submit" size="sm" :disabled="busy">新建表</Button>
+            <Button type="button" variant="outline" size="sm" @click="addDraft">{{ t('components.schemaPanel.addColumnDraft') }}</Button>
+            <Button type="submit" size="sm" :disabled="busy">{{ t('components.schemaPanel.submitCreateTable') }}</Button>
           </div>
         </form>
         <form class="add-column space-y-2" @submit.prevent="submitColumn">
-          <h4 class="text-sm font-medium">添加列</h4>
-          <select id="schema-add-table" v-model="addTable" :class="selectClass" :disabled="!tables.length">
-            <option v-for="table in tables" :key="table.name" :value="table.name">{{ table.name }}</option>
-          </select>
-          <Input id="schema-add-name" v-model="addName" placeholder="字段名" :disabled="!tables.length" />
-          <select id="schema-add-type" v-model="addType" :class="selectClass" :disabled="!tables.length">
-            <option v-for="item in columnTypes" :key="item" :value="item">{{ item }}</option>
-          </select>
+          <h4 class="text-sm font-medium">{{ t('components.schemaPanel.addColumnSection') }}</h4>
+          <Select
+            :model-value="addTable || undefined"
+            :disabled="!tables.length"
+            @update:model-value="(v: string) => (addTable = v)"
+          >
+            <SelectTrigger id="schema-add-table" :aria-label="t('components.schemaPanel.targetTable')">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="table in tables" :key="table.name" :value="table.name">{{ table.name }}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            id="schema-add-name"
+            v-model="addName"
+            :placeholder="t('components.schemaPanel.columnNamePlaceholder')"
+            :disabled="!tables.length"
+          />
+          <Select v-model="addType" :disabled="!tables.length">
+            <SelectTrigger id="schema-add-type" :aria-label="t('components.schemaPanel.columnType')">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="item in columnTypes" :key="item" :value="item">{{ item }}</SelectItem>
+            </SelectContent>
+          </Select>
           <label class="flex items-center gap-1 text-xs text-muted-foreground">
             <input id="schema-add-nullable" v-model="addNullable" type="checkbox" :disabled="!tables.length" />
-            可空
+            {{ t('components.schemaPanel.nullable') }}
           </label>
-          <Button type="submit" size="sm" :disabled="busy || !tables.length">添加列</Button>
+          <Button type="submit" size="sm" :disabled="busy || !tables.length">{{ t('components.schemaPanel.submitAddColumn') }}</Button>
         </form>
       </div>
     <SchemaRowsModal
@@ -82,9 +115,11 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '@/services/api'
 import type { DatabaseItem, SchemaColumn, SchemaTable } from '@/services/api'
@@ -94,9 +129,9 @@ import SchemaRowsModal from './SchemaRowsModal.vue'
 import { useLoadState } from '@/composables/useLoadState'
 
 const columnTypes = ['INTEGER', 'BIGINT', 'DOUBLE', 'VARCHAR', 'BOOLEAN', 'TIMESTAMP', 'DATE', 'JSON']
-const selectClass =
-  'border-input bg-background text-foreground h-8.5 min-w-28 rounded-lg border px-2 text-sm'
 const maxDrafts = 16
+
+const { t } = useI18n()
 
 const props = defineProps<{
   projectId: string
@@ -114,7 +149,7 @@ const busy = ref(false)
 const rowsOpen = ref(false)
 const activeTable = ref('')
 const { pending, settled, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载表结构失败'
+  fallback: 'components.schemaPanel.loadFailed'
 })
 const tables = ref<SchemaTable[]>([])
 const tableName = ref('')
@@ -133,7 +168,7 @@ function columnSummary(table: SchemaTable): string {
     .map((col) => {
       const parts = [col.name, col.type]
       if (col.nullable === false) parts.push('NOT NULL')
-      if (col.sensitive) parts.push('已隐藏')
+      if (col.sensitive) parts.push(t('components.schemaPanel.hidden'))
       return parts.join(' ')
     })
     .join(', ')
@@ -159,7 +194,7 @@ function load(replace = false) {
 
 function addDraft() {
   if (drafts.value.length >= maxDrafts) {
-    toast.warning('最多 16 个字段')
+    toast.warning(t('components.schemaPanel.maxFields'))
     return
   }
   drafts.value.push(blankDraft())
@@ -168,14 +203,14 @@ function addDraft() {
 async function submitTable() {
   const name = tableName.value.trim()
   if (!name) {
-    toast.warning('请输入表名')
+    toast.warning(t('components.schemaPanel.tableNameRequired'))
     return
   }
   const columns: SchemaColumn[] = []
   for (const draft of drafts.value) {
     const columnName = draft.name.trim()
     if (!columnName) {
-      toast.warning('请输入字段名')
+      toast.warning(t('components.schemaPanel.columnNameRequired'))
       return
     }
     columns.push({ name: columnName, type: draft.type, nullable: draft.nullable })
@@ -183,12 +218,12 @@ async function submitTable() {
   busy.value = true
   try {
     await api.databases.createTable(props.projectId, props.database.id, { name, columns })
-    toast.success(`表 ${name} 已创建`)
+    toast.success(t('components.schemaPanel.tableCreated', { name }))
     tableName.value = ''
     drafts.value = [blankDraft()]
     await load()
   } catch (error) {
-    toast.error(errorMessage(error, '新建表失败'))
+    toast.error(errorMessage(error, t('components.schemaPanel.createTableFailed')))
   } finally {
     busy.value = false
   }
@@ -198,7 +233,7 @@ async function submitColumn() {
   if (!tables.value.length) return
   const name = addName.value.trim()
   if (!name) {
-    toast.warning('请输入字段名')
+    toast.warning(t('components.schemaPanel.columnNameRequired'))
     return
   }
   busy.value = true
@@ -209,11 +244,11 @@ async function submitColumn() {
       type: addType.value,
       nullable: addNullable.value
     })
-    toast.success(`字段 ${name} 已添加`)
+    toast.success(t('components.schemaPanel.columnAdded', { name }))
     addName.value = ''
     await load()
   } catch (error) {
-    toast.error(errorMessage(error, '添加列失败'))
+    toast.error(errorMessage(error, t('components.schemaPanel.addColumnFailed')))
   } finally {
     busy.value = false
   }

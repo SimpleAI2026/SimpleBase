@@ -43,9 +43,9 @@ func buildCreateSecretSQL(remote RemoteStorage) string {
 	return out
 }
 
-func buildDataURI(remote RemoteStorage, tenantID, databaseID string) (string, error) {
+func buildDataURI(remote RemoteStorage, projectID, databaseID string) (string, error) {
 	kb := remote.keyBuilder()
-	uri, err := kb.DuckLakeDataURI(remote.Bucket, tenantID, databaseID)
+	uri, err := kb.DuckLakeDataURI(remote.Bucket, projectID, databaseID)
 	if err != nil {
 		return "", fmt.Errorf("ducklake: data uri: %w", err)
 	}

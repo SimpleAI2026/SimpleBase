@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -216,6 +217,45 @@ func TestLLMSettingsHandlers(t *testing.T) {
 	rec = doRequest(e, http.MethodPut, "/llm/settings", map[string]any{"default_provider": "x"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put defaults %d %s", rec.Code, rec.Body.String())
+	}
+	// 连接信息随设置一起保存；响应只回掩码，不回 key 原文。
+	rec = doRequest(e, http.MethodPut, "/llm/settings", map[string]any{
+		"default_provider": "custom_openai", "default_model": "fake-model",
+		"api_key": "sk-live-1234567890", "base_url": "http://127.0.0.1:9/v1",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put connection %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "sk-live-1234567890") {
+		t.Fatalf("api key leaked: %s", rec.Body.String())
+	}
+	var saved struct {
+		APIKeyMasked string `json:"api_key_masked"`
+		HasAPIKey    bool   `json:"has_api_key"`
+		BaseURL      string `json:"base_url"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if !saved.HasAPIKey || saved.APIKeyMasked != systemdb.MaskSecretValue("sk-live-1234567890") {
+		t.Fatalf("masked view: %+v", saved)
+	}
+	if saved.BaseURL != "http://127.0.0.1:9/v1" {
+		t.Fatalf("base url: %+v", saved)
+	}
+	// 留空 api_key 沿用既有值，base_url 正常覆盖。
+	rec = doRequest(e, http.MethodPut, "/llm/settings", map[string]any{
+		"default_provider": "custom_openai", "default_model": "fake-model",
+		"base_url": "http://127.0.0.1:8/v1",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put without key %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if !saved.HasAPIKey || saved.BaseURL != "http://127.0.0.1:8/v1" {
+		t.Fatalf("key should be preserved: %+v", saved)
 	}
 	req := httptest.NewRequest(http.MethodPut, "/llm/settings", strings.NewReader("{"))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)

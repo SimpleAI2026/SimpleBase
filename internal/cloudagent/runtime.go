@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +15,12 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"go.uber.org/zap"
+
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent/agentcore"
+
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -92,6 +96,10 @@ type Runtime struct {
 	Confirm        ConfirmationWaiter
 	ConfirmTimeout time.Duration
 	DelegationTTL  time.Duration
+	// Logger 是运行日志出口（planv6.0 v2 §5）；nil 时全部为 no-op。
+	Logger observability.Logger
+	// TraceLog 开启内容层日志（提示词/正文，脱敏+截断）。默认关闭。
+	TraceLog bool
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
@@ -113,7 +121,7 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	modelName := strings.TrimSpace(req.Agent.ModelOverride)
 	if modelName == "" && r.Settings != nil {
 		if st, err := r.Settings.LLMSettings(ctx, req.ProjectID); err == nil {
-			modelName = st.DefaultModel
+			modelName = strings.TrimSpace(st.DefaultModel)
 		}
 	}
 
@@ -126,6 +134,7 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	}
 	if r.SkillsCLI {
 		parts.SkillsCLI = true
+		parts.Writable = req.Agent.Writable
 		parts.SkillText = SkillPrompt(req.Skills)
 		if len(req.Skills) > 0 {
 			parts.ProjectEnv += "\n- skills: " + strings.Join(req.Skills, ",")
@@ -135,12 +144,38 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 		}
 	}
 	instruction := AssembleInstruction(parts)
+	tr := r.trace()
+	tr.Meta("cloudagent: run start",
+		zap.String("run_id", req.RunID),
+		zap.String("project", req.ProjectID),
+		zap.String("thread", req.ThreadID),
+		zap.String("agent", req.Agent.ID),
+		zap.String("module", req.Agent.Module),
+		zap.String("model", modelName),
+		zap.Bool("stream", req.Stream),
+		zap.Bool("headless", req.Headless),
+		zap.Int("history", len(req.History)),
+		zap.String("user", hashSummary(req.UserText)),
+		zap.String("instruction", hashSummary(instruction)),
+		zap.String("skills", strings.Join(req.Skills, ",")),
+	)
+	// 内容层（默认关闭）：提示词与用户输入，脱敏 + 截断。
+	tr.Payload("cloudagent: instruction", "instruction", instruction)
+	tr.Payload("cloudagent: user text", "text", req.UserText)
 
 	var tools []tool.BaseTool
 	var err error
 	if r.SkillsCLI {
 		if r.Issuer != nil {
-			tok, ierr := r.Issuer.Issue(req.Principal, req.ProjectID, req.RunID, r.delegationTTL())
+			// planv6.0 v2 §3.4 第一层（入口降权）：不可写助手签发的委托令牌
+			// 不含 database:write / database:admin，HTTP 路由层的
+			// delegable(DatabaseWrite) 会 403 兜底。IssueDelegation 本就是
+			// 「调用者权限的子集」，降权不破坏既有约定。
+			principal := req.Principal
+			if !req.Agent.Writable {
+				principal = stripWritePermissions(principal)
+			}
+			tok, ierr := r.Issuer.Issue(principal, req.ProjectID, req.RunID, r.delegationTTL())
 			if ierr != nil {
 				return RunResult{}, ierr
 			}
@@ -148,6 +183,8 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 			defer r.forgetToken(req.RunID)
 			defer r.Issuer.RevokeRun(req.RunID)
 		}
+		// planv6.0 §3.4：run 结束清理 gate 残留，避免泄漏累积。
+		defer r.ensureGate().dropRun(req.RunID)
 		tools, err = r.buildSkillTools(req)
 	} else {
 		tools, err = buildTools(req.Agent.ToolIDs, toolDeps{DB: r.DB, Obj: r.Obj, Logs: r.Logs, Sandbox: r.Sandbox})
@@ -156,12 +193,13 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 		return RunResult{}, err
 	}
 
-	chatModel := newGatewayChatModel(r.LLM, req.ProjectID, modelName)
+	chatModel := agentcore.NewModel(r.LLM, req.ProjectID, modelName)
+	chatModel.Warn = tr.Warn
 	if r.ToolProtocol != "" {
-		chatModel.protocol = r.ToolProtocol
+		chatModel.Protocol = r.ToolProtocol
 	}
 	var usage ChatUsage
-	chatModel.usage = func(u ChatUsage) {
+	chatModel.Usage = func(u ChatUsage) {
 		usage.PromptTokens += u.PromptTokens
 		usage.CompletionTokens += u.CompletionTokens
 		usage.ReasoningTokens += u.ReasoningTokens
@@ -196,6 +234,7 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	runCtx = withRunContext(runCtx, RunContext{
 		ProjectID: req.ProjectID, Principal: req.Principal, ThreadID: req.ThreadID,
 		RunID: req.RunID, Skills: req.Skills, Headless: req.Headless, Emit: emit,
+		Writable: req.Agent.Writable,
 	})
 
 	runner := adk.NewRunner(runCtx, adk.RunnerConfig{Agent: agent, EnableStreaming: req.Stream})
@@ -260,6 +299,15 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 			if emit != nil {
 				emit(Event{Type: "tool_result", CallID: id, Name: name, Content: content, DurationMS: duration, Truncated: truncated, IsError: isErr})
 			}
+			tr.Meta("cloudagent: tool result",
+				zap.String("run_id", req.RunID),
+				zap.String("tool", name),
+				zap.String("call_id", id),
+				zap.Int64("duration_ms", duration),
+				zap.Bool("is_error", isErr),
+				zap.Bool("truncated", truncated),
+			)
+			tr.Payload("cloudagent: tool result body", "content", content)
 			continue
 		}
 		if mv.Role == schema.Assistant || mv.Role == "" {
@@ -284,6 +332,12 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 					if emit != nil {
 						emit(Event{Type: "tool_call", CallID: id, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
 					}
+					tr.Meta("cloudagent: tool call",
+						zap.String("run_id", req.RunID),
+						zap.String("tool", tc.Function.Name),
+						zap.String("call_id", id),
+					)
+					tr.Payload("cloudagent: tool arguments", "arguments", tc.Function.Arguments)
 				}
 			}
 		}
@@ -299,18 +353,25 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	if errors.Is(runErr, adk.ErrExceedMaxIterations) {
 		result.Content += fmt.Sprintf("\n已达到工具调用上限（%d 次），以上为当前结论", iterations)
 		result.Reason = "max_iterations"
+		tr.finish(req, result)
 		return result, nil
 	}
 	if errors.Is(runErr, context.Canceled) || errors.Is(runCtx.Err(), context.Canceled) {
 		result.Reason = "canceled"
+		tr.finish(req, result)
 		return result, context.Canceled
 	}
 	if errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		result.Reason = "timeout"
+		tr.finish(req, result)
 		return result, context.DeadlineExceeded
 	}
 	if runErr != nil {
+		result.Reason = "error"
+		tr.finish(req, result)
 		return result, runErr
 	}
+	tr.finish(req, result)
 	return result, nil
 }
 
@@ -332,6 +393,11 @@ func (r *Runtime) claimThread(threadID, runID string) error {
 		r.threads = map[string]string{}
 	}
 	if active := r.threads[threadID]; active != "" && active != runID {
+		r.trace().Warn("cloudagent: thread busy",
+			zap.String("thread", threadID),
+			zap.String("run_id", runID),
+			zap.String("active_run", active),
+		)
 		return ErrThreadBusy
 	}
 	r.threads[threadID] = runID
@@ -503,123 +569,20 @@ func toolHistorySummary(raw string) string {
 	return b.String()
 }
 
+// 事件消费与增量合并委托 agentcore（与本地 CLI 共用）：见 agentcore.ConsumeVariant /
+// ConsumeAssistant / IsToolDelta / MergeStreamToolCall。cloudagent 只负责把 ConsumeEvent
+// 映射成带 run_id 的 SSE Event。
 func consumeVariant(mv *adk.MessageVariant) (content, name string) {
-	if mv == nil {
-		return "", ""
-	}
-	if mv.IsStreaming && mv.MessageStream != nil {
-		for {
-			chunk, err := mv.MessageStream.Recv()
-			if errors.Is(err, io.EOF) || err != nil {
-				break
-			}
-			if chunk != nil {
-				content += chunk.Content
-				if chunk.ToolName != "" {
-					name = chunk.ToolName
-				}
-			}
-		}
-		return content, name
-	}
-	if mv.Message != nil {
-		return mv.Message.Content, mv.Message.ToolName
-	}
-	return "", mv.ToolName
-}
-
-func isToolDelta(tc schema.ToolCall) bool {
-	if strings.HasPrefix(tc.ID, "delta:") {
-		return true
-	}
-	if tc.Extra == nil {
-		return false
-	}
-	v, ok := tc.Extra["delta"].(bool)
-	return ok && v
-}
-
-func mergeStreamToolCall(dst []schema.ToolCall, tc schema.ToolCall) []schema.ToolCall {
-	idx := 0
-	if tc.Index != nil {
-		idx = *tc.Index
-	}
-	id := strings.TrimPrefix(tc.ID, "delta:")
-	for i := range dst {
-		di := 0
-		if dst[i].Index != nil {
-			di = *dst[i].Index
-		}
-		if di != idx {
-			continue
-		}
-		if dst[i].ID == "" {
-			dst[i].ID = id
-		}
-		if dst[i].Function.Name == "" {
-			dst[i].Function.Name = tc.Function.Name
-		}
-		dst[i].Function.Arguments += tc.Function.Arguments
-		return dst
-	}
-	cp := tc
-	cp.ID = id
-	cp.Extra = nil
-	return append(dst, cp)
+	return agentcore.ConsumeVariant(mv)
 }
 
 func consumeAssistant(mv *adk.MessageVariant, emit func(Event), acc *strings.Builder) (*schema.Message, error) {
-	if mv == nil {
-		return nil, nil
-	}
-	if mv.IsStreaming && mv.MessageStream != nil {
-		var last *schema.Message
-		var merged []schema.ToolCall
-		for {
-			chunk, err := mv.MessageStream.Recv()
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				if len(merged) > 0 {
-					return schema.AssistantMessage("", merged), err
-				}
-				return last, err
-			}
-			if chunk == nil {
-				continue
-			}
-			if len(chunk.ToolCalls) > 0 && isToolDelta(chunk.ToolCalls[0]) {
-				tc := chunk.ToolCalls[0]
-				if emit != nil {
-					emit(Event{Type: "tool_call_delta", CallID: strings.TrimPrefix(tc.ID, "delta:"), Name: tc.Function.Name, Arguments: tc.Function.Arguments})
-				}
-				merged = mergeStreamToolCall(merged, tc)
-				continue
-			}
-			last = chunk
-			if chunk.Content != "" && len(chunk.ToolCalls) == 0 {
-				acc.WriteString(chunk.Content)
-				if emit != nil {
-					emit(Event{Type: "token", Content: chunk.Content})
-				}
-			}
+	return agentcore.ConsumeAssistant(mv, func(ce agentcore.ConsumeEvent) {
+		if emit == nil {
+			return
 		}
-		if len(merged) > 0 {
-			return schema.AssistantMessage("", merged), nil
-		}
-		return last, nil
-	}
-	if mv.Message != nil {
-		if mv.Message.Content != "" && len(mv.Message.ToolCalls) == 0 {
-			acc.WriteString(mv.Message.Content)
-			if emit != nil {
-				emit(Event{Type: "token", Content: mv.Message.Content})
-			}
-		}
-		return mv.Message, nil
-	}
-	return nil, nil
+		emit(Event{Type: ce.Type, Content: ce.Content, CallID: ce.CallID, Name: ce.Name, Arguments: ce.Arguments})
+	}, acc)
 }
 
 func safeAgentName(name string) string {

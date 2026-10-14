@@ -122,6 +122,9 @@ func (h *LLMHandler) Stream(c echo.Context) error {
 	}
 	defer reader.Close()
 
+	// planv6.0 v2 §11：SSE 长连接需解除 WriteTimeout，否则会在 write_timeout
+	// （默认 30s）到点时被切断。
+	beginSSE(c)
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
 	c.Response().WriteHeader(http.StatusOK)

@@ -1,22 +1,19 @@
 <template>
   <div class="flex flex-col gap-3 py-1">
     <Alert>
-      <AlertTitle>项目级单端点</AlertTitle>
-      <AlertDescription>
-        所有命令都发到同一条路由：POST /v1/projects/:projectId/kv，body 为
-        {"type":"cmd","argvs":[...]}。与「数据」页签展示的是同一份 kv.* 表数据。
-      </AlertDescription>
+      <AlertTitle>{{ t('components.kvApi.alertTitle') }}</AlertTitle>
+      <AlertDescription>{{ t('components.kvApi.alertDesc') }}</AlertDescription>
     </Alert>
 
     <div class="flex flex-wrap items-center gap-2">
       <span class="text-xs text-muted-foreground">Base</span>
       <code class="sb-mono max-w-full truncate rounded bg-muted px-2 py-1 text-xs">{{ origin + base }}</code>
-      <Button variant="outline" size="sm" @click="copy(baseFull, '已复制 Base 路径')">复制</Button>
+      <Button variant="outline" size="sm" @click="copy(baseFull, t('components.kvApi.copiedBase'))">{{ t('components.kvApi.copyPath') }}</Button>
     </div>
     <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      <span>认证</span>
+      <span>{{ t('components.kvApi.auth') }}</span>
       <code class="rounded bg-muted px-2 py-1">Authorization: Bearer &lt;API_KEY&gt;</code>
-      <span>（读命令要 database:read，写命令要 database:write）</span>
+      <span>{{ t('components.kvApi.permHint') }}</span>
     </div>
 
     <Tabs v-model="group">
@@ -30,10 +27,10 @@
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="w-40">命令</TableHead>
-                <TableHead class="min-w-56 text-left">参数</TableHead>
-                <TableHead class="text-left">语义</TableHead>
-                <TableHead class="w-40">操作</TableHead>
+                <TableHead class="w-40">{{ t('components.kvApi.colCommand') }}</TableHead>
+                <TableHead class="min-w-56 text-left">{{ t('components.kvApi.colArgs') }}</TableHead>
+                <TableHead class="text-left">{{ t('components.kvApi.colSemantics') }}</TableHead>
+                <TableHead class="w-40">{{ t('components.kvApi.colActions') }}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -44,17 +41,17 @@
                 <TableCell class="sb-mono max-w-96 truncate text-left text-xs" :title="cmd.args">
                   {{ cmd.args || '—' }}
                 </TableCell>
-                <TableCell class="text-left text-xs text-muted-foreground">{{ cmd.desc }}</TableCell>
+                <TableCell class="text-left text-xs text-muted-foreground">{{ t(cmd.descKey) }}</TableCell>
                 <TableCell>
                   <div class="flex items-center justify-center gap-1">
                     <Button
                       variant="ghost"
                       size="sm"
                       :disabled="readonly && cmd.write"
-                      :title="readonly && cmd.write ? '当前实例只读' : ''"
-                      @click="copy(curl(cmd), '已复制 curl')"
+                      :title="readonly && cmd.write ? t('components.kvApi.readonlyTitle') : ''"
+                      @click="copy(curl(cmd), t('components.kvApi.copiedCurl'))"
                     >
-                      复制 curl
+                      {{ t('components.kvApi.copyCurl') }}
                     </Button>
                     <Button
                       variant="ghost"
@@ -62,7 +59,7 @@
                       :disabled="readonly && cmd.write"
                       @click="openTry(cmd)"
                     >
-                      试调用
+                      {{ t('components.kvApi.tryCall') }}
                     </Button>
                   </div>
                 </TableCell>
@@ -75,10 +72,10 @@
 
     <SbModal
       :open="tryOpen"
-      :title="tryTarget ? `试调用 ${tryTarget.name}` : ''"
+      :title="tryTarget ? t('components.kvApi.tryTitle', { name: tryTarget.name }) : ''"
       :width="560"
       :confirm-loading="trying"
-      ok-text="执行"
+      :ok-text="t('components.kvApi.execute')"
       @ok="runTry"
       @update:open="tryOpen = $event"
     >
@@ -90,7 +87,7 @@
           <FieldGroup>
             <Field>
               <FieldLabel for="kv-try-key">Key</FieldLabel>
-              <Input id="kv-try-key" v-model="tryKey" placeholder="如 session:1001" />
+              <Input id="kv-try-key" v-model="tryKey" :placeholder="t('components.kvApi.keyPlaceholder')" />
             </Field>
           </FieldGroup>
         </div>
@@ -98,16 +95,16 @@
           <FieldGroup>
             <Field>
               <FieldLabel for="kv-try-value">Value / Elem</FieldLabel>
-              <Textarea id="kv-try-value" v-model="tryValue" rows="3" placeholder="文本值" />
+              <Textarea id="kv-try-value" v-model="tryValue" rows="3" :placeholder="t('components.kvApi.valuePlaceholder')" />
             </Field>
           </FieldGroup>
         </div>
         <div class="rounded border border-border/70 bg-muted/40 p-2">
-          <div class="mb-1 text-xs font-medium text-muted-foreground">请求体（自动生成）</div>
+          <div class="mb-1 text-xs font-medium text-muted-foreground">{{ t('components.kvApi.requestBody') }}</div>
           <pre class="sb-mono max-h-56 overflow-auto text-xs">{{ tryBodyPreview }}</pre>
         </div>
         <div v-if="tryResult !== null" class="rounded border border-border/70 bg-muted/40 p-2">
-          <div class="mb-1 text-xs font-medium text-muted-foreground">响应</div>
+          <div class="mb-1 text-xs font-medium text-muted-foreground">{{ t('components.kvApi.response') }}</div>
           <pre class="sb-mono max-h-56 overflow-auto text-xs">{{ tryResult }}</pre>
         </div>
       </div>
@@ -117,6 +114,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -136,6 +134,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ changed: [] }>()
+
+const { t } = useI18n()
 
 const group = ref<KvCommandGroup>('key')
 const groupCommands = computed(() => KV_COMMANDS.filter((c) => c.group === group.value))
@@ -214,7 +214,9 @@ async function runTry() {
     tryResult.value = JSON.stringify(res ?? null, null, 2)
     if (ep.write) emit('changed') // 写成功后让「数据」页签刷新
   } catch (e) {
-    tryResult.value = '错误：' + (e instanceof Error ? e.message : String(e))
+    tryResult.value = t('components.kvApi.errorPrefix', {
+      message: e instanceof Error ? e.message : String(e)
+    })
   } finally {
     trying.value = false
   }

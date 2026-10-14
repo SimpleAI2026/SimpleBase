@@ -1,6 +1,6 @@
 // api_keys_handler.go 提供项目 API Key 管理端点（创建 / 列表 / 吊销）。
 //
-// 背景：生产实例（dev_mode=false）没有种子 Key，且平台此前没有任何签发入口，
+// 背景：生产实例没有种子 Key，且平台此前没有任何签发入口，
 // SDK / examples 无法获得合法凭据。本 handler 允许：
 //   - 登录态：superadminl1 / user 角色可为自己有权的项目签发 Key；
 //   - API Key 通道：持 ProjectAdmin 权限的 Key 可再签发同项目 Key。
@@ -10,11 +10,14 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,11 +30,16 @@ import (
 type APIKeysHandler struct {
 	auth *auth.Service
 	db   *sql.DB
+	// afterWrite 在写成功后调用（SYNC-01）：auth 仓储直接写 sys_api_keys，
+	// 不经过 systemdb.Store 的 notifyWrite，必须由 handler 显式触发
+	// catalog 同步，否则吊销 Key 若为唯一一次写入，崩溃恢复后仍有效。
+	afterWrite func(ctx context.Context)
 }
 
 // NewAPIKeysHandler 构造 APIKeysHandler。db 为已应用系统迁移的系统库连接。
-func NewAPIKeysHandler(authSvc *auth.Service, db *sql.DB) *APIKeysHandler {
-	return &APIKeysHandler{auth: authSvc, db: db}
+// afterWrite 可为 nil（测试 / 无同步场景）。
+func NewAPIKeysHandler(authSvc *auth.Service, db *sql.DB, afterWrite func(ctx context.Context)) *APIKeysHandler {
+	return &APIKeysHandler{auth: authSvc, db: db, afterWrite: afterWrite}
 }
 
 type createAPIKeyRequest struct {
@@ -83,6 +91,12 @@ func (h *APIKeysHandler) Create(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_permission", "unknown or malformed permission", rid))
 	}
+	// SEC-02：签发的权限必须是签发者自身权限的子集，防止低权限 Key 自我提升。
+	// 空列表不再授予全量权限，改为继承签发者已有权限。
+	perms, err = limitIssuedPermissions(p, perms)
+	if err != nil {
+		return WriteError(c, NewAPIError(http.StatusForbidden, "forbidden", "cannot issue permissions beyond your own", rid))
+	}
 
 	secret, err := generateAPIKeySecret()
 	if err != nil {
@@ -93,6 +107,9 @@ func (h *APIKeysHandler) Create(c echo.Context) error {
 	if err := auth.CreateAPIKey(c.Request().Context(), h.db, id, project.ID,
 		h.auth.HashKey(secret), perms, now); err != nil {
 		return WriteError(c, err)
+	}
+	if h.afterWrite != nil {
+		h.afterWrite(c.Request().Context()) // SYNC-01：写后触发 catalog 同步
 	}
 	return c.JSON(http.StatusCreated, apiKeyResponse{
 		ID:          id,
@@ -173,9 +190,16 @@ func (h *APIKeysHandler) Delete(c echo.Context) error {
 	if keyID == "" {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "key id required", rid))
 	}
-	// RevokeAPIKeyByID 同时失效本进程认证缓存，吊销立即生效。
-	if err := h.auth.RevokeAPIKeyByID(c.Request().Context(), h.db, keyID, time.Now().UTC()); err != nil {
+	// SEC-01：按 (id, projectID) 吊销；不属于本项目的 Key 与不存在的 ID 一律 404，
+	// 不泄露 Key 归属。重复吊销同样 404（幂等）。同时失效本进程认证缓存。
+	if err := h.auth.RevokeProjectAPIKeyByID(c.Request().Context(), h.db, keyID, project.ID, time.Now().UTC()); err != nil {
+		if errors.Is(err, auth.ErrKeyNotFound) {
+			return WriteError(c, NewAPIError(http.StatusNotFound, "not_found", "api key not found", rid))
+		}
 		return WriteError(c, err)
+	}
+	if h.afterWrite != nil {
+		h.afterWrite(c.Request().Context()) // SYNC-01：吊销是安全敏感写，立即标脏
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -188,14 +212,8 @@ func (h *APIKeysHandler) canIssue(p auth.Principal) bool {
 	return p.HasPermission(auth.ProjectAdmin)
 }
 
-// parseAPIKeyPermissions 校验权限列表；空列表授予全量业务权限（与种子 Key 一致）。
+// parseAPIKeyPermissions 校验权限列表；空列表由 limitIssuedPermissions 改为继承签发者权限。
 func parseAPIKeyPermissions(in []string) ([]auth.Permission, error) {
-	if len(in) == 0 {
-		return []auth.Permission{
-			auth.DatabaseRead, auth.DatabaseWrite, auth.DatabaseAdmin,
-			auth.LLMInvoke, auth.ProjectAdmin,
-		}, nil
-	}
 	seen := make(map[auth.Permission]struct{}, len(in))
 	out := make([]auth.Permission, 0, len(in))
 	for _, s := range in {
@@ -213,6 +231,43 @@ func parseAPIKeyPermissions(in []string) ([]auth.Permission, error) {
 		out = append(out, perm)
 	}
 	return out, nil
+}
+
+// limitIssuedPermissions 实施 SEC-02 子集约束：
+//   - 登录态按角色展开后的权限求子集；API Key 通道按 Key 自身权限求子集；
+//   - 空列表继承签发者已有权限（原行为是授予全量业务权限，属于权限提升漏洞）；
+//   - 请求包含签发者不具备的权限时整体拒绝（返回错误），不做静默裁剪，
+//     避免调用方误以为拿到了全部请求的权限。
+func limitIssuedPermissions(caller auth.Principal, requested []auth.Permission) ([]auth.Permission, error) {
+	callerPerms := caller.Permissions
+	if caller.UserID != "" {
+		callerPerms = auth.PermissionsForRole(caller.Role)
+	}
+	if callerPerms == nil {
+		callerPerms = map[auth.Permission]struct{}{}
+	}
+	if len(requested) == 0 {
+		out := make([]auth.Permission, 0, len(callerPerms))
+		for perm := range callerPerms {
+			out = append(out, perm)
+		}
+		if len(out) == 0 {
+			return nil, auth.ErrForbidden
+		}
+		sortPermissions(out)
+		return out, nil
+	}
+	for _, perm := range requested {
+		if _, ok := callerPerms[perm]; !ok {
+			return nil, auth.ErrForbidden
+		}
+	}
+	return requested, nil
+}
+
+// sortPermissions 让继承权限的输出顺序稳定（测试与列表展示可预期）。
+func sortPermissions(perms []auth.Permission) {
+	sort.Slice(perms, func(i, j int) bool { return perms[i] < perms[j] })
 }
 
 func permissionStrings(perms []auth.Permission) []string {

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	_ "github.com/uglyer/go-sqlite3"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	_ "github.com/uglyer/go-sqlite3"
 )
 
 // 端到端：登录态签发 → 新 Key 过真实认证 → 新 Key 调 ListDatabases 路径 → 吊销后失效。
@@ -22,7 +22,7 @@ func TestAPIKeys_E2E_FullChain(t *testing.T) {
 	// 模拟真实装配：auth 中间件（API Key 通道）+ project context + handler。
 	e := echo.New()
 	e.HideBanner = true
-	h := NewAPIKeysHandler(svc, db)
+	h := NewAPIKeysHandler(svc, db, nil)
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// 先尝试 API Key 认证
@@ -46,11 +46,13 @@ func TestAPIKeys_E2E_FullChain(t *testing.T) {
 	p.DELETE("/api-keys/:keyID", h.Delete)
 
 	// 1) 用登录态超管身份签发（直接注入 principal 的路径已由其他测试覆盖；
-	//    这里用「种子一个持 ProjectAdmin 的 Key」模拟引导凭据）。
+	//    这里用「种子一个持 ProjectAdmin + 全量业务权限的 Key」模拟引导凭据，
+	//    保证 SEC-02 子集约束下自举流程仍可签出等价权限）。
 	now := time.Now().UTC()
 	seed := "sb_live_bootstrap_key"
 	if err := auth.CreateAPIKey(context.Background(), db, "bootstrap-key", "proj-1",
-		svc.HashKey(seed), []auth.Permission{auth.ProjectAdmin, auth.DatabaseRead}, now); err != nil {
+		svc.HashKey(seed), []auth.Permission{auth.ProjectAdmin, auth.DatabaseRead,
+			auth.DatabaseWrite, auth.DatabaseAdmin, auth.LLMInvoke}, now); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,0 +1,42 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+var ErrEmpty = errors.New("empty config")
+
+// ParseConfig parses "host:port:workers". Exported API.
+func ParseConfig(s string) (string, int, int, error) {
+	if s != "" {
+		parts := strings.Split(s, ":")
+		if len(parts) == 3 {
+			host := parts[0]
+			port, err := strconv.Atoi(parts[1])
+			if err == nil {
+				if port > 0 && port < 65536 {
+					workers, err := strconv.Atoi(parts[2])
+					if err == nil {
+						if workers == 0 {
+							workers = 4
+						}
+						return host, port, workers, nil
+					} else {
+						return "", 0, 0, err
+					}
+				} else {
+					return "", 0, 0, fmt.Errorf("bad port %d", port)
+				}
+			} else {
+				return "", 0, 0, err
+			}
+		} else {
+			return "", 0, 0, fmt.Errorf("want 3 parts, got %d", len(parts))
+		}
+	} else {
+		return "", 0, 0, ErrEmpty
+	}
+}

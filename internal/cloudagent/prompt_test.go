@@ -1,6 +1,7 @@
 package cloudagent
 
 import (
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent/agentcore"
 	"strings"
 	"testing"
 )
@@ -38,7 +39,7 @@ func TestKnownModuleAndTools(t *testing.T) {
 		t.Fatal("tool catalog")
 	}
 	mods := Modules(false)
-	if len(mods) != 5 {
+	if len(mods) != 8 {
 		t.Fatalf("modules=%d", len(mods))
 	}
 	for _, m := range mods {
@@ -65,11 +66,11 @@ func TestKnownModuleAndTools(t *testing.T) {
 }
 
 func TestExtractToolCall(t *testing.T) {
-	name, args, ok := extractToolCall(`TOOL_CALL {"name":"list_databases","arguments":{}}`)
+	name, args, ok := agentcore.ExtractToolCall(`TOOL_CALL {"name":"list_databases","arguments":{}}`)
 	if !ok || name != "list_databases" {
 		t.Fatalf("name=%s ok=%v args=%s", name, ok, args)
 	}
-	if _, _, ok := extractToolCall("hello"); ok {
+	if _, _, ok := agentcore.ExtractToolCall("hello"); ok {
 		t.Fatal("false positive")
 	}
 }

@@ -11,11 +11,11 @@
       :error="error"
       @retry="load"
     >
-      <Textarea v-model="value" :rows="6" :disabled="readonly" class="sb-mono text-xs" placeholder="值" />
+      <Textarea v-model="value" :rows="6" :disabled="readonly" class="sb-mono text-xs" :placeholder="t('components.kvString.valuePlaceholder')" />
       <div v-if="!readonly" class="flex flex-wrap items-center gap-2">
-        <Button size="sm" :disabled="saving || value === original" @click="save">保存</Button>
+        <Button size="sm" :disabled="saving || value === original" @click="save">{{ t('components.kvString.save') }}</Button>
         <div class="ml-auto flex items-center gap-1">
-          <Input v-model="delta" type="number" class="w-24" placeholder="步进" />
+          <Input v-model="delta" type="number" class="w-24" :placeholder="t('components.kvString.incrementPlaceholder')" />
           <Button variant="outline" size="sm" :disabled="incring" @click="incr">INCR</Button>
         </div>
       </div>
@@ -26,6 +26,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -42,11 +43,13 @@ const props = defineProps<{
 
 const emit = defineEmits<{ changed: [] }>()
 
+const { t } = useI18n()
+
 const value = ref('')
 const original = ref('')
 const delta = ref('1')
 const saving = ref(false)
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvString.loadFailed' })
 const incring = ref(false)
 
 function load() {
@@ -67,10 +70,10 @@ async function save() {
       args: { key: props.kvKey, value: value.value, keep_ttl: true }
     })
     original.value = value.value
-    toast.success('已保存')
+    toast.success(t('components.kvString.saved'))
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '保存失败'))
+    toast.error(errorMessage(e, t('components.kvString.saveFailed')))
   } finally {
     saving.value = false
   }
@@ -89,7 +92,7 @@ async function incr() {
     original.value = value.value
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, 'INCR 失败（值需为整数）'))
+    toast.error(errorMessage(e, t('components.kvString.incrFailed')))
   } finally {
     incring.value = false
   }

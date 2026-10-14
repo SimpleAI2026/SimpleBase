@@ -3,177 +3,134 @@ package objectstore
 import (
 	"strings"
 	"testing"
-	"time"
+)
+
+const (
+	testProject  = "prj12345"
+	testProject2 = "prj67890"
+	testDB       = "33333333-3333-3333-3333-333333333333"
 )
 
 func TestKeyBuilderDatabasePrefix(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
-	tenant := "11111111-1111-1111-1111-111111111111"
-	db := "33333333-3333-3333-3333-333333333333"
-
-	got, err := kb.DatabasePrefix(tenant, db)
+	kb := KeyBuilder{RootPrefix: "simplebase"}
+	got, err := kb.DatabasePrefix(testProject, testDB)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "simplebase/prod/tenants/11111111-1111-1111-1111-111111111111/databases/33333333-3333-3333-3333-333333333333"
+	want := "simplebase/" + testProject + "/databases/" + testDB
 	if got != want {
-		t.Errorf("DatabasePrefix = %q, want %q", got, want)
-	}
-	// 禁止路径穿越
-	if strings.Contains(got, "..") {
-		t.Errorf("prefix contains path traversal: %s", got)
-	}
-	// 禁止前导 "/"
-	if strings.HasPrefix(got, "/") {
-		t.Errorf("prefix has leading slash: %s", got)
+		t.Fatalf("DatabasePrefix = %q, want %q", got, want)
 	}
 }
 
 func TestKeyBuilderDescriptorKey(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
-	tenant := "11111111-1111-1111-1111-111111111111"
-	db := "33333333-3333-3333-3333-333333333333"
-	got, err := kb.DescriptorKey(tenant, db)
+	kb := KeyBuilder{RootPrefix: "simplebase"}
+	got, err := kb.DescriptorKey(testProject, testDB)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.HasSuffix(got, "/descriptor.json") {
-		t.Errorf("descriptor key should end with /descriptor.json: %s", got)
+	want := "simplebase/" + testProject + "/databases/" + testDB + "/descriptor.json"
+	if got != want {
+		t.Fatalf("DescriptorKey = %q, want %q", got, want)
 	}
 }
 
-func TestValidateProjectIDAndNewProjectID(t *testing.T) {
-	if err := ValidateProjectID(""); err == nil {
-		t.Fatal("empty")
+func TestKeyBuilderEmptyRoot(t *testing.T) {
+	kb := KeyBuilder{}
+	got, err := kb.DatabasePrefix(testProject, testDB)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := ValidateProjectID("short"); err == nil {
-		t.Fatal("too short")
-	}
-	if err := ValidateProjectID("toolong-id"); err == nil {
-		t.Fatal("too long")
-	}
-	if err := ValidateProjectID("bad!char"); err == nil {
-		t.Fatal("invalid char")
-	}
-	if err := ValidateProjectID("pro-test"); err != nil {
-		t.Fatalf("valid: %v", err)
-	}
-	if err := ValidateProjectID("AdminSys"); err != nil {
-		t.Fatalf("valid mixed case: %v", err)
-	}
-	id := NewProjectID()
-	if err := ValidateProjectID(id); err != nil {
-		t.Fatalf("generated id invalid: %v (%v)", id, err)
-	}
-	if len(id) != ProjectIDLen {
-		t.Fatalf("len=%d", len(id))
+	if !strings.HasPrefix(got, testProject+"/databases/") {
+		t.Fatalf("empty root prefix = %q", got)
 	}
 }
 
-func TestKeyBuilderRejectsNonUUID(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
-	cases := []struct {
-		name   string
-		tenant string
-		db     string
-	}{
-		{"empty tenant", "", "33333333-3333-3333-3333-333333333333"},
-		{"empty db", "11111111-1111-1111-1111-111111111111", ""},
-		{"user name as id", "my-tenant-name", "33333333-3333-3333-3333-333333333333"},
-		{"too short", "12345", "33333333-3333-3333-3333-333333333333"},
-		{"with slash", "11111111-1111-1111-1111-1111111111/1", "33333333-3333-3333-3333-333333333333"},
-		{"traversal", "..", "33333333-3333-3333-3333-333333333333"},
+func TestKeyBuilderRejectsBadIDs(t *testing.T) {
+	kb := KeyBuilder{RootPrefix: "simplebase"}
+	cases := []struct{ name, project, db string }{
+		{"short project", "p1", testDB},
+		{"long project", "prj1234567", testDB},
+		{"bad project char", "prj_1234", testDB},
+		{"underscore system", "_system1", testDB},
+		{"empty project", "", testDB},
+		{"short db", testProject, "short"},
+		{"empty db", testProject, ""},
+		{"path traversal db", testProject, "../../etc/passwd0000000000000000000"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := kb.DatabasePrefix(tc.tenant, tc.db); err == nil {
-				t.Errorf("expected error for %s", tc.name)
+			if _, err := kb.DatabasePrefix(tc.project, tc.db); err == nil {
+				t.Fatalf("expected error for project=%q db=%q", tc.project, tc.db)
 			}
 		})
 	}
 }
 
-func TestKeyBuilderTenantIsolation(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
-	t1 := "11111111-1111-1111-1111-111111111111"
-	t2 := "22222222-2222-2222-2222-222222222222"
-	db := "33333333-3333-3333-3333-333333333333"
-
-	p1, _ := kb.DatabasePrefix(t1, db)
-	p2, _ := kb.DatabasePrefix(t2, db)
-	if p1 == p2 {
-		t.Errorf("tenants share the same prefix: %s", p1)
+func TestKeyBuilderProjectIsolation(t *testing.T) {
+	kb := KeyBuilder{RootPrefix: "simplebase"}
+	p1, err := kb.DatabasePrefix(testProject, testDB)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// t2 的前缀不应是 t1 前缀的子串（除共享的 base 段）
-	if strings.Contains(p1, t2) {
-		t.Errorf("tenant 1 prefix leaks tenant 2 id: %s", p1)
+	p2, err := kb.DatabasePrefix(testProject2, testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p1 == p2 || strings.HasPrefix(p1, p2) || strings.HasPrefix(p2, p1) {
+		t.Fatalf("projects share the same prefix: %q vs %q", p1, p2)
 	}
 }
 
-func TestKeyBuilderCatalogPrefix(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
-	got := kb.CatalogPrefix()
-	want := "simplebase/prod/catalog"
-	if got != want {
-		t.Errorf("CatalogPrefix = %q, want %q", got, want)
+func TestKeyBuilderSystemAndCatalogPrefix(t *testing.T) {
+	kb := KeyBuilder{RootPrefix: "simplebase"}
+	if got := kb.CatalogPrefix(); got != "simplebase/_system/catalog" {
+		t.Fatalf("CatalogPrefix = %q", got)
+	}
+	if got := kb.SystemPrefix(); got != "simplebase/_system" {
+		t.Fatalf("SystemPrefix = %q", got)
+	}
+	if got := kb.SystemKey("reset.lock"); got != "simplebase/_system/reset.lock" {
+		t.Fatalf("SystemKey = %q", got)
+	}
+	if got := kb.InstanceFormatKey(); got != "simplebase/_system/instance-format.json" {
+		t.Fatalf("InstanceFormatKey = %q", got)
+	}
+	if got := kb.ResetLockKey(); got != "simplebase/_system/reset.lock" {
+		t.Fatalf("ResetLockKey = %q", got)
 	}
 }
 
-func TestKeyBuilderEnvironmentIsolation(t *testing.T) {
-	kbProd := KeyBuilder{RootPrefix: "simplebase", Environment: "prod"}
-	kbStaging := KeyBuilder{RootPrefix: "simplebase", Environment: "staging"}
-	tenant := "11111111-1111-1111-1111-111111111111"
-	db := "33333333-3333-3333-3333-333333333333"
-	p1, _ := kbProd.DatabasePrefix(tenant, db)
-	p2, _ := kbStaging.DatabasePrefix(tenant, db)
-	if p1 == p2 {
-		t.Errorf("environments share the same prefix: %s", p1)
+func TestKeyBuilderFilesPrefix(t *testing.T) {
+	kb := KeyBuilder{RootPrefix: "simplebase"}
+	got, err := kb.FilesPrefix(testProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "simplebase/"+testProject+"/files" {
+		t.Fatalf("FilesPrefix = %q", got)
 	}
 }
 
-func TestDescriptorValidateRejectsFutureVersion(t *testing.T) {
-	desc := &Descriptor{
-		FormatVersion:   DescriptorFormatVersion + 1,
-		TenantID:        "11111111-1111-1111-1111-111111111111",
-		ProjectID:       "pro-test",
-		DatabaseID:      "33333333-3333-3333-3333-333333333333",
-		CreatedAt:       time.Now().UTC(),
-		DuckLakeStorage: DuckLakeStorage{Region: "us-east-1", Bucket: "b", Prefix: "p"},
-		DataPrefix:      "p",
-		Status:          StatusCreating,
+func TestValidateProjectID(t *testing.T) {
+	if err := ValidateProjectID("abcd1234"); err != nil {
+		t.Fatal(err)
 	}
-	if err := desc.Validate(); err == nil {
-		t.Error("expected error for future format version")
+	if err := ValidateProjectID("ABC-1234"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "short", "waytoolongid", "bad_id12", "ab..cd12", "ab/cd123"} {
+		if err := ValidateProjectID(bad); err == nil {
+			t.Fatalf("expected %q to be rejected", bad)
+		}
 	}
 }
 
-func TestDescriptorValidateMismatchedPrefix(t *testing.T) {
-	desc := &Descriptor{
-		FormatVersion:   DescriptorFormatVersion,
-		TenantID:        "11111111-1111-1111-1111-111111111111",
-		ProjectID:       "pro-test",
-		DatabaseID:      "33333333-3333-3333-3333-333333333333",
-		CreatedAt:       time.Now().UTC(),
-		DuckLakeStorage: DuckLakeStorage{Region: "us-east-1", Bucket: "b", Prefix: "p1"},
-		DataPrefix:      "p2",
-		Status:          StatusCreating,
-	}
-	if err := desc.Validate(); err == nil {
-		t.Error("expected error for mismatched data_prefix")
-	}
-}
-
-func TestDescriptorValidateRejectsV1Turso(t *testing.T) {
-	desc := &Descriptor{
-		FormatVersion: 1,
-		TenantID:      "11111111-1111-1111-1111-111111111111",
-		ProjectID:     "pro-test",
-		DatabaseID:    "33333333-3333-3333-3333-333333333333",
-		CreatedAt:     time.Now().UTC(),
-		DataPrefix:    "p",
-		Status:        StatusCreating,
-	}
-	if err := desc.Validate(); err == nil {
-		t.Fatal("expected error rejecting turso format v1")
+func TestNewProjectIDIsValid(t *testing.T) {
+	for i := 0; i < 32; i++ {
+		id := NewProjectID()
+		if err := ValidateProjectID(id); err != nil {
+			t.Fatalf("NewProjectID produced invalid id %q: %v", id, err)
+		}
 	}
 }

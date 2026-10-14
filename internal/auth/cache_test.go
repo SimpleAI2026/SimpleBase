@@ -27,9 +27,9 @@ func (r *countingRepo) FindByHash(ctx context.Context, keyHash string) (APIKeyRe
 
 func TestAPIKeyCacheHitsAndInvalidation(t *testing.T) {
 	repo := &countingRepo{rec: APIKeyRecord{
-		ID:        "k1",
-		TenantID:  "t1",
-		KeyHash:   "", // 由 Service.HashKey 填充比对
+		ID:         "k1",
+		TenantID:   "t1",
+		KeyHash:    "", // 由 Service.HashKey 填充比对
 		ProjectIDs: []string{"p1"},
 	}}
 	svc := NewService(repo, "secret")

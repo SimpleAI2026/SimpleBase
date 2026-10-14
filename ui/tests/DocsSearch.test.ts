@@ -19,7 +19,7 @@ async function mounted() {
 describe('DocsSearch', () => {
   beforeEach(() => {
     searchDocs.mockReset()
-    searchDocs.mockResolvedValue([{ page: { moduleId: 'sandbox', slug: 'api', title: '云沙盒 API', filePath: 'sandbox/api.md' },
+    searchDocs.mockResolvedValue([{ page: { moduleId: 'automation', slug: 'sandbox-api', title: '云沙盒 API', filePath: 'automation/sandbox-api.md' },
       heading: '错误码', hash: '错误码', snippet: 'sandbox_busy' }])
   })
 
@@ -34,7 +34,7 @@ describe('DocsSearch', () => {
     expect(wrapper.text()).toContain('错误码')
     await wrapper.get('input').trigger('keydown.enter')
     await flushPromises()
-    expect(router.currentRoute.value.path).toBe('/docs/sandbox/api')
+    expect(router.currentRoute.value.path).toBe('/docs/automation/sandbox-api')
     expect(router.currentRoute.value.hash).toBe('#错误码')
     await wrapper.get('button[aria-label="搜索文档"]').trigger('click')
     await wrapper.get('input').trigger('keydown.esc')

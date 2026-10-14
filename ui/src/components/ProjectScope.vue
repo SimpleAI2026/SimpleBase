@@ -4,12 +4,12 @@
     <div v-if="store.id" :key="store.id">
       <slot />
     </div>
-    <PageContainer v-else subtitle="项目切换仅在右上角">
+    <PageContainer v-else :subtitle="t('common.projectSwitchOnlyTopRight')">
       <Card>
         <CardContent>
           <SbEmptyState
-            description="请先在右上角选择或创建一个项目"
-            action-text="创建项目"
+            :description="t('common.projectRequired')"
+            :action-text="t('common.createProject')"
             @action="store.openCreateModal()"
           />
         </CardContent>
@@ -19,10 +19,12 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useProjectStore } from '../stores/project'
 import { Card, CardContent } from '@/components/ui/card'
 import PageContainer from './PageContainer.vue'
 import SbEmptyState from './SbEmptyState.vue'
 
 const store = useProjectStore()
+const { t } = useI18n()
 </script>

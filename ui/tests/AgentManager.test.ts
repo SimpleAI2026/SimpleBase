@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
+import { setI18nLocale } from '@/locales'
 import { useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
 import { clickText, mountWithApp, sampleAgent } from '@/test/helpers'
@@ -92,8 +93,27 @@ function clickExact(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wrapper']
   return el.trigger('click')
 }
 
+/**
+ * 只桩输入区，保留真实的 ConversationView / 欢迎页：
+ * 这两条用例验证的正是「消息流是否真的渲染出来」。
+ */
+const composerOnlyStubs = {
+  AgentComposer: {
+    props: ['sending', 'mentionAgents', 'modelValue'],
+    emits: ['send', 'stop', 'update:modelValue'],
+    template: '<div class="ai"><button type="button" class="ai-send" @click="$emit(\'send\', \'hi\', [], [])">send</button></div>',
+    methods: { focus: () => undefined }
+  },
+  AgentScheduleModal: {
+    props: ['open', 'agent', 'schedule'],
+    emits: ['update:open', 'saved', 'removed', 'view-thread'],
+    template: '<div />'
+  }
+}
+
 describe('AgentManager (云助手)', () => {
   beforeEach(() => {
+    setI18nLocale('zh-CN')
     resetApiMocks()
     api.agents.list.mockResolvedValue([sampleAgent])
     api.agents.modules.mockResolvedValue([
@@ -118,9 +138,9 @@ describe('AgentManager (云助手)', () => {
 
   it('lists agents with schedule summary and selects one', async () => {
     const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
-    expect(wrapper.text()).toContain('按模块的 Agent')
+    // 页面级 subtitle 已移除（planv6.0 §3.2），空间让给对话区。
+    expect(wrapper.text()).not.toContain('按模块的 Agent')
     expect(wrapper.text()).toContain('Database')
-    expect(wrapper.text()).toContain('每小时')
     expect(wrapper.text()).toContain('已启用')
     const select = wrapper.get('button[aria-label="选择 Agent Database"]')
     expect(select.attributes('aria-pressed')).toBe('true')
@@ -132,7 +152,7 @@ describe('AgentManager (云助手)', () => {
 
   it('creates, edits, and deletes an agent from the page', async () => {
     const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
-    await clickExact(wrapper, '新建')
+    await wrapper.get('button[aria-label="新建"]').trigger('click')
     expect(wrapper.find('.sb-modal').exists()).toBe(true)
     await wrapper.get('#agent-name').setValue('')
     await wrapper.get('.sb-ok').trigger('click')
@@ -153,7 +173,8 @@ describe('AgentManager (云助手)', () => {
     await flushPromises()
     expect(api.agents.create).toHaveBeenCalled()
 
-    await clickExact(wrapper, '编辑')
+    // planv6.0 §3.3：编辑/删除从头部「⋯」菜单进入（Popover 桩直接渲染内容）。
+    await clickExact(wrapper, '编辑助手')
     expect(wrapper.find('.sb-modal').exists()).toBe(true)
     await wrapper.get('#agent-name').setValue('N3')
     await wrapper.get('.sb-ok').trigger('click')
@@ -169,15 +190,500 @@ describe('AgentManager (云助手)', () => {
     expect(api.agents.remove).toHaveBeenCalled()
   })
 
-  it('opens schedule modal, applies save/remove, and loads a thread', async () => {
-    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
-    await clickExact(wrapper, '定时')
-    expect(wrapper.get('.sch-m').text()).toContain('Database')
-    await wrapper.get('.sch-saved').trigger('click')
-    await wrapper.get('.sch-removed').trigger('click')
-    await wrapper.get('.sch-thread').trigger('click')
+  it('jumps to the cron jobs page with the agent preselected when choosing schedule', async () => {
+    const { wrapper, router } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    // 菜单项里带定时摘要，用包含匹配而非全等。
+    await clickText(wrapper, '定时执行')
     await flushPromises()
-    expect(api.agentThreads.messages).toHaveBeenCalled()
+    expect(router.currentRoute.value.name).toBe('cron-jobs')
+    expect(router.currentRoute.value.query.agent).toBe(sampleAgent.id)
+    expect(wrapper.find('.sch-m').exists()).toBe(false)
+  })
+
+  it('keeps the composer outside the scrollable message viewport', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: composerOnlyStubs })
+    const viewport = wrapper.get('div.overflow-y-auto.py-1').element
+    const region = viewport.closest('[data-slot="async-region"]')
+    expect(region).not.toBeNull()
+    expect(Array.from(region!.classList)).toEqual(expect.arrayContaining(['flex', 'flex-1', 'flex-col', 'min-h-0']))
+    expect(wrapper.get('.ai').element.parentElement).toBe(region!.parentElement)
+    wrapper.unmount()
+  })
+
+  it('renders the first message of an empty thread without refreshing', async () => {
+    // planv6.0 §0.1 第 3 条回归：此前空会话的 SbAsyncRegion 停在 showEmpty，
+    // ConversationView 从未挂载，发完第一条消息也看不到任何内容。
+    api.agentThreads.messages.mockResolvedValue([])
+    api.agentThreads.streamRun.mockImplementation((_p: string, _t: string, _r: unknown, h: { onRun?: (id: string) => void; onToken?: (t: string) => void; onEnd?: () => void }) => {
+      h.onRun?.('run-1')
+      h.onToken?.('第一条回复')
+      h.onEnd?.()
+      return { close: vi.fn() }
+    })
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: composerOnlyStubs })
+    // 空会话显示欢迎页
+    expect(wrapper.text()).toContain('你好，我是')
+    await wrapper.get('.ai-send').trigger('click')
+    await flushPromises()
+    // 消息立即可见，无需刷新或切换会话
+    expect(wrapper.text()).toContain('第一条回复')
+    expect(wrapper.text()).not.toContain('你好，我是')
+    wrapper.unmount()
+  })
+
+  // planv6.0 前端简化 C3：锁定加载会话时各消息字段的映射（role/工具卡/错误/取消态）。
+  it('maps persisted thread messages into chat bubbles with restored states', async () => {
+    api.agents.list.mockResolvedValue([{ ...sampleAgent, id: 'ag-x', module: 's3' }])
+    api.agentThreads.messages.mockResolvedValue([
+      { id: 'm1', role: 'user', content: 'u', created_at: 't' },
+      {
+        id: 'm2', role: 'assistant', content: 'a', agent_id: 'ag-x',
+        tool_calls: [{ name: 't', status: 'success' }], created_at: 't',
+        run_status: 'canceled', error_code: 'E_TIMEOUT'
+      },
+      { id: 'm3', role: 'system', content: 's', created_at: 't' }
+    ])
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: composerOnlyStubs })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { chatMessages: Array<Record<string, unknown>> }
+    expect(vm.chatMessages).toEqual([
+      { role: 'user', content: 'u', module: undefined, toolCalls: undefined, error: undefined, canceled: false },
+      {
+        role: 'assistant', content: 'a', module: 's3', toolCalls: [{ name: 't', status: 'success' }],
+        // 现状：传入的是普通对象而非 Error，errorMessage 走 fallback 文案（按现状锁定）。
+        error: '运行失败', canceled: true
+      },
+      { role: 'user', content: 's', module: undefined, toolCalls: undefined, error: undefined, canceled: false }
+    ])
+    wrapper.unmount()
+  })
+
+  it('discards a stale response when the thread changed mid-flight', async () => {
+    api.agentThreads.messages.mockImplementation(async (_p: string, id: string) => {
+      if (id === 'slow') {
+        await new Promise((r) => setTimeout(r, 20))
+        return [{ id: 'm', role: 'user', content: 'old', created_at: 't' }]
+      }
+      return []
+    })
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: composerOnlyStubs })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      chatMessages: Array<Record<string, unknown>>
+      loadThreadMessages: (id: string) => Promise<boolean>
+      threadId: string
+    }
+    vm.threadId = 'slow'
+    const stale = vm.loadThreadMessages('slow')
+    vm.threadId = 'other'
+    expect(await stale).toBe(false)
+    expect(vm.chatMessages).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('fills the composer from a welcome prompt without sending', async () => {
+    // planv6.0 §3.5：点提示词只写入输入框并聚焦，回车才发送。
+    api.agentThreads.messages.mockResolvedValue([])
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: composerOnlyStubs })
+    const prompt = wrapper.findAll('button[data-prompt-index]')
+    expect(prompt.length).toBeGreaterThan(0)
+    const text = prompt[0].text()
+    await prompt[0].trigger('click')
+    await flushPromises()
+    expect((wrapper.vm as unknown as { draft: string }).draft).toBe(text)
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('menu actions: no active agent is a no-op', async () => {
+    // planv6.0 §3.3：编辑/定时/删除都从头部「⋯」菜单进入。
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as {
+      onMenu: (a: 'edit' | 'schedule' | 'remove') => void
+      activeId: string
+      activeScheduleSummary: string
+    }
+    // 有定时任务时菜单里显示摘要
+    expect(vm.activeScheduleSummary).toContain('每小时')
+
+    // 没有选中助手时，编辑/定时/删除都直接返回，不抛错
+    vm.activeId = ''
+    await flushPromises()
+    vm.onMenu('edit')
+    vm.onMenu('schedule')
+    vm.onMenu('remove')
+    expect(vm.activeScheduleSummary).toBe('')
+    wrapper.unmount()
+  })
+
+  it('menu handles thread rename and delete', async () => {
+    // 会话的重命名/删除从 ThreadSwitcher 收进「⋯」菜单（planv6.0 §3.6 #7）。
+    api.agentThreads.rename.mockResolvedValue({ id: 'th-1', title: '改过', created_at: 't', updated_at: 't' })
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as {
+      onMenu: (a: 'renameThread' | 'removeThread') => void
+      submitRenameThread: () => Promise<void>
+      renameValue: string
+      renameOpen: boolean
+      renameTarget: { id: string; title: string } | null
+    }
+    vm.onMenu('renameThread')
+    await flushPromises()
+    expect(vm.renameOpen).toBe(true)
+    expect(vm.renameTarget?.id).toBe('th-1')
+    // 名称没变则直接关闭，不发请求（用标题本身，不假设具体文案）
+    vm.renameValue = vm.renameTarget!.title
+    await vm.submitRenameThread()
+    expect(api.agentThreads.rename).not.toHaveBeenCalled()
+    expect(vm.renameOpen).toBe(false)
+
+    vm.onMenu('renameThread')
+    vm.renameValue = '改过'
+    await vm.submitRenameThread()
+    await flushPromises()
+    expect(api.agentThreads.rename).toHaveBeenCalled()
+
+    vm.onMenu('removeThread')
+    await flushPromises()
+    expect(api.agentThreads.remove).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('wires the header menu and composer focus', async () => {
+    // 覆盖菜单的模板内联处理器与 composer 的 focus 透传（planv6.0 §3.3/§3.8）。
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: composerOnlyStubs })
+    // 菜单开合
+    await wrapper.get('.pop-open').trigger('click')
+    await wrapper.get('.pop-close').trigger('click')
+    // 点菜单项：编辑 / 定时 / 删除 / 重命名会话
+    await clickText(wrapper, '编辑助手')
+    await flushPromises()
+    if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+    await clickText(wrapper, '定时执行')
+    await flushPromises()
+    if (wrapper.find('.sch-close').exists()) await wrapper.get('.sch-close').trigger('click')
+    await clickText(wrapper, '重命名会话')
+    await flushPromises()
+    // 重命名弹窗：撤销并关闭
+    if (wrapper.find('#thread-rename').exists()) await wrapper.get('#thread-rename').setValue('新名')
+    if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+    expect(wrapper.text()).not.toContain('刷新助手列表')
+    // 删除会话走 ConfirmAction 桩
+    const removeBtn = wrapper.findAll('button').find((b) => b.text() === '删除会话')
+    if (removeBtn) await removeBtn.trigger('click')
+    await flushPromises()
+
+    // composer 的 focus 透传：点提示词后不抛错，且写入了 draft
+    const vm = wrapper.vm as unknown as { pickPrompt: (t: string) => void; draft: string }
+    vm.pickPrompt('填进去')
+    await flushPromises()
+    expect(vm.draft).toBe('填进去')
+    wrapper.unmount()
+  })
+
+  it('reloadThread reloads the current agent threads without a thread', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as { reloadThread: () => void; threadId: string }
+    vm.reloadThread()
+    await flushPromises()
+    vm.threadId = ''
+    vm.reloadThread()
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('keeps a separate conversation per agent', async () => {
+    // planv6.0 §3.7 修订：会话归属助手，切换助手要换一份会话列表。
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'ag-1', name: 'Database', builtin_key: 'general' },
+      { ...sampleAgent, id: 'ag-2', name: 'Logs', module: 'logs' }
+    ])
+    // 按 agent_id 返回各自的会话：默认助手 ag-1 有 th-1，ag-2 有 th-2。
+    api.agentThreads.page.mockImplementation((_p: string, agentId?: string) =>
+      Promise.resolve(
+        agentId === 'ag-2'
+          ? { threads: [{ id: 'th-2', title: '日志会话', agent_id: 'ag-2', created_at: 't', updated_at: 't' }], next_cursor: '' }
+          : { threads: [{ id: 'th-1', title: '库会话', agent_id: 'ag-1', created_at: 't', updated_at: 't' }], next_cursor: '' }
+      )
+    )
+    api.agentThreads.messages.mockResolvedValue([])
+
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as {
+      selectAgent: (id: string) => Promise<void>
+      activeId: string
+      threadId: string
+      threads: { id: string }[]
+    }
+    // 初始用默认助手的会话
+    expect(vm.activeId).toBe('ag-1')
+    expect(vm.threadId).toBe('th-1')
+
+    await vm.selectAgent('ag-2')
+    await flushPromises()
+    // 切到 ag-2：会话换成它自己的
+    expect(vm.activeId).toBe('ag-2')
+    expect(vm.threadId).toBe('th-2')
+    expect(vm.threads.map((t) => t.id)).toEqual(['th-2'])
+    // 取会话时必须带上 agent_id
+    expect(api.agentThreads.page).toHaveBeenLastCalledWith('testprj1', 'ag-2')
+    api.agentThreads.streamRun.mockImplementation((_p: string, _t: string, _r: unknown, handlers: { onEnd?: () => void }) => {
+      handlers.onEnd?.()
+      return { close: vi.fn() }
+    })
+    api.agentThreads.page.mockClear()
+    await wrapper.get('.ai-send').trigger('click')
+    await flushPromises()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    expect(api.agentThreads.page).not.toHaveBeenCalled()
+    expect((wrapper.vm as unknown as { draft: string }).draft).toBe('')
+
+    // 点当前已选中的助手不重复请求
+    const calls = (api.agentThreads.page as unknown as { mock: { calls: unknown[] } }).mock.calls.length
+    await vm.selectAgent('ag-2')
+    expect((api.agentThreads.page as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(calls)
+    wrapper.unmount()
+  })
+
+  it('shows built-in names in both locales without changing their stored names or ids', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
+      { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' },
+      { ...sampleAgent, id: 's3', name: 'S3', module: 's3', builtin_key: 's3' },
+      { ...sampleAgent, id: 'logs', name: 'Logs', module: 'logs', builtin_key: 'logs' },
+      { ...sampleAgent, id: 'kv', name: '键值助手', module: 'kv', builtin_key: 'kv' },
+      { ...sampleAgent, id: 'custom', name: '我的报表', module: 'database', builtin_key: '' }
+    ])
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    expect(wrapper.text()).toContain('数据库助手')
+    expect(wrapper.text()).toContain('对象存储助手')
+    expect(wrapper.text()).toContain('日志助手')
+    expect(wrapper.text()).toContain('我的报表')
+    setI18nLocale('en-US')
+    await flushPromises()
+    expect(wrapper.text()).toContain('General Assistant')
+    expect(wrapper.text()).toContain('Database Assistant')
+    expect(wrapper.text()).toContain('Object Storage Assistant')
+    expect(wrapper.text()).toContain('Logs Assistant')
+    expect(wrapper.text()).toContain('Key-Value Assistant')
+    expect(wrapper.text()).toContain('我的报表')
+    expect(api.agents.patch).not.toHaveBeenCalled()
+    expect((wrapper.vm as unknown as { agents: { id: string; name: string }[] }).agents[1]).toEqual(expect.objectContaining({ id: 'database', name: 'Database' }))
+    wrapper.unmount()
+    setI18nLocale('zh-CN')
+  })
+
+  it('sends @数据库 from a general thread as a database skill, not a different agent', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
+      { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' }
+    ])
+    api.agentThreads.page.mockResolvedValue({
+      threads: [{ id: 'general-thread', title: '通用会话', agent_id: 'general', created_at: 't', updated_at: 't' }],
+      next_cursor: ''
+    })
+    const { wrapper } = await mountWithApp(AgentManager, {
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+    })
+    await wrapper.get('textarea').setValue('@数据库 查询统计表')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
+    await flushPromises()
+    expect(api.agentThreads.page).toHaveBeenCalledWith('testprj1', 'general')
+    expect(api.agentThreads.streamRun).toHaveBeenCalledWith('testprj1', 'general-thread', {
+      content: '@数据库 查询统计表',
+      mentions: [{ agent_id: 'general' }],
+      skills: ['database'],
+      module: 'general',
+      stream: true
+    }, expect.any(Object))
+    wrapper.unmount()
+  })
+
+  it('asks to switch when a general thread mentions another agent', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
+      { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' }
+    ])
+    api.agentThreads.page.mockResolvedValue({
+      threads: [{ id: 'general-thread', title: '通用会话', agent_id: 'general', created_at: 't', updated_at: 't' }],
+      next_cursor: ''
+    })
+    const { wrapper } = await mountWithApp(AgentManager, {
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+    })
+    await wrapper.get('textarea').setValue('@数据库助手 查询统计表')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
+    await flushPromises()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-agent-switch]').text()).toContain('数据库助手')
+    expect((wrapper.vm as unknown as { draft: string }).draft).toBe('@数据库助手 查询统计表')
+    wrapper.unmount()
+  })
+
+  it('keeps legacy @Database mentions as agent targets after translating the display name', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
+      { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' }
+    ])
+    api.agentThreads.page.mockResolvedValue({
+      threads: [{ id: 'general-thread', title: '通用会话', agent_id: 'general', created_at: 't', updated_at: 't' }],
+      next_cursor: ''
+    })
+    const { wrapper } = await mountWithApp(AgentManager, {
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+    })
+    await wrapper.get('textarea').setValue('@Database 查询统计表')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
+    await flushPromises()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-agent-switch]').text()).toContain('数据库助手')
+    wrapper.unmount()
+  })
+
+  it('keeps the switch action after changing locale with an existing mention draft', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
+      { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' }
+    ])
+    api.agentThreads.page.mockResolvedValue({ threads: [{ id: 'general-thread', title: '通用会话', agent_id: 'general', created_at: 't', updated_at: 't' }], next_cursor: '' })
+    const { wrapper } = await mountWithApp(AgentManager, {
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+    })
+    await wrapper.get('textarea').setValue('@数据库助手 查询统计表')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
+    await flushPromises()
+    expect(wrapper.find('[data-agent-switch]').exists()).toBe(true)
+    setI18nLocale('en-US')
+    await flushPromises()
+    expect(wrapper.find('[data-agent-switch]').exists()).toBe(true)
+    expect((wrapper.vm as unknown as { draft: string }).draft).toBe('@数据库助手 查询统计表')
+    wrapper.unmount()
+    setI18nLocale('zh-CN')
+  })
+
+  it('offers the KV built-in switch for @KV助手 without requiring a custom agent named that', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
+      { ...sampleAgent, id: 'kv', name: '键值助手', module: 'kv', builtin_key: 'kv', tool_ids: [] }
+    ])
+    api.agentThreads.page.mockResolvedValue({ threads: [{ id: 'general-thread', title: '通用会话', agent_id: 'general', created_at: 't', updated_at: 't' }], next_cursor: '' })
+    api.agents.modules.mockResolvedValue([{ id: 'kv', name: 'KV', description: '', default_tools: [], team_supported: false }])
+    const { wrapper } = await mountWithApp(AgentManager, {
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+    })
+    await wrapper.get('textarea').setValue('@KV助手 查询缓存')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
+    await flushPromises()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-agent-switch]').text()).toContain('键值助手')
+    wrapper.unmount()
+  })
+
+  it('does not silently send only the first of multiple mentioned agents', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
+      { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' }
+    ])
+    api.agentThreads.page.mockResolvedValue({
+      threads: [{ id: 'general-thread', title: '通用会话', agent_id: 'general', created_at: 't', updated_at: 't' }],
+      next_cursor: ''
+    })
+    const { wrapper } = await mountWithApp(AgentManager, {
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+    })
+    await wrapper.get('textarea').setValue('@通用助手 @数据库助手 分析统计表')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
+    await flushPromises()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    expect((wrapper.vm as unknown as { draft: string }).draft).toContain('@数据库助手')
+    wrapper.unmount()
+  })
+
+  it('shows CLI-only capabilities without suggesting unrelated built-in tools', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'kv', name: '键值助手', module: 'kv', builtin_key: 'kv', tool_ids: [] }
+    ])
+    api.agents.modules.mockResolvedValue([
+      { id: 'kv', name: 'Key-Value', description: '', default_tools: [], team_supported: false }
+    ])
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as { toolsHint: string; toolOptions: { value: string }[]; openEdit: (agent: typeof sampleAgent) => void }
+    expect(vm.toolsHint).toContain('CLI 技能')
+    vm.openEdit({ ...sampleAgent, id: 'kv', name: '键值助手', module: 'kv', tool_ids: [] })
+    expect(vm.toolOptions).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('explains why a previously seeded CLI assistant or sandbox assistant cannot run after capability shutdown', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
+      { ...sampleAgent, id: 'kv', name: '键值助手', module: 'kv', builtin_key: 'kv', tool_ids: [] },
+      { ...sampleAgent, id: 'sandbox', name: '沙盒助手', module: 'sandbox', builtin_key: 'sandbox', tool_ids: ['sandbox_exec'] }
+    ])
+    api.agents.modules.mockResolvedValue([
+      { id: 'general', name: 'General', description: '', default_tools: [], team_supported: false },
+      { id: 'sandbox', name: 'Sandbox', description: '', default_tools: [], team_supported: false, sandbox_available: false }
+    ])
+    api.agentThreads.page.mockImplementation((_project: string, id: string) => Promise.resolve({
+      threads: [{ id: `${id}-thread`, title: id, agent_id: id, created_at: 't', updated_at: 't' }], next_cursor: ''
+    }))
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as { selectAgent: (id: string) => Promise<void>; onSend: (text: string, mentions: { agent_id: string }[]) => Promise<void>; draft: string }
+    await vm.selectAgent('kv')
+    await flushPromises()
+    expect(wrapper.text()).toContain('需启用 CLI 技能')
+    const skills = (wrapper.vm as unknown as { mentionSkills: { id: string; available: boolean }[] }).mentionSkills
+    expect(skills.find((skill) => skill.id === 'database')?.available).toBe(false)
+    expect(skills.find((skill) => skill.id === 'sandbox')?.available).toBe(false)
+    vm.draft = '查询缓存'
+    await vm.onSend('查询缓存', [])
+    await flushPromises()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    expect(vm.draft).toBe('查询缓存')
+    await vm.selectAgent('sandbox')
+    await flushPromises()
+    expect(wrapper.text()).toContain('云沙盒不可用')
+    vm.draft = '运行脚本'
+    await vm.onSend('运行脚本', [])
+    await flushPromises()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps a specialist draft and requests a switch before mentioning another agent', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' },
+      { ...sampleAgent, id: 'kv', name: 'KV助手', module: 'kv', builtin_key: 'kv' }
+    ])
+    api.agentThreads.page.mockImplementation((_project: string, id: string) => Promise.resolve({
+      threads: [{ id: `${id}-thread`, title: id, agent_id: id, created_at: 't', updated_at: 't' }],
+      next_cursor: ''
+    }))
+    const { wrapper } = await mountWithApp(AgentManager, {
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+    })
+    await wrapper.get('textarea').setValue('@KV助手 查询缓存')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
+    await flushPromises()
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('KV助手')
+    expect((wrapper.vm as unknown as { draft: string }).draft).toBe('@KV助手 查询缓存')
+    await wrapper.get('[data-agent-switch]').trigger('click')
+    await flushPromises()
+    expect(api.agentThreads.page).toHaveBeenCalledWith('testprj1', 'kv')
+    expect((wrapper.vm as unknown as { draft: string }).draft).toBe('@KV助手 查询缓存')
+    expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('creates the first conversation of an agent with its own agent_id', async () => {
+    api.agents.list.mockResolvedValue([{ ...sampleAgent, id: 'ag-9', builtin_key: 'general' }])
+    api.agentThreads.page.mockResolvedValue({ threads: [], next_cursor: '' })
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await flushPromises()
+    // 该助手还没有会话 → 自动建一个，并带上 agent_id
+    expect(api.agentThreads.create).toHaveBeenCalledWith('testprj1', expect.any(String), 'ag-9')
+    wrapper.unmount()
   })
 
   it('sends a stream message, stops it, and starts a new thread', async () => {
@@ -198,7 +704,7 @@ describe('AgentManager (云助手)', () => {
     expect(api.agentThreads.create).toHaveBeenCalled()
   })
 
-  it('shows empty-state create and reloads on refresh / project change', async () => {
+  it('shows empty-state create and reloads on project change', async () => {
     api.agents.list.mockResolvedValueOnce([])
     const { wrapper, pinia } = await mountWithApp(AgentManager, { stubs: agentStubs })
     expect(wrapper.text()).toContain('还没有 Agent')
@@ -206,8 +712,6 @@ describe('AgentManager (云助手)', () => {
     expect(wrapper.find('.sb-modal').exists()).toBe(true)
 
     api.agents.list.mockResolvedValue([sampleAgent])
-    await clickText(wrapper, '刷新')
-    await flushPromises()
     useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
     expect(api.agents.list.mock.calls.length).toBeGreaterThan(1)
@@ -260,6 +764,20 @@ describe('AgentManager (云助手)', () => {
     vm.form.module = 'sandbox'
     await vm.saveAgent()
     expect(api.agents.create).toHaveBeenCalled()
+  })
+
+  it('reports unavailable model options and failed background thread refresh', async () => {
+    api.agents.models.mockRejectedValueOnce(new Error('model-options-offline'))
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await flushPromises()
+    expect(toast.error).toHaveBeenCalledWith('model-options-offline')
+    const vm = wrapper.vm as Record<string, any>
+    expect(vm.modelOptions).toEqual([])
+
+    api.agentThreads.page.mockRejectedValueOnce(new Error('thread-refresh-offline'))
+    vm.refreshThreadsForAgent()
+    await flushPromises()
+    expect(toast.error).toHaveBeenCalledWith('thread-refresh-offline')
   })
 
   it('manages threads, restores URL selection, and sends selected model', async () => {
@@ -326,6 +844,8 @@ describe('AgentManager (云助手)', () => {
     await vm.selectThread('')
     api.agentThreads.messages.mockRejectedValueOnce(new Error('messages-error'))
     await vm.selectThread('broken')
+    expect(api.agentThreads.messages).not.toHaveBeenCalledWith('testprj1', 'broken')
+    await vm.selectThread(vm.threadId)
     expect(toast.error).toHaveBeenCalledWith('messages-error')
     // 无失败 run 时重试是安全的空操作（BUG-03）。
     vm.failedRunId = ''
@@ -341,6 +861,42 @@ describe('AgentManager (云助手)', () => {
     await flushPromises()
     const vm = wrapper.vm as Record<string, any>
     expect(vm.toolsHint).toContain('工具只读')
+  })
+
+  // planv6.0 前端简化 B2：openCreate/openEdit 的表单构造（字段、默认值、数组复制、modal 打开）。
+  it('builds create/edit forms with copied tool arrays and defaults', async () => {
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    await flushPromises()
+    const vm = wrapper.vm as Record<string, any>
+
+    vm.openCreate()
+    expect(vm.editing).toBeNull()
+    expect(vm.modalOpen).toBe(true)
+    expect(vm.form).toEqual({
+      name: 'Database', module: 'database', description: 'd', system_prompt: '',
+      model_override: '', tool_ids: ['list_databases'], writable: false
+    })
+    vm.form.tool_ids.push('mutated')
+    expect(vm.modules[0].default_tools).toEqual(['list_databases'])
+
+    const agent = { ...sampleAgent, model_override: undefined, writable: undefined, tool_ids: ['a'] }
+    vm.openEdit(agent)
+    expect(vm.editing).toStrictEqual(agent)
+    expect(vm.form).toEqual({
+      name: 'Database', module: 'database', description: 'db helper', system_prompt: 'sys',
+      model_override: '', tool_ids: ['a'], writable: false
+    })
+    vm.form.tool_ids.push('b')
+    expect(agent.tool_ids).toEqual(['a'])
+    vm.openEdit({ ...sampleAgent, tool_ids: undefined, model_override: 'm', writable: true })
+    expect(vm.form).toMatchObject({ tool_ids: [], model_override: 'm', writable: true })
+
+    vm.modules = []
+    vm.openCreate()
+    expect(vm.form).toEqual({
+      name: '', module: 'database', description: '', system_prompt: '',
+      model_override: '', tool_ids: [], writable: false
+    })
   })
 })
 
@@ -392,6 +948,14 @@ describe('AgentManager script helpers', () => {
     vm.onModuleChange('missing')
     vm.toggleTool('list_databases')
     vm.toggleTool('list_databases')
+    // planv6.0 v2 §3.2：新建默认只读，编辑回填已有的 writable。
+    vm.openCreate()
+    expect(vm.form.writable).toBe(false)
+    vm.openEdit({ ...sampleAgent, writable: true })
+    expect(vm.form.writable).toBe(true)
+    vm.form.writable = false
+    await vm.saveAgent()
+    expect(api.agents.patch).toHaveBeenCalledWith(expect.anything(), sampleAgent.id, expect.objectContaining({ writable: false }))
     api.agents.patch.mockRejectedValueOnce(new Error('p'))
     await vm.saveAgent()
     await vm.removeAgent(sampleAgent)
@@ -441,9 +1005,9 @@ describe('AgentManager script helpers', () => {
     api.agentThreads.messages.mockResolvedValueOnce([
       { id: 'm1', role: 'assistant', content: 'a', tool_calls: [{ name: 't' }], created_at: 't' }
     ])
-    await vm.ensureThread()
+    await vm.loadThreads()
     api.agentThreads.list.mockRejectedValueOnce(new Error('t'))
-    await vm.ensureThread()
+    await vm.loadThreads()
     api.agentSchedules.list.mockRejectedValueOnce(new Error('s'))
     await vm.loadSchedules()
     wrapper.unmount()
@@ -454,9 +1018,8 @@ describe('AgentManager script helpers', () => {
       { id: 's3', name: 'S3', description: 's', default_tools: ['list_objects'], team_supported: false }
     ])
     const { wrapper, pinia } = await mountWithApp(AgentManager, { stubs: interactionAgentStubs })
-    await clickText(wrapper, '刷新')
     await wrapper.find('button.w-full').trigger('click')
-    await clickText(wrapper, '新建')
+    await wrapper.get('button[aria-label="新建"]').trigger('click')
     await flushPromises()
     if (wrapper.find('.sb-modal').exists()) {
       if (wrapper.find('.select-emit').exists()) await wrapper.get('.select-emit').trigger('click')
@@ -516,7 +1079,7 @@ describe('AgentManager script helpers', () => {
     api.agents.list.mockRejectedValueOnce('agents')
     await vm.loadAgents()
     api.agentThreads.list.mockRejectedValueOnce('threads')
-    await vm.ensureThread()
+    await vm.loadThreads()
     api.agentThreads.messages.mockRejectedValueOnce('msgs')
     await vm.onViewScheduleThread('th-x')
     api.agents.patch.mockRejectedValueOnce('save')
@@ -546,7 +1109,6 @@ describe('AgentManager script helpers', () => {
     api.agentSchedules.list.mockRejectedValueOnce(new Error('x'))
     await avm.loadSchedules?.()
     expect(avm.scheduleSummary?.({ cron_expr: '* * * * *', enabled: true, next_run_at: 't' })).toBeTruthy()
-    avm.openSchedule?.({ id: 'a' })
     avm.onScheduleSaved?.({ id: 's', agent_id: 'a' })
     avm.onScheduleRemoved?.('s')
     await avm.onViewScheduleThread?.('th')
@@ -554,7 +1116,7 @@ describe('AgentManager script helpers', () => {
     await avm.loadAgents?.()
     api.agents.list.mockRejectedValueOnce(new Error('x'))
     await avm.loadAgents?.()
-    await avm.ensureThread?.()
+    await avm.loadThreads?.()
     avm.openCreate?.()
     avm.openEdit?.({ id: 'a', name: 'A', module: 'database', tool_ids: [] })
     avm.onModuleChange?.('s3')

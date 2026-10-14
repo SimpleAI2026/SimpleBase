@@ -169,7 +169,7 @@ func (hs *agentHarness) req(method, path string, body any) *httptest.ResponseRec
 	} else {
 		r = httptest.NewRequest(method, path, nil)
 	}
-	ctx := WithProject(r.Context(), ProjectContext{ID: catalog.DevProjectID, TenantID: catalog.ReservedTenantID})
+	ctx := WithProject(r.Context(), ProjectContext{ID: "testprj1", TenantID: catalog.ReservedTenantID})
 	ctx = WithPrincipal(ctx, auth.Principal{APIKeyID: "k1", TenantID: catalog.ReservedTenantID})
 	r = r.WithContext(ctx)
 	rec := httptest.NewRecorder()

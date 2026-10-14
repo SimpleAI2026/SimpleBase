@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// FakeDriver 是内存执行后端（backend=fake，仅 dev_mode / e2e / 单测，§5）。
+// FakeDriver 是内存执行后端（backend=fake，仅 e2e / 单测（须 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1），§5）。
 //
 // 它不启动任何进程：Shell 只解释一个极小子集，足以让 e2e 覆盖完整链路——
 //

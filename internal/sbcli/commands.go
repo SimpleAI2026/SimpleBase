@@ -1,7 +1,9 @@
 package sbcli
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"io"
@@ -14,6 +16,82 @@ import (
 )
 
 type commandFunc func(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error)
+
+// readOnlyCommands 是「不改变任何服务端状态」的命令集合（planv6.0 v2 §3.4）。
+// 它是助手写权限分级（不可写 Agent 只能执行这里登记的命令）的唯一事实来源：
+// cloudagent 的 isWriteArgv 直接查 CommandReadOnly，而不是再维护一份会漂移的表。
+//
+// 判定口径：只做 GET/查询类读取，或只影响沙盒内临时环境（sandbox exec/run）
+// 而不触碰项目持久数据。凡不在表内的命令一律视为写命令（fail-closed）。
+//
+// 带子动作的命令（function versions / sandbox files / log retention）不在此表，
+// 由 CommandReadOnlyWithArgv 按第三段细分。
+var readOnlyCommands = map[string]bool{
+	"database list":        true,
+	"database get":         true,
+	"sql query":            true,
+	"schema show":          true,
+	"schema rows":          true,
+	"collection list":      true,
+	"document list":        true,
+	"object list":          true,
+	"object presign":       true,
+	"function list":        true,
+	"function get":         true,
+	"function test":        true,
+	"cron list":            true,
+	"cron get":             true,
+	"cron runs":            true,
+	"sandbox capabilities": true,
+	"sandbox list":         true,
+	"sandbox get":          true,
+	"sandbox exec":         true,
+	"sandbox run":          true,
+	"log search":           true,
+	"user list":            true,
+	"user get":             true,
+	"apikey list":          true,
+	"project list":         true,
+	"quota get":            true,
+	"audit list":           true,
+	"settings get":         true,
+}
+
+// CommandReadOnly 报告命令是否只读（planv6.0 v2 §3.4）。
+// 未知命令返回 false（fail-closed）：新增命令必须显式登记才会被放行。
+func CommandReadOnly(resource, action string) bool {
+	return readOnlyCommands[resource+" "+action]
+}
+
+// CommandReadOnlyWithArgv 处理带子动作的命令（planv6.0 v2 §3.4）：
+//   - log retention get|set
+//   - function versions list|get|create|activate
+//   - sandbox files list|read|write|delete
+//
+// 其余命令退化为 CommandReadOnly（只看前两段）。
+func CommandReadOnlyWithArgv(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	resource := argv[0]
+	action := ""
+	if len(argv) > 1 {
+		action = argv[1]
+	}
+	sub := ""
+	if len(argv) > 2 {
+		sub = argv[2]
+	}
+	switch resource + " " + action {
+	case "log retention":
+		return sub == "get"
+	case "function versions":
+		return sub == "list" || sub == "get"
+	case "sandbox files":
+		return sub == "list" || sub == "read"
+	}
+	return CommandReadOnly(resource, action)
+}
 
 func dispatch(resource, action string) commandFunc {
 	switch resource + " " + action {
@@ -202,6 +280,27 @@ func readFileOrDash(path string, stdin io.Reader) (string, error) {
 	return string(b), err
 }
 
+// readSource 在 readFileOrDash 基础上执行助手模式文件隔离（planv6.0 D3）：
+// Agent 运行时（SIMPLEBASE_AGENT_RUN=1）只接受 stdin（"-"）或显式 base64 内联
+// （sourceB64 非空），传入宿主机路径一律拒绝，杜绝助手读取宿主机任意文件。
+// 人类操作者行为不变。
+func readSource(path, sourceB64 string, stdin io.Reader, agent bool) (string, error) {
+	if sourceB64 != "" {
+		b, err := base64.StdEncoding.DecodeString(sourceB64)
+		if err != nil {
+			return "", usagef("--source-b64: invalid base64")
+		}
+		if len(b) > 256<<10 {
+			return "", usagef("--source-b64: exceeds 256KiB limit")
+		}
+		return string(b), nil
+	}
+	if agent && path != "-" {
+		return "", usagef("file_not_allowed: agent mode requires --file - (stdin) or --source-b64")
+	}
+	return readFileOrDash(path, stdin)
+}
+
 func decodeRaw(raw json.RawMessage) any {
 	if len(raw) == 0 {
 		return map[string]any{"ok": true}
@@ -252,7 +351,7 @@ func cmdDatabaseGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args [
 	return c.GetDatabase(ctx, id)
 }
 
-func cmdDatabaseCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, stdin io.Reader) (any, error) {
+func cmdDatabaseCreate(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {
 	f, _, err := mustFlags(args, "name", "data-model", "init-sql")
 	if err != nil {
 		return nil, err
@@ -263,6 +362,10 @@ func cmdDatabaseCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, arg
 	}
 	in := gosdk.CreateDatabaseInput{Name: name, DataModel: *f["data-model"]}
 	if p := strings.TrimSpace(*f["init-sql"]); p != "" {
+		// planv6.0 D3：助手模式 --init-sql 只接受 "-"（stdin）。
+		if cfg.Agent && p != "-" {
+			return nil, usagef("file_not_allowed: agent mode requires --init-sql - (stdin)")
+		}
 		sql, err := readFileOrDash(p, stdin)
 		if err != nil {
 			return nil, err
@@ -330,25 +433,48 @@ func runSQL(ctx context.Context, c *gosdk.Client, f map[string]*string, stdin io
 	return scoped.Query(ctx, stmt, params, maxRows)
 }
 
-func cmdSQLBatch(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+func cmdSQLBatch(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {
 	set := flag.NewFlagSet("batch", flag.ContinueOnError)
 	set.SetOutput(io.Discard)
 	db := set.String("database", "", "")
 	file := set.String("file", "", "")
+	statement := set.String("statement", "", "")
 	transactional := set.Bool("transactional", false, "")
 	if err := set.Parse(args); err != nil {
 		return nil, usagef("%s", err.Error())
 	}
-	if strings.TrimSpace(*db) == "" || strings.TrimSpace(*file) == "" {
-		return nil, usagef("--database and --file are required")
+	if strings.TrimSpace(*db) == "" || (strings.TrimSpace(*file) == "" && strings.TrimSpace(*statement) == "") {
+		return nil, usagef("--database and (--file | --statement) are required")
 	}
-	b, err := os.ReadFile(*file)
-	if err != nil {
-		return nil, err
+	// planv6.0 D3：助手模式 --file 只接受 "-"（stdin JSON）；人类可用路径或
+	// --statement 内联。
+	var b []byte
+	if strings.TrimSpace(*statement) != "" {
+		b = []byte(*statement)
+	} else {
+		if cfg.Agent && *file != "-" {
+			return nil, usagef("file_not_allowed: agent mode requires --file - (stdin) or --statement")
+		}
+		var r io.Reader
+		if *file == "-" {
+			r = io.LimitReader(stdin, 1<<20)
+		} else {
+			fh, err := os.Open(*file)
+			if err != nil {
+				return nil, err
+			}
+			defer fh.Close()
+			r = fh
+		}
+		var err error
+		b, err = io.ReadAll(r)
+		if err != nil {
+			return nil, err
+		}
 	}
 	var stmts []gosdk.SQLStatement
 	if err := json.Unmarshal(b, &stmts); err != nil {
-		return nil, usagef("--file must be a JSON array of {sql, args}")
+		return nil, usagef("batch input must be a JSON array of {sql, args}")
 	}
 	return c.Database(*db).Batch(ctx, stmts, *transactional)
 }
@@ -573,8 +699,8 @@ func cmdObjectList(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []
 	return c.ListObjects(ctx, *f["prefix"], false)
 }
 
-func cmdObjectUpload(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "key", "file")
+func cmdObjectUpload(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {
+	f, _, err := mustFlags(args, "key", "file", "content-base64")
 	if err != nil {
 		return nil, err
 	}
@@ -586,12 +712,30 @@ func cmdObjectUpload(ctx context.Context, c *gosdk.Client, _ loadedConfig, args 
 	if err != nil {
 		return nil, err
 	}
-	fh, err := os.Open(path)
-	if err != nil {
-		return nil, err
+	// planv6.0 D3：助手模式宿主机文件不可读；内容经 --content-base64
+	// 内联或 --file -（stdin）传入。人类操作者路径行为不变。
+	if cfg.Agent && path != "-" && strings.TrimSpace(*f["content-base64"]) == "" {
+		return nil, usagef("file_not_allowed: agent mode requires --file - (stdin) or --content-base64")
 	}
-	defer fh.Close()
-	return c.UploadObject(ctx, key, fh, path, "")
+	if b64 := strings.TrimSpace(*f["content-base64"]); b64 != "" {
+		b, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return nil, usagef("--content-base64: invalid base64")
+		}
+		return c.UploadObject(ctx, key, bytes.NewReader(b), path, "")
+	}
+	var r io.Reader
+	if path == "-" {
+		r = io.LimitReader(stdin, 50<<20)
+	} else {
+		fh, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer fh.Close()
+		r = fh
+	}
+	return c.UploadObject(ctx, key, r, path, "")
 }
 
 func cmdObjectDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
@@ -640,8 +784,8 @@ func cmdFunctionGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args [
 	return decodeRaw(raw), err
 }
 
-func cmdFunctionCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "name", "file", "description")
+func cmdFunctionCreate(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {
+	f, _, err := mustFlags(args, "name", "file", "description", "source-b64")
 	if err != nil {
 		return nil, err
 	}
@@ -653,7 +797,7 @@ func cmdFunctionCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, arg
 	if err != nil {
 		return nil, err
 	}
-	src, err := os.ReadFile(path)
+	src, err := readSource(path, *f["source-b64"], stdin, cfg.Agent)
 	if err != nil {
 		return nil, err
 	}
@@ -685,13 +829,13 @@ func cmdFunctionDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, arg
 	return map[string]any{"ok": true}, nil
 }
 
-func cmdFunctionVersions(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+func cmdFunctionVersions(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {
 	// function versions list|get|create  --name --version --file
 	if len(args) == 0 {
 		return nil, usagef("usage: function versions <list|get|create>")
 	}
 	sub := args[0]
-	f, _, err := mustFlags(args[1:], "name", "version", "file", "note")
+	f, _, err := mustFlags(args[1:], "name", "version", "file", "note", "source-b64")
 	if err != nil {
 		return nil, err
 	}
@@ -715,7 +859,11 @@ func cmdFunctionVersions(ctx context.Context, c *gosdk.Client, _ loadedConfig, a
 		if err != nil {
 			return nil, err
 		}
-		src, err := os.ReadFile(path)
+		var b64 string
+		if f["source-b64"] != nil {
+			b64 = *f["source-b64"]
+		}
+		src, err := readSource(path, b64, stdin, cfg.Agent)
 		if err != nil {
 			return nil, err
 		}

@@ -47,7 +47,7 @@ func agentReqOpt(e *echo.Echo, method, path string, body any, withProject, withP
 	}
 	ctx := r.Context()
 	if withProject {
-		ctx = WithProject(ctx, ProjectContext{ID: catalog.DevProjectID, TenantID: catalog.ReservedTenantID})
+		ctx = WithProject(ctx, ProjectContext{ID: "testprj1", TenantID: catalog.ReservedTenantID})
 	}
 	if withPrincipal {
 		ctx = WithPrincipal(ctx, auth.Principal{APIKeyID: "k1", TenantID: catalog.ReservedTenantID})
@@ -75,7 +75,9 @@ func TestAgentThreadsAndGet(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed list %d %s", rec.Code, rec.Body.String())
 	}
-	var listed struct{ Agents []agentDTO `json:"agents"` }
+	var listed struct {
+		Agents []agentDTO `json:"agents"`
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +111,7 @@ func TestAgentThreadsAndGet(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/agents", strings.NewReader("{"))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	req = req.WithContext(WithProject(req.Context(), ProjectContext{ID: catalog.DevProjectID}))
+	req = req.WithContext(WithProject(req.Context(), ProjectContext{ID: "testprj1"}))
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code == http.StatusCreated {
@@ -207,7 +209,7 @@ func TestAgentCreateRunAndCancel(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/agent-threads/"+th.ID+"/runs", strings.NewReader("{"))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	req = req.WithContext(WithProject(req.Context(), ProjectContext{ID: catalog.DevProjectID}))
+	req = req.WithContext(WithProject(req.Context(), ProjectContext{ID: "testprj1"}))
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code == http.StatusOK {
@@ -222,6 +224,37 @@ func TestAgentCreateRunAndCancel(t *testing.T) {
 	})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad mention %d %s", rec.Code, rec.Body.String())
+	}
+	var agentList struct {
+		Agents []agentDTO `json:"agents"`
+	}
+	rec = agentReq(e, http.MethodGet, "/agents", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &agentList); err != nil || len(agentList.Agents) < 2 {
+		t.Fatalf("agents=%s err=%v", rec.Body.String(), err)
+	}
+	var databaseAgentID string
+	for _, a := range agentList.Agents {
+		if a.Module == "database" {
+			databaseAgentID = a.ID
+			break
+		}
+	}
+	if databaseAgentID == "" {
+		t.Fatal("database agent missing")
+	}
+	rec = agentReq(e, http.MethodPost, "/agent-threads", map[string]any{"title": "database", "agent_id": databaseAgentID})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("database thread=%s", rec.Body.String())
+	}
+	var bound threadDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &bound); err != nil {
+		t.Fatal(err)
+	}
+	rec = agentReq(e, http.MethodPost, "/agent-threads/"+bound.ID+"/runs", map[string]any{
+		"content": "read", "mentions": []map[string]string{{"agent_id": agentList.Agents[0].ID}},
+	})
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"agent_switch_required"`) {
+		t.Fatalf("cross-agent run=%d %s", rec.Code, rec.Body.String())
 	}
 
 	eQuota := fullAgentEcho(store, &fakeUsage{errLLM: context.Canceled})
@@ -241,25 +274,25 @@ func TestAgentCreateRunAndCancel(t *testing.T) {
 		t.Fatalf("stream no runtime %d %s", rec.Code, rec.Body.String())
 	}
 
-	// cancel missing / existing
+	// cancel missing / existing（SEC-04：取消需写权限，用写主体）
 	rec = agentReqOpt(e, http.MethodPost, "/agent-runs/x/cancel", nil, false, true)
 	if rec.Code == http.StatusOK {
 		t.Fatal("cancel no project")
 	}
-	rec = agentReq(e, http.MethodPost, "/agent-runs/missing/cancel", nil)
+	rec = agentReqAs(e, http.MethodPost, "/agent-runs/missing/cancel", nil, writePrincipal())
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("cancel missing %d %s", rec.Code, rec.Body.String())
 	}
 
 	// create a run row and cancel it
 	run, err := store.CreateAgentRun(context.Background(), systemdb.AgentRun{
-		ThreadID: th.ID, ProjectID: catalog.DevProjectID, AgentID: "a",
+		ThreadID: th.ID, ProjectID: "testprj1", AgentID: "a",
 		Status: systemdb.AgentRunRunning, StartedAt: time.Now().UTC(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec = agentReq(e, http.MethodPost, "/agent-runs/"+run.ID+"/cancel", nil)
+	rec = agentReqAs(e, http.MethodPost, "/agent-runs/"+run.ID+"/cancel", nil, writePrincipal())
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cancel %d %s", rec.Code, rec.Body.String())
 	}

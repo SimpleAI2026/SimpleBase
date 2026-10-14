@@ -18,8 +18,6 @@ const skillAliases: Record<string, string> = {
   sandbox: 'sandbox',
   '日志': 'logs',
   logs: 'logs',
-  '用户': 'users',
-  users: 'users',
   '项目': 'project',
   project: 'project'
 }

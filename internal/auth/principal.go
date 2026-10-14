@@ -36,6 +36,9 @@ type Principal struct {
 	TenantID    string
 	ProjectIDs  map[string]struct{}
 	Permissions map[Permission]struct{}
+	// Delegated 标记助手委托令牌主体（planv6.0 D1）：路由级 delegable 标记
+	// 由 api 包注入 Echo context，Require 据此拒绝未标记路由（默认拒绝）。
+	Delegated bool
 }
 
 // HasPermission 判断 principal 是否拥有给定权限。

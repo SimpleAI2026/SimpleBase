@@ -219,6 +219,29 @@ describe('Databases (数据库管理)', () => {
     expect(wrapper.find('.schema-panel').exists()).toBe(true)
   })
 
+  it('keeps initialization errors visible inside the create dialog and clears them on retry or reopen', async () => {
+    api.databases.create.mockRejectedValueOnce(new Error('sql statement not allowed'))
+    api.databases.create.mockRejectedValueOnce(new Error('second failure'))
+    const { wrapper } = await mountWithApp(Databases, { stubs: { ...dbStubs, FieldError: false } })
+
+    await clickText(wrapper, '新建数据库')
+    await clickText(wrapper, 'SQL 数据')
+    await wrapper.get('#db-name').setValue('testv1')
+    await wrapper.get('#db-init-sql').setValue('SET NAMES utf8mb4;')
+    await wrapper.get('.sb-ok').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.sb-modal [role="alert"]').text()).toBe('sql statement not allowed')
+    expect(wrapper.get('.sb-modal').text()).toContain('仅 CREATE、ALTER、INSERT')
+
+    await wrapper.get('.sb-ok').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.sb-modal [role="alert"]').text()).toBe('second failure')
+
+    await wrapper.get('.sb-modal-close').trigger('click')
+    await clickText(wrapper, '新建数据库')
+    expect(wrapper.get('.sb-modal').text()).not.toContain('second failure')
+  })
+
   it('surfaces create and delete errors', async () => {
     api.databases.create.mockRejectedValueOnce(new Error('create-fail'))
     api.databases.remove.mockRejectedValueOnce(new Error('rm-fail'))

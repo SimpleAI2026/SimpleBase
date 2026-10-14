@@ -61,7 +61,7 @@ func setupService(t *testing.T, descriptor DescriptorWriter) (*Service, Reposito
 	t.Helper()
 	db := newTestDB(t)
 	repo := NewSQLRepository(db)
-	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
+	keys := objectstore.KeyBuilder{RootPrefix: "simplebase"}
 	svc := NewService(repo, keys, descriptor, objectstore.DuckLakeStorage{Region: "us-east-1", Bucket: "test-bucket"}, nil)
 
 	tenantID := uuid.NewString()

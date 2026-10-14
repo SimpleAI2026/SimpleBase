@@ -1,22 +1,20 @@
 <template>
   <ProjectScope>
-    <PageContainer subtitle="到点自动调用云函数导出函数；支持 cron 定时执行与固定间隔">
+    <PageContainer :subtitle="t('pages.cronJobs.subtitle')">
       <Card>
         <CardHeader class="border-b">
-          <CardTitle>定时任务列表</CardTitle>
-          <CardDescription>
-            共 {{ total }} 个任务 · 调度按 UTC 执行
-          </CardDescription>
+          <CardTitle>{{ t('pages.cronJobs.cardTitle') }}</CardTitle>
+          <CardDescription>{{ t('pages.cronJobs.cardDesc', { n: total }) }}</CardDescription>
           <CardAction v-if="!isAdminProject">
             <div class="flex items-center gap-2">
               <Button variant="outline" size="sm" :disabled="pending" @click="load">
                 <Spinner v-if="pending" data-icon="inline-start" />
                 <RefreshCwIcon v-else data-icon="inline-start" />
-                刷新
+                {{ t('common.refresh') }}
               </Button>
-              <Button size="sm" @click="openCreate">
+              <Button size="sm" @click="openCreate()">
                 <PlusIcon data-icon="inline-start" />
-                新建定时任务
+                {{ t('pages.cronJobs.create') }}
               </Button>
             </div>
           </CardAction>
@@ -24,7 +22,7 @@
             <Button variant="outline" size="sm" :disabled="pending" @click="load">
               <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
-              刷新
+              {{ t('common.refresh') }}
             </Button>
           </CardAction>
         </CardHeader>
@@ -32,12 +30,12 @@
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="min-w-40 max-w-56">名称</TableHead>
-                <TableHead class="sb-col-md">调度</TableHead>
-                <TableHead class="sb-col-name">目标函数</TableHead>
-                <TableHead class="sb-col-sm">状态</TableHead>
-                <TableHead class="sb-col-sm">启用</TableHead>
-                <TableHead class="sb-col-act min-w-56">操作</TableHead>
+                <TableHead class="min-w-40 max-w-56">{{ t('pages.cronJobs.colName') }}</TableHead>
+                <TableHead class="sb-col-md">{{ t('pages.cronJobs.colSchedule') }}</TableHead>
+                <TableHead class="sb-col-name">{{ t('pages.cronJobs.colTarget') }}</TableHead>
+                <TableHead class="sb-col-sm">{{ t('pages.cronJobs.colStatus') }}</TableHead>
+                <TableHead class="sb-col-sm">{{ t('pages.cronJobs.colEnabled') }}</TableHead>
+                <TableHead class="sb-col-act min-w-56">{{ t('pages.cronJobs.colActions') }}</TableHead>
               </TableRow>
             </TableHeader>
             <SbAsyncRegion
@@ -49,11 +47,11 @@
               :show-error="showError"
               :refreshing="refreshing"
               :error="error"
-              :empty-title="isAdminProject ? '系统项目不支持定时任务' : '还没有定时任务'"
-              :empty-description="isAdminProject ? '系统项目不提供此功能' : '新建定时任务，到点自动调用云函数'"
-              :empty-action-text="isAdminProject ? undefined : '新建定时任务'"
+              :empty-title="isAdminProject ? t('pages.cronJobs.emptyAdminTitle') : t('pages.cronJobs.emptyTitle')"
+              :empty-description="isAdminProject ? t('pages.cronJobs.emptyAdminDesc') : t('pages.cronJobs.emptyDesc')"
+              :empty-action-text="isAdminProject ? undefined : t('pages.cronJobs.create')"
               @retry="load"
-              @empty-action="openCreate"
+              @empty-action="openCreate()"
             >
               <TableRow v-for="record in paged" :key="record.id">
                 <TableCell>
@@ -77,7 +75,7 @@
                     <span class="text-xs text-muted-foreground">
                       {{ scheduleKindText(record.scheduleKind) }}
                       <template v-if="record.enabled && record.nextRunAt">
-                        · 下次 {{ formatTime(record.nextRunAt) }}
+                        {{ t('pages.cronJobs.nextRun', { time: formatTime(record.nextRunAt) }) }}
                       </template>
                     </span>
                   </div>
@@ -93,14 +91,14 @@
                           <TooltipTrigger as-child>
                             <span class="inline-flex items-center gap-1.5">
                               <AlertTriangleIcon class="size-3.5 text-destructive" />
-                              {{ record.funcFile }}.{{ record.funcExport }}
+                              {{ targetText(record) }}
                             </span>
                           </TooltipTrigger>
-                          <TooltipContent>目标函数缺失，执行将失败</TooltipContent>
+                          <TooltipContent>{{ t('pages.cronJobs.targetMissing') }}</TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </template>
-                    <template v-else>{{ record.funcFile }}.{{ record.funcExport }}</template>
+                    <template v-else>{{ targetText(record) }}</template>
                   </span>
                 </TableCell>
                 <TableCell>
@@ -109,7 +107,7 @@
                       {{ cronStatusText(record.lastStatus) }}
                     </Badge>
                     <span class="text-xs text-muted-foreground">
-                      {{ record.lastRunAt ? formatTime(record.lastRunAt) : '未运行' }}
+                      {{ record.lastRunAt ? formatTime(record.lastRunAt) : t('pages.cronJobs.neverRun') }}
                     </span>
                   </div>
                 </TableCell>
@@ -123,21 +121,21 @@
                 <TableCell>
                   <div class="flex flex-wrap justify-center gap-1">
                     <Button variant="ghost" size="sm" @click="openRuns(record, { trigger: true })">
-                      立即执行
+                      {{ t('pages.cronJobs.runNow') }}
                     </Button>
                     <Button variant="ghost" size="sm" @click="openRuns(record)">
-                      记录
+                      {{ t('pages.cronJobs.runs') }}
                     </Button>
                     <Button v-if="!isAdminProject" variant="ghost" size="sm" @click="openEdit(record)">
-                      编辑
+                      {{ t('pages.cronJobs.edit') }}
                     </Button>
                     <ConfirmAction
                       v-if="!isAdminProject"
-                      :title="`确认删除 ${record.name}？历史运行记录保留但不再排期。`"
+                      :title="t('pages.cronJobs.deleteConfirm', { name: record.name })"
                       @confirm="remove(record)"
                     >
                       <Button variant="destructiveGhost" size="sm">
-                        删除
+                        {{ t('pages.cronJobs.delete') }}
                       </Button>
                     </ConfirmAction>
                   </div>
@@ -156,7 +154,12 @@
         </div>
       </Card>
 
-      <CronJobModal v-model:open="modalOpen" :target="modalTarget" @saved="load" />
+      <CronJobModal
+        v-model:open="modalOpen"
+        :target="modalTarget"
+        :preset-agent-id="modalPresetAgentId"
+        @saved="load"
+      />
       <CronJobRunsModal
         v-model:open="runsOpen"
         :job="runsJob"
@@ -174,6 +177,8 @@ import { errorMessage } from '@/utils/format'
  * 调度/目标/状态快照/启用 Switch；立即执行触发后刷新；删除走 ConfirmAction。
  */
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import {
@@ -210,6 +215,7 @@ import CronJobModal from '../components/modal/CronJobModal.vue'
 import CronJobRunsModal from '../components/modal/CronJobRunsModal.vue'
 
 const projectStore = useProjectStore()
+const { t } = useI18n()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
 
 const records = ref<CronJobItem[]>([])
@@ -218,10 +224,23 @@ const triggering = ref(new Set<string>())
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载定时任务列表失败'
+  fallback: 'pages.cronJobs.loadFailed'
 })
 
+/** 助手 id → 名称，仅用于列表展示；加载失败时回退显示 id，不影响主列表。 */
+const agentNames = ref(new Map<string, string>())
+
+async function loadAgentNames() {
+  try {
+    const list = await api.agents.list(projectId.value)
+    agentNames.value = new Map(list.map((a) => [a.id, a.name]))
+  } catch {
+    agentNames.value = new Map()
+  }
+}
+
 function load() {
+  void loadAgentNames()
   return run(async () => {
     const data = await api.cronjobs.list(projectId.value)
     records.value = data
@@ -230,21 +249,30 @@ function load() {
   })
 }
 
+/** 目标列文案：云函数 file.export；助手「助手：名称」。 */
+function targetText(record: CronJobItem): string {
+  if (record.targetKind === 'agent') {
+    const id = record.agentId ?? ''
+    return t('pages.cronJobs.targetAgent', { name: agentNames.value.get(id) || id })
+  }
+  return `${record.funcFile}.${record.funcExport}`
+}
+
 /** 调度人类化：cron 原样等宽；interval 转「每 N 分钟/小时/天」；once 显示执行时刻 */
 function scheduleText(record: CronJobItem): string {
   if (record.scheduleKind === 'cron') return record.cronExpr
   if (record.scheduleKind === 'once') return record.runAt ? formatTime(record.runAt) : '—'
   const s = record.intervalSeconds ?? 0
-  if (s % 86400 === 0) return `每 ${s / 86400} 天`
-  if (s % 3600 === 0) return `每 ${s / 3600} 小时`
-  if (s % 60 === 0) return `每 ${s / 60} 分钟`
-  return `每 ${s} 秒`
+  if (s % 86400 === 0) return t('pages.cronJobs.everyDays', { n: s / 86400 })
+  if (s % 3600 === 0) return t('pages.cronJobs.everyHours', { n: s / 3600 })
+  if (s % 60 === 0) return t('pages.cronJobs.everyMinutes', { n: s / 60 })
+  return t('pages.cronJobs.everySeconds', { n: s })
 }
 
 function scheduleKindText(kind: CronJobItem['scheduleKind']): string {
-  if (kind === 'cron') return '定时执行'
-  if (kind === 'once') return '一次性'
-  return '固定间隔'
+  if (kind === 'cron') return t('cron.kindCron')
+  if (kind === 'once') return t('cron.kindOnce')
+  return t('cron.kindInterval')
 }
 
 async function toggleEnabled(record: CronJobItem) {
@@ -252,9 +280,13 @@ async function toggleEnabled(record: CronJobItem) {
   try {
     const updated = await api.cronjobs.update(projectId.value, record.id, { enabled: !record.enabled })
     Object.assign(record, updated)
-    toast.success(updated.enabled ? `已启用 ${record.name}` : `已暂停 ${record.name}`)
+    toast.success(
+      updated.enabled
+        ? t('pages.cronJobs.enabledToast', { name: record.name })
+        : t('pages.cronJobs.pausedToast', { name: record.name })
+    )
   } catch (e) {
-    toast.error(errorMessage(e, '切换失败'))
+    toast.error(errorMessage(e, t('pages.cronJobs.toggleFailed')))
   } finally {
     toggling.value.delete(record.id)
   }
@@ -264,10 +296,10 @@ async function trigger(record: CronJobItem) {
   triggering.value.add(record.id)
   try {
     await api.cronjobs.trigger(projectId.value, record.id)
-    toast.success(`已触发 ${record.name}`)
+    toast.success(t('pages.cronJobs.triggeredToast', { name: record.name }))
     openRuns(record)
   } catch (e) {
-    toast.error(errorMessage(e, '触发失败'))
+    toast.error(errorMessage(e, t('pages.cronJobs.triggerFailed')))
   } finally {
     triggering.value.delete(record.id)
   }
@@ -276,10 +308,10 @@ async function trigger(record: CronJobItem) {
 async function remove(record: CronJobItem) {
   try {
     await api.cronjobs.remove(projectId.value, record.id)
-    toast.success(`已删除 ${record.name}`)
+    toast.success(t('pages.cronJobs.deletedToast', { name: record.name }))
     await load()
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('pages.cronJobs.deleteFailed')))
   }
 }
 
@@ -287,13 +319,16 @@ async function remove(record: CronJobItem) {
 
 const modalOpen = ref(false)
 const modalTarget = ref<CronJobItem>()
+const modalPresetAgentId = ref<string>()
 
-function openCreate() {
+function openCreate(presetAgentId?: string) {
   modalTarget.value = undefined
+  modalPresetAgentId.value = presetAgentId
   modalOpen.value = true
 }
 function openEdit(record: CronJobItem) {
   modalTarget.value = record
+  modalPresetAgentId.value = undefined
   modalOpen.value = true
 }
 
@@ -312,4 +347,13 @@ void load()
 watch(projectId, () => {
   void load()
 })
+
+/** AgentManager 的「定时任务」菜单跳转而来：?agent=<id> 直接打开新建弹窗并预选该助手。 */
+const route = useRoute()
+const router = useRouter()
+const presetFromQuery = typeof route.query.agent === 'string' ? route.query.agent : ''
+if (presetFromQuery) {
+  openCreate(presetFromQuery)
+  void router.replace({ name: route.name ?? undefined, query: {} })
+}
 </script>

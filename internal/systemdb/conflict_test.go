@@ -21,17 +21,17 @@ func TestCreateDatabaseIdempotentConflict(t *testing.T) {
 	if err := Seed(ctx, SeedInput{Store: s}); err != nil {
 		t.Fatal(err)
 	}
-	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
+	keys := objectstore.KeyBuilder{RootPrefix: "simplebase"}
 	svc := catalog.NewService(s.CatalogRepo(), keys, nil, objectstore.DuckLakeStorage{}, nil)
 
 	in := catalog.CreateDatabaseInput{
 		TenantID:  catalog.ReservedTenantID,
-		ProjectID: catalog.DevProjectID,
+		ProjectID: "perfprj1",
 		Name:      "conflict-db",
 	}
-	// Seed 不建 dev-shop 项目：补建（幂等）。
+	// Seed 只建系统项目：补建普通项目（幂等）。
 	if err := s.CatalogRepo().CreateProject(ctx, catalog.Project{
-		ID: catalog.DevProjectID, TenantID: catalog.ReservedTenantID,
+		ID: "perfprj1", TenantID: catalog.ReservedTenantID,
 		Name: "perfbench", CreatedAt: timeNow(),
 	}); err != nil && !errors.Is(err, catalog.ErrAlreadyExists) {
 		t.Fatalf("create project: %v", err)

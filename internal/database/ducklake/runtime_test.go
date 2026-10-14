@@ -287,4 +287,3 @@ func countParquet(t *testing.T, dir string) int {
 	})
 	return n
 }
-

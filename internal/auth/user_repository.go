@@ -12,6 +12,15 @@ type sqlUserRepository struct {
 	db *sql.DB
 }
 
+type userReadObserverKey struct{}
+
+func withUserReadObserver(ctx context.Context, observer AuthObserver) context.Context {
+	if observer == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, userReadObserverKey{}, observer)
+}
+
 // NewSQLUserRepository 构造 UserRepository。db 必须已应用 v31–v33 迁移。
 func NewSQLUserRepository(db *sql.DB) UserRepository {
 	return &sqlUserRepository{db: db}
@@ -37,7 +46,41 @@ func (r *sqlUserRepository) Create(ctx context.Context, u User) error {
 }
 
 func (r *sqlUserRepository) GetByID(ctx context.Context, id string) (User, error) {
-	return r.scanOne(r.db.QueryRowContext(ctx, userSelect+` WHERE id = ?`, id))
+	obs, ok := ctx.Value(userReadObserverKey{}).(AuthObserver)
+	if !ok || obs == nil {
+		return r.scanOne(r.db.QueryRowContext(ctx, userSelect+` WHERE id = ?`, id))
+	}
+	started := time.Now()
+	conn, err := r.db.Conn(ctx)
+	obs.ObserveAuthStage(ctx, AuthStageUserConn, time.Since(started))
+	if err != nil {
+		return User{}, err
+	}
+	defer conn.Close()
+
+	started = time.Now()
+	rows, err := conn.QueryContext(ctx, userSelect+` WHERE id = ?`, id)
+	obs.ObserveAuthStage(ctx, AuthStageUserQuery, time.Since(started))
+	if err != nil {
+		return User{}, err
+	}
+	defer rows.Close()
+
+	started = time.Now()
+	if !rows.Next() {
+		err = rows.Err()
+		if err == nil {
+			err = ErrUserNotFound
+		}
+		obs.ObserveAuthStage(ctx, AuthStageUserScan, time.Since(started))
+		return User{}, err
+	}
+	u, err := scanUser(rows)
+	if err == nil {
+		err = rows.Err()
+	}
+	obs.ObserveAuthStage(ctx, AuthStageUserScan, time.Since(started))
+	return u, err
 }
 
 func (r *sqlUserRepository) GetByUsername(ctx context.Context, username string) (User, error) {

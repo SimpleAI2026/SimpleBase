@@ -1,6 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ADMIN_PROJECT_ID, DEFAULT_PROJECT_ID, useProjectStore } from '@/stores/project'
+import { ADMIN_PROJECT_ID, useProjectStore } from '@/stores/project'
+
+const PID = 'testprj1'
 
 vi.mock('@/services/api', () => ({
   api: {
@@ -18,12 +20,12 @@ describe('useProjectStore', () => {
     vi.mocked(api.projects.list).mockReset()
   })
 
-  it('defaults project id and exposes admin getter', () => {
+  it('starts with empty id until a project is picked, and exposes admin getter', () => {
     localStorage.removeItem('sb_project_id')
     setActivePinia(createPinia())
     const store = useProjectStore()
-    expect(store.id).toBe(DEFAULT_PROJECT_ID)
-    expect(localStorage.getItem('sb_project_id')).toBe(DEFAULT_PROJECT_ID)
+    // 不再写死默认项目：无本地记忆时为空，待项目列表加载后选择。
+    expect(store.id).toBe('')
     store.setProject(ADMIN_PROJECT_ID)
     expect(store.isAdmin).toBe(true)
   })
@@ -42,10 +44,10 @@ describe('useProjectStore', () => {
 
   it('resolves display name from explicit name or project list', async () => {
     vi.mocked(api.projects.list).mockResolvedValue([
-      { id: DEFAULT_PROJECT_ID, name: '商城后台', createdAt: 't' }
+      { id: PID, name: '商城后台', createdAt: 't' }
     ])
     const store = useProjectStore()
-    store.setProject(DEFAULT_PROJECT_ID)
+    store.setProject(PID)
     await store.loadProjects()
     expect(store.projects).toHaveLength(1)
     expect(store.current?.name).toBe('商城后台')
@@ -91,17 +93,17 @@ describe('useProjectStore', () => {
     await store.loadProjects()
     expect(store.projects).toEqual([])
 
-    store.setProject(DEFAULT_PROJECT_ID)
-    vi.mocked(api.projects.list).mockResolvedValueOnce([{ id: DEFAULT_PROJECT_ID, name: '', createdAt: 't' }])
+    store.setProject(PID)
+    vi.mocked(api.projects.list).mockResolvedValueOnce([{ id: PID, name: '', createdAt: 't' }])
     await store.loadProjects()
     expect(store.projectName).toBe('')
-    store.setProject(DEFAULT_PROJECT_ID)
+    store.setProject(PID)
     expect(store.projectName).toBe('')
   })
 
   it('drops remembered projects the server no longer returns', async () => {
     localStorage.setItem('sb_project_id', 'old-proj')
-    localStorage.setItem('sb_project_id_history', JSON.stringify(['old-proj', DEFAULT_PROJECT_ID]))
+    localStorage.setItem('sb_project_id_history', JSON.stringify(['old-proj', PID]))
     setActivePinia(createPinia())
     vi.mocked(api.projects.list).mockResolvedValue([
       { id: ADMIN_PROJECT_ID, name: 'admin', createdAt: 't' }
@@ -111,7 +113,7 @@ describe('useProjectStore', () => {
     await store.loadProjects()
     expect(store.projects.map((p) => p.id)).toEqual([ADMIN_PROJECT_ID])
     expect(store.history).not.toContain('old-proj')
-    expect(store.history).not.toContain(DEFAULT_PROJECT_ID)
+    expect(store.history).not.toContain(PID)
     expect(store.id).toBe(ADMIN_PROJECT_ID)
     expect(store.projectName).toBe('admin')
   })

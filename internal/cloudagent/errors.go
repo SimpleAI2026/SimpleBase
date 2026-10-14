@@ -35,7 +35,8 @@ func ClassifyError(err error) *RunError {
 		return &RunError{Code: "agent_thread_busy", Message: "当前会话仍在运行"}
 	case errors.Is(err, llmgateway.ErrModelNotAllowed):
 		return &RunError{Code: "llm_model_not_allowed", Message: "模型不在允许列表中"}
-	case errors.Is(err, llmgateway.ErrNoProviders), errors.Is(err, llmgateway.ErrProviderNotFound):
+	case errors.Is(err, llmgateway.ErrNoProviders), errors.Is(err, llmgateway.ErrProviderNotFound),
+		errors.Is(err, llmgateway.ErrModelNotConfigured):
 		return &RunError{Code: "llm_not_configured", Message: "模型服务未配置"}
 	case errors.Is(err, context.DeadlineExceeded):
 		return &RunError{Code: "llm_timeout", Message: "模型响应超时"}

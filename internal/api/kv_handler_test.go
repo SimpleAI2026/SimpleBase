@@ -212,9 +212,11 @@ func TestKVSystemProjectRejected(t *testing.T) {
 		}
 	})
 	e.POST("/v1/projects/:projectID/kv", NewKVHandler(&fakeKVService{db: kvKVDB()}, true).Execute)
+	// 系统项目没有项目级 KV：返回独立的 kv_store_not_found，
+	// 与「key 不存在」的 kv_not_found 区分开（planv6.0 §2.3）。
 	for _, body := range []string{`{"type":"cmd","argvs":["GET","k"]}`, `{"type":"cmd","argvs":["SET","k","v"]}`} {
 		rec := kvReq(t, e, http.MethodPost, "/v1/projects/sb-admin/kv", body)
-		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "kv_not_found") {
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "kv_store_not_found") {
 			t.Fatalf("system KV status=%d body=%s", rec.Code, rec.Body.String())
 		}
 	}

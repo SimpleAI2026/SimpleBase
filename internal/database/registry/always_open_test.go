@@ -36,10 +36,10 @@ func newAlwaysOpenCatalog(t *testing.T) (*catalog.Service, catalog.Repository, a
 		}
 	}
 	repo := catalog.NewSQLRepository(raw)
-	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
+	keys := objectstore.KeyBuilder{RootPrefix: "simplebase"}
 	svc := catalog.NewService(repo, keys, nil, objectstore.DuckLakeStorage{}, nil)
-	tenantID := uuid.NewString()
-	projectID := uuid.NewString()
+	tenantID := "tenant001"
+	projectID := "regprj01"
 	now := time.Now().UTC()
 	ctx := context.Background()
 	if err := repo.CreateTenant(ctx, catalog.Tenant{ID: tenantID, Name: "t", CreatedAt: now}); err != nil {

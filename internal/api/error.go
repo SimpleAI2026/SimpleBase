@@ -167,6 +167,9 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, catalog.ErrInvalidName) {
 		return NewAPIError(http.StatusBadRequest, "invalid_database_name", "invalid database name", requestID)
 	}
+	if errors.Is(err, catalog.ErrInvalidCursor) {
+		return NewAPIError(http.StatusBadRequest, "invalid_cursor", "invalid database list cursor", requestID)
+	}
 	if errors.Is(err, catalog.ErrInvalidState) {
 		return NewAPIError(http.StatusConflict, "invalid_state", "invalid database state transition", requestID)
 	}

@@ -1,0 +1,15 @@
+diff --git a/source/utils/merge.ts b/source/utils/merge.ts
+index eea5417..13aa16a 100644
+--- a/source/utils/merge.ts
++++ b/source/utils/merge.ts
+@@ -451,9 +451,7 @@ const deepMergeInternal = <T>(isRoot: boolean, ...sources: Array<Partial<T> | un
+ 			// Every value but `undefined` goes through `mergeHooks`, which rejects a bad shape, `null` included, so a later layer cannot hide it.
+ 			if (isRoot && (source as any).hooks !== undefined) {
+ 				const {value: hookValue, isReplace} = getReplaceState((source as any).hooks);
+-				hooks = isReplace
+-					? mergeHooks({}, hookValue)
+-					: mergeHooks(hooks, hookValue);
++				hooks = mergeHooks(isReplace ? {} : hooks, hookValue);
+ 
+ 				returnValue.hooks = hooks;
+ 			}

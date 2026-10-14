@@ -401,7 +401,7 @@ func kvCases() []benchCase {
 			ID:       "KV-SET",
 			Desc:     "KV 增/改：cmd SET（写事务 + NotifyWrite）",
 			Endpoint: "kv.set",
-			Setup:    func(env *benchEnv) error { return nil }, // dev-shop 种子已含项目 KV
+			Setup:    func(env *benchEnv) error { return nil }, // 项目 KV 开箱可用
 			Step: func(env *benchEnv, i int) error {
 				code, body, err := env.Do("POST", env.kvPath(), map[string]any{
 					"type": "cmd", "argvs": []string{"SET", "bench:str:" + strconv.Itoa(i%64), "value-" + strconv.Itoa(i)},

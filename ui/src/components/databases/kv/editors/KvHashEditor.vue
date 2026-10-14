@@ -15,27 +15,27 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="min-w-32">字段</TableHead>
-              <TableHead class="min-w-40 text-left">值</TableHead>
-              <TableHead v-if="!readonly" class="w-28">操作</TableHead>
+              <TableHead class="min-w-32">{{ t('components.kvHash.colField') }}</TableHead>
+              <TableHead class="min-w-40 text-left">{{ t('components.kvHash.colValue') }}</TableHead>
+              <TableHead v-if="!readonly" class="w-28">{{ t('components.kvHash.colActions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableEmpty v-if="!fields.length" :colspan="readonly ? 2 : 3">暂无字段</TableEmpty>
+            <TableEmpty v-if="!fields.length" :colspan="readonly ? 2 : 3">{{ t('components.kvHash.empty') }}</TableEmpty>
             <TableRow v-for="f in fields" :key="f.field">
               <TableCell class="sb-mono font-medium">{{ f.field }}</TableCell>
               <TableCell class="text-left">
                 <span v-if="editField !== f.field" class="sb-mono text-xs break-all">{{ f.value }}</span>
                 <div v-else class="flex items-center gap-1">
                   <Input v-model="editValue" class="h-7 text-xs" @keydown.enter="saveEdit(f.field)" />
-                  <Button size="sm" variant="ghost" @click="saveEdit(f.field)">存</Button>
+                  <Button size="sm" variant="ghost" @click="saveEdit(f.field)">{{ t('components.kvHash.saveCell') }}</Button>
                 </div>
               </TableCell>
               <TableCell v-if="!readonly">
                 <div class="flex justify-center gap-1">
-                  <Button size="sm" variant="ghost" @click="startEdit(f)">改</Button>
-                  <ConfirmAction title="删除该字段？" @confirm="removeField(f.field)">
-                    <Button size="sm" variant="destructiveGhost">删</Button>
+                  <Button size="sm" variant="ghost" @click="startEdit(f)">{{ t('components.kvHash.editCell') }}</Button>
+                  <ConfirmAction :title="t('components.kvHash.deleteConfirm')" @confirm="removeField(f.field)">
+                    <Button size="sm" variant="destructiveGhost">{{ t('components.kvHash.deleteCell') }}</Button>
                   </ConfirmAction>
                 </div>
               </TableCell>
@@ -43,10 +43,10 @@
           </TableBody>
         </Table>
       </div>
-      <div v-if="!readonly" class="flex items-end gap-2">
-        <Input v-model="newField" placeholder="字段名" class="w-36" />
-        <Input v-model="newValue" placeholder="值" class="flex-1" />
-        <Button size="sm" :disabled="!newField.trim()" @click="addField">添加</Button>
+      <div v-if="!readonly" class="flex flex-wrap items-center gap-2">
+        <Input v-model="newField" :placeholder="t('components.kvHash.fieldPlaceholder')" class="min-w-32 flex-1 sm:w-36 sm:flex-none" />
+        <Input v-model="newValue" :placeholder="t('components.kvHash.valuePlaceholder')" class="min-w-32 flex-1" />
+        <Button size="sm" class="shrink-0" :disabled="!newField.trim()" @click="addField">{{ t('components.kvHash.add') }}</Button>
       </div>
     </SbAsyncRegion>
   </div>
@@ -55,6 +55,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,9 +73,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{ changed: [] }>()
 
+const { t } = useI18n()
+
 const fields = ref<{ field: string; value: string }[]>([])
 const newField = ref('')
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvHash.loadFailed' })
 const newValue = ref('')
 const editField = ref('')
 const editValue = ref('')
@@ -105,11 +108,11 @@ async function addField() {
     })
     newField.value = ''
     newValue.value = ''
-    toast.success('已保存')
+    toast.success(t('components.kvHash.saved'))
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '保存失败'))
+    toast.error(errorMessage(e, t('components.kvHash.saveFailed')))
   }
 }
 
@@ -128,7 +131,7 @@ async function saveEdit(field: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '保存失败'))
+    toast.error(errorMessage(e, t('components.kvHash.saveFailed')))
   }
 }
 
@@ -138,7 +141,7 @@ async function removeField(field: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('components.kvHash.deleteFailed')))
   }
 }
 

@@ -234,7 +234,7 @@ func callBuiltin(caller *frame, callPos token.Pos, fn *ssa.Builtin, args []value
 		pos := caller.program.mainPkg.Prog.Fset.Position(callPos)
 		msg := strings.Join(s, " ")
 		if debugging {
-			caller.context.outBuffer.WriteString(fmt.Sprintf("[%s %s:%d] %s\n",
+			caller.context.writeOutput(fmt.Sprintf("[%s %s:%d] %s\n",
 				time.Now().Format("15:04:05"),
 				pos.Filename,
 				pos.Line,
@@ -242,7 +242,7 @@ func callBuiltin(caller *frame, callPos token.Pos, fn *ssa.Builtin, args []value
 			))
 		}
 		// print/println 输出统一写入上下文缓冲区，调用方通过 Context.Output() 获取
-		caller.context.outBuffer.WriteString(msg + "\n")
+		caller.context.writeOutput(msg + "\n")
 		return nil
 
 	case "len":

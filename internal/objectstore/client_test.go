@@ -76,28 +76,28 @@ func (f *fakeClient) Check(ctx context.Context) error {
 
 func TestDescriptorPutGetRoundTrip(t *testing.T) {
 	c := newFakeClient()
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
+	kb := KeyBuilder{RootPrefix: "simplebase"}
 
 	desc := &Descriptor{
 		FormatVersion: DescriptorFormatVersion,
 		TenantID:      "11111111-1111-1111-1111-111111111111",
-		ProjectID:     "pro-test",
+		ProjectID:     "pro12345",
 		DatabaseID:    "33333333-3333-3333-3333-333333333333",
 		Name:          "mydb",
 		CreatedAt:     time.Now().UTC(),
 		DuckLakeStorage: DuckLakeStorage{
 			Region: "us-east-1",
 			Bucket: "sb-test",
-			Prefix: "simplebase/test/tenants/11111111-1111-1111-1111-111111111111/databases/33333333-3333-3333-3333-333333333333/data",
+			Prefix: "simplebase/pro12345/databases/33333333-3333-3333-3333-333333333333/data",
 		},
-		DataPrefix: "simplebase/test/tenants/11111111-1111-1111-1111-111111111111/databases/33333333-3333-3333-3333-333333333333/data",
+		DataPrefix: "simplebase/pro12345/databases/33333333-3333-3333-3333-333333333333/data",
 		Status:     StatusCreating,
 	}
 	if err := desc.Validate(); err != nil {
 		t.Fatalf("validate descriptor: %v", err)
 	}
 
-	key, err := kb.DescriptorKey(desc.TenantID, desc.DatabaseID)
+	key, err := kb.DescriptorKey(desc.ProjectID, desc.DatabaseID)
 	if err != nil {
 		t.Fatalf("descriptor key: %v", err)
 	}
@@ -139,16 +139,16 @@ func TestHeadNotFound(t *testing.T) {
 
 func TestDeletePrefix(t *testing.T) {
 	c := newFakeClient()
-	// 放入两个 descriptor key，一个属于 db A，一个属于 db B
-	c.store["simplebase/test/tenants/t/databases/a/descriptor.json"] = []byte("{}")
-	c.store["simplebase/test/tenants/t/databases/b/descriptor.json"] = []byte("{}")
-	if err := c.DeletePrefix(context.Background(), "simplebase/test/tenants/t/databases/a"); err != nil {
+	// 放入两个 descriptor key，一个属于 db A，一个属于 db B。
+	c.store["simplebase/prj12345/databases/33333333-3333-3333-3333-333333333333/descriptor.json"] = []byte("{}")
+	c.store["simplebase/prj67890/databases/44444444-4444-4444-4444-444444444444/descriptor.json"] = []byte("{}")
+	if err := c.DeletePrefix(context.Background(), "simplebase/prj12345/databases/33333333-3333-3333-3333-333333333333"); err != nil {
 		t.Fatalf("delete prefix: %v", err)
 	}
-	if _, ok := c.store["simplebase/test/tenants/t/databases/a/descriptor.json"]; ok {
+	if _, ok := c.store["simplebase/prj12345/databases/33333333-3333-3333-3333-333333333333/descriptor.json"]; ok {
 		t.Error("a descriptor should be deleted")
 	}
-	if _, ok := c.store["simplebase/test/tenants/t/databases/b/descriptor.json"]; !ok {
+	if _, ok := c.store["simplebase/prj67890/databases/44444444-4444-4444-4444-444444444444/descriptor.json"]; !ok {
 		t.Error("b descriptor should remain")
 	}
 }

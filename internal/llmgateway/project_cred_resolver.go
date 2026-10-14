@@ -2,13 +2,12 @@ package llmgateway
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-// ProjectCreds 是设置 API 写入系统库的项目级供应商（含解密后的 key，禁止记日志）。
+// ProjectCreds 是设置 API 写入系统库的项目级模型连接（含解密后的 key，禁止记日志）。
 type ProjectCreds struct {
 	DefaultProvider string
 	DefaultModel    string
@@ -31,8 +30,8 @@ func NewProjectCredResolver(src ProjectCredSource) *ProjectCredResolver {
 	return &ProjectCredResolver{Source: src}
 }
 
-// Resolve 按 projectID 读取已启用且带 api_key 的供应商。
-// 默认供应商优先用 llm/settings；对不上时退到第一个可用供应商。
+// Resolve 按 projectID 读取带 api_key 的供应商。
+// 默认供应商优先用 llm/settings 的 default_provider；对不上时退到第一个可用供应商。
 func (r *ProjectCredResolver) Resolve(ctx context.Context, projectID string) (ProjectProviders, error) {
 	if r == nil || r.Source == nil {
 		return ProjectProviders{ProjectID: projectID}, nil
@@ -72,7 +71,9 @@ func providerNamed(list []ProviderConfig, name string) bool {
 	return false
 }
 
-// systemCredSource 把 sys_llm_provider_creds 与 sys_llm_settings 转成 ProjectCreds。
+// systemCredSource 把 sys_llm_settings 的连接信息转成 ProjectCreds。
+// 供应商名即 default_provider（设置页写入的是预置厂商 id）；没有 key 时解析为空，
+// 交给链上的 catalog / YAML 实例供应商兜底。
 type systemCredSource struct {
 	store *systemdb.Store
 }
@@ -90,36 +91,19 @@ func (s *systemCredSource) LoadProjectCreds(ctx context.Context, projectID strin
 	if err != nil {
 		return ProjectCreds{}, err
 	}
-	rows, err := s.store.ListLLMProviderCreds(ctx, projectID)
-	if err != nil {
-		return ProjectCreds{}, err
-	}
 	out := ProjectCreds{DefaultProvider: st.DefaultProvider, DefaultModel: st.DefaultModel}
-	for _, row := range rows {
-		if !row.Enabled {
-			continue
-		}
-		out.Providers = append(out.Providers, providerFromStoredCred(row))
+	provider := strings.TrimSpace(st.DefaultProvider)
+	if provider == "" || strings.TrimSpace(st.APIKey) == "" {
+		return out, nil
 	}
+	model := strings.TrimSpace(st.DefaultModel)
+	out.Providers = append(out.Providers, ProviderConfig{
+		Name:    provider,
+		APIKey:  strings.TrimSpace(st.APIKey),
+		BaseURL: strings.TrimSpace(st.BaseURL),
+		Model:   model,
+	})
 	return out, nil
-}
-
-// providerFromStoredCred 解析 credentials_json。密钥只留在返回值里。
-func providerFromStoredCred(row systemdb.LLMProviderCred) ProviderConfig {
-	fields := map[string]string{}
-	if row.CredentialsJSON != "" {
-		_ = json.Unmarshal([]byte(row.CredentialsJSON), &fields)
-	}
-	base := strings.TrimSpace(fields["base_url"])
-	if base == "" {
-		base = strings.TrimSpace(fields["endpoint"])
-	}
-	return ProviderConfig{
-		Name:    row.Provider,
-		APIKey:  strings.TrimSpace(fields["api_key"]),
-		BaseURL: base,
-		Model:   strings.TrimSpace(row.DefaultModel),
-	}
 }
 
 // FirstUsableResolver 按顺序采用第一个带可用 API key 的结果。

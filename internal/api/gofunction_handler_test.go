@@ -49,7 +49,7 @@ func setupGoFunctionTestRouter(t *testing.T, writable bool, projectID string) (*
 	e := echo.New()
 	e.HideBanner = true
 	e.HTTPErrorHandler = errorHandler(Dependencies{Logger: nil})
-	h := NewGoFunctionHandler(store, writable, nil)
+	h := NewGoFunctionHandler(store, writable, nil, 0)
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -435,11 +435,11 @@ func TestRecordAuditHelpers(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	gh := NewGoFunctionHandler(nil, true, nil)
+	gh := NewGoFunctionHandler(nil, true, nil, 0)
 	gh.recordAudit(c, "p", "create:fn") // nil audit
 
 	aud := &fakeAudit{}
-	gh2 := NewGoFunctionHandler(nil, true, aud)
+	gh2 := NewGoFunctionHandler(nil, true, aud, 0)
 	gh2.recordAudit(c, "p", "create:fn")
 	if aud.last.Kind != "gofunction" || aud.last.PrincipalID != "" {
 		t.Fatalf("no principal audit=%+v", aud.last)

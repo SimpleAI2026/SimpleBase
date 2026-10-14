@@ -1,14 +1,14 @@
 <template>
   <!-- ConversationView：消息流渲染（planv4.1 §3.2）。
-       工具卡支持 is_error 徽标与进度心跳；错误消息支持基于 retry_of_run_id 的重试。 -->
+       工具卡支持 is_error 徽标与进度心跳；错误消息支持基于 retry_of_run_id 的重试。
+       planv6.0 §3.5/§3.6：空态由本组件的 empty 插槽承载（宿主传 AgentWelcome），
+       破坏性操作改用行内确认卡，不再打断对话。 -->
   <MessageScroller :follow-key="followKey">
-    <slot v-if="!historyLoading" name="empty">
-      <SbEmptyState v-if="!messages.length" :icon="BotIcon" description="开始一段对话吧" />
-    </slot>
+    <slot v-if="!historyLoading && !messages.length && !sending" name="empty" />
     <div v-for="(m, i) in messages" :key="i" :class="cn('flex items-start gap-2', m.role === 'user' && 'flex-row-reverse')">
       <div
         :class="cn(
-          'flex size-7 shrink-0 items-center justify-center rounded-full border bg-muted text-muted-foreground',
+          'flex size-7 shrink-0 items-center justify-center rounded-full border bg-primary/10 text-primary',
           m.role === 'user' && 'border-primary text-primary',
         )"
       >
@@ -30,40 +30,55 @@
             <AgentToolCard v-for="(t, ti) in m.toolCalls" :key="t.call_id || ti" :tool="t" />
           </div>
           <details v-if="m.thinking" class="mb-2 text-xs text-muted-foreground">
-            <summary>思考过程</summary>
+            <summary>{{ t('components.conversation.thinking') }}</summary>
             <pre class="whitespace-pre-wrap">{{ m.thinking }}</pre>
           </details>
-          <pre class="m-0 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground">{{ m.content }}<span v-if="sending && !confirmation && i === messages.length - 1" class="text-primary">▍</span></pre>
+          <AgentMarkdown v-if="m.role === 'assistant' && m.content" :content="m.content" />
+          <p v-else-if="m.role !== 'assistant' && m.content" class="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{{ m.content }}</p>
+          <!-- planv6.0 v2 §1.2：忙碌态用三点跳动（头像保持模块图标）。
+               role/aria-label 由容器承担（§1.3 选项 a）：Spinner 已移除，不能没有
+               加载语义；prefers-reduced-motion 下三点静止但仍可见。 -->
+          <span
+            v-if="sending && !confirmation && i === messages.length - 1 && m.role === 'assistant'"
+            data-typing-dots
+            role="status"
+            :aria-label="t('common.loading')"
+            class="mt-1 flex h-4 items-center gap-1 text-primary"
+          >
+            <span class="size-1.5 animate-bounce rounded-full bg-current" aria-hidden="true" />
+            <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" aria-hidden="true" />
+            <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" aria-hidden="true" />
+          </span>
           <p v-if="m.error" class="mt-2 flex items-center gap-2 text-sm text-destructive">
             {{ m.error }}
-            <Button v-if="canRetry" size="xs" variant="outline" @click="$emit('retry')">重试</Button>
+            <Button v-if="canRetry" size="xs" variant="outline" @click="$emit('retry')">{{ t('components.conversation.retry') }}</Button>
           </p>
-          <span v-if="m.canceled" class="mt-2 block text-xs text-muted-foreground">已停止</span>
+          <span v-if="m.canceled" class="mt-2 block text-xs text-muted-foreground">{{ t('components.conversation.canceled') }}</span>
         </div>
       </div>
     </div>
-    <ConfirmAction
+    <AgentConfirmCard
       v-if="confirmation"
-      controlled
-      :open="true"
-      title="确认破坏性操作"
-      :description="confirmText"
+      class="mt-1"
+      :message="confirmation.message"
+      :argv="confirmation.argv"
       @confirm="$emit('confirm')"
-      @cancel="$emit('deny')"
+      @deny="$emit('deny')"
     />
   </MessageScroller>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BotIcon, UserIcon } from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
+import { UserIcon } from '@lucide/vue'
 import { iconForAgentModule, navKeyForAgentModule } from '@/components/nav-icons'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import SbEmptyState from '../SbEmptyState.vue'
 import MessageScroller from '../chat/MessageScroller.vue'
+import AgentMarkdown from './AgentMarkdown.vue'
 import AgentToolCard from './AgentToolCard.vue'
-import ConfirmAction from '../ConfirmAction.vue'
+import AgentConfirmCard from './AgentConfirmCard.vue'
 import type { ChatMsg } from '@/composables/useAiChat'
 
 interface ConfirmationPrompt {
@@ -93,16 +108,11 @@ defineEmits<{
   (e: 'deny'): void
 }>()
 
-const confirmText = computed(() => {
-  const prompt = props.confirmation
-  if (!prompt) return ''
-  const argv = prompt.argv.join(' ')
-  return argv ? `${prompt.message} ${argv}` : prompt.message
-})
+const { t } = useI18n()
 
 const followKey = computed(() => {
   const list = props.messages
   const last = list[list.length - 1]
-  return `${list.length}:${last?.content.length || 0}`
+  return `${list.length}:${last?.content.length || 0}:${last?.thinking?.length || 0}:${last?.toolCalls?.map((tool) => `${tool.status}:${tool.arguments?.length || 0}:${tool.content?.length || 0}`).join(',') || ''}:${props.confirmation?.message || ''}:${props.sending}`
 })
 </script>

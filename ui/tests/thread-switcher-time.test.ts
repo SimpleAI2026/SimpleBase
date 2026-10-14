@@ -26,23 +26,24 @@ describe('ThreadSwitcher render', () => {
     SelectItem: { props: ['value'], template: '<div class="sel-item"><slot /></div>' }
   }
 
-  it('renders thread title with relative time and action buttons', () => {
+  it('renders thread title with relative time and the new-thread button', () => {
     const wrapper = mount(ThreadSwitcher, {
       props: { threads: [{ id: 't1', title: '会话A', created_at: 't', updated_at: new Date().toISOString() }], activeId: 't1' },
       global: { stubs: passthroughStubs }
     })
     expect(wrapper.text()).toContain('会话A')
     expect(wrapper.text()).toContain('刚刚')
-    expect(wrapper.text()).toContain('新会话')
-    expect(wrapper.text()).toContain('删除')
+    // 新建改成图标按钮（planv6.0 §3.6 #7）；删除移交给宿主的「⋯」菜单，这里不再有。
+    expect(wrapper.get('button[aria-label="新会话"]')).toBeTruthy()
+    expect(wrapper.text()).not.toContain('删除')
   })
 
-  it('emits create and remove on button click', async () => {
+  it('emits create on button click', async () => {
     const wrapper = mount(ThreadSwitcher, {
       props: { threads: [{ id: 't1', title: '会话A', created_at: 't', updated_at: new Date().toISOString() }], activeId: 't1' },
       global: { stubs: passthroughStubs }
     })
-    await wrapper.findAll('button').find((b) => b.text() === '新会话')!.trigger('click')
+    await wrapper.get('button[aria-label="新会话"]').trigger('click')
     expect(wrapper.emitted('create')).toHaveLength(1)
   })
 
@@ -51,7 +52,7 @@ describe('ThreadSwitcher render', () => {
       props: { threads: [], activeId: 'x' },
       global: { stubs: passthroughStubs }
     })
-    expect(wrapper.text()).toContain('新会话')
+    expect(wrapper.get('button[aria-label="新会话"]')).toBeTruthy()
     expect(wrapper.text()).not.toContain('删除')
   })
 })

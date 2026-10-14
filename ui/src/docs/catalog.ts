@@ -31,13 +31,13 @@ const meta = metaJson as MetaFile
  * (`/`) patterns — aliases like `@docs/**` are silently empty.
  * Path is from this file (`ui/src/docs/`) up to repo `docs/`.
  */
-const rawModules = import.meta.glob(['../../../docs/**/*.md', '!../../../docs/database/ducklake.md'], {
+const rawModules = import.meta.glob(['../../../docs/**/*.md', '!../../../docs/data/ducklake.md'], {
   query: '?raw', import: 'default', eager: true
 }) as Record<string, string>
-const largeModules = import.meta.glob('../../../docs/database/ducklake.md', {
+const largeModules = import.meta.glob('../../../docs/data/ducklake.md', {
   query: '?raw', import: 'default'
 }) as Record<string, () => Promise<string>>
-const largeMeta = '---\ntitle: DuckLake 上游参考\norder: 99\n---\n# DuckLake 上游参考'
+const largeMeta = '---\ntitle: DuckLake 上游参考\norder: 3\ngroup: 数据库管理\n---\n# DuckLake 上游参考'
 const catalogEntries: Record<string, string> = { ...rawModules,
   ...Object.fromEntries(Object.keys(largeModules).map((key) => [key, largeMeta])) }
 const loadedBodies = new Map<string, string>()
@@ -219,4 +219,34 @@ export async function searchDocs(query: string): Promise<DocSearchResult[]> {
 
 export function githubBlobUrl(filePath: string): string {
   return `https://github.com/linkxzhou/SimpleBase/blob/main/docs/${filePath}`
+}
+
+/**
+ * 文档模块拆分前的旧路径 → 新路径（planv6.0 §3.4、planv6.1 六大模块）。
+ * key 为 `旧模块/旧页面slug` 或 `旧模块`，value 为站内路由路径；外部书签与旧链接据此重定向。
+ */
+export const legacyDocRedirects: Readonly<Record<string, string>> = {
+  // planv6.1：模块合并为 入门 / 工作台 / 数据 / 自动化 / 运维 / SDK
+  'ops/dashboard': '/docs/workbench/dashboard',
+  'ops/logs': '/docs/ops/logs',
+  'ops/users': '/docs/data',
+  'database/kv': '/docs/data/kv',
+  // planv6.0 首次拆分的路径（再往前是 ops/*、database/*）
+  'agent': '/docs/workbench/agent',
+  'dashboard': '/docs/workbench/dashboard',
+  'kv': '/docs/data/kv',
+  'logs': '/docs/ops/logs',
+  'users': '/docs/data',
+  'database': '/docs/data',
+  'storage': '/docs/data/storage',
+  'gofunction': '/docs/automation/gofunction',
+  'cronjob': '/docs/automation/cronjob',
+  'sandbox': '/docs/automation/sandbox'
+}
+
+export function resolveLegacyDocPath(moduleId: string, slug: string): string | null {
+  if (moduleId && slug && slug !== 'index') {
+    return legacyDocRedirects[`${moduleId}/${slug}`] ?? null
+  }
+  return legacyDocRedirects[moduleId] ?? null
 }

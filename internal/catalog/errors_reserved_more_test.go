@@ -48,7 +48,7 @@ func TestReservedHelpers(t *testing.T) {
 	if !IsSystemProject(ReservedSystemProjectID) {
 		t.Fatal("system project")
 	}
-	if IsSystemProject(DevProjectID) || IsSystemProject("") {
+	if IsSystemProject("otherprj") || IsSystemProject("") {
 		t.Fatal("non-system project")
 	}
 	if !IsSystemDatabase(Database{Kind: DatabaseKindSystem}) {

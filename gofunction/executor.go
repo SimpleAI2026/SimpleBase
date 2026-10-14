@@ -23,25 +23,24 @@ type Executor struct {
 	// mu 保护 vm 的跨 goroutine 访问（超时定时器会并发调用 Interrupt）
 	mu sync.RWMutex
 
-	functionChecksums map[string]string
-	createTime        time.Time
-	executionTimeout  int64 // 毫秒，-1 表示不限制
-	waitEventLoop     bool
-	costTime          int64 // 最近一次执行的耗时（微秒）
-	interruptTimer    *time.Timer
-	interrupted       int32  // 原子标志：1 表示已被中断
-	cancelFunc        func() // 当前执行上下文的取消函数（超时/Interrupt 真正生效，P2-4）
+	createTime       time.Time
+	executionTimeout int64 // 毫秒，-1 表示不限制
+	waitEventLoop    bool
+	costTime         int64 // 最近一次执行的耗时（微秒）
+	interruptTimer   *time.Timer
+	interrupted      int32  // 原子标志：1 表示已被中断
+	cancelFunc       func() // 当前执行上下文的取消函数（超时/Interrupt 真正生效，P2-4）
+	inPool           bool   // 当前是否位于池的空闲列表（防止重复 Close 重复入池）
 }
 
 // NewExecutor 创建新的执行器实例
 func NewExecutor(pool *ExecutorPool) *Executor {
 	return &Executor{
-		pool:              pool,
-		vm:                &Runtime{},
-		functionChecksums: make(map[string]string),
-		createTime:        time.Now(),
-		executionTimeout:  -1,
-		waitEventLoop:     false,
+		pool:             pool,
+		vm:               &Runtime{},
+		createTime:       time.Now(),
+		executionTimeout: -1,
+		waitEventLoop:    false,
 	}
 }
 
@@ -101,13 +100,18 @@ func (e *Executor) Compile(name, script string, strict bool) error {
 func (e *Executor) Close() {
 	e.mu.Lock()
 	e.cancelFunc = nil
+	e.stopTimeoutTimerLocked()
 	if e.vm != nil {
-		e.StopTimeoutTimer()
 		e.vm.Cleanup()
 	}
+	inPool := e.inPool
 	e.mu.Unlock()
 
 	if e.pool == nil {
+		return
+	}
+	if inPool {
+		// 已在空闲列表（或已被池 Close 摘除）：重复 Close 不做任何计数操作。
 		return
 	}
 	// 过期判断与 putExecutor 内部保持一致（MaxAge 已是 Duration）
@@ -145,20 +149,31 @@ func (e *Executor) IsInterrupted() bool {
 	return atomic.LoadInt32(&e.interrupted) == 1
 }
 
-// StartTimeoutTimer 启动超时定时器
+// StartTimeoutTimer 启动超时定时器。先停掉旧定时器，
+// 防止上一次执行遗留的定时器误取消新执行的上下文。
 func (e *Executor) StartTimeoutTimer(message string) {
 	if e.executionTimeout >= 0 {
+		e.mu.Lock()
+		e.stopTimeoutTimerLocked()
 		e.interruptTimer = time.AfterFunc(
 			time.Duration(e.executionTimeout)*time.Millisecond,
 			func() {
 				_ = e.Interrupt(message)
 			},
 		)
+		e.mu.Unlock()
 	}
 }
 
-// StopTimeoutTimer 停止超时定时器
+// StopTimeoutTimer 停止超时定时器（访问 interruptTimer 需持有 mu）
 func (e *Executor) StopTimeoutTimer() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.stopTimeoutTimerLocked()
+}
+
+// stopTimeoutTimerLocked 停止旧定时器，调用方必须已持有 e.mu。
+func (e *Executor) stopTimeoutTimerLocked() {
 	if e.interruptTimer != nil {
 		e.interruptTimer.Stop()
 		e.interruptTimer = nil
@@ -258,7 +273,11 @@ func (p *ExecutorPool) GetExecutor() (*Executor, error) {
 	// 尝试从空闲列表获取
 	if element := p.idleList.Front(); element != nil {
 		p.idleList.Remove(element)
-		return element.Value.(*Executor), nil
+		ex := element.Value.(*Executor)
+		ex.mu.Lock()
+		ex.inPool = false
+		ex.mu.Unlock()
+		return ex, nil
 	}
 
 	// 检查是否可以创建新的执行器
@@ -280,12 +299,19 @@ func (p *ExecutorPool) putExecutor(executor *Executor) {
 	if p.closed ||
 		(p.config.MaxAge > 0 && time.Since(executor.createTime) > p.config.MaxAge) ||
 		p.idleList.Len() >= p.config.MaxIdle {
-		p.activeCount--
+		if p.activeCount > 0 {
+			p.activeCount--
+		}
 		return
 	}
 
 	// 重置执行器状态
 	executor.reset()
+
+	// 标记入池，防止重复 Close 再次入池
+	executor.mu.Lock()
+	executor.inPool = true
+	executor.mu.Unlock()
 
 	// 放入空闲列表
 	p.idleList.PushBack(executor)
@@ -296,11 +322,14 @@ func (p *ExecutorPool) createNewExecutor() *Executor {
 	return NewExecutor(p)
 }
 
-// decrementActive 减少活跃计数
+// decrementActive 减少活跃计数（不得减成负数；池 Close 后多余的
+// Executor.Close 调用在此被吸收）
 func (p *ExecutorPool) decrementActive() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	p.activeCount--
+	if p.activeCount > 0 {
+		p.activeCount--
+	}
 }
 
 // SetServiceName 设置服务名称
@@ -342,6 +371,13 @@ func (p *ExecutorPool) Close() {
 	}
 	p.idleList.Init()
 	p.activeCount = 0
+	// 摘除后把 inPool 复位：此后这些执行器再被 Close 也不会重复计数
+	//（putExecutor 对 closed 池直接返回，且计数已被 Clamp 到 0）。
+	for _, executor := range idle {
+		executor.mu.Lock()
+		executor.inPool = false
+		executor.mu.Unlock()
+	}
 	p.mutex.Unlock()
 
 	// 锁外清理执行器内部资源
@@ -352,15 +388,15 @@ func (p *ExecutorPool) Close() {
 	}
 }
 
-// reset 重置执行器状态
+// reset 重置执行器状态：耗时、定时器、取消函数、运行时与中断标记。
 func (e *Executor) reset() {
-	e.functionChecksums = make(map[string]string)
 	e.costTime = 0
-	e.StopTimeoutTimer()
 	e.mu.Lock()
+	e.stopTimeoutTimerLocked()
 	e.cancelFunc = nil
 	if e.vm != nil {
 		e.vm.Reset()
 	}
 	e.mu.Unlock()
+	atomic.StoreInt32(&e.interrupted, 0)
 }

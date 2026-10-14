@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { errorMessage, formatBytes, formatCount, formatJson, formatTime, shortTime } from '@/utils/format'
+import { errorMessage, formatBytes, formatCount, formatErrorRate, formatJson, formatTime, shortTime } from '@/utils/format'
+
+describe('formatErrorRate', () => {
+  it('converts ratio to percent with 4 decimals', () => {
+    expect(formatErrorRate(0)).toBe('0.0000')
+    expect(formatErrorRate(0.2)).toBe('20.0000')
+    expect(formatErrorRate(2 / 7)).toBe('28.5714')
+    expect(formatErrorRate(1)).toBe('100.0000')
+  })
+
+  it('falls back to zero for non-finite values', () => {
+    expect(formatErrorRate(Number.NaN)).toBe('0.0000')
+    expect(formatErrorRate(Number.POSITIVE_INFINITY)).toBe('0.0000')
+    expect(formatErrorRate(undefined)).toBe('0.0000')
+    expect(formatErrorRate(null)).toBe('0.0000')
+  })
+})
 
 describe('formatCount', () => {
   it('formats counts and unknown', () => {

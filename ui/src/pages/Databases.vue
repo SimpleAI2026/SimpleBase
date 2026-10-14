@@ -1,22 +1,22 @@
 <template>
   <ProjectScope>
-  <PageContainer subtitle="DuckLake 数据库：集合文档或 SQL 表，新建后即可使用">
+  <PageContainer :subtitle="t('pages.databases.subtitle')">
     <Card>
       <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
-        <CardTitle>{{ isAdmin ? '系统数据库' : '数据库列表' }}</CardTitle>
+        <CardTitle>{{ isAdmin ? t('pages.databases.cardTitleAdmin') : t('pages.databases.cardTitle') }}</CardTitle>
         <CardDescription>
-          {{ isAdmin ? '系统库承载实例元数据、日志与监控，只读且不可删除' : `共 ${databases.length} 个数据库。集合文档可建集合，SQL 表可管理结构` }}
+          {{ isAdmin ? t('pages.databases.cardDescAdmin') : t('pages.databases.cardDesc', { n: databases.length }) }}
         </CardDescription>
         <CardAction v-if="!isAdmin">
           <div class="flex items-center gap-2">
             <Button variant="outline" size="sm" :disabled="pending" @click="doLoad">
               <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
-              刷新
+              {{ t('common.refresh') }}
             </Button>
             <Button size="sm" @click="openCreate">
               <PlusIcon data-icon="inline-start" />
-              新建数据库
+              {{ t('pages.databases.create') }}
             </Button>
           </div>
         </CardAction>
@@ -24,7 +24,7 @@
           <Button variant="outline" size="sm" :disabled="pending" @click="doLoad">
             <Spinner v-if="pending" data-icon="inline-start" />
             <RefreshCwIcon v-else data-icon="inline-start" />
-            刷新
+            {{ t('common.refresh') }}
           </Button>
         </CardAction>
       </CardHeader>
@@ -38,38 +38,38 @@
           :show-error="showError"
           :refreshing="refreshing"
           :error="error"
-          :empty-description="isAdmin ? '暂无系统库' : '暂无数据库'"
-          :empty-action-text="isAdmin ? undefined : '新建数据库'"
+          :empty-description="isAdmin ? t('pages.databases.emptySystem') : t('pages.databases.empty')"
+          :empty-action-text="isAdmin ? undefined : t('pages.databases.create')"
           @retry="doLoad"
           @empty-action="openCreate"
         >
-        <div class="space-y-3" aria-label="数据库移动端列表">
+        <div class="space-y-3" :aria-label="t('pages.databases.mobileListAria')">
           <article v-for="record in paged" :key="record.id" class="rounded-xl border border-border bg-card p-4 shadow-xs">
             <div class="flex min-w-0 items-start justify-between gap-2">
               <div class="min-w-0">
                 <div class="flex min-w-0 items-center gap-2">
                   <DatabaseIcon aria-hidden="true" class="size-4 shrink-0 text-primary" />
                   <span class="sb-mono truncate font-semibold" :title="record.name">{{ record.name }}</span>
-                  <Badge variant="outline">{{ showSqlPanel(record) ? 'SQL' : '集合' }}</Badge>
+                  <Badge variant="outline">{{ showSqlPanel(record) ? t('pages.databases.badgeSql') : t('pages.databases.badgeCollection') }}</Badge>
                 </div>
                 <Badge class="mt-2" :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
               </div>
               <Button variant="outline" size="sm" :disabled="!isReady(record)" :aria-expanded="expandedRowKeys.includes(record.id)" :aria-controls="`db-mobile-${record.id}`" @click="toggleExpand(record)">
-                {{ expandedRowKeys.includes(record.id) ? '收起数据' : '查看数据' }}
+                {{ expandedRowKeys.includes(record.id) ? t('pages.databases.expand') : t('pages.databases.viewData') }}
               </Button>
             </div>
             <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
               <Button variant="outline" size="sm" :disabled="!isReady(record)" @click="openSql(record)">SQL</Button>
-              <Button v-if="!isAdmin && !isSqlDatabase(record)" variant="outline" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">新建集合</Button>
-              <ConfirmAction v-if="!isAdmin" :disabled="record.status === 'deleting'" title="删除为异步操作，确认继续？" @confirm="removeDb(record)">
-                <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">删除</Button>
+              <Button v-if="!isAdmin && !isSqlDatabase(record)" variant="outline" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">{{ t('pages.databases.createCollection') }}</Button>
+              <ConfirmAction v-if="!isAdmin" :disabled="record.status === 'deleting'" :title="t('pages.databases.deleteTooltip')" @confirm="removeDb(record)">
+                <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">{{ t('common.del') }}</Button>
               </ConfirmAction>
-              <span v-else class="inline-flex items-center gap-1 text-xs text-muted-foreground">受保护</span>
+              <span v-else class="inline-flex items-center gap-1 text-xs text-muted-foreground">{{ t('pages.databases.protected') }}</span>
             </div>
             <div class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>ID</span><span class="sb-mono min-w-0 break-all">{{ record.id }}</span>
-              <span>数据量</span><span>{{ formatCount(record.documentCount) }}</span>
-              <span>创建时间</span><span>{{ formatTime(record.createdAt) }}</span>
+              <span>{{ t('pages.databases.dataVolume') }}</span><span>{{ formatCount(record.documentCount) }}</span>
+              <span>{{ t('pages.databases.createdAt') }}</span><span>{{ formatTime(record.createdAt) }}</span>
             </div>
             <div v-if="expandedRowKeys.includes(record.id)" :id="`db-mobile-${record.id}`" class="mt-4 border-t border-border pt-4">
               <SchemaPanel v-if="showSqlPanel(record)" :project-id="projectStore.id" :database="record" :readonly="isAdmin" />
@@ -83,12 +83,12 @@
           <TableHeader>
             <TableRow>
               <TableHead class="w-12 text-center" />
-              <TableHead class="sb-col-name">名称</TableHead>
+              <TableHead class="sb-col-name">{{ t('pages.databases.name') }}</TableHead>
               <TableHead class="sb-col-id">ID</TableHead>
-              <TableHead class="sb-col-sm">状态</TableHead>
-              <TableHead class="w-24">数据量</TableHead>
-              <TableHead class="sb-col-md">创建时间</TableHead>
-              <TableHead class="sb-col-act min-w-36">操作</TableHead>
+              <TableHead class="sb-col-sm">{{ t('pages.databases.status') }}</TableHead>
+              <TableHead class="w-24">{{ t('pages.databases.dataVolume') }}</TableHead>
+              <TableHead class="sb-col-md">{{ t('pages.databases.createdAt') }}</TableHead>
+              <TableHead class="sb-col-act min-w-36">{{ t('pages.databases.actions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <SbAsyncRegion
@@ -100,8 +100,8 @@
             :show-error="showError"
             :refreshing="refreshing"
             :error="error"
-            :empty-description="isAdmin ? '暂无系统库' : '暂无数据库'"
-            :empty-action-text="isAdmin ? undefined : '新建数据库'"
+            :empty-description="isAdmin ? t('pages.databases.emptySystem') : t('pages.databases.empty')"
+            :empty-action-text="isAdmin ? undefined : t('pages.databases.create')"
             @retry="doLoad"
             @empty-action="openCreate"
           >
@@ -115,7 +115,7 @@
                         size="icon-sm"
                         class="rounded-full"
                         :disabled="!isReady(record)"
-                        :aria-label="`${expandedRowKeys.includes(record.id) ? '收起' : '查看'} ${record.name} 的数据`"
+                        :aria-label="t('pages.databases.viewRecordData', { action: expandedRowKeys.includes(record.id) ? t('pages.databases.collapse') : t('pages.databases.viewData'), name: record.name })"
                         :aria-expanded="expandedRowKeys.includes(record.id)"
                         :aria-controls="`db-desktop-${record.id}`"
                         @click="toggleExpand(record)"
@@ -125,7 +125,7 @@
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {{ isReady(record) ? (expandedRowKeys.includes(record.id) ? '收起' : '查看数据') : '数据库未就绪' }}
+                      {{ isReady(record) ? (expandedRowKeys.includes(record.id) ? t('pages.databases.collapse') : t('pages.databases.viewData')) : t('pages.databases.dbNotReady') }}
                     </TooltipContent>
                   </Tooltip>
                 </TableCell>
@@ -133,7 +133,7 @@
                   <span class="sb-mono inline-flex items-center gap-1.5 font-medium text-foreground">
                     <DatabaseIcon class="size-4 shrink-0 text-primary" />
                     <span class="truncate">{{ record.name }}</span>
-                    <Badge variant="outline">{{ showSqlPanel(record) ? 'SQL' : '集合' }}</Badge>
+                    <Badge variant="outline">{{ showSqlPanel(record) ? t('pages.databases.badgeSql') : t('pages.databases.badgeCollection') }}</Badge>
                   </span>
                 </TableCell>
                 <TableCell class="sb-col-id">
@@ -153,7 +153,7 @@
                       <span class="cursor-default">{{ formatCount(record.documentCount) }}</span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {{ record.documentCount === undefined ? '未就绪或统计不可用' : `库内用户表共 ${record.documentCount} 行` }}
+                      {{ record.documentCount === undefined ? t('pages.databases.countUnavailable') : t('pages.databases.rowsTotal', { n: record.documentCount }) }}
                     </TooltipContent>
                   </Tooltip>
                 </TableCell>
@@ -168,36 +168,36 @@
                           </Button>
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>{{ isReady(record) ? (isAdmin ? 'SQL 控制台（只读查询）' : 'SQL 工作台') : '数据库未就绪' }}</TooltipContent>
+                      <TooltipContent>{{ isReady(record) ? (isAdmin ? t('pages.databases.sqlConsole') : t('pages.databases.sqlWorkbench')) : t('pages.databases.dbNotReady') }}</TooltipContent>
                     </Tooltip>
                     <template v-if="!isAdmin">
                       <Tooltip v-if="!isSqlDatabase(record)">
                         <TooltipTrigger as-child>
                           <span>
                             <Button variant="ghost" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">
-                              新建集合
+                              {{ t('pages.databases.createCollection') }}
                             </Button>
                           </span>
                         </TooltipTrigger>
-                        <TooltipContent>{{ isReady(record) ? '新建集合' : '数据库未就绪' }}</TooltipContent>
+                        <TooltipContent>{{ isReady(record) ? t('pages.databases.createCollection') : t('pages.databases.dbNotReady') }}</TooltipContent>
                       </Tooltip>
                       <ConfirmAction
                         :disabled="record.status === 'deleting'"
-                        title="删除为异步操作，确认继续？"
+                        :title="t('pages.databases.deleteTooltip')"
                         @confirm="removeDb(record)"
                       >
                         <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">
-                          删除
+                          {{ t('common.del') }}
                         </Button>
                       </ConfirmAction>
                     </template>
                     <Tooltip v-else>
                       <TooltipTrigger as-child>
                         <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          受保护
+                          {{ t('pages.databases.protected') }}
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>系统库：删除与写入已被服务端拒绝</TooltipContent>
+                      <TooltipContent>{{ t('pages.databases.protectedTip') }}</TooltipContent>
                     </Tooltip>
                   </div>
                 </TableCell>
@@ -241,40 +241,41 @@
 
     <SbModal
       v-model:open="createVisible"
-      title="新建数据库"
+      :title="t('pages.databases.createTitle')"
       :confirm-loading="creating"
       :ok-button-props="{ disabled: !!nameError && !!newName.trim() }"
       @ok="create"
     >
       <FieldGroup>
         <Field :data-invalid="nameError ? true : undefined">
-          <FieldLabel for="db-name">名称</FieldLabel>
+          <FieldLabel for="db-name">{{ t('pages.databases.formName') }}</FieldLabel>
           <Input
             id="db-name"
             v-model="newName"
-            placeholder="名称（1-63 字节，不含 / \\ 与控制字符）"
+            :placeholder="t('pages.databases.namePlaceholder')"
             :aria-invalid="nameError ? true : undefined"
           />
           <FieldDescription v-if="nameError">{{ nameError }}</FieldDescription>
         </Field>
         <Field>
-          <FieldLabel>数据类型</FieldLabel>
+          <FieldLabel>{{ t('pages.databases.dataModel') }}</FieldLabel>
           <div class="flex flex-wrap gap-2">
-            <Button type="button" size="sm" :variant="dataModel === 'collection' ? 'default' : 'outline'" @click="dataModel = 'collection'">集合文档</Button>
-            <Button type="button" size="sm" :variant="dataModel === 'sql' ? 'default' : 'outline'" @click="dataModel = 'sql'">SQL 数据</Button>
+            <Button type="button" size="sm" :variant="dataModel === 'collection' ? 'default' : 'outline'" @click="dataModel = 'collection'">{{ t('pages.databases.modelCollection') }}</Button>
+            <Button type="button" size="sm" :variant="dataModel === 'sql' ? 'default' : 'outline'" @click="dataModel = 'sql'">{{ t('pages.databases.modelSql') }}</Button>
           </div>
-          <FieldDescription>集合文档沿用集合与文档；SQL 数据使用关系表，创建后可管理表结构。</FieldDescription>
+          <FieldDescription>{{ t('pages.databases.modelHint') }}</FieldDescription>
         </Field>
         <Field v-if="dataModel === 'sql'">
-          <FieldLabel for="db-init-sql">初始化 SQL</FieldLabel>
+          <FieldLabel for="db-init-sql">{{ t('pages.databases.initSql') }}</FieldLabel>
           <Textarea
             id="db-init-sql"
             v-model="initSql"
-            placeholder="可选。例如 CREATE TABLE orders (id INTEGER);"
+            :placeholder="t('pages.databases.initSqlPlaceholder')"
             class="min-h-28 font-mono text-xs"
           />
-          <FieldDescription>仅 CREATE、ALTER、INSERT。多条语句用分号分隔。</FieldDescription>
+          <FieldDescription>{{ t('pages.databases.initSqlHint') }}</FieldDescription>
         </Field>
+        <FieldError v-if="createError" class="whitespace-pre-wrap break-words">{{ createError }}</FieldError>
       </FieldGroup>
     </SbModal>
 
@@ -308,6 +309,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import {
   DatabaseIcon,
@@ -318,7 +320,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/ui/spinner'
@@ -353,11 +355,13 @@ import SchemaPanel from '../components/databases/SchemaPanel.vue'
 
 const projectStore = useProjectStore()
 const { isAdmin } = storeToRefs(projectStore)
+const { t } = useI18n()
 const databases = ref<DatabaseItem[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(databases)
 
 const createVisible = ref(false)
 const creating = ref(false)
+const createError = ref('')
 const newName = ref('')
 const dataModel = ref<'collection' | 'sql'>('collection')
 const initSql = ref('')
@@ -373,7 +377,7 @@ const activeCollection = ref('')
 const docReload = ref(0)
 
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '数据库列表加载失败'
+  fallback: 'pages.databases.loadFailed'
 })
 
 function doLoad() {
@@ -387,8 +391,8 @@ function doLoad() {
 const nameError = computed(() => {
   const n = newName.value.trim()
   if (!n) return ''
-  if (n.length > 63) return '名称不能超过 63 字节'
-  if (/[\/\\\x00-\x1f]/.test(n)) return '名称不能包含 / \\ 或控制字符'
+  if (n.length > 63) return t('pages.databases.nameTooLong')
+  if (/[\/\\\x00-\x1f]/.test(n)) return t('pages.databases.nameInvalid')
   return ''
 })
 
@@ -417,6 +421,7 @@ function openCreate() {
   newName.value = ''
   dataModel.value = 'collection'
   initSql.value = ''
+  createError.value = ''
   createVisible.value = true
 }
 
@@ -467,7 +472,7 @@ function onDocumentCreated() {
 async function create() {
   const name = newName.value.trim()
   if (!name) {
-    toast.warning('请输入数据库名称')
+    toast.warning(t('pages.databases.nameRequired'))
     return
   }
   if (nameError.value) {
@@ -475,6 +480,7 @@ async function create() {
     return
   }
   const sql = initSql.value.trim()
+  createError.value = ''
   creating.value = true
   try {
     const db = await api.databases.create(projectStore.id, {
@@ -482,11 +488,12 @@ async function create() {
       dataModel: dataModel.value,
       initSql: sql ? sql : undefined
     })
-    toast.success(`数据库 ${db.name} 创建成功（状态：${statusText(db.status)}）`)
+    toast.success(t('pages.databases.createSuccess', { name: db.name, status: statusText(db.status) }))
     createVisible.value = false
     await doLoad()
   } catch (e) {
-    toast.error(errorMessage(e, '创建失败'))
+    createError.value = errorMessage(e, t('pages.databases.createFailed'))
+    toast.error(createError.value)
   } finally {
     creating.value = false
   }
@@ -495,10 +502,10 @@ async function create() {
 async function removeDb(db: DatabaseItem) {
   try {
     await api.databases.remove(projectStore.id, db.id)
-    toast.success(`${db.name} 删除请求已提交（异步清理）`)
+    toast.success(t('pages.databases.deleteSubmitted', { name: db.name }))
     await doLoad()
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('pages.databases.deleteFailed')))
   }
 }
 

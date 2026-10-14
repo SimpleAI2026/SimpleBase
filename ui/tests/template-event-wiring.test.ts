@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { uiStubs } from '@/test/helpers'
 import { api, resetApiMocks } from '@/test/api-mock'
 
@@ -154,8 +155,15 @@ describe('页面级事件接线', () => {
   async function mountPage(comp: unknown, stubsOverride: Record<string, unknown> = {}) {
     const pinia = createPinia()
     setActivePinia(pinia)
+    // CronJobs 页读 route.query.agent 做预选，需要真实 router。
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    await router.push('/')
+    await router.isReady()
     const w = mount(comp as never, {
-      global: { plugins: [pinia], stubs: { ...stubs, ...stubsOverride } }
+      global: { plugins: [pinia, router], stubs: { ...stubs, ...stubsOverride } }
     })
     await flushPromises()
     return w

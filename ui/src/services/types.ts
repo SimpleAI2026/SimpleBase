@@ -1,5 +1,16 @@
 /** 统一的后端接口类型定义与 API 抽象（契约对照 plan/planv2.0/proto-http.md） */
 
+/**
+ * 请求失败错误：在 message 之外保留 HTTP status 与后端业务 code。
+ *
+ * `http.ts` 的拦截器此前只 reject `new Error(message)`，status 和 code 全部丢失，
+ * 调用方无法区分「资源未建立（应当展示为空）」与「真正的失败」（planv6.0 §2.2）。
+ */
+export interface ApiError extends Error {
+  status?: number
+  code?: string
+}
+
 export interface MetricsSummary {
   totalRequests: number
   errorRate: number
@@ -19,6 +30,38 @@ export interface TrendPoint {
   date: string
   requests: number
   errors: number
+}
+
+/**
+ * 监控摘要原始 JSON：后端 snake_case，兼容旧版 camelCase（snake 优先）。
+ * 字段全部经 Number / optionalNumber 兜底，故为 unknown。
+ */
+export interface MetricsSummaryWire {
+  total_requests?: unknown
+  totalRequests?: unknown
+  error_rate?: unknown
+  errorRate?: unknown
+  avg_latency_ms?: unknown
+  avgLatencyMs?: unknown
+  active_databases?: unknown
+  activeDatabases?: unknown
+  latency_p50_ms?: unknown
+  latencyP50Ms?: unknown
+  latency_p90_ms?: unknown
+  latencyP90Ms?: unknown
+  latency_p99_ms?: unknown
+  latencyP99Ms?: unknown
+  latency_sample_count?: unknown
+  latencySampleCount?: unknown
+  latency_overflow_ms?: unknown
+  latencyOverflowMs?: unknown
+}
+
+/** 趋势点原始 JSON（字段经 String / Number 兜底）。 */
+export interface TrendPointWire {
+  date?: unknown
+  requests?: unknown
+  errors?: unknown
 }
 
 export interface DbRow {
@@ -111,22 +154,57 @@ export interface LogRetention {
   updatedAt: string
 }
 
+/**
+ * 日志事件原始 JSON：兼容 snake_case / camelCase / Go 默认 PascalCase（按此优先级）。
+ * fields_json / request_id 原样透传（null 归一为 undefined），其余经 String 兜底。
+ */
+export interface LogEventWire {
+  id?: unknown
+  ID?: unknown
+  project_id?: unknown
+  projectId?: unknown
+  ProjectID?: unknown
+  level?: unknown
+  Level?: unknown
+  logger?: unknown
+  Logger?: unknown
+  message?: unknown
+  Message?: unknown
+  fields_json?: string | null
+  fieldsJson?: string | null
+  FieldsJSON?: string | null
+  request_id?: string | null
+  requestId?: string | null
+  RequestID?: string | null
+  occurred_at?: unknown
+  occurredAt?: unknown
+  OccurredAt?: unknown
+}
+
+/** 日志保留策略原始 JSON（三种命名风格，字段经 String / Number 兜底）。 */
+export interface LogRetentionWire {
+  scope?: unknown
+  Scope?: unknown
+  keep_days?: unknown
+  keepDays?: unknown
+  KeepDays?: unknown
+  updated_at?: unknown
+  updatedAt?: unknown
+  UpdatedAt?: unknown
+}
+
+/** 项目级模型连接 + 默认对话参数（服务端 sys_llm_settings）。 */
 export interface LlmSettings {
   defaultProvider?: string
   defaultModel?: string
+  /** 供应商 Base URL；留空用厂商默认 */
+  baseUrl?: string
+  /** 已保存 Key 的掩码（如 sk-...abcd），只读展示 */
+  apiKeyMasked?: string
+  /** 服务端是否已保存 Key；写入时 apiKey 留空表示沿用既有值 */
+  hasApiKey?: boolean
   temperature?: number
   maxTokens?: number
-}
-
-/** 厂商凭证（服务端 sys_llm_provider_creds 表；API 返回脱敏视图） */
-export interface LlmProviderCred {
-  provider: string
-  defaultModel?: string
-  enabled: boolean
-  /** secret 字段为掩码（如 sk-...abcd）；非 secret 字段为原文 */
-  credentials: Record<string, string>
-  hasApiKey: boolean
-  updatedAt?: string
 }
 
 /* ---------- Projects ---------- */
@@ -372,6 +450,8 @@ export interface CloudAgent {
   /** 内置助手标识（general/database/s3/logs/sandbox）；空为自定义（planv4.1 BUG-11）。 */
   builtin_key?: string
   team_enabled: boolean
+  /** 该助手是否允许写（planv6.0 v2 §3.2）：默认 false，不可写时只能执行只读命令。 */
+  writable: boolean
   created_at: string
   updated_at: string
 }
@@ -379,6 +459,8 @@ export interface CloudAgent {
 export interface AgentThread {
   id: string
   title: string
+  /** 会话归属的助手（planv6.0 §3.7 修订：每个助手一份会话）。空串为未绑定。 */
+  agent_id?: string
   created_at: string
   updated_at: string
   last_message_preview?: string
@@ -429,6 +511,15 @@ export interface AgentRunMetrics {
   reasoning_tokens: number
   tool_calls: number
   error_code?: string
+}
+
+/** SSE usage 帧原始字段（经 `Number(x || 0)` 兜底，字段可能缺省或为字符串）。 */
+export interface AgentUsageEventWire {
+  duration_ms?: unknown
+  prompt_tokens?: unknown
+  completion_tokens?: unknown
+  reasoning_tokens?: unknown
+  tool_calls?: unknown
 }
 
 export interface AgentRun extends Partial<AgentRunMetrics> {
@@ -495,7 +586,7 @@ export interface AgentStreamHandlers {
   onToolStart?: (name: string, callId?: string) => void
   onConfirmationRequired?: (callId: string, argv: string[], message: string) => void
   onConfirmationResolved?: (callId: string, approved: boolean) => void
-  onToolResult?: (name: string, content: string, callId?: string, durationMs?: number, isError?: boolean) => void
+  onToolResult?: (name: string, content: string, callId?: string, durationMs?: number, isError?: boolean, truncated?: boolean) => void
   /** 工具执行心跳（planv4.1 BUG-04）：长工具期间周期推送。 */
   onToolProgress?: (name: string, elapsedMs: number, callId?: string) => void
   onUsage?: (metrics: AgentRunMetrics) => void
@@ -569,11 +660,23 @@ export interface GoFuncTestResult {
 /** 定时任务调度模式：cron 定时执行 / interval 固定间隔 / once 一次性执行 */
 export type CronScheduleKind = 'cron' | 'interval' | 'once'
 
-/** 定时任务资源。目标为云函数导出函数；时间一律 UTC */
+/** 定时任务目标类型：function 云函数导出函数 / agent 助手 */
+export type CronTargetKind = 'function' | 'agent'
+
+/** 助手提示词长度上限（字节，对齐后端 cronJobAgentPromptLimit = 16KiB）。 */
+export const CRON_AGENT_PROMPT_MAX_BYTES = 16 * 1024
+
+/** 定时任务资源。目标为云函数导出函数或助手；时间一律 UTC */
 export interface CronJobItem {
   id: string
   name: string
   description: string
+  /** 目标类型；旧数据缺省视为 function */
+  targetKind: CronTargetKind
+  /** targetKind=agent 时非空 */
+  agentId?: string
+  agentThreadId?: string
+  agentPrompt?: string
   scheduleKind: CronScheduleKind
   /** scheduleKind=cron 时非空：5 字段 cron 表达式 */
   cronExpr: string
@@ -613,6 +716,51 @@ export interface CronJobRunItem {
   createdAt: string
 }
 
+/**
+ * 后端定时任务原始 JSON（snake_case，internal/api/cronjob_handler.go 的 cronJobDTO）。
+ * 仅供 http-api 映射使用：经 String/Number/Boolean 兜底的字段标为 unknown；
+ * 原样透传（`|| undefined`）的时间字段按后端契约标为字符串。
+ */
+export interface CronJobWire {
+  id?: unknown
+  name?: unknown
+  description?: unknown
+  schedule_kind?: unknown
+  cron_expr?: unknown
+  interval_seconds?: unknown
+  run_at?: string | null
+  target_kind?: unknown
+  agent_id?: unknown
+  agent_thread_id?: unknown
+  agent_prompt?: unknown
+  func_file?: unknown
+  func_export?: unknown
+  input_json?: unknown
+  enabled?: unknown
+  last_run_at?: string | null
+  next_run_at?: string | null
+  last_status?: unknown
+  last_error?: unknown
+  run_count?: unknown
+  target_missing?: unknown
+  created_at?: unknown
+  updated_at?: unknown
+}
+
+/** 后端定时任务执行记录原始 JSON（cronJobRunDTO）。 */
+export interface CronJobRunWire {
+  id?: unknown
+  job_id?: unknown
+  trigger?: unknown
+  status?: unknown
+  error?: unknown
+  duration_ms?: unknown
+  response_json?: unknown
+  started_at?: string | null
+  finished_at?: string | null
+  created_at?: unknown
+}
+
 export interface CronJobCreate {
   name: string
   description: string
@@ -621,9 +769,15 @@ export interface CronJobCreate {
   intervalSeconds?: number
   /** scheduleKind=once 时必填 */
   runAt?: string
-  funcFile: string
-  funcExport: string
-  inputJson: string
+  /** 缺省 function */
+  targetKind?: CronTargetKind
+  /** targetKind=function 时必填 */
+  funcFile?: string
+  funcExport?: string
+  inputJson?: string
+  /** targetKind=agent 时必填 */
+  agentId?: string
+  agentPrompt?: string
   enabled?: boolean
 }
 
@@ -859,17 +1013,8 @@ export interface Api {
   }
   llmSettings: {
     get: (projectId: string) => Promise<LlmSettings>
-    put: (projectId: string, settings: LlmSettings) => Promise<LlmSettings>
-  }
-  llmProviderCreds: {
-    list: (projectId: string) => Promise<LlmProviderCred[]>
-    /** secret 字段留空表示沿用服务端既有值 */
-    put: (
-      projectId: string,
-      provider: string,
-      body: { credentials: Record<string, string>; defaultModel?: string }
-    ) => Promise<LlmProviderCred>
-    remove: (projectId: string, provider: string) => Promise<void>
+    /** apiKey 留空表示沿用服务端既有值 */
+    put: (projectId: string, settings: LlmSettings, apiKey?: string) => Promise<LlmSettings>
   }
   agents: {
     modules: (projectId: string) => Promise<AgentModuleInfo[]>
@@ -881,9 +1026,9 @@ export interface Api {
     models: (projectId: string) => Promise<AgentModelsResponse>
   }
   agentThreads: {
-    list: (projectId: string) => Promise<AgentThread[]>
-    page: (projectId: string, limit?: number, cursor?: string) => Promise<AgentThreadPage>
-    create: (projectId: string, title?: string) => Promise<AgentThread>
+    list: (projectId: string, agentId?: string) => Promise<AgentThread[]>
+    page: (projectId: string, agentId?: string, limit?: number, cursor?: string) => Promise<AgentThreadPage>
+    create: (projectId: string, title?: string, agentId?: string) => Promise<AgentThread>
     rename: (projectId: string, threadId: string, title: string) => Promise<AgentThread>
     remove: (projectId: string, threadId: string) => Promise<void>
     runs: (projectId: string, threadId: string, limit?: number) => Promise<AgentRun[]>
@@ -905,4 +1050,34 @@ export interface Api {
     runs: (projectId: string, scheduleId: string) => Promise<AgentScheduleRun[]>
     trigger: (projectId: string, scheduleId: string) => Promise<void>
   }
+  /** 系统级存储设置（planv6.0 storage-local-first 阶段 E）。 */
+  storage: {
+    get: () => Promise<StorageSettings>
+    /** confirmReset 必须为 true：服务端要求显式确认（修改后需 reset 清数据）。 */
+    put: (body: { database?: string; files?: string; data_dir?: string; confirm_reset: boolean }) => Promise<StorageUpdateResult>
+  }
+}
+
+/** GET /v1/system/storage 响应。 */
+export interface StorageSettings {
+  database: string
+  files: string
+  data_dir: string
+  cache_dir: string
+  bucket: string
+  prefix: string
+  /** 字段来源：env | yaml | default；env 时 UI 禁用对应输入。 */
+  source: Record<string, string>
+  config_path: string
+  writable_config: boolean
+  /** 本地/远端是否已有数据（提示需要 reset）。 */
+  data_present: Record<string, boolean>
+}
+
+/** PUT /v1/system/storage 响应。 */
+export interface StorageUpdateResult {
+  settings: StorageSettings
+  restart_required: boolean
+  reset_required: boolean
+  commands?: string[]
 }

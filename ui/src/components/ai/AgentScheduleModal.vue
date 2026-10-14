@@ -1,30 +1,30 @@
 <template>
   <SbModal
     :open="open"
-    :title="`定时执行：${agent?.name || ''}`"
+    :title="t('components.agentSchedule.title', { name: agent?.name || '' })"
     :width="640"
     :confirm-loading="saving"
-    ok-text="保存"
+    :ok-text="t('common.save')"
     @ok="save"
     @update:open="(v: boolean) => emit('update:open', v)"
   >
     <FieldGroup>
       <Field>
-        <FieldLabel for="schedule-prompt">提示词 *</FieldLabel>
+        <FieldLabel for="schedule-prompt">{{ t('components.agentSchedule.promptLabel') }}</FieldLabel>
         <Textarea
           id="schedule-prompt"
           v-model="form.prompt"
           :rows="4"
-          placeholder="作为定时触发的用户消息发送给该 Agent，例如：检查订单表今日写入量，异常时在回复中标注。"
+          :placeholder="t('components.agentSchedule.promptPlaceholder')"
         />
       </Field>
 
       <Field>
-        <FieldLabel>执行频率 (UTC)</FieldLabel>
-        <div class="flex items-center justify-between gap-4">
-          <Select :model-value="frequencyKey" class="min-w-50" @update:model-value="onFrequencyChange">
-            <SelectTrigger class="w-full">
-              <SelectValue placeholder="选择频率" />
+        <FieldLabel>{{ t('components.agentSchedule.frequencyLabel') }}</FieldLabel>
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <Select :model-value="frequencyKey" @update:model-value="onFrequencyChange">
+            <SelectTrigger class="min-w-0 flex-1 basis-48">
+              <SelectValue :placeholder="t('components.agentSchedule.frequencyPlaceholder')" />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -34,37 +34,37 @@
               </SelectGroup>
             </SelectContent>
           </Select>
-          <div class="flex items-center gap-2">
+          <div class="flex shrink-0 items-center gap-2">
             <Switch :model-value="form.enabled" @update:model-value="(v: boolean) => (form.enabled = v)" />
-            <span class="text-sm">{{ form.enabled ? '已启用' : '已停用' }}</span>
+            <span class="text-sm">{{ form.enabled ? t('components.agentSchedule.enabled') : t('components.agentSchedule.disabled') }}</span>
           </div>
         </div>
         <div v-if="frequencyKey === 'custom'" class="mt-2">
           <Input v-model="form.cron_expr" placeholder="*/15 * * * *" @blur="validateCron" />
           <p v-if="cronError" class="mt-1 text-xs text-destructive">✗ {{ cronError }}</p>
-          <p v-else-if="cronNext" class="mt-1 text-xs text-muted-foreground">✓ 下次 {{ cronNext }}</p>
-          <p v-else class="mt-1 text-xs text-muted-foreground">5 字段 cron，分钟粒度，按 UTC 解释</p>
+          <p v-else-if="cronNext" class="mt-1 text-xs text-muted-foreground">{{ t('components.agentSchedule.nextRun', { time: cronNext }) }}</p>
+          <p v-else class="mt-1 text-xs text-muted-foreground">{{ t('components.agentSchedule.cronHint') }}</p>
         </div>
       </Field>
 
       <template v-if="schedule">
         <Field>
-          <FieldLabel>排期信息</FieldLabel>
+          <FieldLabel>{{ t('components.agentSchedule.scheduleInfo') }}</FieldLabel>
           <div class="grid grid-cols-2 gap-2 text-sm">
             <div class="rounded-lg border bg-muted/30 px-3 py-2">
-              <div class="text-xs text-muted-foreground">下次执行</div>
+              <div class="text-xs text-muted-foreground">{{ t('components.agentSchedule.nextExecution') }}</div>
               <div>{{ formatTime(schedule.next_run_at, '—') }}</div>
             </div>
             <div class="rounded-lg border bg-muted/30 px-3 py-2">
-              <div class="text-xs text-muted-foreground">上次执行</div>
+              <div class="text-xs text-muted-foreground">{{ t('components.agentSchedule.lastExecution') }}</div>
               <div>{{ formatTime(schedule.last_run_at, '—') }}</div>
             </div>
           </div>
-          <p class="mt-1.5 text-xs text-muted-foreground">结果会话：Scheduled: {{ agent?.name }}</p>
+          <p class="mt-1.5 text-xs text-muted-foreground">{{ t('components.agentSchedule.resultThread', { name: agent?.name }) }}</p>
         </Field>
 
         <Field>
-          <FieldLabel>执行历史（最近 5 次）</FieldLabel>
+          <FieldLabel>{{ t('components.agentSchedule.history') }}</FieldLabel>
           <SbAsyncRegion
             block="spinner"
             :pending="pending"
@@ -76,7 +76,7 @@
             @retry="loadRuns"
           >
             <template #empty>
-              <SbEmptyState description="暂无执行记录" />
+              <SbEmptyState :description="t('components.agentSchedule.historyEmpty')" />
             </template>
             <div class="flex flex-col gap-1.5">
             <div
@@ -93,7 +93,7 @@
                   {{ shortTime(r.started_at || r.created_at) }}{{ r.error ? ' · ' + r.error : '' }}
                 </span>
               </div>
-              <Button variant="ghost" size="xs" @click="emit('view-thread', schedule.thread_id)">查看会话</Button>
+              <Button variant="ghost" size="xs" @click="emit('view-thread', schedule.thread_id)">{{ t('components.agentSchedule.viewThread') }}</Button>
             </div>
           </div>
           </SbAsyncRegion>
@@ -102,18 +102,18 @@
     </FieldGroup>
 
     <template #footer>
-      <ConfirmAction v-if="schedule" title="确认删除该定时任务？" @confirm="remove">
-        <Button variant="destructiveGhost" size="sm">删除</Button>
+      <ConfirmAction v-if="schedule" :title="t('components.agentSchedule.deleteConfirm')" @confirm="remove">
+        <Button variant="destructiveGhost" size="sm">{{ t('components.agentSchedule.delete') }}</Button>
       </ConfirmAction>
       <div class="flex-1" />
       <Button variant="outline" :disabled="!schedule || triggering" @click="triggerNow">
         <Spinner v-if="triggering" data-icon="inline-start" />
-        立即执行
+        {{ t('components.agentSchedule.runNow') }}
       </Button>
-      <Button variant="outline" :disabled="false" @click="emit('update:open', false)">取消</Button>
+      <Button variant="outline" :disabled="false" @click="emit('update:open', false)">{{ t('common.cancel') }}</Button>
       <Button :disabled="!form.prompt.trim() || !!cronError" @click="save">
         <Spinner v-if="saving" data-icon="inline-start" />
-        保存
+        {{ t('common.save') }}
       </Button>
     </template>
   </SbModal>
@@ -122,6 +122,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -151,6 +152,8 @@ const props = withDefaults(
   { projectId: '' }
 )
 
+const { t } = useI18n()
+
 const emit = defineEmits<{
   'update:open': [value: boolean]
   saved: [schedule: AgentSchedule]
@@ -158,19 +161,24 @@ const emit = defineEmits<{
   'view-thread': [threadId: string]
 }>()
 
-const frequencyOptions = [
-  { label: '每 15 分钟', value: '*/15 * * * *' },
-  { label: '每小时', value: '0 * * * *' },
-  { label: '每天 08:00 (UTC)', value: '0 8 * * *' },
-  { label: '每周一 08:00 (UTC)', value: '0 8 * * 1' },
-  { label: '自定义 Cron…', value: 'custom' }
+const FREQUENCY_OPTIONS = [
+  { labelKey: 'components.agentSchedule.preset15Min', value: '*/15 * * * *' },
+  { labelKey: 'components.agentSchedule.presetHourly', value: '0 * * * *' },
+  { labelKey: 'components.agentSchedule.presetDaily8', value: '0 8 * * *' },
+  { labelKey: 'components.agentSchedule.presetWeeklyMon8', value: '0 8 * * 1' },
+  { labelKey: 'components.agentSchedule.presetCustom', value: 'custom' }
 ]
+
+/** 数据源仍是 value（cron 表达式），仅 label 走 i18n。 */
+const frequencyOptions = computed(() =>
+  FREQUENCY_OPTIONS.map((o) => ({ label: t(o.labelKey), value: o.value }))
+)
 
 const form = ref({ prompt: '', cron_expr: '0 8 * * *', enabled: true })
 const frequencyKey = ref('0 8 * * *')
 const runs = ref<AgentScheduleRun[]>([])
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载执行记录失败'
+  fallback: 'components.agentSchedule.loadingHistoryFailed'
 })
 const saving = ref(false)
 const triggering = ref(false)
@@ -188,7 +196,7 @@ watch(
     if (props.schedule) {
       form.value.prompt = props.schedule.prompt
       form.value.enabled = props.schedule.enabled
-      const known = frequencyOptions.find((o) => o.value === props.schedule?.cron_expr)
+      const known = FREQUENCY_OPTIONS.find((o) => o.value === props.schedule?.cron_expr)
       if (known) {
         frequencyKey.value = known.value
         form.value.cron_expr = props.schedule.cron_expr
@@ -230,7 +238,7 @@ const cronPattern = /^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/
 function validateCron() {
   const expr = form.value.cron_expr.trim()
   if (!cronPattern.test(expr)) {
-    cronError.value = '表达式非法：需 5 个空格分隔的字段（分 时 日 月 周）'
+    cronError.value = t('components.agentSchedule.cronInvalid')
     cronNext.value = ''
     return
   }
@@ -241,7 +249,7 @@ function validateCron() {
 async function save() {
   if (!props.agent || !props.projectId) return
   if (!form.value.prompt.trim()) {
-    toast.warning('请填写提示词')
+    toast.warning(t('components.agentSchedule.promptRequired'))
     return
   }
   validateCron()
@@ -269,18 +277,18 @@ async function save() {
           e instanceof Error &&
           /already exists/i.test(e.message)
         ) {
-          toast.error('该 Agent 已有定时任务，请刷新后重试')
+          toast.error(t('components.agentSchedule.alreadyScheduled'))
           return
         } else {
           throw e
         }
       }
     }
-    toast.success('定时任务已保存')
+    toast.success(t('components.agentSchedule.saved'))
     emit('saved', saved)
     emit('update:open', false)
   } catch (e) {
-    toast.error(errorMessage(e, '保存失败'))
+    toast.error(errorMessage(e, t('components.agentSchedule.saveFailed')))
   } finally {
     saving.value = false
   }
@@ -290,11 +298,11 @@ async function remove() {
   if (!props.schedule || !props.projectId) return
   try {
     await api.agentSchedules.remove(props.projectId, props.schedule.id)
-    toast.success('定时任务已删除')
+    toast.success(t('components.agentSchedule.deleted'))
     emit('removed', props.schedule.id)
     emit('update:open', false)
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('components.agentSchedule.deleteFailed')))
   }
 }
 
@@ -303,7 +311,7 @@ async function triggerNow() {
   triggering.value = true
   try {
     await api.agentSchedules.trigger(props.projectId, props.schedule.id)
-    toast.success('已触发，稍后可在执行历史查看结果')
+    toast.success(t('components.agentSchedule.triggered'))
     await loadRuns()
     // 轮询刷新：2s × 15 次。
     let polls = 0
@@ -314,7 +322,7 @@ async function triggerNow() {
       if (!active || polls >= 15) clearInterval(timer)
     }, 2000)
   } catch (e) {
-    toast.error(errorMessage(e, '触发失败'))
+    toast.error(errorMessage(e, t('components.agentSchedule.triggerFailed')))
   } finally {
     triggering.value = false
   }

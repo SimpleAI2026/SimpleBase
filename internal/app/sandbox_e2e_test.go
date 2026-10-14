@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
-	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	gosdk "github.com/linkxzhou/SimpleBase/packages/go-sdk"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -23,7 +23,11 @@ import (
 // TestSandboxHTTP_E2E 使用真实装配、认证、路由、系统库及 fake VM；不访问 Cloud。
 func TestSandboxHTTP_E2E(t *testing.T) {
 	cfg := testConfig(true)
-	cfg.DevMode = true
+	cfg.Storage = config.StorageConfig{
+		Database: config.StorageModeLocal,
+		Files:    config.StorageModeLocal,
+		DataDir:  t.TempDir(),
+	}
 	cfg.S3 = config.S3Config{}
 	cfg.Database.CacheDir = t.TempDir()
 	cfg.Sandbox = config.SandboxConfig{Enabled: true, Backend: "fake", Image: "python:3.12-slim", CPUs: 1,
@@ -41,7 +45,20 @@ func TestSandboxHTTP_E2E(t *testing.T) {
 	})
 	ts := httptest.NewServer(a.Handler())
 	defer ts.Close()
-	base := ts.URL + "/v1/projects/" + catalog.DevProjectID + "/sandboxes"
+	// 测试自建项目与 Key（不再依赖开发模式种子）。
+	const e2eProject = "sandprj1"
+	if err := a.SystemStore().CatalogRepo().CreateProject(context.Background(), catalog.Project{
+		ID: e2eProject, TenantID: catalog.ReservedTenantID, Name: "sandbox-e2e", CreatedAt: time.Now().UTC(),
+	}); err != nil && !errors.Is(err, catalog.ErrAlreadyExists) {
+		t.Fatal(err)
+	}
+	const e2eKey = "sb_live_sandbox_e2e_key"
+	if err := auth.CreateAPIKey(context.Background(), a.SystemStore().DB(), "sandbox-e2e",
+		e2eProject, a.auth.HashKey(e2eKey),
+		[]auth.Permission{auth.DatabaseRead, auth.DatabaseWrite}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	base := ts.URL + "/v1/projects/" + e2eProject + "/sandboxes"
 	call := func(method, path, body, key string) (int, map[string]any) {
 		t.Helper()
 		var reader io.Reader
@@ -52,7 +69,7 @@ func TestSandboxHTTP_E2E(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		req.Header.Set("Authorization", "Bearer "+systemdb.DevRawAPIKey)
+		req.Header.Set("Authorization", "Bearer "+e2eKey)
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
 		}
@@ -94,7 +111,7 @@ func TestSandboxHTTP_E2E(t *testing.T) {
 		t.Fatalf("lazy: %d %v", code, r2)
 	}
 	readonlyKey := "sb_live_readonly_test_key"
-	if err := auth.CreateAPIKey(context.Background(), a.SystemStore().DB(), "sandbox-readonly", catalog.DevProjectID,
+	if err := auth.CreateAPIKey(context.Background(), a.SystemStore().DB(), "sandbox-readonly", "sandprj1",
 		a.auth.HashKey(readonlyKey), []auth.Permission{auth.DatabaseRead}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +195,7 @@ func TestSandboxHTTP_E2E(t *testing.T) {
 	if code, r2 := call("GET", "", "", ""); code != 200 || len(r2["sandboxes"].([]any)) != 1 {
 		t.Fatalf("run cleanup: %d %v", code, r2)
 	}
-	client, err := gosdk.NewClient(gosdk.Options{URL: ts.URL, APIKey: systemdb.DevRawAPIKey, ProjectID: catalog.DevProjectID})
+	client, err := gosdk.NewClient(gosdk.Options{URL: ts.URL, APIKey: e2eKey, ProjectID: "sandprj1"})
 	if err != nil {
 		t.Fatal(err)
 	}

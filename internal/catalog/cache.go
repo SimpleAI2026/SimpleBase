@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	projectTenantTTL    = 5 * time.Minute // project→tenant：近乎不可变，长 TTL
-	databaseRowTTL      = 2 * time.Second // database 行：短 TTL（只读实例一致性兜底）
-	databaseCacheMax    = 5000
-	projectCacheMax     = 10000
-	kvRowTTL            = 2 * time.Second
+	projectTenantTTL = 5 * time.Minute // project→tenant：近乎不可变，长 TTL
+	databaseRowTTL   = 2 * time.Second // database 行：短 TTL（只读实例一致性兜底）
+	databaseCacheMax = 5000
+	projectCacheMax  = 10000
+	kvRowTTL         = 2 * time.Second
 )
 
 type cacheEntry[T any] struct {

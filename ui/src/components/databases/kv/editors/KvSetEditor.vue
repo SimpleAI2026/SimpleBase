@@ -12,7 +12,7 @@
       @retry="load"
     >
       <div v-if="!elems.length" class="rounded-md border border-dashed border-border/70 py-6 text-center text-xs text-muted-foreground">
-        集合为空
+        {{ t('components.kvSet.empty') }}
       </div>
       <div v-else class="flex flex-wrap gap-1.5">
         <Badge v-for="el in elems" :key="el" variant="secondary" class="sb-mono text-xs">
@@ -20,21 +20,21 @@
           <button
             v-if="!readonly"
             class="ml-1 opacity-60 hover:opacity-100"
-            title="移除"
+            :title="t('components.kvSet.remove')"
             @click="removeMember(el)"
           >×</button>
         </Badge>
       </div>
       <div v-if="!readonly" class="flex flex-wrap items-center gap-2">
-        <Input v-model="newMember" placeholder="新成员" class="w-48" @keydown.enter="addMember" />
-        <Button size="sm" :disabled="!newMember.trim()" @click="addMember">添加</Button>
+        <Input v-model="newMember" :placeholder="t('components.kvSet.memberPlaceholder')" class="min-w-0 flex-1 sm:w-48 sm:flex-none" @keydown.enter="addMember" />
+        <Button size="sm" :disabled="!newMember.trim()" @click="addMember">{{ t('components.kvSet.add') }}</Button>
         <Button
           size="sm"
           variant="outline"
           class="ml-auto"
           :disabled="!elems.length"
           @click="popRandom"
-        >随机弹出</Button>
+        >{{ t('components.kvSet.randomPop') }}</Button>
       </div>
     </SbAsyncRegion>
   </div>
@@ -43,6 +43,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -59,9 +60,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{ changed: [] }>()
 
+const { t } = useI18n()
+
 const elems = ref<string[]>([])
 const newMember = ref('')
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvSet.loadFailed' })
 
 function load() {
   return run(async () => {
@@ -83,7 +86,7 @@ async function addMember() {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '添加失败'))
+    toast.error(errorMessage(e, t('components.kvSet.addFailed')))
   }
 }
 
@@ -93,18 +96,18 @@ async function removeMember(v: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '移除失败'))
+    toast.error(errorMessage(e, t('components.kvSet.removeFailed')))
   }
 }
 
 async function popRandom() {
   try {
     const r = await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['SPOP', props.kvKey] })
-    toast.success('已弹出: ' + (r ?? ''))
+    toast.success(t('components.kvSet.popped', { value: r ?? '' }))
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '弹出失败'))
+    toast.error(errorMessage(e, t('components.kvSet.popFailed')))
   }
 }
 

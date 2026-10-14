@@ -5,22 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
-	"github.com/linkxzhou/SimpleBase/internal/crontab"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-// agentScheduleHandler 提供 Cloud Agent 定时执行 CRUD 与手动触发。
+// agentScheduleHandler 是迁移期只读兼容层（planv6.0 cloudagent-cli-and-cronjob-unification-plan §2.6）。
+// Agent 定时任务已统一到 /cron-jobs（target_kind=agent）；sys_agent_schedules 冻结为归档表，
+// 本 handler 只提供历史数据的读取，所有写入与手动触发返回 410 Gone。
 type agentScheduleHandler struct {
-	store     *systemdb.Store
-	scheduler *cloudagent.Scheduler
-	usage     UsageService
-	writable  *bool
+	store *systemdb.Store
 }
 
 type agentScheduleDTO struct {
@@ -83,14 +78,6 @@ func toAgentScheduleRunDTO(r systemdb.AgentScheduleRun) agentScheduleRunDTO {
 	return dto
 }
 
-type upsertScheduleBody struct {
-	AgentID  string `json:"agent_id"`
-	Prompt   string `json:"prompt"`
-	CronExpr string `json:"cron_expr"`
-	Enabled  *bool  `json:"enabled"`
-	ThreadID string `json:"thread_id"`
-}
-
 func (h *agentScheduleHandler) ListSchedules(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -112,85 +99,6 @@ func (h *agentScheduleHandler) ListSchedules(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"schedules": out})
 }
 
-func (h *agentScheduleHandler) denyReadonly(c echo.Context) error {
-	if h.writable != nil && !*h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
-	}
-	return nil
-}
-
-func (h *agentScheduleHandler) CreateSchedule(c echo.Context) error {
-	if err := h.denyReadonly(c); err != nil {
-		return err
-	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
-	}
-	var body upsertScheduleBody
-	if err := c.Bind(&body); err != nil {
-		return WriteError(c, err)
-	}
-	if strings.TrimSpace(body.AgentID) == "" {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "agent_id is required"))
-	}
-	if strings.TrimSpace(body.Prompt) == "" {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "prompt is required"))
-	}
-	spec, err := crontab.ParseCron(body.CronExpr)
-	if err != nil {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cron expression"))
-	}
-	ctx := c.Request().Context()
-	agent, err := h.store.GetCloudAgent(ctx, pc.ID, body.AgentID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "agent not found"))
-	}
-	if err != nil {
-		return WriteError(c, err)
-	}
-	if existing, err := h.store.GetAgentScheduleByAgent(ctx, pc.ID, agent.ID); err == nil && existing.ID != "" {
-		return WriteError(c, echo.NewHTTPError(http.StatusConflict, "schedule already exists"))
-	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, err)
-	}
-
-	threadID := strings.TrimSpace(body.ThreadID)
-	if threadID != "" {
-		if _, err := h.store.GetAgentThread(ctx, pc.ID, threadID); errors.Is(err, sql.ErrNoRows) {
-			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "thread not found"))
-		} else if err != nil {
-			return WriteError(c, err)
-		}
-	} else {
-		th, err := h.store.CreateAgentThread(ctx, systemdb.AgentThread{
-			ProjectID: pc.ID, Title: "Scheduled: " + agent.Name, CreatedBy: scheduleCreatedBy(c),
-		})
-		if err != nil {
-			return WriteError(c, err)
-		}
-		threadID = th.ID
-	}
-
-	next, err := spec.NextAfter(time.Now().UTC())
-	if err != nil {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cron expression"))
-	}
-	enabled := true
-	if body.Enabled != nil {
-		enabled = *body.Enabled
-	}
-	created, err := h.store.CreateAgentSchedule(ctx, systemdb.AgentSchedule{
-		ProjectID: pc.ID, AgentID: agent.ID, ThreadID: threadID,
-		Prompt: strings.TrimSpace(body.Prompt), CronExpr: body.CronExpr,
-		Enabled: enabled, NextRunAt: next, CreatedBy: scheduleCreatedBy(c),
-	})
-	if err != nil {
-		return WriteError(c, err)
-	}
-	return c.JSON(http.StatusCreated, toAgentScheduleDTO(created, agent.Name))
-}
-
 func (h *agentScheduleHandler) GetSchedule(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -204,84 +112,6 @@ func (h *agentScheduleHandler) GetSchedule(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	return c.JSON(http.StatusOK, toAgentScheduleDTO(sc, h.agentName(c.Request().Context(), pc.ID, sc.AgentID)))
-}
-
-func (h *agentScheduleHandler) PatchSchedule(c echo.Context) error {
-	if err := h.denyReadonly(c); err != nil {
-		return err
-	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
-	}
-	ctx := c.Request().Context()
-	cur, err := h.store.GetAgentSchedule(ctx, pc.ID, c.Param("scheduleID"))
-	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "schedule not found"))
-	}
-	if err != nil {
-		return WriteError(c, err)
-	}
-	var body upsertScheduleBody
-	if err := c.Bind(&body); err != nil {
-		return WriteError(c, err)
-	}
-	next := cur
-	if strings.TrimSpace(body.Prompt) != "" {
-		next.Prompt = strings.TrimSpace(body.Prompt)
-	}
-	cronChanged := strings.TrimSpace(body.CronExpr) != "" && strings.TrimSpace(body.CronExpr) != cur.CronExpr
-	if cronChanged {
-		next.CronExpr = strings.TrimSpace(body.CronExpr)
-	}
-	if body.Enabled != nil {
-		next.Enabled = *body.Enabled
-	}
-	if strings.TrimSpace(body.ThreadID) != "" && strings.TrimSpace(body.ThreadID) != cur.ThreadID {
-		threadID := strings.TrimSpace(body.ThreadID)
-		if _, err := h.store.GetAgentThread(ctx, pc.ID, threadID); errors.Is(err, sql.ErrNoRows) {
-			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "thread not found"))
-		} else if err != nil {
-			return WriteError(c, err)
-		}
-		next.ThreadID = threadID
-	}
-	// cron 变更或重新启用时重算 next_run_at；停用时清空。
-	switch {
-	case !next.Enabled:
-		next.NextRunAt = time.Time{}
-	case cronChanged || (next.Enabled && cur.NextRunAt.IsZero()):
-		spec, err := crontab.ParseCron(next.CronExpr)
-		if err != nil {
-			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cron expression"))
-		}
-		n, err := spec.NextAfter(time.Now().UTC())
-		if err != nil {
-			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cron expression"))
-		}
-		next.NextRunAt = n
-	}
-	updated, err := h.store.UpdateAgentSchedule(ctx, next)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	return c.JSON(http.StatusOK, toAgentScheduleDTO(updated, h.agentName(ctx, pc.ID, updated.AgentID)))
-}
-
-func (h *agentScheduleHandler) DeleteSchedule(c echo.Context) error {
-	if err := h.denyReadonly(c); err != nil {
-		return err
-	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
-	}
-	if err := h.store.ArchiveAgentSchedule(c.Request().Context(), pc.ID, c.Param("scheduleID")); errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "schedule not found"))
-	} else if err != nil {
-		return WriteError(c, err)
-	}
-	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *agentScheduleHandler) ListScheduleRuns(c echo.Context) error {
@@ -305,35 +135,16 @@ func (h *agentScheduleHandler) ListScheduleRuns(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"runs": out})
 }
 
-func (h *agentScheduleHandler) TriggerScheduleRun(c echo.Context) error {
-	if err := h.denyReadonly(c); err != nil {
-		return err
-	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
-	}
-	sc, err := h.store.GetAgentSchedule(c.Request().Context(), pc.ID, c.Param("scheduleID"))
-	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "schedule not found"))
-	}
-	if err != nil {
-		return WriteError(c, err)
-	}
-	if h.scheduler == nil {
-		return WriteError(c, echo.NewHTTPError(http.StatusServiceUnavailable, "agent scheduler is not configured"))
-	}
-	if h.usage != nil {
-		if err := h.usage.CheckQuota(c.Request().Context(), pc.ID, "llm"); err != nil {
-			return WriteError(c, err)
-		}
-	}
-	// 异步触发；结果通过 GET runs 轮询。
-	scheduleCtx := c.Request().Context()
-	go func(sc systemdb.AgentSchedule) {
-		_, _ = h.scheduler.Trigger(context.WithoutCancel(scheduleCtx), sc)
-	}(sc)
-	return c.JSON(http.StatusAccepted, map[string]any{"status": "triggered"})
+// Gone 处理所有写入类旧路由：Agent 定时任务已合并到 /cron-jobs。
+func (h *agentScheduleHandler) Gone(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{
+		"error": map[string]any{
+			"code":       "agent_schedules_merged",
+			"message":    "agent schedules have been merged into cron jobs; use /cron-jobs with target_kind=agent",
+			"request_id": RequestIDFromContext(c.Request().Context()),
+		},
+		"migrated_to": "/cron-jobs",
+	})
 }
 
 func (h *agentScheduleHandler) agentName(ctx context.Context, projectID, agentID string) string {
@@ -342,11 +153,4 @@ func (h *agentScheduleHandler) agentName(ctx context.Context, projectID, agentID
 		return ""
 	}
 	return a.Name
-}
-
-func scheduleCreatedBy(c echo.Context) string {
-	if p, ok := PrincipalFromContext(c.Request().Context()); ok {
-		return p.APIKeyID
-	}
-	return ""
 }

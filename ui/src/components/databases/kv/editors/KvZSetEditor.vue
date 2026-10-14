@@ -5,12 +5,12 @@
         size="sm"
         :variant="desc ? 'outline' : 'default'"
         @click="desc = false"
-      >分数升序</Button>
+      >{{ t('components.kvZset.sortAsc') }}</Button>
       <Button
         size="sm"
         :variant="desc ? 'default' : 'outline'"
         @click="desc = true"
-      >分数降序</Button>
+      >{{ t('components.kvZset.sortDesc') }}</Button>
     </div>
     <SbAsyncRegion
       class="flex flex-col gap-3"
@@ -27,27 +27,27 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="min-w-32 text-left">成员</TableHead>
-              <TableHead class="w-28">分数</TableHead>
-              <TableHead v-if="!readonly" class="w-32">操作</TableHead>
+              <TableHead class="min-w-32 text-left">{{ t('components.kvZset.colMember') }}</TableHead>
+              <TableHead class="w-28">{{ t('components.kvZset.colScore') }}</TableHead>
+              <TableHead v-if="!readonly" class="w-32">{{ t('components.kvZset.colActions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableEmpty v-if="!items.length" :colspan="readonly ? 2 : 3">暂无成员</TableEmpty>
+            <TableEmpty v-if="!items.length" :colspan="readonly ? 2 : 3">{{ t('components.kvZset.empty') }}</TableEmpty>
             <TableRow v-for="it in items" :key="it.elem">
               <TableCell class="sb-mono text-left font-medium">{{ it.elem }}</TableCell>
               <TableCell>
                 <div v-if="editElem === it.elem" class="flex items-center justify-center gap-1">
                   <Input v-model="editScore" type="number" class="h-7 w-24 text-xs" @keydown.enter="saveScore(it.elem)" />
-                  <Button size="sm" variant="ghost" @click="saveScore(it.elem)">存</Button>
+                  <Button size="sm" variant="ghost" @click="saveScore(it.elem)">{{ t('components.kvZset.saveCell') }}</Button>
                 </div>
                 <span v-else class="block tabular-nums">{{ it.score }}</span>
               </TableCell>
               <TableCell v-if="!readonly">
                 <div class="flex justify-center gap-1">
-                  <Button size="sm" variant="ghost" @click="startEdit(it)">改分</Button>
-                  <ConfirmAction title="移除该成员？" @confirm="removeMember(it.elem)">
-                    <Button size="sm" variant="destructiveGhost">删</Button>
+                  <Button size="sm" variant="ghost" @click="startEdit(it)">{{ t('components.kvZset.editCell') }}</Button>
+                  <ConfirmAction :title="t('components.kvZset.removeConfirm')" @confirm="removeMember(it.elem)">
+                    <Button size="sm" variant="destructiveGhost">{{ t('components.kvZset.deleteCell') }}</Button>
                   </ConfirmAction>
                 </div>
               </TableCell>
@@ -55,10 +55,10 @@
           </TableBody>
         </Table>
       </div>
-      <div v-if="!readonly" class="flex items-end gap-2">
-        <Input v-model="newElem" placeholder="成员" class="w-36" />
-        <Input v-model="newScore" type="number" placeholder="分数" class="w-28" />
-        <Button size="sm" :disabled="!newElem.trim() || newScore === ''" @click="addMember">添加</Button>
+      <div v-if="!readonly" class="flex flex-wrap items-center gap-2">
+        <Input v-model="newElem" :placeholder="t('components.kvZset.memberPlaceholder')" class="min-w-32 flex-1 sm:w-36 sm:flex-none" />
+        <Input v-model="newScore" type="number" :placeholder="t('components.kvZset.scorePlaceholder')" class="w-28 shrink-0" />
+        <Button size="sm" class="shrink-0" :disabled="!newElem.trim() || newScore === ''" @click="addMember">{{ t('components.kvZset.add') }}</Button>
       </div>
     </SbAsyncRegion>
   </div>
@@ -67,6 +67,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -84,9 +85,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{ changed: [] }>()
 
+const { t } = useI18n()
+
 const items = ref<{ elem: string; score: number }[]>([])
 const desc = ref(false)
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvZset.loadFailed' })
 const newElem = ref('')
 const newScore = ref('')
 const editElem = ref('')
@@ -123,7 +126,7 @@ async function addMember() {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '添加失败'))
+    toast.error(errorMessage(e, t('components.kvZset.addFailed')))
   }
 }
 
@@ -144,7 +147,7 @@ async function saveScore(elem: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '保存失败'))
+    toast.error(errorMessage(e, t('components.kvZset.saveFailed')))
   }
 }
 
@@ -154,7 +157,7 @@ async function removeMember(elem: string) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('components.kvZset.deleteFailed')))
   }
 }
 

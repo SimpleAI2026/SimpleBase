@@ -44,14 +44,13 @@ describe('DefaultLayout', () => {
     expect(wrapper.text()).toContain('监控大盘')
     expect(wrapper.text()).toContain('使用文档')
     const auth = useAuthStore(pinia)
-    const iconBtns = wrapper.findAll('button')
-    // 按钮顺序：… → 设置 → 刷新（UserMenu 在未登录时不渲染）
-    await iconBtns[iconBtns.length - 2].trigger('click')
+    // 按无障碍标签定位，避免按钮增删（语言下拉）影响位置断言
+    await wrapper.get('button[aria-label="设置"]').trigger('click')
     expect(auth.settingsOpen).toBe(true)
     auth.markUnauthorized()
     await flushPromises()
     expect(auth.settingsTab).toBe('connection')
-    await iconBtns[iconBtns.length - 1].trigger('click')
+    await wrapper.get('button[aria-label="刷新页面"]').trigger('click')
     expect(reload).toHaveBeenCalled()
   })
 

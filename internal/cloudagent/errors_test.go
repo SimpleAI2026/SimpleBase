@@ -19,6 +19,10 @@ func TestAgentClassifyErrorDoesNotExposeUpstreamDetails(t *testing.T) {
 	}{
 		{ErrThreadBusy, "agent_thread_busy"},
 		{llmgateway.ErrNoProviders, "llm_not_configured"},
+		// planv6.0 v2 §11：请求与供应商都没有模型 → 归入「模型服务未配置」，
+		// 即使被 fmt.Errorf 包了一层也要识别。
+		{llmgateway.ErrModelNotConfigured, "llm_not_configured"},
+		{fmt.Errorf("llmgateway: chat: %w", llmgateway.ErrModelNotConfigured), "llm_not_configured"},
 		{llmgateway.ErrModelNotAllowed, "llm_model_not_allowed"},
 		{context.DeadlineExceeded, "llm_timeout"},
 		{&providers.LiteLLMError{StatusCode: 401, Message: secret}, "llm_auth_failed"},

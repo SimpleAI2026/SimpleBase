@@ -75,7 +75,7 @@ func newHookedService(t *testing.T, descriptor DescriptorWriter, hook *hookRepo)
 	db := newTestDB(t)
 	base := NewSQLRepository(db)
 	hook.Repository = base
-	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
+	keys := objectstore.KeyBuilder{RootPrefix: "simplebase"}
 	logger := observability.NewLogger("error", "json", io.Discard)
 	svc := NewService(hook, keys, descriptor, objectstore.DuckLakeStorage{Region: "us-east-1", Bucket: "test-bucket"}, logger)
 	tenantID := uuid.NewString()
@@ -113,31 +113,33 @@ func TestService_CreateDatabaseValidationAndErrors(t *testing.T) {
 		t.Fatalf("belongs error: %v", err)
 	}
 
-	// non-UUID tenant fails KeyBuilder.DataPrefix
+	// invalid project id fails KeyBuilder.DataPrefix（租户已不参与路径）
 	raw := newTestDB(t)
 	repo := NewSQLRepository(raw)
-	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
+	keys := objectstore.KeyBuilder{RootPrefix: "simplebase"}
 	svc2 := NewService(repo, keys, nil, objectstore.DuckLakeStorage{}, nil)
-	if err := repo.CreateTenant(ctx, Tenant{ID: "not-a-uuid", Name: "t", CreatedAt: time.Now()}); err != nil {
+	tenantID2 := uuid.NewString()
+	if err := repo.CreateTenant(ctx, Tenant{ID: tenantID2, Name: "t", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	pid := objectstore.NewProjectID()
-	if err := repo.CreateProject(ctx, Project{ID: pid, TenantID: "not-a-uuid", Name: "p", CreatedAt: time.Now()}); err != nil {
+	badPrj := "bad_id1" // 含下划线，非法
+	if err := repo.CreateProject(ctx, Project{ID: badPrj, TenantID: tenantID2, Name: "p", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc2.CreateDatabase(ctx, CreateDatabaseInput{TenantID: "not-a-uuid", ProjectID: pid, Name: "n"}); err == nil || !strings.Contains(err.Error(), "build storage prefix") {
+	if _, err := svc2.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenantID2, ProjectID: badPrj, Name: "n"}); err == nil || !strings.Contains(err.Error(), "build storage prefix") {
 		t.Fatalf("prefix error: %v", err)
 	}
 
-	// invalid project id format fails descriptor.Validate
-	svc3, repo3, tenant3, _ := setupService(t, &fakeDescriptorWriter{})
+	// 项目 ID 合法但 descriptor 校验失败 → ErrDescriptorWrite
+	svc3, repo3, tenant3, project3 := setupService(t, &fakeDescriptorWriter{})
+	_ = project3
 	badPID := "not-valid!" // 非 8 位 [A-Za-z0-9-]
 	if err := repo3.CreateProject(ctx, Project{ID: badPID, TenantID: tenant3, Name: "bad", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := svc3.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenant3, ProjectID: badPID, Name: "n"})
-	if !errors.Is(err, ErrDescriptorWrite) {
-		t.Fatalf("expected descriptor validate fail, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "build storage prefix") {
+		t.Fatalf("expected storage prefix fail for bad project id, got %v", err)
 	}
 
 	// SetDatabaseReady after create fails → degrade

@@ -19,7 +19,6 @@ import (
 type entry struct {
 	handle  *Handle
 	opening chan struct{}
-	openErr error
 }
 
 // Registry 保证进程内每个 databaseID 只有一个 *sql.DB / writer。
@@ -45,7 +44,7 @@ type Registry struct {
 // Options 配置 Registry 行为。
 type Options struct {
 	IdleTimeout time.Duration // <=0 时使用默认 5 分钟
-	MaxOpen     int            // <=0 表示不限制
+	MaxOpen     int           // <=0 表示不限制
 	// Writable 表示本实例是否允许提供 ReadWrite 访问；对应 config.Instance.Writable。
 	Writable bool
 	// WriteGate 在 ReadWrite Acquire 前调用（multi-instance-consistency-plan §4.6）。
@@ -103,17 +102,21 @@ func (r *Registry) Acquire(ctx context.Context, db catalog.Database, mode databa
 			e.handle.active.Add(1)
 			e.handle.touch()
 			r.mu.Unlock()
+			r.observeAcquire("hot", 0, nil)
 			return r.newLease(e.handle), nil
 		}
 		if e.opening != nil {
 			// 有其他 goroutine 正在打开：等待其完成，不持锁等待。
 			opening := e.opening
 			r.mu.Unlock()
+			waitStart := time.Now()
 			select {
 			case <-opening:
+				r.observeAcquire("opening_wait", time.Since(waitStart), nil)
 				// 结果已产生，回到循环顶部重新读取 entry。
 				continue
 			case <-ctx.Done():
+				r.observeAcquire("opening_wait", time.Since(waitStart), ctx.Err())
 				return nil, ctx.Err()
 			}
 		}
@@ -128,11 +131,12 @@ func (r *Registry) Acquire(ctx context.Context, db catalog.Database, mode databa
 // openAndAcquire 由创建者 goroutine 调用：执行 factory.Open，
 // 成功后把结果写回 entry 并唤醒等待者；失败则清理 entry 使下次可重试。
 func (r *Registry) openAndAcquire(ctx context.Context, db catalog.Database, mode database.AccessMode, e *entry) (*Lease, error) {
+	start := time.Now()
 	conn, err := r.factory.Open(ctx, db, mode)
+	r.observeAcquire("factory_open", time.Since(start), err)
 
 	r.mu.Lock()
 	if err != nil {
-		e.openErr = err
 		close(e.opening)
 		e.opening = nil
 		// 打开失败：删除 entry，允许下次 Acquire 重新尝试。
@@ -165,6 +169,17 @@ func (r *Registry) openAndAcquire(ctx context.Context, db catalog.Database, mode
 		r.metrics.DBOpenHandles.Inc()
 	}
 	return r.newLease(handle), nil
+}
+
+func (r *Registry) observeAcquire(stage string, duration time.Duration, err error) {
+	if r.logger == nil {
+		return
+	}
+	fields := []zap.Field{zap.String("stage", stage), zap.Duration("duration", duration)}
+	if err != nil {
+		fields = append(fields, zap.Bool("error", true))
+	}
+	r.logger.Debug("registry acquire stage", fields...)
 }
 
 func (r *Registry) newLease(h *Handle) *Lease {

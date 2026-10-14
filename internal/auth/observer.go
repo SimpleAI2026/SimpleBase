@@ -24,6 +24,12 @@ const (
 	AuthStageLockWait AuthStage = "lock_wait"
 	// AuthStageUserLoad 库查用户（GetByID）耗时。
 	AuthStageUserLoad AuthStage = "user_load"
+	// 以下阶段是 user_load / auth 的子段，不参与总耗时归因。
+	AuthStageUserConn   AuthStage = "user_conn"
+	AuthStageUserQuery  AuthStage = "user_query"
+	AuthStageUserScan   AuthStage = "user_scan"
+	AuthStageFlightWait AuthStage = "flight_wait"
+	AuthStageFlightLoad AuthStage = "flight_load"
 	// AuthStageProjectExpand 展开项目集（PrincipalFromUser）耗时。
 	AuthStageProjectExpand AuthStage = "project_expand"
 	// AuthStageKeyLoad API Key 未命中缓存时的仓储查询耗时。
@@ -40,9 +46,9 @@ const (
 type AuthCacheState string
 
 const (
-	AuthCacheHit    AuthCacheState = "hit"
-	AuthCacheMiss   AuthCacheState = "miss"
-	AuthCacheNone   AuthCacheState = "none"
+	AuthCacheHit  AuthCacheState = "hit"
+	AuthCacheMiss AuthCacheState = "miss"
+	AuthCacheNone AuthCacheState = "none"
 )
 
 // AuthObserver 是认证链路的观测接口（nil-safe：实现方自行判空）。

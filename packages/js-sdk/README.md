@@ -31,6 +31,6 @@ const result = await sb.sandboxes.run({
 if (result.timed_out || result.exit_code !== 0) throw new Error(result.stderr)
 ```
 
-`run` 同步执行并清理临时 VM（`keep:true` 可保留）。[查看完整云沙盒文档](../../docs/sandbox/e2e.md)。
+`run` 同步执行并清理临时 VM（`keep:true` 可保留）。[查看完整云沙盒文档](../../docs/automation/sandbox-e2e.md)。
 
 Docs: see [`docs/sdk/`](../../docs/sdk/) in the repo Wiki (`/docs`).

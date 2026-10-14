@@ -22,7 +22,7 @@ type ProbeResult struct {
 // 第二次必须返回 ErrPreconditionFailed 才算通过。
 //
 // 探针失败（第二次写入成功或网络错误）意味着端点不支持条件写
-//（例如 COS 存储桶开了版本控制导致 x-cos-forbid-overwrite 失效），
+// （例如 COS 存储桶开了版本控制导致 x-cos-forbid-overwrite 失效），
 // 调用方必须禁用一切依赖互斥的能力（租约、manifest 推进、维护任务）。
 //
 // probePrefix 应为 {root}/{env}/catalog（探针对象可被 lifecycle 规则清理；

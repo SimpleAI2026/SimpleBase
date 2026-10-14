@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	_ "github.com/uglyer/go-sqlite3"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	_ "github.com/uglyer/go-sqlite3"
 )
 
 // newAPIKeyTestDB 构造带 sys_api_keys / sys_projects 的内存库。
@@ -48,7 +48,7 @@ func setupAPIKeyRouter(t *testing.T, principal auth.Principal) (*echo.Echo, *sql
 	svc := auth.NewService(auth.NewSQLAPIKeyRepository(db), "test-secret")
 	e := echo.New()
 	e.HideBanner = true
-	h := NewAPIKeysHandler(svc, db)
+	h := NewAPIKeysHandler(svc, db, nil)
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			ctx := WithPrincipal(c.Request().Context(), principal)
@@ -88,9 +88,9 @@ func TestAPIKeys_CreateAndAuthenticate(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		ID      string   `json:"id"`
-		Secret  string   `json:"secret"`
-		Perms   []string `json:"permissions"`
+		ID     string   `json:"id"`
+		Secret string   `json:"secret"`
+		Perms  []string `json:"permissions"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
@@ -122,7 +122,8 @@ func TestAPIKeys_CreateDefaultFullPermissions(t *testing.T) {
 		Permissions []string `json:"permissions"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if len(resp.Permissions) != 5 {
+	// SEC-02：空列表继承签发者权限；superadminl1 展开后含 user:admin 共 6 项。
+	if len(resp.Permissions) != 6 {
 		t.Fatalf("default perms=%v", resp.Permissions)
 	}
 }

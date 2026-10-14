@@ -3,6 +3,7 @@ package cloudagent
 import (
 	"context"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent/agentcore"
 	"io"
 	"strings"
 	"testing"
@@ -53,8 +54,8 @@ func (s *nativeDeltaStream) Close() error { return nil }
 
 func TestAgentNativeToolsAndUsage(t *testing.T) {
 	client := &nativeChat{}
-	m := newGatewayChatModel(client, "p", "native-test")
-	m.protocol = "native"
+	m := agentcore.NewModel(client, "p", "native-test")
+	m.Protocol = "native"
 	tools := []*schema.ToolInfo{{Name: "list_databases", Desc: "list"}}
 	if err := m.BindTools(tools); err != nil {
 		t.Fatal(err)
@@ -68,7 +69,7 @@ func TestAgentNativeToolsAndUsage(t *testing.T) {
 		t.Fatalf("native request=%+v", client.requests[0])
 	}
 	var tokens int
-	m.usage = func(u ChatUsage) { tokens += u.PromptTokens + u.CompletionTokens }
+	m.Usage = func(u ChatUsage) { tokens += u.PromptTokens + u.CompletionTokens }
 	sr, err := m.Stream(context.Background(), msgs)
 	if err != nil {
 		t.Fatal(err)
@@ -101,9 +102,15 @@ func TestAgentNativeToolsAndUsage(t *testing.T) {
 }
 
 func TestAgentAutoFallbackOnToolsUnsupported(t *testing.T) {
+	// 降级缓存按 projectID|model 全局持久，-count>1 时上一轮已写入
+	// "p|fallback-test"，会让第二轮直接命中缓存、failOnce 不再触发。
+	// 每轮开始前重置，保证剧本从原生请求失败重新走一遍。
+	agentcore.ResetUnsupportedNativeTools()
+	t.Cleanup(agentcore.ResetUnsupportedNativeTools)
+
 	client := &nativeChat{failOnce: true}
-	m := newGatewayChatModel(client, "p", "fallback-test")
-	m.protocol = "auto"
+	m := agentcore.NewModel(client, "p", "fallback-test")
+	m.Protocol = "auto"
 	_ = m.BindTools([]*schema.ToolInfo{{Name: "list_databases"}})
 	if _, err := m.Generate(context.Background(), []*schema.Message{schema.UserMessage("list")}); err != nil {
 		t.Fatal(err)
@@ -135,7 +142,7 @@ func (f *rejectedStreamLLM) Chat(context.Context, string, ChatRequest) (ChatResp
 }
 func TestAgentStreamAuthErrorDoesNotRetryChat(t *testing.T) {
 	client := &rejectedStreamLLM{}
-	m := newGatewayChatModel(client, "p", "m")
+	m := agentcore.NewModel(client, "p", "m")
 	_, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("hi")})
 	var upstream *providers.LiteLLMError
 	if !errors.As(err, &upstream) || client.streamCalls != 1 || client.chatCalls != 0 {
@@ -167,7 +174,7 @@ func (*incompleteToolLLM) Stream(context.Context, string, ChatRequest) (TokenStr
 }
 
 func TestAgentStreamRejectsIncompleteToolAfterReadError(t *testing.T) {
-	m := newGatewayChatModel(&incompleteToolLLM{}, "p", "m")
+	m := agentcore.NewModel(&incompleteToolLLM{}, "p", "m")
 	sr, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("list")})
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +188,7 @@ func TestAgentStreamRejectsIncompleteToolAfterReadError(t *testing.T) {
 			}
 			return
 		}
-		if msg != nil && len(msg.ToolCalls) > 0 && !isToolDelta(msg.ToolCalls[0]) {
+		if msg != nil && len(msg.ToolCalls) > 0 && !agentcore.IsToolDelta(msg.ToolCalls[0]) {
 			t.Fatalf("complete tool call on broken stream: %+v", msg)
 		}
 	}

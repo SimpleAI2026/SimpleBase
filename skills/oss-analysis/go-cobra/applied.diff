@@ -1,0 +1,77 @@
+diff --git a/args.go b/args.go
+index 7bf8c38..5c12faf 100644
+--- a/args.go
++++ b/args.go
+@@ -49,17 +49,19 @@ func NoArgs(cmd *Command, args []string) error {
+ // OnlyValidArgs returns an error if there are any positional args that are not in
+ // the `ValidArgs` field of `Command`
+ func OnlyValidArgs(cmd *Command, args []string) error {
+-	if len(cmd.ValidArgs) > 0 {
+-		// Remove any description that may be included in ValidArgs.
+-		// A description is following a tab character.
+-		validArgs := make([]string, 0, len(cmd.ValidArgs))
+-		for _, v := range cmd.ValidArgs {
+-			validArgs = append(validArgs, strings.SplitN(v, "\t", 2)[0])
+-		}
+-		for _, v := range args {
+-			if !stringInSlice(v, validArgs) {
+-				return fmt.Errorf("invalid argument %q for %q%s", v, cmd.CommandPath(), cmd.findSuggestions(args[0]))
+-			}
++	if len(cmd.ValidArgs) == 0 {
++		return nil
++	}
++
++	// Remove any description that may be included in ValidArgs.
++	// A description is following a tab character.
++	validArgs := make([]string, 0, len(cmd.ValidArgs))
++	for _, v := range cmd.ValidArgs {
++		validArgs = append(validArgs, strings.SplitN(v, "\t", 2)[0])
++	}
++	for _, v := range args {
++		if !stringInSlice(v, validArgs) {
++			return fmt.Errorf("invalid argument %q for %q%s", v, cmd.CommandPath(), cmd.findSuggestions(args[0]))
+ 		}
+ 	}
+ 	return nil
+diff --git a/command.go b/command.go
+index c05fed4..7ffc627 100644
+--- a/command.go
++++ b/command.go
+@@ -1990,29 +1990,24 @@ func defaultUsageFunc(w io.Writer, in interface{}) error {
+ 	}
+ 	if c.HasAvailableSubCommands() {
+ 		cmds := c.Commands()
+-		if len(c.Groups()) == 0 {
+-			fmt.Fprintf(w, "\n\nAvailable Commands:")
++		printSubcommands := func(inSection func(*Command) bool) {
+ 			for _, subcmd := range cmds {
+-				if subcmd.IsAvailableCommand() || subcmd.Name() == helpCommandName {
++				if inSection(subcmd) && (subcmd.IsAvailableCommand() || subcmd.Name() == helpCommandName) {
+ 					fmt.Fprintf(w, "\n  %s %s", rpad(subcmd.Name(), subcmd.NamePadding()), subcmd.Short)
+ 				}
+ 			}
++		}
++		if len(c.Groups()) == 0 {
++			fmt.Fprintf(w, "\n\nAvailable Commands:")
++			printSubcommands(func(*Command) bool { return true })
+ 		} else {
+ 			for _, group := range c.Groups() {
+ 				fmt.Fprintf(w, "\n\n%s", group.Title)
+-				for _, subcmd := range cmds {
+-					if subcmd.GroupID == group.ID && (subcmd.IsAvailableCommand() || subcmd.Name() == helpCommandName) {
+-						fmt.Fprintf(w, "\n  %s %s", rpad(subcmd.Name(), subcmd.NamePadding()), subcmd.Short)
+-					}
+-				}
++				printSubcommands(func(sub *Command) bool { return sub.GroupID == group.ID })
+ 			}
+ 			if !c.AllChildCommandsHaveGroup() {
+ 				fmt.Fprintf(w, "\n\nAdditional Commands:")
+-				for _, subcmd := range cmds {
+-					if subcmd.GroupID == "" && (subcmd.IsAvailableCommand() || subcmd.Name() == helpCommandName) {
+-						fmt.Fprintf(w, "\n  %s %s", rpad(subcmd.Name(), subcmd.NamePadding()), subcmd.Short)
+-					}
+-				}
++				printSubcommands(func(sub *Command) bool { return sub.GroupID == "" })
+ 			}
+ 		}
+ 	}

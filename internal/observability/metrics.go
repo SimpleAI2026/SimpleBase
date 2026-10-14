@@ -26,18 +26,18 @@ type Metrics struct {
 	CatalogSyncLag       *prometheus.GaugeVec
 
 	// 多实例一致性（multi-instance-consistency-plan §4.9）。
-	LeaseState         *prometheus.GaugeVec   // 1=持租 / 0=未持租
-	LeaseRenewFailures *prometheus.CounterVec // 续约失败
-	LeaseLost          *prometheus.CounterVec // 失租（释放句柄）
-	LeaseEpoch         *prometheus.GaugeVec   // 当前租约 epoch
-	LeaseHeldRejected  *prometheus.CounterVec // 他人持租时被拒的 Acquire
-	CatalogSyncConflicts *prometheus.CounterVec // PutIfAbsent 冲突（split-brain 确证）
-	CatalogLocalAhead    prometheus.Counter     // 本地领先远端（§3.8 路径被拦截）
-	CatalogInlinedRows   *prometheus.GaugeVec   // catalog 内联行数（P0-0 后应恒为 0）
-	CatalogSizeBytes     *prometheus.GaugeVec   // catalog 文件体积（P4 决策前置信号）
-	CASSupported         prometheus.Gauge       // 启动探针结果：1=条件写可用
-	CatalogEngineMismatch prometheus.Gauge      // catalog 引擎与已有数据不一致：1=拒绝启动
-	MaintenanceSkipped   *prometheus.CounterVec // 维护任务跳过（no_lease / sync_lag）
+	LeaseState            *prometheus.GaugeVec   // 1=持租 / 0=未持租
+	LeaseRenewFailures    *prometheus.CounterVec // 续约失败
+	LeaseLost             *prometheus.CounterVec // 失租（释放句柄）
+	LeaseEpoch            *prometheus.GaugeVec   // 当前租约 epoch
+	LeaseHeldRejected     *prometheus.CounterVec // 他人持租时被拒的 Acquire
+	CatalogSyncConflicts  *prometheus.CounterVec // PutIfAbsent 冲突（split-brain 确证）
+	CatalogLocalAhead     prometheus.Counter     // 本地领先远端（§3.8 路径被拦截）
+	CatalogInlinedRows    *prometheus.GaugeVec   // catalog 内联行数（P0-0 后应恒为 0）
+	CatalogSizeBytes      *prometheus.GaugeVec   // catalog 文件体积（P4 决策前置信号）
+	CASSupported          prometheus.Gauge       // 启动探针结果：1=条件写可用
+	CatalogEngineMismatch prometheus.Gauge       // catalog 引擎与已有数据不一致：1=拒绝启动
+	MaintenanceSkipped    *prometheus.CounterVec // 维护任务跳过（no_lease / sync_lag）
 
 	// 分段计时（api-db-perf-validation-plan §2.1）。route/stage 均为低基数。
 	APIStageSeconds *prometheus.HistogramVec

@@ -1,8 +1,8 @@
 // db_stats_cache.go 实现「库内用户表总行数」的缓存与后台刷新
-//（ducklake-storage-latency-optimization-v2.0-plan §4-P1）。
+// （ducklake-storage-latency-optimization-v2.0-plan §4-P1）。
 //
 // 背景：数据库列表原先对每个 ready 库同步执行 Acquire + 每表 COUNT(*)
-//（N+1 同步请求链，单库最多 3s 串行累加，冷库还触发 S3 下载）。
+// （N+1 同步请求链，单库最多 3s 串行累加，冷库还触发 S3 下载）。
 // 本组件把统计移出请求路径：列表只读缓存，未命中省略 document_count，
 // 由后台有界并发任务补齐。
 //

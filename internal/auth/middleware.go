@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -47,7 +46,18 @@ func APIKeyMiddleware(svc *Service, inject func(ctx context.Context, p Principal
 //
 // extract 由调用方传入 internal/api.PrincipalFromContext，避免反向依赖。
 func Require(permission Permission, extract func(ctx context.Context) (Principal, bool)) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
+	return RequireDelegable(permission, extract, nil)
+}
+
+// DelegableContextKey 是 Echo context 上 delegable 标记的键（planv6.0 D1）。
+const DelegableContextKey = "simplebase:delegable"
+
+// RequireDelegable 在 Require 基础上执行委托边界（planv6.0 D1/D2）：
+// 委托主体（Principal.Delegated）只能访问带 delegable 标记的路由，
+// 未标记路由默认拒绝（403），防止白名单字符串表与路由漂移。
+// delegable 为 nil 时表示该路由不可委托。
+func RequireDelegable(permission Permission, extract func(ctx context.Context) (Principal, bool), delegable echo.MiddlewareFunc) echo.MiddlewareFunc {
+	check := func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			p, ok := extract(c.Request().Context())
 			if !ok {
@@ -56,8 +66,17 @@ func Require(permission Permission, extract func(ctx context.Context) (Principal
 			if !p.HasPermission(permission) {
 				return echo.NewHTTPError(http.StatusForbidden, "permission denied")
 			}
+			if p.Delegated && c.Get(DelegableContextKey) != true {
+				return echo.NewHTTPError(http.StatusForbidden, "delegated principal cannot access this route")
+			}
 			return next(c)
 		}
+	}
+	if delegable == nil {
+		return check
+	}
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return delegable(check(next))
 	}
 }
 
@@ -93,13 +112,10 @@ func AuthMiddlewareWithDelegation(sessions SessionAuthenticator, keys *Service, 
 						if err != nil {
 							return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
 						}
-						path := c.Path()
-						if path == "" {
-							path = c.Request().URL.Path
-						}
-						if strings.HasPrefix(path, "/v1/auth") || strings.Contains(path, "/llm/providers") {
-							return echo.NewHTTPError(http.StatusForbidden, "permission denied")
-						}
+						// planv6.0 D1：路由级委托边界。这里只注入标记后的 Principal，
+						// 路径判断全部下沉到路由级 RequireDelegable（默认拒绝），
+						// 消除字符串白名单与真实路由的漂移。
+						p.Delegated = true
 						ctx := inject(c.Request().Context(), p)
 						c.SetRequest(c.Request().WithContext(ctx))
 						return next(c)

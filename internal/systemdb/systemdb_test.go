@@ -158,7 +158,7 @@ func TestSQLRepositoryOnSystemSchema(t *testing.T) {
 	}
 	repo := catalog.NewSQLRepository(db)
 	tenantID := catalog.ReservedTenantID
-	projectID := catalog.DevProjectID
+	projectID := "testprj1"
 	if err := repo.CreateTenant(ctx, catalog.Tenant{ID: tenantID, Name: "t", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
@@ -166,10 +166,11 @@ func TestSQLRepositoryOnSystemSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	authSvc := auth.NewService(auth.NewSQLAPIKeyRepository(db), "secret")
-	if err := auth.CreateAPIKey(ctx, db, catalog.DevAPIKeyID, projectID, authSvc.HashKey(DevRawAPIKey), []auth.Permission{auth.ProjectAdmin}, time.Now()); err != nil {
+	const rawKey = "sb_test_key_12345"
+	if err := auth.CreateAPIKey(ctx, db, "00000000-0000-0000-0000-000000000003", projectID, authSvc.HashKey(rawKey), []auth.Permission{auth.ProjectAdmin}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	rec, err := authSvc.Authenticate(ctx, DevRawAPIKey)
+	rec, err := authSvc.Authenticate(ctx, rawKey)
 	if err != nil {
 		t.Fatalf("authenticate: %v", err)
 	}
@@ -262,7 +263,7 @@ func TestBootstrapDuckLake(t *testing.T) {
 		LocatorDir: filepath.Join(dir, "system"),
 		Name:       DefaultName,
 		Factory:    f,
-		Keys:       objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"},
+		Keys:       objectstore.KeyBuilder{RootPrefix: "simplebase"},
 	})
 	if err != nil {
 		t.Fatalf("bootstrap (needs CGO + ducklake extension): %v", err)
@@ -319,7 +320,7 @@ func TestBootstrapPausesSyncUntilSeed(t *testing.T) {
 		LocatorDir: filepath.Join(dir, "system"),
 		Name:       DefaultName,
 		Factory:    f,
-		Keys:       objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"},
+		Keys:       objectstore.KeyBuilder{RootPrefix: "simplebase"},
 	})
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)
@@ -355,7 +356,7 @@ func TestIsAdminProjectAndStoreLifecycle(t *testing.T) {
 	if !IsAdminProject(catalog.ReservedSystemProjectID) {
 		t.Fatal("admin project")
 	}
-	if IsAdminProject(catalog.DevProjectID) || IsAdminProject("") {
+	if IsAdminProject("testprj1") || IsAdminProject("") {
 		t.Fatal("non-admin")
 	}
 
@@ -581,20 +582,48 @@ func TestSeedAndIsDuplicate(t *testing.T) {
 	}
 
 	authSvc := auth.NewService(s.AuthRepo(), "secret")
-	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
+	keys := objectstore.KeyBuilder{RootPrefix: "simplebase"}
 	cat := catalog.NewService(s.CatalogRepo(), keys, nil, objectstore.DuckLakeStorage{}, nil)
-	if err := Seed(ctx, SeedInput{Store: s, Auth: authSvc, Catalog: cat, DevMode: true}); err != nil {
+	// Seed 不再创建演示项目或明文 Key：重复执行只保证保留租户与系统项目存在。
+	if err := Seed(ctx, SeedInput{Store: s, Auth: authSvc, Catalog: cat}); err != nil {
 		t.Fatal(err)
 	}
-	// idempotent DevMode
-	if err := Seed(ctx, SeedInput{Store: s, Auth: authSvc, Catalog: cat, DevMode: true}); err != nil {
+	if err := Seed(ctx, SeedInput{Store: s, Auth: authSvc, Catalog: cat}); err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.CountCloudAgents(ctx, catalog.DevProjectID)
+	projects, err := s.CatalogRepo().ListProjectsByTenant(ctx, catalog.ReservedTenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].ID != catalog.ReservedSystemProjectID {
+		t.Fatalf("seed must create exactly the system project, got %+v", projects)
+	}
+	// 项目级 KV catalog 与内置助手由项目创建流程负责（不再由 Seed 代建）。
+	// 先按正常流程建项目，再验证 KV 与助手的幂等种子。
+	const kvPrj = "kvprj001"
+	if err := s.CatalogRepo().CreateProject(ctx, catalog.Project{
+		ID: kvPrj, TenantID: catalog.ReservedTenantID, Name: "kv-test", CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	kvDB, err := cat.CreateKVDatabase(ctx, catalog.ReservedTenantID, kvPrj)
+	if err != nil {
+		t.Fatalf("create kv db: %v", err)
+	}
+	if kvDB.Kind != catalog.DatabaseKindKV || kvDB.Name != catalog.KVDatabaseName {
+		t.Fatalf("kv db: %+v", kvDB)
+	}
+	if err := s.SeedDefaultCloudAgents(ctx, kvPrj); err != nil {
+		t.Fatalf("seed agents: %v", err)
+	}
+	if err := s.SeedDefaultCloudAgents(ctx, kvPrj); err != nil {
+		t.Fatalf("seed agents (idempotent): %v", err)
+	}
+	n, err := s.CountCloudAgents(ctx, kvPrj)
 	if err != nil || n != 4 {
 		t.Fatalf("seeded agents n=%d err=%v", n, err)
 	}
-	dbs, _, err := s.CatalogRepo().ListDatabasesByKind(ctx, catalog.DevProjectID, catalog.DatabaseKindKV, catalog.Page{Limit: 10})
+	dbs, _, err := s.CatalogRepo().ListDatabasesByKind(ctx, kvPrj, catalog.DatabaseKindKV, catalog.Page{Limit: 10})
 	if err != nil || len(dbs) != 1 || dbs[0].Name != catalog.KVDatabaseName || dbs[0].Kind != catalog.DatabaseKindKV {
 		t.Fatalf("seeded project kv db: %+v err=%v", dbs, err)
 	}
@@ -821,18 +850,36 @@ func TestLLMSessionsAndSettings(t *testing.T) {
 	}
 
 	st, err := s.GetLLMSettings(ctx, "p1")
-	if err != nil || st.Temperature != 0.7 || st.MaxTokens != 1024 {
+	if err != nil || st.Temperature != 0.7 || st.MaxTokens != 1024 || st.APIKey != "" || st.BaseURL != "" {
 		t.Fatalf("default settings: %+v err=%v", st, err)
 	}
-	if err := s.PutLLMSettings(ctx, LLMSettings{ProjectID: "p1", DefaultProvider: "openai", DefaultModel: "m", Temperature: 0.1, MaxTokens: 8}); err != nil {
+	if err := s.PutLLMSettings(ctx, LLMSettings{ProjectID: "p1", DefaultProvider: "openai", DefaultModel: "m", APIKey: "sk-live-1234567890", BaseURL: "http://127.0.0.1:9/v1", Temperature: 0.1, MaxTokens: 8}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutLLMSettings(ctx, LLMSettings{ProjectID: "p1", DefaultProvider: "openai", DefaultModel: "m2", Temperature: 0.2, MaxTokens: 16}); err != nil {
+	// 连接信息落库；mask 只留首尾。
+	st, err = s.GetLLMSettings(ctx, "p1")
+	if err != nil || st.APIKey != "sk-live-1234567890" || st.BaseURL != "http://127.0.0.1:9/v1" {
+		t.Fatalf("connection fields: %+v err=%v", st, err)
+	}
+	if MaskSecretValue(st.APIKey) != "sk-...7890" {
+		t.Fatalf("mask: %q", MaskSecretValue(st.APIKey))
+	}
+	// api_key 留空表示沿用既有值（前端只拿到脱敏串，无法回传原文）。
+	if err := s.PutLLMSettings(ctx, LLMSettings{ProjectID: "p1", DefaultProvider: "openai", DefaultModel: "m2", BaseURL: "http://127.0.0.1:8/v1", Temperature: 0.2, MaxTokens: 16}); err != nil {
 		t.Fatal(err)
 	}
 	st, err = s.GetLLMSettings(ctx, "p1")
-	if err != nil || st.DefaultModel != "m2" || st.MaxTokens != 16 {
+	if err != nil || st.DefaultModel != "m2" || st.MaxTokens != 16 || st.APIKey != "sk-live-1234567890" || st.BaseURL != "http://127.0.0.1:8/v1" {
 		t.Fatalf("updated settings: %+v err=%v", st, err)
+	}
+}
+
+func TestMaskSecretValueShort(t *testing.T) {
+	if MaskSecretValue("") != "" {
+		t.Fatal("empty should stay empty")
+	}
+	if MaskSecretValue("short") != "••••••••" {
+		t.Fatalf("short value should be fully masked, got %s", MaskSecretValue("short"))
 	}
 }
 

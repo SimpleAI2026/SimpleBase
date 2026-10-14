@@ -1,13 +1,20 @@
 import { computed, getCurrentScope, onScopeDispose, ref, type ComputedRef, type Ref } from 'vue'
 import { toast } from 'vue-sonner'
+import { resolveText } from '@/locales'
 import { errorMessage } from '@/utils/format'
 
 /** 占位出现延迟。快请求在此之前结束则不闪骨架；消失不延迟。 */
 export const LOAD_PLACEHOLDER_DELAY_MS = 160
 
 export interface UseLoadStateOptions {
-  /** 非 Error 拒绝时的文案。 */
+  /** 非 Error 拒绝时的文案，可以是 i18n key 或已翻译文案。 */
   fallback?: string
+  /**
+   * 判定「资源尚未建立」的错误：命中时不报错、不 toast，
+   * 直接落到空态（plan/planv6.0/cloud-assistant-chat-ux-plan.md §2.2）。
+   * 缺省不传，行为与之前一致。
+   */
+  emptyOn?: (e: unknown) => boolean
 }
 
 export interface LoadRunOptions {
@@ -106,7 +113,16 @@ export function useLoadState(options: UseLoadStateOptions = {}): LoadState {
       error.value = ''
     } catch (e) {
       if (gen !== generation) return
-      const msg = errorMessage(e, runOptions.fallback || options.fallback || '加载失败')
+      // 资源尚未建立：按空数据处理，不 toast、不进入错误态。
+      if (options.emptyOn?.(e)) {
+        hasData.value = false
+        error.value = ''
+        return
+      }
+      const msg = errorMessage(
+        e,
+        resolveText(runOptions.fallback || options.fallback || 'error.loadFailed')
+      )
       toast.error(msg)
       if (keep) {
         error.value = ''

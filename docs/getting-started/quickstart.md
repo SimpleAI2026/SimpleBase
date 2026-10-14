@@ -5,7 +5,7 @@ order: 2
 
 # 5 分钟上手
 
-本示例只面向本地 `dev_mode: true`。生产环境**不要**使用内置开发 Key 或示例密码。
+本示例面向本地开发（`storage.database/files: local`，默认值）。生产环境**不要**使用示例密码，凭据一律从环境变量注入。
 
 ## 1. 启动本地服务
 
@@ -15,15 +15,15 @@ order: 2
 ./build.sh dev
 ```
 
-开发模式启动后，打开控制台（以终端显示的地址为准）。本地初始化会建立普通项目 `dev-shop`；控制台可使用开发环境中的引导账号 `simplebase2026` 和同名初始密码登录，首次登录后按提示修改密码。CLI 示例使用本地种子 API Key：
+启动后打开控制台（以终端显示的地址为准）。首次启动请先用引导账号 `simplebase2026` / 同名初始密码登录（首次登录后按提示修改密码），再在右上角创建项目。API Key 请在控制台「设置 → 连接」中点「重置」为项目签发：
 
 ```bash
 export BASE=http://127.0.0.1:8080
-export PROJECT=dev-shop
-export SB_KEY=sb_live_dev_key_12345
+export PROJECT=<你的项目 ID>
+export SB_KEY=<控制台签发的 API Key>
 ```
 
-此 Key 只用于本地开发；生产环境请在项目管理中签发具备所需权限的 Key 并从可信环境变量注入。浏览器生产包中不得嵌入写权限 Key。
+浏览器生产包中不得嵌入写权限 Key。
 
 ## 2. 创建数据库
 
@@ -47,7 +47,7 @@ curl -sS -X POST "$BASE/v1/projects/$PROJECT/databases/$DATABASE/query" \
   -d '{"sql":"SELECT 1 + 1 AS answer","max_rows":10}'
 ```
 
-预期 `columns` 含 `answer`，`rows` 含 `2`。写入 SQL 用同一路径下的 `/execute`（需要 `database:write`），批量语句用 `/batch`。详情见 [SQL 与集合](/docs/database/sql)。
+预期 `columns` 含 `answer`，`rows` 含 `2`。写入 SQL 用同一路径下的 `/execute`（需要 `database:write`），批量语句用 `/batch`。详情见 [SQL 与集合](/docs/data/sql)。
 
 ## 4. 写入项目级 Key-Value
 
@@ -62,7 +62,7 @@ curl -sS -X POST "$BASE/v1/projects/$PROJECT/kv" \
   -d '{"type":"cmd","argvs":["GET","quickstart:hello"]}'
 ```
 
-第二条请求返回 `world`。详见 [Key-Value](/docs/database/kv)。
+第二条请求返回 `world`。详见 [Key-Value](/docs/data/kv)。
 
 ## 下一步
 

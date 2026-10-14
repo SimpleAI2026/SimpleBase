@@ -29,10 +29,25 @@ func localStatePath(layout Layout) string {
 	return filepath.Join(filepath.Dir(layout.CatalogFile), "local-state.json")
 }
 
-// ReadLocalState 读取水位文件；缺失或损坏返回零值（ok=false）。
-func ReadLocalState(cacheDir, databaseID string) (LocalState, bool) {
-	layout := layoutFor(cacheDir, databaseID)
+// ReadLayoutState 按布局读取水位文件（本地/远端模式目录可能不同，必须传布局）。
+func ReadLayoutState(layout Layout) (LocalState, bool) {
 	return readLocalStateAt(localStatePath(layout))
+}
+
+// SaveLayoutState 按布局原子写入水位文件。
+func SaveLayoutState(layout Layout, st LocalState) error {
+	return saveLocalStateAt(localStatePath(layout), st)
+}
+
+// ReadLocalState 读取水位文件（catalog 工作副本位于 {cacheDir}/{databaseID} 时使用）。
+// 缺失或损坏返回零值（ok=false）。
+func ReadLocalState(cacheDir, databaseID string) (LocalState, bool) {
+	return readLocalStateAt(localStatePath(layoutForEngine(cacheDir, databaseID, EngineDuckDB)))
+}
+
+// SaveLocalState 原子写入水位文件（catalog 工作副本位于 {cacheDir}/{databaseID} 时使用）。
+func SaveLocalState(cacheDir, databaseID string, st LocalState) error {
+	return saveLocalStateAt(localStatePath(layoutForEngine(cacheDir, databaseID, EngineDuckDB)), st)
 }
 
 func readLocalStateAt(path string) (LocalState, bool) {
@@ -47,10 +62,8 @@ func readLocalStateAt(path string) (LocalState, bool) {
 	return st, true
 }
 
-// SaveLocalState 原子写入水位文件（tmp + rename）。
-func SaveLocalState(cacheDir, databaseID string, st LocalState) error {
-	layout := layoutFor(cacheDir, databaseID)
-	path := localStatePath(layout)
+// saveLocalStateAt 原子写入水位文件（tmp + rename）。
+func saveLocalStateAt(path string, st LocalState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("ducklake: local-state dir: %w", err)
 	}

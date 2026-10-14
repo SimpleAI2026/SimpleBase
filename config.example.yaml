@@ -1,164 +1,217 @@
 # SimpleBase 单实例配置示例
 #
 # 复制为 config.yaml（已被 .gitignore）并按环境修改。
-# 加载顺序：代码默认值 → 本文件 → SIMPLEBASE_* 环境变量覆盖。
-# 生产密钥不要写进本文件：用环境变量或 IAM 角色注入。
+# 加载顺序：代码默认值 → 本文件 → SIMPLEBASE_* 环境变量覆盖 → Validate()。
+#
+# 密钥规则（重要）：
+#   所有密钥（auth.api_key_hash_secret、s3.access_key/secret_key、
+#   llm.providers.*.api_key、sandbox.api_key）都只能来自环境变量或 .env。
+#   YAML 里出现非空密钥会被 Validate() 直接拒绝启动。
 #
 # 本地开发最短路径：
-#   1. cp config.example.yaml config.yaml
-#   2. 设置 dev_mode: true，并填写 auth.api_key_hash_secret（或 SIMPLEBASE_AUTH_APIKEY_SECRET）
-#   3. ./build.sh dev
-#      （脚本在缺少 config.yaml 时会从本文件生成一份本地副本，并把 log_level 设为 debug）
+#   1. ./build.sh dev
+#      （缺少 config.yaml 时会从本文件生成一份副本；auth 盐自动写入 .env）
+#   2. 首次登录用内置超管（见 internal/auth 的 Bootstrap 常量），随后立即改密。
+#
+# 存储模式（本版本新增，见 plan/planv6.0/storage-local-first-plan.md）：
+#   storage.database / storage.files 决定持久层落在本地盘还是对象存储。
+#   local 模式下 storage.data_dir 是唯一副本，cache_dir 只放可丢弃的内容。
+#   切换模式不迁移数据：改配置 → Ctrl+C → ./build.sh reset -y → ./build.sh dev。
+#   启动时会比对 {data_dir}/_system/identity.json，模式不一致直接拒绝启动。
 
 # ── HTTP ──────────────────────────────────────────────
+# 代码：internal/app/app.go（http.Server 装配）、internal/config/config.go
 http:
-  address: ":8080"            # SIMPLEBASE_HTTP_ADDRESS；./build.sh --api-port 会覆盖
-  read_timeout: 15s           # SIMPLEBASE_HTTP_READ_TIMEOUT
-  write_timeout: 30s          # SIMPLEBASE_HTTP_WRITE_TIMEOUT
-  idle_timeout: 60s           # SIMPLEBASE_HTTP_IDLE_TIMEOUT
-  shutdown_timeout: 30s       # SIMPLEBASE_HTTP_SHUTDOWN_TIMEOUT；SIGTERM 优雅退出预算
+  address: ":8080"            # 监听地址。环境变量 SIMPLEBASE_HTTP_ADDRESS；./build.sh --api-port 会覆盖
+  read_timeout: 15s           # 单请求读取上限。SIMPLEBASE_HTTP_READ_TIMEOUT
+  write_timeout: 30s          # 单请求写入上限。SIMPLEBASE_HTTP_WRITE_TIMEOUT
+                              # 生效条件：启用沙盒时会被自动抬高到 exec_timeout_max + 1m
+  idle_timeout: 60s           # keep-alive 空闲上限。SIMPLEBASE_HTTP_IDLE_TIMEOUT
+  shutdown_timeout: 30s       # SIGTERM 优雅退出预算。SIMPLEBASE_HTTP_SHUTDOWN_TIMEOUT
 
 # ── Instance ──────────────────────────────────────────
+# 代码：internal/app/app.go（日志/指标身份、租约 owner）、internal/database/lease
 instance:
-  id: "simplebase-dev-1"      # SIMPLEBASE_INSTANCE_ID（必填）；S3 对象前缀 / 日志身份
-                              # 注意：改变 id 等价于换全新空存储；启动检测会拒绝（需走迁移流程）
-  writable: true              # SIMPLEBASE_INSTANCE_WRITABLE；单写实例必须为 true
-  lease:                      # per-database 写租约（multi-instance-consistency-plan §4.6）
-    enabled: false            # SIMPLEBASE_INSTANCE_LEASE_ENABLED；仅单实例默认关闭，多实例须显式开启
-    ttl: 30s                  # SIMPLEBASE_INSTANCE_LEASE_TTL；持租判活窗口
-    renew_interval: 10s       # SIMPLEBASE_INSTANCE_LEASE_RENEW_INTERVAL；建议 ttl/3
-    grace: 10s                # SIMPLEBASE_INSTANCE_LEASE_GRACE；观察式判活的等待窗口
-    on_lost: release_db       # SIMPLEBASE_INSTANCE_LEASE_ON_LOST；release_db | exit
+  id: "simplebase-dev-1"      # 实例身份，用于日志、指标、租约 owner、reset --confirm。SIMPLEBASE_INSTANCE_ID
+                              # 不再参与存储路径（路径按项目 ID 组织）
+  writable: true              # false = 只读实例，不挂载写路由。SIMPLEBASE_INSTANCE_WRITABLE
+                              # 生效条件：storage.database=s3 且 writable=false 时不启动同步器
+  lease:                      # per-database 写租约；仅 writable + storage.database=s3 时生效
+                              # 代码：internal/database/lease、internal/app/app.go
+    enabled: false            # 单实例默认关闭；多实例必须显式开启。SIMPLEBASE_INSTANCE_LEASE_ENABLED
+                              # 条件写探针失败且此处为 true 时拒绝启动（不静默降级）
+    ttl: 30s                  # 持租判活窗口。SIMPLEBASE_INSTANCE_LEASE_TTL
+    renew_interval: 10s       # 续约间隔，建议 ttl/3。SIMPLEBASE_INSTANCE_LEASE_RENEW_INTERVAL
+    grace: 10s                # 观察式判活的等待窗口。SIMPLEBASE_INSTANCE_LEASE_GRACE
+    on_lost: release_db       # 失租动作：release_db（释放库句柄）| exit。SIMPLEBASE_INSTANCE_LEASE_ON_LOST
 
-# 本地开发：DATA_PATH 落盘、旁路 S3、写入 Dev 种子 API key。生产必须 false。
-dev_mode: true               # SIMPLEBASE_DEV_MODE
+# ── Storage（持久层位置）──────────────────────────────
+# 代码：internal/config/config.go（validateStorage）、internal/app/app.go（assembleDeps、
+#       newUserDatabaseFactory）、internal/database/ducklake/factory.go（layoutFor）
+storage:
+  # 数据库持久层（系统库 + 用户库的 catalog 与 parquet）。
+  # 默认 local；改为 s3 时必须同时配置 s3.bucket / s3.region，并先执行 ./build.sh reset。
+  database: local             # local | s3；SIMPLEBASE_STORAGE_DATABASE
+  # 用户文件持久层。local 时落在 {data_dir}/{projectID}/files；s3 时落在 {prefix}/{projectID}/files。
+  files: local                # local | s3；SIMPLEBASE_STORAGE_FILES
+  # 本地持久根目录。local 模式下是唯一副本，需要自行备份（如挂载盘快照）。
+  # 该目录与 database.cache_dir 不能相同、也不能互相包含：缓存淘汰会删除 cache_dir 下的内容。
+  data_dir: "./data"          # SIMPLEBASE_DATA_DIR
 
-# ── Database / DuckLake ───────────────────────────────
+# ── Database / 缓存 / DuckLake ────────────────────────
+# 代码：internal/database/cache（淘汰）、internal/database/registry（句柄生命周期）、
+#       internal/database/ducklake（引擎选项）
 database:
-  engine: ducklake            # SIMPLEBASE_DB_ENGINE；仅允许 ducklake
-  cache_dir: ".cache"         # SIMPLEBASE_DB_CACHE_DIR（必填）
-  cache_max_bytes: 1073741824 # SIMPLEBASE_DB_CACHE_MAX_BYTES；1GiB LRU 上限（生产可改为 10GiB）
-  cache_max_databases: 256    # SIMPLEBASE_DB_CACHE_MAX_DATABASES
-  idle_timeout: 5m            # SIMPLEBASE_DB_IDLE_TIMEOUT；空闲库句柄关闭
-  max_open: 8                 # SIMPLEBASE_DB_MAX_OPEN；同时打开的用户库数（非 sql.DB pool）
+  engine: ducklake            # 仅允许 ducklake。SIMPLEBASE_DB_ENGINE
+  cache_dir: ".cache"         # 可丢弃的缓存根：tmp、S3 模式的 catalog 工作副本。SIMPLEBASE_DB_CACHE_DIR
+                              # 容量不足时按 LRU 整体删除子目录，因此绝不能指向 storage.data_dir
+  cache_max_bytes: 1073741824 # 缓存容量上限（1GiB）。SIMPLEBASE_DB_CACHE_MAX_BYTES
+  cache_max_databases: 256    # 缓存中保留的库目录数上限。SIMPLEBASE_DB_CACHE_MAX_DATABASES
+  idle_timeout: 5m            # 空闲多久关闭库句柄（不删数据）。SIMPLEBASE_DB_IDLE_TIMEOUT
+  max_open: 8                 # 同时打开的库数上限。SIMPLEBASE_DB_MAX_OPEN
   ducklake:
-    catalog_engine: duckdb    # SIMPLEBASE_DUCKLAKE_CATALOG_ENGINE；新部署推荐 duckdb；已有 SQLite 数据应配置 sqlite，切换需先备份并 reset
-    memory_limit: 512MB       # SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT
-    threads: 2                # SIMPLEBASE_DUCKLAKE_THREADS
-    extension_dir: ""         # SIMPLEBASE_DUCKLAKE_EXTENSION_DIR（生产预置扩展）
-    data_inlining_row_limit: 1000 # SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT；小写入内联在本地 catalog，
-                                   # 同步前刷出 Parquet；崩溃/丢盘可丢最近一个同步周期的提交。
-    parquet_compression: zstd     # SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION
-    target_file_size: 64MB        # SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE
-    require_commit_message: false # SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE
+    # catalog 引擎：duckdb | sqlite。切换前必须先 reset，否则拒绝启动。
+    # 代码：internal/database/ducklake/instance_format.go
+    catalog_engine: duckdb    # SIMPLEBASE_DUCKLAKE_CATALOG_ENGINE
+    memory_limit: 512MB       # 每个库 DuckDB 实例的内存上限。SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT
+    threads: 2                # 每个库的 DuckDB 线程数。SIMPLEBASE_DUCKLAKE_THREADS
+    extension_dir: ""         # 预置扩展目录（离线环境）。SIMPLEBASE_DUCKLAKE_EXTENSION_DIR
+    data_inlining_row_limit: 1000 # 小批量写入先内联在 catalog，同步/刷盘时落 Parquet。
+                                   # 崩溃可能丢最近一个同步周期的提交。SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT
+    parquet_compression: zstd     # none | snappy | gzip | zstd。SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION
+    target_file_size: 64MB        # 单个 Parquet 目标大小。SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE
+    require_commit_message: false # true 时写事务必须带 commit message。SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE
     catalog_sync:
-      mode: interval          # interval | debounce；旧 sync_on_commit 自动降级 interval
-      interval: 15s           # SIMPLEBASE_DUCKLAKE_SYNC_INTERVAL
-      max_lag: 30s            # SIMPLEBASE_DUCKLAKE_SYNC_MAX_LAG；同步故障仍可能超出此目标
-      debounce: 200ms         # SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS（旧模式兼容）
-      keep_versions: 10       # SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS
+      # 仅在 storage.database=s3 时生效；local 模式忽略整个 catalog_sync 段。
+      # 代码：internal/database/ducklake/catalog_syncer.go
+      mode: interval          # interval | debounce；旧 sync_on_commit 自动降级为 interval
+      interval: 15s           # 周期同步间隔。SIMPLEBASE_DUCKLAKE_SYNC_INTERVAL
+      max_lag: 30s            # 允许的最大落后；同步故障时可能超出。SIMPLEBASE_DUCKLAKE_SYNC_MAX_LAG
+      debounce: 200ms         # debounce 模式去抖窗口。SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS
+      keep_versions: 10       # 保留的历史版本数。SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS
     maintenance:
-      checkpoint_interval: 1h # SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL
-      expire_older_than: 7d   # SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN（支持 Nd）
-      delete_older_than: 7d   # SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN；孤儿文件保留窗口（勿低于 7d）
-      rewrite_delete_threshold: 0.95  # SIMPLEBASE_DUCKLAKE_MAINT_REWRITE_DELETE_THRESHOLD
+      # 代码：internal/systemdb/maintenance.go（merge / expire / cleanup 三步）
+      checkpoint_interval: 1h # 维护周期。SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL
+      expire_older_than: 7d   # 快照过期窗口，支持 Nd。SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN
+      delete_older_than: 7d   # 孤儿文件保留窗口（勿低于 7d）。SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN
+      rewrite_delete_threshold: 0.95  # 删除占比超过该值时重写数据文件。SIMPLEBASE_DUCKLAKE_MAINT_REWRITE_DELETE_THRESHOLD
+      # 注意：cleanup 默认 dry-run；真正删除需要设置 SIMPLEBASE_SYSTEMDB_CLEANUP_DELETE=1。
 
-# ── S3（非密钥）──────────────────────────────────────
-# writable + 非 dev_mode 时 bucket/region/prefix 必填。
-# access_key / secret_key 生产必须走环境变量；留空则使用 AWS 默认凭证链（IAM/IRSA）。
+# ── S3 / 对象存储 ─────────────────────────────────────
+# 代码：internal/objectstore（NewClient / NewS3FileStore）
+# 生效条件：storage.database=s3 或 storage.files=s3 时才要求 bucket/region 完整；纯本地模式可整段留空。
+# prefix 默认为空，即使用 bucket 根目录；bucket 与其他业务共用时必须设置 prefix 做隔离。
 s3:
-  endpoint: ""                # SIMPLEBASE_S3_ENDPOINT；完整 URL。腾讯云 COS 必须用区域级服务域名
-                              # https://cos.<region>.myqcloud.com（勿用 bucket 级域名
-                              # https://<bucket>-<appid>.cos.<region>.myqcloud.com，SDK 会把 bucket
-                              # 再拼进 host/path 导致 List 被误路由为 GetObject）；MinIO 如 http://127.0.0.1:9000
+  endpoint: ""                # 完整 URL。SIMPLEBASE_S3_ENDPOINT
+                              # 腾讯云 COS 必须用区域级域名 https://cos.<region>.myqcloud.com
+                              # （不要用 bucket 级域名：SDK 会重复拼接 bucket，导致 List 被路由成 GetObject）
+                              # MinIO 形如 http://127.0.0.1:9000
   region: ""                  # SIMPLEBASE_S3_REGION
   bucket: ""                  # SIMPLEBASE_S3_BUCKET
-  prefix: "simplebase"        # SIMPLEBASE_S3_PREFIX
-  force_path_style: false     # SIMPLEBASE_S3_FORCE_PATH_STYLE；COS/AWS S3/R2/GCS 用 false（虚拟主机寻址），MinIO 用 true
-  kms_key_id: ""              # SIMPLEBASE_S3_KMS_KEY_ID；SSE-KMS CMK id，非密钥材料
-  # access_key: ""            # 禁止提交。SIMPLEBASE_S3_ACCESS_KEY
-  # secret_key: ""            # 禁止提交。SIMPLEBASE_S3_SECRET_KEY
+  prefix: ""                  # 可选根前缀；留空 = 桶根目录。SIMPLEBASE_S3_PREFIX
+                              # reset 会删除该前缀下的全部对象，请确保独占
+  force_path_style: false     # COS / AWS S3 / R2 / GCS 用 false；MinIO 用 true。SIMPLEBASE_S3_FORCE_PATH_STYLE
+  kms_key_id: ""              # SSE-KMS 的 CMK id（非密钥材料）。SIMPLEBASE_S3_KMS_KEY_ID
+  # access_key / secret_key 禁止写在本文件：只能通过 SIMPLEBASE_S3_ACCESS_KEY /
+  # SIMPLEBASE_S3_SECRET_KEY 注入；留空则使用 SDK 默认凭证链（IAM 角色）。
 
 # ── System database ───────────────────────────────────
+# 代码：internal/systemdb（bootstrap / seed / 周期刷盘 / 日志保留）
 system_database:
-  name: "simplebase-system"   # SIMPLEBASE_SYSTEM_DB_NAME
-  metrics_flush_interval: 15s # SIMPLEBASE_METRICS_FLUSH_INTERVAL；besides 64 条缓冲
-  log_flush_interval: 15s     # SIMPLEBASE_LOG_FLUSH_INTERVAL
-  log_keep_days: 14           # SIMPLEBASE_LOG_KEEP_DAYS；种子 sys_log_retention（无行时）
+  name: "simplebase-system"   # 系统库名。SIMPLEBASE_SYSTEM_DB_NAME
+  metrics_flush_interval: 15s # 指标批量刷盘间隔。SIMPLEBASE_METRICS_FLUSH_INTERVAL
+  log_flush_interval: 15s     # 日志批量刷盘间隔。SIMPLEBASE_LOG_FLUSH_INTERVAL
+  log_keep_days: 14           # sys_log_events 保留天数（种子 retention 行）。SIMPLEBASE_LOG_KEEP_DAYS
 
 # ── Auth ──────────────────────────────────────────────
+# 代码：internal/auth（HMAC 盐用于 API Key 哈希）
 auth:
-  # 必填 HMAC 盐。生产：SIMPLEBASE_AUTH_APIKEY_SECRET；dev 可写在本地 config.yaml。
+  # 必填。只能来自 SIMPLEBASE_AUTH_APIKEY_SECRET（或 .env）；写入 YAML 会被拒绝启动。
+  # 更换该值会使所有已发放的 API Key 失效。
   api_key_hash_secret: ""
 
 # ── LLM ───────────────────────────────────────────────
-# 运行时密钥以 catalog CredentialRef 为准；以下为实例级兜底（catalog 无密钥时）。
-# 不要自动发现 OPENAI_API_KEY 等未加前缀的环境变量。
+# 代码：internal/llmgateway
+# 运行时密钥以项目级「设置 → 模型」为准；此处是实例级兜底（项目未配置时使用）。
 llm:
-  enabled: true               # SIMPLEBASE_LLM_ENABLED；false 则不构造 gateway
-  agent_tool_protocol: auto   # auto | native | text；SIMPLEBASE_LLM_AGENT_TOOL_PROTOCOL
-  agent_max_iterations: 8    # 1–20；SIMPLEBASE_LLM_AGENT_MAX_ITERATIONS
-  agent_run_timeout: 180s    # 10s–15m；SIMPLEBASE_LLM_AGENT_RUN_TIMEOUT
-  # SiliconFlow (OpenAI 兼容): provider=openai；SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL=https://api.siliconflow.cn/v1
-  # SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL=deepseek-ai/DeepSeek-V4-Flash
-  # SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY 仅存进程环境或 .env，不写入 YAML。
+  enabled: true               # false = 不构造 gateway。SIMPLEBASE_LLM_ENABLED
+  agent_tool_protocol: auto   # auto | native | text。SIMPLEBASE_LLM_AGENT_TOOL_PROTOCOL
+  agent_max_iterations: 8     # 1–20。SIMPLEBASE_LLM_AGENT_MAX_ITERATIONS
+  agent_run_timeout: 180s     # 10s–15m。SIMPLEBASE_LLM_AGENT_RUN_TIMEOUT
+  # 支持 OpenAI 兼容网关（SiliconFlow、DeepSeek 等）：
+  #   base_url: https://api.siliconflow.cn/v1
+  #   default_model: deepseek-ai/DeepSeek-V4-Flash
+  # api_key 只能来自 SIMPLEBASE_LLM_PROVIDER_<NAME>_API_KEY。
   # providers:
   #   openai:
-  #     api_key: ""           # SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY（生产走环境）
-  #     base_url: ""          # SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL
-  #     default_model: "gpt-4o-mini"  # SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL
+  #     base_url: ""                 # SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL
+  #     default_model: "gpt-4o-mini" # SIMPLEBASE_LLM_PROVIDER_OPENAI_DEFAULT_MODEL
   #     allowed_models: ["gpt-4o-mini", "gpt-4o"]  # SIMPLEBASE_LLM_PROVIDER_OPENAI_ALLOWED_MODELS
-  #     timeout: 60s          # SIMPLEBASE_LLM_PROVIDER_OPENAI_TIMEOUT
+  #     timeout: 60s                 # SIMPLEBASE_LLM_PROVIDER_OPENAI_TIMEOUT
   # SIMPLEBASE_LLM_PROVIDERS=openai,anthropic 可增补 provider 名。
 
 # ── Agent（云助手 CLI skill）──────────────────────────
-# 代码默认 skills_cli 为 true。已有部署的 config.yaml 不自动改；要关闭：
-#   agent.skills_cli: false
-#   或 SIMPLEBASE_AGENT_SKILLS_CLI=false
+# 代码：internal/cloudagent、cmd/simplebase；只有 config.yaml + SIMPLEBASE_* 环境变量生效（env 覆盖 YAML）。
+# skills_cli=true 时，数据库/S3/日志等助手经宿主进程中的 simplebase CLI 调用现有 HTTP API；
+# CLI 不在云沙盒内运行，不向云沙盒注入凭据。关闭 skills_cli 只保留旧只读工具。
+# 服务和 CLI 共用 simplebase 二进制；./build.sh 与 Docker 镜像均只构建一个产物。
+# 手动 go run ./cmd/simplebase 时云助手默认复用当前临时可执行文件。
+# CLI 缺失/不可执行会在服务日志记录不含路径的原因类别；不会将 token/argv/SQL 正文写入日志。
 agent:
-  skills_cli: true            # SIMPLEBASE_AGENT_SKILLS_CLI
-  cli_path: ""                # 空则使用 simplebased 同目录的 simplebase；SIMPLEBASE_AGENT_CLI_PATH
-  delegation_ttl: 15m         # 1m–30m，0 表示 15m；SIMPLEBASE_AGENT_DELEGATION_TTL
-  confirm_timeout: 2m         # 10s–10m，0 表示 2m；SIMPLEBASE_AGENT_CONFIRM_TIMEOUT
+  skills_cli: true            # 默认启用；SIMPLEBASE_AGENT_SKILLS_CLI=false 可关闭
+  cli_path: ""                # 空 = 当前 simplebase 可执行文件（包括 go run）；可显式指定绝对路径
+                              # 可填绝对路径（如 /opt/simplebase/bin/simplebase）；SIMPLEBASE_AGENT_CLI_PATH 覆盖
+  delegation_ttl: 15m         # 委托令牌有效期（1m–30m）。SIMPLEBASE_AGENT_DELEGATION_TTL
+  confirm_timeout: 2m         # 交互式破坏性操作确认窗口（10s–10m）；定时任务无法确认，不能执行破坏性命令
+                              # SIMPLEBASE_AGENT_CONFIRM_TIMEOUT
+  trace_log: false            # 云助手运行日志（planv6.0 v2 §5）：元数据层（标识/长度/hash，info 级）
+                              # 始终可用；开启后额外输出内容层（提示词、用户输入、工具参数与正文），
+                              # 输出前 RedactSecrets + 截断 2000 字符。默认关闭，属脱敏约定的显式例外。
+                              # SIMPLEBASE_AGENT_TRACE_LOG=true 覆盖
 
-# ── Sandbox（云沙盒，microsandbox Cloud）──────────────
-# 侧栏「自动化 → 云沙盒」与 /v1/projects/:id/sandboxes/** 接口；云 Agent 沙盒工具复用同一套。
+# ── Sandbox（云沙盒）──────────────────────────────────
+# 代码：internal/sandbox
+# 侧栏「自动化 → 云沙盒」与 /v1/projects/:id/sandboxes/** 共用同一后端。
 sandbox:
   enabled: false              # SIMPLEBASE_SANDBOX_ENABLED
-  backend: cloud              # cloud | fake（fake 为内存假后端，仅 dev_mode=true，用于 e2e）；SIMPLEBASE_SANDBOX_BACKEND
-  api_url: ""                 # 空 = https://api.microsandbox.dev；SIMPLEBASE_SANDBOX_API_URL
-  # api_key 生产只能来自 SIMPLEBASE_SANDBOX_API_KEY，YAML 非空会被拒绝
-  image: "python:3.12-slim"   # 默认镜像；SIMPLEBASE_SANDBOX_IMAGE
-  images:                     # 镜像白名单（逗号分隔：SIMPLEBASE_SANDBOX_IMAGES），须包含 image
+  backend: cloud              # cloud | fake（fake 为内存假后端，仅测试用）
+                              # fake 需要 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1，否则拒绝启动
+  api_url: ""                 # 空 = 官方默认地址。SIMPLEBASE_SANDBOX_API_URL
+                              # api_key 只能来自 SIMPLEBASE_SANDBOX_API_KEY
+  image: "python:3.12-slim"   # 默认镜像。SIMPLEBASE_SANDBOX_IMAGE
+  images:                     # 镜像白名单（须包含 image）。SIMPLEBASE_SANDBOX_IMAGES
     - "python:3.12-slim"
     - "node:22-alpine"
     - "alpine:3.20"
-  cpus: 1                     # 单沙盒上限 1–4
-  memory_mib: 256             # 128–4096
+  cpus: 1                     # 单沙盒 CPU（1–4）
+  memory_mib: 256             # 单沙盒内存 MiB（128–4096）
   max_duration: 30m           # VM 总寿命
   idle_timeout: 5m            # 空闲回收
   exec_timeout: 30s           # 单次命令默认时限
   exec_timeout_max: 300s      # API 可自定 timeout 的上限
-  max_output_bytes: 65536
-  max_file_bytes: 1048576
-  max_per_project: 5          # 项目内未删除沙盒上限；SIMPLEBASE_SANDBOX_MAX_PER_PROJECT
+  max_output_bytes: 65536     # 单次输出上限
+  max_file_bytes: 1048576     # 单文件大小上限
+  max_per_project: 5          # 项目内未删除沙盒上限。SIMPLEBASE_SANDBOX_MAX_PER_PROJECT
   reap_interval: 5m           # 过期清理周期；0 = 关闭
-  network: none               # none | public（public 为允许上限）
+  network: none               # none | public
   workdir: /workspace
 
 # ── Limits ────────────────────────────────────────────
+# 代码：internal/api（SQLLimits）、internal/gofunction（并发闸门）
 limits:
-  max_request_bytes: 1048576        # SIMPLEBASE_LIMITS_MAX_REQUEST_BYTES
-  max_query_rows: 1000              # SIMPLEBASE_LIMITS_MAX_QUERY_ROWS
-  query_timeout: 30s                # SIMPLEBASE_LIMITS_QUERY_TIMEOUT
-  max_concurrent_queries: 64        # SIMPLEBASE_LIMITS_MAX_CONCURRENT_QUERIES
-  max_batch_statements: 100         # SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS
-  max_sql_bytes: 65536              # SIMPLEBASE_LIMITS_MAX_SQL_BYTES
+  max_request_bytes: 1048576        # 单请求体上限。SIMPLEBASE_LIMITS_MAX_REQUEST_BYTES
+  max_query_rows: 1000              # 单次查询返回行数上限。SIMPLEBASE_LIMITS_MAX_QUERY_ROWS
+  query_timeout: 30s                # 单次查询超时。SIMPLEBASE_LIMITS_QUERY_TIMEOUT
+  max_concurrent_queries: 64        # 并发查询上限。SIMPLEBASE_LIMITS_MAX_CONCURRENT_QUERIES
+  max_batch_statements: 100         # 批量语句条数上限。SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS
+  max_sql_bytes: 65536              # 单条 SQL 字节上限。SIMPLEBASE_LIMITS_MAX_SQL_BYTES
+  max_concurrent_go_runs: 16        # /go 与调试台试跑的全局并发上限（满载 503）。SIMPLEBASE_LIMITS_MAX_CONCURRENT_GO_RUNS
 
 # ── Observability ─────────────────────────────────────
+# 代码：internal/observability（zap 日志、Prometheus 指标）
 observability:
-  log_level: info             # debug | info | warn | error；SIMPLEBASE_LOG_LEVEL
-                              # ./build.sh dev 仅在 yaml/.env 都未设置时默认 debug
-  log_format: json            # json | console（console 为 zap 控制台编码器，非 JSON）
-  log_output: stderr          # stderr | stdout；SIMPLEBASE_LOG_OUTPUT
-  metrics_path: /metrics      # SIMPLEBASE_METRICS_PATH
+  log_level: info             # debug | info | warn | error。SIMPLEBASE_LOG_LEVEL
+                              # ./build.sh dev 仅在 YAML/.env 都未设置时默认 debug
+  log_format: json            # json | console。SIMPLEBASE_LOG_FORMAT
+  log_output: stderr          # stderr | stdout | <文件路径>。SIMPLEBASE_LOG_OUTPUT
+  metrics_path: /metrics      # Prometheus 抓取路径。SIMPLEBASE_METRICS_PATH

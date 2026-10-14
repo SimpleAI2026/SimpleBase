@@ -3,11 +3,14 @@ package cloudagent
 import "strings"
 
 const (
-	ModuleDatabase = "database"
-	ModuleS3       = "s3"
-	ModuleLogs     = "logs"
-	ModuleGeneral  = "general"
-	ModuleSandbox  = "sandbox"
+	ModuleDatabase   = "database"
+	ModuleKV         = "kv"
+	ModuleGoFunction = "gofunction"
+	ModuleCron       = "cron"
+	ModuleS3         = "s3"
+	ModuleLogs       = "logs"
+	ModuleGeneral    = "general"
+	ModuleSandbox    = "sandbox"
 
 	ToolListDatabases   = "list_databases"
 	ToolListCollections = "list_collections"
@@ -41,29 +44,42 @@ func IsSandboxTool(id string) bool {
 const platformBasePrompt = `You are SimpleBase Cloud Agent, a project-scoped assistant.
 Rules:
 - Stay in the current project. Never guess another tenant or project.
-- Tools are readonly. Never invent INSERT/UPDATE/DELETE/DROP or object uploads.
+- Built-in data tools are readonly. Never invent INSERT/UPDATE/DELETE/DROP or object uploads with them.
 - Never output secrets: S3 keys, provider API keys, passwords, tokens, DSN, or credential_ref values.
 - If a tool errors, explain the error; do not fabricate rows or keys.
 - Prefer tools over guessing schema or object lists.
 - Answer in the user's language.`
 
+// databaseModulePrompt 不再写死「Do not run writes」：能力口径由
+// PromptParts.Writable 统一生成（planv6.0 v2 §3.5），模块层只描述职责。
 const databaseModulePrompt = `Module: database.
 You inspect DuckLake databases in this project.
-Use list_databases, list_collections, and readonly_sql (SELECT/WITH/EXPLAIN/DESCRIBE/SHOW only).
-Do not run writes. Do not ATTACH, COPY, PRAGMA, or SET.`
+Use list_databases, list_collections, and readonly_sql (SELECT/WITH/EXPLAIN/DESCRIBE/SHOW only). If CLI skills are enabled, use the database skill for anything beyond that. Do not ATTACH, COPY, PRAGMA, or SET.`
+
+const kvModulePrompt = `Module: kv.
+You help manage project-scoped key-value storage and cached statistics.
+When CLI skills are enabled, use only the kv skill loaded for this turn. Otherwise explain that KV tools are unavailable; never invent results.`
+
+const goFunctionModulePrompt = `Module: gofunction.
+You help manage cloud functions for project-scoped APIs and aggregations.
+When CLI skills are enabled, use only the gofunction skill loaded for this turn. Otherwise explain that function tools are unavailable; never invent results.`
+
+const cronModulePrompt = `Module: cron.
+You help manage scheduled aggregation jobs in this project.
+When CLI skills are enabled, use only the cron skill loaded for this turn. Otherwise explain that cron tools are unavailable; never invent results.`
 
 const s3ModulePrompt = `Module: s3.
 You inspect the project's object store.
 Use list_objects and head_object. Keys are project-relative (no physical prefix).
-Do not upload, delete, or request file bodies.`
+The built-in tools cannot upload or delete; if CLI skills are enabled, use the s3 skill. Do not request file bodies.`
 
 const logsModulePrompt = `Module: logs.
 You search sys_log_events for this project.
-Use search_logs and log_level_stats. Do not change retention.`
+Use search_logs and log_level_stats. Retention changes go through the logs skill when enabled.`
 
 const generalModulePrompt = `Module: general.
 You help with database, object storage, and log inspection in this project. Choose tools according to the user's request; list resources before assuming names.
-Database, object storage, and log tools are read-only. Never perform writes to project data.
+Built-in database, object storage, and log tools are read-only. If CLI skills are enabled, writes go through the simplebase tool and the loaded skills.
 If sandbox tools are available, commands and files are isolated in this thread's cloud sandbox under /workspace. Do not request or expose credentials.`
 
 const sandboxModulePrompt = `Module: sandbox.
@@ -91,6 +107,9 @@ func Modules(sandboxAvailable bool) []ModuleInfo {
 	return []ModuleInfo{
 		{ID: ModuleGeneral, Name: "通用助手", Description: "跨数据库、对象存储和日志的项目助手", DefaultTools: GeneralTools(sandboxAvailable), TeamSupported: false, SandboxAvailable: sandboxAvailable},
 		{ID: ModuleDatabase, Name: "Database", Description: "Readonly database inspection and SQL", DefaultTools: []string{ToolListDatabases, ToolListCollections, ToolReadonlySQL}, TeamSupported: false},
+		{ID: ModuleKV, Name: "Key-Value", Description: "Project key-value statistics and cache (requires CLI skills)", DefaultTools: []string{}, TeamSupported: false},
+		{ID: ModuleGoFunction, Name: "Go Functions", Description: "Project cloud functions and aggregation APIs (requires CLI skills)", DefaultTools: []string{}, TeamSupported: false},
+		{ID: ModuleCron, Name: "Scheduled Tasks", Description: "Scheduled aggregation jobs (requires CLI skills)", DefaultTools: []string{}, TeamSupported: false},
 		{ID: ModuleS3, Name: "S3", Description: "Readonly object list and head", DefaultTools: []string{ToolListObjects, ToolHeadObject}, TeamSupported: false},
 		{ID: ModuleLogs, Name: "Logs", Description: "Search logs and level stats", DefaultTools: []string{ToolSearchLogs, ToolLogLevelStats}, TeamSupported: false},
 		{ID: ModuleSandbox, Name: "Sandbox", Description: "Run commands and manage files in a cloud microVM", DefaultTools: SandboxToolIDs(), TeamSupported: false, SandboxAvailable: sandboxAvailable},
@@ -109,7 +128,7 @@ func GeneralTools(sandboxAvailable bool) []string {
 // KnownModule reports whether module is a built-in id.
 func KnownModule(module string) bool {
 	switch strings.ToLower(strings.TrimSpace(module)) {
-	case ModuleDatabase, ModuleS3, ModuleLogs, ModuleGeneral, ModuleSandbox:
+	case ModuleDatabase, ModuleKV, ModuleGoFunction, ModuleCron, ModuleS3, ModuleLogs, ModuleGeneral, ModuleSandbox:
 		return true
 	default:
 		return false
@@ -121,6 +140,12 @@ func ModuleTemplate(module string) string {
 	switch strings.ToLower(strings.TrimSpace(module)) {
 	case ModuleDatabase:
 		return databaseModulePrompt
+	case ModuleKV:
+		return kvModulePrompt
+	case ModuleGoFunction:
+		return goFunctionModulePrompt
+	case ModuleCron:
+		return cronModulePrompt
 	case ModuleS3:
 		return s3ModulePrompt
 	case ModuleLogs:

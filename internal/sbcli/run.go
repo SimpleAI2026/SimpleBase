@@ -1,4 +1,4 @@
-// Package sbcli is the SimpleBase CLI. cmd/simplebase is a thin main.
+// Package sbcli is the SimpleBase resource CLI used by cmd/simplebase.
 // The assistant host may call RunIO in-process; operators run the binary.
 package sbcli
 
@@ -79,6 +79,12 @@ func RunIO(ctx context.Context, args, environ []string, stdout, stderr io.Writer
 type usageError struct{ msg string }
 
 func (e *usageError) Error() string { return e.msg }
+
+// DispatchKnown 报告 resource+action 是否为可分发的 CLI 命令
+// （planv6.0 §3.6：供 skill 文本对账测试使用）。
+func DispatchKnown(resource, action string) bool {
+	return dispatch(resource, action) != nil
+}
 
 func usagef(format string, args ...any) error {
 	return &usageError{msg: fmt.Sprintf(format, args...)}

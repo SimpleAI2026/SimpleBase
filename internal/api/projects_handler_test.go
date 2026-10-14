@@ -73,7 +73,7 @@ func setupProjectsRouter(t *testing.T, cat CatalogService, perms ...auth.Permiss
 			ctx := WithPrincipal(c.Request().Context(), auth.Principal{
 				APIKeyID:    "key-test",
 				TenantID:    catalog.ReservedTenantID,
-				ProjectIDs:  map[string]struct{}{catalog.DevProjectID: {}},
+				ProjectIDs:  map[string]struct{}{"testprj1": {}},
 				Permissions: pm,
 			})
 			c.SetRequest(c.Request().WithContext(ctx))
@@ -88,7 +88,7 @@ func setupProjectsRouter(t *testing.T, cat CatalogService, perms ...auth.Permiss
 
 func TestListProjects_OK(t *testing.T) {
 	cat := &fakeProjectCatalog{list: []catalog.Project{{
-		ID: catalog.DevProjectID, Name: "商城后台", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		ID: "testprj1", Name: "商城后台", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}}}
 	e := setupProjectsRouter(t, cat)
 	rec := doRequest(e, http.MethodGet, "/v1/projects", nil)
@@ -99,7 +99,7 @@ func TestListProjects_OK(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Projects) != 1 || out.Projects[0].ID != catalog.DevProjectID || out.Projects[0].Name != "商城后台" {
+	if len(out.Projects) != 1 || out.Projects[0].ID != "testprj1" || out.Projects[0].Name != "商城后台" {
 		t.Fatalf("unexpected body: %+v", out)
 	}
 }

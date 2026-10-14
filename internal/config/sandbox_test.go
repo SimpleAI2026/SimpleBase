@@ -16,10 +16,11 @@ func validTestConfig(t *testing.T) Config {
 		HTTP: HTTPConfig{Address: ":8080", ReadTimeout: time.Second, WriteTimeout: time.Second,
 			IdleTimeout: time.Second, ShutdownTimeout: time.Second},
 		Instance: InstanceConfig{ID: "i1", Writable: false},
+		Storage:  StorageConfig{Database: StorageModeLocal, Files: StorageModeLocal, DataDir: "/tmp/data"},
 		Database: DatabaseConfig{Engine: EngineDuckLake, CacheDir: "/tmp/x", CacheMaxBytes: 1,
 			CacheMaxDatabases: 1, IdleTimeout: time.Second, MaxOpen: 1},
-		Auth:    AuthConfig{APIKeyHashSecret: "s"},
-		Limits:  LimitsConfig{MaxRequestBytes: 1, MaxQueryRows: 1, QueryTimeout: time.Second,
+		Auth: AuthConfig{APIKeyHashSecret: "s"},
+		Limits: LimitsConfig{MaxRequestBytes: 1, MaxQueryRows: 1, QueryTimeout: time.Second,
 			MaxConcurrentQueries: 1, MaxBatchStatements: 1, MaxSQLBytes: 1},
 		Observability:  ObservabilityConfig{LogFormat: "json", LogOutput: "stderr"},
 		SystemDatabase: SystemDatabaseConfig{LogKeepDays: 1},
@@ -200,12 +201,12 @@ func TestSandboxValidateFakeBackend(t *testing.T) {
 	cfg.Sandbox = validEnabledSandbox()
 	cfg.Sandbox.Backend = "fake"
 	cfg.Sandbox.APIKey = ""
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dev_mode") {
-		t.Fatalf("fake backend in production must fail, got %v", err)
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ALLOW_FAKE") {
+		t.Fatalf("fake backend without opt-in must fail, got %v", err)
 	}
-	cfg.DevMode = true
+	t.Setenv("SIMPLEBASE_SANDBOX_ALLOW_FAKE", "1")
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("fake backend in dev_mode must pass without key: %v", err)
+		t.Fatalf("fake backend with SIMPLEBASE_SANDBOX_ALLOW_FAKE=1 must pass without key: %v", err)
 	}
 	cfg.Sandbox.Backend = "local"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sandbox.backend") {

@@ -166,6 +166,7 @@ func (h *settingsHandler) PutGlobal(c echo.Context) error {
 
 type llmSessionHandler struct{ store *systemdb.Store }
 
+// GetSettings 返回项目模型配置。api_key 只回掩码，原文不出网。
 func (h *llmSessionHandler) GetSettings(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -178,6 +179,9 @@ func (h *llmSessionHandler) GetSettings(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"default_provider": st.DefaultProvider,
 		"default_model":    st.DefaultModel,
+		"base_url":         st.BaseURL,
+		"api_key_masked":   systemdb.MaskSecretValue(st.APIKey),
+		"has_api_key":      st.APIKey != "",
 		"temperature":      st.Temperature,
 		"max_tokens":       st.MaxTokens,
 	})
@@ -191,13 +195,23 @@ func (h *llmSessionHandler) PutSettings(c echo.Context) error {
 	var body struct {
 		DefaultProvider string   `json:"default_provider"`
 		DefaultModel    string   `json:"default_model"`
+		APIKey          string   `json:"api_key"`
+		BaseURL         string   `json:"base_url"`
 		Temperature     *float64 `json:"temperature"`
 		MaxTokens       *int     `json:"max_tokens"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return WriteError(c, err)
 	}
-	st := systemdb.LLMSettings{ProjectID: pc.ID, DefaultProvider: body.DefaultProvider, DefaultModel: body.DefaultModel, Temperature: 0.7, MaxTokens: 1024}
+	st := systemdb.LLMSettings{
+		ProjectID:       pc.ID,
+		DefaultProvider: body.DefaultProvider,
+		DefaultModel:    body.DefaultModel,
+		APIKey:          body.APIKey,
+		BaseURL:         body.BaseURL,
+		Temperature:     0.7,
+		MaxTokens:       1024,
+	}
 	if body.Temperature != nil {
 		st.Temperature = *body.Temperature
 	}
@@ -207,69 +221,17 @@ func (h *llmSessionHandler) PutSettings(c echo.Context) error {
 	if err := h.store.PutLLMSettings(c.Request().Context(), st); err != nil {
 		return WriteError(c, err)
 	}
+	saved, err := h.store.GetLLMSettings(c.Request().Context(), pc.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"default_provider": st.DefaultProvider,
-		"default_model":    st.DefaultModel,
-		"temperature":      st.Temperature,
-		"max_tokens":       st.MaxTokens,
+		"default_provider": saved.DefaultProvider,
+		"default_model":    saved.DefaultModel,
+		"base_url":         saved.BaseURL,
+		"api_key_masked":   systemdb.MaskSecretValue(saved.APIKey),
+		"has_api_key":      saved.APIKey != "",
+		"temperature":      saved.Temperature,
+		"max_tokens":       saved.MaxTokens,
 	})
-}
-
-type llmProviderCredHandler struct{ store *systemdb.Store }
-
-// ListProviderCreds 返回项目全部厂商凭证（脱敏：secret 字段仅掩码）。
-func (h *llmProviderCredHandler) ListProviderCreds(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
-	}
-	rows, err := h.store.ListLLMProviderCreds(c.Request().Context(), pc.ID)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	return c.JSON(http.StatusOK, map[string]any{"providers": systemdb.MaskedLLMProviderCreds(rows)})
-}
-
-// PutProviderCred 保存单个厂商凭证。secret 字段留空表示沿用既有值。
-func (h *llmProviderCredHandler) PutProviderCred(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
-	}
-	provider := c.Param("provider")
-	if provider == "" {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "provider is required"))
-	}
-	var body struct {
-		Credentials map[string]string `json:"credentials"`
-		DefaultModel string           `json:"default_model"`
-	}
-	if err := c.Bind(&body); err != nil {
-		return WriteError(c, err)
-	}
-	if err := h.store.UpsertLLMProviderCred(c.Request().Context(), pc.ID, provider, body.DefaultModel, body.Credentials); err != nil {
-		return WriteError(c, err)
-	}
-	row, err := h.store.GetLLMProviderCred(c.Request().Context(), pc.ID, provider)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	masked := systemdb.MaskedLLMProviderCreds([]systemdb.LLMProviderCred{row})
-	return c.JSON(http.StatusOK, masked[0])
-}
-
-// DeleteProviderCred 清除单个厂商凭证。
-func (h *llmProviderCredHandler) DeleteProviderCred(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
-	}
-	provider := c.Param("provider")
-	if provider == "" {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "provider is required"))
-	}
-	if err := h.store.DeleteLLMProviderCred(c.Request().Context(), pc.ID, provider); err != nil {
-		return WriteError(c, err)
-	}
-	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }

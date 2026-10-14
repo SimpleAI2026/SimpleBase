@@ -48,7 +48,7 @@ func TestExecuteOnRowsAffectedError(t *testing.T) {
 
 func TestSerializeValueRemainingTypes(t *testing.T) {
 	cases := []struct {
-		in   any
+		in    any
 		check func(t *testing.T, v any)
 	}{
 		{int(1), func(t *testing.T, v any) {

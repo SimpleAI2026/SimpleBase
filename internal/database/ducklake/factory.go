@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
 	"github.com/google/uuid"
@@ -23,15 +24,54 @@ import (
 )
 
 // Factory 实现 database.Factory：每库一个 DuckDB 实例（:memory: + ATTACH DuckLake）。
-// Remote.Enabled 时 DATA_PATH 指向 S3，并在 Open 时冷启动下载 catalog。
+// 本地模式（Remote.Enabled=false）下 catalog 与 data 都落在 DataRoot；
+// 远端模式（Enabled=true）下 DATA_PATH 指向 S3，CacheDir 只放 catalog 工作副本与 tmp。
 type Factory struct {
 	CacheDir string
+	// DataRoot 是本地持久根（storage.data_dir）。为空时退化为 CacheDir（仅测试用）。
+	DataRoot string
 	Options  Options
 	Syncer   Syncer
 	Remote   RemoteStorage
 	Blobs    objectstore.BlobStore
 	Logger   observability.Logger
 	Metrics  *observability.Metrics
+}
+
+// layoutFor 返回该库在当前存储模式下的本地目录布局。
+func (f *Factory) layoutFor(db catalog.Database, engine string) Layout {
+	return layoutAt(f.DataRoot, f.CacheDir, db.ProjectID, db.ID, engine, !f.Remote.Enabled)
+}
+
+// layoutAt 计算单库目录布局。
+//
+//	dataLocal=true （本地模式）：catalog 与 data 落在 {dataRoot}/{project}/databases/{id}/，
+//	                             tmp 落在 {cacheDir}/{id}/tmp。
+//	dataLocal=false（远端模式）：catalog 工作副本与 tmp 都在 cacheDir（可从远端重建），
+//	                             data 由 S3 URI 提供。
+func layoutAt(dataRoot, cacheDir, projectID, databaseID, engine string, dataLocal bool) Layout {
+	ext, _ := objectstore.CatalogFileExt(engine)
+	workRoot := filepath.Join(cacheDir, databaseID)
+	if dataLocal && dataRoot != "" && projectID != "" {
+		workRoot = filepath.Join(dataRoot, projectID, "databases", databaseID)
+	}
+	return Layout{
+		Root:        workRoot,
+		CatalogFile: filepath.Join(workRoot, "catalog", "catalog"+ext),
+		DataDir:     filepath.Join(workRoot, "data"),
+		TempDir:     filepath.Join(cacheDir, databaseID, "tmp"),
+	}
+}
+
+func (f *Factory) observeOpen(stage string, duration time.Duration, err error) {
+	if f.Logger == nil {
+		return
+	}
+	fields := []zap.Field{zap.String("stage", stage), zap.Duration("duration", duration)}
+	if err != nil && !IsLocalAhead(err) {
+		fields = append(fields, zap.Bool("error", true))
+	}
+	f.Logger.Debug("ducklake open stage", fields...)
 }
 
 // openGuardMu/openGuardPaths 是进程级「同一 catalog 文件只允许打开一次」守卫
@@ -90,10 +130,10 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 	if !IsValidCatalogEngine(engine) {
 		return nil, fmt.Errorf("ducklake: unsupported catalog engine %q (want duckdb or sqlite)", engine)
 	}
-	layout := layoutForEngine(f.CacheDir, db.ID, engine)
+	layout := f.layoutFor(db, engine)
 
 	// §4.4 防御：本地残留另一种引擎的 catalog 文件 → 拒绝打开。
-	if err := checkForeignEngineFile(layoutForEngine(f.CacheDir, db.ID, otherEngine(engine))); err != nil {
+	if err := checkForeignEngineFile(f.layoutFor(db, otherEngine(engine))); err != nil {
 		return nil, err
 	}
 	if err := layout.ensure(); err != nil {
@@ -106,7 +146,10 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 	}
 
 	if f.Remote.Enabled {
-		if _, err := EnsureLocalCatalog(ctx, f.Blobs, f.Remote, f.CacheDir, db, engine); err != nil {
+		catalogStart := time.Now()
+		_, catalogErr := EnsureLocalCatalog(ctx, f.Blobs, f.Remote, f.CacheDir, db, engine)
+		f.observeOpen("catalog_reconcile", time.Since(catalogStart), catalogErr)
+		if err := catalogErr; err != nil {
 			if IsLocalAhead(err) {
 				// 本地领先远端（§3.8）：保留本地版本，告警并计数；
 				// Open 成功后由调用方触发 Sync 推上去。
@@ -174,24 +217,34 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 	sqlDB.SetMaxOpenConns(10)
 	sqlDB.SetMaxIdleConns(2)
 
-	if err := sqlDB.PingContext(ctx); err != nil {
+	bootStart := time.Now()
+	pingErr := sqlDB.PingContext(ctx)
+	f.observeOpen("boot_ping", time.Since(bootStart), pingErr)
+	if pingErr != nil {
 		_ = sqlDB.Close()
-		return nil, fmt.Errorf("ducklake: ping: %w", err)
+		return nil, fmt.Errorf("ducklake: ping: %w", pingErr)
 	}
 
+	checkStart := time.Now()
 	if _, err := AssertDuckDBVersion(ctx, sqlDB); err != nil {
+		f.observeOpen("extension_check", time.Since(checkStart), err)
 		_ = sqlDB.Close()
 		return nil, err
 	}
 	if err := AssertExtensionsLoaded(ctx, sqlDB, engine); err != nil {
+		f.observeOpen("extension_check", time.Since(checkStart), err)
 		_ = sqlDB.Close()
 		return nil, err
 	}
+	f.observeOpen("extension_check", time.Since(checkStart), nil)
 
 	if f.Remote.Enabled {
-		if err := validateRemoteDataPath(ctx, sqlDB, opts.LakeAlias, dataPath); err != nil {
+		pathStart := time.Now()
+		pathErr := validateRemoteDataPath(ctx, sqlDB, opts.LakeAlias, dataPath)
+		f.observeOpen("data_path_check", time.Since(pathStart), pathErr)
+		if pathErr != nil {
 			_ = sqlDB.Close()
-			return nil, err
+			return nil, pathErr
 		}
 	}
 
@@ -254,7 +307,7 @@ func (f *Factory) dataPathFor(db catalog.Database, layout Layout) (string, error
 	if !f.Remote.Enabled {
 		return layout.dataPathArg(), nil
 	}
-	return buildDataURI(f.Remote, db.TenantID, db.ID)
+	return buildDataURI(f.Remote, db.ProjectID, db.ID)
 }
 
 func buildBootSQL(layout Layout, opts Options, remote RemoteStorage, dataPath string) []string {
@@ -379,19 +432,12 @@ type Layout struct {
 }
 
 func layoutFor(cacheDir, databaseID string) Layout {
-	return layoutForEngine(cacheDir, databaseID, EngineDuckDB)
+	return layoutAt("", cacheDir, "", databaseID, EngineDuckDB, false)
 }
 
-// layoutForEngine 按引擎生成布局；engine 必须先经 NormalizeCatalogEngine。
+// layoutForEngine 按引擎生成布局（catalog 工作副本在 cacheDir）；engine 必须先经 NormalizeCatalogEngine。
 func layoutForEngine(cacheDir, databaseID, engine string) Layout {
-	root := filepath.Join(cacheDir, databaseID)
-	ext, _ := objectstore.CatalogFileExt(engine)
-	return Layout{
-		Root:        root,
-		CatalogFile: filepath.Join(root, "catalog", "catalog"+ext),
-		DataDir:     filepath.Join(root, "data"),
-		TempDir:     filepath.Join(root, "tmp"),
-	}
+	return layoutAt("", cacheDir, "", databaseID, engine, false)
 }
 
 // WALFile 返回 duckdb 引擎的 WAL 路径（其他引擎为空）。
@@ -454,10 +500,10 @@ func (f *Factory) AfterWrite(ctx context.Context, db catalog.Database, sqlDB *sq
 
 	// 保留每次提交后的本地水位：重启时不得以过期状态覆盖尚未同步的 catalog。
 	if f.CacheDir != "" {
-		st, _ := ReadLocalState(f.CacheDir, db.ID)
+		st, _ := ReadLocalState(filepath.Dir(f.layoutFor(db, f.Options.normalized().CatalogEngine).CatalogFile), db.ID)
 		if snap > st.SnapshotID {
 			st.SnapshotID = snap
-			if err := SaveLocalState(f.CacheDir, db.ID, st); err != nil && f.Logger != nil {
+			if err := SaveLocalState(filepath.Dir(f.layoutFor(db, f.Options.normalized().CatalogEngine).CatalogFile), db.ID, st); err != nil && f.Logger != nil {
 				f.Logger.Warn("ducklake local-state save after write failed",
 					zap.String("database_id", db.ID), zap.Error(err))
 			}

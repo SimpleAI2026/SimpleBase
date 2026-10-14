@@ -1,5 +1,6 @@
 import { config } from '@vue/test-utils'
 import { beforeEach, vi } from 'vitest'
+import { i18n, setI18nLocale } from '@/locales'
 
 class ResizeObserverStub {
   observe() {}
@@ -94,14 +95,22 @@ vi.mock('echarts', () => {
   }
 })
 
+config.global.plugins = [i18n]
 config.global.stubs = {
   teleport: true,
   Transition: false,
   RouterLink: { template: '<a><slot /></a>' }
 }
 
+// 组件外（services / utils / composables / store getter）走 i18n.global.t，
+// 与这里的实例是同一个，所以固定 zh-CN 后既有中文断言全部成立。
+setI18nLocale('zh-CN')
+
 beforeEach(() => {
   memory.clear()
   document.documentElement.className = ''
   document.documentElement.removeAttribute('data-theme')
+  // 语言是全局单例状态：单个用例切到 en 后必须复位，否则污染同文件后续用例。
+  setI18nLocale('zh-CN')
+  document.documentElement.lang = 'zh-CN'
 })

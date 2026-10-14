@@ -141,8 +141,12 @@ func TestSQLRepository_DatabasesPaginationAndStates(t *testing.T) {
 
 	// third has deleted_at so list hides it; page limit default and overflow
 	page1, cursor, err := repo.ListDatabases(ctx, projectID, Page{Limit: 1})
-	if err != nil || len(page1) != 1 || cursor == "" {
+	if err != nil || len(page1) != 1 || cursor == "" || page1[0].ID != first.ID {
 		t.Fatalf("page1 n=%d cursor=%q err=%v", len(page1), cursor, err)
+	}
+	page2, end, err := repo.ListDatabases(ctx, projectID, Page{Limit: 1, Cursor: cursor})
+	if err != nil || len(page2) != 1 || page2[0].ID != second.ID || end != "" {
+		t.Fatalf("page2=%v end=%q err=%v", page2, end, err)
 	}
 	all, cursor, err := repo.ListDatabases(ctx, projectID, Page{Limit: 0})
 	if err != nil || len(all) != 2 || cursor != "" {
@@ -155,6 +159,28 @@ func TestSQLRepository_DatabasesPaginationAndStates(t *testing.T) {
 	sysList, _, err := repo.ListDatabasesByKind(ctx, projectID, DatabaseKindSystem, Page{Limit: 10})
 	if err != nil || len(sysList) != 2 {
 		t.Fatalf("system kind list: n=%d err=%v", len(sysList), err)
+	}
+	sysPage1, sysCursor, err := repo.ListDatabasesByKind(ctx, projectID, DatabaseKindSystem, Page{Limit: 1})
+	if err != nil || len(sysPage1) != 1 || sysCursor == "" {
+		t.Fatalf("system page1=%v cursor=%q err=%v", sysPage1, sysCursor, err)
+	}
+	sysPage2, sysEnd, err := repo.ListDatabasesByKind(ctx, projectID, DatabaseKindSystem, Page{Limit: 1, Cursor: sysCursor})
+	if err != nil || len(sysPage2) != 1 || sysPage1[0].ID == sysPage2[0].ID || sysEnd != "" {
+		t.Fatalf("system page2=%v cursor=%q err=%v", sysPage2, sysEnd, err)
+	}
+	otherProjectID := uuid.NewString()
+	if err := repo.CreateProject(ctx, Project{ID: otherProjectID, TenantID: tenantID, Name: "other", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	otherDB := first
+	otherDB.ID, otherDB.ProjectID, otherDB.Name = uuid.NewString(), otherProjectID, "foreign"
+	if err := repo.CreateDatabase(ctx, otherDB); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{uuid.NewString(), otherDB.ID} {
+		if _, _, err := repo.ListDatabases(ctx, projectID, Page{Cursor: bad}); !errors.Is(err, ErrInvalidCursor) {
+			t.Fatalf("cursor %s error = %v, want ErrInvalidCursor", bad, err)
+		}
 	}
 
 	if _, err := repo.TransitionDatabase(ctx, first.ID, nil, DatabaseClosing, now); err == nil {

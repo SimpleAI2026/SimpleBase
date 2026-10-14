@@ -96,11 +96,11 @@ func TestPlan_DeleteDatabaseSyncPurgesPlaneBOnly(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	dbPrefix, err := svc.keys.DatabasePrefix(tenantID, db.ID)
+	dbPrefix, err := svc.keys.DatabasePrefix(projectID, db.ID)
 	if err != nil {
 		t.Fatalf("DatabasePrefix: %v", err)
 	}
-	planeAKey := "simplebase/test/files/" + projectID + "/notes/hello.txt"
+	planeAKey := "simplebase/" + projectID + "/files/notes/hello.txt"
 	planeBDesc := dbPrefix + "/descriptor.json"
 	planeBData := dbPrefix + "/data/part-0.parquet"
 
@@ -176,10 +176,10 @@ func TestPlan_DeleteFromCreatingAllowed(t *testing.T) {
 }
 
 func TestPlan_DeleteWithoutPurgerStillMarksDeleted(t *testing.T) {
-	// DevMode：无 objectStore / purger
+	// 本地模式：无 objectStore / purger
 	svc, _, tenantID, projectID := setupService(t, nil)
 	db, err := svc.CreateDatabase(context.Background(), CreateDatabaseInput{
-		TenantID: tenantID, ProjectID: projectID, Name: "devmode_del",
+		TenantID: tenantID, ProjectID: projectID, Name: "localmode_del",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)

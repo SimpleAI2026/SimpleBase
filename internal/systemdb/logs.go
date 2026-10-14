@@ -123,16 +123,19 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 	args = append(args, int64(q.Limit))
 	start := time.Now()
 	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
+	s.observeReadPart("query_logs", "query", time.Since(start), err)
 	if err != nil {
 		s.observeRead("query_logs", time.Since(start), 0, err)
 		return nil, err
 	}
 	defer rows.Close()
+	scanStart := time.Now()
 	out := make([]LogEvent, 0)
 	for rows.Next() {
 		var e LogEvent
 		var project sql.NullString
 		if err := rows.Scan(&e.ID, &project, &e.Level, &e.Logger, &e.Message, &e.FieldsJSON, &e.RequestID, &e.OccurredAt); err != nil {
+			s.observeReadPart("query_logs", "scan", time.Since(scanStart), err)
 			s.observeRead("query_logs", time.Since(start), len(out), err)
 			return nil, err
 		}
@@ -142,6 +145,7 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 		out = append(out, e)
 	}
 	rerr := rows.Err()
+	s.observeReadPart("query_logs", "scan", time.Since(scanStart), rerr)
 	s.observeRead("query_logs", time.Since(start), len(out), rerr)
 	return out, rerr
 }

@@ -39,9 +39,9 @@ func TestReadLatestManifestLongChain(t *testing.T) {
 	remote := testRemote()
 	meta := testMeta()
 	// 200 个 seq：旧实现的 64 次前探上限会错误地停在 64。
-	writeChain(t, store, remote, meta.TenantID, meta.ID, 200)
+	writeChain(t, store, remote, meta.ProjectID, meta.ID, 200)
 
-	latest, err := ReadLatestManifest(context.Background(), store, remote, meta.TenantID, meta.ID, 0)
+	latest, err := ReadLatestManifest(context.Background(), store, remote, meta.ProjectID, meta.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestReadLatestManifestLongChain(t *testing.T) {
 		t.Fatalf("latest = %+v, want seq 200", latest)
 	}
 	// 带锚点：同样收敛到 200。
-	latest2, err := ReadLatestManifest(context.Background(), store, remote, meta.TenantID, meta.ID, 150)
+	latest2, err := ReadLatestManifest(context.Background(), store, remote, meta.ProjectID, meta.ID, 150)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,18 +65,18 @@ func TestReadLatestManifestBrokenChainFailsClosed(t *testing.T) {
 	ctx := context.Background()
 
 	// 模拟历史部署的修剪破坏：seq 1 已删，2..5 存在。
-	writeChain(t, store, remote, meta.TenantID, meta.ID, 5)
-	key1, _ := remote.keyBuilder().DuckLakeManifestKey(meta.TenantID, meta.ID, 1)
+	writeChain(t, store, remote, meta.ProjectID, meta.ID, 5)
+	key1, _ := remote.keyBuilder().DuckLakeManifestKey(meta.ProjectID, meta.ID, 1)
 	if err := store.Delete(ctx, key1); err != nil {
 		t.Fatal(err)
 	}
 
 	// 冷缓存发现：seq 1 缺失但更高 seq 存在 → 断链，不得当作新库。
-	if _, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 0); !IsManifestChainBroken(err) {
+	if _, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0); !IsManifestChainBroken(err) {
 		t.Fatalf("want chain broken, got %v", err)
 	}
 	// 锚点缺失：cached=1 已被删除 → 断链。
-	if _, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 1); !IsManifestChainBroken(err) {
+	if _, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 1); !IsManifestChainBroken(err) {
 		t.Fatalf("want chain broken for missing anchor, got %v", err)
 	}
 	// 断链时冷启动必须 fail closed，不得回退旧镜像。
@@ -93,7 +93,7 @@ func TestPruneKeepsManifestsAndReferencedSnapshots(t *testing.T) {
 	dir := t.TempDir()
 
 	cs := NewCatalogSyncer(store, remote, dir, CatalogSyncOptions{KeepVersions: 3}, "", nil, nil)
-	snapKeys := writeChain(t, store, remote, meta.TenantID, meta.ID, 6)
+	snapKeys := writeChain(t, store, remote, meta.ProjectID, meta.ID, 6)
 
 	// 第 6 次同步后清理：保留窗口为 seq [4,6]，限速单轮处理 3 个 → [1,3]。
 	if err := cs.pruneVersions(ctx, meta, 600, 6); err != nil {
@@ -105,7 +105,7 @@ func TestPruneKeepsManifestsAndReferencedSnapshots(t *testing.T) {
 
 	// manifest 索引永不删除：1..6 全部仍在。
 	for seq := int64(1); seq <= 6; seq++ {
-		m, err := getManifestAt(ctx, store, remote.keyBuilder(), meta.TenantID, meta.ID, seq)
+		m, err := getManifestAt(ctx, store, remote.keyBuilder(), meta.ProjectID, meta.ID, seq)
 		if err != nil || m == nil {
 			t.Fatalf("manifest %d must survive pruning: %v", seq, err)
 		}
@@ -134,12 +134,12 @@ func TestPruneSkipsSnapshotStillReferenced(t *testing.T) {
 
 	cs := NewCatalogSyncer(store, remote, t.TempDir(), CatalogSyncOptions{KeepVersions: 2}, "", nil, nil)
 	// seq 1..4：seq 4 与过期 seq 2 指向同一快照对象（重试路径会产生这种引用）。
-	shared, _ := remote.keyBuilder().DuckLakeSnapshotKey(meta.TenantID, meta.ID, 200, 7, "")
+	shared, _ := remote.keyBuilder().DuckLakeSnapshotKey(meta.ProjectID, meta.ID, 200, 7, "")
 	if err := store.PutBytes(ctx, shared, []byte("shared"), "application/x-sqlite3"); err != nil {
 		t.Fatal(err)
 	}
 	write := func(seq int64, key string) {
-		if err := WriteManifest(ctx, store, remote, meta.TenantID, meta.ID, NewManifest(seq, 200, key, "duckdb", 7, 0, "")); err != nil {
+		if err := WriteManifest(ctx, store, remote, meta.ProjectID, meta.ID, NewManifest(seq, 200, key, "duckdb", 7, 0, "")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -163,7 +163,7 @@ func TestCloseNoFlushIsPerDatabase(t *testing.T) {
 	// duckdb 原生 ATTACH 受 allowed_directories（= 该库根目录）约束。
 	id1 := filepath.Base(l1.Root)
 	id2 := filepath.Base(l2.Root)
-	tenant := "33333333-3333-3333-3333-333333333333"
+	tenant := "prj12345"
 	ctx := context.Background()
 
 	blobs := objectstore.NewMemoryBlobStore()
@@ -204,5 +204,5 @@ func TestCloseNoFlushIsPerDatabase(t *testing.T) {
 }
 
 func testMetaWith(id, tenant string) catalog.Database {
-	return catalog.Database{ID: id, TenantID: tenant}
+	return catalog.Database{ID: id, TenantID: tenant, ProjectID: "prj12345"}
 }

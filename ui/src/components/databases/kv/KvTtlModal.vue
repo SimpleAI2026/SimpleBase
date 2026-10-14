@@ -1,33 +1,33 @@
 <template>
   <SbModal
     :open="open"
-    title="设置过期时间"
+    :title="t('components.kvTtl.title')"
     :width="440"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: mode === 'custom' && !validSeconds }"
-    ok-text="保存"
+    :ok-text="t('common.save')"
     @ok="submit"
     @update:open="emit('update:open', $event)"
   >
     <FieldGroup>
       <div class="text-sm text-muted-foreground sb-mono">{{ kvKey?.key }}</div>
       <Field>
-        <FieldLabel>过期策略</FieldLabel>
-        <div class="flex items-center gap-2">
+        <FieldLabel>{{ t('components.kvTtl.strategy') }}</FieldLabel>
+        <div class="flex flex-wrap items-center gap-2">
           <Select v-model="mode">
-            <SelectTrigger class="w-40">
+            <SelectTrigger class="w-40 shrink-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">永久</SelectItem>
-              <SelectItem value="custom">自定义秒数</SelectItem>
+              <SelectItem value="none">{{ t('components.kvTtl.forever') }}</SelectItem>
+              <SelectItem value="custom">{{ t('components.kvTtl.custom') }}</SelectItem>
             </SelectContent>
           </Select>
-          <Input v-if="mode === 'custom'" v-model="seconds" type="number" min="1" class="w-40" placeholder="秒" />
+          <Input v-if="mode === 'custom'" v-model="seconds" type="number" min="1" class="min-w-32 flex-1 sm:w-40 sm:flex-none" :placeholder="t('components.kvTtl.secondsPlaceholder')" />
         </div>
       </Field>
       <div v-if="kvKey?.ttl_ms != null" class="text-xs text-muted-foreground">
-        当前剩余约 {{ Math.ceil((kvKey?.ttl_ms ?? 0) / 1000) }} 秒
+        {{ t('components.kvTtl.remaining', { n: Math.ceil((kvKey?.ttl_ms ?? 0) / 1000) }) }}
       </div>
     </FieldGroup>
   </SbModal>
@@ -36,6 +36,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -54,6 +55,8 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
   changed: []
 }>()
+
+const { t } = useI18n()
 
 const mode = ref<'none' | 'custom'>('none')
 const seconds = ref('')
@@ -81,18 +84,18 @@ async function submit() {
   try {
     if (mode.value === 'none') {
       await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['PERSIST', props.kvKey.key] })
-      toast.success('已设为永久')
+      toast.success(t('components.kvTtl.setForever'))
     } else {
       await api.kv.exec(props.projectId, {
         type: 'cmd',
         argvs: ['PEXPIRE', props.kvKey.key, String(Number(seconds.value) * 1000)]
       })
-      toast.success('已设置过期时间')
+      toast.success(t('components.kvTtl.setTtl'))
     }
     emit('update:open', false)
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '设置失败'))
+    toast.error(errorMessage(e, t('components.kvTtl.setFailed')))
   } finally {
     submitting.value = false
   }

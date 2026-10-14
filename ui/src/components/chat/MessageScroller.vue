@@ -2,7 +2,7 @@
   <div class="relative flex min-h-0 flex-1 flex-col">
     <div
       ref="viewport"
-      class="flex max-h-[480px] min-h-60 flex-col gap-4 overflow-y-auto py-1"
+      class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-1"
       @scroll="onScroll"
     >
       <slot />
@@ -14,17 +14,20 @@
       variant="outline"
       @click="scrollToEnd"
     >
-      跳到最新
+      {{ t('components.messageScroller.jumpToLatest') }}
     </Button>
   </div>
 </template>
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 
 const props = defineProps<{
   followKey?: string | number
 }>()
+
+const { t } = useI18n()
 
 const viewport = ref<HTMLElement | null>(null)
 const stick = ref(true)
@@ -43,6 +46,8 @@ function scrollToEnd() {
   el.scrollTop = el.scrollHeight
   stick.value = true
 }
+
+onMounted(() => { scrollToEnd() })
 
 watch(
   () => props.followKey,

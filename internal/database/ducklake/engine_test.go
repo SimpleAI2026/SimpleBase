@@ -124,7 +124,7 @@ func TestEngineSyncAndColdStart(t *testing.T) {
 		t.Run(engine, func(t *testing.T) {
 			ctx := context.Background()
 			dir := t.TempDir()
-			meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111"}
+			meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 			blobs := objectstore.NewMemoryBlobStore()
 			remote := testRemote()
 			opts := DefaultOptions()
@@ -147,7 +147,7 @@ func TestEngineSyncAndColdStart(t *testing.T) {
 			if err := cs.Flush(ctx, meta.ID); err != nil {
 				t.Fatalf("flush: %v", err)
 			}
-			latest, err := ReadLatestManifest(ctx, blobs, remote, meta.TenantID, meta.ID, 0)
+			latest, err := ReadLatestManifest(ctx, blobs, remote, meta.ProjectID, meta.ID, 0)
 			if err != nil || latest == nil || latest.CatalogEngine != engine {
 				t.Fatalf("manifest: %+v %v", latest, err)
 			}

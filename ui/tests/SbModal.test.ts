@@ -91,6 +91,8 @@ describe('SbModal', () => {
 
     const body = w.get('[data-slot="sb-modal-body"]')
     expect(body.classes()).toEqual(expect.arrayContaining(['min-h-0', 'min-w-0', 'overflow-y-auto', 'overflow-x-hidden']))
+    // 给 overflow 裁切下的焦点环让出空间（padding 与负 margin 抵消，视觉位置不变）
+    expect(body.classes()).toEqual(expect.arrayContaining(['px-1', '-mx-1']))
     expect(body.find('.tall-row').exists()).toBe(true)
     expect(body.text()).not.toContain('表数据')
     expect(body.text()).not.toContain('只读')

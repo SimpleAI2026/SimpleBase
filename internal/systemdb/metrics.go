@@ -197,6 +197,7 @@ func (s *Store) MetricsTrend(ctx context.Context, projectID string, days int) ([
 		days = 7
 	}
 	since := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+	start := time.Now()
 	query := `SELECT CAST(occurred_at AS DATE), name, COALESCE(SUM(value_double), 0)
 		 FROM sys_metric_samples
 		 WHERE occurred_at >= ? AND name IN ('http_requests', 'http_errors')
@@ -214,16 +215,21 @@ func (s *Store) MetricsTrend(ctx context.Context, projectID string, days int) ([
 		 GROUP BY CAST(occurred_at AS DATE), name
 		 ORDER BY 1 ASC`, projectID, since)
 	}
+	s.observeReadPart("metrics_trend", "query", time.Since(start), err)
 	if err != nil {
+		s.observeRead("metrics_trend", time.Since(start), 0, err)
 		return nil, err
 	}
 	defer rows.Close()
+	scanStart := time.Now()
 	byDate := map[string]*TrendPoint{}
 	order := make([]string, 0)
 	for rows.Next() {
 		var day, name string
 		var val float64
 		if err := rows.Scan(&day, &name, &val); err != nil {
+			s.observeReadPart("metrics_trend", "scan", time.Since(scanStart), err)
+			s.observeRead("metrics_trend", time.Since(start), len(order), err)
 			return nil, err
 		}
 		p, ok := byDate[day]
@@ -243,5 +249,8 @@ func (s *Store) MetricsTrend(ctx context.Context, projectID string, days int) ([
 	for _, d := range order {
 		out = append(out, *byDate[d])
 	}
-	return out, rows.Err()
+	rerr := rows.Err()
+	s.observeReadPart("metrics_trend", "scan", time.Since(scanStart), rerr)
+	s.observeRead("metrics_trend", time.Since(start), len(out), rerr)
+	return out, rerr
 }

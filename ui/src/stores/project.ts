@@ -1,13 +1,11 @@
 import { defineStore } from 'pinia'
+import { t } from '../locales'
 import { api } from '../services/api'
 import type { ProjectItem } from '../services/types'
 
 const STORAGE_KEY = 'sb_project_id'
 const HISTORY_KEY = 'sb_project_id_history'
 const HISTORY_MAX = 20
-
-/** DevMode 种子项目（internal/catalog.DevProjectID / systemdb seed）。 */
-export const DEFAULT_PROJECT_ID = 'dev-shop'
 
 /** admin（系统）项目：internal/catalog.ReservedSystemProjectID。 */
 export const ADMIN_PROJECT_ID = 'sb-admin'
@@ -27,12 +25,8 @@ function saveHistory(ids: string[]) {
 }
 
 function initialProjectId(): string {
-  const stored = localStorage.getItem(STORAGE_KEY)
-  if (!stored) {
-    localStorage.setItem(STORAGE_KEY, DEFAULT_PROJECT_ID)
-    return DEFAULT_PROJECT_ID
-  }
-  return stored
+  // 无本地记忆时留空：loadProjects 会自动选中第一个可见项目。
+  return (localStorage.getItem(STORAGE_KEY) || '').trim()
 }
 
 /** 当前项目 store。列表只来自 GET /v1/projects；本地历史只记住仍存在的项目。 */
@@ -55,7 +49,7 @@ export const useProjectStore = defineStore('project', {
     displayName(): string {
       if (this.projectName.trim()) return this.projectName.trim()
       const hit = this.projects.find((p) => p.id === this.id)
-      return hit?.name || this.id || '选择项目'
+      return hit?.name || this.id || t('common.selectProject')
     },
     /** 当前是否为 admin（系统）项目：数据库列表展示系统库且禁止新建/删除。 */
     isAdmin(): boolean {

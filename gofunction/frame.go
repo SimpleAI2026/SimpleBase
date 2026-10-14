@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,14 +33,32 @@ func logDebug(format string, args ...interface{}) {
 // Context 函数执行的上下文环境
 type Context struct {
 	context.Context
-	outBuffer  strings.Builder
-	goroutines int32
-	cancelFunc context.CancelFunc
+	outBufferMu  sync.Mutex // GF-RUN-03：脚本 goroutine 并发 print 需要互斥写
+	outBuffer    strings.Builder
+	outBufferCap int // GF-RUN-03：输出缓冲上限（字节），0 表示不限制
+	goroutines   int32
+	cancelFunc   context.CancelFunc
 }
+
+// defaultOutputLimit 单次执行的 print 输出上限，防止恶意脚本刷爆内存。
+const defaultOutputLimit = 1 << 20 // 1 MiB
 
 // Output 返回内置函数print和println打印的内容
 func (p *Context) Output() string {
+	p.outBufferMu.Lock()
+	defer p.outBufferMu.Unlock()
 	return p.outBuffer.String()
+}
+
+// writeOutput 向上下文输出缓冲写入（GF-RUN-03：所有写入点必须走这里）。
+// 超过上限后静默丢弃，防止脚本 goroutine 无限 print 耗尽内存。
+func (p *Context) writeOutput(s string) {
+	p.outBufferMu.Lock()
+	defer p.outBufferMu.Unlock()
+	if p.outBufferCap > 0 && p.outBuffer.Len() >= p.outBufferCap {
+		return
+	}
+	p.outBuffer.WriteString(s)
 }
 
 // waitGoroutines 等待脚本内 go 语句启动的协程结束（B8）
@@ -56,8 +75,29 @@ func (p *Context) waitGoroutines(timeout time.Duration) {
 func newCallContext() *Context {
 	ctx, cancelFunc := context.WithTimeout(context.Background(), defaultTimeout)
 	return &Context{
-		Context:    ctx,
-		cancelFunc: cancelFunc,
+		Context:      ctx,
+		cancelFunc:   cancelFunc,
+		outBufferCap: defaultOutputLimit,
+	}
+}
+
+// newChildCallContext 派生自父 ctx（GF-RUN-01）：
+// 内部截止时间取 defaultTimeout 与父 ctx 剩余时间的较小者，
+// 父 ctx 取消时执行在块边界中断。
+func newChildCallContext(parent context.Context) *Context {
+	if parent == nil {
+		return newCallContext()
+	}
+	internal := time.Now().Add(defaultTimeout)
+	deadline := internal
+	if d, ok := parent.Deadline(); ok && d.Before(internal) {
+		deadline = d
+	}
+	ctx, cancelFunc := context.WithDeadline(parent, deadline)
+	return &Context{
+		Context:      ctx,
+		cancelFunc:   cancelFunc,
+		outBufferCap: defaultOutputLimit,
 	}
 }
 

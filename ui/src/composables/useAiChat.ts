@@ -1,6 +1,7 @@
 import { errorMessage } from '@/utils/format'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
+import { t } from '@/locales'
 import { api } from '../services/api'
 import type { LlmMessage, LlmStreamConnection } from '../services/api'
 import type { AgentToolCallCard } from '../services/types'
@@ -31,7 +32,7 @@ export function useAiChat(opts: {
     const reqMessages: LlmMessage[] = messages.value.map((m) => ({ role: m.role, content: m.content }))
     reqMessages.push({ role: 'user', content })
     if (!reqMessages.length) {
-      toast.warning('消息不能为空')
+      toast.warning(t('error.emptyMessage'))
       return
     }
 
@@ -55,7 +56,7 @@ export function useAiChat(opts: {
         onError: (e) => {
           sending.value = false
           conn = null
-          if (e) toast.error(errorMessage(e, '流式请求失败'))
+          if (e) toast.error(errorMessage(e, t('error.streamFailed')))
         }
       })
       return
@@ -65,7 +66,7 @@ export function useAiChat(opts: {
       const resp = await api.llm.chat(opts.projectId(), req)
       messages.value.push({ role: 'assistant', content: resp.content })
     } catch (e) {
-      toast.error(errorMessage(e, '请求失败'))
+      toast.error(errorMessage(e, t('error.requestFailed')))
     } finally {
       sending.value = false
     }

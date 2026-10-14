@@ -24,6 +24,9 @@ type RunContext struct {
 	RunID    string
 	Skills   []string
 	Headless bool
+	// Writable 是该助手是否允许写（planv6.0 v2 §3.4）：false 时 CLI 工具
+	// 拒绝所有非只读命令（在破坏性确认之前拦截）。
+	Writable bool
 	Emit     func(Event)
 }
 

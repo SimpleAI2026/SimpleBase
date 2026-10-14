@@ -20,7 +20,7 @@ SimpleBase 是单写实例的云端数据库服务：DuckLake + S3 在线持久�
 ./build.sh dev --no-open --api-port 8081   # 不开浏览器 / 指定后端端口
 
 # ── 构建 ──────────────────────────────────────────────
-./build.sh                      # 前端 yarn build → 同步 internal/web/dist → go build -o simplebased
+./build.sh                      # 前端 yarn build → 同步 internal/web/dist → go build -o simplebase
 ./build.sh --skip-ui            # 仅编译后端（需先完整构建一次）
 ./build.sh --ui-only            # 仅构建前端并同步 embed 目录
 go build ./internal/... ./cmd/...           # 快速编译检查
@@ -39,19 +39,22 @@ cd packages/js-sdk && npm run typecheck && npm test   # SDK
 
 # ── 运维 / 压测 ───────────────────────────────────────
 ./build.sh reset [-y]                       # 删本地 cache_dir（不动远程 S3）
-./simplebased reset --confirm=<instance_id> [--local-only] [--dry-run]
+./simplebase reset --confirm=<instance_id> [--local-only] [--dry-run]
 ./build.sh perf [--http|--db|--kv|--all] [-c N] [-n N]    # 经 cmd/perfbench 压测
 ```
 
-DevMode 种子 API Key：`sb_live_dev_key_12345`。`config.yaml` 不存在时 `./build.sh dev` 会从 `config.example.yaml` 自动生成本地副本（已 gitignore）。
+本地开发默认本地盘存储（`storage.database/files: local`）。API Key 请登录控制台后在「设置 → 连接」重置签发；`config.yaml` 不存在时 `./build.sh dev` 会从 `config.example.yaml` 自动生成本地副本（已 gitignore）。
 
 ## 代码结构与依赖方向
 
 ```text
-cmd/simplebased → app → api → auth / catalog / database / objectstore
+cmd/simplebase → app → api → auth / catalog / database / objectstore
                              ↓
                        systemdb（常驻系统库连接）
                        cloudagent → llmgateway / catalog / systemdb
+                         └─ agentcore（与运行时无关：模型适配 / 协议 / 脱敏 / 事件）
+                         └─ cli（本地命令行外壳：命令面 / 会话 / REPL / 模板）
+                         └─ tools（本机工具：shell / 文件 / glob / grep / web 搜索）
                        sandbox（唯一 import microsandbox SDK 的包）
                        cronjob → crontab / gofunction
                        usage / audit → catalog
@@ -61,12 +64,14 @@ cmd/simplebased → app → api → auth / catalog / database / objectstore
 - `app` 是唯一装配点：跨模块依赖在 `assembleDeps` 按序创建，`Close` 反向释放；新增模块必须挂进装配顺序并在失败路径回收。
 - handler 不直接依赖具体实现，必须走 `api.Dependencies` 接口 + adapter。
 - 对象键使用内部 UUID，**禁止**把用户可控字符串直接拼进 S3 键。
+- `cloudagent` 的子包（`agentcore` / `cli` / `tools`）**必须**挂在 `cloudagent` 下而非平级新包：它们复用的是 cloudagent 的技能授权（`AllowArgv`）、提示词约定与事件语义。`cloudagent/agentcore` 不得 import `cloudagent`（会成环）。
+- `cmd/cloudagent` 是本地 CLI 二进制，入口**只 import `internal/cloudagent`**（父包门面 `RunCLI` / `SetCLIVersion` 转发到子包），不直接依赖 `cli` / `tools` 子包——否则「入口依赖哪个子包」就成了实现细节，子包重组会牵动 `cmd`。不进服务镜像（`Dockerfile` 不含它），会话落 `~/.cloudagent/`。
 
 ## 硬性约束
 
 1. **系统库保护**：系统库（kind=system，默认 `simplebase-system`）禁止删除、禁止写入、只允许 SELECT；写路径 handler 前置 `IsSystemDatabase` 拒绝，`systemLeaseAdapter` 双保险。不得经 registry 的用户库 factory 打开系统库（CacheDir 不同会得到空 catalog）。
-2. **配置只从 `config.yaml` + `SIMPLEBASE_*` 环境变量加载**（`internal/config`）：YAML 为非密钥权威来源，env 覆盖；不得引入其他配置来源；密钥不得落 YAML（`dev_mode: false` 时非空密钥直接拒绝）。
-3. **审计与日志脱敏**：审计只记录 SHA-256 与元数据，不得输出 SQL 参数或 LLM 正文。
+2. **配置只从 `config.yaml` + `SIMPLEBASE_*` 环境变量加载**（`internal/config`）：YAML 为非密钥权威来源，env 覆盖；不得引入其他配置来源；密钥不得落 YAML（非空密钥直接拒绝）。
+3. **审计与日志脱敏**：审计只记录 SHA-256 与元数据，不得输出 SQL 参数或 LLM 正文。唯一例外是 `agent.trace_log`（默认关闭）：打开后云助手的提示词/正文经脱敏 + 截断写入 zap 日志，不写系统库 logs 表（`internal/AGENTS.md` 有完整边界）。
 4. **依赖管理**：不新增第三方依赖、不升级版本、不改 `go.mod` / `package.json` / `tsconfig.json` / `vite.config.ts`，除非用户明确要求。
 5. **SQL 边界在 `database/sqlguard`**：拒绝清单、只读检测、多语句与 NUL 拦截不得散落到 handler。
 6. **写操作 handler 必须检查 `writable`**（实例只读时返回 `ErrWriterUnavailable`）。
@@ -79,8 +84,9 @@ cmd/simplebased → app → api → auth / catalog / database / objectstore
 
 - 对象形状一律用 `interface` 定义，**不用 `type`**。
 - 不写 `any` 落盘新代码；跨层契约集中在 `ui/src/services/types.ts`，后端 snake_case 经映射函数（`toProjectItem` 风格）转 camelCase，不透传 raw。`services/http-api.ts` 现存 35 处 `any`/`Record<string, any>`，只减不增。
-- 样式写 template 的 Tailwind class，不写自定义 CSS 文件；提示用 `vue-sonner`，确认用 `ConfirmAction`，弹窗用 `SbModal`，空态用 `SbEmptyState`，分页用 `TablePager`。
-- **样式钩子必须匹配 reka-ui 真实属性**：本仓库锁定 reka-ui 2.10.5，它只输出 `data-state`（`checked`/`unchecked`、`active`/`inactive`、`open`/`closed`）与 `data-disabled`/`data-highlighted`/`data-selected` 等，**不输出裸 `data-checked` / `data-unchecked` / `data-active` / `data-open` / `data-closed`**。写状态样式一律用 `data-[state=checked]:…` 形式；裸写法编译出的选择器永不命中（现有失效点见 planv5.0 §4.1）。
+- 样式写 template 的 Tailwind class，不写自定义 CSS 文件；提示用 `vue-sonner`，确认用 `ConfirmAction`，弹窗用 `SbModal`，空态用 `SbEmptyState`，分页用 `TablePager`；加载/空/错误三态经 `SbAsyncRegion`（错误态只有 `SbErrorState` 一个实现，`variant='inline'` 给表格 `tbody`、`'block'` 给普通区域），多页签面板用 `SbTabsPanel`。
+- **样式钩子必须匹配 reka-ui 真实属性**：本仓库锁定 reka-ui 2.10.5，它输出 `data-state`（`checked`/`unchecked`、`active`/`inactive`、`open`/`closed`）与 `data-disabled`/`data-highlighted`/`data-selected` 等，**不输出裸 `data-checked` / `data-unchecked` / `data-open` / `data-closed`**。写状态样式一律用 `data-[state=checked]:…` 形式。唯一的例外是 `data-active`：reka 的 `RovingFocusItem` 会给选中项渲染空属性 `data-active`，`TabsTrigger` 上写 `data-active:` 本来就能命中（`ui/tests/ui-state-attributes.test.ts` 已断言），新代码仍统一写 `data-[state=active]:` 保持一致性（见 planv5.0 §4.1）。
+- **多语言**：文案唯一来源是 `ui/src/locales/`（`zh-CN.ts` 权威树 + `en-US.ts` 同构）；组件内用 `useI18n()`，**组件外**（`services/` / `utils/` / `composables/` / store getter）用 `i18n.global.t`。新增文案必须同时补两棵树，key 集合必须完全一致（`ui/tests/i18n.test.ts` 会卡）。**注意 vue-i18n 把 `@` 当 linked message 起始符**，文案里的裸 `@` 必须写成 `{'@'}`，否则渲染时才抛 `Invalid linked format`。默认中文，不做浏览器语言探测，设置内切换并持久化。
 - `src/components/ui/` 视为本地 fork 的库代码，只增删组件不改风格约定；已删除的零引用组件（checkbox / drawer / dropdown-menu / pagination / radio-group）不得重新引入。
 - 设备无关的组件测试**不要桩掉 `src/components/ui/` 下的交互组件**（尤其 `Switch`）。`src/test/helpers.ts` 里的 `Switch` 桩用的是已废弃的 `checked`/`update:checked` API，会让失效的开关在测试里假通过；需要时用 reka 真实的 `modelValue` 契约（见 planv5.0 §7.3）。
 - 路由 redirect 保持现状（`/sql`→`/databases`、`/llm`→`/agents`、`/settings`→`/?settings=1` 等）；新页面必须在 `router/index.ts` 注册并配 `meta.title`。
@@ -108,7 +114,7 @@ cmd/simplebased → app → api → auth / catalog / database / objectstore
 
 ## Cursor Cloud specific instructions
 
-- 本地 `dev_mode` 不需要 S3。`./build.sh dev --no-open` 在缺少 `config.yaml` 时从 `config.example.yaml` 生成副本（gitignore）。种子 API Key 是 `sb_live_dev_key_12345`，项目 ID 是 `dev-shop`。控制台无 access token 时会弹出登录框；同一把种子 Key 仍可直接调 API。引导账号 `simplebase2026` / `simplebase2026`，首次登录必须改密。
+- 本地开发默认本地盘存储，不需要 S3。`./build.sh dev --no-open` 在缺少 `config.yaml` 时从 `config.example.yaml` 生成副本（gitignore）。API Key 请登录控制台后在「设置 → 连接」重置签发（项目需先在右上角创建）。引导账号 `simplebase2026` / `simplebase2026`，首次登录必须改密。
 - `ui/yarn.lock` 是 Yarn 4。`ui/.yarnrc.yml` 里的 `approvedGitRepositories` 会被 Yarn 4.9 及更早版本拒绝。在 `ui/` 使用 Yarn 4.17：`corepack prepare yarn@4.17.0 --activate`，然后 `yarn install --immutable`。Yarn Classic 1 会把这份 lockfile 重写成 v1 格式。
 - `packages/js-sdk/yarn.lock` 是 Yarn Classic 1.22。不要在该目录运行 Yarn 4，否则会迁移 lockfile。使用 `~/.cache/node/corepack/v1/yarn/1.22.22/bin/yarn install --frozen-lockfile`。
 - 默认 PATH 上的 `/exec-daemon/node` 是 v22.14.0，排在 nvm 之前。UI 依赖要求 Node `^22.22.2`。镜像里的 nvm Node v22.23.3 必须排在 `/exec-daemon` 前面；环境安装脚本把它链接到 `/usr/local/cargo/bin`。

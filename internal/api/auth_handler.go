@@ -89,7 +89,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if req.Username == "" || req.Password == "" {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "username and password required", rid))
 	}
-	if !h.limiter.allow(c.RealIP()+"/"+strings.ToLower(req.Username)) {
+	if !h.limiter.allow(c.RealIP() + "/" + strings.ToLower(req.Username)) {
 		return WriteError(c, NewAPIError(http.StatusTooManyRequests, "rate_limited", "too many login attempts", rid))
 	}
 
@@ -245,10 +245,10 @@ func toUserResponse(u auth.User) userResponse {
 
 // loginLimiter 是简单的内存限速（同 key N 次 / 窗口）。
 type loginLimiter struct {
-	mu      sync.Mutex
-	max     int
-	window  time.Duration
-	hits    map[string][]time.Time
+	mu     sync.Mutex
+	max    int
+	window time.Duration
+	hits   map[string][]time.Time
 }
 
 func newLoginLimiter(max int, window time.Duration) *loginLimiter {

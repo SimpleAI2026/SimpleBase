@@ -98,7 +98,7 @@ func TestSweeperSweepOnce(t *testing.T) {
 		}
 	}
 	repo := catalog.NewSQLRepository(raw)
-	keys := objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
+	keys := objectstore.KeyBuilder{RootPrefix: "simplebase"}
 	svc := catalog.NewService(repo, keys, nil, objectstore.DuckLakeStorage{}, nil)
 	tenantID, projectID := uuid.NewString(), uuid.NewString()
 	now := time.Now().UTC()

@@ -35,14 +35,28 @@ type LLMMessage struct {
 	CreatedAt   time.Time
 }
 
-// LLMSettings 是项目级默认对话参数。
+// LLMSettings 是项目级模型配置：连接信息（API Key / Base URL）+ 默认对话参数。
+// APIKey 为原文，仅服务端内部使用，对外必须经 MaskSecretValue 脱敏，禁止记日志。
 type LLMSettings struct {
 	ProjectID       string
 	DefaultProvider string
 	DefaultModel    string
+	APIKey          string
+	BaseURL         string
 	Temperature     float64
 	MaxTokens       int
 	UpdatedAt       time.Time
+}
+
+// MaskSecretValue 掩码展示：仅保留首尾，避免完整 key 出现在 API 响应。
+func MaskSecretValue(v string) string {
+	if v == "" {
+		return ""
+	}
+	if len(v) <= 8 {
+		return "••••••••"
+	}
+	return v[:3] + "..." + v[len(v)-4:]
 }
 
 // CreateLLMSession 创建会话。
@@ -110,9 +124,11 @@ func (s *Store) GetLLMSettings(ctx context.Context, projectID string) (LLMSettin
 	var st LLMSettings
 	var maxTok int64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT project_id, default_provider, default_model, temperature, max_tokens, updated_at
+		`SELECT project_id, default_provider, default_model, COALESCE(api_key, ''), COALESCE(base_url, ''),
+		        temperature, max_tokens, updated_at
 		 FROM sys_llm_settings WHERE project_id = ?`, projectID).Scan(
-		&st.ProjectID, &st.DefaultProvider, &st.DefaultModel, &st.Temperature, &maxTok, &st.UpdatedAt)
+		&st.ProjectID, &st.DefaultProvider, &st.DefaultModel, &st.APIKey, &st.BaseURL,
+		&st.Temperature, &maxTok, &st.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return LLMSettings{ProjectID: projectID, Temperature: 0.7, MaxTokens: 1024}, nil
 	}
@@ -123,24 +139,28 @@ func (s *Store) GetLLMSettings(ctx context.Context, projectID string) (LLMSettin
 	return st, nil
 }
 
-// PutLLMSettings 全量更新项目默认。
+// PutLLMSettings 全量更新项目模型配置。
+// APIKey 为空表示沿用库中既有值（前端只拿到脱敏串，不回传原文）。
 func (s *Store) PutLLMSettings(ctx context.Context, st LLMSettings) error {
 	if s == nil || s.db == nil {
 		return ErrUnavailable
 	}
 	now := time.Now().UTC()
 	st.UpdatedAt = now
-	var existing string
-	err := s.db.QueryRowContext(ctx, `SELECT project_id FROM sys_llm_settings WHERE project_id = ?`, st.ProjectID).Scan(&existing)
+	var existingKey string
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(api_key, '') FROM sys_llm_settings WHERE project_id = ?`, st.ProjectID).Scan(&existingKey)
 	if err == nil {
+		if st.APIKey == "" {
+			st.APIKey = existingKey
+		}
 		_, err = s.db.ExecContext(ctx,
-			`UPDATE sys_llm_settings SET default_provider=?, default_model=?, temperature=?, max_tokens=?, updated_at=? WHERE project_id=?`,
-			st.DefaultProvider, st.DefaultModel, st.Temperature, int64(st.MaxTokens), now, st.ProjectID)
+			`UPDATE sys_llm_settings SET default_provider=?, default_model=?, api_key=?, base_url=?, temperature=?, max_tokens=?, updated_at=? WHERE project_id=?`,
+			st.DefaultProvider, st.DefaultModel, st.APIKey, st.BaseURL, st.Temperature, int64(st.MaxTokens), now, st.ProjectID)
 	} else if errors.Is(err, sql.ErrNoRows) {
 		_, err = s.db.ExecContext(ctx,
-			`INSERT INTO sys_llm_settings(project_id, default_provider, default_model, temperature, max_tokens, updated_at)
-			 VALUES(?, ?, ?, ?, ?, ?)`,
-			st.ProjectID, st.DefaultProvider, st.DefaultModel, st.Temperature, int64(st.MaxTokens), now)
+			`INSERT INTO sys_llm_settings(project_id, default_provider, default_model, api_key, base_url, temperature, max_tokens, updated_at)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+			st.ProjectID, st.DefaultProvider, st.DefaultModel, st.APIKey, st.BaseURL, st.Temperature, int64(st.MaxTokens), now)
 	}
 	if err != nil {
 		return err

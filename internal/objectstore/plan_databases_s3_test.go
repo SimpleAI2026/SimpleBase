@@ -50,28 +50,34 @@ func TestPlan_DescriptorRejectsNonDuckLakeEngine(t *testing.T) {
 }
 
 func TestPlan_PlaneAAndPlaneBPrefixesDoNotOverlap(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "prod-1"}
-	tenant := "11111111-1111-1111-1111-111111111111"
+	kb := KeyBuilder{RootPrefix: "simplebase"}
+	proj := "prj12345"
 	dbID := "33333333-3333-3333-3333-333333333333"
-	dbPrefix, err := kb.DatabasePrefix(tenant, dbID)
+	dbPrefix, err := kb.DatabasePrefix(proj, dbID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dataPrefix, err := kb.DataPrefix(tenant, dbID)
+	dataPrefix, err := kb.DataPrefix(proj, dbID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 平面 A（用户文件）由 FileStore 使用独立 root，形如 {root}/{env}/files/...
-	planeARoot := kb.base() + "/files"
+	// 平面 A（用户文件）与数据库同项目前缀下的 branches 互不重叠。
+	planeARoot, err := kb.FilesPrefix(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.HasPrefix(planeARoot, dbPrefix) || strings.HasPrefix(dbPrefix, planeARoot) {
 		t.Fatalf("plane A root %q overlaps database prefix %q", planeARoot, dbPrefix)
 	}
 	if !strings.HasPrefix(dataPrefix, dbPrefix) {
 		t.Fatalf("data prefix %q should be under database prefix %q", dataPrefix, dbPrefix)
 	}
-	// 删库 DeletePrefix(dbPrefix) 不应匹配 files/
-	if strings.HasPrefix(planeARoot+"/proj/x", dbPrefix+"/") {
+	// 删库 DeletePrefix(dbPrefix) 不应匹配 files/。
+	if strings.HasPrefix(planeARoot+"/x", dbPrefix+"/") {
 		t.Fatal("user file path must not match database delete prefix")
+	}
+	if !strings.HasPrefix(planeARoot, "simplebase/"+proj+"/files") {
+		t.Fatalf("files prefix = %q", planeARoot)
 	}
 }
 

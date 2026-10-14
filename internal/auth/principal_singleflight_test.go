@@ -103,6 +103,35 @@ func TestSameUserSingleFlight(t *testing.T) {
 	}
 }
 
+func TestFollowerCancellationDoesNotWaitForOwner(t *testing.T) {
+	ctx := context.Background()
+	repo := &countingBlockRepo{memUserRepo: *newMemUserRepo(), firstHit: make(chan struct{}), release: make(chan struct{})}
+	sessions := newSingleflightSessions(t, repo)
+	u, err := sessions.users.Create(ctx, CreateUserInput{Username: "cancel-follower", Password: "password123", Role: RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerDone := make(chan error, 1)
+	go func() {
+		_, err := sessions.PrincipalFromClaims(ctx, JWTClaims{Subject: u.ID})
+		ownerDone <- err
+	}()
+	<-repo.firstHit
+	followerCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = sessions.PrincipalFromClaims(followerCtx, JWTClaims{Subject: u.ID})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("follower must honor cancellation: %v", err)
+	}
+	close(repo.release)
+	if err := <-ownerDone; err != nil {
+		t.Fatal(err)
+	}
+	if got := repo.callCount(); got != 1 {
+		t.Fatalf("cancelled follower queried database: calls=%d", got)
+	}
+}
+
 // TestDifferentUsersParallel：用户 A 的慢加载不阻塞用户 B（锁外 I/O）。
 func TestDifferentUsersParallel(t *testing.T) {
 	ctx := context.Background()
@@ -191,8 +220,55 @@ func TestInvalidateDuringLoadDropsStaleBackfill(t *testing.T) {
 	}
 }
 
+type failingBlockRepo struct {
+	countingBlockRepo
+}
+
+func (r *failingBlockRepo) GetByID(ctx context.Context, id string) (User, error) {
+	_, _ = r.countingBlockRepo.GetByID(ctx, id)
+	return User{}, errors.New("temporary database failure")
+}
+
+func TestFailureWaveSharesErrorWithoutFanout(t *testing.T) {
+	ctx := context.Background()
+	repo := &failingBlockRepo{countingBlockRepo: countingBlockRepo{
+		memUserRepo: *newMemUserRepo(), firstHit: make(chan struct{}), release: make(chan struct{}),
+	}}
+	sessions := newSingleflightSessions(t, repo)
+	u, err := sessions.users.Create(ctx, CreateUserInput{Username: "failure-wave", Password: "password123", Role: RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, errs[i] = sessions.PrincipalFromClaims(ctx, JWTClaims{Subject: u.ID})
+		}(i)
+	}
+	close(start)
+	<-repo.firstHit
+	// 确保大部分请求已进入等待队列，再允许失败。
+	time.Sleep(50 * time.Millisecond)
+	close(repo.release)
+	wg.Wait()
+	for i, err := range errs {
+		if !errors.Is(err, ErrInvalidToken) {
+			t.Fatalf("request %d: %v", i, err)
+		}
+	}
+	if got := repo.callCount(); got != 1 {
+		t.Fatalf("failure wave triggered %d database reads, want 1", got)
+	}
+}
+
 // TestLoadErrorNotCached：查库失败不写缓存，错误按原语义传播；
-// follower 不会永久阻塞，且自行重查。
+// 同批 follower 共用错误，后续请求可重查。
 func TestLoadErrorNotCached(t *testing.T) {
 	ctx := context.Background()
 	repo := &errorUserRepo{memUserRepo: *newMemUserRepo(), err: errors.New("db down")}

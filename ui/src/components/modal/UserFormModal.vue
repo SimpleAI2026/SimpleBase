@@ -1,9 +1,9 @@
 <template>
   <SbModal
     :open="open"
-    :title="user ? (readonly ? '用户详情' : '编辑用户') : '新建用户'"
+    :title="title"
     :confirm-loading="submitting"
-    :ok-text="user ? '保存' : '创建'"
+    :ok-text="user ? t('components.userForm.save') : t('components.userForm.create')"
     :ok-button-props="{ disabled: readonly || !canSubmit }"
     :hide-footer="readonly"
     @ok="submit"
@@ -11,65 +11,65 @@
   >
     <FieldGroup>
       <Field>
-        <FieldLabel for="uf-username">用户名</FieldLabel>
+        <FieldLabel for="uf-username">{{ t('components.userForm.username') }}</FieldLabel>
         <Input
           id="uf-username"
           v-model="username"
           :disabled="Boolean(user)"
-          placeholder="登录用户名"
+          :placeholder="t('components.userForm.usernamePlaceholder')"
           autocomplete="off"
         />
-        <FieldDescription>{{ user ? '用户名不可修改' : '登录名，大小写不敏感' }}</FieldDescription>
+        <FieldDescription>{{ user ? t('components.userForm.usernameImmutable') : t('components.userForm.usernameDesc') }}</FieldDescription>
       </Field>
       <Field>
-        <FieldLabel for="uf-display">显示名</FieldLabel>
-        <Input id="uf-display" v-model="displayName" :disabled="readonly" placeholder="可选" />
+        <FieldLabel for="uf-display">{{ t('components.userForm.displayName') }}</FieldLabel>
+        <Input id="uf-display" v-model="displayName" :disabled="readonly" :placeholder="t('common.optional')" />
       </Field>
       <Field>
-        <FieldLabel for="uf-role">角色</FieldLabel>
+        <FieldLabel for="uf-role">{{ t('components.userForm.role') }}</FieldLabel>
         <Select v-model="role" :disabled="readonly || isProtected">
           <SelectTrigger id="uf-role" class="w-full">
-            <SelectValue placeholder="选择角色" />
+            <SelectValue :placeholder="t('components.userForm.rolePlaceholder')" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="admin">管理员（只读）</SelectItem>
-            <SelectItem value="user">普通用户</SelectItem>
+            <SelectItem value="admin">{{ t('components.userForm.roleAdmin') }}</SelectItem>
+            <SelectItem value="user">{{ t('components.userForm.roleUser') }}</SelectItem>
           </SelectContent>
         </Select>
-        <FieldDescription v-if="isProtected">保护账号不可改角色/状态</FieldDescription>
+        <FieldDescription v-if="isProtected">{{ t('components.userForm.protectedHint') }}</FieldDescription>
       </Field>
       <Field v-if="!user">
-        <FieldLabel for="uf-password">初始密码</FieldLabel>
+        <FieldLabel for="uf-password">{{ t('components.userForm.initialPassword') }}</FieldLabel>
         <Input
           id="uf-password"
           v-model="password"
           type="password"
-          placeholder="至少 8 位"
+          :placeholder="t('components.userForm.initialPasswordPlaceholder')"
           autocomplete="new-password"
         />
-        <FieldDescription>至少 8 位</FieldDescription>
+        <FieldDescription>{{ t('components.userForm.initialPasswordDesc') }}</FieldDescription>
       </Field>
       <Field v-else-if="!readonly && !isProtected">
-        <FieldLabel for="uf-reset">重置密码</FieldLabel>
+        <FieldLabel for="uf-reset">{{ t('components.userForm.resetPassword') }}</FieldLabel>
         <Input
           id="uf-reset"
           v-model="password"
           type="password"
-          placeholder="留空则不修改"
+          :placeholder="t('components.userForm.resetPasswordPlaceholder')"
           autocomplete="new-password"
         />
-        <FieldDescription>重置后用户下次登录需改密</FieldDescription>
+        <FieldDescription>{{ t('components.userForm.resetPasswordDesc') }}</FieldDescription>
       </Field>
       <Field v-if="user">
-        <FieldLabel>状态</FieldLabel>
-        <Input :model-value="user.status === 'active' ? '启用' : '禁用'" disabled />
+        <FieldLabel>{{ t('common.status') }}</FieldLabel>
+        <Input :model-value="user.status === 'active' ? t('common.enabledState') : t('common.disabledState')" disabled />
         <FieldDescription>
-          创建于 {{ fmtTime(user.createdAt) }}
-          <template v-if="user.lastLoginAt"> · 最后登录 {{ fmtTime(user.lastLoginAt) }}</template>
+          {{ t('components.userForm.createdAt', { time: fmtTime(user.createdAt) }) }}
+          <template v-if="user.lastLoginAt">{{ t('components.userForm.lastLogin', { time: fmtTime(user.lastLoginAt) }) }}</template>
         </FieldDescription>
       </Field>
       <Alert v-if="error" variant="destructive">
-        <AlertTitle>操作失败</AlertTitle>
+        <AlertTitle>{{ t('components.userForm.failedTitle') }}</AlertTitle>
         <AlertDescription>{{ error }}</AlertDescription>
       </Alert>
     </FieldGroup>
@@ -78,6 +78,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -90,6 +91,7 @@ import { useAuthStore } from '../../stores/auth'
 import { formatTime } from '../../utils/format'
 
 const auth = useAuthStore()
+const { t } = useI18n()
 const props = defineProps<{
   open: boolean
   user: UserItem | null
@@ -102,6 +104,11 @@ const emit = defineEmits<{
 
 const readonly = computed(() => Boolean(props.user) && !auth.canManageUsers)
 const isProtected = computed(() => props.user?.username === 'simplebase2026')
+
+const title = computed(() => {
+  if (!props.user) return t('components.userForm.titleCreate')
+  return readonly.value ? t('components.userForm.titleDetail') : t('components.userForm.titleEdit')
+})
 
 const username = ref('')
 const displayName = ref('')
@@ -143,7 +150,7 @@ async function submit() {
         role: role.value || undefined,
         password: password.value || undefined
       })
-      toast.success('用户已更新')
+      toast.success(t('components.userForm.updated'))
     } else {
       await api.users.create({
         username: username.value.trim(),
@@ -151,11 +158,11 @@ async function submit() {
         role: (role.value || 'user') as Exclude<UserRole, 'superadminl1'>,
         displayName: displayName.value
       })
-      toast.success('用户已创建')
+      toast.success(t('components.userForm.created'))
     }
     emit('saved')
   } catch (e) {
-    error.value = errorMessage(e, '操作失败')
+    error.value = errorMessage(e, t('components.userForm.failed'))
   } finally {
     submitting.value = false
   }

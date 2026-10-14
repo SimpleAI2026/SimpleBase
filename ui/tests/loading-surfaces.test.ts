@@ -33,7 +33,7 @@ import CronJobModal from '@/components/modal/CronJobModal.vue'
 import AgentScheduleModal from '@/components/ai/AgentScheduleModal.vue'
 import SandboxDrawer from '@/components/sandbox/SandboxDrawer.vue'
 import DocsArticle from '@/components/docs/DocsArticle.vue'
-import SettingsPanel from '@/components/settings/SettingsPanel.vue'
+import ModelDefaultsPanel from '@/components/settings/ModelDefaultsPanel.vue'
 import SqlWorkModal from '@/components/modal/SqlWorkModal.vue'
 
 interface Deferred<T> {
@@ -177,12 +177,13 @@ describe('loading surfaces', () => {
     const vm = wrapper.vm as unknown as { selectThread: (id: string) => Promise<void> }
     const pending = vm.selectThread('th-2')
     await flushPromises()
-    expect(wrapper.text()).not.toContain('用 @ 点名')
+    // 空态现在是 ConversationView 的 empty 插槽（AgentWelcome，planv6.0 §3.5）。
+    expect(wrapper.text()).not.toContain('你好，我是')
     expect(wrapper.html()).toContain('aria-busy="true"')
     next.resolve([])
     await pending
     await flushPromises()
-    expect(wrapper.text()).toContain('用 @ 点名')
+    expect(wrapper.text()).toContain('你好，我是')
     wrapper.unmount()
   })
 
@@ -320,15 +321,15 @@ describe('loading surfaces', () => {
     article.unmount()
   })
 
-  it('hides provider badges until credentials settle', async () => {
-    const creds = hold<unknown[]>()
-    api.llmProviderCreds.list.mockReturnValue(creds.promise)
-    const { wrapper } = await mountWithApp(SettingsPanel, { props: { section: 'providers' } })
-    expect(wrapper.text()).not.toContain('未配置')
+  it('hides model settings until remote defaults settle', async () => {
+    const remote = hold<unknown>()
+    api.llmSettings.get.mockReturnValue(remote.promise)
+    const { wrapper } = await mountWithApp(ModelDefaultsPanel)
+    expect(wrapper.text()).not.toContain('默认供应商')
     expect(wrapper.text()).toContain('正在加载')
-    creds.resolve([])
+    remote.resolve({ defaultProvider: 'openai', defaultModel: 'gpt-4o-mini', temperature: 0.7, maxTokens: 1024 })
     await flushPromises()
-    expect(wrapper.text()).toContain('未配置')
+    expect(wrapper.text()).toContain('默认供应商')
     wrapper.unmount()
   })
 

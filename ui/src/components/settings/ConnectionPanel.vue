@@ -1,18 +1,18 @@
 <template>
   <div class="flex flex-col gap-4 max-w-lg">
     <Alert v-if="unauthorized" variant="destructive">
-      <AlertTitle>API Key 无效或已过期</AlertTitle>
-      <AlertDescription>最近一次请求返回 401，请检查 Key 是否正确，或点击「重置」获取新 Key。</AlertDescription>
+      <AlertTitle>{{ t('components.connection.invalidTitle') }}</AlertTitle>
+      <AlertDescription>{{ t('components.connection.invalidDesc') }}</AlertDescription>
     </Alert>
     <FieldGroup>
       <Field>
-        <FieldLabel for="current-project">当前项目 ID</FieldLabel>
+        <FieldLabel for="current-project">{{ t('components.connection.currentProject') }}</FieldLabel>
         <div class="flex gap-2">
-          <Input id="current-project" :model-value="projectStore.id || '未选择'" readonly class="min-w-0 flex-1 font-mono" />
-          <Button variant="outline" class="shrink-0" :disabled="!projectStore.id" @click="copyText(projectStore.id, '项目 ID')">复制</Button>
+          <Input id="current-project" :model-value="projectStore.id || t('components.connection.notSelected')" readonly class="min-w-0 flex-1 font-mono" />
+          <Button variant="outline" class="shrink-0" :disabled="!projectStore.id" @click="copyText(projectStore.id, t('components.connection.projectIdLabel'))">{{ t('common.copy') }}</Button>
         </div>
         <FieldDescription>
-          {{ projectStore.displayName && projectStore.displayName !== projectStore.id ? `${projectStore.displayName}；` : '' }}请在右上角切换或创建项目
+          {{ t('components.connection.switchProjectHint', { prefix: projectPrefix }) }}
         </FieldDescription>
       </Field>
       <Field>
@@ -27,27 +27,25 @@
             class="min-w-0 flex-1 font-mono"
             @keydown.enter="saveKey"
           />
-          <Button variant="outline" class="shrink-0" :disabled="!key" @click="copyText(key, 'API Key')">复制</Button>
+          <Button variant="outline" class="shrink-0" :disabled="!key" @click="copyText(key, t('components.connection.apiKeyLabel'))">{{ t('common.copy') }}</Button>
           <Button class="shrink-0" :disabled="saving" @click="saveAll">
             <Spinner v-if="saving" data-icon="inline-start" />
-            保存
+            {{ t('common.save') }}
           </Button>
-          <Button variant="outline" class="shrink-0" @click="restoreDevKey">恢复默认（DevMode）</Button>
           <ConfirmAction
-            title="重置 API Key？"
-            description="将为当前项目签发新 Key 并设为当前使用，同时吊销该项目已有的 Key，使用旧 Key 的调用方将失效。"
+            :title="t('components.connection.resetConfirmTitle')"
+            :description="t('components.connection.resetConfirmDesc')"
             :disabled="!canReset || resetting"
             @confirm="resetKey"
           >
-            <Button variant="outline" class="shrink-0" :disabled="!canReset || resetting" :title="canReset ? '' : '请先选择项目，且当前角色需可写'">
+            <Button variant="outline" class="shrink-0" :disabled="!canReset || resetting" :title="canReset ? '' : t('components.connection.resetDisabledTip')">
               <Spinner v-if="resetting" data-icon="inline-start" />
-              重置
+              {{ t('components.connection.reset') }}
             </Button>
           </ConfirmAction>
         </div>
         <FieldDescription>
-          DevMode 种子 Key：<code class="rounded-sm bg-muted px-1 font-mono text-xs">sb_live_dev_key_12345</code>；
-          生产环境（dev_mode=false）无种子 Key，请点击「重置」为当前项目生成。
+          {{ t('components.connection.apiKeyHint') }}
         </FieldDescription>
       </Field>
     </FieldGroup>
@@ -57,6 +55,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -69,16 +68,20 @@ import { useProjectStore } from '../../stores/project'
 import { getApiKey } from '../../services/http'
 import { api } from '../../services/api'
 
-const DEV_KEY = 'sb_live_dev_key_12345'
-
 const authStore = useAuthStore()
 const projectStore = useProjectStore()
+const { t } = useI18n()
 
 const unauthorized = computed(() => authStore.lastUnauthorizedAt > 0)
 
 const key = ref(authStore.apiKey)
 const saving = ref(false)
 const resetting = ref(false)
+
+/** 项目显示名前缀：「显示名；」——显示名与 ID 相同时不重复展示。 */
+const projectPrefix = computed(() =>
+  projectStore.displayName && projectStore.displayName !== projectStore.id ? `${projectStore.displayName}；` : ''
+)
 
 watch(
   () => authStore.settingsOpen,
@@ -96,23 +99,17 @@ function saveAll() {
   saving.value = true
   try {
     saveKey()
-    toast.success('设置已保存')
+    toast.success(t('components.connection.saved'))
   } finally {
     saving.value = false
   }
 }
 
-function restoreDevKey() {
-  key.value = DEV_KEY
-  authStore.updateKey(key.value)
-  toast.success('已恢复 DevMode 默认 Key')
-}
-
 function copyText(text: string, label: string) {
   return navigator.clipboard
     .writeText(text)
-    .then(() => toast.success(`已复制${label}`))
-    .catch(() => toast.error('复制失败'))
+    .then(() => toast.success(t('components.connection.copied', { label })))
+    .catch(() => toast.error(t('components.connection.copyFailed')))
 }
 
 /** 登录态 admin 只读；未登录（Key 通道）或 super/user 可重置 */
@@ -144,12 +141,12 @@ async function resetKey() {
     key.value = created.secret
     authStore.updateKey(created.secret)
     if (results.some((r) => r.status === 'rejected')) {
-      toast.warning('已重置为新 Key，但部分旧 Key 吊销失败')
+      toast.warning(t('components.connection.revokePartialFailed'))
     } else {
-      toast.success('已重置：新 Key 已设为当前使用')
+      toast.success(t('components.connection.resetSuccess'))
     }
   } catch (e) {
-    toast.error(errorMessage(e, '重置失败'))
+    toast.error(errorMessage(e, t('components.connection.resetFailed')))
   } finally {
     resetting.value = false
   }

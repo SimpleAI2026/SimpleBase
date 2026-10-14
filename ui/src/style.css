@@ -93,8 +93,12 @@
 
   --composer-bg: #f1f5f9;
   --composer-radius: 24px;
-  --composer-send-bg: #1f1e1d;
   --header-height: 56px;
+  /* 控制台页面内边距（DefaultLayout 里 router-view 的容器）。
+     需要按视口算高度的页面（如云助手对话区）必须引用本变量，
+     不要再写 6rem 之类的字面量——否则改这里会让那些页面的高度对不上。
+     梯度对应原来的 p-4 sm:p-6 lg:p-8（16/24/32px），整体减半。 */
+  --page-pad: 0.75rem;
 
   /* 表格列宽分档（planv3.0 列宽策略）：sm 短枚举 / md 时间数字 / name 名称 / id 标识 / act 操作 */
   --sb-col-sm: 5.5rem;
@@ -142,7 +146,6 @@
   --sidebar-border: #29374b;
   --sidebar-ring: #60a5fa;
   --composer-bg: #1b2940;
-  --composer-send-bg: #e2e8f0;
 }
 
 @layer base {
@@ -180,6 +183,14 @@
 @media (max-width: 768px) {
   :root {
     --header-height: 48px;
+    /* 窄屏留出更少边距，把空间让给内容 */
+    --page-pad: 0.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --page-pad: 1rem;
   }
 }
 

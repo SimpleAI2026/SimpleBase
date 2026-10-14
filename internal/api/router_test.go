@@ -122,7 +122,7 @@ func TestMetricsEndpointExposed(t *testing.T) {
 
 func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
 	e := echo.New()
-	gh := NewGoFunctionHandler(nil, true, nil)
+	gh := NewGoFunctionHandler(nil, true, nil, 0)
 	cj := NewCronJobHandler(nil, true, nil, nil)
 	sch := &agentScheduleHandler{}
 
@@ -150,10 +150,6 @@ func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
 		ee.GET("/as", sch.ListSchedules)
 		ee.GET("/as/:scheduleID", sch.GetSchedule)
 		ee.GET("/as/:scheduleID/runs", sch.ListScheduleRuns)
-		ee.DELETE("/as/:scheduleID", sch.DeleteSchedule)
-		ee.PATCH("/as/:scheduleID", sch.PatchSchedule)
-		ee.POST("/as", sch.CreateSchedule)
-		ee.POST("/as/:scheduleID/run", sch.TriggerScheduleRun)
 		return ee
 	}
 
@@ -170,10 +166,6 @@ func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
 		{http.MethodGet, "/as"},
 		{http.MethodGet, "/as/s"},
 		{http.MethodGet, "/as/s/runs"},
-		{http.MethodDelete, "/as/s"},
-		{http.MethodPatch, "/as/s"},
-		{http.MethodPost, "/as"},
-		{http.MethodPost, "/as/s/run"},
 	} {
 		rec := doRequest(eNo, tc.method, tc.path, map[string]any{"name": "X", "source": "package main"})
 		if rec.Code == http.StatusOK || rec.Code == http.StatusCreated || rec.Code == http.StatusNoContent {

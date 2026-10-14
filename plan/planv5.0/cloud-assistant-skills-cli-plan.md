@@ -1,5 +1,7 @@
 # 云助手 Skill、标准 CLI 与流式执行
 
+> ⚠️ **已由 planv6.0 修订**：见 [`plan/planv6.0/cloud-assistant-skills-cli-v2-plan.md`](../planv6.0/cloud-assistant-skills-cli-v2-plan.md)。委托白名单改为路由级标记、助手模式禁读宿主机文件、users skill 下线、project skill 收缩为 quota/audit。
+
 > **仓库**：SimpleBase（https://github.com/linkxzhou/SimpleBase）  
 > **状态**：只提交计划，本分支不写实现。  
 > **日期**：2026-10-09  

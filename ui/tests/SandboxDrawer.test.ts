@@ -72,7 +72,7 @@ describe('SandboxDrawer', () => {
     vm.command = 'bad'
     await vm.execute()
 
-    vm.tab = '文件'
+    vm.tab = 'files'
     await flushPromises()
     api.sandboxes.files.list.mockResolvedValueOnce([{ name: 'a.txt', path: '/workspace/a.txt', kind: 'file', size: 3 }])
     await vm.loadFiles()
@@ -153,7 +153,7 @@ describe('SandboxDrawer interactions', () => {
     expect(api.sandboxes.files.download).not.toHaveBeenCalled()
     api.sandboxes.files.read.mockResolvedValueOnce({ content: 'AAE=', encoding: 'base64', truncated: false })
     await vm.openEntry({ name: 'bin', path: '/workspace/bin', kind: 'file', size: 2 })
-    vm.tab = '文件'
+    vm.tab = 'files'
     await flushPromises()
     expect(w.text()).toContain('二进制文件无法编辑')
     expect(vm.fileText).toBe('')
@@ -169,7 +169,7 @@ describe('SandboxDrawer interactions', () => {
     vm.filePath = '/'
     await vm.downloadFile()
 
-    vm.tab = '信息'
+    vm.tab = 'info'
     await flushPromises()
     await clickText(w, '复制 curl 示例')
     await flushPromises()
@@ -179,9 +179,9 @@ describe('SandboxDrawer interactions', () => {
     expect(writeText).toHaveBeenCalledTimes(2)
 
     await w.setProps({ sandbox: { ...item, id: 'sbx-2', lastActiveAt: 'now', lastError: 'cloud removal failed' } })
-    expect(vm.tab).toBe('终端')
+    expect(vm.tab).toBe('terminal')
     expect(vm.filePath).toBe('')
-    vm.tab = '信息'
+    vm.tab = 'info'
     await flushPromises()
     expect(w.text()).toContain('cloud removal failed')
     click.mockRestore()
@@ -240,7 +240,7 @@ describe('SandboxDrawer interactions', () => {
     await vm.uploadFile({ target } as unknown as Event)
     await vm.uploadFile({ target: { files: [] } } as unknown as Event)
     expect(api.sandboxes.files.upload).toHaveBeenCalledTimes(2)
-    vm.tab = '文件'
+    vm.tab = 'files'
     await flushPromises()
     expect(w.text()).toContain('目录为空')
     w.unmount()
@@ -285,7 +285,7 @@ describe('SandboxDrawer interactions', () => {
       props: { open: false, projectId: 'p', sandbox: item, maxFileBytes: 1 },
       global: { stubs: { ...uiStubs, SbModal: { props: ['open'], emits: ['update:open'], template: '<div><button class="close" @click="$emit(\'update:open\', false)">c</button><slot /></div>' } } }
     })
-    ;(closed.vm as unknown as { tab: string }).tab = '文件'
+    ;(closed.vm as unknown as { tab: string }).tab = 'files'
     await flushPromises()
     expect(api.sandboxes.files.list).not.toHaveBeenCalled()
     await closed.get('.close').trigger('click')

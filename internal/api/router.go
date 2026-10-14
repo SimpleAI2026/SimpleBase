@@ -64,9 +64,7 @@ type Dependencies struct {
 	System *systemdb.Store
 	// CloudAgent 是 Phase 1 单 agent + 只读工具运行时。
 	CloudAgent *cloudagent.Runtime
-	// AgentScheduler 是 Cloud Agent 定时执行调度器。
-	AgentScheduler *cloudagent.Scheduler
-	// CronScheduler 是云函数定时任务调度器；nil 时 trigger 返回 503。
+	// CronScheduler 是统一定时任务调度器（云函数 + Agent）；nil 时 trigger 返回 503。
 	CronScheduler *cronjob.Scheduler
 	// Sandbox 是项目级云沙盒服务；未配置时仅 capabilities 路由可用。
 	Sandbox      SandboxService
@@ -282,13 +280,44 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	return e
 }
 
+// authMW 构造统一认证中间件。
+// deps.Sessions 为具体指针类型，直接传入 auth.SessionAuthenticator 接口会形成
+// typed-nil：接口值非 nil 但 receiver 为 nil，委托令牌回退登录态校验时 panic
+// （agent_skills_router_e2e 样例17回归）。此处显式归一为 nil 接口。
+func (deps Dependencies) authMW() echo.MiddlewareFunc {
+	var sessions auth.SessionAuthenticator
+	if deps.Sessions != nil {
+		sessions = deps.Sessions
+	}
+	return auth.AuthMiddlewareWithDelegation(sessions, deps.Auth, WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations)
+}
+
 // mountV1Routes 挂载 /v1 路由。
 // 中间件顺序：AuthMiddleware（JWT/API Key 双通道）→ projectContext。
 // 权限校验通过 auth.Require 在每个路由单独配置。
 func mountV1Routes(e *echo.Echo, deps Dependencies) {
-	authMW := timedAuthMiddleware(auth.AuthMiddlewareWithDelegation(deps.Sessions, deps.Auth, WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations))
+	authMW := timedAuthMiddleware(deps.authMW())
+	// require 不带 delegable：路由对委托令牌默认拒绝（planv6.0 D1）。
 	require := func(perm auth.Permission) echo.MiddlewareFunc {
 		return auth.Require(perm, PrincipalFromContext)
+	}
+	// delegable 在 require 基础上标记路由可被委托令牌访问（planv6.0 §3.1 表）。
+	delegable := func(perm auth.Permission) echo.MiddlewareFunc {
+		return auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())
+	}
+	// WR-01：统一写门禁（纵深防御）。只读实例当前不启动系统库、不挂这些
+	// 路由；但若未来只读实例也打开系统库，缺少这层门禁的写接口会立即变成
+	// 可写漏洞。挂载方式见 writeGateRoutes 驱动测试（防新增写路由漏挂）。
+	writeGate := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if !deps.Config.Instance.Writable {
+				return c.JSON(http.StatusServiceUnavailable, APIErrorBody{Error: APIErrorDetail{
+					Code: "readonly_instance", Message: "instance is read-only",
+					RequestID: RequestIDFromContext(c.Request().Context()),
+				}})
+			}
+			return next(c)
+		}
 	}
 
 	v1 := e.Group("/v1", authMW)
@@ -298,65 +327,77 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		ah := NewAuthHandler(deps.Sessions, deps.Users)
 		v1.POST("/auth/logout", ah.Logout)
 		v1.GET("/auth/me", ah.Me)
-		v1.PUT("/auth/password", ah.ChangePassword)
+		v1.PUT("/auth/password", ah.ChangePassword, writeGate)
 
 		uh := NewUsersHandler(deps.Users, deps.Sessions)
 		v1.GET("/users", uh.List)
-		v1.POST("/users", uh.Create)
+		v1.POST("/users", uh.Create, writeGate)
 		v1.GET("/users/:id", uh.Get)
-		v1.PATCH("/users/:id", uh.Patch)
-		v1.DELETE("/users/:id", uh.Delete)
+		v1.PATCH("/users/:id", uh.Patch, writeGate)
+		v1.DELETE("/users/:id", uh.Delete, writeGate)
 	}
 
 	// 项目枚举 / 创建（不挂 :projectID，供全局切换器）
 	ph := NewProjectsHandler(deps.Catalog, deps.Users)
+
+	// 存储设置：以 config.yaml 为准，仅 superadminl1 可改（planv6.0 阶段 E）。
+	// 修改后需要停服 → ./build.sh reset -y → 重启，不迁移数据。
+	if deps.System != nil {
+		ssh := &settingsStorageHandler{cfg: deps.Config, path: config.ConfigFilePath(), logger: deps.Logger}
+		v1.GET("/system/storage", ssh.GetStorage, require(auth.DatabaseRead))
+		v1.PUT("/system/storage", ssh.PutStorage, writeGate)
+	}
+
 	v1.GET("/projects", ph.ListProjects, require(auth.DatabaseRead))
-	v1.POST("/projects", ph.CreateProject, require(auth.ProjectAdmin))
+	v1.POST("/projects", ph.CreateProject, require(auth.ProjectAdmin), writeGate)
 	p := v1.Group("/projects/:projectID", projectContextMiddlewareEcho(deps))
 	h := deps.DatabaseHandler
 	// 项目 KV（key-value-ducklake-plan §2）：新建项目时同步建 kind=kv 行。
 	ph.KV = deps.KVService
 	ph.KVInit = deps.KVInit
 	ph.Logger = deps.Logger
-	p.POST("/databases", h.CreateDatabase, require(auth.DatabaseAdmin))
-	p.GET("/databases", h.ListDatabases, require(auth.DatabaseRead))
-	p.GET("/databases/:databaseID", h.GetDatabase, require(auth.DatabaseRead))
-	p.DELETE("/databases/:databaseID", h.DeleteDatabase, require(auth.DatabaseAdmin))
+	p.POST("/databases", h.CreateDatabase, delegable(auth.DatabaseAdmin))
+	p.GET("/databases", h.ListDatabases, delegable(auth.DatabaseRead))
+	p.GET("/databases/:databaseID", h.GetDatabase, delegable(auth.DatabaseRead))
+	p.DELETE("/databases/:databaseID", h.DeleteDatabase, delegable(auth.DatabaseAdmin), writeGate)
 
 	// API Key 管理（签发 / 列表 / 吊销）。登录态角色与 ProjectAdmin Key 均可；
 	// 权限位校验在 handler 内（canIssue），此处仅要求基础读权限通过认证链路。
 	if deps.Auth != nil && deps.System != nil {
-		kh := NewAPIKeysHandler(deps.Auth, deps.System.DB())
-		p.POST("/api-keys", kh.Create, require(auth.DatabaseRead))
+		// SYNC-01：auth 仓储直接写 sys_api_keys，绕过 systemdb 的 notifyWrite；
+		// 写成功后显式触发 catalog 同步，防止“吊销是唯一一次写入”时崩溃恢复
+		// 后 Key 仍然有效。
+		kh := NewAPIKeysHandler(deps.Auth, deps.System.DB(), deps.System.NotifyWrite)
+		p.POST("/api-keys", kh.Create, require(auth.DatabaseRead), writeGate)
 		p.GET("/api-keys", kh.List, require(auth.DatabaseRead))
-		p.DELETE("/api-keys/:keyID", kh.Delete, require(auth.DatabaseRead))
+		p.DELETE("/api-keys/:keyID", kh.Delete, require(auth.DatabaseRead), writeGate)
 	}
 
 	// Plan 6：SQL 执行路由。SQLHandler 为 nil 时不挂载（readonly 实例可仅挂 query）。
 	if deps.SQLHandler != nil {
 		sh := deps.SQLHandler
-		p.POST("/databases/:databaseID/query", sh.Query, require(auth.DatabaseRead))
-		p.POST("/databases/:databaseID/execute", sh.Execute, require(auth.DatabaseWrite))
-		p.POST("/databases/:databaseID/batch", sh.Batch, require(auth.DatabaseWrite))
+		p.POST("/databases/:databaseID/query", sh.Query, delegable(auth.DatabaseRead))
+		p.POST("/databases/:databaseID/execute", sh.Execute, delegable(auth.DatabaseWrite), writeGate)
+		p.POST("/databases/:databaseID/batch", sh.Batch, delegable(auth.DatabaseWrite), writeGate)
 	}
 
 	if deps.SchemaHandler != nil {
 		sh := deps.SchemaHandler
-		p.GET("/databases/:databaseID/schema", sh.ListSchema, require(auth.DatabaseRead))
-		p.GET("/databases/:databaseID/schema/tables/:table/rows", sh.ListTableRows, require(auth.DatabaseRead))
-		p.POST("/databases/:databaseID/schema/tables", sh.CreateTable, require(auth.DatabaseWrite))
-		p.POST("/databases/:databaseID/schema/columns", sh.AddColumn, require(auth.DatabaseWrite))
+		p.GET("/databases/:databaseID/schema", sh.ListSchema, delegable(auth.DatabaseRead))
+		p.GET("/databases/:databaseID/schema/tables/:table/rows", sh.ListTableRows, delegable(auth.DatabaseRead))
+		p.POST("/databases/:databaseID/schema/tables", sh.CreateTable, delegable(auth.DatabaseWrite), writeGate)
+		p.POST("/databases/:databaseID/schema/columns", sh.AddColumn, delegable(auth.DatabaseWrite), writeGate)
 	}
 
 	if deps.DataHandler != nil {
 		dh := deps.DataHandler
 		// Database-scoped routes: must select the given databaseID.
-		p.GET("/databases/:databaseID/data/collections", dh.ListCollections, require(auth.DatabaseRead))
-		p.POST("/databases/:databaseID/data/collections", dh.CreateCollection, require(auth.DatabaseWrite))
-		p.GET("/databases/:databaseID/data/collections/:collection", dh.ListDocuments, require(auth.DatabaseRead))
-		p.POST("/databases/:databaseID/data/collections/:collection/documents", dh.CreateDocument, require(auth.DatabaseWrite))
-		p.PUT("/databases/:databaseID/data/collections/:collection/documents/:id", dh.UpdateDocument, require(auth.DatabaseWrite))
-		p.DELETE("/databases/:databaseID/data/collections/:collection/documents/:id", dh.DeleteDocument, require(auth.DatabaseWrite))
+		p.GET("/databases/:databaseID/data/collections", dh.ListCollections, delegable(auth.DatabaseRead))
+		p.POST("/databases/:databaseID/data/collections", dh.CreateCollection, delegable(auth.DatabaseWrite), writeGate)
+		p.GET("/databases/:databaseID/data/collections/:collection", dh.ListDocuments, delegable(auth.DatabaseRead))
+		p.POST("/databases/:databaseID/data/collections/:collection/documents", dh.CreateDocument, delegable(auth.DatabaseWrite), writeGate)
+		p.PUT("/databases/:databaseID/data/collections/:collection/documents/:id", dh.UpdateDocument, delegable(auth.DatabaseWrite), writeGate)
+		p.DELETE("/databases/:databaseID/data/collections/:collection/documents/:id", dh.DeleteDocument, delegable(auth.DatabaseWrite), writeGate)
 	}
 
 	// Key-Value 数据服务（key-value-ducklake-plan §3）：项目级单端点，
@@ -364,7 +405,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	// KVHandler 为 nil 时不挂载。
 	if deps.KVHandler != nil {
 		kvh := deps.KVHandler
-		p.POST("/kv", kvh.Execute, require(auth.DatabaseRead))
+		p.POST("/kv", kvh.Execute, delegable(auth.DatabaseRead))
 	}
 
 	// Plan 8：LLM Gateway 路由。deps.LLM 为 nil 时不挂载。
@@ -378,20 +419,20 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	// Plan 9：配额与审计查询路由。
 	if deps.Usage != nil {
 		qh := &QuotaHandler{svc: deps.Usage}
-		p.GET("/quota", qh.GetQuota, require(auth.DatabaseRead))
+		p.GET("/quota", qh.GetQuota, delegable(auth.DatabaseRead))
 	}
 	if deps.Audit != nil {
 		ah := &AuditHandler{svc: deps.Audit}
-		p.GET("/audit", ah.ListOperations, require(auth.DatabaseRead))
+		p.GET("/audit", ah.ListOperations, delegable(auth.DatabaseRead))
 	}
 
 	// S3 用户文件存储路由。deps.S3FileStore 为 nil 时不挂载。
 	if deps.S3FileStore != nil {
 		sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: &deps.Config.Instance.Writable}
-		p.GET("/s3/objects", sh.ListObjects, require(auth.DatabaseRead))
-		p.POST("/s3/objects", sh.UploadObject, require(auth.DatabaseWrite), middleware.BodyLimit(bodyLimit(s3UploadBodyLimit)))
-		p.DELETE("/s3/objects", sh.DeleteObject, require(auth.DatabaseWrite))
-		p.GET("/s3/presign", sh.PresignObject, require(auth.DatabaseRead))
+		p.GET("/s3/objects", sh.ListObjects, delegable(auth.DatabaseRead))
+		p.POST("/s3/objects", sh.UploadObject, delegable(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(s3UploadBodyLimit)))
+		p.DELETE("/s3/objects", sh.DeleteObject, delegable(auth.DatabaseWrite), writeGate)
+		p.GET("/s3/presign", sh.PresignObject, delegable(auth.DatabaseRead))
 	}
 
 	if deps.System != nil {
@@ -400,106 +441,145 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/metrics/trend", mh.Trend, require(auth.DatabaseRead))
 
 		lh := &logsHTTPHandler{store: deps.System}
-		p.GET("/logs", lh.List, require(auth.DatabaseRead))
+		// planv6.0 §3.1：logs 只读可委托；retention 管理（GET/PUT）不可委托。
+		p.GET("/logs", lh.List, delegable(auth.DatabaseRead))
 		p.GET("/logs/retention", lh.GetRetention, require(auth.DatabaseRead))
-		p.PUT("/logs/retention", lh.PutRetention, require(auth.ProjectAdmin))
+		p.PUT("/logs/retention", lh.PutRetention, require(auth.ProjectAdmin), writeGate)
 
 		seth := &settingsHandler{store: deps.System}
 		p.GET("/settings", seth.GetProject, require(auth.DatabaseRead))
-		p.PUT("/settings", seth.PutProject, require(auth.ProjectAdmin))
+		p.PUT("/settings", seth.PutProject, require(auth.ProjectAdmin), writeGate)
 		v1.GET("/settings", seth.GetGlobal, require(auth.ProjectAdmin))
-		v1.PUT("/settings", seth.PutGlobal, require(auth.ProjectAdmin))
+		v1.PUT("/settings", seth.PutGlobal, require(auth.ProjectAdmin), writeGate)
 
 		sess := &llmSessionHandler{store: deps.System}
 		p.GET("/llm/settings", sess.GetSettings, require(auth.DatabaseRead))
-		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin))
+		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin), writeGate)
 
-		credh := &llmProviderCredHandler{store: deps.System}
-		p.GET("/llm/providers", credh.ListProviderCreds, require(auth.DatabaseRead))
-		p.PUT("/llm/providers/:provider", credh.PutProviderCred, require(auth.ProjectAdmin))
-		p.DELETE("/llm/providers/:provider", credh.DeleteProviderCred, require(auth.ProjectAdmin))
+		// 云 Agent 路由块（B3 提取；含定时执行路由，见 mountAgentRoutes）。
+		mountAgentRoutes(p, deps, require, writeGate)
 
-		events := newRunEventHub()
-		confirms := newConfirmHub()
-		if deps.CloudAgent != nil && deps.CloudAgent.Confirm == nil {
-			deps.CloudAgent.Confirm = confirms
-		}
-		ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit, writable: &deps.Config.Instance.Writable, events: events, confirms: confirms}
-		if deps.LLM != nil {
-			ah.llm = deps.LLM
-		}
-		p.GET("/agents/modules", ah.ListModules, require(auth.DatabaseRead))
-		p.GET("/agents", ah.ListAgents, require(auth.DatabaseRead))
-		p.GET("/agents/models", ah.ListAgentModels, require(auth.DatabaseRead))
-		p.POST("/agents", ah.CreateAgent, require(auth.DatabaseWrite))
-		p.GET("/agents/:agentID", ah.GetAgent, require(auth.DatabaseRead))
-		p.PATCH("/agents/:agentID", ah.PatchAgent, require(auth.DatabaseWrite))
-		p.DELETE("/agents/:agentID", ah.DeleteAgent, require(auth.DatabaseWrite))
-		p.GET("/agent-threads", ah.ListThreads, require(auth.DatabaseRead))
-		p.POST("/agent-threads", ah.CreateThread, require(auth.DatabaseWrite))
-		p.GET("/agent-threads/:threadID", ah.GetThread, require(auth.DatabaseRead))
-		p.PATCH("/agent-threads/:threadID", ah.PatchThread, require(auth.DatabaseWrite))
-		p.DELETE("/agent-threads/:threadID", ah.DeleteThread, require(auth.DatabaseWrite))
-		p.GET("/agent-threads/:threadID/messages", ah.ListMessages, require(auth.DatabaseRead))
-		p.GET("/agent-threads/:threadID/runs", ah.ListThreadRuns, require(auth.DatabaseRead))
-		p.POST("/agent-threads/:threadID/runs", ah.CreateRun, require(auth.DatabaseRead))
-		p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseRead))
-		p.POST("/agent-runs/:runID/confirmations/:callID", ah.ConfirmRun, require(auth.DatabaseRead))
-		p.GET("/agent-runs/:runID/events", ah.ReplayEvents, require(auth.DatabaseRead))
-
-		// Cloud Agent 定时执行路由。
-		sch := &agentScheduleHandler{store: deps.System, scheduler: deps.AgentScheduler, usage: deps.Usage, writable: &deps.Config.Instance.Writable}
-		p.GET("/agent-schedules", sch.ListSchedules, require(auth.DatabaseRead))
-		p.POST("/agent-schedules", sch.CreateSchedule, require(auth.DatabaseWrite))
-		p.GET("/agent-schedules/:scheduleID", sch.GetSchedule, require(auth.DatabaseRead))
-		p.PATCH("/agent-schedules/:scheduleID", sch.PatchSchedule, require(auth.DatabaseWrite))
-		p.DELETE("/agent-schedules/:scheduleID", sch.DeleteSchedule, require(auth.DatabaseWrite))
-		p.GET("/agent-schedules/:scheduleID/runs", sch.ListScheduleRuns, require(auth.DatabaseRead))
-		if deps.AgentScheduler != nil {
-			p.POST("/agent-schedules/:scheduleID/run", sch.TriggerScheduleRun, require(auth.DatabaseRead))
-		}
-
-		// 云函数管理面（ui-gofunction-plan §7.1）。writable=false 时写操作返回 503。
-		gh := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit)
-		p.GET("/gofunctions", gh.List, require(auth.DatabaseRead))
-		p.POST("/gofunctions", gh.Create, require(auth.DatabaseWrite))
-		p.GET("/gofunctions/:name", gh.Get, require(auth.DatabaseRead))
-		p.PATCH("/gofunctions/:name", gh.Patch, require(auth.DatabaseWrite))
-		p.DELETE("/gofunctions/:name", gh.Delete, require(auth.DatabaseWrite))
-		p.GET("/gofunctions/:name/versions", gh.ListVersions, require(auth.DatabaseRead))
-		p.POST("/gofunctions/:name/versions", gh.CreateVersion, require(auth.DatabaseWrite))
-		p.GET("/gofunctions/:name/versions/:ver", gh.GetVersion, require(auth.DatabaseRead))
-		p.POST("/gofunctions/:name/versions/:ver/activate", gh.ActivateVersion, require(auth.DatabaseWrite))
-		p.POST("/gofunctions/:name/versions/:ver/test", gh.TestVersion, require(auth.DatabaseWrite))
-
-		// 定时任务管理面（ui-cronjob-plan §6）。writable=false 时写操作返回 503。
-		cj := NewCronJobHandler(deps.System, deps.Config.Instance.Writable, deps.CronScheduler, deps.Audit)
-		p.GET("/cron-jobs", cj.List, require(auth.DatabaseRead))
-		p.POST("/cron-jobs", cj.Create, require(auth.DatabaseWrite))
-		p.GET("/cron-jobs/:jobID", cj.Get, require(auth.DatabaseRead))
-		p.PATCH("/cron-jobs/:jobID", cj.Update, require(auth.DatabaseWrite))
-		p.DELETE("/cron-jobs/:jobID", cj.Delete, require(auth.DatabaseWrite))
-		p.GET("/cron-jobs/:jobID/runs", cj.ListRuns, require(auth.DatabaseRead))
-		p.POST("/cron-jobs/:jobID/trigger", cj.Trigger, require(auth.DatabaseWrite))
+		// 云函数 + 定时任务管理面（B3 提取，见 mountGoFunctionAndCronRoutes）。
+		mountGoFunctionAndCronRoutes(p, deps, delegable, writeGate)
 	}
 
 	// 云沙盒项目接口。未启用时保留 capabilities，供控制台展示配置空态。
+	mountSandboxRoutes(p, deps, require)
+}
+
+// mountGoFunctionAndCronRoutes 挂载云函数 + 定时任务管理面路由块
+// （原 mountV1Routes System 守卫下尾部连续块，B3 提取；路由、权限、
+// writeGate 与注册顺序保持原样）。两块均可委托（delegable）。
+// 调用方保证 deps.System != nil。
+func mountGoFunctionAndCronRoutes(p *echo.Group, deps Dependencies, delegable func(auth.Permission) echo.MiddlewareFunc, writeGate echo.MiddlewareFunc) {
+	// 云函数管理面（ui-gofunction-plan §7.1）。writable=false 时写操作返回 503。
+	gh := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns)
+	p.GET("/gofunctions", gh.List, delegable(auth.DatabaseRead))
+	p.POST("/gofunctions", gh.Create, delegable(auth.DatabaseWrite), writeGate)
+	p.GET("/gofunctions/:name", gh.Get, delegable(auth.DatabaseRead))
+	p.PATCH("/gofunctions/:name", gh.Patch, delegable(auth.DatabaseWrite), writeGate)
+	p.DELETE("/gofunctions/:name", gh.Delete, delegable(auth.DatabaseWrite), writeGate)
+	p.GET("/gofunctions/:name/versions", gh.ListVersions, delegable(auth.DatabaseRead))
+	p.POST("/gofunctions/:name/versions", gh.CreateVersion, delegable(auth.DatabaseWrite), writeGate)
+	p.GET("/gofunctions/:name/versions/:ver", gh.GetVersion, delegable(auth.DatabaseRead))
+	p.POST("/gofunctions/:name/versions/:ver/activate", gh.ActivateVersion, delegable(auth.DatabaseWrite), writeGate)
+	p.POST("/gofunctions/:name/versions/:ver/test", gh.TestVersion, delegable(auth.DatabaseWrite), writeGate)
+
+	// 定时任务管理面（ui-cronjob-plan §6）。writable=false 时写操作返回 503。
+	cj := NewCronJobHandler(deps.System, deps.Config.Instance.Writable, deps.CronScheduler, deps.Audit).WithUsage(deps.Usage)
+	p.GET("/cron-jobs", cj.List, delegable(auth.DatabaseRead))
+	p.POST("/cron-jobs", cj.Create, delegable(auth.DatabaseWrite), writeGate)
+	p.GET("/cron-jobs/:jobID", cj.Get, delegable(auth.DatabaseRead))
+	p.PATCH("/cron-jobs/:jobID", cj.Update, delegable(auth.DatabaseWrite), writeGate)
+	p.DELETE("/cron-jobs/:jobID", cj.Delete, delegable(auth.DatabaseWrite), writeGate)
+	p.GET("/cron-jobs/:jobID/runs", cj.ListRuns, delegable(auth.DatabaseRead))
+	p.POST("/cron-jobs/:jobID/trigger", cj.Trigger, delegable(auth.DatabaseWrite), writeGate)
+}
+
+// mountAgentRoutes 挂载云 Agent + 定时执行路由块（原 mountV1Routes 内
+// System 守卫下的连续块，B3 提取；路由、权限、writeGate 与注册顺序保持
+// 原样）。全部 require（无 delegable）：委托令牌默认拒绝（planv6.0 D1）。
+// POST /agent-threads/:threadID/runs 保持 DatabaseRead + writeGate，
+// 不得改成 DatabaseWrite（创建 run 属于低门槛操作，SEC-04 只收紧
+// cancel/confirm）。调用方保证 deps.System != nil。
+func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permission) echo.MiddlewareFunc, writeGate echo.MiddlewareFunc) {
+	events := newRunEventHub()
+	// LIFE-05：hub 自带惰性清理（append 时节流触发 sweep + 总量上限），
+	// 无 end 事件的 run 不会永久驻留，也不需要独立后台 goroutine。
+	confirms := newConfirmHub()
+	if deps.CloudAgent != nil && deps.CloudAgent.Confirm == nil {
+		deps.CloudAgent.Confirm = confirms
+	}
+	ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit, writable: &deps.Config.Instance.Writable, events: events, confirms: confirms}
+	if deps.LLM != nil {
+		ah.llm = deps.LLM
+	}
+	p.GET("/agents/modules", ah.ListModules, require(auth.DatabaseRead))
+	p.GET("/agents", ah.ListAgents, require(auth.DatabaseRead))
+	p.GET("/agents/models", ah.ListAgentModels, require(auth.DatabaseRead))
+	p.POST("/agents", ah.CreateAgent, require(auth.DatabaseWrite), writeGate)
+	p.GET("/agents/:agentID", ah.GetAgent, require(auth.DatabaseRead))
+	p.PATCH("/agents/:agentID", ah.PatchAgent, require(auth.DatabaseWrite), writeGate)
+	p.DELETE("/agents/:agentID", ah.DeleteAgent, require(auth.DatabaseWrite), writeGate)
+	p.GET("/agent-threads", ah.ListThreads, require(auth.DatabaseRead))
+	p.POST("/agent-threads", ah.CreateThread, require(auth.DatabaseWrite), writeGate)
+	p.GET("/agent-threads/:threadID", ah.GetThread, require(auth.DatabaseRead))
+	p.PATCH("/agent-threads/:threadID", ah.PatchThread, require(auth.DatabaseWrite), writeGate)
+	p.DELETE("/agent-threads/:threadID", ah.DeleteThread, require(auth.DatabaseWrite), writeGate)
+	p.GET("/agent-threads/:threadID/messages", ah.ListMessages, require(auth.DatabaseRead))
+	p.GET("/agent-threads/:threadID/runs", ah.ListThreadRuns, require(auth.DatabaseRead))
+	p.POST("/agent-threads/:threadID/runs", ah.CreateRun, require(auth.DatabaseRead), writeGate)
+	// SEC-04：取消/确认是破坏性操作（终止他人 run / 放行工具执行），
+	// 权限从 DatabaseRead 收紧为 DatabaseWrite；handler 内再校验主体。
+	p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseWrite), writeGate)
+	p.POST("/agent-runs/:runID/confirmations/:callID", ah.ConfirmRun, require(auth.DatabaseWrite), writeGate)
+	p.GET("/agent-runs/:runID/events", ah.ReplayEvents, require(auth.DatabaseRead))
+
+	// 旧 Agent 定时执行路由：迁移期只读兼容层，写入与触发返回 410（统一到 /cron-jobs）。
+	sch := &agentScheduleHandler{store: deps.System}
+	p.GET("/agent-schedules", sch.ListSchedules, require(auth.DatabaseRead))
+	p.POST("/agent-schedules", sch.Gone, require(auth.DatabaseWrite), writeGate)
+	p.GET("/agent-schedules/:scheduleID", sch.GetSchedule, require(auth.DatabaseRead))
+	p.PATCH("/agent-schedules/:scheduleID", sch.Gone, require(auth.DatabaseWrite), writeGate)
+	p.DELETE("/agent-schedules/:scheduleID", sch.Gone, require(auth.DatabaseWrite), writeGate)
+	p.GET("/agent-schedules/:scheduleID/runs", sch.ListScheduleRuns, require(auth.DatabaseRead))
+	p.POST("/agent-schedules/:scheduleID/run", sch.Gone, require(auth.DatabaseWrite), writeGate)
+}
+
+// mountSandboxRoutes 挂载云沙盒路由块（原 mountV1Routes 尾部连续块，
+// B3 提取；路由、权限、writeGate 与注册顺序保持原样）。
+// capabilities 无条件挂载；其余路由要求 deps.Sandbox 可用。
+func mountSandboxRoutes(p *echo.Group, deps Dependencies, require func(auth.Permission) echo.MiddlewareFunc) {
 	sh := NewSandboxHandler(deps.Sandbox, deps.Config.Instance.Writable, deps.Audit, deps.System, deps.SandboxUsage)
 	p.GET("/sandboxes/capabilities", sh.Capabilities, require(auth.DatabaseRead))
 	if deps.Sandbox != nil && deps.Sandbox.Available() {
-		p.GET("/sandboxes", sh.List, require(auth.DatabaseRead))
-		p.POST("/sandboxes", sh.Create, require(auth.DatabaseWrite))
-		p.POST("/sandboxes/run", sh.RunOnce, require(auth.DatabaseWrite), middleware.BodyLimit(bodyLimit(int64(deps.Config.Sandbox.MaxFileBytes+64<<10))))
-		p.GET("/sandboxes/:sandboxID", sh.Get, require(auth.DatabaseRead))
-		p.PATCH("/sandboxes/:sandboxID", sh.Update, require(auth.DatabaseWrite))
-		p.DELETE("/sandboxes/:sandboxID", sh.Delete, require(auth.DatabaseWrite))
-		p.POST("/sandboxes/:sandboxID/start", sh.Start, require(auth.DatabaseWrite))
-		p.POST("/sandboxes/:sandboxID/stop", sh.Stop, require(auth.DatabaseWrite))
-		p.POST("/sandboxes/:sandboxID/exec", sh.Exec, require(auth.DatabaseWrite))
+		delegable := func(perm auth.Permission) echo.MiddlewareFunc {
+			return auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())
+		}
+		writeGate := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				if !deps.Config.Instance.Writable {
+					return c.JSON(http.StatusServiceUnavailable, APIErrorBody{Error: APIErrorDetail{
+						Code: "readonly_instance", Message: "instance is read-only",
+						RequestID: RequestIDFromContext(c.Request().Context()),
+					}})
+				}
+				return next(c)
+			}
+		}
+		p.GET("/sandboxes", sh.List, delegable(auth.DatabaseRead))
+		p.POST("/sandboxes", sh.Create, delegable(auth.DatabaseWrite), writeGate)
+		p.POST("/sandboxes/run", sh.RunOnce, delegable(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(int64(deps.Config.Sandbox.MaxFileBytes+64<<10))))
+		p.GET("/sandboxes/:sandboxID", sh.Get, delegable(auth.DatabaseRead))
+		p.PATCH("/sandboxes/:sandboxID", sh.Update, delegable(auth.DatabaseWrite), writeGate)
+		p.DELETE("/sandboxes/:sandboxID", sh.Delete, delegable(auth.DatabaseWrite), writeGate)
+		p.POST("/sandboxes/:sandboxID/start", sh.Start, require(auth.DatabaseWrite), writeGate)
+		p.POST("/sandboxes/:sandboxID/stop", sh.Stop, require(auth.DatabaseWrite), writeGate)
+		p.POST("/sandboxes/:sandboxID/exec", sh.Exec, require(auth.DatabaseWrite), writeGate)
 		p.GET("/sandboxes/:sandboxID/files", sh.ListDir, require(auth.DatabaseRead))
 		p.GET("/sandboxes/:sandboxID/files/content", sh.ReadFile, require(auth.DatabaseRead))
-		p.PUT("/sandboxes/:sandboxID/files/content", sh.WriteFile, require(auth.DatabaseWrite), middleware.BodyLimit(bodyLimit(int64(deps.Config.Sandbox.MaxFileBytes+64<<10))))
-		p.DELETE("/sandboxes/:sandboxID/files/content", sh.RemoveFile, require(auth.DatabaseWrite))
+		p.PUT("/sandboxes/:sandboxID/files/content", sh.WriteFile, require(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(int64(deps.Config.Sandbox.MaxFileBytes+64<<10))))
+		p.DELETE("/sandboxes/:sandboxID/files/content", sh.RemoveFile, require(auth.DatabaseWrite), writeGate)
 	}
 }
 
@@ -510,15 +590,15 @@ func mountGoRoutes(e *echo.Echo, deps Dependencies) {
 	if deps.System == nil {
 		return
 	}
-	authMW := auth.AuthMiddlewareWithDelegation(deps.Sessions, deps.Auth, WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations)
-	require := func(perm auth.Permission) echo.MiddlewareFunc {
-		return auth.Require(perm, PrincipalFromContext)
+	authMW := deps.authMW()
+	delegable := func(perm auth.Permission) echo.MiddlewareFunc {
+		return auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())
 	}
-	h := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit)
+	h := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns)
 	goGrp := e.Group("/go/:projectID", authMW, projectContextMiddlewareEcho(deps))
-	goGrp.POST("/:name/:functionName", h.Invoke, require(auth.DatabaseRead))
-	// 405 JSON：防止浏览器 GET 掉进 SPA index.html（验收 G11）
-	goGrp.GET("/:name/:functionName", h.MethodNotAllowed, require(auth.DatabaseRead))
+	goGrp.POST("/:name/:functionName", h.Invoke, delegable(auth.DatabaseRead))
+	// 405 JSON：防止浏览器 GET 掉进 SPA index.html（验收 G11）；GET 不可委托。
+	goGrp.GET("/:name/:functionName", h.MethodNotAllowed, auth.Require(auth.DatabaseRead, PrincipalFromContext))
 }
 
 // s3UploadBodyLimit 是对象上传的请求体上限。

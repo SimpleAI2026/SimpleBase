@@ -2,7 +2,7 @@
 //
 // SDK 调用仅集中在 driver_cloud.go。
 // 这里定义 Driver（执行后端）、Store（元数据）接口与 Manager（资源、限额、
-// 路径、锁、状态机、reaper）。fake 驱动供 dev_mode / e2e / 单测使用。
+// 路径、锁、状态机、reaper）。fake 驱动仅供 e2e / 单测使用（须 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）。
 package sandbox
 
 import "errors"

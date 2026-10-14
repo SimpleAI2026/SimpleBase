@@ -5,7 +5,7 @@
 ## 分层与依赖方向
 
 ```text
-cmd/simplebased → app → api → auth / catalog / database / objectstore
+cmd/simplebase → app → api → auth / catalog / database / objectstore
                               ↓
                         systemdb（常驻系统库连接）
                         cloudagent → llmgateway / catalog / systemdb
@@ -67,4 +67,9 @@ cmd/simplebased → app → api → auth / catalog / database / objectstore
 
 - 配置只从 `config.yaml` / `SIMPLEBASE_` 环境变量加载（`internal/config`）：YAML 为非密钥权威来源，env 覆盖；不得引入其他配置来源。
 - 审计事件默认脱敏；不得在日志/审计中输出 SQL 参数或 LLM 正文。
+  **唯一例外**：`agent.trace_log=true`（`SIMPLEBASE_AGENT_TRACE_LOG=true`）时，云助手会输出
+  提示词、用户输入、工具参数与结果、助手输出（planv6.0 v2 §5）。该开关默认关闭；打开后
+  内容先经 `RedactSecrets` 脱敏并按 2000 字符截断，且只写 zap 日志，**不得**写入系统库
+  logs 表（助手自身的 `search_logs` 会把日志读回 LLM 上下文，造成跨用户泄漏）。
+  未打开开关时只输出元数据（标识、长度、SHA-256 前缀、耗时、token 数）。
 - 不新增第三方依赖除非用户明确要求；不改 `go.mod` 结构。

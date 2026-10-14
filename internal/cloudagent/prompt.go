@@ -1,22 +1,15 @@
 package cloudagent
 
 import (
-	"regexp"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent/agentcore"
 )
 
 const (
 	maxPromptSection = 4000
 	maxHistoryChars  = 12000
 	maxUserChars     = 8000
-)
-
-var (
-	secretLineRE = regexp.MustCompile(`(?i)((?:aws_)?(?:secret|access)[_-]?key(?:[_-]?id)?|api[_-]?key|password|credential_ref|authorization)\s*[:=]\s*\S+`)
-	awsKeyRE     = regexp.MustCompile(`AKIA[0-9A-Z]{16}`)
-	bearerRE     = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*`)
-	apiTokenRE   = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{16,}\b`)
 )
 
 // PromptParts is the ordered assembly input. Secrets must never be placed in these fields.
@@ -28,6 +21,9 @@ type PromptParts struct {
 	// SkillsCLI 为真时允许通过 CLI 写用户资源，并附加 SkillText。
 	SkillsCLI bool
 	SkillText string
+	// Writable 决定能力声明是 readonly 还是 writable（planv6.0 v2 §3.5）：
+	// 此前模块提示词硬编码「Tools are readonly」，与 CLI 模式的实际写能力矛盾。
+	Writable bool
 }
 
 const platformSkillsPrompt = `You are SimpleBase Cloud Agent, a project-scoped assistant.
@@ -39,14 +35,26 @@ Rules:
 - If a tool errors, explain the error code; do not fabricate a success.
 - Answer in the user's language.`
 
+// capabilityWritable / capabilityReadonly 是能力声明（planv6.0 v2 §3.5）。
+// 六处模块常量不再各写一遍「readonly / 不要写」，由这里统一生成。
+const (
+	capabilityWritable = `Capability: writable. You may run write commands for the skills loaded this turn (e.g. sql exec, document insert, object upload, function create). Destructive commands still require user confirmation. Do not claim a write if the tool did not run.`
+	capabilityReadonly = `Capability: readonly. Only run read commands. Write commands (sql exec, document insert/update/delete, object upload/delete, function create/update/delete, cron create/update/delete/trigger, kv exec, schema create-table/add-column, database create/delete, log retention set) are rejected with write_not_allowed. Explain the restriction instead of retrying.`
+)
+
 // AssembleInstruction builds the system instruction (platform → module → agent → env → snapshot).
 func AssembleInstruction(p PromptParts) string {
 	base := platformBasePrompt
 	if p.SkillsCLI {
 		base = platformSkillsPrompt
 	}
+	capability := capabilityReadonly
+	if p.SkillsCLI && p.Writable {
+		capability = capabilityWritable
+	}
 	parts := []string{
 		base,
+		capability,
 		strings.TrimSpace(p.ModuleTemplate),
 		truncate(strings.TrimSpace(p.AgentPrompt), maxPromptSection),
 		truncateSkill(strings.TrimSpace(p.SkillText)),
@@ -66,22 +74,7 @@ func AssembleInstruction(p PromptParts) string {
 	return RedactSecrets(b.String())
 }
 
-// RedactSecrets strips credential-like substrings from prompt text.
-func RedactSecrets(s string) string {
-	if s == "" {
-		return s
-	}
-	out := secretLineRE.ReplaceAllString(s, "$1=[REDACTED]")
-	out = awsKeyRE.ReplaceAllString(out, "[REDACTED_AWS_KEY]")
-	out = bearerRE.ReplaceAllString(out, "Bearer [REDACTED]")
-	out = apiTokenRE.ReplaceAllString(out, "[REDACTED_API_KEY]")
-	return out
-}
+// RedactSecrets 与 truncate 委托 agentcore（与本地 CLI 共用同一份实现）。
+func RedactSecrets(s string) string { return agentcore.RedactSecrets(s) }
 
-func truncate(s string, max int) string {
-	if max <= 0 || utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	return string(runes[:max]) + "\n…[truncated]"
-}
+func truncate(s string, max int) string { return agentcore.Truncate(s, max) }

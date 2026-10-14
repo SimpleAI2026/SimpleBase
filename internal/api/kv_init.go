@@ -1,7 +1,7 @@
 // kv_init.go 提供项目级 KV catalog 的初始化钩子（key-value-ducklake-plan §2）。
 //
 // 项目 KV 是 catalog 里一行 kind=kv 的内部记录，随「项目创建」同步建立
-//（失败不回滚项目，只记 warn；下一次 KV 请求会补建）。本文件同时承担：
+// （失败不回滚项目，只记 warn；下一次 KV 请求会补建）。本文件同时承担：
 //   - KVService 适配器：把 catalog.Service + RegistryService 桥接为
 //     api.KVService（GetKVDatabase / CreateKVDatabase / Acquire）；
 //   - 项目 KV 初始化：EnsureSchema（幂等 CREATE ... IF NOT EXISTS），

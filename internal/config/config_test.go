@@ -25,6 +25,8 @@ func setRequiredEnvs(t *testing.T, writable bool, s3Incomplete bool) {
 	t.Setenv("SIMPLEBASE_LIMITS_MAX_SQL_BYTES", "4096")
 
 	if writable {
+		// 可写实例默认按远端（对象存储）持久层校验 S3 字段。
+		t.Setenv("SIMPLEBASE_STORAGE_DATABASE", "s3")
 		t.Setenv("SIMPLEBASE_S3_REGION", "us-east-1")
 		t.Setenv("SIMPLEBASE_S3_PREFIX", "simplebase")
 		if !s3Incomplete {

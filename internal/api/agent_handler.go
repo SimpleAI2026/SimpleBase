@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -38,22 +39,25 @@ func (h *cloudAgentHandler) sandboxAvailable() bool {
 }
 
 type agentDTO struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Module        string    `json:"module"`
-	Description   string    `json:"description"`
-	SystemPrompt  string    `json:"system_prompt"`
-	ToolIDs       []string  `json:"tool_ids"`
-	ModelOverride string    `json:"model_override,omitempty"`
-	BuiltinKey    string    `json:"builtin_key,omitempty"`
-	TeamEnabled   bool      `json:"team_enabled"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Module        string   `json:"module"`
+	Description   string   `json:"description"`
+	SystemPrompt  string   `json:"system_prompt"`
+	ToolIDs       []string `json:"tool_ids"`
+	ModelOverride string   `json:"model_override,omitempty"`
+	BuiltinKey    string   `json:"builtin_key,omitempty"`
+	TeamEnabled   bool     `json:"team_enabled"`
+	// Writable 是该助手是否允许写（planv6.0 v2 §3.3）。
+	Writable  bool      `json:"writable"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type threadDTO struct {
 	ID                 string    `json:"id"`
 	Title              string    `json:"title"`
+	AgentID            string    `json:"agent_id,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	LastMessagePreview string    `json:"last_message_preview,omitempty"`
@@ -97,12 +101,13 @@ func toAgentDTO(a systemdb.CloudAgent) agentDTO {
 	return agentDTO{
 		ID: a.ID, Name: a.Name, Module: a.Module, Description: a.Description,
 		SystemPrompt: a.SystemPrompt, ToolIDs: ids, ModelOverride: a.ModelOverride,
-		BuiltinKey: a.BuiltinKey, TeamEnabled: a.TeamEnabled, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
+		BuiltinKey: a.BuiltinKey, TeamEnabled: a.TeamEnabled, Writable: a.Writable,
+		CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
 	}
 }
 
 func toThreadDTO(t systemdb.AgentThread) threadDTO {
-	return threadDTO{ID: t.ID, Title: t.Title, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
+	return threadDTO{ID: t.ID, Title: t.Title, AgentID: t.AgentID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
 }
 
 func toMessageDTO(m systemdb.AgentMessage) messageDTO {
@@ -125,11 +130,23 @@ func (h *cloudAgentHandler) ensureAgents(ctx context.Context, projectID string) 
 	if h.store == nil {
 		return systemdb.ErrUnavailable
 	}
-	return h.store.SeedDefaultCloudAgentsWithSandbox(ctx, projectID, h.sandboxAvailable())
+	return h.store.SeedDefaultCloudAgentsWithCapabilities(ctx, projectID, h.sandboxAvailable(), h.runtime != nil && h.runtime.SkillsCLI)
 }
 
 func (h *cloudAgentHandler) ListModules(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]any{"modules": cloudagent.Modules(h.sandboxAvailable())})
+	modules := cloudagent.Modules(h.sandboxAvailable())
+	if h.runtime == nil || !h.runtime.SkillsCLI {
+		available := modules[:0]
+		for _, module := range modules {
+			switch module.ID {
+			case cloudagent.ModuleKV, cloudagent.ModuleGoFunction, cloudagent.ModuleCron:
+				continue
+			}
+			available = append(available, module)
+		}
+		modules = available
+	}
+	return c.JSON(http.StatusOK, map[string]any{"modules": modules})
 }
 
 func (h *cloudAgentHandler) ListAgents(c echo.Context) error {
@@ -161,6 +178,8 @@ type upsertAgentBody struct {
 	ToolIDs       []string `json:"tool_ids"`
 	ModelOverride *string  `json:"model_override"`
 	TeamEnabled   *bool    `json:"team_enabled"`
+	// Writable 开启该助手的写权限（planv6.0 v2 §3.3）。
+	Writable *bool `json:"writable"`
 }
 
 func (h *cloudAgentHandler) denyReadonly(c echo.Context) error {
@@ -182,7 +201,8 @@ func (h *cloudAgentHandler) CreateAgent(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return WriteError(c, err)
 	}
-	a, err := h.normalizeAgent(pc.ID, body, systemdb.CloudAgent{})
+	principal, _ := PrincipalFromContext(c.Request().Context())
+	a, err := h.normalizeAgent(pc.ID, body, systemdb.CloudAgent{}, principal)
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
 	}
@@ -227,7 +247,8 @@ func (h *cloudAgentHandler) PatchAgent(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return WriteError(c, err)
 	}
-	next, err := h.normalizeAgent(pc.ID, body, cur)
+	principal, _ := PrincipalFromContext(c.Request().Context())
+	next, err := h.normalizeAgent(pc.ID, body, cur, principal)
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
 	}
@@ -260,10 +281,18 @@ func (h *cloudAgentHandler) DeleteAgent(c echo.Context) error {
 
 // normalizeAgent 校验并归一 agent 写入。云沙盒未启用时拒绝 sandbox 模块
 // 与沙盒工具（cloud-agent-sandbox-plan §7）。
-func (h *cloudAgentHandler) normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAgent) (systemdb.CloudAgent, error) {
+func (h *cloudAgentHandler) normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAgent, p auth.Principal) (systemdb.CloudAgent, error) {
 	a, err := normalizeAgent(projectID, body, cur)
 	if err != nil {
 		return systemdb.CloudAgent{}, err
+	}
+	// planv6.0 v2 §3.3：权限提升防护。只有具备写权限的主体才能把助手设为可写。
+	// 已可写的助手允许保持（避免只读主体无意中关掉别人的设置时被 403 挡住）。
+	if body.Writable != nil && *body.Writable && !h.canWritePrincipal(p) {
+		return systemdb.CloudAgent{}, errors.New("write permission required to enable agent writes")
+	}
+	if (a.Module == cloudagent.ModuleKV || a.Module == cloudagent.ModuleGoFunction || a.Module == cloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
+		return systemdb.CloudAgent{}, errors.New("this module requires CLI skills")
 	}
 	if !h.sandboxAvailable() {
 		if strings.EqualFold(a.Module, cloudagent.ModuleSandbox) {
@@ -302,6 +331,9 @@ func normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAg
 	if body.TeamEnabled != nil {
 		a.TeamEnabled = *body.TeamEnabled
 	}
+	if body.Writable != nil {
+		a.Writable = *body.Writable
+	}
 	if strings.TrimSpace(a.Name) == "" {
 		return systemdb.CloudAgent{}, errors.New("name is required")
 	}
@@ -337,7 +369,9 @@ func (h *cloudAgentHandler) ListThreads(c echo.Context) error {
 		}
 		limit = n
 	}
-	list, next, err := h.store.PageAgentThreads(c.Request().Context(), pc.ID, c.QueryParam("cursor"), limit)
+	// agent_id 可选：指定时只返回该助手的会话（planv6.0 §3.7 修订：每个助手一份）。
+	agentID := strings.TrimSpace(c.QueryParam("agent_id"))
+	list, next, err := h.store.PageAgentThreads(c.Request().Context(), pc.ID, agentID, c.QueryParam("cursor"), limit)
 	if errors.Is(err, systemdb.ErrAgentThreadCursor) {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cursor"))
 	}
@@ -423,15 +457,26 @@ func (h *cloudAgentHandler) CreateThread(c echo.Context) error {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
 	}
 	var body struct {
-		Title string `json:"title"`
+		Title   string `json:"title"`
+		AgentID string `json:"agent_id"`
 	}
 	_ = c.Bind(&body)
 	createdBy := ""
 	if p, ok := PrincipalFromContext(c.Request().Context()); ok {
 		createdBy = p.APIKeyID
 	}
+	// agent_id 可选：带上即把会话归属到该助手，后续列表按它过滤。
+	agentID := strings.TrimSpace(body.AgentID)
+	if agentID != "" {
+		if _, err := h.store.GetCloudAgent(c.Request().Context(), pc.ID, agentID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "agent not found"))
+			}
+			return WriteError(c, err)
+		}
+	}
 	th, err := h.store.CreateAgentThread(c.Request().Context(), systemdb.AgentThread{
-		ProjectID: pc.ID, Title: body.Title, CreatedBy: createdBy,
+		ProjectID: pc.ID, Title: body.Title, AgentID: agentID, CreatedBy: createdBy,
 	})
 	if err != nil {
 		return WriteError(c, err)
@@ -518,7 +563,8 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	}
 	principal, _ := PrincipalFromContext(c.Request().Context())
 	threadID := c.Param("threadID")
-	if _, err := h.store.GetAgentThread(c.Request().Context(), pc.ID, threadID); errors.Is(err, sql.ErrNoRows) {
+	thread, err := h.store.GetAgentThread(c.Request().Context(), pc.ID, threadID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "thread not found"))
 	} else if err != nil {
 		return WriteError(c, err)
@@ -534,9 +580,30 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	if err := h.ensureAgents(c.Request().Context(), pc.ID); err != nil {
 		return WriteError(c, err)
 	}
-	agent, err := h.resolveMentionedAgent(c.Request().Context(), pc.ID, body.Mentions)
+	if len(body.Mentions) > 1 {
+		for _, mention := range body.Mentions[1:] {
+			if mention.AgentID != body.Mentions[0].AgentID {
+				return WriteError(c, NewAPIError(http.StatusBadRequest, "multiple_agents_not_supported", "mention only one agent per run", RequestIDFromContext(c.Request().Context())))
+			}
+		}
+	}
+	var agent systemdb.CloudAgent
+	if len(body.Mentions) == 0 && thread.AgentID != "" {
+		agent, err = h.store.GetCloudAgent(c.Request().Context(), pc.ID, thread.AgentID)
+	} else {
+		agent, err = h.resolveMentionedAgent(c.Request().Context(), pc.ID, body.Mentions)
+	}
 	if err != nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
+	}
+	if thread.AgentID != "" && thread.AgentID != agent.ID {
+		return WriteError(c, NewAPIError(http.StatusConflict, "agent_switch_required", "switch to the mentioned agent before sending", RequestIDFromContext(c.Request().Context())))
+	}
+	if (agent.Module == cloudagent.ModuleKV || agent.Module == cloudagent.ModuleGoFunction || agent.Module == cloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
+		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "cli_skills_unavailable", "this agent requires CLI skills", RequestIDFromContext(c.Request().Context())))
+	}
+	if agent.Module == cloudagent.ModuleSandbox && !h.sandboxAvailable() {
+		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "sandbox_unavailable", "cloud sandbox is unavailable", RequestIDFromContext(c.Request().Context())))
 	}
 	skills, err := cloudagent.NormalizeSkills(body.Skills, agent.Module)
 	if err != nil {
@@ -609,6 +676,7 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	run, err := h.store.CreateAgentRun(c.Request().Context(), systemdb.AgentRun{
 		ID: claimID, ThreadID: threadID, ProjectID: pc.ID, AgentID: agent.ID,
 		Status: systemdb.AgentRunRunning, StartedAt: now, RetryOfRunID: body.RetryOfRunID,
+		InitiatorID: principalIdentity(principal),
 	})
 	if err != nil {
 		return WriteError(c, err)
@@ -685,9 +753,11 @@ func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string
 		return err
 	}
 	if h.audit != nil {
+		// planv6.0 v2 §3.3：写能力的审计只记元数据（是否可写 + 工具调用数），
+		// 不落 argv / stdin / LLM 正文。
 		_ = h.audit.Record(ctx, AuditEvent{ProjectID: projectID, Kind: "agent.run", Status: status,
-			Detail: fmt.Sprintf("run=%s thread=%s agent=%s duration_ms=%d prompt_tokens=%d completion_tokens=%d tool_calls=%d error_code=%s",
-				run.ID, run.ThreadID, agent.ID, res.DurationMS, res.PromptTokens, res.CompletionTokens, res.ToolCalls, code)})
+			Detail: fmt.Sprintf("run=%s thread=%s agent=%s writable=%t duration_ms=%d prompt_tokens=%d completion_tokens=%d tool_calls=%d error_code=%s",
+				run.ID, run.ThreadID, agent.ID, agent.Writable, res.DurationMS, res.PromptTokens, res.CompletionTokens, res.ToolCalls, code)})
 	}
 	return nil
 }
@@ -723,11 +793,39 @@ func (h *cloudAgentHandler) completeRun(c echo.Context, projectID string, run sy
 }
 
 func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req cloudagent.RunRequest) error {
+	// planv6.0 v2 §11：先解除 WriteTimeout，否则 run 会在 write_timeout
+	// （默认 30s）到点时被服务端切断，context 取消 → reason=canceled、无输出。
+	beginSSE(c)
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
+	// BUG-B5（planv6.0 v2 §2.2）：runID 此前只在首个 SSE 帧里下发，连接在
+	// run 帧到达前断开时客户端没有任何 runID，无法续传。响应头先给一份。
+	c.Response().Header().Set("X-Run-Id", run.ID)
 	c.Response().WriteHeader(http.StatusOK)
 	flusher, _ := c.Response().Writer.(http.Flusher)
 	var mu sync.Mutex
+	// RACE-01：事件 ID 分配、事件缓存写入与 SSE 输出必须在同一把锁内完成；
+	// StartRun 回调与 thinking/heartbeat goroutine 会并发调用 write/writeBytes。
+	var seq int64
+	write := func(ev cloudagent.Event) {
+		if ev.RunID == "" {
+			ev.RunID = run.ID
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		var id int64
+		if h.events != nil {
+			id = h.events.append(run.ID, ev)
+		} else {
+			seq++
+			id = seq
+		}
+		data, _ := json.Marshal(ev)
+		_, _ = c.Response().Write([]byte(fmt.Sprintf("id: %d\ndata: %s\n\n", id, data)))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
 	writeBytes := func(data []byte) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -736,28 +834,29 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 			flusher.Flush()
 		}
 	}
-	var seq int64
-	write := func(ev cloudagent.Event) {
-		if ev.RunID == "" {
-			ev.RunID = run.ID
-		}
-		seq++
-		id := seq
-		if h.events != nil {
-			id = h.events.append(run.ID, ev)
-		}
-		data, _ := json.Marshal(ev)
-		writeBytes([]byte(fmt.Sprintf("id: %d\ndata: %s\n\n", id, data)))
-	}
 	write(cloudagent.Event{Type: "run", RunID: run.ID})
 	if h.runtime == nil || h.runtime.LLM == nil {
 		write(cloudagent.Event{Type: "error", Code: "llm_not_configured", Message: "模型服务未配置"})
 		write(cloudagent.Event{Type: "end"})
 		return nil
 	}
+	// RACE-01：后台 goroutine 必须在 streamRun 返回前退出（stopWorkers 内 wg.Wait），
+	// 避免 handler 返回后仍有 goroutine 写 Response；sync.Once 防 defer 双重 close。
+	var wg sync.WaitGroup
+	var stopOnce sync.Once
 	stopHeartbeat := make(chan struct{})
-	defer close(stopHeartbeat)
+	stopThinking := make(chan struct{})
+	stopWorkers := func() {
+		stopOnce.Do(func() {
+			close(stopHeartbeat)
+			close(stopThinking)
+			wg.Wait()
+		})
+	}
+	defer stopWorkers() // panic / 提前返回路径兜底
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -772,9 +871,8 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 	started := time.Now()
 	lastOutput := time.Now()
 	toolStarted := map[string]time.Time{}
-	stopThinking := make(chan struct{})
-	defer close(stopThinking)
 	go func() {
+		defer wg.Done()
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -813,6 +911,8 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 		}
 		write(ev)
 	})
+	// 正常路径：StartRun 返回后先停后台 goroutine，再写收尾事件。
+	stopWorkers()
 	if err := h.finishAgentRun(context.Background(), projectID, run, agent, res, runErr); err != nil {
 		write(cloudagent.Event{Type: "error", Code: "llm_upstream_error", Message: "保存运行结果失败"})
 		write(cloudagent.Event{Type: "end"})
@@ -836,6 +936,12 @@ func (h *cloudAgentHandler) CancelRun(c echo.Context) error {
 	if !ok {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
 	}
+	// SEC-04：取消终止的是他人的运行，属于破坏性操作；只读主体（登录态
+	// 只读角色或仅持 DatabaseRead 的 Key）拒绝，写主体允许。
+	p, hasPrincipal := PrincipalFromContext(c.Request().Context())
+	if hasPrincipal && !h.canWritePrincipal(p) {
+		return WriteError(c, echo.NewHTTPError(http.StatusForbidden, "write permission required"))
+	}
 	runID := c.Param("runID")
 	run, err := h.store.GetAgentRun(c.Request().Context(), pc.ID, runID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -843,6 +949,11 @@ func (h *cloudAgentHandler) CancelRun(c echo.Context) error {
 	}
 	if err != nil {
 		return WriteError(c, err)
+	}
+	// planv6.0 D5：发起人校验。仅发起人本人、project:admin、或历史数据
+	//（initiator_id 为空）可取消；同项目其他写主体拒绝。
+	if hasPrincipal && !canCancelConfirm(p, run.InitiatorID) {
+		return WriteError(c, echo.NewHTTPError(http.StatusForbidden, "only the initiator or a project admin can cancel this run"))
 	}
 	if h.runtime != nil {
 		h.runtime.CancelRun(runID)
@@ -854,6 +965,30 @@ func (h *cloudAgentHandler) CancelRun(c echo.Context) error {
 		run.FinishedAt = finished
 	}
 	return c.JSON(http.StatusOK, toRunDTO(run))
+}
+
+// principalIdentity 生成发起人标识（planv6.0 D5）：登录态为 UserID，
+// API Key 为 "apikey:<id>"。与 cloudagent 包的判定保持一致。
+func principalIdentity(p auth.Principal) string {
+	if p.UserID != "" {
+		return p.UserID
+	}
+	if p.APIKeyID != "" {
+		return "apikey:" + p.APIKeyID
+	}
+	return ""
+}
+
+// canCancelConfirm 判断主体能否确认/取消 run（planv6.0 D5）：
+// 发起人本人、project:admin，或历史数据（initiator_id 为空，仍要求写权限）。
+func canCancelConfirm(p auth.Principal, initiatorID string) bool {
+	if initiatorID == "" {
+		return true
+	}
+	if initiatorID == principalIdentity(p) {
+		return true
+	}
+	return p.HasPermission(auth.ProjectAdmin)
 }
 
 func (h *cloudAgentHandler) resolveMentionedAgent(ctx context.Context, projectID string, mentions []mentionDTO) (systemdb.CloudAgent, error) {
@@ -874,6 +1009,15 @@ func (h *cloudAgentHandler) resolveMentionedAgent(ctx context.Context, projectID
 		}
 	}
 	return systemdb.CloudAgent{}, &cloudagent.RunError{Code: "agent_required", Message: "请先选择一个 Agent"}
+}
+
+// canWritePrincipal 判断主体是否可执行破坏性 run 操作（SEC-04）：
+// 登录态按角色 CanWrite（admin 只读拒绝），API Key 按 DatabaseWrite 位。
+func (h *cloudAgentHandler) canWritePrincipal(p auth.Principal) bool {
+	if p.UserID != "" {
+		return p.Role.CanWrite()
+	}
+	return p.HasPermission(auth.DatabaseWrite)
 }
 
 func (h *cloudAgentHandler) failRun(ctx context.Context, projectID, runID, msg string) error {

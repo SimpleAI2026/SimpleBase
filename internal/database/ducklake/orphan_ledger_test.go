@@ -10,15 +10,15 @@ import (
 
 func TestOrphanLedgerRecord(t *testing.T) {
 	store := objectstore.NewMemoryBlobStore()
-	kb := objectstore.KeyBuilder{RootPrefix: "sb", Environment: "e"}
+	kb := objectstore.KeyBuilder{RootPrefix: "sb"}
 	led := &OrphanLedger{Store: store, Keys: kb}
 	ctx := context.Background()
 
-	if err := led.Record(ctx, "11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333", "data/foo.parquet", "delete_orphaned_files"); err != nil {
+	if err := led.Record(ctx, "prj12345", "33333333-3333-3333-3333-333333333333", "data/foo.parquet", "delete_orphaned_files"); err != nil {
 		t.Fatal(err)
 	}
 	// key 必须在按日目录下。
-	if err := led.Record(ctx, "11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333", "data/bar.parquet", "expire_snapshots"); err != nil {
+	if err := led.Record(ctx, "prj12345", "33333333-3333-3333-3333-333333333333", "data/bar.parquet", "expire_snapshots"); err != nil {
 		t.Fatal(err)
 	}
 }

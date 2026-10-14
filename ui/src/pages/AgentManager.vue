@@ -1,62 +1,31 @@
 <template>
   <ProjectScope>
-    <PageContainer subtitle="按模块的 Agent；composer 输入 @ 点名；工具默认只读，Sandbox 在云端隔离环境执行">
-      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
-        <!-- 左列：Agent 简化卡片（planv4.1 §3.2）。 -->
-        <Card>
-          <CardHeader class="border-b">
-            <CardTitle>Agents</CardTitle>
-            <CardAction>
-              <div class="flex gap-2">
-                <Button variant="outline" size="sm" :disabled="agentsPending" @click="loadAgents">
-                  <Spinner v-if="agentsPending" data-icon="inline-start" />
-                  <RefreshCwIcon v-else data-icon="inline-start" />
-                  刷新
-                </Button>
-                <Button size="sm" @click="openCreate">
-                  <PlusIcon data-icon="inline-start" />
-                  新建
-                </Button>
-              </div>
-            </CardAction>
-          </CardHeader>
-          <CardContent class="p-3">
-            <SbAsyncRegion
-              block="cards"
-              :pending="agentsPending"
-              :show-skeleton="agentsShowSkeleton"
-              :show-empty="agentsShowEmpty"
-              :show-error="agentsShowError"
-              :refreshing="agentsRefreshing"
-              :error="agentsError"
-              @retry="loadAgents"
-            >
-              <template #empty>
-                <SbEmptyState :icon="BotIcon" description="还没有 Agent" action-text="创建" @action="openCreate" />
-              </template>
-              <div class="flex flex-col gap-2.5">
-                <AgentCard
-                  v-for="a in agents"
-                  :key="a.id"
-                  :agent="a"
-                  :active="a.id === activeId"
-                  :schedule-summary="scheduleByAgent[a.id] ? scheduleSummary(scheduleByAgent[a.id]) : undefined"
-                  :schedule-enabled="!!scheduleByAgent[a.id]?.enabled"
-                  @select="activeId = a.id"
-                  @edit="openEdit(a)"
-                  @schedule="openSchedule(a)"
-                  @remove="removeAgent(a)"
-                />
-              </div>
-            </SbAsyncRegion>
-          </CardContent>
-        </Card>
+    <PageContainer>
+      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[200px_minmax(0,1fr)]">
+        <!-- 左列：Agent 条目（拆到 components/agent/AgentListPanel.vue）。 -->
+        <AgentListPanel
+          :agents="displayedAgents"
+          :active-id="activeId"
+          :pending="agentsPending"
+          :show-skeleton="agentsShowSkeleton"
+          :show-empty="agentsShowEmpty"
+          :show-error="agentsShowError"
+          :refreshing="agentsRefreshing"
+          :error="agentsError"
+          :schedule-by-agent="scheduleByAgent"
+          :schedule-summary="scheduleSummary"
+          @reload="loadAgents"
+          @create="openCreate"
+          @select="selectAgent"
+        />
 
-        <!-- 右列：对话区（头部含会话切换器，planv4.1 §3.2）。 -->
-        <Card class="flex min-h-[560px] flex-col">
+        <!-- 右列：对话区（planv6.0 §3.2/§3.8）。
+             高度 = 视口 - 顶栏 - 上下页面内边距（--page-pad 由 DefaultLayout 施加，
+             这里必须引用同一个变量，不能写死数值）。 -->
+        <Card class="flex h-[calc(100svh-var(--header-height)-var(--page-pad)-var(--page-pad))] min-h-[520px] flex-col">
           <CardHeader class="border-b">
             <CardTitle class="flex w-full items-center gap-3">
-              <span class="shrink-0">{{ activeAgent ? '@' + activeAgent.name : '对话' }}</span>
+              <span class="min-w-0 shrink-0 truncate">{{ activeAgent ? '@' + activeAgent.name : t('pages.agents.dialogLabel') }}</span>
               <ThreadSwitcher
                 :threads="threads"
                 :active-id="threadId"
@@ -64,47 +33,114 @@
                 :pending="threadPending && !threadHasData"
                 @create="resetThread"
                 @select="selectThread"
-                @remove="removeThread"
               />
+              <Popover v-model:open="menuOpen">
+                <PopoverTrigger as-child>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    class="shrink-0"
+                    :aria-label="t('pages.agents.moreActions')"
+                    :title="t('pages.agents.moreActions')"
+                  >
+                    <EllipsisIcon />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" class="w-52 p-1">
+                  <p class="px-2 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground">{{ t('pages.agents.menuAgentGroup') }}</p>
+                  <button
+                    type="button"
+                    class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                    :disabled="!activeAgent"
+                    @click="onMenu('edit')"
+                  >{{ t('pages.agents.menuEdit') }}</button>
+                  <button
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                    :disabled="!activeAgent"
+                    @click="onMenu('schedule')"
+                  >
+                    {{ t('pages.agents.menuSchedule') }}
+                    <span v-if="activeScheduleSummary" class="ml-auto truncate text-[11px] text-muted-foreground">{{ activeScheduleSummary }}</span>
+                  </button>
+                  <ConfirmAction
+                    v-if="activeAgent && !activeAgent.builtin_key"
+                    :title="t('components.agentCard.deleteConfirm', { name: activeAgent.name })"
+                    @confirm="onMenu('remove')"
+                  >
+                    <button type="button" class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs text-destructive hover:bg-muted">{{ t('components.agentCard.delete') }}</button>
+                  </ConfirmAction>
+
+                  <div class="my-1 h-px bg-border" />
+                  <p class="px-2 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground">{{ t('pages.agents.menuThreadGroup') }}</p>
+                  <button
+                    type="button"
+                    class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                    :disabled="!activeThread"
+                    @click="onMenu('renameThread')"
+                  >{{ t('pages.agents.menuRenameThread') }}</button>
+                  <ConfirmAction
+                    v-if="activeThread"
+                    :title="t('components.threadSwitcher.deleteConfirm')"
+                    @confirm="onMenu('removeThread')"
+                  >
+                    <button type="button" class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs text-destructive hover:bg-muted">{{ t('pages.agents.menuDeleteThread') }}</button>
+                  </ConfirmAction>
+                </PopoverContent>
+              </Popover>
             </CardTitle>
           </CardHeader>
-          <CardContent class="flex min-w-0 flex-1 flex-col gap-3 p-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <p v-if="statusText" role="status" class="text-xs text-muted-foreground">{{ statusText }}</p>
-              <p v-else class="min-w-0 truncate text-xs text-muted-foreground">{{ toolsHint }}</p>
-              <router-link v-if="activeAgentHasSandboxTools" :to="{ name: 'sandboxes' }" class="shrink-0 text-xs text-primary hover:underline">在云沙盒页查看</router-link>
-            </div>
+          <CardContent class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-4">
             <SbAsyncRegion
-              class="min-h-40 flex-1"
+              class="flex min-h-0 flex-1 flex-col overflow-hidden"
               block="lines"
               :pending="threadPending"
               :show-skeleton="threadShowSkeleton"
-              :show-empty="threadShowEmpty"
+              :show-empty="false"
               :show-error="threadShowError"
               :refreshing="threadRefreshing"
               :error="threadError"
               @retry="reloadThread"
             >
-              <template #empty>
-                <SbEmptyState :icon="BotIcon" description="用 @ 点名左侧 Agent，询问数据库、对象或日志；Sandbox Agent 可在云端环境运行代码" />
-              </template>
               <ConversationView
+                :key="`${threadId}:${threadPending}`"
                 :messages="chatMessages"
-                :sending="streaming"
+                :sending="sending"
                 :confirmation="confirmation"
                 :can-retry="canRetry"
                 :history-loading="threadPending && !threadHasData"
                 @retry="retryLast"
                 @confirm="conv.resolveConfirm(true)"
                 @deny="conv.resolveConfirm(false)"
-              />
+              >
+                <template #empty>
+                  <AgentWelcome
+                    :agent-name="activeAgent?.name"
+                    :module="activeAgent?.module"
+                    @pick="pickPrompt"
+                  />
+                </template>
+              </ConversationView>
             </SbAsyncRegion>
+            <div class="flex min-h-4 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <p v-if="statusText" role="status" class="truncate">{{ statusText }}</p>
+              <p v-else class="min-w-0 truncate">{{ toolsHint }}</p>
+              <router-link v-if="activeAgentHasSandboxTools" :to="{ name: 'sandboxes' }" class="shrink-0 text-primary hover:underline">{{ t('pages.agents.viewInSandbox') }}</router-link>
+            </div>
+            <div v-if="switchTarget" class="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm" role="status">
+              <span>{{ t('pages.agents.switchAgentHint', { name: switchTarget.name }) }}</span>
+              <Button type="button" size="sm" variant="outline" data-agent-switch @click="switchToMentionedAgent">
+                {{ t('pages.agents.switchAgentAction', { name: switchTarget.name }) }}
+              </Button>
+            </div>
             <AgentComposer
+              ref="composer"
               v-model="draft"
               :sending="sending"
-              :disabled="!threadId"
+              :disabled="!threadId || !!activeCapabilityError"
               :placeholder="composerPlaceholder"
               :mention-agents="mentionAgents"
+              :mention-skills="mentionSkills"
               @send="onSend"
               @stop="onStop"
             />
@@ -112,65 +148,21 @@
         </Card>
       </div>
 
-      <SbModal :open="modalOpen" :title="editing ? '编辑 Agent' : '新建 Agent'" :confirm-loading="saving" @ok="saveAgent" @update:open="(v: boolean) => (modalOpen = v)">
-        <FieldGroup>
-          <Field>
-            <FieldLabel for="agent-name">名称</FieldLabel>
-            <Input id="agent-name" v-model="form.name" placeholder="Database" />
-          </Field>
-          <Field>
-            <FieldLabel>模块</FieldLabel>
-            <Select :model-value="form.module" @update:model-value="onModuleChange">
-              <SelectTrigger class="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem
-                    v-for="opt in moduleOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                    :disabled="opt.disabled"
-                  >
-                    {{ opt.label }}{{ opt.disabled ? '（未配置云沙盒）' : '' }}
-                  </SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel for="agent-model">模型</FieldLabel>
-            <Input id="agent-model" v-model="form.model_override" :placeholder="defaultModel ? `使用项目默认（${defaultModel}）` : '使用项目默认模型'" list="agent-model-options" />
-            <datalist id="agent-model-options"><option v-for="model in modelOptions" :key="model" :value="model" /></datalist>
-          </Field>
-          <Field>
-            <FieldLabel for="agent-desc">描述</FieldLabel>
-            <Input id="agent-desc" v-model="form.description" />
-          </Field>
-          <Field>
-            <FieldLabel for="agent-prompt">System prompt</FieldLabel>
-            <Textarea id="agent-prompt" v-model="form.system_prompt" :rows="4" placeholder="可选；叠在模块模板之上" />
-          </Field>
-          <Field>
-            <FieldLabel>工具</FieldLabel>
-            <div class="flex flex-wrap gap-2">
-              <Badge
-                v-for="id in toolOptions"
-                :key="id.value"
-                as="button"
-                type="button"
-                :aria-pressed="form.tool_ids.includes(id.value)"
-                :title="`工具：${id.label}`"
-                :variant="form.tool_ids.includes(id.value) ? 'default' : 'outline'"
-                class="h-auto min-h-8 cursor-pointer"
-                @click="toggleTool(id.value)"
-              >
-                {{ id.label }}
-              </Badge>
-            </div>
-          </Field>
-        </FieldGroup>
-      </SbModal>
+      <AgentFormModal
+        :open="modalOpen"
+        :editing="!!editing"
+        :saving="saving"
+        :form="form"
+        :module-options="moduleOptions"
+        :tool-options="toolOptions"
+        :model-options="modelOptions"
+        :default-model="defaultModel"
+        @update:open="(v: boolean) => (modalOpen = v)"
+        @save="saveAgent"
+        @module-change="onModuleChange"
+        @toggle-tool="toggleTool"
+        @update:writable="(v: boolean) => (form.writable = v)"
+      />
 
       <AgentScheduleModal
         :open="scheduleModalOpen"
@@ -182,6 +174,29 @@
         @removed="onScheduleRemoved"
         @view-thread="onViewScheduleThread"
       />
+
+      <!-- 会话重命名（planv6.0 §3.6 #7：会话操作收进「⋯」菜单）。 -->
+      <SbModal
+        :open="renameOpen"
+        :title="t('pages.agents.renameThreadTitle')"
+        :width="440"
+        :confirm-loading="renaming"
+        :ok-button-props="{ disabled: !renameValue.trim() }"
+        @ok="submitRenameThread"
+        @update:open="(v: boolean) => (renameOpen = v)"
+      >
+        <FieldGroup>
+          <Field>
+            <FieldLabel for="thread-rename">{{ t('pages.agents.renameThreadLabel') }}</FieldLabel>
+            <Input
+              id="thread-rename"
+              v-model="renameValue"
+              :placeholder="t('pages.agents.renameThreadPlaceholder')"
+              @keydown.enter="submitRenameThread"
+            />
+          </Field>
+        </FieldGroup>
+      </SbModal>
     </PageContainer>
   </ProjectScope>
 </template>
@@ -189,14 +204,17 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { i18n } from '@/locales'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { BotIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { BotIcon, EllipsisIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -212,9 +230,12 @@ import type { AgentModuleInfo, AgentThread, CloudAgent } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
-import SbEmptyState from '../components/SbEmptyState.vue'
+import ConfirmAction from '../components/ConfirmAction.vue'
 import SbModal from '../components/modal/SbModal.vue'
-import AgentCard from '../components/agent/AgentCard.vue'
+import AgentWelcome from '../components/agent/AgentWelcome.vue'
+import AgentFormModal from '../components/modal/AgentFormModal.vue'
+import type { AgentFormState } from '../components/modal/AgentFormModal.vue'
+import AgentListPanel from '../components/agent/AgentListPanel.vue'
 import ThreadSwitcher from '../components/agent/ThreadSwitcher.vue'
 import ConversationView from '../components/agent/ConversationView.vue'
 import AgentComposer from '../components/agent/AgentComposer.vue'
@@ -222,11 +243,13 @@ import AgentScheduleModal from '../components/ai/AgentScheduleModal.vue'
 import { useAgentConversation } from '../composables/useAgentConversation'
 import { useLoadState } from '@/composables/useLoadState'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import type { AgentMessage } from '../services/types'
 import type { ChatMsg } from '../composables/useAiChat'
 import type { AgentSchedule } from '../services/types'
 
 const project = useProjectStore()
 const route = useRoute()
+const { t } = useI18n()
 const router = useRouter()
 const {
   pending: agentsPending,
@@ -236,7 +259,7 @@ const {
   refreshing: agentsRefreshing,
   error: agentsError,
   run: runAgents
-} = useLoadState({ fallback: '加载 Agent 失败' })
+} = useLoadState({ fallback: 'pages.agents.loadAgentsFailed' })
 const {
   pending: threadPending,
   hasData: threadHasData,
@@ -247,14 +270,14 @@ const {
   error: threadError,
   run: runThread,
   settle: settleThread
-} = useLoadState({ fallback: '加载会话失败' })
+} = useLoadState({ fallback: 'pages.agents.loadThreadFailed' })
 const saving = ref(false)
 const agents = ref<CloudAgent[]>([])
 const modules = ref<AgentModuleInfo[]>([])
 const activeId = ref('')
 const modalOpen = ref(false)
 const editing = ref<CloudAgent | null>(null)
-const form = ref({ name: '', module: 'database', description: '', system_prompt: '', model_override: '', tool_ids: [] as string[] })
+const form = ref({ name: '', module: 'database', description: '', system_prompt: '', model_override: '', tool_ids: [] as string[], writable: false })
 const defaultModel = ref('')
 const modelOptions = ref<string[]>([])
 const threads = ref<AgentThread[]>([])
@@ -262,10 +285,19 @@ const nextCursor = ref('')
 const threadId = ref('')
 const chatMessages = ref<ChatMsg[]>([])
 const draft = ref('')
+const switchTargetId = ref('')
 
 const scheduleByAgent = ref<Record<string, AgentSchedule>>({})
 const scheduleModalOpen = ref(false)
 const scheduleAgent = ref<CloudAgent | null>(null)
+/** 头部「⋯」菜单开合（planv6.0 §3.8）。 */
+const menuOpen = ref(false)
+const composer = ref<{ focus?: () => void } | null>(null)
+/** 会话重命名弹窗（原 ThreadSwitcher 无重命名入口，这里补上）。 */
+const renameOpen = ref(false)
+const renameValue = ref('')
+const renaming = ref(false)
+const renameTarget = ref<AgentThread | null>(null)
 
 /** 会话状态层（planv4.1 BUG-01/03/09/10）。 */
 const conv = useAgentConversation({
@@ -274,17 +306,51 @@ const conv = useAgentConversation({
   messages: () => chatMessages.value
 })
 const sending = conv.sending
-const streaming = computed(() => conv.phase.value === 'streaming')
 const confirmation = conv.confirmation
 const statusText = conv.statusText
 const failedRunId = conv.failedRunId
 
-const activeAgent = computed(() => agents.value.find((a) => a.id === activeId.value))
-const mentionAgents = computed(() => agents.value.map((a) => ({ id: a.id, name: a.name, module: a.module })))
+const builtinDefaultNames: Record<string, string> = {
+  general: '通用助手', database: 'Database', s3: 'S3', logs: 'Logs',
+  kv: '键值助手', gofunction: '云函数助手', cron: '定时任务助手', sandbox: '沙盒助手'
+}
+const displayedAgents = computed(() => {
+  const locale = i18n.global.locale.value
+  return agents.value.map((agent) => {
+    const key = agent.builtin_key || ''
+    if (agent.name !== builtinDefaultNames[key]) return agent
+    return { ...agent, name: i18n.global.t(`pages.agents.builtinNames.${key}`, 1, { locale }) }
+  })
+})
+const activeAgent = computed(() => displayedAgents.value.find((a) => a.id === activeId.value))
+const switchTarget = computed(() => displayedAgents.value.find((a) => {
+  if (a.id !== switchTargetId.value) return false
+  const original = agents.value.find((raw) => raw.id === a.id)
+  if (draft.value.includes(`@${a.name}`) || (!!original && draft.value.includes(`@${original.name}`))) return true
+  if (original?.builtin_key === 'kv' && original.name === builtinDefaultNames.kv && draft.value.includes('@KV助手')) return true
+  if (original?.builtin_key && original.name === builtinDefaultNames[original.builtin_key]) {
+    return (['zh-CN', 'en-US'] as const).some((locale) => draft.value.includes(`@${i18n.global.t(`pages.agents.builtinNames.${original.builtin_key}`, {}, { locale })}`))
+  }
+  return false
+}))
+const mentionAgents = computed(() => displayedAgents.value.map((a) => ({
+  id: a.id, name: a.name, module: a.module,
+  legacyName: a.builtin_key ? agents.value.find((raw) => raw.id === a.id)?.name : undefined,
+  builtinKey: a.builtin_key && agents.value.find((raw) => raw.id === a.id)?.name === builtinDefaultNames[a.builtin_key] ? a.builtin_key : undefined
+})))
+const mentionSkills = computed(() => {
+  const cliEnabled = modules.value.some((module) => module.id === 'kv')
+  return ['database', 'kv', 's3', 'gofunction', 'cron', 'sandbox', 'logs', 'project'].map((id) => ({
+    id,
+    name: t(`pages.agents.skillNames.${id}`),
+    available: cliEnabled && (id !== 'sandbox' || modules.value.find((m) => m.id === 'sandbox')?.sandbox_available === true),
+    unavailableReason: !cliEnabled ? t('pages.agents.cliSkillsUnavailable') : (id === 'sandbox' && modules.value.find((m) => m.id === 'sandbox')?.sandbox_available !== true ? t('pages.agents.sandboxUnavailable') : undefined)
+  }))
+})
 const composerPlaceholder = computed(() =>
   activeAgent.value
-    ? `询问 @${activeAgent.value.name}，Enter 发送；Shift+Enter 换行`
-    : '输入 @ 点名 Agent'
+    ? t('pages.agents.composerWithAgent', { name: activeAgent.value.name })
+    : t('pages.agents.composerIdle')
 )
 
 const moduleOptions = computed(() =>
@@ -302,16 +368,30 @@ const activeAgentHasSandboxTools = computed(() => {
   return (a.tool_ids || []).some((id) => id.startsWith('sandbox_'))
 })
 
-const toolsHint = computed(() => {
-  const who = `点名 ${activeAgent.value ? '@' + activeAgent.value.name : '一个 Agent'} 后发送`
-  if (activeAgentHasSandboxTools.value) {
-    return `${who}；沙盒命令在云端隔离环境执行`
+const activeCapabilityError = computed(() => {
+  const agent = activeAgent.value
+  if (!agent) return ''
+  if (agent.module === 'sandbox' && modules.value.find((m) => m.id === 'sandbox')?.sandbox_available !== true) {
+    return t('pages.agents.sandboxUnavailable')
   }
-  return `${who}；工具只读`
+  if (['kv', 'gofunction', 'cron'].includes(agent.module) && !modules.value.some((m) => m.id === agent.module)) {
+    return t('pages.agents.cliSkillsUnavailable')
+  }
+  return ''
+})
+
+const toolsHint = computed(() => {
+  if (activeCapabilityError.value) return activeCapabilityError.value
+  const who = activeAgent.value
+    ? t('pages.agents.mentionHint', { name: activeAgent.value.name })
+    : t('pages.agents.mentionHintGeneric')
+  if (activeAgentHasSandboxTools.value) return t('pages.agents.mentionHintSandbox', { who })
+  if (['kv', 'gofunction', 'cron'].includes(activeAgent.value?.module || '')) return t('pages.agents.mentionHintCli', { who })
+  return t('pages.agents.mentionHintReadonly', { who })
 })
 const toolOptions = computed(() => {
   const m = modules.value.find((x) => x.id === form.value.module)
-  const ids = m?.default_tools?.length ? m.default_tools : ['list_databases', 'list_collections', 'readonly_sql', 'list_objects', 'head_object', 'search_logs', 'log_level_stats']
+  const ids = m ? m.default_tools : ['list_databases', 'list_collections', 'readonly_sql', 'list_objects', 'head_object', 'search_logs', 'log_level_stats']
   return ids.map((id) => ({ label: id, value: id }))
 })
 
@@ -325,6 +405,7 @@ const canRetry = computed(() => {
 watch(
   () => project.id,
   () => {
+    switchTargetId.value = ''
     void bootstrap()
   }
 )
@@ -336,12 +417,20 @@ async function loadModelOptions() {
     defaultModel.value = res.default_model || ''
     modelOptions.value = res.models.map((m) => m.name)
     if (!modelOptions.value.length && defaultModel.value) modelOptions.value = [defaultModel.value]
-  } catch { defaultModel.value = '' }
+  } catch (e) {
+    defaultModel.value = ''
+    modelOptions.value = []
+    toast.error(errorMessage(e, t('pages.agents.loadModelsFailed')))
+  }
 }
 
 async function bootstrap() {
-  // 模块列表和 Agent 列表在同一次 run 里；会话确保与它们互不依赖，一起开始。
-  await Promise.all([loadAgents(), ensureThread(), loadSchedules(), loadModelOptions()])
+  // loadThreads 依赖 activeId（由 loadAgents 决定），所以两者必须串行；
+  // 调度与模型候选与它们无关，可以和 loadAgents 并行。
+  await Promise.all([loadSchedules(), loadModelOptions(), (async () => {
+    await loadAgents()
+    await loadThreads()
+  })()])
 }
 
 async function loadSchedules() {
@@ -351,24 +440,95 @@ async function loadSchedules() {
     for (const s of list) map[s.agent_id] = s
     scheduleByAgent.value = map
   } catch (e) {
-    toast.error(errorMessage(e, '加载定时任务失败'))
+    toast.error(errorMessage(e, t('pages.agents.loadSchedulesFailed')))
   }
+}
+
+/** 预设 cron → i18n key；未命中原样展示表达式。 */
+const CRON_PRESET_KEYS: Record<string, string> = {
+  '*/15 * * * *': 'components.agentSchedule.preset15Min',
+  '0 * * * *': 'components.agentSchedule.presetHourly',
+  '0 8 * * *': 'components.agentSchedule.presetDaily8',
+  '0 8 * * 1': 'components.agentSchedule.presetWeeklyMon8'
 }
 
 function scheduleSummary(s: AgentSchedule): string {
-  const presets: Record<string, string> = {
-    '*/15 * * * *': '每 15 分钟',
-    '0 * * * *': '每小时',
-    '0 8 * * *': '每天 08:00 (UTC)',
-    '0 8 * * 1': '每周一 08:00 (UTC)'
-  }
-  const cron = presets[s.cron_expr] || s.cron_expr
-  return `${cron} ${s.enabled ? '已启用' : '已停用'}`
+  const key = CRON_PRESET_KEYS[s.cron_expr]
+  const cron = key ? t(key) : s.cron_expr
+  return t('pages.agents.scheduleSummary', {
+    cron,
+    state: s.enabled ? t('components.agentSchedule.enabled') : t('components.agentSchedule.disabled')
+  })
 }
 
+/** 当前选中 Agent 的定时任务摘要（头部「⋯」菜单里显示一行）。 */
+const activeScheduleSummary = computed(() => {
+  const s = activeAgent.value ? scheduleByAgent.value[activeAgent.value.id] : undefined
+  return s ? scheduleSummary(s) : ''
+})
+
+/** 当前会话（菜单里的会话级动作需要它）。 */
+const activeThread = computed(() => threads.value.find((th) => th.id === threadId.value))
+
+type MenuAction = 'edit' | 'schedule' | 'remove' | 'renameThread' | 'removeThread'
+
+/**
+ * 头部「⋯」菜单动作。
+ *
+ * 「编辑/定时/删除」作用于当前选中 Agent；「重命名/删除」作用于当前会话——
+ * 这两项原本挂在 ThreadSwitcher 上，收进菜单后由这里接管（planv6.0 §3.3/§3.6 #7）。
+ */
+function onMenu(action: MenuAction) {
+  menuOpen.value = false
+  if (action === 'renameThread') {
+    const th = activeThread.value
+    if (!th) return
+    renameTarget.value = th
+    renameValue.value = th.title
+    renameOpen.value = true
+    return
+  }
+  if (action === 'removeThread') {
+    const th = activeThread.value
+    if (th) void removeThread(th.id)
+    return
+  }
+  const a = agents.value.find((agent) => agent.id === activeId.value)
+  if (!a) return
+  if (action === 'edit') openEdit(a)
+  else if (action === 'schedule') openSchedule(a)
+  else void removeAgent(a)
+}
+
+/** 会话重命名弹窗出现问题时不留半开状态。 */
+async function submitRenameThread() {
+  const target = renameTarget.value
+  const next = renameValue.value.trim()
+  if (!target || !next || next === target.title) {
+    renameOpen.value = false
+    return
+  }
+  renaming.value = true
+  try {
+    await renameThread(target.id, next)
+    renameOpen.value = false
+  } finally {
+    renaming.value = false
+  }
+}
+
+/**
+ * 点提示词：写入输入框并聚焦，**不自动发送**（planv6.0 §3.5）。
+ * 与「少操作」一致——一次点击把话术准备好，回车才执行。
+ */
+function pickPrompt(text: string) {
+  draft.value = text
+  composer.value?.focus?.()
+}
+
+/** 定时任务已统一到「定时任务」页：跳转并预选该助手（旧 /agent-schedules 写接口已返回 410）。 */
 function openSchedule(a: CloudAgent) {
-  scheduleAgent.value = a
-  scheduleModalOpen.value = true
+  void router.push({ name: 'cron-jobs', query: { agent: a.id } })
 }
 
 function onScheduleSaved(s: AgentSchedule) {
@@ -388,23 +548,29 @@ async function onViewScheduleThread(threadIdToView: string) {
   await selectThread(threadIdToView)
 }
 
+/** BUG-06：持久化消息 → 聊天气泡。run 状态还原失败/取消态；assistant 按其归属助手补 module。 */
+function toChatMessage(m: AgentMessage, agentModule?: string): ChatMsg {
+  return {
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: m.content,
+    module: m.role === 'assistant' ? agentModule : undefined,
+    toolCalls: m.tool_calls,
+    error: m.error_code ? errorMessage({ code: m.error_code } as Error & { code?: string }, t('pages.agents.runFailed')) : undefined,
+    canceled: m.run_status === 'canceled'
+  }
+}
+
 async function loadThreadMessages(id: string): Promise<boolean> {
   const msgs = await api.agentThreads.messages(project.id, id)
   if (threadId.value !== id) return false
-  chatMessages.value = msgs.map((m) => ({
-    role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content,
-    module: m.role === 'assistant' ? agents.value.find((a) => a.id === m.agent_id)?.module : undefined,
-    toolCalls: m.tool_calls,
-    // BUG-06：刷新后按 run 状态还原失败态。
-    error: m.error_code ? errorMessage({ code: m.error_code } as Error & { code?: string }, '运行失败') : undefined,
-    canceled: m.run_status === 'canceled'
-  }))
+  chatMessages.value = msgs.map((m) => toChatMessage(m, agents.value.find((a) => a.id === m.agent_id)?.module))
   return chatMessages.value.length > 0
 }
 
 async function selectThread(id: string) {
-  if (!id) return
+  if (!id || !threads.value.some((thread) => thread.id === id)) return
   onStop()
+  switchTargetId.value = ''
   threadId.value = id
   if (router?.replace) void router.replace({ query: { ...route.query, thread: id } })
   await runThread(async () => loadThreadMessages(id), { replace: true })
@@ -412,14 +578,62 @@ async function selectThread(id: string) {
 
 function reloadThread() {
   if (threadId.value) void selectThread(threadId.value)
-  else void ensureThread()
+  else void loadThreads()
+}
+
+/**
+ * 选中助手：切到「该助手自己的会话」（planv6.0 §3.7 修订）。
+ *
+ * 会话与助手绑定后，每个助手一份列表；没有会话就为它建一个。
+ * 同一次点击里把 activeId 定下来，再由 `threadsForActive` 重新取列表。
+ */
+async function selectAgent(id: string) {
+  if (!id || id === activeId.value) return
+  onStop()
+  switchTargetId.value = ''
+  activeId.value = id
+  threadId.value = ''
+  await loadThreads()
+}
+
+async function switchToMentionedAgent() {
+  const target = switchTarget.value
+  if (!target) return
+  await selectAgent(target.id)
+  composer.value?.focus?.()
+}
+
+/** 拉当前助手的会话列表；空则新建一个。 */
+async function loadThreads() {
+  const agentId = activeId.value
+  const projectId = project.id
+  if (!agentId) return
+  await runThread(async () => {
+    const page = await api.agentThreads.page(projectId, agentId).catch(async () => ({ threads: await api.agentThreads.list(projectId, agentId), next_cursor: '' }))
+    // 项目或助手可能在取数期间切换；旧响应不得覆盖当前列表。
+    if (project.id !== projectId || activeId.value !== agentId) return false
+    threads.value = page.threads
+    nextCursor.value = page.next_cursor
+    const queryId = typeof route.query.thread === 'string' ? route.query.thread : ''
+    if (threads.value.length) {
+      const selected = threads.value.find((th) => th.id === queryId)
+      threadId.value = selected?.id || threads.value[0].id
+    } else {
+      const th = await api.agentThreads.create(projectId, t('nav.agents'), agentId)
+      if (project.id !== projectId || activeId.value !== agentId) return false
+      threads.value = [th]
+      threadId.value = th.id
+    }
+    if (router?.replace) void router.replace({ query: { ...route.query, thread: threadId.value } })
+    return loadThreadMessages(threadId.value)
+  }, { replace: true })
 }
 
 async function renameThread(id: string, title: string) {
   try {
     const renamed = await api.agentThreads.rename(project.id, id, title)
     threads.value = threads.value.map((th) => th.id === id ? renamed : th)
-  } catch (e) { toast.error(errorMessage(e, '重命名失败')) }
+  } catch (e) { toast.error(errorMessage(e, t('pages.agents.renameFailed'))) }
 }
 
 async function removeThread(id: string) {
@@ -432,14 +646,14 @@ async function removeThread(id: string) {
       if (threads.value.length) await selectThread(threads.value[0].id)
       else await resetThread()
     }
-  } catch (e) { toast.error(errorMessage(e, '删除会话失败')) }
+  } catch (e) { toast.error(errorMessage(e, t('pages.agents.deleteThreadFailed'))) }
 }
 
 async function loadModules() {
   try {
     modules.value = await api.agents.modules(project.id)
   } catch (e) {
-    toast.error(errorMessage(e, '加载模块失败'))
+    toast.error(errorMessage(e, t('pages.agents.loadModulesFailed')))
   }
 }
 
@@ -456,48 +670,41 @@ async function loadAgents() {
   })
 }
 
-async function ensureThread() {
-  await runThread(async () => {
-    const page = await api.agentThreads.page(project.id).catch(async () => ({ threads: await api.agentThreads.list(project.id), next_cursor: '' }))
-    threads.value = page.threads
-    nextCursor.value = page.next_cursor
-    const queryId = typeof route.query.thread === 'string' ? route.query.thread : ''
-    if (threads.value.length) {
-      const selected = threads.value.find((th) => th.id === queryId)
-      threadId.value = selected?.id || threads.value[0].id
-    } else {
-      const th = await api.agentThreads.create(project.id, '云助手')
-      threads.value = [th]
-      threadId.value = th.id
-    }
-    return loadThreadMessages(threadId.value)
-  }, { replace: true })
-}
-
-function openCreate() {
-  editing.value = null
-  const first = modules.value[0]
-  form.value = {
+/** 新建表单：取第一个模块的名称/说明/默认工具（无模块回退 database）。 */
+function createAgentForm(first: AgentModuleInfo | undefined): AgentFormState {
+  return {
     name: first?.name || '',
     module: first?.id || 'database',
     description: first?.description || '',
     system_prompt: '',
     model_override: '',
-    tool_ids: [...(first?.default_tools || [])]
+    tool_ids: [...(first?.default_tools || [])],
+    writable: false
   }
-  modalOpen.value = true
 }
 
-function openEdit(a: CloudAgent) {
-  editing.value = a
-  form.value = {
+/** 编辑表单：回填已有助手；工具数组复制，避免改动原对象。 */
+function editAgentForm(a: CloudAgent): AgentFormState {
+  return {
     name: a.name,
     module: a.module,
     description: a.description,
     system_prompt: a.system_prompt,
     model_override: a.model_override || '',
-    tool_ids: [...(a.tool_ids || [])]
+    tool_ids: [...(a.tool_ids || [])],
+    writable: !!a.writable
   }
+}
+
+function openCreate() {
+  editing.value = null
+  form.value = createAgentForm(modules.value[0])
+  modalOpen.value = true
+}
+
+function openEdit(a: CloudAgent) {
+  editing.value = a
+  form.value = editAgentForm(a)
   modalOpen.value = true
 }
 
@@ -517,12 +724,12 @@ function toggleTool(id: string) {
 
 async function saveAgent() {
   if (!form.value.name.trim()) {
-    toast.warning('请填写名称')
+    toast.warning(t('pages.agents.nameRequired'))
     return
   }
   const mod = modules.value.find((m) => m.id === form.value.module)
   if (form.value.module === 'sandbox' && mod?.sandbox_available !== true) {
-    toast.warning('云沙盒未配置，无法创建 Sandbox Agent')
+    toast.warning(t('pages.agents.sandboxUnconfigured'))
     return
   }
   saving.value = true
@@ -536,7 +743,7 @@ async function saveAgent() {
     modalOpen.value = false
     await loadAgents()
   } catch (e) {
-    toast.error(errorMessage(e, '保存失败'))
+    toast.error(errorMessage(e, t('pages.agents.saveFailed')))
   } finally {
     saving.value = false
   }
@@ -545,56 +752,111 @@ async function saveAgent() {
 async function removeAgent(a: CloudAgent) {
   try {
     await api.agents.remove(project.id, a.id)
-    if (activeId.value === a.id) activeId.value = ''
+    const wasActive = activeId.value === a.id
+    if (wasActive) {
+      activeId.value = ''
+      threadId.value = ''
+      threads.value = []
+      chatMessages.value = []
+      settleThread(false)
+    }
     await loadAgents()
+    // 删掉的是当前助手：会话列表也要跟着换到新选中的助手。
+    if (wasActive) await loadThreads()
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('pages.agents.deleteFailed')))
   }
 }
 
 async function resetThread() {
   onStop()
+  switchTargetId.value = ''
+  if (!activeId.value) return
   try {
-    const th = await api.agentThreads.create(project.id, '云助手')
+    const th = await api.agentThreads.create(project.id, t('nav.agents'), activeId.value)
     threads.value.unshift(th)
     threadId.value = th.id
     chatMessages.value = []
     settleThread(false)
     if (router?.replace) void router.replace({ query: { ...route.query, thread: th.id } })
   } catch (e) {
-    toast.error(errorMessage(e, '新建会话失败'))
+    toast.error(errorMessage(e, t('pages.agents.createThreadFailed')))
   }
+}
+
+function refreshThreadsForAgent() {
+  const projectId = project.id
+  const agentId = activeId.value
+  if (!agentId) return
+  void api.agentThreads.page(projectId, agentId).then((page) => {
+    if (project.id !== projectId || activeId.value !== agentId) return
+    threads.value = page.threads
+    nextCursor.value = page.next_cursor
+  }).catch((e) => {
+    if (project.id === projectId && activeId.value === agentId) {
+      toast.error(errorMessage(e, t('pages.agents.loadThreadsFailed')))
+    }
+  })
 }
 
 async function onSend(text: string, mentions: { agent_id: string }[], skills: string[] = []) {
   const content = text.trim()
   if (!content || sending.value) return
-  if (!threadId.value) await ensureThread()
+  if (new Set(mentions.map((m) => m.agent_id)).size > 1) {
+    toast.warning(t('pages.agents.multipleAgentsNotSupported'))
+    return
+  }
+  const target = mentions.length ? agents.value.find((a) => a.id === mentions[0]?.agent_id) : undefined
+  if (mentions.length && !target) { toast.warning(t('pages.agents.selectAgentFirst')); return }
+  if (target && target.id !== activeId.value) {
+    switchTargetId.value = target.id
+    return
+  }
+  if (activeCapabilityError.value) {
+    toast.warning(activeCapabilityError.value)
+    return
+  }
+  switchTargetId.value = ''
+  if (!threadId.value) await loadThreads()
+  if (!threadId.value) return
   let used = mentions
   if (!used.length && activeAgent.value) used = [{ agent_id: activeAgent.value.id }]
-  if (!used.length) { toast.warning('请先选择或 @ 一个 Agent'); return }
+  if (!used.length) { toast.warning(t('pages.agents.selectAgentFirst')); return }
   const speaker = agents.value.find((a) => a.id === used[0]?.agent_id)
+  const thread = threads.value.find((item) => item.id === threadId.value)
+  if (thread?.agent_id && thread.agent_id !== speaker?.id) {
+    if (speaker) switchTargetId.value = speaker.id
+    return
+  }
   draft.value = ''
   conv.start({ content, mentions: [...used], skills, module: speaker?.module }, {
     onEnd: () => {
-      void api.agentThreads.page(project.id).then((page) => { threads.value = page.threads; nextCursor.value = page.next_cursor }).catch(() => undefined)
+      refreshThreadsForAgent()
     },
-    onError: (e) => { toast.error(errorMessage(e, '运行失败')) }
+    onError: (e) => {
+      if ((e as { code?: string })?.code === 'agent_switch_required' && target) {
+        draft.value = content
+        switchTargetId.value = target.id
+        return
+      }
+      toast.error(errorMessage(e, t('pages.agents.runFailed')))
+    }
   })
 }
 
 /** 重试：移除失败气泡后走后端 retry_of_run_id（BUG-03：不重复落 user 消息）。 */
 function retryLast() {
   if (sending.value || !failedRunId.value) return
+  if (activeCapabilityError.value) { toast.warning(activeCapabilityError.value); return }
   const retryId = failedRunId.value
   // 移除末尾失败气泡（user 消息保留展示）。
   const last = chatMessages.value[chatMessages.value.length - 1]
   if (last?.role === 'assistant' && (last.error || last.canceled)) chatMessages.value.pop()
   conv.start({ content: '', mentions: [], retry_of_run_id: retryId }, {
     onEnd: () => {
-      void api.agentThreads.page(project.id).then((page) => { threads.value = page.threads; nextCursor.value = page.next_cursor }).catch(() => undefined)
+      refreshThreadsForAgent()
     },
-    onError: (e) => { toast.error(errorMessage(e, '运行失败')) }
+    onError: (e) => { toast.error(errorMessage(e, t('pages.agents.runFailed'))) }
   })
 }
 

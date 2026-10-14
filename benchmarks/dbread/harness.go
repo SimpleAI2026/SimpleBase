@@ -41,6 +41,7 @@ func newBenchStore(tb testing.TB, opts storeOpts) *systemdb.Store {
 	dopts.DataInliningRowLimit = opts.Inlining
 	f := &ducklake.Factory{
 		CacheDir: filepath.Join(dir, "system", "dbs"),
+		DataRoot: dir,
 		Options:  dopts,
 		Syncer:   ducklake.NewLocalSyncer(),
 	}
@@ -48,7 +49,7 @@ func newBenchStore(tb testing.TB, opts storeOpts) *systemdb.Store {
 		LocatorDir: filepath.Join(dir, "system"),
 		Name:       systemdb.DefaultName,
 		Factory:    f,
-		Keys:       objectstore.KeyBuilder{RootPrefix: "simplebase", Environment: "bench"},
+		Keys:       objectstore.KeyBuilder{RootPrefix: "simplebase"},
 	})
 	if err != nil {
 		tb.Fatalf("dbread: bootstrap systemdb: %v", err)
@@ -131,6 +132,19 @@ func seedUsersAndKeys(tb testing.TB, store *systemdb.Store, n int) {
 
 // liveDataFiles 统计 catalog 中存活（未被任何快照删除）数据文件数。
 // 这是读放大的直接度量。DuckLake 元数据表位于 __ducklake_metadata_<alias> schema。
+// liveTableFiles 只统计目标表的活跃 Parquet，避免以全库文件数代替查询触达数。
+func liveTableFiles(tb testing.TB, store *systemdb.Store, table string) int {
+	tb.Helper()
+	var count int
+	if err := store.DB().QueryRowContext(context.Background(),
+		`SELECT count(*) FROM __ducklake_metadata_lake.ducklake_data_file
+		 WHERE end_snapshot IS NULL AND table_id =
+		 (SELECT table_id FROM __ducklake_metadata_lake.ducklake_table WHERE table_name = ?)`, table).Scan(&count); err != nil {
+		tb.Fatalf("dbread: count live table files: %v", err)
+	}
+	return count
+}
+
 func liveDataFiles(tb testing.TB, store *systemdb.Store) (int, int64) {
 	tb.Helper()
 	row := store.DB().QueryRowContext(context.Background(),

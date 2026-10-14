@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestNewNilWriterPanics(t *testing.T) {
@@ -74,12 +75,25 @@ func TestPanicRecoverable(t *testing.T) {
 }
 
 func TestFieldAliases(t *testing.T) {
-	_ = Skip()
-	_ = Binary("b", []byte{1})
-	_ = Bool("b", true)
-	_ = ByteString("bs", []byte("x"))
-	_ = Int("i", 1)
-	_ = Int64("i64", 1)
-	_ = String("s", "v")
-	_ = Any("a", 1)
+	// 别名绑定契约：导出的字段构造器必须与底层 zap 构造器产出一致。
+	cases := []struct {
+		name string
+		got  Field
+		want Field
+	}{
+		{"Skip", Skip(), zap.Skip()},
+		{"Binary", Binary("b", []byte{1}), zap.Binary("b", []byte{1})},
+		{"Bool", Bool("b", true), zap.Bool("b", true)},
+		{"ByteString", ByteString("bs", []byte("x")), zap.ByteString("bs", []byte("x"))},
+		{"Int", Int("i", 1), zap.Int("i", 1)},
+		{"Int64", Int64("i64", 1), zap.Int64("i64", 1)},
+		{"String", String("s", "v"), zap.String("s", "v")},
+		{"Any", Any("a", 1), zap.Any("a", 1)},
+	}
+	for _, c := range cases {
+		if c.got.Key != c.want.Key || c.got.Type != c.want.Type {
+			t.Errorf("%s: alias mismatch: got {Key:%s Type:%v}, want {Key:%s Type:%v}",
+				c.name, c.got.Key, c.got.Type, c.want.Key, c.want.Type)
+		}
+	}
 }

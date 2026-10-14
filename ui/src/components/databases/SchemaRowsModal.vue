@@ -1,8 +1,8 @@
 <template>
   <SbModal
     :open="open"
-    :title="table || '表数据'"
-    :description="readonly ? '只读' : undefined"
+    :title="table || t('components.schemaRows.fallbackTitle')"
+    :description="readonly ? t('common.readonly') : undefined"
     :width="960"
     hide-footer
     @update:open="emit('update:open', $event)"
@@ -26,12 +26,12 @@
           :show-error="showError"
           :refreshing="refreshing"
           :error="error"
-          empty-description="这张表没有行"
+          :empty-description="t('components.schemaRows.emptyDesc')"
           @retry="load(false)"
         >
           <TableRow v-for="(row, rowIndex) in rows" :key="rowIndex">
             <TableCell v-for="(column, index) in displayColumns" :key="column.name" :class="alignClass(column)">
-              <span v-if="column.sensitive">已隐藏</span>
+              <span v-if="column.sensitive">{{ t('components.schemaRows.hidden') }}</span>
               <span v-else-if="row[index] == null" class="text-muted-foreground">NULL</span>
               <span v-else class="block max-w-80 truncate" :title="cellText(row[index])">{{ cellText(row[index]) }}</span>
             </TableCell>
@@ -51,6 +51,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '@/services/api'
 import type { SchemaColumn } from '@/services/api'
@@ -73,16 +74,20 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
 }>()
 
+const { t } = useI18n()
+
 const page = ref(1)
 const total = ref(0)
 const columns = ref<SchemaColumn[]>([])
 const rows = ref<unknown[][]>([])
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载表数据失败'
+  fallback: 'components.schemaRows.loadFailed'
 })
 
 const displayColumns = computed((): SchemaColumn[] =>
-  columns.value.length > 0 ? columns.value : [{ name: '列', type: '' }]
+  columns.value.length > 0
+    ? columns.value
+    : [{ name: t('components.schemaRows.columnFallback'), type: '' }]
 )
 const skeletonColumns = computed(() => Math.max(columns.value.length, 4))
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))

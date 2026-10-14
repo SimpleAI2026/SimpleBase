@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/agentjob"
 	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
@@ -78,7 +79,6 @@ type App struct {
 	onLostLease  func(dbID string) // 失租回调（租约获取处闭包捕获）
 
 	delegations      *auth.DelegationRegistry
-	agentScheduler   *cloudagent.Scheduler
 	cronScheduler    *cronjob.Scheduler
 	kvSweeper        *kv.Sweeper
 	schedulerCancel  context.CancelFunc
@@ -113,7 +113,7 @@ func (h *healthService) Ready(ctx context.Context) error {
 			return fmt.Errorf("system database: %w", err)
 		}
 	}
-	if cfg.Instance.Writable && !cfg.DevMode {
+	if cfg.Instance.Writable && cfg.IsDBRemote() {
 		if cfg.S3.Bucket == "" {
 			return errors.New("s3 bucket not configured")
 		}
@@ -224,7 +224,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
 	if cfg.Sandbox.Enabled && a.systemStore != nil {
 		var driver sandbox.Driver
-		if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendFake && cfg.DevMode {
+		if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendFake {
 			driver = sandbox.NewFakeDriver()
 		} else if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendCloud {
 			cloud, err := sandbox.NewCloudDriver(cfg.Sandbox, cfg.Database.CacheDir, logger)
@@ -244,22 +244,20 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		}
 	}
 
-	// Cloud Agent 定时执行调度器：仅在运行时与系统库齐备时创建。
-	var agentScheduler *cloudagent.Scheduler
-	runtime := a.cloudAgentRuntime()
-	if runtime != nil && a.systemStore != nil {
-		agentScheduler = cloudagent.NewScheduler(a.systemStore, runtime, a.usageSvc)
-		a.agentScheduler = agentScheduler
-		if a.schedulerCancel == nil {
-			a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
-		}
-		agentScheduler.Start(a.schedulerBaseCtx)
-	}
-
-	// 云函数定时任务调度器（ui-cronjob-plan §5.4）：仅在系统库齐备时创建。
+	// 统一定时任务调度器（ui-cronjob-plan §5.4 + planv6.0 cloudagent-cli-and-cronjob-unification-plan §2）：
+	// 同时承载云函数与 Agent 两类目标，仅在系统库齐备时创建。Agent 执行器仅在
+	// Cloud Agent 运行时可用时挂接；缺失时 agent 任务触发会落 failed 记录而非静默跳过。
 	var cronScheduler *cronjob.Scheduler
+	runtime := a.cloudAgentRuntime()
 	if a.systemStore != nil {
 		cronScheduler = cronjob.NewScheduler(a.systemStore, &systemDBRunner{store: a.systemStore})
+		if runtime != nil {
+			var quota agentjob.Quota
+			if a.usageSvc != nil {
+				quota = a.usageSvc
+			}
+			cronScheduler.WithAgentRunner(agentjob.New(a.systemStore, runtime, quota))
+		}
 		a.cronScheduler = cronScheduler
 		if a.schedulerCancel == nil {
 			a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
@@ -304,7 +302,6 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		System:          a.systemStore,
 		CloudAgent:      runtime,
 		Delegations:     a.delegations,
-		AgentScheduler:  agentScheduler,
 		CronScheduler:   cronScheduler,
 		Sandbox:         a.sandboxMgr,
 		SandboxUsage:    a.usageSvc,
@@ -339,16 +336,13 @@ func metricsGatherer(reg prometheus.Registerer) prometheus.Gatherer {
 	return prometheus.DefaultGatherer
 }
 
-// assembleDeps 按顺序创建运行期依赖：S3 → DuckLake factory → 系统库 bootstrap/migrate/seed
-// → catalog/auth/registry。DevMode 只影响 DATA_PATH 是否本地，不再使用 SQLite catalog。
+// assembleDeps 按顺序创建运行期依赖：对象存储（可选）→ DuckLake factory →
+// 系统库 bootstrap/migrate/seed → catalog/auth/registry。
+// storage.database / storage.files 决定持久层落在本地盘还是对象存储。
 func (a *App) assembleDeps(ctx context.Context) error {
 	cfg := a.cfg
-
-	if cfg.Instance.Writable && !cfg.DevMode {
-		if cfg.S3.Bucket == "" || cfg.S3.Region == "" || cfg.S3.Prefix == "" {
-			return fmt.Errorf("writable non-dev instance requires s3.bucket, s3.region and s3.prefix")
-		}
-	}
+	dbRemote := cfg.IsDBRemote()
+	filesRemote := cfg.IsFilesRemote()
 
 	s3cfg := objectstore.Config{
 		Endpoint:       cfg.S3.Endpoint,
@@ -361,13 +355,13 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		ForcePathStyle: cfg.S3.ForcePathStyle,
 	}
 
-	// P0-4：instance.id / s3.prefix 变更检测（multi-instance-consistency-plan §4.8）。
-	// 改 id 等价于换全新空存储前缀，必须拒绝并指向迁移流程。
-	if err := checkInstanceIdentity(cfg.Database.CacheDir, cfg.Instance.ID, cfg.S3.Prefix); err != nil {
+	// 存储身份变更检测：改 storage 模式 / bucket / prefix 都等价于换了一个
+	// 完全不同的持久层，必须拒绝启动并提示先 reset。
+	if err := checkStorageIdentity(cfg); err != nil {
 		return err
 	}
 
-	if cfg.Instance.Writable && !cfg.DevMode && s3cfg.Bucket != "" {
+	if cfg.Instance.Writable && (dbRemote || filesRemote) && s3cfg.Bucket != "" {
 		store, err := objectstore.NewClient(ctx, s3cfg, a.logger, a.metrics)
 		if err != nil {
 			return fmt.Errorf("create objectstore client: %w", err)
@@ -377,46 +371,42 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		// P0-3 启动探针：create-if-absent 条件写可用性验证（§4.5）。
 		// 探针失败 → 记 Fatal + 指标归零 → 禁用一切依赖互斥的能力，
 		// /health/ready 暴露原因；不让代码以为自己有保护。
-		probePrefix := objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix, Environment: cfg.Instance.ID}.CatalogPrefix()
-		if bs, ok := store.(objectstore.BlobStore); ok {
-			res := objectstore.ProbePutIfAbsent(ctx, bs, probePrefix)
-			a.casSupported = res.CASSupported
-			if a.metrics != nil {
-				if res.CASSupported {
-					a.metrics.CASSupported.Set(1)
+		if dbRemote {
+			probePrefix := objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}.CatalogPrefix()
+			if bs, ok := store.(objectstore.BlobStore); ok {
+				res := objectstore.ProbePutIfAbsent(ctx, bs, probePrefix)
+				a.casSupported = res.CASSupported
+				if a.metrics != nil {
+					if res.CASSupported {
+						a.metrics.CASSupported.Set(1)
+					} else {
+						a.metrics.CASSupported.Set(0)
+					}
+				}
+				if !res.CASSupported {
+					a.logger.Error("objectstore create-if-absent probe FAILED; mutual-exclusion capabilities disabled",
+						zap.Error(res.Err),
+						zap.String("hint", "endpoint does not enforce create-if-absent (bucket versioning enabled on COS?)"),
+					)
+					// §3.3：配置要求写租约但探针失败时阻止启动——不得退化到
+					// 静默无保护的单写（可写实例 + 远端同步器 + 无互斥）。
+					if cfg.Instance.Lease.Enabled {
+						return fmt.Errorf("objectstore create-if-absent probe failed: %w; "+
+							"instance.lease.enabled=true 要求对象存储支持条件写，拒绝在无单写保护下启动可写实例 "+
+							"(hint: COS 存储桶开启版本控制会使 x-cos-forbid-overwrite 失效)", res.Err)
+					}
 				} else {
-					a.metrics.CASSupported.Set(0)
+					a.logger.Info("objectstore create-if-absent probe passed")
 				}
 			}
-			if !res.CASSupported {
-				a.logger.Error("objectstore create-if-absent probe FAILED; mutual-exclusion capabilities disabled",
-					zap.Error(res.Err),
-					zap.String("hint", "endpoint does not enforce create-if-absent (bucket versioning enabled on COS?)"),
-				)
-				// §3.3：配置要求写租约但探针失败时阻止启动——不得退化到
-				// 静默无保护的单写（可写实例 + 远端同步器 + 无互斥）。
-				if cfg.Instance.Lease.Enabled {
-					return fmt.Errorf("objectstore create-if-absent probe failed: %w; "+
-						"instance.lease.enabled=true 要求对象存储支持条件写，拒绝在无单写保护下启动可写实例 "+
-						"(hint: COS 存储桶开启版本控制会使 x-cos-forbid-overwrite 失效)", res.Err)
-				}
-			} else {
-				a.logger.Info("objectstore create-if-absent probe passed")
-			}
 		}
-
-		filePrefix := cfg.S3.Prefix + "/" + cfg.Instance.ID + "/files"
-		fs, err := objectstore.NewS3FileStore(ctx, s3cfg, filePrefix, a.logger)
-		if err != nil {
-			return fmt.Errorf("create s3 file store: %w", err)
-		}
-		a.fileStore = fs
 	}
 
-	keys := objectstore.KeyBuilder{
-		RootPrefix:  cfg.S3.Prefix,
-		Environment: cfg.Instance.ID,
+	if err := a.assembleFileStore(ctx, cfg, s3cfg, filesRemote); err != nil {
+		return err
 	}
+
+	keys := objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}
 	if !cfg.Instance.Writable {
 		return nil
 	}
@@ -428,10 +418,9 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}
 
 	userCacheDir := cfg.Database.CacheDir
-	if cfg.DevMode {
-		userCacheDir = filepath.Join(cfg.Database.CacheDir, "dev", "dbs")
+	if fs, err := os.Stat(userCacheDir); err != nil || !fs.IsDir() {
 		if err := os.MkdirAll(userCacheDir, 0o755); err != nil {
-			return fmt.Errorf("create dev dbs dir: %w", err)
+			return fmt.Errorf("create cache dir: %w", err)
 		}
 	}
 	userFactory := a.newUserDatabaseFactory(userCacheDir)
@@ -442,7 +431,9 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		sysName = systemdb.DefaultName
 	}
 	store, err := systemdb.Bootstrap(ctx, systemdb.BootstrapInput{
-		LocatorDir: filepath.Join(cfg.Database.CacheDir, "system"),
+		// locator 记录系统库 UUID，必须与 data_dir 同寿命：
+		// 放进 cache_dir 会在清缓存后重新生成一个空系统库。
+		LocatorDir: filepath.Join(cfg.Storage.DataDir, "_system"),
 		Name:       sysName,
 		Factory:    sysFactory,
 		Keys:       keys,
@@ -472,15 +463,113 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}
 
 	// P1-1：per-database 写租约（multi-instance-consistency-plan §4.6）。
-	// 仅 writable + 非 DevMode + 探针通过时启用；失租 → 释放该库句柄。
+	// 仅 writable + storage.database=s3 + 探针通过时启用；失租 → 释放该库句柄。
 	regOpts := registry.Options{
 		IdleTimeout: cfg.Database.IdleTimeout,
 		MaxOpen:     cfg.Database.MaxOpen,
 		Writable:    cfg.Instance.Writable,
 	}
-	if cfg.Instance.Writable && !cfg.DevMode && cfg.Instance.Lease.Enabled && a.casSupported {
+	a.assembleWriteLease(ctx, cfg, regOpts)
+
+	a.registry = registry.New(userFactory, a.catalog, regOpts, a.logger, a.metrics)
+
+	a.assembleAuthServices(store, cfg)
+	if err := a.seedAndStartMaintenance(ctx, store, cfg); err != nil {
+		return err
+	}
+
+	a.cacheMgr, err = cache.NewManager(cache.Options{
+		Root:         cfg.Database.CacheDir,
+		DataRoot:     cfg.Storage.DataDir,
+		MaxBytes:     cfg.Database.CacheMaxBytes,
+		MaxDatabases: cfg.Database.CacheMaxDatabases,
+		Registry:     a.registry,
+		Closer:       a.registry,
+		Logger:       a.logger,
+		Metrics:      a.metrics,
+	})
+	if err != nil {
+		return fmt.Errorf("create cache manager: %w", err)
+	}
+
+	catRepo := a.catalog.Repository()
+	a.usageSvc = usage.NewService(catRepo, a.logger)
+	a.auditSvc = audit.NewService(catRepo, a.logger)
+
+	if cfg.LLM.Enabled {
+		a.llmSvc = a.assembleLLMService(cfg)
+	}
+
+	return nil
+}
+
+// assembleAuthServices 装配 auth/user/session 服务（原 assembleDeps 连续块，
+// B4 提取）。SYNC-01：user/session 仓储直接写系统库表，绕过 Store.notifyWrite；
+// 注入写后同步通知，防止改密/禁用是唯一一次写入时 catalog 漏发布。
+func (a *App) assembleAuthServices(store *systemdb.Store, cfg config.Config) {
+	a.auth = auth.NewService(store.AuthRepo(), cfg.Auth.APIKeyHashSecret)
+	a.users = auth.NewUserService(auth.NewSQLUserRepository(store.DB()), catalog.ReservedTenantID)
+	a.users.OnWrite(store.NotifyWrite)
+	a.sessions = auth.NewSessionService(a.users, auth.NewSQLSessionRepository(store.DB()),
+		cfg.Auth.APIKeyHashSecret, auth.SessionConfig{
+			AccessTTL:  2 * time.Hour,
+			RefreshTTL: 7 * 24 * time.Hour,
+		})
+	a.sessions.OnWrite(store.NotifyWrite) // SYNC-01
+}
+
+// seedAndStartMaintenance 执行系统库 Seed、日志保留与周期刷新，并启动
+// 系统库周期维护（原 assembleDeps 连续块，B4 提取）。种子先于后台维护启动；
+// 错误包装与 closer 注册顺序保持原样。
+func (a *App) seedAndStartMaintenance(ctx context.Context, store *systemdb.Store, cfg config.Config) error {
+	if err := systemdb.Seed(ctx, systemdb.SeedInput{
+		Store:   store,
+		Auth:    a.auth,
+		Catalog: a.catalog,
+		Logger:  a.logger,
+		InitKV:  a.initKVFunc(),
+	}); err != nil {
+		return fmt.Errorf("seed system database: %w", err)
+	}
+	store.SetDefaultLogKeepDays(cfg.SystemDatabase.LogKeepDays)
+	if err := store.SeedGlobalRetention(ctx, cfg.SystemDatabase.LogKeepDays); err != nil {
+		return fmt.Errorf("seed log retention: %w", err)
+	}
+	store.StartPeriodicFlush(cfg.SystemDatabase.LogFlushInterval, cfg.SystemDatabase.MetricsFlushInterval)
+
+	// perf §1 P1-C：系统库周期维护（merge/expire/cleanup；cleanup 首轮 dry-run）。
+	// 仅 writer 执行；启用租约时必须持有系统库写租约（惰性 Acquire，他人持租则跳过）。
+	maintWritable := func() bool { return cfg.Instance.Writable }
+	if a.leaseMgr != nil {
+		sysMeta := store.Meta()
+		maintWritable = func() bool {
+			if !cfg.Instance.Writable {
+				return false
+			}
+			if a.leaseMgr.ValidFor(sysMeta.ID) {
+				return true
+			}
+			if a.leaseMgr.Has(sysMeta.ID) {
+				return false
+			}
+			_, err := a.leaseMgr.Acquire(ctx, sysMeta.ProjectID, sysMeta.ID, cfg.Instance.ID, a.onLostLease)
+			return err == nil
+		}
+	}
+	maint := systemdb.NewMaintenanceRunner(store, duckLakeOptions(cfg.Database.DuckLake).Maintenance, maintWritable, a.logger)
+	maint.Start()
+	a.registerCloser(maint)
+	return nil
+}
+
+// assembleWriteLease 装配 per-database 写租约（原 assembleDeps「lease manager
+// 与回调」连续块，B4 提取）。仅 writable + storage.database=s3 + 探针通过时启用；
+// 失租回调与 WriteGate 的闭包捕获时机、注册 closer 顺序保持原样。
+func (a *App) assembleWriteLease(ctx context.Context, cfg config.Config, regOpts registry.Options) {
+	dbRemote := cfg.IsDBRemote()
+	if cfg.Instance.Writable && dbRemote && cfg.Instance.Lease.Enabled && a.casSupported {
 		if blobs, ok := a.objectStore.(objectstore.BlobStore); ok {
-			keys := objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix, Environment: cfg.Instance.ID}
+			keys := objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}
 			lm := lease.NewManager(blobs, keys, lease.Config{
 				Enabled:       true,
 				TTL:           cfg.Instance.Lease.TTL,
@@ -539,7 +628,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 					if lm.Has(db.ID) {
 						return fmt.Errorf("instance: write lease lost for database %s; writes rejected until lease recovered", db.ID)
 					}
-					if _, err := lm.Acquire(ctx, db.TenantID, db.ID, cfg.Instance.ID, a.onLostLease); err != nil {
+					if _, err := lm.Acquire(ctx, db.ProjectID, db.ID, cfg.Instance.ID, a.onLostLease); err != nil {
 						if lease.IsHeld(err) {
 							if a.metrics != nil && a.metrics.LeaseHeldRejected != nil {
 								a.metrics.LeaseHeldRejected.WithLabelValues(db.ID).Inc()
@@ -570,104 +659,62 @@ func (a *App) assembleDeps(ctx context.Context) error {
 				return nil
 			}
 		}
-	} else if cfg.Instance.Writable && !cfg.DevMode && cfg.Instance.Lease.Enabled && !a.casSupported {
+	} else if cfg.Instance.Writable && dbRemote && cfg.Instance.Lease.Enabled && !a.casSupported {
 		a.logger.Warn("write lease requested but disabled: create-if-absent probe failed",
 			zap.String("impact", "single-writer enforcement is NOT active; replicas must stay 1"))
 	}
+}
 
-	a.registry = registry.New(userFactory, a.catalog, regOpts, a.logger, a.metrics)
-
-	a.auth = auth.NewService(store.AuthRepo(), cfg.Auth.APIKeyHashSecret)
-	a.users = auth.NewUserService(auth.NewSQLUserRepository(store.DB()), catalog.ReservedTenantID)
-	a.sessions = auth.NewSessionService(a.users, auth.NewSQLSessionRepository(store.DB()),
-		cfg.Auth.APIKeyHashSecret, auth.SessionConfig{
-			AccessTTL:  2 * time.Hour,
-			RefreshTTL: 7 * 24 * time.Hour,
-		})
-
-	if err := systemdb.Seed(ctx, systemdb.SeedInput{
-		Store:   store,
-		Auth:    a.auth,
-		Catalog: a.catalog,
-		DevMode: cfg.DevMode,
-		Logger:  a.logger,
-		InitKV:  a.initKVFunc(),
-	}); err != nil {
-		return fmt.Errorf("seed system database: %w", err)
-	}
-	store.SetDefaultLogKeepDays(cfg.SystemDatabase.LogKeepDays)
-	if err := store.SeedGlobalRetention(ctx, cfg.SystemDatabase.LogKeepDays); err != nil {
-		return fmt.Errorf("seed log retention: %w", err)
-	}
-	store.StartPeriodicFlush(cfg.SystemDatabase.LogFlushInterval, cfg.SystemDatabase.MetricsFlushInterval)
-
-	// perf §1 P1-C：系统库周期维护（merge/expire/cleanup；cleanup 首轮 dry-run）。
-	// 仅 writer 执行；启用租约时必须持有系统库写租约（惰性 Acquire，他人持租则跳过）。
-	maintWritable := func() bool { return cfg.Instance.Writable }
-	if a.leaseMgr != nil {
-		sysMeta := store.Meta()
-		maintWritable = func() bool {
-			if !cfg.Instance.Writable {
-				return false
-			}
-			if a.leaseMgr.ValidFor(sysMeta.ID) {
-				return true
-			}
-			if a.leaseMgr.Has(sysMeta.ID) {
-				return false
-			}
-			_, err := a.leaseMgr.Acquire(ctx, sysMeta.TenantID, sysMeta.ID, cfg.Instance.ID, a.onLostLease)
-			return err == nil
+// assembleFileStore 装配用户文件存储（原 assembleDeps「文件存储选择」连续块，
+// B4 提取）：按 storage.files 选择对象存储或本地目录。位于 writable 提前返回
+// 之前——只读实例同样装配 fileStore。错误文本保持原样。
+func (a *App) assembleFileStore(ctx context.Context, cfg config.Config, s3cfg objectstore.Config, filesRemote bool) error {
+	switch {
+	case filesRemote:
+		if s3cfg.Bucket == "" {
+			return fmt.Errorf("storage.files=s3 requires s3.bucket")
 		}
-	}
-	maint := systemdb.NewMaintenanceRunner(store, duckLakeOptions(cfg.Database.DuckLake).Maintenance, maintWritable, a.logger)
-	maint.Start()
-	a.registerCloser(maint)
-
-	a.cacheMgr, err = cache.NewManager(cache.Options{
-		Root:         cfg.Database.CacheDir,
-		MaxBytes:     cfg.Database.CacheMaxBytes,
-		MaxDatabases: cfg.Database.CacheMaxDatabases,
-		Registry:     a.registry,
-		Closer:       a.registry,
-		Logger:       a.logger,
-		Metrics:      a.metrics,
-	})
-	if err != nil {
-		return fmt.Errorf("create cache manager: %w", err)
-	}
-
-	catRepo := a.catalog.Repository()
-	a.usageSvc = usage.NewService(catRepo, a.logger)
-	a.auditSvc = audit.NewService(catRepo, a.logger)
-
-	if cfg.LLM.Enabled {
-		// 设置页把厂商凭证写进 sys_llm_provider_creds。每次请求现读该表，
-		// 保存后无需重启。catalog CredentialRef 与 YAML 实例供应商仅作回退。
-		var resolver llmgateway.ProviderResolver = llmgateway.NewCatalogResolver(a.catalog, nil)
-		resolver = llmgateway.NewFirstUsableResolver(
-			llmgateway.NewProjectCredResolver(llmgateway.NewSystemCredSource(a.systemStore)),
-			resolver,
-		)
-		if inst := instanceLLMProviders(cfg.LLM.Providers); len(inst) > 0 {
-			resolver = llmgateway.NewFallbackResolver(resolver, inst)
+		if a.objectStore == nil {
+			store, err := objectstore.NewClient(ctx, s3cfg, a.logger, a.metrics)
+			if err != nil {
+				return fmt.Errorf("create objectstore client: %w", err)
+			}
+			a.objectStore = store
 		}
-		a.llmSvc = llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
-	}
-
-	if cfg.DevMode {
-		fs, err := objectstore.NewLocalFileStore(filepath.Join(cfg.Database.CacheDir, "dev", "files"))
+		fs, err := objectstore.NewS3FileStore(ctx, s3cfg, cfg.S3.Prefix, a.logger)
+		if err != nil {
+			return fmt.Errorf("create s3 file store: %w", err)
+		}
+		a.fileStore = fs
+	default:
+		fs, err := objectstore.NewLocalFileStore(cfg.Storage.DataDir)
 		if err != nil {
 			return fmt.Errorf("create local file store: %w", err)
 		}
 		a.fileStore = fs
-		a.logger.Info("running in dev mode: local DuckLake DATA_PATH, S3 bypassed",
-			zap.String("user_dbs", userCacheDir),
-			zap.String("system_dir", filepath.Join(cfg.Database.CacheDir, "system")),
-		)
+		a.logger.Info("user files stored on local disk",
+			zap.String("data_dir", cfg.Storage.DataDir))
 	}
-
 	return nil
+}
+
+// assembleLLMService 装配 LLM Gateway 服务（原 assembleDeps 尾部
+// cfg.LLM.Enabled 连续块，B4 提取；resolver 链构造与优先级保持原样：
+// 项目动态凭据（sys_llm_settings）→ catalog CredentialRef → 实例 YAML
+// 供应商回退）。仅读取已装配的 a.catalog / a.systemStore / a.usageSvc /
+// a.logger，不重新创建任何依赖。
+func (a *App) assembleLLMService(cfg config.Config) llmgateway.Service {
+	// 设置页把模型连接（API Key / Base URL）写进 sys_llm_settings。每次请求现读该行，
+	// 保存后无需重启。catalog CredentialRef 与 YAML 实例供应商仅作回退。
+	var resolver llmgateway.ProviderResolver = llmgateway.NewCatalogResolver(a.catalog, nil)
+	resolver = llmgateway.NewFirstUsableResolver(
+		llmgateway.NewProjectCredResolver(llmgateway.NewSystemCredSource(a.systemStore)),
+		resolver,
+	)
+	if inst := instanceLLMProviders(cfg.LLM.Providers); len(inst) > 0 {
+		resolver = llmgateway.NewFallbackResolver(resolver, inst)
+	}
+	return llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
 }
 
 // Close 反向关闭所有已注册资源。供 New 失败路径和测试 cleanup 调用。
@@ -732,23 +779,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// 停止 Cloud Agent 调度器并等待 in-flight 执行收敛（受 ctx 超时约束）。
+	// 停止后台调度循环；随后等待统一定时任务调度器的 in-flight 执行收敛（受 ctx 超时约束）。
 	if a.schedulerCancel != nil {
 		a.schedulerCancel()
 	}
-	if a.agentScheduler != nil {
-		done := make(chan struct{})
-		go func() {
-			a.agentScheduler.Stop()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-ctx.Done():
-			a.logger.Warn("agent scheduler stop timed out")
-		}
-	}
-	// 停止云函数定时任务调度器（同上收敛语义）。
+	// 停止定时任务调度器（云函数 + Agent 两类目标共用）。
 	if a.cronScheduler != nil {
 		done := make(chan struct{})
 		go func() {
@@ -786,22 +821,22 @@ func (a *App) Shutdown(ctx context.Context) error {
 }
 
 // newUserDatabaseFactory 返回 DuckLake 用户库工厂（唯一引擎）。
+// dbRemote 为真时启用 S3 catalog 同步与远端 DATA_PATH，否则数据落 DataRoot。
 func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
 	cfg := a.cfg
+	dbRemote := cfg.IsDBRemote()
 	opts := duckLakeOptions(cfg.Database.DuckLake)
 	remote := ducklake.RemoteStorage{}
 	var syncer ducklake.Syncer = ducklake.NewLocalSyncer()
 	var blobs objectstore.BlobStore
 
-	// 生产（非 DevMode）启用 S3 catalog 同步与 DATA_PATH。
-	if !cfg.DevMode && cfg.S3.Bucket != "" {
+	if dbRemote && cfg.S3.Bucket != "" {
 		remote = ducklake.RemoteStorage{
 			Enabled:        true,
 			Endpoint:       cfg.S3.Endpoint,
 			Region:         cfg.S3.Region,
 			Bucket:         cfg.S3.Bucket,
 			RootPrefix:     cfg.S3.Prefix,
-			Environment:    cfg.Instance.ID,
 			AccessKey:      cfg.S3.AccessKey,
 			SecretKey:      cfg.S3.SecretKey,
 			ForcePathStyle: cfg.S3.ForcePathStyle,
@@ -821,6 +856,7 @@ func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
 
 	f := &ducklake.Factory{
 		CacheDir: cacheDir,
+		DataRoot: cfg.Storage.DataDir,
 		Options:  opts,
 		Syncer:   syncer,
 		Remote:   remote,
@@ -832,12 +868,14 @@ func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
 	return f
 }
 
-// newSystemDatabaseFactory 返回系统库专用 Factory；与用户库共享 Remote/Syncer，CacheDir 隔离。
+// newSystemDatabaseFactory 返回系统库专用 Factory；与用户库共享 DataRoot/Remote/Syncer。
+// 系统库 catalog 归到一个独立的缓存子目录，避免与用户库混用。
 func (a *App) newSystemDatabaseFactory() *ducklake.Factory {
 	cfg := a.cfg
 	opts := duckLakeOptions(cfg.Database.DuckLake)
 	f := &ducklake.Factory{
 		CacheDir: filepath.Join(cfg.Database.CacheDir, "system", "dbs"),
+		DataRoot: cfg.Storage.DataDir,
 		Options:  opts,
 		Logger:   a.logger,
 		Metrics:  a.metrics,
@@ -885,7 +923,12 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 	cliPath := strings.TrimSpace(a.cfg.Agent.CLIPath)
 	if cliPath == "" {
 		if exe, err := os.Executable(); err == nil {
-			cliPath = filepath.Join(filepath.Dir(exe), "simplebase")
+			cliPath = exe
+		}
+	}
+	if a.cfg.Agent.SkillsCLI && a.logger != nil {
+		if failure := cloudagent.ValidateCLIPath(cliPath); failure != "" {
+			a.logger.Warn("cloud agent CLI unavailable", zap.String("reason", failure))
 		}
 	}
 	reg := auth.NewDelegationRegistry()
@@ -906,6 +949,9 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		ConfirmTimeout: a.cfg.Agent.EffectiveConfirmTimeout(),
 		DelegationTTL:  a.cfg.Agent.EffectiveDelegationTTL(),
 		Issuer:         auth.HMACDelegationIssuer{Secret: a.cfg.Auth.APIKeyHashSecret, Reg: reg},
+		// planv6.0 v2 §5：运行日志出口与内容层开关（默认关闭）。
+		Logger:   a.logger,
+		TraceLog: a.cfg.Agent.TraceLog,
 	}
 	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
 		rt.Sandbox = &sandboxAdapter{m: a.sandboxMgr}

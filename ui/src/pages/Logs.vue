@@ -1,17 +1,17 @@
 <template>
   <ProjectScope>
-  <PageContainer subtitle="按项目查询运行日志与保留策略">
+  <PageContainer :subtitle="t('pages.logs.subtitle')">
     <Card>
       <CardHeader class="border-b">
-        <CardTitle>日志</CardTitle>
-        <CardDescription>按级别、关键字与时间范围过滤</CardDescription>
+        <CardTitle>{{ t('pages.logs.cardTitle') }}</CardTitle>
+        <CardDescription>{{ t('pages.logs.cardDesc') }}</CardDescription>
       </CardHeader>
       <CardContent class="flex flex-wrap items-end gap-2.5 border-b py-4">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-muted-foreground">级别</span>
+          <span class="text-xs text-muted-foreground">{{ t('pages.logs.level') }}</span>
           <Select :model-value="level" @update:model-value="(v: string) => (level = v || undefined)">
             <SelectTrigger class="w-30" size="sm">
-              <SelectValue placeholder="级别" />
+              <SelectValue :placeholder="t('pages.logs.level')" />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -23,44 +23,44 @@
           </Select>
         </div>
         <div class="flex min-w-55 flex-1 flex-col gap-1 sm:max-w-80">
-          <span class="text-xs text-muted-foreground">关键字</span>
+          <span class="text-xs text-muted-foreground">{{ t('pages.logs.keyword') }}</span>
           <InputGroup>
             <InputGroupAddon>
               <FilterIcon />
             </InputGroupAddon>
-            <InputGroupInput v-model="keyword" placeholder="关键字" />
+            <InputGroupInput v-model="keyword" :placeholder="t('pages.logs.keyword')" />
           </InputGroup>
         </div>
         <div class="flex w-full min-w-0 items-end gap-2 sm:w-auto">
           <div class="flex min-w-0 flex-1 flex-col gap-1 sm:w-52 sm:flex-none">
-            <span class="text-xs text-muted-foreground">开始</span>
+            <span class="text-xs text-muted-foreground">{{ t('pages.logs.start') }}</span>
             <Input v-model="from" type="datetime-local" class="w-full" />
           </div>
-          <span class="pb-2 text-xs text-muted-foreground">至</span>
+          <span class="pb-2 text-xs text-muted-foreground">{{ t('pages.logs.to') }}</span>
           <div class="flex min-w-0 flex-1 flex-col gap-1 sm:w-52 sm:flex-none">
-            <span class="text-xs text-muted-foreground">结束</span>
+            <span class="text-xs text-muted-foreground">{{ t('pages.logs.end') }}</span>
             <Input v-model="to" type="datetime-local" class="w-full" />
           </div>
         </div>
         <Button size="sm" :disabled="pending" @click="load">
           <Spinner v-if="pending" data-icon="inline-start" />
           <RefreshCwIcon v-else data-icon="inline-start" />
-          刷新
+          {{ t('common.refresh') }}
         </Button>
         <div class="flex items-center gap-2 pb-1">
           <Switch :model-value="autoRefresh" @update:model-value="autoRefresh = $event" />
-          <span class="text-sm text-muted-foreground">{{ autoRefresh ? `每 ${POLL_SEC} 秒轮询` : '手动刷新' }}</span>
+          <span class="text-sm text-muted-foreground">{{ autoRefresh ? t('pages.logs.autoRefresh', { n: POLL_SEC }) : t('pages.logs.manualRefresh') }}</span>
         </div>
-        <span class="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto sm:pb-1">已加载 {{ events.length }} 条 / 最多 200</span>
+        <span class="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto sm:pb-1">{{ t('pages.logs.loaded', { n: events.length }) }}</span>
       </CardContent>
       <div class="p-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="sb-col-md">时间</TableHead>
-              <TableHead class="sb-col-sm">级别</TableHead>
-              <TableHead class="sb-col-sm">来源</TableHead>
-              <TableHead class="max-w-lg text-left">消息</TableHead>
+              <TableHead class="sb-col-md">{{ t('pages.logs.colTime') }}</TableHead>
+              <TableHead class="sb-col-sm">{{ t('pages.logs.colLevel') }}</TableHead>
+              <TableHead class="sb-col-sm">{{ t('pages.logs.colSource') }}</TableHead>
+              <TableHead class="max-w-lg text-left">{{ t('pages.logs.colMessage') }}</TableHead>
               <TableHead class="sb-col-id">Request ID</TableHead>
             </TableRow>
           </TableHeader>
@@ -73,8 +73,8 @@
             :show-error="showError"
             :refreshing="refreshing"
             :error="error"
-            empty-description="暂无匹配日志"
-            :empty-action-text="hasFilter ? '清除筛选' : undefined"
+            :empty-description="t('pages.logs.emptyDesc')"
+            :empty-action-text="hasFilter ? t('pages.logs.clearFilter') : undefined"
             @retry="load"
             @empty-action="clearFilters"
           >
@@ -102,18 +102,18 @@
 
     <Card>
       <CardHeader class="border-b">
-        <CardTitle>保留策略</CardTitle>
+        <CardTitle>{{ t('pages.logs.retentionTitle') }}</CardTitle>
       </CardHeader>
       <CardContent class="flex flex-wrap items-end gap-2.5 py-4">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-muted-foreground">保留天数</span>
+          <span class="text-xs text-muted-foreground">{{ t('pages.logs.retentionDays') }}</span>
           <Input id="keep-days" v-model="keepDaysText" type="number" class="w-24" min="1" max="365" />
         </div>
         <Button variant="outline" size="sm" :disabled="savingRetention" @click="saveRetention">
           <Spinner v-if="savingRetention" data-icon="inline-start" />
-          保存
+          {{ t('common.save') }}
         </Button>
-        <span v-if="retentionUpdatedAt" class="pb-1 text-xs text-muted-foreground">更新于 {{ retentionUpdatedAt }}</span>
+        <span v-if="retentionUpdatedAt" class="pb-1 text-xs text-muted-foreground">{{ t('pages.logs.retentionUpdatedAt', { time: retentionUpdatedAt }) }}</span>
       </CardContent>
     </Card>
   </PageContainer>
@@ -122,6 +122,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { FilterIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
@@ -161,6 +162,7 @@ import TablePager from '../components/TablePager.vue'
 const POLL_MS = 10000
 const POLL_SEC = POLL_MS / 1000
 
+const { t } = useI18n()
 const projectStore = useProjectStore()
 const level = ref<string | undefined>()
 const keyword = ref('')
@@ -169,7 +171,7 @@ const to = ref('')
 const events = ref<LogEvent[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(events)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载日志失败'
+  fallback: 'pages.logs.loadFailed'
 })
 const autoRefresh = ref(false)
 const keepDays = ref(14)
@@ -231,11 +233,11 @@ async function saveRetention() {
   savingRetention.value = true
   try {
     await api.logs.putRetention(projectStore.id, keepDays.value)
-    toast.success('已保存保留策略')
+    toast.success(t('pages.logs.retentionSaved'))
     retentionLoadedFor.value = ''
     await load()
   } catch (e) {
-    toast.error((e as Error)?.message || '保存失败')
+    toast.error((e as Error)?.message || t('pages.logs.saveFailed'))
   } finally {
     savingRetention.value = false
   }

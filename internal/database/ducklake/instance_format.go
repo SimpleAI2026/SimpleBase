@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
@@ -31,9 +32,9 @@ type InstanceFormat struct {
 type FormatCheckInput struct {
 	// Engine 是配置的 catalog 引擎。
 	Engine string
-	// CacheDir 是 config.Database.CacheDir（本地标记与本地数据探测的根）。
-	CacheDir string
-	// Store/Keys 仅在远端启用时设置；Store 为 nil 表示纯本地模式（dev_mode 等）。
+	// DataRoot 是本地持久根（storage.data_dir）：本地标记与本地数据探测的根。
+	DataRoot string
+	// Store/Keys 仅在远端启用时设置；Store 为 nil 表示数据库走本地盘。
 	Store objectstore.BlobStore
 	Keys  objectstore.KeyBuilder
 	// CreatedBy 写入标记的 created_by（{instance_id}/{boot_id}）。
@@ -42,9 +43,9 @@ type FormatCheckInput struct {
 	Bucket string
 }
 
-// LocalInstanceFormatPath 返回本地标记路径。
-func LocalInstanceFormatPath(cacheDir string) string {
-	return filepath.Join(cacheDir, instanceFormatFileName)
+// LocalInstanceFormatPath 返回本地标记路径（持久根下，随数据一起搬迁）。
+func LocalInstanceFormatPath(dataRoot string) string {
+	return filepath.Join(dataRoot, instanceFormatFileName)
 }
 
 // EnsureInstanceFormat 启动兼容性校验（§4.2）：
@@ -62,11 +63,11 @@ func EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFor
 	if !IsValidCatalogEngine(engine) {
 		return InstanceFormat{}, fmt.Errorf("ducklake: unsupported catalog engine %q", in.Engine)
 	}
-	if in.CacheDir == "" {
+	if in.DataRoot == "" {
 		return InstanceFormat{}, errors.New("ducklake: cache dir is required for instance format check")
 	}
 
-	local, hasLocal, err := readLocalFormat(in.CacheDir)
+	local, hasLocal, err := readLocalFormat(in.DataRoot)
 	if err != nil {
 		return InstanceFormat{}, err
 	}
@@ -82,7 +83,7 @@ func EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFor
 	// 远端与本地互相矛盾 → 拒绝（不猜哪一方是对的）。
 	if hasRemote && hasLocal && NormalizeCatalogEngine(remote.CatalogEngine) != NormalizeCatalogEngine(local.CatalogEngine) {
 		return InstanceFormat{}, mismatchErr(in, engine, fmt.Sprintf("remote marker says %q but local marker (%s) says %q",
-			remote.CatalogEngine, LocalInstanceFormatPath(in.CacheDir), local.CatalogEngine))
+			remote.CatalogEngine, LocalInstanceFormatPath(in.DataRoot), local.CatalogEngine))
 	}
 
 	switch {
@@ -91,7 +92,7 @@ func EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFor
 			return InstanceFormat{}, err
 		}
 		if !hasLocal {
-			if err := writeLocalFormat(in.CacheDir, remote); err != nil {
+			if err := writeLocalFormat(in.DataRoot, remote); err != nil {
 				return InstanceFormat{}, err
 			}
 		}
@@ -118,7 +119,7 @@ func EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFor
 	}
 
 	// 两者都不存在：只有完全干净才写新标记。
-	if found, where := DetectLocalData(in.CacheDir); found {
+	if found, where := DetectLocalData(in.DataRoot); found {
 		return InstanceFormat{}, unknownErr(in, "local cache contains existing data at "+where)
 	}
 	if in.Store != nil {
@@ -143,7 +144,7 @@ func EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFor
 		}
 		fresh = got
 	}
-	if err := writeLocalFormat(in.CacheDir, fresh); err != nil {
+	if err := writeLocalFormat(in.DataRoot, fresh); err != nil {
 		return InstanceFormat{}, err
 	}
 	return fresh, nil
@@ -193,17 +194,23 @@ func DetectLocalData(cacheDir string) (bool, string) {
 	return false, ""
 }
 
-// requireRemoteClean 要求 {base}/tenants/ 为空（§4.3）。List 任何错误都 fail closed：
+// requireRemoteClean 要求存储根下没有任何项目数据（§4.3）。List 任何错误都 fail closed：
 // 无法区分"前缀为空"与"寻址/路由错误"（如 bucket 级 COS endpoint + path-style 寻址下
 // ListObjectsV2 被 COS 路由为 GetObject，恒 404 NoSuchKey），绝不能当成空前缀。
+// _system/ 下的平台标记（实例格式标记、reset 锁、CAS 探针）不算已有数据。
 func requireRemoteClean(ctx context.Context, in FormatCheckInput) error {
-	prefix := in.Keys.TenantsPrefix() + "/"
-	keys, _, err := in.Store.List(ctx, prefix, "", 1)
+	prefix := in.Keys.RootListingPrefix()
+	keys, _, err := in.Store.List(ctx, prefix, "", 100)
 	if err != nil {
 		return fmt.Errorf("ducklake: cannot verify remote prefix %s is empty (list failed, refusing to write instance-format marker): %w", prefix, err)
 	}
-	if len(keys) > 0 {
-		return unknownErr(in, "remote prefix "+prefix+" contains existing objects (e.g. "+keys[0]+")")
+	sysPrefix := objectstore.SystemPrefix + "/"
+	for _, k := range keys {
+		rest := strings.TrimPrefix(strings.TrimPrefix(k, prefix), "/")
+		if rest == "" || strings.HasPrefix(rest, sysPrefix) {
+			continue
+		}
+		return unknownErr(in, "remote prefix "+prefix+" contains existing objects (e.g. "+k+")")
 	}
 	return nil
 }
@@ -283,7 +290,7 @@ func putRemoteFormat(ctx context.Context, in FormatCheckInput, f InstanceFormat)
 
 func markerLocation(in FormatCheckInput) string {
 	if in.Store == nil {
-		return LocalInstanceFormatPath(in.CacheDir)
+		return LocalInstanceFormatPath(in.DataRoot)
 	}
 	if in.Bucket != "" {
 		return "s3://" + in.Bucket + "/" + in.Keys.InstanceFormatKey()
@@ -292,12 +299,8 @@ func markerLocation(in FormatCheckInput) string {
 }
 
 func resetHint(in FormatCheckInput) string {
-	env := in.Keys.Environment
-	if env == "" {
-		env = "<instance_id>"
-	}
 	return "Switching engines is not supported and requires wiping ALL databases:\n" +
-		"  simplebased reset --confirm=" + env + "\n" +
+		"  ./build.sh reset\n" +
 		"or set database.ducklake.catalog_engine back to the engine of the existing data."
 }
 

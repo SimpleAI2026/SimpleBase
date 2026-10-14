@@ -18,7 +18,7 @@ func TestBeforeCloseBindingAndAfterWriteError(t *testing.T) {
 	db, _ := openTestLake(t)
 	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{Mode: "debounce"}, "", nil, nil)
 	id := uuid.NewString()
-	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111"}
+	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 	cs.Bind(id, db, meta, DefaultLakeAlias)
 	f := &Factory{Syncer: cs, Options: DefaultOptions()}
 	if err := f.BeforeClose(context.Background(), id, db); err != nil {
@@ -81,7 +81,7 @@ func TestOpenCacheDirIsFile(t *testing.T) {
 func TestCatalogSyncerCloseFlushesBound(t *testing.T) {
 	db, _ := openTestLake(t)
 	id := uuid.NewString()
-	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111"}
+	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, "", nil, nil)
 	cs.Bind(id, db, meta, DefaultLakeAlias)
 	if _, err := db.ExecContext(context.Background(), `CREATE TABLE c (x INTEGER)`); err != nil {
@@ -97,8 +97,8 @@ func TestCatalogSyncerCloseFlushesBound(t *testing.T) {
 
 func TestEnsureLocalCatalogHeadError(t *testing.T) {
 	store := &errHeadStore{err: errorsNew("head fail")}
-	remote := RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase", Environment: "e"}
-	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111"}
+	remote := RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase"}
+	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 	_, err := EnsureLocalCatalog(context.Background(), store, remote, t.TempDir(), meta, "")
 	if err == nil {
 		t.Fatal("head error")

@@ -333,7 +333,7 @@ func deleteObjectsError(out *s3.DeleteObjectsOutput) error {
 		len(out.Errors), aws.ToString(first.Key), aws.ToString(first.Code))
 }
 
-/* ---------- 内存 BlobStore（单测 / DevMode 可选） ---------- */
+/* ---------- 内存 BlobStore（单测可选） ---------- */
 
 type memoryBlobStore struct {
 	mu    sync.RWMutex

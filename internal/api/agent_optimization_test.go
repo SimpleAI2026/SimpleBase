@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -68,10 +67,10 @@ func TestAgentThreadPaginationRenameAndRuns(t *testing.T) {
 	if rec = agentReq(e, http.MethodPatch, "/agent-threads/"+ids[0], map[string]string{"title": "x"}); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("readonly=%d", rec.Code)
 	}
-	if _, err := store.CreateAgentRun(context.Background(), systemdb.AgentRun{ID: "r1", ThreadID: ids[0], ProjectID: catalog.DevProjectID, AgentID: "a"}); err != nil {
+	if _, err := store.CreateAgentRun(context.Background(), systemdb.AgentRun{ID: "r1", ThreadID: ids[0], ProjectID: "testprj1", AgentID: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateAgentRunMetrics(context.Background(), catalog.DevProjectID, "r1", systemdb.AgentRun{DurationMS: 314, PromptTokens: 5, CompletionTokens: 6, ToolCalls: 1}); err != nil {
+	if err := store.UpdateAgentRunMetrics(context.Background(), "testprj1", "r1", systemdb.AgentRun{DurationMS: 314, PromptTokens: 5, CompletionTokens: 6, ToolCalls: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if rec = agentReq(e, http.MethodGet, "/agent-threads/"+ids[0]+"/runs", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"duration_ms":314`) {
@@ -84,24 +83,24 @@ func TestAgentThreadPaginationRenameAndRuns(t *testing.T) {
 
 func TestAgentRunMetricsAuditOmitsConversation(t *testing.T) {
 	store := openAgentStore(t)
-	thread, err := store.CreateAgentThread(context.Background(), systemdb.AgentThread{ProjectID: catalog.DevProjectID, Title: "title"})
+	thread, err := store.CreateAgentThread(context.Background(), systemdb.AgentThread{ProjectID: "testprj1", Title: "title"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := store.CreateAgentRun(context.Background(), systemdb.AgentRun{ID: "audit-test-run", ThreadID: thread.ID, ProjectID: catalog.DevProjectID, AgentID: "agent"})
+	run, err := store.CreateAgentRun(context.Background(), systemdb.AgentRun{ID: "audit-test-run", ThreadID: thread.ID, ProjectID: "testprj1", AgentID: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	audit := &fakeAudit{}
 	h := &cloudAgentHandler{store: store, audit: audit}
 	res := cloudagent.RunResult{Content: "private conversation", ToolCallsJSON: "[]", DurationMS: 500, PromptTokens: 12, CompletionTokens: 3, ToolCalls: 1}
-	if err := h.finishAgentRun(context.Background(), catalog.DevProjectID, run, systemdb.CloudAgent{ID: "agent"}, res, nil); err != nil {
+	if err := h.finishAgentRun(context.Background(), "testprj1", run, systemdb.CloudAgent{ID: "agent"}, res, nil); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(audit.last.Detail, res.Content) || audit.last.Kind != "agent.run" || !strings.Contains(audit.last.Detail, "prompt_tokens=12") {
 		t.Fatalf("audit=%+v", audit.last)
 	}
-	row, err := store.GetAgentRun(context.Background(), catalog.DevProjectID, run.ID)
+	row, err := store.GetAgentRun(context.Background(), "testprj1", run.ID)
 	if err != nil || row.DurationMS != 500 || row.CompletionTokens != 3 || row.ToolCalls != 1 {
 		t.Fatalf("run=%+v err=%v", row, err)
 	}

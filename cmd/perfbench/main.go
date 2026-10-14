@@ -1,6 +1,6 @@
 // perfbench 是独立的压测入口二进制（api-db-perf-validation-plan §2.2）。
 //
-// 不进生产构建产物：装配真实 app（DevMode 本地盘）+ httptest.Server，
+// 不进生产构建产物：装配真实 app（本地盘）+ httptest.Server，
 // 按 http/db/kv 三组对 DB 的 HTTP 增删改查做闭环压测并输出 p50/p95/p99
 // 与九段耗时占比。原始数据落 output/perf/<date>/。
 //

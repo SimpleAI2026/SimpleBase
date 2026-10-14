@@ -58,7 +58,7 @@ LLM 服务端封装。项目隔离的 provider 配置（从 catalog `llm_provide
 ## 依赖关系
 
 ```text
-cmd/simplebased → app → api → auth → catalog
+cmd/simplebase → app → api → auth → catalog
                          ↓        ↓
                    database/* ←───┘
                    objectstore

@@ -1,6 +1,6 @@
 <template>
   <div
-    class="relative flex items-end gap-2 px-3 py-2.5"
+    class="relative flex items-center gap-2 px-3 py-2.5"
     :class="disabled ? 'opacity-60' : ''"
     :style="{
       background: 'var(--composer-bg)',
@@ -8,32 +8,45 @@
       border: '1px solid var(--border)',
     }"
   >
-    <Button variant="outline" size="icon-sm" class="rounded-full" disabled title="附件（即将支持）" aria-label="添加附件">
-      <PlusIcon />
-    </Button>
     <textarea
       ref="ta"
-      class="max-h-55 min-h-6 min-w-0 flex-1 resize-none border-0 bg-transparent py-1 font-sans text-sm leading-normal text-foreground outline-none placeholder:text-muted-foreground"
+      class="max-h-55 min-h-6 min-w-0 flex-1 resize-none border-0 bg-transparent py-0 font-sans text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
       :value="modelValue"
-      :placeholder="placeholder"
+      :placeholder="placeholder || t('components.aiComposer.placeholder')"
       :disabled="disabled || sending"
       rows="1"
       @input="onInput"
       @keydown="onKeydown"
     />
-    <Popover :open="mentionOpen && mentionAgents.length > 0">
+    <span v-if="mentionError" role="alert" class="absolute bottom-full left-0 mb-2 rounded-md border border-border bg-popover px-3 py-2 text-xs text-foreground shadow-sm">{{ mentionError }}</span>
+    <Popover :open="mentionOpen && (mentionAgents.length > 0 || mentionSkills.length > 0)">
       <PopoverTrigger as-child>
         <span class="sr-only">mention</span>
       </PopoverTrigger>
       <PopoverContent class="w-72 p-0" side="top" align="start">
         <Command>
           <CommandList>
-            <CommandEmpty>无匹配 Agent</CommandEmpty>
-            <CommandGroup>
+            <CommandEmpty>{{ t('components.aiComposer.noMentionMatch') }}</CommandEmpty>
+            <CommandGroup v-if="filteredSkills.length">
+              <p class="px-2 py-1 text-xs text-muted-foreground">{{ t('components.aiComposer.skillGroup') }}</p>
+              <CommandItem
+                v-for="skill in filteredSkills"
+                :key="`skill:${skill.id}`"
+                :value="`skill:${skill.name}`"
+                :disabled="!skill.available"
+                @select="() => pickSkill(skill)"
+              >
+                <component :is="iconForAgentModule(skill.id)" class="size-4 shrink-0 opacity-80" aria-hidden="true" />
+                <span class="font-semibold text-primary">@</span>{{ skill.name }}
+                <span v-if="!skill.available" class="ml-auto text-xs text-muted-foreground">{{ skill.unavailableReason || t('components.aiComposer.unavailable') }}</span>
+              </CommandItem>
+            </CommandGroup>
+            <CommandGroup v-if="filteredMentions.length">
+              <p class="px-2 py-1 text-xs text-muted-foreground">{{ t('components.aiComposer.agentGroup') }}</p>
               <CommandItem
                 v-for="a in filteredMentions"
                 :key="a.id"
-                :value="a.name"
+                :value="`agent:${a.name}:${a.id}`"
                 @select="() => pickMention(a)"
               >
                 <component :is="iconForAgentModule(a.module)" class="size-4 shrink-0 opacity-80" aria-hidden="true" />
@@ -45,15 +58,13 @@
         </Command>
       </PopoverContent>
     </Popover>
-    <Button variant="outline" size="icon-sm" class="rounded-full" disabled title="语音输入（即将支持）" aria-label="语音输入">
-      <MicIcon />
-    </Button>
+
     <Button
       v-if="sending"
       size="icon"
       class="rounded-full bg-destructive text-white hover:bg-destructive/95 dark:text-background dark:hover:bg-destructive/90"
-      title="停止"
-      aria-label="停止生成"
+      :title="t('components.aiComposer.stop')"
+      :aria-label="t('components.aiComposer.stopAria')"
       @click="$emit('stop')"
     >
       <SquareIcon />
@@ -61,12 +72,11 @@
     <Button
       v-else
       size="icon"
-      class="rounded-full"
-      :style="{ background: 'var(--composer-send-bg)', color: 'var(--background)' }"
+      class="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
       :disabled="disabled || !modelValue.trim()"
-      title="发送"
-      aria-label="发送"
-      @click="$emit('send', mentionsForSend(modelValue), skillsForSend(modelValue))"
+      :title="t('components.aiComposer.send')"
+      :aria-label="t('components.aiComposer.sendAria')"
+      @click="sendMessage"
     >
       <ArrowUpIcon />
     </Button>
@@ -75,9 +85,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { ArrowUpIcon, MicIcon, PlusIcon, SquareIcon } from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
+import { ArrowUpIcon, SquareIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { iconForAgentModule } from '@/components/nav-icons'
+import { i18n } from '@/locales'
 import { resolveSkillAlias, skillsInText } from '@/utils/agent-skills'
 import {
   Command,
@@ -92,6 +104,16 @@ export interface MentionAgent {
   id: string
   name: string
   module?: string
+  /** 服务端保存的旧内置名称，语言切换后仍可识别老草稿。 */
+  legacyName?: string
+  builtinKey?: string
+}
+
+export interface MentionSkill {
+  id: string
+  name: string
+  available: boolean
+  unavailableReason?: string
 }
 
 const props = withDefaults(
@@ -101,12 +123,14 @@ const props = withDefaults(
     disabled?: boolean
     sending?: boolean
     mentionAgents?: MentionAgent[]
+    mentionSkills?: MentionSkill[]
   }>(),
   {
-    placeholder: '输入消息，Enter 发送，Shift+Enter 换行；输入 @ 点名 Agent',
+    placeholder: '',
     disabled: false,
     sending: false,
-    mentionAgents: () => []
+    mentionAgents: () => [],
+    mentionSkills: () => []
   }
 )
 
@@ -116,14 +140,33 @@ const emit = defineEmits<{
   (e: 'stop'): void
 }>()
 
+const { t } = useI18n()
+
+interface SelectedMention {
+  start: number
+  text: string
+  agentId: string
+}
+
+interface SelectedSkill {
+  start: number
+  text: string
+  skillId: string
+}
+
 const ta = ref<HTMLTextAreaElement | null>(null)
 const mentionOpen = ref(false)
 const mentionQuery = ref('')
-const selected = ref<{ agent_id: string; name: string }[]>([])
-
+const selectedMentions = ref<SelectedMention[]>([])
+const selectedSkills = ref<SelectedSkill[]>([])
+const mentionError = ref('')
 const filteredMentions = computed(() => {
   const q = mentionQuery.value.toLowerCase()
   return (props.mentionAgents || []).filter((a) => !q || a.name.toLowerCase().includes(q) || (a.module || '').includes(q))
+})
+const filteredSkills = computed(() => {
+  const q = mentionQuery.value.toLowerCase()
+  return (props.mentionSkills || []).filter((skill) => !q || skill.name.toLowerCase().includes(q) || skill.id.includes(q))
 })
 
 function parseMentionQuery(value: string) {
@@ -138,45 +181,117 @@ function parseMentionQuery(value: string) {
     mentionOpen.value = false
     return
   }
-  mentionOpen.value = props.mentionAgents.length > 0
+  mentionOpen.value = props.mentionAgents.length > 0 || props.mentionSkills.length > 0
   mentionQuery.value = after
+}
+
+function pickSkill(skill: MentionSkill) {
+  if (!skill.available) return
+  const value = props.modelValue
+  const at = value.lastIndexOf('@')
+  if (at >= 0 && props.mentionSkills.some((item) => item.id === skill.id)) {
+    selectedSkills.value = [...selectedSkills.value.filter((item) => item.start < at), { start: at, text: '@' + skill.name, skillId: skill.id }]
+    selectedMentions.value = selectedMentions.value.filter((item) => item.start < at)
+  }
+  emit('update:modelValue', (at >= 0 ? value.slice(0, at) : value) + '@' + skill.name + ' ')
+  mentionOpen.value = false
+  nextTick(() => ta.value?.focus())
 }
 
 function pickMention(a: MentionAgent) {
   const value = props.modelValue
   const at = value.lastIndexOf('@')
   const next = (at >= 0 ? value.slice(0, at) : value) + '@' + a.name + ' '
-  emit('update:modelValue', next)
-  if (!selected.value.some((m) => m.agent_id === a.id)) {
-    selected.value = [...selected.value, { agent_id: a.id, name: a.name }]
+  if (at >= 0 && props.mentionAgents.some((item) => item.id === a.id)) {
+    selectedMentions.value = [...selectedMentions.value.filter((item) => item.start < at), { start: at, text: '@' + a.name, agentId: a.id }]
+    selectedSkills.value = selectedSkills.value.filter((item) => item.start < at)
   }
+  emit('update:modelValue', next)
   mentionOpen.value = false
   nextTick(() => ta.value?.focus())
 }
 
+function namesForAgent(agent: MentionAgent): string[] {
+  const names = [agent.name]
+  if (agent.legacyName && !names.includes(agent.legacyName)) names.push(agent.legacyName)
+  if (agent.builtinKey) {
+    if (agent.builtinKey === 'kv') names.push('KV助手')
+    for (const locale of ['zh-CN', 'en-US'] as const) {
+      const translated = i18n.global.t(`pages.agents.builtinNames.${agent.builtinKey}`, {}, { locale })
+      if (!names.includes(translated)) names.push(translated)
+    }
+  }
+  return names
+}
+
 function agentNames() {
-  return (props.mentionAgents || []).map((a) => a.name)
+  return props.mentionAgents.flatMap(namesForAgent)
+}
+
+function requiresMentionSelection(text: string): boolean {
+  for (const match of text.matchAll(/@([^\s@]+)/g)) {
+    if (resolveSkillAlias(match[1], agentNames())) continue
+    const agents = props.mentionAgents.filter((item) => namesForAgent(item).includes(match[1]))
+    if (agents.length > 1 && !selectedMentions.value.some((item) => item.start === match.index && item.text === match[0])) return true
+  }
+  for (const agent of props.mentionAgents) {
+    if (!agent.name.includes(' ')) continue
+    const token = '@' + agent.name
+    const start = text.indexOf(token)
+    if (start < 0) continue
+    const selected = selectedMentions.value.some((item) => item.start === start && item.text === token && item.agentId === agent.id)
+    if (!selected) return true
+  }
+  return false
+}
+
+function sendMessage() {
+  if (requiresMentionSelection(props.modelValue)) {
+    mentionError.value = t('components.aiComposer.selectMention')
+    return
+  }
+  mentionError.value = ''
+  emit('send', mentionsForSend(props.modelValue), skillsForSend(props.modelValue))
 }
 
 function mentionsForSend(text: string) {
   const names = agentNames()
   const found: { agent_id: string }[] = []
-  for (const a of props.mentionAgents) {
-    if (text.includes('@' + a.name) && !resolveSkillAlias(a.name, names)) found.push({ agent_id: a.id })
+  for (const item of selectedMentions.value) {
+    if (text.slice(item.start, item.start + item.text.length) !== item.text) continue
+    const after = text[item.start + item.text.length]
+    if (after && !/\s/.test(after)) continue
+    const agent = props.mentionAgents.find((candidate) => candidate.id === item.agentId)
+    if (agent && !found.some((entry) => entry.agent_id === agent.id)) found.push({ agent_id: agent.id })
   }
-  for (const m of selected.value) {
-    if (resolveSkillAlias(m.name, names)) continue
-    if (!found.some((x) => x.agent_id === m.agent_id)) found.push({ agent_id: m.agent_id })
+  for (const match of text.matchAll(/@([^\s@]+)/g)) {
+    if (selectedSkills.value.some((item) => item.start === match.index && item.text === match[0])) continue
+    if (selectedMentions.value.some((item) => item.start === match.index && text.slice(item.start, item.start + item.text.length) === item.text && (!text[item.start + item.text.length] || /\s/.test(text[item.start + item.text.length])))) continue
+    const matches = props.mentionAgents.filter((a) => namesForAgent(a).includes(match[1]))
+    const agent = matches.length === 1 ? matches[0] : undefined
+    if (agent && !resolveSkillAlias(match[1], names) && !found.some((entry) => entry.agent_id === agent.id)) found.push({ agent_id: agent.id })
   }
   return found
 }
 
 function skillsForSend(text: string) {
-  return skillsInText(text, agentNames())
+  const selectedAgents = selectedMentions.value.filter((item) => text.slice(item.start, item.start + item.text.length) === item.text && (!text[item.start + item.text.length] || /\s/.test(text[item.start + item.text.length])))
+  const skillText = selectedAgents.reduce((result, item) => result.slice(0, item.start) + ' '.repeat(item.text.length) + result.slice(item.start + item.text.length), text)
+  const ids = skillsInText(skillText, agentNames())
+  for (const item of selectedSkills.value) {
+    if (text.slice(item.start, item.start + item.text.length) === item.text && !ids.includes(item.skillId)) {
+      const after = text[item.start + item.text.length]
+      if (!after || /\s/.test(after)) ids.push(item.skillId)
+    }
+  }
+  return ids
 }
 
 function onInput(e: Event) {
   const el = e.target as HTMLTextAreaElement
+  mentionError.value = ''
+  selectedMentions.value = selectedMentions.value.filter((item) => el.value.slice(item.start, item.start + item.text.length) === item.text && (!el.value[item.start + item.text.length] || /\s/.test(el.value[item.start + item.text.length])))
+  selectedSkills.value = selectedSkills.value.filter((item) => el.value.slice(item.start, item.start + item.text.length) === item.text && (!el.value[item.start + item.text.length] || /\s/.test(el.value[item.start + item.text.length])))
   emit('update:modelValue', el.value)
   parseMentionQuery(el.value)
   autosize()
@@ -189,9 +304,7 @@ function onKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    if (!props.sending && props.modelValue.trim()) {
-      emit('send', mentionsForSend(props.modelValue), skillsForSend(props.modelValue))
-    }
+    if (!props.sending && props.modelValue.trim()) sendMessage()
   }
 }
 
@@ -207,6 +320,23 @@ function autosize() {
 
 watch(
   () => props.modelValue,
-  () => autosize()
+  (value) => {
+    selectedMentions.value = selectedMentions.value.filter((item) => value.slice(item.start, item.start + item.text.length) === item.text && (!value[item.start + item.text.length] || /\s/.test(value[item.start + item.text.length])))
+    selectedSkills.value = selectedSkills.value.filter((item) => value.slice(item.start, item.start + item.text.length) === item.text && (!value[item.start + item.text.length] || /\s/.test(value[item.start + item.text.length])))
+    autosize()
+  }
 )
+
+/** 聚焦输入框并把光标放到末尾；供宿主在点提示词后调用（planv6.0 §3.5）。 */
+function focus() {
+  nextTick(() => {
+    const el = ta.value
+    if (!el) return
+    el.focus()
+    const end = el.value.length
+    el.setSelectionRange(end, end)
+  })
+}
+
+defineExpose({ focus })
 </script>

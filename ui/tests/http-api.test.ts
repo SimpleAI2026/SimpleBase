@@ -121,6 +121,39 @@ describe('httpApi', () => {
     expect(jobs[0].scheduleKind).toBe('interval')
     expect(jobs[0].intervalSeconds).toBe(90)
 
+    // planv6.0 前端简化 A1：调度类型只认 interval / once，其余（含缺失、null、大小写不符）回退 cron。
+    http.get.mockResolvedValueOnce({
+      data: {
+        jobs: [
+          { schedule_kind: 'interval' },
+          { schedule_kind: 'once' },
+          { schedule_kind: 'cron' },
+          { schedule_kind: 'Interval' },
+          { schedule_kind: 'unknown' },
+          { schedule_kind: null },
+          {}
+        ]
+      }
+    })
+    expect((await httpApi.cronjobs.list(pid)).map((job) => job.scheduleKind)).toEqual([
+      'interval', 'once', 'cron', 'cron', 'cron', 'cron', 'cron'
+    ])
+
+    // planv6.0 前端简化 B1-cron：类型收紧不改变运行时转换（零值、null、数字字符串、空串）。
+    http.get.mockResolvedValueOnce({
+      data: {
+        jobs: [
+          { interval_seconds: 0, run_at: '', enabled: 0, run_count: '7', input_json: null, target_missing: 'yes' },
+          { interval_seconds: null, run_at: null, last_run_at: '2026-01-01T00:00:00Z', enabled: 'false' }
+        ]
+      }
+    })
+    const [zeroJob, nullJob] = await httpApi.cronjobs.list(pid)
+    expect(zeroJob).toMatchObject({ intervalSeconds: 0, runAt: undefined, enabled: false, runCount: 7, inputJson: '{}', targetMissing: true })
+    expect(nullJob).toMatchObject({ intervalSeconds: undefined, runAt: undefined, lastRunAt: '2026-01-01T00:00:00Z', enabled: true })
+    http.get.mockResolvedValueOnce({ data: { runs: [{ trigger: 'Manual', duration_ms: '5', status: null, started_at: '' }] } })
+    expect((await httpApi.cronjobs.runs(pid, 'j'))[0]).toMatchObject({ trigger: 'scheduled', durationMs: 5, status: '', startedAt: undefined })
+
     http.post.mockResolvedValueOnce({ data: { id: 'j', schedule_kind: 'cron' } })
     await httpApi.cronjobs.create(pid, {
       name: 'n',
@@ -188,6 +221,35 @@ describe('httpApi', () => {
     expect((await httpApi.metrics.trend(pid))[0].date).toBe('d')
     http.get.mockResolvedValueOnce({ data: [{ date: 'x' }] })
     expect((await httpApi.metrics.trend(pid))[0].date).toBe('x')
+
+    // planv6.0 前端简化 B1-metrics：snake 优先于 camel；?? 只跳过 null/undefined；optionalNumber 处理空串/非法值。
+    http.get.mockResolvedValueOnce({
+      data: {
+        total_requests: 0, totalRequests: 9,
+        error_rate: null, errorRate: 0.5,
+        avg_latency_ms: '7',
+        activeDatabases: 2,
+        latency_p50_ms: '', latencyP50Ms: 3,
+        latency_p90_ms: undefined, latencyP90Ms: '4',
+        latency_p99_ms: 'abc',
+        latency_sample_count: null,
+        latency_overflow_ms: 0
+      }
+    })
+    expect(await httpApi.metrics.summary(pid)).toEqual({
+      totalRequests: 0, errorRate: 0.5, avgLatencyMs: 7, activeDatabases: 2,
+      latencyP50Ms: null, latencyP90Ms: 4, latencyP99Ms: null,
+      latencySampleCount: 0, latencyOverflowMs: 0
+    })
+    http.get.mockResolvedValueOnce({ data: 'oops' })
+    expect((await httpApi.metrics.summary(pid)).latencyOverflowMs).toBe(30000)
+    http.get.mockResolvedValueOnce({ data: { points: [null, { date: 1, requests: '2', errors: null }] } })
+    expect(await httpApi.metrics.trend(pid)).toEqual([
+      { date: '', requests: 0, errors: 0 },
+      { date: '1', requests: 2, errors: 0 }
+    ])
+    http.get.mockResolvedValueOnce({ data: 'oops' })
+    expect(await httpApi.metrics.trend(pid)).toEqual([])
 
     http.get.mockResolvedValueOnce({
       data: {
@@ -357,6 +419,36 @@ describe('httpApi', () => {
     expect((await httpApi.logs.list(pid, { level: 'info', q: 'x', from: 'a', to: 'b', limit: 5 }))[0].projectId).toBe('p')
     http.get.mockResolvedValueOnce({ data: [{ ID: '2', ProjectID: 'p', Level: 'warn', Logger: 'l', Message: 'm', OccurredAt: 't' }] })
     expect((await httpApi.logs.list(pid))[0].id).toBe('2')
+
+    // planv6.0 前端简化 B1-log：snake → camel → Pascal 优先级；?? 只跳过 null/undefined；透传字段 null → undefined。
+    http.get.mockResolvedValueOnce({
+      data: {
+        events: [
+          {
+            id: 0, ID: 'x', project_id: null, projectId: '', ProjectID: 'P',
+            level: '', Level: 'warn', Logger: 'L', message: null, Message: 'M',
+            fields_json: null, fieldsJson: '{"a":1}', FieldsJSON: 'z',
+            request_id: '', RequestID: 'r', occurred_at: undefined, OccurredAt: 'T'
+          },
+          { fields_json: null, request_id: null },
+          null
+        ]
+      }
+    })
+    expect(await httpApi.logs.list(pid)).toEqual([
+      {
+        id: '0', projectId: '', level: '', logger: 'L', message: 'M',
+        fieldsJson: '{"a":1}', requestId: '', occurredAt: 'T'
+      },
+      { id: '', projectId: '', level: '', logger: '', message: '', fieldsJson: undefined, requestId: undefined, occurredAt: '' },
+      { id: '', projectId: '', level: '', logger: '', message: '', fieldsJson: undefined, requestId: undefined, occurredAt: '' }
+    ])
+    http.get.mockResolvedValueOnce({ data: { keep_days: 0, KeepDays: 9, Scope: 'S', UpdatedAt: 'U' } })
+    expect(await httpApi.logs.getRetention(pid)).toEqual({ scope: 'S', keepDays: 0, updatedAt: 'U' })
+    http.get.mockResolvedValueOnce({ data: { keep_days: null, keepDays: '3' } })
+    expect((await httpApi.logs.getRetention(pid)).keepDays).toBe(3)
+    http.get.mockResolvedValueOnce({ data: 'oops' })
+    expect(await httpApi.logs.getRetention(pid)).toEqual({ scope: '', keepDays: 14, updatedAt: '' })
     http.get.mockResolvedValueOnce({ data: { keep_days: 7, updated_at: 't', scope: 'project' } })
     expect((await httpApi.logs.getRetention(pid)).keepDays).toBe(7)
     http.get.mockResolvedValueOnce({ data: undefined })
@@ -371,14 +463,37 @@ describe('httpApi', () => {
     expect(await httpApi.llm.chat(pid, { messages: [{ role: 'user', content: 'hi' }], maxTokens: 1, temperature: 0 })).toEqual({
       content: 'hi'
     })
-    http.get.mockResolvedValueOnce({ data: { default_provider: 'openai', default_model: 'm', max_tokens: 8 } })
-    expect((await httpApi.llmSettings.get(pid)).maxTokens).toBe(8)
+    http.get.mockResolvedValueOnce({
+      data: { default_provider: 'openai', default_model: 'm', base_url: 'http://x/v1', api_key_masked: 'sk-...7890', has_api_key: true, max_tokens: 8 }
+    })
+    const settings = await httpApi.llmSettings.get(pid)
+    expect(settings.maxTokens).toBe(8)
+    expect(settings.baseUrl).toBe('http://x/v1')
+    expect(settings.apiKeyMasked).toBe('sk-...7890')
+    expect(settings.hasApiKey).toBe(true)
     http.get.mockResolvedValueOnce({ data: undefined })
-    expect(await httpApi.llmSettings.get(pid)).toEqual({})
+    expect(await httpApi.llmSettings.get(pid)).toEqual({ hasApiKey: false })
     http.put.mockResolvedValueOnce({ data: { defaultProvider: 'openai' } })
-    await httpApi.llmSettings.put(pid, { defaultProvider: 'openai', defaultModel: 'm', temperature: 1, maxTokens: 2 })
+    await httpApi.llmSettings.put(pid, { defaultProvider: 'openai', defaultModel: 'm', baseUrl: 'http://x/v1', temperature: 1, maxTokens: 2 }, 'sk-live')
+    expect(http.put).toHaveBeenLastCalledWith(expect.stringContaining('/llm/settings'), {
+      default_provider: 'openai',
+      default_model: 'm',
+      api_key: 'sk-live',
+      base_url: 'http://x/v1',
+      temperature: 1,
+      max_tokens: 2
+    })
+    // 未传 apiKey 时回空串，服务端视为沿用既有值
     http.put.mockResolvedValueOnce({ data: {} })
     await httpApi.llmSettings.put(pid, {})
+    expect(http.put).toHaveBeenLastCalledWith(expect.stringContaining('/llm/settings'), {
+      default_provider: '',
+      default_model: '',
+      api_key: '',
+      base_url: '',
+      temperature: undefined,
+      max_tokens: undefined
+    })
 
     http.get.mockResolvedValueOnce({ data: { modules: [{ id: 'm' }] } })
     expect(await httpApi.agents.modules(pid)).toHaveLength(1)
@@ -500,7 +615,7 @@ describe('httpApi', () => {
     http.get.mockResolvedValueOnce({ data: { points: [{}] } })
     expect((await httpApi.metrics.trend(pid))[0].date).toBe('')
     http.put.mockResolvedValueOnce({ data: { defaultProvider: 'x', defaultModel: 'y', maxTokens: 1 } })
-    await httpApi.llmSettings.put(pid, { defaultProvider: 'x' })
+    await httpApi.llmSettings.put(pid, { defaultProvider: 'x' }, 'sk-new')
     http.patch.mockResolvedValueOnce({ data: {} })
     await httpApi.cronjobs.update(pid, 'j', { scheduleKind: 'interval', intervalSeconds: 60, enabled: false })
   })
@@ -879,6 +994,213 @@ describe('httpApi', () => {
     await httpApi.agentThreads.confirm(pid, 'run 1', 'call 1', true)
     expect(http.post.mock.calls.at(-1)?.[0]).toContain('/agent-runs/run%201/confirmations/call%201')
     expect(http.post.mock.calls.at(-1)?.[1]).toEqual({ approve: true })
+  })
+
+  it('reconnects after premature EOF and requires an end frame from the replay', async () => {
+    const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: TimerHandler) => {
+      queueMicrotask(() => (fn as () => void)())
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as unknown as typeof setTimeout)
+    const encoder = new TextEncoder()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => 'text/event-stream' },
+        body: { getReader: () => {
+          let sent = false
+          return { read: async () => {
+            if (!sent) {
+              sent = true
+              return { done: false, value: encoder.encode('id: 1\ndata: {"type":"run","run_id":"r1"}\n\n') }
+            }
+            return { done: true }
+          } }
+        } }
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => 'text/event-stream' },
+        body: { getReader: () => {
+          let sent = false
+          return { read: async () => {
+            if (!sent) {
+              sent = true
+              return { done: false, value: encoder.encode('id: 2\ndata: {"type":"token","content":"ok"}\n\nid: 3\ndata: {"type":"end"}\n\n') }
+            }
+            return { done: true }
+          } }
+        } }
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const onEnd = vi.fn()
+      const onError = vi.fn()
+      const onToken = vi.fn()
+      httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onEnd, onError, onToken })
+      await vi.waitFor(() => expect(onEnd).toHaveBeenCalledTimes(1))
+      expect(onError).not.toHaveBeenCalled()
+      expect(onToken).toHaveBeenCalledWith('ok')
+      expect(String(fetchMock.mock.calls[1][0])).toContain('/agent-runs/r1/events?after=1')
+    } finally {
+      vi.unstubAllGlobals()
+      timer.mockRestore()
+    }
+  })
+
+  // planv6.0 前端简化 C1：锁定各事件传给回调的实参（含稀疏/异常字段）及 usage 数值转换。
+  it('forwards exact handler arguments for sparse agent stream events', async () => {
+    const encoder = new TextEncoder()
+    const lines = [
+      'data: {"type":"usage","duration_ms":"12","prompt_tokens":null,"completion_tokens":"x","tool_calls":2}\n\n',
+      'data: {"type":"usage"}\n\n',
+      'data: {"type":"thinking"}\n\n',
+      'data: {"type":"chunk","delta":"d"}\n\n',
+      'data: {"type":"token","content":""}\n\n',
+      'data: {"type":"tool_call_delta"}\n\n',
+      'data: {"type":"tool_start","name":"n","call_id":""}\n\n',
+      'data: {"type":"tool_call","name":"n","arguments":"{}"}\n\n',
+      'data: {"type":"tool_progress","elapsed_ms":"3"}\n\n',
+      'data: {"type":"tool_result","is_error":"true","truncated":1}\n\n',
+      'data: {"type":"confirmation_required","argv":[1,null]}\n\n',
+      'data: {"type":"confirmation_resolved","call_id":"c","approve":"yes"}\n\n',
+      'data: {"type":"unknown_kind","x":1}\n\n',
+      'data: {"type":"end","reason":5}\n\n'
+    ]
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: (key: string) => (key.toLowerCase() === 'content-type' ? 'text/event-stream' : null) },
+      body: {
+        getReader: () => {
+          let i = 0
+          return {
+            read: async () => (i < lines.length
+              ? { done: false, value: encoder.encode(lines[i++]) }
+              : { done: true, value: undefined })
+          }
+        }
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const calls: unknown[][] = []
+      const rec = (name: string) => (...args: unknown[]) => { calls.push([name, ...args]) }
+      const end = vi.fn()
+      httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, {
+        onUsage: rec('usage'),
+        onThinking: rec('thinking'),
+        onToken: rec('token'),
+        onToolCallDelta: rec('delta'),
+        onToolStart: rec('start'),
+        onToolCall: rec('call'),
+        onToolProgress: rec('progress'),
+        onToolResult: rec('result'),
+        onConfirmationRequired: rec('confirm'),
+        onConfirmationResolved: rec('resolved'),
+        onError: rec('error'),
+        onEnd: end
+      })
+      await vi.waitFor(() => expect(end).toHaveBeenCalled())
+      expect(end).toHaveBeenCalledWith(undefined)
+      expect(calls).toEqual([
+        // 现状：|| 只兜底 falsy，非数字字符串得到 NaN（按现状锁定，不在简化中修复）。
+        ['usage', { duration_ms: 12, prompt_tokens: 0, completion_tokens: NaN, reasoning_tokens: 0, tool_calls: 2 }],
+        ['usage', { duration_ms: 0, prompt_tokens: 0, completion_tokens: 0, reasoning_tokens: 0, tool_calls: 0 }],
+        ['thinking', 0, undefined],
+        ['token', 'd'],
+        ['delta', '', '', undefined],
+        ['start', 'n', undefined],
+        ['call', 'n', '{}', undefined],
+        ['progress', '', 3, undefined],
+        ['result', '', '', undefined, 0, false, false],
+        ['confirm', '', ['1', 'null'], ''],
+        ['resolved', 'c', false]
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('passes truncated through the live agent stream', async () => {
+    const encoder = new TextEncoder()
+    const lines = [
+      'data: {"type":"tool_result","name":"readonly_sql","content":"{}","duration_ms":1,"is_error":false,"truncated":true}\n\n',
+      'data: {"type":"end"}\n\n'
+    ]
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: (key: string) => (key.toLowerCase() === 'content-type' ? 'text/event-stream' : null) },
+      body: {
+        getReader: () => {
+          let i = 0
+          return {
+            read: async () => (i < lines.length
+              ? { done: false, value: encoder.encode(lines[i++]) }
+              : { done: true, value: undefined })
+          }
+        }
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const got: Array<boolean | undefined> = []
+      const end = vi.fn()
+      httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, {
+        onToolResult: (_n, _c, _id, _d, _e, truncated) => got.push(truncated),
+        onEnd: end
+      })
+      await vi.waitFor(() => expect(end).toHaveBeenCalled())
+      expect(got).toEqual([true])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('seeds runId from the X-Run-Id header before the first event', async () => {
+    // BUG-B5：首个 run 帧之前就断连时，靠响应头才有 runId 可续传。
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: (key: string) => (key.toLowerCase() === 'x-run-id' ? 'run-hdr' : null) },
+        body: { getReader: () => ({ read: async () => { throw new Error('socket') } }) }
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: TimerHandler) => {
+      queueMicrotask(() => (fn as () => void)())
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as unknown as typeof setTimeout)
+    try {
+      const onRun = vi.fn()
+      const onError = vi.fn()
+      httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onRun, onError })
+      await vi.waitFor(() => expect(onError).toHaveBeenCalled())
+      expect(onRun).toHaveBeenCalledWith('run-hdr')
+      // 三次重连都失败，但目标 URL 必须带上响应头给出的 runID。
+      const replayCalls = fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('/agent-runs/'))
+      expect(replayCalls.length).toBeGreaterThan(0)
+      expect(replayCalls[0]).toContain('/agent-runs/run-hdr/events')
+    } finally {
+      vi.unstubAllGlobals()
+      timer.mockRestore()
+    }
+  })
+
+  it('reports an incomplete agent stream instead of treating EOF as completion', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: (key: string) => (key.toLowerCase() === 'content-type' ? 'text/event-stream' : null) },
+      body: { getReader: () => ({ read: async () => ({ done: true }) }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const onEnd = vi.fn()
+      const onError = vi.fn()
+      httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onEnd, onError })
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(1))
+      expect(onEnd).not.toHaveBeenCalled()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('falls back to defaults when sandbox and function payloads are sparse', async () => {

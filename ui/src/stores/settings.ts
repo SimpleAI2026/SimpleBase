@@ -1,30 +1,30 @@
 import { defineStore } from 'pinia'
-import { LLM_PROVIDER_PRESETS, type LlmProviderFieldKey } from '../constants/llmProviders'
+import { isLocaleCode, setI18nLocale, type LocaleCode } from '../locales'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
-export type ProviderCredentials = Partial<Record<LlmProviderFieldKey, string>>
-
-export interface ProviderLocalConfig {
-  enabled: boolean
-  defaultModel?: string
-  credentials: ProviderCredentials
-  updatedAt: string
-}
-
+/**
+ * 项目级模型配置缓存（服务端 sys_llm_settings 为准，这里只做首屏与离线兜底）。
+ *
+ * `apiKeyMasked` 是服务端回的脱敏串（如 sk-...abcd），Key 原文只存在服务端，
+ * 浏览器侧永远拿不到，所以本地缓存也没有敏感数据。
+ */
 export interface ProjectLlmDefaults {
   defaultProvider?: string
   defaultModel?: string
+  baseUrl?: string
+  apiKeyMasked?: string
+  hasApiKey?: boolean
   temperature?: number
   maxTokens?: number
 }
 
 interface SettingsState {
   theme: ThemeMode
-  /** projectId → 默认模型/供应商 */
+  /** 界面语言（默认中文，不做浏览器探测，见 plan/planv5.0/ui-optimization-v3-plan.md） */
+  locale: LocaleCode
+  /** projectId → 默认模型与连接信息 */
   projectDefaults: Record<string, ProjectLlmDefaults>
-  /** projectId → providerId → 本地配置（含 key，仅浏览器） */
-  providerConfigs: Record<string, Record<string, ProviderLocalConfig>>
 }
 
 const STORAGE_KEY = 'sb_settings_v1'
@@ -36,8 +36,9 @@ function load(): SettingsState {
     const parsed = JSON.parse(raw) as Partial<SettingsState>
     return {
       theme: parsed.theme === 'dark' || parsed.theme === 'system' || parsed.theme === 'light' ? parsed.theme : 'light',
-      projectDefaults: parsed.projectDefaults || {},
-      providerConfigs: parsed.providerConfigs || {}
+      // 旧本地数据没有 locale 字段：必须补默认值，否则开关读到 undefined
+      locale: isLocaleCode(parsed.locale) ? parsed.locale : 'zh-CN',
+      projectDefaults: parsed.projectDefaults || {}
     }
   } catch {
     return emptyState()
@@ -45,7 +46,7 @@ function load(): SettingsState {
 }
 
 function emptyState(): SettingsState {
-  return { theme: 'light', projectDefaults: {}, providerConfigs: {} }
+  return { theme: 'light', locale: 'zh-CN', projectDefaults: {} }
 }
 
 function resolveSystemDark(): boolean {
@@ -66,11 +67,7 @@ export const useSettingsStore = defineStore('settings', {
     defaultsFor:
       (state) =>
       (projectId: string): ProjectLlmDefaults =>
-        state.projectDefaults[projectId] || {},
-    configsFor:
-      (state) =>
-      (projectId: string): Record<string, ProviderLocalConfig> =>
-        state.providerConfigs[projectId] || {}
+        state.projectDefaults[projectId] || {}
   },
   actions: {
     persist() {
@@ -78,8 +75,8 @@ export const useSettingsStore = defineStore('settings', {
         STORAGE_KEY,
         JSON.stringify({
           theme: this.theme,
-          projectDefaults: this.projectDefaults,
-          providerConfigs: this.providerConfigs
+          locale: this.locale,
+          projectDefaults: this.projectDefaults
         })
       )
       this.applyThemeToDom()
@@ -87,6 +84,16 @@ export const useSettingsStore = defineStore('settings', {
     setTheme(mode: ThemeMode) {
       this.theme = mode
       this.persist()
+    },
+    /** 切换界面语言：store、i18n 实例、<html lang> 三处同步，避免漂移。 */
+    setLocale(next: LocaleCode) {
+      this.locale = next
+      setI18nLocale(next)
+      this.persist()
+    },
+    /** 启动时把已持久化的语言应用到 i18n 实例与 <html lang>。 */
+    applyLocaleToI18n() {
+      setI18nLocale(this.locale)
     },
     applyThemeToDom() {
       const dark = this.effectiveTheme === 'dark'
@@ -97,52 +104,6 @@ export const useSettingsStore = defineStore('settings', {
       const cur = { ...(this.projectDefaults[projectId] || {}), ...patch }
       this.projectDefaults = { ...this.projectDefaults, [projectId]: cur }
       this.persist()
-    },
-    upsertProviderConfig(projectId: string, providerId: string, patch: Partial<ProviderLocalConfig>) {
-      const bucket = { ...(this.providerConfigs[projectId] || {}) }
-      const prev = bucket[providerId] || {
-        enabled: true,
-        credentials: {},
-        updatedAt: new Date().toISOString()
-      }
-      bucket[providerId] = {
-        enabled: patch.enabled ?? prev.enabled,
-        defaultModel: patch.defaultModel !== undefined ? patch.defaultModel : prev.defaultModel,
-        credentials: { ...prev.credentials, ...(patch.credentials || {}) },
-        updatedAt: new Date().toISOString()
-      }
-      this.providerConfigs = { ...this.providerConfigs, [projectId]: bucket }
-      this.persist()
-    },
-    clearProviderCredentials(projectId: string, providerId: string) {
-      const bucket = { ...(this.providerConfigs[projectId] || {}) }
-      if (!bucket[providerId]) return
-      bucket[providerId] = {
-        ...bucket[providerId],
-        credentials: {},
-        updatedAt: new Date().toISOString()
-      }
-      this.providerConfigs = { ...this.providerConfigs, [projectId]: bucket }
-      this.persist()
-    },
-    setDefaultProvider(projectId: string, providerId: string) {
-      const preset = LLM_PROVIDER_PRESETS.find((p) => p.id === providerId)
-      const cfg = (this.providerConfigs[projectId] || {})[providerId]
-      const model =
-        cfg?.defaultModel ||
-        preset?.suggestedModels[0] ||
-        cfg?.credentials.default_model ||
-        undefined
-      this.setProjectDefaults(projectId, { defaultProvider: providerId, defaultModel: model })
-    },
-    isProviderConfigured(projectId: string, providerId: string): boolean {
-      const cfg = (this.providerConfigs[projectId] || {})[providerId]
-      if (!cfg) return false
-      const preset = LLM_PROVIDER_PRESETS.find((p) => p.id === providerId)
-      if (!preset) return Boolean(cfg.credentials.api_key)
-      return preset.fields
-        .filter((f) => f.required)
-        .every((f) => Boolean((cfg.credentials[f.key] || '').trim()))
     }
   }
 })

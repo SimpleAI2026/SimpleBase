@@ -1,7 +1,7 @@
 <template>
   <SbModal
     :open="open"
-    :title="`版本 · ${record?.file || ''}`"
+    :title="t('components.goFuncVersions.title', { file: record?.file || '' })"
     hide-footer
     :max-width="520"
     @update:open="emit('update:open', $event)"
@@ -18,16 +18,16 @@
       @retry="load"
     >
       <template #empty>
-        <p class="py-6 text-center text-sm text-muted-foreground">暂无版本</p>
+        <p class="py-6 text-center text-sm text-muted-foreground">{{ t('components.goFuncVersions.empty') }}</p>
       </template>
       <div v-for="v in versions" :key="v.version" class="min-w-0 max-w-full rounded-lg border border-border/60 p-3">
         <div class="flex flex-wrap items-center gap-2">
           <span class="sb-mono font-semibold">v{{ v.version }}</span>
-          <Badge v-if="v.active" variant="success">● 生效</Badge>
+          <Badge v-if="v.active" variant="success">{{ t('components.goFuncVersions.active') }}</Badge>
           <span class="text-xs text-muted-foreground">{{ formatTime(v.createdAt) }}</span>
           <span v-if="v.note" class="text-xs text-muted-foreground">· {{ v.note }}</span>
         </div>
-        <div class="sb-code-view mt-1 max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs text-muted-foreground">导出：{{ v.exports.join('、') || '—' }}</div>
+        <div class="sb-code-view mt-1 max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs text-muted-foreground">{{ t('components.goFuncVersions.exportsLabel', { list: v.exports.join(', ') || '—' }) }}</div>
         <div class="mt-2 flex gap-1">
           <Button
             v-if="!v.active && !projectStore.isAdmin"
@@ -37,20 +37,21 @@
             @click="activate(v.version)"
           >
             <Spinner v-if="activating" data-icon="inline-start" />
-            设为生效
+            {{ t('components.goFuncVersions.setActive') }}
           </Button>
-          <Button variant="ghost" size="sm" @click="viewSource(v)">复制源码</Button>
+          <Button variant="ghost" size="sm" @click="viewSource(v)">{{ t('components.goFuncVersions.copySource') }}</Button>
         </div>
       </div>
     </SbAsyncRegion>
     <template #footer>
-      <Button variant="outline" @click="emit('update:open', false)">关闭</Button>
+      <Button variant="outline" @click="emit('update:open', false)">{{ t('common.close') }}</Button>
     </template>
   </SbModal>
 </template>
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -73,11 +74,12 @@ const emit = defineEmits<{
   changed: []
 }>()
 
+const { t } = useI18n()
 const projectStore = useProjectStore()
 const versions = ref<GoFuncVersionSummary[]>([])
 const activating = ref(false)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载版本失败'
+  fallback: 'components.goFuncVersions.loadFailed'
 })
 
 function load() {
@@ -97,11 +99,11 @@ async function activate(version: number) {
   activating.value = true
   try {
     await api.gofunctions.activate(projectStore.id, props.record.name, version)
-    toast.success(`已设为生效 v${version}`)
+    toast.success(t('components.goFuncVersions.setActiveSuccess', { n: version }))
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '操作失败'))
+    toast.error(errorMessage(e, t('components.goFuncVersions.actionFailed')))
   } finally {
     activating.value = false
   }
@@ -115,9 +117,9 @@ async function viewSource(v: GoFuncVersionSummary) {
     const hit = (item.versions || []).find((x) => x.version === v.version)
     const src = hit?.source ?? item.source ?? ''
     await navigator.clipboard.writeText(src)
-    toast.success(`v${v.version} 源码已复制`)
+    toast.success(t('components.goFuncVersions.sourceCopied', { n: v.version }))
   } catch (e) {
-    toast.error(errorMessage(e, '读取源码失败'))
+    toast.error(errorMessage(e, t('components.goFuncVersions.readSourceFailed')))
   }
 }
 

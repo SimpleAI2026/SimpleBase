@@ -9,6 +9,10 @@
 //
 // 安全约束：operation 是固定集合；行数只记录总数；禁止输出 SQL/参数/
 // 项目 ID/用户身份。
+//
+// 补段通则（planv5.0 §慢因复查 四-1）：凡路由日志中 `unattributed` 占比
+// 超过 50% 的系统库读入口，必须在本层补 observeRead/observeReadPart，
+// 使耗时可归因到 query/scan 子段；不允许长期停留在"未归因"状态。
 package systemdb
 
 import (
@@ -19,7 +23,8 @@ import (
 )
 
 // observeRead 记录一次系统库读的耗时与返回行数（logger 为 nil 时 no-op）。
-// operation 必须是固定低基数集合（如 "query_logs"、"metrics_summary"）。
+// operation 必须是固定低基数集合（如 "query_logs"、"metrics_summary"、
+// "list_agent_messages"、"metrics_trend"）。
 func (s *Store) observeRead(operation string, d time.Duration, rows int, err error) {
 	if s == nil || s.logger == nil {
 		return
@@ -34,6 +39,23 @@ func (s *Store) observeRead(operation string, d time.Duration, rows int, err err
 		fields = append(fields, zap.Bool("error", true))
 	}
 	s.logger.Debug("systemdb read", fields...)
+}
+
+// observeReadPart 把同一系统库读操作的查询与扫描分开记录。
+// part 和 operation 仅传调用点写死的名称，不接受请求参数。
+func (s *Store) observeReadPart(operation, part string, d time.Duration, err error) {
+	if s == nil || s.logger == nil {
+		return
+	}
+	fields := []zap.Field{
+		zap.String("operation", operation),
+		zap.String("part", part),
+		zap.Duration("duration", d),
+	}
+	if err != nil {
+		fields = append(fields, zap.Bool("error", true))
+	}
+	s.logger.Debug("systemdb read stage", fields...)
 }
 
 // ConnStats 返回连接池水位快照（planv5.0 §4 P0.2）。

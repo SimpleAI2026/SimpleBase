@@ -41,10 +41,15 @@ describe('Sandboxes', () => {
     const { wrapper } = await mountWithApp(Sandboxes, { stubs })
     expect(wrapper.text()).toContain('ci-test')
     expect(wrapper.text()).toContain('agent-test')
-    await wrapper.get('[aria-label="按来源过滤"]').setValue('agent')
+    // 来源过滤已从原生 <select> 迁到 ui/select（仓库约定：不写原生下拉）；
+    // Select 桩不承载真实取值，直接设 v-model。
+    const vm = wrapper.vm as unknown as { sourceFilter: string }
+    vm.sourceFilter = 'agent'
+    await flushPromises()
     expect(wrapper.text()).not.toContain('ci-test')
     expect(wrapper.text()).toContain('agent-test')
-    await wrapper.get('[aria-label="按来源过滤"]').setValue('')
+    vm.sourceFilter = ''
+    await flushPromises()
     await clickText(wrapper, '停止')
     expect(api.sandboxes.stop).toHaveBeenCalled()
   })
@@ -121,7 +126,10 @@ describe('Sandboxes interactions', () => {
     api.sandboxes.capabilities.mockResolvedValue(available)
     api.sandboxes.list.mockResolvedValue([sample, { ...sample, id: 'sbx-2', name: 'idle-one', status: 'stopped' }])
     const { wrapper, pinia } = await mountWithApp(Sandboxes, { stubs })
-    await wrapper.get('[aria-label="按状态过滤"]').setValue('stopped')
+    // 状态过滤同样改为 ui/select：设 v-model 而非原生 select 取值。
+    const vm = wrapper.vm as unknown as { statusFilter: string }
+    vm.statusFilter = 'stopped'
+    await flushPromises()
     expect(wrapper.text()).not.toContain('ci-test')
     expect(wrapper.text()).toContain('idle-one')
     const { useProjectStore } = await import('@/stores/project')

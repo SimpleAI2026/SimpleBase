@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -16,11 +17,12 @@ import (
 //  3. SIMPLEBASE_ 环境变量覆盖
 //
 // 敏感字段（S3 AccessKey/SecretKey、Auth.APIKeyHashSecret、LLM API Key）
-// 生产（dev_mode=false）必须来自环境或 IAM；YAML 中的非空密钥会被拒绝。
+// 必须来自环境变量或 .env；YAML 中的非空密钥会被拒绝。
 // 禁止把密钥写入仓库或日志。
 type Config struct {
 	HTTP           HTTPConfig           `yaml:"http"`
 	Instance       InstanceConfig       `yaml:"instance"`
+	Storage        StorageConfig        `yaml:"storage"`
 	Database       DatabaseConfig       `yaml:"database"`
 	S3             S3Config             `yaml:"s3"`
 	Auth           AuthConfig           `yaml:"auth"`
@@ -30,9 +32,30 @@ type Config struct {
 	Limits         LimitsConfig         `yaml:"limits"`
 	Observability  ObservabilityConfig  `yaml:"observability"`
 	SystemDatabase SystemDatabaseConfig `yaml:"system_database"`
-	// DevMode 启用本地开发模式：系统库与用户库 DATA_PATH 落本地盘，旁路远端 S3。
-	// 禁止生产开启。
-	DevMode bool `yaml:"dev_mode"`
+}
+
+// 存储模式取值（storage.database / storage.files）。
+const (
+	// StorageModeLocal 使用本地盘作为唯一持久层（默认）。
+	StorageModeLocal = "local"
+	// StorageModeS3 使用 S3 兼容对象存储作为持久层。
+	StorageModeS3 = "s3"
+
+	// DefaultDataDir 是本地持久根目录的默认值。
+	DefaultDataDir = "./data"
+)
+
+// StorageConfig 决定持久层落在哪里。
+//
+// database 控制系统库与用户库（catalog + parquet 数据），files 控制用户文件。
+// local 模式下 data_dir 是唯一副本，需要自行备份；cache_dir 只放可丢弃的内容。
+type StorageConfig struct {
+	// Database 数据库持久层：local（默认）| s3。
+	Database string `yaml:"database"`
+	// Files 用户文件持久层：local（默认）| s3。
+	Files string `yaml:"files"`
+	// DataDir 本地持久根目录；local 模式下不可与 database.cache_dir 重叠。
+	DataDir string `yaml:"data_dir"`
 }
 
 type HTTPConfig struct {
@@ -50,7 +73,7 @@ type InstanceConfig struct {
 }
 
 // InstanceLeaseConfig 控制 per-database 写租约（multi-instance-consistency-plan §4.8）。
-// 仅 writable=true 且配置了 S3 时生效；DevMode / 无 S3 自动跳过。
+// 仅 writable=true 且 storage.database=s3 时生效；本地模式自动跳过。
 type InstanceLeaseConfig struct {
 	Enabled       bool          `yaml:"enabled"`
 	TTL           time.Duration `yaml:"ttl"`
@@ -85,7 +108,7 @@ type DatabaseConfig struct {
 // DuckLakeConfig 对应 planv2.0 的 database.ducklake section。
 type DuckLakeConfig struct {
 	// CatalogEngine 本地 catalog 引擎：duckdb（默认）| sqlite。实例级一次性选择；
-	// 与已有数据不一致时拒绝启动，只能 `simplebased reset` 后切换。
+	// 与已有数据不一致时拒绝启动，只能 `simplebase reset` 后切换。
 	CatalogEngine        string                    `yaml:"catalog_engine"`
 	MemoryLimit          string                    `yaml:"memory_limit"`
 	Threads              int                       `yaml:"threads"`
@@ -202,6 +225,10 @@ type AgentConfig struct {
 	CLIPath        string        `yaml:"cli_path"`
 	DelegationTTL  time.Duration `yaml:"delegation_ttl"`
 	ConfirmTimeout time.Duration `yaml:"confirm_timeout"`
+	// TraceLog 开启云助手的运行日志（planv6.0 v2 §5）。默认关闭：
+	// 开启后按「元数据层（默认 info）」+「内容层（脱敏 + 截断）」两级输出，
+	// 内容层是 internal/AGENTS.md 脱敏约定的显式例外，仅在此开关为真时生效。
+	TraceLog bool `yaml:"trace_log"`
 }
 
 func (a AgentConfig) EffectiveDelegationTTL() time.Duration {
@@ -256,7 +283,7 @@ type SandboxConfig struct {
 	Workdir        string        `yaml:"workdir"`
 
 	// 以下为 planv4.0 cloud-sandbox-plan §5 新增字段；零值表示取默认。
-	Backend        string        `yaml:"backend"`          // cloud | fake（fake 仅 dev_mode）
+	Backend        string        `yaml:"backend"`          // cloud | fake（fake 仅测试环境，须 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）
 	Images         []string      `yaml:"images"`           // 镜像白名单；空 = 仅 Image
 	ExecTimeoutMax time.Duration `yaml:"exec_timeout_max"` // API 可自定 timeout 的上限
 	MaxPerProject  int           `yaml:"max_per_project"`  // 项目内未删除沙盒上限
@@ -285,6 +312,10 @@ type LimitsConfig struct {
 	MaxConcurrentQueries int           `yaml:"max_concurrent_queries"`
 	MaxBatchStatements   int           `yaml:"max_batch_statements"`
 	MaxSQLBytes          int           `yaml:"max_sql_bytes"`
+	// MaxConcurrentGoRuns 是 /go 调用与调试台试跑的并发上限（GF-RUN-04）。
+	// 每次调用都会编译执行源码，满载时返回 503 拒绝，防止高频调用耗尽
+	// CPU / 内存。0 视为默认值（见 defaults）。
+	MaxConcurrentGoRuns int `yaml:"max_concurrent_go_runs"`
 }
 
 type ObservabilityConfig struct {
@@ -328,13 +359,26 @@ func Load() (Config, error) {
 
 	applyEnv(&cfg)
 
-	if err := rejectYAMLSecrets(cfg.DevMode, yamlSecrets); err != nil {
+	if err := rejectYAMLSecrets(yamlSecrets); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// ConfigFilePath 返回当前生效的 YAML 路径（可能为空：表示没有配置文件）。
+// UI 写回 storage.* 时使用；与加载阶段用的是同一套规则。
+func ConfigFilePath() string {
+	p, _ := configFilePath()
+	if p == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 // configFilePath 返回 YAML 路径。required 表示 SIMPLEBASE_CONFIG_PATH 显式指定，缺失必须失败。
@@ -350,7 +394,11 @@ func configFilePath() (path string, required bool) {
 
 func defaults() Config {
 	return Config{
-		DevMode: false,
+		Storage: StorageConfig{
+			Database: StorageModeLocal,
+			Files:    StorageModeLocal,
+			DataDir:  DefaultDataDir,
+		},
 		HTTP: HTTPConfig{
 			Address:         ":8080",
 			ReadTimeout:     15 * time.Second,
@@ -434,6 +482,7 @@ func defaults() Config {
 			MaxConcurrentQueries: 64,
 			MaxBatchStatements:   100,
 			MaxSQLBytes:          65536,
+			MaxConcurrentGoRuns:  16,
 		},
 		Observability: ObservabilityConfig{
 			LogLevel:    "info",
@@ -457,7 +506,33 @@ func loadFromEnv() Config {
 	return cfg
 }
 
-// Validate 聚合校验字段。Writable 非 DevMode 下 S3 与 CacheDir 必须完整。
+// IsDBRemote 返回数据库持久层是否为 S3。
+func (c Config) IsDBRemote() bool {
+	return strings.EqualFold(strings.TrimSpace(c.Storage.Database), StorageModeS3)
+}
+
+// IsFilesRemote 返回用户文件持久层是否为 S3。
+func (c Config) IsFilesRemote() bool {
+	return strings.EqualFold(strings.TrimSpace(c.Storage.Files), StorageModeS3)
+}
+
+// effectiveStorage 把空值归一化为默认的本地模式，便于日志与 UI 展示生效值。
+func (c Config) effectiveStorage(mode string) string {
+	m := strings.ToLower(strings.TrimSpace(mode))
+	if m == "" {
+		return StorageModeLocal
+	}
+	return m
+}
+
+// EffectiveDBMode 返回数据库持久层的生效模式（空视为 local）。
+func (c Config) EffectiveDBMode() string { return c.effectiveStorage(c.Storage.Database) }
+
+// EffectiveFilesMode 返回用户文件持久层的生效模式（空视为 local）。
+func (c Config) EffectiveFilesMode() string { return c.effectiveStorage(c.Storage.Files) }
+
+// Validate 聚合校验字段。
+// 只有 storage.database=s3 或 storage.files=s3 时才要求 S3 配置完整。
 func (c Config) Validate() error {
 	var errs []error
 
@@ -517,6 +592,12 @@ func (c Config) Validate() error {
 		c.Limits.MaxBatchStatements <= 0 || c.Limits.MaxSQLBytes <= 0 {
 		errs = append(errs, errors.New("limits fields must be positive"))
 	}
+	// GF-RUN-04：0 用默认值兜底，负数拒绝。
+	if c.Limits.MaxConcurrentGoRuns < 0 {
+		errs = append(errs, errors.New("limits.max_concurrent_go_runs must not be negative"))
+	} else if c.Limits.MaxConcurrentGoRuns == 0 {
+		c.Limits.MaxConcurrentGoRuns = 16
+	}
 	switch strings.ToLower(c.Observability.LogFormat) {
 	case "", "json", "console":
 	default:
@@ -530,29 +611,29 @@ func (c Config) Validate() error {
 	if c.SystemDatabase.LogKeepDays <= 0 {
 		errs = append(errs, errors.New("system_database.log_keep_days must be positive"))
 	}
-	if err := validateSandbox(c.Sandbox, c.DevMode); err != nil {
+	if err := validateSandbox(c.Sandbox); err != nil {
 		errs = append(errs, err)
 	}
 	errs = append(errs, validateLLMAgent(c.LLM)...)
 	errs = append(errs, validateAgent(c.Agent)...)
 
-	if c.Instance.Writable && !c.DevMode {
-		// Writable 实例必须拥有完整 S3 配置，否则无法作为在线持久层。
-		// DevMode 旁路 S3，不校验 S3 字段。
+	if err := validateStorage(c.Storage, c.Database.CacheDir); err != nil {
+		errs = append(errs, err)
+	}
+
+	// 只要有任一持久层走对象存储，就必须具备完整的 S3 连接信息。
+	if c.IsDBRemote() || c.IsFilesRemote() {
 		if c.S3.Bucket == "" {
-			errs = append(errs, errors.New("s3.bucket is required for writable instance"))
+			errs = append(errs, errors.New("s3.bucket is required when storage.database or storage.files is s3"))
 		}
 		if c.S3.Region == "" {
-			errs = append(errs, errors.New("s3.region is required for writable instance"))
+			errs = append(errs, errors.New("s3.region is required when storage.database or storage.files is s3"))
 		}
 		if c.S3.AccessKey != "" && c.S3.SecretKey == "" {
 			errs = append(errs, errors.New("s3.secret_key is required when s3.access_key is set"))
 		}
 		if c.S3.SecretKey != "" && c.S3.AccessKey == "" {
 			errs = append(errs, errors.New("s3.access_key is required when s3.secret_key is set"))
-		}
-		if c.S3.Prefix == "" {
-			errs = append(errs, errors.New("s3.prefix is required for writable instance"))
 		}
 	}
 
@@ -562,9 +643,65 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// validateStorage 校验 storage 段：模式取值合法，且两个目录不重叠。
+// cache_dir 会被缓存淘汰整体删除，因此绝不能落在 data_dir 之内（反之亦然）。
+func validateStorage(s StorageConfig, cacheDir string) error {
+	var errs []error
+	switch strings.ToLower(strings.TrimSpace(s.Database)) {
+	case "", StorageModeLocal, StorageModeS3:
+	default:
+		errs = append(errs, fmt.Errorf("storage.database must be local or s3 (got %q)", s.Database))
+	}
+	switch strings.ToLower(strings.TrimSpace(s.Files)) {
+	case "", StorageModeLocal, StorageModeS3:
+	default:
+		errs = append(errs, fmt.Errorf("storage.files must be local or s3 (got %q)", s.Files))
+	}
+	if strings.TrimSpace(s.DataDir) == "" {
+		errs = append(errs, errors.New("storage.data_dir is required"))
+	}
+	if err := validateDirDisjoint(s.DataDir, cacheDir); err != nil {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("storage validation failed: %w", joinErrors(errs))
+	}
+	return nil
+}
+
+// validateDirDisjoint 拒绝两个目录相等或互为父子目录。
+// 缓存目录在容量不足时会被整体删除（cache.Manager.Evict），落在数据目录里会丢数据。
+func validateDirDisjoint(dataDir, cacheDir string) error {
+	d := filepath.Clean(strings.TrimSpace(dataDir))
+	c := filepath.Clean(strings.TrimSpace(cacheDir))
+	if d == "" || c == "" || d == "." || c == "." {
+		return nil
+	}
+	if d == c {
+		return fmt.Errorf("storage.data_dir and database.cache_dir must differ (both %q)", d)
+	}
+	if isWithin(d, c) || isWithin(c, d) {
+		return fmt.Errorf("storage.data_dir (%q) and database.cache_dir (%q) must not contain each other", d, c)
+	}
+	return nil
+}
+
+// isWithin 返回 inner 是否位于 outer 之内（含相等）。
+// 用 filepath.Rel 判断，避免前缀字符串误判（如 /data2 与 /data）。
+func isWithin(inner, outer string) bool {
+	rel, err := filepath.Rel(outer, inner)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
+}
+
 // validateSandbox 校验 sandbox 配置段（cloud-agent-sandbox-plan §5；planv4.0 cloud-sandbox-plan §5）。
 // enabled 且 backend=cloud 且 key 为空：Validate 失败，进程不启动。enabled=false 时忽略。
-func validateSandbox(s SandboxConfig, devMode bool) error {
+func validateSandbox(s SandboxConfig) error {
 	if !s.Enabled {
 		return nil
 	}
@@ -575,8 +712,8 @@ func validateSandbox(s SandboxConfig, devMode bool) error {
 			errs = append(errs, errors.New("sandbox.api_key is required when sandbox.enabled is true"))
 		}
 	case SandboxBackendFake:
-		if !devMode {
-			errs = append(errs, errors.New("sandbox.backend=fake is only allowed when dev_mode is true"))
+		if !allowFakeSandbox() {
+			errs = append(errs, errors.New("sandbox.backend=fake is only allowed when SIMPLEBASE_SANDBOX_ALLOW_FAKE=1 (e2e / unit tests)"))
 		}
 	default:
 		errs = append(errs, fmt.Errorf("sandbox.backend must be cloud or fake (got %q)", s.Backend))
@@ -730,14 +867,25 @@ func (c Config) Redacted() map[string]any {
 			"network":          c.Sandbox.Network,
 			"workdir":          c.Sandbox.Workdir,
 		},
+		"storage": map[string]any{
+			"database":           c.effectiveStorage(c.Storage.Database),
+			"files":              c.effectiveStorage(c.Storage.Files),
+			"data_dir":           c.Storage.DataDir,
+			"database_is_remote": c.IsDBRemote(),
+			"files_is_remote":    c.IsFilesRemote(),
+		},
 		"observability": map[string]any{
 			"log_level":    c.Observability.LogLevel,
 			"log_format":   c.Observability.LogFormat,
 			"log_output":   c.Observability.LogOutput,
 			"metrics_path": c.Observability.MetricsPath,
 		},
-		"dev_mode": c.DevMode,
 	}
+}
+
+// allowFakeSandbox 返回是否显式允许 fake 沙盒后端（e2e / 单测）。
+func allowFakeSandbox() bool {
+	return os.Getenv("SIMPLEBASE_SANDBOX_ALLOW_FAKE") == "1"
 }
 
 func joinErrors(errs []error) error {

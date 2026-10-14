@@ -7,14 +7,13 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
-// RemoteStorage 描述 Phase 2 的 S3 持久层。Enabled=false 时走本地 DATA_PATH（DevMode / Phase 1）。
+// RemoteStorage 描述 S3 持久层。Enabled=false 时走本地 DATA_PATH。
 type RemoteStorage struct {
 	Enabled        bool
 	Endpoint       string
 	Region         string
 	Bucket         string
 	RootPrefix     string
-	Environment    string
 	AccessKey      string
 	SecretKey      string
 	ForcePathStyle bool
@@ -22,15 +21,8 @@ type RemoteStorage struct {
 }
 
 func (r RemoteStorage) keyBuilder() objectstore.KeyBuilder {
-	env := r.Environment
-	if env == "" {
-		env = "dev"
-	}
-	prefix := r.RootPrefix
-	if prefix == "" {
-		prefix = "simplebase"
-	}
-	return objectstore.KeyBuilder{RootPrefix: prefix, Environment: env}
+	// RootPrefix 为空表示桶根目录；不再为环境名追加一层。
+	return objectstore.KeyBuilder{RootPrefix: r.RootPrefix}
 }
 
 func (r RemoteStorage) validate() error {

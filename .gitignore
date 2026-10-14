@@ -1,25 +1,60 @@
+# ─── 密钥与本地配置 ──────────────────────────────────
+# config.yaml 由 build.sh 从 config.example.yaml 生成，禁止入库
 .env
+config.yaml
+
+# ─── 系统 ────────────────────────────────────────────
 .DS_Store
 
-**/node_modules
+# ─── 依赖与缓存 ──────────────────────────────────────
+**/node_modules/
+.cache
+**/.vite/
+
+# ─── 本地运行时数据（DuckLake / S3 本地盘）───────────
+/data/
 **/*.db
 **/*.lessdb
 **/vfscache_*
-**/build
-**/main
-.cache
-.box-desens
-.session_tmps
-/simplebased
-/fakellm-server
-config.yaml
-*.test
-thirdparty
 
-# 前端构建产物：由 build.sh 生成（ui/dist → internal/web/dist → go:embed）
+# ─── 本地会话与临时目录 ──────────────────────────────
+.session_tmps/
+**/.box-desens/
+.mimocode/
+# IDE Agent 数据（plans/teams）。注意：已有 11 个文件被跟踪，
+# 要真正生效需先 `git rm -r --cached .codebuddy`
+.codebuddy/
+
+# ─── 构建产物 ────────────────────────────────────────
+# 注意：二进制只忽略根目录，写成裸模式（如 cloudagent）会误伤同名源码目录
+/simplebase
+/cloudagent
+/fakellm-server
+/build/
+/main
+*.test
+*.log
+*.tsbuildinfo
+cov.out
+/output/
+
+# ─── 前端构建产物（build.sh：ui/dist → internal/web/dist → go:embed）───
 internal/web/dist/*
 !internal/web/dist/.keep
 ui/dist/
 ui/coverage/
-cov.out
-ui/.yarn
+ui/.yarn/
+
+# ─── 第三方源码（只保留 README）──────────────────────
+thirdparty/*
+!thirdparty/README.md
+
+# ─── skills：只入库技能本体，评测工作区与打包产物不入库 ───
+skills/*-workspace/
+skills/*-eval-std/
+skills/**/iteration-*/
+skills/**/latest_skill/
+skills/**/outputs/
+skills/**/dist/
+skills/**/.original/
+*.skill

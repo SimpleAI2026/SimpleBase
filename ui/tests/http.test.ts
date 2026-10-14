@@ -32,7 +32,7 @@ describe('http helpers and interceptors', () => {
 
   it('reads and writes the API key', async () => {
     const httpMod = await import('@/services/http')
-    expect(httpMod.getApiKey()).toBe('sb_live_dev_key_12345')
+    expect(httpMod.getApiKey()).toBe('') // 无本地 Key 时为空
     httpMod.setApiKey('k2')
     expect(httpMod.getApiKey()).toBe('k2')
     expect(httpMod.baseURL).toBeDefined()
@@ -84,6 +84,21 @@ describe('http helpers and interceptors', () => {
       'oops'
     )
     await expect(errFn({})).rejects.toThrow('网络请求失败')
+
+    // planv6.0 §2.2：错误对象必须带上 HTTP status 与业务 code，
+    // 否则调用方无法把「资源未建立」和「真正的失败」区分开。
+    const err = await errFn({
+      response: {
+        status: 404,
+        data: { error: { code: 'kv_store_not_found', message: 'project has no key-value store' } }
+      }
+    }).catch((e: unknown) => e as { status?: number; code?: string })
+    expect(err.status).toBe(404)
+    expect(err.code).toBe('kv_store_not_found')
+    // 没有 JSON 信封时不必伪造 code
+    const plain = await errFn({ response: { status: 500 } }).catch((e: unknown) => e as { status?: number; code?: string })
+    expect(plain.status).toBe(500)
+    expect(plain.code).toBeUndefined()
   })
 
   it('refreshes the access token once and retries the request on 401', async () => {

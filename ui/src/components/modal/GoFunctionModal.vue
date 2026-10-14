@@ -6,13 +6,13 @@
     @update:open="emit('update:open', $event)"
   >
     <div class="flex flex-col gap-4">
-      <div class="flex items-center gap-2">
-        <Label class="shrink-0 text-sm">云函数名</Label>
+      <div class="flex flex-wrap items-center gap-2">
+        <Label class="shrink-0 text-sm">{{ t('components.goFunctionModal.nameLabel') }}</Label>
         <Input
           v-model="nameValue"
-          class="w-56 sb-mono"
+          class="sb-mono min-w-0 flex-1 sm:w-56 sm:flex-none"
           :disabled="mode !== 'create'"
-          placeholder="如 hello"
+          :placeholder="t('components.goFunctionModal.namePlaceholder')"
         />
         <span class="sb-mono text-sm text-muted-foreground">.go</span>
       </div>
@@ -20,23 +20,23 @@
       <!-- 固定 HTTP+JSON 约定提示（不可关闭） -->
       <Alert>
         <TerminalIcon class="size-4" />
-        <AlertTitle>HTTP+JSON 约定</AlertTitle>
+        <AlertTitle>{{ t('components.goFunctionModal.protocolTitle') }}</AlertTitle>
         <AlertDescription class="space-y-1">
-          <p>每个导出函数必须是 <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">func Name(req T) R</code>（1 个入参、1 个返回值）。</p>
+          <p>{{ t('components.goFunctionModal.signatureHint') }}</p>
           <p>
-            调用：<code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">POST /go/{{ projectId }}/{{ nameValue || '{name}' }}/{Name}</code>，
-            Content-Type: application/json。Body 映射到 req，响应体是 R 的 JSON。
+            {{ t('components.goFunctionModal.callHint') }}
+            <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">POST /go/{{ projectId }}/{{ nameValue || 'name' }}/{Name}</code>
           </p>
-          <p>请使用大写函数名，否则不会出现在列表、也无法调用。入参为基本类型时，body 用对应 JSON 字面量（如 <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">"abc"</code>）；入参为 struct 时用 JSON 对象。</p>
+          <p>{{ t('components.goFunctionModal.uppercaseHint') }}</p>
         </AlertDescription>
       </Alert>
 
       <div v-if="previewExports.length" class="flex flex-wrap items-center gap-1.5">
-        <span class="text-xs text-muted-foreground">将导出</span>
+        <span class="text-xs text-muted-foreground">{{ t('components.goFunctionModal.willExport') }}</span>
         <Badge v-for="fn in previewExports" :key="fn" variant="secondary" class="sb-mono">
           {{ fn }}
         </Badge>
-        <span class="text-xs text-muted-foreground">← 前端正则预览；保存以服务端校验为准</span>
+        <span class="text-xs text-muted-foreground">{{ t('components.goFunctionModal.regexPreview') }}</span>
       </div>
 
       <div :style="{ minHeight: editorMinHeight + 'px' }" class="min-w-0 max-w-full overflow-hidden">
@@ -45,13 +45,13 @@
     </div>
     <template #footer>
       <template v-if="mode === 'view'">
-        <Button variant="outline" @click="close">关闭</Button>
+        <Button variant="outline" @click="close">{{ t('common.close') }}</Button>
       </template>
       <template v-else>
-        <Button variant="outline" :disabled="saving" @click="close">取消</Button>
+        <Button variant="outline" :disabled="saving" @click="close">{{ t('common.cancel') }}</Button>
         <Button :disabled="saveDisabled || saving" @click="save">
           <Spinner v-if="saving" data-icon="inline-start" />
-          {{ mode === 'create' ? '创建' : '保存为新版本' }}
+          {{ mode === 'create' ? t('components.goFunctionModal.create') : t('components.goFunctionModal.saveAsNewVersion') }}
         </Button>
       </template>
     </template>
@@ -65,6 +65,7 @@ import { errorMessage } from '@/utils/format'
  * 导出预览用正则即时渲染（不当校验）；保存失败 toast 展示后端编译错误原文。
  */
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { TerminalIcon } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -93,6 +94,7 @@ const emit = defineEmits<{
   saved: []
 }>()
 
+const { t } = useI18n()
 const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.projectId)
 
@@ -118,9 +120,11 @@ const sourceValue = ref(defaultTemplate)
 const saving = ref(false)
 
 const title = computed(() => {
-  if (props.mode === 'create') return '新建云函数'
+  if (props.mode === 'create') return t('components.goFunctionModal.titleCreate')
   const n = props.target?.name ?? nameValue.value
-  return `${props.mode === 'edit' ? '编辑' : '查看'} ${n}.go`
+  return props.mode === 'edit'
+    ? t('components.goFunctionModal.titleEdit', { name: n })
+    : t('components.goFunctionModal.titleView', { name: n })
 })
 
 const saveDisabled = computed(() => {
@@ -152,7 +156,7 @@ watch(
           .then((g) => {
             if (g.source != null) sourceValue.value = g.source
           })
-          .catch(() => toast.error('加载云函数源码失败'))
+          .catch(() => toast.error(t('components.goFunctionModal.loadSourceFailed')))
       }
     }
   }
@@ -172,19 +176,19 @@ async function save() {
         source: sourceValue.value,
         activate: true
       })
-      toast.success(`已创建 ${created.file} v${created.activeVersion || 1}`)
+      toast.success(t('components.goFunctionModal.created', { file: created.file, n: created.activeVersion || 1 }))
     } else if (props.target) {
       const updated = await api.gofunctions.saveVersion(projectId.value, props.target.name, {
         source: sourceValue.value,
         activate: true
       })
-      toast.success(`已保存为新版本 v${updated.latestVersion || updated.activeVersion || ''} 并已设为生效`)
+      toast.success(t('components.goFunctionModal.savedVersion', { n: updated.latestVersion || updated.activeVersion || '' }))
     }
     emit('saved')
     close()
   } catch (e) {
     // 后端编译/签名错误原文透传（G7）
-    toast.error(errorMessage(e, '保存失败'))
+    toast.error(errorMessage(e, t('components.goFunctionModal.saveFailed')))
   } finally {
     saving.value = false
   }

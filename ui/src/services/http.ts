@@ -1,4 +1,19 @@
 import axios from 'axios'
+import { t } from '../locales'
+import type { ApiError } from './types'
+
+/**
+ * 构造带 status 与业务 code 的错误（planv6.0 §2.2）。
+ *
+ * 之前统一 reject `new Error(message)`，调用方拿不到 status/code，
+ * 只能把「资源未建立」和「真正的失败」同样当成加载失败展示。
+ */
+function apiError(message: string, status?: number, code?: string): ApiError {
+  const err = new Error(message) as ApiError
+  if (status !== undefined) err.status = status
+  if (code) err.code = code
+  return err
+}
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -10,9 +25,8 @@ export const http = axios.create({ baseURL, timeout: 15000 })
 
 const ACCESS_KEY = 'sb_access_token'
 const REFRESH_KEY = 'sb_refresh_token'
-// 兼容旧 API Key 通道（SDK / DevMode）；登录态优先。
+// 兼容旧 API Key 通道（SDK / 程序化调用）；登录态优先。
 const API_KEY = 'sb_api_key'
-const DEFAULT_API_KEY = 'sb_live_dev_key_12345'
 
 export function getAccessToken(): string {
   return localStorage.getItem(ACCESS_KEY) || ''
@@ -30,7 +44,7 @@ export function clearTokens() {
 }
 
 export function getApiKey(): string {
-  return localStorage.getItem(API_KEY) || DEFAULT_API_KEY
+  return localStorage.getItem(API_KEY) || ''
 }
 export function setApiKey(key: string) {
   localStorage.setItem(API_KEY, key)
@@ -50,7 +64,7 @@ http.interceptors.response.use((r) => {
   // axios 1.x 类型下 content-type 是 string | number | boolean | string[] | AxiosHeaders 联合
   const ct = String(r.headers?.['content-type'] || '')
   if (ct.includes('text/html')) {
-    return Promise.reject(new Error('接口不存在或返回了 HTML 页面'))
+    return Promise.reject(apiError(t('error.htmlResponse'), r.status))
   }
   return r
 })
@@ -102,10 +116,11 @@ http.interceptors.response.use(
   async (e) => {
     const status = e?.response?.status
     const data = e?.response?.data
-    const msg = data?.error?.message || data?.message || e?.message || '网络请求失败'
+    const msg = data?.error?.message || data?.message || e?.message || t('error.networkFailed')
+    const code = typeof data?.error?.code === 'string' ? data.error.code : undefined
     const cfg = e?.config || {}
     if (isAnonymousAuthRequest(cfg.url)) {
-      return Promise.reject(new Error(msg))
+      return Promise.reject(apiError(msg, status, code))
     }
     if (status === 401 && !cfg.__retried && getAccessToken()) {
       cfg.__retried = true
@@ -116,12 +131,12 @@ http.interceptors.response.use(
         return http.request(cfg)
       }
       notifyUnauthorized()
-      return Promise.reject(new Error(msg))
+      return Promise.reject(apiError(msg, status, code))
     }
     if (status === 401) {
       notifyUnauthorized()
     }
-    return Promise.reject(new Error(msg))
+    return Promise.reject(apiError(msg, status, code))
   }
 )
 

@@ -226,11 +226,24 @@ func (r *sqlRepository) listDatabasesWhere(ctx context.Context, projectID string
 		limit = 50
 	}
 	args := append([]any{projectID}, kindArgs...)
+	cursorWhere := ""
+	if page.Cursor != "" {
+		var exists string
+		if err := r.db.QueryRowContext(ctx, `SELECT id FROM sys_databases WHERE project_id = ? AND id = ?`, projectID, page.Cursor).Scan(&exists); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, "", ErrInvalidCursor
+			}
+			return nil, "", err
+		}
+		cursorWhere = ` AND (created_at > (SELECT created_at FROM sys_databases WHERE project_id = ? AND id = ?)
+			OR (created_at = (SELECT created_at FROM sys_databases WHERE project_id = ? AND id = ?) AND id > ?))`
+		args = append(args, projectID, page.Cursor, projectID, page.Cursor, page.Cursor)
+	}
+	args = append(args, int64(limit+1))
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT `+databaseSelectList+`
-		 FROM sys_databases WHERE project_id = ? AND deleted_at IS NULL AND `+kindWhere+`
-		 ORDER BY created_at ASC, id ASC LIMIT ?`,
-		append(args, int64(limit+1))...)
+		 FROM sys_databases WHERE project_id = ? AND deleted_at IS NULL AND `+kindWhere+cursorWhere+`
+		 ORDER BY created_at ASC, id ASC LIMIT ?`, args...)
 	if err != nil {
 		return nil, "", err
 	}

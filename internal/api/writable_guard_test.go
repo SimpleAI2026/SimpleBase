@@ -13,15 +13,12 @@ func TestWritableGuardsRejectAgentAndStorageWrites(t *testing.T) {
 	off := false
 	e := echo.New()
 	agents := &cloudAgentHandler{writable: &off}
-	schedules := &agentScheduleHandler{writable: &off}
 	storage := &S3Handler{writable: &off}
 	e.POST("/agents", agents.CreateAgent)
 	e.PATCH("/agents/:agentID", agents.PatchAgent)
 	e.DELETE("/agents/:agentID", agents.DeleteAgent)
 	e.POST("/agent-threads", agents.CreateThread)
 	e.DELETE("/agent-threads/:threadID", agents.DeleteThread)
-	e.POST("/agent-schedules", schedules.CreateSchedule)
-	e.DELETE("/agent-schedules/:scheduleID", schedules.DeleteSchedule)
 	e.POST("/s3/objects", storage.UploadObject)
 	e.DELETE("/s3/objects", storage.DeleteObject)
 
@@ -33,8 +30,6 @@ func TestWritableGuardsRejectAgentAndStorageWrites(t *testing.T) {
 		{http.MethodDelete, "/agents/a1", ``},
 		{http.MethodPost, "/agent-threads", `{"title":"t"}`},
 		{http.MethodDelete, "/agent-threads/t1", ``},
-		{http.MethodPost, "/agent-schedules", `{"agent_id":"a","prompt":"p","cron_expr":"0 0 * * *"}`},
-		{http.MethodDelete, "/agent-schedules/s1", ``},
 		{http.MethodPost, "/s3/objects", ``},
 		{http.MethodDelete, "/s3/objects?key=readme", ``},
 	}

@@ -65,7 +65,7 @@ func (h *KVHandler) acquireStore(c echo.Context, mode database.AccessMode) (*kvL
 		return nil, errors.New("project context missing")
 	}
 	if catalog.IsSystemProject(project.ID) {
-		return nil, NewAPIError(http.StatusNotFound, "kv_not_found", "project has no key-value store", RequestIDFromContext(c.Request().Context()))
+		return nil, NewAPIError(http.StatusNotFound, "kv_store_not_found", "project has no key-value store", RequestIDFromContext(c.Request().Context()))
 	}
 	ctx := c.Request().Context()
 	db, err := h.svc.GetKVDatabase(ctx, project.TenantID, project.ID)
@@ -75,7 +75,7 @@ func (h *KVHandler) acquireStore(c echo.Context, mode database.AccessMode) (*kvL
 		}
 		// 项目没有 KV catalog：尝试补建一次（历史项目/建项目时失败）。
 		if !h.writable {
-			return nil, NewAPIError(http.StatusNotFound, "kv_not_found", "project has no key-value store", RequestIDFromContext(ctx))
+			return nil, NewAPIError(http.StatusNotFound, "kv_store_not_found", "project has no key-value store", RequestIDFromContext(ctx))
 		}
 		db, err = h.svc.CreateKVDatabase(ctx, project.TenantID, project.ID)
 		if err != nil {

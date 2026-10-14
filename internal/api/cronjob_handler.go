@@ -18,6 +18,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -32,6 +33,9 @@ var cronJobNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,62}$`)
 // cronJobInputLimit 入参 JSON 上限（§6.2）。
 const cronJobInputLimit = 8 * 1024
 
+// cronJobAgentPromptLimit agent 任务提示词上限：16KiB（字节口径，与 cronJobInputLimit 的 len() 一致）。
+const cronJobAgentPromptLimit = 16 * 1024
+
 // cronJobInterval 域：60s ~ 30 天（§3）。
 const (
 	cronJobIntervalMinSeconds = 60
@@ -45,11 +49,20 @@ type CronJobHandler struct {
 	writable  bool
 	scheduler *cronjob.Scheduler
 	audit     AuditService
+	usage     UsageService // 可为 nil；agent 任务手动触发前做 llm 配额检查
 }
 
 // NewCronJobHandler 构造 handler。
 func NewCronJobHandler(store *systemdb.Store, writable bool, scheduler *cronjob.Scheduler, audit AuditService) *CronJobHandler {
 	return &CronJobHandler{store: store, writable: writable, scheduler: scheduler, audit: audit}
+}
+
+// WithUsage 挂接配额服务，返回自身便于链式装配。
+func (h *CronJobHandler) WithUsage(u UsageService) *CronJobHandler {
+	if h != nil {
+		h.usage = u
+	}
+	return h
 }
 
 type cronJobDTO struct {
@@ -60,9 +73,13 @@ type cronJobDTO struct {
 	CronExpr        string     `json:"cron_expr,omitempty"`
 	IntervalSeconds *int64     `json:"interval_seconds,omitempty"`
 	RunAt           *time.Time `json:"run_at,omitempty"`
+	TargetKind      string     `json:"target_kind"` // "function" | "agent"
 	FuncFile        string     `json:"func_file"`
 	FuncExport      string     `json:"func_export"`
 	InputJSON       string     `json:"input_json"`
+	AgentID         string     `json:"agent_id,omitempty"`
+	AgentThreadID   string     `json:"agent_thread_id,omitempty"`
+	AgentPrompt     string     `json:"agent_prompt,omitempty"`
 	Enabled         bool       `json:"enabled"`
 	LastRunAt       *time.Time `json:"last_run_at,omitempty"`
 	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
@@ -91,7 +108,9 @@ func toCronJobDTO(j systemdb.CronJob, targetMissing bool) cronJobDTO {
 	dto := cronJobDTO{
 		ID: j.ID, Name: j.Name, Description: j.Description,
 		ScheduleKind: j.ScheduleKind, CronExpr: j.CronExpr,
-		FuncFile: j.FuncFile, FuncExport: j.FuncExport, InputJSON: j.InputJSON,
+		TargetKind: j.EffectiveTargetKind(),
+		FuncFile:   j.FuncFile, FuncExport: j.FuncExport, InputJSON: j.InputJSON,
+		AgentID: j.AgentID, AgentThreadID: j.AgentThreadID, AgentPrompt: j.AgentPrompt,
 		Enabled: j.Enabled, LastStatus: j.LastStatus, LastError: j.LastError,
 		RunCount: j.RunCount, TargetMissing: targetMissing,
 		CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt,
@@ -139,9 +158,12 @@ type upsertCronJobBody struct {
 	CronExpr        string `json:"cron_expr"`
 	IntervalSeconds int64  `json:"interval_seconds"`
 	RunAt           string `json:"run_at"`
+	TargetKind      string `json:"target_kind"` // 空串视同 function（向后兼容）
 	FuncFile        string `json:"func_file"`
 	FuncExport      string `json:"func_export"`
 	InputJSON       string `json:"input_json"`
+	AgentID         string `json:"agent_id"`
+	AgentPrompt     string `json:"agent_prompt"`
 	Enabled         *bool  `json:"enabled"`
 
 	// enabledValue 是校验后的 resolved 值（缺省 true），供写库使用。
@@ -168,13 +190,30 @@ func (h *CronJobHandler) List(c echo.Context) error {
 	if len(jobs) == 0 {
 		return c.JSON(http.StatusOK, map[string]any{"jobs": []cronJobDTO{}})
 	}
-	targets, err := h.buildTargetIndex(c.Request().Context(), pc.ID)
-	if err != nil {
-		return WriteError(c, err)
+	// 两类目标索引按需构建：没有对应类型任务时不做多余查询。
+	var targets, agents map[string]bool
+	for _, j := range jobs {
+		if j.EffectiveTargetKind() == systemdb.CronJobTargetAgent {
+			if agents == nil {
+				if agents, err = h.buildAgentIndex(c.Request().Context(), pc.ID); err != nil {
+					return WriteError(c, err)
+				}
+			}
+		} else if targets == nil {
+			if targets, err = h.buildTargetIndex(c.Request().Context(), pc.ID); err != nil {
+				return WriteError(c, err)
+			}
+		}
 	}
 	out := make([]cronJobDTO, 0, len(jobs))
 	for _, j := range jobs {
-		out = append(out, toCronJobDTO(j, !targets[j.FuncFile+"\x00"+j.FuncExport]))
+		missing := false
+		if j.EffectiveTargetKind() == systemdb.CronJobTargetAgent {
+			missing = !agents[j.AgentID]
+		} else {
+			missing = !targets[j.FuncFile+"\x00"+j.FuncExport]
+		}
+		out = append(out, toCronJobDTO(j, missing))
 	}
 	return c.JSON(http.StatusOK, map[string]any{"jobs": out})
 }
@@ -195,8 +234,14 @@ func (h *CronJobHandler) Get(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	missing, err := h.isTargetMissing(c.Request().Context(), pc.ID, j.FuncFile, j.FuncExport)
-	if err != nil {
+	var missing bool
+	if j.EffectiveTargetKind() == systemdb.CronJobTargetAgent {
+		agents, aerr := h.buildAgentIndex(c.Request().Context(), pc.ID)
+		if aerr != nil {
+			return WriteError(c, aerr)
+		}
+		missing = !agents[j.AgentID]
+	} else if missing, err = h.isTargetMissing(c.Request().Context(), pc.ID, j.FuncFile, j.FuncExport); err != nil {
 		return WriteError(c, err)
 	}
 	return c.JSON(http.StatusOK, toCronJobDTO(j, missing))
@@ -229,7 +274,7 @@ func (h *CronJobHandler) Create(c echo.Context) error {
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return WriteError(c, err)
 	}
-	if err := h.validateTarget(c.Request().Context(), pc.ID, req.FuncFile, req.FuncExport); err != nil {
+	if err := h.validateTargetFor(c.Request().Context(), pc.ID, req); err != nil {
 		return WriteError(c, err)
 	}
 	next, err := computeNextRun(req.ScheduleKind, req.CronExpr, req.IntervalSeconds, req.runAtTime)
@@ -239,8 +284,10 @@ func (h *CronJobHandler) Create(c echo.Context) error {
 	created, err := h.store.CreateCronJob(c.Request().Context(), systemdb.CronJob{
 		ProjectID: pc.ID, Name: req.Name, Description: req.Description,
 		ScheduleKind: req.ScheduleKind, CronExpr: req.CronExpr, IntervalSeconds: req.IntervalSeconds,
-		RunAt:    req.runAtTime,
-		FuncFile: req.FuncFile, FuncExport: req.FuncExport, InputJSON: req.InputJSON,
+		RunAt:      req.runAtTime,
+		TargetKind: req.TargetKind,
+		FuncFile:   req.FuncFile, FuncExport: req.FuncExport, InputJSON: req.InputJSON,
+		AgentID: req.AgentID, AgentPrompt: req.AgentPrompt,
 		Enabled: req.enabledValue, NextRunAt: next,
 	})
 	if err != nil {
@@ -277,7 +324,7 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 	// 纯开关切换（body 只带 enabled，无调度字段）：保留原调度配置，
 	// 仅翻转启停并重算排期——禁用清空 next_run_at（零值=未排期语义），
 	// 启用按原 schedule 从当下重算。避免前端开关 PATCH 因缺 schedule_kind 报 400。
-	if req.ScheduleKind == "" && req.Enabled != nil && req.Name == "" && req.FuncFile == "" {
+	if req.ScheduleKind == "" && req.Enabled != nil && req.Name == "" && req.FuncFile == "" && req.AgentID == "" {
 		j.Enabled = *req.Enabled
 		j.NextRunAt = time.Time{}
 		if j.Enabled {
@@ -298,7 +345,7 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	if err := h.validateTarget(c.Request().Context(), pc.ID, req.FuncFile, req.FuncExport); err != nil {
+	if err := h.validateTargetFor(c.Request().Context(), pc.ID, req); err != nil {
 		return WriteError(c, err)
 	}
 	// 保留不可变字段与快照字段；调度字段更新时重算排期。
@@ -307,9 +354,16 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 	j.CronExpr = req.CronExpr
 	j.IntervalSeconds = req.IntervalSeconds
 	j.RunAt = req.runAtTime
+	// 换了助手或切换了目标类型后，旧专属会话不再适用：清空，由执行器首次运行时重建。
+	if req.TargetKind != j.EffectiveTargetKind() || req.AgentID != j.AgentID {
+		j.AgentThreadID = ""
+	}
+	j.TargetKind = req.TargetKind
 	j.FuncFile = req.FuncFile
 	j.FuncExport = req.FuncExport
 	j.InputJSON = req.InputJSON
+	j.AgentID = req.AgentID
+	j.AgentPrompt = req.AgentPrompt
 	// enabled 未显式携带时保留原状态（不隐式重新启用已暂停任务）。
 	if req.enabledSet {
 		j.Enabled = req.enabledValue
@@ -397,10 +451,19 @@ func (h *CronJobHandler) Trigger(c echo.Context) error {
 	if h.scheduler == nil {
 		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "cron_scheduler_unavailable", "cron scheduler is not running", rid))
 	}
-	// 异步执行用的是请求 ctx：202 返回后连接关闭、ctx 被取消，后台执行会立刻
-	// 中断（insert run / 执行函数 / 落结果全部失败）。断开取消链再触发，
-	// 与 agent_schedule_handler.TriggerScheduleRun 的 context.WithoutCancel 同款。
+	// agent 任务会消耗 LLM 额度：手动触发前先检查配额（原 TriggerScheduleRun 的语义）。
+	if j.EffectiveTargetKind() == systemdb.CronJobTargetAgent && h.usage != nil {
+		if err := h.usage.CheckQuota(c.Request().Context(), pc.ID, "llm"); err != nil {
+			return WriteError(c, err)
+		}
+	}
+	// 异步执行用的是调度器自己的 ctx（LIFE-01 修复后 Trigger 忽略调用方 ctx），
+	// 任务与请求生命周期解耦、但受调度器停止控制。
 	if err := h.scheduler.Trigger(context.WithoutCancel(c.Request().Context()), j); err != nil {
+		rid := RequestIDFromContext(c.Request().Context())
+		if errors.Is(err, cronjob.ErrSchedulerStopped) {
+			return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "cron_scheduler_stopped", "cron scheduler is not running", rid))
+		}
 		return WriteError(c, NewAPIError(http.StatusConflict, "cron_job_running", "cron job is already executing", rid))
 	}
 	h.recordAudit(c, pc.ID, "trigger cron job "+j.Name)
@@ -452,18 +515,39 @@ func validateCronJobBody(req upsertCronJobBody, rid string, create bool) (upsert
 	default:
 		return req, NewAPIError(http.StatusBadRequest, "invalid_request", "schedule_kind must be cron, interval or once", rid)
 	}
-	if req.FuncFile == "" || req.FuncExport == "" {
-		return req, NewAPIError(http.StatusBadRequest, "invalid_request", "func_file and func_export are required", rid)
-	}
-	if req.InputJSON == "" {
+	switch req.TargetKind {
+	case "", systemdb.CronJobTargetFunction:
+		req.TargetKind = systemdb.CronJobTargetFunction
+		if req.FuncFile == "" || req.FuncExport == "" {
+			return req, NewAPIError(http.StatusBadRequest, "invalid_request", "func_file and func_export are required", rid)
+		}
+		if req.InputJSON == "" {
+			req.InputJSON = "{}"
+		}
+		if len(req.InputJSON) > cronJobInputLimit {
+			return req, NewAPIError(http.StatusBadRequest, "invalid_request", "input_json exceeds 8KB limit", rid)
+		}
+		var probe json.RawMessage
+		if err := json.Unmarshal([]byte(req.InputJSON), &probe); err != nil {
+			return req, NewAPIError(http.StatusBadRequest, "invalid_request", "input_json is not valid JSON: "+err.Error(), rid)
+		}
+		// 清掉另一侧字段，避免脏数据残留。
+		req.AgentID, req.AgentPrompt = "", ""
+	case systemdb.CronJobTargetAgent:
+		req.AgentID = strings.TrimSpace(req.AgentID)
+		if req.AgentID == "" {
+			return req, NewAPIError(http.StatusBadRequest, "invalid_request", "agent_id is required for target_kind=agent", rid)
+		}
+		if strings.TrimSpace(req.AgentPrompt) == "" {
+			return req, NewAPIError(http.StatusBadRequest, "agent_prompt_required", "agent_prompt is required for target_kind=agent", rid)
+		}
+		if len(req.AgentPrompt) > cronJobAgentPromptLimit {
+			return req, NewAPIError(http.StatusBadRequest, "agent_prompt_too_long", "agent_prompt exceeds 16KB limit", rid)
+		}
+		req.FuncFile, req.FuncExport = "", ""
 		req.InputJSON = "{}"
-	}
-	if len(req.InputJSON) > cronJobInputLimit {
-		return req, NewAPIError(http.StatusBadRequest, "invalid_request", "input_json exceeds 8KB limit", rid)
-	}
-	var probe json.RawMessage
-	if err := json.Unmarshal([]byte(req.InputJSON), &probe); err != nil {
-		return req, NewAPIError(http.StatusBadRequest, "invalid_request", "input_json is not valid JSON: "+err.Error(), rid)
+	default:
+		return req, NewAPIError(http.StatusBadRequest, "invalid_target_kind", "target_kind must be function or agent", rid)
 	}
 	// enabled 缺省语义：未显式指定时不隐式翻转（保留原状态）。
 	// enabledValue=false + enabledSet=false 表示“请求未带 enabled”，由调用方保留原值。
@@ -494,6 +578,32 @@ func (h *CronJobHandler) validateTarget(ctx context.Context, projectID, file, ex
 		}
 	}
 	return NewAPIError(http.StatusBadRequest, "function_not_exported", "target function is not exported in this file", RequestIDFromContext(ctx))
+}
+
+// validateTargetFor 按 target_kind 分支校验目标：function 走生效版校验；
+// agent 只校验云助手存在（不复用 gofunction 校验）。
+func (h *CronJobHandler) validateTargetFor(ctx context.Context, projectID string, req upsertCronJobBody) error {
+	if req.TargetKind != systemdb.CronJobTargetAgent {
+		return h.validateTarget(ctx, projectID, req.FuncFile, req.FuncExport)
+	}
+	_, err := h.store.GetCloudAgent(ctx, projectID, req.AgentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return NewAPIError(http.StatusBadRequest, "agent_not_found", "agent does not exist in this project", RequestIDFromContext(ctx))
+	}
+	return err
+}
+
+// buildAgentIndex 构造项目内存在的云助手 ID 集合，用于 agent 任务的 target_missing 标记。
+func (h *CronJobHandler) buildAgentIndex(ctx context.Context, projectID string) (map[string]bool, error) {
+	agents, err := h.store.ListCloudAgents(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	index := make(map[string]bool, len(agents))
+	for _, a := range agents {
+		index[a.ID] = true
+	}
+	return index, nil
 }
 
 // buildTargetIndex 构造项目内可用目标集合（仅生效版 exports）：file\x00export → true。

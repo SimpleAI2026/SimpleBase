@@ -5,13 +5,229 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/uglyer/go-sqlite3"
 )
+
+func TestStatisticalBuiltinsSeedWithoutOverwritingExisting(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	const project = "statistical-builtins"
+	if err := s.SeedDefaultCloudAgentsWithCapabilities(ctx, project, false, true); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListCloudAgents(ctx, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := make(map[string]CloudAgent, len(list))
+	for _, agent := range list {
+		byKey[agent.BuiltinKey] = agent
+	}
+	for _, key := range []string{"general", "database", "kv", "gofunction", "cron", "s3", "logs"} {
+		if byKey[key].ID == "" {
+			t.Fatalf("builtin %s missing", key)
+		}
+	}
+	if byKey["users"].ID != "" || byKey["sandbox"].ID != "" {
+		t.Fatal("restricted or unavailable agent must not be seeded for everyone")
+	}
+	before := byKey["database"].ID
+	if err := s.SeedDefaultCloudAgentsWithCapabilities(ctx, project, false, true); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.ListCloudAgents(ctx, project)
+	if err != nil || len(again) != len(list) {
+		t.Fatalf("idempotent seed: agents=%d err=%v", len(again), err)
+	}
+	for _, agent := range again {
+		if agent.BuiltinKey == "database" && agent.ID != before {
+			t.Fatalf("existing database agent id changed: %q != %q", agent.ID, before)
+		}
+	}
+	const later = "statistical-enabled-later"
+	if err := s.SeedDefaultCloudAgents(ctx, later); err != nil {
+		t.Fatal(err)
+	}
+	old, err := s.ListCloudAgents(ctx, later)
+	if err != nil || len(old) != 4 {
+		t.Fatalf("legacy defaults=%d err=%v", len(old), err)
+	}
+	legacyID := old[0].ID
+	if err := s.SeedDefaultCloudAgentsWithCapabilities(ctx, later, false, true); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := s.ListCloudAgents(ctx, later)
+	if err != nil || len(updated) != 7 || updated[0].ID != legacyID {
+		t.Fatalf("enabling CLI should add three agents without replacing existing ones: agents=%d err=%v", len(updated), err)
+	}
+}
+
+func TestSandboxBuiltinFollowsAvailabilityWithoutReplacingExisting(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	const project = "sandbox-seed-lifecycle"
+	for step, available := range []bool{false, true, false, true} {
+		if err := s.SeedDefaultCloudAgentsWithCapabilities(ctx, project, available, false); err != nil {
+			t.Fatal(err)
+		}
+		list, err := s.ListCloudAgents(ctx, project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 4
+		if step > 0 {
+			want = 5
+		}
+		if len(list) != want {
+			t.Fatalf("sandboxAvailable=%v agents=%d want=%d", available, len(list), want)
+		}
+	}
+	list, err := s.ListCloudAgents(ctx, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sandbox CloudAgent
+	for _, agent := range list {
+		if agent.BuiltinKey == "sandbox" {
+			sandbox = agent
+		}
+	}
+	if sandbox.ID == "" || sandbox.Module != "sandbox" || len(sandbox.ToolIDs) != 4 {
+		t.Fatalf("missing sandbox builtin: %+v", sandbox)
+	}
+	originalID := sandbox.ID
+	if err := s.ArchiveCloudAgent(ctx, project, sandbox.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SeedDefaultCloudAgentsWithCapabilities(ctx, project, true, false); err != nil {
+		t.Fatal(err)
+	}
+	list, err = s.ListCloudAgents(ctx, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range list {
+		if agent.BuiltinKey == "sandbox" || agent.ID == originalID {
+			t.Fatalf("dismissed sandbox restored: %+v", agent)
+		}
+	}
+}
+
+func TestAgentSeedKeysPreserveDismissalAndProjectIsolation(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	const project = "agent-seed-test"
+	if err := s.SeedDefaultCloudAgentsWithCapabilities(ctx, project, false, true); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := s.ListCloudAgents(ctx, project)
+	if err != nil || len(agents) != len(defaultCloudAgentSpecs)-1 {
+		t.Fatalf("initial agents=%d err=%v", len(agents), err)
+	}
+	var generalID string
+	for _, agent := range agents {
+		if agent.BuiltinKey == "general" {
+			generalID = agent.ID
+		}
+	}
+	if generalID == "" {
+		t.Fatal("general agent missing")
+	}
+	if err := s.ArchiveCloudAgent(ctx, project, generalID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SeedDefaultCloudAgentsWithCapabilities(ctx, project, false, true); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = s.ListCloudAgents(ctx, project)
+	if err != nil || len(agents) != len(defaultCloudAgentSpecs)-2 {
+		t.Fatalf("dismissed agent restored: agents=%d err=%v", len(agents), err)
+	}
+	other, err := s.ListCloudAgents(ctx, "another-project")
+	if err != nil || len(other) != 0 {
+		t.Fatalf("cross-project agents=%d err=%v", len(other), err)
+	}
+	if err := s.SeedDefaultCloudAgentsWithCapabilities(ctx, "another-project", false, true); err != nil {
+		t.Fatal(err)
+	}
+	other, err = s.ListCloudAgents(ctx, "another-project")
+	if err != nil || len(other) != len(defaultCloudAgentSpecs)-1 {
+		t.Fatalf("other project agents=%d err=%v", len(other), err)
+	}
+}
+
+func TestSeedDefaultCloudAgentsConcurrentFirstVisit(t *testing.T) {
+	s := newTestStore(t)
+	const project = "concurrent-first-visit"
+	const n = 32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			errs[i] = s.SeedDefaultCloudAgentsWithCapabilities(context.Background(), project, false, true)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent seed %d failed: %v", i, err)
+		}
+	}
+	rows, err := s.db.QueryContext(context.Background(),
+		`SELECT builtin_key, count(*) FROM sys_cloud_agents WHERE project_id=? AND archived_at IS NULL GROUP BY builtin_key`, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	seen := make(map[string]int)
+	for rows.Next() {
+		var key string
+		var count int
+		if err := rows.Scan(&key, &count); err != nil {
+			t.Fatal(err)
+		}
+		seen[key] = count
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != len(defaultCloudAgentSpecs)-1 {
+		t.Fatalf("builtin keys=%d want %d", len(seen), len(defaultCloudAgentSpecs)-1)
+	}
+	for key, count := range seen {
+		if count != 1 {
+			t.Fatalf("key %s has %d active rows", key, count)
+		}
+	}
+}
+
+func TestSeedProjectLockWaitCanCancel(t *testing.T) {
+	s := newTestStore(t)
+	release, err := s.lockAgentSeed(context.Background(), "busy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.SeedDefaultCloudAgents(ctx, "busy"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled seed waited for busy project: %v", err)
+	}
+	if err := s.SeedDefaultCloudAgents(context.Background(), "other"); err != nil {
+		t.Fatalf("unrelated project blocked: %v", err)
+	}
+}
 
 func TestAgentMessagesReturnMostRecentPageInChronologicalOrder(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -64,7 +280,7 @@ func TestCloudAgentsThreadsAndRuns(t *testing.T) {
 	if _, err := nilStore.CreateAgentThread(ctx, AgentThread{}); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
-	if _, err := nilStore.ListAgentThreads(ctx, "p", 0); !errors.Is(err, ErrUnavailable) {
+	if _, err := nilStore.ListAgentThreads(ctx, "p", "", 0); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
 	if _, err := nilStore.GetAgentThread(ctx, "p", "id"); !errors.Is(err, ErrUnavailable) {
@@ -143,7 +359,7 @@ func TestCloudAgentsThreadsAndRuns(t *testing.T) {
 	if _, err := s.CreateAgentThread(ctx, AgentThread{ID: uuid.NewString(), ProjectID: pid, Title: "named", CreatedBy: "u"}); err != nil {
 		t.Fatal(err)
 	}
-	threads, err := s.ListAgentThreads(ctx, pid, 0)
+	threads, err := s.ListAgentThreads(ctx, pid, "", 0)
 	if err != nil || len(threads) != 2 {
 		t.Fatalf("threads: n=%d err=%v", len(threads), err)
 	}
@@ -225,6 +441,68 @@ func TestCloudAgentsThreadsAndRuns(t *testing.T) {
 	n, err = empty.CountCloudAgents(ctx, "fresh")
 	if err != nil || n != 4 {
 		t.Fatalf("seeded n=%d err=%v", n, err)
+	}
+}
+
+// TestAgentThreadsFilteredByAgent 覆盖 planv6.0 §3.7 修订：会话归属助手。
+// 每个助手一份列表；未绑定（空 agent_id）的历史数据只在不过滤时可见。
+func TestAgentThreadsFilteredByAgent(t *testing.T) {
+	ctx := context.Background()
+	var nilStore *Store
+	if _, err := nilStore.ListAgentThreads(ctx, "p", "a", 0); !errors.Is(err, ErrUnavailable) {
+		t.Fatal(err)
+	}
+	if _, _, err := nilStore.PageAgentThreads(ctx, "p", "a", "", 0); !errors.Is(err, ErrUnavailable) {
+		t.Fatal(err)
+	}
+
+	s := newTestStore(t)
+	const pid = "thread-by-agent"
+	for _, in := range []AgentThread{
+		{ProjectID: pid, Title: "a1", AgentID: "ag-a"},
+		{ProjectID: pid, Title: "a2", AgentID: "ag-a"},
+		{ProjectID: pid, Title: "b1", AgentID: "ag-b"},
+		{ProjectID: pid, Title: "legacy"}, // 历史数据：未绑定
+	} {
+		if _, err := s.CreateAgentThread(ctx, in); err != nil {
+			t.Fatalf("create %s: %v", in.Title, err)
+		}
+	}
+
+	// 按助手过滤：只拿到自己的
+	aThreads, err := s.ListAgentThreads(ctx, pid, "ag-a", 0)
+	if err != nil || len(aThreads) != 2 {
+		t.Fatalf("ag-a threads: n=%d err=%v", len(aThreads), err)
+	}
+	for _, th := range aThreads {
+		if th.AgentID != "ag-a" {
+			t.Fatalf("unexpected agent_id %q", th.AgentID)
+		}
+	}
+	bThreads, err := s.ListAgentThreads(ctx, pid, "ag-b", 0)
+	if err != nil || len(bThreads) != 1 {
+		t.Fatalf("ag-b threads: n=%d err=%v", len(bThreads), err)
+	}
+	// 不带过滤（空串 = 不过滤）：全部，含未绑定的历史数据
+	all, err := s.ListAgentThreads(ctx, pid, "", 0)
+	if err != nil || len(all) != 4 {
+		t.Fatalf("all threads: n=%d err=%v", len(all), err)
+	}
+
+	// 分页同样按助手过滤
+	page, _, err := s.PageAgentThreads(ctx, pid, "ag-a", "", 50)
+	if err != nil || len(page) != 2 {
+		t.Fatalf("page ag-a: n=%d err=%v", len(page), err)
+	}
+	pageAll, _, err := s.PageAgentThreads(ctx, pid, "", "", 50)
+	if err != nil || len(pageAll) != 4 {
+		t.Fatalf("page all: n=%d err=%v", len(pageAll), err)
+	}
+
+	// 取回的单条也带 agent_id
+	got, err := s.GetAgentThread(ctx, pid, bThreads[0].ID)
+	if err != nil || got.AgentID != "ag-b" {
+		t.Fatalf("get: %+v err=%v", got, err)
 	}
 }
 

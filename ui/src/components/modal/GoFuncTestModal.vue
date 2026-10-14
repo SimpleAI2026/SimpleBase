@@ -1,8 +1,8 @@
 <template>
   <SbModal
     :open="open"
-    :title="`测试 · ${record?.file || ''}`"
-    :description="'左栏选择「版本 / 导出函数」；试跑不会改变生效版本。'"
+    :title="t('components.goFuncTest.title', { file: record?.file || '' })"
+    :description="t('components.goFuncTest.descriptionTop')"
     hide-footer
     :max-width="960"
     @update:open="emit('update:open', $event)"
@@ -11,7 +11,7 @@
       <!-- 左栏：版本 + 导出函数 -->
       <aside class="flex w-full shrink-0 flex-col gap-4 border-b bg-card p-4 lg:w-60 lg:border-r lg:border-b-0">
         <div class="flex flex-col gap-2">
-          <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">版本</div>
+          <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">{{ t('components.goFuncTest.versions') }}</div>
           <SbBlockSkeleton v-if="versionsLoading" variant="lines" :count="3" />
           <div v-else class="flex max-h-40 flex-col gap-1 overflow-y-auto">
             <button
@@ -27,14 +27,14 @@
                 :class="v.active ? 'bg-success' : 'bg-border'"
               />
               <span class="font-mono">v{{ v.version }}</span>
-              <span v-if="v.active" class="ml-auto text-[10px] font-medium text-success">生效</span>
+              <span v-if="v.active" class="ml-auto text-[10px] font-medium text-success">{{ t('components.goFuncTest.active') }}</span>
             </button>
           </div>
         </div>
 
         <div class="flex flex-col gap-2">
           <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">
-            导出函数（v{{ selectedVersion }}）
+            {{ t('components.goFuncTest.exports', { version: selectedVersion }) }}
           </div>
           <div class="flex flex-col gap-1">
             <button
@@ -47,35 +47,35 @@
             >
               {{ fn }}
             </button>
-            <p v-if="!currentExports.length" class="text-xs text-muted-foreground">该版本无导出函数</p>
+            <p v-if="!currentExports.length" class="text-xs text-muted-foreground">{{ t('components.goFuncTest.noExports') }}</p>
           </div>
         </div>
 
         <p class="mt-auto text-[11px] leading-relaxed text-muted-foreground/80">
-          POST+JSON，1 参 1 返回。发送走管理端 test API（当前登录态）。
+          {{ t('components.goFuncTest.protocolHint') }}
         </p>
       </aside>
 
       <!-- 右栏：请求 / 响应 -->
       <section class="flex min-w-0 flex-1 flex-col gap-5 p-4 lg:p-5">
         <div class="flex flex-col gap-2">
-          <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">请求</div>
+          <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">{{ t('components.goFuncTest.request') }}</div>
           <div class="flex items-center gap-2">
             <Badge variant="secondary" class="shrink-0">POST</Badge>
             <code class="sb-mono min-w-0 flex-1 truncate rounded-lg border bg-card px-2.5 py-1.5 text-xs">
               {{ invokeUrl }}
             </code>
-            <Button variant="outline" size="sm" class="shrink-0" @click="copyUrl">复制</Button>
+            <Button variant="outline" size="sm" class="shrink-0" @click="copyUrl">{{ t('common.copy') }}</Button>
           </div>
           <p class="text-[11px] text-muted-foreground">
-            对外 URL · 调用方需 <code class="sb-mono">Authorization: Bearer</code> API Key
+            {{ t('components.goFuncTest.externalUrl') }}
           </p>
         </div>
 
         <div class="flex min-h-0 flex-1 flex-col gap-2">
           <div class="flex items-center justify-between">
             <span class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">Body (JSON)</span>
-            <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="validateBody">校验</Button>
+            <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="validateBody">{{ t('components.goFuncTest.validate') }}</Button>
           </div>
           <textarea
             v-model="bodyText"
@@ -88,23 +88,23 @@
         <div class="flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
           <Button class="min-w-24" :disabled="sending || !selectedFn" @click="send">
             <Spinner v-if="sending" data-icon="inline-start" />
-            发送请求
+            {{ t('components.goFuncTest.send') }}
           </Button>
           <span v-if="result" class="text-xs text-muted-foreground">
-            耗时 {{ result.durationMs }}ms · version={{ result.version }} · channel=test
+            {{ t('components.goFuncTest.resultMeta', { duration: result.durationMs, version: result.version }) }}
           </span>
         </div>
 
         <div class="flex min-h-0 flex-col gap-2">
           <div class="flex items-center gap-2">
-            <span class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">响应</span>
+            <span class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">{{ t('components.goFuncTest.response') }}</span>
             <template v-if="result">
               <Badge :variant="statusVariant" class="px-1.5 text-[11px]">{{ result.statusCode }}</Badge>
               <span class="text-xs text-muted-foreground">application/json</span>
             </template>
           </div>
           <Alert v-if="result && !result.ok" variant="destructive">
-            <AlertTitle>执行失败</AlertTitle>
+            <AlertTitle>{{ t('components.goFuncTest.runFailedTitle') }}</AlertTitle>
             <AlertDescription class="sb-code-view max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">{{ result.error }}</AlertDescription>
           </Alert>
           <pre
@@ -112,7 +112,7 @@
             class="sb-code-view sb-mono max-h-56 max-w-full min-w-0 overflow-auto whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] rounded-lg border bg-card p-3 text-xs leading-relaxed"
           >{{ prettyData }}</pre>
           <p v-else class="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
-            尚未发送请求
+            {{ t('components.goFuncTest.notSent') }}
           </p>
         </div>
       </section>
@@ -122,6 +122,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -141,6 +142,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
+const { t } = useI18n()
 const projectStore = useProjectStore()
 const versions = ref<GoFuncVersionSummary[]>([])
 const versionsLoading = ref(false)
@@ -215,19 +217,19 @@ function validateBody() {
   try {
     JSON.parse(bodyText.value || '{}')
     saveDraft()
-    toast.success('JSON 合法')
+    toast.success(t('components.goFuncTest.jsonValid'))
   } catch (e) {
-    bodyError.value = errorMessage(e, 'JSON 无效')
+    bodyError.value = errorMessage(e, t('components.goFuncTest.jsonInvalid'))
   }
 }
 
 async function copyUrl() {
   try {
     await navigator.clipboard.writeText(invokeUrl.value)
-    toast.success('已复制调用路径')
+    toast.success(t('components.goFuncTest.copiedPath'))
   } catch {
     /* v8 ignore next */
-    toast.error('复制失败')
+    toast.error(t('components.goFuncTest.copyFailed'))
   }
 }
 
@@ -240,7 +242,7 @@ async function send() {
     payload = JSON.parse(bodyText.value || '{}')
     saveDraft()
   } catch (e) {
-    bodyError.value = errorMessage(e, 'JSON 无效')
+    bodyError.value = errorMessage(e, t('components.goFuncTest.jsonInvalid'))
     return
   }
   sending.value = true
@@ -253,7 +255,7 @@ async function send() {
       payload
     )
   } catch (e) {
-    toast.error(errorMessage(e, '测试失败'))
+    toast.error(errorMessage(e, t('components.goFuncTest.testFailed')))
   } finally {
     sending.value = false
   }

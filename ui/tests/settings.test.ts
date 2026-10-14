@@ -32,75 +32,65 @@ describe('settings store', () => {
     expect(JSON.parse(localStorage.getItem('sb_settings_v1') || '{}').theme).toBe('dark')
   })
 
-  it('manages project defaults and provider credentials', () => {
+  it('manages project defaults', () => {
     const store = useSettingsStore()
     store.setProjectDefaults('p1', { defaultProvider: 'openai', temperature: 0.2 })
     expect(store.defaultsFor('p1').temperature).toBe(0.2)
+    expect(store.defaultsFor('p1').defaultProvider).toBe('openai')
     expect(store.defaultsFor('missing')).toEqual({})
 
-    store.upsertProviderConfig('p1', 'openai', {
-      enabled: true,
-      defaultModel: 'gpt-4o-mini',
-      credentials: { api_key: 'sk-test' }
-    })
-    store.upsertProviderConfig('p1', 'openai', { credentials: { organization: 'org' } })
-    expect(store.configsFor('p1').openai.credentials.api_key).toBe('sk-test')
-    expect(store.isProviderConfigured('p1', 'openai')).toBe(true)
-    expect(store.isProviderConfigured('p1', 'azure_openai')).toBe(false)
-    expect(store.isProviderConfigured('p1', 'unknown')).toBe(false)
-
-    store.setDefaultProvider('p1', 'openai')
-    expect(store.defaultsFor('p1').defaultModel).toBe('gpt-4o-mini')
-
-    store.clearProviderCredentials('p1', 'openai')
-    expect(store.configsFor('p1').openai.credentials).toEqual({})
-    store.clearProviderCredentials('p1', 'missing')
-    expect(store.isProviderConfigured('p1', 'openai')).toBe(false)
+    // 连接信息与服务端默认值同份缓存，掩码只用于展示
+    store.setProjectDefaults('p1', { baseUrl: 'https://relay.example.com/v1', apiKeyMasked: 'sk-...7890', hasApiKey: true })
+    expect(store.defaultsFor('p1').baseUrl).toBe('https://relay.example.com/v1')
+    expect(store.defaultsFor('p1').apiKeyMasked).toBe('sk-...7890')
+    expect(store.defaultsFor('p1').hasApiKey).toBe(true)
+    // 局部 patch 不冲掉已有字段
+    expect(store.defaultsFor('p1').temperature).toBe(0.2)
   })
 
-  it('loads missing nested maps, empty credentials patches, and credential model fallback', () => {
+  it('loads missing nested maps and tolerates a legacy payload', () => {
     localStorage.setItem('sb_settings_v1', JSON.stringify({ theme: 'light' }))
     setActivePinia(createPinia())
     const store = useSettingsStore()
     expect(store.defaultsFor('p')).toEqual({})
-    expect(store.configsFor('p')).toEqual({})
-    store.upsertProviderConfig('p1', 'openai', { enabled: true, defaultModel: undefined })
-    expect(store.configsFor('p1').openai.credentials).toEqual({})
-    store.upsertProviderConfig('p', 'custom', {
-      enabled: true,
-      credentials: { api_key: '', default_model: 'from-cred' } as never
-    })
-    store.setDefaultProvider('p', 'custom')
-    expect(store.defaultsFor('p').defaultModel).toBe('from-cred')
+
+    // 旧版本存在 providerConfigs（浏览器明文 Key 时代）：读取时忽略，不崩
+    localStorage.setItem(
+      'sb_settings_v1',
+      JSON.stringify({ theme: 'light', providerConfigs: { p: { openai: { credentials: { api_key: 'k' } } } } })
+    )
+    setActivePinia(createPinia())
+    const legacy = useSettingsStore()
+    expect(legacy.defaultsFor('p')).toEqual({})
   })
 
   it('persists projectDefaults so they survive a reload', () => {
     localStorage.setItem('sb_settings_v1', JSON.stringify({ theme: 'light' }))
     setActivePinia(createPinia())
     const store = useSettingsStore()
-    store.setDefaultProvider('p1', 'openai')
+    store.setProjectDefaults('p1', { defaultProvider: 'openai', defaultModel: 'gpt-4o-mini' })
     const saved = JSON.parse(localStorage.getItem('sb_settings_v1') || '{}')
     expect(saved.projectDefaults.p1.defaultProvider).toBe('openai')
+    // 旧的 providerConfigs 字段不再写回
+    expect(saved.providerConfigs).toBeUndefined()
     // 模拟 reload：新 store 从 localStorage 恢复
     setActivePinia(createPinia())
     const reloaded = useSettingsStore()
     expect(reloaded.defaultsFor('p1').defaultProvider).toBe('openai')
+    expect(reloaded.defaultsFor('p1').defaultModel).toBe('gpt-4o-mini')
   })
 
-  it('falls back for unknown stored theme and custom providers', () => {
+  it('falls back for unknown stored theme', () => {
     localStorage.setItem(
       'sb_settings_v1',
       JSON.stringify({
         theme: 'rainbow',
-        projectDefaults: { p: { defaultModel: 'm' } },
-        providerConfigs: { p: { custom: { enabled: true, credentials: { api_key: 'k' }, updatedAt: 't' } } }
+        projectDefaults: { p: { defaultModel: 'm' } }
       })
     )
     setActivePinia(createPinia())
     const store = useSettingsStore()
     expect(store.theme).toBe('light')
-    expect(store.isProviderConfigured('p', 'custom')).toBe(true)
-    store.setDefaultProvider('p', 'no-such')
-    expect(store.defaultsFor('p').defaultProvider).toBe('no-such')
+    expect(store.defaultsFor('p').defaultModel).toBe('m')
   })
 })

@@ -4,15 +4,15 @@
     <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-[850px] opacity-35 bg-[linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] bg-[size:52px_52px] [mask-image:linear-gradient(to_bottom,black,transparent)]" />
 
     <header class="relative z-10 border-b border-border/70 bg-background/75 backdrop-blur-xl">
-      <nav aria-label="主导航" class="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-10">
+      <nav :aria-label="t('pages.home.mainNav')" class="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-10">
         <router-link to="/" class="inline-flex min-w-0 items-center gap-2.5 text-foreground no-underline">
           <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary font-serif text-lg font-semibold text-primary-foreground shadow-sm">S</span>
           <span class="truncate font-serif text-lg font-bold tracking-tight">SimpleBase</span>
         </router-link>
         <div class="flex shrink-0 items-center gap-2 sm:gap-5">
-          <router-link to="/docs" class="hidden text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline-flex">使用文档</router-link>
+          <router-link to="/docs" class="hidden text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline-flex">{{ t('pages.home.docs') }}</router-link>
           <router-link :to="{ name: 'agents' }" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4">
-            控制台 <ArrowUpRightIcon aria-hidden="true" class="size-4" />
+            {{ t('pages.home.console') }} <ArrowUpRightIcon aria-hidden="true" class="size-4" />
           </router-link>
         </div>
       </nav>
@@ -24,28 +24,28 @@
           <div class="mb-7 inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs font-semibold tracking-[0.12em] text-primary uppercase">
             <span aria-hidden="true" class="size-1.5 rounded-full bg-primary" /> SimpleBase · WORKSPACE
           </div>
-          <h1 class="font-serif text-[clamp(2.75rem,6vw,5.5rem)] leading-[1.09] font-semibold tracking-[-0.045em]">
-            为 AI 数据和应用构建的<span class="block text-primary">一体化工作台</span>
+          <h1 class="font-serif text-[clamp(2.25rem,5vw,4.5rem)] leading-[1.09] font-semibold tracking-[-0.045em]">
+            {{ t('pages.home.heroTitlePre') }}<span class="block whitespace-nowrap text-[clamp(2.25rem,4vw,3.5rem)] text-primary">{{ t('pages.home.heroTitleHighlight') }}</span>
           </h1>
           <p class="mt-7 max-w-lg text-base leading-8 text-muted-foreground sm:text-lg">
-            管理数据库、对象存储与云函数，通过 LLM Gateway 接入模型并创建云助手，在一个控制台中构建 AI 数据和应用。
+            {{ t('pages.home.heroDescription') }}
           </p>
           <div class="mt-9 flex flex-wrap items-center gap-3">
             <router-link :to="{ name: 'agents' }" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-[0_12px_32px_-16px_var(--primary)] transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-              进入控制台 <ArrowRightIcon aria-hidden="true" class="size-4" />
+              {{ t('pages.home.enterConsole') }} <ArrowRightIcon aria-hidden="true" class="size-4" />
             </router-link>
             <router-link to="/docs" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-card/80 px-6 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-              查看文档
+              {{ t('pages.home.viewDocs') }}
             </router-link>
           </div>
           <div class="mt-12 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border/80 pt-5 text-xs text-muted-foreground">
-            <span class="inline-flex items-center gap-2"><span aria-hidden="true" class="size-1.5 rounded-full bg-brand" /> 数据管理</span>
-            <span class="inline-flex items-center gap-2"><span aria-hidden="true" class="size-1.5 rounded-full bg-brand" /> AI 构建</span>
-            <span class="inline-flex items-center gap-2"><span aria-hidden="true" class="size-1.5 rounded-full bg-brand" /> 可观测</span>
+            <span class="inline-flex items-center gap-2"><span aria-hidden="true" class="size-1.5 rounded-full bg-brand" /> {{ t('pages.home.tagData') }}</span>
+            <span class="inline-flex items-center gap-2"><span aria-hidden="true" class="size-1.5 rounded-full bg-brand" /> {{ t('pages.home.tagAi') }}</span>
+            <span class="inline-flex items-center gap-2"><span aria-hidden="true" class="size-1.5 rounded-full bg-brand" /> {{ t('pages.home.tagObservability') }}</span>
           </div>
         </div>
 
-        <aside aria-label="产品能力示意" class="relative mx-auto w-full max-w-[520px] lg:max-w-none">
+        <aside :aria-label="t('pages.home.previewAria')" class="relative mx-auto w-full max-w-[520px] lg:max-w-none">
           <div aria-hidden="true" class="absolute -inset-5 rounded-[2rem] bg-brand/10 blur-3xl" />
           <div class="relative overflow-hidden rounded-2xl border border-border bg-card/95 shadow-[0_24px_80px_-40px_var(--foreground)] dark:shadow-[0_24px_80px_-40px_black]">
             <div class="flex h-12 items-center justify-between border-b border-border bg-muted/40 px-5">
@@ -53,7 +53,7 @@
               <span class="font-mono text-[10px] text-muted-foreground">OVERVIEW</span>
             </div>
             <div class="p-5 sm:p-7">
-              <div class="flex items-center justify-between gap-3"><span class="text-sm font-semibold">工作台概览</span><span class="rounded-md border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary">PRODUCT PREVIEW</span></div>
+              <div class="flex items-center justify-between gap-3"><span class="text-sm font-semibold">{{ t('pages.home.previewTitle') }}</span><span class="rounded-md border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary">PRODUCT PREVIEW</span></div>
               <div class="mt-6 grid grid-cols-2 gap-3">
                 <div v-for="item in previewItems" :key="item.label" class="rounded-xl border border-border bg-background/70 p-4">
                   <component :is="item.icon" aria-hidden="true" class="size-5 text-primary" />
@@ -77,10 +77,10 @@
       <section class="border-t border-border bg-card/45 px-4 py-20 sm:px-6 lg:px-10" aria-labelledby="capabilities-heading">
         <div class="mx-auto max-w-7xl">
           <div class="mb-10 flex flex-wrap items-end justify-between gap-4">
-            <div><p class="font-mono text-xs font-semibold tracking-[0.2em] text-primary uppercase">BUILT FOR YOUR WORKFLOW</p><h2 id="capabilities-heading" class="mt-3 font-serif text-3xl font-semibold tracking-tight sm:text-4xl">从数据管理到 AI 应用构建</h2></div>
-            <router-link to="/docs" class="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-primary hover:underline">浏览使用文档 <ArrowUpRightIcon aria-hidden="true" class="size-4" /></router-link>
+            <div><p class="font-mono text-xs font-semibold tracking-[0.2em] text-primary uppercase">BUILT FOR YOUR WORKFLOW</p><h2 id="capabilities-heading" class="mt-3 font-serif text-3xl font-semibold tracking-tight sm:text-4xl">{{ t('pages.home.capabilitiesTitle') }}</h2></div>
+            <router-link to="/docs" class="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-primary hover:underline">{{ t('pages.home.browseDocs') }} <ArrowUpRightIcon aria-hidden="true" class="size-4" /></router-link>
           </div>
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="grid gap-4 md:grid-cols-3">
             <article v-for="item in capabilities" :key="item.title" class="group rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40">
               <div class="flex size-11 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary"><component :is="item.icon" aria-hidden="true" class="size-5" /></div>
               <h3 class="mt-7 text-base font-semibold">{{ item.title }}</h3>
@@ -92,25 +92,40 @@
     </main>
 
     <footer class="relative z-10 border-t border-border px-4 py-7 sm:px-6 lg:px-10">
-      <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 text-sm text-muted-foreground"><span class="font-serif font-semibold text-foreground">SimpleBase</span><div class="flex items-center gap-6"><router-link to="/docs" class="hover:text-foreground">使用文档</router-link><a href="https://github.com/linkxzhou/SimpleBase" target="_blank" rel="noopener noreferrer" class="hover:text-foreground">GitHub</a></div></div>
+      <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 text-sm text-muted-foreground"><span class="font-serif font-semibold text-foreground">SimpleBase</span><div class="flex items-center gap-6"><router-link to="/docs" class="hover:text-foreground">{{ t('pages.home.docs') }}</router-link><a href="https://github.com/linkxzhou/SimpleBase" target="_blank" rel="noopener noreferrer" class="hover:text-foreground">GitHub</a></div></div>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowRightIcon, ArrowUpRightIcon, BotIcon, CloudUploadIcon, CodeIcon, DatabaseIcon } from '@lucide/vue'
 
-const previewItems = [
-  { label: '数据库', code: 'DATABASE', icon: DatabaseIcon },
-  { label: '对象存储', code: 'STORAGE', icon: CloudUploadIcon },
-  { label: '云函数', code: 'FUNCTIONS', icon: CodeIcon },
-  { label: '云助手', code: 'AGENTS', icon: BotIcon }
-]
+const { t } = useI18n()
 
-const capabilities = [
-  { title: '数据库管理', description: '统一管理数据库与数据集合，让查询和日常维护保持清晰。', icon: DatabaseIcon },
-  { title: '对象存储', description: '在工作台中管理项目文件与对象，轻松查看和组织资源。', icon: CloudUploadIcon },
-  { title: '云函数', description: '编写、发布并管理云函数，将应用逻辑与数据连接起来。', icon: CodeIcon },
-  { title: '云助手', description: '基于项目数据创建云助手，借助模型开展对话与只读查询。', icon: BotIcon }
-]
+const previewItems = computed(() => [
+  { label: t('pages.home.previewAgents'), code: 'AGENTS', icon: BotIcon },
+  { label: t('pages.home.previewDatabase'), code: 'DATABASE', icon: DatabaseIcon },
+  { label: t('pages.home.previewStorage'), code: 'STORAGE', icon: CloudUploadIcon },
+  { label: t('pages.home.previewFunctions'), code: 'FUNCTIONS', icon: CodeIcon }
+])
+
+const capabilities = computed(() => [
+  {
+    title: t('pages.home.capabilityAgentsTitle'),
+    description: t('pages.home.capabilityAgentsDesc'),
+    icon: BotIcon
+  },
+  {
+    title: t('pages.home.capabilityStorageTitle'),
+    description: t('pages.home.capabilityStorageDesc'),
+    icon: DatabaseIcon
+  },
+  {
+    title: t('pages.home.capabilityFunctionsTitle'),
+    description: t('pages.home.capabilityFunctionsDesc'),
+    icon: CloudUploadIcon
+  }
+])
 </script>

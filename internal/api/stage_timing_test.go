@@ -1,5 +1,5 @@
 // stage_timing_test.go 验证分段计时中间件与打点的正确性
-//（api-db-perf-validation-plan §2.1 的单元验收）。
+// （api-db-perf-validation-plan §2.1 的单元验收）。
 package api
 
 import (

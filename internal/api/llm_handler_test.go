@@ -290,6 +290,6 @@ func TestLLMHandler_recordAuditNil(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	h.recordAudit(c, "p", "k", "ok") // no panic when audit is nil
+	h.recordAudit(c, "p", "k", "ok")                       // no panic when audit is nil
 	h.persistChat(c, "p", llmChatRequest{}, LLMResponse{}) // store nil
 }

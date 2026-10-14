@@ -41,6 +41,14 @@ type AgentScheduleRun struct {
 	CreatedAt  time.Time
 }
 
+const (
+	// agentScheduleColumns 是 sys_agent_schedules 未归档行的读取列清单，
+	// 与 scanAgentSchedule 的扫描顺序一一对应（planv6.0 §7 A3）。
+	agentScheduleColumns = `id, project_id, agent_id, thread_id, prompt, cron_expr, enabled, last_run_at, next_run_at, created_by, created_at, updated_at`
+	// agentScheduleRunColumns 是 sys_agent_schedule_runs 的读取列清单，与 scanAgentScheduleRun 的顺序一一对应。
+	agentScheduleRunColumns = `id, schedule_id, project_id, agent_id, thread_id, run_id, trigger, status, error, started_at, finished_at, created_at`
+)
+
 // CreateAgentSchedule 写入一条 schedule。每 agent 唯一性由调用方（handler 409）保证。
 func (s *Store) CreateAgentSchedule(ctx context.Context, sc AgentSchedule) (AgentSchedule, error) {
 	if s == nil || s.db == nil {
@@ -81,7 +89,7 @@ func (s *Store) GetAgentSchedule(ctx context.Context, projectID, id string) (Age
 		return AgentSchedule{}, ErrUnavailable
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, agent_id, thread_id, prompt, cron_expr, enabled, last_run_at, next_run_at, created_by, created_at, updated_at
+		`SELECT `+agentScheduleColumns+`
 		 FROM sys_agent_schedules WHERE id = ? AND project_id = ? AND archived_at IS NULL`,
 		id, projectID)
 	sc, err := scanAgentSchedule(row)
@@ -97,7 +105,7 @@ func (s *Store) GetAgentScheduleByAgent(ctx context.Context, projectID, agentID 
 		return AgentSchedule{}, ErrUnavailable
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, agent_id, thread_id, prompt, cron_expr, enabled, last_run_at, next_run_at, created_by, created_at, updated_at
+		`SELECT `+agentScheduleColumns+`
 		 FROM sys_agent_schedules WHERE project_id = ? AND agent_id = ? AND archived_at IS NULL
 		 ORDER BY created_at ASC LIMIT 1`, projectID, agentID)
 	sc, err := scanAgentSchedule(row)
@@ -113,7 +121,7 @@ func (s *Store) ListAgentSchedules(ctx context.Context, projectID string) ([]Age
 		return nil, ErrUnavailable
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, agent_id, thread_id, prompt, cron_expr, enabled, last_run_at, next_run_at, created_by, created_at, updated_at
+		`SELECT `+agentScheduleColumns+`
 		 FROM sys_agent_schedules WHERE project_id = ? AND archived_at IS NULL
 		 ORDER BY created_at ASC`, projectID)
 	if err != nil {
@@ -194,7 +202,7 @@ func (s *Store) ListDueAgentSchedules(ctx context.Context, now time.Time, limit 
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, agent_id, thread_id, prompt, cron_expr, enabled, last_run_at, next_run_at, created_by, created_at, updated_at
+		`SELECT `+agentScheduleColumns+`
 		 FROM sys_agent_schedules
 		 WHERE archived_at IS NULL AND enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
 		 ORDER BY next_run_at ASC LIMIT ?`, now.UTC(), int64(limit))
@@ -305,7 +313,7 @@ func (s *Store) ListAgentScheduleRuns(ctx context.Context, projectID, scheduleID
 		limit = 20
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, schedule_id, project_id, agent_id, thread_id, run_id, trigger, status, error, started_at, finished_at, created_at
+		`SELECT `+agentScheduleRunColumns+`
 		 FROM sys_agent_schedule_runs WHERE project_id = ? AND schedule_id = ?
 		 ORDER BY created_at DESC LIMIT ?`, projectID, scheduleID, int64(limit))
 	if err != nil {

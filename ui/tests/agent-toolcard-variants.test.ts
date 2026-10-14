@@ -5,19 +5,22 @@ import ConversationView from '@/components/agent/ConversationView.vue'
 import ThreadSwitcher from '@/components/agent/ThreadSwitcher.vue'
 
 describe('AgentToolCard variants', () => {
-  it('renders sandbox stdout/stderr with exit code', () => {
+  it('renders sandbox stdout/stderr with exit code after expanding', async () => {
+    // 成功态默认折叠（planv6.0 §3.6 #3）：展开后才渲染 stdout/stderr。
     const wrapper = mount(AgentToolCard, {
       props: { tool: { name: 'sandbox_exec', content: '{"stdout":"ok","stderr":"warn","exit_code":0}' } }
     })
+    await wrapper.get('[data-tool-summary="sandbox_exec"]').trigger('click')
     expect(wrapper.text()).toContain('exit 0')
     expect(wrapper.text()).toContain('ok')
     expect(wrapper.text()).toContain('warn')
   })
 
-  it('renders truncated flag badge', () => {
+  it('renders truncated flag badge after expanding', async () => {
     const wrapper = mount(AgentToolCard, {
       props: { tool: { name: 'search_logs', content: '...', truncated: true } }
     })
+    await wrapper.get('[data-tool-summary="search_logs"]').trigger('click')
     expect(wrapper.text()).toContain('已截断')
   })
 
@@ -28,10 +31,11 @@ describe('AgentToolCard variants', () => {
     expect(wrapper.text()).toContain('120ms')
   })
 
-  it('falls back to raw text for non-json content', () => {
+  it('falls back to raw text for non-json content', async () => {
     const wrapper = mount(AgentToolCard, {
       props: { tool: { name: 'search_logs', content: 'plain text result' } }
     })
+    await wrapper.get('[data-tool-summary="search_logs"]').trigger('click')
     expect(wrapper.text()).toContain('plain text result')
   })
 
@@ -39,6 +43,7 @@ describe('AgentToolCard variants', () => {
     const wrapper = mount(AgentToolCard, {
       props: { tool: { name: 'readonly_sql', arguments: '{"sql":"SELECT 1"}', content: '{"Columns":[],"Rows":[],"RowCount":0}' } }
     })
+    await wrapper.get('[data-tool-summary="readonly_sql"]').trigger('click') // 展开折叠行
     const summary = wrapper.findAll('summary')
     await summary[0].trigger('click') // 参数展开
     expect(wrapper.text()).toContain('SELECT 1')
@@ -60,6 +65,26 @@ describe('ConversationView extra branches', () => {
     expect(wrapper.text()).toContain('已停止')
   })
 
+  it('follows streaming content, tools and confirmation changes', async () => {
+    const wrapper = mount(ConversationView, {
+      props: { messages: [{ role: 'assistant' as const, content: '', toolCalls: [] }], sending: true }
+    })
+    const scroller = wrapper.findComponent({ name: 'MessageScroller' })
+    const initial = scroller.props('followKey')
+    const messages = [{ role: 'assistant' as const, content: '首句', toolCalls: [] as { name: string; status?: string; content?: string }[] }]
+    await wrapper.setProps({ messages })
+    expect(scroller.props('followKey')).not.toBe(initial)
+    const textKey = scroller.props('followKey')
+    await wrapper.setProps({ messages: [{ ...messages[0], toolCalls: [{ name: 'query', status: 'running' }] }] })
+    expect(scroller.props('followKey')).not.toBe(textKey)
+    const toolKey = scroller.props('followKey')
+    await wrapper.setProps({ messages: [{ ...messages[0], toolCalls: [{ name: 'query', status: 'success', content: 'ok' }] }] })
+    expect(scroller.props('followKey')).not.toBe(toolKey)
+    const resultKey = scroller.props('followKey')
+    await wrapper.setProps({ confirmation: { message: '继续？', argv: [] } })
+    expect(scroller.props('followKey')).not.toBe(resultKey)
+  })
+
   it('renders empty state via slot', () => {
     const wrapper = mount(ConversationView, {
       props: { messages: [], sending: false },
@@ -70,18 +95,14 @@ describe('ConversationView extra branches', () => {
 })
 
 describe('ThreadSwitcher actions', () => {
-  it('emits remove for active thread', async () => {
-    const confirmStub = {
-      template: '<div><button type="button" class="confirm-ok" @click="$root.$emit(\'confirm\')" /><slot /></div>',
-      methods: {}
-    }
+  it('only exposes the new-thread action (delete moved to the host menu)', () => {
     const wrapper = mount(ThreadSwitcher, {
       props: { threads: [{ id: 't1', title: 'A', created_at: 't', updated_at: 't' }], activeId: 't1' },
       global: { stubs: { ConfirmAction: false } }
     })
-    // ConfirmAction 默认渲染触发按钮；直接验证删除按钮存在。
-    const del = wrapper.findAll('button').find((b) => b.text() === '删除')
-    expect(del).toBeTruthy()
+    // planv6.0 §3.6 #7：删除会话收进宿主头部的「⋯」菜单。
+    expect(wrapper.findAll('button').find((b) => b.text() === '删除')).toBeUndefined()
+    expect(wrapper.get('button[aria-label="新会话"]')).toBeTruthy()
   })
 
   it('hides delete when no active thread', () => {

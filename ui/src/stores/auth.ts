@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { api } from '../services/api'
+import { t } from '../locales'
 import {
   clearTokens,
   getAccessToken,
@@ -10,7 +11,7 @@ import {
 } from '../services/http'
 import type { AuthUser, UserRole } from '../services/types'
 
-export type SettingsTab = 'connection' | 'models' | 'providers'
+export type SettingsTab = 'connection' | 'models' | 'storage'
 
 /** 登录态 + 角色（login-auth-plan）。API Key 设置仍保留在 SettingsModal。 */
 export const useAuthStore = defineStore('auth', {
@@ -80,9 +81,10 @@ export const useAuthStore = defineStore('auth', {
       this.refreshToken = ''
       // 会话失效只弹登录框；设置弹窗由用户从顶栏齿轮自行打开
       // （planv5.0 §2.2：此前同时开两个弹窗，输错密码就会被告知去配 API Key）。
-      this.openLogin('登录态已失效，请重新登录')
+      // 文案走 i18n：这里没有组件上下文，用 i18n.global.t。
+      this.openLogin(t('error.codes.unauthorized'))
     },
-    /** API Key 通道（Settings 连接页 / DevMode） */
+    /** API Key 通道（Settings 连接页 / SDK 程序化调用） */
     updateKey(key: string) {
       const v = key.trim()
       if (!v) return

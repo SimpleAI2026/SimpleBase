@@ -47,13 +47,13 @@ func (f *fakeRunner) callCount() int {
 
 // fakeStore 内存实现调度器所需 Store 接口。
 type fakeStore struct {
-	mu       sync.Mutex
-	jobs     map[string]systemdb.CronJob
-	runs     []systemdb.CronJobRun
-	claimOK  map[string]bool // 覆盖认领结果（默认 true）
-	claimN   int
-	logs     []string
-	updates  []string
+	mu      sync.Mutex
+	jobs    map[string]systemdb.CronJob
+	runs    []systemdb.CronJobRun
+	claimOK map[string]bool // 覆盖认领结果（默认 true）
+	claimN  int
+	logs    []string
+	updates []string
 }
 
 func newFakeStore(jobs ...systemdb.CronJob) *fakeStore {

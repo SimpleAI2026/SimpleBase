@@ -122,7 +122,8 @@ func (l *liveRegistry) CloseDatabase(ctx context.Context, id string) error {
 func TestCloudAgentObj(t *testing.T) {
 	ctx := context.Background()
 	files := objectstore.NewMemoryFileStore()
-	_, err := files.Put(ctx, "proj-1/docs/a.txt", strings.NewReader("hi"), 2, "text/plain")
+	// 物理布局：{projectID}/files/{userKey}（joinKey 负责拼 files 段）。
+	_, err := files.Put(ctx, "proj-1/files/docs/a.txt", strings.NewReader("hi"), 2, "text/plain")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,11 +285,18 @@ func (oneNilStream) Next() (*LLMStreamChunk, error) { return nil, nil }
 func (oneNilStream) Close() error                   { return nil }
 
 func TestJoinStripKey(t *testing.T) {
-	if joinKey("p", "a/b") != "p/a/b" {
+	// 物理布局：{projectID}/files/{userKey}。
+	if joinKey("p", "a/b") != "p/files/a/b" {
 		t.Fatal(joinKey("p", "a/b"))
 	}
-	if stripProject("p", "p/a/b") != "a/b" {
-		t.Fatal(stripProject("p", "p/a/b"))
+	if joinKey("p", "") != "p/files" {
+		t.Fatal(joinKey("p", ""))
+	}
+	if stripProject("p", "p/files/a/b") != "a/b" {
+		t.Fatal(stripProject("p", "p/files/a/b"))
+	}
+	if stripProject("p", "p/files") != "" {
+		t.Fatal(stripProject("p", "p/files"))
 	}
 	if stripProject("p", "other/a") != "other/a" {
 		t.Fatal("unprefixed key should pass through")

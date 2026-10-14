@@ -343,7 +343,7 @@ func writeSSE(w io.Writer, model string, st Step, index int) {
 			"choices": []any{},
 			"usage": map[string]any{
 				"prompt_tokens": st.PromptTokens, "completion_tokens": st.CompletionTokens,
-				"total_tokens": st.PromptTokens + st.CompletionTokens,
+				"total_tokens":              st.PromptTokens + st.CompletionTokens,
 				"completion_tokens_details": map[string]any{"reasoning_tokens": st.ReasoningTokens},
 			},
 		}

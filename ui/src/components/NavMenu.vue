@@ -1,8 +1,8 @@
 <template>
   <div class="flex flex-col gap-4 py-1">
-    <SidebarGroup v-for="group in menuGroups" :key="group.key" class="gap-1.5">
+    <SidebarGroup v-for="group in menuGroups" :key="group.key" class="gap-1.5 group-data-[collapsible=icon]:px-0">
       <SidebarGroupLabel
-        class="h-6 px-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground/70 uppercase"
+        class="h-6 px-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground/70 uppercase group-data-[collapsible=icon]:hidden"
       >
         {{ group.label }}
       </SidebarGroupLabel>
@@ -13,18 +13,19 @@
               as-child
               :is-active="selectedKey === item.name"
               :tooltip="item.title"
-              class="h-11 rounded-lg px-2.5 data-[active=true]:bg-accent/80 data-[active=true]:text-accent-foreground data-[active=true]:shadow-sm sm:h-9"
+              class="h-11 rounded-lg px-2.5 data-[active=true]:bg-accent/80 data-[active=true]:text-accent-foreground data-[active=true]:shadow-sm group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:data-[active=true]:size-9! sm:h-9"
             >
               <router-link
                 :to="{ name: item.name }"
-                class="relative items-center gap-2.5"
+                :aria-label="item.title"
+                class="relative items-center gap-2.5 group-data-[collapsible=icon]:justify-center"
                 @click="emit('navigate')"
               >
                 <component :is="item.icon" class="size-4 shrink-0 opacity-80" />
-                <span class="truncate">{{ item.title }}</span>
+                <span class="truncate group-data-[collapsible=icon]:hidden">{{ item.title }}</span>
                 <span
                   v-if="item.badge"
-                  class="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                  class="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary group-data-[collapsible=icon]:hidden"
                 >
                   {{ item.badge }}
                 </span>
@@ -38,6 +39,7 @@
 </template>
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import {
   SidebarGroup,
@@ -52,6 +54,7 @@ import router from '../router'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
+const { t } = useI18n()
 
 const iconMap: Record<string, Component> = sidebarIcons
 
@@ -64,18 +67,19 @@ interface MenuGroup {
 
 interface MenuItem {
   name: string
+  /** 已翻译的菜单标题（由路由 meta.titleKey 求值） */
   title: string
   icon: Component
   /** 角标（如 super 专属），可选 */
   badge?: string
 }
 
-/** 分类定义（planv3.0 侧栏美化）：工作台 / 数据 / 自动化 / 运维。 */
-const GROUP_DEFS: { key: string; label: string; names: string[] }[] = [
-  { key: 'workspace', label: '工作台', names: ['agents', 'dashboard'] },
-  { key: 'data', label: '数据', names: ['databases', 'key-value', 's3'] },
-  { key: 'automation', label: '自动化', names: ['gofunctions', 'cron-jobs', 'sandboxes'] },
-  { key: 'ops', label: '运维', names: ['logs', 'users'] }
+/** 分类定义（planv3.0 侧栏美化）：工作台 / 数据 / 自动化 / 运维。label 是 i18n key。 */
+const GROUP_DEFS: { key: string; labelKey: string; names: string[] }[] = [
+  { key: 'workspace', labelKey: 'nav.groupWorkspace', names: ['agents', 'dashboard'] },
+  { key: 'data', labelKey: 'nav.groupData', names: ['databases', 'key-value', 's3'] },
+  { key: 'automation', labelKey: 'nav.groupAutomation', names: ['gofunctions', 'cron-jobs', 'sandboxes'] },
+  { key: 'ops', labelKey: 'nav.groupOps', names: ['logs', 'users'] }
 ]
 
 function isVisible(name: string): boolean {
@@ -88,9 +92,11 @@ function isVisible(name: string): boolean {
 
 function toItem(name: string): MenuItem {
   const r = router.getRoutes().find((rr) => rr.name === name)
+  const key = r?.meta?.titleKey as string | undefined
+  const fallback = r?.meta?.title as string | undefined
   const item: MenuItem = {
     name,
-    title: ((r?.meta?.title as string) || name) as string,
+    title: key ? t(key) : fallback || name,
     icon: iconMap[name]
   }
   if (name === 'users' && auth.isSuper) item.badge = '★'
@@ -112,7 +118,7 @@ const menuItems = computed<MenuItem[]>(() => {
 const menuGroups = computed<MenuGroup[]>(() =>
   GROUP_DEFS.map((g) => ({
     key: g.key,
-    label: g.label,
+    label: t(g.labelKey),
     items: g.names.filter(isVisible).map(toItem)
   })).filter((g) => g.items.length > 0)
 )

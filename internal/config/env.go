@@ -9,11 +9,6 @@ import (
 )
 
 func applyEnv(cfg *Config) {
-	if v, ok := os.LookupEnv("SIMPLEBASE_DEV_MODE"); ok {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.DevMode = b
-		}
-	}
 	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_ADDRESS"); ok {
 		cfg.HTTP.Address = v
 	}
@@ -32,6 +27,16 @@ func applyEnv(cfg *Config) {
 	setEnvDuration(&cfg.Instance.Lease.Grace, "SIMPLEBASE_INSTANCE_LEASE_GRACE")
 	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_LEASE_ON_LOST"); ok {
 		cfg.Instance.Lease.OnLost = v
+	}
+
+	if v, ok := os.LookupEnv("SIMPLEBASE_STORAGE_DATABASE"); ok {
+		cfg.Storage.Database = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_STORAGE_FILES"); ok {
+		cfg.Storage.Files = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_DATA_DIR"); ok {
+		cfg.Storage.DataDir = v
 	}
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_DB_ENGINE"); ok {
@@ -114,6 +119,7 @@ func applyEnv(cfg *Config) {
 	setEnvInt(&cfg.Limits.MaxConcurrentQueries, "SIMPLEBASE_LIMITS_MAX_CONCURRENT_QUERIES")
 	setEnvInt(&cfg.Limits.MaxBatchStatements, "SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS")
 	setEnvInt(&cfg.Limits.MaxSQLBytes, "SIMPLEBASE_LIMITS_MAX_SQL_BYTES")
+	setEnvInt(&cfg.Limits.MaxConcurrentGoRuns, "SIMPLEBASE_LIMITS_MAX_CONCURRENT_GO_RUNS")
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_LOG_LEVEL"); ok {
 		cfg.Observability.LogLevel = v
@@ -147,6 +153,7 @@ func applyEnvAgent(cfg *Config) {
 	}
 	setEnvDuration(&cfg.Agent.DelegationTTL, "SIMPLEBASE_AGENT_DELEGATION_TTL")
 	setEnvDuration(&cfg.Agent.ConfirmTimeout, "SIMPLEBASE_AGENT_CONFIRM_TIMEOUT")
+	setEnvBool(&cfg.Agent.TraceLog, "SIMPLEBASE_AGENT_TRACE_LOG")
 }
 
 // applyEnvSandbox 映射 SIMPLEBASE_SANDBOX_* 环境变量（cloud-agent-sandbox-plan §5）。
@@ -202,6 +209,18 @@ func applyEnvLLM(cfg *Config) {
 	}
 	if cfg.LLM.Providers == nil {
 		cfg.LLM.Providers = map[string]ProviderConfig{}
+	}
+	// 无具名实例供应商时，兼容 .env 中的 OpenAI 兼容网关简写配置。
+	// 项目级凭证仍由 resolver 优先选择，密钥只通过环境变量注入。
+	if len(names) == 0 {
+		if key := strings.TrimSpace(os.Getenv("SIMPLEBASE_LLM_PROVIDER_API_KEY")); key != "" {
+			cfg.LLM.Providers["openai"] = ProviderConfig{
+				APIKey:       key,
+				BaseURL:      strings.TrimSpace(os.Getenv("SIMPLEBASE_LLM_PROVIDER_BASE_URL")),
+				DefaultModel: strings.TrimSpace(os.Getenv("SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL")),
+				Timeout:      60 * time.Second,
+			}
+		}
 	}
 	for name := range names {
 		upper := strings.ToUpper(name)

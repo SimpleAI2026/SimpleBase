@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import AgentComposer from '@/components/agent/AgentComposer.vue'
 
@@ -31,5 +32,18 @@ describe('AgentComposer passthrough', () => {
       props: { modelValue: '', sending: true }
     })
     expect(wrapper.exists()).toBe(true)
+  })
+
+  it('exposes focus() that reaches the textarea', async () => {
+    // planv6.0 §3.5：宿主点提示词后要把焦点交给输入框。
+    const wrapper = mount(AgentComposer, {
+      props: { modelValue: '待发送' },
+      attachTo: document.body
+    })
+    const vm = wrapper.vm as unknown as { focus: () => void }
+    vm.focus()
+    await nextTick()
+    expect(document.activeElement).toBe(wrapper.get('textarea').element)
+    wrapper.unmount()
   })
 })

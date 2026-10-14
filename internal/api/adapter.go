@@ -42,7 +42,7 @@ type RegistryService interface {
 type dbServiceAdapter struct {
 	catalog  CatalogService
 	registry RegistryService
-	purger   objectstore.Deleter // 可为 nil（DevMode）
+	purger   objectstore.Deleter // 可为 nil（本地模式）
 }
 
 // NewDatabaseServiceAdapter 构造 DatabaseService。purger 用于删库时同步清理平面 B。

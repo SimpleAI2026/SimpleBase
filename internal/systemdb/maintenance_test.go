@@ -136,7 +136,7 @@ func TestCompactAuthTablesMergesOnlyHotTables(t *testing.T) {
 	liveFor := map[string]int{
 		"sys_user_sessions":  18,
 		"sys_project_owners": 19,
-		"sys_users":          2,  // 低于阈值：跳过
+		"sys_users":          2, // 低于阈值：跳过
 	}
 	r := newCompactRunner(f, func() bool { return true }, liveFor)
 	r.compactAuthTables(context.Background())

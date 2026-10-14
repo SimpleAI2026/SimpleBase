@@ -604,7 +604,7 @@ func goCall(fr *frame, instr *ssa.CallCommon) {
 		defer func() {
 			// 启动协程前添加recover语句，避免协程panic影响其他协程
 			if re := recover(); re != nil {
-				_, _ = caller.context.outBuffer.WriteString(fmt.Sprintf("goroutine panic: %v", re))
+				caller.context.writeOutput(fmt.Sprintf("goroutine panic: %v", re))
 			}
 			atomic.AddInt32(&caller.context.goroutines, -1)
 		}()

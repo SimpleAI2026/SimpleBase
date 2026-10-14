@@ -1,24 +1,24 @@
 <template>
   <SbModal
     :open="open"
-    title="新建 Key"
+    :title="t('components.kvCreate.title')"
     :width="520"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: !canSubmit }"
-    ok-text="创建"
+    :ok-text="t('components.kvCreate.create')"
     @ok="submit"
     @update:open="emit('update:open', $event)"
   >
     <FieldGroup>
       <Field>
-        <FieldLabel for="kv-create-key">Key 名称</FieldLabel>
-        <Input id="kv-create-key" v-model="keyName" placeholder="如 session:1001" />
+        <FieldLabel for="kv-create-key">{{ t('components.kvCreate.keyLabel') }}</FieldLabel>
+        <Input id="kv-create-key" v-model="keyName" :placeholder="t('components.kvCreate.keyPlaceholder')" />
       </Field>
       <Field>
-        <FieldLabel>类型</FieldLabel>
+        <FieldLabel>{{ t('components.kvCreate.typeLabel') }}</FieldLabel>
         <Select v-model="keyType">
           <SelectTrigger class="w-full">
-            <SelectValue placeholder="选择类型" />
+            <SelectValue :placeholder="t('components.kvCreate.typePlaceholder')" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="string">String</SelectItem>
@@ -31,68 +31,70 @@
       </Field>
 
       <Field v-if="keyType === 'string'">
-        <FieldLabel for="kv-create-string">值</FieldLabel>
-        <Textarea id="kv-create-string" v-model="stringValue" :rows="3" placeholder="文本内容" />
+        <FieldLabel for="kv-create-string">{{ t('components.kvCreate.valueLabel') }}</FieldLabel>
+        <Textarea id="kv-create-string" v-model="stringValue" :rows="3" :placeholder="t('components.kvCreate.valuePlaceholder')" />
       </Field>
 
       <template v-if="keyType === 'hash'">
         <Field v-for="(pair, i) in hashPairs" :key="i">
-          <FieldLabel v-if="i === 0">初始字段</FieldLabel>
-          <div class="flex items-center gap-2">
-            <Input v-model="pair.field" placeholder="字段名" class="flex-1" />
-            <Input v-model="pair.value" placeholder="值" class="flex-1" />
+          <FieldLabel v-if="i === 0">{{ t('components.kvCreate.initialField') }}</FieldLabel>
+          <div class="flex flex-wrap items-center gap-2">
+            <Input v-model="pair.field" :placeholder="t('components.kvCreate.fieldPlaceholder')" class="min-w-32 flex-1" />
+            <Input v-model="pair.value" :placeholder="t('components.kvCreate.fieldValuePlaceholder')" class="min-w-32 flex-1" />
             <Button
               v-if="hashPairs.length > 1"
               variant="ghost"
               size="sm"
+              class="shrink-0"
               @click="hashPairs.splice(i, 1)"
-            >删</Button>
+            >{{ t('components.kvCreate.del') }}</Button>
           </div>
         </Field>
         <Button variant="outline" size="sm" class="self-start" @click="hashPairs.push({ field: '', value: '' })">
-          + 添加字段
+          {{ t('components.kvCreate.addField') }}
         </Button>
       </template>
 
       <Field v-if="keyType === 'list'">
-        <FieldLabel for="kv-create-list">初始元素（每行一个，入尾）</FieldLabel>
+        <FieldLabel for="kv-create-list">{{ t('components.kvCreate.listLabel') }}</FieldLabel>
         <Textarea id="kv-create-list" v-model="listText" :rows="3" placeholder="a&#10;b&#10;c" />
       </Field>
 
       <Field v-if="keyType === 'set'">
-        <FieldLabel for="kv-create-set">初始成员（每行一个）</FieldLabel>
+        <FieldLabel for="kv-create-set">{{ t('components.kvCreate.setLabel') }}</FieldLabel>
         <Textarea id="kv-create-set" v-model="setText" :rows="3" placeholder="tag-a&#10;tag-b" />
       </Field>
 
       <template v-if="keyType === 'zset'">
         <Field v-for="(pair, i) in zsetPairs" :key="i">
-          <FieldLabel v-if="i === 0">初始成员</FieldLabel>
-          <div class="flex items-center gap-2">
-            <Input v-model="pair.elem" placeholder="成员" class="flex-1" />
-            <Input v-model="pair.score" placeholder="分数" type="number" class="w-28" />
+          <FieldLabel v-if="i === 0">{{ t('components.kvCreate.initialMember') }}</FieldLabel>
+          <div class="flex flex-wrap items-center gap-2">
+            <Input v-model="pair.elem" :placeholder="t('components.kvCreate.memberPlaceholder')" class="min-w-32 flex-1" />
+            <Input v-model="pair.score" :placeholder="t('components.kvCreate.scorePlaceholder')" type="number" class="w-28 shrink-0" />
             <Button
               v-if="zsetPairs.length > 1"
               variant="ghost"
               size="sm"
+              class="shrink-0"
               @click="zsetPairs.splice(i, 1)"
-            >删</Button>
+            >{{ t('components.kvCreate.del') }}</Button>
           </div>
         </Field>
         <Button variant="outline" size="sm" class="self-start" @click="zsetPairs.push({ elem: '', score: '' })">
-          + 添加成员
+          {{ t('components.kvCreate.addMember') }}
         </Button>
       </template>
 
       <Field>
-        <FieldLabel>过期时间</FieldLabel>
-        <div class="flex items-center gap-2">
+        <FieldLabel>{{ t('components.kvCreate.expiryLabel') }}</FieldLabel>
+        <div class="flex flex-wrap items-center gap-2">
           <Select v-model="ttlMode">
-            <SelectTrigger class="w-36">
+            <SelectTrigger class="w-36 shrink-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">永久</SelectItem>
-              <SelectItem value="custom">自定义</SelectItem>
+              <SelectItem value="none">{{ t('components.kvCreate.ttlForever') }}</SelectItem>
+              <SelectItem value="custom">{{ t('components.kvCreate.ttlCustom') }}</SelectItem>
             </SelectContent>
           </Select>
           <Input
@@ -100,10 +102,10 @@
             v-model="ttlSeconds"
             type="number"
             min="1"
-            class="w-40"
-            placeholder="秒"
+            class="min-w-32 flex-1 sm:w-40 sm:flex-none"
+            :placeholder="t('components.kvCreate.secondsPlaceholder')"
           />
-          <span v-if="ttlMode === 'custom'" class="text-xs text-muted-foreground">秒</span>
+          <span v-if="ttlMode === 'custom'" class="text-xs text-muted-foreground">{{ t('components.kvCreate.secondsPlaceholder') }}</span>
         </div>
       </Field>
     </FieldGroup>
@@ -113,6 +115,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -132,6 +135,8 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
   created: [key: string]
 }>()
+
+const { t } = useI18n()
 
 const keyName = ref('')
 const keyType = ref<'string' | 'hash' | 'list' | 'set' | 'zset'>('string')
@@ -232,11 +237,11 @@ async function submit() {
         })
         break
     }
-    toast.success('创建成功')
+    toast.success(t('components.kvCreate.created'))
     emit('update:open', false)
     emit('created', key)
   } catch (e) {
-    toast.error(errorMessage(e, '创建失败'))
+    toast.error(errorMessage(e, t('components.kvCreate.createFailed')))
   } finally {
     submitting.value = false
   }

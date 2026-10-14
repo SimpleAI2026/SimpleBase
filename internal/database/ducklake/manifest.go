@@ -72,36 +72,36 @@ const maxManifestSeqProbe = int64(1) << 32
 //  3. 从锚点指数探测上界 + 二分定位最大 seq：O(log N) 请求，
 //     与历史同步次数无关（替代旧的「最多前探 64 次」，后者在长历史时
 //     会返回陈旧 seq 甚至被修剪后的空洞误导）。
-func ReadLatestManifest(ctx context.Context, store objectstore.BlobStore, remote RemoteStorage, tenantID, databaseID string, fromSeq int64) (*Manifest, error) {
+func ReadLatestManifest(ctx context.Context, store objectstore.BlobStore, remote RemoteStorage, projectID, databaseID string, fromSeq int64) (*Manifest, error) {
 	kb := remote.keyBuilder()
 	anchor := fromSeq
 	var latest *Manifest
 	if anchor > 0 {
-		m, err := getManifestAt(ctx, store, kb, tenantID, databaseID, anchor)
+		m, err := getManifestAt(ctx, store, kb, projectID, databaseID, anchor)
 		if err != nil {
 			return nil, err
 		}
 		if m == nil {
-			return nil, fmt.Errorf("%w: tenant=%s db=%s anchor seq %d missing",
-				ErrManifestChainBroken, tenantID, databaseID, anchor)
+			return nil, fmt.Errorf("%w: project=%s db=%s anchor seq %d missing",
+				ErrManifestChainBroken, projectID, databaseID, anchor)
 		}
 		latest = m
 	} else {
 		anchor = 1
-		m, err := getManifestAt(ctx, store, kb, tenantID, databaseID, 1)
+		m, err := getManifestAt(ctx, store, kb, projectID, databaseID, 1)
 		if err != nil {
 			return nil, err
 		}
 		if m == nil {
 			// seq 1 缺失：新库，或历史部署删除过 seq 1（断链）。
 			// 指数探测更高 seq；任一存在即断链，fail closed。
-			broken, err := manifestExistsBeyond(ctx, store, kb, tenantID, databaseID, 1)
+			broken, err := manifestExistsBeyond(ctx, store, kb, projectID, databaseID, 1)
 			if err != nil {
 				return nil, err
 			}
 			if broken {
-				return nil, fmt.Errorf("%w: tenant=%s db=%s seq 1 missing but later seq exists",
-					ErrManifestChainBroken, tenantID, databaseID)
+				return nil, fmt.Errorf("%w: project=%s db=%s seq 1 missing but later seq exists",
+					ErrManifestChainBroken, projectID, databaseID)
 			}
 			return nil, nil // 确认无任何 manifest：新库或兼容期旧部署（catalog.sqlite 形态）。
 		}
@@ -117,7 +117,7 @@ func ReadLatestManifest(ctx context.Context, store objectstore.BlobStore, remote
 		if probe > maxManifestSeqProbe {
 			probe = maxManifestSeqProbe
 		}
-		m, err := getManifestAt(ctx, store, kb, tenantID, databaseID, probe)
+		m, err := getManifestAt(ctx, store, kb, projectID, databaseID, probe)
 		if err != nil {
 			return nil, err
 		}
@@ -128,15 +128,15 @@ func ReadLatestManifest(ctx context.Context, store objectstore.BlobStore, remote
 		latest = m
 		lo = probe
 		if probe >= maxManifestSeqProbe {
-			return nil, fmt.Errorf("%w: tenant=%s db=%s seq exceeds probe bound 2^32",
-				ErrManifestChainBroken, tenantID, databaseID)
+			return nil, fmt.Errorf("%w: project=%s db=%s seq exceeds probe bound 2^32",
+				ErrManifestChainBroken, projectID, databaseID)
 		}
 		step *= 2
 	}
 	// 二分定位 (lo, hi) 内最大存在的 seq。
 	for lo+1 < hi {
 		mid := lo + (hi-lo)/2
-		m, err := getManifestAt(ctx, store, kb, tenantID, databaseID, mid)
+		m, err := getManifestAt(ctx, store, kb, projectID, databaseID, mid)
 		if err != nil {
 			return nil, err
 		}
@@ -151,9 +151,9 @@ func ReadLatestManifest(ctx context.Context, store objectstore.BlobStore, remote
 }
 
 // manifestExistsBeyond 指数探测 seq 之后是否存在任何 manifest（断链判定用）。
-func manifestExistsBeyond(ctx context.Context, store objectstore.BlobStore, kb objectstore.KeyBuilder, tenantID, databaseID string, seq int64) (bool, error) {
+func manifestExistsBeyond(ctx context.Context, store objectstore.BlobStore, kb objectstore.KeyBuilder, projectID, databaseID string, seq int64) (bool, error) {
 	for probe := seq + 1; probe <= maxManifestSeqProbe; {
-		m, err := getManifestAt(ctx, store, kb, tenantID, databaseID, probe)
+		m, err := getManifestAt(ctx, store, kb, projectID, databaseID, probe)
 		if err != nil {
 			return false, err
 		}
@@ -168,8 +168,8 @@ func manifestExistsBeyond(ctx context.Context, store objectstore.BlobStore, kb o
 	return false, nil
 }
 
-func getManifestAt(ctx context.Context, store objectstore.BlobStore, kb objectstore.KeyBuilder, tenantID, databaseID string, seq int64) (*Manifest, error) {
-	key, err := kb.DuckLakeManifestKey(tenantID, databaseID, seq)
+func getManifestAt(ctx context.Context, store objectstore.BlobStore, kb objectstore.KeyBuilder, projectID, databaseID string, seq int64) (*Manifest, error) {
+	key, err := kb.DuckLakeManifestKey(projectID, databaseID, seq)
 	if err != nil {
 		return nil, err
 	}
@@ -196,9 +196,9 @@ func getManifestAt(ctx context.Context, store objectstore.BlobStore, kb objectst
 
 // WriteManifest 用 PutIfAbsent 写入 manifest/{seq}.json。
 // 返回 ErrPreconditionFailed 时表示存在第二个 writer（split-brain 确证）。
-func WriteManifest(ctx context.Context, store objectstore.BlobStore, remote RemoteStorage, tenantID, databaseID string, m Manifest) error {
+func WriteManifest(ctx context.Context, store objectstore.BlobStore, remote RemoteStorage, projectID, databaseID string, m Manifest) error {
 	kb := remote.keyBuilder()
-	key, err := kb.DuckLakeManifestKey(tenantID, databaseID, m.Seq)
+	key, err := kb.DuckLakeManifestKey(projectID, databaseID, m.Seq)
 	if err != nil {
 		return err
 	}

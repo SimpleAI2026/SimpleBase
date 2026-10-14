@@ -66,6 +66,12 @@ func (l *fakeSQLLease) Raw() *sql.DB { return l.raw }
 
 func (l *fakeSQLLease) NotifyWrite(ctx context.Context) { l.notifyCount++ }
 
+// serviceCallLog 记录 fakeSQLService 的调用次数，供表征测试断言门禁顺序。
+type serviceCallLog struct {
+	get     int
+	acquire int
+}
+
 // fakeSQLService 是 SQLService 的内存假实现。
 type fakeSQLService struct {
 	db           catalog.Database
@@ -73,9 +79,13 @@ type fakeSQLService struct {
 	acquireErr   error
 	acquiredMode database.AccessMode
 	lease        *fakeSQLLease
+	calls        *serviceCallLog
 }
 
 func (f *fakeSQLService) GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error) {
+	if f.calls != nil {
+		f.calls.get++
+	}
 	if f.getErr != nil {
 		return catalog.Database{}, f.getErr
 	}
@@ -83,6 +93,9 @@ func (f *fakeSQLService) GetDatabase(ctx context.Context, principal auth.Princip
 }
 
 func (f *fakeSQLService) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error) {
+	if f.calls != nil {
+		f.calls.acquire++
+	}
 	if f.acquireErr != nil {
 		return nil, f.acquireErr
 	}

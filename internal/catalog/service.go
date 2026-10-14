@@ -35,7 +35,7 @@ type Service struct {
 	keys       objectstore.KeyBuilder
 	descriptor DescriptorWriter
 	// storage 是写入 descriptor.ducklake_storage 时的模板（Prefix 按库填充）。
-	// DevMode 下 descriptor 为 nil 时可不设置。
+	// 本地模式（storage.database=local）下 descriptor 为 nil 时可不设置。
 	storage objectstore.DuckLakeStorage
 	logger  observability.Logger
 	now     Clock
@@ -50,7 +50,7 @@ type Service struct {
 // 外部 handler 不得使用此方法绕过 Service 校验。
 func (s *Service) Repository() Repository { return s.repo }
 
-// NewService 构造 Service。descriptor 可为 nil（DevMode / 测试未配置 S3 时跳过 descriptor 写入）。
+// NewService 构造 Service。descriptor 可为 nil（本地模式 / 测试未配置 S3 时跳过 descriptor 写入）。
 // storage 在 descriptor 非 nil 时应提供 bucket/region 等（Prefix 按库生成）。
 func NewService(repo Repository, keys objectstore.KeyBuilder, descriptor DescriptorWriter, storage objectstore.DuckLakeStorage, logger observability.Logger) *Service {
 	s := &Service{
@@ -169,7 +169,7 @@ func (s *Service) createDatabase(ctx context.Context, in CreateDatabaseInput, ki
 	}
 
 	id := uuid.NewString()
-	prefix, err := s.keys.DataPrefix(in.TenantID, id)
+	prefix, err := s.keys.DataPrefix(in.ProjectID, id)
 	if err != nil {
 		return Database{}, fmt.Errorf("catalog: build storage prefix: %w", err)
 	}
@@ -193,12 +193,9 @@ func (s *Service) createDatabase(ctx context.Context, in CreateDatabaseInput, ki
 		return Database{}, err
 	}
 	s.InvalidateDatabase(in.ProjectID, db.ID)
-	if kind == DatabaseKindKV {
-		s.InvalidateDatabase(in.ProjectID, db.ID)
-	}
 
 	if s.descriptor != nil {
-		descKey, err := s.keys.DescriptorKey(in.TenantID, id)
+		descKey, err := s.keys.DescriptorKey(in.ProjectID, id)
 		if err != nil {
 			s.degradeAfterCreateFailure(ctx, id, err)
 			return Database{}, fmt.Errorf("%w: build descriptor key: %v", ErrDescriptorWrite, err)
@@ -470,7 +467,7 @@ type StoragePurger interface {
 }
 
 // DeleteDatabaseSync 软删并同步清理存储：deleting → 关闭连接 → DeletePrefix(库前缀) → deleted。
-// purger / closer 可为 nil（DevMode 无 S3 时只更新 catalog）。
+// purger / closer 可为 nil（本地模式无 S3 时只更新 catalog）。
 // 产品决策：不走 jobs 异步队列完成本轮清理。
 func (s *Service) DeleteDatabaseSync(
 	ctx context.Context,
@@ -491,7 +488,7 @@ func (s *Service) DeleteDatabaseSync(
 	}
 	if purger != nil {
 		prefix := db.StoragePrefix
-		if dbPrefix, err := s.keys.DatabasePrefix(db.TenantID, db.ID); err == nil && dbPrefix != "" {
+		if dbPrefix, err := s.keys.DatabasePrefix(db.ProjectID, db.ID); err == nil && dbPrefix != "" {
 			prefix = dbPrefix
 		}
 		if prefix != "" {
@@ -599,7 +596,7 @@ func (s *Service) repairStuckCreating(ctx context.Context, db Database) error {
 		}
 		return nil
 	}
-	key, err := s.keys.DescriptorKey(db.TenantID, db.ID)
+	key, err := s.keys.DescriptorKey(db.ProjectID, db.ID)
 	if err != nil {
 		return fmt.Errorf("catalog: descriptor key for %s: %w", db.ID, err)
 	}

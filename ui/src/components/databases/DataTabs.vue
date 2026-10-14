@@ -1,7 +1,7 @@
 <template>
   <Tabs v-model="tab" class="gap-3">
     <TabsList>
-      <TabsTrigger value="collections">集合文档</TabsTrigger>
+      <TabsTrigger value="collections">{{ t('components.dataTabs.collections') }}</TabsTrigger>
     </TabsList>
     <TabsContent value="collections">
       <CollectionPanel
@@ -19,9 +19,12 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { DatabaseItem } from '../../services/api'
 import CollectionPanel from './CollectionPanel.vue'
+
+const { t } = useI18n()
 
 /** 数据库「查看数据」展开行容器：集合文档页签。
  *  Key-Value 已改为项目级（左侧导航「Key-Value」页），不再挂在数据库下。 */

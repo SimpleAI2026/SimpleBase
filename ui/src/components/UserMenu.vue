@@ -1,7 +1,7 @@
 <template>
   <Popover v-model:open="open">
     <PopoverTrigger as-child>
-      <Button variant="ghost" size="sm" class="gap-2" aria-label="账号菜单">
+      <Button variant="ghost" size="sm" class="gap-2" :aria-label="t('components.userMenu.aria')">
         <span class="flex size-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
           {{ avatarChar }}
         </span>
@@ -18,11 +18,11 @@
         <Separator />
         <Button variant="ghost" class="w-full justify-start" @click="openPassword">
           <KeyIcon data-icon="inline-start" />
-          修改密码
+          {{ t('components.userMenu.changePassword') }}
         </Button>
         <Button variant="ghost" class="w-full justify-start" @click="doLogout">
           <LogOutIcon data-icon="inline-start" />
-          退出登录
+          {{ t('components.userMenu.logout') }}
         </Button>
       </div>
     </PopoverContent>
@@ -30,6 +30,7 @@
 </template>
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { KeyIcon, LogOutIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -38,17 +39,16 @@ import { Separator } from '@/components/ui/separator'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
+const { t } = useI18n()
 const open = ref(false)
 
 const avatarChar = computed(() => (auth.displayName || '?').slice(0, 1).toUpperCase())
 const roleLabel = computed(() => {
   switch (auth.role) {
     case 'superadminl1':
-      return '超管'
+      return t('components.userMenu.roleSuper')
     case 'admin':
-      return '管理员'
-    case 'user':
-      return ''
+      return t('components.userMenu.roleAdmin')
     default:
       return ''
   }

@@ -16,6 +16,15 @@ func testConfig(writable bool) config.Config {
 	if !writable {
 		s3 = config.S3Config{}
 	}
+	storage := config.StorageConfig{
+		Database: config.StorageModeLocal,
+		Files:    config.StorageModeLocal,
+		DataDir:  "/tmp/simplebase-test-data",
+	}
+	if writable {
+		// 可写实例校验路径：走远端模式以覆盖 S3 分支。
+		storage.Database = config.StorageModeS3
+	}
 	return config.Config{
 		HTTP: config.HTTPConfig{
 			Address:      ":0",
@@ -23,6 +32,7 @@ func testConfig(writable bool) config.Config {
 			WriteTimeout: 5 * time.Second,
 			IdleTimeout:  5 * time.Second,
 		},
+		Storage:  storage,
 		Instance: config.InstanceConfig{ID: "test-instance", Writable: writable},
 		Database: config.DatabaseConfig{
 			CacheDir:    "/tmp/simplebase-test-cache",
@@ -65,24 +75,29 @@ func TestNewReadonlyApp(t *testing.T) {
 }
 
 func TestNewWritableAppRejectsMissingS3(t *testing.T) {
-	// Writable 非 DevMode 实例必须配置 S3；缺少 bucket 时 assembleDeps 应直接失败。
+	// 远端模式的可写实例必须配置 S3；缺少 bucket 时 Validate/assembleDeps 应失败。
 	cfg := testConfig(true)
 	cfg.S3.Bucket = ""
 	_, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry())
 	if err == nil {
-		t.Fatal("expected New to fail when writable without bucket")
+		t.Fatal("expected New to fail when s3 storage without bucket")
 	}
 }
 
-func TestNewDevModeAppUsesSystemDatabase(t *testing.T) {
+func TestNewLocalStorageAppUsesSystemDatabase(t *testing.T) {
+	dir := t.TempDir()
 	cfg := testConfig(true)
-	cfg.DevMode = true
+	cfg.Storage = config.StorageConfig{
+		Database: config.StorageModeLocal,
+		Files:    config.StorageModeLocal,
+		DataDir:  filepath.Join(dir, "data"),
+	}
 	cfg.S3 = config.S3Config{}
-	cfg.Database.CacheDir = t.TempDir()
+	cfg.Database.CacheDir = filepath.Join(dir, "cache")
 	ctx := context.Background()
 	a, err := NewWithRegistry(ctx, cfg, prometheus.NewRegistry())
 	if err != nil {
-		t.Fatalf("New DevMode: %v", err)
+		t.Fatalf("New local storage: %v", err)
 	}
 	t.Cleanup(func() {
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -95,12 +110,13 @@ func TestNewDevModeAppUsesSystemDatabase(t *testing.T) {
 	if err := a.systemStore.Ping(ctx); err != nil {
 		t.Fatalf("system ping: %v", err)
 	}
-	platform := filepath.Join(cfg.Database.CacheDir, "platform", "catalog.db")
-	devCatalog := filepath.Join(cfg.Database.CacheDir, "dev", "catalog.db")
-	if _, err := os.Stat(platform); err == nil {
-		t.Fatalf("must not create %s", platform)
+	// 数据必须落在 data_dir，缓存目录只放可丢弃内容。
+	sysMeta := a.systemStore.Meta()
+	dataCatalog := filepath.Join(cfg.Storage.DataDir, sysMeta.ProjectID, "databases", sysMeta.ID, "catalog")
+	if _, err := os.Stat(dataCatalog); err != nil {
+		t.Fatalf("expected catalog under data_dir %s: %v", dataCatalog, err)
 	}
-	if _, err := os.Stat(devCatalog); err == nil {
-		t.Fatalf("must not create %s", devCatalog)
+	if _, err := os.Stat(filepath.Join(cfg.Database.CacheDir, "system", "dbs", sysMeta.ID, "catalog")); err == nil {
+		t.Fatal("catalog must not live in cache_dir")
 	}
 }

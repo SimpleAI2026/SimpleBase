@@ -1,22 +1,22 @@
 <template>
   <ProjectScope>
-  <PageContainer subtitle="对象的上传、浏览与删除">
+  <PageContainer :subtitle="t('pages.s3.subtitle')">
     <Card>
       <CardHeader class="border-b">
-        <CardTitle>对象列表</CardTitle>
-        <CardDescription>按前缀筛选，支持上传与删除</CardDescription>
+        <CardTitle>{{ t('pages.s3.cardTitle') }}</CardTitle>
+        <CardDescription>{{ t('pages.s3.cardDesc') }}</CardDescription>
         <CardAction>
           <div class="flex items-center gap-2">
             <Button variant="outline" size="sm" :disabled="pending" @click="load">
               <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
-              刷新
+              {{ t('common.refresh') }}
             </Button>
             <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
             <Button size="sm" :disabled="uploading" @click="triggerUpload">
               <Spinner v-if="uploading" data-icon="inline-start" />
               <UploadIcon v-else data-icon="inline-start" />
-              上传对象
+              {{ t('pages.s3.upload') }}
             </Button>
           </div>
         </CardAction>
@@ -29,7 +29,7 @@
             </InputGroupAddon>
             <InputGroupInput
               v-model="prefix"
-              placeholder="前缀筛选，如 images/"
+              :placeholder="t('pages.s3.prefixPlaceholder')"
               @keydown.enter="load"
             />
           </InputGroup>
@@ -40,10 +40,10 @@
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="max-w-lg">Key</TableHead>
-              <TableHead class="sb-col-sm">大小</TableHead>
-              <TableHead class="sb-col-md">修改时间</TableHead>
-              <TableHead class="w-32">操作</TableHead>
+              <TableHead class="max-w-lg">{{ t('pages.s3.colFile') }}</TableHead>
+              <TableHead class="sb-col-sm">{{ t('pages.s3.size') }}</TableHead>
+              <TableHead class="sb-col-md">{{ t('pages.s3.modifiedAt') }}</TableHead>
+              <TableHead class="w-32">{{ t('common.actions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <SbAsyncRegion
@@ -55,8 +55,8 @@
             :show-error="showError"
             :refreshing="refreshing"
             :error="error"
-            empty-description="暂无对象"
-            empty-action-text="上传对象"
+            :empty-description="t('pages.s3.emptyDesc')"
+            :empty-action-text="t('pages.s3.upload')"
             @retry="load"
             @empty-action="triggerUpload"
           >
@@ -71,12 +71,12 @@
               <TableCell class="sb-col-md text-xs text-muted-foreground">{{ formatTime(record.lastModified) }}</TableCell>
               <TableCell class="w-32">
                 <div class="flex justify-center gap-1">
-                  <Button variant="ghost" size="sm" @click="open(record.key)">
-                    打开
+                  <Button variant="ghost" size="sm" @click="openPreview(record)">
+                    {{ t('pages.s3.open') }}
                   </Button>
-                  <ConfirmAction title="确认删除该对象？" @confirm="remove(record.key)">
+                  <ConfirmAction :title="t('pages.s3.deleteConfirm')" @confirm="remove(record.key)">
                     <Button variant="destructiveGhost" size="sm">
-                      删除
+                      {{ t('common.del') }}
                     </Button>
                   </ConfirmAction>
                 </div>
@@ -94,6 +94,7 @@
         />
       </div>
     </Card>
+    <S3PreviewModal v-model:open="previewOpen" :project-id="projectStore.id" :record="previewTarget" />
   </PageContainer>
   </ProjectScope>
 </template>
@@ -101,6 +102,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { FileIcon, RefreshCwIcon, SearchIcon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -125,28 +127,32 @@ import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbAsyncRegion from '../components/SbAsyncRegion.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
+import S3PreviewModal from '../components/modal/S3PreviewModal.vue'
 import TablePager from '../components/TablePager.vue'
 
+const { t } = useI18n()
 const projectStore = useProjectStore()
 const prefix = ref('')
 const objects = ref<S3Object[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(objects)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载失败'
+  fallback: 'pages.s3.loadFailed'
 })
 const uploading = ref(false)
 const uploadPercent = ref(0)
 const fileInput = ref<HTMLInputElement | null>(null)
+const previewOpen = ref(false)
+const previewTarget = ref<S3Object | null>(null)
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 function validateKey(key: string): string {
-  if (!key) return 'key 不能为空'
-  if (key.length > 1024) return 'key 不能超过 1024 字节'
-  if (key.includes('\0')) return 'key 不能包含 NUL 字符'
-  if (key.startsWith('/') || key.includes('\\')) return 'key 必须是相对路径'
+  if (!key) return t('pages.s3.keyRequired')
+  if (key.length > 1024) return t('pages.s3.keyTooLong')
+  if (key.includes('\0')) return t('pages.s3.keyNul')
+  if (key.startsWith('/') || key.includes('\\')) return t('pages.s3.keyRelative')
   for (const seg of key.split('/')) {
-    if (seg === '..' || seg === '.') return 'key 不能包含 . 或 .. 路径段'
+    if (seg === '..' || seg === '.') return t('pages.s3.keyDotSegment')
   }
   return ''
 }
@@ -160,12 +166,17 @@ function onFileChange(e: Event) {
 
 function handleBeforeUpload(file: File) {
   if (file.size > MAX_UPLOAD_BYTES) {
-    toast.warning(`文件 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过上限 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB`)
+    toast.warning(
+      t('pages.s3.fileTooLarge', {
+        size: (file.size / 1024 / 1024).toFixed(1),
+        max: MAX_UPLOAD_BYTES / 1024 / 1024
+      })
+    )
     return
   }
   const err = validateKey(file.name)
   if (err) {
-    toast.warning(`文件名不符合 key 规则：${err}`)
+    toast.warning(t('pages.s3.keyRuleViolation', { reason: err }))
     return
   }
   doUpload(file)
@@ -180,10 +191,10 @@ function doUpload(file: File) {
       uploadPercent.value = pct
     })
     .then(async () => {
-      toast.success(`${file.name} 上传成功`)
+      toast.success(t('pages.s3.uploadSuccess', { name: file.name }))
       await load()
     })
-    .catch((e) => toast.error(errorMessage(e, '上传失败')))
+    .catch((e) => toast.error(errorMessage(e, t('pages.s3.uploadFailed'))))
     .finally(() => {
       uploading.value = false
     })
@@ -204,20 +215,16 @@ function load() {
 async function remove(key: string) {
   try {
     await api.s3.remove(projectStore.id, key)
-    toast.success('删除成功')
+    toast.success(t('pages.s3.deleteSuccess'))
     await load()
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('pages.s3.deleteFailed')))
   }
 }
 
-async function open(key: string) {
-  try {
-    const { url } = await api.s3.presign(projectStore.id, key)
-    window.open(url, '_blank')
-  } catch (e) {
-    toast.error(errorMessage(e, '生成链接失败'))
-  }
+function openPreview(record: S3Object) {
+  previewTarget.value = record
+  previewOpen.value = true
 }
 
 void load()

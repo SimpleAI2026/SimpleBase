@@ -57,12 +57,11 @@ func TestRemoteValidateAndEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	kb := r.keyBuilder()
-	if kb.Environment != "dev" || kb.RootPrefix != "simplebase" {
-		t.Fatalf("%+v", kb)
+	if kb.RootPrefix != "" {
+		t.Fatalf("empty root prefix must stay empty (no implicit env layer): %+v", kb)
 	}
-	r.Environment = "prod"
 	r.RootPrefix = "root"
-	if r.keyBuilder().Environment != "prod" {
+	if r.keyBuilder().RootPrefix != "root" {
 		t.Fatal(r.keyBuilder())
 	}
 	if r.s3EndpointHost() != "" {
@@ -121,8 +120,8 @@ func TestSecretAndSQLQuote(t *testing.T) {
 		t.Fatal("empty bucket")
 	}
 	uri, err := buildDataURI(RemoteStorage{
-		Bucket: "b", Region: "r", RootPrefix: "simplebase", Environment: "e",
-	}, "11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333")
+		Bucket: "b", Region: "r", RootPrefix: "simplebase",
+	}, "prj12345", "33333333-3333-3333-3333-333333333333")
 	if err != nil || !strings.HasPrefix(uri, "s3://b/") {
 		t.Fatal(uri, err)
 	}
@@ -335,12 +334,14 @@ func TestEnsureLocalCatalogBranches(t *testing.T) {
 	if err != nil || ok {
 		t.Fatal(ok, err)
 	}
-	remote := RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase", Environment: "e"}
-	meta := catalog.Database{ID: uuid.NewString(), TenantID: "bad"}
+	remote := RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase"}
+	// 非法项目 ID（长度不足）→ KeyBuilder 报错。
+	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "bad"}
 	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), meta, ""); err == nil {
-		t.Fatal("bad tenant")
+		t.Fatal("bad project id")
 	}
-	meta.TenantID = "11111111-1111-1111-1111-111111111111"
+	// 合法项目 ID 但没有远端 manifest → 不下载、不报错。
+	meta.ProjectID = "prj12345"
 	ok, err = EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), meta, "")
 	if err != nil || ok {
 		t.Fatal(ok, err)
@@ -392,7 +393,7 @@ func TestFactoryAfterWriteWithLake(t *testing.T) {
 func TestCatalogSyncerLocalAdvanceAndRecord(t *testing.T) {
 	db, _ := openTestLake(t)
 	id := uuid.NewString()
-	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111"}
+	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{Mode: "sync_on_commit"}, "", observability.NewLogger("debug", "json", io.Discard), observability.NewMetrics(prometheus.NewRegistry()))
 	cs.Bind(id, db, meta, DefaultLakeAlias)
 	if _, err := db.ExecContext(context.Background(), `CREATE TABLE z (x INTEGER)`); err != nil {
@@ -451,13 +452,13 @@ func TestFactoryDataPathFor(t *testing.T) {
 	}
 	f.Remote = RemoteStorage{Enabled: true, Bucket: "b", Region: "r"}
 	if _, err := f.dataPathFor(catalog.Database{TenantID: "bad", ID: uuid.NewString()}, layout); err == nil {
-		t.Fatal("bad tenant")
+		t.Fatal("bad project id")
 	}
 }
 
 func TestPruneVersions(t *testing.T) {
-	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{Enabled: true, Bucket: "b", Region: "r", RootPrefix: "simplebase", Environment: "e"}, t.TempDir(), CatalogSyncOptions{KeepVersions: 1}, "", nil, nil)
-	meta := catalog.Database{ID: "33333333-3333-3333-3333-333333333333", TenantID: "11111111-1111-1111-1111-111111111111"}
+	cs := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{Enabled: true, Bucket: "b", Region: "r", RootPrefix: "simplebase"}, t.TempDir(), CatalogSyncOptions{KeepVersions: 1}, "", nil, nil)
+	meta := catalog.Database{ID: "33333333-3333-3333-3333-333333333333", TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 	if err := cs.pruneVersions(context.Background(), meta, 1, 1); err != nil {
 		t.Fatal(err)
 	}

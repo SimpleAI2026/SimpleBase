@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import { TableCell, TableEmpty, TableRow } from '@/components/ui/table'
 import SbBlockSkeleton from './SbBlockSkeleton.vue'
 import SbEmptyState from './SbEmptyState.vue'
+import SbErrorState from './SbErrorState.vue'
 import SbTableSkeleton from './SbTableSkeleton.vue'
 
 interface Props {
@@ -45,6 +45,8 @@ const emit = defineEmits<{
   'empty-action': []
 }>()
 
+const { t } = useI18n()
+
 const reserving = computed(
   () =>
     props.pending &&
@@ -66,27 +68,16 @@ const rootClass = computed(() => cn(props.refreshing && 'opacity-80', props.clas
     :class="rootClass"
   >
     <tr v-if="as === 'tbody' && busy" class="sr-only">
-      <td>正在加载</td>
+      <td>{{ t('common.loading') }}</td>
     </tr>
-    <p v-else-if="busy" class="sr-only">正在加载</p>
+    <p v-else-if="busy" class="sr-only">{{ t('common.loading') }}</p>
 
+    <!-- 错误态唯一实现：SbErrorState（此前 tbody 与 div 两个分支各写一遍） -->
     <template v-if="showError">
       <TableEmpty v-if="as === 'tbody'" :colspan="columns">
-        <div class="flex w-full max-w-lg flex-col items-center gap-3 text-left">
-          <Alert variant="destructive">
-            <AlertTitle>加载失败</AlertTitle>
-            <AlertDescription>{{ error || '加载失败' }}</AlertDescription>
-          </Alert>
-          <Button size="sm" variant="outline" @click="emit('retry')">重试</Button>
-        </div>
+        <SbErrorState variant="inline" :description="error" @retry="emit('retry')" />
       </TableEmpty>
-      <div v-else class="flex flex-col items-start gap-3 py-6">
-        <Alert variant="destructive" class="w-full">
-          <AlertTitle>加载失败</AlertTitle>
-          <AlertDescription>{{ error || '加载失败' }}</AlertDescription>
-        </Alert>
-        <Button size="sm" variant="outline" @click="emit('retry')">重试</Button>
-      </div>
+      <SbErrorState v-else variant="block" :description="error" @retry="emit('retry')" />
     </template>
 
     <template v-else-if="showPlaceholder">

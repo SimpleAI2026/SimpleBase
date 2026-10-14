@@ -13,11 +13,11 @@ import (
 )
 
 func testRemote() RemoteStorage {
-	return RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase", Environment: "e"}
+	return RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase"}
 }
 
 func testMeta() catalog.Database {
-	return catalog.Database{ID: "33333333-3333-3333-3333-333333333333", TenantID: "11111111-1111-1111-1111-111111111111"}
+	return catalog.Database{ID: "33333333-3333-3333-3333-333333333333", TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 }
 
 func TestManifestWriteReadLatest(t *testing.T) {
@@ -26,22 +26,22 @@ func TestManifestWriteReadLatest(t *testing.T) {
 	meta := testMeta()
 	ctx := context.Background()
 
-	if m, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 0); err != nil || m != nil {
+	if m, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0); err != nil || m != nil {
 		t.Fatalf("empty lake: got %v, %v", m, err)
 	}
 
 	for seq := int64(1); seq <= 3; seq++ {
-		key, err := remote.keyBuilder().DuckLakeSnapshotKey(meta.TenantID, meta.ID, seq*10, seq, "")
+		key, err := remote.keyBuilder().DuckLakeSnapshotKey(meta.ProjectID, meta.ID, seq*10, seq, "")
 		if err != nil {
 			t.Fatal(err)
 		}
 		m := NewManifest(seq, seq*10, key, "duckdb", 77, 0, "")
-		if err := WriteManifest(ctx, store, remote, meta.TenantID, meta.ID, m); err != nil {
+		if err := WriteManifest(ctx, store, remote, meta.ProjectID, meta.ID, m); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	latest, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 0)
+	latest, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestManifestWriteReadLatest(t *testing.T) {
 	}
 
 	// 带缓存的探测：从 seq 2 起步，应仍收敛到 3。
-	latest2, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 2)
+	latest2, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,14 +64,14 @@ func TestManifestRejectsKeyPayloadSeqMismatch(t *testing.T) {
 	store := objectstore.NewMemoryBlobStore()
 	remote := testRemote()
 	meta := testMeta()
-	key, err := remote.keyBuilder().DuckLakeManifestKey(meta.TenantID, meta.ID, 1)
+	key, err := remote.keyBuilder().DuckLakeManifestKey(meta.ProjectID, meta.ID, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := store.PutBytes(ctx, key, []byte(`{"seq":3,"snapshot_id":10,"snapshot_key":"snapshot"}`), "application/json"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 0); !IsManifestChainBroken(err) {
+	if _, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0); !IsManifestChainBroken(err) {
 		t.Fatalf("mismatched manifest should fail closed: %v", err)
 	}
 }
@@ -83,11 +83,11 @@ func TestManifestConflictIsSplitBrain(t *testing.T) {
 	ctx := context.Background()
 
 	m := NewManifest(1, 100, "snap-key", "duckdb", 5, 0, "")
-	if err := WriteManifest(ctx, store, remote, meta.TenantID, meta.ID, m); err != nil {
+	if err := WriteManifest(ctx, store, remote, meta.ProjectID, meta.ID, m); err != nil {
 		t.Fatal(err)
 	}
 	// 第二个 writer 写同一 seq：必须报冲突（ErrPreconditionFailed）。
-	err := WriteManifest(ctx, store, remote, meta.TenantID, meta.ID, m)
+	err := WriteManifest(ctx, store, remote, meta.ProjectID, meta.ID, m)
 	if err == nil || !errors.Is(err, objectstore.ErrPreconditionFailed) {
 		t.Fatalf("want ErrPreconditionFailed, got %v", err)
 	}
@@ -103,16 +103,16 @@ func TestManifestSeqFromKey(t *testing.T) {
 }
 
 func TestSnapshotKeyStructure(t *testing.T) {
-	kb := objectstore.KeyBuilder{RootPrefix: "sb", Environment: "e"}
-	k1, err := kb.DuckLakeSnapshotKey("11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333", 7, 100, "")
+	kb := objectstore.KeyBuilder{RootPrefix: "sb"}
+	k1, err := kb.DuckLakeSnapshotKey("prj12345", "33333333-3333-3333-3333-333333333333", 7, 100, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	k2, _ := kb.DuckLakeSnapshotKey("11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333", 7, 200, "")
+	k2, _ := kb.DuckLakeSnapshotKey("prj12345", "33333333-3333-3333-3333-333333333333", 7, 200, "")
 	if k1 == k2 {
 		t.Fatal("different epochs must yield different keys")
 	}
-	if _, err := kb.DuckLakeSnapshotKey("11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333", 0, 1, ""); err == nil {
+	if _, err := kb.DuckLakeSnapshotKey("prj12345", "33333333-3333-3333-3333-333333333333", 0, 1, ""); err == nil {
 		t.Fatal("snapshot 0 rejected")
 	}
 }
@@ -157,8 +157,8 @@ func TestEnsureLocalCatalogLocalAheadNotOverwritten(t *testing.T) {
 	ctx := context.Background()
 
 	// 远端 manifest：snapshot 10。
-	key, _ := remote.keyBuilder().DuckLakeSnapshotKey(meta.TenantID, meta.ID, 10, 1, "")
-	if err := WriteManifest(ctx, store, remote, meta.TenantID, meta.ID, NewManifest(1, 10, key, "duckdb", 1, 0, "")); err != nil {
+	key, _ := remote.keyBuilder().DuckLakeSnapshotKey(meta.ProjectID, meta.ID, 10, 1, "")
+	if err := WriteManifest(ctx, store, remote, meta.ProjectID, meta.ID, NewManifest(1, 10, key, "duckdb", 1, 0, "")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -193,13 +193,13 @@ func TestEnsureLocalCatalogDownloadsLatestManifest(t *testing.T) {
 
 	// 两个快照版本；manifest 指向 seq2/snapshot20。
 	for seq, snap := range map[int64]int64{1: 10, 2: 20} {
-		key, _ := remote.keyBuilder().DuckLakeSnapshotKey(meta.TenantID, meta.ID, snap, 1, "")
+		key, _ := remote.keyBuilder().DuckLakeSnapshotKey(meta.ProjectID, meta.ID, snap, 1, "")
 		body := []byte{byte('0' + snap/10)}
 		if err := store.PutBytes(ctx, key, body, "application/octet-stream"); err != nil {
 			t.Fatal(err)
 		}
 		sum := sha256.Sum256(body)
-		if err := WriteManifest(ctx, store, remote, meta.TenantID, meta.ID, NewManifest(seq, snap, key, "duckdb", 1, int64(len(body)), hex.EncodeToString(sum[:]))); err != nil {
+		if err := WriteManifest(ctx, store, remote, meta.ProjectID, meta.ID, NewManifest(seq, snap, key, "duckdb", 1, int64(len(body)), hex.EncodeToString(sum[:]))); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -123,7 +123,7 @@ func TestSQLAPIKeyRepository(t *testing.T) {
 		}
 	}
 	tenantID := "00000000-0000-0000-0000-000000000001"
-	projectID := "dev-shop"
+	projectID := "testprj1"
 	now := time.Now().UTC()
 	if _, err := db.ExecContext(ctx, `INSERT INTO sys_tenants(id, name, created_at) VALUES(?, ?, ?)`, tenantID, "t", now); err != nil {
 		t.Fatal(err)

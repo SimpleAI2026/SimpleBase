@@ -1,0 +1,47 @@
+{
+  "skill_name": "design-taste",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Build a landing page for a small specialty coffee roaster that sells subscriptions. Single HTML file.",
+      "expected_output": "States a specific direction first; tokens as CSS variables; avoids purple gradients, hero+3 identical cards, lorem/emoji; ≤2 font families; reduced-motion handled.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "帮我审查一下这个 React 项目的 UI 质量，src 目录下，给出问题清单。",
+      "expected_output": "Runs measurable checks (hex count, font sizes, radii, shadows), reports P0/P1/P2 with locations and fixes, does not modify code.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Create a minimalist poster PDF for a jazz night called 'Blue Hours'.",
+      "expected_output": "Writes a short design philosophy, then renders a PDF with minimal text, limited palette, nothing clipped, fonts embedded.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "帮我评审一下这张海报的审美，给出打分和问题清单：poster.png（是用 AI 生成的活动海报）",
+      "expected_output": "Runs scripts/review_image.py poster.png --type poster (or ai), then looks at the image; fills the 8-dimension visual score with type weights from image-aesthetics.md; combines 0.4 metric + 0.6 visual; runs the AI-artifact checklist (text gibberish, hands, over-saturation, symmetry, glow); Chinese P0/P1/P2 with concrete evidence and actionable fixes (crop, HEX palette, type placement, regeneration prompt).",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Turn this travel photo (photo.jpg) into a minimal magazine-style poster and give me the palette you extracted.",
+      "expected_output": "Follows image-workflows.md: parses subject/space/mood, extracts palette with review_image.py, picks one accent that exists in the photo, chooses a 3:5 or 4:5 canvas with large whitespace, keeps the photo recognisable, renders without generated gibberish text, then re-scores and reports before/after metric deltas.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "帮我做一下这张游戏截图的美术评审（MOBA 团战截图 teamfight.png），重点看可读性和 HUD。",
+      "expected_output": "Runs scripts/review_image.py teamfight.png --type game-screenshot --genre moba; inspects grayscale.png (value/silhouette) and HUD coverage; scores G1–G11 with screenshot weights from game-aesthetics.md; checks team color coding, VFX intensity tiers, center clutter; Chinese P0/P1/P2 report with evidence and MOBA-specific fixes (ground contrast, team rings, VFX tiers); combines 0.4 metric + 0.6 visual.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "Review our Steam small capsule (capsule_462x174.png) for a pixel-art metroidvania and tell me if it will read in search results.",
+      "expected_output": "Runs review_image.py --type capsule --genre pixel (or platformer); checks thumbnail.png at 184x69 and 120x45 on #1b2838 incl. grayscale; flags P0 if title illegible or thumbnail contrast <35; checks Steam rules (only art + name + official subtitle, no review/award/discount text); pixel-scale consistency; gives concrete redesign (logo size/weight, single subject, contrast) and optionally a prompt for art-only capsule.",
+      "files": []
+    }
+  ]
+}

@@ -42,16 +42,23 @@ type presignDTO struct {
 	URL string `json:"url"`
 }
 
-// joinKey 把项目 ID 作为前缀拼到用户 key 前面，实现项目隔离。
+// joinKey 把项目 ID 与 files/ 段拼到用户 key 前面，实现项目隔离。
+// 物理布局：{projectID}/files/{userKey}（与 storage.data_dir / S3 前缀一致）。
 func joinKey(projectID, key string) string {
-	return projectID + "/" + key
+	if key == "" {
+		return projectID + "/files"
+	}
+	return projectID + "/files/" + key
 }
 
-// stripProject 从物理 key 中去掉项目前缀，还原用户可见的 key。
+// stripProject 从物理 key 中去掉 {projectID}/files/ 前缀，还原用户可见的 key。
 func stripProject(projectID, key string) string {
-	prefix := projectID + "/"
+	prefix := projectID + "/files/"
 	if strings.HasPrefix(key, prefix) {
 		return key[len(prefix):]
+	}
+	if key == projectID+"/files" {
+		return ""
 	}
 	return key
 }

@@ -16,6 +16,11 @@ func TestStageAuthObserverWritesSubStages(t *testing.T) {
 
 	obs.ObserveAuthStage(timer.ctx, auth.AuthStageLockWait, 1500*time.Microsecond)
 	obs.ObserveAuthStage(timer.ctx, auth.AuthStageUserLoad, 800*time.Microsecond)
+	obs.ObserveAuthStage(timer.ctx, auth.AuthStageUserConn, 100*time.Microsecond)
+	obs.ObserveAuthStage(timer.ctx, auth.AuthStageUserQuery, 200*time.Microsecond)
+	obs.ObserveAuthStage(timer.ctx, auth.AuthStageUserScan, 300*time.Microsecond)
+	obs.ObserveAuthStage(timer.ctx, auth.AuthStageFlightWait, 400*time.Microsecond)
+	obs.ObserveAuthStage(timer.ctx, auth.AuthStageFlightLoad, 500*time.Microsecond)
 	obs.ObserveAuthStage(timer.ctx, auth.AuthStageProjectExpand, 200*time.Microsecond)
 	obs.ObserveAuthStage(timer.ctx, auth.AuthStageSessionLoad, 50*time.Microsecond)
 	obs.ObserveAuthStage(timer.ctx, auth.AuthStageKeyLoad, 30*time.Microsecond)
@@ -27,6 +32,15 @@ func TestStageAuthObserverWritesSubStages(t *testing.T) {
 	}
 	if spent[StageAuthUser] != 800*time.Microsecond {
 		t.Fatalf("user_load=%v", spent[StageAuthUser])
+	}
+	for stage, expected := range map[Stage]time.Duration{
+		StageAuthUserConn: 100 * time.Microsecond, StageAuthUserQuery: 200 * time.Microsecond,
+		StageAuthUserScan: 300 * time.Microsecond, StageAuthFlightWait: 400 * time.Microsecond,
+		StageAuthFlightLoad: 500 * time.Microsecond,
+	} {
+		if spent[stage] != expected {
+			t.Fatalf("%s=%v want %v", stage, spent[stage], expected)
+		}
 	}
 	if spent[StageAuthProject] != 200*time.Microsecond {
 		t.Fatalf("project_expand=%v", spent[StageAuthProject])
@@ -58,7 +72,8 @@ func TestStageAuthSubStagesExcludedFromAttribution(t *testing.T) {
 	// 子阶段不得进入 perfStages 归因求和（否则与 StageAuth 双算）。
 	for _, st := range perfStages {
 		switch st {
-		case StageAuthLock, StageAuthUser, StageAuthProject, StageAuthSession, StageAuthKey, StageSystemDB:
+		case StageAuthLock, StageAuthUser, StageAuthUserConn, StageAuthUserQuery, StageAuthUserScan,
+			StageAuthFlightWait, StageAuthFlightLoad, StageAuthProject, StageAuthSession, StageAuthKey, StageSystemDB:
 			t.Fatalf("sub-stage %s must not be in perfStages", st)
 		}
 	}

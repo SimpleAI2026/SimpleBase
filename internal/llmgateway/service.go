@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/linkxzhou/SimpleBase/internal/observability"
@@ -129,7 +130,7 @@ func clientKey(projectID, providerName string) string {
 	return projectID + "|" + providerName
 }
 
-// ProviderModels 解析各 provider 的 allowed_models（planv4.1 BUG-07）。
+// ProviderModels 解析各 provider 的 allowed_models 和默认模型（planv4.1 BUG-07）。
 // 解析失败时返回空 map 而非错误（模型列表缺失不应阻塞 Agent 功能）。
 func (s *service) ProviderModels(ctx context.Context, projectID string) (map[string][]string, error) {
 	pp, err := s.resolver.Resolve(ctx, projectID)
@@ -138,8 +139,21 @@ func (s *service) ProviderModels(ctx context.Context, projectID string) (map[str
 	}
 	out := make(map[string][]string, len(pp.Providers))
 	for _, p := range pp.Providers {
-		if len(p.AllowedModels) > 0 {
-			out[p.Name] = p.AllowedModels
+		models := append([]string(nil), p.AllowedModels...)
+		if p.Model != "" && (len(models) == 0 || checkModelAllowed(p, p.Model) == nil) {
+			found := false
+			for _, m := range models {
+				if m == p.Model {
+					found = true
+					break
+				}
+			}
+			if !found {
+				models = append(models, p.Model)
+			}
+		}
+		if len(models) > 0 {
+			out[p.Name] = models
 		}
 	}
 	return out, nil
@@ -212,20 +226,49 @@ func credFingerprint(cfg ProviderConfig) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Chat 执行非流式对话。
-func (s *service) Chat(ctx context.Context, projectID string, req Request) (Response, error) {
-	providerName := ""
-	// 若请求指定 model，仍使用默认 provider（litellm client 绑定 provider）。
-	c, cfg, err := s.getClient(ctx, projectID, providerName)
-	if err != nil {
-		return Response{}, err
-	}
-	model := req.Model
+// resolveModel 决定本次调用实际发给上游的模型名，并把结果写进日志。
+//
+// 语义（planv6.0 v2 §11）：reqModel 为空表示调用方没有显式指定模型，
+// 此时回填供应商的 default_model。两边都为空说明这个项目实际没有可用模型，
+// 宁可在这里给出 llm_model_not_configured，也不要把空模型名发给上游
+// ——那会得到供应商侧的模糊报错，且日志里只看到 model=""，难以定位。
+//
+// 该函数不记录 api_key，只记录解析结果。
+func (s *service) resolveModel(projectID string, cfg ProviderConfig, reqModel string) (string, error) {
+	model := strings.TrimSpace(reqModel)
+	source := "request"
 	if model == "" {
-		model = cfg.Model
+		model = strings.TrimSpace(cfg.Model)
+		source = "provider_default"
+	}
+	if model == "" {
+		return "", fmt.Errorf("%w: provider %q has no default model", ErrModelNotConfigured, cfg.Name)
 	}
 	if err := checkModelAllowed(cfg, model); err != nil {
-		return Response{}, err
+		return "", err
+	}
+	if s.logger != nil {
+		s.logger.Debug("llmgateway: model resolved",
+			zap.String("project", projectID),
+			zap.String("provider", cfg.Name),
+			zap.String("model", model),
+			zap.String("source", source))
+	}
+	return model, nil
+}
+
+// prepareRequest 完成 Chat/Stream 共用的请求准备：取默认 provider 的 client、
+// 解析实际模型（回填 default_model + allowlist 校验）、构造 providers.Request。
+// 两种执行与用量记录流程不在其中（planv6.0 §7 A2）。
+func (s *service) prepareRequest(ctx context.Context, projectID string, req Request) (*litellm.Client, ProviderConfig, *providers.Request, error) {
+	// 若请求指定 model，仍使用默认 provider（litellm client 绑定 provider）。
+	c, cfg, err := s.getClient(ctx, projectID, "")
+	if err != nil {
+		return nil, ProviderConfig{}, nil, err
+	}
+	model, err := s.resolveModel(projectID, cfg, req.Model)
+	if err != nil {
+		return nil, ProviderConfig{}, nil, err
 	}
 	lreq := &providers.Request{
 		Model:       model,
@@ -233,6 +276,15 @@ func (s *service) Chat(ctx context.Context, projectID string, req Request) (Resp
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
 		Tools:       req.Tools,
+	}
+	return c, cfg, lreq, nil
+}
+
+// Chat 执行非流式对话。
+func (s *service) Chat(ctx context.Context, projectID string, req Request) (Response, error) {
+	c, _, lreq, err := s.prepareRequest(ctx, projectID, req)
+	if err != nil {
+		return Response{}, err
 	}
 	resp, err := c.Chat(ctx, lreq)
 	if err != nil {
@@ -265,23 +317,9 @@ func (s *service) Chat(ctx context.Context, projectID string, req Request) (Resp
 
 // Stream 执行流式对话。
 func (s *service) Stream(ctx context.Context, projectID string, req Request) (StreamReader, error) {
-	c, cfg, err := s.getClient(ctx, projectID, "")
+	c, cfg, lreq, err := s.prepareRequest(ctx, projectID, req)
 	if err != nil {
 		return nil, err
-	}
-	model := req.Model
-	if model == "" {
-		model = cfg.Model
-	}
-	if err := checkModelAllowed(cfg, model); err != nil {
-		return nil, err
-	}
-	lreq := &providers.Request{
-		Model:       model,
-		Messages:    req.Messages,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		Tools:       req.Tools,
 	}
 	reader, err := c.Stream(ctx, lreq)
 	if err != nil {
@@ -293,7 +331,7 @@ func (s *service) Stream(ctx context.Context, projectID string, req Request) (St
 			recorder: s.recorder,
 			project:  projectID,
 			provider: cfg.Name,
-			model:    model,
+			model:    lreq.Model,
 			logger:   s.logger,
 		}, nil
 	}
@@ -318,6 +356,9 @@ var (
 	ErrNoProviders      = errors.New("llmgateway: no providers configured for project")
 	ErrProviderNotFound = errors.New("llmgateway: provider not found")
 	ErrModelNotAllowed  = errors.New("llmgateway: model not allowed")
+	// ErrModelNotConfigured：请求未指定模型，供应商也没有 default_model。
+	// 调用方（云助手）把它映射为 llm_model_not_configured，提示用户去设置页配置。
+	ErrModelNotConfigured = errors.New("llmgateway: no model configured")
 )
 
 // checkModelAllowed 在发上游前校验白名单；列表为空表示不限制。

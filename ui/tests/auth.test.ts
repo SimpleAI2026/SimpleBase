@@ -10,9 +10,9 @@ describe('useAuthStore', () => {
 
   it('reads the default key and ignores empty updates', () => {
     const store = useAuthStore()
-    expect(store.apiKey).toBe('sb_live_dev_key_12345')
+    expect(store.apiKey).toBe('') // 无本地 Key 时为空
     store.updateKey('   ')
-    expect(store.apiKey).toBe('sb_live_dev_key_12345')
+    expect(store.apiKey).toBe('') // 无本地 Key 时为空
   })
 
   it('persists a trimmed key and clears unauthorized state', () => {

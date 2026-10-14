@@ -1,8 +1,8 @@
 <template>
   <SbModal
     :open="open"
-    :title="`运行记录 · ${job?.name || ''}`"
-    :description="job ? `${job.funcFile}.${job.funcExport} · 已执行 ${job.runCount} 次` : '任务运行历史'"
+    :title="t('components.cronRuns.title', { name: job?.name || '' })"
+    :description="job ? t('components.cronRuns.descriptionWithJob', { file: job.funcFile, export: job.funcExport, count: job.runCount }) : t('components.cronRuns.description')"
     :max-width="720"
     :hide-footer="true"
     @update:open="$emit('update:open', $event)"
@@ -11,21 +11,21 @@
       <Button size="sm" :disabled="!job || triggering" @click="trigger">
         <Spinner v-if="triggering" data-icon="inline-start" />
         <PlayIcon v-else data-icon="inline-start" />
-        立即执行
+        {{ t('components.cronRuns.runNow') }}
       </Button>
       <Button size="sm" variant="outline" :disabled="pending" @click="load">
         <Spinner v-if="pending" data-icon="inline-start" />
         <RefreshCwIcon v-else data-icon="inline-start" />
-        刷新
+        {{ t('common.refresh') }}
       </Button>
       <Select v-model="statusFilter">
         <SelectTrigger class="ml-auto h-8 w-28">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">全部</SelectItem>
-          <SelectItem value="completed">成功</SelectItem>
-          <SelectItem value="failed">失败</SelectItem>
+          <SelectItem value="all">{{ t('components.cronRuns.filterAll') }}</SelectItem>
+          <SelectItem value="completed">{{ t('components.cronRuns.filterCompleted') }}</SelectItem>
+          <SelectItem value="failed">{{ t('components.cronRuns.filterFailed') }}</SelectItem>
         </SelectContent>
       </Select>
     </div>
@@ -40,13 +40,13 @@
         :show-error="showError"
         :refreshing="refreshing"
         :error="error"
-        :empty-title="statusFilter === 'all' ? '还没有运行记录' : '没有匹配的记录'"
-        :empty-description="statusFilter === 'all' ? '到点或手动触发后此处显示每次执行' : ''"
+        :empty-title="statusFilter === 'all' ? t('components.cronRuns.emptyTitleAll') : t('components.cronRuns.emptyTitleFiltered')"
+        :empty-description="statusFilter === 'all' ? t('components.cronRuns.emptyDescAll') : ''"
         @retry="load"
       >
       <SbEmptyState
         v-if="hasData && !filteredRuns.length"
-        title="没有匹配的记录"
+        :title="t('components.cronRuns.emptyTitleFiltered')"
         description=""
       />
       <div
@@ -59,32 +59,32 @@
             {{ runIcon(run.status) }} {{ runText(run.status) }}
           </Badge>
           <Badge variant="outline" class="text-xs">
-            {{ run.trigger === 'manual' ? '手动' : '定时' }}
+            {{ run.trigger === 'manual' ? t('components.cronRuns.triggerManual') : t('components.cronRuns.triggerScheduled') }}
           </Badge>
           <span class="ml-auto text-xs text-muted-foreground">{{ formatTime(run.createdAt) }}</span>
         </div>
         <div class="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-          <span>耗时 {{ run.durationMs }}ms</span>
+          <span>{{ t('components.cronRuns.duration', { n: run.durationMs }) }}</span>
           <template v-if="run.finishedAt">
-            <span>完成于 {{ formatTime(run.finishedAt) }}</span>
+            <span>{{ t('components.cronRuns.finishedAt', { time: formatTime(run.finishedAt) }) }}</span>
           </template>
         </div>
         <div v-if="run.responseJson" class="mt-2">
           <div class="mb-1 flex items-center justify-between">
-            <span class="text-xs font-medium text-muted-foreground">返回值</span>
+            <span class="text-xs font-medium text-muted-foreground">{{ t('components.cronRuns.returnValue') }}</span>
             <Button variant="ghost" size="sm" class="h-6 px-2" @click="copy(run.responseJson)">
               <CopyIcon class="size-3.5" />
-              复制
+              {{ t('common.copy') }}
             </Button>
           </div>
           <pre class="sb-mono max-h-40 overflow-auto rounded-md bg-muted/60 p-2 text-xs whitespace-pre-wrap">{{ prettyJson(run.responseJson) }}</pre>
         </div>
         <div v-if="run.error" class="mt-2">
           <div class="mb-1 flex items-center justify-between">
-            <span class="text-xs font-medium text-destructive">错误</span>
+            <span class="text-xs font-medium text-destructive">{{ t('components.cronRuns.errorLabel') }}</span>
             <Button variant="ghost" size="sm" class="h-6 px-2 text-destructive" @click="copy(run.error)">
               <CopyIcon class="size-3.5" />
-              复制
+              {{ t('common.copy') }}
             </Button>
           </div>
           <pre class="max-h-32 overflow-auto rounded-md bg-destructive/10 p-2 text-xs whitespace-pre-wrap text-destructive">{{ run.error }}</pre>
@@ -102,6 +102,7 @@ import { errorMessage } from '@/utils/format'
  * 打开即加载；autoTrigger 时打开后自行触发并 1.5s 轮询直至 running 收敛；关闭即停止轮询。
  */
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { CopyIcon, PlayIcon, RefreshCwIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
@@ -129,13 +130,14 @@ const emit = defineEmits<{
   triggered: []
 }>()
 
+const { t } = useI18n()
 const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.projectId)
 
 const runs = ref<CronJobRunItem[]>([])
 const triggering = ref(false)
 const { pending, hasData, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载运行记录失败'
+  fallback: 'components.cronRuns.loadFailed'
 })
 const statusFilter = ref<'all' | 'completed' | 'failed'>('all')
 
@@ -160,7 +162,7 @@ async function trigger() {
   triggering.value = true
   try {
     await api.cronjobs.trigger(projectId.value, props.job.id)
-    toast.success('已触发')
+    toast.success(t('components.cronRuns.triggered'))
     emit('triggered')
     await load()
     for (let i = 0; i < 10; i++) {
@@ -171,7 +173,7 @@ async function trigger() {
       if (!latest || latest.status !== 'running') break
     }
   } catch (e) {
-    toast.error(errorMessage(e, '触发失败'))
+    toast.error(errorMessage(e, t('components.cronRuns.triggerFailed')))
   } finally {
     triggering.value = false
   }
@@ -192,10 +194,10 @@ function runVariant(status: string) {
   return runStatusVariant(status) === 'outline' ? 'secondary' : runStatusVariant(status)
 }
 function runText(status: string) {
-  if (status === 'completed') return '成功'
-  if (status === 'failed') return '失败'
-  if (status === 'running') return '执行中'
-  return status || '未知'
+  if (status === 'completed') return t('cron.completed')
+  if (status === 'failed') return t('cron.failed')
+  if (status === 'running') return t('cron.running')
+  return status || t('components.cronRuns.statusUnknown')
 }
 function runIcon(status: string) {
   if (status === 'completed') return '●'
@@ -214,7 +216,7 @@ function prettyJson(s: string) {
 function copy(text: string) {
   navigator.clipboard
     .writeText(text)
-    .then(() => toast.success('已复制'))
-    .catch(() => toast.error('复制失败'))
+    .then(() => toast.success(t('components.cronRuns.copied')))
+    .catch(() => toast.error(t('components.cronRuns.copyFailed')))
 }
 </script>

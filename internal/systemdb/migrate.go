@@ -633,6 +633,55 @@ var systemMigrations = []migration{
 		stmt: `UPDATE sys_databases SET data_model = 'sql'
 			WHERE kind = 'system' AND (data_model IS NULL OR data_model <> 'sql')`,
 	},
+	{
+		// v45：模型连接信息并入项目默认模型设置（设置 → 模型），不再有按厂商的凭证表。
+		// api_key 原文仅服务端可读，API 返回时脱敏。旧表 sys_llm_provider_creds 不再读写。
+		version: 45,
+		name:    "sys_llm_settings_connection",
+		stmt: `ALTER TABLE sys_llm_settings ADD COLUMN api_key VARCHAR DEFAULT '';
+			ALTER TABLE sys_llm_settings ADD COLUMN base_url VARCHAR DEFAULT ''`,
+	},
+	{
+		// v46：Agent run 发起人（planv6.0 D5）。登录态为 UserID，API Key 为
+		// "apikey:<id>"；历史数据为 NULL 走兼容分支（确认/取消仍要求写权限）。
+		// DuckLake 不支持 ADD COLUMN NOT NULL，用可空列。
+		version: 46,
+		name:    "sys_agent_runs_initiator",
+		stmt:    `ALTER TABLE sys_agent_runs ADD COLUMN initiator_id VARCHAR`,
+	},
+	{
+		// v47：会话归属的助手（planv6.0 §3.7 修订）。此前线程与助手解耦，
+		// 所有助手共用一份会话列表；改成每个助手一份。
+		// 空串 = 未绑定（历史数据），列表接口按 agent_id 过滤时把空串归到默认助手。
+		// DuckLake 不支持 ADD COLUMN NOT NULL，用可空列。
+		version: 47,
+		name:    "sys_agent_threads_agent_id",
+		stmt:    `ALTER TABLE sys_agent_threads ADD COLUMN agent_id VARCHAR`,
+	},
+	{
+		// v48：助手级写开关（planv6.0 v2 §3.2）。默认 0 = 只读：
+		// 此前 skills_cli 打开时所有助手都能经 CLI 写项目数据，没有任何一层
+		// 检查「这个助手是否被允许写」。这是一次有意的收紧（D-C1a），
+		// 需要写能力的助手由用户在界面上显式开启。
+		// DuckLake 不支持 ADD COLUMN NOT NULL，用带 DEFAULT 的列；
+		// 列位置在末尾，避免 scanCloudAgent 的按位扫描错位。
+		version: 48,
+		name:    "sys_cloud_agents_writable",
+		stmt:    `ALTER TABLE sys_cloud_agents ADD COLUMN writable BIGINT DEFAULT 0`,
+	},
+	{
+		// v49：统一定时任务目标（planv6.0 cloudagent-cli-and-cronjob-unification-plan §2.2）。
+		// target_kind=function 沿用 func_file/func_export；=agent 用 agent_id/agent_prompt。
+		// DuckLake 不支持 ADD COLUMN NOT NULL，全部用带 DEFAULT 的列；
+		// 列追加在末尾，避免 scanCronJob 的按位扫描错位（cronJobColumns 同步更新）。
+		// sys_agent_schedules / sys_agent_schedule_runs 冻结为归档表，不删除、不回填。
+		version: 49,
+		name:    "sys_cron_jobs_target_kind",
+		stmt: `ALTER TABLE sys_cron_jobs ADD COLUMN target_kind VARCHAR DEFAULT 'function';
+			ALTER TABLE sys_cron_jobs ADD COLUMN agent_id VARCHAR DEFAULT '';
+			ALTER TABLE sys_cron_jobs ADD COLUMN agent_thread_id VARCHAR DEFAULT '';
+			ALTER TABLE sys_cron_jobs ADD COLUMN agent_prompt VARCHAR DEFAULT ''`,
+	},
 }
 
 // retireOpenCloseStatusSQL 把未软删的 closed/opening/closing/recovering 写成 ready。

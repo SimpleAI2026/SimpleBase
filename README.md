@@ -43,18 +43,18 @@
 ### 构建
 
 ```bash
-go build -o simplebased ./cmd/simplebased
+go build -o simplebase ./cmd/simplebase
 ```
 
 ### 配置
 
-复制 `config.example.yaml` 为 `config.yaml` 并按环境调整。加载顺序为 **代码默认值 → YAML → `SIMPLEBASE_*` 环境变量覆盖**。YAML 是非密钥配置的权威来源；生产凭据（S3 密钥、API key hash secret、LLM API key）必须从环境变量或 IAM 角色注入，`dev_mode: false` 时 YAML 中的非空密钥会被拒绝。
+复制 `config.example.yaml` 为 `config.yaml` 并按环境调整。加载顺序为 **代码默认值 → YAML → `SIMPLEBASE_*` 环境变量覆盖**。YAML 是非密钥配置的权威来源；生产凭据（S3 密钥、API key hash secret、LLM API key）必须从环境变量或 IAM 角色注入；YAML 中的非空密钥会被拒绝。
 `SIMPLEBASE_CATALOG_DATABASE_ID` 已退役（breaking）：系统库由 `SIMPLEBASE_SYSTEM_DB_NAME` / `system_database.name` 决定。
 
 ### 运行
 
 ```bash
-./simplebased
+./simplebase
 ```
 
 默认监听 `:8080`。健康检查：
@@ -65,8 +65,8 @@ go build -o simplebased ./cmd/simplebased
 ### Docker
 
 ```bash
-docker build -t simplebased .
-docker run -p 8080:8080 --env-file .env simplebased
+docker build -t simplebase .
+docker run -p 8080:8080 --env-file .env simplebase
 ```
 
 ## API
@@ -139,7 +139,7 @@ docker run -p 8080:8080 --env-file .env simplebased
 ## 目录结构
 
 ```text
-cmd/simplebased/        服务入口
+cmd/simplebase/         服务与资源 CLI 统一入口
 internal/api/           HTTP 路由、请求校验、错误协议、流式响应
 internal/app/           依赖装配与生命周期
 internal/auth/          API Key、项目身份、权限与上下文

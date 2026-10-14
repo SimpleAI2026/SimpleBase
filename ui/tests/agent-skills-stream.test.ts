@@ -75,13 +75,23 @@ describe('agent skill stream', () => {
     expect(messages[1]?.toolCalls?.[0]?.status).toBe('error')
   })
 
-  it('covers skill alias edges and tool-card fallbacks', () => {
+  it('covers skill alias edges and tool-card fallbacks', async () => {
     expect(resolveSkillAlias('   ')).toBe('')
     expect(resolveSkillAlias('@')).toBe('')
     expect(resolveSkillAlias('DATABASE')).toBe('database')
     expect(resolveSkillAlias('Nope', ['Nope'])).toBe('')
     expect(resolveSkillAlias('nope')).toBe('')
     expect(skillsInText('@云函数 @云函数 @未知')).toEqual(['gofunction'])
+
+    /**
+     * 成功态默认折叠成一行摘要（planv6.0 §3.6 #3），
+     * 需要看结果正文的断言先展开再取文本。
+     */
+    const expanded = async (tool: Record<string, unknown>) => {
+      const w = mount(AgentToolCard, { props: { tool } })
+      await w.get(`[data-tool-summary="${tool.name}"]`).trigger('click')
+      return w
+    }
 
     const pending = mount(AgentToolCard, { props: { tool: { name: '', status: 'pending' } } })
     expect(pending.text()).toContain('正在调用')
@@ -90,7 +100,7 @@ describe('agent skill stream', () => {
       props: { tool: { name: 'simplebase', content: '{"ok":true,"data":{"columns":["id"],"rows":[[1]],"row_count":1}}' } }
     })
     expect(inferred.find('[data-status="success"]').exists()).toBe(true)
-    const raw = mount(AgentToolCard, { props: { tool: { name: 'simplebase', content: 'not-json' } } })
+    const raw = await expanded({ name: 'simplebase', content: 'not-json' })
     expect(raw.text()).toContain('not-json')
     const ticking = mount(AgentToolCard, { props: { tool: { name: 'simplebase', status: 'running', duration_ms: 2500 } } })
     expect(ticking.text()).toContain('已运行 2s')
@@ -100,24 +110,16 @@ describe('agent skill stream', () => {
       props: { tool: { name: 'readonly_sql', content: '{"Columns":["id"],"Rows":[[1]]}' } }
     })
     expect(upper.text()).toContain('共 1 行')
-    const wrapped = mount(AgentToolCard, {
-      props: { tool: { name: 'simplebase', content: '{"data":"nope","columns":["n"],"rows":[[2]],"row_count":1}' } }
-    })
+    const wrapped = await expanded({ name: 'simplebase', content: '{"data":"nope","columns":["n"],"rows":[[2]],"row_count":1}' })
     expect(wrapped.text()).toContain('n')
-    const sandbox = mount(AgentToolCard, {
-      props: { tool: { name: 'sandbox_exec', content: '{"stdout":"hi","stderr":"no","exit_code":2}' } }
-    })
+    const sandbox = await expanded({ name: 'sandbox_exec', content: '{"stdout":"hi","stderr":"no","exit_code":2}' })
     expect(sandbox.text()).toContain('exit 2')
     expect(sandbox.text()).toContain('hi')
     expect(sandbox.text()).toContain('no')
-    const sandboxUpper = mount(AgentToolCard, {
-      props: { tool: { name: 'sandbox_files', content: '{"Stdout":"UP","Stderr":"ERR","ExitCode":3}' } }
-    })
+    const sandboxUpper = await expanded({ name: 'sandbox_files', content: '{"Stdout":"UP","Stderr":"ERR","ExitCode":3}' })
     expect(sandboxUpper.text()).toContain('exit 3')
     expect(sandboxUpper.text()).toContain('UP')
-    const sandboxDefault = mount(AgentToolCard, {
-      props: { tool: { name: 'sandbox_files', content: '{"Stdout":"only"}' } }
-    })
+    const sandboxDefault = await expanded({ name: 'sandbox_files', content: '{"Stdout":"only"}' })
     expect(sandboxDefault.text()).toContain('exit 0')
   })
 
@@ -207,7 +209,7 @@ describe('agent skill stream', () => {
     wrapper.unmount()
   })
 
-  it('shows argv in ConfirmAction and a failure badge', async () => {
+  it('shows argv in the inline confirm card and a failure badge', async () => {
     const view = mount(ConversationView, {
       props: {
         messages: [{ role: 'assistant', content: '', module: 'database', toolCalls: [] }],
@@ -216,12 +218,12 @@ describe('agent skill stream', () => {
       attachTo: document.body
     })
     await flushPromises()
-    const prompt = view.findComponent({ name: 'ConfirmAction' })
-    expect(prompt.exists()).toBe(true)
-    expect(prompt.props('description')).toContain('database delete --id shop')
-    expect(prompt.props('open')).toBe(true)
+    // planv6.0 §3.6 #1：确认改成对话内的行内卡片，不再弹全屏模态。
+    const confirmCard = view.get('[data-slot="agent-confirm-card"]')
+    expect(confirmCard.text()).toContain('database delete --id shop')
+    expect(view.findComponent({ name: 'ConfirmAction' }).exists()).toBe(false)
     expect(view.find('[data-agent-icon="databases"]').exists()).toBe(true)
-    await prompt.vm.$emit('confirm')
+    await view.getComponent({ name: 'AgentConfirmCard' }).vm.$emit('confirm')
     expect(view.emitted('confirm')).toBeTruthy()
     view.unmount()
 
@@ -234,9 +236,9 @@ describe('agent skill stream', () => {
     })
     await flushPromises()
     expect(denied.find('[data-agent-icon="cron-jobs"]').exists()).toBe(true)
-    const denyPrompt = denied.findComponent({ name: 'ConfirmAction' })
-    expect(denyPrompt.props('description')).toBe('将执行')
-    await denyPrompt.vm.$emit('cancel')
+    const denyCard = denied.getComponent({ name: 'AgentConfirmCard' })
+    expect(denyCard.props('message')).toBe('将执行')
+    await denyCard.vm.$emit('deny')
     expect(denied.emitted('deny')).toBeTruthy()
     denied.unmount()
 
@@ -244,6 +246,8 @@ describe('agent skill stream', () => {
       props: { tool: { name: 'simplebase', content: '{"ok":false,"error":{"code":"denied"}}', is_error: true, status: 'error' } }
     })
     expect(card.find('[data-status="error"]').exists()).toBe(true)
+    expect(card.get('[data-tool-summary="simplebase"]').attributes('aria-expanded')).toBe('false')
+    await card.get('[data-tool-summary="simplebase"]').trigger('click')
     expect(card.text()).toContain('失败')
 
     const running = mount(AgentToolCard, {
@@ -261,6 +265,7 @@ describe('agent skill stream', () => {
         }
       }
     })
+    await table.get('[data-tool-summary="simplebase"]').trigger('click')
     expect(table.text()).toContain('amount')
     expect(table.text()).toContain('10')
   })

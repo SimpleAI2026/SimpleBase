@@ -6,25 +6,25 @@ group: JavaScript
 
 # 快速开始
 
-DevMode 种子（本地 `./build.sh dev`，下述 Key 仅供本机联调，不可用于生产）：
+本地 `./build.sh dev` 启动后，在控制台创建项目并在「设置 → 连接」重置签发 API Key（示例值请替换为你自己的）：
 
 | 项 | 值 |
 |---|---|
 | URL | `http://127.0.0.1:8080` |
-| API Key | `sb_live_dev_key_12345` |
-| Project ID | `dev-shop` |
+| API Key | `<控制台签发的 sb_live_... Key>` |
+| Project ID | `<控制台创建的项目 ID>` |
 
 ```ts
 import { createClient } from '@simplebase/sdk'
 
 const sb = createClient({
   url: 'http://127.0.0.1:8080',
-  apiKey: 'sb_live_dev_key_12345',
-  projectId: 'dev-shop',
+  apiKey: process.env.SIMPLEBASE_API_KEY,
+  projectId: process.env.SIMPLEBASE_PROJECT_ID,
   // databaseId: '<uuid>'   // 可选默认库
 })
 
-// DevMode 仅预建项目 KV；请先在控制台新建一个用户数据库。
+// 项目 KV 开箱可用；用户数据库请先在控制台创建。
 const { databases } = await sb.databases.list()
 const db = sb.database(databases[0].id)
 

@@ -2,7 +2,7 @@ import { flushPromises, mount, type ComponentMountingOptions, type VueWrapper } 
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, createRouter, type RouteRecordRaw, type Router } from 'vue-router'
 import type { Component, Plugin } from 'vue'
-import { DEFAULT_PROJECT_ID, useProjectStore } from '../stores/project'
+import { useProjectStore } from '../stores/project'
 
 export const uiStubs = {
   Button: { inheritAttrs: true, template: '<button v-bind="$attrs"><slot /></button>' },
@@ -293,7 +293,7 @@ export async function mountWithApp(
   await router.push(options.path || '/')
   await router.isReady()
   const store = useProjectStore()
-  store.setProject(options.projectId || DEFAULT_PROJECT_ID, options.projectName || '测试项目')
+  store.setProject(options.projectId || 'testprj1', options.projectName || '测试项目')
   const { path: _p, projectId: _id, projectName: _n, routes: _r, stubs, ...mountOpts } = options
   const wrapper = mount(component, {
     ...mountOpts,

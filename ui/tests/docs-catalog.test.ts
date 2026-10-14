@@ -47,7 +47,7 @@ describe('docs catalog', () => {
   })
 
   it('lazy-loads DuckLake only when requested and searches contents', async () => {
-    const file = 'database/ducklake.md'
+    const file = 'data/ducklake.md'
     expect(isLargeDoc(file)).toBe(true)
     expect(isLargeDoc('getting-started/index.md')).toBe(false)
     expect((await loadMarkdown(file))?.length).toBeGreaterThan(200000)
@@ -55,8 +55,8 @@ describe('docs catalog', () => {
     expect(await loadMarkdown('missing/file.md')).toBeNull()
     expect((await loadMarkdown('getting-started/index.md'))).toContain('SimpleBase')
     expect(await searchDocs('')).toEqual([])
-    expect((await searchDocs('云沙盒')).some((item) => item.page.moduleId === 'sandbox')).toBe(true)
-    expect((await searchDocs('sandbox_busy')).some((item) => item.page.filePath === 'sandbox/api.md')).toBe(true)
+    expect((await searchDocs('云沙盒')).some((item) => item.page.moduleId === 'automation')).toBe(true)
+    expect((await searchDocs('sandbox_busy')).some((item) => item.page.filePath === 'automation/sandbox-api.md')).toBe(true)
     expect((await searchDocs('cursor')).length).toBeGreaterThan(0)
   })
 

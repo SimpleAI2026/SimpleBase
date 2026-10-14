@@ -16,35 +16,35 @@
           <TableHeader>
             <TableRow>
               <TableHead class="w-14">#</TableHead>
-              <TableHead class="min-w-40 text-left">元素</TableHead>
-              <TableHead v-if="!readonly" class="w-20">操作</TableHead>
+              <TableHead class="min-w-40 text-left">{{ t('components.kvList.colElement') }}</TableHead>
+              <TableHead v-if="!readonly" class="w-20">{{ t('components.kvList.colActions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableEmpty v-if="!elems.length" :colspan="readonly ? 2 : 3">列表为空</TableEmpty>
+            <TableEmpty v-if="!elems.length" :colspan="readonly ? 2 : 3">{{ t('components.kvList.empty') }}</TableEmpty>
             <TableRow v-for="(el, i) in elems" :key="i">
               <TableCell class="text-xs text-muted-foreground tabular-nums">{{ i }}</TableCell>
               <TableCell class="text-left">
                 <span v-if="editIndex !== i" class="sb-mono text-xs break-all">{{ el }}</span>
                 <div v-else class="flex items-center gap-1">
                   <Input v-model="editValue" class="h-7 text-xs" @keydown.enter="saveEdit(i)" />
-                  <Button size="sm" variant="ghost" @click="saveEdit(i)">存</Button>
+                  <Button size="sm" variant="ghost" @click="saveEdit(i)">{{ t('components.kvList.saveCell') }}</Button>
                 </div>
               </TableCell>
               <TableCell v-if="!readonly">
-                <Button size="sm" variant="ghost" @click="startEdit(i, el)">改</Button>
+                <Button size="sm" variant="ghost" @click="startEdit(i, el)">{{ t('components.kvList.editCell') }}</Button>
               </TableCell>
             </TableRow>
           </TableBody>
         </Table>
       </div>
       <div v-if="!readonly" class="flex flex-wrap items-center gap-2">
-        <Input v-model="pushValue" placeholder="新元素" class="w-48" @keydown.enter="push('back')" />
-        <Button size="sm" variant="outline" :disabled="!pushValue" @click="push('front')">头插</Button>
-        <Button size="sm" variant="outline" :disabled="!pushValue" @click="push('back')">尾插</Button>
+        <Input v-model="pushValue" :placeholder="t('components.kvList.pushPlaceholder')" class="min-w-0 flex-1 sm:w-48 sm:flex-none" @keydown.enter="push('back')" />
+        <Button size="sm" variant="outline" :disabled="!pushValue" @click="push('front')">{{ t('components.kvList.pushFront') }}</Button>
+        <Button size="sm" variant="outline" :disabled="!pushValue" @click="push('back')">{{ t('components.kvList.pushBack') }}</Button>
         <div class="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="ghost" :disabled="!elems.length" @click="pop('front')">弹头</Button>
-          <Button size="sm" variant="ghost" :disabled="!elems.length" @click="pop('back')">弹尾</Button>
+          <Button size="sm" variant="ghost" :disabled="!elems.length" @click="pop('front')">{{ t('components.kvList.popFront') }}</Button>
+          <Button size="sm" variant="ghost" :disabled="!elems.length" @click="pop('back')">{{ t('components.kvList.popBack') }}</Button>
         </div>
       </div>
     </SbAsyncRegion>
@@ -54,6 +54,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -70,9 +71,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{ changed: [] }>()
 
+const { t } = useI18n()
+
 const elems = ref<string[]>([])
 const pushValue = ref('')
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: '加载失败' })
+const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvList.loadFailed' })
 const editIndex = ref(-1)
 const editValue = ref('')
 
@@ -99,7 +102,7 @@ async function push(side: 'front' | 'back') {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '插入失败'))
+    toast.error(errorMessage(e, t('components.kvList.insertFailed')))
   }
 }
 
@@ -109,11 +112,11 @@ async function pop(side: 'front' | 'back') {
       type: 'cmd',
       argvs: [side === 'front' ? 'LPOP' : 'RPOP', props.kvKey]
     })
-    toast.success('已弹出: ' + (r ?? ''))
+    toast.success(t('components.kvList.popped', { value: r ?? '' }))
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '弹出失败'))
+    toast.error(errorMessage(e, t('components.kvList.popFailed')))
   }
 }
 
@@ -132,7 +135,7 @@ async function saveEdit(i: number) {
     await load()
     emit('changed')
   } catch (e) {
-    toast.error(errorMessage(e, '保存失败'))
+    toast.error(errorMessage(e, t('components.kvList.saveFailed')))
   }
 }
 

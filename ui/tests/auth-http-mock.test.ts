@@ -23,7 +23,7 @@ describe('http token helpers', () => {
   })
 
   it('api key fallback', () => {
-    expect(getApiKey()).toBe('sb_live_dev_key_12345')
+    expect(getApiKey()).toBe('') // 无本地 Key 时为空（不再回退内置种子）
     setApiKey('  sb_live_x  ')
     // setApiKey 不 trim（与历史行为一致）
     expect(getApiKey()).toBe('  sb_live_x  ')

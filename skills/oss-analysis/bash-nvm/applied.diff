@@ -1,0 +1,36 @@
+diff --git a/nvm.sh b/nvm.sh
+index 6b1d6ea..8401ddf 100755
+--- a/nvm.sh
++++ b/nvm.sh
+@@ -92,20 +92,22 @@ nvm_is_alias() {
+ 
+ nvm_command_info() {
+   local COMMAND
++  local TYPE_INFO
+   local INFO
+   COMMAND="${1}"
+-  if type "${COMMAND}" | nvm_grep -q hashed; then
+-    INFO="$(type "${COMMAND}" | command sed -E 's/\(|\)//g' | command awk '{print $4}')"
+-  elif type "${COMMAND}" | nvm_grep -q aliased; then
++  TYPE_INFO="$(type "${COMMAND}")"
++  if nvm_echo "${TYPE_INFO}" | nvm_grep -q hashed; then
++    INFO="$(nvm_echo "${TYPE_INFO}" | command sed -E 's/\(|\)//g' | command awk '{print $4}')"
++  elif nvm_echo "${TYPE_INFO}" | nvm_grep -q aliased; then
+     # shellcheck disable=SC2230
+-    INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4="" ;print }' | command sed -e 's/^\ *//g' -Ee "s/\`|'//g"))"
+-  elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is an alias for"; then
++    INFO="$(which "${COMMAND}") ($(nvm_echo "${TYPE_INFO}" | command awk '{ $1=$2=$3=$4="" ;print }' | command sed -e 's/^\ *//g' -Ee "s/\`|'//g"))"
++  elif nvm_echo "${TYPE_INFO}" | nvm_grep -q "^${COMMAND} is an alias for"; then
+     # shellcheck disable=SC2230
+-    INFO="$(which "${COMMAND}") ($(type "${COMMAND}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
+-  elif type "${COMMAND}" | nvm_grep -q "^${COMMAND} is /"; then
+-    INFO="$(type "${COMMAND}" | command awk '{print $3}')"
++    INFO="$(which "${COMMAND}") ($(nvm_echo "${TYPE_INFO}" | command awk '{ $1=$2=$3=$4=$5="" ;print }' | command sed 's/^\ *//g'))"
++  elif nvm_echo "${TYPE_INFO}" | nvm_grep -q "^${COMMAND} is /"; then
++    INFO="$(nvm_echo "${TYPE_INFO}" | command awk '{print $3}')"
+   else
+-    INFO="$(type "${COMMAND}")"
++    INFO="${TYPE_INFO}"
+   fi
+   nvm_echo "${INFO}"
+ }

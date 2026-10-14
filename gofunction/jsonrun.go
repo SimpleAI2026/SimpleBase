@@ -155,7 +155,9 @@ func RunJSON(ctx context.Context, seqid, fname, source, funcName string, body []
 	} else {
 		arg = ptr.Elem().Interface()
 	}
-	result, runErr := program.Run(seqid, funcName, arg)
+	// GF-RUN-01/02：父 ctx 贯穿执行——取消时脚本在块边界中断，
+	// goroutine 等待纳入同一截止时间；签名不变。
+	result, runErr := program.RunInParentContext(ctx, seqid, funcName, arg)
 	// 调用方取消优先（§6 要点 8）：解释器返回后若 ctx 已取消且非超时，返回调用方取消
 	if ctx != nil {
 		if cerr := ctx.Err(); cerr != nil && !errors.Is(cerr, context.DeadlineExceeded) {

@@ -7,42 +7,49 @@ import (
 )
 
 func TestDuckLakeCatalogKeys(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "simplebase", Environment: "test"}
-	tenant := "11111111-1111-1111-1111-111111111111"
+	kb := KeyBuilder{RootPrefix: "simplebase"}
+	proj := "prj12345"
 	db := "33333333-3333-3333-3333-333333333333"
 
-	duck, err := kb.DuckLakeSnapshotKey(tenant, db, 7, 1, "duckdb")
+	duck, err := kb.DuckLakeSnapshotKey(proj, db, 7, 1, "duckdb")
 	if err != nil || !strings.HasSuffix(duck, ".ducklake") {
 		t.Fatalf("duckdb snapshot key = %s err=%v", duck, err)
 	}
-	def, _ := kb.DuckLakeSnapshotKey(tenant, db, 7, 1, "")
+	if !strings.Contains(duck, "/prj12345/databases/"+db+"/catalog/snapshots/") {
+		t.Fatalf("snapshot key layout = %s", duck)
+	}
+	def, _ := kb.DuckLakeSnapshotKey(proj, db, 7, 1, "")
 	if def != duck {
 		t.Fatalf("empty engine must default to duckdb: %s", def)
 	}
-	lite, err := kb.DuckLakeSnapshotKey(tenant, db, 7, 1, "sqlite")
+	lite, err := kb.DuckLakeSnapshotKey(proj, db, 7, 1, "sqlite")
 	if err != nil || !strings.HasSuffix(lite, ".sqlite") {
 		t.Fatalf("sqlite snapshot key = %s err=%v", lite, err)
 	}
-	if _, err := kb.DuckLakeSnapshotKey(tenant, db, 7, 1, "postgres"); err == nil {
+	if _, err := kb.DuckLakeSnapshotKey(proj, db, 7, 1, "postgres"); err == nil {
 		t.Fatal("unknown engine must fail")
 	}
 
-	if got := kb.InstanceFormatKey(); got != "simplebase/test/catalog/instance-format.json" {
+	if got := kb.InstanceFormatKey(); got != "simplebase/_system/instance-format.json" {
 		t.Fatalf("instance format key = %s", got)
 	}
-	if got := kb.ResetLockKey(); got != "simplebase/test/catalog/reset.lock" {
+	if got := kb.ResetLockKey(); got != "simplebase/_system/reset.lock" {
 		t.Fatalf("reset lock key = %s", got)
 	}
-	if got := kb.TenantsPrefix(); got != "simplebase/test/tenants" {
-		t.Fatalf("tenants prefix = %s", got)
+	if got := kb.RootListingPrefix(); got != "simplebase/" {
+		t.Fatalf("root listing prefix = %s", got)
+	}
+	if got := (KeyBuilder{}).RootListingPrefix(); got != "" {
+		t.Fatalf("empty root listing prefix = %q", got)
 	}
 
-	uri, err := kb.DuckLakeDataURI("bucket", tenant, db)
+	uri, err := kb.DuckLakeDataURI("bucket", proj, db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(uri, "s3://bucket/") || !strings.HasSuffix(uri, "/data/") {
-		t.Fatalf("data uri = %s", uri)
+	want := "s3://bucket/simplebase/" + proj + "/databases/" + db + "/data/"
+	if uri != want {
+		t.Fatalf("data uri = %s want %s", uri, want)
 	}
 }
 

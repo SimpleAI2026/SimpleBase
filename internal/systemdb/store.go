@@ -35,6 +35,9 @@ type Store struct {
 	mu     sync.Mutex
 	closed bool
 
+	seedMu      sync.Mutex
+	seedFlights map[string]chan struct{} // 每项目播种串行，关闭信号通知等待者重查
+
 	metricsBuf []MetricSample
 	logBuf     []LogEvent
 	// metricAgg 是热指标的内存预聚合桶（§7.2 P3.3）。
@@ -95,6 +98,16 @@ func (s *Store) notifyWrite(ctx context.Context) {
 		return
 	}
 	_ = s.factory.AfterWrite(ctx, s.meta, s.db)
+}
+
+// NotifyWrite 导出写后同步通知（SYNC-01）：auth 仓储等直接持有 *sql.DB
+// 的写入方在写成功后调用，确保 catalog 发布不遗漏吊销 Key / 改密 / 禁用
+// 用户这类“只有一次写入”的变更。factory 未配置时为 no-op。
+func (s *Store) NotifyWrite(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	s.notifyWrite(ctx)
 }
 
 // Ping 检查系统库是否可查询。

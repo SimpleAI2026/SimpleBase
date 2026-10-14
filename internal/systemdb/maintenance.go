@@ -26,7 +26,7 @@ const MaintenanceInitialDelay = time.Minute
 // authTablesCompactInterval 是认证热点表的小文件合并周期。
 // planv5.0 §4 P2：refresh 轮转 UPDATE / 项目归属变更高频小事务使
 // sys_user_sessions、sys_project_owners、sys_users 存活文件持续增长
-//（2026-10-08 基线 18/19/9 个），而这三张表正是 5s Principal 缓存过期
+// （2026-10-08 基线 18/19/9 个），而这三张表正是 5s Principal 缓存过期
 // 波次必读的表；远端 COS 每文件一次往返，读放大直接落在认证延迟上。
 // 比全库 merge（每小时）更频繁，且按表定向，避开日志/指标等大表的
 // 合并内存开销。

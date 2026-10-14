@@ -1,18 +1,18 @@
 <template>
   <SbModal
     :open="open"
-    title="新建集合"
+    :title="t('components.createCollection.title')"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: !canSubmit }"
     @ok="submit"
     @update:open="emit('update:open', $event)"
   >
     <Field :data-invalid="nameError ? true : undefined">
-      <FieldLabel for="collection-name">集合名称</FieldLabel>
+      <FieldLabel for="collection-name">{{ t('components.createCollection.name') }}</FieldLabel>
       <Input
         id="collection-name"
         v-model="name"
-        placeholder="例如：users（字母开头，仅字母数字下划线）"
+        :placeholder="t('components.createCollection.namePlaceholder')"
         :aria-invalid="nameError ? true : undefined"
         @keydown.enter="submit"
       />
@@ -24,6 +24,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -44,6 +45,8 @@ const emit = defineEmits<{
   created: [name: string]
 }>()
 
+const { t } = useI18n()
+
 const name = ref('')
 const submitting = ref(false)
 
@@ -51,7 +54,7 @@ const nameError = computed(() => {
   const n = name.value.trim()
   if (!n) return ''
   if (!COLLECTION_NAME_RE.test(n)) {
-    return '集合名称须以字母开头，仅含字母、数字和下划线'
+    return t('components.createCollection.nameInvalid')
   }
   return ''
 })
@@ -70,18 +73,18 @@ watch(
 
 async function submit() {
   if (!canSubmit.value || !props.database) {
-    if (!name.value.trim()) toast.warning('请输入集合名称')
+    if (!name.value.trim()) toast.warning(t('components.createCollection.nameRequired'))
     return
   }
   submitting.value = true
   try {
     const trimmed = name.value.trim()
     await api.db.createCollection(props.projectId, props.database.id, trimmed)
-    toast.success('集合创建成功')
+    toast.success(t('components.createCollection.created'))
     emit('created', trimmed)
     emit('update:open', false)
   } catch (e) {
-    toast.error(errorMessage(e, '集合创建失败'))
+    toast.error(errorMessage(e, t('components.createCollection.createFailed')))
   } finally {
     submitting.value = false
   }

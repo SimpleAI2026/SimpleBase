@@ -211,7 +211,7 @@ func TestDownloadFileErrorAndMemoryPutRead(t *testing.T) {
 }
 
 func TestDuckLakeKeyErrors(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "r", Environment: "e"}
+	kb := KeyBuilder{RootPrefix: "r"}
 	if _, err := kb.DuckLakeSnapshotKey("bad", "33333333-3333-3333-3333-333333333333", 1, 1, "duckdb"); err == nil {
 		t.Fatal("snapshot key")
 	}

@@ -223,7 +223,7 @@ func (s *s3FileStore) sanitize(err error) error {
 	return fmt.Errorf("objectstore: %s", s.redacted.cleanString(err.Error()))
 }
 
-/* ---------- 内存实现（DevMode） ---------- */
+/* ---------- 内存实现（单测） ---------- */
 
 type memoryFile struct {
 	data        []byte
@@ -236,7 +236,7 @@ type memoryFileStore struct {
 	objects map[string]*memoryFile
 }
 
-// NewMemoryFileStore 构造 DevMode 使用的内存 FileStore。不持久化，进程退出即丢失。
+// NewMemoryFileStore 构造测试使用的内存 FileStore。不持久化，进程退出即丢失。
 func NewMemoryFileStore() FileStore {
 	return &memoryFileStore{objects: make(map[string]*memoryFile)}
 }

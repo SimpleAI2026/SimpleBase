@@ -1,14 +1,14 @@
 <template>
   <div v-if="total > 0" :class="rootClass">
-    <p class="text-xs text-muted-foreground">共 {{ total }} 条</p>
+    <p class="text-xs text-muted-foreground">{{ t('components.tablePager.total', { n: total }) }}</p>
     <div v-if="pageCount > 1" class="flex items-center gap-2">
       <Button variant="outline" size="sm" :disabled="page <= 1" @click="emit('update:page', page - 1)">
         <ChevronLeftIcon data-icon="inline-start" />
-        上一页
+        {{ t('components.tablePager.prev') }}
       </Button>
       <span class="text-xs text-muted-foreground">{{ page }} / {{ pageCount }}</span>
       <Button variant="outline" size="sm" :disabled="page >= pageCount" @click="emit('update:page', page + 1)">
-        下一页
+        {{ t('components.tablePager.next') }}
         <ChevronRightIcon data-icon="inline-end" />
       </Button>
     </div>
@@ -16,6 +16,7 @@
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ChevronLeftIcon, ChevronRightIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 
@@ -32,6 +33,8 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{ 'update:page': [value: number] }>()
+
+const { t } = useI18n()
 
 const rootClass = computed(() =>
   props.variant === 'footer'

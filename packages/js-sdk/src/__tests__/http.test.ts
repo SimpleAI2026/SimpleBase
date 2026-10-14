@@ -16,15 +16,15 @@ describe('createClient', () => {
     })
     const sb = createClient({
       url: 'http://example.test',
-      apiKey: 'sb_live_dev_key_12345',
-      projectId: 'dev-shop',
+      apiKey: 'sb_live_test_key_00000',
+      projectId: 'testprj1',
       fetch: fetchMock as unknown as typeof fetch
     })
     await sb.databases.list()
     expect(fetchMock).toHaveBeenCalled()
     const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     const headers = call[1].headers as Record<string, string>
-    expect(headers.Authorization).toBe('Bearer sb_live_dev_key_12345')
+    expect(headers.Authorization).toBe('Bearer sb_live_test_key_00000')
   })
 
   it('maps error JSON to SimpleBaseError', async () => {

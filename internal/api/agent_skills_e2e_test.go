@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,7 +34,7 @@ func TestRunEventHubGapAndConfirmTimeout(t *testing.T) {
 		t.Fatal("expected stream gap")
 	}
 	confirms := newConfirmHub()
-	ok, err := confirms.Wait(context.Background(), "run", "call", 30*time.Millisecond)
+	ok, err := confirms.Wait(context.Background(), "run", "call", "u1", 30*time.Millisecond)
 	if ok || err != nil {
 		t.Fatalf("timeout approve=%v err=%v", ok, err)
 	}
@@ -237,6 +236,18 @@ func toolDeltas(id string, argv []string) []cloudagent.StreamDelta {
 	}
 }
 
+// toolStdinDeltas 构造带内联 stdin 的工具调用（planv6.0 D3：--file -）。
+func toolStdinDeltas(id string, argv []string, stdin string) []cloudagent.StreamDelta {
+	raw, _ := json.Marshal(map[string]any{"argv": argv, "stdin": stdin})
+	s := string(raw)
+	cut := len(s) / 2
+	return []cloudagent.StreamDelta{
+		{ToolCall: &cloudagent.ToolCallDelta{Index: 0, ID: id, Name: "simplebase", ArgsDelta: s[:cut]}},
+		{ToolCall: &cloudagent.ToolCallDelta{Index: 0, ArgsDelta: s[cut:]}},
+		{Finish: true},
+	}
+}
+
 func textDeltas(text string) []cloudagent.StreamDelta {
 	return []cloudagent.StreamDelta{{Content: text, Finish: true}}
 }
@@ -302,6 +313,27 @@ func parseSSEFrame(lines []string) (sseEv, bool) {
 	return sseEv{ID: id, Type: typ, Raw: raw, Data: data}, true
 }
 
+// mustListAgents 返回某项目的全部助手（测试辅助）。
+func mustListAgents(t *testing.T, store *systemdb.Store) []systemdb.CloudAgent {
+	t.Helper()
+	list, err := store.ListCloudAgents(context.Background(), "testprj1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return list
+}
+
+// setAgentsWritable 切换测试项目全部助手的写开关。
+func setAgentsWritable(t *testing.T, store *systemdb.Store, v bool) {
+	t.Helper()
+	for _, a := range mustListAgents(t, store) {
+		a.Writable = v
+		if _, err := store.UpdateCloudAgent(context.Background(), a); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestAgentSkillsE2E(t *testing.T) {
 	secret := "test-secret"
 	reg := auth.NewDelegationRegistry()
@@ -318,6 +350,19 @@ func TestAgentSkillsE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)
+	// planv6.0 v2 D-C1a：v48 起助手默认只读。本用例集验证的是写流程，
+	// 因此把内置助手显式标为可写；只读拒绝由 14/15 单独覆盖。
+	if err := store.SeedDefaultCloudAgents(context.Background(), "testprj1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range mustListAgents(t, store) {
+		if !a.Writable {
+			a.Writable = true
+			if _, err := store.UpdateCloudAgent(context.Background(), a); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	llm := &scriptLLM{}
 	confirms := newConfirmHub()
 	events := newRunEventHub()
@@ -335,11 +380,11 @@ func TestAgentSkillsE2E(t *testing.T) {
 			if c.Request().Header.Get("X-Test-Role") == "admin" {
 				role = auth.RoleAdmin
 			}
-			ctx := WithProject(c.Request().Context(), ProjectContext{ID: catalog.DevProjectID, TenantID: catalog.ReservedTenantID})
+			ctx := WithProject(c.Request().Context(), ProjectContext{ID: "testprj1", TenantID: catalog.ReservedTenantID})
 			ctx = WithPrincipal(ctx, auth.Principal{
 				UserID: "u1", Username: "ada", Role: role, TenantID: catalog.ReservedTenantID,
 				Permissions: auth.PermissionsForRole(role),
-				ProjectIDs:  map[string]struct{}{catalog.DevProjectID: {}},
+				ProjectIDs:  map[string]struct{}{"testprj1": {}},
 			})
 			c.SetRequest(c.Request().WithContext(ctx))
 			return next(c)
@@ -348,15 +393,6 @@ func TestAgentSkillsE2E(t *testing.T) {
 	registerAgentRoutes(e, h)
 	agentSrv := httptest.NewServer(e)
 	defer agentSrv.Close()
-
-	hello := t.TempDir() + "/hello.go"
-	if err := os.WriteFile(hello, []byte("package main\nimport \"fmt\"\nfunc Hello() string { fmt.Println(\"hi\"); return \"hi\" }\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	readme := t.TempDir() + "/readme.txt"
-	if err := os.WriteFile(readme, []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	postJSON := func(t *testing.T, path, role string, body any) *http.Response {
 		t.Helper()
@@ -560,8 +596,9 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("7 function", func(t *testing.T) {
+		src := "package main\nimport \"fmt\"\ntype Req struct{}\nfunc Hello(req Req) string { fmt.Println(\"hi\"); return \"hi\" }\n"
 		_, resp := openRun(t, "写一个 Hello 云函数并调用", []string{"gofunction"}, "user", [][]cloudagent.StreamDelta{
-			toolDeltas("c1", []string{"function", "create", "--name", "hello", "--file", hello}),
+			toolStdinDeltas("c1", []string{"function", "create", "--name", "hello", "--file", "-"}, src),
 			toolDeltas("c2", []string{"function", "invoke", "--name", "hello", "--export", "Hello"}),
 			textDeltas("hi"),
 		})
@@ -630,7 +667,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 
 	t.Run("12 upload", func(t *testing.T) {
 		_, resp := openRun(t, "上传 readme", []string{"s3"}, "user", [][]cloudagent.StreamDelta{
-			toolDeltas("c1", []string{"object", "upload", "--key", "readme", "--file", readme}),
+			toolStdinDeltas("c1", []string{"object", "upload", "--key", "readme", "--file", "-"}, "hello"),
 			textDeltas("ok"),
 		})
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
@@ -658,6 +695,43 @@ func TestAgentSkillsE2E(t *testing.T) {
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
 		if !resultIsError(evs, "forbidden") || lastReason(evs) != "stop" {
 			t.Fatalf("%+v %s", data.hits, joinResults(evs))
+		}
+	})
+
+	t.Run("14b readonly agent rejects writes", func(t *testing.T) {
+		// planv6.0 v2 §3.8：助手级只读开关对写命令的拒绝，且不进入确认流程。
+		setAgentsWritable(t, store, false)
+		t.Cleanup(func() { setAgentsWritable(t, store, true) })
+		_, resp := openRun(t, "删掉 shop 库", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
+			textDeltas("no"),
+		})
+		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
+		if !resultIsError(evs, "write_not_allowed") {
+			t.Fatalf("readonly write must be rejected: %s", joinResults(evs))
+		}
+		// 未进入确认：不应有 confirmation_required，也不应有删除请求。
+		if hasType(evs, "confirmation_required") {
+			t.Fatal("readonly rejection must happen before confirmation")
+		}
+		if data.count(http.MethodDelete, "/databases/", false) != 0 {
+			t.Fatalf("delete must not run: %+v", data.hits)
+		}
+	})
+
+	t.Run("14c readonly agent still allows reads", func(t *testing.T) {
+		setAgentsWritable(t, store, false)
+		t.Cleanup(func() { setAgentsWritable(t, store, true) })
+		_, resp := openRun(t, "查一下", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+			toolDeltas("c1", []string{"sql", "query", "--database", "shop", "--statement", "SELECT 1"}),
+			textDeltas("ok"),
+		})
+		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
+		if lastReason(evs) != "stop" || resultIsError(evs, "write_not_allowed") {
+			t.Fatalf("read must be allowed: %s", joinResults(evs))
+		}
+		if data.count(http.MethodPost, "/query", true) != 1 {
+			t.Fatalf("query hits %+v", data.hits)
 		}
 	})
 

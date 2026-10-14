@@ -1,0 +1,148 @@
+source,design_rank,company,industry,country,score,metric_score,visual_score,colorsTotal,fontCount,fontSizesSig,fontWeights,radii,shadows,gradients,heroSize,bodySize,heroBodyRatio,contrast,lowContrastShare,url,comment
+tech,1,SpaceX,Hardware/Devices,USA,89.1,94.2,85.0,9,3,4,2,3,0,9,60.0,16,3.75,18.55,0.0,https://www.spacex.com/,全黑全幅影像，几乎零装饰
+general,2,Eli Lilly,Pharma,,87.7,84.9,90,15,3,8,2,6,0,5,100.0,20,5.0,13.98,0.122,https://www.lilly.com/,黑白摄影+超大衬线标题，最佳之一
+general,3,Novartis,Pharma,,86.6,94.7,80,10,3,7,4,1,2,1,62.0,16,3.88,17.64,0.0,https://www.novartis.com/,大量留白+橙色点缀，舒展
+general,4,Inditex,Retail,,86.4,88.0,85.0,6,4,5,5,0,0,0,56.0,18,3.11,21,0.0,https://www.inditex.com/itxcomweb/us/en/home,黑白摄影+无衬线细字，极简
+tech,2,Robinhood,Internet,USA,85.7,98.9,75.0,12,2,3,2,1,1,6,72.0,16,4.5,18.01,0.0,https://robinhood.com/sg/en/,灰度人物+衬线标题+荧光黄，品牌感强
+general,5,Johnson & Johnson,Pharma,,85.6,92.4,80,13,2,7,1,1,0,0,80.0,16,5.0,6.56,0.0,https://www.jnj.com/,红色品牌+衬线标题，克制有力
+general,6,JPMorgan Chase,Finance,,83.8,88.3,80,12,3,7,5,3,0,13,72.0,20,3.6,20.0,0.0,https://www.jpmorganchase.com/,衬线大标题+人物照，编辑感强
+tech,3,Meta Platforms (Facebook),Internet,USA,83.5,87.8,80,16,3,5,3,4,0,0,48.0,18,2.67,12.93,0.0,https://about.meta.com/,大图+一句话标题，留白舒展
+general,8,Roche,Pharma,,83.1,93.0,75.0,13,2,7,2,2,4,1,48.0,20,2.4,16.18,0.054,https://www.roche.com/,留白充足+温和配色，正文舒适
+general,9,International Holding Company,Conglomerate,,82.9,92.5,75.0,15,1,8,2,4,3,0,92.0,16.866,5.45,21,0.0,https://www.ihcuae.com/,全幅航拍+细体大字，舒展
+tech,4,Alphabet (Google),Internet,USA,82.4,97.5,70,6,1,2,2,0,0,0,46.0,16,2.88,16.1,0.0,https://abc.xyz/,投资者页式极简，留白足但层级弱
+tech,5,IBM,Software/Cloud,USA,81.7,89.8,75.0,17,1,8,3,3,1,3,53.6,16,3.35,16.33,0.0,https://www.ibm.com/us-en,白底蓝字左对齐，IBM式秩序
+general,12,LVMH,Luxury,,81.7,77.8,85.0,14,3,4,3,0,0,0,16.0,,1.0,,,https://www.lvmh.com/en,时装大图+极简排版，奢侈品式
+general,13,Citigroup,Finance,,80.9,81.9,80,15,1,10,2,4,2,0,36.0,16,2.25,10.55,0.0,https://www.citigroup.com/global,大留白+城市图，干净克制
+tech,6,Netflix,Internet,USA,80.8,88.0,75.0,17,1,4,3,5,1,9,56.0,16,3.5,21,0.0,https://www.netflix.com/,深色海报墙+红CTA，目标单一
+general,15,HSBC,Finance,,80.0,92.1,70,14,1,8,4,1,1,0,65.0,18,3.61,18.26,0.0,https://www.hsbc.com/,红白品牌，cookie弹层遮挡
+tech,7,Intel,Semiconductors,USA,79.6,91.4,70,15,2,6,2,3,1,0,240.0,12,20.0,10.38,0.0,https://www.intel.com/content/www/us/en/homepage.html,深色+蓝光产品图，标题超大
+general,17,Procter & Gamble,Consumer Goods,,79.4,84.8,75.0,11,1,6,6,7,4,0,80.0,16,5.0,9.5,0.0,https://us.pg.com/,品牌蓝纯色+大字，简单直接
+general,18,General Electric,Industrial,,79.4,78.6,80,18,1,10,2,4,0,3,84.0,16,5.25,11.1,0.344,https://www.geaerospace.com/,全幅飞机影像+白字，清爽
+tech,8,Apple,Hardware/Devices,USA,79.2,65.9,90,33,2,8,3,6,1,18,56.0,12,4.67,18.9,0.0,https://www.apple.com/,黑白大图+SF字体，极度克制的标杆
+tech,9,AppLovin,Software/Cloud,USA,78.8,89.6,70,12,3,9,3,5,1,0,80.0,18,4.44,19.93,0.0,https://www.applovin.com/en,摄影拼贴+居中标题，编辑感
+tech,10,Seagate Technology,Hardware/Devices,Ireland,78.6,89.2,70,14,3,7,5,3,1,0,48.0,14,3.43,20.13,0.0,https://www.seagate.com/sg/en/,深绿暗调+产品摄影，单一CTA清楚
+tech,11,Samsung,Hardware/Devices,S. Korea,77.7,74.9,80,18,3,9,2,6,2,0,32.0,12,2.67,20.11,0.0,https://www.samsung.com/us/,产品大图白底，商业感强但干净
+tech,12,Nokia,Hardware/Devices,Finland,77.7,80.9,75.0,20,2,8,5,5,1,2,72.0,18,4.0,15.43,0.017,https://www.nokia.com/,暗调机房摄影+大字，克制有力
+general,21,CATL,Auto/Battery,,77.6,93.0,65.0,11,2,3,1,1,2,1,18.0,20,0.9,18.08,0.0,https://www.catl.com/en/,3D渲染工厂，标题偏小
+tech,13,Digital Realty,Software/Cloud,USA,77.3,80.1,75.0,17,4,9,4,2,1,2,98.0,18,5.44,13.92,0.054,https://www.digitalrealty.com/,航拍+三行大标题，留白舒展
+tech,14,Booking Holdings (Booking.com),Internet,USA,77.0,73.2,80,3,1,1,3,0,0,0,15.0,15,1.0,1,1.0,https://www.bookingholdings.com/,全幅风景+细字标题，极简酒店杂志感
+general,22,RTX,Aerospace,,76.8,91.1,65.0,17,2,7,3,1,2,4,42.0,14,3.0,20.59,0.0,https://www.rtx.com/,灰调影像+cookie条，低对比
+tech,15,Foxconn (Hon Hai Precision Industry),Hardware/Devices,Taiwan,76.5,90.5,65.0,14,2,6,3,4,0,5,32.0,18,1.78,15.99,0.0,https://www.honhai.com/en-us,全幅森林航拍+粗体白字，冲击力尚可
+general,23,L'Oréal,Consumer Goods,,76.0,83.3,70,17,2,6,4,5,4,0,50.0,16,3.12,9.79,0.0,https://www.loreal.com/en/,足球大图+衬线，奢品味
+tech,16,KLA,Semiconductors,USA,75.0,87.1,65.0,15,3,7,4,0,1,6,55.0,16,3.44,16.38,0.145,https://www.kla.com/,超大'50'数字，标识鲜明
+tech,17,SAP,Software/Cloud,Germany,74.5,86.0,65.0,19,1,7,4,4,2,0,57.0,16,3.56,11.11,0.0,https://www.sap.com/,深蓝+活动横幅，常规SaaS
+general,26,Mitsubishi UFJ Financial,Finance,,74.3,73.5,75.0,24,3,8,3,3,0,0,30.0,14,2.14,10.89,0.046,https://www.mufg.jp/english/,红白+人物，日式克制
+tech,18,Tencent,Internet,China,74.2,79.3,70,16,2,12,4,4,1,0,85.0,16,5.31,18.65,0.0,https://www.tencent.com/,影像+斜体标题，存在cookie弹层
+general,27,Visa,Finance,,74.2,85.5,65.0,13,3,6,3,1,0,21,52.0,17,3.06,10.78,0.0,https://www.visa.com.sg/,品牌蓝+插画，但渐变多
+general,29,Shell,Energy,,74.2,91.7,60,13,2,4,2,4,0,0,32.0,14,2.29,10.26,0.0,https://www.shell.com/,黄红品牌，cookie条占位
+general,30,AstraZeneca,Pharma,,74.2,85.5,65.0,17,2,8,4,2,1,1,42.0,18,2.33,12.18,0.0,https://www.astrazeneca.com/,紫色品牌+卡片，层级一般
+tech,19,Delta Electronics,Hardware/Devices,Taiwan,73.8,90.7,60,14,1,5,2,4,2,0,48.0,18,2.67,15.63,0.217,https://www.deltaww.com/en-US/index,3D城市渲染+轮播箭头，常规
+tech,20,Datadog,Software/Cloud,USA,73.7,84.3,65.0,21,2,5,4,3,1,4,68.0,18,3.78,17.62,0.13,https://www.datadoghq.com/,白底紫色+产品截图，标准SaaS但清楚
+tech,21,Applied Materials,Semiconductors,USA,73.6,90.1,60,14,2,5,3,2,3,1,50.0,16,3.12,7.38,0.0,https://www.appliedmaterials.com/,多图拼贴，标题压图可读性弱
+tech,22,Lumentum,Semiconductors,USA,73.5,83.8,65.0,19,2,6,4,5,2,5,48.0,16,3.0,14.59,0.0,https://www.lumentum.com/,黑底星点网络+细字，克制但模板化
+tech,23,Alibaba,Internet,China,73.3,77.4,70,15,1,6,4,3,0,1,35.0,15.75,2.22,7.89,0.669,https://www.alibabagroup.com/en-US/,影像+细字，正文对比偏低
+general,33,Kweichow Moutai,Consumer Goods,,73.3,95.6,55.0,6,1,3,1,1,0,1,40.5,12,3.38,12.63,0.0,https://www.moutaichina.com/,金色古典装饰门户页
+tech,24,Infineon,Semiconductors,Germany,73.2,83.2,65.0,4,1,1,1,2,0,0,16.0,,1.0,,,https://www.infineon.com/,白底+青绿图形，留白充足
+tech,25,Micron Technology,Semiconductors,USA,73.0,82.8,65.0,18,4,8,3,4,2,0,72.0,14,5.14,18.54,0.0,https://www.micron.com/,暗色科技风，渐变网格略套路
+tech,26,Panasonic,Hardware/Devices,Japan,72.8,94.6,55.0,9,1,6,1,1,0,0,44.0,12,3.67,10.62,0.0,https://holdings.panasonic/global/,蓝色3D方块+细小标题，信息弱
+tech,27,PDD Holdings (Pinduoduo),Internet,China,72.5,87.8,60,6,1,1,2,1,0,0,48.0,,3.0,,,https://www.pddholdings.com/,纯文字+浅三角装饰，极简但缺层级
+tech,28,Coherent Corp.,Semiconductors,USA,72.1,86.9,60,16,2,10,2,3,0,1,85.0,16,5.31,11.46,0.0,https://www.coherent.com/,纯蓝块+大写标题，大胆但粗糙
+tech,29,Xiaomi,Hardware/Devices,China,71.9,74.1,70,23,1,7,4,5,1,0,32.0,16,2.0,12.52,0.269,https://www.mi.com/global/,白底产品陈列+一句标题，克制
+tech,30,MercadoLibre,Internet,Argentina,71.7,86.1,60,3,1,1,2,1,0,0,36.0,,2.25,,,https://www.mercadolibre.com/,国家选择页：品牌黄+logo，极简入口
+tech,31,Adobe,Software/Cloud,USA,71.7,79.9,65.0,14,2,7,3,7,1,5,80.0,16,5.0,8.14,0.628,https://www.adobe.com/,产品场景大图+粗体标题，层级清楚
+general,35,Toyota,Auto,,71.7,85.9,60,15,2,9,2,1,0,0,28.0,14,2.0,11.31,0.0,https://global.toyota/en/,汽车影像+新闻条，偏满
+tech,32,Cisco,Hardware/Devices,USA,71.5,73.2,70,22,1,8,5,9,3,2,60.0,16,3.75,19.35,0.0,https://www.cisco.com/,白底+3D渲染，字号偏多
+tech,33,Sony,Hardware/Devices,Japan,71.5,79.5,65.0,19,4,7,2,4,1,0,40.0,14,2.86,14.69,0.165,https://www.sony.com/en/,黑白产品摄影+多图轮播，略碎
+tech,34,Lam Research,Semiconductors,USA,70.6,77.4,65.0,16,4,9,4,2,1,0,56.0,16,3.5,9.01,0.0,https://www.lamresearch.com/,衬线+斜体强调，留白尚可
+general,37,Saudi Aramco,Energy,,70.6,65.1,75.0,23,3,9,4,7,2,11,60.0,18,3.33,13.87,0.153,https://www.aramco.com/en,暗色影像+绿色点缀，标题清晰
+tech,35,Nanya Technology,Semiconductors,Taiwan,70.5,89.5,55.0,13,1,8,4,1,0,1,30.0,16,1.88,20.68,0.0,https://www.nanya.com/en/,青绿波浪图形+图标卡片，平淡
+general,39,UnitedHealth,Healthcare,,70.1,58.1,80,22,3,14,3,7,2,5,44.0,17.008,2.59,18.81,0.014,https://www.unitedhealthgroup.com/,全幅人物影像+一句话，克制
+general,40,Walt Disney,Media,,70.0,76.2,65.0,15,1,11,3,7,2,3,24.0,14.4,1.67,17.79,0.0,https://thewaltdisneycompany.com/,文字导航+大图，中规中矩
+tech,36,NVIDIA,Semiconductors,USA,69.8,75.7,65.0,24,1,10,3,1,3,1,48.0,15,3.2,18.51,0.0,https://www.nvidia.com/en-us/,深色+品牌绿单强调，信息密度偏高
+tech,37,Texas Instruments,Semiconductors,USA,69.7,81.6,60,15,3,9,4,1,2,1,56.0,14,4.0,9.44,0.137,https://www.ti.com/,红色品牌+产品图，工业感
+general,43,Toronto Dominion Bank,Finance,,69.6,87.5,55.0,17,3,7,3,1,1,0,38.0,15,2.53,16.48,0.0,https://www.td.com/ca/en/personal-banking,绿色品牌+多模块，银行门户感
+general,44,Wells Fargo,Finance,,69.4,80.9,60,15,4,8,4,3,4,4,56.0,13,4.31,16.99,0.0,https://www.wellsfargo.com/,红黄品牌+登录卡，较拥挤
+general,45,Gilead Sciences,Pharma,,69.2,68.2,70,27,1,9,3,1,2,8,40.0,20,2.0,12.59,0.142,https://www.gilead.com/,深蓝影像+大写标题，克制
+general,46,GE Vernova,Industrial,,69.0,74.0,65.0,19,4,6,4,8,1,0,92.0,18,5.11,9.69,0.047,https://www.gevernova.com/,压缩粗体标题+影像，冲击力强
+tech,38,Schneider Electric,Hardware/Devices,France,68.9,85.9,55.0,15,1,3,2,3,1,0,25.0,16,1.56,12.52,0.41,https://www.se.com/ww/en/,区域选择条+产品横幅，门户感
+tech,39,Airbnb,Internet,USA,68.7,67.1,70,16,1,5,4,12,3,1,28.0,,1.75,,,https://www.airbnb.com.sg/,产品即首页，搜索+房源网格秩序好
+general,47,SoftBank Group,Conglomerate,,68.2,72.2,65.0,17,4,10,2,4,1,0,44.0,14,3.14,9.21,0.139,https://group.softbank/en,灰色年报封面，留白多但平淡
+general,48,BHP Group,Mining,,68.0,59.5,75.0,19,4,10,2,7,1,2,48.0,16,3.0,5.48,0.304,https://www.bhp.com/,橙色+全幅风景，简洁
+general,49,Siemens,Industrial,,67.9,71.5,65.0,21,2,6,5,5,2,20,32.0,16,2.0,15.66,0.0,https://www.siemens.com/en-us/,深色+青绿CTA，渐变较多
+tech,40,Broadcom,Semiconductors,USA,67.8,83.4,55.0,18,2,7,4,4,2,2,44.0,15,2.93,9.5,0.051,https://www.broadcom.com/,红色强调+卡片堆叠，层级平
+general,51,Royal Bank Of Canada,Finance,,67.8,77.4,60,20,3,5,4,4,5,1,40.0,16,2.5,12.67,0.0,https://www.rbc.com/about-rbc.html,蓝黄品牌，模块偏碎
+tech,41,KIOXIA Holdings Corporation,Semiconductors,Japan,67.2,94.4,45.0,10,1,5,2,1,0,0,24.0,16,1.5,18.61,0.0,https://www.kioxia.com/en-jp/top.html,品红大块+AI插画，撞色突兀
+tech,42,Marvell Technology,Semiconductors,USA,67.1,57.4,75.0,27,1,11,2,4,0,1,72.0,16,4.5,6.99,0.566,https://www.marvell.com/,深蓝白+简洁左对齐标题
+tech,43,Nebius Group,Software/Cloud,Netherlands,67.1,69.7,65.0,26,2,7,4,12,1,0,94.0,15,6.27,15.18,0.0,https://nebius.com/,荧光黄绿+超大标题，记忆点强
+tech,44,Sea Limited,Internet,Singapore,66.8,68.9,65.0,18,1,5,2,6,2,1,80.0,16,5.0,4.15,1.0,https://www.sea.com/,人物摄影+Shopee橙，品牌一致
+general,53,Exxon Mobil,Energy,,66.7,68.8,65.0,14,5,10,2,0,0,0,60.0,16,3.75,5.56,0.343,https://corporate.exxonmobil.com/,红蓝品牌+全幅影像，正文对比一般
+tech,45,Analog Devices,Semiconductors,USA,66.1,67.5,65.0,23,3,6,3,6,3,0,56.0,16,3.5,7.57,0.487,https://www.analog.com/en/index.html,机器人大图+深蓝，常规
+general,55,Santander,Finance,,66.0,61.1,70,20,7,12,3,3,1,1,48.0,16,3.0,14.47,0.138,https://www.santander.com/en/home,红色品牌+影像，图标侧栏略杂
+general,56,American Express,Finance,,65.9,79.3,55.0,18,3,6,4,2,2,0,30.0,14,2.14,9.99,0.138,https://www.americanexpress.com/en-sg/?comm_track_id=r_9f08474c-af2e-48b0-a001-ae4ff793f61d_1_x,多卡片+多图，信用卡门户感
+tech,46,Microsoft,Software/Cloud,USA,65.8,60.7,70,28,4,7,3,7,3,0,62.0,16,3.88,9.43,0.431,https://www.microsoft.com/en-us/,中性底+蓝强调，卡片较多
+general,58,AbbVie,Pharma,,65.3,59.5,70,21,5,11,6,4,1,0,64.0,13.008,4.92,16.2,0.0,https://www.abbvie.com/,人物大图+叙事标题，字体略多
+general,59,Coca-Cola,Consumer Goods,,64.8,64.5,65.0,17,3,12,4,12,0,1,72.0,20,3.6,18.95,0.0,https://www.coca-colacompany.com/,品牌红+大字，圆角/字号偏多
+tech,47,Equinix,Software/Cloud,USA,64.7,58.2,70,21,1,11,4,7,4,20,65.2,17.2658,3.78,9.72,0.228,https://www.equinix.com/,黑底云朵+人物，概念统一
+general,60,Morgan Stanley,Finance,,64.7,64.3,65.0,22,6,8,4,1,1,0,40.0,16,2.5,9.42,0.023,https://www.morganstanley.com/,蓝白新闻网格，字体家族过多
+tech,48,United Microelectronics,Semiconductors,Taiwan,64.3,75.8,55.0,18,1,9,2,5,0,3,60.0,20,3.0,8.17,0.219,https://www.umc.com/en/home/Index,紫色渲染+cookie条，低对比
+tech,49,Tokyo Electron,Semiconductors,Japan,64.2,69.4,60,24,2,9,4,0,1,0,81.7,16,5.11,8.61,0.387,https://www.tel.com/,实验室实拍+cookie条遮挡
+general,61,Mastercard,Finance,,64.2,69.4,60,16,2,9,4,12,3,7,24.0,20,1.2,17.52,0.0,https://www.mastercard.com/global/en.html,首屏几乎只有视频帧，信息缺失
+tech,50,Meituan,Internet,China,64.0,81.1,50,17,3,5,2,5,1,0,52.0,12,4.33,12.05,0.353,https://www.meituan.com/,黄色品牌+中文长段落+cookie条，偏满
+tech,51,Cambricon Technologies,Semiconductors,China,63.8,80.6,50,14,3,6,3,2,1,0,36.0,,2.25,,,https://www.cambricon.com/,深蓝芯片渲染+中文小字，传统厂商站
+tech,52,Nintendo,Hardware/Devices,Japan,63.7,80.4,50,18,1,8,4,3,1,3,16.0,14,1.14,11.03,0.0,https://www.nintendo.com/sg/index.html,游戏海报+多条促销，玩具店式热闹
+tech,53,Spotify,Internet,Sweden,63.3,61.2,65.0,63,2,4,2,9,4,3,24.0,14,1.71,12.63,0.0,https://open.spotify.com/,产品本身(播放器)当首页，深色一致
+general,62,Chevron,Energy,,62.7,53.7,70,18,4,9,1,9,1,52,64.0,18,3.56,13.36,0.178,https://www.chevron.com/,新闻图+蓝色叠层，渐变用量大
+tech,54,Palantir,Software/Cloud,USA,62.6,65.7,60,22,2,9,1,6,1,0,34.0,18,1.89,5.29,0.049,https://www.palantir.com/,极暗首屏(视频未渲染)，偏空
+tech,55,Arista Networks,Hardware/Devices,USA,62.1,77.0,50,13,1,9,2,1,2,0,44.0,18,2.44,4.75,0.402,https://www.arista.com/en/,蓝色横幅+活动图，信息堆叠
+general,65,Costco,Retail,,61.7,88.2,40,15,1,4,2,6,1,0,32.0,16,2.0,14.05,0.0,https://www.costco.com/,促销徽章堆叠，色彩杂乱
+tech,56,NAURA Technology Group,Semiconductors,China,61.3,62.9,60,18,1,9,2,5,3,0,42.0,14,3.0,1.69,0.915,https://www.naura.com/,极光大图+巨型logo，信息缺失
+general,66,Berkshire Hathaway,Finance,,61.3,93.5,35.0,3,1,4,2,0,0,0,18.0,16,1.12,12.27,0.0,https://www.berkshirehathaway.com/,纯HTML列表，零设计层级
+tech,57,Shopify,Internet,Canada,61.2,38.2,80,36,2,10,8,11,10,45,96.0,18,5.33,8.31,0.0,https://www.shopify.com/,暗色视频+超大字，阴影/渐变多
+tech,58,Intuit,Software/Cloud,USA,61.1,50.2,70,28,3,10,3,12,0,17,36.0,14,2.57,19.2,0.022,https://www.intuit.com/,全幅摄影+超大标题，简单直接
+tech,59,CXMT,Semiconductors,China,61.0,74.3,50,26,1,7,3,6,1,0,48.0,14,3.43,9.19,0.0,https://www.cxmt.com/,暗色视频+中文大字，层级模糊
+tech,附加(60),JD.com,Internet,China,60.6,85.9,40,14,1,6,3,3,0,0,34.0,16,2.12,5.65,0.0,https://corporate.jd.com/,红色导航+数据卡片+新闻列表，门户式
+general,69,Walmart,Retail,,60.6,79.7,45.0,20,1,7,2,9,3,0,56.0,18.72,2.99,11.25,0.0,https://www.walmart.com/,促销色块+价格大字，零售型拥挤
+general,70,China Construction Bank,Finance,,60.5,85.6,40,16,2,5,2,2,0,1,30.0,12,2.5,9.37,0.0,https://www.ccb.com/eng/home/index.shtml,门户式蓝色横幅，图标密集
+tech,60,AMD,Semiconductors,USA,60.4,61.0,60,19,4,11,4,8,7,2,54.4,14,3.89,16.98,0.0,https://www.amd.com/en.html,暗色+青色发光，'AI科技'模板感
+tech,61,SK Hynix,Semiconductors,S. Korea,59.9,66.0,55.0,19,1,9,3,3,1,0,32.0,18,1.78,3.63,0.459,https://www.skhynix.com/,新闻卡片轮播，对比偏低
+tech,62,TSMC,Semiconductors,Taiwan,59.8,59.5,60,24,1,9,2,2,0,0,50.0,16,3.12,4.26,0.794,https://www.tsmc.com/english,蓝灰企业风，正文对比偏弱
+general,74,Amphenol,Industrial,,59.7,71.5,50,18,1,10,3,3,3,0,36.0,14.4,2.5,8.16,0.467,https://www.amphenol.com/,蓝色星空横幅+四卡片，模板感
+tech,63,MediaTek,Semiconductors,Taiwan,59.6,65.2,55.0,20,4,11,3,7,1,5,62.0,20,3.1,18.39,0.101,https://www.mediatek.com/,橙黑撞色+文字列表，略杂
+tech,64,SMIC,Semiconductors,China,59.6,83.7,40,18,1,9,2,2,1,0,45.0,18,2.5,11.6,0.0,https://www.smics.com/en/,浅色插画背景+小字，层级模糊
+tech,附加(63),Baidu,Internet,China,59.6,89.6,35.0,13,1,3,2,0,0,0,18.0,14,1.29,10.33,0.091,https://ir.baidu.com/,IR模板：小字+多栏表格，几无设计
+tech,65,Synopsys,Software/Cloud,USA,59.4,64.8,55.0,21,1,10,5,8,2,10,48.0,16,3.0,15.09,0.131,https://www.synopsys.com/,深紫+服务器图+多卡片，标准B2B
+tech,66,Automatic Data Processing,Software/Cloud,USA,59.2,70.4,50,17,3,11,3,8,4,0,44.0,16,2.75,18.39,0.0,https://www.adp.com/,大留白+红色条带割裂，促销条多
+tech,67,Arm Holdings,Semiconductors,UK,59.1,52.0,65.0,43,2,10,4,7,4,11,80.0,14,5.71,7.68,0.18,https://www.arm.com/,深蓝+光线渐变，颜色计数高
+tech,68,Murata Manufacturing (Murata Seisakusho),Hardware/Devices,Japan,59.0,88.4,35.0,16,1,8,2,3,2,0,36.0,16,2.25,11.89,0.0,https://www.murata.com/en-global,区域选择弹窗遮挡首页
+tech,69,ServiceNow,Software/Cloud,USA,58.9,63.6,55.0,16,6,9,2,5,1,2,56.0,12,4.67,8.04,0.368,https://www.servicenow.com/,深绿+荧光绿+界面卡片，SaaS模板感重
+tech,70,Advantest,Semiconductors,Japan,58.1,68.0,50,23,1,11,3,3,1,5,34.0,16,2.12,10.85,0.163,https://www.advantest.com/en/,手捧地球+图标叠加，典型ESG模板
+general,77,Thermo Fisher Scientific,Healthcare,,58.1,68.1,50,23,3,8,5,5,2,1,50.0,16,3.12,10.81,0.245,https://www.thermofisher.com/sg/en/home.html,红色产品横幅+多卡片，偏杂
+general,78,Amgen,Pharma,,58.0,67.7,50,11,2,8,4,3,3,16,32.0,16,2.0,3.23,0.685,https://www.amgen.com/,蓝色渐变+杂志封面，主次不明
+tech,71,Cadence Design Systems,Software/Cloud,USA,57.7,54.9,60,30,3,11,4,3,2,31,48.6,18,2.7,10.47,0.031,https://www.cadence.com/en_US/home.html,黑底芯片渲染+左对齐，干净但空
+tech,72,Sandisk,Semiconductors,USA,57.6,60.9,55.0,19,4,9,3,5,1,28,64.0,14,4.57,7.79,0.223,https://www.sandisk.com/,红色导航+多层条带，拥挤
+tech,73,NXP Semiconductors,Semiconductors,Netherlands,57.3,90.8,30,13,2,6,2,4,0,3,20.0,16,1.25,15.24,0.05,https://www.nxp.com/,巨型菜单展开占满首屏，链接墙
+tech,74,Interactive Brokers,Internet,USA,56.9,53.2,60,26,1,16,3,3,2,9,56.0,13.6,4.12,11.93,0.123,https://www.interactivebrokers.com/,深色+交易界面截图，利益点明确但字小
+tech,75,Cloudflare,Software/Cloud,USA,56.9,34.9,75.0,47,2,10,2,12,5,7,56.0,16,3.5,3.63,0.66,https://www.cloudflare.com/,整屏橙色+一句话标题，大胆克制
+tech,76,Astera Labs,Semiconductors,USA,56.7,64.9,50,12,1,5,4,6,2,83,44.0,12,3.67,18.33,0.067,https://www.asteralabs.com/,蓝色产品横幅+新闻条，传统
+tech,77,ASE Group,Semiconductors,Taiwan,55.7,50.5,60,23,4,7,2,7,4,17,24.0,13,1.85,6.06,0.285,https://ase.aseglobal.com/,人形机器人视觉，标题压图可读性弱
+general,80,Agricultural Bank of China,Finance,,55.5,74.3,40,21,1,5,2,0,0,0,24.0,14,1.71,6.26,0.214,https://www.abchina.com/en/,传统门户布局，栏目繁多
+general,81,ICBC,Finance,,55.3,86.2,30,17,1,6,2,0,0,0,24.0,12,2.0,16.82,0.0,https://www.icbc.com.cn/,红色促销海报+图标墙，门户式
+general,82,TotalEnergies,Energy,,55.1,49.1,60,22,4,12,6,9,3,7,48.0,16,3.0,9.51,0.0,https://totalenergies.com/,cookie弹层+灰蓝影像
+tech,78,Keysight,Hardware/Devices,USA,54.1,59.1,50,29,2,9,4,6,6,0,36.0,18,2.0,14.69,0.0,https://www.keysight.com/us/en/home.html,区域条+红色强调+产品图，拥挤
+tech,79,Dell,Hardware/Devices,USA,53.9,52.7,55.0,31,3,7,6,7,2,15,40.0,14,2.86,6.88,0.0,https://www.dell.com/en-us,深色促销，按钮与标签过多
+general,84,PetroChina,Energy,,53.8,82.8,30,9,2,4,2,0,0,0,14.0,13,1.08,5.7,0.023,https://www.petrochina.com.cn/ptr/,传统中文新闻门户，层级乱
+tech,80,Salesforce,Software/Cloud,USA,53.7,64.3,45.0,21,3,10,2,8,3,12,70.0,18,3.89,11.73,0.337,https://www.salesforce.com/,卡通吉祥物+渐变蓝+多卡片，最'满'的SaaS页
+tech,81,NetEase,Internet,China,52.6,80.2,30,18,3,4,2,0,1,0,40.0,11,3.64,7.33,0.0,https://ir.netease.com/,IR页样式错乱，粉色蒙层+cookie条
+general,86,Bank of China,Finance,,52.5,86.1,25.0,16,2,2,2,0,0,0,18.0,11,1.64,12.04,0.05,https://www.boc.cn/en/,九十年代式文字链接门户
+tech,82,CrowdStrike,Software/Cloud,USA,52.3,55.1,50,20,2,10,4,12,4,35,56.0,16,3.5,19.96,0.0,https://www.crowdstrike.com/en-us/,红黑+活动海报，渐变/阴影多
+tech,83,Hewlett Packard Enterprise,Hardware/Devices,USA,52.1,48.5,55.0,35,2,7,3,9,5,18,56.0,18,3.11,5.17,0.526,https://www.hpe.com/us/en/home.html,深色+报告图+多CTA，信息叠加
+general,88,Bank of America,Finance,,52.0,60.6,45.0,20,7,9,5,6,4,0,70.0,14,5.0,15.04,0.028,https://www.bankofamerica.com/,登录框+利率卡片，银行门户拥挤
+tech,84,Strategy,Software/Cloud,USA,51.6,78.1,30,17,1,8,4,5,3,1,38.0,12,3.17,10.71,0.197,https://www.strategy.com/,比特币数据仪表盘直接当首页，数字墙
+tech,85,Amazon,Internet,USA,50.8,63.9,40,30,2,7,2,8,4,1,31.5,12,2.63,12.32,0.0,https://www.amazon.com/,电商密集网格，信息过载
+tech,86,Keyence,Hardware/Devices,Japan,50.5,63.4,40,29,1,10,3,3,1,13,54.0,16,3.38,9.68,0.0,https://www.keyence.com/,搜索框+产品+侧栏图标，目录式拥挤
+tech,87,QUALCOMM,Semiconductors,USA,48.6,40.8,55.0,44,4,11,4,8,2,0,54.0,12,4.5,7.85,0.2,https://www.qualcomm.com/,产品轮播+多色块，首屏被切成碎片
+tech,88,Fortinet,Software/Cloud,USA,46.1,41.4,50,32,3,13,7,6,5,4,48.0,15,3.2,12.99,0.014,https://www.fortinet.com/,活动海报+光线粒子，'AI科技'套路
+tech,89,Delta Electronics (Thailand),Hardware/Devices,Thailand,42.6,58.0,30,35,2,6,3,4,2,12,25.0,15,1.67,5.0,0.194,https://www.deltathailand.com/en/,纪念弹窗遮挡整页，主体不可见
+tech,90,Palo Alto Networks,Software/Cloud,USA,42.4,33.1,50,37,2,20,3,13,4,44,49.0,14,3.5,14.7,0.189,https://www.paloaltonetworks.com/,深色+AI人物+促销条，信息叠层多
+tech,91,TE Connectivity,Hardware/Devices,Switzerland,39.7,45.4,35.0,33,9,14,8,1,1,0,50.0,14,3.57,9.05,0.016,https://www.te.com/en/home.html,橙色横幅+青色按钮+多导航，最杂之一
+tech,92,Snowflake,Software/Cloud,USA,39.1,31.8,45.0,42,3,16,5,13,6,0,120.0,18,6.67,9.6,0.034,https://www.snowflake.com/en/,渐变蓝+浮窗+代码块，元素拥挤

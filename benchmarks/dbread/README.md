@@ -26,7 +26,12 @@ go test -run='^$' -bench=. -benchtime=20x -timeout 20m ./benchmarks/dbread
 
 # 只测写放大
 go test -run='^$' -bench='SingleWriteCost' -benchtime=50x ./benchmarks/dbread
+
+# 在隔离临时库记录首次查询、100 次热读及 1/8/32 并发各 128 次的分位数
+go test -run='^TestReadLatencyPhases$' -v -count=1 ./benchmarks/dbread
 ```
+
+`TestReadLatencyPhases` 的首读是本地造数后的首次同类查询，不是远端 S3 冷缓存。`live_files_all_tables` 是全库文件数，`live_files_sys_log_events` 是目标表存活文件数，仍不代表实际查询触达文件数；热读 p50/p95/p99 来自顺序 100 次成功样本，并发各 128 次另报成功与失败。远端请求数及后台同步冲突须在隔离 COS 前缀另测，不能从本地耗时推断。
 
 ## 度量口径
 

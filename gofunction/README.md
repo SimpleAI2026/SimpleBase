@@ -100,9 +100,17 @@ SSA 全局符号类型为 `*T`（单元指针）。下列方法读写的是**单
 
 `Program.RunWithContext` 返回的 `*Context` 嵌入 `context.Context`（默认 10 秒超时），并提供：
 
-- `Output() string`：脚本里 `print` / `println` 写入的缓冲区。只用 `Run` 时拿不到这块输出。
+- `Output() string`：脚本里 `print` / `println` 写入的缓冲区（上限 1 MiB，超限静默丢弃；脚本 goroutine 并发写安全）。只用 `Run` 时拿不到这块输出。
 
-脚本内 `go` 语句启动的 goroutine 会在返回前等待，最长 `defaultTimeout`（10s）。
+脚本内 `go` 语句启动的 goroutine 会在返回前等待，最长 `defaultTimeout`（10s）；ctx 取消（含父 ctx 取消）后等待立即结束，不再额外固定等待。
+
+### 父 ctx 与取消语义（RunJSON 生产路径）
+
+`RunJSON(ctx, ...)` 把调用方 ctx 贯穿执行（内部经 `(*Program).RunInParentContext(parent, ...)`）：
+
+- 内部截止时间取「10 秒」与父 ctx 剩余时间的**较小者**；父 ctx 取消时脚本在块边界中断并返回取消错误（非超时错误可区分）。
+- goroutine 等待时间纳入同一截止时间，取消后单次调用不会再固定额外等 10s。
+- 宿主阻塞调用（如脚本内 `http` 等外部函数阻塞在 IO）**无法强制终止**：中断发生在块边界，宿主调用返回前不会停靠。
 
 ### Executor / ExecutorPool
 
@@ -211,11 +219,11 @@ func demo() int { return host.Add(20, 22) }
 4. **宿主注册走全局表**。`RegisterPackage` 默认不可重复；测试 / 多例程共用进程时要注意路径唯一。
 5. **`complex` 常量**：`Importer.newObject` 对 `Complex64/128` 常量有 TODO，暂未生成 const value。
 6. **`Executor.Execute` 不能传参**。要传参请用 `Run` / `Program.Run`。
-7. **每次 `Execute` 都会重新 `BuildProgram`**。池复用的是 `Executor` 对象，不是编译缓存（`functionChecksums` 字段目前未参与执行）。
-8. **`Interrupt` 不打断 SSA 循环**；真正停靠默认 10s 的 context 超时。
+7. **每次 `Execute` 都会重新 `BuildProgram`**。池复用的是 `Executor` 对象，不是编译缓存。
+8. **`Interrupt` 不打断 SSA 循环**；真正停靠默认 10s 的 context 超时。`RunJSON` 的停靠点是「父 ctx 取消 / 内部截止」中较早到达的那个（宿主阻塞调用返回前无法停靠）。
 9. **外网 HTTP**：`net/http` 的 `Get`/`Post` 等是真的发请求。仓库测试里 `TestHttpRequest` / `TestHttpsRequest` 在 `testing.Short()` 下跳过。`testdata/http.go` 由 `TestTestdataScripts/http` 搭配宿主 `net/http/httptest` 跑，不依赖外网。
 10. 未注册 path 仍会被 `Importer.Package` 建成**空** `types.Package`（`MarkComplete`），编译期不一定立刻失败，调用其函数会在运行期 panic 并被 `RunWithContext` 收成 error。
-11. `Executor.Compile`、`SetProfile`、`Runtime.Cleanup` 等为空实现。
+11. `Executor.Compile`、`SetProfile`、`GetProfile`、`SetWaitEventLoop`、`Runtime.Cleanup` 为公开的预留接口（当前空实现，不参与执行）；后续如需弃用将走单独的兼容流程。
 
 ---
 

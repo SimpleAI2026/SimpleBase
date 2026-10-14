@@ -3,6 +3,7 @@ package cloudagent
 import (
 	"context"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent/agentcore"
 	"io"
 	"strings"
 	"testing"
@@ -40,7 +41,7 @@ func (c *blockingChat) Stream(context.Context, string, ChatRequest) (TokenStream
 func TestAgentStreamForwardsBeforeUpstreamCompletes(t *testing.T) {
 	upstream := &blockingStream{start: make(chan struct{})}
 	defer close(upstream.start)
-	m := newGatewayChatModel(&blockingChat{stream: upstream}, "p", "m")
+	m := agentcore.NewModel(&blockingChat{stream: upstream}, "p", "m")
 	sr, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("hi")})
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +74,7 @@ func TestAgentStreamToolPrefixAndLiteral(t *testing.T) {
 		{[]string{"示例：", "TOOL_CALL 是关键字"}, false, "示例：TOOL_CALL 是关键字"},
 		{[]string{"\n  TOOL", `_CALL {"name":"list_databases","arguments":{}}`}, true, ""},
 	} {
-		m := newGatewayChatModel(&scriptedChat{streamChunks: tc.chunks}, "p", "m")
+		m := agentcore.NewModel(&scriptedChat{streamChunks: tc.chunks}, "p", "m")
 		sr, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("q")})
 		if err != nil {
 			t.Fatal(err)

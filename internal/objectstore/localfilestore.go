@@ -1,5 +1,5 @@
 // localfilestore.go 提供 FileStore 的本地磁盘实现：文件落在指定根目录下，
-// 进程重启后数据保留。仅用于 DevMode，生产环境使用真实 S3 持久层。
+// 进程重启后数据保留。仅用于测试，生产环境使用真实 S3 持久层或本地磁盘持久层。
 package objectstore
 
 import (

@@ -166,3 +166,81 @@ func TestCronJobRuns(t *testing.T) {
 		t.Fatalf("timestamps missing: %+v", runs[0])
 	}
 }
+
+// TestCronJobAgentTargetRoundTrip：v49 四个新增列（target_kind / agent_id /
+// agent_thread_id / agent_prompt）必须在 Create / Get / List / Update / ListDue
+// 中完整往返；漏改 cronJobColumns 或 scanCronJob 会导致按位扫描错位。
+func TestCronJobAgentTargetRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	pid := "proj-agent"
+	prompt := "汇总昨天的错误日志\n并给出 Top3"
+
+	created, err := s.CreateCronJob(ctx, CronJob{
+		ProjectID: pid, Name: "daily-digest", ScheduleKind: CronJobKindInterval, IntervalSeconds: 3600,
+		TargetKind: CronJobTargetAgent, AgentID: "agent-1", AgentThreadID: "thread-1", AgentPrompt: prompt,
+		Enabled: true, NextRunAt: time.Now().UTC().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(name string, j CronJob) {
+		t.Helper()
+		if j.TargetKind != CronJobTargetAgent || j.AgentID != "agent-1" ||
+			j.AgentThreadID != "thread-1" || j.AgentPrompt != prompt {
+			t.Fatalf("%s: agent fields lost: %+v", name, j)
+		}
+	}
+	got, err := s.GetCronJob(ctx, pid, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("get", got)
+	list, err := s.ListCronJobs(ctx, pid)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list: %+v err=%v", list, err)
+	}
+	check("list", list[0])
+	due, err := s.ListDueCronJobs(ctx, time.Now().UTC(), 10)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("due: %+v err=%v", due, err)
+	}
+	check("due", due[0])
+
+	got.AgentThreadID = "thread-2"
+	updated, err := s.UpdateCronJob(ctx, got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.GetCronJob(ctx, pid, updated.ID)
+	if err != nil || again.AgentThreadID != "thread-2" || again.AgentPrompt != prompt {
+		t.Fatalf("update lost fields: %+v err=%v", again, err)
+	}
+}
+
+// TestCronJobDefaultTargetIsFunction：未指定 target_kind 的写入（云函数任务、
+// 迁移前的历史行）读回时必须是 function，且 agent 字段为空。
+func TestCronJobDefaultTargetIsFunction(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	created, err := s.CreateCronJob(ctx, CronJob{
+		ProjectID: "p", Name: "fn", ScheduleKind: CronJobKindInterval, IntervalSeconds: 60,
+		FuncFile: "hello", FuncExport: "Hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetCronJob(ctx, "p", created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TargetKind != CronJobTargetFunction || got.EffectiveTargetKind() != CronJobTargetFunction {
+		t.Fatalf("target kind = %q", got.TargetKind)
+	}
+	if got.AgentID != "" || got.AgentPrompt != "" || got.AgentThreadID != "" {
+		t.Fatalf("agent fields should be empty: %+v", got)
+	}
+	if (CronJob{}).EffectiveTargetKind() != CronJobTargetFunction {
+		t.Fatal("zero value must normalize to function")
+	}
+}

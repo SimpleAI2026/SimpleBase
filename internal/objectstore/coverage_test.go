@@ -353,19 +353,19 @@ func TestDescriptorValidateRemaining(t *testing.T) {
 }
 
 func TestKeyBuilderRemaining(t *testing.T) {
-	kb := KeyBuilder{RootPrefix: "/simplebase/", Environment: "/prod/"}
-	tenant := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	kb := KeyBuilder{RootPrefix: "/simplebase/"}
+	proj := "prj12345"
 	db := "ffffffff-0000-1111-2222-333333333333"
-	if _, err := kb.DuckLakeSnapshotKey(tenant, db, 0, 1, "duckdb"); err == nil {
+	if _, err := kb.DuckLakeSnapshotKey(proj, db, 0, 1, "duckdb"); err == nil {
 		t.Fatal("snapshot must be positive")
 	}
-	if _, err := kb.DuckLakeDataURI("", tenant, db); err == nil {
+	if _, err := kb.DuckLakeDataURI("", proj, db); err == nil {
 		t.Fatal("bucket required")
 	}
 	if _, err := kb.DataPrefix("bad", db); err == nil {
-		t.Fatal("invalid tenant")
+		t.Fatal("invalid project")
 	}
-	if _, err := kb.DescriptorKey(tenant, "short"); err == nil {
+	if _, err := kb.DescriptorKey(proj, "short"); err == nil {
 		t.Fatal("invalid db")
 	}
 	// invalid dash positions / non-hex
@@ -378,7 +378,7 @@ func TestKeyBuilderRemaining(t *testing.T) {
 	if joinKey("", "/a/", "", "b") != "a/b" {
 		t.Fatalf("joinKey: %q", joinKey("", "/a/", "", "b"))
 	}
-	p, err := kb.DatabasePrefix(tenant, db)
+	p, err := kb.DatabasePrefix(proj, db)
 	if err != nil || strings.Contains(p, "//") || strings.HasPrefix(p, "/") {
 		t.Fatalf("prefix %q %v", p, err)
 	}

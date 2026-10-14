@@ -137,6 +137,74 @@ describe('DocsWiki', () => {
     expect(getModule(id)).toBeTruthy()
     expect(defaultSlug(id)).toBeTruthy()
   })
+  it('scrolls the active tab into view on mount and when the module changes', async () => {
+    // 桩版 TabsTrigger 不输出 data-state，这里手工造一个活跃 Tab 让选择器命中
+    const host = document.createElement('div')
+    host.setAttribute('data-docs-tabs', '')
+    const active = document.createElement('button')
+    active.setAttribute('data-state', 'active')
+    host.appendChild(active)
+    document.body.appendChild(host)
+    const original = Element.prototype.scrollIntoView
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+
+    const id = defaultModuleId()
+    const { wrapper, router } = await mountWithApp(DocsWiki, { path: `/docs/${id}`, stubs: docsStubs })
+    await flushPromises()
+    expect(scrollIntoView).toHaveBeenCalledWith({ inline: 'center', block: 'nearest' })
+
+    scrollIntoView.mockClear()
+    const other = docCatalog.find((m) => m.id !== id)
+    if (other) {
+      await router.push(`/docs/${other.id}`)
+      await flushPromises()
+      expect(scrollIntoView).toHaveBeenCalled()
+    }
+    wrapper.unmount()
+    if (original) Element.prototype.scrollIntoView = original
+    else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    host.remove()
+  })
+
+  it('skips tab scrolling when no active tab or scrollIntoView is available', async () => {
+    const id = defaultModuleId()
+    // 不注入活跃 Tab（桩版 TabsTrigger 没有 data-state），命中"找不到元素"分支
+    const { wrapper, router } = await mountWithApp(DocsWiki, { path: `/docs/${id}`, stubs: docsStubs })
+    await flushPromises()
+    const other = docCatalog.find((m) => m.id !== id)
+    if (other) {
+      await router.push(`/docs/${other.id}`)
+      await flushPromises()
+    }
+    expect(wrapper.find('[data-docs-tabs]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('redirects every legacy doc path to the six-module layout', async () => {
+    const cases: [string, string][] = [
+      ['/docs/ops/dashboard', '/docs/workbench/dashboard'],
+      ['/docs/ops/users', '/docs/data'],
+      ['/docs/database/kv', '/docs/data/kv'],
+      ['/docs/kv', '/docs/data/kv'],
+      ['/docs/logs', '/docs/ops/logs'],
+      ['/docs/users', '/docs/data'],
+      ['/docs/dashboard', '/docs/workbench/dashboard'],
+      ['/docs/agent', '/docs/workbench/agent'],
+      ['/docs/database', '/docs/data'],
+      ['/docs/storage', '/docs/data/storage'],
+      ['/docs/gofunction', '/docs/automation/gofunction'],
+      ['/docs/cronjob', '/docs/automation/cronjob'],
+      ['/docs/sandbox', '/docs/automation/sandbox']
+    ]
+    for (const [from, to] of cases) {
+      const { router, wrapper } = await mountWithApp(DocsWiki, { path: from, stubs: docsStubs })
+      await flushPromises()
+      expect(router.currentRoute.value.path, from).toBe(to)
+      wrapper.unmount()
+    }
+  })
+
   it('DocsWiki resolves module/slug from the route', async () => {
     const router = createRouter({
       history: createMemoryHistory(),

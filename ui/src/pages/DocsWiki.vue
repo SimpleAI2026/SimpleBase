@@ -2,11 +2,8 @@
   <div class="relative flex min-h-[calc(100vh-var(--header-height))] flex-col overflow-x-clip bg-white [--docs-pad-y:2rem] [--docs-tabs-h:3.25rem] max-md:[--docs-pad-y:1.25rem] dark:bg-background">
     <div v-if="!docCatalog.length" class="mx-auto w-full max-w-[1200px] px-4 py-12 md:px-6">
       <Alert>
-        <AlertTitle>未能加载文档</AlertTitle>
-        <AlertDescription>
-          Vite 未匹配到仓库 <code>docs/&lt;module&gt;/*.md</code>
-          （已扫描 {{ loadedMarkdownCount }} 个文件）。请确认源文件存在后重新构建。
-        </AlertDescription>
+        <AlertTitle>{{ t('pages.docsWiki.loadFailedTitle') }}</AlertTitle>
+        <AlertDescription>{{ t('pages.docsWiki.loadFailedDesc', { count: loadedMarkdownCount }) }}</AlertDescription>
       </Alert>
     </div>
 
@@ -25,7 +22,7 @@
                 v-for="m in docCatalog"
                 :key="m.id"
                 :value="m.id"
-                class="h-[var(--docs-tabs-h)] flex-none cursor-pointer px-4 text-sm font-medium transition-colors duration-200 after:h-0.5 after:rounded-t-full after:bg-primary hover:bg-primary/5 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 data-active:bg-primary/5 data-active:font-semibold data-active:text-primary group-data-[orientation=horizontal]/tabs:after:bottom-0 motion-reduce:transition-none dark:data-active:text-primary"
+                class="h-[var(--docs-tabs-h)] flex-none cursor-pointer px-4 text-sm font-medium transition-colors duration-200 after:h-0.5 after:rounded-t-full after:bg-primary hover:bg-primary/5 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 data-[state=active]:bg-primary/5 data-[state=active]:font-semibold data-[state=active]:text-primary group-data-[orientation=horizontal]/tabs:after:bottom-0 motion-reduce:transition-none dark:data-[state=active]:text-primary"
               >
                 {{ m.title }}
               </TabsTrigger>
@@ -42,7 +39,7 @@
           :active-slug="slug"
         />
         <div v-if="currentModule" class="w-full rounded-xl border border-border/70 bg-card/80 p-4 shadow-sm md:hidden">
-          <p id="docs-page-label" class="mb-2 text-xs font-semibold tracking-wide text-muted-foreground">选择文档页面</p>
+          <p id="docs-page-label" class="mb-2 text-xs font-semibold tracking-wide text-muted-foreground">{{ t('pages.docsWiki.selectPage') }}</p>
           <Select :model-value="slug" @update:model-value="onMobilePage">
             <SelectTrigger class="w-full bg-card" aria-labelledby="docs-page-label">
               <SelectValue />
@@ -67,7 +64,7 @@
         />
         <div v-else class="min-w-0 flex-1">
           <Alert>
-            <AlertTitle>未找到文档</AlertTitle>
+            <AlertTitle>{{ t('pages.docsWiki.notFoundTitle') }}</AlertTitle>
             <AlertDescription>{{ missingHint }}</AlertDescription>
           </Alert>
         </div>
@@ -77,7 +74,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -97,11 +95,13 @@ import {
   defaultSlug,
   getModule,
   getPage,
-  loadedMarkdownCount
+  loadedMarkdownCount,
+  resolveLegacyDocPath
 } from '../docs/catalog'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 
 const moduleId = ref(defaultModuleId())
 const slug = ref(defaultSlug(moduleId.value))
@@ -129,15 +129,20 @@ const nextPage = computed(() => {
 const missingHint = computed(() => {
   const m = (route.params.module as string) || ''
   const s = (route.params.slug as string) || ''
-  if (m && s) return `没有文档 ${m}/${s}`
-  if (m) return `没有模块 ${m}`
-  return '请从左侧选择一篇文档'
+  if (m && s) return t('pages.docsWiki.noDocAt', { module: m, slug: s })
+  if (m) return t('pages.docsWiki.noModule', { module: m })
+  return t('pages.docsWiki.pickFromSidebar')
 })
 
 function syncFromRoute() {
   if (!docCatalog.length) return
   const m = (route.params.module as string) || defaultModuleId()
   const s = (route.params.slug as string) || defaultSlug(m)
+  const legacy = resolveLegacyDocPath(m, s)
+  if (legacy) {
+    router.replace(legacy)
+    return
+  }
   if (!getModule(m)) {
     router.replace(`/docs/${defaultModuleId()}`)
     return
@@ -149,13 +154,27 @@ function syncFromRoute() {
   }
   moduleId.value = m
   slug.value = page.slug
-  document.title = `${page.title} · ${getModule(m)?.title || '文档'} · SimpleBase 文档`
+  document.title = t('pages.docsWiki.documentTitle', {
+    page: page.title,
+    module: getModule(m)?.title || t('pages.docsWiki.documentFallbackModule')
+  })
   if (route.params.slug === 'index') {
     router.replace(`/docs/${m}`)
   }
 }
 
 watch(() => [route.params.module, route.params.slug], syncFromRoute, { immediate: true })
+
+/** Tab 数量多于一屏时，把激活项滚到横向可视区中间。 */
+function revealActiveTab() {
+  const el = document.querySelector<HTMLElement>('[data-docs-tabs] [data-state="active"]')
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ inline: 'center', block: 'nearest' })
+  }
+}
+
+watch(moduleId, () => { void nextTick(revealActiveTab) }, { flush: 'post' })
+onMounted(() => { void nextTick(revealActiveTab) })
 
 watch(moduleId, (id, prev) => {
   if (id === prev) return

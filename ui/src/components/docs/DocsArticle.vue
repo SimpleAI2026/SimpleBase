@@ -6,7 +6,7 @@
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink as-child>
-              <router-link to="/docs">使用文档</router-link>
+              <router-link to="/docs">{{ t('components.docsArticle.breadcrumb') }}</router-link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -19,7 +19,7 @@
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <span class="ml-auto text-xs text-muted-foreground" data-docs-progress>第 {{ pageIndex }} / {{ pageCount }} 篇</span>
+      <span class="ml-auto text-xs text-muted-foreground" data-docs-progress>{{ t('components.docsArticle.progress', { index: pageIndex, total: pageCount }) }}</span>
       <a
         v-if="githubUrl"
         class="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground no-underline transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
@@ -27,7 +27,7 @@
         target="_blank"
         rel="noopener noreferrer"
       >
-        在 GitHub 上查看
+        {{ t('components.docsArticle.viewOnGithub') }}
         <ExternalLinkIcon class="size-3.5" />
       </a>
     </div>
@@ -45,7 +45,7 @@
       <template #empty>
         <div class="py-6">
           <Alert>
-            <AlertTitle>这篇文档没有正文</AlertTitle>
+            <AlertTitle>{{ t('components.docsArticle.noBodyTitle') }}</AlertTitle>
             <AlertDescription>docs/{{ page.filePath }}</AlertDescription>
           </Alert>
         </div>
@@ -58,7 +58,7 @@
         class="group flex min-w-0 flex-col gap-1 rounded-xl border border-border/70 bg-white px-5 py-4 no-underline transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md dark:bg-card"
         :to="linkFor(prev.slug)"
       >
-        <span class="text-xs text-muted-foreground">上一篇</span>
+        <span class="text-xs text-muted-foreground">{{ t('components.docsArticle.prev') }}</span>
         <span class="truncate text-sm font-medium text-primary">← {{ prev.title }}</span>
       </router-link>
       <router-link
@@ -66,7 +66,7 @@
         class="group flex min-w-0 flex-col gap-1 rounded-xl border border-border/70 bg-white px-5 py-4 no-underline transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md sm:col-start-2 sm:items-end sm:text-right dark:bg-card"
         :to="linkFor(next.slug)"
       >
-        <span class="text-xs text-muted-foreground">下一篇</span>
+        <span class="text-xs text-muted-foreground">{{ t('components.docsArticle.next') }}</span>
         <span class="truncate text-sm font-medium text-primary">{{ next.title }} →</span>
       </router-link>
     </div>
@@ -77,6 +77,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { ExternalLinkIcon } from '@lucide/vue'
@@ -106,6 +107,7 @@ const props = defineProps<{
   pageCount?: number
 }>()
 
+const { t } = useI18n()
 const route = useRoute()
 const title = computed(() => props.page.title)
 const raw = ref<string | null>(null)
@@ -121,7 +123,9 @@ const {
 const rendered = computed(() => {
   if (!raw.value?.trim()) return { html: '', toc: [] as DocHeading[] }
   try { return renderMarkdown(raw.value, props.moduleId) }
-  catch { return { html: '<p>文档渲染失败</p>', toc: [] as DocHeading[] } }
+  catch {
+    return { html: `<p>${t('components.docsArticle.renderFailed')}</p>`, toc: [] as DocHeading[] }
+  }
 })
 const html = computed(() => rendered.value.html)
 const githubUrl = computed(() => githubBlobUrl(props.page.filePath))
@@ -136,10 +140,10 @@ function loadDoc(filePath: string) {
     try {
       body = await loadMarkdown(filePath)
     } catch {
-      throw new Error(`文档加载失败：docs/${filePath}`)
+      throw new Error(t('components.docsArticle.loadFailed', { path: filePath }))
     }
     if (current !== generation) return false
-    if (body === null) throw new Error(`文档文件缺失：docs/${filePath}`)
+    if (body === null) throw new Error(t('components.docsArticle.fileMissing', { path: filePath }))
     raw.value = body
     if (route.hash) {
       await nextTick()
@@ -147,7 +151,7 @@ function loadDoc(filePath: string) {
       document.getElementById(decodeURIComponent(route.hash.slice(1)))?.scrollIntoView()
     }
     return body.trim().length > 0
-  }, { replace: true, fallback: `文档加载失败：docs/${filePath}` })
+  }, { replace: true, fallback: t('components.docsArticle.loadFailed', { path: filePath }) })
 }
 
 function reload() {
@@ -162,8 +166,12 @@ async function onContentClick(event: MouseEvent) {
   const button = (event.target as Element).closest<HTMLButtonElement>('[data-copy]')
   if (!button) return
   const code = button.closest('.docs-code')?.querySelector('code')?.textContent || ''
-  try { await navigator.clipboard.writeText(code); toast.success('代码已复制') }
-  catch { toast.error('复制失败，请手动选择代码') }
+  try {
+    await navigator.clipboard.writeText(code)
+    toast.success(t('components.docsArticle.codeCopied'))
+  } catch {
+    toast.error(t('components.docsArticle.copyFailed'))
+  }
 }
 
 function linkFor(slug: string) {

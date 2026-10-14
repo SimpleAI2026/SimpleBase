@@ -58,11 +58,16 @@ const (
 	// StageAuthUser 为库查用户，StageAuthProjectSet 为展开项目集，
 	// StageAuthSession 为 refresh 按 hash 查会话，StageAuthKey 为 API Key 仓储查询。
 	// 这些子阶段包含在 StageAuth 总耗时内，归因时不得再计入 attributed。
-	StageAuthLock     Stage = "auth_lock_wait"
-	StageAuthUser     Stage = "auth_user_load"
-	StageAuthProject  Stage = "auth_project_expand"
-	StageAuthSession  Stage = "auth_session_load"
-	StageAuthKey      Stage = "auth_key_load"
+	StageAuthLock       Stage = "auth_lock_wait"
+	StageAuthUser       Stage = "auth_user_load"
+	StageAuthUserConn   Stage = "auth_user_conn"
+	StageAuthUserQuery  Stage = "auth_user_query"
+	StageAuthUserScan   Stage = "auth_user_scan"
+	StageAuthFlightWait Stage = "auth_flight_wait"
+	StageAuthFlightLoad Stage = "auth_flight_load"
+	StageAuthProject    Stage = "auth_project_expand"
+	StageAuthSession    Stage = "auth_session_load"
+	StageAuthKey        Stage = "auth_key_load"
 	// StageAuthSessionUpdate / StageAuthSessionIssue 细分 refresh 轮转：
 	// 前者为作废旧会话的 UPDATE，后者为新会话写入 + token 签发。
 	StageAuthSessionUpdate Stage = "auth_session_update"
@@ -408,7 +413,7 @@ func (t *timedLease) NotifyWrite(ctx context.Context) {
 }
 
 // stageAuthObserver 把 auth.AuthObserver 事件写入请求级 StageTimer
-//（planv5.0 §4 P0.1）。子阶段只细分 StageAuth，不进入 perfStages 归因求和，
+// （planv5.0 §4 P0.1）。子阶段只细分 StageAuth，不进入 perfStages 归因求和，
 // 与既有 StageAuth 总口径不重叠双算；缓存命中状态记录为 meta。
 //
 // 观察者是服务级单例：每次回调从 ctx 提取当前请求的 StageTimer，
@@ -430,6 +435,16 @@ func (o *stageAuthObserver) ObserveAuthStage(ctx context.Context, stage auth.Aut
 		timer.Observe(StageAuthLock, d)
 	case auth.AuthStageUserLoad:
 		timer.Observe(StageAuthUser, d)
+	case auth.AuthStageUserConn:
+		timer.Observe(StageAuthUserConn, d)
+	case auth.AuthStageUserQuery:
+		timer.Observe(StageAuthUserQuery, d)
+	case auth.AuthStageUserScan:
+		timer.Observe(StageAuthUserScan, d)
+	case auth.AuthStageFlightWait:
+		timer.Observe(StageAuthFlightWait, d)
+	case auth.AuthStageFlightLoad:
+		timer.Observe(StageAuthFlightLoad, d)
 	case auth.AuthStageProjectExpand:
 		timer.Observe(StageAuthProject, d)
 	case auth.AuthStageSessionLoad:

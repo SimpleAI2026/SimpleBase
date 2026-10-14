@@ -17,8 +17,8 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
-	"github.com/voocel/litellm/providers"
 	_ "github.com/uglyer/go-sqlite3"
+	"github.com/voocel/litellm/providers"
 )
 
 func openaiCompatServer(t *testing.T, fail bool) *httptest.Server {

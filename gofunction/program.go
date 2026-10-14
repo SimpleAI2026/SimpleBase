@@ -1,6 +1,7 @@
 package gofunction
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -10,6 +11,7 @@ import (
 	"go/types"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/linkxzhou/SimpleBase/gofunction/importer"
 	"github.com/linkxzhou/SimpleBase/gofunction/value"
@@ -125,6 +127,15 @@ func (p *Program) RunWithContext(seqid, funcName string, params ...interface{}) 
 	return result, ctx, err
 }
 
+// RunInParentContext 在父 ctx 控制下执行函数（GF-RUN-01）：
+// 内部截止时间取 defaultTimeout 与父 ctx 剩余时间的较小者，
+// 父 ctx 取消时脚本在块边界中断；waitGoroutines 同样受该截止时间约束（GF-RUN-02）。
+// 公开 API Run/RunWithContext 行为不变，仍使用独立的内部 10s 超时。
+func (p *Program) RunInParentContext(parent context.Context, seqid, funcName string, params ...interface{}) (result interface{}, err error) {
+	ctx := newChildCallContext(parent)
+	return p.runWithContext(seqid, funcName, ctx, params...)
+}
+
 // runWithContext 在给定上下文中执行函数。
 // 拆分自 RunWithContext：Executor 需要先创建 ctx 注册取消函数
 // （超时定时器经 Interrupt 真正取消执行，见 P2-4），再进入执行。
@@ -155,12 +166,22 @@ func (p *Program) runWithContext(seqid, funcName string, ctx *Context, params ..
 	if fr.panic != nil {
 		err = fmt.Errorf("err: %v", fr.panic)
 	}
-	ctx.waitGoroutines(defaultTimeout)
+	// GF-RUN-02：等待 goroutine 的时间纳入同一截止时间——ctx 取消（父取消或
+	// 内部超时）后立即返回，不再固定额外等待 defaultTimeout。
+	ctx.waitGoroutines(time.Until(deadlineOf(ctx)))
 	if ret != nil {
 		result = ret.Interface()
 	}
 	ctx.cancelFunc()
 	return result, err
+}
+
+// deadlineOf 返回 ctx 的截止时间；无截止时间时按 defaultTimeout 估算。
+func deadlineOf(ctx *Context) time.Time {
+	if d, ok := ctx.Deadline(); ok {
+		return d
+	}
+	return time.Now().Add(defaultTimeout)
 }
 
 func (p *Program) initGlobal() {

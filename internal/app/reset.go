@@ -18,11 +18,11 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
-// ResetOptions 控制 simplebased reset（ducklake-duckdb-catalog-plan §5）。
+// ResetOptions 控制 simplebase reset（ducklake-duckdb-catalog-plan §5）。
 type ResetOptions struct {
 	// Confirm 必须等于 cfg.Instance.ID，防止误清其他环境。
 	Confirm string
-	// LocalOnly 只清本地缓存（远端已由运维清空的场景）。
+	// LocalOnly 只清本地 data_dir 与 cache_dir（远端已由运维清空的场景）。
 	LocalOnly bool
 	// DryRun 只列出将删除的内容，不做任何修改。
 	DryRun bool
@@ -36,7 +36,7 @@ type ResetOptions struct {
 type ResetSummary struct {
 	LocalPaths     []string
 	RemoteObjects  int            // 已删除（dry-run 时为将删除）的远端对象数
-	RemoteByGroup  map[string]int // tenants / catalog / files / other
+	RemoteByGroup  map[string]int // system（_system/ 下平台对象）/ project（项目数据）/ other
 	LeaseDatabases int            // 观察到的持租库数量（判活用）
 }
 
@@ -48,8 +48,9 @@ type resetLock struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
-// Reset 清空本实例的全部数据（本地缓存 + {root}/{env}/ 下全部对象）。不可恢复。
-// 不启动 HTTP 服务，也不打开任何数据库。可重复执行：中途失败后重跑会从剩余对象继续删。
+// Reset 清空本实例的全部数据（本地 data_dir + cache_dir；远端为 {prefix}/ 下全部对象）。
+// 不可恢复。不启动 HTTP 服务，也不打开任何数据库。
+// 可重复执行：中途失败后重跑会从剩余对象继续删。
 func Reset(ctx context.Context, cfg config.Config, opts ResetOptions) (ResetSummary, error) {
 	var store objectstore.BlobStore
 	if needRemoteReset(cfg, opts) {
@@ -75,8 +76,12 @@ func Reset(ctx context.Context, cfg config.Config, opts ResetOptions) (ResetSumm
 	return resetWith(ctx, cfg, opts, store)
 }
 
+// needRemoteReset 仅当持久层真的落在对象存储、且调用方未要求只清本地时，才连远端。
 func needRemoteReset(cfg config.Config, opts ResetOptions) bool {
-	return !cfg.DevMode && !opts.LocalOnly && cfg.S3.Bucket != ""
+	if opts.LocalOnly || cfg.S3.Bucket == "" {
+		return false
+	}
+	return cfg.IsDBRemote() || cfg.IsFilesRemote()
 }
 
 // resetWith 是 Reset 的可测实现；store 为 nil 表示不处理远端。
@@ -90,10 +95,12 @@ func resetWith(ctx context.Context, cfg config.Config, opts ResetOptions, store 
 	if opts.Confirm == "" || opts.Confirm != cfg.Instance.ID {
 		return sum, fmt.Errorf("reset: --confirm must equal instance.id (%q); got %q", cfg.Instance.ID, opts.Confirm)
 	}
-	if !cfg.DevMode && os.Getenv("SIMPLEBASE_ALLOW_RESET") != "1" {
-		return sum, errors.New("reset: refusing to run with dev_mode=false unless SIMPLEBASE_ALLOW_RESET=1 is set")
+	// 删除远端对象不可逆，要求显式环境变量二次确认；
+	// 纯本地清理（data_dir + cache_dir）只要求 --confirm。
+	if store != nil && os.Getenv("SIMPLEBASE_ALLOW_RESET") != "1" {
+		return sum, errors.New("reset: refusing to wipe remote objects unless SIMPLEBASE_ALLOW_RESET=1 is set")
 	}
-	cacheDir, err := safeResetDir(cfg.Database.CacheDir)
+	localDirs, err := resetLocalDirs(cfg)
 	if err != nil {
 		return sum, err
 	}
@@ -101,26 +108,24 @@ func resetWith(ctx context.Context, cfg config.Config, opts ResetOptions, store 
 	var kb objectstore.KeyBuilder
 	var base string
 	if store != nil {
-		// 前缀两段都必须非空：否则 base 退化为 bucket 根或单段，可能误删其他环境。
-		if strings.Trim(cfg.S3.Prefix, "/") == "" || strings.Trim(cfg.Instance.ID, "/") == "" {
-			return sum, errors.New("reset: s3.prefix and instance.id must both be non-empty for remote reset")
-		}
-		kb = objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix, Environment: cfg.Instance.ID}
-		base = strings.TrimSuffix(kb.CatalogPrefix(), "catalog") // "{root}/{env}/"
+		kb = objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}
+		base = kb.RootListingPrefix() // "{prefix}/"；prefix 为空时是整个桶
 	}
 
 	// —— 列出本地目标 ——
-	entries, err := os.ReadDir(cacheDir)
-	if err != nil && !os.IsNotExist(err) {
-		return sum, fmt.Errorf("reset: read cache dir: %w", err)
-	}
-	for _, e := range entries {
-		sum.LocalPaths = append(sum.LocalPaths, filepath.Join(cacheDir, e.Name()))
+	for _, dir := range localDirs {
+		entries, rerr := os.ReadDir(dir)
+		if rerr != nil && !os.IsNotExist(rerr) {
+			return sum, fmt.Errorf("reset: read %s: %w", dir, rerr)
+		}
+		for _, e := range entries {
+			sum.LocalPaths = append(sum.LocalPaths, filepath.Join(dir, e.Name()))
+		}
 	}
 
 	if opts.DryRun {
 		fmt.Fprintf(out, "[dry-run] instance.id=%s\n", cfg.Instance.ID)
-		fmt.Fprintf(out, "[dry-run] local: %d paths under %s\n", len(sum.LocalPaths), cacheDir)
+		fmt.Fprintf(out, "[dry-run] local: %d paths under %s\n", len(sum.LocalPaths), strings.Join(localDirs, ", "))
 		for _, p := range sum.LocalPaths {
 			fmt.Fprintf(out, "  - %s\n", p)
 		}
@@ -137,7 +142,7 @@ func resetWith(ctx context.Context, cfg config.Config, opts ResetOptions, store 
 			fmt.Fprintf(out, "[dry-run] remote: s3://%s/%s  %d objects %v (databases with lease: %d)\n",
 				cfg.S3.Bucket, base, sum.RemoteObjects, sum.RemoteByGroup, sum.LeaseDatabases)
 		} else {
-			fmt.Fprintln(out, "[dry-run] remote: skipped (dev_mode / --local-only / no bucket)")
+			fmt.Fprintln(out, "[dry-run] remote: skipped (local-only / storage is local / no bucket)")
 		}
 		return sum, nil
 	}
@@ -166,7 +171,7 @@ func resetWith(ctx context.Context, cfg config.Config, opts ResetOptions, store 
 			return sum, fmt.Errorf("reset: remove %s: %w", p, err)
 		}
 	}
-	fmt.Fprintf(out, "reset: removed %d local paths under %s\n", len(sum.LocalPaths), cacheDir)
+	fmt.Fprintf(out, "reset: removed %d local paths under %s\n", len(sum.LocalPaths), strings.Join(localDirs, ", "))
 
 	if store != nil {
 		if err := store.Delete(ctx, kb.ResetLockKey()); err != nil {
@@ -175,18 +180,39 @@ func resetWith(ctx context.Context, cfg config.Config, opts ResetOptions, store 
 		fmt.Fprintf(out, "reset: removed %d remote objects under s3://%s/%s %v\n",
 			sum.RemoteObjects, cfg.S3.Bucket, base, sum.RemoteByGroup)
 	}
-	fmt.Fprintln(out, "reset: done. next start will write a fresh instance-format marker and rebuild the system database.")
+	fmt.Fprintln(out, "reset: done. next start writes a fresh instance-format marker and rebuilds the system database.")
 	return sum, nil
 }
 
-// safeResetDir 路径安全检查：拒绝空路径、根目录与家目录。
-func safeResetDir(dir string) (string, error) {
+// resetLocalDirs 返回需要清空的本地目录（已做安全校验）。
+// 本地模式下 data_dir 是唯一副本，必须与可丢弃的 cache_dir 一起清，
+// 否则换了存储模式后会读到上一次的数据。
+func resetLocalDirs(cfg config.Config) ([]string, error) {
+	cacheDir, err := safeResetDir(cfg.Database.CacheDir, "database.cache_dir")
+	if err != nil {
+		return nil, err
+	}
+	dirs := []string{cacheDir}
+	if strings.TrimSpace(cfg.Storage.DataDir) != "" {
+		dataDir, derr := safeResetDir(cfg.Storage.DataDir, "storage.data_dir")
+		if derr != nil {
+			return nil, derr
+		}
+		if dataDir != cacheDir {
+			dirs = append(dirs, dataDir)
+		}
+	}
+	return dirs, nil
+}
+
+// safeResetDir 路径安全检查：拒绝空路径、根目录与家目录，以及包含配置/密钥的目录。
+func safeResetDir(dir, field string) (string, error) {
 	if strings.TrimSpace(dir) == "" {
-		return "", errors.New("reset: database.cache_dir is empty")
+		return "", fmt.Errorf("reset: %s is empty", field)
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return "", fmt.Errorf("reset: resolve cache dir: %w", err)
+		return "", fmt.Errorf("reset: resolve %s: %w", field, err)
 	}
 	abs = filepath.Clean(abs)
 	if abs == string(filepath.Separator) || abs == filepath.VolumeName(abs)+string(filepath.Separator) {
@@ -194,6 +220,11 @@ func safeResetDir(dir string) (string, error) {
 	}
 	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == abs {
 		return "", fmt.Errorf("reset: refusing to wipe home directory %s", abs)
+	}
+	for _, name := range []string{"config.yaml", ".env"} {
+		if _, err := os.Stat(filepath.Join(abs, name)); err == nil {
+			return "", fmt.Errorf("reset: refusing to wipe %s (contains %s)", abs, name)
+		}
 	}
 	return abs, nil
 }
@@ -225,10 +256,10 @@ func acquireResetLock(ctx context.Context, store objectstore.BlobStore, kb objec
 	return nil
 }
 
-// leaseKeyRe 匹配 tenants/{t}/databases/{db}/catalog/lease/{epoch}.json。
-var leaseKeyRe = regexp.MustCompile(`/tenants/([^/]+)/databases/([^/]+)/catalog/lease/(\d+)\.json$`)
+// leaseKeyRe 匹配 {project}/databases/{db}/catalog/lease/{epoch}.json。
+var leaseKeyRe = regexp.MustCompile(`/([^/]+)/databases/([^/]+)/catalog/lease/(\d+)\.json$`)
 
-// leaseEpochs 返回每个库观察到的最大租约 epoch。
+// leaseEpochs 返回每个库观察到的最大租约 epoch（key 为 "{project}/{db}"）。
 func leaseEpochs(keys []string) map[string]int64 {
 	out := map[string]int64{}
 	for _, k := range keys {
@@ -251,8 +282,7 @@ func leaseEpochs(keys []string) map[string]int64 {
 // checkNoLiveLease 观察式判活（计划 §5.2 v2.1）：两次 List 之间任一库最大 epoch
 // 增加 → 有存活实例在续约 → 拒绝。任一 List 失败同样拒绝。
 func checkNoLiveLease(ctx context.Context, store objectstore.BlobStore, base string, wait time.Duration, out io.Writer) error {
-	tenants := base + "tenants/"
-	keys0, err := listAll(ctx, store, tenants)
+	keys0, err := listAll(ctx, store, base)
 	if err != nil {
 		return fmt.Errorf("reset: list leases: %w", err)
 	}
@@ -263,7 +293,7 @@ func checkNoLiveLease(ctx context.Context, store objectstore.BlobStore, base str
 		return ctx.Err()
 	case <-time.After(wait):
 	}
-	keys1, err := listAll(ctx, store, tenants)
+	keys1, err := listAll(ctx, store, base)
 	if err != nil {
 		return fmt.Errorf("reset: list leases: %w", err)
 	}
@@ -281,8 +311,9 @@ func checkNoLiveLease(ctx context.Context, store objectstore.BlobStore, base str
 	return nil
 }
 
-// deleteRemote 删除 {base}/ 下全部对象：先 tenants/ 与 files/ 等数据，再实例标记与其他
-// catalog/ 对象（CAS 探针），reset.lock 最后由调用方删除。任一批失败即停止。
+// deleteRemote 删除 {base} 下全部对象：先项目数据，再 _system/ 下的实例标记与
+// CAS 探针，reset.lock 最后由调用方删除。任一批失败即停止。
+// 注意：s3.prefix 为空时 base 是整个桶，请确保桶由本实例独占。
 func deleteRemote(ctx context.Context, store objectstore.BlobStore, base string, kb objectstore.KeyBuilder, groups map[string]int, out io.Writer) (int, error) {
 	keys, err := listAll(ctx, store, base)
 	if err != nil {
@@ -295,7 +326,7 @@ func deleteRemote(ctx context.Context, store objectstore.BlobStore, base string,
 		switch {
 		case k == lockKey:
 			continue
-		case k == formatKey || groupOf(base, k) == "catalog":
+		case k == formatKey || groupOf(base, k) == "system":
 			tail = append(tail, k)
 		default:
 			data = append(data, k)
@@ -322,13 +353,17 @@ func deleteRemote(ctx context.Context, store objectstore.BlobStore, base string,
 	return total, nil
 }
 
+// groupOf 把 key 归到 "system"（_system/ 下的平台对象）或 "project"（项目数据）。
 func groupOf(base, key string) string {
 	rest := strings.TrimPrefix(key, base)
+	rest = strings.TrimPrefix(rest, "/")
 	if i := strings.IndexByte(rest, '/'); i > 0 {
-		switch g := rest[:i]; g {
-		case "tenants", "catalog", "files":
-			return g
+		if rest[:i] == objectstore.SystemPrefix {
+			return "system"
 		}
+	}
+	if rest != "" {
+		return "project"
 	}
 	return "other"
 }

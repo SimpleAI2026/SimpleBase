@@ -59,9 +59,10 @@ type CatalogSyncer struct {
 	WriterEpoch int64
 
 	mu          sync.Mutex
-	last        map[string]int64 // last_synced_snapshot_id
-	lastSeq     map[string]int64 // last_synced_manifest_seq
-	dirty       map[string]int64 // pending max snapshot
+	last        map[string]int64     // last_synced_snapshot_id
+	lastSeq     map[string]int64     // last_synced_manifest_seq
+	dirty       map[string]int64     // pending max snapshot
+	dirtySince  map[string]time.Time // 最旧尚未由成功 manifest 覆盖的本地提交时间（进程内估计）
 	bound       map[string]*boundDB
 	timers      map[string]*time.Timer
 	inflight    map[string]bool
@@ -109,6 +110,7 @@ func NewCatalogSyncer(store objectstore.BlobStore, remote RemoteStorage, cacheDi
 		last:        map[string]int64{},
 		lastSeq:     map[string]int64{},
 		dirty:       map[string]int64{},
+		dirtySince:  map[string]time.Time{},
 		bound:       map[string]*boundDB{},
 		timers:      map[string]*time.Timer{},
 		inflight:    map[string]bool{},
@@ -170,6 +172,7 @@ func (s *CatalogSyncer) CloseNoFlush(dbID string) {
 	s.mu.Lock()
 	s.lostLease[dbID] = true
 	delete(s.dirty, dbID)
+	delete(s.dirtySince, dbID)
 	if t := s.timers[dbID]; t != nil {
 		t.Stop()
 		delete(s.timers, dbID)
@@ -238,6 +241,7 @@ func (s *CatalogSyncer) Unbind(ctx context.Context, dbID string) error {
 		delete(s.timers, dbID)
 	}
 	delete(s.dirty, dbID)
+	delete(s.dirtySince, dbID)
 	if t := s.pruneTimers[dbID]; t != nil {
 		t.Stop()
 		delete(s.pruneTimers, dbID)
@@ -259,6 +263,9 @@ func (s *CatalogSyncer) MarkDirty(dbID string, snapshotID int64) {
 	}
 	if snapshotID > s.dirty[dbID] {
 		s.dirty[dbID] = snapshotID
+		if s.dirtySince[dbID].IsZero() && snapshotID > s.last[dbID] {
+			s.dirtySince[dbID] = time.Now()
+		}
 	}
 	// seed 完成前只记账，不启动周期同步。interval 模式不会因为后续 MarkDirty
 	// 推迟已有计时器，所以必须在第一次 MarkDirty 之前就置上暂停。
@@ -349,6 +356,20 @@ func (s *CatalogSyncer) LastSynced(dbID string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.last[dbID]
+}
+
+// OldestUnsyncedAge 返回本进程记录的最旧待同步提交年龄。
+// 进程重启后未恢复提交时间，因此不能把零值当作远端已持久的证明。
+func (s *CatalogSyncer) OldestUnsyncedAge(dbID string) time.Duration {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dirty[dbID] <= s.last[dbID] || s.dirtySince[dbID].IsZero() {
+		return 0
+	}
+	return time.Since(s.dirtySince[dbID])
 }
 
 // SyncLag 返回 dirty/current 与 last_synced 的差值（未绑定时用 dirty）。
@@ -612,6 +633,7 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 		}
 		if s.dirty[meta.ID] <= snap {
 			delete(s.dirty, meta.ID)
+			delete(s.dirtySince, meta.ID)
 		}
 		s.mu.Unlock()
 		return nil
@@ -629,6 +651,7 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 		}
 		s.mu.Lock()
 		delete(s.dirty, meta.ID)
+		delete(s.dirtySince, meta.ID)
 		s.mu.Unlock()
 		return nil
 	}
@@ -639,55 +662,11 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256(data)
-	sha := hex.EncodeToString(sum[:])
 
-	uploadStart := time.Now()
-	kb := s.Remote.keyBuilder()
-	engine := s.engineFor()
-	epoch := s.writerEpochFor(meta.ID)
-
-	// 1) 不可变快照对象：PutIfAbsent。同 snapshot_id 不同 epoch 写不同 key，
-	//    结构上无法覆盖；同 key 已存在说明本 epoch 重复同步（幂等成功）。
-	snapKey, err := kb.DuckLakeSnapshotKey(meta.TenantID, meta.ID, snap, epoch, engine)
+	nextSeq, epoch, snapKey, err := s.publishSnapshot(ctx, meta, snap, data)
 	if err != nil {
 		return err
 	}
-	if _, err := s.Store.PutIfAbsent(ctx, snapKey, data, catalogContentTypeFor(engine)); err != nil {
-		if errors.Is(err, objectstore.ErrPreconditionFailed) {
-			// 同 epoch 同 snap 已上传过：幂等，继续推进 manifest。
-			if s.Logger != nil {
-				s.Logger.Debug("ducklake snapshot object already uploaded",
-					zap.String("database_id", meta.ID), zap.Int64("snapshot_id", snap))
-			}
-		} else {
-			err = fmt.Errorf("ducklake: put snapshot: %w", err)
-			s.recordSyncStage(meta.ID, "upload_snapshot", time.Since(uploadStart), err)
-			return err
-		}
-	}
-	s.recordSyncStage(meta.ID, "upload_snapshot", time.Since(uploadStart), nil)
-
-	// 2) manifest 推进：PutIfAbsent 写 manifest/{seq}.json。
-	//    冲突 = split-brain 确证（第二个 writer 存在）。
-	//    必须先于一切可覆盖写：manifest 失败时不得污染任何回退源（§3.1）。
-	manifestStart := time.Now()
-	nextSeq, err := s.nextManifestSeq(ctx, meta)
-	if err != nil {
-		return err
-	}
-	m := NewManifest(nextSeq, snap, snapKey, engine, epoch, int64(len(data)), sha)
-	if err := WriteManifest(ctx, s.Store, s.Remote, meta.TenantID, meta.ID, m); err != nil {
-		if errors.Is(err, objectstore.ErrPreconditionFailed) {
-			s.markSplitBrain(meta, snap, nextSeq)
-			serr := fmt.Errorf("ducklake: split-brain detected on manifest seq %d: %w", nextSeq, objectstore.ErrPreconditionFailed)
-			s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), serr)
-			return serr
-		}
-		s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), err)
-		return err
-	}
-	s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), nil)
 
 	// 清理快照不进入同步关键路径，独立限频执行。
 	s.schedulePrune(meta, snap, nextSeq)
@@ -697,6 +676,12 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 	s.lastSeq[meta.ID] = nextSeq
 	if s.dirty[meta.ID] <= snap {
 		delete(s.dirty, meta.ID)
+		delete(s.dirtySince, meta.ID)
+	} else {
+		// COPY 后产生的新写入尚未被本次 manifest 覆盖；保留最早时间。
+		if s.dirtySince[meta.ID].IsZero() {
+			s.dirtySince[meta.ID] = time.Now()
+		}
 	}
 	s.mu.Unlock()
 
@@ -733,6 +718,64 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 	return nil
 }
 
+// publishSnapshot 执行 syncOnce 的远端发布段（原连续逻辑，保序移动）：
+//  1) 不可变快照对象 PutIfAbsent；
+//  2) manifest 推进 PutIfAbsent（冲突 = split-brain 确证）。
+//
+// 必须先于一切可覆盖写：manifest 失败时不得污染任何回退源（§3.1）。
+// 返回发布成功后的 manifest seq、writer epoch 与快照 key（供调用方日志）。
+func (s *CatalogSyncer) publishSnapshot(ctx context.Context, meta catalog.Database, snap int64, data []byte) (int64, int64, string, error) {
+	sum := sha256.Sum256(data)
+	sha := hex.EncodeToString(sum[:])
+
+	uploadStart := time.Now()
+	kb := s.Remote.keyBuilder()
+	engine := s.engineFor()
+	epoch := s.writerEpochFor(meta.ID)
+
+	// 1) 不可变快照对象：PutIfAbsent。同 snapshot_id 不同 epoch 写不同 key，
+	//    结构上无法覆盖；同 key 已存在说明本 epoch 重复同步（幂等成功）。
+	snapKey, err := kb.DuckLakeSnapshotKey(meta.ProjectID, meta.ID, snap, epoch, engine)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	if _, err := s.Store.PutIfAbsent(ctx, snapKey, data, catalogContentTypeFor(engine)); err != nil {
+		if errors.Is(err, objectstore.ErrPreconditionFailed) {
+			// 同 epoch 同 snap 已上传过：幂等，继续推进 manifest。
+			if s.Logger != nil {
+				s.Logger.Debug("ducklake snapshot object already uploaded",
+					zap.String("database_id", meta.ID), zap.Int64("snapshot_id", snap))
+			}
+		} else {
+			err = fmt.Errorf("ducklake: put snapshot: %w", err)
+			s.recordSyncStage(meta.ID, "upload_snapshot", time.Since(uploadStart), err)
+			return 0, 0, "", err
+		}
+	}
+	s.recordSyncStage(meta.ID, "upload_snapshot", time.Since(uploadStart), nil)
+
+	// 2) manifest 推进：PutIfAbsent 写 manifest/{seq}.json。
+	//    冲突 = split-brain 确证（第二个 writer 存在）。
+	manifestStart := time.Now()
+	nextSeq, err := s.nextManifestSeq(ctx, meta)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	m := NewManifest(nextSeq, snap, snapKey, engine, epoch, int64(len(data)), sha)
+	if err := WriteManifest(ctx, s.Store, s.Remote, meta.ProjectID, meta.ID, m); err != nil {
+		if errors.Is(err, objectstore.ErrPreconditionFailed) {
+			s.markSplitBrain(meta, snap, nextSeq)
+			serr := fmt.Errorf("ducklake: split-brain detected on manifest seq %d: %w", nextSeq, objectstore.ErrPreconditionFailed)
+			s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), serr)
+			return 0, 0, "", serr
+		}
+		s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), err)
+		return 0, 0, "", err
+	}
+	s.recordSyncStage(meta.ID, "manifest", time.Since(manifestStart), nil)
+	return nextSeq, epoch, snapKey, nil
+}
+
 // nextManifestSeq 返回下一个 manifest seq（远端最大 seq + 1）。
 // 锚点取内存水位，进程重启后回退到 local-state 的 SyncedSeq（O(1) 探测）。
 // 锚点缺失（断链/远端被重置）时退化到全链发现：全空说明远端被重置，
@@ -749,9 +792,9 @@ func (s *CatalogSyncer) nextManifestSeq(ctx context.Context, meta catalog.Databa
 			cached = st.SyncedSeq
 		}
 	}
-	latest, err := ReadLatestManifest(ctx, s.Store, s.Remote, meta.TenantID, meta.ID, cached)
+	latest, err := ReadLatestManifest(ctx, s.Store, s.Remote, meta.ProjectID, meta.ID, cached)
 	if err != nil && IsManifestChainBroken(err) && cached > 0 {
-		latest, err = ReadLatestManifest(ctx, s.Store, s.Remote, meta.TenantID, meta.ID, 0)
+		latest, err = ReadLatestManifest(ctx, s.Store, s.Remote, meta.ProjectID, meta.ID, 0)
 	}
 	if err != nil {
 		return 0, err
@@ -862,7 +905,7 @@ func (s *CatalogSyncer) pruneVersions(ctx context.Context, meta catalog.Database
 	// manifest 指向同一快照对象」时被误删。
 	referenced := map[string]bool{}
 	for seq := oldestKeep; seq <= currentSeq; seq++ {
-		m, err := getManifestAt(ctx, s.Store, kb, meta.TenantID, meta.ID, seq)
+		m, err := getManifestAt(ctx, s.Store, kb, meta.ProjectID, meta.ID, seq)
 		if err != nil {
 			return err
 		}
@@ -873,7 +916,7 @@ func (s *CatalogSyncer) pruneVersions(ctx context.Context, meta catalog.Database
 
 	lastOK := progress
 	for seq := start; seq <= end; seq++ {
-		m, err := getManifestAt(ctx, s.Store, kb, meta.TenantID, meta.ID, seq)
+		m, err := getManifestAt(ctx, s.Store, kb, meta.ProjectID, meta.ID, seq)
 		if err != nil {
 			break // 读失败：停在已连续处理前缀，下轮重试
 		}
@@ -932,6 +975,7 @@ func (s *CatalogSyncer) recordSyncStage(dbID, stage string, d time.Duration, err
 		zap.String("database_id", dbID),
 		zap.String("stage", stage),
 		zap.Duration("duration", d),
+		zap.Duration("oldest_unsynced_age", s.OldestUnsyncedAge(dbID)),
 	}
 	if err != nil {
 		fields = append(fields,
@@ -1023,11 +1067,11 @@ func EnsureLocalCatalog(ctx context.Context, store objectstore.BlobStore, remote
 	}
 
 	// 远端最新水位：manifest 序列（无兼容回退）。
-	latest, err := ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, anchor)
+	latest, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, anchor)
 	if err != nil && IsManifestChainBroken(err) && anchor > 0 {
 		// 锚点失效（远端被重置/回退）：退化到全链发现再判一次；
 		// 全链发现仍断链则 fail closed（§3.1：不得退回旧镜像）。
-		latest, err = ReadLatestManifest(ctx, store, remote, meta.TenantID, meta.ID, 0)
+		latest, err = ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0)
 	}
 	if err != nil {
 		return false, err
@@ -1037,16 +1081,16 @@ func EnsureLocalCatalog(ctx context.Context, store objectstore.BlobStore, remote
 	}
 	// §4.4 防御：manifest 引擎与配置不一致 → 拒绝下载。
 	if NormalizeCatalogEngine(latest.CatalogEngine) != engine {
-		return false, fmt.Errorf("%w: remote manifest seq %d was written with engine %q, config requires %q (tenant=%s db=%s)",
-			ErrCatalogEngineMismatch, latest.Seq, latest.CatalogEngine, engine, meta.TenantID, meta.ID)
+		return false, fmt.Errorf("%w: remote manifest seq %d was written with engine %q, config requires %q (project=%s db=%s)",
+			ErrCatalogEngineMismatch, latest.Seq, latest.CatalogEngine, engine, meta.ProjectID, meta.ID)
 	}
 
 	remoteSnap := latest.SnapshotID
 	remoteKey := latest.SnapshotKey
 	// §4.4 防御：snapshot_key 后缀必须与配置引擎一致（防手工篡改/残留）。
 	if remoteKey != "" && !strings.HasSuffix(remoteKey, catalogExtFor(engine)) {
-		return false, fmt.Errorf("%w: remote snapshot key %q suffix does not match engine %q (tenant=%s db=%s)",
-			ErrCatalogEngineMismatch, remoteKey, engine, meta.TenantID, meta.ID)
+		return false, fmt.Errorf("%w: remote snapshot key %q suffix does not match engine %q (project=%s db=%s)",
+			ErrCatalogEngineMismatch, remoteKey, engine, meta.ProjectID, meta.ID)
 	}
 
 	if _, statErr := os.Stat(layout.CatalogFile); statErr == nil && hasState && local.SnapshotID > 0 {

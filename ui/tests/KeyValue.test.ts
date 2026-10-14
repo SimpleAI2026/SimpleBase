@@ -2,8 +2,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ADMIN_PROJECT_ID, DEFAULT_PROJECT_ID, useProjectStore } from '@/stores/project'
+import { ADMIN_PROJECT_ID, useProjectStore } from '@/stores/project'
 import KeyValue from '@/pages/KeyValue.vue'
+
+const PID = 'testprj1'
 
 const reload = vi.fn()
 const openCreate = vi.fn()
@@ -77,8 +79,9 @@ describe('KeyValue page (项目级)', () => {
     const store = useProjectStore()
     const w = mount(KeyValue, { global: { plugins: [router, pinia], stubs } })
     await flushPromises()
-    // 默认项目 id
-    expect(store.id).toBe(DEFAULT_PROJECT_ID)
+    // 显式选定项目后透传
+    store.setProject(PID, '测试项目')
+    expect(store.id).toBe(PID)
     // 切换项目 → 面板 props 响应更新
     store.setProject('p-other', '其他项目')
     await flushPromises()
@@ -88,7 +91,9 @@ describe('KeyValue page (项目级)', () => {
     }
     store.setProject(ADMIN_PROJECT_ID, 'admin')
     await flushPromises()
-    expect(w.text()).toContain('刷新')
+    // planv6.0 §2.2：系统项目没有项目级 KV，面板整个不渲染，直接给空态。
+    expect(w.findComponent({ name: 'KvPanel' }).exists()).toBe(false)
+    expect(w.text()).toContain('系统项目没有 Key-Value')
     expect(w.text()).not.toContain('新建 Key')
     w.unmount()
   })

@@ -87,6 +87,36 @@ describe('useLoadState', () => {
     expect(toast.error).toHaveBeenCalledWith('boom')
   })
 
+  it('emptyOn 命中时按空数据处理：不报错、不 toast', async () => {
+    // planv6.0 §2.2：资源尚未建立的 404 是「空」，不是加载失败。
+    const state = useLoadState({
+      fallback: '加载失败',
+      emptyOn: (e) => (e as { code?: string })?.code === 'kv_store_not_found'
+    })
+    await state.run(async () => {
+      throw Object.assign(new Error('project has no key-value store'), { status: 404, code: 'kv_store_not_found' })
+    })
+    expect(state.showEmpty.value).toBe(true)
+    expect(state.showError.value).toBe(false)
+    expect(state.error.value).toBe('')
+    expect(state.hasData.value).toBe(false)
+    expect(toast.error).not.toHaveBeenCalledWith('project has no key-value store')
+    expect(toast.error).not.toHaveBeenCalledWith('加载失败')
+  })
+
+  it('emptyOn 未命中时仍走错误态', async () => {
+    const state = useLoadState({
+      fallback: '加载失败',
+      emptyOn: (e) => (e as { code?: string })?.code === 'kv_store_not_found'
+    })
+    await state.run(async () => {
+      throw Object.assign(new Error('boom'), { status: 500 })
+    })
+    expect(state.showError.value).toBe(true)
+    expect(state.showEmpty.value).toBe(false)
+    expect(toast.error).toHaveBeenCalledWith('boom')
+  })
+
   it('keeps existing rows when a refresh fails and toasts the fallback', async () => {
     const state = useLoadState({ fallback: '加载失败' })
     await state.run(async () => true)

@@ -1,20 +1,20 @@
 <template>
   <ProjectScope>
-    <PageContainer subtitle="按需启动的隔离 Linux 环境，空闲后自动回收">
+    <PageContainer :subtitle="t('pages.sandboxes.subtitle')">
       <Card>
         <CardHeader class="border-b">
-          <CardTitle>云沙盒列表</CardTitle>
-          <CardDescription>项目级隔离环境 · {{ records.length }} 个沙盒</CardDescription>
+          <CardTitle>{{ t('pages.sandboxes.cardTitle') }}</CardTitle>
+          <CardDescription>{{ t('pages.sandboxes.cardDesc', { n: records.length }) }}</CardDescription>
           <CardAction>
             <div class="flex gap-2">
               <Button variant="outline" size="sm" :disabled="pending" @click="load">
                 <Spinner v-if="pending" data-icon="inline-start" />
                 <RefreshCwIcon v-else data-icon="inline-start" />
-                刷新
+                {{ t('common.refresh') }}
               </Button>
               <Button v-if="capabilities?.available && !isAdminProject && auth.canWrite" size="sm" @click="createOpen = true">
                 <PlusIcon data-icon="inline-start" />
-                新建沙盒
+                {{ t('pages.sandboxes.create') }}
               </Button>
             </div>
           </CardAction>
@@ -23,29 +23,54 @@
           <SbAsyncRegion :show-empty="true" :pending="false" :show-skeleton="false" :show-error="false">
             <template #empty>
               <template v-if="notice === 'unconfigured'">
-                <SbEmptyState title="未配置云沙盒" description="启用 sandbox.enabled，并通过 SIMPLEBASE_SANDBOX_API_KEY 配置 Cloud 密钥。" />
+                <SbEmptyState :title="t('pages.sandboxes.notConfiguredTitle')" :description="t('pages.sandboxes.notConfiguredDesc')" />
                 <pre class="overflow-auto rounded-md bg-muted p-3 text-xs">sandbox:\n  enabled: true\n  backend: cloud\n# SIMPLEBASE_SANDBOX_API_KEY=...</pre>
               </template>
-              <SbEmptyState v-else title="系统项目不支持云沙盒" description="请切换到普通项目使用" />
+              <SbEmptyState v-else :title="t('pages.sandboxes.adminUnsupported')" :description="t('pages.sandboxes.adminUnsupportedDesc')" />
             </template>
           </SbAsyncRegion>
         </div>
         <div v-else class="p-0">
           <div class="flex flex-wrap gap-2 border-b p-3 text-sm">
-            <label>状态 <select v-model="statusFilter" aria-label="按状态过滤" class="rounded-md border bg-background px-2 py-1"><option value="">全部</option><option v-for="s in ['pending','running','stopped','expired','error']" :key="s" :value="s">{{ s }}</option></select></label>
-            <label>来源 <select v-model="sourceFilter" aria-label="按来源过滤" class="rounded-md border bg-background px-2 py-1"><option value="">全部</option><option value="api">API</option><option value="console">控制台</option><option value="agent">Agent</option><option value="run">一次性</option></select></label>
+            <div class="flex items-center gap-2">
+              <span>{{ t('pages.sandboxes.filterStatus') }}</span>
+              <Select :model-value="statusFilter" @update:model-value="(v: string) => (statusFilter = v)">
+                <SelectTrigger class="h-8 w-32" :aria-label="t('pages.sandboxes.filterStatusAria')">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">{{ t('common.all') }}</SelectItem>
+                  <SelectItem v-for="s in SANDBOX_STATUSES" :key="s" :value="s">{{ s }}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="flex items-center gap-2">
+              <span>{{ t('pages.sandboxes.filterSource') }}</span>
+              <Select :model-value="sourceFilter" @update:model-value="(v: string) => (sourceFilter = v)">
+                <SelectTrigger class="h-8 w-32" :aria-label="t('pages.sandboxes.filterSourceAria')">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">{{ t('common.all') }}</SelectItem>
+                  <SelectItem value="api">{{ t('pages.sandboxes.sourceApi') }}</SelectItem>
+                  <SelectItem value="console">{{ t('pages.sandboxes.sourceConsole') }}</SelectItem>
+                  <SelectItem value="agent">{{ t('pages.sandboxes.sourceAgent') }}</SelectItem>
+                  <SelectItem value="run">{{ t('pages.sandboxes.sourceRun') }}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>名称</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>镜像</TableHead>
-                <TableHead>规格</TableHead>
-                <TableHead>来源</TableHead>
-                <TableHead>最近活跃</TableHead>
-                <TableHead>到期</TableHead>
-                <TableHead>操作</TableHead>
+                <TableHead>{{ t('pages.sandboxes.colName') }}</TableHead>
+                <TableHead>{{ t('pages.sandboxes.colStatus') }}</TableHead>
+                <TableHead>{{ t('pages.sandboxes.colImage') }}</TableHead>
+                <TableHead>{{ t('pages.sandboxes.colSpec') }}</TableHead>
+                <TableHead>{{ t('pages.sandboxes.colSource') }}</TableHead>
+                <TableHead>{{ t('pages.sandboxes.colLastActive') }}</TableHead>
+                <TableHead>{{ t('pages.sandboxes.colExpires') }}</TableHead>
+                <TableHead>{{ t('common.actions') }}</TableHead>
               </TableRow>
             </TableHeader>
             <SbAsyncRegion
@@ -57,8 +82,8 @@
               :show-error="showError"
               :refreshing="refreshing"
               :error="error"
-              empty-title="还没有云沙盒"
-              empty-description="新建后按需启动；空闲后会自动回收"
+              :empty-title="t('pages.sandboxes.emptyTitle')"
+              :empty-description="t('pages.sandboxes.emptyDesc')"
               @retry="load"
             >
               <TableRow v-for="item in filtered" :key="item.id">
@@ -68,12 +93,12 @@
                 </TableCell>
                 <TableCell class="sb-mono">{{ item.image }}</TableCell>
                 <TableCell>{{ item.cpus }}C / {{ item.memoryMiB }}M</TableCell>
-                <TableCell>{{ item.source === 'agent' ? 'Agent' : item.source === 'api' ? 'API' : item.source === 'run' ? '一次性' : '控制台' }}</TableCell>
-                <TableCell>{{ item.lastActiveAt ? formatTime(item.lastActiveAt) : '未启动' }}</TableCell>
+                <TableCell>{{ sourceText(item.source) }}</TableCell>
+                <TableCell>{{ item.lastActiveAt ? formatTime(item.lastActiveAt) : t('common.notStarted') }}</TableCell>
                 <TableCell>{{ item.expiresAt ? formatTime(item.expiresAt) : '—' }}</TableCell>
                 <TableCell>
                   <div class="flex flex-wrap justify-center gap-1">
-                    <Button variant="ghost" size="sm" @click="selected = item">打开</Button>
+                    <Button variant="ghost" size="sm" @click="selected = item">{{ t('pages.sandboxes.open') }}</Button>
                     <Button
                       v-if="auth.canWrite && item.status === 'running'"
                       variant="ghost"
@@ -82,7 +107,7 @@
                       @click="stop(item)"
                     >
                       <Spinner v-if="stopping.has(item.id)" data-icon="inline-start" />
-                      停止
+                      {{ t('pages.sandboxes.stop') }}
                     </Button>
                     <Button
                       v-if="auth.canWrite && ['stopped','expired','error'].includes(item.status)"
@@ -92,24 +117,24 @@
                       @click="start(item)"
                     >
                       <Spinner v-if="starting.has(item.id)" data-icon="inline-start" />
-                      启动
+                      {{ t('pages.sandboxes.start') }}
                     </Button>
                     <ConfirmAction
                       v-if="auth.canWrite"
-                      :title="`确认删除 ${item.name}？`"
+                      :title="t('pages.sandboxes.deleteConfirm', { name: item.name })"
                       :disabled="deleting.has(item.id)"
                       @confirm="remove(item)"
                     >
                       <Button variant="destructiveGhost" size="sm" :disabled="deleting.has(item.id)">
                         <Spinner v-if="deleting.has(item.id)" data-icon="inline-start" />
-                        删除
+                        {{ t('common.del') }}
                       </Button>
                     </ConfirmAction>
                   </div>
                 </TableCell>
               </TableRow>
               <TableEmpty v-if="filtered.length === 0" :colspan="8">
-                <SbEmptyState title="还没有云沙盒" description="新建后按需启动；空闲后会自动回收" />
+                <SbEmptyState :title="t('pages.sandboxes.emptyTitle')" :description="t('pages.sandboxes.emptyDesc')" />
               </TableEmpty>
             </SbAsyncRegion>
           </Table>
@@ -123,6 +148,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
@@ -130,6 +156,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
 import { api } from '../services/api'
 import type { SandboxCapabilities, SandboxItem } from '../services/types'
@@ -145,8 +172,12 @@ import ConfirmAction from '../components/ConfirmAction.vue'
 import SandboxCreateModal from '../components/modal/SandboxCreateModal.vue'
 import SandboxDrawer from '../components/sandbox/SandboxDrawer.vue'
 
+const { t } = useI18n()
 const store = useProjectStore()
 const auth = useAuthStore()
+
+/** 状态过滤下拉的可选值（值本身是后端枚举，不翻译）。 */
+const SANDBOX_STATUSES = ['pending', 'running', 'stopped', 'expired', 'error']
 const { projectId, isAdmin: isAdminProject } = storeToRefs(store)
 const capabilities = ref<SandboxCapabilities | null>(null)
 const records = ref<SandboxItem[]>([])
@@ -158,8 +189,16 @@ const starting = ref(new Set<string>())
 const stopping = ref(new Set<string>())
 const deleting = ref(new Set<string>())
 const { pending, settled, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载云沙盒失败'
+  fallback: 'pages.sandboxes.loadFailed'
 })
+
+/** 来源枚举 → 展示文案。 */
+function sourceText(source: string): string {
+  if (source === 'agent') return t('pages.sandboxes.sourceAgent')
+  if (source === 'api') return t('pages.sandboxes.sourceApi')
+  if (source === 'run') return t('pages.sandboxes.sourceRun')
+  return t('pages.sandboxes.sourceConsole')
+}
 
 const filtered = computed(() => records.value.filter((s) =>
   (!statusFilter.value || s.status === statusFilter.value) && (!sourceFilter.value || s.source === sourceFilter.value)))
@@ -201,9 +240,9 @@ async function start(item: SandboxItem) {
     try {
       await api.sandboxes.start(projectId.value, item.id)
       await load()
-      toast.success('沙盒已启动')
+      toast.success(t('pages.sandboxes.startedToast'))
     } catch (e) {
-      toast.error(errorMessage(e, '启动失败'))
+      toast.error(errorMessage(e, t('pages.sandboxes.startFailed')))
     }
   })
 }
@@ -213,9 +252,9 @@ async function stop(item: SandboxItem) {
     try {
       await api.sandboxes.stop(projectId.value, item.id)
       await load()
-      toast.success('沙盒已停止')
+      toast.success(t('pages.sandboxes.stoppedToast'))
     } catch (e) {
-      toast.error(errorMessage(e, '停止失败'))
+      toast.error(errorMessage(e, t('pages.sandboxes.stopFailed')))
     }
   })
 }
@@ -225,9 +264,9 @@ async function remove(item: SandboxItem) {
     try {
       await api.sandboxes.remove(projectId.value, item.id)
       await load()
-      toast.success('沙盒已删除')
+      toast.success(t('pages.sandboxes.deletedToast'))
     } catch (e) {
-      toast.error(errorMessage(e, '删除失败'))
+      toast.error(errorMessage(e, t('pages.sandboxes.deleteFailed')))
     }
   })
 }

@@ -81,7 +81,7 @@ describe('Dashboard (监控大盘)', () => {
     ])
     api.metrics.summary.mockResolvedValue({
       totalRequests: 9,
-      errorRate: 1,
+      errorRate: 0.015,
       avgLatencyMs: 12.6,
       activeDatabases: 1
     })
@@ -96,7 +96,7 @@ describe('Dashboard (监控大盘)', () => {
     expect(wrapper.text()).toContain('配额状态')
     expect(wrapper.text()).toContain('正常')
     expect(wrapper.text()).toContain('请求 9')
-    expect(wrapper.text()).toContain('错误率 1%')
+    expect(wrapper.text()).toContain('错误率 1.5000%')
     // 资源汇总：只展示类型与数量，不列明细名称
     expect(wrapper.text()).toContain('资源类型')
     expect(wrapper.text()).toContain('数据库')

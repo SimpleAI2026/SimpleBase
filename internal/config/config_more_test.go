@@ -167,6 +167,26 @@ func TestLoadLLMProviders(t *testing.T) {
 	}
 }
 
+func TestLoadLLMProvidersFlatEnvFallback(t *testing.T) {
+	t.Setenv("SIMPLEBASE_LLM_PROVIDER_API_KEY", "sk-fallback")
+	t.Setenv("SIMPLEBASE_LLM_PROVIDER_BASE_URL", "https://api.example/v1")
+	t.Setenv("SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL", "zai-org/GLM-5.3-Flash")
+	got := loadLLMProviders()
+	if len(got) != 1 || got["openai"].APIKey != "sk-fallback" ||
+		got["openai"].BaseURL != "https://api.example/v1" ||
+		got["openai"].DefaultModel != "zai-org/GLM-5.3-Flash" {
+		t.Fatalf("flat env provider: %+v", got)
+	}
+	t.Setenv("SIMPLEBASE_LLM_PROVIDERS", "anthropic")
+	got = loadLLMProviders()
+	if len(got) != 1 {
+		t.Fatalf("named providers must take precedence: %+v", got)
+	}
+	if _, ok := got["openai"]; ok {
+		t.Fatalf("flat env must not override named providers: %+v", got)
+	}
+}
+
 func TestConfigFilePath(t *testing.T) {
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", "/tmp/custom.yaml")
 	got, required := configFilePath()
@@ -224,17 +244,13 @@ s3:
   region: us-west-2
   bucket: yaml-bucket
   prefix: yaml-prefix
-  access_key: yaml-ak
-  secret_key: yaml-sk
   force_path_style: true
   kms_key_id: yaml-kms
-auth:
-  api_key_hash_secret: yaml-secret
+auth: {}
 llm:
   enabled: true
   providers:
     openai:
-      api_key: yaml-llm
       base_url: https://api.example
       default_model: gpt-4o-mini
       allowed_models: ["gpt-4o-mini"]
@@ -256,11 +272,15 @@ system_database:
   metrics_flush_interval: 3s
   log_flush_interval: 4s
   log_keep_days: 21
-dev_mode: true
+storage:
+  database: s3
+  files: local
+  data_dir: /srv/sb-data
 `
 	path := writeYAML(t, yaml)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
-	// Leave required env unset so YAML fills them. Writable=false + DevMode so S3 not required.
+	// 只留非密钥字段从 YAML 读取；密钥必须来自环境变量。
+	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "env-secret")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load yaml: %v", err)
@@ -302,10 +322,10 @@ dev_mode: true
 	if cfg.S3.Bucket != "yaml-bucket" || cfg.S3.Region != "us-west-2" || !cfg.S3.ForcePathStyle || cfg.S3.KMSKeyID != "yaml-kms" {
 		t.Fatalf("s3: %+v", cfg.S3)
 	}
-	if cfg.Auth.APIKeyHashSecret != "yaml-secret" {
-		t.Fatalf("auth: %+v", cfg.Auth)
+	if cfg.Auth.APIKeyHashSecret != "env-secret" {
+		t.Fatalf("auth secret must not be read from YAML: %+v", cfg.Auth)
 	}
-	if !cfg.LLM.Enabled || cfg.LLM.Providers["openai"].APIKey != "yaml-llm" || cfg.LLM.Providers["openai"].Timeout != 45*time.Second {
+	if !cfg.LLM.Enabled || cfg.LLM.Providers["openai"].APIKey != "" || cfg.LLM.Providers["openai"].Timeout != 45*time.Second {
 		t.Fatalf("llm: %+v", cfg.LLM)
 	}
 	if cfg.Limits.MaxRequestBytes != 2048 || cfg.Limits.MaxSQLBytes != 1111 {
@@ -320,8 +340,9 @@ dev_mode: true
 	if cfg.SystemDatabase.MetricsFlushInterval != 3*time.Second || cfg.SystemDatabase.LogFlushInterval != 4*time.Second {
 		t.Fatalf("flush: %+v", cfg.SystemDatabase)
 	}
-	if !cfg.DevMode {
-		t.Fatal("dev_mode")
+	if cfg.Storage.Database != StorageModeS3 || cfg.Storage.Files != StorageModeLocal ||
+		cfg.Storage.DataDir != "/srv/sb-data" {
+		t.Fatalf("storage: %+v", cfg.Storage)
 	}
 }
 
@@ -334,13 +355,15 @@ instance:
   writable: false
 database:
   cache_dir: /tmp/yaml
-dev_mode: true
 `)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
 	setRequiredEnvs(t, false, false)
 	t.Setenv("SIMPLEBASE_HTTP_ADDRESS", ":6060")
 	t.Setenv("SIMPLEBASE_INSTANCE_ID", "env-id")
-	t.Setenv("SIMPLEBASE_DEV_MODE", "false")
+	t.Setenv("SIMPLEBASE_STORAGE_DATABASE", "s3")
+	t.Setenv("SIMPLEBASE_DATA_DIR", "/env/data")
+	t.Setenv("SIMPLEBASE_S3_BUCKET", "env-bucket")
+	t.Setenv("SIMPLEBASE_S3_REGION", "env-region")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -348,8 +371,8 @@ dev_mode: true
 	if cfg.HTTP.Address != ":6060" || cfg.Instance.ID != "env-id" {
 		t.Fatalf("env should win: addr=%s id=%s", cfg.HTTP.Address, cfg.Instance.ID)
 	}
-	if cfg.DevMode {
-		t.Fatal("env SIMPLEBASE_DEV_MODE=false should win")
+	if !cfg.IsDBRemote() || cfg.Storage.DataDir != "/env/data" {
+		t.Fatalf("env SIMPLEBASE_STORAGE_DATABASE/DATA_DIR should win: %+v", cfg.Storage)
 	}
 }
 
@@ -416,11 +439,10 @@ database:
   ducklake:
     maintenance:
       expire_older_than: not-a-duration
-auth:
-  api_key_hash_secret: s
-dev_mode: true
+auth: {}
 `)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "s")
 	if _, err := Load(); err == nil {
 		t.Fatal("invalid duration must fail")
 	}
@@ -434,11 +456,10 @@ instance:
   id: yaml-id
 database:
   cache_dir: /tmp/yaml
-auth:
-  api_key_hash_secret: s
-dev_mode: true
+auth: {}
 `)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "s")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -454,7 +475,7 @@ dev_mode: true
 	}
 }
 
-func TestLoadRejectsYAMLSecretsWhenNotDev(t *testing.T) {
+func TestLoadRejectsYAMLSecretsAlways(t *testing.T) {
 	path := writeYAML(t, `
 instance:
   id: prod
@@ -466,15 +487,14 @@ s3:
   secret_key: secret
 auth:
   api_key_hash_secret: from-yaml
-dev_mode: false
 `)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
 	if _, err := Load(); err == nil {
-		t.Fatal("expected secret rejection")
+		t.Fatal("expected secret rejection: secrets must never come from YAML")
 	}
 }
 
-func TestLoadAllowsYAMLSecretsInDevMode(t *testing.T) {
+func TestLoadRejectsYAMLOnlyAuthSecret(t *testing.T) {
 	path := writeYAML(t, `
 instance:
   id: dev
@@ -482,15 +502,10 @@ database:
   cache_dir: /tmp/c
 auth:
   api_key_hash_secret: from-yaml
-dev_mode: true
 `)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
-	cfg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Auth.APIKeyHashSecret != "from-yaml" {
-		t.Fatalf("auth: %s", cfg.Auth.APIKeyHashSecret)
+	if _, err := Load(); err == nil {
+		t.Fatal("expected secret rejection: auth secret must come from env")
 	}
 }
 
@@ -503,11 +518,10 @@ database:
   ducklake:
     catalog_sync:
       debounce_ms: 350
-auth:
-  api_key_hash_secret: s
-dev_mode: true
+auth: {}
 `)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "s")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -523,7 +537,6 @@ func TestLoadConfigExampleYAML(t *testing.T) {
 		t.Skip("config.example.yaml not found")
 	}
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", example)
-	t.Setenv("SIMPLEBASE_DEV_MODE", "true")
 	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "example-test-secret")
 	cfg, err := Load()
 	if err != nil {
@@ -545,6 +558,7 @@ func TestValidateTable(t *testing.T) {
 				IdleTimeout: time.Second, ShutdownTimeout: time.Second,
 			},
 			Instance: InstanceConfig{ID: "id", Writable: false},
+			Storage:  StorageConfig{Database: StorageModeLocal, Files: StorageModeLocal, DataDir: "/tmp/data"},
 			Database: DatabaseConfig{
 				Engine: EngineDuckLake, CacheDir: "/tmp/c", IdleTimeout: time.Minute, MaxOpen: 1,
 				CacheMaxBytes: DefaultCacheMaxBytes, CacheMaxDatabases: DefaultCacheMaxDatabases,
@@ -580,29 +594,36 @@ func TestValidateTable(t *testing.T) {
 		{"bad log format", func(c *Config) { c.Observability.LogFormat = "xml" }, "log_format"},
 		{"bad log output", func(c *Config) { c.Observability.LogOutput = "file" }, "log_output"},
 		{"bad keep days", func(c *Config) { c.SystemDatabase.LogKeepDays = 0 }, "log_keep_days"},
-		{"writable missing bucket", func(c *Config) {
-			c.Instance.Writable = true
+		{"remote storage missing bucket", func(c *Config) {
+			c.Storage.Database = StorageModeS3
 			c.S3 = S3Config{Region: "r", Prefix: "p"}
 		}, "s3.bucket"},
-		{"writable missing region", func(c *Config) {
-			c.Instance.Writable = true
+		{"remote storage missing region", func(c *Config) {
+			c.Storage.Database = StorageModeS3
 			c.S3 = S3Config{Bucket: "b", Prefix: "p"}
 		}, "s3.region"},
-		{"writable missing prefix", func(c *Config) {
-			c.Instance.Writable = true
-			c.S3 = S3Config{Bucket: "b", Region: "r"}
-		}, "s3.prefix"},
 		{"access without secret", func(c *Config) {
-			c.Instance.Writable = true
+			c.Storage.Database = StorageModeS3
 			c.S3 = S3Config{Bucket: "b", Region: "r", Prefix: "p", AccessKey: "ak"}
 		}, "s3.secret_key"},
 		{"secret without access", func(c *Config) {
-			c.Instance.Writable = true
+			c.Storage.Database = StorageModeS3
 			c.S3 = S3Config{Bucket: "b", Region: "r", Prefix: "p", SecretKey: "sk"}
 		}, "s3.access_key"},
-		{"dev mode skips s3", func(c *Config) {
+		{"bad storage mode", func(c *Config) { c.Storage.Database = "ftp" }, "storage.database"},
+		{"bad files mode", func(c *Config) { c.Storage.Files = "nfs" }, "storage.files"},
+		{"empty data dir", func(c *Config) { c.Storage.DataDir = "" }, "data_dir"},
+		{"data dir equals cache dir", func(c *Config) { c.Storage.DataDir = "/tmp/c" }, "must differ"},
+		{"cache dir inside data dir", func(c *Config) {
+			c.Storage.DataDir = "/tmp/root"
+			c.Database.CacheDir = "/tmp/root/cache"
+		}, "must not contain"},
+		{"data dir inside cache dir", func(c *Config) {
+			c.Storage.DataDir = "/tmp/c/data"
+		}, "must not contain"},
+		{"local storage skips s3", func(c *Config) {
 			c.Instance.Writable = true
-			c.DevMode = true
+			c.Storage = StorageConfig{Database: StorageModeLocal, Files: StorageModeLocal, DataDir: "./data"}
 			c.S3 = S3Config{}
 		}, ""},
 	}
@@ -639,11 +660,14 @@ func TestRedactedIncludesProvidersAndOmitsSecrets(t *testing.T) {
 		}},
 		Limits:        LimitsConfig{MaxRequestBytes: 1, MaxQueryRows: 1, QueryTimeout: time.Second, MaxConcurrentQueries: 1, MaxBatchStatements: 1, MaxSQLBytes: 1},
 		Observability: ObservabilityConfig{LogLevel: "info", LogFormat: "json", MetricsPath: "/m"},
-		DevMode:       true,
 	}
 	view := cfg.Redacted()
-	if view["dev_mode"] != true {
-		t.Fatal("dev_mode")
+	store, ok := view["storage"].(map[string]any)
+	if !ok {
+		t.Fatalf("storage view missing: %+v", view)
+	}
+	if store["database"] != StorageModeLocal || store["files"] != StorageModeLocal {
+		t.Fatalf("storage view: %+v", store)
 	}
 	s3 := view["s3"].(map[string]any)
 	if s3["has_access_key"] != true || s3["has_secret_key"] != true {

@@ -281,3 +281,37 @@ func TestUsage_NestedFiles(t *testing.T) {
 		t.Errorf("expected 25 bytes, got %d", u.TotalBytes)
 	}
 }
+
+// TestNewManagerRejectsDataDirOverlap 阶段 A 断言：缓存根不得等于或落在数据目录内，
+// 防止缓存淘汰误删持久数据（planv6.0 storage-local-first）。
+func TestNewManagerRejectsDataDirOverlap(t *testing.T) {
+	base := t.TempDir()
+	dataDir := filepath.Join(base, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 相同目录 → 拒绝。
+	if _, err := NewManager(Options{Root: dataDir, DataRoot: dataDir}); err == nil {
+		t.Fatal("equal paths must be rejected")
+	}
+	// 缓存根在数据目录内 → 拒绝。
+	inside := filepath.Join(dataDir, "cache")
+	if _, err := NewManager(Options{Root: inside, DataRoot: dataDir}); err == nil {
+		t.Fatal("nested cache root must be rejected")
+	}
+	// 数据目录在缓存根内 → 允许（数据不受缓存淘汰影响的前提由配置层保证），
+	// 但常规分离布局必须可用。
+	ok := filepath.Join(base, "cache")
+	m, err := NewManager(Options{Root: ok, DataRoot: dataDir})
+	if err != nil {
+		t.Fatalf("separate dirs must be accepted: %v", err)
+	}
+	if m.Root() == "" {
+		t.Fatal("root not set")
+	}
+	// 未设置 DataRoot 时不做限制（兼容旧装配与测试）。
+	if _, err := NewManager(Options{Root: inside}); err != nil {
+		t.Fatalf("no DataRoot: %v", err)
+	}
+}

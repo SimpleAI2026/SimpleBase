@@ -1,0 +1,178 @@
+diff --git a/crates/cli/src/decompress.rs b/crates/cli/src/decompress.rs
+index 3616a38..a46b050 100644
+--- a/crates/cli/src/decompress.rs
++++ b/crates/cli/src/decompress.rs
+@@ -57,13 +57,13 @@ impl DecompressionMatcherBuilder {
+         let mut commands = vec![];
+         for decomp_cmd in defaults.iter().chain(&self.commands) {
+             let glob = Glob::new(&decomp_cmd.glob).map_err(|err| {
+-                CommandError::io(io::Error::new(io::ErrorKind::Other, err))
++                CommandError::io(io::Error::other(err))
+             })?;
+             glob_builder.add(glob);
+             commands.push(decomp_cmd.clone());
+         }
+         let globs = glob_builder.build().map_err(|err| {
+-            CommandError::io(io::Error::new(io::ErrorKind::Other, err))
++            CommandError::io(io::Error::other(err))
+         })?;
+         Ok(DecompressionMatcher { globs, commands })
+     }
+@@ -461,10 +461,7 @@ fn try_resolve_binary<P: AsRef<Path>>(
+     }
+     let Some(syspaths) = env::var_os("PATH") else {
+         let msg = "system PATH environment variable not found";
+-        return Err(CommandError::io(io::Error::new(
+-            io::ErrorKind::Other,
+-            msg,
+-        )));
++        return Err(CommandError::io(io::Error::other(msg)));
+     };
+     for syspath in env::split_paths(&syspaths) {
+         if syspath.as_os_str().is_empty() {
+@@ -484,7 +481,7 @@ fn try_resolve_binary<P: AsRef<Path>>(
+         }
+     }
+     let msg = format!("{}: could not find executable in PATH", prog.display());
+-    return Err(CommandError::io(io::Error::new(io::ErrorKind::Other, msg)));
++    return Err(CommandError::io(io::Error::other(msg)));
+ }
+ 
+ fn default_decompression_commands() -> Vec<DecompressionCommand> {
+diff --git a/crates/cli/src/hostname.rs b/crates/cli/src/hostname.rs
+index ef50747..433306e 100644
+--- a/crates/cli/src/hostname.rs
++++ b/crates/cli/src/hostname.rs
+@@ -25,8 +25,7 @@ pub fn hostname() -> io::Result<OsString> {
+     }
+     #[cfg(not(any(windows, unix)))]
+     {
+-        Err(io::Error::new(
+-            io::ErrorKind::Other,
++        Err(io::Error::other(
+             "hostname could not be found on unsupported platform",
+         ))
+     }
+@@ -49,7 +48,7 @@ fn gethostname() -> io::Result<OsString> {
+     }
+     let Ok(maxlen) = usize::try_from(limit) else {
+         let msg = format!("host name max limit ({}) overflowed usize", limit);
+-        return Err(io::Error::new(io::ErrorKind::Other, msg));
++        return Err(io::Error::other(msg));
+     };
+     // maxlen here includes the NUL terminator.
+     let mut buf = vec![0; maxlen];
+@@ -67,7 +66,7 @@ fn gethostname() -> io::Result<OsString> {
+     // lol). So if we can't find a NUL terminator, then just give up.
+     let Some(zeropos) = buf.iter().position(|&b| b == 0) else {
+         let msg = "could not find NUL terminator in hostname";
+-        return Err(io::Error::new(io::ErrorKind::Other, msg));
++        return Err(io::Error::other(msg));
+     };
+     buf.truncate(zeropos);
+     buf.shrink_to_fit();
+diff --git a/crates/cli/src/human.rs b/crates/cli/src/human.rs
+index 61b430d..f69f35e 100644
+--- a/crates/cli/src/human.rs
++++ b/crates/cli/src/human.rs
+@@ -64,7 +64,7 @@ impl std::fmt::Display for ParseSizeError {
+ 
+ impl From<ParseSizeError> for std::io::Error {
+     fn from(size_err: ParseSizeError) -> std::io::Error {
+-        std::io::Error::new(std::io::ErrorKind::Other, size_err)
++        std::io::Error::other(size_err)
+     }
+ }
+ 
+diff --git a/crates/cli/src/pattern.rs b/crates/cli/src/pattern.rs
+index f246688..964aa9f 100644
+--- a/crates/cli/src/pattern.rs
++++ b/crates/cli/src/pattern.rs
+@@ -38,7 +38,7 @@ impl std::fmt::Display for InvalidPatternError {
+ 
+ impl From<InvalidPatternError> for io::Error {
+     fn from(paterr: InvalidPatternError) -> io::Error {
+-        io::Error::new(io::ErrorKind::Other, paterr)
++        io::Error::other(paterr)
+     }
+ }
+ 
+@@ -82,16 +82,10 @@ pub fn pattern_from_bytes(
+ pub fn patterns_from_path<P: AsRef<Path>>(path: P) -> io::Result<Vec<String>> {
+     let path = path.as_ref();
+     let file = std::fs::File::open(path).map_err(|err| {
+-        io::Error::new(
+-            io::ErrorKind::Other,
+-            format!("{}: {}", path.display(), err),
+-        )
++        io::Error::other(format!("{}: {}", path.display(), err))
+     })?;
+     patterns_from_reader(file).map_err(|err| {
+-        io::Error::new(
+-            io::ErrorKind::Other,
+-            format!("{}:{}", path.display(), err),
+-        )
++        io::Error::other(format!("{}:{}", path.display(), err))
+     })
+ }
+ 
+@@ -105,7 +99,7 @@ pub fn patterns_from_stdin() -> io::Result<Vec<String>> {
+     let stdin = io::stdin();
+     let locked = stdin.lock();
+     patterns_from_reader(locked).map_err(|err| {
+-        io::Error::new(io::ErrorKind::Other, format!("<stdin>:{}", err))
++        io::Error::other(format!("<stdin>:{}", err))
+     })
+ }
+ 
+@@ -148,10 +142,9 @@ pub fn patterns_from_reader<R: io::Read>(rdr: R) -> io::Result<Vec<String>> {
+                 patterns.push(pattern.to_string());
+                 Ok(true)
+             }
+-            Err(err) => Err(io::Error::new(
+-                io::ErrorKind::Other,
+-                format!("{}: {}", line_number, err),
+-            )),
++            Err(err) => {
++                Err(io::Error::other(format!("{}: {}", line_number, err)))
++            }
+         }
+     })?;
+     Ok(patterns)
+diff --git a/crates/cli/src/process.rs b/crates/cli/src/process.rs
+index bc166d6..fe3cc9b 100644
+--- a/crates/cli/src/process.rs
++++ b/crates/cli/src/process.rs
+@@ -73,7 +73,7 @@ impl From<CommandError> for io::Error {
+         match cmderr.kind {
+             CommandErrorKind::Io(ioerr) => ioerr,
+             CommandErrorKind::Stderr(_) => {
+-                io::Error::new(io::ErrorKind::Other, cmderr)
++                io::Error::other(cmderr)
+             }
+         }
+     }
+@@ -219,9 +219,8 @@ impl CommandReader {
+         // Dropping stdout closes the underlying file descriptor, which should
+         // cause a well-behaved child process to exit. If child.stdout is None
+         // we assume that close() has already been called and do nothing.
+-        let stdout = match self.child.stdout.take() {
+-            None => return Ok(()),
+-            Some(stdout) => stdout,
++        let Some(stdout) = self.child.stdout.take() else {
++            return Ok(());
+         };
+         drop(stdout);
+         if self.child.wait()?.success() {
+@@ -253,9 +252,8 @@ impl Drop for CommandReader {
+ 
+ impl io::Read for CommandReader {
+     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+-        let stdout = match self.child.stdout {
+-            None => return Ok(0),
+-            Some(ref mut stdout) => stdout,
++        let Some(stdout) = self.child.stdout.as_mut() else {
++            return Ok(0);
+         };
+         let nread = stdout.read(buf)?;
+         if nread == 0 {

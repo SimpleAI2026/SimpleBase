@@ -1,11 +1,11 @@
 <template>
   <SbModal
     :open="open"
-    :title="mode === 'password' ? '修改密码' : '登录 SimpleBase'"
+    :title="mode === 'password' ? t('components.login.titleChange') : t('components.login.titleLogin')"
     :description="
       mode === 'password'
-        ? '首次登录请设置新密码后再进入控制台'
-        : '使用管理员分配的账号登录控制台'
+        ? t('components.login.descChange')
+        : t('components.login.descLogin')
     "
     :hide-footer="true"
     :max-width="420"
@@ -14,42 +14,42 @@
     <!-- 登录表单 -->
     <form v-if="mode === 'login'" class="flex flex-col gap-4" @submit.prevent="submitLogin">
       <Alert v-if="auth.loginReason" variant="destructive">
-        <AlertTitle>请重新登录</AlertTitle>
-        <AlertDescription>{{ auth.loginReason }}</AlertDescription>
+        <AlertTitle>{{ t('components.login.reloginTitle') }}</AlertTitle>
+        <AlertDescription>{{ loginReasonText }}</AlertDescription>
       </Alert>
       <FieldGroup>
         <Field :data-invalid="error ? true : undefined">
-          <FieldLabel for="login-username">用户名</FieldLabel>
+          <FieldLabel for="login-username">{{ t('components.login.username') }}</FieldLabel>
           <Input
             id="login-username"
             v-model="username"
-            placeholder="请输入用户名"
+            :placeholder="t('components.login.usernamePlaceholder')"
             autocomplete="username"
             autofocus
           />
-          <FieldDescription>输入登录用户名</FieldDescription>
+          <FieldDescription>{{ t('components.login.usernameDesc') }}</FieldDescription>
         </Field>
         <Field :data-invalid="error ? true : undefined">
-          <FieldLabel for="login-password">密码</FieldLabel>
+          <FieldLabel for="login-password">{{ t('components.login.password') }}</FieldLabel>
           <Input
             id="login-password"
             v-model="password"
             type="password"
-            placeholder="请输入密码"
+            :placeholder="t('components.login.passwordPlaceholder')"
             autocomplete="current-password"
             @keydown.enter="submitLogin"
           />
-          <FieldDescription>输入登录密码</FieldDescription>
+          <FieldDescription>{{ t('components.login.passwordDesc') }}</FieldDescription>
         </Field>
       </FieldGroup>
       <Alert v-if="error" variant="destructive">
-        <AlertTitle>登录失败</AlertTitle>
+        <AlertTitle>{{ t('components.login.loginFailedTitle') }}</AlertTitle>
         <AlertDescription>{{ error }}</AlertDescription>
       </Alert>
       <div class="flex justify-end gap-2">
         <Button type="submit" :disabled="submitting || !canSubmit">
           <Spinner v-if="submitting" data-icon="inline-start" />
-          登录
+          {{ t('components.login.login') }}
         </Button>
       </div>
     </form>
@@ -58,29 +58,29 @@
     <form v-else class="flex flex-col gap-4" @submit.prevent="submitPassword">
       <FieldGroup>
         <Field>
-          <FieldLabel for="pw-old">当前密码</FieldLabel>
+          <FieldLabel for="pw-old">{{ t('components.login.oldPassword') }}</FieldLabel>
           <Input id="pw-old" v-model="oldPassword" type="password" autocomplete="current-password" />
         </Field>
         <Field :data-invalid="pwError ? true : undefined">
-          <FieldLabel for="pw-new">新密码</FieldLabel>
+          <FieldLabel for="pw-new">{{ t('components.login.newPassword') }}</FieldLabel>
           <Input id="pw-new" v-model="newPassword" type="password" autocomplete="new-password" />
-          <FieldDescription>至少 8 位</FieldDescription>
+          <FieldDescription>{{ t('components.login.newPasswordDesc') }}</FieldDescription>
         </Field>
         <Field :data-invalid="pwError || pwMismatch ? true : undefined">
-          <FieldLabel for="pw-confirm">确认新密码</FieldLabel>
+          <FieldLabel for="pw-confirm">{{ t('components.login.confirmPassword') }}</FieldLabel>
           <Input id="pw-confirm" v-model="confirmPassword" type="password" autocomplete="new-password" />
-          <FieldDescription v-if="pwError || pwMismatch">{{ pwError || '两次输入不一致' }}</FieldDescription>
+          <FieldDescription v-if="pwError || pwMismatch">{{ pwError || t('components.login.mismatch') }}</FieldDescription>
         </Field>
       </FieldGroup>
       <Alert v-if="error" variant="destructive">
-        <AlertTitle>修改失败</AlertTitle>
+        <AlertTitle>{{ t('components.login.changeFailedTitle') }}</AlertTitle>
         <AlertDescription>{{ error }}</AlertDescription>
       </Alert>
       <div class="flex justify-end gap-2">
-        <Button variant="outline" type="button" @click="signOut">退出</Button>
+        <Button variant="outline" type="button" @click="signOut">{{ t('components.login.signOut') }}</Button>
         <Button type="submit" :disabled="submitting || !canSubmitPassword">
           <Spinner v-if="submitting" data-icon="inline-start" />
-          确认修改
+          {{ t('components.login.submitChange') }}
         </Button>
       </div>
     </form>
@@ -89,6 +89,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -98,6 +99,7 @@ import SbModal from './SbModal.vue'
 import { useAuthStore } from '../../stores/auth'
 
 const auth = useAuthStore()
+const { t, te } = useI18n()
 
 const props = defineProps<{
   open: boolean
@@ -106,6 +108,12 @@ const props = defineProps<{
 }>()
 
 const mode = computed(() => props.mode || (auth.mustChangePassword ? 'password' : 'login'))
+
+/**
+ * store 里存的是 i18n key（如 `error.codes.unauthorized`），
+ * 渲染时再翻译，这样切换语言后提示也会跟着变。
+ */
+const loginReasonText = computed(() => (te(auth.loginReason) ? t(auth.loginReason) : auth.loginReason))
 
 const username = ref('')
 const password = ref('')
@@ -153,7 +161,7 @@ async function submitLogin() {
   try {
     await auth.login(username.value.trim(), password.value)
   } catch (e) {
-    error.value = errorMessage(e, '用户名或密码错误')
+    error.value = errorMessage(e, t('components.login.badCredentials'))
   } finally {
     submitting.value = false
   }
@@ -162,11 +170,11 @@ async function submitLogin() {
 async function submitPassword() {
   if (!canSubmitPassword.value || submitting.value) return
   if (newPassword.value !== confirmPassword.value) {
-    pwError.value = '两次输入不一致'
+    pwError.value = t('components.login.mismatch')
     return
   }
   if (newPassword.value.length < 8) {
-    pwError.value = '新密码至少 8 位'
+    pwError.value = t('components.login.newPasswordTooShort')
     return
   }
   submitting.value = true
@@ -176,7 +184,7 @@ async function submitPassword() {
     // 改密后服务端吊销会话，重新登录
     auth.markUnauthorized()
   } catch (e) {
-    error.value = errorMessage(e, '修改失败')
+    error.value = errorMessage(e, t('components.login.changeFailed'))
   } finally {
     submitting.value = false
   }

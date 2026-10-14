@@ -97,6 +97,28 @@ func NewSQLHandler(svc SQLService, limits SQLLimits, writable bool) *SQLHandler 
 	return h
 }
 
+// durabilityFor 返回写响应的 durability 标注：无回调时默认 committed_local，
+// 回调返回值（含空串）原样返回，不做兜底（planv6.0 §8 B2）。
+func (h *SQLHandler) durabilityFor(databaseID string) string {
+	if h.DurabilityFor == nil {
+		return "committed_local"
+	}
+	return h.DurabilityFor(databaseID)
+}
+
+// writableDatabase 取用户库并拒绝系统库写入（execute/batch 共用的门禁段）。
+// 系统库只读：一律拒绝，防止改写实例元数据。
+func (h *SQLHandler) writableDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error) {
+	db, err := h.svc.GetDatabase(ctx, principal, projectID, databaseID)
+	if err != nil {
+		return catalog.Database{}, err
+	}
+	if catalog.IsSystemDatabase(db) {
+		return catalog.Database{}, catalog.ErrSystemProtected
+	}
+	return db, nil
+}
+
 // acquireSem 尝试获取并发槽位。失败返回 ErrQueryConcurrency。
 func (h *SQLHandler) acquireSem(ctx context.Context) error {
 	if h.sem == nil {
@@ -222,15 +244,11 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 		return WriteError(c, err)
 	}
 
-	databaseID := c.Param("databaseID")
-	db, err := h.svc.GetDatabase(ctx, principal, project.ID, databaseID)
+	db, err := h.writableDatabase(ctx, principal, project.ID, c.Param("databaseID"))
 	if err != nil {
 		return WriteError(c, err)
 	}
-	// 系统库只读：execute/batch 一律拒绝，防止改写实例元数据。
-	if catalog.IsSystemDatabase(db) {
-		return WriteError(c, catalog.ErrSystemProtected)
-	}
+	databaseID := c.Param("databaseID")
 
 	semScope := timer.StageScope(StageSemaphore)
 	if err := h.acquireSem(ctx); err != nil {
@@ -252,10 +270,7 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 	}
 
 	rid := RequestIDFromContext(c.Request().Context())
-	dur := "committed_local"
-	if h.DurabilityFor != nil {
-		dur = h.DurabilityFor(databaseID)
-	}
+	dur := h.durabilityFor(databaseID)
 	return c.JSON(http.StatusOK, ExecuteResponse{
 		RowsAffected: result.RowsAffected,
 		Durability:   dur,
@@ -297,15 +312,11 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 		stmts = append(stmts, database.Statement{SQL: s.SQL, Args: s.Args})
 	}
 
-	databaseID := c.Param("databaseID")
-	db, err := h.svc.GetDatabase(ctx, principal, project.ID, databaseID)
+	db, err := h.writableDatabase(ctx, principal, project.ID, c.Param("databaseID"))
 	if err != nil {
 		return WriteError(c, err)
 	}
-	// 系统库只读：batch 一律拒绝。
-	if catalog.IsSystemDatabase(db) {
-		return WriteError(c, catalog.ErrSystemProtected)
-	}
+	databaseID := c.Param("databaseID")
 
 	semScope := timer.StageScope(StageSemaphore)
 	if err := h.acquireSem(ctx); err != nil {
@@ -328,10 +339,7 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 		if err != nil {
 			// 事务回滚：返回整体错误，标明失败位置
 			failedIdx := extractBatchIndex(err)
-			dur := "committed_local"
-			if h.DurabilityFor != nil {
-				dur = h.DurabilityFor(databaseID)
-			}
+			dur := h.durabilityFor(databaseID)
 			return c.JSON(http.StatusOK, BatchResponse{
 				Results:    toBatchResultsTransactional(results),
 				Durability: dur,
@@ -344,10 +352,7 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 				},
 			})
 		}
-		dur := "committed_local"
-		if h.DurabilityFor != nil {
-			dur = h.DurabilityFor(databaseID)
-		}
+		dur := h.durabilityFor(databaseID)
 		return c.JSON(http.StatusOK, BatchResponse{
 			Results:    toBatchResultsTransactional(results),
 			Durability: dur,
@@ -358,10 +363,7 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 	// Non-transactional: 逐条执行，失败项带 error 但不影响已提交
 	results, err := lease.Batch(ctx, stmts, false)
 	items := toBatchResultsNonTransactional(results, err)
-	dur := "committed_local"
-	if h.DurabilityFor != nil {
-		dur = h.DurabilityFor(databaseID)
-	}
+	dur := h.durabilityFor(databaseID)
 	return c.JSON(http.StatusOK, BatchResponse{
 		Results:    items,
 		Durability: dur,

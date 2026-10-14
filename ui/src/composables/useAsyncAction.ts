@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { toast } from 'vue-sonner'
+import { t } from '@/locales'
 
 interface AsyncActionOptions {
   successMsg?: string
@@ -34,7 +35,7 @@ export function useAsyncAction<T>(
       return result
     } catch (e) {
       const msg =
-        (e instanceof Error && e.message) || opts.errorMsg || opts.fallbackMsg || '操作失败'
+        (e instanceof Error && e.message) || opts.errorMsg || opts.fallbackMsg || t('error.generic')
       error.value = msg
       toast.error(msg)
       return undefined

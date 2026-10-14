@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent/agentcore"
 	"io"
 	"strings"
 	"testing"
@@ -90,7 +91,7 @@ func TestPromptRedactAndTruncate(t *testing.T) {
 
 func TestGatewayChatModelGenerateAndOptions(t *testing.T) {
 	llm := &scriptedChat{content: "plain answer"}
-	m := newGatewayChatModel(llm, "p1", "base-model")
+	m := agentcore.NewModel(llm, "p1", "base-model")
 	if err := m.BindTools([]*schema.ToolInfo{{Name: "bound", Desc: "d"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +149,7 @@ func TestGatewayChatModelGenerateAndOptions(t *testing.T) {
 func TestGatewayChatModelStreamPaths(t *testing.T) {
 	t.Run("stream text chunks", func(t *testing.T) {
 		llm := &scriptedChat{streamChunks: []string{"Hello ", "world from stream"}}
-		m := newGatewayChatModel(llm, "p1", "m")
+		m := agentcore.NewModel(llm, "p1", "m")
 		sr, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("q")})
 		if err != nil {
 			t.Fatal(err)
@@ -172,7 +173,7 @@ func TestGatewayChatModelStreamPaths(t *testing.T) {
 	})
 	t.Run("stream tool call and empty", func(t *testing.T) {
 		llm := &scriptedChat{streamChunks: []string{`TOOL_CALL {"name":"list_databases","arguments":{}}`}}
-		m := newGatewayChatModel(llm, "p1", "m")
+		m := agentcore.NewModel(llm, "p1", "m")
 		sr, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("q")})
 		if err != nil {
 			t.Fatal(err)
@@ -188,7 +189,7 @@ func TestGatewayChatModelStreamPaths(t *testing.T) {
 	})
 	t.Run("stream error then fallback chat", func(t *testing.T) {
 		llm := &scriptedChat{streamErr: errors.New("no stream"), content: "fallback-ok"}
-		m := newGatewayChatModel(llm, "p1", "m")
+		m := agentcore.NewModel(llm, "p1", "m")
 		sr, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("q")})
 		if err != nil {
 			t.Fatal(err)
@@ -203,14 +204,14 @@ func TestGatewayChatModelStreamPaths(t *testing.T) {
 	})
 	t.Run("stream and chat both fail", func(t *testing.T) {
 		llm := &scriptedChat{streamErr: errors.New("no stream"), err: errors.New("no chat")}
-		m := newGatewayChatModel(llm, "p1", "m")
+		m := agentcore.NewModel(llm, "p1", "m")
 		if _, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("q")}); err == nil {
 			t.Fatal("expected error")
 		}
 	})
 	t.Run("stream next error", func(t *testing.T) {
 		llm := &scriptedChat{streamNextErr: errors.New("chunk fail"), streamChunks: []string{"x"}}
-		m := newGatewayChatModel(llm, "p1", "m")
+		m := agentcore.NewModel(llm, "p1", "m")
 		sr, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("q")})
 		if err != nil {
 			t.Fatal(err)
@@ -239,7 +240,7 @@ func TestExtractToolCallBranches(t *testing.T) {
 		{`TOOL_CALL {"name":"only"}`, true, "only"},
 	}
 	for _, tc := range cases {
-		name, args, ok := extractToolCall(tc.in)
+		name, args, ok := agentcore.ExtractToolCall(tc.in)
 		if ok != tc.wantOK || name != tc.wantName {
 			t.Fatalf("in=%q ok=%v name=%q args=%s want ok=%v name=%q", tc.in, ok, name, args, tc.wantOK, tc.wantName)
 		}
@@ -247,30 +248,15 @@ func TestExtractToolCallBranches(t *testing.T) {
 			t.Fatalf("default args=%s", args)
 		}
 	}
-	if !looksLikeToolCall("x TOOL_CALL y") || looksLikeToolCall("plain") {
+	if !agentcore.LooksLikeToolCall("x TOOL_CALL y") || agentcore.LooksLikeToolCall("plain") {
 		t.Fatal("looksLikeToolCall")
 	}
-	msg := parseAssistant(`TOOL_CALL {"name":"list_objects","arguments":{}}`)
+	msg := agentcore.ParseAssistant(`TOOL_CALL {"name":"list_objects","arguments":{}}`)
 	if len(msg.ToolCalls) != 1 {
 		t.Fatalf("parse tool: %+v", msg)
 	}
-	if parseAssistant("just text").Content != "just text" {
+	if agentcore.ParseAssistant("just text").Content != "just text" {
 		t.Fatal("parse text")
-	}
-	if mergeTools([]*schema.ToolInfo{{Name: "b"}}, nil)[0].Name != "b" {
-		t.Fatal("merge bound")
-	}
-	if mergeTools([]*schema.ToolInfo{{Name: "b"}}, []*schema.ToolInfo{{Name: "o"}})[0].Name != "o" {
-		t.Fatal("merge opt")
-	}
-	sr := singleMessageStream(schema.AssistantMessage("one", nil))
-	got, err := sr.Recv()
-	if err != nil || got.Content != "one" {
-		t.Fatalf("single stream %v %v", got, err)
-	}
-	_, err = sr.Recv()
-	if !errors.Is(err, io.EOF) {
-		t.Fatalf("eof=%v", err)
 	}
 }
 

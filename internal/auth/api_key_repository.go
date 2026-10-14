@@ -78,11 +78,46 @@ func RevokeAPIKey(ctx context.Context, db *sql.DB, id string, at time.Time) erro
 	return err
 }
 
+// ErrKeyNotFound 表示按 (id, project_id) 未找到未吊销的 Key。
+// handler 据此返回 404，避免跨项目吊销与不存在 ID 均返回 204（SEC-01）。
+var ErrKeyNotFound = errors.New("auth: api key not found in project")
+
+// RevokeProjectAPIKey 只吊销属于 projectID 的未吊销 Key（SEC-01）。
+// 条件更新限定 project_id 且 revoked_at IS NULL：
+//   - 不存在、属于其他项目或已吊销 → ErrKeyNotFound；
+//   - 重复吊销按未找到处理（对外 404），保持接口幂等语义。
+func RevokeProjectAPIKey(ctx context.Context, db *sql.DB, id, projectID string, at time.Time) error {
+	res, err := db.ExecContext(ctx,
+		`UPDATE sys_api_keys SET revoked_at = ? WHERE id = ? AND project_id = ? AND revoked_at IS NULL`,
+		at.UTC(), id, projectID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrKeyNotFound
+	}
+	return nil
+}
+
 // RevokeAPIKeyByID 吊销并失效本进程缓存（§7.2 P1.2：吊销立即生效契约）。
 // 缓存按 keyHash 索引而吊销按 key ID 执行，无法精确定位 hash，
 // 因此全量失效（Key 数量有限，重建成本可接受）。
 func (s *Service) RevokeAPIKeyByID(ctx context.Context, db *sql.DB, id string, at time.Time) error {
 	if err := RevokeAPIKey(ctx, db, id, at); err != nil {
+		return err
+	}
+	s.cache.InvalidateAll()
+	return nil
+}
+
+// RevokeProjectAPIKeyByID 按 (id, projectID) 吊销并失效缓存（SEC-01）。
+// 项目不匹配或已吊销时返回 ErrKeyNotFound，不触发缓存失效。
+func (s *Service) RevokeProjectAPIKeyByID(ctx context.Context, db *sql.DB, id, projectID string, at time.Time) error {
+	if err := RevokeProjectAPIKey(ctx, db, id, projectID, at); err != nil {
 		return err
 	}
 	s.cache.InvalidateAll()

@@ -29,6 +29,11 @@ function mountPanel(props: { readonly?: boolean; database?: DatabaseItem } = {})
   })
 }
 
+/** 「添加字段」草稿按钮：下拉触发器同为 type=button，不能按类型定位。 */
+function addDraftButton(wrapper: ReturnType<typeof mountPanel>) {
+  return wrapper.findAll('form.create-table button').find((b) => b.text() === '添加字段')!
+}
+
 describe('SchemaPanel', () => {
   beforeEach(() => {
     resetApiMocks()
@@ -76,7 +81,7 @@ describe('SchemaPanel', () => {
     expect(api.databases.schema).toHaveBeenCalledWith('proj', 'db-2')
     expect(wrapper.text()).toContain('orders')
     expect(wrapper.text()).not.toContain('NOT NULL')
-    expect((wrapper.get('#schema-add-table').element as HTMLSelectElement).value).toBe('orders')
+    expect((wrapper.vm as unknown as { addTable: string }).addTable).toBe('orders')
   })
 
   it('hides forms when readonly and marks NOT NULL columns', async () => {
@@ -108,13 +113,15 @@ describe('SchemaPanel', () => {
     await wrapper.get('form.create-table').trigger('submit')
     expect(toast.warning).toHaveBeenCalledWith('请输入字段名')
 
-    await wrapper.get('button[type="button"]').trigger('click')
+    await addDraftButton(wrapper).trigger('click')
     await wrapper.get('#schema-col-0').setValue('id')
     await wrapper.get('form.create-table').trigger('submit')
     expect(toast.warning).toHaveBeenCalledWith('请输入字段名')
     expect(api.databases.createTable).not.toHaveBeenCalled()
 
-    await wrapper.get('#schema-type-0').setValue('INTEGER')
+    // 字段类型是 ui/select（非原生 <select>），经 vm 设值。
+    ;(wrapper.vm as unknown as { drafts: { type: string }[] }).drafts[0].type = 'INTEGER'
+    await flushPromises()
     await wrapper.get('#schema-null-0').setValue(false)
     await wrapper.get('#schema-col-1').setValue('email')
     api.databases.createTable.mockResolvedValue({ name: 'orders', columns: [] })
@@ -160,10 +167,10 @@ describe('SchemaPanel', () => {
     const wrapper = mountPanel()
     await flushPromises()
     for (let i = 0; i < 15; i += 1) {
-      await wrapper.get('form.create-table button[type="button"]').trigger('click')
+      await addDraftButton(wrapper).trigger('click')
     }
     expect(wrapper.find('#schema-col-15').exists()).toBe(true)
-    await wrapper.get('form.create-table button[type="button"]').trigger('click')
+    await addDraftButton(wrapper).trigger('click')
     expect(toast.warning).toHaveBeenCalledWith('最多 16 个字段')
     expect(wrapper.find('#schema-col-16').exists()).toBe(false)
   })
@@ -181,9 +188,11 @@ describe('SchemaPanel', () => {
     await wrapper.get('form.add-column').trigger('submit')
     expect(toast.warning).toHaveBeenCalledWith('请输入字段名')
 
-    await wrapper.get('#schema-add-table').setValue('notes')
+    const vm = wrapper.vm as unknown as { addTable: string; addType: string }
+    vm.addTable = 'notes'
     await wrapper.get('#schema-add-name').setValue('note')
-    await wrapper.get('#schema-add-type').setValue('JSON')
+    vm.addType = 'JSON'
+    await flushPromises()
     await wrapper.get('#schema-add-nullable').setValue(false)
     api.databases.addColumn.mockRejectedValueOnce(new Error('add-column'))
     await wrapper.get('form.add-column').trigger('submit')

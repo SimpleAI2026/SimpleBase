@@ -1,13 +1,10 @@
 {
   "modules": [
     { "id": "getting-started", "title": "入门", "order": 1 },
-    { "id": "database", "title": "数据库", "order": 2 },
-    { "id": "storage", "title": "对象存储", "order": 3 },
-    { "id": "gofunction", "title": "云函数", "order": 4 },
-    { "id": "cronjob", "title": "定时任务", "order": 5 },
-    { "id": "sandbox", "title": "云沙盒", "order": 6 },
-    { "id": "agent", "title": "云助手", "order": 7 },
-    { "id": "ops", "title": "运维", "order": 8 },
-    { "id": "sdk", "title": "SDK", "order": 9 }
+    { "id": "workbench", "title": "工作台", "order": 2 },
+    { "id": "data", "title": "数据", "order": 3 },
+    { "id": "automation", "title": "自动化", "order": 4 },
+    { "id": "ops", "title": "运维", "order": 5 },
+    { "id": "sdk", "title": "SDK", "order": 6 }
   ]
 }

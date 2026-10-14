@@ -85,7 +85,8 @@ func TestProjectCredResolverFillsModelFromSettings(t *testing.T) {
 	}
 }
 
-func TestSystemCredSourceReadsProjectCreds(t *testing.T) {
+// 项目模型连接来自 sys_llm_settings 一行：default_provider 即供应商标识。
+func TestSystemCredSourceReadsSettingsConnection(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -98,24 +99,13 @@ func TestSystemCredSourceReadsProjectCreds(t *testing.T) {
 	store := systemdb.NewStoreForTest(db)
 	if err := store.PutLLMSettings(ctx, systemdb.LLMSettings{
 		ProjectID: "proj-1", DefaultProvider: "custom_openai", DefaultModel: "fake-model",
+		APIKey: "sk-live", BaseURL: "http://127.0.0.1:9/v1",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertLLMProviderCred(ctx, "proj-1", "custom_openai", "fake-model", map[string]string{
-		"api_key": "sk-live", "base_url": "http://127.0.0.1:9/v1",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertLLMProviderCred(ctx, "proj-1", "openai", "", map[string]string{
-		"api_key": "sk-other",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `UPDATE sys_llm_provider_creds SET enabled=0 WHERE project_id=? AND provider=?`, "proj-1", "openai"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertLLMProviderCred(ctx, "proj-2", "custom_openai", "other", map[string]string{
-		"api_key": "sk-other-project", "base_url": "http://127.0.0.1:8/v1",
+	// 另一个项目只有默认值、没有 key：解析为空，交给链上的 catalog / YAML 兜底。
+	if err := store.PutLLMSettings(ctx, systemdb.LLMSettings{
+		ProjectID: "proj-2", DefaultProvider: "openai", DefaultModel: "other",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -131,9 +121,9 @@ func TestSystemCredSourceReadsProjectCreds(t *testing.T) {
 	if got.Providers[0].BaseURL != "http://127.0.0.1:9/v1" || got.Providers[0].Model != "fake-model" {
 		t.Fatalf("fields: %+v", got.Providers[0])
 	}
-	other, err := NewProjectCredResolver(src).Resolve(ctx, "proj-2")
-	if err != nil || other.Providers[0].APIKey != "sk-other-project" {
-		t.Fatalf("proj-2: %+v %v", other, err)
+	keyless, err := NewProjectCredResolver(src).Resolve(ctx, "proj-2")
+	if err != nil || len(keyless.Providers) != 0 {
+		t.Fatalf("proj-2 without key: %+v %v", keyless, err)
 	}
 	none, err := NewProjectCredResolver(src).Resolve(ctx, "proj-missing")
 	if err != nil || len(none.Providers) != 0 {

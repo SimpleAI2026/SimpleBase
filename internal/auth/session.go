@@ -78,6 +78,23 @@ type SessionService struct {
 
 	// authObs 是 P0 诊断观察者（planv5.0 §4 P0.1）；nil 时全部 no-op。
 	authObs AuthObserver
+
+	// onWrite 是写成功后的同步通知（SYNC-01）；nil 时 no-op。
+	onWrite func(ctx context.Context)
+}
+
+// written 在会话写成功后触发同步通知（SYNC-01）。
+func (s *SessionService) written(ctx context.Context) {
+	if s.onWrite != nil {
+		s.onWrite(ctx)
+	}
+}
+
+// OnWrite 注册写成功后的同步通知（SYNC-01）：session 仓储直接写
+// sys_sessions，绕过 systemdb 的 notifyWrite；吊销会话（改密/禁用触发的
+// RevokeAllForUser 等）需要写后标记 catalog 待同步。
+func (s *SessionService) OnWrite(fn func(ctx context.Context)) {
+	s.onWrite = fn
 }
 
 // principalCacheTTL 是 Principal/User 缓存的 TTL。
@@ -99,6 +116,9 @@ type cachedPrincipal struct {
 // principalFlight 是同用户加载单飞的共享载体：owner 查库，follower 等 done。
 type principalFlight struct {
 	done chan struct{}
+	// failure 只在 done 关闭前写入，失败的同批 follower 共用结果；
+	// 下一批请求重新查库，错误不持久缓存。
+	failure error
 }
 
 // NewSessionService 构造 SessionService。secret 与 API Key HMAC 盐共用。
@@ -199,6 +219,7 @@ func (s *SessionService) issue(ctx context.Context, u User, userAgent, ip string
 	if err := s.repo.Create(ctx, sess); err != nil {
 		return TokenPair{}, err
 	}
+	s.written(ctx) // SYNC-01
 	access, err := s.signAccess(u, sid, jti, now)
 	if err != nil {
 		return TokenPair{}, err
@@ -252,7 +273,7 @@ func (s *SessionService) Refresh(ctx context.Context, refreshToken, userAgent, i
 		return User{}, TokenPair{}, ErrInvalidRefreshToken
 	}
 	userStart := time.Now()
-	u, err := s.users.GetByID(ctx, sess.UserID)
+	u, err := s.users.GetByID(withUserReadObserver(ctx, obs), sess.UserID)
 	obs.ObserveAuthStage(ctx, AuthStageUserLoad, time.Since(userStart))
 	if err != nil {
 		return User{}, TokenPair{}, ErrInvalidRefreshToken
@@ -297,12 +318,19 @@ func (s *SessionService) Logout(ctx context.Context, sessionID, refreshToken str
 		return nil
 	}
 	sess.RevokedAt = &now
-	return s.repo.Update(ctx, sess)
+	if err := s.repo.Update(ctx, sess); err != nil {
+		return err
+	}
+	s.written(ctx) // SYNC-01
+	return nil
 }
 
 // RevokeAllForUser 吊销用户全部会话（禁用/删用户/改密）。
 func (s *SessionService) RevokeAllForUser(ctx context.Context, userID string) error {
 	err := s.repo.RevokeByUser(ctx, userID, s.now().UTC())
+	if err == nil {
+		s.written(ctx) // SYNC-01
+	}
 	s.InvalidateUser(userID)
 	return err
 }
@@ -359,25 +387,41 @@ func (s *SessionService) PrincipalFromClaims(ctx context.Context, claims JWTClai
 	// 同用户单飞：抢先者加载，后来者等待结果。不同用户各自独立加载。
 	flight, owner := s.joinFlight(claims.Subject)
 	if !owner {
-		<-flight.done
+		waitStart := time.Now()
+		select {
+		case <-ctx.Done():
+			obs.ObserveAuthStage(ctx, AuthStageFlightWait, time.Since(waitStart))
+			return Principal{}, ctx.Err()
+		case <-flight.done:
+			obs.ObserveAuthStage(ctx, AuthStageFlightWait, time.Since(waitStart))
+		}
+		if err := ctx.Err(); err != nil {
+			return Principal{}, err
+		}
+		if flight.failure != nil {
+			return Principal{}, flight.failure
+		}
 		s.principalMu.Lock()
 		entry, ok := s.principals[claims.Subject]
 		p := entry.principal
 		valid := ok && s.now().Before(entry.expires)
 		s.principalMu.Unlock()
 		if !valid {
-			// owner 加载失败或结果已被失效：本请求自行重查一次。
-			return s.loadPrincipal(ctx, claims, obs)
+			// 权限变更期间 owner 的结果不可缓存；改由新一轮单飞加载。
+			return s.PrincipalFromClaims(ctx, claims)
 		}
 		p.SessionID = claims.SessionID
 		p.AccessJTI = claims.JWTID
 		return p, nil
 	}
 
+	loadStart := time.Now()
 	p, err := s.loadPrincipal(ctx, claims, obs)
-	close(flight.done)
+	obs.ObserveAuthStage(ctx, AuthStageFlightLoad, time.Since(loadStart))
 	s.inFlightMu.Lock()
+	flight.failure = err
 	delete(s.inFlight, claims.Subject)
+	close(flight.done)
 	s.inFlightMu.Unlock()
 	return p, err
 }
@@ -403,7 +447,7 @@ func (s *SessionService) loadPrincipal(ctx context.Context, claims JWTClaims, ob
 	s.principalMu.Unlock()
 
 	loadStart := time.Now()
-	u, err := s.users.GetByID(ctx, claims.Subject)
+	u, err := s.users.GetByID(withUserReadObserver(ctx, obs), claims.Subject)
 	obs.ObserveAuthStage(ctx, AuthStageUserLoad, time.Since(loadStart))
 	if err != nil {
 		return Principal{}, ErrInvalidToken
@@ -430,7 +474,7 @@ func (s *SessionService) loadPrincipal(ctx context.Context, claims JWTClaims, ob
 }
 
 // CachedUser 返回 Principal 缓存条目内同源的 sys_users 行（P1.3）。
-// 新鲜度与 Principal 完全一致：5s TTL + OnChange/Disable 即时失效；
+// 新鲜度与 Principal 完全一致：30s TTL + OnChange/Disable 即时失效；
 // 未命中或已过期返回 false，调用方回查仓储。禁用用户的条目在
 // 加载时即被拒且失效链路清缓存，不会经此返回。
 func (s *SessionService) CachedUser(userID string) (User, bool) {

@@ -9,7 +9,7 @@ import (
 )
 
 // yamlSecretPresence records whether the YAML file contained non-empty secret values.
-// Production (dev_mode=false) must not load secrets from YAML.
+// Secrets must come from environment variables or .env, never from YAML.
 type yamlSecretPresence struct {
 	s3Access   bool
 	s3Secret   bool
@@ -18,10 +18,7 @@ type yamlSecretPresence struct {
 	sandboxKey bool
 }
 
-func rejectYAMLSecrets(devMode bool, s yamlSecretPresence) error {
-	if devMode {
-		return nil
-	}
+func rejectYAMLSecrets(s yamlSecretPresence) error {
 	var which []string
 	if s.s3Access {
 		which = append(which, "s3.access_key")
@@ -41,12 +38,13 @@ func rejectYAMLSecrets(devMode bool, s yamlSecretPresence) error {
 	if len(which) == 0 {
 		return nil
 	}
-	return fmt.Errorf("config: secret fields %s must come from environment (or IAM) when dev_mode is false; remove them from YAML", strings.Join(which, ", "))
+	return fmt.Errorf("config: secret fields %s must come from environment (or IAM); remove them from YAML", strings.Join(which, ", "))
 }
 
 type yamlConfig struct {
 	HTTP           yamlHTTP           `yaml:"http"`
 	Instance       yamlInstance       `yaml:"instance"`
+	Storage        yamlStorage        `yaml:"storage"`
 	Database       yamlDatabase       `yaml:"database"`
 	S3             yamlS3             `yaml:"s3"`
 	Auth           yamlAuth           `yaml:"auth"`
@@ -56,7 +54,12 @@ type yamlConfig struct {
 	Limits         yamlLimits         `yaml:"limits"`
 	Observability  yamlObservability  `yaml:"observability"`
 	SystemDatabase yamlSystemDatabase `yaml:"system_database"`
-	DevMode        *bool              `yaml:"dev_mode"`
+}
+
+type yamlStorage struct {
+	Database *string `yaml:"database"`
+	Files    *string `yaml:"files"`
+	DataDir  *string `yaml:"data_dir"`
 }
 
 type yamlHTTP struct {
@@ -148,6 +151,7 @@ type yamlAgent struct {
 	CLIPath        *string `yaml:"cli_path"`
 	DelegationTTL  yamlDur `yaml:"delegation_ttl"`
 	ConfirmTimeout yamlDur `yaml:"confirm_timeout"`
+	TraceLog       *bool   `yaml:"trace_log"`
 }
 
 type yamlProvider struct {
@@ -165,6 +169,7 @@ type yamlLimits struct {
 	MaxConcurrentQueries *int    `yaml:"max_concurrent_queries"`
 	MaxBatchStatements   *int    `yaml:"max_batch_statements"`
 	MaxSQLBytes          *int    `yaml:"max_sql_bytes"`
+	MaxConcurrentGoRuns  *int    `yaml:"max_concurrent_go_runs"`
 }
 
 type yamlSandbox struct {
@@ -260,6 +265,10 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	}
 	setStr(&cfg.Instance.Lease.OnLost, yc.Instance.Lease.OnLost)
 
+	setStr(&cfg.Storage.Database, yc.Storage.Database)
+	setStr(&cfg.Storage.Files, yc.Storage.Files)
+	setStr(&cfg.Storage.DataDir, yc.Storage.DataDir)
+
 	setStr(&cfg.Database.Engine, yc.Database.Engine)
 	setStr(&cfg.Database.CacheDir, yc.Database.CacheDir)
 	setInt64(&cfg.Database.CacheMaxBytes, yc.Database.CacheMaxBytes)
@@ -268,24 +277,7 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Database.MaxOpen, yc.Database.MaxOpen)
 	applyYAMLDuckLake(&cfg.Database.DuckLake, yc.Database.DuckLake)
 
-	setStr(&cfg.S3.Endpoint, yc.S3.Endpoint)
-	setStr(&cfg.S3.Region, yc.S3.Region)
-	setStr(&cfg.S3.Bucket, yc.S3.Bucket)
-	setStr(&cfg.S3.Prefix, yc.S3.Prefix)
-	if yc.S3.AccessKey != nil {
-		cfg.S3.AccessKey = *yc.S3.AccessKey
-		if *yc.S3.AccessKey != "" {
-			secrets.s3Access = true
-		}
-	}
-	if yc.S3.SecretKey != nil {
-		cfg.S3.SecretKey = *yc.S3.SecretKey
-		if *yc.S3.SecretKey != "" {
-			secrets.s3Secret = true
-		}
-	}
-	setStr(&cfg.S3.KMSKeyID, yc.S3.KMSKeyID)
-	setBool(&cfg.S3.ForcePathStyle, yc.S3.ForcePathStyle)
+	applyYAMLS3(&cfg.S3, yc.S3, &secrets)
 
 	if yc.Auth.APIKeyHashSecret != nil {
 		cfg.Auth.APIKeyHashSecret = *yc.Auth.APIKeyHashSecret
@@ -301,6 +293,7 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setStr(&cfg.Agent.CLIPath, yc.Agent.CLIPath)
 	setDur(&cfg.Agent.DelegationTTL, yc.Agent.DelegationTTL)
 	setDur(&cfg.Agent.ConfirmTimeout, yc.Agent.ConfirmTimeout)
+	setBool(&cfg.Agent.TraceLog, yc.Agent.TraceLog)
 
 	setStr(&cfg.LLM.AgentToolProtocol, yc.LLM.AgentToolProtocol)
 	setInt(&cfg.LLM.AgentMaxIterations, yc.LLM.AgentMaxIterations)
@@ -336,6 +329,7 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Limits.MaxConcurrentQueries, yc.Limits.MaxConcurrentQueries)
 	setInt(&cfg.Limits.MaxBatchStatements, yc.Limits.MaxBatchStatements)
 	setInt(&cfg.Limits.MaxSQLBytes, yc.Limits.MaxSQLBytes)
+	setInt(&cfg.Limits.MaxConcurrentGoRuns, yc.Limits.MaxConcurrentGoRuns)
 
 	setBool(&cfg.Sandbox.Enabled, yc.Sandbox.Enabled)
 	setStr(&cfg.Sandbox.APIURL, yc.Sandbox.APIURL)
@@ -363,19 +357,46 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Sandbox.MaxPerProject, yc.Sandbox.MaxPerProject)
 	setDur(&cfg.Sandbox.ReapInterval, yc.Sandbox.ReapInterval)
 
-	setStr(&cfg.Observability.LogLevel, yc.Observability.LogLevel)
-	setStr(&cfg.Observability.LogFormat, yc.Observability.LogFormat)
-	setStr(&cfg.Observability.LogOutput, yc.Observability.LogOutput)
-	setStr(&cfg.Observability.MetricsPath, yc.Observability.MetricsPath)
-	setBool(&cfg.Observability.PerfStageTiming, yc.Observability.PerfStageTiming)
+	applyYAMLObservability(&cfg.Observability, yc.Observability)
 
 	setStr(&cfg.SystemDatabase.Name, yc.SystemDatabase.Name)
 	setDur(&cfg.SystemDatabase.MetricsFlushInterval, yc.SystemDatabase.MetricsFlushInterval)
 	setDur(&cfg.SystemDatabase.LogFlushInterval, yc.SystemDatabase.LogFlushInterval)
 	setInt(&cfg.SystemDatabase.LogKeepDays, yc.SystemDatabase.LogKeepDays)
 
-	setBool(&cfg.DevMode, yc.DevMode)
 	return secrets, nil
+}
+
+// applyYAMLObservability 把 YAML 的 Observability 域应用到 cfg。
+func applyYAMLObservability(dst *ObservabilityConfig, y yamlObservability) {
+	setStr(&dst.LogLevel, y.LogLevel)
+	setStr(&dst.LogFormat, y.LogFormat)
+	setStr(&dst.LogOutput, y.LogOutput)
+	setStr(&dst.MetricsPath, y.MetricsPath)
+	setBool(&dst.PerfStageTiming, y.PerfStageTiming)
+}
+
+// applyYAMLS3 把 YAML 的 S3 域应用到 cfg；非空密钥同时标记 secrets presence，
+// 供 rejectYAMLSecrets 在加载尾部拒绝。
+func applyYAMLS3(dst *S3Config, y yamlS3, secrets *yamlSecretPresence) {
+	setStr(&dst.Endpoint, y.Endpoint)
+	setStr(&dst.Region, y.Region)
+	setStr(&dst.Bucket, y.Bucket)
+	setStr(&dst.Prefix, y.Prefix)
+	if y.AccessKey != nil {
+		dst.AccessKey = *y.AccessKey
+		if *y.AccessKey != "" {
+			secrets.s3Access = true
+		}
+	}
+	if y.SecretKey != nil {
+		dst.SecretKey = *y.SecretKey
+		if *y.SecretKey != "" {
+			secrets.s3Secret = true
+		}
+	}
+	setStr(&dst.KMSKeyID, y.KMSKeyID)
+	setBool(&dst.ForcePathStyle, y.ForcePathStyle)
 }
 
 func applyYAMLDuckLake(dst *DuckLakeConfig, y yamlDuckLake) {

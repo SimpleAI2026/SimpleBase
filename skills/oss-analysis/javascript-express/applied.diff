@@ -1,0 +1,92 @@
+diff --git a/lib/utils.js b/lib/utils.js
+index 4f21e7e..2870058 100644
+--- a/lib/utils.js
++++ b/lib/utils.js
+@@ -128,8 +128,6 @@ function acceptParams (str) {
+  */
+ 
+ exports.compileETag = function(val) {
+-  var fn;
+-
+   if (typeof val === 'function') {
+     return val;
+   }
+@@ -137,18 +135,14 @@ exports.compileETag = function(val) {
+   switch (val) {
+     case true:
+     case 'weak':
+-      fn = exports.wetag;
+-      break;
++      return exports.wetag;
+     case false:
+-      break;
++      return undefined;
+     case 'strong':
+-      fn = exports.etag;
+-      break;
++      return exports.etag;
+     default:
+       throw new TypeError('unknown value for etag function: ' + val);
+   }
+-
+-  return fn;
+ }
+ 
+ /**
+@@ -160,8 +154,6 @@ exports.compileETag = function(val) {
+  */
+ 
+ exports.compileQueryParser = function compileQueryParser(val) {
+-  var fn;
+-
+   if (typeof val === 'function') {
+     return val;
+   }
+@@ -169,18 +161,14 @@ exports.compileQueryParser = function compileQueryParser(val) {
+   switch (val) {
+     case true:
+     case 'simple':
+-      fn = querystring.parse;
+-      break;
++      return querystring.parse;
+     case false:
+-      break;
++      return undefined;
+     case 'extended':
+-      fn = parseExtendedQueryString;
+-      break;
++      return parseExtendedQueryString;
+     default:
+       throw new TypeError('unknown value for query parser function: ' + val);
+   }
+-
+-  return fn;
+ }
+ 
+ /**
+diff --git a/lib/view.js b/lib/view.js
+index d66b4a2..dad7a31 100644
+--- a/lib/view.js
++++ b/lib/view.js
+@@ -136,19 +136,13 @@ View.prototype.render = function render(options, callback) {
+   debug('render "%s"', this.path);
+ 
+   // render, normalizing sync callbacks
+-  this.engine(this.path, options, function onRender() {
++  this.engine(this.path, options, function onRender(...args) {
+     if (!sync) {
+-      return callback.apply(this, arguments);
++      return callback.apply(this, args);
+     }
+ 
+-    // copy arguments
+-    var args = new Array(arguments.length);
+     var cntx = this;
+ 
+-    for (var i = 0; i < arguments.length; i++) {
+-      args[i] = arguments[i];
+-    }
+-
+     // force callback to be async
+     return process.nextTick(function renderTick() {
+       return callback.apply(cntx, args);

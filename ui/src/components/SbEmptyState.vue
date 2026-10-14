@@ -4,12 +4,12 @@
       <EmptyMedia variant="icon">
         <component :is="icon || InboxIcon" />
       </EmptyMedia>
-      <EmptyTitle>{{ title }}</EmptyTitle>
-      <EmptyDescription>{{ description }}</EmptyDescription>
+      <EmptyTitle>{{ resolvedTitle }}</EmptyTitle>
+      <EmptyDescription>{{ resolvedDescription }}</EmptyDescription>
     </EmptyHeader>
     <EmptyContent v-if="actionText">
       <Button @click="$emit('action')">
-        <PlusIcon data-icon="inline-start" />
+        <component :is="actionIcon || PlusIcon" data-icon="inline-start" />
         {{ actionText }}
       </Button>
     </EmptyContent>
@@ -17,6 +17,8 @@
 </template>
 <script setup lang="ts">
 import type { Component } from 'vue'
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { InboxIcon, PlusIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,15 +30,25 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     title?: string
     description?: string
     actionText?: string
     icon?: Component
+    /**
+     * 操作按钮的图标。默认 PlusIcon 只适合「新建」语义；
+     * 「重试 / 刷新 / 查看」一类必须显式传入，否则图标与动作不符。
+     */
+    actionIcon?: Component
   }>(),
-  { title: '暂无数据', description: '没有可展示的内容' }
+  {}
 )
 
 defineEmits<{ (e: 'action'): void }>()
+
+const { t } = useI18n()
+
+const resolvedTitle = computed(() => props.title || t('common.emptyTitle'))
+const resolvedDescription = computed(() => props.description || t('common.emptyDescription'))
 </script>

@@ -1,7 +1,7 @@
 <template>
   <SbModal
     :open="open"
-    :title="kvKey?.key || 'Key 详情'"
+    :title="kvKey?.key || t('components.kvDetail.fallbackTitle')"
     :width="720"
     hide-footer
     @update:open="emit('update:open', $event)"
@@ -13,13 +13,13 @@
       <Skeleton v-if="metaPending" class="h-5 w-40" aria-hidden="true" />
       <template v-else-if="meta">
         <Badge variant="secondary">{{ meta.type }}</Badge>
-        <span v-if="meta.len != null" class="text-xs">{{ meta.len }} 个元素</span>
-        <span class="text-xs">{{ meta.ttl_ms == null ? '永久' : 'TTL ' + Math.ceil(meta.ttl_ms / 1000) + 's' }}</span>
+        <span v-if="meta.len != null" class="text-xs">{{ t('components.kvDetail.elementCount', { n: meta.len }) }}</span>
+        <span class="text-xs">{{ meta.ttl_ms == null ? t('components.kvDetail.ttlForever') : t('components.kvDetail.ttlLeft', { n: Math.ceil(meta.ttl_ms / 1000) }) }}</span>
       </template>
     </div>
 
     <div class="max-h-[60vh] overflow-y-auto pr-1">
-      <div v-if="!kvKey" class="py-6 text-center text-sm text-muted-foreground">未选择 Key</div>
+      <div v-if="!kvKey" class="py-6 text-center text-sm text-muted-foreground">{{ t('components.kvDetail.noKey') }}</div>
       <component
         :is="editorComponent"
         v-else-if="editorComponent"
@@ -31,8 +31,8 @@
     </div>
 
     <div v-if="kvKey && !readonly" class="mt-4 flex justify-end border-t pt-3">
-      <ConfirmAction title="确认删除该 Key？此操作不可恢复。" @confirm="removeKey">
-        <Button variant="destructiveGhost" size="sm">删除 Key</Button>
+      <ConfirmAction :title="t('components.kvDetail.deleteConfirm')" @confirm="removeKey">
+        <Button variant="destructiveGhost" size="sm">{{ t('components.kvDetail.deleteKey') }}</Button>
       </ConfirmAction>
     </div>
   </SbModal>
@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -67,6 +68,8 @@ const emit = defineEmits<{
   changed: []
   deleted: []
 }>()
+
+const { t } = useI18n()
 
 const meta = ref<KvKeyMeta | null>(null)
 const metaPending = ref(false)
@@ -156,11 +159,11 @@ async function removeKey() {
   if (!props.kvKey) return
   try {
     await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['DEL', props.kvKey.key] })
-    toast.success('已删除')
+    toast.success(t('components.kvDetail.deleted'))
     emit('update:open', false)
     emit('deleted')
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('components.kvDetail.deleteFailed')))
   }
 }
 </script>

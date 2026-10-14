@@ -1,11 +1,9 @@
 // Package perfbench 实现 api-db-perf-validation-plan §2.2/§2.4 的压测 harness。
 //
 // 定位：独立测量工具包，不进生产二进制（仅 cmd/perfbench 引用）。
-// 装配真实链路：真实 Router + catalog + registry + ducklake factory（DevMode
-// 本地盘，DATA_PATH 落临时目录），用 httptest.Server 提供真实 HTTP 语义
-// （含 echo 中间件、认证、分段计时），排除外网噪声。
-//
-// 认证：DevMode 种子 Key（systemdb.DevRawAPIKey），绑定 dev-shop 项目。
+// 装配真实链路：真实 Router + catalog + registry + ducklake factory
+// （本地存储，data 与 cache 都落临时目录），用 httptest.Server 提供
+// 真实 HTTP 语义（含 echo 中间件、认证、分段计时），排除外网噪声。
 package perfbench
 
 import (
@@ -20,9 +18,8 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/app"
-	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/config"
-	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -33,15 +30,21 @@ type benchEnv struct {
 	Registry *prometheus.Registry
 	Client   *http.Client
 
-	APIKey    string // DevMode 种子明文 Key
-	ProjectID string // dev-shop（种子项目，持有 kv + 用户库）
-	// 用户压测库：env.Setup 内通过 HTTP 建库后回填。
+	// AccessToken 是超管登录后拿到的 access token（用于建项目 / 签发 Key）。
+	AccessToken string
+	APIKey      string // 为压测项目签发的 Key
+	ProjectID   string // 压测项目（由超管通过 API 创建）
+	// 用户压测库：Setup 内通过 HTTP 建库后回填。
 	UserDBID string
 
 	baseCtx context.Context
 }
 
-// newEnv 装配真实 app（DevMode 本地盘）+ httptest.Server。
+// benchProjectName 是压测项目展示名（每次压测新建，包含随机后缀）。
+const benchProjectName = "perfbench"
+
+// newEnv 装配真实 app（本地存储）+ httptest.Server，并以超管身份
+// 通过公开 API 建好项目与 API Key（不依赖任何开发模式种子）。
 func newEnv(ctx context.Context, cacheRoot string) (*benchEnv, error) {
 	cfg := devBenchConfig(cacheRoot)
 	reg := prometheus.NewRegistry()
@@ -51,23 +54,149 @@ func newEnv(ctx context.Context, cacheRoot string) (*benchEnv, error) {
 	}
 	ts := httptest.NewServer(a.Handler())
 	env := &benchEnv{
-		App:       a,
-		Server:    ts,
-		Registry:  reg,
-		Client:    &http.Client{Timeout: 60 * time.Second},
-		APIKey:    systemdb.DevRawAPIKey,
-		ProjectID: catalog.DevProjectID,
-		baseCtx:   ctx,
+		App:      a,
+		Server:   ts,
+		Registry: reg,
+		Client:   &http.Client{Timeout: 60 * time.Second},
+		baseCtx:  ctx,
+	}
+	if err := env.bootstrapProject(ctx); err != nil {
+		env.Close()
+		return nil, err
 	}
 	return env, nil
 }
 
-// devBenchConfig 构造压测专用配置：DevMode、临时缓存目录、分段计时开启。
+// bootstrapProject 登录超管 → 建项目 → 签发全权限 Key。
+func (e *benchEnv) bootstrapProject(ctx context.Context) error {
+	token, err := e.login(auth.BootstrapUsername, auth.BootstrapPassword)
+	if err != nil {
+		return fmt.Errorf("perfbench: login: %w", err)
+	}
+	e.AccessToken = token
+
+	projectID, err := e.createProject()
+	if err != nil {
+		return err
+	}
+	e.ProjectID = projectID
+
+	key, err := e.issueAPIKey()
+	if err != nil {
+		return err
+	}
+	e.APIKey = key
+	return nil
+}
+
+func (e *benchEnv) login(username, password string) (string, error) {
+	code, body, err := e.doWithToken("", "POST", "/v1/auth/login", map[string]string{
+		"username": username,
+		"password": password,
+	})
+	if err != nil {
+		return "", err
+	}
+	if code != http.StatusOK {
+		return "", fmt.Errorf("http %d: %s", code, body)
+	}
+	var resp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", err
+	}
+	if resp.AccessToken == "" {
+		return "", fmt.Errorf("empty access_token")
+	}
+	return resp.AccessToken, nil
+}
+
+func (e *benchEnv) createProject() (string, error) {
+	name := fmt.Sprintf("%s-%d", benchProjectName, time.Now().UnixNano())
+	code, body, err := e.doWithToken(e.AccessToken, "POST", "/v1/projects", map[string]string{"name": name})
+	if err != nil {
+		return "", err
+	}
+	if code != http.StatusOK && code != http.StatusCreated {
+		return "", fmt.Errorf("create project: http %d: %s", code, body)
+	}
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", err
+	}
+	if resp.ID == "" {
+		return "", fmt.Errorf("create project: empty id")
+	}
+	return resp.ID, nil
+}
+
+// issueAPIKey 为压测项目签发全权限 Key（登录态 + ProjectAdmin 权限）。
+func (e *benchEnv) issueAPIKey() (string, error) {
+	path := "/v1/projects/" + e.ProjectID + "/api-keys"
+	code, body, err := e.doWithToken(e.AccessToken, "POST", path, map[string]any{
+		"permissions": []string{
+			"database:read", "database:write", "database:admin",
+			"llm:invoke", "project:admin",
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if code != http.StatusOK && code != http.StatusCreated {
+		return "", fmt.Errorf("issue api key: http %d: %s", code, body)
+	}
+	var resp struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", err
+	}
+	if resp.Secret == "" {
+		return "", fmt.Errorf("issue api key: empty secret")
+	}
+	return resp.Secret, nil
+}
+
+// doWithToken 发一次请求；token 为空时用 env.APIKey。
+func (e *benchEnv) doWithToken(token, method, path string, body any) (int, []byte, error) {
+	var rd io.Reader
+	if body != nil {
+		bs, err := json.Marshal(body)
+		if err != nil {
+			return 0, nil, err
+		}
+		rd = &byteReader{data: bs}
+	}
+	req, err := http.NewRequest(method, e.Server.URL+path, rd)
+	if err != nil {
+		return 0, nil, err
+	}
+	if token == "" {
+		token = e.APIKey
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.Client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	bs, err := io.ReadAll(resp.Body)
+	return resp.StatusCode, bs, err
+}
+
+// devBenchConfig 构造压测专用配置：本地存储、临时目录、分段计时开启。
 func devBenchConfig(cacheRoot string) config.Config {
-	cfg := config.Config{}
 	// 借用 config 包默认值再覆盖（不读取仓库 config.yaml，保证可复现）。
-	cfg = defaultBenchConfig()
-	cfg.DevMode = true
+	cfg := defaultBenchConfig()
+	cfg.Storage = config.StorageConfig{
+		Database: config.StorageModeLocal,
+		Files:    config.StorageModeLocal,
+		DataDir:  filepath.Join(cacheRoot, "data"),
+	}
 	cfg.Instance.Writable = true
 	cfg.Database.CacheDir = cacheRoot
 	cfg.Observability.PerfStageTiming = true

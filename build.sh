@@ -4,7 +4,7 @@
 # 构建流程：
 #   1. 安装并构建前端（ui/）→ 输出到 ui/dist
 #   2. 将 ui/dist 同步到 internal/web/dist（供 go:embed 嵌入后端二进制）
-#   3. 编译后端 ./cmd/simplebased → 输出到 ./simplebased
+#   3. 编译服务和 CLI ./cmd/simplebase → 输出到 ./simplebase
 #
 # 开发流程（./build.sh dev）：
 #   并行启动后端 (:8080) + Vite 前端 (:5173)，浏览器打开前端地址；
@@ -17,7 +17,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UI_DIR="$ROOT_DIR/ui"
 WEB_DIST_DIR="$ROOT_DIR/internal/web/dist"
-OUTPUT_BIN="$ROOT_DIR/simplebased"
+OUTPUT_BIN="$ROOT_DIR/simplebase"
 
 # 开发默认：前端入口（经 proxy 访问后端）
 DEV_UI_HOST="${SIMPLEBASE_DEV_UI_HOST:-127.0.0.1}"
@@ -39,6 +39,11 @@ usage() {
   --skip-ui      跳过前端构建与同步，仅编译后端
   --ui-only      仅构建前端并同步到 embed 目录，不编译后端
 
+构建产物:
+  simplebase     服务端二进制（cmd/simplebase）
+  cloudagent     云 Agent 本地 CLI（cmd/cloudagent；会话存 ~/.cloudagent/，
+                 模型出口走 simplebase HTTP API，不进服务镜像）
+
 开发选项（跟在 dev 后）:
   -h, --help     显示本帮助并退出
   --no-open      启动后不自动打开浏览器
@@ -48,31 +53,38 @@ usage() {
 
 开发说明:
   - 前端: http://HOST:UI_PORT （Vite，代理 /v1 /health → 后端）
-  - 后端: http://API_HOST:API_PORT （go run ./cmd/simplebased）
+  - 后端: http://API_HOST:API_PORT （go run ./cmd/simplebase）
   - 自动加载仓库根目录 .env（若存在；主要用于密钥）
   - 非密钥配置以 config.yaml 为准；环境变量覆盖 YAML
   - 缺少 config.yaml 时从 config.example.yaml 生成本地副本（gitignore）
-  - SIMPLEBASE_DEV_MODE 仅在 yaml/.env 都未设置时默认 true
+  - 存储模式由 config.yaml storage.database/files 决定（默认 local，数据落 storage.data_dir）
   - SIMPLEBASE_LOG_LEVEL 仅在 yaml/.env 都未设置时默认 debug（生产仍为 info）
   - --api-port 会导出 SIMPLEBASE_HTTP_ADDRESS；未传则尊重 yaml http.address
   - 后端日志输出到终端 stdout/stderr（同时写入临时文件，供启动失败排查）
-  - DevMode 种子 Key: sb_live_dev_key_12345
+  - API Key 请在控制台「设置 → 连接」中重置签发（首次使用请先登录控制台）
   - Ctrl+C 结束前后端进程
 
 重置选项（跟在 reset 后）:
   -h, --help     显示本帮助并退出
   -y, --yes      不询问确认，直接删除
+  --remote       同时清理远端对象（仅 storage.database=s3 或 storage.files=s3 时可用，
+                 需设置 SIMPLEBASE_ALLOW_RESET=1 由脚本自动注入）
+
+说明:
+  reset 会删除 storage.data_dir 与 database.cache_dir（本地持久层是唯一副本），
+  不迁移数据。切换存储模式后必须执行一次；
+  s3.prefix 为空时远端清理会作用于整个桶，请确保桶由本实例独占。
 
 重置说明:
   - 删除 database.cache_dir 整目录（系统库、用户库 catalog/parquet、dev 本地文件）
   - 路径来源：SIMPLEBASE_DB_CACHE_DIR > config.yaml database.cache_dir > .cache
   - 保留 config.yaml 与 .env；下次 ./build.sh dev 会重建空库并重新种子
-  - 不清理远程 S3 对象（远程清理请用 ./simplebased reset --confirm=<instance_id>）
+  - 不清理远程 S3 对象（远程清理请用 ./simplebase reset --confirm=<instance_id>）
   - 目录被进程占用时拒绝执行，请先 Ctrl+C 停止 ./build.sh dev
   - 交互终端需输入 yes；非交互请加 -y
 
 环境要求: yarn、go；开发另需 curl（探测就绪）、tee（后端日志）；重置占用检测需 lsof
-默认构建产物: ./simplebased
+默认构建产物: ./simplebase
 USAGE
 }
 
@@ -136,29 +148,37 @@ ensure_dev_config() {
   fi
   echo "==> 未找到 config.yaml，从 config.example.yaml 生成本地开发副本"
   cp "$src" "$dst"
+  # 开发副本默认把存储模式收敛到本地盘（config.example.yaml 已是 local；
+  # 这里只确保 log_level 更详细，便于排查）。
   local tmp
   tmp="$(mktemp "${TMPDIR:-/tmp}/simplebase-config.XXXXXX")"
   awk '
-    BEGIN { done_dev=0; done_lvl=0 }
-    /^dev_mode:[[:space:]]*false/ && !done_dev { sub(/false/, "true"); done_dev=1 }
+    BEGIN { done_lvl=0 }
     /^[[:space:]]*log_level:[[:space:]]*info/ && !done_lvl { sub(/info/, "debug"); done_lvl=1 }
     { print }
   ' "$dst" > "$tmp"
   mv "$tmp" "$dst"
-  if grep -qE '^[[:space:]]*api_key_hash_secret:[[:space:]]*""' "$dst" && [[ -z "${SIMPLEBASE_AUTH_APIKEY_SECRET:-}" ]]; then
-    local secret
-    secret="$(openssl rand -hex 16 2>/dev/null || printf 'dev-local-%s' "$$")"
-    tmp="$(mktemp "${TMPDIR:-/tmp}/simplebase-config.XXXXXX")"
-    awk -v secret="$secret" '
-      /^[[:space:]]*api_key_hash_secret:[[:space:]]*""/ && !done {
-        sub(/""/, "\"" secret "\"")
-        done=1
-      }
-      { print }
-    ' "$dst" > "$tmp"
-    mv "$tmp" "$dst"
-    echo "    已写入本地 api_key_hash_secret（文件已被 gitignore）"
+}
+
+# ensure_dev_env 把 AUTH 盐写入 .env（绝不写进 YAML：YAML 里的密钥会被拒绝）。
+ensure_dev_env() {
+  local env_file="$ROOT_DIR/.env"
+  if [[ -n "${SIMPLEBASE_AUTH_APIKEY_SECRET:-}" ]]; then
+    return 0
   fi
+  local secret=""
+  if [[ -f "$env_file" ]]; then
+    secret="$(grep -E '^SIMPLEBASE_AUTH_APIKEY_SECRET=' "$env_file" | tail -n 1 | cut -d= -f2- || true)"
+  fi
+  if [[ -n "$secret" ]]; then
+    export SIMPLEBASE_AUTH_APIKEY_SECRET="$secret"
+    return 0
+  fi
+  secret="$(openssl rand -hex 16 2>/dev/null || printf 'dev-local-%s' "$")"
+  touch "$env_file"
+  printf '\n# 本地开发用 auth 盐（build.sh 自动生成，禁止提交）。\nSIMPLEBASE_AUTH_APIKEY_SECRET=%s\n' "$secret" >> "$env_file"
+  export SIMPLEBASE_AUTH_APIKEY_SECRET="$secret"
+  echo "    已写入 SIMPLEBASE_AUTH_APIKEY_SECRET 到 .env（文件已被 gitignore）"
 }
 
 load_dotenv() {
@@ -284,16 +304,26 @@ cmd_build() {
   fi
 
   need_cmd go
-  if [[ ! -d "$ROOT_DIR/cmd/simplebased" ]]; then
-    echo "错误: 后端入口不存在: $ROOT_DIR/cmd/simplebased" >&2
+  if [[ ! -d "$ROOT_DIR/cmd/simplebase" ]]; then
+    echo "错误: 后端入口不存在: $ROOT_DIR/cmd/simplebase" >&2
     exit 1
   fi
 
   echo "==> [3/3] 编译后端 (go build)"
   cd "$ROOT_DIR"
-  go build -o "$OUTPUT_BIN" ./cmd/simplebased
-  go build -o "$ROOT_DIR/simplebase" ./cmd/simplebase
+  go build -o "$OUTPUT_BIN" ./cmd/simplebase
   echo "    产物: $OUTPUT_BIN"
+
+  # 云 Agent 本地 CLI：独立二进制，不进服务镜像（planv6.0 §5.1）。
+  if [[ -d "$ROOT_DIR/cmd/cloudagent" ]]; then
+    local agent_bin="$ROOT_DIR/cloudagent"
+    if [[ -n "${OUTPUT_BIN:-}" ]]; then
+      agent_bin="$(dirname "$OUTPUT_BIN")/cloudagent"
+    fi
+    echo "==> 编译 cloudagent CLI (go build)"
+    go build -o "$agent_bin" ./cmd/cloudagent
+    echo "    产物: $agent_bin"
+  fi
 
   echo "==> 构建完成: $OUTPUT_BIN"
 }
@@ -343,25 +373,17 @@ cmd_dev() {
     echo "错误: 缺少 $UI_DIR/package.json" >&2
     exit 1
   fi
-  if [[ ! -d "$ROOT_DIR/cmd/simplebased" ]]; then
-    echo "错误: 后端入口不存在: $ROOT_DIR/cmd/simplebased" >&2
+  if [[ ! -d "$ROOT_DIR/cmd/simplebase" ]]; then
+    echo "错误: 后端入口不存在: $ROOT_DIR/cmd/simplebase" >&2
     exit 1
   fi
 
   cd "$ROOT_DIR"
   load_dotenv
   ensure_dev_config
+  ensure_dev_env
 
   local cfg="$ROOT_DIR/config.yaml"
-
-  # DevMode：仅在 yaml 与 env 都未设置时默认 true。
-  if [[ -z "${SIMPLEBASE_DEV_MODE:-}" ]]; then
-    local yaml_dev
-    yaml_dev="$(yaml_top_scalar "$cfg" "dev_mode" || true)"
-    if [[ -z "$yaml_dev" ]]; then
-      export SIMPLEBASE_DEV_MODE=true
-    fi
-  fi
 
   # Log level：仅在 yaml 与 env 都未设置时默认 debug，避免永远盖住 yaml。
   if [[ -z "${SIMPLEBASE_LOG_LEVEL:-}" ]]; then
@@ -390,7 +412,8 @@ cmd_dev() {
     fi
   fi
   export SIMPLEBASE_DEV_API_PROXY="http://${DEV_API_HOST}:${DEV_API_PORT}"
-  echo "==> SIMPLEBASE_DEV_MODE=${SIMPLEBASE_DEV_MODE:-<yaml>}"
+  echo "==> storage.database=$(resolve_storage_database 2>/dev/null || echo local) files=$(resolve_storage_files 2>/dev/null || echo local)"
+  echo "==> data_dir=$(resolve_data_dir 2>/dev/null || echo '<default>')"
   echo "==> log_level=${SIMPLEBASE_LOG_LEVEL:-<yaml observability.log_level>}"
   echo "==> backend ${DEV_API_HOST}:${DEV_API_PORT}"
 
@@ -405,6 +428,12 @@ cmd_dev() {
 
   local backend_pid=""
   local frontend_pid=""
+  # 远端（storage.database=s3）冷启动要逐表拉 parquet 文件，
+  # system→HTTP 监听可达 60-90s；本地模式快得多。等待预算按模式区分。
+  local backend_wait_tries=60 # 本地：60 × 0.5s = 30s
+  if [[ "$(resolve_storage_database 2>/dev/null || echo local)" == "s3" ]]; then
+    backend_wait_tries=300 # 远端：300 × 0.5s = 150s
+  fi
   local log_dir
   log_dir="$(mktemp -d "${TMPDIR:-/tmp}/simplebase-dev-logs.XXXXXX")"
   local backend_log="$log_dir/backend.log"
@@ -447,11 +476,14 @@ cmd_dev() {
   (
     cd "$ROOT_DIR"
     # 同时写终端与文件：启动失败时仍可 tail 副本；go run 用于本地热改后重启
-    exec go run ./cmd/simplebased
+    exec go run ./cmd/simplebase
   ) > >(tee "$backend_log") 2>&1 &
   backend_pid=$!
 
-  if ! wait_http "$health_url" "后端" 90; then
+  if ! wait_http "$health_url" "后端" "$backend_wait_tries"; then
+    echo "错误: 后端 ${api_url} 未在 $((backend_wait_tries / 2))s 内就绪。" >&2
+    echo "    远端 S3 部署首次启动需逐表拉取数据文件，可能较慢；" >&2
+    echo "    若日志仍在推进（无 Fatal/panic），可加大等待或直接复用该进程。" >&2
     echo "---- 后端日志尾部 ----" >&2
     tail -n 40 "$backend_log" >&2 || true
     exit 1
@@ -478,7 +510,7 @@ cmd_dev() {
   echo "    后端 API: ${api_url}"
   echo "    健康检查: ${health_url}"
   echo "    日志级别: ${SIMPLEBASE_LOG_LEVEL:-config.yaml}（后端输出到终端）"
-  echo "    Dev Key:  sb_live_dev_key_12345"
+  echo "    API Key:  登录控制台后于「设置 → 连接」重置签发"
   echo "    停止:     Ctrl+C"
   echo
 
@@ -529,22 +561,101 @@ resolve_cache_dir() {
   printf '%s\n' "$dir"
 }
 
-assert_safe_cache_dir() {
+resolve_data_dir() {
+  # 在命令替换中调用，提示必须走 stderr，避免污染路径。
+  load_dotenv >&2
+  local cfg="$ROOT_DIR/config.yaml"
+  local dir="${SIMPLEBASE_DATA_DIR:-}"
+  if [[ -z "$dir" ]]; then
+    dir="$(yaml_scalar_under "$cfg" "storage" "data_dir" || true)"
+  fi
+  if [[ -z "$dir" ]]; then
+    dir="./data"
+  fi
+  if [[ "$dir" != /* ]]; then
+    dir="$ROOT_DIR/$dir"
+  fi
+  while [[ "$dir" == */ && "$dir" != "/" ]]; do
+    dir="${dir%/}"
+  done
+  if [[ -d "$dir" && ! -L "$dir" ]]; then
+    dir="$(cd "$dir" && pwd -P)"
+  else
+    local parent base
+    parent="$(cd "$(dirname "$dir")" && pwd -P)"
+    base="$(basename "$dir")"
+    dir="$parent/$base"
+  fi
+  printf '%s\n' "$dir"
+}
+
+resolve_storage_database() {
+  # 返回生效的 DB 持久层模式：local | s3（环境变量 > config.yaml > 默认 local）。
+  load_dotenv >&2
+  local cfg="$ROOT_DIR/config.yaml"
+  local mode="${SIMPLEBASE_STORAGE_DATABASE:-}"
+  if [[ -z "$mode" ]]; then
+    mode="$(yaml_scalar_under "$cfg" "storage" "database" || true)"
+  fi
+  if [[ -z "$mode" ]]; then
+    mode="local"
+  fi
+  printf '%s\n' "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')"
+}
+
+resolve_storage_files() {
+  load_dotenv >&2
+  local cfg="$ROOT_DIR/config.yaml"
+  local mode="${SIMPLEBASE_STORAGE_FILES:-}"
+  if [[ -z "$mode" ]]; then
+    mode="$(yaml_scalar_under "$cfg" "storage" "files" || true)"
+  fi
+  if [[ -z "$mode" ]]; then
+    mode="local"
+  fi
+  printf '%s\n' "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')"
+}
+
+resolve_instance_id() {
+  # 返回实例 ID：环境变量 > config.yaml > 默认值（与 config 包默认保持一致）。
+  load_dotenv >&2
+  local cfg="$ROOT_DIR/config.yaml"
+  local id="${SIMPLEBASE_INSTANCE_ID:-}"
+  if [[ -z "$id" ]]; then
+    id="$(yaml_scalar_under "$cfg" "instance" "id" || true)"
+  fi
+  printf '%s\n' "$id"
+}
+
+assert_safe_conf_dir() {
+  # 拒绝删除根目录、仓库根、家目录、符号链接，以及包含 config.yaml/.env 的目录。
   local dir="$1"
+  local label="$2"
   if [[ -z "$dir" || "$dir" == "/" || "$dir" == "$ROOT_DIR" || "$dir" == "${HOME:-}" ]]; then
-    echo "错误: 拒绝删除该路径: ${dir:-<空>}" >&2
+    echo "错误: 拒绝删除该路径 ($label): ${dir:-<空>}" >&2
     exit 1
   fi
   case "$ROOT_DIR/" in
     "$dir/"*)
-      echo "错误: cache_dir 覆盖了仓库目录，拒绝删除: $dir" >&2
+      echo "错误: $label 覆盖了仓库目录，拒绝删除: $dir" >&2
       exit 1
       ;;
   esac
   if [[ -L "$dir" ]]; then
-    echo "错误: cache_dir 是符号链接，拒绝删除: $dir -> $(readlink "$dir")" >&2
+    echo "错误: $label 是符号链接，拒绝删除: $dir -> $(readlink "$dir")" >&2
     exit 1
   fi
+  local f
+  for f in config.yaml .env; do
+    if [[ -e "$dir/$f" ]]; then
+      echo "错误: $label 包含 $f，拒绝删除: $dir" >&2
+      exit 1
+    fi
+  done
+}
+
+assert_safe_cache_dir() {
+  assert_safe_conf_dir "$1" "cache_dir"
 }
 
 cache_dir_holders() {
@@ -558,6 +669,7 @@ cache_dir_holders() {
 
 cmd_reset() {
   local YES=0
+  local REMOTE=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -567,6 +679,9 @@ cmd_reset() {
         ;;
       -y|--yes)
         YES=1
+        ;;
+      --remote)
+        REMOTE=1
         ;;
       *)
         echo "错误: 未知重置选项 '$1'" >&2
@@ -578,30 +693,60 @@ cmd_reset() {
     shift
   done
 
-  local cache_dir
+  local cache_dir data_dir db_mode files_mode
   cache_dir="$(resolve_cache_dir)"
+  data_dir="$(resolve_data_dir)"
+  db_mode="$(resolve_storage_database)"
+  files_mode="$(resolve_storage_files)"
   assert_safe_cache_dir "$cache_dir"
+  assert_safe_conf_dir "$data_dir" "data_dir"
 
-  echo "==> 将重置本地数据库并清空全部数据"
-  echo "    目录: $cache_dir"
+  echo "==> 将重置本地数据并清空全部数据（不可恢复）"
+  echo "    存储模式: database=$db_mode files=$files_mode"
+  echo "    数据目录: $data_dir"
+  echo "    缓存目录: $cache_dir"
+  echo "    提示: 切换存储模式后必须执行本命令；旧数据不会被迁移。"
 
-  if [[ ! -d "$cache_dir" ]]; then
-    echo "==> 目录不存在，无需清理"
-    exit 0
-  fi
+  # 收集需要清理的目录（去重）。
+  local dirs=()
+  local d
+  for d in "$data_dir" "$cache_dir"; do
+    local dup=0
+    local existing
+    for existing in "${dirs[@]:-}"; do
+      [[ "$existing" == "$d" ]] && dup=1
+    done
+    [[ "$dup" -eq 0 ]] && dirs+=("$d")
+  done
 
-  local holders
-  holders="$(cache_dir_holders "$cache_dir")"
+  local holders=""
+  for d in "${dirs[@]}"; do
+    if [[ -n "$(cache_dir_holders "$d")" ]]; then
+      holders="$d"
+      break
+    fi
+  done
   if [[ -n "$holders" ]]; then
-    echo "错误: 缓存目录正被进程占用，请先停止后端（Ctrl+C 结束 ./build.sh dev）" >&2
+    echo "错误: $holders 正被进程占用，请先停止后端（Ctrl+C 结束 ./build.sh dev）" >&2
     if command -v lsof >/dev/null 2>&1; then
-      lsof +D "$cache_dir" 2>/dev/null | head -n 20 >&2 || true
+      lsof +D "$holders" 2>/dev/null | head -n 20 >&2 || true
     fi
     exit 1
   fi
 
   if command -v du >/dev/null 2>&1; then
-    echo "    大小: $(du -sh "$cache_dir" 2>/dev/null | awk '{print $1}' || true)"
+    for d in "${dirs[@]}"; do
+      [[ -d "$d" ]] || continue
+      echo "    大小: $(du -sh "$d" 2>/dev/null | awk '{print $1}' || true)  $d"
+    done
+  fi
+
+  if [[ "$REMOTE" -eq 1 ]]; then
+    if [[ "$db_mode" != "s3" && "$files_mode" != "s3" ]]; then
+      echo "错误: --remote 仅在 storage.database=s3 或 storage.files=s3 时可用（当前 database=$db_mode files=$files_mode）" >&2
+      exit 2
+    fi
+    echo "    远端: 将删除 s3 前缀下的全部对象（SIMPLEBASE_ALLOW_RESET=1）"
   fi
 
   if [[ "$YES" -ne 1 ]]; then
@@ -618,8 +763,27 @@ cmd_reset() {
     fi
   fi
 
-  rm -rf -- "$cache_dir"
-  echo "==> 已删除 $cache_dir"
+  if [[ "$REMOTE" -eq 1 ]]; then
+    local instance_id
+    instance_id="$(resolve_instance_id)"
+    echo "==> 清理远端对象..."
+    (
+      cd "$ROOT_DIR"
+      SIMPLEBASE_ALLOW_RESET=1 go run ./cmd/simplebase reset --confirm="$instance_id"
+    ) || { echo "错误: 远端清理失败" >&2; exit 1; }
+  fi
+
+  local removed=0
+  for d in "${dirs[@]}"; do
+    if [[ -d "$d" ]]; then
+      rm -rf -- "$d"
+      echo "==> 已删除 $d"
+      removed=1
+    fi
+  done
+  if [[ "$removed" -eq 0 ]]; then
+    echo "==> 目录不存在，无需清理"
+  fi
   echo "    已保留 config.yaml 与 .env。下次 ./build.sh dev 会重建空库并重新种子。"
 }
 

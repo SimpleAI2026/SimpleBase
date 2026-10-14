@@ -23,7 +23,8 @@ import (
 )
 
 // TestAgentRunUsesProviderSavedViaSettingsAPI 复现：llm.enabled 且 YAML 没有供应商时，
-// 设置 API 写入系统库凭证后，云助手 run 不再返回 llm_not_configured，且无需重启进程。
+// 设置 API 把 API Key / Base URL 写进项目模型设置后，云助手 run 不再返回 llm_not_configured，
+// 且无需重启进程。
 func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -67,9 +68,7 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 	h := &cloudAgentHandler{store: store, runtime: rt, llm: NewLLMService(gw)}
 	registerAgentRoutes(e, h)
 	sess := &llmSessionHandler{store: store}
-	credh := &llmProviderCredHandler{store: store}
 	e.PUT("/llm/settings", sess.PutSettings)
-	e.PUT("/llm/providers/:provider", credh.PutProviderCred)
 
 	const projectID = "proj-cred"
 	const apiKey = "sk-test-provider-cred"
@@ -89,22 +88,14 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 	settings := req(projectID, http.MethodPut, "/llm/settings", map[string]any{
 		"default_provider": "custom_openai",
 		"default_model":    "fake-model",
+		"api_key":          apiKey,
+		"base_url":         one.URL + "/v1",
 	})
 	if settings.Code != http.StatusOK {
 		t.Fatalf("put settings %d %s", settings.Code, settings.Body.String())
 	}
-	saved := req(projectID, http.MethodPut, "/llm/providers/custom_openai", map[string]any{
-		"credentials": map[string]string{
-			"api_key":  apiKey,
-			"base_url": one.URL + "/v1",
-		},
-		"default_model": "fake-model",
-	})
-	if saved.Code != http.StatusOK {
-		t.Fatalf("put provider %d %s", saved.Code, saved.Body.String())
-	}
-	if strings.Contains(saved.Body.String(), apiKey) {
-		t.Fatal("provider response leaked api key")
+	if strings.Contains(settings.Body.String(), apiKey) {
+		t.Fatal("settings response leaked api key")
 	}
 
 	after := savedProviderRun(t, req, projectID, threadID, "hello")
@@ -134,15 +125,14 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 		t.Fatal("other project must not use proj-cred credentials")
 	}
 
-	updated := req(projectID, http.MethodPut, "/llm/providers/custom_openai", map[string]any{
-		"credentials": map[string]string{
-			"api_key":  "",
-			"base_url": two.URL + "/v1",
-		},
-		"default_model": "fake-model",
+	// 留空 api_key 表示沿用既有值：只换 base_url 就切到第二个 fake server。
+	updated := req(projectID, http.MethodPut, "/llm/settings", map[string]any{
+		"default_provider": "custom_openai",
+		"default_model":    "fake-model",
+		"base_url":         two.URL + "/v1",
 	})
 	if updated.Code != http.StatusOK {
-		t.Fatalf("update provider %d %s", updated.Code, updated.Body.String())
+		t.Fatalf("update settings %d %s", updated.Code, updated.Body.String())
 	}
 	again := savedProviderRun(t, req, projectID, threadID, "hello again")
 	if savedProviderCode(again) != "" || !sseContains(again, "from-two") {

@@ -16,6 +16,12 @@ const (
 	CronJobKindOnce     = "once"
 )
 
+// 定时任务目标类型（planv6.0 cloudagent-cli-and-cronjob-unification-plan §2.2）。
+const (
+	CronJobTargetFunction = "function"
+	CronJobTargetAgent    = "agent"
+)
+
 // 定时任务运行状态（ui-cronjob-plan §4.2）。
 const (
 	CronJobRunRunning   = "running"
@@ -24,19 +30,29 @@ const (
 	CronJobRunCanceled  = "canceled"
 )
 
-// CronJob 是 sys_cron_jobs 一行（云函数定时调用任务）。
+const (
+	// cronJobColumns 是 sys_cron_jobs 未归档行的读取列清单，
+	// 与 scanCronJob 的扫描顺序一一对应（planv6.0 §7 A3）。
+	cronJobColumns = `id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
+		func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
+		created_by, created_at, updated_at, target_kind, agent_id, agent_thread_id, agent_prompt`
+	// cronJobRunColumns 是 sys_cron_job_runs 的读取列清单，与 scanCronJobRun 的顺序一一对应。
+	cronJobRunColumns = `id, job_id, project_id, trigger, status, error, duration_ms, response_json, started_at, finished_at, created_at`
+)
+
+// CronJob 是 sys_cron_jobs 一行（云函数或 Agent 的定时调用任务）。
 type CronJob struct {
 	ID              string
 	ProjectID       string
 	Name            string
 	Description     string
-	ScheduleKind    string // cron / interval / once
-	CronExpr        string // kind=cron 时非空
-	IntervalSeconds int64  // kind=interval 时非空
+	ScheduleKind    string    // cron / interval / once
+	CronExpr        string    // kind=cron 时非空
+	IntervalSeconds int64     // kind=interval 时非空
 	RunAt           time.Time // kind=once 时非空：一次性执行时刻
-	FuncFile        string // sys_go_funcs.name（云函数文件名）
-	FuncExport      string // 导出函数名
-	InputJSON       string // 固定入参 JSON 原文，默认 "{}"
+	FuncFile        string    // sys_go_funcs.name（云函数文件名）
+	FuncExport      string    // 导出函数名
+	InputJSON       string    // 固定入参 JSON 原文，默认 "{}"
 	Enabled         bool
 	LastRunAt       time.Time // 零值表示从未执行
 	NextRunAt       time.Time // 服务端计算；零值表示未排期（禁用/暂停）
@@ -46,6 +62,21 @@ type CronJob struct {
 	CreatedBy       string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+
+	// TargetKind 为 function（默认，空串视同 function）或 agent。
+	// 追加在末尾以匹配 cronJobColumns / scanCronJob 的按位顺序。
+	TargetKind    string
+	AgentID       string // TargetKind=agent 时的云助手 ID
+	AgentThreadID string // TargetKind=agent 时的专属会话 ID（可为空，首次执行时创建）
+	AgentPrompt   string // TargetKind=agent 时每次执行发送的用户消息，≤16KiB（API 层校验）
+}
+
+// EffectiveTargetKind 返回规范化的目标类型：空串视同 function。
+func (j CronJob) EffectiveTargetKind() string {
+	if j.TargetKind == CronJobTargetAgent {
+		return CronJobTargetAgent
+	}
+	return CronJobTargetFunction
 }
 
 // CronJobRun 是 sys_cron_job_runs 一行（一次定时/手动执行记录）。
@@ -88,14 +119,15 @@ func (s *Store) CreateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 	if !j.RunAt.IsZero() {
 		runAt = j.RunAt.UTC()
 	}
+	j.TargetKind = j.EffectiveTargetKind()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sys_cron_jobs(id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
 			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
-			created_by, created_at, updated_at, archived_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+			created_by, created_at, updated_at, archived_at, target_kind, agent_id, agent_thread_id, agent_prompt)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
 		j.ID, j.ProjectID, j.Name, j.Description, j.ScheduleKind, nullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds), runAt,
 		j.FuncFile, j.FuncExport, j.InputJSON, enabled, lastRun, nextRun, j.LastStatus, j.LastError, j.RunCount,
-		j.CreatedBy, now, now)
+		j.CreatedBy, now, now, j.TargetKind, j.AgentID, j.AgentThreadID, j.AgentPrompt)
 	if err != nil {
 		return CronJob{}, err
 	}
@@ -109,9 +141,7 @@ func (s *Store) GetCronJob(ctx context.Context, projectID, id string) (CronJob, 
 		return CronJob{}, ErrUnavailable
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
-			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
-			created_by, created_at, updated_at
+		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs WHERE id = ? AND project_id = ? AND archived_at IS NULL`, id, projectID)
 	j, err := scanCronJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -126,9 +156,7 @@ func (s *Store) GetCronJobByName(ctx context.Context, projectID, name string) (C
 		return CronJob{}, ErrUnavailable
 	}
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
-			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
-			created_by, created_at, updated_at
+		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs WHERE project_id = ? AND name = ? AND archived_at IS NULL`, projectID, name)
 	j, err := scanCronJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -143,9 +171,7 @@ func (s *Store) ListCronJobs(ctx context.Context, projectID string) ([]CronJob, 
 		return nil, ErrUnavailable
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
-			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
-			created_by, created_at, updated_at
+		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs WHERE project_id = ? AND archived_at IS NULL
 		 ORDER BY created_at ASC`, projectID)
 	if err != nil {
@@ -184,14 +210,17 @@ func (s *Store) UpdateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 	if !j.RunAt.IsZero() {
 		runAt = j.RunAt.UTC()
 	}
+	j.TargetKind = j.EffectiveTargetKind()
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE sys_cron_jobs SET description=?, schedule_kind=?, cron_expr=?, interval_seconds=?, run_at=?,
 			func_file=?, func_export=?, input_json=?, enabled=?, last_run_at=?, next_run_at=?,
-			last_status=?, last_error=?, run_count=?, updated_at=?
+			last_status=?, last_error=?, run_count=?, updated_at=?,
+			target_kind=?, agent_id=?, agent_thread_id=?, agent_prompt=?
 		 WHERE id=? AND project_id=? AND archived_at IS NULL`,
 		j.Description, j.ScheduleKind, nullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds), runAt,
 		j.FuncFile, j.FuncExport, j.InputJSON, enabled, lastRun, nextRun,
-		j.LastStatus, j.LastError, j.RunCount, now, j.ID, j.ProjectID)
+		j.LastStatus, j.LastError, j.RunCount, now,
+		j.TargetKind, j.AgentID, j.AgentThreadID, j.AgentPrompt, j.ID, j.ProjectID)
 	if err != nil {
 		return CronJob{}, err
 	}
@@ -232,9 +261,7 @@ func (s *Store) ListDueCronJobs(ctx context.Context, now time.Time, limit int) (
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
-			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
-			created_by, created_at, updated_at
+		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs
 		 WHERE archived_at IS NULL AND enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
 		 ORDER BY next_run_at ASC LIMIT ?`, now.UTC(), int64(limit))
@@ -345,7 +372,7 @@ func (s *Store) ListCronJobRuns(ctx context.Context, projectID, jobID string, li
 		limit = 20
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, job_id, project_id, trigger, status, error, duration_ms, response_json, started_at, finished_at, created_at
+		`SELECT `+cronJobRunColumns+`
 		 FROM sys_cron_job_runs WHERE project_id = ? AND job_id = ?
 		 ORDER BY created_at DESC LIMIT ?`, projectID, jobID, int64(limit))
 	if err != nil {
@@ -369,11 +396,19 @@ func scanCronJob(sc rowScanner) (CronJob, error) {
 	var cronExpr sql.NullString
 	var interval sql.NullInt64
 	var lastRun, nextRun, runAt sql.NullTime
+	// v49 新增列由 ALTER ... DEFAULT 补齐，历史行读到的可能是 NULL，用 NullString 兜底。
+	var targetKind, agentID, agentThreadID, agentPrompt sql.NullString
 	if err := sc.Scan(&j.ID, &j.ProjectID, &j.Name, &j.Description, &j.ScheduleKind, &cronExpr, &interval, &runAt,
 		&j.FuncFile, &j.FuncExport, &j.InputJSON, &enabled, &lastRun, &nextRun,
-		&j.LastStatus, &j.LastError, &j.RunCount, &j.CreatedBy, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		&j.LastStatus, &j.LastError, &j.RunCount, &j.CreatedBy, &j.CreatedAt, &j.UpdatedAt,
+		&targetKind, &agentID, &agentThreadID, &agentPrompt); err != nil {
 		return CronJob{}, err
 	}
+	j.TargetKind = targetKind.String
+	j.AgentID = agentID.String
+	j.AgentThreadID = agentThreadID.String
+	j.AgentPrompt = agentPrompt.String
+	j.TargetKind = j.EffectiveTargetKind()
 	j.Enabled = enabled != 0
 	j.CronExpr = cronExpr.String
 	j.IntervalSeconds = interval.Int64

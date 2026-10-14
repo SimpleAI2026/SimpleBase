@@ -5,7 +5,7 @@
         <Button
           variant="outline"
           class="h-9 min-w-0 max-w-full justify-start gap-1 rounded-lg px-2 shadow-xs sm:w-56 sm:gap-2.5 sm:px-3"
-          :aria-label="`切换项目，当前项目：${triggerLabel}`"
+          :aria-label="t('components.projectSwitcher.aria', { label: triggerLabel })"
         >
           <FolderIcon class="size-4 shrink-0 text-primary/80" />
           <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ triggerLabel }}</span>
@@ -21,12 +21,12 @@
           <div class="border-b px-3 py-2.5">
             <CommandInput
               class="h-9 border-none bg-transparent px-0 shadow-none focus-visible:ring-0"
-              placeholder="搜索项目名称或 ID"
+              :placeholder="t('components.projectSwitcher.searchPlaceholder')"
             />
           </div>
           <CommandList class="max-h-[340px] px-2 py-2">
             <CommandEmpty class="py-8 text-center text-sm text-muted-foreground">
-              {{ store.loading ? '加载项目…' : '没有匹配的项目' }}
+              {{ store.loading ? t('components.projectSwitcher.loading') : t('components.projectSwitcher.noMatch') }}
             </CommandEmpty>
 
             <CommandGroup v-if="projects.length" class="p-0">
@@ -47,7 +47,7 @@
                     <span
                       v-if="isAdminProject(p)"
                       class="ml-1 text-xs font-normal text-muted-foreground"
-                    >（只读）</span>
+                    >{{ t('components.projectSwitcher.readonlySuffix') }}</span>
                   </span>
                   <span class="sb-mono truncate text-[11px] tracking-wide text-muted-foreground/70">{{ p.id }}</span>
                 </span>
@@ -75,7 +75,7 @@
             @click="openCreate"
           >
             <PlusIcon data-icon="inline-start" />
-            新建项目
+            {{ t('components.projectSwitcher.create') }}
           </Button>
         </div>
       </PopoverContent>
@@ -90,6 +90,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { CheckIcon, ChevronDownIcon, FolderIcon, PlusIcon, ShieldIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -110,12 +111,13 @@ import CreateProjectModal from './modal/CreateProjectModal.vue'
 
 const store = useProjectStore()
 const auth = useAuthStore()
+const { t } = useI18n()
 const open = ref(false)
 
 const triggerLabel = computed(() => {
   const name = store.displayName.trim()
   if (name && name !== store.id) return name
-  return store.id || '选择项目'
+  return store.id || t('common.selectProject')
 })
 
 const merged = computed<ProjectItem[]>(() => store.projects.filter((p) => p.id))
@@ -137,7 +139,7 @@ watch(open, (next) => {
 function select(p: ProjectItem) {
   if (p.id !== store.id) {
     store.setProject(p.id, p.name)
-    toast.success(`已切换到「${p.name || p.id}」`)
+    toast.success(t('components.projectSwitcher.switched', { name: p.name || p.id }))
   }
   open.value = false
 }

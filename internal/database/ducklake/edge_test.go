@@ -28,7 +28,7 @@ func TestFactoryOpenBindsSyncerAndLogger(t *testing.T) {
 		Syncer:   cs,
 		Logger:   observability.NewLogger("debug", "json", io.Discard),
 	}
-	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111"}
+	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 	db, err := f.Open(context.Background(), meta, database.ReadWrite)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestFactoryOpenBindsSyncerAndLogger(t *testing.T) {
 func TestSyncOnceNilStoreAndPruneBadTenant(t *testing.T) {
 	db, _ := openTestLake(t)
 	id := uuid.NewString()
-	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111"}
+	meta := catalog.Database{ID: id, TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
 	cs := NewCatalogSyncer(nil, RemoteStorage{Enabled: true, Bucket: "b", Region: "r"}, t.TempDir(), CatalogSyncOptions{}, "", nil, nil)
 	cs.Bind(id, db, meta, DefaultLakeAlias)
 	if err := cs.Sync(context.Background(), id); err == nil {
@@ -53,15 +53,15 @@ func TestSyncOnceNilStoreAndPruneBadTenant(t *testing.T) {
 	}
 
 	cs2 := NewCatalogSyncer(objectstore.NewMemoryBlobStore(), RemoteStorage{Enabled: true, Bucket: "b", Region: "r"}, t.TempDir(), CatalogSyncOptions{KeepVersions: 1}, "", nil, nil)
-	if err := cs2.pruneVersions(context.Background(), catalog.Database{ID: "bad", TenantID: "bad"}, 20, 20); err == nil {
+	if err := cs2.pruneVersions(context.Background(), catalog.Database{ID: "bad", TenantID: "bad", ProjectID: "prj12345"}, 20, 20); err == nil {
 		t.Fatal("bad ids")
 	}
 }
 
 func TestEnsureLocalCatalogDownloadError(t *testing.T) {
-	remote := RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase", Environment: "e"}
-	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111"}
-	key, _ := remote.keyBuilder().DuckLakeSnapshotKey(meta.TenantID, meta.ID, 3, 1, EngineDuckDB)
+	remote := RemoteStorage{Enabled: true, Region: "r", Bucket: "b", RootPrefix: "simplebase"}
+	meta := catalog.Database{ID: uuid.NewString(), TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
+	key, _ := remote.keyBuilder().DuckLakeSnapshotKey(meta.ProjectID, meta.ID, 3, 1, EngineDuckDB)
 	body, _ := json.Marshal(NewManifest(1, 3, key, EngineDuckDB, 1, 0, ""))
 	store := &headOKDownloadFail{key: key, manifest: body}
 	_, err := EnsureLocalCatalog(context.Background(), store, remote, t.TempDir(), meta, "")

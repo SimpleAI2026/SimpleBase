@@ -41,6 +41,10 @@ type GoFunctionHandler struct {
 	store    *systemdb.Store
 	writable bool
 	audit    AuditService
+	// runSem 是 /go 调用与调试台试跑的全局并发信号量（GF-RUN-04）：
+	// 每次调用都重新编译执行源码，恶意或高频调用会耗尽 CPU/内存。
+	// nil 表示不限流（旧测试路径）。
+	runSem chan struct{}
 }
 
 var (
@@ -53,9 +57,33 @@ const (
 	gofunctionMaxPerProject  = 100
 )
 
-// NewGoFunctionHandler 构造 handler。
-func NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService) *GoFunctionHandler {
-	return &GoFunctionHandler{store: store, writable: writable, audit: audit}
+// NewGoFunctionHandler 构造 handler。maxConcurrentRuns<=0 时不限流。
+func NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService, maxConcurrentRuns int) *GoFunctionHandler {
+	h := &GoFunctionHandler{store: store, writable: writable, audit: audit}
+	if maxConcurrentRuns > 0 {
+		h.runSem = make(chan struct{}, maxConcurrentRuns)
+	}
+	return h
+}
+
+// acquireRunSlot 非阻塞获取执行槽位；满载返回 false（GF-RUN-04 → 503）。
+func (h *GoFunctionHandler) acquireRunSlot() bool {
+	if h.runSem == nil {
+		return true
+	}
+	select {
+	case h.runSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *GoFunctionHandler) releaseRunSlot() {
+	if h.runSem == nil {
+		return
+	}
+	<-h.runSem
 }
 
 // ---------- DTO ----------
@@ -574,16 +602,21 @@ func (h *GoFunctionHandler) TestVersion(c echo.Context) error {
 	if len(body) == 0 {
 		body = json.RawMessage(`{}`)
 	}
+	// GF-RUN-04：与 /go 调用共享全局并发上限，满载 503。
+	if !h.acquireRunSlot() {
+		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "too_many_go_runs", "go function run concurrency limit reached", rid))
+	}
+	defer h.releaseRunSlot()
 	start := time.Now()
 	out, runErr := gofunction.RunJSON(c.Request().Context(), rid, name, v.Source, req.FunctionName, body)
 	dur := time.Since(start)
 	resp := goFuncTestResponse{
-		OK:           runErr == nil,
-		StatusCode:   http.StatusOK,
-		DurationMs:   dur.Milliseconds(),
-		Version:      ver,
+		OK:            runErr == nil,
+		StatusCode:    http.StatusOK,
+		DurationMs:    dur.Milliseconds(),
+		Version:       ver,
 		ActiveVersion: f.ActiveVersion,
-		FunctionName: req.FunctionName,
+		FunctionName:  req.FunctionName,
 	}
 	if runErr != nil {
 		ae := mapGoFunctionRunError(runErr, rid)
@@ -649,6 +682,12 @@ func (h *GoFunctionHandler) Invoke(c echo.Context) error {
 	if err != nil {
 		return fail(NewAPIError(http.StatusBadRequest, "invalid_request", "cannot read request body", rid))
 	}
+	// GF-RUN-04：编译执行有全局并发上限，满载立即 503（不排队，
+	// 避免高频调用把请求队列也打满）。
+	if !h.acquireRunSlot() {
+		return fail(NewAPIError(http.StatusServiceUnavailable, "too_many_go_runs", "go function run concurrency limit reached", rid))
+	}
+	defer h.releaseRunSlot()
 	out, runErr := gofunction.RunJSON(c.Request().Context(), rid, name, v.Source, fnName, body)
 	dur := time.Since(start)
 	status := http.StatusOK

@@ -49,6 +49,14 @@ describe('TrendChart (echarts)', () => {
     expect(opt.xAxis.data).toEqual(['01-01', '01-02', '01-03'])
   })
 
+  it('defaults to line mode when mode is not provided', async () => {
+    mount(TrendChart, { props: { points }, global: { stubs } })
+    await flushPromises()
+    const opt = lastChart().setOption.mock.calls[0][0] as { series: { type: string }[] }
+    expect(opt.series[0].type).toBe('line')
+    expect(opt.series[1].type).toBe('line')
+  })
+
   it('switches to line mode and emits update:mode', async () => {
     const w = mount(TrendChart, {
       props: { points, mode: 'bar' },

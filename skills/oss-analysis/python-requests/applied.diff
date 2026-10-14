@@ -1,0 +1,48 @@
+diff --git a/src/requests/utils.py b/src/requests/utils.py
+index fff6edf..86000a8 100644
+--- a/src/requests/utils.py
++++ b/src/requests/utils.py
+@@ -766,22 +766,18 @@ def is_valid_cidr(string_network: str) -> bool:
+ 
+     :rtype: bool
+     """
+-    if string_network.count("/") == 1:
+-        try:
+-            mask = int(string_network.split("/")[1])
+-        except ValueError:
+-            return False
++    if string_network.count("/") != 1:
++        return False
+ 
+-        if mask < 1 or mask > 32:
+-            return False
++    try:
++        mask = int(string_network.split("/")[1])
++    except ValueError:
++        return False
+ 
+-        try:
+-            socket.inet_aton(string_network.split("/")[0])
+-        except OSError:
+-            return False
+-    else:
++    if mask < 1 or mask > 32:
+         return False
+-    return True
++
++    return is_ipv4_address(string_network.split("/")[0])
+ 
+ 
+ @contextlib.contextmanager
+@@ -864,10 +860,7 @@ def should_bypass_proxies(url: str, no_proxy: str | None) -> bool:
+         except (TypeError, socket.gaierror):
+             bypass = False
+ 
+-    if bypass:
+-        return True
+-
+-    return False
++    return bool(bypass)
+ 
+ 
+ def get_environ_proxies(url: str, no_proxy: str | None = None) -> dict[str, str]:

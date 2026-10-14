@@ -41,6 +41,24 @@ func TestListProviders(t *testing.T) {
 	}
 }
 
+func TestProviderModelsIncludesDefaultWithoutAllowedModels(t *testing.T) {
+	svc := NewService(&fakeResolver{providers: ProjectProviders{Providers: []ProviderConfig{
+		{Name: "openai", Model: "zai-org/GLM-5.3-Flash"},
+		{Name: "anthropic", Model: "claude", AllowedModels: []string{"claude", "other"}},
+		{Name: "restricted", Model: "unlisted", AllowedModels: []string{"allowed"}},
+	}}}, nil, nil)
+	models, err := svc.ProviderModels(context.Background(), "proj-1")
+	if err != nil || len(models["openai"]) != 1 || models["openai"][0] != "zai-org/GLM-5.3-Flash" {
+		t.Fatalf("fallback model: %+v, err=%v", models, err)
+	}
+	if len(models["anthropic"]) != 2 {
+		t.Fatalf("default model duplicated: %+v", models["anthropic"])
+	}
+	if len(models["restricted"]) != 1 || models["restricted"][0] != "allowed" {
+		t.Fatalf("disallowed default model exposed: %+v", models["restricted"])
+	}
+}
+
 func TestListProvidersEmpty(t *testing.T) {
 	r := &fakeResolver{providers: ProjectProviders{}}
 	svc := NewService(r, nil, nil)
@@ -64,7 +82,7 @@ func TestListProvidersResolveError(t *testing.T) {
 
 func TestRecordLLMUsageRecorder(t *testing.T) {
 	r := &fakeResolver{providers: ProjectProviders{
-		Default: "openai",
+		Default:   "openai",
 		Providers: []ProviderConfig{{Name: "openai"}},
 	}}
 	rec := &fakeRecorder{}

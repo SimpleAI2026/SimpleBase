@@ -13,6 +13,8 @@ var (
 	ErrAlreadyExists = errors.New("catalog: already exists")
 	// ErrInvalidName 名称不合法（400）。
 	ErrInvalidName = errors.New("catalog: invalid name")
+	// ErrInvalidCursor 分页游标无效或不属于当前项目（400）。
+	ErrInvalidCursor = errors.New("catalog: invalid cursor")
 	// ErrInvalidState 非法状态转换（409）。
 	ErrInvalidState = errors.New("catalog: invalid state transition")
 	// ErrCrossProject 跨 project 访问（403）。

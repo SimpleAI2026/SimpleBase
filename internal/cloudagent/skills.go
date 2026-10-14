@@ -1,20 +1,22 @@
 package cloudagent
 
 import (
-	"embed"
 	"fmt"
 	"io/fs"
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	builtinSkills "github.com/linkxzhou/SimpleBase/skills"
 )
 
-//go:embed skills/simplebase
-var skillFS embed.FS
+var skillFS = builtinSkills.Simplebase
 
 const maxSkillChars = 8192
 
 // skillPrefixes 是宿主拒绝表。Markdown 里的 allow 注释必须与这里一致。
+// planv6.0 D4：users 下线（助手不再管理用户）；project 收缩为 quota/audit，
+// user/apikey/settings 命令保留给人类操作者但不进任何 skill。
 var skillPrefixes = map[string][]string{
 	"database":   {"database", "sql", "schema", "collection", "document"},
 	"kv":         {"kv"},
@@ -23,8 +25,7 @@ var skillPrefixes = map[string][]string{
 	"cron":       {"cron"},
 	"sandbox":    {"sandbox"},
 	"logs":       {"log"},
-	"users":      {"user"},
-	"project":    {"project", "apikey", "settings", "quota", "audit"},
+	"project":    {"quota", "audit"},
 }
 
 // skillAliases 中文精确匹配；拉丁别名按小写登记。
@@ -36,7 +37,6 @@ var skillAliases = map[string]string{
 	"定时任务": "cron", "定时": "cron", "cron": "cron",
 	"沙盒": "sandbox", "sandbox": "sandbox",
 	"日志": "logs", "logs": "logs",
-	"用户": "users", "users": "users",
 	"项目": "project", "project": "project",
 }
 
@@ -82,7 +82,7 @@ func ResolveAtToken(token string, agentNames []string) (skillID string, isAgent 
 func NormalizeSkills(ids []string, module string) ([]string, error) {
 	if len(ids) == 0 {
 		switch module {
-		case ModuleDatabase, ModuleS3, ModuleLogs, ModuleSandbox:
+		case ModuleDatabase, ModuleKV, ModuleGoFunction, ModuleCron, ModuleS3, ModuleLogs, ModuleSandbox:
 			return []string{module}, nil
 		default:
 			return nil, nil
@@ -123,14 +123,21 @@ func AllowArgv(skills []string, argv []string) bool {
 	return false
 }
 
+// skillIndexPath 是顶层 skill（含 YAML frontmatter）；子模块文档位于 references/<id>.md。
+const skillIndexPath = "simplebase/SKILL.md"
+
+func skillDocPath(id string) string {
+	return "simplebase/references/" + id + ".md"
+}
+
 // SkillPrompt 返回本轮要注入的 skill 正文。空 skills 只有顶层索引。
 func SkillPrompt(ids []string) string {
 	if len(ids) == 0 {
-		return readSkill("skills/simplebase/SKILL.md")
+		return readSkill(skillIndexPath)
 	}
 	var b strings.Builder
 	for _, id := range ids {
-		body := readSkill("skills/simplebase/" + id + "/SKILL.md")
+		body := readSkill(skillDocPath(id))
 		if body == "" {
 			continue
 		}
@@ -142,38 +149,83 @@ func SkillPrompt(ids []string) string {
 	return b.String()
 }
 
+// readSkill 读取 embed 文档并去掉 YAML frontmatter（frontmatter 只给 skill 加载器用，不进 prompt）。
 func readSkill(path string) string {
 	b, err := skillFS.ReadFile(path)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(b))
+	return strings.TrimSpace(stripFrontmatter(string(b)))
 }
 
-// EmbeddedSkillAllows 解析 embed 的 allow 注释，供测试与前缀表对账。
-func EmbeddedSkillAllows() (map[string][]string, error) {
-	out := map[string][]string{}
-	err := fs.WalkDir(skillFS, "skills/simplebase", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, "SKILL.md") {
+func stripFrontmatter(s string) string {
+	if !strings.HasPrefix(s, "---\n") {
+		return s
+	}
+	end := strings.Index(s[4:], "\n---")
+	if end < 0 {
+		return s
+	}
+	rest := s[4+end+len("\n---"):]
+	return strings.TrimPrefix(rest, "\n")
+}
+
+// walkSkillDocs 遍历顶层索引（id="index"）与 references/ 下已登记的子模块文档。
+// references/ 中未登记的文件（如 authoring.md）是维护文档，不参与对账。
+func walkSkillDocs(fn func(id, body string)) error {
+	return fs.WalkDir(skillFS, "simplebase", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
 			return err
+		}
+		var id string
+		switch {
+		case path == skillIndexPath:
+			id = "index"
+		case strings.HasPrefix(path, "simplebase/references/"):
+			id = strings.TrimSuffix(strings.TrimPrefix(path, "simplebase/references/"), ".md")
+			if !KnownSkill(id) {
+				return nil
+			}
+		default:
+			return nil
 		}
 		body, err := skillFS.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		allow := parseAllow(string(body))
-		id := "index"
-		if path != "skills/simplebase/SKILL.md" {
-			id = strings.TrimSuffix(strings.TrimPrefix(path, "skills/simplebase/"), "/SKILL.md")
-		}
-		out[id] = allow
+		fn(id, string(body))
 		return nil
+	})
+}
+
+// EmbeddedSkillAllows 解析 embed 的 allow 注释，供测试与前缀表对账。
+func EmbeddedSkillAllows() (map[string][]string, error) {
+	out := map[string][]string{}
+	err := walkSkillDocs(func(id, body string) {
+		out[id] = parseAllow(body)
+	})
+	return out, err
+}
+
+// EmbeddedSkillReadOnly 解析各模块文档的 `<!-- readonly: a,b -->` 标注
+// （planv6.0 v2 §4.2）：供测试与 sbcli.CommandReadOnly 对账，让「文档」与
+// 「宿主判定」两个事实来源自动对齐。未标注的 skill 不出现在结果里。
+func EmbeddedSkillReadOnly() (map[string][]string, error) {
+	out := map[string][]string{}
+	err := walkSkillDocs(func(id, body string) {
+		if ro := parseCommentList(body, "<!-- readonly:"); len(ro) > 0 {
+			out[id] = ro
+		}
 	})
 	return out, err
 }
 
 func parseAllow(body string) []string {
-	const marker = "<!-- allow:"
+	return parseCommentList(body, "<!-- allow:")
+}
+
+// parseCommentList 解析形如 `<!-- name: a,b -->` 的注释为排序后的列表。
+func parseCommentList(body, marker string) []string {
 	i := strings.Index(body, marker)
 	if i < 0 {
 		return nil

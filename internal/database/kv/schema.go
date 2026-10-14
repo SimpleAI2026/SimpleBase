@@ -51,6 +51,7 @@ var schemaDDL = []string{
 // 调用时机（key-value-ducklake-plan §3.3）：
 //   - 数据库创建成功后由 api.KVInitializer 立即初始化（正常路径）；
 //   - 历史库首次 KV 写时由 Store.ensureSchema 兜底补建。
+//
 // db 必须是经 Registry 获取的 DuckLake 连接，不得绕过 Registry 直连 DSN。
 func EnsureSchema(ctx context.Context, db *sql.DB) error {
 	return ensureSchemaLocked(ctx, db)

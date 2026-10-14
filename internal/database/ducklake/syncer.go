@@ -24,7 +24,7 @@ type BindingSyncer interface {
 	Unbind(ctx context.Context, dbID string) error
 }
 
-// LocalSyncer 是 Phase 1 / DevMode 的本地空实现：只在内存中推进 last_synced_snapshot_id。
+// LocalSyncer 是 Phase 1 / 本地模式（storage.database=local）的空实现：只在内存中推进 last_synced_snapshot_id。
 type LocalSyncer struct {
 	mu   sync.Mutex
 	last map[string]int64

@@ -9,12 +9,12 @@
       <div class="flex gap-2">
         <Button v-if="!readonly" size="sm" @click="emit('add-document')">
           <PlusIcon data-icon="inline-start" />
-          新增文档
+          {{ t('components.documentList.addDocument') }}
         </Button>
         <Button size="sm" variant="outline" :disabled="pending" @click="load">
           <Spinner v-if="pending" data-icon="inline-start" />
           <RefreshCwIcon v-else data-icon="inline-start" />
-          刷新
+          {{ t('common.refresh') }}
         </Button>
       </div>
       <div class="overflow-x-auto rounded-lg border border-border">
@@ -22,8 +22,8 @@
           <TableHeader>
             <TableRow>
               <TableHead class="sb-col-id">ID</TableHead>
-              <TableHead class="max-w-md text-left">数据</TableHead>
-              <TableHead class="w-28">操作</TableHead>
+              <TableHead class="max-w-md text-left">{{ t('components.documentList.colData') }}</TableHead>
+              <TableHead class="w-28">{{ t('components.documentList.colActions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <SbAsyncRegion
@@ -37,17 +37,21 @@
             :error="error"
             @retry="load"
           >
-            <template #empty>暂时未查询到数据</template>
+            <template #empty>{{ t('components.documentList.empty') }}</template>
             <TableRow v-for="record in paged" :key="record.id">
               <TableCell class="sb-mono font-medium truncate text-xs">{{ record.id }}</TableCell>
               <TableCell class="text-left">
                 <SbCodeBlock :value="docFields(record)" max-height="160px" />
               </TableCell>
               <TableCell>
-                <ConfirmAction v-if="!readonly" title="确认删除该文档？" @confirm="removeRow(record.id)">
-                  <Button variant="destructiveGhost" size="sm">删除</Button>
+                <ConfirmAction
+                  v-if="!readonly"
+                  :title="t('components.documentList.deleteConfirm')"
+                  @confirm="removeRow(record.id)"
+                >
+                  <Button variant="destructiveGhost" size="sm">{{ t('common.del') }}</Button>
                 </ConfirmAction>
-                <span v-else class="text-xs text-muted-foreground">只读</span>
+                <span v-else class="text-xs text-muted-foreground">{{ t('common.readonly') }}</span>
               </TableCell>
             </TableRow>
           </SbAsyncRegion>
@@ -62,14 +66,15 @@
       />
     </div>
     <template #footer>
-      <Button variant="outline" @click="emit('update:open', false)">关闭</Button>
+      <Button variant="outline" @click="emit('update:open', false)">{{ t('common.close') }}</Button>
     </template>
   </SbModal>
 </template>
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -106,10 +111,16 @@ const emit = defineEmits<{
   'add-document': []
 }>()
 
+const { t } = useI18n()
+
 const rows = ref<DbRow[]>([])
-const title = ref('文档')
+const title = computed(() =>
+  props.collection
+    ? t('components.documentList.titleOf', { collection: props.collection })
+    : t('components.documentList.title')
+)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '数据加载失败'
+  fallback: 'components.documentList.loadFailed'
 })
 const { page, pageSize, total, pageCount, items: paged } = usePagination(rows)
 
@@ -131,17 +142,16 @@ function load() {
 async function removeRow(id: string) {
   try {
     await api.db.remove(props.projectId, props.databaseId, props.collection, id)
-    toast.success('删除成功')
+    toast.success(t('components.documentList.deleted'))
     await load()
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('components.documentList.deleteFailed')))
   }
 }
 
 watch(
   () => [props.open, props.projectId, props.databaseId, props.collection, props.reloadToken],
   () => {
-    title.value = props.collection ? `${props.collection} 的文档` : '文档'
     if (props.open) void load()
   },
   { immediate: true }

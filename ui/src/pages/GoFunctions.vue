@@ -1,11 +1,11 @@
 <template>
   <ProjectScope>
-    <PageContainer subtitle="管理项目内的 Go 源文件；导出的大写函数可通过 HTTP+JSON 调用">
+    <PageContainer :subtitle="t('pages.gofunctions.subtitle')">
       <Card>
         <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
-          <CardTitle>云函数列表</CardTitle>
+          <CardTitle>{{ t('pages.gofunctions.cardTitle') }}</CardTitle>
           <CardDescription class="min-w-0 break-words">
-            共 {{ total }} 个文件 · 调用前缀
+            {{ t('pages.gofunctions.cardDesc', { n: total }) }}
             <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
           </CardDescription>
           <CardAction v-if="!isAdminProject">
@@ -13,11 +13,11 @@
               <Button variant="outline" size="sm" :disabled="pending" @click="load">
                 <Spinner v-if="pending" data-icon="inline-start" />
                 <RefreshCwIcon v-else data-icon="inline-start" />
-                刷新
+                {{ t('common.refresh') }}
               </Button>
               <Button size="sm" @click="openCreate">
                 <PlusIcon data-icon="inline-start" />
-                新建云函数
+                {{ t('pages.gofunctions.create') }}
               </Button>
             </div>
           </CardAction>
@@ -25,21 +25,21 @@
             <Button variant="outline" size="sm" :disabled="pending" @click="load">
               <Spinner v-if="pending" data-icon="inline-start" />
               <RefreshCwIcon v-else data-icon="inline-start" />
-              刷新
+              {{ t('common.refresh') }}
             </Button>
           </CardAction>
         </CardHeader>
         <div class="p-0">
-          <p class="px-4 pt-3 text-xs text-muted-foreground md:hidden">表格可左右滑动，查看版本与操作</p>
+          <p class="px-4 pt-3 text-xs text-muted-foreground md:hidden">{{ t('pages.gofunctions.scrollHint') }}</p>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="min-w-40 max-w-52">文件</TableHead>
-                <TableHead class="max-w-md">导出函数</TableHead>
-                <TableHead class="w-18 max-w-18">生效版</TableHead>
-                <TableHead class="w-24 max-w-28">最新版本</TableHead>
-                <TableHead class="sb-col-md">更新时间</TableHead>
-                <TableHead class="min-w-72">操作</TableHead>
+                <TableHead class="min-w-40 max-w-52">{{ t('pages.gofunctions.colFile') }}</TableHead>
+                <TableHead class="max-w-md">{{ t('pages.gofunctions.colExports') }}</TableHead>
+                <TableHead class="w-18 max-w-18">{{ t('pages.gofunctions.colActiveVersion') }}</TableHead>
+                <TableHead class="w-24 max-w-28">{{ t('pages.gofunctions.colLatestVersion') }}</TableHead>
+                <TableHead class="sb-col-md">{{ t('pages.gofunctions.colUpdatedAt') }}</TableHead>
+                <TableHead class="min-w-72">{{ t('pages.gofunctions.colActions') }}</TableHead>
               </TableRow>
             </TableHeader>
             <SbAsyncRegion
@@ -51,9 +51,9 @@
               :show-error="showError"
               :refreshing="refreshing"
               :error="error"
-              :empty-title="isAdminProject ? '系统项目不支持云函数' : '还没有云函数'"
-              :empty-description="isAdminProject ? '系统项目不提供此功能' : '新建一个 .go 文件，导出大写函数后即可 HTTP 调用'"
-              :empty-action-text="isAdminProject ? undefined : '新建云函数'"
+              :empty-title="isAdminProject ? t('pages.gofunctions.emptyAdminTitle') : t('pages.gofunctions.emptyTitle')"
+              :empty-description="isAdminProject ? t('pages.gofunctions.emptyAdminDesc') : t('pages.gofunctions.emptyDesc')"
+              :empty-action-text="isAdminProject ? undefined : t('pages.gofunctions.create')"
               @retry="load"
               @empty-action="openCreate"
             >
@@ -72,7 +72,7 @@
                       as="button"
                       type="button"
                       variant="secondary"
-                      :aria-label="`复制 ${record.file} 的 ${fn} 完整调用路径`"
+                      :aria-label="t('pages.gofunctions.copyPathAria', { file: record.file, fn })"
                       class="sb-code-view sb-mono h-auto min-h-8 max-w-full min-w-0 cursor-pointer whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-left hover:bg-secondary/70"
                       @click="copyInvokePath(record, fn)"
                     >
@@ -85,7 +85,7 @@
                   <Badge v-if="record.activeVersion > 0" variant="success" class="px-1.5">
                     v{{ record.activeVersion }}
                   </Badge>
-                  <Badge v-else variant="outline" class="px-1.5">未发布</Badge>
+                  <Badge v-else variant="outline" class="px-1.5">{{ t('pages.gofunctions.unpublished') }}</Badge>
                 </TableCell>
                 <TableCell class="w-24 max-w-28 tabular-nums">
                   <div class="flex flex-col gap-0.5">
@@ -93,7 +93,7 @@
                     <span
                       v-if="record.latestVersion > record.activeVersion && record.activeVersion > 0"
                       class="text-xs text-warning"
-                    >有未发布</span>
+                    >{{ t('pages.gofunctions.hasUnpublished') }}</span>
                   </div>
                 </TableCell>
                 <TableCell class="sb-col-md text-xs text-muted-foreground">
@@ -102,17 +102,17 @@
                 <TableCell class="min-w-72">
                   <div class="flex flex-nowrap items-center justify-center gap-1">
                     <Button v-if="!isAdminProject" variant="outline" size="sm" class="px-2" @click="openTest(record)">
-                      测试
+                      {{ t('pages.gofunctions.test') }}
                     </Button>
-                    <Button variant="ghost" size="sm" class="px-2" @click="openView(record)">查看</Button>
-                    <Button variant="ghost" size="sm" class="px-2" @click="openVersions(record)">版本</Button>
-                    <Button v-if="!isAdminProject" variant="ghost" size="sm" class="px-2" @click="openEdit(record)">编辑</Button>
+                    <Button variant="ghost" size="sm" class="px-2" @click="openView(record)">{{ t('pages.gofunctions.view') }}</Button>
+                    <Button variant="ghost" size="sm" class="px-2" @click="openVersions(record)">{{ t('pages.gofunctions.versions') }}</Button>
+                    <Button v-if="!isAdminProject" variant="ghost" size="sm" class="px-2" @click="openEdit(record)">{{ t('common.edit') }}</Button>
                     <ConfirmAction
                       v-if="!isAdminProject"
-                      :title="`确认删除 ${record.file}？生效版将立即不可调用。`"
+                      :title="t('pages.gofunctions.deleteConfirm', { file: record.file })"
                       @confirm="remove(record)"
                     >
-                      <Button variant="destructiveGhost" size="sm" class="px-2">删除</Button>
+                      <Button variant="destructiveGhost" size="sm" class="px-2">{{ t('common.del') }}</Button>
                     </ConfirmAction>
                   </div>
                 </TableCell>
@@ -148,6 +148,7 @@ import { errorMessage } from '@/utils/format'
  * Badge 点击复制完整调用 URL；删除走 ConfirmAction；项目切换重载。
  */
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import {
@@ -188,12 +189,13 @@ import GoFuncVersionsModal from '../components/modal/GoFuncVersionsModal.vue'
 
 const projectStore = useProjectStore()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
+const { t } = useI18n()
 
 const records = ref<GoFunctionItem[]>([])
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
-  fallback: '加载云函数列表失败'
+  fallback: 'pages.gofunctions.loadFailed'
 })
 
 function load() {
@@ -245,23 +247,23 @@ function openVersions(record: GoFunctionItem) {
 async function remove(record: GoFunctionItem) {
   try {
     await api.gofunctions.remove(projectId.value, record.name)
-    toast.success(`已删除 ${record.file}`)
+    toast.success(t('pages.gofunctions.deleteSuccess', { file: record.file }))
     await load()
   } catch (e) {
-    toast.error(errorMessage(e, '删除失败'))
+    toast.error(errorMessage(e, t('pages.gofunctions.deleteFailed')))
   }
 }
 
 function copyInvokePath(record: GoFunctionItem, fn?: string) {
   if (!fn) {
-    toast.error('该云函数没有导出函数')
+    toast.error(t('pages.gofunctions.noExports'))
     return
   }
   const path = `POST /go/${projectId.value}/${record.name}/${fn}`
   navigator.clipboard
     .writeText(path)
-    .then(() => toast.success(`已复制 ${path}`))
-    .catch(() => toast.error('复制失败'))
+    .then(() => toast.success(t('pages.gofunctions.copiedPath', { path })))
+    .catch(() => toast.error(t('pages.gofunctions.copyFailed')))
 }
 
 void load()

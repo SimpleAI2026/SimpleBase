@@ -23,7 +23,7 @@ SimpleBase 首期为**单写实例**部署。所有写请求经同一进程的 D
 
 `config.yaml` 是非密钥配置的权威来源（复制 `config.example.yaml`）。加载顺序：代码默认值 → YAML → `SIMPLEBASE_*` 环境变量覆盖。`SIMPLEBASE_CONFIG_PATH` 指向的文件缺失或非法 YAML 会使进程退出。
 
-生产密钥（`SIMPLEBASE_S3_ACCESS_KEY` / `SIMPLEBASE_S3_SECRET_KEY` / `SIMPLEBASE_AUTH_APIKEY_SECRET` / `SIMPLEBASE_LLM_PROVIDER_*_API_KEY`）从 Secret 或 IAM 注入；`dev_mode: false` 时 YAML 里的非空密钥会被拒绝。
+生产密钥（`SIMPLEBASE_S3_ACCESS_KEY` / `SIMPLEBASE_S3_SECRET_KEY` / `SIMPLEBASE_AUTH_APIKEY_SECRET` / `SIMPLEBASE_LLM_PROVIDER_*_API_KEY`）从 Secret 或 IAM 注入；YAML 里的非空密钥会被拒绝。
 
 ### instance
 
@@ -31,7 +31,6 @@ SimpleBase 首期为**单写实例**部署。所有写请求经同一进程的 D
 instance:
   id: "simplebase-prod-1"
   writable: true  # 单写实例必须为 true
-dev_mode: false
 ```
 
 `id` 用于对象前缀与日志身份，不提供分布式锁语义。
@@ -100,13 +99,13 @@ HTTP 优雅退出超时：`http.shutdown_timeout`（默认 30s）。
 `Dockerfile` 已配置 distroless 非根镜像：
 
 ```bash
-docker build -t simplebased .
+docker build -t simplebase .
 docker run -d \
   --name simplebase \
   -p 8080:8080 \
   --env-file .env \
   -v /var/lib/simplebase/cache:/var/lib/simplebase/cache \
-  simplebased
+  simplebase
 ```
 
 环境变量（密钥与可选覆盖；非密钥优先写 ConfigMap 中的 `config.yaml`）：
@@ -191,6 +190,31 @@ spec:
 
 - 数据库：打开数量、冷启动延迟、查询延迟、事务失败、S3 延迟/错误、缓存命中、容量。
 - LLM：provider/model 请求量、首 token 延迟、总延迟、token、成本、限流、重试、流中断。
+
+### 采集与告警建议
+
+- Prometheus 以 15~60 秒间隔抓取 `/metrics`；该端点是实例级指标，**不含**项目请求趋势。项目级请求量、错误率、延迟看控制台[监控大盘](/docs/workbench/dashboard)或 `GET /v1/projects/:projectID/metrics/summary`。
+- 建议至少对以下情况告警：`/health/ready` 连续失败超过 1 分钟；S3 错误持续上升；缓存目录接近 `cache_max_bytes`；大盘错误率持续偏高（见[监控大盘](/docs/workbench/dashboard)中的告警脚本示例）。
+- `/metrics` 与健康检查端点只对内网开放，不要暴露到公网。
+
+## 对象存储 CORS
+
+控制台「对象存储」的文本与 Markdown 预览，会在浏览器里直接用预签名链接读取内容，因此需要 bucket 对控制台所在域名放行 `GET`。图片预览与「打开」不依赖 CORS。
+
+以 AWS S3 为例（把 `AllowedOrigins` 换成你的控制台域名，不要使用 `*`）：
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://console.example.com"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+其它 S3 兼容服务（MinIO、COS 等）的配置入口不同，规则相同：只放行 `GET` / `HEAD`，来源限定为控制台域名。未配置 CORS 时，文本预览会提示加载失败，「下载」会退回到新窗口打开临时链接，数据读写本身不受影响。本地开发模式使用本地文件存储，不涉及 CORS。
 
 ## Runbook
 

@@ -67,13 +67,9 @@ export const api = {
     get: vi.fn(),
     put: vi.fn()
   },
-  llmProviderCreds: {
-    list: vi.fn(),
-    put: vi.fn(),
-    remove: vi.fn()
-  },
   agents: {
     modules: vi.fn(),
+    models: vi.fn(),
     list: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
@@ -100,6 +96,10 @@ export const api = {
     remove: vi.fn(),
     runs: vi.fn(),
     trigger: vi.fn()
+  },
+  storage: {
+    get: vi.fn(),
+    put: vi.fn()
   },
   gofunctions: {
     list: vi.fn(),
@@ -191,7 +191,7 @@ export function applyApiDefaults() {
   api.projects.create.mockResolvedValue({ id: 'p-new', name: 'New', createdAt: 't' })
   api.metrics.summary.mockResolvedValue({
     totalRequests: 10,
-    errorRate: 1.5,
+    errorRate: 0.015,
     avgLatencyMs: 12.6,
     activeDatabases: 1,
     latencyP50Ms: 8.4,
@@ -258,18 +258,24 @@ export function applyApiDefaults() {
   api.quota.status.mockResolvedValue({ llmAllowed: true, databaseAllowed: true })
   api.llm.chat.mockResolvedValue({ content: 'hi', model: 'm', provider: 'p' })
   api.llm.stream.mockReturnValue({ close: vi.fn() })
-  api.llmSettings.get.mockResolvedValue({ defaultProvider: 'openai', defaultModel: 'gpt-4o-mini', temperature: 0.7, maxTokens: 1024 })
-  api.llmSettings.put.mockResolvedValue({ defaultProvider: 'openai' })
-  api.llmProviderCreds.list.mockResolvedValue([])
-  api.llmProviderCreds.put.mockResolvedValue({
-    provider: 'openai',
-    defaultModel: '',
-    enabled: true,
-    credentials: {},
-    hasApiKey: true,
-    updatedAt: '2024-01-01T00:00:00Z'
+  api.llmSettings.get.mockResolvedValue({
+    defaultProvider: 'openai',
+    defaultModel: 'gpt-4o-mini',
+    baseUrl: '',
+    apiKeyMasked: '',
+    hasApiKey: false,
+    temperature: 0.7,
+    maxTokens: 1024
   })
-  api.llmProviderCreds.remove.mockResolvedValue(undefined)
+  api.llmSettings.put.mockResolvedValue({
+    defaultProvider: 'openai',
+    defaultModel: 'gpt-4o-mini',
+    baseUrl: '',
+    apiKeyMasked: '',
+    hasApiKey: false,
+    temperature: 0.7,
+    maxTokens: 1024
+  })
   api.agents.modules.mockResolvedValue([
     {
       id: 'database',
@@ -286,6 +292,7 @@ export function applyApiDefaults() {
       team_supported: false
     }
   ])
+  api.agents.models.mockResolvedValue({ default_model: '', models: [] })
   api.agents.list.mockResolvedValue([])
   api.agents.create.mockResolvedValue({
     id: 'ag-1',
@@ -332,6 +339,24 @@ export function applyApiDefaults() {
   })
   api.agentSchedules.remove.mockResolvedValue(undefined)
   api.agentSchedules.runs.mockResolvedValue([])
+  api.storage.get.mockResolvedValue({
+    database: 'local',
+    files: 'local',
+    data_dir: '/tmp/simplebase-data',
+    cache_dir: '/tmp/simplebase-cache',
+    bucket: '',
+    prefix: '',
+    source: { database: 'yaml', files: 'yaml', data_dir: 'default' },
+    config_path: 'config.yaml',
+    writable_config: true,
+    data_present: { local: false }
+  })
+  api.storage.put.mockResolvedValue({
+    settings: {},
+    restart_required: true,
+    reset_required: true,
+    commands: ['./build.sh reset', './build.sh dev']
+  })
   api.agentSchedules.trigger.mockResolvedValue(undefined)
   api.gofunctions.list.mockResolvedValue([])
   api.gofunctions.create.mockResolvedValue({

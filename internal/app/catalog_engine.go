@@ -14,17 +14,17 @@ import (
 var bootID = uuid.NewString()
 
 // checkCatalogEngine 执行实例级 catalog 引擎校验（ducklake-duckdb-catalog-plan §4.2）。
-// 远端启用（非 DevMode 且 objectStore 为 BlobStore）时同时校验远端标记。
+// storage.database=s3 且 objectStore 为 BlobStore 时同时校验远端标记。
 func (a *App) checkCatalogEngine(ctx context.Context) error {
 	cfg := a.cfg
 	in := ducklake.FormatCheckInput{
 		Engine:    cfg.Database.DuckLake.CatalogEngine,
-		CacheDir:  cfg.Database.CacheDir,
-		Keys:      objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix, Environment: cfg.Instance.ID},
+		DataRoot:  cfg.Storage.DataDir,
+		Keys:      objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix},
 		CreatedBy: cfg.Instance.ID + "/" + bootID,
 		Bucket:    cfg.S3.Bucket,
 	}
-	if !cfg.DevMode && a.objectStore != nil {
+	if cfg.IsDBRemote() && a.objectStore != nil {
 		if bs, ok := a.objectStore.(objectstore.BlobStore); ok {
 			in.Store = bs
 		}

@@ -16,7 +16,7 @@ import (
 func newTestManager(t *testing.T, cfg Config) (*Manager, objectstore.BlobStore) {
 	t.Helper()
 	store := objectstore.NewMemoryBlobStore()
-	keys := objectstore.KeyBuilder{RootPrefix: "sb", Environment: "env"}
+	keys := objectstore.KeyBuilder{RootPrefix: "sb"}
 	if cfg.TTL == 0 {
 		cfg.TTL = 50 * time.Millisecond
 	}
@@ -29,8 +29,8 @@ func newTestManager(t *testing.T, cfg Config) (*Manager, objectstore.BlobStore) 
 
 // testLogger 收集 Printf 输出（perf §1.5 同 PID 重启提示用）。
 type testLogger struct {
-	mu     sync.Mutex
-	lines  []string
+	mu    sync.Mutex
+	lines []string
 }
 
 func (l *testLogger) Printf(format string, args ...any) {
@@ -48,7 +48,7 @@ func (l *testLogger) all() []string {
 func TestAcquireFirstWriter(t *testing.T) {
 	m, _ := newTestManager(t, Config{})
 	ctx := context.Background()
-	l, err := m.Acquire(ctx, "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "inst-a", nil)
+	l, err := m.Acquire(ctx, "leaseprj", "22222222-2222-2222-2222-222222222222", "inst-a", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,10 +68,10 @@ func TestAcquireFirstWriter(t *testing.T) {
 func TestAcquireSecondInstanceBlockedWhileHeld(t *testing.T) {
 	m, _ := newTestManager(t, Config{TTL: 30 * time.Second, Grace: 100 * time.Millisecond})
 	ctx := context.Background()
-	if _, err := m.Acquire(ctx, "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "inst-a", nil); err != nil {
+	if _, err := m.Acquire(ctx, "leaseprj", "22222222-2222-2222-2222-222222222222", "inst-a", nil); err != nil {
 		t.Fatal(err)
 	}
-	_, err := m.Acquire(ctx, "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "inst-b", nil)
+	_, err := m.Acquire(ctx, "leaseprj", "22222222-2222-2222-2222-222222222222", "inst-b", nil)
 	if !IsHeld(err) {
 		t.Fatalf("want ErrLeaseHeld, got %v", err)
 	}
@@ -81,11 +81,11 @@ func TestAcquireSecondInstanceBlockedWhileHeld(t *testing.T) {
 func TestTakeoverAfterStopRenew(t *testing.T) {
 	// 实例 A 停止续约（进程死亡模拟）：B 在 ttl+grace 观察后应可接管。
 	store := objectstore.NewMemoryBlobStore()
-	keys := objectstore.KeyBuilder{RootPrefix: "sb", Environment: "env"}
+	keys := objectstore.KeyBuilder{RootPrefix: "sb"}
 	cfg := Config{Enabled: true, TTL: 50 * time.Millisecond, Grace: 50 * time.Millisecond}
 	m := NewManager(store, keys, cfg)
 	ctx := context.Background()
-	la, err := m.Acquire(ctx, "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "inst-a", nil)
+	la, err := m.Acquire(ctx, "leaseprj", "22222222-2222-2222-2222-222222222222", "inst-a", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestTakeoverAfterStopRenew(t *testing.T) {
 	m.StopAll()
 
 	m2 := NewManager(store, keys, cfg)
-	lb, err := m2.Acquire(ctx, "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "inst-b", nil)
+	lb, err := m2.Acquire(ctx, "leaseprj", "22222222-2222-2222-2222-222222222222", "inst-b", nil)
 	if err != nil {
 		t.Fatalf("takeover should succeed after ttl+grace: %v", err)
 	}
@@ -106,13 +106,13 @@ func TestTakeoverAfterStopRenew(t *testing.T) {
 func TestOnLostCalledWhenPreempted(t *testing.T) {
 	// A 持租；外部伪造更高 epoch（模拟抢占）；A 的续约应失败并回调 onLost。
 	store := objectstore.NewMemoryBlobStore()
-	keys := objectstore.KeyBuilder{RootPrefix: "sb", Environment: "env"}
+	keys := objectstore.KeyBuilder{RootPrefix: "sb"}
 	cfg := Config{Enabled: true, TTL: 40 * time.Millisecond, RenewInterval: 20 * time.Millisecond}
 	m := NewManager(store, keys, cfg)
 	ctx := context.Background()
 
 	lost := make(chan string, 1)
-	if _, err := m.Acquire(ctx, "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "inst-a", func(dbID string) {
+	if _, err := m.Acquire(ctx, "leaseprj", "22222222-2222-2222-2222-222222222222", "inst-a", func(dbID string) {
 		lost <- dbID
 	}); err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestOnLostCalledWhenPreempted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, _ := keys.DuckLakeLeaseKey("11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", 2)
+	key, _ := keys.DuckLakeLeaseKey("leaseprj", "22222222-2222-2222-2222-222222222222", 2)
 	if _, err := store.PutIfAbsent(ctx, key, body, "application/json"); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestEpochForAndHas(t *testing.T) {
 	if m.EpochFor("33333333-3333-3333-3333-333333333333") != 0 {
 		t.Fatal("epoch should be 0")
 	}
-	l, err := m.Acquire(ctx, "11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333", "inst-a", nil)
+	l, err := m.Acquire(ctx, "leaseprj", "33333333-3333-3333-3333-333333333333", "inst-a", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,9 +184,9 @@ func TestRestartSamePIDLogged(t *testing.T) {
 		BootID:     "old-boot",
 		Epoch:      1,
 	}
-	keys := objectstore.KeyBuilder{RootPrefix: "sb", Environment: "env"}
+	keys := objectstore.KeyBuilder{RootPrefix: "sb"}
 	body, _ := json.Marshal(pl)
-	leaseKey, err := keys.DuckLakeLeaseKey("11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", 1)
+	leaseKey, err := keys.DuckLakeLeaseKey("leaseprj", "22222222-2222-2222-2222-222222222222", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestRestartSamePIDLogged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := m.Acquire(context.Background(), "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "inst-a", nil); err != nil {
+	if _, err := m.Acquire(context.Background(), "leaseprj", "22222222-2222-2222-2222-222222222222", "inst-a", nil); err != nil {
 		t.Fatal(err)
 	}
 	found := false

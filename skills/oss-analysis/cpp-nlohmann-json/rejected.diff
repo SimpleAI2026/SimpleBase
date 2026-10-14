@@ -1,0 +1,29 @@
+diff --git a/include/nlohmann/detail/string_escape.hpp b/include/nlohmann/detail/string_escape.hpp
+index a6489e0..65f3803 100644
+--- a/include/nlohmann/detail/string_escape.hpp
++++ b/include/nlohmann/detail/string_escape.hpp
+@@ -32,14 +32,7 @@ namespace detail
+ template<typename StringType>
+ inline StringType escape(const StringType& s)
+ {
+-    auto next_special = [&s](std::size_t from)
+-    {
+-        const auto tilde = s.find_first_of('~', from);
+-        const auto slash = s.find_first_of('/', from);
+-        return tilde < slash ? tilde : slash; // npos is the largest value
+-    };
+-
+-    auto pos = next_special(0);
++    auto pos = s.find_first_of("~/", 0);
+     if (pos == StringType::npos)
+     {
+         return s;
+@@ -54,7 +47,7 @@ inline StringType escape(const StringType& s)
+         result.append(s.data() + run, pos - run);
+         result.append(s[pos] == '~' ? "~0" : "~1", 2);
+         run = pos + 1;
+-        pos = next_special(run);
++        pos = s.find_first_of("~/", run);
+     }
+     result.append(s.data() + run, s.size() - run);
+     return result;

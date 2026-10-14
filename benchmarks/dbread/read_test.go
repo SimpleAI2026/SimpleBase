@@ -12,7 +12,9 @@ package dbread
 
 import (
 	"context"
+	"sort"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -169,6 +171,81 @@ func TestReadAmplificationReport(t *testing.T) {
 		})
 		t.Logf("logs=%4d live_files=%4d catalog=%5.1fKB  QueryLogs=%7.3fms  MetricsSummary=%7.3fms",
 			flushes, files, float64(bytes)/1024, q, m)
+	}
+}
+
+// TestReadLatencyPhases 对同一临时库分别报告首次读取与热读分位数。
+// 首读仅指造数完成后首次调用，不代表远端 S3 冷缓存。
+func TestReadLatencyPhases(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping local read latency report in -short mode")
+	}
+	for _, inlining := range []int{0, 1000} {
+		store := newBenchStore(t, storeOpts{Inlining: inlining})
+		seedProject(t, store, benchProject)
+		seedLogFlushes(t, store, benchProject, 20)
+		files, _ := liveDataFiles(t, store)
+		targetFiles := liveTableFiles(t, store, "sys_log_events")
+		ctx := context.Background()
+		query := func() error {
+			_, err := store.QueryLogs(ctx, systemdb.LogQuery{ProjectID: benchProject, Limit: 200})
+			return err
+		}
+		start := time.Now()
+		if err := query(); err != nil {
+			t.Fatal(err)
+		}
+		first := time.Since(start)
+		const samples = 100
+		durations := make([]time.Duration, 0, samples)
+		for i := 0; i < samples; i++ {
+			start = time.Now()
+			if err := query(); err != nil {
+				t.Fatal(err)
+			}
+			durations = append(durations, time.Since(start))
+		}
+		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+		t.Logf("inlining=%d live_files_all_tables=%d live_files_sys_log_events=%d local_first=%s local_hot_p50=%s local_hot_p95=%s local_hot_p99=%s successful_samples=%d",
+			inlining, files, targetFiles, first, durations[49], durations[94], durations[98], samples)
+		for _, concurrency := range []int{1, 8, 32} {
+			const total = 128
+			var wg sync.WaitGroup
+			var mu sync.Mutex
+			parallelDurations := make([]time.Duration, 0, total)
+			failures := 0
+			jobs := make(chan struct{}, total)
+			for i := 0; i < total; i++ {
+				jobs <- struct{}{}
+			}
+			close(jobs)
+			for i := 0; i < concurrency; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for range jobs {
+						began := time.Now()
+						err := query()
+						d := time.Since(began)
+						mu.Lock()
+						if err != nil {
+							failures++
+						} else {
+							parallelDurations = append(parallelDurations, d)
+						}
+						mu.Unlock()
+					}
+				}()
+			}
+			wg.Wait()
+			sort.Slice(parallelDurations, func(i, j int) bool { return parallelDurations[i] < parallelDurations[j] })
+			if failures > 0 || len(parallelDurations) != total {
+				t.Fatalf("concurrency=%d successes=%d failures=%d", concurrency, len(parallelDurations), failures)
+			}
+			t.Logf("inlining=%d concurrency=%d table_files=%d success=%d failures=%d local_p50=%s local_p95=%s local_p99=%s",
+				inlining, concurrency, targetFiles, len(parallelDurations), failures,
+				parallelDurations[total/2-1], parallelDurations[total*95/100-1], parallelDurations[total*99/100-1])
+		}
 	}
 }
 

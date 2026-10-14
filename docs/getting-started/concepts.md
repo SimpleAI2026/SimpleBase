@@ -7,7 +7,7 @@ order: 3
 
 ## 项目与数据库
 
-项目是请求、权限与资源的隔离边界。HTTP 路径使用 `/v1/projects/:projectID`；项目内可建立多个用户数据库。SQL 和文档接口还需要数据库 ID，而 [Key-Value](/docs/database/kv)、[对象存储](/docs/storage)、[云函数](/docs/gofunction/overview)和[云沙盒](/docs/sandbox)只需项目 ID。请求不能越权访问其他项目的数据。
+项目是请求、权限与资源的隔离边界。HTTP 路径使用 `/v1/projects/:projectID`；项目内可建立多个用户数据库。SQL 和文档接口还需要数据库 ID，而 [Key-Value](/docs/data/kv)、[对象存储](/docs/data/storage)、[云函数](/docs/automation/gofunction)和[云沙盒](/docs/automation/sandbox)只需项目 ID。请求不能越权访问其他项目的数据。
 
 ## 系统项目
 

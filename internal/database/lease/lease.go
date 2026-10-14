@@ -72,13 +72,13 @@ func IsHeld(err error) bool {
 type storeProxy struct {
 	store   objectstore.BlobStore
 	keys    objectstore.KeyBuilder
-	tenant  string
+	project string
 	db      string
 	ownerID string
 }
 
 func (p *storeProxy) get(ctx context.Context, epoch int64) (*Payload, error) {
-	key, err := p.keys.DuckLakeLeaseKey(p.tenant, p.db, epoch)
+	key, err := p.keys.DuckLakeLeaseKey(p.project, p.db, epoch)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (p *storeProxy) get(ctx context.Context, epoch int64) (*Payload, error) {
 }
 
 func (p *storeProxy) putIfAbsent(ctx context.Context, epoch int64, pl Payload) error {
-	key, err := p.keys.DuckLakeLeaseKey(p.tenant, p.db, epoch)
+	key, err := p.keys.DuckLakeLeaseKey(p.project, p.db, epoch)
 	if err != nil {
 		return err
 	}
@@ -167,7 +167,7 @@ func (m *Manager) logf(format string, args ...any) {
 // Lease 是单个库的持租状态。
 type Lease struct {
 	DatabaseID string
-	TenantID   string
+	ProjectID  string
 	Epoch      int64
 
 	mu     sync.Mutex
@@ -176,7 +176,7 @@ type Lease struct {
 	onLost func(dbID string)
 }
 
-// Acquire 为 (tenantID, dbID) 获取写租约。
+// Acquire 为 (projectID, dbID) 获取写租约。
 //
 // 算法（§4.6）：
 //  1. 从 epoch 1 向前探测到最大 epoch E（首个 404 停止）；
@@ -188,14 +188,14 @@ type Lease struct {
 //
 // 成功后启动续约 goroutine（每 RenewInterval 写 lease/{epoch+1}），
 // 409/412 → 被抢占 → 调用 onLost(dbID)。
-func (m *Manager) Acquire(ctx context.Context, tenantID, dbID, instanceID string, onLost func(dbID string)) (*Lease, error) {
+func (m *Manager) Acquire(ctx context.Context, projectID, dbID, instanceID string, onLost func(dbID string)) (*Lease, error) {
 	if m == nil || !m.cfg.Enabled {
 		return nil, errors.New("lease: manager disabled")
 	}
 	p := &storeProxy{
 		store:   m.store,
 		keys:    m.keys,
-		tenant:  tenantID,
+		project: projectID,
 		db:      dbID,
 		ownerID: fmt.Sprintf("%s/%d/%s", instanceID, m.pid, m.bootID),
 	}
@@ -247,7 +247,7 @@ func (m *Manager) Acquire(ctx context.Context, tenantID, dbID, instanceID string
 		return nil, err
 	}
 
-	l := &Lease{DatabaseID: dbID, TenantID: tenantID, Epoch: next, held: true, onLost: onLost}
+	l := &Lease{DatabaseID: dbID, ProjectID: projectID, Epoch: next, held: true, onLost: onLost}
 	m.mu.Lock()
 	m.leases[dbID] = l
 	m.mu.Unlock()

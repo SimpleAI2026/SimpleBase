@@ -30,7 +30,7 @@ describe('ConnectionPanel', () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
   })
 
-  it('Key 明文可见，保存与恢复默认', async () => {
+  it('Key 明文可见，保存生效', async () => {
     const { auth, project, w } = setup()
     await flushPromises()
     const vm = w.vm as any
@@ -44,9 +44,6 @@ describe('ConnectionPanel', () => {
     const save = w.findAll('button').find((b) => b.text() === '保存')!
     await save.trigger('click')
     expect(toast.success).toHaveBeenCalledWith('设置已保存')
-    const restore = w.findAll('button').find((b) => b.text().startsWith('恢复默认'))!
-    await restore.trigger('click')
-    expect(auth.apiKey).toBe('sb_live_dev_key_12345')
 
     auth.markUnauthorized()
     await flushPromises()

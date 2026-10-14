@@ -1,6 +1,6 @@
 <template>
   <ProjectScope>
-  <PageContainer subtitle="系统运行状态与项目资源概览">
+  <PageContainer :subtitle="t('pages.dashboard.subtitle')">
     <SbBlockSkeleton
       v-if="pending && !hasData"
       variant="cards"
@@ -29,20 +29,23 @@
     <Card>
       <CardHeader class="border-b">
         <CardTitle class="flex items-center gap-2">
-          请求趋势
+          {{ t('pages.dashboard.requestTrend') }}
         </CardTitle>
         <CardDescription v-if="summary.totalRequests || lastUpdate" class="flex flex-wrap gap-3">
           <span v-if="summary.totalRequests">
-            请求 {{ summary.totalRequests }} · 错误率 {{ summary.errorRate }}% · 延迟
-            {{ Math.round(summary.avgLatencyMs) }}ms
+            {{ t('pages.dashboard.summaryLine', {
+              requests: summary.totalRequests,
+              rate: formatErrorRate(summary.errorRate),
+              latency: Math.round(summary.avgLatencyMs)
+            }) }}
           </span>
-          <span v-if="lastUpdate">最近更新：{{ lastUpdate }}</span>
+          <span v-if="lastUpdate">{{ t('pages.dashboard.lastUpdate', { time: lastUpdate }) }}</span>
         </CardDescription>
         <CardAction>
           <Button variant="outline" size="sm" :disabled="pending" @click="load">
             <Spinner v-if="pending" data-icon="inline-start" />
             <RefreshCwIcon v-else data-icon="inline-start" />
-            刷新数据
+            {{ t('pages.dashboard.refreshData') }}
           </Button>
         </CardAction>
       </CardHeader>
@@ -50,10 +53,9 @@
         <!-- 接口耗时分位数：全项目所有接口，近 24 小时，固定桶估算 -->
         <div data-testid="latency-percentiles" class="flex flex-col gap-2">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <span class="text-sm font-medium text-foreground">接口耗时分位数</span>
+            <span class="text-sm font-medium text-foreground">{{ t('pages.dashboard.latencyTitle') }}</span>
             <span class="text-xs text-muted-foreground">
-              全项目所有接口 · 近 24 小时 · 估算值<template v-if="hasLatencySamples">
-                · 样本 {{ summary.latencySampleCount }}</template>
+              {{ t('pages.dashboard.latencyDesc') }}<template v-if="hasLatencySamples">{{ t('pages.dashboard.latencySamples', { n: summary.latencySampleCount }) }}</template>
             </span>
           </div>
           <div v-if="pending && !hasData" class="grid grid-cols-1 gap-3 sm:grid-cols-3" :class="showSkeleton ? '' : 'invisible'" aria-hidden="true">
@@ -70,7 +72,7 @@
             </div>
           </div>
           <div v-else-if="!showError" class="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-            — 暂无近 24 小时接口样本
+            {{ t('pages.dashboard.latencyNoSamples') }}
           </div>
         </div>
 
@@ -87,8 +89,8 @@
         />
         <SbEmptyState
           v-else-if="!showError"
-          :title="trendFailed ? '趋势加载失败' : '暂无数据'"
-          :description="trendFailed ? '请求未完成，请刷新后重试' : '暂无趋势数据'"
+          :title="trendFailed ? t('pages.dashboard.trendFailedTitle') : t('pages.dashboard.trendEmptyTitle')"
+          :description="trendFailed ? t('pages.dashboard.trendFailedDesc') : t('pages.dashboard.trendEmptyDesc')"
         />
 
         <!-- 资源汇总：只展示各类型数量，不列明细名称 -->
@@ -96,9 +98,9 @@
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="sb-col-name">资源类型</TableHead>
-                <TableHead class="w-28">数量</TableHead>
-                <TableHead class="max-w-md">说明</TableHead>
+                <TableHead class="sb-col-name">{{ t('pages.dashboard.resourceType') }}</TableHead>
+                <TableHead class="w-28">{{ t('pages.dashboard.quantity') }}</TableHead>
+                <TableHead class="max-w-md">{{ t('pages.dashboard.resourceHint') }}</TableHead>
               </TableRow>
             </TableHeader>
             <SbAsyncRegion
@@ -136,6 +138,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import {
   BotIcon,
@@ -174,15 +177,17 @@ import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 import { useLoadState } from '@/composables/useLoadState'
+import { currentBcp47, formatErrorRate } from '@/utils/format'
 import TrendChart, { type ChartMode } from '../components/TrendChart.vue'
 
 const projectStore = useProjectStore()
+const { t } = useI18n()
 
 const quota = ref<QuotaStatus | null>(null)
 const trendFailed = ref(false)
 const lastUpdate = ref('')
 const trend = ref<TrendPoint[]>([])
-const chartMode = ref<ChartMode>('bar')
+const chartMode = ref<ChartMode>('line')
 const summary = ref<MetricsSummary>({ totalRequests: 0, errorRate: 0, avgLatencyMs: 0, activeDatabases: 0 })
 
 const hasLatencySamples = computed(
@@ -217,26 +222,30 @@ const resourcesLoaded = ref(false)
 
 const cards = computed(() => [
   {
-    label: '数据库总数',
+    label: t('pages.dashboard.statDbTotal'),
     value: resourcesLoaded.value ? counts.value.databases : '-',
     icon: DatabaseIcon,
     tone: 'bg-primary/12 text-primary',
   },
   {
-    label: '就绪数据库',
+    label: t('pages.dashboard.statDbReady'),
     value: resourcesLoaded.value ? dbStatus.value.ready : '-',
     icon: CircleCheckIcon,
     tone: 'bg-success/12 text-success',
   },
   {
-    label: '异常数据库',
+    label: t('pages.dashboard.statDbAbnormal'),
     value: resourcesLoaded.value ? dbStatus.value.abnormal : '-',
     icon: TriangleAlertIcon,
     tone: 'bg-destructive/10 text-destructive',
   },
   {
-    label: '配额状态',
-    value: quota.value ? (quota.value.llmAllowed && quota.value.databaseAllowed ? '正常' : '受限') : '-',
+    label: t('pages.dashboard.statQuota'),
+    value: quota.value
+      ? quota.value.llmAllowed && quota.value.databaseAllowed
+        ? t('pages.dashboard.quotaNormal')
+        : t('pages.dashboard.quotaLimited')
+      : '-',
     icon: quota.value && !(quota.value.llmAllowed && quota.value.databaseAllowed) ? TriangleAlertIcon : CircleCheckIcon,
     tone:
       quota.value?.llmAllowed === false ? 'bg-warning/12 text-warning' : 'bg-info/12 text-info',
@@ -246,38 +255,38 @@ const cards = computed(() => [
 const resourceRows = computed(() => [
   {
     key: 'databases',
-    label: '数据库',
+    label: t('pages.dashboard.resDatabase'),
     icon: DatabaseIcon,
     count: counts.value.databases,
-    hint: 'DuckLake 逻辑库（含就绪 / 未就绪）',
+    hint: t('pages.dashboard.resDatabaseHint'),
   },
   {
     key: 's3',
-    label: '对象存储',
+    label: t('pages.dashboard.resStorage'),
     icon: CloudUploadIcon,
     count: counts.value.s3Objects,
-    hint: '当前项目前缀下的对象文件',
+    hint: t('pages.dashboard.resStorageHint'),
   },
   {
     key: 'gofunctions',
-    label: '云函数',
+    label: t('pages.dashboard.resFunctions'),
     icon: CodeIcon,
     count: counts.value.gofunctions,
-    hint: '已部署的 Go 云函数',
+    hint: t('pages.dashboard.resFunctionsHint'),
   },
   {
     key: 'cronjobs',
-    label: '定时任务',
+    label: t('pages.dashboard.resCron'),
     icon: TimerIcon,
     count: counts.value.cronjobs,
-    hint: '云函数调度任务（含停用）',
+    hint: t('pages.dashboard.resCronHint'),
   },
   {
     key: 'agents',
-    label: '云助手',
+    label: t('pages.dashboard.resAgents'),
     icon: BotIcon,
     count: counts.value.agents,
-    hint: '项目内智能体配置',
+    hint: t('pages.dashboard.resAgentsHint'),
   },
 ])
 
@@ -289,7 +298,7 @@ const {
   refreshing,
   error: loadError,
   run
-} = useLoadState({ fallback: '部分数据加载失败' })
+} = useLoadState({ fallback: 'pages.dashboard.loadFailed' })
 
 function load() {
   return run(async () => {
@@ -336,11 +345,11 @@ function load() {
     const all = [dbRes, s3Res, fnRes, cronRes, agentRes, quotaRes, trendRes, summaryRes]
     const rejected = all.filter((r) => r.status === 'rejected').length
     if (rejected === all.length) {
-      throw new Error('部分数据加载失败')
+      throw new Error(t('pages.dashboard.loadFailed'))
     }
-    if (rejected > 0) toast.error('部分数据加载失败')
+    if (rejected > 0) toast.error(t('pages.dashboard.loadFailed'))
     if (all.slice(0, 6).some((r) => r.status === 'fulfilled')) {
-      lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      lastUpdate.value = new Date().toLocaleTimeString(currentBcp47(), { hour12: false })
     }
     return true
   })

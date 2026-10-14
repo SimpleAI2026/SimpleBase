@@ -113,4 +113,3 @@ func TestRunWithSignalImmediateError(t *testing.T) {
 		t.Fatal("expected start error")
 	}
 }
-

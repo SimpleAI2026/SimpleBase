@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { uiStubs } from '@/test/helpers'
 import MessageScroller from '@/components/chat/MessageScroller.vue'
 
@@ -22,7 +22,8 @@ describe('chat primitives', () => {
       slots: { default: '<p>msg</p>' },
       global: { stubs: uiStubs }
     })
-    const vp = w.get('div.max-h-\\[480px\\]')
+    const vp = w.get('div.overflow-y-auto')
+    await vi.waitFor(() => expect(vp.element.scrollTop).toBe(500))
     ;(vp.element as HTMLElement & { _st?: number })._st = 0
     await vp.trigger('scroll')
     expect(w.text()).toContain('跳到最新')

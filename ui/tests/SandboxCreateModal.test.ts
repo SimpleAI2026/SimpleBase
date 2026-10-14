@@ -47,8 +47,12 @@ describe('SandboxCreateModal interactions', () => {
     await w.get('[aria-label="沙盒名称"]').setValue('etl')
     await w.get('[aria-label="CPU 核数"]').setValue('2')
     await w.get('[aria-label="内存 MiB"]').setValue('512')
-    await w.get('[aria-label="沙盒镜像"]').setValue('python:3.12-slim')
-    await w.get('[aria-label="沙盒网络"]').setValue('none')
+    // 镜像/网络已从原生 <select> 迁到 ui/select（仓库约定：不写原生下拉）；
+    // 桩不承载真实取值语义，直接经 v-model 设值。
+    const vm = w.vm as unknown as { image: string; network: string }
+    vm.image = 'python:3.12-slim'
+    vm.network = 'none'
+    await flushPromises()
     await w.get('input[type="checkbox"]').setValue(true)
     await w.get('.sb-ok').trigger('click')
     await flushPromises()

@@ -6,30 +6,36 @@ import (
 	"strings"
 )
 
-// KeyBuilder 生成 SimpleBase 在 S3 中的对象键。
+// KeyBuilder 生成 SimpleBase 的存储对象键。
+//
+// 同一套相对布局同时用于本地持久根（`storage.data_dir`）与 S3 桶：
+//
+//	{root}/_system/...                            # 平台级对象（项目 ID 不会以下划线开头）
+//	{root}/{projectID}/databases/{databaseUUID}/  # 库前缀
+//	  descriptor.json
+//	  catalog/...                                 # catalog（本地活文件 / S3 快照+manifest）
+//	  data/                                       # DuckLake DATA_PATH
+//	  orphans/...
+//	{root}/{projectID}/files/{userKey}            # 用户文件
 //
 // 安全约束：
-//   - 所有 key 必须由 KeyBuilder 产生；HTTP 层不接受原始 S3 key。
-//   - 只接受 UUID 形式的 tenantID/databaseID/backupID，禁止用用户输入 name 作为 key。
-//   - 产生的 key 不含凭据、不携带 query string，禁止路径穿越（".."、前导"/"）。
-//
-// 布局见 plan2.md「对象约定」：
-//
-//	{root}/{env}/catalog/...
-//	{root}/{env}/tenants/{tenantUUID}/databases/{databaseUUID}/
-//	  descriptor.json
-//	  data/                        # DuckLake DATA_PATH（平面 B）
+//   - 所有 key 必须由 KeyBuilder 产生；HTTP 层不接受原始 key。
+//   - 只接受固定形态的 projectID 与 UUID 形式的 databaseID，禁止用用户输入 name 作 key。
+//   - 产生的 key 不含凭据、不携带 query string，禁止路径穿越（".."、前导 "/"）。
 type KeyBuilder struct {
-	RootPrefix  string // 例如 "simplebase"，对应 config.S3Config.Prefix
-	Environment string // 例如 "prod"，用于多环境隔离
+	// RootPrefix 是可选根前缀，对应 config.S3Config.Prefix；为空表示根目录。
+	RootPrefix string
 }
 
-// uuidPattern 用于轻量校验 UUID（v4 形态：8-4-4-4-12 十六进制）。
-// 不强校验版本位，只保证字符集与分段长度，避免引入额外依赖。
-const uuidPatternLen = 36 // "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+// uuidPatternLen 是 UUID 的固定长度（8-4-4-4-12 十六进制）。
+const uuidPatternLen = 36
 
 // ProjectIDLen 是项目 ID 的固定长度（字母/数字/连字符）。
 const ProjectIDLen = 8
+
+// SystemPrefix 是平台级对象的目录名。项目 ID 长度固定且仅含 [A-Za-z0-9-]，
+// 因此不会与 "_system" 冲突。
+const SystemPrefix = "_system"
 
 // projectIDAlphabet 是项目 ID 生成字符集（不含大写，便于 URL/路径）。
 const projectIDAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -94,7 +100,7 @@ func validateID(name string, id string) error {
 	return nil
 }
 
-// joinKey 将若干已校验的分段拼成 S3 key，并保证：
+// joinKey 将若干已校验的分段拼成 key，并保证：
 //   - 不以 "/" 开头（避免 bucket 根路径歧义）
 //   - 不出现连续 "/"
 //   - 不出现 ".."
@@ -111,26 +117,34 @@ func joinKey(parts ...string) string {
 	return strings.Join(cleaned, "/")
 }
 
-// base 返回根前缀+环境的基础路径，已做清洗。
+// base 返回根前缀，已做清洗。为空表示根目录。
 func (k KeyBuilder) base() string {
-	return joinKey(k.RootPrefix, k.Environment)
+	return strings.Trim(k.RootPrefix, "/")
 }
 
-// DatabasePrefix 返回某个数据库在 S3 中的完整前缀（不含尾部 "/"）。
+// ProjectPrefix 返回某个项目在存储中的前缀（不含尾部 "/"）。
+func (k KeyBuilder) ProjectPrefix(projectID string) (string, error) {
+	if err := ValidateProjectID(projectID); err != nil {
+		return "", err
+	}
+	return joinKey(k.base(), projectID), nil
+}
+
+// DatabasePrefix 返回某个数据库的完整前缀（不含尾部 "/"）。
 // 调用方可在此前缀后追加 "data/" 等子路径（DuckLake 数据面）。
-func (k KeyBuilder) DatabasePrefix(tenantID, databaseID string) (string, error) {
-	if err := validateID("tenant_id", tenantID); err != nil {
+func (k KeyBuilder) DatabasePrefix(projectID, databaseID string) (string, error) {
+	if err := ValidateProjectID(projectID); err != nil {
 		return "", err
 	}
 	if err := validateID("database_id", databaseID); err != nil {
 		return "", err
 	}
-	return joinKey(k.base(), "tenants", tenantID, "databases", databaseID), nil
+	return joinKey(k.base(), projectID, "databases", databaseID), nil
 }
 
 // DescriptorKey 返回 descriptor.json 的完整 key。
-func (k KeyBuilder) DescriptorKey(tenantID, databaseID string) (string, error) {
-	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+func (k KeyBuilder) DescriptorKey(projectID, databaseID string) (string, error) {
+	prefix, err := k.DatabasePrefix(projectID, databaseID)
 	if err != nil {
 		return "", err
 	}
@@ -138,25 +152,67 @@ func (k KeyBuilder) DescriptorKey(tenantID, databaseID string) (string, error) {
 }
 
 // DataPrefix 返回 data/ 子前缀（DuckLake DATA_PATH；本包不直接解析 Parquet）。
-func (k KeyBuilder) DataPrefix(tenantID, databaseID string) (string, error) {
-	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+func (k KeyBuilder) DataPrefix(projectID, databaseID string) (string, error) {
+	prefix, err := k.DatabasePrefix(projectID, databaseID)
 	if err != nil {
 		return "", err
 	}
 	return prefix + "/data", nil
 }
 
-// CatalogPrefix 返回 catalog 对象前缀。catalog 只能由唯一 Server 实例访问，
-// 且使用与用户库不同的前缀段，防止用户 SQL 影响平台元数据。
+// FilesPrefix 返回某个项目的用户文件前缀（不含尾部 "/"）。
+func (k KeyBuilder) FilesPrefix(projectID string) (string, error) {
+	prefix, err := k.ProjectPrefix(projectID)
+	if err != nil {
+		return "", err
+	}
+	return prefix + "/files", nil
+}
+
+// SystemPrefix 返回平台级对象的完整前缀（不含尾部 "/"）。
+// 承载实例格式标记、reset 锁、CAS 探针等不属于任何项目的对象。
+func (k KeyBuilder) SystemPrefix() string {
+	return joinKey(k.base(), SystemPrefix)
+}
+
+// SystemKey 返回平台级对象的完整 key。
+func (k KeyBuilder) SystemKey(name string) string {
+	name = strings.Trim(name, "/")
+	return joinKey(k.base(), SystemPrefix, name)
+}
+
+// RootListingPrefix 返回存储根的列举前缀（带尾部 "/"）。
+// 空根前缀时返回 ""（列举整个桶）。供"根下是否已有数据"的探测使用。
+func (k KeyBuilder) RootListingPrefix() string {
+	base := k.base()
+	if base == "" {
+		return ""
+	}
+	return base + "/"
+}
+
+// CatalogPrefix 返回实例级 CAS 探针前缀。
+// 与 reset 锁、实例格式标记同属 _system/，但单独一段便于按需清理。
 func (k KeyBuilder) CatalogPrefix() string {
-	return joinKey(k.base(), "catalog")
+	return joinKey(k.base(), SystemPrefix, "catalog")
+}
+
+// InstanceFormatKey 返回实例级 catalog 格式标记对象键（ducklake-duckdb-catalog-plan §4.1）。
+// 与 CAS 探针同在 _system/ 下；PutIfAbsent 创建，只有 reset 能删除。
+func (k KeyBuilder) InstanceFormatKey() string {
+	return joinKey(k.base(), SystemPrefix, "instance-format.json")
+}
+
+// ResetLockKey 返回 reset 互斥锁对象键（ducklake-duckdb-catalog-plan §5.2）。
+func (k KeyBuilder) ResetLockKey() string {
+	return joinKey(k.base(), SystemPrefix, "reset.lock")
 }
 
 // DuckLakeSnapshotKey 返回不可变快照对象键（multi-instance-consistency-plan §4.4）：
 // snapshots/{snapshot_id:020d}-{writer_epoch:020d}.{ext}。
 // ext 由 catalog engine 决定（duckdb→.ducklake，sqlite→.sqlite）。
 // 两个 writer 即使分配到同一 snapshot_id，epoch 不同则 key 不同，结构上无法互相覆盖。
-func (k KeyBuilder) DuckLakeSnapshotKey(tenantID, databaseID string, snapshotID, writerEpoch int64, engine string) (string, error) {
+func (k KeyBuilder) DuckLakeSnapshotKey(projectID, databaseID string, snapshotID, writerEpoch int64, engine string) (string, error) {
 	if snapshotID <= 0 {
 		return "", fmt.Errorf("objectstore: snapshot_id must be positive")
 	}
@@ -167,7 +223,7 @@ func (k KeyBuilder) DuckLakeSnapshotKey(tenantID, databaseID string, snapshotID,
 	if err != nil {
 		return "", err
 	}
-	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+	prefix, err := k.DatabasePrefix(projectID, databaseID)
 	if err != nil {
 		return "", err
 	}
@@ -189,11 +245,11 @@ func CatalogFileExt(engine string) (string, error) {
 
 // DuckLakeManifestKey 返回 manifest 序列对象键：manifest/{seq:020d}.json。
 // seq 单调递增；writer 推进 seq 用 PutIfAbsent，冲突即 split-brain 确证。
-func (k KeyBuilder) DuckLakeManifestKey(tenantID, databaseID string, seq int64) (string, error) {
+func (k KeyBuilder) DuckLakeManifestKey(projectID, databaseID string, seq int64) (string, error) {
 	if seq <= 0 {
 		return "", fmt.Errorf("objectstore: manifest seq must be positive")
 	}
-	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+	prefix, err := k.DatabasePrefix(projectID, databaseID)
 	if err != nil {
 		return "", err
 	}
@@ -201,36 +257,20 @@ func (k KeyBuilder) DuckLakeManifestKey(tenantID, databaseID string, seq int64) 
 }
 
 // DuckLakeLeaseKey 返回 per-database 写租约对象键：lease/{epoch:020d}.json。
-func (k KeyBuilder) DuckLakeLeaseKey(tenantID, databaseID string, epoch int64) (string, error) {
+func (k KeyBuilder) DuckLakeLeaseKey(projectID, databaseID string, epoch int64) (string, error) {
 	if epoch <= 0 {
 		return "", fmt.Errorf("objectstore: lease epoch must be positive")
 	}
-	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+	prefix, err := k.DatabasePrefix(projectID, databaseID)
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s/catalog/lease/%020d.json", prefix, epoch), nil
 }
 
-// InstanceFormatKey 返回实例级 catalog 格式标记对象键（ducklake-duckdb-catalog-plan §4.1）。
-// 与 CAS 探针同在 catalog/ 前缀下；PutIfAbsent 创建，只有 reset 能删除。
-func (k KeyBuilder) InstanceFormatKey() string {
-	return joinKey(k.base(), "catalog", "instance-format.json")
-}
-
-// ResetLockKey 返回 reset 互斥锁对象键（ducklake-duckdb-catalog-plan §5.2）。
-func (k KeyBuilder) ResetLockKey() string {
-	return joinKey(k.base(), "catalog", "reset.lock")
-}
-
-// TenantsPrefix 返回 {base}/tenants/ 前缀（reset 与已有数据探测用）。
-func (k KeyBuilder) TenantsPrefix() string {
-	return joinKey(k.base(), "tenants")
-}
-
-// DuckLakeOrphanLedgerKey 返回孤儿账本对象键：orphans/{uuid}.json（按日分目录便于 lifecycle）。
-func (k KeyBuilder) DuckLakeOrphanLedgerKey(tenantID, databaseID, date, fileUUID string) (string, error) {
-	prefix, err := k.DatabasePrefix(tenantID, databaseID)
+// DuckLakeOrphanLedgerKey 返回孤儿账本对象键：orphans/{date}/{uuid}.json。
+func (k KeyBuilder) DuckLakeOrphanLedgerKey(projectID, databaseID, date, fileUUID string) (string, error) {
+	prefix, err := k.DatabasePrefix(projectID, databaseID)
 	if err != nil {
 		return "", err
 	}
@@ -241,11 +281,11 @@ func (k KeyBuilder) DuckLakeOrphanLedgerKey(tenantID, databaseID, date, fileUUID
 }
 
 // DuckLakeDataURI 返回 DuckLake DATA_PATH（必须以 / 结尾的 s3 URI）。
-func (k KeyBuilder) DuckLakeDataURI(bucket, tenantID, databaseID string) (string, error) {
+func (k KeyBuilder) DuckLakeDataURI(bucket, projectID, databaseID string) (string, error) {
 	if bucket == "" {
 		return "", fmt.Errorf("objectstore: bucket is required")
 	}
-	prefix, err := k.DataPrefix(tenantID, databaseID)
+	prefix, err := k.DataPrefix(projectID, databaseID)
 	if err != nil {
 		return "", err
 	}

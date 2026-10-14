@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/testutil/fakellm"
 )
 
@@ -172,6 +173,10 @@ func TestAgentE2EAutoFallbackOnToolsUnsupported(t *testing.T) {
 	}
 	hs := newAgentHarness(t, []fakellm.Script{rejected, textTool, final}, rejected)
 	hs.runtime.ToolProtocol = "auto"
+	// 降级缓存是包级全局（projectID|model），跨用例/轮次持久；
+	// 必须重置，否则第二轮直接命中缓存跳过降级路径，剧本错位。
+	cloudagent.ResetUnsupportedNativeTools()
+	t.Cleanup(cloudagent.ResetUnsupportedNativeTools)
 	threadID := hs.createThread(t)
 	events := hs.createRun(t, threadID, "有哪些数据库", nil)
 

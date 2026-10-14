@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
-	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -23,7 +23,11 @@ import (
 //   - 在 B 的项目路径下使用 A 的沙盒 id：所有资源路由一律 404 sandbox_not_found（不暴露存在性）。
 func TestSandboxHTTP_CrossProjectMatrix(t *testing.T) {
 	cfg := testConfig(true)
-	cfg.DevMode = true
+	cfg.Storage = config.StorageConfig{
+		Database: config.StorageModeLocal,
+		Files:    config.StorageModeLocal,
+		DataDir:  t.TempDir(),
+	}
 	cfg.S3 = config.S3Config{}
 	cfg.Database.CacheDir = t.TempDir()
 	cfg.Sandbox = config.SandboxConfig{Enabled: true, Backend: "fake", Image: "python:3.12-slim", CPUs: 1,
@@ -43,17 +47,27 @@ func TestSandboxHTTP_CrossProjectMatrix(t *testing.T) {
 	defer ts.Close()
 
 	ctx := context.Background()
-	const projectA, projectB = catalog.DevProjectID, "0b0b0b0b-0000-4000-8000-00000000000b"
-	if err := a.SystemStore().CatalogRepo().CreateProject(ctx, catalog.Project{ID: projectB,
-		TenantID: catalog.ReservedTenantID, Name: "sandbox-other", CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatal(err)
+	const projectA, projectB = "sandprj1", "sandprj2"
+	for _, p := range []catalog.Project{
+		{ID: projectA, TenantID: catalog.ReservedTenantID, Name: "sandbox-owner", CreatedAt: time.Now().UTC()},
+		{ID: projectB, TenantID: catalog.ReservedTenantID, Name: "sandbox-other", CreatedAt: time.Now().UTC()},
+	} {
+		if err := a.SystemStore().CatalogRepo().CreateProject(ctx, p); err != nil && !errors.Is(err, catalog.ErrAlreadyExists) {
+			t.Fatal(err)
+		}
 	}
 	const keyA, keyB = "sb_live_sandbox_matrix_a", "sb_live_sandbox_matrix_b"
+	// adminKey 持 ProjectAdmin + 读写（租户内全部项目），用于验证"有权限也不能跨项目复用资源 id"。
+	const adminKey = "sb_live_sandbox_matrix_admin"
 	rw := []auth.Permission{auth.DatabaseRead, auth.DatabaseWrite}
 	if err := auth.CreateAPIKey(ctx, a.SystemStore().DB(), "sandbox-matrix-a", projectA, a.auth.HashKey(keyA), rw, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := auth.CreateAPIKey(ctx, a.SystemStore().DB(), "sandbox-matrix-b", projectB, a.auth.HashKey(keyB), rw, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.CreateAPIKey(ctx, a.SystemStore().DB(), "sandbox-matrix-admin", projectB,
+		a.auth.HashKey(adminKey), append([]auth.Permission{auth.ProjectAdmin}, rw...), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -127,7 +141,7 @@ func TestSandboxHTTP_CrossProjectMatrix(t *testing.T) {
 			t.Errorf("%s: A's id under project B = %d %v, want 404 sandbox_not_found", r.name, code, v)
 		}
 		// 拥有租户内全部项目权限的管理 Key 也不能借 B 的路径操作 A 的资源。
-		if code, v := call(systemdb.DevRawAPIKey, projectB, r.method, r.path, r.body); code != 404 || errCode(v) != "sandbox_not_found" {
+		if code, v := call(adminKey, projectB, r.method, r.path, r.body); code != 404 || errCode(v) != "sandbox_not_found" {
 			t.Errorf("%s: admin key with A's id under project B = %d %v, want 404", r.name, code, v)
 		}
 	}

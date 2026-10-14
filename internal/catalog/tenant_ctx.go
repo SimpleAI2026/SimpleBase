@@ -3,7 +3,7 @@
 // api 的 projectContextMiddleware 已通过 ResolveProjectTenant 解析出
 // {projectID, tenantID}；下游 catalog.ensureProjectAccess / GetKVDatabase
 // 再查一次 GetProjectTenant / ProjectBelongsToTenant 是同一数据的重复点查
-//（每次约 4ms）。本文件提供 context 通道：上游解析后注入，下游命中即免查。
+// （每次约 4ms）。本文件提供 context 通道：上游解析后注入，下游命中即免查。
 //
 // 语义：ctx 中的 tenant 仅为「免重复查询」的捷径；值必须来自
 // ResolveProjectTenant 同一请求的解析结果（非缓存，无失效问题）。
