@@ -369,11 +369,11 @@ func TestAgentSkillsE2E(t *testing.T) {
 	rt := &cloudagent.Runtime{
 		LLM: llm, SkillsCLI: true, CLI: cloudagent.InProcessCLI{},
 		APIBaseURL: dataSrv.URL, Issuer: auth.HMACDelegationIssuer{Secret: secret, Reg: reg},
-		// 30s 与 agent_skills_router_e2e_test 一致。3s 在 CI 上跑 go test ./...
-		// 时会被其它包挤占，确认请求还没 POST 到就超时变成 confirmation_denied。
-		// 超时路径由下面的 "confirmation timeout" 子测试把窗口改成 200ms 覆盖。
+		// 确认窗口必须短于 RunTimeout。CI 上同机并行包会把调度拖过几秒，
+		// 3s 确认或 20s 运行上限都会在批准发出前到期。超时路径由
+		// "confirmation timeout" 子测试把窗口改成 200ms 覆盖。
 		Confirm: confirms, ConfirmTimeout: 30 * time.Second, DelegationTTL: time.Minute,
-		ToolProtocol: "native", RunTimeout: 20 * time.Second, MaxIterations: 8,
+		ToolProtocol: "native", RunTimeout: 2 * time.Minute, MaxIterations: 8,
 	}
 	h := &cloudAgentHandler{store: store, runtime: rt, events: events, confirms: confirms}
 	e := echo.New()

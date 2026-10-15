@@ -51,8 +51,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # -p 1：ubuntu 小机器上多包并行会把确认/启动窗口吃掉（agent e2e）。
       - name: Test
-        run: go test -timeout 30m ./...
+        run: go test -p 1 -timeout 45m ./...
 
   build:
     name: Build embedded UI

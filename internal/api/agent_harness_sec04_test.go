@@ -54,8 +54,8 @@ func (hs *agentHarness) startRunAsync(t *testing.T, threadID string) string {
 		events, _ := parseSSE(head)
 		done <- runIDOf(events)
 	}()
-	// 轮询 store 直到 run 出现（全量并行时调度偏慢，窗口放宽）。
-	deadline := time.Now().Add(20 * time.Second)
+	// 轮询 store 直到 run 出现。CI 上同机还有其它包在跑时，run 落库可能超过 20s。
+	deadline := time.Now().Add(60 * time.Second)
 	for {
 		runs, err := hs.store.ListAgentRuns(context.Background(), "testprj1", threadID, 10)
 		if err == nil && len(runs) > 0 {
