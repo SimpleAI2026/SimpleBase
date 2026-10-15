@@ -9,7 +9,6 @@ package api
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -107,11 +106,7 @@ func newSkillRouterEnv(t *testing.T) *skillRouterEnv {
 	dbSvc.dbs["db-1"] = cat.db
 	sqlSvc := &fakeSQLService{db: cat.db, lease: &fakeSQLLease{queryResult: database.QueryResult{Columns: []string{"amount"}, Rows: [][]any{{10}}, RowsAffected: 1}}}
 
-	sdb, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sdb.Close() })
+	sdb := openMemoryDB(t)
 	if err := systemdb.ApplySystemMigrations(context.Background(), sdb); err != nil {
 		t.Fatal(err)
 	}

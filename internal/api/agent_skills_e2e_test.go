@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -341,11 +340,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	dataSrv := httptest.NewServer(data)
 	defer dataSrv.Close()
 
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := openMemoryDB(t)
 	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}

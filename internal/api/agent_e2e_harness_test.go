@@ -8,10 +8,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -98,6 +100,31 @@ type agentHarness struct {
 	logs    *harnessLogs
 }
 
+var memoryDBSeq atomic.Uint64
+
+// openMemoryDB 打开本测试独占的 sqlite 内存库。
+// 裸 `:memory:` 下每个连接都是一份空库。流式 run 占着第一条连接时，
+// 轮询 ListAgentRuns 会另开连接，于是永远看不到刚写入的 run。
+func openMemoryDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dsn := fmt.Sprintf("file:sbtest%d?mode=memory&cache=shared", memoryDBSeq.Add(1))
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxIdleConns(4)
+	pin, err := db.Conn(context.Background())
+	if err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = pin.Close()
+		_ = db.Close()
+	})
+	return db
+}
+
 // newAgentHarness 构造全链路测试环境：
 // fake upstream URL → FallbackResolver → llmgateway.Service → Runtime → 真实 handler。
 // thinkingInterval 为 streamRun 心跳注入间隔（仅测试）；0 使用默认。
@@ -106,11 +133,7 @@ func newAgentHarness(t *testing.T, scripts []fakellm.Script, def fakellm.Script)
 	fake := fakellm.New(scripts, def)
 	t.Cleanup(fake.Close)
 
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := openMemoryDB(t)
 	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
