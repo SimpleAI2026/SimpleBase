@@ -12,7 +12,9 @@ export RESULT_FILE
 export SIMPLEBASE_BIN="${SIMPLEBASE_BIN:-$ROOT/simplebase}"
 
 node_fail=0
-node "$ROOT/examples/capabilities/agent/run.mjs" || node_fail=1
+if [[ "${SKIP_SSE:-0}" != "1" ]]; then
+  node "$ROOT/examples/capabilities/agent/run.mjs" || node_fail=1
+fi
 
 # 本地 cloudagent 走服务端的 OpenAI 兼容出口，本机工具是 shell/文件，不是 @skill。
 # headless 下破坏性 shell 不能拿到界面确认。这里只要求它调用 simplebase database list。
@@ -21,6 +23,24 @@ if [[ -x "$local_bin" ]]; then
   echo "==> local cloudagent"
   home="$(mktemp -d /tmp/simplebase-ca.XXXXXX)"
   chmod 700 "$home"
+  # shell 工具会丢掉 SIMPLEBASE_* / CLOUDAGENT_*。CLI 改读 XDG 配置，且不要把配置内容写进结果。
+  cfg_root="$(mktemp -d /tmp/simplebase-xdg.XXXXXX)"
+  chmod 700 "$cfg_root"
+  mkdir -p "$cfg_root/simplebase"
+  chmod 700 "$cfg_root/simplebase"
+  CFG="$cfg_root" python3 - <<'PY'
+import json, os
+root = os.environ["CFG"]
+path = os.path.join(root, "simplebase", "config.json")
+with open(path, "w", encoding="utf-8") as f:
+    json.dump({
+        "endpoint": os.environ["SIMPLEBASE_URL"],
+        "token": os.environ["SIMPLEBASE_TOKEN"],
+        "project_id": os.environ["SIMPLEBASE_PROJECT_ID"],
+        "output": "json",
+    }, f)
+os.chmod(path, 0o600)
+PY
   out="$(mktemp)"
   start=$(date +%s%3N)
   set +e
@@ -29,7 +49,8 @@ if [[ -x "$local_bin" ]]; then
     CLOUDAGENT_ENDPOINT="$SIMPLEBASE_URL" \
     CLOUDAGENT_TOKEN="$SIMPLEBASE_TOKEN" \
     CLOUDAGENT_PROJECT_ID="$SIMPLEBASE_PROJECT_ID" \
-    timeout 180 "$local_bin" --json -p "请只用 shell 工具执行 ${SIMPLEBASE_BIN} database list。SIMPLEBASE_URL、SIMPLEBASE_TOKEN、SIMPLEBASE_PROJECT_ID 已在环境中，不要打印它们的值，不要执行 env 或 printenv。根据命令输出的 JSON 告诉我 ok 是否为 true。" \
+    XDG_CONFIG_HOME="$cfg_root" \
+    timeout 180 "$local_bin" --json -p "请只用 shell 工具执行 ${SIMPLEBASE_BIN} database list。凭据不在环境变量里（shell 会剥离 SIMPLEBASE_*）。不要执行 env、printenv，不要读取或打印任何配置文件。根据命令输出的 JSON 告诉我 ok 是否为 true。" \
     >"$out" 2>"$out.err"
   code=$?
   set -e
@@ -60,7 +81,7 @@ raise SystemExit(0 if ok else 1)
 PY
   local_code=$?
   set -e
-  rm -rf "$home" "$out" "$out.err"
+  rm -rf "$home" "$cfg_root" "$out" "$out.err"
   if [[ "$local_code" -ne 0 ]]; then
     node_fail=1
   fi
