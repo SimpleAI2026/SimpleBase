@@ -1,0 +1,13 @@
+# terminal-bench v4.0.0，66 题里固定的 8 题。
+# 排除 v4.0.0 发布说明点名改过 verifier/环境/题面的 19 题。
+# 优先短时限的 Python、脚本或调试题，避开 GPU、定理证明器和专有求解器。
+# oracle 未通过已换掉：music-harmony（没有写出 harmony.mxl）、
+# protein-autointerp-disulfide（solve.sh 里 pip 报 network unreachable）。
+production-planning
+layout-config-recreation
+embedding-drift-monitor
+session-window-debug
+sound-change-cascade
+risk-scorer-replay
+roy-polymorph-cn
+photonic-waveguide-routing
