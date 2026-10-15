@@ -175,8 +175,12 @@ def _job_rows(root: Path) -> list[dict]:
             elif message:
                 reason = f"{reason}: {message.splitlines()[-1][:160]}"
         elif reward == 0 or reward == 0.0:
-            hint = _verifier_hint(path)
-            reason = f"verifier: {hint}" if hint else "verifier 未通过"
+            agent_hint = _agent_hint(path)
+            if agent_hint:
+                reason = agent_hint
+            else:
+                hint = _verifier_hint(path)
+                reason = f"verifier: {hint}" if hint else "verifier 未通过"
         raw_name = str(data.get("task_name") or "")
         rows.append(
             {
@@ -189,6 +193,18 @@ def _job_rows(root: Path) -> list[dict]:
             }
         )
     return rows
+
+
+def _agent_hint(result_path: Path) -> str:
+    err_path = result_path.parent / "agent" / "cloudagent.err"
+    if not err_path.is_file() or err_path.stat().st_size == 0:
+        return ""
+    text = err_path.read_text(encoding="utf-8", errors="replace")
+    if "deadline exceeded" in text or "Client.Timeout" in text or "llm_timeout" in text:
+        return "模型请求超时"
+    if "failed to unmarshal arguments" in text or "Syntax error at index" in text:
+        return "工具参数 JSON 被截断"
+    return ""
 
 
 def _verifier_hint(result_path: Path) -> str:
@@ -212,7 +228,7 @@ def classify_tb(row: dict) -> str:
     reason = row.get("reason") or ""
     if "unsupported_libc" in reason or "GLIBC_" in reason:
         return "unsupported_libc"
-    if "Timeout" in reason or "timeout" in reason.lower():
+    if "Timeout" in reason or "timeout" in reason.lower() or "超时" in reason:
         return "timeout"
     if reason.startswith("verifier"):
         return "verifier_fail"
@@ -318,8 +334,10 @@ def main() -> None:
         scope = "、".join(only) if only else "固定 8 题"
         note = (
             f"Harbor 退出码 {code}。本次墙钟 {int(time.monotonic() - started)} 秒，范围：{scope}。"
-            "任务镜像的 glibc 可能旧于 2.38，agent 用宿主机的 ld-linux 和 libm 启动，不在容器里编译。"
-            "66 题要等这 8 题的耗时可以接受再扩。"
+            "bookworm 和 Ubuntu 22.04 没有 fmod@GLIBC_2.38，这几题用宿主机的 ld-linux 和 libm 启动已编译的 cloudagent。"
+            "没有扩到 66 题：这 8 题的 verifier 奖励都是 0，layout-config-recreation 单题 agent 约 15 分钟，而且每题一个镜像。"
+            "本机没有 systemd，dockerd 手工拉起。iptables-legacy 的 FORWARD 默认 DROP，只放行 docker0，Harbor 网桥出网被丢，已改为 ACCEPT。"
+            "oracle 在换掉 music-harmony 和 protein-autointerp-disulfide 之后，固定 8 题奖励都是 1。"
         )
         append_report(rows, note, {"model": model, "base_host": host})
         print(f"report {smoke.REPORT}", flush=True)

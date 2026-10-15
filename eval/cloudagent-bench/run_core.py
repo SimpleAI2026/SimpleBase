@@ -47,6 +47,8 @@ def classify(reason: str, run: dict) -> str:
         return "syntax_error"
     if "AssertionError" in text:
         return "test_fail"
+    if "llm_upstream" in low or "http 502" in low or "http 429" in low or "run_failed" in low:
+        return "agent_error"
     if any(name in text for name in ("Error", "Exception", "Traceback")):
         return "runtime_error"
     if text.startswith("exit_") or "exec_missing" in text or "api_error" in low or "error:" in low:
@@ -110,7 +112,13 @@ def append_jsonl(row: dict) -> None:
 
 
 def safe(text: str) -> str:
-    return (text or "").replace("|", "/").replace("\n", " ")[:180]
+    raw = text or ""
+    low = raw.lower()
+    if "http 502" in low or "模型服务暂时不可用" in raw:
+        raw = "模型服务暂时不可用 (HTTP 502)"
+    elif "http 429" in low:
+        raw = "模型服务限流 (HTTP 429)"
+    return raw.replace("|", "/").replace("\n", " ")[:180]
 
 
 CATEGORY_LABEL = {
@@ -131,7 +139,8 @@ def write_section(meta: dict, rows: list[dict]) -> None:
     for row in rows:
         if row["ok"]:
             continue
-        counts[row.get("category") or "test_fail"] = counts.get(row.get("category") or "test_fail", 0) + 1
+        key = classify(row.get("fail_reason") or row.get("reason") or "", row)
+        counts[key] = counts.get(key, 0) + 1
     lines = [
         MARKER,
         "",
@@ -159,7 +168,8 @@ def write_section(meta: dict, rows: list[dict]) -> None:
     )
     for row in rows:
         label = "通过" if row["ok"] else "失败"
-        category = CATEGORY_LABEL.get(row.get("category") or "", row.get("category") or "")
+        category_key = "pass" if row["ok"] else classify(row.get("fail_reason") or row.get("reason") or "", row)
+        category = CATEGORY_LABEL.get(category_key, category_key)
         reason = "" if row["ok"] else safe(row.get("fail_reason") or row.get("reason") or "")
         lines.append(
             f"| {row['task_id']} | {label} | {row['duration_ms']} ms | {row['steps']} | {category} | {reason} |"
