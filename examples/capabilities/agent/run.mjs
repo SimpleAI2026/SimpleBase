@@ -283,9 +283,7 @@ if (!general) {
 let failed = 0
 for (const spec of cases) {
   if (only.length && !only.includes(spec.id)) continue
-  if (spec.needsWritable) {
-    await api('PATCH', `/v1/projects/${project}/agents/${general.id}`, { writable: true })
-  }
+  await api('PATCH', `/v1/projects/${project}/agents/${general.id}`, { writable: Boolean(spec.needsWritable) })
   try {
     const ok = await runCase(general.id, spec)
     if (!ok) failed += 1
