@@ -9,7 +9,7 @@
 | SELECT | 一行，`id=1`，`title=demo`，`qty=3` |
 | UPDATE | 再查询时 `title=edited` |
 | DELETE | 再查询时 `row_count=0` |
-| `schema rows` | `ok=true` |
+| `schema rows` | 预期列出 `items` 的行。当前 CLI 解码失败：接口把 `columns` 返回成列对象数组，SDK 的 `TableRows.Columns` 声明为 `[]string` |
 | 删库 | `ok=true` |
 
 查询列顺序与 `SELECT id, title, qty` 一致。数值在 JSON 里是数字。

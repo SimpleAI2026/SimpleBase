@@ -49,6 +49,10 @@ fi
 
 health() { curl -sf --max-time 2 "$URL/health/live" >/dev/null 2>&1; }
 
+if [[ "$START" -eq 1 && ! -f "$ROOT/config.yaml" && -f "$ROOT/config.example.yaml" ]]; then
+  cp "$ROOT/config.example.yaml" "$ROOT/config.yaml"
+fi
+
 if [[ "$START" -eq 1 ]] && ! health; then
   echo "==> start simplebase"
   (

@@ -28,8 +28,8 @@ expect '.data.triggered == true'
 recorded=0
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   step "runs" cron runs --id "$JOB"
-  if [[ "$STEP_OK" -eq 1 ]] && printf '%s' "$SB_OUT" | jq -e '.data.runs | map(select(.status == "success")) | length >= 1' >/dev/null 2>&1; then
-    if ! printf '%s' "$SB_OUT" | jq -e '.data.runs | map(select(.status == "success")) | .[0].response_json | contains("2")' >/dev/null 2>&1; then
+  if [[ "$STEP_OK" -eq 1 ]] && printf '%s' "$SB_OUT" | jq -e '.data.runs | map(select(.status == "completed" or .status == "success")) | length >= 1' >/dev/null 2>&1; then
+    if ! printf '%s' "$SB_OUT" | jq -e '.data.runs | map(select(.status == "completed" or .status == "success")) | .[0].response_json | contains("2")' >/dev/null 2>&1; then
       STEP_OK=0
       STEP_WHY="success run did not contain incremented n"
     fi

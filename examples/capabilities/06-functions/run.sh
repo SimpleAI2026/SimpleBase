@@ -19,7 +19,7 @@ step "version-create" function versions create --name "$NAME" --file "$HERE/gree
 expect '(.data.version == 2) or (.data.Version == 2) or (.data.latest_version == 2)'
 
 step "test-v2" function test --name "$NAME" --version 2 --export Greet --input '{"name":"simplebase"}'
-expect '.data.message == "hello v2 simplebase"'
+expect '.data.data.message == "hello v2 simplebase"'
 
 step "activate" function activate --name "$NAME" --version 2
 done_step
