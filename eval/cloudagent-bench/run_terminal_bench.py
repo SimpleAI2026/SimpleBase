@@ -218,6 +218,9 @@ def main() -> None:
         for row in trial_results("tb8-oracle"):
             print(f"oracle {row['task_id']} ok={row['ok']} reward={row['reward']} reason={row['reason']}", flush=True)
         sys.exit(code)
+    # HumanEval 占用 18080。Terminal-Bench 用另一个端口，避免两套服务抢同一个地址。
+    smoke.PORT = 18081
+    smoke.BASE_URL = "http://127.0.0.1:18081"
     secrets = smoke.require_secrets()
     model, _source = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL", smoke.DEFAULT_MODEL)
     base, _base_source = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_BASE_URL", smoke.DEFAULT_BASE)
