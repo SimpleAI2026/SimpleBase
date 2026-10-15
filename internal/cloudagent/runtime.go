@@ -356,6 +356,13 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 		tr.finish(req, result)
 		return result, nil
 	}
+	// planv6.1 O2-5: 检测 max_tokens 截断（finish_reason='length'）。
+	if errors.Is(runErr, agentcore.ErrMaxTokensExceeded) {
+		result.Content += "\n\n⚠️ 输出被 max_tokens 截断，内容可能不完整。可尝试拆分任务或提高 token 限额。"
+		result.Reason = "length"
+		tr.finish(req, result)
+		return result, nil
+	}
 	if errors.Is(runErr, context.Canceled) || errors.Is(runCtx.Err(), context.Canceled) {
 		result.Reason = "canceled"
 		tr.finish(req, result)

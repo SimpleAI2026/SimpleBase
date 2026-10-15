@@ -95,6 +95,15 @@ func (m *Model) Generate(ctx context.Context, input []*schema.Message, opts ...m
 	if m.Usage != nil {
 		m.Usage(resp.Usage)
 	}
+	// planv6.1 O2-5: 检测 max_tokens 截断。finish_reason='length' 表示输出不完整，
+	// 但内容本身有效（不同于调用失败）。返回专用错误，上层追加提示。
+	if resp.FinishReason == "length" {
+		msg := ParseAssistant(resp.Content)
+		if len(resp.ToolCalls) > 0 {
+			msg = assistantToolMessage(resp.ToolCalls)
+		}
+		return msg, ErrMaxTokensExceeded
+	}
 	if len(resp.ToolCalls) > 0 {
 		return assistantToolMessage(resp.ToolCalls), nil
 	}

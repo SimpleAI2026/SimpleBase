@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"go.uber.org/zap"
@@ -34,6 +35,8 @@ type Options struct {
 	Stderr    io.Writer
 	// Confirm 为 nil 时（非交互）破坏性操作直接拒绝（fail-closed）。
 	Confirm tools.ConfirmFunc
+	// MaxDuration 单次运行墙钟时限（O3-6），0 表示不限（测试时用）。
+	MaxDuration time.Duration
 }
 
 // Exit codes 与 sbcli 保持同一套约定（0 成功 / 1 用法 / 2 API / 4 配置）。
@@ -103,8 +106,15 @@ func Run(opts Options) int {
 	if prompt == "" {
 		return fail(opts, exitUsage, "usage", "no prompt given: pass a prompt argument, -p \"...\", or pipe text on stdin")
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// planv6.1 O3-6: 给 Run 加墙钟超时（防 layout-config-recreation 式黑洞）。
+	baseCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	ctx := baseCtx
+	if opts.MaxDuration > 0 {
+		var tcancel context.CancelFunc
+		ctx, tcancel = context.WithTimeout(baseCtx, opts.MaxDuration)
+		defer tcancel()
+	}
 	result, err := runtime.Run(ctx, prompt, emitFunc(opts))
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -113,7 +123,16 @@ func Run(opts Options) int {
 		return fail(opts, exitAPI, "run_failed", err.Error())
 	}
 	if opts.JSON {
-		writeJSONEvent(opts, CLIEvent{Type: "end", Content: result.Content, Message: result.Reason})
+		usage := &CLIUsage{
+			PromptTokens:     result.PromptTokens,
+			CompletionTokens: result.CompletionTokens,
+			TotalTokens:      result.PromptTokens + result.CompletionTokens,
+			ReasoningTokens:  result.ReasoningTokens,
+		}
+		writeJSONEvent(opts, CLIEvent{
+			Type: "end", Content: result.Content, Message: result.Reason,
+			Usage: usage, Model: result.Model, DurationMS: result.DurationMS,
+		})
 	} else {
 		fmt.Fprintln(opts.Stdout, result.Content)
 	}

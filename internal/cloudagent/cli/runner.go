@@ -29,6 +29,18 @@ type CLIEvent struct {
 	CallID    string `json:"call_id,omitempty"`
 	Message   string `json:"message,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+	// end 事件补 usage/model/duration（planv6.1 O1-1）。
+	Usage      *CLIUsage `json:"usage,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	DurationMS int64     `json:"duration_ms,omitempty"`
+}
+
+// CLIUsage 是一次 run 的 token 统计。
+type CLIUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
 }
 
 // SessionRunner 跑一轮对话：装配 agent、消费事件、写 jsonl。
@@ -56,9 +68,11 @@ type RunResult struct {
 	Content          string
 	PromptTokens     int
 	CompletionTokens int
+	ReasoningTokens  int
 	ToolCalls        int
 	DurationMS       int64
 	Reason           string
+	Model            string
 }
 
 // maxUserChars 是单条用户消息的字符上限。
@@ -83,6 +97,8 @@ func (r *SessionRunner) Run(ctx context.Context, userText string, emit func(CLIE
 		return RunResult{}, errors.New("session is not initialized")
 	}
 	started := time.Now()
+	// planv6.1 O3-7: 重复动作检测（窗口 12 次，同签名最多重复 4 次）。
+	detector := newRepeatDetector(12, 4)
 	model := agentcore.NewModel(r.Client, "", strings.TrimSpace(r.Model))
 	// 优先走标准 function calling；供应商不支持 tools（400/422）时由 agentcore 自动降级为
 	// 文本协议并缓存结论。此前 CLI 恒为文本协议，是因为旧端点的 HTTP DTO 根本没有 tools
@@ -96,6 +112,8 @@ func (r *SessionRunner) Run(ctx context.Context, userText string, emit func(CLIE
 		usage.CompletionTokens += u.CompletionTokens
 		usage.ReasoningTokens += u.ReasoningTokens
 	}
+	// modelName 记录向上游的实际模型（run 结束后塞回 result）。
+	modelName := strings.TrimSpace(r.Model)
 	iterations := r.MaxIterations
 	if iterations <= 0 {
 		iterations = 12
@@ -187,11 +205,19 @@ func (r *SessionRunner) Run(ctx context.Context, userText string, emit func(CLIE
 				// 否则 jsonl 里会变成 user → tool → assistant 的错误顺序。
 				calls := make([]EntryToolCa, 0, len(msg.ToolCalls))
 				for _, tc := range msg.ToolCalls {
+					// O3-7: 检测重复工具调用（在落盘前检测，超限时终止循环）。
+					if warn := detector.record(tc.Function.Name, tc.Function.Arguments); warn != "" {
+						runErr = fmt.Errorf("%s", warn) // 变成 error 让上层拿到 reason="error"
+						break
+					}
 					toolCalls++
 					calls = append(calls, EntryToolCa{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
 					if emit != nil {
 						emit(CLIEvent{Type: "tool_call", CallID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
 					}
+				}
+				if runErr != nil { // 重复超限，退出工具轮
+					break
 				}
 				if _, err := r.Session.AppendToolCall(r.redact(assistant.String()), calls); err != nil {
 					runErr = err
@@ -211,12 +237,19 @@ func (r *SessionRunner) Run(ctx context.Context, userText string, emit func(CLIE
 
 	result := RunResult{
 		Content: r.redact(assistant.String()), PromptTokens: usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens, ToolCalls: toolCalls,
-		DurationMS: time.Since(started).Milliseconds(), Reason: "stop",
+		CompletionTokens: usage.CompletionTokens, ReasoningTokens: usage.ReasoningTokens,
+		ToolCalls: toolCalls, DurationMS: time.Since(started).Milliseconds(),
+		Reason: "stop", Model: modelName,
 	}
 	if errors.Is(runErr, adk.ErrExceedMaxIterations) {
 		result.Content += fmt.Sprintf("\n已达到工具调用上限（%d 轮）", iterations)
 		result.Reason = "max_iterations"
+		return result, nil
+	}
+	// planv6.1 O2-5: 检测 max_tokens 截断（非流式路径）——输出不完整但非失败。
+	if errors.Is(runErr, agentcore.ErrMaxTokensExceeded) {
+		result.Content += "\n\n⚠️ 输出被 max_tokens 截断，内容可能不完整。可尝试拆分任务或提高 token 限额。"
+		result.Reason = "length"
 		return result, nil
 	}
 	if errors.Is(runErr, context.Canceled) {

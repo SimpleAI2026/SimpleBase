@@ -3,7 +3,12 @@ package agentcore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
+
+// ErrMaxTokensExceeded 表示模型输出被 max_tokens 截断（finish_reason='length'），
+// 内容不完整但不是调用失败。上层检测到这个错误后应追加提示而非终止整轮（planv6.1 O2）。
+var ErrMaxTokensExceeded = errors.New("output truncated: max_tokens exceeded")
 
 // ChatMessage is a gateway-shaped chat turn (no secrets).
 // ToolCalls / ToolCallID 仅在原生 function calling 协议下使用（planv4.0 cloud-agent-optimization-plan §4.3）。
