@@ -16,8 +16,11 @@ from pathlib import Path
 import run_smoke as smoke
 
 FIXTURE = Path(__file__).resolve().parent / "tasks" / "core" / "humaneval.jsonl"
-JSONL = smoke.RUN_ROOT / "humaneval164.jsonl"
-MARKER = "## HumanEval 164"
+JSONL = smoke.RUN_ROOT / "humaneval164-rerun.jsonl"
+PREV_JSONL = smoke.RUN_ROOT / "humaneval164.jsonl"
+MARKER = "## HumanEval 164 重跑"
+# 这次重跑所基于的 origin/main。分支上后续的报告提交不改变这个基线。
+MAIN_COMMIT = "e6994c6a9d89b2aed8950cfb6af75d2801384b72"
 
 
 def load_rows() -> list[dict]:
@@ -78,19 +81,19 @@ def one_task(binary: Path, token: str, model: str, item: dict) -> dict:
         reason = "哨兵或隔离失败"
         row = smoke.record(task_id, "humaneval164", False, run, reason)
         row["category"] = "isolation"
-        return row
+        return attach_usage(row, run)
     if not run["events"] and run["code"] not in (0, 124):
         reason = run["reason"] or f"exit_{run['code']}"
         row = smoke.record(task_id, "humaneval164", False, run, reason)
         row["category"] = classify(reason, run)
-        return row
+        return attach_usage(row, run)
     grade_ok, grade_reason = smoke.grade_humaneval(work, item["entry_point"], item["test"])
     reason = "" if grade_ok else (grade_reason or run["reason"])
     if run["timed_out"] and not grade_ok:
         reason = "timeout"
     row = smoke.record(task_id, "humaneval164", grade_ok, run, reason)
     row["category"] = "pass" if grade_ok else classify(reason, run)
-    return row
+    return attach_usage(row, run)
 
 
 def load_done() -> dict[str, dict]:
@@ -109,6 +112,40 @@ def append_jsonl(row: dict) -> None:
     JSONL.parent.mkdir(parents=True, exist_ok=True)
     with JSONL.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def category_of(row: dict) -> str:
+    if row.get("ok"):
+        return "pass"
+    return classify(row.get("fail_reason") or row.get("reason") or "", row)
+
+
+def load_jsonl(path: Path) -> dict[str, dict]:
+    rows: dict[str, dict] = {}
+    if not path.exists():
+        return rows
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        rows[row["task_id"]] = row
+    return rows
+
+
+def attach_usage(row: dict, run: dict) -> dict:
+    prompt = 0
+    completion = 0
+    for event in run.get("events") or []:
+        if not isinstance(event, dict) or event.get("type") != "end":
+            continue
+        usage = event.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        prompt += int(usage.get("prompt_tokens") or 0)
+        completion += int(usage.get("completion_tokens") or 0)
+    row["prompt_tokens"] = prompt
+    row["completion_tokens"] = completion
+    return row
 
 
 def safe(text: str) -> str:
@@ -133,25 +170,70 @@ CATEGORY_LABEL = {
 }
 
 
+def comparison_lines(rows: list[dict]) -> list[str]:
+    prev = load_jsonl(PREV_JSONL)
+    if len(prev) != 164:
+        return ["上次 JSONL 不完整，没有逐题对比。", ""]
+    gained = []
+    lost = []
+    changed = []
+    for index in range(164):
+        task_id = f"HumanEval/{index}"
+        old = prev[task_id]
+        new = next(row for row in rows if row["task_id"] == task_id)
+        old_cat = category_of(old)
+        new_cat = category_of(new)
+        if (not old["ok"]) and new["ok"]:
+            gained.append(f"{task_id}（上次 {CATEGORY_LABEL.get(old_cat, old_cat)}）")
+        elif old["ok"] and not new["ok"]:
+            lost.append(f"{task_id}（这次 {CATEGORY_LABEL.get(new_cat, new_cat)}：{safe(new.get('fail_reason') or '')}）")
+        elif old_cat != new_cat:
+            changed.append(
+                f"{task_id}：{CATEGORY_LABEL.get(old_cat, old_cat)} → {CATEGORY_LABEL.get(new_cat, new_cat)}"
+            )
+    old_pass = sum(1 for row in prev.values() if row["ok"])
+    lines = [
+        f"与上次（PR #47，149/164；JSONL 实计 {old_pass}/164）对比，同一套题、同一模型：",
+        "",
+        f"- 新增通过 {len(gained)} 题：" + ("、".join(gained) if gained else "没有。"),
+        f"- 新增失败 {len(lost)} 题：" + ("、".join(lost) if lost else "没有。"),
+        f"- 仍失败但分类变化 {len(changed)} 题：" + ("、".join(changed) if changed else "没有。"),
+        "",
+    ]
+    return lines
+
+
 def write_section(meta: dict, rows: list[dict]) -> None:
     passed = sum(1 for row in rows if row["ok"])
     counts: dict[str, int] = {}
+    prompt_tokens = 0
+    completion_tokens = 0
     for row in rows:
+        prompt_tokens += int(row.get("prompt_tokens") or 0)
+        completion_tokens += int(row.get("completion_tokens") or 0)
         if row["ok"]:
             continue
-        key = classify(row.get("fail_reason") or row.get("reason") or "", row)
+        key = category_of(row)
         counts[key] = counts.get(key, 0) + 1
+    if prompt_tokens or completion_tokens:
+        cost = (
+            f"token 合计 prompt {prompt_tokens}、completion {completion_tokens}。"
+            "没有单价，不换算金额。"
+        )
+    else:
+        cost = "费用仍未知：`end` 事件没有 token。"
     lines = [
         MARKER,
         "",
-        f"> 日期：2026-10-15。git `{smoke.git_sha()}`。模型 `{meta['model']}`，网关 host `{meta['base_host']}`。",
-        "> pass@1，每题 1 次。agent 写 `solution.py` 后，在隔离子进程里跑官方测试。不是单次补全，不能直接和官方 HumanEval 榜横比。",
+        f"> 日期：2026-10-16。main `{MAIN_COMMIT}`。本次分支 git `{smoke.git_sha()}`。模型 `{meta['model']}`，网关 host `{meta['base_host']}`。",
+        "> 在 PR #47 合入后的 origin/main 上重编 cloudagent，只重跑 HumanEval 164。pass@1，每题 1 次。不是单次补全，不能直接和官方 HumanEval 榜横比。",
         "",
-        f"通过 **{passed}/{len(rows)}**（{passed / len(rows) * 100:.1f}%）。耗时合计 {meta['wall_s']} 秒。费用仍未知：`end` 事件没有 token。",
-        "",
-        "失败分类：",
+        f"通过 **{passed}/{len(rows)}**（{passed / len(rows) * 100:.1f}%）。耗时合计 {meta['wall_s']} 秒。{cost}",
         "",
     ]
+    if len(rows) == 164:
+        lines.extend(comparison_lines(rows))
+    lines.extend(["失败分类：", ""])
     if not counts:
         lines.append("- 没有失败。")
     else:
