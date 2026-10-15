@@ -59,13 +59,37 @@ PY
 python3 - "$RESULT_FILE" "$out" "$out.err" "$code" "$((end - start))" <<'PY'
 import json, re, sys
 path, outp, errp, code, ms = sys.argv[1:]
-text = open(outp, encoding="utf-8", errors="replace").read() + "\n" + open(errp, encoding="utf-8", errors="replace").read()
-text = re.sub(r"(secret|token|password|api_key|authorization)(\"?[:\s\"]*)[^\s\",}]+", r"\1\2[redacted]", text, flags=re.I)
-text = re.sub(r"sb_live_[A-Za-z0-9_\-]+", "sb_live_[redacted]", text)
-text = re.sub(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+", "[jwt]", text)
-called = "database" in text and "list" in text and ("shell" in text or "tool_call" in text or "simplebase" in text)
-ok_flag = '"ok":true' in text.replace(" ", "") or '"ok": true' in text
-ok = code == 0 and called and ok_flag
+raw = open(outp, encoding="utf-8", errors="replace").read()
+err = open(errp, encoding="utf-8", errors="replace").read()
+contents, tools, types = [], [], []
+for line in raw.splitlines():
+    line = line.strip()
+    if not line.startswith("{"):
+        continue
+    try:
+        ev = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if not isinstance(ev, dict):
+        continue
+    types.append(str(ev.get("type") or ""))
+    if ev.get("content"):
+        contents.append(str(ev["content"]))
+    if ev.get("type") in ("tool_call", "tool_result", "tool_start"):
+        tools.append(str(ev.get("name") or ""))
+        tools.append(str(ev.get("arguments") or ""))
+        tools.append(str(ev.get("content") or ""))
+assistant = "".join(contents)
+toolblob = "\n".join(tools)
+called = ("database" in toolblob and "list" in toolblob) or ("database list" in assistant)
+compact = (assistant + "\n" + toolblob).replace(" ", "")
+ok_flag = '"ok":true' in compact
+ok = str(code) == "0" and called and ok_flag
+detail = ""
+if not ok:
+    detail = f"exit={code} called={called} envelope={ok_flag} events={','.join(types[-12:])} stderr={err[-180:]}"
+    detail = re.sub(r"sb_live_[A-Za-z0-9_\-]+", "sb_live_[redacted]", detail)
+    detail = re.sub(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+", "[jwt]", detail)
 row = {
   "suite": "local-cloudagent",
   "case": "local-cloudagent",
@@ -73,10 +97,10 @@ row = {
   "command": "cloudagent --json -p database list",
   "ok": ok,
   "ms": int(ms),
-  "detail": "" if ok else text[-700:],
+  "detail": detail,
 }
 open(path, "a", encoding="utf-8").write(json.dumps(row, ensure_ascii=False) + "\n")
-print(("PASS" if ok else "FAIL") + f" local-cloudagent/database-list ({ms}ms) exit={code}")
+print(("PASS" if ok else "FAIL") + f" local-cloudagent/database-list ({ms}ms) exit={code} called={called} envelope={ok_flag}")
 raise SystemExit(0 if ok else 1)
 PY
   local_code=$?
