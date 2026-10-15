@@ -2,24 +2,80 @@ name: Go1.25
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-
-  build:
+  ui:
+    name: UI test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.25'
+      - name: Set up UI toolchain
+        uses: ./.github/actions/setup-ui
 
-    - name: Build
-      run: go build ./...
+      - name: Test with coverage
+        working-directory: ui
+        run: yarn test
 
-    - name: Test
-      run: go test ./...
+  go:
+    name: Go vet and test
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      # 这个 job 不构建前端。internal/web/dist/.keep 让 //go:embed all:dist 能编译；
+      # 没有 index.html 时运行时仍提示先执行 build.sh。
+      - name: Check embed placeholder
+        run: |
+          set -euo pipefail
+          if [[ ! -f internal/web/dist/.keep && ! -f internal/web/dist/index.html ]]; then
+            echo "internal/web/dist 缺少 .keep 与 index.html，//go:embed all:dist 无法编译" >&2
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # -p 1：ubuntu 小机器上多包并行会把确认/启动窗口吃掉（agent e2e）。
+      - name: Test
+        run: go test -p 1 -timeout 45m ./...
+
+  build:
+    name: Build embedded UI
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Build UI into internal/web/dist
+        uses: ./.github/actions/setup-ui
+        with:
+          build: "true"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test embedded static files
+        run: go test -count=1 -timeout 10m ./internal/web/

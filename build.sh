@@ -280,13 +280,30 @@ cmd_build() {
     fi
 
     echo "==> [2/3] 同步前端产物到 internal/web/dist"
+    # 整目录替换前备份占位文件。它被 git 跟踪，用来让未构建前端时
+    # //go:embed all:dist 仍能编译；真实 index.html 决定运行时走已构建控制台。
+    KEEP_BACKUP=""
+    if [[ -f "$WEB_DIST_DIR/.keep" ]]; then
+      KEEP_BACKUP="$(mktemp "${TMPDIR:-/tmp}/simplebase-web-keep.XXXXXX")"
+      cp "$WEB_DIST_DIR/.keep" "$KEEP_BACKUP"
+    fi
     TMP_DIST="$(mktemp -d "${TMPDIR:-/tmp}/simplebase-web-dist.XXXXXX")"
-    cleanup_tmp() { rm -rf "$TMP_DIST"; }
+    cleanup_tmp() {
+      rm -rf "$TMP_DIST"
+      if [[ -n "$KEEP_BACKUP" ]]; then
+        rm -f "$KEEP_BACKUP"
+      fi
+    }
     trap cleanup_tmp EXIT
     cp -R "$UI_DIR/dist/." "$TMP_DIST/"
     rm -rf "$WEB_DIST_DIR"
     mkdir -p "$(dirname "$WEB_DIST_DIR")"
     mv "$TMP_DIST" "$WEB_DIST_DIR"
+    if [[ -n "$KEEP_BACKUP" ]]; then
+      cp "$KEEP_BACKUP" "$WEB_DIST_DIR/.keep"
+      rm -f "$KEEP_BACKUP"
+      KEEP_BACKUP=""
+    fi
     trap - EXIT
     echo "    已复制 $(find "$WEB_DIST_DIR" -type f | wc -l | tr -d ' ') 个文件"
   else

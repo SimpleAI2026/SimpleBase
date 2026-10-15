@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -341,11 +340,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	dataSrv := httptest.NewServer(data)
 	defer dataSrv.Close()
 
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := openMemoryDB(t)
 	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
@@ -369,8 +364,11 @@ func TestAgentSkillsE2E(t *testing.T) {
 	rt := &cloudagent.Runtime{
 		LLM: llm, SkillsCLI: true, CLI: cloudagent.InProcessCLI{},
 		APIBaseURL: dataSrv.URL, Issuer: auth.HMACDelegationIssuer{Secret: secret, Reg: reg},
-		Confirm: confirms, ConfirmTimeout: 3 * time.Second, DelegationTTL: time.Minute,
-		ToolProtocol: "native", RunTimeout: 20 * time.Second, MaxIterations: 8,
+		// 确认窗口必须短于 RunTimeout。CI 上同机并行包会把调度拖过几秒，
+		// 3s 确认或 20s 运行上限都会在批准发出前到期。超时路径由
+		// "confirmation timeout" 子测试把窗口改成 200ms 覆盖。
+		Confirm: confirms, ConfirmTimeout: 30 * time.Second, DelegationTTL: time.Minute,
+		ToolProtocol: "native", RunTimeout: 2 * time.Minute, MaxIterations: 8,
 	}
 	h := &cloudAgentHandler{store: store, runtime: rt, events: events, confirms: confirms}
 	e := echo.New()

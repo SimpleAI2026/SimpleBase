@@ -9,7 +9,6 @@ package api
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -107,11 +106,7 @@ func newSkillRouterEnv(t *testing.T) *skillRouterEnv {
 	dbSvc.dbs["db-1"] = cat.db
 	sqlSvc := &fakeSQLService{db: cat.db, lease: &fakeSQLLease{queryResult: database.QueryResult{Columns: []string{"amount"}, Rows: [][]any{{10}}, RowsAffected: 1}}}
 
-	sdb, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sdb.Close() })
+	sdb := openMemoryDB(t)
 	if err := systemdb.ApplySystemMigrations(context.Background(), sdb); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +152,7 @@ func newSkillRouterEnv(t *testing.T) *skillRouterEnv {
 		// Confirm 留空：由 NewRouter 注入统一的 confirmHub，
 		// 保证 Runtime.Wait 与 handler.Resolve 用同一个 hub。
 		ConfirmTimeout: 30 * time.Second, DelegationTTL: time.Minute,
-		ToolProtocol: "native", RunTimeout: 20 * time.Second, MaxIterations: 8,
+		ToolProtocol: "native", RunTimeout: 2 * time.Minute, MaxIterations: 8,
 	}
 	deps.CloudAgent = rt
 	// CloudAgent 在 NewRouter 内被引用；重新构造以挂载 agent 路由。

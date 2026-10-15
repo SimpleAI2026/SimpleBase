@@ -39,6 +39,8 @@ cov.out
 /output/
 
 # ─── 前端构建产物（build.sh：ui/dist → internal/web/dist → go:embed）───
+# .keep 必须入库：目录为空时 //go:embed all:dist 编译失败。
+# 真实产物（含 assets/ 等子目录）不入库；存在 index.html 时嵌入完整控制台。
 internal/web/dist/*
 !internal/web/dist/.keep
 ui/dist/
