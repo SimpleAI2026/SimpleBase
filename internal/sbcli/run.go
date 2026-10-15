@@ -131,7 +131,9 @@ func parseArgs(args, environ []string) (loadedConfig, []string, int, error) {
 		}
 	}
 	if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Token) == "" || strings.TrimSpace(cfg.ProjectID) == "" {
-		return loadedConfig{}, nil, exitConfig, errors.New("endpoint, token, and project are required")
+		return loadedConfig{}, nil, exitConfig, errors.New("endpoint, token, and project are required " +
+			"(set SIMPLEBASE_URL / SIMPLEBASE_TOKEN / SIMPLEBASE_PROJECT_ID or the simplebase config file; " +
+			"shells started by the local cloudagent do not inherit SIMPLEBASE_* variables, use the config file there)")
 	}
 	u, err := url.Parse(cfg.Endpoint)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {

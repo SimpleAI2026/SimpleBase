@@ -365,6 +365,11 @@ Environment (CLOUDAGENT_* overrides SIMPLEBASE_*):
   CLOUDAGENT_COMPACT_TRIGGER_TOKENS, CLOUDAGENT_COMPACT_KEEP_TOKENS
   SIMPLEBASE_URL, SIMPLEBASE_TOKEN, SIMPLEBASE_PROJECT_ID
 
+Shell tool environment:
+  Commands run by the shell tool do not inherit SIMPLEBASE_* / CLOUDAGENT_* or any
+  variable whose name contains TOKEN, SECRET, PASSWORD, API_KEY, ACCESS_KEY or SESSION.
+  A "simplebase" CLI started from the shell therefore reports config_missing unless
+  its own config file is set up beforehand (never print that file to the model).
 Context compaction:
   Long histories are summarized automatically (threshold ~32000 estimated tokens
   or 120 messages) and the summary replaces the older turns in the model context.

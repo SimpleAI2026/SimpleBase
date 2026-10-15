@@ -142,6 +142,10 @@ llm:
   #   base_url: https://api.siliconflow.cn/v1
   #   default_model: deepseek-ai/DeepSeek-V4-Flash
   # api_key 只能来自 SIMPLEBASE_LLM_PROVIDER_<NAME>_API_KEY。
+  # 仅用 .env 简写（SIMPLEBASE_LLM_PROVIDER_API_KEY，不设 SIMPLEBASE_LLM_PROVIDERS）时，
+  # 单次模型请求超时默认 60s，可用 SIMPLEBASE_LLM_PROVIDER_TIMEOUT（如 120s）调大；
+  # 多轮工具调用建议改用具名 provider：SIMPLEBASE_LLM_PROVIDERS=openai 并设置
+  # SIMPLEBASE_LLM_PROVIDER_OPENAI_TIMEOUT。
   # providers:
   #   openai:
   #     base_url: ""                 # SIMPLEBASE_LLM_PROVIDER_OPENAI_BASE_URL

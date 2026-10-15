@@ -215,7 +215,7 @@ func (r *Runtime) execSimplebase(ctx context.Context, req RunRequest, argv []str
 	// 必须在 destructiveArgv/Confirm.Wait 之前拦截，否则用户会先看到一个
 	// 对不可写助手弹出的确认框。判定事实来源是 sbcli.CommandReadOnly。
 	if !writableFor(req, rc) && !sbcli.CommandReadOnlyWithArgv(argv) {
-		return rejected("write_not_allowed", "该助手未开启写权限，只能执行只读命令")
+		return rejected("write_not_allowed", "该助手未开启写权限，只能执行只读命令。请在「云助手 → 编辑助手 → 允许写操作」中开启后重试")
 	}
 	emit := rc.Emit
 	if destructiveArgv(argv, stdin) {

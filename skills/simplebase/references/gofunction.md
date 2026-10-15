@@ -35,6 +35,7 @@ simplebase function invoke --name hello --export Hello --input '{"name":"a"}'
 ```
 
 - `test` 在调试台跑指定版本（可测未生效版本），`--version`、`--export` 必填；`invoke` 只跑生效版本。两者 `--input` 为 JSON，缺省 `{}`；`test` 单条命令最长等待 120 秒。
+- 返回值的位置不同：`invoke` 的 `data` 就是函数返回值；`test` 的 `data` 是试跑信封 `{ok,status_code,duration_ms,version,function_name,data,error}`，函数返回值在 `data.data`。
 - `function update --name hello --description "..."` 只改描述。
 - `function delete --name hello` 需要界面确认；headless 返回 `confirmation_unavailable`，不要重试。
 

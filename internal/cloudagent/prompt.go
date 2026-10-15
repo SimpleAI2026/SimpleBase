@@ -39,7 +39,7 @@ Rules:
 // 六处模块常量不再各写一遍「readonly / 不要写」，由这里统一生成。
 const (
 	capabilityWritable = `Capability: writable. You may run write commands for the skills loaded this turn (e.g. sql exec, document insert, object upload, function create). Destructive commands still require user confirmation. Do not claim a write if the tool did not run.`
-	capabilityReadonly = `Capability: readonly. Only run read commands. Write commands (sql exec, document insert/update/delete, object upload/delete, function create/update/delete, cron create/update/delete/trigger, kv exec, schema create-table/add-column, database create/delete, log retention set) are rejected with write_not_allowed. Explain the restriction instead of retrying.`
+	capabilityReadonly = `Capability: readonly. Only run read commands. Write commands (sql exec, document insert/update/delete, object upload/delete, function create/update/delete, cron create/update/delete/trigger, kv exec, schema create-table/add-column, database create/delete, log retention set) are rejected with write_not_allowed, before any confirmation prompt. Do not retry or work around it. Tell the user this agent is read-only and that the "Allow write operations" switch in the agent's edit dialog turns writing on.`
 )
 
 // AssembleInstruction builds the system instruction (platform → module → agent → env → snapshot).

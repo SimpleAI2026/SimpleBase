@@ -33,6 +33,8 @@ type SchemaColumn struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Nullable *bool  `json:"nullable,omitempty"`
+	// Sensitive marks columns whose values the server masks (system database only).
+	Sensitive bool `json:"sensitive,omitempty"`
 }
 
 // SchemaTable is a user table and its columns.
@@ -145,9 +147,14 @@ func (c *Client) AddColumn(ctx context.Context, databaseID, table string, column
 }
 
 // TableRows is a page of rows from a SQL table.
+// Columns carries column metadata objects, the same shape as DatabaseSchema.
 type TableRows struct {
-	Columns []string `json:"columns"`
-	Rows    [][]any  `json:"rows"`
+	Table   string         `json:"table"`
+	Columns []SchemaColumn `json:"columns"`
+	Rows    [][]any        `json:"rows"`
+	Limit   int            `json:"limit"`
+	Offset  int            `json:"offset"`
+	Total   int64          `json:"total"`
 }
 
 // ListTableRows reads rows from one SQL table.

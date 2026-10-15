@@ -29,6 +29,13 @@ simplebase --endpoint http://127.0.0.1:8080 --token "$SIMPLEBASE_TOKEN" --projec
 
 成功时 stdout 一行 `{"ok":true,"data":...}`。失败时 stderr 一行 `{"ok":false,"error":{"code":...}}`，退出码 2。用法错误退出码 1，配置错误退出码 4。
 
+几个容易踩的返回形状：
+
+- `function invoke`：`data` 就是函数返回值。`function test`（试跑）多一层信封，`data` 是 `{ok,status_code,duration_ms,version,function_name,data,error}`，函数返回值在 `data.data`。
+- `cron runs`：`data.runs[].status` 为 `running` / `completed` / `failed` / `canceled`，成功是 `completed`。
+- `settings get`：`data.settings[]` 的字段为 `key` / `value_json` / `updated_at`。
+- `schema rows`：`data.columns` 是列对象数组（`name` / `type` / `nullable`），不是列名字符串；列名字符串数组是 `sql query` 的形状。
+
 ## 助手模式（SIMPLEBASE_AGENT_RUN=1）
 
 助手运行时由云助手宿主设置 `SIMPLEBASE_AGENT_RUN=1`，与人类使用有三个差异：
@@ -58,3 +65,8 @@ simplebase database create --name shop --init-sql -     ← SQL 放 stdin
 
 - `users` skill 已下线：助手不做用户管理；`user`/`apikey`/`settings` 命令保留给人类操作者，不属于任何 skill。
 - `project` skill 只保留 `quota get` 与 `audit list`。
+- 内置助手默认 `writable=false`：写命令返回 `write_not_allowed`，且在确认弹窗之前就失败。在「云助手 → 编辑助手 → 允许写操作」打开后才可写，破坏性命令仍需确认。
+
+## 本地 cloudagent 的 shell 环境
+
+本地 `cloudagent` 二进制的 shell 工具会剥离 `SIMPLEBASE_*`、`CLOUDAGENT_*` 以及名字含 `TOKEN` / `SECRET` / `PASSWORD` / `API_KEY` / `ACCESS_KEY` / `SESSION` 的环境变量。shell 里再跑 `simplebase` 时读不到这些变量，会返回 `config_missing`（退出码 4）。要让它操作同一套资源，需事先写好 `$XDG_CONFIG_HOME/simplebase/config.json`（权限 `0600`），并且不要让模型把该文件内容打印出来。服务端助手使用专用 `simplebase` 工具，不受这条限制。

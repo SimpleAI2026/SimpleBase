@@ -8,6 +8,40 @@ import (
 	"testing"
 )
 
+func TestListTableRowsDecodesColumnObjects(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.EscapedPath() != "/v1/projects/project%2Fone/databases/db%2Fone/schema/tables/items/rows" {
+			t.Errorf("unexpected %s", r.URL.EscapedPath())
+		}
+		if got := r.URL.Query().Get("limit"); got != "10" {
+			t.Errorf("limit = %q", got)
+		}
+		io.WriteString(w, `{"table":"items","columns":[`+
+			`{"name":"id","type":"BIGINT","nullable":false},`+
+			`{"name":"token","type":"VARCHAR","nullable":true,"sensitive":true}],`+
+			`"rows":[[1,"***"]],"limit":10,"offset":0,"total":1}`)
+	})
+	got, err := c.ListTableRows(context.Background(), "db/one", "items", 10)
+	if err != nil {
+		t.Fatalf("list rows: %v", err)
+	}
+	if got.Table != "items" || got.Total != 1 || got.Limit != 10 || len(got.Rows) != 1 {
+		t.Fatalf("rows: %+v", got)
+	}
+	if len(got.Columns) != 2 || got.Columns[0].Name != "id" || got.Columns[0].Type != "BIGINT" {
+		t.Fatalf("columns: %+v", got.Columns)
+	}
+	if got.Columns[0].Nullable == nil || *got.Columns[0].Nullable {
+		t.Fatalf("id nullable: %+v", got.Columns[0])
+	}
+	if !got.Columns[1].Sensitive {
+		t.Fatalf("sensitive flag lost: %+v", got.Columns[1])
+	}
+	if _, err := c.ListTableRows(context.Background(), "", "items", 10); err == nil {
+		t.Fatal("empty database id accepted")
+	}
+}
+
 func TestSQLDatabaseAndSchema(t *testing.T) {
 	nullable := false
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {

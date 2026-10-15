@@ -114,7 +114,7 @@ type shellArgs struct {
 
 func (w *Workspace) shellTool() (tool.BaseTool, error) {
 	return utils.InferTool("shell",
-		"Run a shell command on the local machine in the workspace directory. Destructive commands require user confirmation. Prefer read-only inspection commands.",
+		"Run a shell command on the local machine in the workspace directory. Destructive commands require user confirmation. Prefer read-only inspection commands. The command environment has SIMPLEBASE_*, CLOUDAGENT_* and credential-like variables removed, so a config_missing error from the simplebase CLI means its config file is not set up, not that the command is wrong; do not try to read or print credentials to fix it.",
 		func(ctx context.Context, in shellArgs) (string, error) {
 			if strings.TrimSpace(in.Command) == "" {
 				return ErrEnvelope("usage", "command is required"), nil

@@ -9,9 +9,9 @@ import (
 
 // SettingKV 是设置表的一行。
 type SettingKV struct {
-	Key       string
-	ValueJSON string
-	UpdatedAt time.Time
+	Key       string    `json:"key"`
+	ValueJSON string    `json:"value_json"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // GetGlobalSetting 读取实例级设置。

@@ -35,6 +35,8 @@ simplebase cron get --id <任务ID>
 simplebase cron runs --id <任务ID>
 ```
 
+`runs[].status` 只有 `running`、`completed`、`failed`、`canceled`；成功是 `completed`，没有 `success`。
+
 `list` 里的 `target_missing:true` 表示目标函数或导出已不可用，需要修复函数或改任务。
 
 ## 触发与删除

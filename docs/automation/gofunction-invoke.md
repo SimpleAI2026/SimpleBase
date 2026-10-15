@@ -86,6 +86,19 @@ curl -X POST "$BASE/go/$PID/basic/Upper" -H "Authorization: Bearer $KEY" \
 | 504 | `request_timeout` | 执行超 10 秒（如死循环） |
 | 500 | `gofunction_runtime_error` | 解释执行失败（message 已截断脱敏） |
 
+## 试跑与 CLI 返回形状
+
+控制台「试跑」和 `simplebase function test` 走调试接口，响应是一层信封，不是函数返回值本身：
+
+```json
+{"ok":true,"status_code":200,"duration_ms":3,"version":2,"function_name":"hello","data":{"message":"hello, a"}}
+```
+
+| 入口 | 函数返回值的位置 |
+|---|---|
+| `POST /go/{projectID}/{名}/{导出}`、`simplebase function invoke` | 响应体 / CLI `data` 本身 |
+| 调试接口、`simplebase function test` | 信封的 `data`；经 CLI 再包一层后是 `data.data` |
+
 ## 可观测
 
 每次调用会记录项目级指标（控制台「日志管理」与监控聚合可见）：`gofunction_invokes`（次数）、`gofunction_invoke_duration_ms`（耗时）、`gofunction_invoke_errors`（错误数）；保存时的编译耗时记录为 `gofunction_compile_ms`。

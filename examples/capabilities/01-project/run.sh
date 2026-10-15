@@ -22,7 +22,7 @@ step "settings-set" settings set --json '{"key":"examples.note","value_json":"\"
 done_step
 
 step "settings-get" settings get
-expect '.data.settings | map(select(.Key == "examples.note")) | length >= 1'
+expect '.data.settings | map(select(.key == "examples.note")) | length >= 1'
 
 step "quota" quota get
 done_step

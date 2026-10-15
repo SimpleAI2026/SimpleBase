@@ -166,6 +166,26 @@ func TestSettingsHandlers(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("put project %d %s", rec.Code, rec.Body.String())
 	}
+	rec = doRequest(e, http.MethodGet, "/settings", nil)
+	var got struct {
+		Settings []map[string]any `json:"settings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Settings) != 1 {
+		t.Fatalf("settings: %s", rec.Body.String())
+	}
+	for _, k := range []string{"key", "value_json", "updated_at"} {
+		if _, ok := got.Settings[0][k]; !ok {
+			t.Fatalf("missing snake_case field %q: %s", k, rec.Body.String())
+		}
+	}
+	for _, k := range []string{"Key", "ValueJSON", "UpdatedAt"} {
+		if _, ok := got.Settings[0][k]; ok {
+			t.Fatalf("legacy field %q leaked: %s", k, rec.Body.String())
+		}
+	}
 	rec = doRequest(e, http.MethodPut, "/settings", map[string]any{"key": "", "value_json": "1"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty key %d %s", rec.Code, rec.Body.String())

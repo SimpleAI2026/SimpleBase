@@ -21,6 +21,12 @@
           :title="t('components.agentCard.builtin')"
           :aria-label="t('components.agentCard.builtin')"
         />
+        <span
+          v-if="agent.writable === false"
+          class="shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground"
+          data-agent-readonly
+          :title="t('components.agentCard.readonlyHint')"
+        >{{ t('components.agentCard.readonly') }}</span>
         <ClockIcon
           v-if="scheduleSummary"
           class="size-3 shrink-0 text-muted-foreground"

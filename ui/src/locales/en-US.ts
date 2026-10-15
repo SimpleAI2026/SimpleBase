@@ -676,6 +676,8 @@ const enUS: MessageTree = {
     agentCard: {
       selectAria: 'Select agent {name}',
       builtin: 'Built-in',
+      readonly: 'Read-only',
+      readonlyHint: 'Writing is off for this agent, so write commands fail immediately. Turn on "Allow write operations" in Edit agent to enable them',
       noDescription: 'No description',
       edit: 'Edit',
       schedule: 'Schedule',

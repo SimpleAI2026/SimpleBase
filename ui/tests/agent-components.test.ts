@@ -25,6 +25,17 @@ describe('AgentCard', () => {
     expect(wrapper.emitted('select')).toHaveLength(1)
     // 操作按钮不再出现在条目里
     expect(wrapper.findAll('button')).toHaveLength(1)
+    // 未带 writable 字段（旧后端）时不显示只读标签，避免误报
+    expect(wrapper.find('[data-agent-readonly]').exists()).toBe(false)
+  })
+
+  it('shows a read-only tag only when writable is explicitly false', () => {
+    const readonly = mount(AgentCard, { props: { agent: { ...sampleAgent, writable: false } } })
+    const tag = readonly.get('[data-agent-readonly]')
+    expect(tag.text()).toBe('只读')
+    expect(tag.attributes('title')).toContain('允许写操作')
+    const writable = mount(AgentCard, { props: { agent: { ...sampleAgent, writable: true } } })
+    expect(writable.find('[data-agent-readonly]').exists()).toBe(false)
   })
 })
 

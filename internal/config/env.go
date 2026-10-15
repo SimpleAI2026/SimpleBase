@@ -212,13 +212,21 @@ func applyEnvLLM(cfg *Config) {
 	}
 	// 无具名实例供应商时，兼容 .env 中的 OpenAI 兼容网关简写配置。
 	// 项目级凭证仍由 resolver 优先选择，密钥只通过环境变量注入。
+	// 简写默认超时 60s，可用 SIMPLEBASE_LLM_PROVIDER_TIMEOUT 调大（多轮工具调用建议 ≥120s）；
+	// 非法或非正值与具名 provider 的 _TIMEOUT 一致，静默回落到 60s。
 	if len(names) == 0 {
 		if key := strings.TrimSpace(os.Getenv("SIMPLEBASE_LLM_PROVIDER_API_KEY")); key != "" {
+			timeout := 60 * time.Second
+			if v, ok := os.LookupEnv("SIMPLEBASE_LLM_PROVIDER_TIMEOUT"); ok {
+				if d, err := parseDuration(v); err == nil && d > 0 {
+					timeout = d
+				}
+			}
 			cfg.LLM.Providers["openai"] = ProviderConfig{
 				APIKey:       key,
 				BaseURL:      strings.TrimSpace(os.Getenv("SIMPLEBASE_LLM_PROVIDER_BASE_URL")),
 				DefaultModel: strings.TrimSpace(os.Getenv("SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL")),
-				Timeout:      60 * time.Second,
+				Timeout:      timeout,
 			}
 		}
 	}

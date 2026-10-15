@@ -187,6 +187,23 @@ func TestLoadLLMProvidersFlatEnvFallback(t *testing.T) {
 	}
 }
 
+func TestLoadLLMProvidersFlatEnvTimeout(t *testing.T) {
+	t.Setenv("SIMPLEBASE_LLM_PROVIDER_API_KEY", "sk-fallback")
+	if got := loadLLMProviders()["openai"].Timeout; got != 60*time.Second {
+		t.Fatalf("default timeout = %v, want 60s", got)
+	}
+	t.Setenv("SIMPLEBASE_LLM_PROVIDER_TIMEOUT", "120s")
+	if got := loadLLMProviders()["openai"].Timeout; got != 120*time.Second {
+		t.Fatalf("timeout = %v, want 120s", got)
+	}
+	for _, bad := range []string{"not-a-duration", "0s", "-5s"} {
+		t.Setenv("SIMPLEBASE_LLM_PROVIDER_TIMEOUT", bad)
+		if got := loadLLMProviders()["openai"].Timeout; got != 60*time.Second {
+			t.Fatalf("timeout %q = %v, want fallback 60s", bad, got)
+		}
+	}
+}
+
 func TestConfigFilePath(t *testing.T) {
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", "/tmp/custom.yaml")
 	got, required := configFilePath()

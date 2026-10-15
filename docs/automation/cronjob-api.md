@@ -40,3 +40,16 @@ curl -sS "$BASE/v1/projects/$PROJECT/cron-jobs/$JOB_ID/runs?limit=20" \
 ```
 
 触发请求立即返回，任务执行在后台进行；同一任务运行中再次触发可能返回 409。运行失败不会自动重试；到下次排期再执行。时间、补跑语义与配额详见[概览](/docs/automation/cronjob)。
+
+## 运行记录状态
+
+`runs[].status` 的取值只有四种：
+
+| 值 | 含义 |
+|---|---|
+| `running` | 正在执行 |
+| `completed` | 执行成功，`response_json` 为函数返回值 |
+| `failed` | 执行失败，`error` 含原因 |
+| `canceled` | 被取消 |
+
+成功态叫 `completed`，**没有** `success`。任务本身的 `last_status` 使用同一组取值。

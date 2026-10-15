@@ -56,7 +56,8 @@ usage() {
   - 后端: http://API_HOST:API_PORT （go run ./cmd/simplebase）
   - 自动加载仓库根目录 .env（若存在；主要用于密钥）
   - 非密钥配置以 config.yaml 为准；环境变量覆盖 YAML
-  - 缺少 config.yaml 时从 config.example.yaml 生成本地副本（gitignore）
+  - 仅 dev 子命令在缺少 config.yaml 时从 config.example.yaml 生成本地副本（gitignore）；
+    生产构建 / 直接运行 ./simplebase 不会生成，请先 cp config.example.yaml config.yaml
   - 存储模式由 config.yaml storage.database/files 决定（默认 local，数据落 storage.data_dir）
   - SIMPLEBASE_LOG_LEVEL 仅在 yaml/.env 都未设置时默认 debug（生产仍为 info）
   - --api-port 会导出 SIMPLEBASE_HTTP_ADDRESS；未传则尊重 yaml http.address
@@ -343,6 +344,10 @@ cmd_build() {
   fi
 
   echo "==> 构建完成: $OUTPUT_BIN"
+  if [[ ! -f "$ROOT_DIR/config.yaml" && "$UI_ONLY" -eq 0 ]]; then
+    echo "    提示: 当前目录没有 config.yaml，直接运行会报 'open config.yaml: no such file or directory'。"
+    echo "          请先 cp config.example.yaml config.yaml，或使用 ./build.sh dev（会自动生成）。"
+  fi
 }
 
 cmd_dev() {

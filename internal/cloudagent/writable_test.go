@@ -33,6 +33,9 @@ func TestExecSimplebase_ReadonlyAgentRejectsWrite(t *testing.T) {
 	if !strings.Contains(out, "write_not_allowed") {
 		t.Fatalf("out=%s", out)
 	}
+	if !strings.Contains(out, "允许写操作") {
+		t.Fatalf("rejection should tell the user where to enable writing: %s", out)
+	}
 	if sb.calls != 0 {
 		t.Fatalf("CLI must not run for a rejected write (calls=%d)", sb.calls)
 	}

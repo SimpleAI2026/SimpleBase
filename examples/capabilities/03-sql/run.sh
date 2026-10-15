@@ -44,7 +44,7 @@ step "query-empty" sql query --database "$DB" --statement "SELECT id FROM items"
 expect '.data.row_count == 0'
 
 step "schema-rows" schema rows --database "$DB" --table items --limit 10
-done_step
+expect '.data.table == "items" and (.data.columns | map(.name) | index("qty") != null) and (.data.rows | type == "array")'
 
 step "delete-db" database delete --id "$DB"
 done_step

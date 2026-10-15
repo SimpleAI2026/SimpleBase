@@ -26,6 +26,17 @@
           <CardHeader class="border-b">
             <CardTitle class="flex w-full items-center gap-3">
               <span class="min-w-0 shrink-0 truncate">{{ activeAgent ? '@' + activeAgent.name : t('pages.agents.dialogLabel') }}</span>
+              <Badge
+                v-if="activeAgent && activeAgent.writable === false"
+                variant="outline"
+                class="shrink-0 cursor-pointer text-[11px]"
+                data-agent-readonly-header
+                role="button"
+                tabindex="0"
+                :title="t('components.agentCard.readonlyHint')"
+                @click="onMenu('edit')"
+                @keydown.enter="onMenu('edit')"
+              >{{ t('components.agentCard.readonly') }}</Badge>
               <ThreadSwitcher
                 :threads="threads"
                 :active-id="threadId"

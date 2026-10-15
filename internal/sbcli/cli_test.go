@@ -106,6 +106,8 @@ func (s *cliStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/v1/users") && r.Method == http.MethodPost:
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":"u1","username":"ada","password":"hunter2"}`))
+	case r.Method == http.MethodGet && strings.Contains(path, "/schema/tables/") && strings.HasSuffix(path, "/rows"):
+		_, _ = w.Write([]byte(`{"table":"orders","columns":[{"name":"id","type":"BIGINT","nullable":false}],"rows":[[1]],"limit":10,"offset":0,"total":1}`))
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/s3/objects"):
 		_, _ = w.Write([]byte(`[]`))
 	default:
@@ -207,6 +209,9 @@ func TestCLIConfigAndEnvelope(t *testing.T) {
 	if code != 4 {
 		t.Fatalf("missing config %d %s", code, errb)
 	}
+	if !strings.Contains(errb, "config_missing") || !strings.Contains(errb, "do not inherit SIMPLEBASE_*") {
+		t.Fatalf("config_missing should explain shell env isolation: %s", errb)
+	}
 }
 
 func TestCLIResources(t *testing.T) {
@@ -256,6 +261,23 @@ func TestCLIResources(t *testing.T) {
 
 	ok(t, []string{"schema", "create-table", "--database", "shop", "--name", "orders", "--columns", `[{"name":"id","type":"BIGINT"}]`})
 	ok(t, []string{"schema", "add-column", "--database", "shop", "--table", "orders", "--column", `{"name":"amount","type":"DOUBLE"}`})
+	rowsOut := ok(t, []string{"schema", "rows", "--database", "shop", "--table", "orders", "--limit", "10"})
+	var rowsEnv struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Columns []struct {
+				Name string `json:"name"`
+				Type string `json:"type"`
+			} `json:"columns"`
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(rowsOut), &rowsEnv); err != nil {
+		t.Fatalf("schema rows output: %v %s", err, rowsOut)
+	}
+	if !rowsEnv.OK || len(rowsEnv.Data.Columns) != 1 || rowsEnv.Data.Columns[0].Name != "id" || rowsEnv.Data.Total != 1 {
+		t.Fatalf("schema rows envelope: %s", rowsOut)
+	}
 	ok(t, []string{"sql", "query", "--database", "shop", "--statement", "SELECT password FROM t"})
 	ok(t, []string{"sql", "exec", "--database", "shop", "--statement", "INSERT INTO orders VALUES (1)"})
 	fail(t, "user-token", []string{"sql", "exec", "--database", "shop", "--statement", "DELETE FROM t; DROP TABLE t"}, "", "multiple_statements")

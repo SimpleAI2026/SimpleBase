@@ -689,6 +689,8 @@ const zhCN: MessageTree = {
     agentCard: {
       selectAria: '选择 Agent {name}',
       builtin: '内置',
+      readonly: '只读',
+      readonlyHint: '该助手未开启写权限，写命令会直接失败。在「编辑助手」中打开「允许写操作」后可写',
       noDescription: '无描述',
       edit: '编辑',
       schedule: '定时',
