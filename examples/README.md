@@ -1,4 +1,12 @@
-# 业务案例
+# 示例
+
+能力示例（资源 CLI 与云助手）在 [`capabilities`](capabilities/README.md)。一条命令跑完：
+
+```bash
+./examples/run_all.sh --start
+```
+
+## 业务案例
 
 四个案例各有独立项目，使用同一套 `simplebase.json` 清单驱动初始化。BFF 只监听 `127.0.0.1`；前端不携带 Key。案例目录的 `.env` 仅存运行时最小权限 Key，初始化时超管 JWT 只存在进程内存中。
 
