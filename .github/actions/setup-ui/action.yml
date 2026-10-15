@@ -1,0 +1,77 @@
+name: Setup UI
+description: 安装 Node.js 22 与 Yarn 4.17（与 build.sh 一致），缓存依赖，并安装 ui/。可选构建并同步到 internal/web/dist。
+
+inputs:
+  build:
+    description: 为 true 时执行 yarn build，并把 ui/dist 同步到 internal/web/dist
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        # UI 依赖要求 Node ^22.22.2；22 跟踪当前 22.x。
+        node-version: "22"
+
+    - name: Activate Yarn 4.17
+      shell: bash
+      run: |
+        set -euo pipefail
+        corepack enable
+        corepack prepare yarn@4.17.0 --activate
+        yarn --version
+
+    # Yarn 4 的下载缓存 + node_modules。package-lock.json 已过期（缺 vue-i18n），
+    # 安装以 ui/yarn.lock 为准，与 build.sh 相同。
+    - name: Cache Yarn
+      uses: actions/cache@v4
+      with:
+        path: |
+          ui/node_modules
+          .yarn-cache
+        key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock', 'ui/.yarnrc.yml', 'ui/package.json') }}
+        restore-keys: |
+          yarn-${{ runner.os }}-
+
+    - name: Install UI dependencies
+      shell: bash
+      working-directory: ui
+      env:
+        YARN_CACHE_FOLDER: ${{ github.workspace }}/.yarn-cache
+      run: yarn install --immutable
+
+    - name: Build UI and sync embed directory
+      if: ${{ inputs.build == 'true' }}
+      shell: bash
+      env:
+        YARN_CACHE_FOLDER: ${{ github.workspace }}/.yarn-cache
+      run: |
+        set -euo pipefail
+        cd ui
+        yarn build
+        cd ..
+        if [[ ! -f ui/dist/index.html ]]; then
+          echo "前端构建未产出 ui/dist/index.html" >&2
+          exit 1
+        fi
+        # 与 build.sh 相同：整目录替换，避免旧的带 hash 资源残留。
+        # 替换前备份已跟踪的 .keep，保证未构建时的占位文件不会从工作区消失。
+        keep_backup=""
+        if [[ -f internal/web/dist/.keep ]]; then
+          keep_backup="$(mktemp)"
+          cp internal/web/dist/.keep "$keep_backup"
+        fi
+        tmp="$(mktemp -d)"
+        cp -a ui/dist/. "$tmp/"
+        rm -rf internal/web/dist
+        mkdir -p internal/web
+        mv "$tmp" internal/web/dist
+        if [[ -n "$keep_backup" ]]; then
+          cp "$keep_backup" internal/web/dist/.keep
+          rm -f "$keep_backup"
+        fi
+        test -f internal/web/dist/index.html
+        echo "synced $(find internal/web/dist -type f | wc -l) files into internal/web/dist"
