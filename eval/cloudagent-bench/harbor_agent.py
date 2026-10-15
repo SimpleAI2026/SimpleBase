@@ -38,13 +38,56 @@ class CloudAgentInstalled(BaseInstalledAgent):
             environment,
             "mkdir -p /usr/local/bin /logs/agent /tmp/cloudagent-home && chmod 777 /logs/agent /tmp/cloudagent-home",
         )
-        await environment.upload_file(binary, "/usr/local/bin/cloudagent")
-        result = await self.exec_as_root(
-            environment,
-            "chmod 755 /usr/local/bin/cloudagent && /usr/local/bin/cloudagent --version",
-        )
-        text = f"{result.stdout or ''}\n{result.stderr or ''}"
-        if "No such file or directory" in text or "not found" in text.lower():
+        sysroot = Path(os.environ.get("CLOUDAGENT_SYSROOT", ""))
+        libs = [
+            sysroot / name
+            for name in (
+                "ld-linux-x86-64.so.2",
+                "libc.so.6",
+                "libm.so.6",
+                "libstdc++.so.6",
+                "libgcc_s.so.1",
+            )
+        ]
+        # 宿主机是 glibc 2.39，binary 需要 fmod@GLIBC_2.38。bookworm / Ubuntu 22.04
+        # 的任务镜像没有这个符号。把宿主机的 loader 和库一并放进容器，不在容器里编译。
+        if sysroot.is_dir() and all(path.is_file() for path in libs):
+            await self.exec_as_root(
+                environment,
+                "mkdir -p /usr/local/lib/cloudagent/lib",
+            )
+            await environment.upload_file(binary, "/usr/local/lib/cloudagent/cloudagent.bin")
+            for path in libs:
+                await environment.upload_file(path, f"/usr/local/lib/cloudagent/lib/{path.name}")
+            await self._upload_config_text(
+                environment,
+                content=(
+                    "#!/bin/sh\n"
+                    "export GODEBUG=\"${GODEBUG:+$GODEBUG,}netdns=go\"\n"
+                    "exec /usr/local/lib/cloudagent/lib/ld-linux-x86-64.so.2 "
+                    "--library-path /usr/local/lib/cloudagent/lib "
+                    "/usr/local/lib/cloudagent/cloudagent.bin \"$@\"\n"
+                ),
+                remote_path="/usr/local/bin/cloudagent",
+                filename="cloudagent.sh",
+            )
+            version_cmd = (
+                "chmod 755 /usr/local/bin/cloudagent /usr/local/lib/cloudagent/cloudagent.bin "
+                "/usr/local/lib/cloudagent/lib/ld-linux-x86-64.so.2 "
+                "&& /usr/local/bin/cloudagent --version"
+            )
+        else:
+            await environment.upload_file(binary, "/usr/local/bin/cloudagent")
+            version_cmd = "chmod 755 /usr/local/bin/cloudagent && /usr/local/bin/cloudagent --version"
+        try:
+            result = await self.exec_as_root(environment, version_cmd)
+        except RuntimeError as exc:
+            text = str(exc)
+            if "No such file or directory" in text or "not found" in text.lower() or "GLIBC_" in text:
+                raise RuntimeError("unsupported_libc") from exc
+            raise
+        text = f"{getattr(result, 'stdout', '') or ''}\n{getattr(result, 'stderr', '') or ''}"
+        if "No such file or directory" in text or "not found" in text.lower() or "GLIBC_" in text:
             raise RuntimeError("unsupported_libc")
 
     async def run(

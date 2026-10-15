@@ -170,9 +170,7 @@ def write_section(meta: dict, rows: list[dict]) -> None:
         if secret and secret in text:
             raise SystemExit("report contained a secret; not written")
     existing = smoke.REPORT.read_text(encoding="utf-8")
-    if MARKER in existing:
-        existing = existing.split(MARKER)[0].rstrip() + "\n"
-    smoke.REPORT.write_text(existing.rstrip() + "\n\n" + text, encoding="utf-8")
+    smoke.REPORT.write_text(smoke.replace_marked_section(existing, MARKER, text), encoding="utf-8")
 
 
 def self_check() -> None:

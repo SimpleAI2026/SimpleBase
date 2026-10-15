@@ -37,7 +37,37 @@ def task_ids() -> list[str]:
     return rows
 
 
-def harbor_cmd(agent: str, job_name: str) -> list[str]:
+def selected_ids(only: list[str] | None = None) -> list[str]:
+    ids = task_ids()
+    if not only:
+        return ids
+    unknown = [task_id for task_id in only if task_id not in ids]
+    if unknown:
+        raise SystemExit(f"unknown terminal-bench id: {', '.join(unknown)}")
+    return only
+
+
+def ensure_sysroot() -> Path:
+    """复制宿主机 glibc 2.39 的 loader 和库。文件在 RUN_ROOT，不进 git。"""
+    root = smoke.RUN_ROOT / "sysroot"
+    names = {
+        "libc.so.6": "/lib/x86_64-linux-gnu/libc.so.6",
+        "libm.so.6": "/lib/x86_64-linux-gnu/libm.so.6",
+        "libstdc++.so.6": "/lib/x86_64-linux-gnu/libstdc++.so.6",
+        "libgcc_s.so.1": "/lib/x86_64-linux-gnu/libgcc_s.so.1",
+        "ld-linux-x86-64.so.2": "/lib64/ld-linux-x86-64.so.2",
+    }
+    root.mkdir(parents=True, exist_ok=True)
+    for name, source in names.items():
+        dest = root / name
+        if dest.is_file() and dest.stat().st_size > 0:
+            continue
+        dest.write_bytes(Path(source).read_bytes())
+        dest.chmod(0o755)
+    return root
+
+
+def harbor_cmd(agent: str, job_name: str, only: list[str] | None = None) -> list[str]:
     cmd = [
         str(HARBOR),
         "run",
@@ -61,19 +91,24 @@ def harbor_cmd(agent: str, job_name: str) -> list[str]:
     if agent != "oracle":
         model, _ = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL", smoke.DEFAULT_MODEL)
         cmd.extend(["-m", model])
-    for task_id in task_ids():
+    for task_id in selected_ids(only):
         # Harbor 数据集里的名字带 registry 前缀，过滤时必须带上。
         cmd.extend(["-i", f"terminal-bench/{task_id}"])
     return cmd
 
 
-def run_harbor(agent: str, job_name: str, extra_env: dict[str, str] | None = None) -> int:
+def run_harbor(
+    agent: str,
+    job_name: str,
+    extra_env: dict[str, str] | None = None,
+    only: list[str] | None = None,
+) -> int:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(Path(__file__).resolve().parent) + os.pathsep + env.get("PYTHONPATH", "")
     if extra_env:
         env.update(extra_env)
     print("harbor", agent, job_name, flush=True)
-    proc = subprocess.run(harbor_cmd(agent, job_name), env=env, check=False)
+    proc = subprocess.run(harbor_cmd(agent, job_name, only), env=env, check=False)
     return proc.returncode
 
 
@@ -92,11 +127,25 @@ def phase_ms(timing: object) -> int:
     return max(0, int((finish - begin).total_seconds() * 1000))
 
 
-def trial_results(job_name: str) -> list[dict]:
-    root = JOBS / job_name
+def trial_results(job_names: str | list[str]) -> list[dict]:
+    if isinstance(job_names, str):
+        job_names = [job_names]
     rows = []
-    if not root.exists():
-        return rows
+    for job_name in job_names:
+        root = JOBS / job_name
+        if not root.exists():
+            continue
+        rows.extend(_job_rows(root))
+    # 同题多次时保留最后一次（后面的 job 覆盖前面的）。
+    latest: dict[str, dict] = {}
+    for row in rows:
+        if row["task_id"]:
+            latest[row["task_id"]] = row
+    return [latest[task_id] for task_id in task_ids() if task_id in latest]
+
+
+def _job_rows(root: Path) -> list[dict]:
+    rows = []
     for path in sorted(root.rglob("result.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -126,7 +175,8 @@ def trial_results(job_name: str) -> list[dict]:
             elif message:
                 reason = f"{reason}: {message.splitlines()[-1][:160]}"
         elif reward == 0 or reward == 0.0:
-            reason = "verifier 未通过"
+            hint = _verifier_hint(path)
+            reason = f"verifier: {hint}" if hint else "verifier 未通过"
         raw_name = str(data.get("task_name") or "")
         rows.append(
             {
@@ -138,19 +188,29 @@ def trial_results(job_name: str) -> list[dict]:
                 "reason": smoke.redact(reason)[:180],
             }
         )
-    # 同题多次时保留最后一次
-    latest: dict[str, dict] = {}
-    for row in rows:
-        if row["task_id"]:
-            latest[row["task_id"]] = row
-    return [latest[task_id] for task_id in task_ids() if task_id in latest]
+    return rows
+
+
+def _verifier_hint(result_path: Path) -> str:
+    stdout = result_path.parent / "verifier" / "test-stdout.txt"
+    if not stdout.is_file():
+        return ""
+    text = stdout.read_text(encoding="utf-8", errors="replace")
+    for line in reversed(text.splitlines()):
+        stripped = line.strip().strip("=").strip()
+        if stripped and ("failed" in stripped or "error" in stripped.lower()) and "in " in stripped:
+            return stripped[:160]
+    for line in text.splitlines():
+        if "AssertionError" in line or line.startswith("E       "):
+            return line.strip()[:160]
+    return ""
 
 
 def classify_tb(row: dict) -> str:
     if row["ok"]:
         return "pass"
     reason = row.get("reason") or ""
-    if "unsupported_libc" in reason:
+    if "unsupported_libc" in reason or "GLIBC_" in reason:
         return "unsupported_libc"
     if "Timeout" in reason or "timeout" in reason.lower():
         return "timeout"
@@ -200,15 +260,17 @@ def append_report(title_rows: list[dict], note: str, meta: dict) -> None:
         if secret and secret in text:
             raise SystemExit("report contained a secret; not written")
     existing = smoke.REPORT.read_text(encoding="utf-8")
-    if MARKER in existing:
-        existing = existing.split(MARKER)[0].rstrip() + "\n"
-    smoke.REPORT.write_text(existing.rstrip() + "\n\n" + text, encoding="utf-8")
+    smoke.REPORT.write_text(smoke.replace_marked_section(existing, MARKER, text), encoding="utf-8")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--oracle", action="store_true")
+    parser.add_argument("--only", default="", help="逗号分隔的题号，默认全部 8 题")
+    parser.add_argument("--job-name", default="tb8-cloudagent")
+    parser.add_argument("--merge-from", default="", help="更早的 job 名，逗号分隔；当前 job 覆盖同题")
     args = parser.parse_args()
+    only = [item.strip() for item in args.only.split(",") if item.strip()]
     if not HARBOR.is_file():
         raise SystemExit("harbor is not installed")
     subprocess.run(["sudo", "chmod", "666", "/var/run/docker.sock"], check=False)
@@ -237,8 +299,10 @@ def main() -> None:
         probe_row = smoke.probe(binary, token, model)
         if not probe_row["ok"]:
             raise SystemExit("probe failed")
+        sysroot = ensure_sysroot()
         extra = {
             "CLOUDAGENT_BIN": str(binary),
+            "CLOUDAGENT_SYSROOT": str(sysroot),
             "CLOUDAGENT_TOKEN": token,
             "CLOUDAGENT_PROJECT_ID": smoke.PROJECT_ID,
             "CLOUDAGENT_MODEL": model,
@@ -246,12 +310,16 @@ def main() -> None:
             "CLOUDAGENT_MAX_ITERATIONS": smoke.MAX_ITER,
         }
         started = time.monotonic()
-        code = run_harbor("harbor_agent:CloudAgentInstalled", "tb8-cloudagent", extra)
+        code = run_harbor("harbor_agent:CloudAgentInstalled", args.job_name, extra, only or None)
         print(f"cloudagent_exit {code}", flush=True)
-        rows = trial_results("tb8-cloudagent")
+        jobs = [item.strip() for item in args.merge_from.split(",") if item.strip()]
+        jobs.append(args.job_name)
+        rows = trial_results(jobs)
+        scope = "、".join(only) if only else "固定 8 题"
         note = (
-            f"Harbor 退出码 {code}。墙钟 {int(time.monotonic() - started)} 秒。"
-            "只跑了计划中的固定 8 题；66 题要等这 8 题的耗时可以接受再扩。"
+            f"Harbor 退出码 {code}。本次墙钟 {int(time.monotonic() - started)} 秒，范围：{scope}。"
+            "任务镜像的 glibc 可能旧于 2.38，agent 用宿主机的 ld-linux 和 libm 启动，不在容器里编译。"
+            "66 题要等这 8 题的耗时可以接受再扩。"
         )
         append_report(rows, note, {"model": model, "base_host": host})
         print(f"report {smoke.REPORT}", flush=True)

@@ -579,6 +579,25 @@ def setup_task(task_id: str) -> tuple[Path, Path]:
     return work, home
 
 
+def replace_marked_section(existing: str, marker: str, section: str) -> str:
+    """替换报告里某一个 ## 标题到下一个 ## 标题之间的内容，保留其他章节。"""
+    lines = existing.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.strip() == marker), None)
+    body = section.strip()
+    if start is None:
+        prefix = existing.rstrip()
+        return f"{prefix}\n\n{body}\n" if prefix else f"{body}\n"
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].startswith("## "):
+            end = index
+            break
+    head = "\n".join(lines[:start]).rstrip()
+    tail = "\n".join(lines[end:]).strip()
+    parts = [part for part in (head, body, tail) if part]
+    return "\n\n".join(parts) + "\n"
+
+
 def record(task_id: str, benchmark: str, ok: bool, run: dict, reason: str) -> dict:
     if not run.get("sentinel_ok", True):
         ok = False

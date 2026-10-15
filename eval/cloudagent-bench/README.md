@@ -1,6 +1,6 @@
 # cloudagent 冒烟
 
-只覆盖计划里的冒烟层：编译两个二进制、探测模型出口、SimpleBase 自定义题 L0–L3、HumanEval 前 10 题。不跑 Terminal-Bench 和 SWE-bench。
+冒烟层是 L0–L3 和 HumanEval 前 10 题。核心层这次只跑 HumanEval 全量 164 题，以及 Terminal-Bench v4.0.0 里固定的 8 题。不跑 SWE-bench。
 
 ```bash
 python3 eval/cloudagent-bench/run_smoke.py --self-check
@@ -9,7 +9,7 @@ python3 eval/cloudagent-bench/run_core.py --self-check
 python3 eval/cloudagent-bench/run_core.py
 ```
 
-HumanEval 全量读 `tasks/core/humaneval.jsonl`（没有标准答案）。Terminal-Bench 用 Harbor 0.24.0，见 `requirements-core.txt` 和 `run_terminal_bench.py`。
+HumanEval 全量读 `tasks/core/humaneval.jsonl`（没有标准答案）。Terminal-Bench 用 Harbor 0.24.0，见 `requirements-core.txt` 和 `run_terminal_bench.py`。任务镜像若低于 glibc 2.38，adapter 会带上宿主机的 `ld-linux` 和 `libm` 再启动已编译的 `cloudagent`，不在容器里编译。
 
 供应商密钥从进程环境读取（`SIMPLEBASE_LLM_PROVIDER_API_KEY` 等）。脚本只检查是否非空，不打印、不写入仓库。结果写到 `plan/planv6.1/cloudagent-smoke-report.md`。
 
