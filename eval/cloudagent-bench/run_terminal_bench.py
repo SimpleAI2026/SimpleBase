@@ -62,7 +62,8 @@ def harbor_cmd(agent: str, job_name: str) -> list[str]:
         model, _ = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL", smoke.DEFAULT_MODEL)
         cmd.extend(["-m", model])
     for task_id in task_ids():
-        cmd.extend(["-i", task_id])
+        # Harbor 数据集里的名字带 registry 前缀，过滤时必须带上。
+        cmd.extend(["-i", f"terminal-bench/{task_id}"])
     return cmd
 
 
@@ -126,9 +127,10 @@ def trial_results(job_name: str) -> list[dict]:
                 reason = f"{reason}: {message.splitlines()[-1][:160]}"
         elif reward == 0 or reward == 0.0:
             reason = "verifier 未通过"
+        raw_name = str(data.get("task_name") or "")
         rows.append(
             {
-                "task_id": data.get("task_name"),
+                "task_id": raw_name.split("/")[-1],
                 "ok": reward == 1 or reward == 1.0,
                 "reward": reward,
                 "duration_ms": duration_ms,
