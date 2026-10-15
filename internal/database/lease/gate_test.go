@@ -13,25 +13,51 @@ func TestGateSerializesSameKey(t *testing.T) {
 	g := NewGate()
 	var execCount int32
 	release := make(chan struct{})
+	entered := make(chan struct{})
 
 	var wg sync.WaitGroup
 	results := make([]error, 10)
-	for i := 0; i < 10; i++ {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results[0] = g.Do("db-1", func() error {
+			atomic.AddInt32(&execCount, 1)
+			close(entered)
+			<-release // 模拟 Acquire 的观察等待
+			return nil
+		})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("leader did not enter fn")
+	}
+
+	// 第一个调用已经占住 key 之后再启动其余调用。若在它们入队前就放行，
+	// 后来的调用会各自成为新的首次执行，execCount 会大于 1。
+	for i := 1; i < 10; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			results[i] = g.Do("db-1", func() error {
 				atomic.AddInt32(&execCount, 1)
-				<-release // 模拟 Acquire 的观察等待
+				<-release
 				return nil
 			})
 		}(i)
 	}
-
-	// 等 fn 进入执行
-	deadline := time.Now().Add(2 * time.Second)
-	for atomic.LoadInt32(&execCount) == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if got := atomic.LoadInt32(&execCount); got != 1 {
+			t.Fatalf("execCount = %d, want 1（同 key 只允许一次执行）", got)
+		}
+		g.mu.Lock()
+		_, inflight := g.inflight["db-1"]
+		g.mu.Unlock()
+		if !inflight {
+			t.Fatal("leader left inflight before release")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	close(release)
 	wg.Wait()
