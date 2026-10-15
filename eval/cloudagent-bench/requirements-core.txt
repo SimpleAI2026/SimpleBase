@@ -1,0 +1,2 @@
+# 只给 Terminal-Bench。冒烟和 HumanEval 仍只用标准库，不要为它们安装本文件。
+harbor==0.24.0

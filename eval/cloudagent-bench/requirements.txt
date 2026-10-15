@@ -1,1 +1,2 @@
-# 冒烟 harness 只用 Python 3 标准库，不安装第三方包。
+# 冒烟和 HumanEval 只用 Python 3 标准库，不安装第三方包。
+# Terminal-Bench 另见 requirements-core.txt（harbor==0.24.0）。

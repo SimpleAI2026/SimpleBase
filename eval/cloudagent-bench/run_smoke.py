@@ -418,13 +418,21 @@ def compile_bins(bindir: Path) -> dict:
     }
 
 
-def server_env(secrets: dict[str, str], model: str, base: str, cfg: Path, data: Path, cache: Path) -> dict[str, str]:
+def server_env(
+    secrets: dict[str, str],
+    model: str,
+    base: str,
+    cfg: Path,
+    data: Path,
+    cache: Path,
+    bind_host: str = "127.0.0.1",
+) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
         {
             "CGO_ENABLED": "1",
             "SIMPLEBASE_CONFIG_PATH": str(cfg),
-            "SIMPLEBASE_HTTP_ADDRESS": f"127.0.0.1:{PORT}",
+            "SIMPLEBASE_HTTP_ADDRESS": f"{bind_host}:{PORT}",
             "SIMPLEBASE_HTTP_WRITE_TIMEOUT": "5m",
             "SIMPLEBASE_HTTP_READ_TIMEOUT": "60s",
             "SIMPLEBASE_DATA_DIR": str(data),
@@ -458,7 +466,13 @@ def wait_health(proc: subprocess.Popen, log_path: Path) -> None:
     raise SystemExit("server health timeout")
 
 
-def start_server(binary: Path, secrets: dict[str, str], model: str, base: str) -> subprocess.Popen:
+def start_server(
+    binary: Path,
+    secrets: dict[str, str],
+    model: str,
+    base: str,
+    bind_host: str = "127.0.0.1",
+) -> subprocess.Popen:
     run = RUN_ROOT / "server"
     if run.exists():
         shutil.rmtree(run)
@@ -473,7 +487,7 @@ def start_server(binary: Path, secrets: dict[str, str], model: str, base: str) -
     proc = subprocess.Popen(
         [str(binary)],
         cwd=str(run),
-        env=server_env(secrets, model, base, cfg, data, cache),
+        env=server_env(secrets, model, base, cfg, data, cache, bind_host=bind_host),
         stdout=log,
         stderr=subprocess.STDOUT,
         start_new_session=True,

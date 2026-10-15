@@ -5,7 +5,11 @@
 ```bash
 python3 eval/cloudagent-bench/run_smoke.py --self-check
 python3 eval/cloudagent-bench/run_smoke.py
+python3 eval/cloudagent-bench/run_core.py --self-check
+python3 eval/cloudagent-bench/run_core.py
 ```
+
+HumanEval 全量读 `tasks/core/humaneval.jsonl`（没有标准答案）。Terminal-Bench 用 Harbor 0.24.0，见 `requirements-core.txt` 和 `run_terminal_bench.py`。
 
 供应商密钥从进程环境读取（`SIMPLEBASE_LLM_PROVIDER_API_KEY` 等）。脚本只检查是否非空，不打印、不写入仓库。结果写到 `plan/planv6.1/cloudagent-smoke-report.md`。
 

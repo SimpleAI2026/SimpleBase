@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""核心层里本次要跑的 HumanEval 164。Terminal-Bench 在 run_terminal_bench.py。
+
+只用标准库。密钥只检查非空，不打印、不写入报告。
+"""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import json
+import sys
+import time
+from pathlib import Path
+
+import run_smoke as smoke
+
+FIXTURE = Path(__file__).resolve().parent / "tasks" / "core" / "humaneval.jsonl"
+JSONL = smoke.RUN_ROOT / "humaneval164.jsonl"
+MARKER = "## HumanEval 164"
+
+
+def load_rows() -> list[dict]:
+    rows = []
+    for line in FIXTURE.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    if len(rows) != 164:
+        raise SystemExit(f"humaneval fixture has {len(rows)} rows, want 164")
+    ids = [row["task_id"] for row in rows]
+    if ids != [f"HumanEval/{i}" for i in range(164)]:
+        raise SystemExit("humaneval fixture is not HumanEval/0..163 in order")
+    for row in rows:
+        if "canonical_solution" in row:
+            raise SystemExit("fixture must not contain canonical_solution")
+    return rows
+
+
+def classify(reason: str, run: dict) -> str:
+    text = reason or ""
+    low = text.lower()
+    if run.get("timed_out") or low == "timeout" or "测试超时" in text:
+        return "timeout"
+    if "哨兵" in text or "隔离" in text:
+        return "isolation"
+    if "SyntaxError" in text or "IndentationError" in text or "TabError" in text:
+        return "syntax_error"
+    if "AssertionError" in text:
+        return "test_fail"
+    if any(name in text for name in ("Error", "Exception", "Traceback")):
+        return "runtime_error"
+    if text.startswith("exit_") or "exec_missing" in text or "api_error" in low or "error:" in low:
+        return "agent_error"
+    if "没有" in text:
+        return "no_output"
+    return "test_fail"
+
+
+def one_task(binary: Path, token: str, model: str, item: dict) -> dict:
+    task_id = item["task_id"]
+    work, home = smoke.setup_task(task_id)
+    (work / "solution.py").write_text(item["prompt"], encoding="utf-8")
+    prompt = (
+        "solution.py 里是一个未完成的 Python 函数。补全它，使函数行为正确。"
+        f"函数名必须保持 {item['entry_point']}。不要增加测试，不要改函数名。完成后停止。"
+    )
+    print(f"task {task_id}", flush=True)
+    run = smoke.run_jailed(
+        smoke.cloudagent_cmd(binary, work, prompt),
+        smoke.agent_env(home, token, smoke.PROJECT_ID, model),
+        work,
+        home,
+        smoke.HUMANEVAL_TIMEOUT,
+    )
+    if not run["sentinel_ok"] or run["code"] in (90, 91, 92, 93, 94, 95):
+        reason = "哨兵或隔离失败"
+        row = smoke.record(task_id, "humaneval164", False, run, reason)
+        row["category"] = "isolation"
+        return row
+    if not run["events"] and run["code"] not in (0, 124):
+        reason = run["reason"] or f"exit_{run['code']}"
+        row = smoke.record(task_id, "humaneval164", False, run, reason)
+        row["category"] = classify(reason, run)
+        return row
+    grade_ok, grade_reason = smoke.grade_humaneval(work, item["entry_point"], item["test"])
+    reason = "" if grade_ok else (grade_reason or run["reason"])
+    if run["timed_out"] and not grade_ok:
+        reason = "timeout"
+    row = smoke.record(task_id, "humaneval164", grade_ok, run, reason)
+    row["category"] = "pass" if grade_ok else classify(reason, run)
+    return row
+
+
+def load_done() -> dict[str, dict]:
+    done = {}
+    if not JSONL.exists():
+        return done
+    for line in JSONL.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        done[row["task_id"]] = row
+    return done
+
+
+def append_jsonl(row: dict) -> None:
+    JSONL.parent.mkdir(parents=True, exist_ok=True)
+    with JSONL.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def safe(text: str) -> str:
+    return (text or "").replace("|", "/").replace("\n", " ")[:180]
+
+
+CATEGORY_LABEL = {
+    "pass": "通过",
+    "timeout": "超时",
+    "test_fail": "断言失败",
+    "syntax_error": "语法错误",
+    "runtime_error": "运行错误",
+    "agent_error": "agent 错误",
+    "isolation": "隔离失败",
+    "no_output": "无输出",
+}
+
+
+def write_section(meta: dict, rows: list[dict]) -> None:
+    passed = sum(1 for row in rows if row["ok"])
+    counts: dict[str, int] = {}
+    for row in rows:
+        if row["ok"]:
+            continue
+        counts[row.get("category") or "test_fail"] = counts.get(row.get("category") or "test_fail", 0) + 1
+    lines = [
+        MARKER,
+        "",
+        f"> 日期：2026-10-15。git `{smoke.git_sha()}`。模型 `{meta['model']}`，网关 host `{meta['base_host']}`。",
+        "> pass@1，每题 1 次。agent 写 `solution.py` 后，在隔离子进程里跑官方测试。不是单次补全，不能直接和官方 HumanEval 榜横比。",
+        "",
+        f"通过 **{passed}/{len(rows)}**（{passed / len(rows) * 100:.1f}%）。耗时合计 {meta['wall_s']} 秒。费用仍未知：`end` 事件没有 token。",
+        "",
+        "失败分类：",
+        "",
+    ]
+    if not counts:
+        lines.append("- 没有失败。")
+    else:
+        for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
+            lines.append(f"- {CATEGORY_LABEL.get(key, key)}：{count}")
+    lines.extend(
+        [
+            "",
+            "公开基线：Z.ai 的 GLM-5.3-Flash 模型卡没有公布 HumanEval。它公布的 Terminal-Bench 2.1 为 84.3%，用的是 Claude Code 2.1.207，不是本 adapter，也不是 Terminal-Bench 4.0。第三方量化权重上的 greedy HumanEval 不是这条链路，不拿来当基线。",
+            "",
+            "| 题 | 结果 | 耗时 | 步数 | 分类 | 原因 |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for row in rows:
+        label = "通过" if row["ok"] else "失败"
+        category = CATEGORY_LABEL.get(row.get("category") or "", row.get("category") or "")
+        reason = "" if row["ok"] else safe(row.get("fail_reason") or row.get("reason") or "")
+        lines.append(
+            f"| {row['task_id']} | {label} | {row['duration_ms']} ms | {row['steps']} | {category} | {reason} |"
+        )
+    lines.append("")
+    text = "\n".join(lines)
+    for secret in smoke._secret_values:
+        if secret and secret in text:
+            raise SystemExit("report contained a secret; not written")
+    existing = smoke.REPORT.read_text(encoding="utf-8")
+    if MARKER in existing:
+        existing = existing.split(MARKER)[0].rstrip() + "\n"
+    smoke.REPORT.write_text(existing.rstrip() + "\n\n" + text, encoding="utf-8")
+
+
+def self_check() -> None:
+    rows = load_rows()
+    gz = Path("/tmp/HumanEval.jsonl.gz")
+    if not gz.exists():
+        print("self-check ok (no canonical gz, skipped grade)")
+        return
+    official = []
+    with gzip.open(gz, "rt", encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                official.append(json.loads(line))
+    item = official[0]
+    work, _home = smoke.setup_task("humaneval-canonical-0")
+    solution = item["prompt"] + item["canonical_solution"]
+    (work / "solution.py").write_text(solution, encoding="utf-8")
+    ok, reason = smoke.grade_humaneval(work, item["entry_point"], item["test"])
+    if not ok:
+        raise SystemExit(f"canonical grade failed: {reason}")
+    assert rows[0]["task_id"] == "HumanEval/0"
+    print("self-check ok")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--self-check", action="store_true")
+    args = parser.parse_args()
+    if args.self_check:
+        self_check()
+        return
+    secrets = smoke.require_secrets()
+    model, model_source = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL", smoke.DEFAULT_MODEL)
+    base, base_source = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_BASE_URL", smoke.DEFAULT_BASE)
+    host = base.split("//", 1)[-1].split("/", 1)[0]
+    rows_spec = load_rows()
+    done = load_done()
+    print("compile", flush=True)
+    built = smoke.compile_bins(smoke.RUN_ROOT / "bin")
+    if not built["ok"]:
+        raise SystemExit(built["reason"])
+    binary = smoke.RUN_ROOT / "bin" / "cloudagent"
+    print("preflight", flush=True)
+    smoke.preflight_jail()
+    print("server", flush=True)
+    server = smoke.start_server(binary.parent / "simplebase", secrets, model, base)
+    started = time.monotonic()
+    try:
+        _, token = smoke.bootstrap()
+        print("probe", flush=True)
+        probe_row = smoke.probe(binary, token, model)
+        if not probe_row["ok"]:
+            raise SystemExit("probe failed " + (probe_row["reason"] or ""))
+        for item in rows_spec:
+            if item["task_id"] in done:
+                print(f"skip {item['task_id']}", flush=True)
+                continue
+            row = one_task(binary, token, model, item)
+            append_jsonl(row)
+            done[item["task_id"]] = row
+            if row.get("category") == "isolation":
+                print("isolation blocked, stop", flush=True)
+                break
+    finally:
+        smoke.stop_server(server)
+        ordered = [done[item["task_id"]] for item in rows_spec if item["task_id"] in done]
+        write_section(
+            {
+                "model": model,
+                "base_host": host,
+                "model_source": model_source,
+                "base_source": base_source,
+                "wall_s": int(time.monotonic() - started),
+            },
+            ordered,
+        )
+        print(f"report {smoke.REPORT}", flush=True)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            print(smoke.redact(str(exc)), file=sys.stderr)
+        raise
+    except Exception as exc:
+        print(smoke.redact(f"{type(exc).__name__}: {exc}"), file=sys.stderr)
+        sys.exit(1)
