@@ -380,29 +380,67 @@ func ExtractToolCall(s string) (name, args string, ok bool) {
 		return "", "", false
 	}
 	rest := strings.TrimSpace(s[idx+len("TOOL_CALL"):])
-	var payload struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-	}
-	if err := json.Unmarshal([]byte(rest), &payload); err != nil {
-		// Try first JSON object in the remainder.
+	raw, ok := decodeToolCallObject(rest)
+	if !ok {
+		// 前面夹了噪声时，从第一个 { 起解第一个完整对象。
 		start := strings.Index(rest, "{")
-		end := strings.LastIndex(rest, "}")
-		if start < 0 || end <= start {
+		if start < 0 {
 			return "", "", false
 		}
-		if err := json.Unmarshal([]byte(rest[start:end+1]), &payload); err != nil {
+		raw, ok = decodeToolCallObject(rest[start:])
+		if !ok {
 			return "", "", false
 		}
 	}
-	if payload.Name == "" {
+	var name0 string
+	if v, has := raw["name"]; has {
+		_ = json.Unmarshal(v, &name0)
+	}
+	if name0 == "" {
 		return "", "", false
 	}
-	arg := "{}"
-	if len(payload.Arguments) > 0 {
-		arg = string(payload.Arguments)
+	if v, has := raw["arguments"]; has && len(v) > 0 && string(v) != "null" {
+		return name0, string(v), true
 	}
-	return payload.Name, arg, true
+	return name0, flattenToolCallArgs(raw), true
+}
+
+// decodeToolCallObject 解出 s 开头的第一个完整 JSON 对象为「键 → 原始值」，其后的内容忽略。
+//
+// 用 Decoder 而不是整段 Unmarshal：模型常在一条消息里连写多个 TOOL_CALL，或在
+// 调用后追加说明文字、空代码块。整段 Unmarshal 会因为"尾部多余内容"整体失败，
+// 于是一个本来完整的调用被当成普通文本，整轮在这里提前结束。
+// 只取第一个对象，也符合协议"一次回复只发一行调用"的约定。
+func decodeToolCallObject(s string) (map[string]json.RawMessage, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(strings.NewReader(s)).Decode(&raw); err != nil || raw == nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+// flattenToolCallArgs 在模型漏写 "arguments" 包装时兜底：把 name 以外的顶层字段
+// 当作参数，即 {"name":"shell","command":"ls"} 按 {"command":"ls"} 处理。
+//
+// 这是对模型格式偏差的容错，不是第二种协议：只在 arguments 缺失时才生效，
+// 所以格式正确的调用（含 arguments 为空对象）完全不受影响。没有任何多余字段时
+// 返回 "{}"，与「无参工具」的既有行为一致。
+func flattenToolCallArgs(raw map[string]json.RawMessage) string {
+	extra := make(map[string]json.RawMessage, len(raw))
+	for k, v := range raw {
+		if k == "name" || k == "arguments" {
+			continue
+		}
+		extra[k] = v
+	}
+	if len(extra) == 0 {
+		return "{}"
+	}
+	b, err := json.Marshal(extra)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }
 
 func mergeTools(bound, opt []*schema.ToolInfo) []*schema.ToolInfo {

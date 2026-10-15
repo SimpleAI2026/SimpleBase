@@ -24,6 +24,7 @@ SimpleBase 以**项目**为隔离单位，集中管理 DuckLake 数据库、项�
 | 运行 Go 代码或定时作业 | [云函数](/docs/automation/gofunction)、[定时任务](/docs/automation/cronjob) |
 | 隔离执行脚本与 CI 用例 | [云沙盒](/docs/automation/sandbox) |
 | 用自然语言调用工具 | [云助手](/docs/workbench/agent) |
+| 用 OpenAI SDK 调用项目默认模型 | [OpenAI 兼容接口](/docs/getting-started/openai-compatible) |
 | 观察服务 | [监控大盘](/docs/workbench/dashboard)、[日志与审计](/docs/ops/logs)、[部署](/docs/ops/deployment) |
 
 ## 使用边界

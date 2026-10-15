@@ -125,12 +125,12 @@ func (s *slowStreamReader) Next() (*LLMStreamChunk, error) {
 	}
 	time.Sleep(s.delay)
 	s.i++
-	return &LLMStreamChunk{Type: "delta", Content: "x"}, nil
+	return &LLMStreamChunk{Type: "content", Content: "x"}, nil
 }
 
 func (s *slowStreamReader) Close() error { return nil }
 
-// 端到端：/llm/stream 同样必须解除写超时（另一个 SSE 长连接端点）。
+// 端到端：OpenAI 兼容流式端点同样必须解除写超时（另一个 SSE 长连接端点）。
 func TestLLMStreamSurvivesWriteTimeout(t *testing.T) {
 	h := &LLMHandler{svc: &fakeLLMSvc{reader: &slowStreamReader{blocks: 25, delay: 40 * time.Millisecond}}}
 	e := echo.New()
@@ -143,22 +143,22 @@ func TestLLMStreamSurvivesWriteTimeout(t *testing.T) {
 			return next(c)
 		}
 	})
-	e.POST("/stream", h.Stream)
+	e.POST("/v1/chat/completions", h.ChatCompletions)
 
 	srv := httptest.NewUnstartedServer(e)
 	srv.Config.WriteTimeout = 250 * time.Millisecond
 	srv.Start()
 	t.Cleanup(srv.Close)
 
-	resp, err := http.Post(srv.URL+"/stream", "application/json",
-		strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`))
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json",
+		strings.NewReader(`{"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 
 	chunks := 0
-	end := false
+	done := false
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -167,14 +167,17 @@ func TestLLMStreamSurvivesWriteTimeout(t *testing.T) {
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if strings.Contains(data, `"type":"end"`) {
-			end = true
+		if data == oaiSSEDone {
+			done = true
 			continue
 		}
-		chunks++
+		// 只数正文帧：首帧 role 与结束帧 finish_reason 不计入。
+		if strings.Contains(data, `"content":"x"`) {
+			chunks++
+		}
 	}
-	if !end {
-		t.Fatalf("stream cut off before end frame (chunks=%d): beginSSE is not applied to LLM Stream", chunks)
+	if !done {
+		t.Fatalf("stream cut off before [DONE] (chunks=%d): beginSSE is not applied to ChatCompletions stream", chunks)
 	}
 	if chunks != 25 {
 		t.Fatalf("chunks=%d want 25: stream was truncated", chunks)

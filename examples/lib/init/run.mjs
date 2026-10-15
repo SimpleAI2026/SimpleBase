@@ -217,8 +217,8 @@ async function main() {
     await functions(id, dir, manifest.functions)
     await jobs(id, manifest.cron_jobs)
     if (manifest.requires?.llm) {
-      const providers = await request('GET', scoped(id, '/llm/providers'))
-      if (!providers || !Object.values(providers).some(v => Array.isArray(v) && v.length)) console.log(`[${name}] LLM / agent: 未验证（无 provider）`)
+      const models = await request('GET', scoped(id, '/v1/models'))
+      if (!models?.data?.length) console.log(`[${name}] LLM / agent: 未验证（无可用模型）`)
       else await agents(id, manifest.agents)
     }
     const records = await keys(id, dir, dbs, manifest.api_keys)

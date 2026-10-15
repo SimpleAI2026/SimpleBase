@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col gap-4 max-w-lg">
+  <div class="flex w-full flex-col gap-4">
     <Alert v-if="error" variant="destructive">
       <AlertTitle>{{ t('components.storage.errorTitle') }}</AlertTitle>
       <AlertDescription>{{ error }}</AlertDescription>

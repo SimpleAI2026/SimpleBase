@@ -92,7 +92,10 @@ func TestDelegation_RouteTable(t *testing.T) {
 		if !strings.HasPrefix(r.Path, "/v1/") && !strings.HasPrefix(r.Path, "/go/") {
 			continue
 		}
-		if r.Name == "echo_route_not_found" || strings.HasSuffix(r.Path, "/*") || strings.HasSuffix(r.Path, "/:projectID") {
+		// Echo 为路由组注册的 NotFound 伪路由，其 Method 字段即为 "echo_route_not_found"
+		// （如兼容出口的 oa 组 /v1/projects/:projectID/v1）。
+		if r.Name == "echo_route_not_found" || r.Method == "echo_route_not_found" ||
+			strings.HasSuffix(r.Path, "/*") || strings.HasSuffix(r.Path, "/:projectID") {
 			continue
 		}
 		path := materializeRoute(r.Path)

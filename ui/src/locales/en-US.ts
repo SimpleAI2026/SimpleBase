@@ -1568,7 +1568,21 @@ const enUS: MessageTree = {
       loadModelsFailed: 'Failed to load model settings',
       saveModelFailed: 'Failed to save the default model',
       savedToServer: 'Saved to the server',
-      saveFailed: 'Save failed'
+      saveFailed: 'Save failed',
+      freeTitle: 'Default model · free for developers',
+      freeBadge: 'Planned',
+      freeDesc: 'Call this project\'s default model over the OpenAI-compatible protocol without your own provider key. Point the official OpenAI SDK base_url at the address below.',
+      freeApi: 'API',
+      freeModel: 'Model',
+      freeModelUnset: 'Not set, see "Default model" below',
+      freeTokens: 'Tokens',
+      freeTokensValue: 'Unlimited tokens',
+      freeKeyMissing: 'Not configured yet, set it in the Connection tab',
+      freeDocs: 'Read the docs',
+      freeCopyApi: 'Copy API address',
+      freeCopyKey: 'Copy API key',
+      freeCopied: '{label} copied',
+      freeCopyFailed: 'Cannot write to the clipboard'
     }
   }
 }

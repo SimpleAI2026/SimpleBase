@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
@@ -292,6 +293,7 @@ func toGatewayRequest(req LLMRequest) llmgateway.Request {
 		Messages:    msgs,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
+		ToolChoice:  decodeToolChoice(req.ToolChoice),
 	}
 	for _, t := range req.Tools {
 		var params any = map[string]any{"type": "object", "properties": map[string]any{}}
@@ -304,6 +306,23 @@ func toGatewayRequest(req LLMRequest) llmgateway.Request {
 		})
 	}
 	return out
+}
+
+// decodeToolChoice 把 HTTP 层保存的 tool_choice JSON 还原成 litellm 接受的 any。
+//
+// tool_choice 要么是字符串（"auto"/"none"/"required"），要么是
+// {"type":"function","function":{"name":"..."}} 对象，json 解码到 any 即可保持原形。
+// 空值或非法 JSON 都返回 nil（不指定）：非法值应由 handler 入口校验并以 400 拒绝，
+// 这里不再重复报错，避免改动 toGatewayRequest 的签名而波及所有调用方与测试桩。
+func decodeToolChoice(raw json.RawMessage) any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	return v
 }
 
 func (a *llmServiceAdapter) ListProviders(ctx context.Context, projectID string) ([]string, error) {

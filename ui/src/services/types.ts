@@ -392,8 +392,32 @@ export interface QuotaStatus {
 /* ---------- LLM Gateway（proto-http.md §3.5） ---------- */
 
 export interface LlmMessage {
-  role: 'system' | 'user' | 'assistant' | string
+  role: 'system' | 'user' | 'assistant' | 'tool' | string
   content: string
+  /** 仅 assistant 消息：模型发起过的工具调用（OpenAI 形状） */
+  tool_calls?: LlmToolCall[]
+  /** 仅 tool 消息：对应哪一次调用 */
+  tool_call_id?: string
+}
+
+/** LlmToolCall 是 OpenAI 的工具调用形状；Arguments 是 JSON 字符串，不是对象。 */
+export interface LlmToolCall {
+  id: string
+  type: string
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
+/** LlmTool 是 OpenAI 的工具声明。 */
+export interface LlmTool {
+  type: 'function'
+  function: {
+    name: string
+    description?: string
+    parameters?: Record<string, unknown>
+  }
 }
 
 export interface LlmChatRequest {

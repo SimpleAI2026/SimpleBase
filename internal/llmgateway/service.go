@@ -53,6 +53,9 @@ type Request struct {
 	Temperature *float64
 	// Tools 非空时走原生 function calling。
 	Tools []providers.Tool
+	// ToolChoice 对应 OpenAI 的 tool_choice（字符串或 {"type":"function",...} 对象）；
+	// nil 表示不指定。仅在 Tools 非空时有意义，由 litellm 驱动按供应商转换。
+	ToolChoice any
 }
 
 // Response 映射 providers.Response。
@@ -276,6 +279,10 @@ func (s *service) prepareRequest(ctx context.Context, projectID string, req Requ
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
 		Tools:       req.Tools,
+	}
+	// 没有工具时 tool_choice 没有意义，部分上游会直接 400，因此不透传。
+	if len(req.Tools) > 0 {
+		lreq.ToolChoice = req.ToolChoice
 	}
 	return c, cfg, lreq, nil
 }

@@ -37,6 +37,7 @@ import type {
   GoFuncVersionCreate,
   GoFuncVersionSummary,
   LlmChatRequest,
+  LlmChatResponse,
   LlmSettings,
   LlmStreamHandlers,
   LlmStreamConnection,
@@ -68,6 +69,30 @@ function toLlmPayload(req: LlmChatRequest) {
     messages: req.messages,
     max_tokens: req.maxTokens,
     temperature: req.temperature
+  }
+}
+
+/**
+ * OpenAI chat.completion → UI 的 LlmChatResponse。
+ *
+ * 仓库约定「跨层契约集中在 types.ts，不透传原始结构」（ui/AGENTS.md），因此把
+ * choices[0] 展平成界面已有的扁平类型，useAiChat 与测试桩都无需感知嵌套。
+ */
+function toLlmChatResponse(raw: Record<string, any>): LlmChatResponse {
+  const choice = raw?.choices?.[0]
+  const usage = raw?.usage
+  return {
+    content: choice?.message?.content ?? '',
+    usage: usage
+      ? {
+          prompt_tokens: usage.prompt_tokens,
+          completion_tokens: usage.completion_tokens,
+          total_tokens: usage.total_tokens
+        }
+      : undefined,
+    model: raw?.model ?? '',
+    provider: raw?.provider ?? '',
+    finish_reason: choice?.finish_reason
   }
 }
 
@@ -188,7 +213,18 @@ function toBatchResult(r: Record<string, any>): SqlBatchResult {
   }
 }
 
-async function readSse(resp: Response, onEvent: (event: Record<string, any>) => void): Promise<void> {
+/**
+ * 逐帧解析 SSE 的 `data:` 行并回调 JSON 对象。
+ *
+ * `onDone` 仅供 OpenAI 兼容流使用：它的结束哨兵是字面量 `[DONE]`（不是 JSON），
+ * 解析会抛错并被静默忽略，调用方因此永远等不到结束信号、界面一直转圈。
+ * 云助手 run 流仍以 `{"type":"end"}` 收尾，不传 onDone，行为与之前完全一致。
+ */
+async function readSse(
+  resp: Response,
+  onEvent: (event: Record<string, any>) => void,
+  onDone?: () => void
+): Promise<void> {
   const reader = resp.body!.getReader()
   const decoder = new TextDecoder()
   let buf = ''
@@ -210,6 +246,10 @@ async function readSse(resp: Response, onEvent: (event: Record<string, any>) => 
         if (!line.startsWith('data:')) continue
         const data = line.slice(5).trim()
         if (!data) continue
+        if (onDone && data === '[DONE]') {
+          onDone()
+          continue
+        }
         try {
           const parsed = JSON.parse(data) as Record<string, any>
           if (eventId) parsed._sse_id = eventId
@@ -239,14 +279,14 @@ function llmStream(
   ;(async () => {
     try {
       const resp = await fetch(
-        `${baseURL}/v1/projects/${encodeURIComponent(projectId)}/llm/stream`,
+        `${baseURL}/v1/projects/${encodeURIComponent(projectId)}/v1/chat/completions`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${getApiKey()}`
           },
-          body: JSON.stringify(toLlmPayload(req)),
+          body: JSON.stringify({ ...toLlmPayload(req), stream: true }),
           signal: controller.signal
         }
       )
@@ -257,14 +297,16 @@ function llmStream(
           (data as any)?.error?.message || (data as any)?.message || `请求失败 (${resp.status})`
         )
       }
-      await readSse(resp, (obj) => {
-        if (obj?.type === 'end') {
-          fireEnd()
-          return
-        }
-        const text = obj?.delta ?? obj?.content ?? obj?.choices?.[0]?.delta?.content ?? ''
-        if (text) handlers.onChunk?.(text)
-      })
+      await readSse(
+        resp,
+        (obj) => {
+          // OpenAI 分块：正文在 choices[0].delta.content。
+          const text = obj?.choices?.[0]?.delta?.content ?? ''
+          if (text) handlers.onChunk?.(text)
+        },
+        // 结束哨兵 `[DONE]` 是字面量而非 JSON，必须显式识别，否则 onEnd 永不触发。
+        fireEnd
+      )
       fireEnd()
     } catch (e) {
       if (!controller.signal.aborted) handlers.onError?.(e)
@@ -1266,8 +1308,11 @@ export const httpApi: Api = {
   llm: {
     chat: (projectId, req) =>
       http
-        .post('/v1/projects/' + encodeURIComponent(projectId) + '/llm/chat', toLlmPayload(req))
-        .then((r) => r.data),
+        .post(
+          '/v1/projects/' + encodeURIComponent(projectId) + '/v1/chat/completions',
+          toLlmPayload(req)
+        )
+        .then((r) => toLlmChatResponse(r.data)),
     stream: llmStream
   },
 

@@ -84,6 +84,11 @@ func (r *SessionRunner) Run(ctx context.Context, userText string, emit func(CLIE
 	}
 	started := time.Now()
 	model := agentcore.NewModel(r.Client, "", strings.TrimSpace(r.Model))
+	// 优先走标准 function calling；供应商不支持 tools（400/422）时由 agentcore 自动降级为
+	// 文本协议并缓存结论。此前 CLI 恒为文本协议，是因为旧端点的 HTTP DTO 根本没有 tools
+	// 字段（被迫回退），不是设计选择；文本协议要求模型手写 TOOL_CALL，格式稍有偏差就会
+	// 整轮失败。服务端 OpenAI 兼容出口补齐 tools 后，这里切回标准协议。
+	model.Protocol = "auto"
 	model.Warn = r.Warn
 	var usage agentcore.ChatUsage
 	model.Usage = func(u agentcore.ChatUsage) {

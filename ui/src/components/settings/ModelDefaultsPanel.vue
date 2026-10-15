@@ -1,5 +1,76 @@
 <template>
   <div>
+    <section
+      v-if="project.id"
+      class="mb-4 flex w-full flex-col gap-3 rounded-lg border border-success/30 bg-success/10 p-4"
+      data-testid="free-model-card"
+    >
+      <div class="flex flex-wrap items-center gap-2">
+        <SparklesIcon class="size-4 shrink-0 text-success" aria-hidden="true" />
+        <h3 class="text-sm font-medium">{{ t('components.settingsPanel.freeTitle') }}</h3>
+        <Badge variant="outline">{{ t('components.settingsPanel.freeBadge') }}</Badge>
+      </div>
+      <p class="text-xs text-muted-foreground">{{ t('components.settingsPanel.freeDesc') }}</p>
+
+      <dl class="flex flex-col gap-2 text-xs">
+        <div class="flex flex-wrap items-center gap-2">
+          <dt class="w-20 shrink-0 text-muted-foreground">{{ t('components.settingsPanel.freeApi') }}</dt>
+          <dd class="flex min-w-0 flex-1 items-center gap-2">
+            <code class="sb-mono min-w-0 flex-1 truncate rounded bg-background/70 px-2 py-1" data-testid="free-model-base-url">{{ openaiBaseUrl }}</code>
+            <Button
+              variant="outline"
+              size="sm"
+              class="shrink-0"
+              :aria-label="t('components.settingsPanel.freeCopyApi')"
+              @click="copyText(openaiBaseUrl, t('components.settingsPanel.freeApi'))"
+            >
+              <CopyIcon data-icon="inline-start" aria-hidden="true" />
+              {{ t('common.copy') }}
+            </Button>
+          </dd>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <dt class="w-20 shrink-0 text-muted-foreground">API Key</dt>
+          <dd class="flex min-w-0 flex-1 items-center gap-2">
+            <code class="sb-mono min-w-0 flex-1 truncate rounded bg-background/70 px-2 py-1" data-testid="free-model-key">{{ maskedKey || t('components.settingsPanel.freeKeyMissing') }}</code>
+            <Button
+              variant="outline"
+              size="sm"
+              class="shrink-0"
+              :disabled="!auth.apiKey"
+              :aria-label="t('components.settingsPanel.freeCopyKey')"
+              @click="copyText(auth.apiKey, 'API Key')"
+            >
+              <CopyIcon data-icon="inline-start" aria-hidden="true" />
+              {{ t('common.copy') }}
+            </Button>
+          </dd>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <dt class="w-20 shrink-0 text-muted-foreground">{{ t('components.settingsPanel.freeModel') }}</dt>
+          <dd class="min-w-0 flex-1">
+            <code class="sb-mono rounded bg-background/70 px-2 py-1" data-testid="free-model-name">{{ defaults.defaultModel || t('components.settingsPanel.freeModelUnset') }}</code>
+          </dd>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <dt class="w-20 shrink-0 text-muted-foreground">{{ t('components.settingsPanel.freeTokens') }}</dt>
+          <dd class="flex min-w-0 flex-1 items-center gap-1 font-medium text-success">
+            <InfinityIcon class="size-4 shrink-0" aria-hidden="true" />
+            {{ t('components.settingsPanel.freeTokensValue') }}
+          </dd>
+        </div>
+      </dl>
+
+      <RouterLink
+        :to="OPENAI_DOC_PATH"
+        class="inline-flex w-fit items-center gap-1 text-xs font-medium text-success underline-offset-4 hover:underline"
+        data-testid="free-model-docs"
+        @click="auth.closeSettings()"
+      >
+        <BookOpenIcon class="size-3.5 shrink-0" aria-hidden="true" />
+        {{ t('components.settingsPanel.freeDocs') }}
+      </RouterLink>
+    </section>
     <SbEmptyState
       v-if="!project.id"
       :description="t('components.settingsPanel.noProject')"
@@ -18,7 +89,7 @@
       :error="modelsErrorText"
       @retry="loadServerDefaults"
     >
-      <FieldGroup class="max-w-lg">
+      <FieldGroup class="w-full">
         <Field>
           <FieldLabel>{{ t('components.settingsPanel.defaultProvider') }}</FieldLabel>
           <Select
@@ -125,9 +196,12 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
+import { RouterLink } from 'vue-router'
+import { BookOpenIcon, CopyIcon, InfinityIcon, SparklesIcon } from '@lucide/vue'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import SbEmptyState from '../SbEmptyState.vue'
 import { useLoadState } from '@/composables/useLoadState'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Combobox,
@@ -153,16 +227,43 @@ import { Slider } from '@/components/ui/slider'
 import { Spinner } from '@/components/ui/spinner'
 import { api } from '../../services/api'
 import { LLM_PROVIDER_PRESETS, getProviderPreset } from '../../constants/llmProviders'
+import { useAuthStore } from '../../stores/auth'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 
+/** OpenAI 兼容接口的使用文档（docs/getting-started/openai-compatible.md） */
+const OPENAI_DOC_PATH = '/docs/getting-started/openai-compatible'
+
 const project = useProjectStore()
 const settings = useSettingsStore()
+const auth = useAuthStore()
 const { t } = useI18n()
 
 const presets = LLM_PROVIDER_PRESETS
 
 const defaults = computed(() => settings.defaultsFor(project.id))
+
+/**
+ * 默认调用地址：双 /v1 是刻意的——第一段是 SimpleBase API 版本，第二段是 OpenAI SDK 的资源前缀
+ * （openai-compatible-llm-api-plan.md §2.1）。
+ */
+const openaiBaseUrl = computed(
+  () => `${window.location.origin}/v1/projects/${encodeURIComponent(project.id)}/v1`
+)
+
+/** 展示用脱敏 Key；复制仍用完整值 */
+const maskedKey = computed(() => {
+  const k = auth.apiKey
+  if (!k) return ''
+  return k.length <= 12 ? k : `${k.slice(0, 7)}…${k.slice(-4)}`
+})
+
+function copyText(text: string, label: string) {
+  return navigator.clipboard
+    .writeText(text)
+    .then(() => toast.success(t('components.settingsPanel.freeCopied', { label })))
+    .catch(() => toast.error(t('components.settingsPanel.freeCopyFailed')))
+}
 
 const modelSuggests = computed(() => {
   const id = defaults.value.defaultProvider

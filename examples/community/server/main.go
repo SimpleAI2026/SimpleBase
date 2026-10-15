@@ -138,27 +138,35 @@ func main() {
 			if doc["id"] != id {
 				continue
 			}
-			var providers struct {
-				Providers []string `json:"providers"`
+			// OpenAI 兼容出口：路径里的两段 /v1 都要保留（见 internal/AGENTS.md）。
+			var models struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
 			}
-			if err := r.Request(req.Context(), http.MethodGet, r.ProjectPath("/llm/providers"), nil, &providers); err != nil || len(providers.Providers) == 0 {
+			if err := r.Request(req.Context(), http.MethodGet, r.ProjectPath("/v1/models"), nil, &models); err != nil || len(models.Data) == 0 {
 				respond(w, 501, map[string]string{"error": "LLM provider unavailable"})
 				return
 			}
 			payload := map[string]any{"messages": []map[string]string{{"role": "user", "content": "请用一句话概括：" + ex.Text(doc["title"]) + " " + ex.Text(doc["body"])}}}
-			var summary struct {
-				Content string `json:"content"`
+			var completion struct {
+				Choices []struct {
+					Message struct {
+						Content string `json:"content"`
+					} `json:"message"`
+				} `json:"choices"`
 			}
-			if err := r.Request(req.Context(), http.MethodPost, r.ProjectPath("/llm/chat"), payload, &summary); err != nil {
+			if err := r.Request(req.Context(), http.MethodPost, r.ProjectPath("/v1/chat/completions"), payload, &completion); err != nil || len(completion.Choices) == 0 {
 				respond(w, 502, map[string]string{"error": "summary failed"})
 				return
 			}
-			doc["summary"] = summary.Content
+			summary := completion.Choices[0].Message.Content
+			doc["summary"] = summary
 			if _, err := r.Client.UpdateDocument(req.Context(), "posts", id, doc); err != nil {
 				respond(w, 502, map[string]string{"error": "summary save failed"})
 				return
 			}
-			respond(w, 200, map[string]string{"summary": summary.Content})
+			respond(w, 200, map[string]string{"summary": summary})
 			return
 		}
 		respond(w, 404, map[string]string{"error": "post not found"})

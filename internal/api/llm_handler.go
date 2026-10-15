@@ -1,16 +1,23 @@
-// llm_handler.go 实现 LLM Gateway 的 HTTP handler（plan8.md）。
+// llm_handler.go 实现 LLM Gateway 的 OpenAI 兼容 HTTP handler
+// （planv6.0 openai-compatible-llm-api-plan）。
 //
 // 路由：
 //
-//	POST /v1/projects/:projectID/llm/chat
-//	POST /v1/projects/:projectID/llm/stream  (SSE)
-//	GET  /v1/projects/:projectID/llm/providers
+//	POST /v1/projects/:projectID/v1/chat/completions   （stream:true 时为 SSE）
+//	GET  /v1/projects/:projectID/v1/models
+//
+// 路径里的两段 v1 都是刻意保留的，不是笔误：前一段是 SimpleBase 自身的 API 版本前缀，
+// 后一段是 OpenAI SDK 约定的资源前缀。只有保留 base_url 尾部这个 /v1，
+// 官方 SDK 才能把 base_url 指向 ".../projects/<id>/v1" 并原样拼出 /chat/completions。
+// 请勿"顺手修正"成单段 v1（路由测试 TestOpenAIRoutePaths 会锁定这一点）。
+//
+// 旧的 /llm/chat、/llm/stream、/llm/providers 已删除，不保留兼容期。
 package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -25,141 +32,123 @@ type LLMHandler struct {
 	store *systemdb.Store
 }
 
-type llmChatRequest struct {
-	Model       string          `json:"model,omitempty"`
-	Provider    string          `json:"provider,omitempty"`
-	SessionID   string          `json:"session_id,omitempty"`
-	Messages    []llmMessageDTO `json:"messages"`
-	MaxTokens   *int            `json:"max_tokens,omitempty"`
-	Temperature *float64        `json:"temperature,omitempty"`
-}
-
-type llmMessageDTO struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type llmChatResponse struct {
-	Content      string        `json:"content"`
-	Usage        LLMTokenUsage `json:"usage"`
-	Model        string        `json:"model"`
-	Provider     string        `json:"provider"`
-	FinishReason string        `json:"finish_reason,omitempty"`
-}
-
-// Chat 处理非流式对话。
-func (h *LLMHandler) Chat(c echo.Context) error {
+// ChatCompletions 处理 POST .../v1/chat/completions。
+// 非流式返回 chat.completion；stream:true 时返回 SSE 并以 [DONE] 收尾。
+func (h *LLMHandler) ChatCompletions(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return writeOAIError(c, http.StatusInternalServerError, "internal_error", "project context missing")
 	}
-	var req llmChatRequest
+	var req oaiChatRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, err)
+		return writeOAIError(c, http.StatusBadRequest, "invalid_request", "invalid json body")
 	}
-	if len(req.Messages) == 0 {
-		return WriteError(c, errors.New("messages required"))
+	if status, code, msg := req.validate(); status != 0 {
+		return writeOAIError(c, status, code, msg)
 	}
 	if h.usage != nil {
 		if err := h.usage.CheckQuota(c.Request().Context(), pc.ID, "llm"); err != nil {
-			return WriteError(c, err)
+			return writeOAIErrorFrom(c, err)
 		}
 	}
-	msgs := make([]LLMMessage, len(req.Messages))
-	for i, m := range req.Messages {
-		msgs[i] = LLMMessage{Role: m.Role, Content: m.Content}
+	lreq := oaiToLLMRequest(req)
+	if req.Stream {
+		return h.stream(c, pc.ID, req, lreq)
 	}
-	resp, err := h.svc.Chat(c.Request().Context(), pc.ID, LLMRequest{
-		Model:       req.Model,
-		Messages:    msgs,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-	})
-	if err != nil {
-		return WriteError(c, err)
-	}
-	h.recordAudit(c, pc.ID, "llm_chat", "ok")
-	h.persistChat(c, pc.ID, req, resp)
-	return c.JSON(http.StatusOK, llmChatResponse{
-		Content:      resp.Content,
-		Usage:        resp.Usage,
-		Model:        resp.Model,
-		Provider:     resp.Provider,
-		FinishReason: resp.FinishReason,
-	})
+	return h.complete(c, pc.ID, req, lreq)
 }
 
-// Stream 处理流式对话，使用 SSE 转发。
-func (h *LLMHandler) Stream(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, errors.New("project context missing"))
-	}
-	var req llmChatRequest
-	if err := c.Bind(&req); err != nil {
-		return WriteError(c, err)
-	}
-	if len(req.Messages) == 0 {
-		return WriteError(c, errors.New("messages required"))
-	}
-	if h.usage != nil {
-		if err := h.usage.CheckQuota(c.Request().Context(), pc.ID, "llm"); err != nil {
-			return WriteError(c, err)
-		}
-	}
-	msgs := make([]LLMMessage, len(req.Messages))
-	for i, m := range req.Messages {
-		msgs[i] = LLMMessage{Role: m.Role, Content: m.Content}
-	}
-	reader, err := h.svc.Stream(c.Request().Context(), pc.ID, LLMRequest{
-		Model:       req.Model,
-		Messages:    msgs,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-	})
+// complete 处理非流式调用。
+func (h *LLMHandler) complete(c echo.Context, projectID string, req oaiChatRequest, lreq LLMRequest) error {
+	resp, err := h.svc.Chat(c.Request().Context(), projectID, lreq)
 	if err != nil {
-		return WriteError(c, err)
+		return writeOAIErrorFrom(c, err)
+	}
+	h.recordAudit(c, projectID, "llm_chat_completions", "ok")
+	h.persistChat(c, projectID, req, resp)
+	return c.JSON(http.StatusOK, newOAIResponse(resp))
+}
+
+// stream 处理流式调用，逐帧转成 OpenAI chat.completion.chunk。
+//
+// 网关块 → OpenAI 帧的映射：
+//   - Type=content        → delta.content
+//   - Type=tool_call_delta → delta.tool_calls[index]（id/name 仅首个分片出现）
+//   - FinishReason 非空   → 记下，流结束时统一发 finish 帧
+//   - Usage 非空          → 暂存，按 include_usage 决定是否发尾帧
+//   - Done                → 结束
+//
+// 其余块类型（reasoning 等）不属于 OpenAI 标准帧，直接丢弃，绝不在流中插入非标准帧。
+func (h *LLMHandler) stream(c echo.Context, projectID string, req oaiChatRequest, lreq LLMRequest) error {
+	reader, err := h.svc.Stream(c.Request().Context(), projectID, lreq)
+	if err != nil {
+		// 此时尚未写任何字节，可以返回正常的 HTTP 错误。
+		return writeOAIErrorFrom(c, err)
 	}
 	defer reader.Close()
 
-	// planv6.0 v2 §11：SSE 长连接需解除 WriteTimeout，否则会在 write_timeout
-	// （默认 30s）到点时被切断。
+	// SSE 长连接需解除 WriteTimeout，否则会在 write_timeout（默认 30s）到点时被切断。
 	beginSSE(c)
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
+	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
-	flusher, _ := c.Response().Writer.(http.Flusher)
+
+	includeUsage := req.StreamOptions != nil && req.StreamOptions.IncludeUsage
+	w := newOAIStreamWriter(c, req.Model, includeUsage)
+
+	finishReason := ""
 	for {
-		chunk, err := reader.Next()
-		if err != nil {
-			end := map[string]any{"type": "end"}
-			data, _ := json.Marshal(end)
-			_, _ = c.Response().Write([]byte("data: " + string(data) + "\n\n"))
-			if flusher != nil {
-				flusher.Flush()
+		chunk, rerr := reader.Next()
+		if rerr != nil {
+			// io.EOF 是正常结束；其他错误发生在已写出响应头之后，只能终止流。
+			// 不发明错误帧（会破坏严格客户端的解析），客户端凭缺失 [DONE] 判定异常。
+			if !errors.Is(rerr, io.EOF) {
+				return nil
 			}
 			break
 		}
-		data, _ := json.Marshal(chunk)
-		_, _ = c.Response().Write([]byte("data: " + string(data) + "\n\n"))
-		if flusher != nil {
-			flusher.Flush()
+		if chunk == nil {
+			continue
+		}
+		if chunk.Usage != nil {
+			w.setUsage(*chunk.Usage)
+		}
+		switch chunk.Type {
+		case "content":
+			if err := w.content(chunk.Content); err != nil {
+				return nil // 客户端断开
+			}
+		case "tool_call_delta":
+			if err := w.toolCall(chunk.ToolCallIndex, chunk.ToolCallID, chunk.ToolCallName, chunk.ToolCallArgs); err != nil {
+				return nil
+			}
+		}
+		if chunk.FinishReason != "" {
+			finishReason = chunk.FinishReason
+		}
+		if chunk.Done {
+			break
 		}
 	}
+	if err := w.finish(finishReason); err != nil {
+		return nil
+	}
+	h.recordAudit(c, projectID, "llm_chat_completions", "ok")
 	return nil
 }
 
-// ListProviders 返回可用供应商名。
-func (h *LLMHandler) ListProviders(c echo.Context) error {
+// ListModels 处理 GET .../v1/models，返回严格 OpenAI list。
+func (h *LLMHandler) ListModels(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return writeOAIError(c, http.StatusInternalServerError, "internal_error", "project context missing")
 	}
-	names, err := h.svc.ListProviders(c.Request().Context(), pc.ID)
+	models, err := h.svc.ProviderModels(c.Request().Context(), pc.ID)
 	if err != nil {
-		return WriteError(c, err)
+		return writeOAIErrorFrom(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"providers": names})
+	return c.JSON(http.StatusOK, newOAIModelList(models))
 }
 
 func (h *LLMHandler) recordAudit(c echo.Context, projectID, kind, status string) {
@@ -180,35 +169,36 @@ func (h *LLMHandler) recordAudit(c echo.Context, projectID, kind, status string)
 	})
 }
 
-func (h *LLMHandler) persistChat(c echo.Context, projectID string, req llmChatRequest, resp LLMResponse) {
+// persistChat 把一次非流式对话落到系统库（sys_llm_sessions / sys_llm_messages）。
+//
+// OpenAI 协议没有 session_id，且实测没有任何客户端发送过它，因此每次请求新建一条
+// 会话记录；旧实现里按 session_id 复用的分支是死代码，已随旧端点一并删除。
+// 只落最后一条请求消息与最终 assistant 正文，不存工具参数。
+func (h *LLMHandler) persistChat(c echo.Context, projectID string, req oaiChatRequest, resp LLMResponse) {
 	if h.store == nil {
 		return
 	}
 	ctx := context.Background()
-	sessionID := req.SessionID
-	if sessionID == "" {
-		createdBy := ""
-		if p, ok := PrincipalFromContext(c.Request().Context()); ok {
-			createdBy = p.APIKeyID
-		}
-		sess, err := h.store.CreateLLMSession(ctx, systemdb.LLMSession{
-			ProjectID: projectID, Provider: resp.Provider, Model: resp.Model, CreatedBy: createdBy,
-		})
-		if err != nil {
-			return
-		}
-		sessionID = sess.ID
+	createdBy := ""
+	if p, ok := PrincipalFromContext(c.Request().Context()); ok {
+		createdBy = p.APIKeyID
+	}
+	sess, err := h.store.CreateLLMSession(ctx, systemdb.LLMSession{
+		ProjectID: projectID, Provider: resp.Provider, Model: resp.Model, CreatedBy: createdBy,
+	})
+	if err != nil {
+		return
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if len(req.Messages) > 0 {
 		last := req.Messages[len(req.Messages)-1]
 		_, _ = h.store.AppendLLMMessage(ctx, systemdb.LLMMessage{
-			SessionID: sessionID, ProjectID: projectID, Role: last.Role, Content: last.Content, RequestID: rid,
+			SessionID: sess.ID, ProjectID: projectID, Role: last.Role, Content: last.Content, RequestID: rid,
 			TokenInput: int64(resp.Usage.PromptTokens),
 		})
 	}
 	_, _ = h.store.AppendLLMMessage(ctx, systemdb.LLMMessage{
-		SessionID: sessionID, ProjectID: projectID, Role: "assistant", Content: resp.Content, RequestID: rid,
+		SessionID: sess.ID, ProjectID: projectID, Role: "assistant", Content: resp.Content, RequestID: rid,
 		TokenOutput: int64(resp.Usage.CompletionTokens),
 	})
 }

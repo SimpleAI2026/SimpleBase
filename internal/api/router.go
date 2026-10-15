@@ -126,8 +126,12 @@ type LLMRequest struct {
 	Messages    []LLMMessage
 	MaxTokens   *int
 	Temperature *float64
-	// Tools 非空时走原生 function calling（云 Agent 使用）。
+	// Tools 非空时走原生 function calling（云 Agent 与 OpenAI 兼容端点使用）。
 	Tools []LLMTool
+	// ToolChoice 是调用方指定的工具选择策略（"auto"/"none"/"required" 或指定函数的对象），
+	// 原样保存 HTTP 请求里的 JSON 值，由 adapter 反序列化后透传给上游。
+	// 空表示不指定；云 Agent 的循环从不设置它（强制选择工具对 agent 循环有害）。
+	ToolChoice json.RawMessage
 }
 
 // LLMMessage 是对话消息。
@@ -182,7 +186,7 @@ type LLMStreamChunk struct {
 	Content      string `json:"content,omitempty"`
 	FinishReason string `json:"finish_reason,omitempty"`
 	Done         bool   `json:"-"`
-	// 以下字段仅供内部（云 Agent）使用，不出现在 /llm/stream 的 JSON 中。
+	// 以下字段由 api 层内部消费；对外的 OpenAI 兼容流式帧由 oaiStreamWriter 编码，不直接序列化本结构。
 	ToolCallIndex int            `json:"-"`
 	ToolCallID    string         `json:"-"`
 	ToolCallName  string         `json:"-"`
@@ -408,12 +412,21 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.POST("/kv", kvh.Execute, delegable(auth.DatabaseRead))
 	}
 
-	// Plan 8：LLM Gateway 路由。deps.LLM 为 nil 时不挂载。
+	// LLM Gateway：OpenAI 兼容出口（planv6.0 openai-compatible-llm-api-plan）。
+	// deps.LLM 为 nil 时不挂载。旧的 /llm/chat、/llm/stream、/llm/providers 已删除。
+	//
+	// 路径里的两段 v1 都是刻意的：前一段是 SimpleBase 的 API 版本前缀，后一段是
+	// OpenAI SDK 约定的资源前缀。SDK 的 base_url 指向 ".../projects/<id>/v1"，
+	// 再拼 /chat/completions。请勿合并成单段（TestOpenAIRoutePaths 锁定）。
+	//
+	// 权限用 llm:invoke 而非 database:read：这是该接口的原始设计意图（plan8.md）。
+	// 三个内置角色与 API Key 签发白名单均已包含它，因此是语义对齐而非权限收紧。
 	if deps.LLM != nil {
 		lh := &LLMHandler{svc: deps.LLM, usage: deps.Usage, audit: deps.Audit, store: deps.System}
-		p.POST("/llm/chat", lh.Chat, require(auth.DatabaseRead))
-		p.POST("/llm/stream", lh.Stream, require(auth.DatabaseRead))
-		p.GET("/llm/providers", lh.ListProviders, require(auth.DatabaseRead))
+		oa := p.Group("/v1")
+		oa.POST("/chat/completions", lh.ChatCompletions, require(auth.LLMInvoke))
+		oa.POST("/responses", lh.Responses, require(auth.LLMInvoke))
+		oa.GET("/models", lh.ListModels, require(auth.LLMInvoke))
 	}
 
 	// Plan 9：配额与审计查询路由。

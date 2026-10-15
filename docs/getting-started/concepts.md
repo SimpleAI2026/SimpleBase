@@ -15,7 +15,7 @@ order: 3
 
 ## 用户与 API Key
 
-控制台用户通过登录建立会话；脚本与服务端应用使用 `Authorization: Bearer <API_KEY>`。API Key 归属于项目并由权限位限定操作范围；常见权限有 `database:read`、`database:write`、`database:admin`、`project:admin`。写操作需要相应写权限；创建数据库等管理操作需要 `database:admin`。生产 Key 只能保存在可信后端或密钥服务中，不能写进公开网页。
+控制台用户通过登录建立会话；脚本与服务端应用使用 `Authorization: Bearer <API_KEY>`。API Key 归属于项目并由权限位限定操作范围；常见权限有 `database:read`、`database:write`、`database:admin`、`project:admin`，以及调用模型用的 `llm:invoke`（见 [OpenAI 兼容接口](/docs/getting-started/openai-compatible)）。写操作需要相应写权限；创建数据库等管理操作需要 `database:admin`。生产 Key 只能保存在可信后端或密钥服务中，不能写进公开网页。
 
 ## 持久化与执行
 

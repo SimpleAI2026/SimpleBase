@@ -44,7 +44,7 @@ func fullRouterDeps(t *testing.T) (Dependencies, string) {
 	hash := authSvc.HashKey(rawKey)
 	authSvc = auth.NewService(&memAuthRepo{rec: auth.APIKeyRecord{
 		ID: "key-1", TenantID: "tenant-1", ProjectIDs: []string{"proj-1"},
-		Permissions: []auth.Permission{auth.DatabaseRead, auth.DatabaseWrite, auth.DatabaseAdmin, auth.ProjectAdmin},
+		Permissions: []auth.Permission{auth.DatabaseRead, auth.DatabaseWrite, auth.DatabaseAdmin, auth.LLMInvoke, auth.ProjectAdmin},
 		KeyHash:     hash,
 	}}, "secret")
 
@@ -161,7 +161,8 @@ func TestNewRouter_CrossProjectDeniedBeforeHandlers(t *testing.T) {
 		{http.MethodGet, "/v1/projects/proj-2/gofunctions", ""},
 		{http.MethodGet, "/v1/projects/proj-2/cron-jobs", ""},
 		{http.MethodPost, "/go/proj-2/pricing/Quote", `{}`},
-		{http.MethodGet, "/v1/projects/proj-2/llm/providers", ""},
+		{http.MethodGet, "/v1/projects/proj-2/v1/models", ""},
+		{http.MethodPost, "/v1/projects/proj-2/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`},
 		{http.MethodGet, "/v1/projects/proj-2/agents", ""},
 		{http.MethodGet, "/v1/projects/proj-2/logs", ""},
 		{http.MethodGet, "/v1/projects/proj-2/databases", ""},

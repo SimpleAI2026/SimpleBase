@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col gap-4 max-w-lg">
+  <div class="flex w-full flex-col gap-4">
     <Alert v-if="unauthorized" variant="destructive">
       <AlertTitle>{{ t('components.connection.invalidTitle') }}</AlertTitle>
       <AlertDescription>{{ t('components.connection.invalidDesc') }}</AlertDescription>

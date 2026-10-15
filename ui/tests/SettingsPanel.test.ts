@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks } from '@/test/api-mock'
 import { clickText, mountWithApp, uiStubs } from '@/test/helpers'
+import { useAuthStore } from '@/stores/auth'
 import { useProjectStore } from '@/stores/project'
 import ModelDefaultsPanel from '@/components/settings/ModelDefaultsPanel.vue'
 
@@ -132,6 +133,81 @@ describe('ModelDefaultsPanel', () => {
       await flushPromises()
     }
     settings.unmount()
+  })
+
+  describe('免费模型卡片', () => {
+    it('展示调用 API、脱敏 Key、默认模型与无限 token，并指向使用文档', async () => {
+      const { wrapper, pinia } = await mountWithApp(ModelDefaultsPanel)
+      useAuthStore(pinia).apiKey = 'sb_live_abcdefghijklmnop'
+      await flushPromises()
+
+      const card = wrapper.get('[data-testid="free-model-card"]')
+      expect(card.classes()).toContain('bg-success/10')
+      expect(card.get('[data-testid="free-model-base-url"]').text()).toBe(
+        `${window.location.origin}/v1/projects/testprj1/v1`
+      )
+      const keyText = card.get('[data-testid="free-model-key"]').text()
+      expect(keyText).toContain('sb_live')
+      expect(keyText).toContain('mnop')
+      expect(keyText).not.toContain('abcdefghijklmnop')
+      expect(card.text()).toContain('无限 token')
+      expect(card.get('[data-testid="free-model-docs"]').attributes('to')).toBe(
+        '/docs/getting-started/openai-compatible'
+      )
+      wrapper.unmount()
+    })
+
+    it('未设置默认模型与 Key 时给出提示，复制 Key 按钮禁用', async () => {
+      api.llmSettings.get.mockResolvedValueOnce({ defaultProvider: '', defaultModel: '', temperature: 0.7, maxTokens: 1024 })
+      const { wrapper } = await mountWithApp(ModelDefaultsPanel)
+      const card = wrapper.get('[data-testid="free-model-card"]')
+      expect(card.get('[data-testid="free-model-name"]').text()).toContain('未设置')
+      expect(card.get('[data-testid="free-model-key"]').text()).toContain('尚未配置')
+      const keyCopy = card.findAll('button').find((b) => b.attributes('aria-label') === '复制 API Key')
+      expect(keyCopy?.attributes('disabled')).toBeDefined()
+      wrapper.unmount()
+    })
+
+    it('复制地址与 Key 走剪贴板并提示，失败时给错误提示', async () => {
+      const writeText = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('denied'))
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+      const { wrapper, pinia } = await mountWithApp(ModelDefaultsPanel)
+      useAuthStore(pinia).apiKey = 'sb_live_abcdefghijklmnop'
+      await flushPromises()
+
+      const copyApi = wrapper.findAll('button').find((b) => b.attributes('aria-label') === '复制调用 API 地址')!
+      await copyApi.trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenLastCalledWith(`${window.location.origin}/v1/projects/testprj1/v1`)
+      expect(toast.success).toHaveBeenCalledWith('调用 API已复制')
+
+      const copyKey = wrapper.findAll('button').find((b) => b.attributes('aria-label') === '复制 API Key')!
+      await copyKey.trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenLastCalledWith('sb_live_abcdefghijklmnop')
+
+      await copyKey.trigger('click')
+      await flushPromises()
+      expect(toast.error).toHaveBeenCalledWith('无法复制到剪贴板')
+      wrapper.unmount()
+    })
+
+    it('点击文档链接会关闭设置弹窗，避免遮住文档页', async () => {
+      const { wrapper, pinia } = await mountWithApp(ModelDefaultsPanel)
+      const auth = useAuthStore(pinia)
+      auth.openSettings({ tab: 'models' })
+      await wrapper.get('[data-testid="free-model-docs"]').trigger('click')
+      expect(auth.settingsOpen).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('无项目时不渲染卡片', async () => {
+      const { wrapper, pinia } = await mountWithApp(ModelDefaultsPanel)
+      useProjectStore(pinia).projectId = ''
+      await flushPromises()
+      expect(wrapper.find('[data-testid="free-model-card"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
   })
 
   it('covers extended panel helpers', async () => {

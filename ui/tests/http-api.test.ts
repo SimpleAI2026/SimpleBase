@@ -459,10 +459,28 @@ describe('httpApi', () => {
     http.get.mockResolvedValueOnce({ data: { llm_allowed: true, database_allowed: false } })
     expect((await httpApi.quota.status(pid)).llmAllowed).toBe(true)
 
-    http.post.mockResolvedValueOnce({ data: { content: 'hi' } })
-    expect(await httpApi.llm.chat(pid, { messages: [{ role: 'user', content: 'hi' }], maxTokens: 1, temperature: 0 })).toEqual({
-      content: 'hi'
+    http.post.mockResolvedValueOnce({
+      data: {
+        id: 'chatcmpl-1',
+        object: 'chat.completion',
+        model: 'm',
+        provider: 'openai',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }
+      }
     })
+    // OpenAI 形状经服务层展平回界面已有的扁平类型（不透传嵌套结构）。
+    expect(await httpApi.llm.chat(pid, { messages: [{ role: 'user', content: 'hi' }], maxTokens: 1, temperature: 0 })).toEqual({
+      content: 'hi',
+      model: 'm',
+      provider: 'openai',
+      finish_reason: 'stop',
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }
+    })
+    expect(http.post).toHaveBeenLastCalledWith(
+      expect.stringContaining('/v1/chat/completions'),
+      expect.objectContaining({ messages: [{ role: 'user', content: 'hi' }] })
+    )
     http.get.mockResolvedValueOnce({
       data: { default_provider: 'openai', default_model: 'm', base_url: 'http://x/v1', api_key_masked: 'sk-...7890', has_api_key: true, max_tokens: 8 }
     })
@@ -643,10 +661,14 @@ describe('httpApi', () => {
           makeReader([
             'ignore\n\n',
             'data: not-json\n\n',
-            'data: {"delta":"A"}\n\n',
-            'data: {"content":"B"}\n\n',
-            'data: {"choices":[{"delta":{"content":"C"}}]}\n\n',
-            'data: {"type":"end"}\n\n'
+            'data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}\n\n',
+            'data: {"choices":[{"delta":{"content":"A"},"finish_reason":null}]}\n\n',
+            'data: {"choices":[{"delta":{"content":"B"},"finish_reason":null}]}\n\n',
+            // 工具增量分片不属于正文，不应混进 onChunk。
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"shell","arguments":""}}]}}]}\n\n',
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]}}]}\n\n',
+            'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+            'data: [DONE]\n\n'
           ])
       }
     })
@@ -657,8 +679,15 @@ describe('httpApi', () => {
       onEnd: ended
     })
     await vi.waitFor(() => expect(ended).toHaveBeenCalled())
-    expect(chunksSeen.join('')).toBe('ABC')
+    expect(chunksSeen.join('')).toBe('AB')
     conn.close()
+
+    // 路径与请求体：OpenAI 兼容端点，必须带 stream:true。
+    const firstCall = fetchMock.mock.calls[0]
+    expect(String(firstCall[0])).toContain('/v1/chat/completions')
+    expect(JSON.parse(firstCall[1].body)).toEqual(
+      expect.objectContaining({ stream: true, messages: [{ role: 'user', content: 'hi' }] })
+    )
 
     fetchMock.mockResolvedValueOnce({
       ok: false,

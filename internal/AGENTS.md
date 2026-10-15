@@ -57,6 +57,15 @@ cmd/simplebase → app → api → auth / catalog / database / objectstore
 - SQL handler 遵守 limits：并发 semaphore、行数上限、请求体上限；审计只记录 SHA-256 与元数据，不落原 SQL。
 - 所有带 `:projectID` 的路由经过 `projectContextMiddlewareEcho` 注入 ProjectContext。
 
+### 对外兼容出口（OpenAI Chat Completions）
+
+- 路由：`POST /v1/projects/:projectID/v1/chat/completions`、`POST .../v1/responses`、`GET .../v1/models`，权限 `llm:invoke`，实现见 `llm_handler.go`、`oai_dto.go` 与 `oai_responses.go`。
+- **路径里的两段 `v1` 是刻意设计，不是笔误，不得"顺手修正"**：前一段是 SimpleBase 的 API 版本，后一段是 OpenAI SDK 约定的资源前缀，只有两段都在，`OpenAI(base_url=".../projects/<id>/v1")` 才能原样拼出 `/chat/completions`。`oai_dto_test.go` 的路由测试锁定了该路径，旧的 `/llm/chat`、`/llm/stream`、`/llm/providers` 已删除且必须保持 404。
+- **错误形状是本规约唯一允许的偏离**：兼容路由组内走 `writeOAIError`（`{"error":{"message","type","param","code"}}`），因为 OpenAI SDK 解析不了 `WriteError` 的信封。`code` 与脱敏文案仍来自 `error.go` 的映射，不新造分类；其余 handler 不得使用 `writeOAIError`。
+- 流式以 `data: [DONE]` 收尾；首帧为 `delta.role="assistant"`；工具调用增量按 `index` 聚合，`id`/`name` 只在首个分片出现。新增消费方必须识别 `[DONE]`，否则不会判定流结束。
+- **Responses API（`oai_responses.go`）是 chat 之上的协议转换，不是第二套网关**：请求转成 `LLMRequest`、走既有 `LLMService.Chat/Stream`，再把结果编码回 Responses 形状。不要改成直接调 litellm 的 `Responses`——它只支持 OpenAI 一个 provider，会让 DeepSeek 等兼容网关失效。只支持无状态子集；`previous_response_id`/`conversation`/`background`/结构化输出/内置工具一律 400，不得为"看起来兼容"而静默忽略。其流式**没有 `[DONE]`**，以 `response.completed`/`incomplete`/`failed` 收尾，且 chat 流无法做到的"流开始后报错"在这里用 `response.failed` 事件表达。
+- `tool_choice` 仅在 HTTP 层与 `llmgateway.Request` 之间透传；云助手 agent 循环不设置它。
+
 ## 测试要求
 
 - 每个模块带单元测试；改动必须保持 `go build ./internal/... ./cmd/...` 与 `go test ./...` 通过。

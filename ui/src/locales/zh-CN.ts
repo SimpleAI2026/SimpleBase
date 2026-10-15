@@ -1581,7 +1581,21 @@ const zhCN: MessageTree = {
       loadModelsFailed: '加载模型设置失败',
       saveModelFailed: '保存默认模型失败',
       savedToServer: '已保存到服务端',
-      saveFailed: '保存失败'
+      saveFailed: '保存失败',
+      freeTitle: '默认模型 · 开发者免费使用',
+      freeBadge: '规划中',
+      freeDesc: '用 OpenAI 兼容协议直接调用本项目的默认模型，无需自备供应商 Key。官方 OpenAI SDK 把 base_url 指向下方地址即可。',
+      freeApi: '调用 API',
+      freeModel: '默认模型',
+      freeModelUnset: '未设置，见下方「默认模型」',
+      freeTokens: 'Token 额度',
+      freeTokensValue: '无限 token',
+      freeKeyMissing: '尚未配置，请先在「连接」页签填写',
+      freeDocs: '查看使用文档',
+      freeCopyApi: '复制调用 API 地址',
+      freeCopyKey: '复制 API Key',
+      freeCopied: '{label}已复制',
+      freeCopyFailed: '无法复制到剪贴板'
     }
   }
 }

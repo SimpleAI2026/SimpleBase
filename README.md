@@ -96,9 +96,9 @@ docker run -p 8080:8080 --env-file .env simplebase
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| POST | `/v1/projects/:p/llm/chat` | `database:read` | 非流式 Chat |
-| POST | `/v1/projects/:p/llm/stream` | `database:read` | SSE 流式响应 |
-| GET | `/v1/projects/:p/llm/providers` | `database:read` | 列出允许的 provider/model |
+| POST | `/v1/projects/:p/v1/chat/completions` | `llm:invoke` | OpenAI 兼容 Chat（`stream:true` 为 SSE，支持 `tools`） |
+| POST | `/v1/projects/:p/v1/responses` | `llm:invoke` | OpenAI Responses API（无状态子集，支持 `function` 工具与流式事件） |
+| GET | `/v1/projects/:p/v1/models` | `llm:invoke` | OpenAI 列表形状的可用模型 |
 
 ### 云 Agent
 
