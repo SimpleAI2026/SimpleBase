@@ -472,8 +472,9 @@ def start_server(
     model: str,
     base: str,
     bind_host: str = "127.0.0.1",
+    run_dir: Path | None = None,
 ) -> subprocess.Popen:
-    run = RUN_ROOT / "server"
+    run = run_dir or (RUN_ROOT / "server")
     if run.exists():
         shutil.rmtree(run)
     data = run / "data"

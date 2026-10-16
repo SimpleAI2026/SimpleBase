@@ -1,12 +1,15 @@
-# cloudagent 冒烟
+# cloudagent 评测
 
-冒烟层是 L0–L3 和 HumanEval 前 10 题。核心层这次只跑 HumanEval 全量 164 题，以及 Terminal-Bench v4.0.0 里固定的 8 题。不跑 SWE-bench。
+冒烟层是 L0–L3 和 HumanEval 前 10 题。已跑过的核心层是 HumanEval 全量 164 题，以及 Terminal-Bench v4.0.0 里固定的 8 题。MBPP sanitized 全量在 `run_mbpp.py`。SWE-bench Verified 的固定 50 题在 `run_swebench.py`：推理在宿主机检出目录，评分用单独 venv 里的 `swebench==5.0.2`（见 `requirements-swe.txt`），不把 cloudagent 装进评测镜像。
 
 ```bash
 python3 eval/cloudagent-bench/run_smoke.py --self-check
 python3 eval/cloudagent-bench/run_smoke.py
 python3 eval/cloudagent-bench/run_core.py --self-check
 python3 eval/cloudagent-bench/run_core.py
+python3 eval/cloudagent-bench/run_mbpp.py --self-check
+python3 eval/cloudagent-bench/run_swebench.py --self-check
+python3 eval/cloudagent-bench/run_swebench.py --gold-one
 ```
 
 HumanEval 全量读 `tasks/core/humaneval.jsonl`（没有标准答案）。Terminal-Bench 用 Harbor 0.24.0，见 `requirements-core.txt` 和 `run_terminal_bench.py`。任务镜像若低于 glibc 2.38，adapter 会带上宿主机的 `ld-linux` 和 `libm` 再启动已编译的 `cloudagent`，不在容器里编译。
