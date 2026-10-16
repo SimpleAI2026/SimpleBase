@@ -448,3 +448,155 @@ token 不在 `--json` 的 `end` 事件里，费用记为未知。题目数停在
 | HumanEval/161 | 通过 | 50989 ms | 4 | 通过 |  |
 | HumanEval/162 | 通过 | 11371 ms | 3 | 通过 |  |
 | HumanEval/163 | 通过 | 19323 ms | 2 | 通过 |  |
+
+## MBPP sanitized
+
+> 日期：2026-10-16。main `e6994c6a9d89b2aed8950cfb6af75d2801384b72`。本次分支 git `06d9945`。模型 `zai-org/GLM-5.3-Flash`，网关 host `api.siliconflow.cn`。
+> Google Research MBPP sanitized。agent 补全 `solution.py` 后，在隔离里用官方 `test_list` 评分（不含 challenge 测试）。pass@1，每题 1 次。不是单次补全，不能直接和公开 MBPP 榜横比。
+
+**初步结果。** 只跑了 sanitized fixture 顺序的前 100 题，不是全量 427。
+
+通过 **82/100**（82.0%）。题目耗时合计 2779 秒（各题 agent 耗时相加）。token 合计 prompt 395425、completion 67000。估算费用 ¥0.50（输入 ¥0.80/百万 token，输出 ¥2.80/百万 token，按计划 2026-10-15 硅基流动公开价，不是账单）。
+
+按本次每题平均 agent 耗时外推到 sanitized 全量 427 题：约 3.3 小时，估算费用约 ¥2，其中 91/100 题有 token。外推只含各题 agent 时间，不含进程启动；费用按同样的公开单价，不是账单。
+
+失败分类：
+
+- 断言失败：11
+- 超时：7
+
+公开基线：Z.ai 的 GLM-5.3-Flash 模型卡没有公布 MBPP。不引用第三方聚合站上的数字。这次分数不是官方榜提交。
+
+| 题 | 结果 | 耗时 | 步数 | 分类 | 原因 |
+| --- | --- | --- | --- | --- | --- |
+| Mbpp/2 | 失败 | 120067 ms | 1 | 超时 | timeout |
+| Mbpp/3 | 通过 | 9358 ms | 3 | 通过 |  |
+| Mbpp/4 | 通过 | 11130 ms | 4 | 通过 |  |
+| Mbpp/6 | 失败 | 120021 ms | 2 | 超时 | timeout |
+| Mbpp/7 | 通过 | 8826 ms | 3 | 通过 |  |
+| Mbpp/8 | 通过 | 7400 ms | 3 | 通过 |  |
+| Mbpp/9 | 通过 | 9602 ms | 3 | 通过 |  |
+| Mbpp/11 | 通过 | 10291 ms | 3 | 通过 |  |
+| Mbpp/12 | 失败 | 120040 ms | 3 | 超时 | timeout |
+| Mbpp/14 | 失败 | 120004 ms | 1 | 超时 | timeout |
+| Mbpp/16 | 失败 | 120100 ms | 1 | 超时 | timeout |
+| Mbpp/17 | 通过 | 75317 ms | 6 | 通过 |  |
+| Mbpp/18 | 通过 | 120003 ms | 6 | 通过 |  |
+| Mbpp/19 | 通过 | 22237 ms | 3 | 通过 |  |
+| Mbpp/20 | 失败 | 120025 ms | 2 | 超时 | timeout |
+| Mbpp/56 | 通过 | 111879 ms | 4 | 通过 |  |
+| Mbpp/57 | 通过 | 8539 ms | 3 | 通过 |  |
+| Mbpp/58 | 通过 | 101595 ms | 4 | 通过 |  |
+| Mbpp/59 | 通过 | 11295 ms | 2 | 通过 |  |
+| Mbpp/61 | 失败 | 29868 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/62 | 通过 | 5485 ms | 2 | 通过 |  |
+| Mbpp/63 | 通过 | 10691 ms | 4 | 通过 |  |
+| Mbpp/64 | 通过 | 7714 ms | 4 | 通过 |  |
+| Mbpp/65 | 通过 | 5242 ms | 2 | 通过 |  |
+| Mbpp/66 | 通过 | 7277 ms | 3 | 通过 |  |
+| Mbpp/67 | 通过 | 10060 ms | 3 | 通过 |  |
+| Mbpp/68 | 通过 | 28716 ms | 4 | 通过 |  |
+| Mbpp/69 | 通过 | 36025 ms | 5 | 通过 |  |
+| Mbpp/70 | 通过 | 6653 ms | 2 | 通过 |  |
+| Mbpp/71 | 通过 | 9146 ms | 3 | 通过 |  |
+| Mbpp/72 | 通过 | 30256 ms | 3 | 通过 |  |
+| Mbpp/74 | 通过 | 45587 ms | 5 | 通过 |  |
+| Mbpp/75 | 通过 | 18281 ms | 3 | 通过 |  |
+| Mbpp/77 | 通过 | 8048 ms | 3 | 通过 |  |
+| Mbpp/79 | 通过 | 7928 ms | 3 | 通过 |  |
+| Mbpp/80 | 通过 | 15878 ms | 3 | 通过 |  |
+| Mbpp/82 | 通过 | 16442 ms | 4 | 通过 |  |
+| Mbpp/83 | 失败 | 16357 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/84 | 通过 | 8701 ms | 3 | 通过 |  |
+| Mbpp/85 | 通过 | 5237 ms | 2 | 通过 |  |
+| Mbpp/86 | 通过 | 120004 ms | 4 | 通过 |  |
+| Mbpp/87 | 失败 | 30429 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/88 | 通过 | 46685 ms | 5 | 通过 |  |
+| Mbpp/89 | 通过 | 8346 ms | 3 | 通过 |  |
+| Mbpp/90 | 通过 | 14808 ms | 3 | 通过 |  |
+| Mbpp/91 | 通过 | 10268 ms | 3 | 通过 |  |
+| Mbpp/92 | 通过 | 10895 ms | 3 | 通过 |  |
+| Mbpp/93 | 通过 | 11098 ms | 3 | 通过 |  |
+| Mbpp/94 | 通过 | 13252 ms | 2 | 通过 |  |
+| Mbpp/95 | 通过 | 17653 ms | 4 | 通过 |  |
+| Mbpp/96 | 通过 | 21635 ms | 3 | 通过 |  |
+| Mbpp/97 | 通过 | 20930 ms | 3 | 通过 |  |
+| Mbpp/98 | 通过 | 6870 ms | 3 | 通过 |  |
+| Mbpp/99 | 通过 | 9183 ms | 3 | 通过 |  |
+| Mbpp/100 | 失败 | 120103 ms | 1 | 超时 | timeout |
+| Mbpp/101 | 通过 | 10910 ms | 2 | 通过 |  |
+| Mbpp/102 | 失败 | 26825 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/103 | 通过 | 22708 ms | 3 | 通过 |  |
+| Mbpp/104 | 通过 | 8362 ms | 2 | 通过 |  |
+| Mbpp/105 | 通过 | 9629 ms | 3 | 通过 |  |
+| Mbpp/106 | 失败 | 9979 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/108 | 通过 | 14895 ms | 3 | 通过 |  |
+| Mbpp/109 | 失败 | 48132 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/111 | 通过 | 16204 ms | 3 | 通过 |  |
+| Mbpp/113 | 通过 | 31200 ms | 4 | 通过 |  |
+| Mbpp/115 | 通过 | 7956 ms | 2 | 通过 |  |
+| Mbpp/116 | 通过 | 20312 ms | 3 | 通过 |  |
+| Mbpp/117 | 通过 | 19862 ms | 3 | 通过 |  |
+| Mbpp/118 | 通过 | 12429 ms | 5 | 通过 |  |
+| Mbpp/119 | 通过 | 16882 ms | 3 | 通过 |  |
+| Mbpp/120 | 通过 | 8484 ms | 3 | 通过 |  |
+| Mbpp/123 | 通过 | 14974 ms | 3 | 通过 |  |
+| Mbpp/124 | 失败 | 8870 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/125 | 通过 | 29379 ms | 4 | 通过 |  |
+| Mbpp/126 | 通过 | 10813 ms | 3 | 通过 |  |
+| Mbpp/127 | 通过 | 11827 ms | 3 | 通过 |  |
+| Mbpp/128 | 通过 | 6161 ms | 2 | 通过 |  |
+| Mbpp/129 | 通过 | 17390 ms | 3 | 通过 |  |
+| Mbpp/130 | 通过 | 22891 ms | 3 | 通过 |  |
+| Mbpp/131 | 通过 | 10460 ms | 3 | 通过 |  |
+| Mbpp/132 | 通过 | 15226 ms | 5 | 通过 |  |
+| Mbpp/133 | 通过 | 6034 ms | 2 | 通过 |  |
+| Mbpp/135 | 通过 | 6325 ms | 2 | 通过 |  |
+| Mbpp/137 | 通过 | 26625 ms | 3 | 通过 |  |
+| Mbpp/138 | 失败 | 68773 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/139 | 通过 | 9557 ms | 3 | 通过 |  |
+| Mbpp/140 | 通过 | 7169 ms | 2 | 通过 |  |
+| Mbpp/141 | 通过 | 12505 ms | 3 | 通过 |  |
+| Mbpp/142 | 通过 | 6474 ms | 2 | 通过 |  |
+| Mbpp/143 | 失败 | 18252 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/145 | 通过 | 17092 ms | 2 | 通过 |  |
+| Mbpp/160 | 失败 | 24092 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/161 | 通过 | 9857 ms | 3 | 通过 |  |
+| Mbpp/162 | 通过 | 15200 ms | 3 | 通过 |  |
+| Mbpp/163 | 通过 | 9351 ms | 3 | 通过 |  |
+| Mbpp/164 | 失败 | 10335 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/165 | 通过 | 16663 ms | 3 | 通过 |  |
+| Mbpp/166 | 通过 | 45488 ms | 4 | 通过 |  |
+| Mbpp/167 | 通过 | 8116 ms | 2 | 通过 |  |
+| Mbpp/168 | 通过 | 8655 ms | 3 | 通过 |  |
+
+## SWE-bench Verified 10
+
+> 日期：2026-10-16。main `e6994c6a9d89b2aed8950cfb6af75d2801384b72`。本次分支 git `06d9945`。模型 `zai-org/GLM-5.3-Flash`，网关 host `api.siliconflow.cn`。
+> **初步结果。** 数据集 `SWE-bench/SWE-bench_Verified` test split，`len(split)=500`。抽样：Python 3.12 `random.Random(20261016).sample(sorted(instance_id), 50)`，再取清单 `eval/cloudagent-bench/tasks/core/swebench_verified_50.txt` 里按 instance_id 排序后的前 10 题。不是 Verified 全量。
+> 推理在宿主机检出的 base commit 上，`cloudagent` 不进评测镜像。评分是 `swebench==5.0.2` 的 `swebench eval verified`，Docker，每批 2 题、`-j 2`，单题评测超时 1800 秒。单题镜像约数 GB，批结束后删除该题镜像。agent 超时 900 秒。pass@1。不是官方榜提交。
+
+通过 **5/10**（50.0%），通过指 swebench `resolved`。题目推理耗时合计 1843 秒（各题 agent 耗时相加）。评测墙钟 155 秒（第一次 Docker 评测；之后只重读了已有的 report.json）。token 合计 prompt 605679、completion 50185。估算费用 ¥0.63（输入 ¥0.80/百万 token，输出 ¥2.80/百万 token，按计划 2026-10-15 硅基流动公开价，不是账单）。
+
+按本次每题平均 agent 耗时外推到 Verified 全量 500 题：约 25.6 小时，推理估算费用约 ¥35，其中 9/10 题有 token。Docker 评测按同样的空补丁比例外推约 2.2 小时。外推的推理时间不含 git 检出；费用按公开单价，不是账单。本次停在这 10 题，不跑 500。
+
+失败分类：
+
+- 没有补丁：2
+- 测试未通过：2
+- agent 错误：1
+
+公开基线：Z.ai 的 GLM-5.3-Flash 模型卡公布 DeepSWE v1.1 为 63.4%（mini-swe-agent，temperature 0.95，timeout 6 小时，40 万上下文）。那不是 SWE-bench Verified，也不是这 10 题。模型卡没有公布 SWE-bench Verified。不引用第三方聚合站上的数字。
+
+| 题 | 结果 | 耗时 | 步数 | 分类 | 原因 |
+| --- | --- | --- | --- | --- | --- |
+| astropy__astropy-13033 | 失败 | 393719 ms | 3 | agent 错误 | 调用网关超时 |
+| django__django-10999 | 失败 | 24825 ms | 6 | 测试未通过 | 测试未通过 |
+| django__django-11099 | 通过 | 153807 ms | 11 | 通过 |  |
+| django__django-11477 | 失败 | 196823 ms | 25 | 测试未通过 | 测试未通过 |
+| django__django-11815 | 失败 | 107945 ms | 9 | 没有补丁 | 没有补丁 |
+| django__django-11999 | 通过 | 172980 ms | 12 | 通过 |  |
+| django__django-12708 | 通过 | 413713 ms | 15 | 通过 |  |
+| django__django-12774 | 通过 | 66716 ms | 22 | 通过 |  |
+| django__django-13516 | 通过 | 250202 ms | 23 | 通过 |  |
+| django__django-14007 | 失败 | 62432 ms | 7 | 没有补丁 | 没有补丁 |

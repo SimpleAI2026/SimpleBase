@@ -376,8 +376,24 @@ def apply_eval(rows: list[dict], run_id: str) -> None:
         patch = (row.get("patch") or "").strip()
         if not patch:
             row["ok"] = False
-            row["category"] = "timeout" if row.get("timed_out") else "no_patch"
-            row["fail_reason"] = row.get("fail_reason") or row["category"]
+            reason = str(row.get("fail_reason") or row.get("reason") or "")
+            low = reason.lower()
+            if row.get("timed_out") or low == "timeout":
+                row["category"] = "timeout"
+                row["fail_reason"] = "timeout"
+            elif any(token in low for token in ("run_failed", "client.timeout", "deadline exceeded", "llm_upstream", "http 502", "http 429")):
+                row["category"] = "agent_error"
+                if "429" in low:
+                    row["fail_reason"] = "模型服务限流 (HTTP 429)"
+                elif "502" in low:
+                    row["fail_reason"] = "模型服务暂时不可用 (HTTP 502)"
+                elif "deadline" in low or "timeout" in low:
+                    row["fail_reason"] = "调用网关超时"
+                else:
+                    row["fail_reason"] = "agent 调用失败"
+            else:
+                row["category"] = "no_patch"
+                row["fail_reason"] = "没有补丁"
             continue
         report = instance_report(run_id, row["task_id"])
         if report.get("resolved"):
