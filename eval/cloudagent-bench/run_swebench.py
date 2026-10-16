@@ -30,6 +30,7 @@ SPLIT_LEN = 500
 AGENT_TIMEOUT = 900
 EVAL_TIMEOUT = 1800
 EVAL_WORKERS = 2
+EVAL_BATCH = 2
 MODEL_NAME = "cloudagent-glm-5.3-flash"
 PORT = 18081
 INPUT_YUAN_PER_MILLION = 0.80
@@ -231,6 +232,69 @@ def ensure_docker() -> None:
     subprocess.run(["sudo", "-n", "iptables-legacy", "-P", "FORWARD", "ACCEPT"], check=False)
 
 
+def free_gb() -> int:
+    return int(shutil.disk_usage("/").free / (1024**3))
+
+
+def remove_instance_images(instance_ids: list[str]) -> None:
+    proc = subprocess.run(
+        ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        text=True,
+    )
+    tails = [item.split("__", 1)[-1].lower() for item in instance_ids if item]
+    remove = []
+    for image in proc.stdout.splitlines():
+        low = image.lower()
+        if "sweb.eval" not in low:
+            continue
+        if any(tail and tail in low for tail in tails):
+            remove.append(image)
+    if remove:
+        subprocess.run(["docker", "image", "rm", "-f", *remove], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    subprocess.run(["docker", "image", "prune", "-f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def eval_predictions(ids: list[str]) -> tuple[int, str]:
+    ensure_docker()
+    started = time.monotonic()
+    have_patch = []
+    for line in PREDS.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("instance_id") in ids and (row.get("model_patch") or "").strip():
+            have_patch.append(row["instance_id"])
+    run_id = f"cloudagent-{smoke.git_sha()}-verified50"
+    code = 0
+    for offset in range(0, len(have_patch), EVAL_BATCH):
+        batch = have_patch[offset : offset + EVAL_BATCH]
+        print(f"eval batch {offset // EVAL_BATCH + 1} n={len(batch)} free_gb={free_gb()}", flush=True)
+        if free_gb() < 30:
+            remove_instance_images(have_patch)
+        cmd = [
+            DATASET,
+            "-p",
+            str(PREDS),
+            "--run-id",
+            run_id,
+            "-j",
+            str(EVAL_WORKERS),
+            "--timeout",
+            str(EVAL_TIMEOUT),
+            "--report-dir",
+            str(EVAL_ROOT / "reports"),
+        ]
+        for instance_id in batch:
+            cmd.extend(["-i", instance_id])
+        code = run_swebench(cmd, f"verified50-{offset}.log")
+        print(f"batch exit {code}", flush=True)
+        remove_instance_images(batch)
+    return int(time.monotonic() - started), run_id
+
+
 def run_swebench(args: list[str], log_name: str) -> int:
     EVAL_ROOT.mkdir(parents=True, exist_ok=True)
     log_path = EVAL_ROOT / log_name
@@ -403,7 +467,7 @@ def write_section(meta: dict, rows: list[dict]) -> None:
         "",
         f"> 日期：2026-10-16。main `{run_core.MAIN_COMMIT}`。本次分支 git `{smoke.git_sha()}`。模型 `{meta['model']}`，网关 host `{meta['base_host']}`。",
         f"> 数据集 `{DATASET}` test split，`len(split)={SPLIT_LEN}`。抽样：Python 3.12 `random.Random(20261016).sample(sorted(instance_id), 50)`，清单 `eval/cloudagent-bench/tasks/core/swebench_verified_50.txt`（文件内按 instance_id 排序）。",
-        "> 推理在宿主机检出的 base commit 上，`cloudagent` 不进评测镜像。评分是 `swebench==5.0.2` 的 `swebench eval verified`，Docker，`-j 2`，单题评测超时 1800 秒。agent 超时 900 秒。pass@1。不是官方榜提交。",
+        "> 推理在宿主机检出的 base commit 上，`cloudagent` 不进评测镜像。评分是 `swebench==5.0.2` 的 `swebench eval verified`，Docker，每批 2 题、`-j 2`，单题评测超时 1800 秒。单题镜像约数 GB，批结束后删除该题镜像。agent 超时 900 秒。pass@1。不是官方榜提交。",
         "",
         f"通过 **{passed}/{len(rows)}**（{rate:.1f}%），通过指 swebench `resolved`。推理墙钟 {meta['wall_s']} 秒，评测墙钟 {meta.get('eval_s', 0)} 秒。{cost}",
         "",
@@ -512,28 +576,10 @@ def infer_and_eval(no_compile: bool, eval_only: bool) -> None:
             smoke.stop_server(server)
     ordered = [done[item] for item in ids if item in done]
     write_preds(ordered)
-    run_id = f"cloudagent-{smoke.git_sha()}-verified50"
+    run_id = ""
     if ordered and any((row.get("patch") or "").strip() for row in ordered):
-        ensure_docker()
-        eval_started = time.monotonic()
-        cmd = [
-            DATASET,
-            "-p",
-            str(PREDS),
-            "--run-id",
-            run_id,
-            "-j",
-            str(EVAL_WORKERS),
-            "--timeout",
-            str(EVAL_TIMEOUT),
-            "--report-dir",
-            str(EVAL_ROOT / "reports"),
-        ]
-        for instance_id in ids:
-            cmd.extend(["-i", instance_id])
-        code = run_swebench(cmd, "verified50.log")
-        eval_s = int(time.monotonic() - eval_started)
-        print(f"swebench exit {code}", flush=True)
+        eval_s, run_id = eval_predictions(ids)
+        print(f"swebench run {run_id}", flush=True)
         apply_eval(ordered, run_id)
     write_section(
         {
