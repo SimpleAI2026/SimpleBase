@@ -124,7 +124,9 @@ func Run(opts Options) int {
 	}
 	result, err := runtime.Run(ctx, prompt, emitFunc(opts))
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+		// 只把本轮自己的墙钟截止报成 timeout。HTTP 客户端的 DeadlineExceeded
+		// 也会冒泡上来；未配置 max_run_seconds 时那会被写成「run exceeded 0s」。
+		if runDeadlineFired(ctx, err) {
 			return fail(opts, exitAPI, "timeout", fmt.Sprintf("run exceeded %s", runLimit(opts, cfg)))
 		}
 		if errors.Is(err, context.Canceled) {
@@ -159,6 +161,12 @@ func runLimit(opts Options, cfg Config) time.Duration {
 		return time.Duration(cfg.MaxRunSeconds) * time.Second
 	}
 	return 0
+}
+
+// runDeadlineFired 区分「本轮墙钟到点」和「下层 HTTP 客户端自己的超时」。
+// 两者的错误都是 context.DeadlineExceeded，但只有本轮 ctx 被取消时才是前者。
+func runDeadlineFired(ctx context.Context, err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded)
 }
 
 func openOrCreateSession(opts Options, cfg Config) (*Session, error) {

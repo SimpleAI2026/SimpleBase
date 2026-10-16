@@ -16,11 +16,13 @@ from pathlib import Path
 import run_smoke as smoke
 
 FIXTURE = Path(__file__).resolve().parent / "tasks" / "core" / "humaneval.jsonl"
-JSONL = smoke.RUN_ROOT / "humaneval164-rerun.jsonl"
-PREV_JSONL = smoke.RUN_ROOT / "humaneval164.jsonl"
-MARKER = "## HumanEval 164 重跑"
-# 这次重跑所基于的 origin/main。分支上后续的报告提交不改变这个基线。
-MAIN_COMMIT = "e6994c6a9d89b2aed8950cfb6af75d2801384b72"
+JSONL = smoke.RUN_ROOT / "humaneval164-headerfix.jsonl"
+PREV_JSONL = smoke.RUN_ROOT / "humaneval164-rerun.jsonl"
+REGRESS_JSONL = smoke.RUN_ROOT / "humaneval164-f1e7c1e.jsonl"
+MARKER = "## HumanEval 164 首字节修复后"
+# 修复基于的 origin/main。分支上后续的报告提交不改变这个基线。
+MAIN_COMMIT = "f1e7c1e02bb894dfefa7fb79057a2c2074201fed"
+PREV_LABEL = "main e6994c6，158/164"
 
 
 def load_rows() -> list[dict]:
@@ -193,7 +195,7 @@ def comparison_lines(rows: list[dict]) -> list[str]:
             )
     old_pass = sum(1 for row in prev.values() if row["ok"])
     lines = [
-        f"与上次（PR #47，149/164；JSONL 实计 {old_pass}/164）对比，同一套题、同一模型：",
+        f"与上次（{PREV_LABEL}；JSONL 实计 {old_pass}/164）对比，同一套题、同一模型：",
         "",
         f"- 新增通过 {len(gained)} 题：" + ("、".join(gained) if gained else "没有。"),
         f"- 新增失败 {len(lost)} 题：" + ("、".join(lost) if lost else "没有。"),
@@ -216,21 +218,34 @@ def write_section(meta: dict, rows: list[dict]) -> None:
         key = category_of(row)
         counts[key] = counts.get(key, 0) + 1
     if prompt_tokens or completion_tokens:
+        yuan = prompt_tokens / 1_000_000 * 0.80 + completion_tokens / 1_000_000 * 2.80
         cost = (
             f"token 合计 prompt {prompt_tokens}、completion {completion_tokens}。"
-            "没有单价，不换算金额。"
+            f"估算费用 ¥{yuan:.2f}（输入 ¥0.80/百万 token，输出 ¥2.80/百万 token，按计划 2026-10-15 硅基流动公开价，不是账单）。"
         )
     else:
         cost = "费用仍未知：`end` 事件没有 token。"
+    regress = load_jsonl(REGRESS_JSONL)
+    regress_line = ""
+    if regress:
+        regress_pass = sum(1 for row in regress.values() if row.get("ok"))
+        regress_line = (
+            f"同一 main 在修复前是 {regress_pass}/{len(regress)}。"
+            "根因是 CLI 把响应头超时设成 30 秒，而服务端要等上游首字节才写响应头；"
+            "推理模型经常超过 30 秒，agent 只读完文件就以 exit 2 退出，原文件被当成断言失败。"
+            "修复后首字节等待与 5 分钟整体超时对齐，并在等上游之前解除服务端写超时。网关重试保留。"
+        )
     lines = [
         MARKER,
         "",
         f"> 日期：2026-10-16。main `{MAIN_COMMIT}`。本次分支 git `{smoke.git_sha()}`。模型 `{meta['model']}`，网关 host `{meta['base_host']}`。",
-        "> 在 PR #47 合入后的 origin/main 上重编 cloudagent，只重跑 HumanEval 164。pass@1，每题 1 次。不是单次补全，不能直接和官方 HumanEval 榜横比。",
+        "> 修复首字节超时后重编 cloudagent，HumanEval 164 全部新跑。pass@1，每题 1 次。不是单次补全，不能直接和官方 HumanEval 榜横比。",
         "",
         f"通过 **{passed}/{len(rows)}**（{passed / len(rows) * 100:.1f}%）。耗时合计 {meta['wall_s']} 秒。{cost}",
         "",
     ]
+    if regress_line:
+        lines.extend([regress_line, ""])
     if len(rows) == 164:
         lines.extend(comparison_lines(rows))
     lines.extend(["失败分类：", ""])

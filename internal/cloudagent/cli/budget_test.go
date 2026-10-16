@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,6 +30,23 @@ func TestMaxRunSecondsConfig(t *testing.T) {
 	}
 	if got := overlayConfig(Config{MaxRunSeconds: 30}, Config{MaxRunSeconds: 5}); got.MaxRunSeconds != 5 {
 		t.Fatalf("override = %d", got.MaxRunSeconds)
+	}
+}
+
+func TestRunDeadlineFiredIgnoresNestedClientTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	if runDeadlineFired(ctx, context.DeadlineExceeded) {
+		t.Fatal("a live run context must not adopt an inner client deadline")
+	}
+	expired, cancelExpired := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancelExpired()
+	time.Sleep(time.Millisecond)
+	if !runDeadlineFired(expired, context.DeadlineExceeded) {
+		t.Fatal("the run context's own deadline must be reported as timeout")
+	}
+	if runDeadlineFired(expired, errors.New("upstream down")) {
+		t.Fatal("non-deadline errors are not a run timeout")
 	}
 }
 
@@ -137,7 +155,6 @@ func (hangingClient) Stream(ctx context.Context, _ string, _ agentcore.ChatReque
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
-
 
 // newHangingServer 接受连接但一直不回响应，模拟「响应头迟迟不来」的网关。
 func newHangingServer(t *testing.T) *httptest.Server {

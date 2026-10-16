@@ -31,7 +31,9 @@ func c1FailScript() fakellm.Script {
 func TestC1_RetryNonLatestRunRejected(t *testing.T) {
 	fail := c1FailScript()
 	ok := fakellm.Script{
-		Seq: 2,
+		// MaxRetries=3 时 500 会再试 3 次，共 4 次请求后本轮才失败。
+		// 下一次请求（seq 5）才是后面那个成功的 run。
+		Seq: 5,
 		Steps: []fakellm.Step{
 			{Content: "成功"}, {FinishReason: "stop"},
 			{PromptTokens: 5, CompletionTokens: 3},
@@ -80,7 +82,7 @@ func TestC1_RetryUnknownRunRejected(t *testing.T) {
 func TestC1_RetryRunFromOtherThreadRejected(t *testing.T) {
 	fail := c1FailScript()
 	ok := fakellm.Script{
-		Seq: 2,
+		Seq: 5,
 		Steps: []fakellm.Step{
 			{Content: "成功"}, {FinishReason: "stop"},
 			{PromptTokens: 5, CompletionTokens: 3},
@@ -113,7 +115,7 @@ func TestC1_RetryRunFromOtherThreadRejected(t *testing.T) {
 func TestC1_RetryHistoryExcludesOldRunMessages(t *testing.T) {
 	fail := c1FailScript()
 	ok := fakellm.Script{
-		Seq: 2,
+		Seq: 5,
 		Steps: []fakellm.Step{
 			{Content: "重试答复"}, {FinishReason: "stop"},
 			{PromptTokens: 5, CompletionTokens: 3},

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 
@@ -455,5 +456,21 @@ func TestRunnerExecutesNativeToolCallEndToEnd(t *testing.T) {
 	}
 	if !sawAssistantCall || !sawToolResult {
 		t.Fatalf("tool round trip not sent back to the model: %s", secondBody)
+	}
+}
+
+// 回归：响应头超时不能短于推理模型的正常首字节。30s 会在上游还没写响应头时掐掉整轮。
+func TestDefaultClientWaitsForSlowResponseHeaders(t *testing.T) {
+	c := &HTTPClient{}
+	hc := c.httpClient()
+	tr, ok := hc.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type %T", hc.Transport)
+	}
+	if tr.ResponseHeaderTimeout < 3*time.Minute {
+		t.Fatalf("header timeout %s is shorter than a reasoning model's first byte", tr.ResponseHeaderTimeout)
+	}
+	if hc.Timeout < tr.ResponseHeaderTimeout {
+		t.Fatalf("overall timeout %s is shorter than header timeout %s", hc.Timeout, tr.ResponseHeaderTimeout)
 	}
 }
