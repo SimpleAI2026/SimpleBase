@@ -1,0 +1,2 @@
+# 只给 SWE-bench 官方 Docker 评测。单独 venv，不要装进 harbor 的环境。
+swebench==5.0.2

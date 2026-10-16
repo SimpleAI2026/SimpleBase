@@ -1,2 +1,3 @@
-# 冒烟和 HumanEval 只用 Python 3 标准库，不安装第三方包。
+# 冒烟、HumanEval 和 MBPP 只用 Python 3 标准库，不安装第三方包。
 # Terminal-Bench 另见 requirements-core.txt（harbor==0.24.0）。
+# SWE-bench 另见 requirements-swe.txt（swebench==5.0.2），单独 venv。
