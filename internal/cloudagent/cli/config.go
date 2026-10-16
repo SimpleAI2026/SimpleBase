@@ -36,6 +36,9 @@ type Config struct {
 	Output string `json:"output"`
 	// MaxIterations 是单次 run 的工具调用轮数上限；0 用默认值。
 	MaxIterations int `json:"max_iterations"`
+	// MaxRunSeconds 是单次 run 的墙钟上限（秒）；0 表示不限。
+	// 防止卡在上游响应或反复试错时无限占用进程（planv6.1 O3-6）。
+	MaxRunSeconds int `json:"max_run_seconds,omitempty"`
 	// SearchProvider 是 web 搜索后端：duckduckgo（免 key）或 brave（需 key）。
 	SearchProvider string `json:"search_provider"`
 	// SearchAPIKey 是 brave 等需 key 后端的凭据。
@@ -46,6 +49,9 @@ type Config struct {
 	CompactTriggerTokens int `json:"compact_trigger_tokens"`
 	// CompactKeepTokens 是压缩后保留的近期 token 预算；0 用默认值（§13.5）。
 	CompactKeepTokens int `json:"compact_keep_tokens"`
+	// ShellIsolation 是本机 shell 的隔离策略（planv6.2）。缺省 enabled=false，行为与旧版一致。
+	// Yolo 只跳过确认，不会关闭隔离。
+	ShellIsolation ShellIsolation `json:"shell_isolation,omitempty"`
 }
 
 // HomeDir 返回 ~/.cloudagent（尊重 CLOUDAGENT_HOME 覆盖，便于测试隔离）。
@@ -136,6 +142,9 @@ func overlayConfig(base, override Config) Config {
 	if override.MaxIterations > 0 {
 		base.MaxIterations = override.MaxIterations
 	}
+	if override.MaxRunSeconds > 0 {
+		base.MaxRunSeconds = override.MaxRunSeconds
+	}
 	if override.CompactTriggerTokens > 0 {
 		base.CompactTriggerTokens = override.CompactTriggerTokens
 	}
@@ -145,6 +154,7 @@ func overlayConfig(base, override Config) Config {
 	if override.Yolo {
 		base.Yolo = true
 	}
+	base.ShellIsolation = overlayShellIsolation(base.ShellIsolation, override.ShellIsolation)
 	return base
 }
 
@@ -189,6 +199,11 @@ func MergeEnv(cfg Config, env []string) Config {
 	if v, ok := envGet(env, "CLOUDAGENT_MAX_ITERATIONS"); ok {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.MaxIterations = n
+		}
+	}
+	if v, ok := envGet(env, "CLOUDAGENT_MAX_RUN_SECONDS"); ok {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.MaxRunSeconds = n
 		}
 	}
 	if v, ok := envGet(env, "CLOUDAGENT_COMPACT_TRIGGER_TOKENS"); ok {

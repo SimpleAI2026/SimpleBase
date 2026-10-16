@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
 )
@@ -65,8 +66,8 @@ func (f *fakeRouterSandbox) WriteFile(ctx contextT, projectID, id, path string, 
 	return nil
 }
 func (f *fakeRouterSandbox) RemoveFile(ctx contextT, projectID, id, path string) error { return nil }
-func (f *fakeRouterSandbox) ListDir(ctx contextT, projectID, id, path string) ([]sandbox.FileEntry, error) {
-	return []sandbox.FileEntry{{Name: "a.txt", Kind: "file"}}, nil
+func (f *fakeRouterSandbox) ListDir(ctx contextT, projectID, id, path string) ([]vm.FileEntry, error) {
+	return []vm.FileEntry{{Name: "a.txt", Kind: "file"}}, nil
 }
 func (f *fakeRouterSandbox) RunOnce(ctx contextT, projectID string, in sandbox.RunInput, actor string) (sandbox.ExecOutput, error) {
 	return sandbox.ExecOutput{ExitCode: 0, Stdout: "ok", Status: "done", SandboxID: "sb-1"}, nil
@@ -123,8 +124,8 @@ func TestB3_SandboxRouteSetLocked(t *testing.T) {
 // Available() == false 时仅 capabilities 挂载，其余路由不存在（404）。
 func TestB3_SandboxRoutesAbsentWithoutDependency(t *testing.T) {
 	for name, sb := range map[string]SandboxService{
-		"nil sandbox":   nil,
-		"unavailable":   &fakeRouterSandbox{available: false},
+		"nil sandbox": nil,
+		"unavailable": &fakeRouterSandbox{available: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps, key := fullRouterDeps(t)
@@ -158,8 +159,8 @@ func TestB3_SandboxWriteRoutesForbiddenWithReadOnlyPermission(t *testing.T) {
 	deps.Sandbox = &fakeRouterSandbox{available: true}
 	deps.Auth = auth.NewService(&memAuthRepo{rec: auth.APIKeyRecord{
 		ID: "key-ro", KeyHash: deps.Auth.HashKey(key), TenantID: "tenant-1",
-		ProjectIDs:   []string{"proj-1"},
-		Permissions:  []auth.Permission{auth.DatabaseRead},
+		ProjectIDs:  []string{"proj-1"},
+		Permissions: []auth.Permission{auth.DatabaseRead},
 	}}, "secret")
 	e := NewRouter(deps)
 

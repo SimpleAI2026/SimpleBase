@@ -229,6 +229,78 @@ type AgentConfig struct {
 	// 开启后按「元数据层（默认 info）」+「内容层（脱敏 + 截断）」两级输出，
 	// 内容层是 internal/AGENTS.md 脱敏约定的显式例外，仅在此开关为真时生效。
 	TraceLog bool `yaml:"trace_log"`
+	// ShellIsolation 是本机 shell 的隔离策略（planv6.2）。默认关闭。
+	// 服务端云助手的 sandbox_shell 走 Cloud 沙盒，不经过它；
+	// 目前只有 cloudagent CLI 会启动本机 shell，而 CLI 读的是 ~/.cloudagent/config.json，
+	// 这一段在服务端只做解析与校验，供操作者对照抄写。
+	ShellIsolation ShellIsolationConfig `yaml:"shell_isolation"`
+}
+
+// ShellIsolationConfig 是 agent.shell_isolation 段。字段含义见 gosandbox/host.Policy。
+// internal/config 不 import gosandbox，所以校验在本包内自行完成。
+type ShellIsolationConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	Mode             string        `yaml:"mode"` // read-only | workspace-write | danger-full-access
+	WritableRoots    []string      `yaml:"writable_roots"`
+	ReadOnlySubpaths []string      `yaml:"read_only_subpaths"`
+	DenyRead         []string      `yaml:"deny_read"`
+	MemoryMaxBytes   int64         `yaml:"memory_max_bytes"`
+	CPUMax           string        `yaml:"cpu_max"`
+	PidsMax          int64         `yaml:"pids_max"`
+	Timeout          time.Duration `yaml:"timeout"`
+	BwrapPath        string        `yaml:"bwrap_path"`
+	HelperPath       string        `yaml:"helper_path"`
+}
+
+// EffectiveMode 返回生效档位；未指定取 workspace-write。
+func (c ShellIsolationConfig) EffectiveMode() string {
+	if c.Mode == "" {
+		return "workspace-write"
+	}
+	return c.Mode
+}
+
+func validateShellIsolation(c ShellIsolationConfig) []error {
+	var errs []error
+	switch c.EffectiveMode() {
+	case "read-only", "workspace-write", "danger-full-access":
+	default:
+		errs = append(errs, fmt.Errorf("agent.shell_isolation.mode must be read-only, workspace-write or danger-full-access (got %q)", c.Mode))
+	}
+	if c.MemoryMaxBytes < 0 || c.PidsMax < 0 || c.Timeout < 0 {
+		errs = append(errs, errors.New("agent.shell_isolation.memory_max_bytes, pids_max and timeout must not be negative"))
+	}
+	if c.CPUMax != "" {
+		f := strings.Fields(c.CPUMax)
+		ok := len(f) >= 1 && len(f) <= 2
+		for i, tok := range f {
+			if tok == "max" && i == 0 {
+				continue
+			}
+			if tok == "" || strings.Trim(tok, "0123456789") != "" {
+				ok = false
+			}
+		}
+		if !ok {
+			errs = append(errs, fmt.Errorf("agent.shell_isolation.cpu_max must be \"<quota|max> [period]\" (got %q)", c.CPUMax))
+		}
+	}
+	for _, group := range []struct {
+		name  string
+		paths []string
+	}{{"writable_roots", c.WritableRoots}, {"deny_read", c.DenyRead}} {
+		for _, p := range group.paths {
+			if !strings.HasPrefix(p, "/") && p != "~" && !strings.HasPrefix(p, "~/") {
+				errs = append(errs, fmt.Errorf("agent.shell_isolation.%s entries must be absolute or start with ~ (got %q)", group.name, p))
+			}
+		}
+	}
+	for _, p := range []struct{ name, v string }{{"bwrap_path", c.BwrapPath}, {"helper_path", c.HelperPath}} {
+		if p.v != "" && !strings.HasPrefix(p.v, "/") {
+			errs = append(errs, fmt.Errorf("agent.shell_isolation.%s must be absolute (got %q)", p.name, p.v))
+		}
+	}
+	return errs
 }
 
 func (a AgentConfig) EffectiveDelegationTTL() time.Duration {
@@ -253,6 +325,7 @@ func validateAgent(a AgentConfig) []error {
 	if a.ConfirmTimeout != 0 && (a.ConfirmTimeout < 10*time.Second || a.ConfirmTimeout > 10*time.Minute) {
 		errs = append(errs, fmt.Errorf("agent.confirm_timeout must be 10s-10m (got %s)", a.ConfirmTimeout))
 	}
+	errs = append(errs, validateShellIsolation(a.ShellIsolation)...)
 	return errs
 }
 

@@ -70,6 +70,16 @@ func parseFlags(opts Options, args []string) Options {
 				i++
 				opts.Cwd = args[i]
 			}
+		case "--shell-isolation":
+			if i+1 < len(args) {
+				i++
+				iso, err := ShellIsolationFromFlag(args[i])
+				if err != nil {
+					opts.FlagErr = err
+					break
+				}
+				opts.Config.ShellIsolation = overlayShellIsolation(opts.Config.ShellIsolation, iso)
+			}
 		}
 	}
 	// 位置参数作为 prompt 的补充。
@@ -77,7 +87,7 @@ func parseFlags(opts Options, args []string) Options {
 	skip := map[int]bool{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "-p", "--print", "--prompt", "--session", "-s", "--cwd":
+		case "-p", "--print", "--prompt", "--session", "-s", "--cwd", "--shell-isolation":
 			skip[i] = true
 			skip[i+1] = true
 		}
@@ -193,6 +203,7 @@ var configKeys = []struct {
 	{"search_provider", func(c Config) string { return c.SearchProvider }, func(c *Config, v string) { c.SearchProvider = v }},
 	{"search_api_key", func(c Config) string { return c.SearchAPIKey }, func(c *Config, v string) { c.SearchAPIKey = v }},
 	{"yolo", func(c Config) string { return fmt.Sprintf("%t", c.Yolo) }, func(c *Config, v string) { c.Yolo = v == "true" || v == "1" }},
+	{"max_run_seconds", func(c Config) string { return fmt.Sprintf("%d", c.MaxRunSeconds) }, func(c *Config, v string) { setPositiveInt(&c.MaxRunSeconds, v) }},
 	{"compact_trigger_tokens", func(c Config) string { return fmt.Sprintf("%d", c.CompactTriggerTokens) }, func(c *Config, v string) { setPositiveInt(&c.CompactTriggerTokens, v) }},
 	{"compact_keep_tokens", func(c Config) string { return fmt.Sprintf("%d", c.CompactKeepTokens) }, func(c *Config, v string) { setPositiveInt(&c.CompactKeepTokens, v) }},
 }
@@ -352,6 +363,9 @@ Flags:
       --session <id>     resume the given session
       --cwd <dir>        workspace root for local file and shell tools
       --yolo             skip confirmation for destructive shell commands (risky)
+      --shell-isolation <mode>
+                         run the shell tool in a sandbox: read-only | workspace-write |
+                         danger-full-access (off). --yolo does NOT disable the sandbox.
 
 Layout:
   ~/.cloudagent/config.json      CLI config (mode 0600, contains the SimpleBase token)

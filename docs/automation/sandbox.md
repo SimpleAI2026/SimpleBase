@@ -35,3 +35,16 @@ sandbox:
 沙盒权限隔离边界是 Cloud microVM，不是 chroot：shell 可以读取 VM 镜像中的文件，但 VM 内不会注入 SimpleBase 凭据。管理文件接口仅接受 `/workspace` 下的绝对路径。
 
 继续阅读：[API 全览](/docs/automation/sandbox-api) · [e2e 用法](/docs/automation/sandbox-e2e)。
+
+## 与本机 shell 隔离的区别
+
+云沙盒（本页）与 cloudagent CLI 的**本机 shell 隔离**是两套互不相干的机制：
+
+| | 云沙盒 | 本机 shell 隔离 |
+|---|---|---|
+| 作用对象 | 服务端云助手的 `sandbox_shell`、HTTP API | 自托管机器上 cloudagent CLI 的 `shell` 工具 |
+| 隔离边界 | Cloud microVM | 共享内核的进程沙盒：Linux 为 bubblewrap + Landlock + seccomp，macOS 为 `sandbox-exec` |
+| 默认 | 随 `sandbox.enabled` | 关闭（`shell_isolation.enabled: false`） |
+| 配置位置 | 服务器 `config.yaml` 的 `sandbox:` | CLI 的 `~/.cloudagent/config.json` 的 `shell_isolation`，或 `--shell-isolation <mode>` |
+
+本机隔离**不是**云沙盒失败后的回退，云沙盒不可用时依然功能关闭。本机隔离不承诺挡住内核提权漏洞，多租户或不可信代码请使用云沙盒。`--yolo` 只跳过破坏性命令的确认，不会关闭本机隔离；隔离开启但环境不满足时，命令不会执行并返回 `isolation_unavailable`。详见 `gosandbox/README.md`。

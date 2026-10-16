@@ -172,6 +172,29 @@ agent:
                               # 始终可用；开启后额外输出内容层（提示词、用户输入、工具参数与正文），
                               # 输出前 RedactSecrets + 截断 2000 字符。默认关闭，属脱敏约定的显式例外。
                               # SIMPLEBASE_AGENT_TRACE_LOG=true 覆盖
+  # 本机 shell 隔离（planv6.2，代码：gosandbox/host）。默认关闭。
+  # 注意：服务端云助手的 sandbox_shell 走 Cloud 沙盒，不经过这里；目前只有 cloudagent CLI 会启动本机 shell，
+  # 而 CLI 读的是 ~/.cloudagent/config.json 的同名 shell_isolation 段，不读本文件——这一段在服务端只做解析与校验，
+  # 请把需要的字段抄进 CLI 配置。Linux 需要 bubblewrap(>=0.8.0)、内核 Landlock ABI>=3；macOS 用 /usr/bin/sandbox-exec。
+  # --yolo 只跳过确认，不会关闭隔离；隔离开启但不可用时命令不会执行（isolation_unavailable），不退回裸执行。
+  shell_isolation:
+    enabled: false              # SIMPLEBASE_AGENT_SHELL_ISOLATION_ENABLED
+    mode: workspace-write       # read-only | workspace-write | danger-full-access。SIMPLEBASE_AGENT_SHELL_ISOLATION_MODE
+                                # 默认不能上网；放开网络只有 danger-full-access（等于关闭隔离）
+    writable_roots: []          # 额外可写绝对路径，必须已存在
+    read_only_subpaths:         # 工作区内再盖成只读；省略则取默认 [.git, .cloudagent]
+      - .git
+      - .cloudagent
+    deny_read:                  # 命令里读到空内容，且文件工具同样拒绝（支持 ~）
+      - ~/.ssh
+      - ~/.aws
+      - ~/.config/gcloud
+    memory_max_bytes: 0         # 0 = 不限。仅当 cgroup v2 已委派或有 systemd 时才生效，否则回显 limits=unenforced
+    cpu_max: ""                 # cgroup v2 cpu.max 原文，如 "100000 100000"
+    pids_max: 0                 # 0 = 不限
+    timeout: 120s               # 0 = 沿用 shell 默认 120s。SIMPLEBASE_AGENT_SHELL_ISOLATION_TIMEOUT
+    bwrap_path: ""              # 空 = 在 PATH 上查找；必须解析为绝对路径且非 setuid
+    helper_path: ""             # 空 = 与 cloudagent 同目录的 gosandbox-inner
 
 # ── Sandbox（云沙盒）──────────────────────────────────
 # 代码：internal/sandbox

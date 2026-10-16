@@ -5,10 +5,11 @@
 - [`internal/AGENTS.md`](internal/AGENTS.md) — 后端分层、系统库保护、API 协议
 - [`ui/AGENTS.md`](ui/AGENTS.md) — 前端目录职责、API 层、样式定稿规范
 - [`gofunction/README.md`](gofunction/README.md) — 解释器公共 API、能力边界、已注册包清单
+- [`gosandbox/README.md`](gosandbox/README.md) — 沙盒执行层：本机 shell 隔离（bwrap/Landlock/seccomp/Seatbelt）与 VM 后端
 
 ## 项目概述
 
-SimpleBase 是单写实例的云端数据库服务：DuckLake + S3 在线持久层做存储，Echo v4 提供 REST API，`go:embed` 内嵌 Vue 3 控制台，进程内 `gofunction` 解释器运行 Go 云函数，llmgateway 封装多供应商 LLM 与云 Agent。模块 `github.com/linkxzhou/SimpleBase`（Go 1.25，单 go.mod，gofunction 无独立模块）。
+SimpleBase 是单写实例的云端数据库服务：DuckLake + S3 在线持久层做存储，Echo v4 提供 REST API，`go:embed` 内嵌 Vue 3 控制台，进程内 `gofunction` 解释器运行 Go 云函数，llmgateway 封装多供应商 LLM 与云 Agent。模块 `github.com/linkxzhou/SimpleBase`（Go 1.25）；`gofunction/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gofunction`（自带 `go.mod`，根 `go.mod` 用 `replace => ./gofunction` 引用，import 路径不变）；`gosandbox/` 同样是嵌套独立模块（沙盒执行层，见 [`gosandbox/README.md`](gosandbox/README.md)）。
 
 ## 常用命令
 
@@ -27,8 +28,11 @@ go build ./internal/... ./cmd/...           # 快速编译检查
 
 # ── 测试 ──────────────────────────────────────────────
 go test ./...                               # 后端全量
-go test ./gofunction/... -short             # 云函数解释器（-short 跳过外网 HTTP 用例）
-go vet ./gofunction/...
+(cd gofunction && go test ./... -short)     # 云函数解释器（独立模块，根目录 ./... 不含它；-short 跳过外网 HTTP 用例）
+(cd gofunction && go vet ./...)
+(cd gofunction && go run ./cmd/gofunction help)   # 解释器命令行：run / check / list / packages
+(cd gofunction && go test -run='^$' -bench=. -benchmem ./bench)   # 性能基准（原 benchmarks/gofunction）
+(cd gosandbox && go build ./... && go vet ./... && go test ./...)   # 沙盒执行层（独立模块；真 bwrap 用例无 bwrap 时自动 Skip）
 
 cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.24% 未达标，见 planv5.0 §7.2
 cd ui && yarn build                         # 前端构建必须通过
@@ -92,7 +96,7 @@ cmd/simplebase → app → api → auth / catalog / database / objectstore
 - 路由 redirect 保持现状（`/sql`→`/databases`、`/llm`→`/agents`、`/settings`→`/?settings=1` 等）；新页面必须在 `router/index.ts` 注册并配 `meta.title`。
 - admin（系统）项目的只读判定唯一入口是 `stores/project.ts` 的 `isAdmin`；前端只读只是体验层，后端才是真正保护。
 
-**gofunction**：公共 API 与限制以 `gofunction/README.md` 为准；`Executor.Compile` / `SetProfile` / `Runtime.Cleanup` 等是预留空实现，不要当已实现功能使用或宣传。
+**gofunction**：公共 API 与限制以 `gofunction/README.md` 为准；`Executor.Compile` / `SetProfile` / `Runtime.Cleanup` 等是预留空实现，不要当已实现功能使用或宣传。**解释器实现全部在 `gofunction/internal/interp`**（`internal` 包，禁止外部 import）；模块根的 `gofunction.go` / `jsonrun.go` 只是类型别名与薄转发门面，新增对外 API 要在那里加转发，不要在 `internal/interp` 里直接暴露。实现文件按职责分：`compile.go` 编译期预编译、`eval.go` 运算、`call.go` 调用分发、`layout.go` 槽位布局、`executor.go` 池化。
 
 **设计计划文档的工作目录**：`plan/` 按版本切目录（`planv1.0` … `planv5.0`）。`planv4.1` 不是独立目录——v4.1 云 Agent 优化计划全文放在 `plan/planv4.0/cloud-agent-optimization-plan.md`，代码注释里的 `planv4.1 §X` / `BUG-0X` 均指向该文件，改动前请到那里查。
 
@@ -101,7 +105,7 @@ cmd/simplebase → app → api → auth / catalog / database / objectstore
 - 后端：改动必须保持 `go build ./internal/... ./cmd/...` 与 `go test ./...` 通过；handler 测试用 fake service，不依赖真实 DuckDB/S3；**新增写路径必须补「系统库拒绝」用例**。新增/修改 `LLMService` 等跨层接口时，所有 fake 实现（`internal/api/*_test.go` 的 `fakeGW`、`fakeLLMSvc`）要同步补齐方法，否则整包编译失败。
 - 前端：`yarn build` 与 `yarn test` 必须通过（coverage 语句/分支/functions 均 95% 阈值）；`src/components/ui/`、`*.d.ts`、`main.ts`、`types.ts`、`src/test/` 不计入覆盖。当前基线：statements 99.24% / branches 95.07% / functions **94.24%（未达标）**。
 - **数据层组件不要用测试桩替换**：`Switch`、`Tabs` 之类承载真实交互语义的 `ui/` 组件被桩掉后，失效的状态类会假通过（见 §7.3）；测试断言应打在真实 DOM 属性/事件上，而不是桩的 emit 上。
-- gofunction：默认 `go test ./gofunction/... -short`（外网 HTTP 用例仅在非 -short 下跑）。
+- gofunction：独立模块，须在 `gofunction/` 目录下 `go test ./... -short`（外网 HTTP 用例仅在非 -short 下跑）。**`gofunction` 不得 import 根模块任何包**（含 `internal/...`），其依赖只允许 `golang.org/x/tools` 与 `json-iterator`；新增依赖要在 `gofunction/go.mod` 里加。
 
 ## 提交前自查
 

@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-// cleanPath 校验 p 落在 workdir 下（§8.2，沿用 v3 语义）：
+// cleanPath 校验 p 落在 workdir 下（§8.2）：
 // 绝对路径、Clean 后前缀匹配；allowRoot=false 时拒绝 workdir 本身。
 func cleanPath(workdir, p string, allowRoot bool) (string, error) {
 	p = strings.TrimSpace(p)
@@ -80,9 +80,4 @@ func truncateUTF8(b []byte, max int) (string, bool) {
 // CloudName 是 Cloud 侧 VM 名（§6）：sbx- + 去连字符的 id。
 func CloudName(id string) string {
 	return "sbx-" + strings.ReplaceAll(strings.ToLower(strings.TrimSpace(id)), "-", "")
-}
-
-// ThreadCloudName 是 v3 时期 agent thread 的 VM 名（sb- 前缀），用于接回旧 VM（§9.2）。
-func ThreadCloudName(threadID string) string {
-	return "sb-" + strings.ReplaceAll(strings.ToLower(strings.TrimSpace(threadID)), "-", "")
 }

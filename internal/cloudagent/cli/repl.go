@@ -30,9 +30,11 @@ type Options struct {
 	Headless  bool
 	JSON      bool
 	Yolo      bool
-	Stdin     io.Reader
-	Stdout    io.Writer
-	Stderr    io.Writer
+	// FlagErr 是命令行解析阶段的错误（如非法的 --shell-isolation），Run 会按用法错误报告。
+	FlagErr error
+	Stdin   io.Reader
+	Stdout  io.Writer
+	Stderr  io.Writer
 	// Confirm 为 nil 时（非交互）破坏性操作直接拒绝（fail-closed）。
 	Confirm tools.ConfirmFunc
 	// MaxDuration 单次运行墙钟时限（O3-6），0 表示不限（测试时用）。
@@ -71,6 +73,9 @@ func Run(opts Options) int {
 		// 会被当成「没配」，问题被掩盖。
 		return fail(opts, exitConfig, "config_invalid", err.Error())
 	}
+	if opts.FlagErr != nil {
+		return fail(opts, exitUsage, "usage", opts.FlagErr.Error())
+	}
 	cfg := MergeEnv(overlayConfig(fileCfg, opts.Config), opts.Env)
 	if opts.Yolo {
 		cfg.Yolo = true
@@ -89,8 +94,9 @@ func Run(opts Options) int {
 		return fail(opts, exitUsage, "setup_failed", err.Error())
 	}
 
-	// 交互模式：有 TTY 且未给 prompt。
+	// 交互模式：有 TTY 且未给 prompt。预算按「单轮」计，已合并的配置值经 opts 带进去。
 	if !opts.Headless && strings.TrimSpace(opts.Prompt) == "" && isTTY(opts.Stdin) {
+		opts.MaxDuration = runLimit(opts, cfg)
 		return runREPL(opts, runtime, session)
 	}
 
@@ -107,16 +113,20 @@ func Run(opts Options) int {
 		return fail(opts, exitUsage, "usage", "no prompt given: pass a prompt argument, -p \"...\", or pipe text on stdin")
 	}
 	// planv6.1 O3-6: 给 Run 加墙钟超时（防 layout-config-recreation 式黑洞）。
+	// opts.MaxDuration 是调用方显式覆盖；否则取配置里的 max_run_seconds。
 	baseCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	ctx := baseCtx
-	if opts.MaxDuration > 0 {
+	if limit := runLimit(opts, cfg); limit > 0 {
 		var tcancel context.CancelFunc
-		ctx, tcancel = context.WithTimeout(baseCtx, opts.MaxDuration)
+		ctx, tcancel = context.WithTimeout(baseCtx, limit)
 		defer tcancel()
 	}
 	result, err := runtime.Run(ctx, prompt, emitFunc(opts))
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fail(opts, exitAPI, "timeout", fmt.Sprintf("run exceeded %s", runLimit(opts, cfg)))
+		}
 		if errors.Is(err, context.Canceled) {
 			return fail(opts, exitUsage, "canceled", "interrupted")
 		}
@@ -139,6 +149,18 @@ func Run(opts Options) int {
 	return exitOK
 }
 
+// runLimit 返回单次 run 的墙钟上限；0 表示不限。
+// opts.MaxDuration 是调用方显式覆盖（测试用），否则取配置的 max_run_seconds。
+func runLimit(opts Options, cfg Config) time.Duration {
+	if opts.MaxDuration > 0 {
+		return opts.MaxDuration
+	}
+	if cfg.MaxRunSeconds > 0 {
+		return time.Duration(cfg.MaxRunSeconds) * time.Second
+	}
+	return 0
+}
+
 func openOrCreateSession(opts Options, cfg Config) (*Session, error) {
 	if strings.TrimSpace(opts.SessionID) != "" {
 		path, err := FindSession(opts.Env, opts.SessionID)
@@ -151,7 +173,16 @@ func openOrCreateSession(opts Options, cfg Config) (*Session, error) {
 }
 
 func buildRunner(opts Options, cfg Config, session *Session) (*SessionRunner, error) {
-	ws := &tools.Workspace{Root: opts.Cwd, Confirm: opts.Confirm, Yolo: cfg.Yolo}
+	home, _ := os.UserHomeDir()
+	if v, ok := envGet(opts.Env, "HOME"); ok && v != "" {
+		home = v
+	}
+	// 隔离策略非法时 fail-closed：不静默退回裸执行。
+	iso, err := cfg.ShellIsolation.Policy(opts.Cwd, home)
+	if err != nil {
+		return nil, fmt.Errorf("shell_isolation: %w", err)
+	}
+	ws := &tools.Workspace{Root: opts.Cwd, Confirm: opts.Confirm, Yolo: cfg.Yolo, Isolation: iso}
 	localTools, err := ws.LocalTools()
 	if err != nil {
 		return nil, err
@@ -238,8 +269,14 @@ func runREPL(opts Options, runtime *SessionRunner, session *Session) int {
 				continue
 			}
 		}
-		// Ctrl+C 取消当前 run：用独立的可取消 ctx。
+		// Ctrl+C 取消当前 run：用独立的可取消 ctx；配置了墙钟上限时按单轮套超时。
 		ctx, cancel := context.WithCancel(context.Background())
+		if opts.MaxDuration > 0 {
+			var tcancel context.CancelFunc
+			ctx, tcancel = context.WithTimeout(ctx, opts.MaxDuration)
+			prev := cancel
+			cancel = func() { tcancel(); prev() }
+		}
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt)
 		done := make(chan struct{})

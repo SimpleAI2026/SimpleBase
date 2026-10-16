@@ -4,16 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	_ "github.com/uglyer/go-sqlite3"
 )
 
-func newSandboxManagerTest(t *testing.T, limit int) (*sandbox.Manager, *sandbox.FakeDriver, *systemdb.Store) {
+func newSandboxManagerTest(t *testing.T, limit int) (*sandbox.Manager, *fake.Driver, *systemdb.Store) {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -25,7 +28,7 @@ func newSandboxManagerTest(t *testing.T, limit int) (*sandbox.Manager, *sandbox.
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)
-	driver := sandbox.NewFakeDriver()
+	driver := fake.New()
 	cfg := config.SandboxConfig{Enabled: true, Backend: "fake", Image: "python:3.12-slim", CPUs: 1,
 		MemoryMiB: 256, Network: "none", Workdir: "/workspace", IdleTimeout: time.Minute,
 		MaxDuration: 30 * time.Minute, ExecTimeout: time.Second, ExecTimeoutMax: time.Minute,
@@ -105,7 +108,7 @@ func TestSandboxManagerRunCleanupAndThreadCompatibility(t *testing.T) {
 	}
 	thread := "550e8400-e29b-41d4-a716-446655440000"
 	agent, err := m.EnsureForThread(ctx, "p", thread)
-	if err != nil || agent.CloudName != "sb-550e8400e29b41d4a716446655440000" {
+	if err != nil || !strings.HasPrefix(agent.CloudName, "sbx-") {
 		t.Fatalf("thread: %+v %v", agent, err)
 	}
 	if _, err = m.Exec(ctx, "p", agent.ID, sandbox.ExecInput{Command: "echo no"}); !errors.Is(err, sandbox.ErrBusy) {
@@ -176,7 +179,7 @@ func TestSandboxManagerReaper(t *testing.T) {
 
 // transientRemoveDriver 模拟 Cloud 首次删除失败，再次调用成功。
 type transientRemoveDriver struct {
-	*sandbox.FakeDriver
+	*fake.Driver
 	fail bool
 }
 
@@ -185,7 +188,7 @@ func (d *transientRemoveDriver) Remove(ctx context.Context, name string) error {
 		d.fail = false
 		return errors.New("temporary Cloud outage")
 	}
-	return d.FakeDriver.Remove(ctx, name)
+	return d.Driver.Remove(ctx, name)
 }
 
 func TestSandboxManagerRetryFailedCloudRemoval(t *testing.T) {
@@ -194,14 +197,14 @@ func TestSandboxManagerRetryFailedCloudRemoval(t *testing.T) {
 		MemoryMiB: 256, Network: "none", Workdir: "/workspace", IdleTimeout: time.Minute,
 		MaxDuration: 30 * time.Minute, ExecTimeout: time.Second, ExecTimeoutMax: time.Minute,
 		MaxFileBytes: 8, MaxOutputBytes: 4, MaxPerProject: 2}
-	driver := &transientRemoveDriver{FakeDriver: base, fail: true}
+	driver := &transientRemoveDriver{Driver: base, fail: true}
 	m := sandbox.NewManager(cfg, sandboxStoreAdapter{s: store}, driver)
 	ctx := context.Background()
 	r, err := m.Create(ctx, "p", sandbox.CreateInput{Name: "retry", Start: true}, "u")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = m.Delete(ctx, "p", r.ID); !errors.Is(err, sandbox.ErrBackend) {
+	if err = m.Delete(ctx, "p", r.ID); !errors.Is(err, vm.ErrBackend) {
 		t.Fatalf("first delete: %v", err)
 	}
 	failed, err := store.ListFailedSandboxRemovals(ctx, 10)
@@ -221,18 +224,18 @@ func TestSandboxManagerRetryFailedCloudRemoval(t *testing.T) {
 
 // blockingExecDriver 用于断言同一沙盒的操作按 VM 串行。
 type blockingExecDriver struct {
-	*sandbox.FakeDriver
+	*fake.Driver
 	entered chan struct{}
 	release chan struct{}
 }
 
-func (d *blockingExecDriver) Exec(ctx context.Context, target sandbox.Target, req sandbox.ExecSpec) (sandbox.ExecResult, error) {
+func (d *blockingExecDriver) Exec(ctx context.Context, target vm.Target, req vm.ExecSpec) (vm.ExecResult, error) {
 	close(d.entered)
 	select {
 	case <-d.release:
-		return d.FakeDriver.Exec(ctx, target, req)
+		return d.Driver.Exec(ctx, target, req)
 	case <-ctx.Done():
-		return sandbox.ExecResult{}, ctx.Err()
+		return vm.ExecResult{}, ctx.Err()
 	}
 }
 
@@ -241,7 +244,7 @@ func TestSandboxManagerSerializesSameVMAndCancelsWaiter(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: true, Backend: "fake", Image: "python:3.12-slim", CPUs: 1, MemoryMiB: 256,
 		Network: "none", Workdir: "/workspace", IdleTimeout: time.Minute, MaxDuration: 30 * time.Minute,
 		ExecTimeout: time.Second, ExecTimeoutMax: time.Minute, MaxPerProject: 2, MaxFileBytes: 8, MaxOutputBytes: 4}
-	driver := &blockingExecDriver{FakeDriver: base, entered: make(chan struct{}), release: make(chan struct{})}
+	driver := &blockingExecDriver{Driver: base, entered: make(chan struct{}), release: make(chan struct{})}
 	m := sandbox.NewManager(cfg, sandboxStoreAdapter{s: store}, driver)
 	ctx := context.Background()
 	r, err := m.Create(ctx, "p", sandbox.CreateInput{Name: "locked"}, "u")

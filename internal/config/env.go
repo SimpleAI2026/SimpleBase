@@ -154,6 +154,12 @@ func applyEnvAgent(cfg *Config) {
 	setEnvDuration(&cfg.Agent.DelegationTTL, "SIMPLEBASE_AGENT_DELEGATION_TTL")
 	setEnvDuration(&cfg.Agent.ConfirmTimeout, "SIMPLEBASE_AGENT_CONFIRM_TIMEOUT")
 	setEnvBool(&cfg.Agent.TraceLog, "SIMPLEBASE_AGENT_TRACE_LOG")
+	// 列表型字段只放 YAML，不做含糊的分隔符环境变量。
+	setEnvBool(&cfg.Agent.ShellIsolation.Enabled, "SIMPLEBASE_AGENT_SHELL_ISOLATION_ENABLED")
+	if v, ok := os.LookupEnv("SIMPLEBASE_AGENT_SHELL_ISOLATION_MODE"); ok {
+		cfg.Agent.ShellIsolation.Mode = v
+	}
+	setEnvDuration(&cfg.Agent.ShellIsolation.Timeout, "SIMPLEBASE_AGENT_SHELL_ISOLATION_TIMEOUT")
 }
 
 // applyEnvSandbox 映射 SIMPLEBASE_SANDBOX_* 环境变量（cloud-agent-sandbox-plan §5）。

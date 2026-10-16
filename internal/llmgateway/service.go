@@ -20,6 +20,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/voocel/litellm"
@@ -35,7 +36,8 @@ type ProviderConfig struct {
 	BaseURL string `json:"base_url"`
 	Model   string `json:"model"`
 	// AllowedModels 非空时，请求的 model 必须在列表内（planv4.0 cloud-agent-optimization-plan §4.7）。
-	AllowedModels []string `json:"allowed_models,omitempty"`
+	AllowedModels []string          `json:"allowed_models,omitempty"`
+	Timeout       time.Duration     `json:"timeout,omitempty"` // 整体请求超时；0=不限（planv6.1 O2）
 }
 
 // ProjectProviders 描述一个 project 可用的供应商集合。
@@ -205,9 +207,17 @@ func (s *service) getClient(ctx context.Context, projectID, providerName string)
 	if mapped, ok := litellmDriver(cfg.Name); ok {
 		driver = mapped
 	}
+	// planv6.1 O2: 重试 + 超时分层。MaxRetries=3（5xx/429/网络），ConnectTimeout=10s，
+	// RequestTimeout 来自 cfg.Timeout（若非零）或上层 ctx deadline。
+	resilience := litellm.DefaultResilienceConfig()
+	resilience.MaxRetries = 3
+	resilience.ConnectTimeout = 10 * time.Second
+	resilience.RequestTimeout = cfg.Timeout // 0=不限（由 ctx 控）
 	c, err := litellm.NewWithProvider(driver, litellm.ProviderConfig{
-		APIKey:  cfg.APIKey,
-		BaseURL: cfg.BaseURL,
+		APIKey:     cfg.APIKey,
+		BaseURL:    cfg.BaseURL,
+		Timeout:    cfg.Timeout,
+		Resilience: resilience,
 	})
 	if err != nil {
 		return nil, cfg, fmt.Errorf("llmgateway: create client for %s: %w", providerName, err)

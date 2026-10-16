@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
 )
@@ -18,9 +19,9 @@ func TestSandboxDomainErrors(t *testing.T) {
 		status int
 		code   string
 	}{
-		{sandbox.ErrUnavailable, 503, "sandbox_unavailable"},
+		{vm.ErrUnavailable, 503, "sandbox_unavailable"},
 		{sandbox.ErrNotFound, 404, "sandbox_not_found"},
-		{sandbox.ErrFileNotFound, 404, "sandbox_file_not_found"},
+		{vm.ErrFileNotFound, 404, "sandbox_file_not_found"},
 		{sandbox.ErrNameConflict, 409, "sandbox_name_conflict"},
 		{sandbox.ErrLimitExceeded, 429, "sandbox_limit_exceeded"},
 		{sandbox.ErrInvalidSpec, 400, "sandbox_invalid_spec"},
@@ -28,7 +29,7 @@ func TestSandboxDomainErrors(t *testing.T) {
 		{sandbox.ErrFileTooLarge, 413, "sandbox_file_too_large"},
 		{sandbox.ErrBusy, 409, "sandbox_busy"},
 		{sandbox.ErrGone, 410, "sandbox_gone"},
-		{sandbox.ErrBackend, 502, "sandbox_backend_error"},
+		{vm.ErrBackend, 502, "sandbox_backend_error"},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
 			got := Error(tc.err, "r")

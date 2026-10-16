@@ -41,29 +41,34 @@ func (c *scriptedClient) Stream(ctx context.Context, projectID string, req agent
 	if err != nil {
 		return nil, err
 	}
-	return &scriptedDeltaStream{resp: resp, started: false}, nil
+	return &scriptedDeltaStream{resp: resp, phase: 0}, nil
 }
 
-// scriptedDeltaStream 实现 DeltaStream：先发工具调用增量，再发正文。
+// scriptedDeltaStream 实现 DeltaStream：先发工具调用增量，再发正文，最后发 usage。
 type scriptedDeltaStream struct {
-	resp    agentcore.ChatResponse
-	started bool
+	resp  agentcore.ChatResponse
+	phase int // 0=content/toolcall, 1=usage, 2=finish
 }
 
 func (s *scriptedDeltaStream) Next() (string, bool, error) { return "", true, io.EOF }
 
 func (s *scriptedDeltaStream) NextDelta() (agentcore.StreamDelta, error) {
-	if s.started {
+	switch s.phase {
+	case 0:
+		s.phase++
+		if len(s.resp.ToolCalls) > 0 {
+			tc := s.resp.ToolCalls[0]
+			return agentcore.StreamDelta{ToolCall: &agentcore.ToolCallDelta{
+				Index: 0, ID: tc.ID, Name: tc.Name, ArgsDelta: tc.Arguments,
+			}}, nil
+		}
+		return agentcore.StreamDelta{Content: s.resp.Content}, nil
+	case 1:
+		s.phase++
+		return agentcore.StreamDelta{Usage: &s.resp.Usage}, nil
+	default:
 		return agentcore.StreamDelta{Finish: true}, io.EOF
 	}
-	s.started = true
-	if len(s.resp.ToolCalls) > 0 {
-		tc := s.resp.ToolCalls[0]
-		return agentcore.StreamDelta{ToolCall: &agentcore.ToolCallDelta{
-			Index: 0, ID: tc.ID, Name: tc.Name, ArgsDelta: tc.Arguments,
-		}}, nil
-	}
-	return agentcore.StreamDelta{Content: s.resp.Content}, nil
 }
 
 func (s *scriptedDeltaStream) Close() error { return nil }
@@ -264,6 +269,30 @@ func (erroringClient) Chat(context.Context, string, agentcore.ChatRequest) (agen
 
 func (erroringClient) Stream(context.Context, string, agentcore.ChatRequest) (agentcore.TokenStream, error) {
 	return nil, errors.New("upstream down")
+}
+
+// RunResult 必须包含 usage 与 model（planv6.1 O1-1）——让成本核算与护栏能接通。
+func TestRunResultIncludesUsageAndModel(t *testing.T) {
+	s := newTestSession(t)
+	client := &scriptedClient{replies: []agentcore.ChatResponse{{
+		Content: "answer",
+		Usage:   agentcore.ChatUsage{PromptTokens: 100, CompletionTokens: 50},
+		Model:   "test-model",
+	}}}
+	r := &SessionRunner{Session: s, Client: client, Model: "test-model"}
+	res, err := r.Run(context.Background(), "question", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PromptTokens != 100 || res.CompletionTokens != 50 {
+		t.Fatalf("usage = %d/%d, want 100/50", res.PromptTokens, res.CompletionTokens)
+	}
+	if res.Model != "test-model" {
+		t.Fatalf("model = %q, want %q", res.Model, "test-model")
+	}
+	if res.DurationMS <= 0 {
+		t.Fatal("duration must be > 0")
+	}
 }
 
 var _ = schema.AssistantMessage

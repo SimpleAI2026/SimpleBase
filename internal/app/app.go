@@ -19,6 +19,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm/cloud"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
 	"github.com/linkxzhou/SimpleBase/internal/agentjob"
 	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
@@ -223,13 +226,17 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 
 	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
 	if cfg.Sandbox.Enabled && a.systemStore != nil {
-		var driver sandbox.Driver
+		var driver vm.Driver
 		if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendFake {
-			driver = sandbox.NewFakeDriver()
+			driver = fake.New()
 		} else if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendCloud {
-			cloud, err := sandbox.NewCloudDriver(cfg.Sandbox, cfg.Database.CacheDir, logger)
+			cloudDrv, err := cloud.New(cloud.Options{APIKey: cfg.Sandbox.APIKey, APIURL: cfg.Sandbox.APIURL,
+				Home: cfg.Database.CacheDir, MaxFileBytes: cfg.Sandbox.MaxFileBytes})
 			if err == nil {
-				driver = cloud
+				driver = cloudDrv
+				if logger != nil {
+					logger.Info("sandbox cloud backend ready")
+				}
 			} else if logger != nil {
 				logger.Warn("sandbox disabled: cloud backend unavailable (no local fallback)")
 			}

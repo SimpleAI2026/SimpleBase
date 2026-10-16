@@ -18,4 +18,7 @@ fi
 
 echo "==> go test ${RACE_FLAG} ${PACKAGES[*]}"
 go test ${RACE_FLAG} -timeout 300s -count=1 "${PACKAGES[@]}"
+# gosandbox 是嵌套独立模块，根目录的 ./... 与上面的包列表都不含它（planv6.2）。
+echo "==> (cd gosandbox) go test ${RACE_FLAG}"
+(cd gosandbox && go test ${RACE_FLAG} -timeout 300s -count=1 ./...)
 echo "==> all tests passed"

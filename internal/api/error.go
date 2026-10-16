@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
@@ -95,9 +96,9 @@ func Error(err error, requestID string) *APIError {
 		status        int
 		code, message string
 	}{
-		{sandbox.ErrUnavailable, http.StatusServiceUnavailable, "sandbox_unavailable", "cloud sandbox is unavailable"},
+		{vm.ErrUnavailable, http.StatusServiceUnavailable, "sandbox_unavailable", "cloud sandbox is unavailable"},
 		{sandbox.ErrNotFound, http.StatusNotFound, "sandbox_not_found", "sandbox not found"},
-		{sandbox.ErrFileNotFound, http.StatusNotFound, "sandbox_file_not_found", "file not found"},
+		{vm.ErrFileNotFound, http.StatusNotFound, "sandbox_file_not_found", "file not found"},
 		{sandbox.ErrNameConflict, http.StatusConflict, "sandbox_name_conflict", "sandbox name already exists"},
 		{sandbox.ErrLimitExceeded, http.StatusTooManyRequests, "sandbox_limit_exceeded", "sandbox limit exceeded"},
 		{sandbox.ErrInvalidSpec, http.StatusBadRequest, "sandbox_invalid_spec", "invalid sandbox specification"},
@@ -105,7 +106,7 @@ func Error(err error, requestID string) *APIError {
 		{sandbox.ErrFileTooLarge, http.StatusRequestEntityTooLarge, "sandbox_file_too_large", "sandbox file too large"},
 		{sandbox.ErrBusy, http.StatusConflict, "sandbox_busy", "sandbox is busy"},
 		{sandbox.ErrGone, http.StatusGone, "sandbox_gone", "sandbox has expired"},
-		{sandbox.ErrBackend, http.StatusBadGateway, "sandbox_backend_error", "sandbox backend error"},
+		{vm.ErrBackend, http.StatusBadGateway, "sandbox_backend_error", "sandbox backend error"},
 	} {
 		if errors.Is(err, mapping.target) {
 			return NewAPIError(mapping.status, mapping.code, mapping.message, requestID)

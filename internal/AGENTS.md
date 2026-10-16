@@ -29,8 +29,9 @@ cmd/simplebase → app → api → auth / catalog / database / objectstore
 | `database/cache` | 缓存目录 LRU、路径防穿越 | 淘汰活跃库 |
 | `objectstore` | S3 边界、KeyBuilder、descriptor | 用户可控字符串直接拼对象键 |
 | `systemdb` | 系统库 bootstrap、迁移、常驻连接 | — |
-| `cloudagent` | 只读工具，或在 `skills_cli` 打开时经 CLI 调既有 HTTP API；沙盒工具经 `Sandbox` 接口 | 直接写 DuckLake / S3 / 系统库；向沙盒注入 SimpleBase 凭据；直接 import `sandbox` 或 microsandbox |
-| `sandbox` | 云沙盒唯一接入：Driver（cloud/fake）+ Manager（资源、限额、路径、reaper） | 读写 DuckLake/S3/系统库凭据；向沙盒注入 SimpleBase 凭据；本地 microVM 回退 |
+| `cloudagent` | 只读工具，或在 `skills_cli` 打开时经 CLI 调既有 HTTP API；沙盒工具经 `Sandbox` 接口；本机 `shell` 在 `shell_isolation.enabled` 时经 `gosandbox/host` | 直接写 DuckLake / S3 / 系统库；向沙盒注入 SimpleBase 凭据；直接 import `sandbox`、`gosandbox/vm` 或 microsandbox（`gosandbox/host` 是唯一例外，仅用于本机 shell）；隔离开启但不可用时退回裸执行 |
+| `sandbox` | 云沙盒业务层：Manager（资源、限额、路径、reaper）+ Store 元数据；执行后端（Driver、cloud、fake）来自独立模块 `gosandbox/vm` | 读写 DuckLake/S3/系统库凭据；向沙盒注入 SimpleBase 凭据；本地 microVM 回退；import `gosandbox/host` |
+| `gosandbox`（嵌套模块） | `vm/`：VM 执行后端；`host/`：本机进程隔离（bwrap + Landlock + seccomp / Seatbelt）；`cmd/gosandbox-inner`：沙盒内 helper | import 根模块任何包（含 `internal/...`）；`host` 与 `vm` 互相 import；把 `host` 当作 Cloud 沙盒失败后的替身（无 `DriverHost`） |
 | `llmgateway` | provider 配置、Chat/Stream、CredentialRef | 密钥从环境变量自动发现 |
 
 ## 系统库规则（重要）

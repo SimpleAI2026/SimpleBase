@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func TestManagerDefaultLockWaitIsFiveSeconds(t *testing.T) {
 func TestManagerLockWaitTimeoutReturnsErrBusy(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: true, Workdir: "/workspace", ExecTimeout: time.Second,
 		ExecTimeoutMax: time.Minute, MaxFileBytes: 16}
-	m := NewManager(cfg, nil, NewFakeDriver())
+	m := NewManager(cfg, nil, fake.New())
 	m.lockWait = 50 * time.Millisecond
 	release := holdLock(t, m, "sbx-1")
 	defer release()

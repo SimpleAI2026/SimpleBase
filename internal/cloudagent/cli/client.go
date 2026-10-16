@@ -35,7 +35,10 @@ func (c *HTTPClient) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 5 * time.Minute}
+	// planv6.1 O2: 首字节超时 30s（避免网关排队黑洞），整体超时 5min（agent 允许长响应）
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	return &http.Client{Timeout: 5 * time.Minute, Transport: transport}
 }
 
 // url 拼出项目级 OpenAI 兼容路径；path 以 "/" 开头，如 "/chat/completions"。
@@ -151,6 +154,7 @@ func (u wireUsage) toChatUsage() agentcore.ChatUsage {
 }
 
 // Chat 走 POST .../v1/chat/completions（非流式）。
+// planv6.1 O2: 首字节超时 30s（httpClient），重试由后端 llmgateway 的 Resilience 统一处理。
 func (c *HTTPClient) Chat(ctx context.Context, _ string, req agentcore.ChatRequest) (agentcore.ChatResponse, error) {
 	body, err := json.Marshal(toWire(req))
 	if err != nil {

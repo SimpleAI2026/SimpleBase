@@ -29,6 +29,7 @@ config.yaml
 # 注意：二进制只忽略根目录，写成裸模式（如 cloudagent）会误伤同名源码目录
 /simplebase
 /cloudagent
+/gosandbox-inner
 /fakellm-server
 /build/
 /main

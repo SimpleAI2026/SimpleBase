@@ -2,7 +2,30 @@
 
 基于 SSA + reflect 的 Go 脚本解释器。将一段 Go 源码经 `golang.org/x/tools/go/ssa` 编译为 SSA，再按指令用反射解释执行，从而在**不调用 `go build` / 不启动子进程**的情况下运行用户脚本，并把宿主（host）函数、变量、常量、类型注入脚本环境。
 
-本包属于主模块 `github.com/linkxzhou/SimpleBase`（Go 1.25），**没有**独立的 `go.mod`。
+本包是**独立 Go 模块** `github.com/linkxzhou/SimpleBase/gofunction`（Go 1.25，自带 `go.mod` / `go.sum`），不 import 主模块的任何包。主模块通过 `replace github.com/linkxzhou/SimpleBase/gofunction => ./gofunction` 引用，业务代码的 import 路径不变。
+
+## 目录结构
+
+```text
+gofunction/
+  gofunction.go  jsonrun.go   # 公共 API 门面（类型别名 + 薄转发），宿主只 import 这里
+  facade_test.go              # 门面契约测试（转发、别名、错误哨兵同一性）
+  internal/interp/            # 解释器实现：SSA 编译、指令执行、槽位布局、执行器池
+    program.go call.go eval.go instruction.go compile.go runframe.go frame.go
+    layout.go valuecache.go type.go runtime.go executor.go jsonrun.go
+    gofunction.go                                                  # Run / ParseFuncList / SetLogger
+  importer/                   # 宿主包注册与 go/types Importer（公开扩展点）
+  packages/                   # 标准库注册，blank-import 生效（公开扩展点）
+  value/                      # 解释器值抽象（主要内部使用）
+  testdata/                   # 对拍集与用法样本，由 go test 加载
+  bench/                      # 性能对照：进程内基准 + HTTP 压测服务（net/http，无额外依赖）
+  cmd/gofunction/             # 命令行入口（run / check / list / packages）
+```
+
+分层规则：`internal/interp` 不 import 门面；门面只做别名与转发；`importer` / `packages` / `value`
+三者互不依赖，也不反向依赖实现。解释器实现全部集中在 `internal/interp` 内——指令执行器
+与 `frame` 的未导出字段深度耦合，拆分反而需要导出大量内部符号，因此按「一个包内按文件分职责」
+组织（`compile.go` 编译期预编译、`eval.go` 运算、`call.go` 调用、`layout.go` 槽位布局等）。
 
 ## 安装与导入
 
@@ -40,7 +63,20 @@ func add(a, b int) int { return a + b }
 }
 ```
 
-完整可运行样本见 [`testdata/hello.go`](testdata/hello.go)，由 `go test ./gofunction -run TestTestdataScripts/hello` 加载执行。
+完整可运行样本见 [`testdata/hello.go`](testdata/hello.go)，由 `go test . -run TestTestdataScripts/hello` 加载执行。
+
+## 命令行（cmd/gofunction）
+
+```bash
+cd gofunction
+go run ./cmd/gofunction run   -f script.go -func Hello -body '{"name":"x"}'   # 不带 -f 时读 stdin
+go run ./cmd/gofunction check -f script.go     # 校验导出函数符合 HTTP+JSON 约定
+go run ./cmd/gofunction list  -f script.go [-all]
+go run ./cmd/gofunction packages               # 已注册的宿主包
+go build -o gofunction ./cmd/gofunction        # 产出二进制
+```
+
+`run` 走 `RunJSON`：目标须是包级导出函数，恰好 1 入参 1 返回值；退出码 0 成功、1 执行失败、2 用法错误。
 
 ## 工作原理（简图）
 
@@ -256,18 +292,22 @@ func demo() int { return host.Add(20, 22) }
 
 ## 如何测试
 
-在仓库根目录（模块根）执行：
+在 `gofunction/` 目录（本模块根）执行：
 
 ```bash
 # 推荐：跳过访问外网的 TestHttpRequest / TestHttpsRequest，以及 testdata 中的 NilInterface
-go test ./gofunction/... -short
+go test ./... -short
 
 # 全量（需要出网；HTTP 用例会请求 qq.com）
-go test ./gofunction/...
+go test ./...
 
-go vet ./gofunction/...
-go build ./gofunction/...
+go vet ./...
+go build ./...
 ```
+
+> 测试按包分布：门面契约在模块根（`facade_test.go`），解释器行为测试与实现同在
+> `internal/interp/`（大量断言依赖未导出的 `frame` / `callSSA` / 指令执行器，
+> 必须同包），`importer` / `packages` / `value` 各自带包内测试。
 
 `testdata/` 里有两类源文件：
 
@@ -277,20 +317,27 @@ go build ./gofunction/...
 覆盖率（与重构 PR 相同的命令）：
 
 ```bash
-go test ./gofunction/... -coverprofile=cov.out -short && go tool cover -func=cov.out
+go test ./... -coverprofile=cov.out -short && go tool cover -func=cov.out
+```
+
+性能基准（native / 预编译解释 / RunJSON 三路径对照，详见 [`bench/README.md`](bench/README.md)；`bench/` 的 `Benchmark*` 在普通 `go test` 下不会执行）：
+
+```bash
+go test -run='^$' -bench=. -benchmem ./bench
+go run ./bench     # 起 HTTP 压测服务 127.0.0.1:8091
 ```
 
 查看用法样本（verbose 会打印子测试名）：
 
 ```bash
-go test ./gofunction -run TestTestdataScripts -v -short
+go test ./internal/interp -run TestTestdataScripts -v -short
 ```
 
 ---
 
 ## 用法样本
 
-每个文件都是解释器可编译的 `package main` 函数库，由对应子测试加载。在模块根执行 `go test ./gofunction -run TestTestdataScripts/<name> -v`。
+每个文件都是解释器可编译的 `package main` 函数库，由对应子测试加载。在 `gofunction/` 执行 `go test . -run TestTestdataScripts/<name> -v`。
 
 | 文件 | 子测试 | 演示 |
 | --- | --- | --- |
@@ -308,6 +355,7 @@ go test ./gofunction -run TestTestdataScripts -v -short
 - [`gofunction/importer`](importer) — 包注册与 `go/types` Importer
 - [`gofunction/packages`](packages) — 标准库注册（blank-import）
 - [`gofunction/value`](value) — 解释器值抽象
-- [`gofunction/operations`](operations) — 算术 / 比较 / 调用
+- `gofunction/internal/interp` — 解释器实现（SSA 编译、指令执行、槽位布局、执行器池）
 
-`gofunction/operations` 与 `gofunction/value` 主要给解释器内部使用，宿主集成一般只碰 `gofunction` + `gofunction/importer` + `gofunction/packages`。
+`gofunction/value` 主要给解释器内部使用；宿主集成一般只碰 `gofunction` + `gofunction/importer` + `gofunction/packages`。
+`internal/interp` 是内部包，**不要**直接 import——它可能随重构调整；对外契约以本模块根包为准。

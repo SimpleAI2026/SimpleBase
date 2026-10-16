@@ -152,6 +152,22 @@ type yamlAgent struct {
 	DelegationTTL  yamlDur `yaml:"delegation_ttl"`
 	ConfirmTimeout yamlDur `yaml:"confirm_timeout"`
 	TraceLog       *bool   `yaml:"trace_log"`
+
+	ShellIsolation yamlShellIsolation `yaml:"shell_isolation"`
+}
+
+type yamlShellIsolation struct {
+	Enabled          *bool    `yaml:"enabled"`
+	Mode             *string  `yaml:"mode"`
+	WritableRoots    []string `yaml:"writable_roots"`
+	ReadOnlySubpaths []string `yaml:"read_only_subpaths"`
+	DenyRead         []string `yaml:"deny_read"`
+	MemoryMaxBytes   *int64   `yaml:"memory_max_bytes"`
+	CPUMax           *string  `yaml:"cpu_max"`
+	PidsMax          *int64   `yaml:"pids_max"`
+	Timeout          yamlDur  `yaml:"timeout"`
+	BwrapPath        *string  `yaml:"bwrap_path"`
+	HelperPath       *string  `yaml:"helper_path"`
 }
 
 type yamlProvider struct {
@@ -294,6 +310,24 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setDur(&cfg.Agent.DelegationTTL, yc.Agent.DelegationTTL)
 	setDur(&cfg.Agent.ConfirmTimeout, yc.Agent.ConfirmTimeout)
 	setBool(&cfg.Agent.TraceLog, yc.Agent.TraceLog)
+	si := yc.Agent.ShellIsolation
+	setBool(&cfg.Agent.ShellIsolation.Enabled, si.Enabled)
+	setStr(&cfg.Agent.ShellIsolation.Mode, si.Mode)
+	if si.WritableRoots != nil {
+		cfg.Agent.ShellIsolation.WritableRoots = si.WritableRoots
+	}
+	if si.ReadOnlySubpaths != nil {
+		cfg.Agent.ShellIsolation.ReadOnlySubpaths = si.ReadOnlySubpaths
+	}
+	if si.DenyRead != nil {
+		cfg.Agent.ShellIsolation.DenyRead = si.DenyRead
+	}
+	setInt64(&cfg.Agent.ShellIsolation.MemoryMaxBytes, si.MemoryMaxBytes)
+	setStr(&cfg.Agent.ShellIsolation.CPUMax, si.CPUMax)
+	setInt64(&cfg.Agent.ShellIsolation.PidsMax, si.PidsMax)
+	setDur(&cfg.Agent.ShellIsolation.Timeout, si.Timeout)
+	setStr(&cfg.Agent.ShellIsolation.BwrapPath, si.BwrapPath)
+	setStr(&cfg.Agent.ShellIsolation.HelperPath, si.HelperPath)
 
 	setStr(&cfg.LLM.AgentToolProtocol, yc.LLM.AgentToolProtocol)
 	setInt(&cfg.LLM.AgentMaxIterations, yc.LLM.AgentMaxIterations)

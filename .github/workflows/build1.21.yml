@@ -55,6 +55,13 @@ jobs:
       - name: Test
         run: go test -p 1 -timeout 45m ./...
 
+      # gofunction 是独立 Go 模块，根目录 ./... 不会包含它。
+      - name: Vet and test gofunction module
+        working-directory: gofunction
+        run: |
+          go vet ./...
+          go test -short -timeout 10m ./...
+
   build:
     name: Build embedded UI
     runs-on: ubuntu-latest

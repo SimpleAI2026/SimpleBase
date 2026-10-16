@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 )
 
@@ -145,7 +147,7 @@ type idemEntry struct {
 type Manager struct {
 	cfg    config.SandboxConfig
 	store  Store
-	driver Driver
+	driver vm.Driver
 	now    func() time.Time
 	mu     sync.Mutex
 	locks  map[string]chan struct{}
@@ -156,7 +158,7 @@ type Manager struct {
 
 const defaultLockWait = 5 * time.Second
 
-func NewManager(cfg config.SandboxConfig, store Store, driver Driver) *Manager {
+func NewManager(cfg config.SandboxConfig, store Store, driver vm.Driver) *Manager {
 	return &Manager{cfg: cfg, store: store, driver: driver, now: time.Now,
 		locks: make(map[string]chan struct{}), idem: make(map[string]idemEntry), lockWait: defaultLockWait}
 }
@@ -212,7 +214,7 @@ func (m *Manager) withProjectLock(ctx context.Context, projectID string, fn func
 
 func (m *Manager) Create(ctx context.Context, projectID string, in CreateInput, actor string) (Sandbox, error) {
 	if !m.Available() {
-		return Sandbox{}, ErrUnavailable
+		return Sandbox{}, vm.ErrUnavailable
 	}
 	if len(in.IdempotencyKey) > 128 || strings.ContainsAny(in.IdempotencyKey, "\r\n") {
 		return Sandbox{}, fmt.Errorf("%w: idempotency key", ErrInvalidSpec)
@@ -297,10 +299,8 @@ func (m *Manager) Create(ctx context.Context, projectID string, in CreateInput, 
 			return fmt.Errorf("%w: idle_timeout_s", ErrInvalidSpec)
 		}
 		id := uuid.NewString()
+		// VM 名统一由内部 UUID 派生；不再区分 agent thread 的旧前缀（v3 兼容已移除）。
 		cloudName := CloudName(id)
-		if in.Source == "agent" {
-			cloudName = ThreadCloudName(in.ThreadID)
-		}
 		source := in.Source
 		if source == "" {
 			source = "api"
@@ -345,7 +345,7 @@ func (m *Manager) Create(ctx context.Context, projectID string, in CreateInput, 
 // List 按创建时间倒序分页；cursor 为上一页返回的 next，空表示第一页。
 func (m *Manager) List(ctx context.Context, projectID, status, source, cursor string, limit int) ([]Sandbox, string, error) {
 	if !m.Available() {
-		return nil, "", ErrUnavailable
+		return nil, "", vm.ErrUnavailable
 	}
 	if len(cursor) > 128 {
 		return nil, "", fmt.Errorf("%w: cursor", ErrInvalidSpec)
@@ -361,7 +361,7 @@ func (m *Manager) List(ctx context.Context, projectID, status, source, cursor st
 
 func (m *Manager) Get(ctx context.Context, projectID, id string, refresh bool) (Sandbox, error) {
 	if !m.Available() {
-		return Sandbox{}, ErrUnavailable
+		return Sandbox{}, vm.ErrUnavailable
 	}
 	r, err := m.store.GetSandbox(ctx, projectID, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -373,17 +373,17 @@ func (m *Manager) Get(ctx context.Context, projectID, id string, refresh bool) (
 	if !refresh || r.Status == "pending" {
 		return r, nil
 	}
-	vm, err := m.driver.Status(ctx, r.CloudName)
+	kind, err := m.driver.Status(ctx, r.CloudName)
 	if err != nil {
-		return Sandbox{}, fmt.Errorf("%w: status", ErrBackend)
+		return Sandbox{}, fmt.Errorf("%w: status", vm.ErrBackend)
 	}
 	next := r.Status
-	switch vm {
-	case VMRunning:
+	switch kind {
+	case vm.VMRunning:
 		next = "running"
-	case VMStopped:
+	case vm.VMStopped:
 		next = "stopped"
-	case VMAbsent:
+	case vm.VMAbsent:
 		next = "expired"
 	}
 	if next != r.Status {
@@ -430,8 +430,8 @@ func (m *Manager) Update(ctx context.Context, projectID, id string, in UpdateInp
 	return result, err
 }
 
-func (m *Manager) target(r Sandbox) Target {
-	return Target{Name: r.CloudName, Spec: Spec{Image: r.Image, CPUs: r.CPUs, MemoryMiB: r.MemoryMiB,
+func (m *Manager) target(r Sandbox) vm.Target {
+	return vm.Target{Name: r.CloudName, Spec: vm.Spec{Image: r.Image, CPUs: r.CPUs, MemoryMiB: r.MemoryMiB,
 		Network: r.Network, Workdir: m.workdir(), IdleTimeout: time.Duration(r.IdleTimeoutS) * time.Second,
 		MaxDuration: time.Duration(r.MaxDurationS) * time.Second,
 		Labels:      map[string]string{"simplebase": "1", "project_id": r.ProjectID, "sandbox_id": r.ID}}}
@@ -475,7 +475,7 @@ func (m *Manager) Start(ctx context.Context, projectID, id string) (Sandbox, err
 			return err
 		}
 		if err = m.driver.Ensure(ctx, m.target(r)); err != nil {
-			return fmt.Errorf("%w: start", ErrBackend)
+			return fmt.Errorf("%w: start", vm.ErrBackend)
 		}
 		return m.markActive(ctx, &r, r.Status == "expired")
 	})
@@ -492,7 +492,7 @@ func (m *Manager) Stop(ctx context.Context, projectID, id string) (Sandbox, erro
 		}
 		if r.Status != "pending" {
 			if err = m.driver.Stop(ctx, r.CloudName); err != nil {
-				return fmt.Errorf("%w: stop", ErrBackend)
+				return fmt.Errorf("%w: stop", vm.ErrBackend)
 			}
 		}
 		r.Status = "stopped"
@@ -514,26 +514,26 @@ func (m *Manager) Delete(ctx context.Context, projectID, id string) error {
 			if updateErr := m.store.UpdateSandbox(ctx, r); updateErr != nil {
 				return updateErr
 			}
-			return fmt.Errorf("%w: remove", ErrBackend)
+			return fmt.Errorf("%w: remove", vm.ErrBackend)
 		}
 		return m.store.SoftDeleteSandbox(ctx, projectID, id, "")
 	})
 }
 
-func (m *Manager) validExec(in ExecInput) (ExecSpec, error) {
+func (m *Manager) validExec(in ExecInput) (vm.ExecSpec, error) {
 	if (strings.TrimSpace(in.Command) == "") == (strings.TrimSpace(in.Cmd) == "") {
-		return ExecSpec{}, ErrInvalidSpec
+		return vm.ExecSpec{}, ErrInvalidSpec
 	}
 	if len(in.Command) > 4096 || len(in.Cmd) > 1024 || len(in.Args) > 128 {
-		return ExecSpec{}, ErrInvalidSpec
+		return vm.ExecSpec{}, ErrInvalidSpec
 	}
 	for _, arg := range in.Args {
 		if len(arg) > 4096 || strings.ContainsRune(arg, 0) {
-			return ExecSpec{}, ErrInvalidSpec
+			return vm.ExecSpec{}, ErrInvalidSpec
 		}
 	}
 	if err := validateEnv(in.Env); err != nil {
-		return ExecSpec{}, err
+		return vm.ExecSpec{}, err
 	}
 	cwd := in.Cwd
 	if cwd == "" {
@@ -542,7 +542,7 @@ func (m *Manager) validExec(in ExecInput) (ExecSpec, error) {
 	var err error
 	cwd, err = cleanPath(m.workdir(), cwd, true)
 	if err != nil {
-		return ExecSpec{}, err
+		return vm.ExecSpec{}, err
 	}
 	timeout := time.Duration(in.TimeoutS) * time.Second
 	if timeout == 0 {
@@ -553,9 +553,9 @@ func (m *Manager) validExec(in ExecInput) (ExecSpec, error) {
 		max = 300 * time.Second
 	}
 	if timeout < time.Second || timeout > max {
-		return ExecSpec{}, fmt.Errorf("%w: timeout_s", ErrInvalidSpec)
+		return vm.ExecSpec{}, fmt.Errorf("%w: timeout_s", ErrInvalidSpec)
 	}
-	return ExecSpec{Shell: in.Command, Cmd: in.Cmd, Args: in.Args, Cwd: cwd, Env: in.Env, Timeout: timeout}, nil
+	return vm.ExecSpec{Shell: in.Command, Cmd: in.Cmd, Args: in.Args, Cwd: cwd, Env: in.Env, Timeout: timeout}, nil
 }
 
 // Exec 同步执行；非零退出与超时为成功 HTTP 结果（§7.2）。
@@ -579,7 +579,7 @@ func (m *Manager) Exec(ctx context.Context, projectID, id string, in ExecInput) 
 		start := m.now()
 		result, err := m.driver.Exec(ctx, m.target(r), spec)
 		if err != nil {
-			return fmt.Errorf("%w: exec", ErrBackend)
+			return fmt.Errorf("%w: exec", vm.ErrBackend)
 		}
 		if err = m.markActive(ctx, &r, false); err != nil {
 			return err
@@ -611,10 +611,10 @@ func (m *Manager) ReadFile(ctx context.Context, projectID, id, p string) (FileCo
 		}
 		data, err := m.driver.ReadFile(ctx, m.target(r), clean)
 		if err != nil {
-			if errors.Is(err, ErrFileNotFound) {
+			if errors.Is(err, vm.ErrFileNotFound) {
 				return err
 			}
-			return fmt.Errorf("%w: read", ErrBackend)
+			return fmt.Errorf("%w: read", vm.ErrBackend)
 		}
 		if err = m.markActive(ctx, &r, false); err != nil {
 			return err
@@ -650,7 +650,7 @@ func (m *Manager) WriteFile(ctx context.Context, projectID, id, p string, data [
 			return ErrGone
 		}
 		if err = m.driver.WriteFile(ctx, m.target(r), clean, data); err != nil {
-			return fmt.Errorf("%w: write", ErrBackend)
+			return fmt.Errorf("%w: write", vm.ErrBackend)
 		}
 		return m.markActive(ctx, &r, false)
 	})
@@ -673,13 +673,13 @@ func (m *Manager) RemoveFile(ctx context.Context, projectID, id, p string) error
 			return ErrGone
 		}
 		if err = m.driver.RemoveFile(ctx, m.target(r), clean); err != nil {
-			return fmt.Errorf("%w: remove file", ErrBackend)
+			return fmt.Errorf("%w: remove file", vm.ErrBackend)
 		}
 		return m.markActive(ctx, &r, false)
 	})
 }
 
-func (m *Manager) ListDir(ctx context.Context, projectID, id, p string) ([]FileEntry, error) {
+func (m *Manager) ListDir(ctx context.Context, projectID, id, p string) ([]vm.FileEntry, error) {
 	if p == "" {
 		p = m.workdir()
 	}
@@ -687,7 +687,7 @@ func (m *Manager) ListDir(ctx context.Context, projectID, id, p string) ([]FileE
 	if err != nil {
 		return nil, err
 	}
-	var entries []FileEntry
+	var entries []vm.FileEntry
 	err = m.withLock(ctx, id, func() error {
 		r, err := m.Get(ctx, projectID, id, false)
 		if err != nil {
@@ -698,7 +698,7 @@ func (m *Manager) ListDir(ctx context.Context, projectID, id, p string) ([]FileE
 		}
 		entries, err = m.driver.ListDir(ctx, m.target(r), clean)
 		if err != nil {
-			return fmt.Errorf("%w: list", ErrBackend)
+			return fmt.Errorf("%w: list", vm.ErrBackend)
 		}
 		if len(entries) > 500 {
 			entries = entries[:500]
@@ -756,10 +756,10 @@ func (m *Manager) RunOnce(ctx context.Context, projectID string, in RunInput, ac
 	return out, err
 }
 
-// EnsureForThread 将 v3 thread VM 挂到项目资源表；按 thread 幂等。
+// EnsureForThread 为 agent thread 取一个沙盒（按 thread 幂等）。
 func (m *Manager) EnsureForThread(ctx context.Context, projectID, threadID string) (Sandbox, error) {
 	if !m.Available() {
-		return Sandbox{}, ErrUnavailable
+		return Sandbox{}, vm.ErrUnavailable
 	}
 	var r Sandbox
 	err := m.withProjectLock(ctx, projectID, func() error {
@@ -784,7 +784,7 @@ func (m *Manager) EnsureForThread(ctx context.Context, projectID, threadID strin
 		}
 		id := uuid.NewString()
 		r, err = m.store.CreateSandbox(ctx, Sandbox{ID: id, ProjectID: projectID,
-			Name: "agent-" + strings.ReplaceAll(threadID, "-", ""), CloudName: ThreadCloudName(threadID),
+			Name: "agent-" + strings.ReplaceAll(threadID, "-", ""), CloudName: CloudName(id),
 			Source: "agent", ThreadID: threadID, Image: m.cfg.Image, CPUs: m.cfg.CPUs, MemoryMiB: m.cfg.MemoryMiB,
 			Network: m.cfg.Network, IdleTimeoutS: int64(m.cfg.IdleTimeout.Seconds()),
 			MaxDurationS: int64(m.cfg.MaxDuration.Seconds()), Status: "pending", CreatedAt: m.now().UTC()})
@@ -811,7 +811,7 @@ func (m *Manager) ExecForThread(ctx context.Context, projectID, threadID string,
 		start := m.now()
 		result, e := m.driver.Exec(ctx, m.target(r), spec)
 		if e != nil {
-			return fmt.Errorf("%w: exec", ErrBackend)
+			return fmt.Errorf("%w: exec", vm.ErrBackend)
 		}
 		if e = m.markActive(ctx, &r, false); e != nil {
 			return e
@@ -852,7 +852,7 @@ func (m *Manager) WriteFileForThread(ctx context.Context, projectID, threadID, p
 			return err
 		}
 		if e := m.driver.WriteFile(ctx, m.target(r), clean, data); e != nil {
-			return fmt.Errorf("%w: write", ErrBackend)
+			return fmt.Errorf("%w: write", vm.ErrBackend)
 		}
 		return m.markActive(ctx, &r, false)
 	})
@@ -863,8 +863,8 @@ func (m *Manager) ReleaseThread(ctx context.Context, projectID, threadID string)
 	}
 	r, err := m.store.GetSandboxByThread(ctx, projectID, threadID)
 	if errors.Is(err, sql.ErrNoRows) {
-		// 兼容 v3 创建但尚未录入 v4 元数据的 VM。
-		return m.driver.Remove(ctx, ThreadCloudName(threadID))
+		// 没有元数据行 = 这个 thread 没有沙盒，无需清理。
+		return nil
 	}
 	if err != nil {
 		return err

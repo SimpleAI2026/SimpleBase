@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -66,7 +67,7 @@ func TestLoadConfigMissingIsNotAnError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != (Config{}) {
+	if !reflect.DeepEqual(cfg, Config{}) {
 		t.Fatalf("cfg = %+v, want zero", cfg)
 	}
 }
@@ -146,7 +147,7 @@ func TestOverlayConfigKeepsFileValues(t *testing.T) {
 		SearchAPIKey: "file-key", MaxIterations: 5,
 	}
 	got := overlayConfig(base, Config{})
-	if got != base {
+	if !reflect.DeepEqual(got, base) {
 		t.Fatalf("empty override changed the base: %+v", got)
 	}
 

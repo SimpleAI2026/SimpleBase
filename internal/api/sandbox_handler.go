@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -34,7 +35,7 @@ type SandboxService interface {
 	ReadFile(context.Context, string, string, string) (sandbox.FileContent, error)
 	WriteFile(context.Context, string, string, string, []byte) error
 	RemoveFile(context.Context, string, string, string) error
-	ListDir(context.Context, string, string, string) ([]sandbox.FileEntry, error)
+	ListDir(context.Context, string, string, string) ([]vm.FileEntry, error)
 	RunOnce(context.Context, string, sandbox.RunInput, string) (sandbox.ExecOutput, error)
 }
 
@@ -174,7 +175,7 @@ func (h *SandboxHandler) Delete(c echo.Context) error {
 	p, _ := h.project(c)
 	id := c.Param("sandboxID")
 	if err := h.svc.Delete(c.Request().Context(), p, id); err != nil {
-		if errors.Is(err, sandbox.ErrBackend) {
+		if errors.Is(err, vm.ErrBackend) {
 			// 用户删除请求仍成功；未删除 VM 留在资源表供 reaper 重试。
 			h.record(c, p, id, "delete", "backend_removal_pending")
 			return c.NoContent(http.StatusNoContent)

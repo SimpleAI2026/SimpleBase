@@ -15,6 +15,8 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/linkxzhou/SimpleBase/gosandbox/host"
 )
 
 // ToolLimits 是本机工具的统一上限（planv6.0 §5.3）。
@@ -35,6 +37,9 @@ type Workspace struct {
 	Confirm ConfirmFunc
 	// Yolo 为真时跳过确认（显式承担风险，§5.3）。
 	Yolo bool
+	// Isolation 是本机 shell 的隔离策略（planv6.2）。零值（Enabled=false）保持裸执行。
+	// Yolo 只跳过确认，不跳过隔离；关闭隔离必须显式设为 danger-full-access 或 Enabled=false。
+	Isolation host.Policy
 	// Record 记录一次工具调用（用于 REPL 展示与 jsonl 落盘）。
 	Record func(name, args, result string, isErr bool)
 }
@@ -75,7 +80,21 @@ func (w *Workspace) resolvePath(p string) (string, error) {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path escapes workspace: %s", p)
 	}
+	// shell 里被盖住的 deny_read 路径，文件工具也必须拒绝，
+	// 否则模型可以用 read_file 读到 shell 已经看不到的 token。
+	if host.DeniesRead(w.Isolation, target) {
+		return "", fmt.Errorf("path is denied by shell isolation policy: %s", p)
+	}
 	return target, nil
+}
+
+// denyReadSkipper 返回 glob/grep 遍历时用的跳过函数；隔离未开启时为 nil。
+func (w *Workspace) denyReadSkipper() pathSkipper {
+	if w == nil || !w.Isolation.Isolates() || len(w.Isolation.DenyRead) == 0 {
+		return nil
+	}
+	pol := w.Isolation
+	return func(abs string) bool { return host.DeniesRead(pol, abs) }
 }
 
 // dangerousShellPatterns 是 shell 工具的破坏性命令规则表。
@@ -132,33 +151,87 @@ func (w *Workspace) shellTool() (tool.BaseTool, error) {
 					return ErrEnvelope("confirmation_denied", "用户未批准该命令"), nil
 				}
 			}
-			runCtx, cancel := context.WithTimeout(ctx, shellTimeout)
-			defer cancel()
-			cmd := exec.CommandContext(runCtx, "/bin/sh", "-c", in.Command)
-			cmd.Dir = cwd
-			// 不注入任何 SimpleBase 凭据到子进程（与云端「不向沙盒注入凭据」同原则）。
-			cmd.Env = sanitizedEnv(os.Environ())
-			out, err := cmd.CombinedOutput()
-			text := truncateText(string(out), ShellOutputLimit)
-			if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-				return ErrEnvelope("timeout", fmt.Sprintf("命令超过 %s 未结束", shellTimeout)), nil
-			}
-			if err != nil {
-				code := "command_failed"
-				var exitErr *exec.ExitError
-				if errors.As(err, &exitErr) {
-					code = fmt.Sprintf("exit_%d", exitErr.ExitCode())
-				}
-				b, _ := json.Marshal(map[string]any{
-					"ok": false, "exit_code": exitCode(err),
-					"error":  map[string]any{"code": code, "message": truncateText(err.Error(), 300)},
-					"output": text,
-				})
-				return string(b), nil
-			}
-			b, _ := json.Marshal(map[string]any{"ok": true, "output": text})
-			return string(b), nil
+			return w.runShell(ctx, in.Command, cwd), nil
 		})
+}
+
+// runShell 在确认通过之后执行命令：隔离开启时经 host.Run，否则保持原来的裸执行。
+func (w *Workspace) runShell(ctx context.Context, command, cwd string) string {
+	env := sanitizedEnv(os.Environ())
+	timeout := shellTimeout
+	pol := w.Isolation
+	if pol.Isolates() {
+		if pol.Workspace == "" {
+			pol.Workspace = w.Root
+		}
+		if pol.Timeout <= 0 {
+			pol.Timeout = shellTimeout
+		}
+		timeout = pol.Timeout
+		res, err := host.Run(ctx, pol, host.Command{Argv: []string{"/bin/sh", "-c", command}, Dir: cwd, Env: env})
+		switch {
+		case err == nil:
+			return shellResult(res, timeout)
+		case !errors.Is(err, host.ErrNotIsolated):
+			// 隔离开着却没跑成：一律 fail-closed，命令没有被执行，不退回裸执行。
+			code := "isolation_unavailable"
+			if errors.Is(err, context.Canceled) {
+				code = "canceled"
+			}
+			return ErrEnvelope(code, truncateText(err.Error(), 300))
+		}
+		// ErrNotIsolated：落到下面的裸执行。
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, "/bin/sh", "-c", command)
+	cmd.Dir = cwd
+	// 不注入任何 SimpleBase 凭据到子进程（与云端「不向沙盒注入凭据」同原则）。
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		return ErrEnvelope("timeout", fmt.Sprintf("命令超过 %s 未结束", timeout))
+	}
+	code := 0
+	if err != nil {
+		code = exitCode(err)
+	}
+	var cmdErr error
+	if err != nil {
+		cmdErr = err
+	}
+	return formatShell(truncateText(string(out), ShellOutputLimit), code, cmdErr, host.Limits{})
+}
+
+// shellResult 把隔离执行的结果转成工具返回值。
+func shellResult(res host.Result, timeout time.Duration) string {
+	if res.TimedOut {
+		return ErrEnvelope("timeout", fmt.Sprintf("命令超过 %s 未结束", timeout))
+	}
+	var cmdErr error
+	if res.ExitCode != 0 {
+		cmdErr = fmt.Errorf("exit status %d", res.ExitCode)
+	}
+	return formatShell(truncateText(string(res.Output), ShellOutputLimit), res.ExitCode, cmdErr, res.Limits)
+}
+
+// formatShell 生成统一信封。配置了资源限额却没有生效时，如实写 limits=unenforced。
+func formatShell(text string, code int, cmdErr error, limits host.Limits) string {
+	body := map[string]any{"ok": cmdErr == nil, "output": text}
+	if limits.Configured && !limits.Enforced {
+		body["limits"] = "unenforced"
+	}
+	if cmdErr != nil {
+		name := "command_failed"
+		var exitErr *exec.ExitError
+		if errors.As(cmdErr, &exitErr) || code > 0 {
+			name = fmt.Sprintf("exit_%d", code)
+		}
+		body["exit_code"] = code
+		body["error"] = map[string]any{"code": name, "message": truncateText(cmdErr.Error(), 300)}
+	}
+	b, _ := json.Marshal(body)
+	return string(b)
 }
 
 // approve 询问用户；Yolo 或已配置的信任直接通过；无确认通道时拒绝（fail-closed）。
@@ -339,7 +412,7 @@ func (w *Workspace) globTool() (tool.BaseTool, error) {
 			if filepath.IsAbs(in.Pattern) || strings.Contains(in.Pattern, "..") {
 				return ErrEnvelope("path_not_allowed", "pattern must be relative and must not contain .."), nil
 			}
-			matches, err := globWalk(w.Root, in.Pattern)
+			matches, err := globWalkSkip(w.Root, in.Pattern, w.denyReadSkipper())
 			if err != nil {
 				return ErrEnvelope("glob_failed", err.Error()), nil
 			}
@@ -374,7 +447,7 @@ func (w *Workspace) grepTool() (tool.BaseTool, error) {
 			if limit <= 0 {
 				limit = 100
 			}
-			hits, truncated, err := grepWalk(w.Root, re, in.Glob, limit)
+			hits, truncated, err := grepWalkSkip(w.Root, re, in.Glob, limit, w.denyReadSkipper())
 			if err != nil {
 				return ErrEnvelope("grep_failed", err.Error()), nil
 			}

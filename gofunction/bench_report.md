@@ -2,7 +2,7 @@
 
 - 日期：2026-09-19
 - 环境：macOS / Apple M4 Pro（arm64，14 核），go 1.25.0（实测 1.26.1 runtime），golang.org/x/tools v0.41.0
-- 基准代码：`gofunction/bench_test.go`
+- 基准代码：`gofunction/internal/interp/bench_test.go`
 - 优化方案：`plan/planv2.0/gofunction-perf-plan.md`（P0/P1/P2）、
   `plan/planv2.0/gofunction-perf-plan-v3.md`（P3-1/2/3/4/5 全部完成）
 - 验证：`go build` / `go vet` / `go test -race -count=1 ./...` 四包全绿

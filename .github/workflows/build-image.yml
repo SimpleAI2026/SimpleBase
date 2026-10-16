@@ -36,6 +36,10 @@ jobs:
     - name: Test
       run: go test -p 1 -timeout 45m ./...
 
+    - name: Test gofunction module
+      working-directory: gofunction
+      run: go test -short -timeout 10m ./...
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 

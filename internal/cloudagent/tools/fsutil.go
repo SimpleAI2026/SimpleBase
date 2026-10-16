@@ -24,12 +24,25 @@ const maxWalkFiles = 20000
 // 自己实现而不引第三方：模式支持 **、*、?，语义与仓库既有 doublestar 用法一致，
 // 但不新增依赖（planv6.0 §12 Q3 的同一权衡）。
 func globWalk(root, pattern string) ([]string, error) {
+	return globWalkSkip(root, pattern, nil)
+}
+
+// pathSkipper 判断一个绝对路径是否应被遍历跳过（隔离策略的 deny_read）。
+type pathSkipper func(absPath string) bool
+
+func globWalkSkip(root, pattern string, skip pathSkipper) ([]string, error) {
 	pattern = filepath.ToSlash(pattern)
 	var out []string
 	count := 0
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // 忽略无权限的子树
+		}
+		if skip != nil && skip(path) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			if skipDirs[d.Name()] && path != root {
@@ -98,10 +111,14 @@ func globToRegex(pattern string) string {
 
 // grepWalk 在 root 下逐行匹配正则，返回 "file:line: text"。
 func grepWalk(root string, re *regexp.Regexp, glob string, limit int) ([]string, bool, error) {
+	return grepWalkSkip(root, re, glob, limit, nil)
+}
+
+func grepWalkSkip(root string, re *regexp.Regexp, glob string, limit int, skip pathSkipper) ([]string, bool, error) {
 	var files []string
 	if strings.TrimSpace(glob) != "" {
 		var err error
-		files, err = globWalk(root, glob)
+		files, err = globWalkSkip(root, glob, skip)
 		if err != nil {
 			return nil, false, err
 		}
@@ -109,6 +126,12 @@ func grepWalk(root string, re *regexp.Regexp, glob string, limit int) ([]string,
 		count := 0
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
+				return nil
+			}
+			if skip != nil && skip(path) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
 				return nil
 			}
 			if d.IsDir() {

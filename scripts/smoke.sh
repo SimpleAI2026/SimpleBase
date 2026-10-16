@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.."
 
 echo "==> go build ./..."
 go build ./...
+echo "==> (cd gosandbox) go build + go vet（独立模块，根目录 ./... 不含它）"
+(cd gosandbox && go build ./... && go vet ./...)
 echo "==> go vet（云 Agent 相关包）"
 go vet ./internal/cloudagent ./internal/systemdb ./internal/api ./internal/llmgateway
 echo "==> 云 Agent 全链路测试（fakellm，无需 API key）"

@@ -16,6 +16,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
 	"strings"
 	"testing"
 	"time"
@@ -98,7 +99,7 @@ func c2Manager(t *testing.T) (*Manager, *c2Store) {
 		MaxFileBytes: 1024,
 	}
 	store := newC2Store()
-	m := NewManager(cfg, store, NewFakeDriver())
+	m := NewManager(cfg, store, fake.New())
 	return m, store
 }
 

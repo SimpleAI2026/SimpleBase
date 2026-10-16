@@ -63,6 +63,7 @@ func instanceProviders(projectID string, in map[string]InstanceProvider) Project
 			BaseURL:       p.BaseURL,
 			Model:         p.DefaultModel,
 			AllowedModels: p.AllowedModels,
+			Timeout:       p.Timeout,
 		})
 		if pp.Default == "" {
 			pp.Default = name
