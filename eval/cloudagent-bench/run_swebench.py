@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import shutil
@@ -24,7 +25,7 @@ JSONL = smoke.RUN_ROOT / "swebench50.jsonl"
 PREDS = smoke.RUN_ROOT / "swe-preds.jsonl"
 EVAL_ROOT = smoke.RUN_ROOT / "swe-eval"
 SWEBENCH = smoke.RUN_ROOT / "venv-swe" / "bin" / "swebench"
-MARKER = "## SWE-bench Verified 50"
+MARKER_PREFIX = "## SWE-bench Verified"
 DATASET = "SWE-bench/SWE-bench_Verified"
 SPLIT_LEN = 500
 AGENT_TIMEOUT = 900
@@ -415,37 +416,33 @@ def estimate_yuan(prompt_tokens: int, completion_tokens: int) -> tuple[float | N
     return yuan, text
 
 
-def expansion_note(rows: list[dict], yuan: float | None) -> str:
-    durations = sorted(int(row.get("duration_ms") or 0) for row in rows)
-    median = durations[len(durations) // 2] if durations else 0
-    median_min = median / 60000
-    projected_hours = median_min * 500 / 60
-    projected_cost = None if yuan is None or not rows else yuan * (500 / len(rows))
-    cost_text = "费用未知" if projected_cost is None else f"约 ¥{projected_cost:.0f}"
-    systemic = any(row.get("category") in ("isolation", "clone_error") for row in rows)
-    smooth = (not systemic) and all(row.get("category") != "pending" for row in rows)
-    acceptable = smooth and median_min <= 6 and projected_cost is not None and projected_cost <= 150
-    if acceptable and projected_hours <= 8:
-        return (
-            f"50 题中位推理 {median_min:.1f} 分钟，外推 500 题顺序推理约 {projected_hours:.1f} 小时、估算 {cost_text}。"
-            "时间和费用都在可接受范围内，但本脚本不会在 50 题进程里自动开跑 500 题。"
-        )
-    why = []
-    if systemic:
-        why.append("出现隔离或检出失败")
-    if median_min > 6:
-        why.append(f"中位推理 {median_min:.1f} 分钟，外推 500 题顺序推理约 {projected_hours:.1f} 小时")
-    elif rows:
-        why.append(f"中位推理 {median_min:.1f} 分钟，外推 500 题顺序推理约 {projected_hours:.1f} 小时")
-    if projected_cost is None:
-        why.append("无法估算费用")
-    elif projected_cost > 150:
-        why.append(f"外推估算 {cost_text}，高于这次可接受的 ¥150")
+def extrapolate(rows: list[dict], prompt_tokens: int, completion_tokens: int, eval_s: int) -> str:
+    n = len(rows)
+    if not n:
+        return "没有题目，不能外推。"
+    agent_ms = sum(int(row.get("duration_ms") or 0) for row in rows)
+    full_agent_hours = (agent_ms / n) * SPLIT_LEN / 3_600_000
+    counted = [row for row in rows if int(row.get("prompt_tokens") or 0) or int(row.get("completion_tokens") or 0)]
+    if not counted or not (prompt_tokens or completion_tokens):
+        cost = "费用无法外推：这些题的 `end` 事件没有 token。"
     else:
-        why.append(f"外推估算 {cost_text}")
-    if projected_hours > 8:
-        why.append("顺序推理的墙钟超过单次可接受范围")
-    return "没有扩大到 500 题。" + "；".join(why) + "。"
+        scale = SPLIT_LEN / len(counted)
+        yuan = (
+            prompt_tokens * scale / 1_000_000 * INPUT_YUAN_PER_MILLION
+            + completion_tokens * scale / 1_000_000 * OUTPUT_YUAN_PER_MILLION
+        )
+        note = "" if len(counted) == n else f"，其中 {len(counted)}/{n} 题有 token"
+        cost = f"推理估算费用约 ¥{yuan:.0f}{note}"
+    patched = sum(1 for row in rows if (row.get("patch") or "").strip())
+    if eval_s and patched:
+        full_eval_hours = (eval_s / patched) * (SPLIT_LEN * patched / n) / 3600
+        eval_text = f"Docker 评测按同样的空补丁比例外推约 {full_eval_hours:.1f} 小时"
+    else:
+        eval_text = "这次没有评测墙钟，评测时间不外推"
+    return (
+        f"按本次每题平均 agent 耗时外推到 Verified 全量 {SPLIT_LEN} 题：约 {full_agent_hours:.1f} 小时，{cost}。{eval_text}。"
+        f"外推的推理时间不含 git 检出；费用按公开单价，不是账单。本次停在这 {n} 题，不跑 {SPLIT_LEN}。"
+    )
 
 
 def write_section(meta: dict, rows: list[dict]) -> None:
@@ -453,25 +450,28 @@ def write_section(meta: dict, rows: list[dict]) -> None:
     counts: dict[str, int] = {}
     prompt_tokens = 0
     completion_tokens = 0
+    agent_ms = 0
     for row in rows:
         prompt_tokens += int(row.get("prompt_tokens") or 0)
         completion_tokens += int(row.get("completion_tokens") or 0)
+        agent_ms += int(row.get("duration_ms") or 0)
         if row["ok"]:
             continue
         key = row.get("category") or "pending"
         counts[key] = counts.get(key, 0) + 1
-    yuan, cost = estimate_yuan(prompt_tokens, completion_tokens)
+    _yuan, cost = estimate_yuan(prompt_tokens, completion_tokens)
     rate = (passed / len(rows) * 100) if rows else 0.0
+    marker = f"{MARKER_PREFIX} {len(rows)}"
     lines = [
-        MARKER,
+        marker,
         "",
         f"> 日期：2026-10-16。main `{run_core.MAIN_COMMIT}`。本次分支 git `{smoke.git_sha()}`。模型 `{meta['model']}`，网关 host `{meta['base_host']}`。",
-        f"> 数据集 `{DATASET}` test split，`len(split)={SPLIT_LEN}`。抽样：Python 3.12 `random.Random(20261016).sample(sorted(instance_id), 50)`，清单 `eval/cloudagent-bench/tasks/core/swebench_verified_50.txt`（文件内按 instance_id 排序）。",
+        f"> **初步结果。** 数据集 `{DATASET}` test split，`len(split)={SPLIT_LEN}`。抽样：Python 3.12 `random.Random(20261016).sample(sorted(instance_id), 50)`，再取清单 `eval/cloudagent-bench/tasks/core/swebench_verified_50.txt` 里按 instance_id 排序后的前 {len(rows)} 题。不是 Verified 全量。",
         "> 推理在宿主机检出的 base commit 上，`cloudagent` 不进评测镜像。评分是 `swebench==5.0.2` 的 `swebench eval verified`，Docker，每批 2 题、`-j 2`，单题评测超时 1800 秒。单题镜像约数 GB，批结束后删除该题镜像。agent 超时 900 秒。pass@1。不是官方榜提交。",
         "",
-        f"通过 **{passed}/{len(rows)}**（{rate:.1f}%），通过指 swebench `resolved`。推理墙钟 {meta['wall_s']} 秒，评测墙钟 {meta.get('eval_s', 0)} 秒。{cost}",
+        f"通过 **{passed}/{len(rows)}**（{rate:.1f}%），通过指 swebench `resolved`。题目推理耗时合计 {agent_ms / 1000:.0f} 秒（各题 agent 耗时相加）。评测墙钟 {meta.get('eval_s', 0)} 秒。{cost}",
         "",
-        expansion_note(rows, yuan),
+        extrapolate(rows, prompt_tokens, completion_tokens, int(meta.get("eval_s") or 0)),
         "",
         "失败分类：",
         "",
@@ -484,7 +484,7 @@ def write_section(meta: dict, rows: list[dict]) -> None:
     lines.extend(
         [
             "",
-            "公开基线：Z.ai 的 GLM-5.3-Flash 模型卡公布 DeepSWE v1.1 为 63.4%（mini-swe-agent，temperature 0.95，timeout 6 小时，40 万上下文）。那不是 SWE-bench Verified，也不是这 50 题。模型卡没有公布 SWE-bench Verified。不引用第三方聚合站上的数字。",
+            "公开基线：Z.ai 的 GLM-5.3-Flash 模型卡公布 DeepSWE v1.1 为 63.4%（mini-swe-agent，temperature 0.95，timeout 6 小时，40 万上下文）。那不是 SWE-bench Verified，也不是这 10 题。模型卡没有公布 SWE-bench Verified。不引用第三方聚合站上的数字。",
             "",
             "| 题 | 结果 | 耗时 | 步数 | 分类 | 原因 |",
             "| --- | --- | --- | --- | --- | --- |",
@@ -503,8 +503,13 @@ def write_section(meta: dict, rows: list[dict]) -> None:
     for secret in smoke._secret_values:
         if secret and secret in text:
             raise SystemExit("report contained a secret; not written")
-    existing = smoke.REPORT.read_text(encoding="utf-8")
-    smoke.REPORT.write_text(smoke.replace_marked_section(existing, MARKER, text), encoding="utf-8")
+    marker = f"{MARKER_PREFIX} {len(rows)}"
+    lock_path = smoke.RUN_ROOT / "report.lock"
+    with lock_path.open("a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        existing = smoke.REPORT.read_text(encoding="utf-8")
+        smoke.REPORT.write_text(smoke.replace_marked_section(existing, marker, text), encoding="utf-8")
+        fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def self_check() -> None:
@@ -520,12 +525,16 @@ def self_check() -> None:
     print("self-check ok")
 
 
-def infer_and_eval(no_compile: bool, eval_only: bool) -> None:
+def infer_and_eval(no_compile: bool, eval_only: bool, limit: int) -> None:
     secrets = smoke.require_secrets()
     model, _model_source = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL", smoke.DEFAULT_MODEL)
     base, _base_source = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_BASE_URL", smoke.DEFAULT_BASE)
     host = base.split("//", 1)[-1].split("/", 1)[0]
     ids = load_ids()
+    if limit:
+        if limit < 1:
+            raise SystemExit("--limit must be positive")
+        ids = ids[:limit]
     cache = load_cache(ids)
     done = load_done()
     smoke.PORT = PORT
@@ -599,6 +608,7 @@ def main() -> None:
     parser.add_argument("--gold-one", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
     parser.add_argument("--eval-only", action="store_true")
+    parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args()
     if args.self_check:
         self_check()
@@ -606,7 +616,7 @@ def main() -> None:
     if args.gold_one:
         gold_one()
         return
-    infer_and_eval(args.no_compile, args.eval_only)
+    infer_and_eval(args.no_compile, args.eval_only, args.limit)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ fixture 不含标准答案。密钥只检查非空，不打印、不写入报告
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import sys
 import time
@@ -18,6 +19,7 @@ import run_smoke as smoke
 FIXTURE = Path(__file__).resolve().parent / "tasks" / "core" / "mbpp_sanitized.jsonl"
 JSONL = smoke.RUN_ROOT / "mbpp.jsonl"
 MARKER = "## MBPP sanitized"
+FULL_N = 427
 CANONICAL = Path("/tmp/sanitized-mbpp.json")
 SELF_CHECK_IDS = (2, 6, 82)
 INPUT_YUAN_PER_MILLION = 0.80
@@ -157,26 +159,60 @@ def estimate_yuan(prompt_tokens: int, completion_tokens: int) -> str:
     )
 
 
-def write_section(meta: dict, rows: list[dict]) -> None:
+def extrapolate(rows: list[dict], prompt_tokens: int, completion_tokens: int, full_n: int) -> str:
+    n = len(rows)
+    if not n:
+        return "没有题目，不能外推。"
+    agent_ms = sum(int(row.get("duration_ms") or 0) for row in rows)
+    full_hours = (agent_ms / n) * full_n / 3_600_000
+    counted = [row for row in rows if int(row.get("prompt_tokens") or 0) or int(row.get("completion_tokens") or 0)]
+    if not counted or not (prompt_tokens or completion_tokens):
+        cost = "费用无法外推：这些题的 `end` 事件没有 token。"
+    else:
+        scale = full_n / len(counted)
+        yuan = (
+            prompt_tokens * scale / 1_000_000 * INPUT_YUAN_PER_MILLION
+            + completion_tokens * scale / 1_000_000 * OUTPUT_YUAN_PER_MILLION
+        )
+        note = "" if len(counted) == n else f"，其中 {len(counted)}/{n} 题有 token"
+        cost = f"估算费用约 ¥{yuan:.0f}{note}"
+    return (
+        f"按本次每题平均 agent 耗时外推到 sanitized 全量 {full_n} 题：约 {full_hours:.1f} 小时，{cost}。"
+        "外推只含各题 agent 时间，不含进程启动；费用按同样的公开单价，不是账单。"
+    )
+
+
+def write_section(meta: dict, rows: list[dict], preliminary: bool) -> None:
     passed = sum(1 for row in rows if row["ok"])
     counts: dict[str, int] = {}
     prompt_tokens = 0
     completion_tokens = 0
+    agent_ms = 0
     for row in rows:
         prompt_tokens += int(row.get("prompt_tokens") or 0)
         completion_tokens += int(row.get("completion_tokens") or 0)
+        agent_ms += int(row.get("duration_ms") or 0)
         if row["ok"]:
             continue
         key = row.get("category") or run_core.category_of(row)
         counts[key] = counts.get(key, 0) + 1
     rate = (passed / len(rows) * 100) if rows else 0.0
+    scope = (
+        f"**初步结果。** 只跑了 sanitized fixture 顺序的前 {len(rows)} 题，不是全量 {FULL_N}。"
+        if preliminary
+        else f"sanitized 全量 {len(rows)} 题。"
+    )
     lines = [
         MARKER,
         "",
         f"> 日期：2026-10-16。main `{run_core.MAIN_COMMIT}`。本次分支 git `{smoke.git_sha()}`。模型 `{meta['model']}`，网关 host `{meta['base_host']}`。",
-        "> Google Research MBPP sanitized 全量 427 题。agent 补全 `solution.py` 后，在隔离里用官方 `test_list` 评分（不含 challenge 测试）。pass@1，每题 1 次。不是单次补全，不能直接和公开 MBPP 榜横比。",
+        "> Google Research MBPP sanitized。agent 补全 `solution.py` 后，在隔离里用官方 `test_list` 评分（不含 challenge 测试）。pass@1，每题 1 次。不是单次补全，不能直接和公开 MBPP 榜横比。",
         "",
-        f"通过 **{passed}/{len(rows)}**（{rate:.1f}%）。耗时合计 {meta['wall_s']} 秒。{estimate_yuan(prompt_tokens, completion_tokens)}",
+        scope,
+        "",
+        f"通过 **{passed}/{len(rows)}**（{rate:.1f}%）。题目耗时合计 {agent_ms / 1000:.0f} 秒（各题 agent 耗时相加）。{estimate_yuan(prompt_tokens, completion_tokens)}",
+        "",
+        extrapolate(rows, prompt_tokens, completion_tokens, FULL_N),
         "",
         "失败分类：",
         "",
@@ -208,8 +244,12 @@ def write_section(meta: dict, rows: list[dict]) -> None:
     for secret in smoke._secret_values:
         if secret and secret in text:
             raise SystemExit("report contained a secret; not written")
-    existing = smoke.REPORT.read_text(encoding="utf-8")
-    smoke.REPORT.write_text(smoke.replace_marked_section(existing, MARKER, text), encoding="utf-8")
+    lock_path = smoke.RUN_ROOT / "report.lock"
+    with lock_path.open("a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        existing = smoke.REPORT.read_text(encoding="utf-8")
+        smoke.REPORT.write_text(smoke.replace_marked_section(existing, MARKER, text), encoding="utf-8")
+        fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def self_check() -> None:
@@ -245,6 +285,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--no-compile", action="store_true")
+    parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args()
     if args.self_check:
         self_check()
@@ -254,6 +295,10 @@ def main() -> None:
     base, _base_source = smoke.nonsecret("SIMPLEBASE_LLM_PROVIDER_BASE_URL", smoke.DEFAULT_BASE)
     host = base.split("//", 1)[-1].split("/", 1)[0]
     rows_spec = load_rows()
+    if args.limit:
+        if args.limit < 1:
+            raise SystemExit("--limit must be positive")
+        rows_spec = rows_spec[: args.limit]
     done = load_done()
     if not args.no_compile:
         print("compile", flush=True)
@@ -289,6 +334,7 @@ def main() -> None:
             write_section(
                 {"model": model, "base_host": host, "wall_s": int(time.monotonic() - started)},
                 ordered,
+                preliminary=bool(args.limit) and len(rows_spec) < FULL_N,
             )
             print(f"report {smoke.REPORT}", flush=True)
 
