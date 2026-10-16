@@ -197,11 +197,22 @@ def write_section(meta: dict, rows: list[dict], preliminary: bool) -> None:
         key = row.get("category") or run_core.category_of(row)
         counts[key] = counts.get(key, 0) + 1
     rate = (passed / len(rows) * 100) if rows else 0.0
-    scope = (
-        f"**初步结果。** 只跑了 sanitized fixture 顺序的前 {len(rows)} 题，不是全量 {FULL_N}。"
-        if preliminary
-        else f"sanitized 全量 {len(rows)} 题。"
-    )
+    reused = int(meta.get("reused_prefix") or 0)
+    if preliminary:
+        scope = f"**初步结果。** 只跑了 sanitized fixture 顺序的前 {len(rows)} 题，不是全量 {FULL_N}。"
+        follow = extrapolate(rows, prompt_tokens, completion_tokens, FULL_N)
+    elif len(rows) == FULL_N:
+        scope = f"sanitized 全量 {FULL_N} 题。"
+        if reused:
+            follow = (
+                f"fixture 顺序的前 {reused} 题复用同日初步运行的 JSONL，没有重跑。"
+                "模型、harness、120 秒上限和官方 `test_list` 都与那次相同。其余题目是这次续跑补上的。"
+            )
+        else:
+            follow = "427 题都是本次新跑的，没有复用已有 JSONL。"
+    else:
+        scope = f"进行中：已有 {len(rows)}/{FULL_N} 题，还不是全量。"
+        follow = "这一节会在 427 题到齐后换成全量结果。"
     lines = [
         MARKER,
         "",
@@ -212,7 +223,7 @@ def write_section(meta: dict, rows: list[dict], preliminary: bool) -> None:
         "",
         f"通过 **{passed}/{len(rows)}**（{rate:.1f}%）。题目耗时合计 {agent_ms / 1000:.0f} 秒（各题 agent 耗时相加）。{estimate_yuan(prompt_tokens, completion_tokens)}",
         "",
-        extrapolate(rows, prompt_tokens, completion_tokens, FULL_N),
+        follow,
         "",
         "失败分类：",
         "",
@@ -300,6 +311,8 @@ def main() -> None:
             raise SystemExit("--limit must be positive")
         rows_spec = rows_spec[: args.limit]
     done = load_done()
+    prefix_ids = [item["task_id"] for item in load_rows()[:100]]
+    reused_prefix = sum(1 for task_id in prefix_ids if task_id in done)
     if not args.no_compile:
         print("compile", flush=True)
         built = smoke.compile_bins(smoke.RUN_ROOT / "bin")
@@ -332,7 +345,12 @@ def main() -> None:
         ordered = [done[item["task_id"]] for item in rows_spec if item["task_id"] in done]
         if ordered:
             write_section(
-                {"model": model, "base_host": host, "wall_s": int(time.monotonic() - started)},
+                {
+                    "model": model,
+                    "base_host": host,
+                    "wall_s": int(time.monotonic() - started),
+                    "reused_prefix": reused_prefix,
+                },
                 ordered,
                 preliminary=bool(args.limit) and len(rows_spec) < FULL_N,
             )
