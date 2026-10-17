@@ -930,3 +930,652 @@ fixture 顺序的前 100 题复用同日初步运行的 JSONL，没有重跑。�
 | django__django-12774 | 通过 | 66716 ms | 22 | 通过 |  |
 | django__django-13516 | 通过 | 250202 ms | 23 | 通过 |  |
 | django__django-14007 | 失败 | 62432 ms | 7 | 没有补丁 | 没有补丁 |
+
+## HumanEval 164 首字节修复后
+
+> 日期：2026-10-16。main `f1e7c1e02bb894dfefa7fb79057a2c2074201fed`。本次分支 git `9b80829`。模型 `zai-org/GLM-5.3-Flash`，网关 host `api.siliconflow.cn`。
+> 修复首字节超时后重编 cloudagent，HumanEval 164 全部新跑。pass@1，每题 1 次。不是单次补全，不能直接和官方 HumanEval 榜横比。
+
+通过 **154/164**（93.9%）。耗时合计 4428 秒。token 合计 prompt 1078183、completion 112485。估算费用 ¥1.18（输入 ¥0.80/百万 token，输出 ¥2.80/百万 token，按计划 2026-10-15 硅基流动公开价，不是账单）。
+
+同一 main 在修复前是 150/164。根因是 CLI 把响应头超时设成 30 秒，而服务端要等上游首字节才写响应头；推理模型经常超过 30 秒，agent 只读完文件就以 exit 2 退出，原文件被当成断言失败。修复后首字节等待与 5 分钟整体超时对齐，并在等上游之前解除服务端写超时。网关重试保留。
+
+最小对照（同一服务、同一题）：f1e7c1e 的 cloudagent 跑 HumanEval/124 用了 32500 ms、exit 2，只做了 read_file 和 glob；HumanEval/132 用了 31760 ms、exit 2，只做了 read_file。修复后的二进制这两题都通过，并且写回了文件再跑 shell。HumanEval/118 两次都在 30 秒内完成，两边都通过。NameError（32、33、38、50）在 e6994c6 上就已经失败。这次全量是 154/164，比修复前的 150 高，还没回到 158：多出来的是 120 秒隔离超时和个别断言，不是 30 秒 exit 2。
+
+与上次（main e6994c6，158/164；JSONL 实计 158/164）对比，同一套题、同一模型：
+
+- 新增通过 1 题：HumanEval/158（上次 超时）
+- 新增失败 5 题：HumanEval/47（这次 超时：timeout）、HumanEval/103（这次 超时：timeout）、HumanEval/132（这次 断言失败：AssertionError: This prints if this assert fails 1 (good for debugging!)）、HumanEval/134（这次 超时：timeout）、HumanEval/160（这次 超时：timeout）
+- 仍失败但分类变化 0 题：没有。
+
+失败分类：
+
+- 运行错误：4
+- 超时：4
+- 断言失败：2
+
+公开基线：Z.ai 的 GLM-5.3-Flash 模型卡没有公布 HumanEval。它公布的 Terminal-Bench 2.1 为 84.3%，用的是 Claude Code 2.1.207，不是本 adapter，也不是 Terminal-Bench 4.0。第三方量化权重上的 greedy HumanEval 不是这条链路，不拿来当基线。
+
+| 题 | 结果 | 耗时 | 步数 | 分类 | 原因 |
+| --- | --- | --- | --- | --- | --- |
+| HumanEval/0 | 通过 | 72864 ms | 16 | 通过 |  |
+| HumanEval/1 | 通过 | 17813 ms | 4 | 通过 |  |
+| HumanEval/2 | 通过 | 55272 ms | 10 | 通过 |  |
+| HumanEval/3 | 通过 | 19585 ms | 6 | 通过 |  |
+| HumanEval/4 | 通过 | 8112 ms | 3 | 通过 |  |
+| HumanEval/5 | 通过 | 7231 ms | 3 | 通过 |  |
+| HumanEval/6 | 通过 | 15482 ms | 3 | 通过 |  |
+| HumanEval/7 | 通过 | 11695 ms | 3 | 通过 |  |
+| HumanEval/8 | 通过 | 18997 ms | 5 | 通过 |  |
+| HumanEval/9 | 通过 | 17061 ms | 4 | 通过 |  |
+| HumanEval/10 | 通过 | 16199 ms | 5 | 通过 |  |
+| HumanEval/11 | 通过 | 17419 ms | 5 | 通过 |  |
+| HumanEval/12 | 通过 | 7660 ms | 3 | 通过 |  |
+| HumanEval/13 | 通过 | 7537 ms | 3 | 通过 |  |
+| HumanEval/14 | 通过 | 24946 ms | 8 | 通过 |  |
+| HumanEval/15 | 通过 | 18231 ms | 6 | 通过 |  |
+| HumanEval/16 | 通过 | 13456 ms | 4 | 通过 |  |
+| HumanEval/17 | 通过 | 8608 ms | 3 | 通过 |  |
+| HumanEval/18 | 通过 | 39388 ms | 7 | 通过 |  |
+| HumanEval/19 | 通过 | 14092 ms | 3 | 通过 |  |
+| HumanEval/20 | 通过 | 15517 ms | 3 | 通过 |  |
+| HumanEval/21 | 通过 | 16088 ms | 3 | 通过 |  |
+| HumanEval/22 | 通过 | 8324 ms | 3 | 通过 |  |
+| HumanEval/23 | 通过 | 18340 ms | 7 | 通过 |  |
+| HumanEval/24 | 通过 | 14928 ms | 3 | 通过 |  |
+| HumanEval/25 | 通过 | 19238 ms | 3 | 通过 |  |
+| HumanEval/26 | 通过 | 26850 ms | 8 | 通过 |  |
+| HumanEval/27 | 通过 | 7852 ms | 3 | 通过 |  |
+| HumanEval/28 | 通过 | 12228 ms | 4 | 通过 |  |
+| HumanEval/29 | 通过 | 16313 ms | 6 | 通过 |  |
+| HumanEval/30 | 通过 | 17412 ms | 5 | 通过 |  |
+| HumanEval/31 | 通过 | 16498 ms | 4 | 通过 |  |
+| HumanEval/32 | 失败 | 73943 ms | 6 | 运行错误 | NameError: name 'poly' is not defined |
+| HumanEval/33 | 失败 | 22668 ms | 5 | 运行错误 | NameError: name 'sort_third' is not defined |
+| HumanEval/34 | 通过 | 9540 ms | 4 | 通过 |  |
+| HumanEval/35 | 通过 | 7313 ms | 3 | 通过 |  |
+| HumanEval/36 | 通过 | 8457 ms | 3 | 通过 |  |
+| HumanEval/37 | 通过 | 21554 ms | 5 | 通过 |  |
+| HumanEval/38 | 失败 | 8740 ms | 3 | 运行错误 | NameError: name 'encode_cyclic' is not defined |
+| HumanEval/39 | 通过 | 10003 ms | 3 | 通过 |  |
+| HumanEval/40 | 通过 | 17801 ms | 3 | 通过 |  |
+| HumanEval/41 | 通过 | 5177 ms | 2 | 通过 |  |
+| HumanEval/42 | 通过 | 7090 ms | 3 | 通过 |  |
+| HumanEval/43 | 通过 | 26976 ms | 4 | 通过 |  |
+| HumanEval/44 | 通过 | 19023 ms | 3 | 通过 |  |
+| HumanEval/45 | 通过 | 12868 ms | 4 | 通过 |  |
+| HumanEval/46 | 通过 | 9303 ms | 4 | 通过 |  |
+| HumanEval/47 | 失败 | 120068 ms | 3 | 超时 | timeout |
+| HumanEval/48 | 通过 | 7536 ms | 3 | 通过 |  |
+| HumanEval/49 | 通过 | 15061 ms | 4 | 通过 |  |
+| HumanEval/50 | 失败 | 18213 ms | 4 | 运行错误 | NameError: name 'encode_shift' is not defined |
+| HumanEval/51 | 通过 | 101584 ms | 13 | 通过 |  |
+| HumanEval/52 | 通过 | 23100 ms | 5 | 通过 |  |
+| HumanEval/53 | 通过 | 12203 ms | 4 | 通过 |  |
+| HumanEval/54 | 通过 | 9663 ms | 4 | 通过 |  |
+| HumanEval/55 | 通过 | 8856 ms | 4 | 通过 |  |
+| HumanEval/56 | 通过 | 15300 ms | 5 | 通过 |  |
+| HumanEval/57 | 通过 | 7624 ms | 3 | 通过 |  |
+| HumanEval/58 | 通过 | 7849 ms | 3 | 通过 |  |
+| HumanEval/59 | 通过 | 21439 ms | 4 | 通过 |  |
+| HumanEval/60 | 通过 | 28965 ms | 6 | 通过 |  |
+| HumanEval/61 | 通过 | 37773 ms | 9 | 通过 |  |
+| HumanEval/62 | 通过 | 8067 ms | 3 | 通过 |  |
+| HumanEval/63 | 通过 | 22700 ms | 5 | 通过 |  |
+| HumanEval/64 | 通过 | 120070 ms | 12 | 通过 |  |
+| HumanEval/65 | 通过 | 47191 ms | 4 | 通过 |  |
+| HumanEval/66 | 通过 | 12386 ms | 4 | 通过 |  |
+| HumanEval/67 | 通过 | 36932 ms | 11 | 通过 |  |
+| HumanEval/68 | 通过 | 120114 ms | 5 | 通过 |  |
+| HumanEval/69 | 通过 | 8286 ms | 3 | 通过 |  |
+| HumanEval/70 | 通过 | 14296 ms | 3 | 通过 |  |
+| HumanEval/71 | 通过 | 29296 ms | 4 | 通过 |  |
+| HumanEval/72 | 通过 | 7252 ms | 3 | 通过 |  |
+| HumanEval/73 | 通过 | 7830 ms | 3 | 通过 |  |
+| HumanEval/74 | 通过 | 107424 ms | 19 | 通过 |  |
+| HumanEval/75 | 通过 | 15153 ms | 5 | 通过 |  |
+| HumanEval/76 | 通过 | 119274 ms | 4 | 通过 |  |
+| HumanEval/77 | 通过 | 14630 ms | 5 | 通过 |  |
+| HumanEval/78 | 通过 | 16544 ms | 4 | 通过 |  |
+| HumanEval/79 | 通过 | 14992 ms | 3 | 通过 |  |
+| HumanEval/80 | 通过 | 10645 ms | 4 | 通过 |  |
+| HumanEval/81 | 通过 | 9024 ms | 3 | 通过 |  |
+| HumanEval/82 | 通过 | 8372 ms | 3 | 通过 |  |
+| HumanEval/83 | 通过 | 22659 ms | 4 | 通过 |  |
+| HumanEval/84 | 通过 | 9840 ms | 3 | 通过 |  |
+| HumanEval/85 | 通过 | 12477 ms | 3 | 通过 |  |
+| HumanEval/86 | 通过 | 24498 ms | 5 | 通过 |  |
+| HumanEval/87 | 通过 | 45171 ms | 6 | 通过 |  |
+| HumanEval/88 | 通过 | 10684 ms | 3 | 通过 |  |
+| HumanEval/89 | 通过 | 32623 ms | 6 | 通过 |  |
+| HumanEval/90 | 通过 | 10004 ms | 3 | 通过 |  |
+| HumanEval/91 | 通过 | 8076 ms | 3 | 通过 |  |
+| HumanEval/92 | 通过 | 13021 ms | 6 | 通过 |  |
+| HumanEval/93 | 通过 | 38365 ms | 5 | 通过 |  |
+| HumanEval/94 | 通过 | 12308 ms | 4 | 通过 |  |
+| HumanEval/95 | 通过 | 120018 ms | 8 | 通过 |  |
+| HumanEval/96 | 通过 | 24706 ms | 5 | 通过 |  |
+| HumanEval/97 | 通过 | 12917 ms | 5 | 通过 |  |
+| HumanEval/98 | 通过 | 19804 ms | 5 | 通过 |  |
+| HumanEval/99 | 通过 | 10356 ms | 3 | 通过 |  |
+| HumanEval/100 | 通过 | 7544 ms | 3 | 通过 |  |
+| HumanEval/101 | 通过 | 6791 ms | 3 | 通过 |  |
+| HumanEval/102 | 通过 | 10747 ms | 3 | 通过 |  |
+| HumanEval/103 | 失败 | 120101 ms | 1 | 超时 | timeout |
+| HumanEval/104 | 通过 | 16532 ms | 4 | 通过 |  |
+| HumanEval/105 | 通过 | 21896 ms | 4 | 通过 |  |
+| HumanEval/106 | 通过 | 17067 ms | 4 | 通过 |  |
+| HumanEval/107 | 通过 | 18173 ms | 4 | 通过 |  |
+| HumanEval/108 | 通过 | 21708 ms | 4 | 通过 |  |
+| HumanEval/109 | 通过 | 9345 ms | 3 | 通过 |  |
+| HumanEval/110 | 通过 | 9290 ms | 3 | 通过 |  |
+| HumanEval/111 | 通过 | 9533 ms | 3 | 通过 |  |
+| HumanEval/112 | 通过 | 20206 ms | 3 | 通过 |  |
+| HumanEval/113 | 通过 | 12556 ms | 5 | 通过 |  |
+| HumanEval/114 | 通过 | 8396 ms | 3 | 通过 |  |
+| HumanEval/115 | 通过 | 10329 ms | 4 | 通过 |  |
+| HumanEval/116 | 失败 | 51498 ms | 3 | 断言失败 | AssertionError |
+| HumanEval/117 | 通过 | 36483 ms | 6 | 通过 |  |
+| HumanEval/118 | 通过 | 120019 ms | 8 | 通过 |  |
+| HumanEval/119 | 通过 | 8791 ms | 3 | 通过 |  |
+| HumanEval/120 | 通过 | 6788 ms | 2 | 通过 |  |
+| HumanEval/121 | 通过 | 8645 ms | 3 | 通过 |  |
+| HumanEval/122 | 通过 | 21230 ms | 3 | 通过 |  |
+| HumanEval/123 | 通过 | 18132 ms | 5 | 通过 |  |
+| HumanEval/124 | 通过 | 120041 ms | 5 | 通过 |  |
+| HumanEval/125 | 通过 | 11332 ms | 3 | 通过 |  |
+| HumanEval/126 | 通过 | 28311 ms | 4 | 通过 |  |
+| HumanEval/127 | 通过 | 9354 ms | 3 | 通过 |  |
+| HumanEval/128 | 通过 | 26619 ms | 4 | 通过 |  |
+| HumanEval/129 | 通过 | 17327 ms | 3 | 通过 |  |
+| HumanEval/130 | 通过 | 51124 ms | 4 | 通过 |  |
+| HumanEval/131 | 通过 | 18532 ms | 3 | 通过 |  |
+| HumanEval/132 | 失败 | 41548 ms | 1 | 断言失败 | AssertionError: This prints if this assert fails 1 (good for debugging!) |
+| HumanEval/133 | 通过 | 26255 ms | 5 | 通过 |  |
+| HumanEval/134 | 失败 | 120073 ms | 4 | 超时 | timeout |
+| HumanEval/135 | 通过 | 8749 ms | 3 | 通过 |  |
+| HumanEval/136 | 通过 | 9313 ms | 3 | 通过 |  |
+| HumanEval/137 | 通过 | 16395 ms | 4 | 通过 |  |
+| HumanEval/138 | 通过 | 22470 ms | 5 | 通过 |  |
+| HumanEval/139 | 通过 | 30810 ms | 8 | 通过 |  |
+| HumanEval/140 | 通过 | 10061 ms | 3 | 通过 |  |
+| HumanEval/141 | 通过 | 9207 ms | 3 | 通过 |  |
+| HumanEval/142 | 通过 | 40869 ms | 8 | 通过 |  |
+| HumanEval/143 | 通过 | 8632 ms | 3 | 通过 |  |
+| HumanEval/144 | 通过 | 18895 ms | 5 | 通过 |  |
+| HumanEval/145 | 通过 | 120006 ms | 6 | 通过 |  |
+| HumanEval/146 | 通过 | 34624 ms | 3 | 通过 |  |
+| HumanEval/147 | 通过 | 48586 ms | 3 | 通过 |  |
+| HumanEval/148 | 通过 | 9080 ms | 3 | 通过 |  |
+| HumanEval/149 | 通过 | 17341 ms | 4 | 通过 |  |
+| HumanEval/150 | 通过 | 25514 ms | 3 | 通过 |  |
+| HumanEval/151 | 通过 | 10705 ms | 3 | 通过 |  |
+| HumanEval/152 | 通过 | 8036 ms | 3 | 通过 |  |
+| HumanEval/153 | 通过 | 43391 ms | 6 | 通过 |  |
+| HumanEval/154 | 通过 | 22362 ms | 3 | 通过 |  |
+| HumanEval/155 | 通过 | 22340 ms | 3 | 通过 |  |
+| HumanEval/156 | 通过 | 82450 ms | 7 | 通过 |  |
+| HumanEval/157 | 通过 | 20269 ms | 3 | 通过 |  |
+| HumanEval/158 | 通过 | 57242 ms | 10 | 通过 |  |
+| HumanEval/159 | 通过 | 21761 ms | 5 | 通过 |  |
+| HumanEval/160 | 失败 | 120077 ms | 4 | 超时 | timeout |
+| HumanEval/161 | 通过 | 6897 ms | 2 | 通过 |  |
+| HumanEval/162 | 通过 | 10390 ms | 3 | 通过 |  |
+| HumanEval/163 | 通过 | 26444 ms | 4 | 通过 |  |
+
+## MBPP sanitized 首字节修复后
+
+> 日期：2026-10-16。main `f1e7c1e02bb894dfefa7fb79057a2c2074201fed`。本次分支 git `9b80829`。模型 `zai-org/GLM-5.3-Flash`，网关 host `api.siliconflow.cn`。
+> Google Research MBPP sanitized。agent 补全 `solution.py` 后，在隔离里用官方 `test_list` 评分（不含 challenge 测试）。pass@1，每题 1 次。不是单次补全，不能直接和公开 MBPP 榜横比。
+
+sanitized 全量 427 题。
+
+通过 **348/427**（81.5%）。题目耗时合计 13353 秒（各题 agent 耗时相加）。token 合计 prompt 2083058、completion 397903。估算费用 ¥2.78（输入 ¥0.80/百万 token，输出 ¥2.80/百万 token，按计划 2026-10-15 硅基流动公开价，不是账单）。
+
+427 题都是本次新跑的，没有复用 e6994c6 或 f1e7c1e 的 JSONL。
+
+与上次（main e6994c6，352/427；JSONL 实计 352/427）对比，同一套题、同一模型：
+
+- 新增通过 29 题：Mbpp/2（上次 超时）、Mbpp/6（上次 超时）、Mbpp/12（上次 超时）、Mbpp/14（上次 超时）、Mbpp/20（上次 超时）、Mbpp/61（上次 断言失败）、Mbpp/83（上次 断言失败）、Mbpp/109（上次 断言失败）、Mbpp/138（上次 断言失败）、Mbpp/164（上次 断言失败）、Mbpp/264（上次 断言失败）、Mbpp/285（上次 断言失败）、Mbpp/290（上次 断言失败）、Mbpp/295（上次 断言失败）、Mbpp/300（上次 超时）、Mbpp/391（上次 断言失败）、Mbpp/393（上次 断言失败）、Mbpp/400（上次 断言失败）、Mbpp/407（上次 断言失败）、Mbpp/411（上次 断言失败）、Mbpp/473（上次 断言失败）、Mbpp/573（上次 超时）、Mbpp/574（上次 断言失败）、Mbpp/627（上次 断言失败）、Mbpp/644（上次 断言失败）、Mbpp/760（上次 超时）、Mbpp/765（上次 断言失败）、Mbpp/777（上次 断言失败）、Mbpp/787（上次 断言失败）
+- 新增失败 33 题：Mbpp/92（这次 断言失败：AssertionError）、Mbpp/111（这次 超时：timeout）、Mbpp/119（这次 断言失败：AssertionError）、Mbpp/123（这次 断言失败：AssertionError）、Mbpp/130（这次 超时：timeout）、Mbpp/141（这次 超时：timeout）、Mbpp/163（这次 断言失败：AssertionError）、Mbpp/165（这次 断言失败：AssertionError）、Mbpp/235（这次 断言失败：AssertionError）、Mbpp/260（这次 断言失败：AssertionError）、Mbpp/286（这次 断言失败：AssertionError）、Mbpp/405（这次 运行错误：TypeError: 'in <string>' requires string as left operand, not tuple）、Mbpp/417（这次 断言失败：AssertionError）、Mbpp/434（这次 断言失败：AssertionError）、Mbpp/448（这次 超时：timeout）、Mbpp/450（这次 断言失败：AssertionError）、Mbpp/454（这次 断言失败：AssertionError）、Mbpp/459（这次 超时：timeout）、Mbpp/475（这次 断言失败：AssertionError）、Mbpp/558（这次 超时：timeout）、Mbpp/560（这次 超时：timeout）、Mbpp/585（这次 运行错误：AttributeError: 'list' object has no attribute 'get'）、Mbpp/592（这次 超时：timeout）、Mbpp/603（这次 断言失败：AssertionError）、Mbpp/612（这次 断言失败：AssertionError）、Mbpp/617（这次 断言失败：AssertionError）、Mbpp/638（这次 断言失败：AssertionError）、Mbpp/746（这次 断言失败：AssertionError）、Mbpp/748（这次 超时：timeout）、Mbpp/756（这次 断言失败：AssertionError）、Mbpp/769（这次 断言失败：AssertionError）、Mbpp/783（这次 断言失败：AssertionError）、Mbpp/788（这次 断言失败：AssertionError）
+- 仍失败但分类变化 8 题：Mbpp/16：超时 → 断言失败、Mbpp/124：断言失败 → 运行错误、Mbpp/160：断言失败 → 超时、Mbpp/229：断言失败 → 超时、Mbpp/299：断言失败 → 超时、Mbpp/440：断言失败 → 超时、Mbpp/626：超时 → 断言失败、Mbpp/640：运行错误 → 断言失败
+
+同一 main 在修复前是 317/427。根因与 HumanEval 相同：30 秒响应头超时把慢首字节当成网关黑洞。
+
+失败分类：
+
+- 断言失败：60
+- 超时：15
+- 运行错误：4
+
+公开基线：Z.ai 的 GLM-5.3-Flash 模型卡没有公布 MBPP。不引用第三方聚合站上的数字。这次分数不是官方榜提交。
+
+| 题 | 结果 | 耗时 | 步数 | 分类 | 原因 |
+| --- | --- | --- | --- | --- | --- |
+| Mbpp/2 | 通过 | 25762 ms | 6 | 通过 |  |
+| Mbpp/3 | 通过 | 9262 ms | 3 | 通过 |  |
+| Mbpp/4 | 通过 | 8301 ms | 3 | 通过 |  |
+| Mbpp/6 | 通过 | 41160 ms | 6 | 通过 |  |
+| Mbpp/7 | 通过 | 8915 ms | 3 | 通过 |  |
+| Mbpp/8 | 通过 | 9826 ms | 4 | 通过 |  |
+| Mbpp/9 | 通过 | 75633 ms | 14 | 通过 |  |
+| Mbpp/11 | 通过 | 27247 ms | 3 | 通过 |  |
+| Mbpp/12 | 通过 | 33116 ms | 5 | 通过 |  |
+| Mbpp/14 | 通过 | 38864 ms | 5 | 通过 |  |
+| Mbpp/16 | 失败 | 94995 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/17 | 通过 | 18366 ms | 5 | 通过 |  |
+| Mbpp/18 | 通过 | 18254 ms | 4 | 通过 |  |
+| Mbpp/19 | 通过 | 8172 ms | 3 | 通过 |  |
+| Mbpp/20 | 通过 | 70556 ms | 4 | 通过 |  |
+| Mbpp/56 | 通过 | 49592 ms | 5 | 通过 |  |
+| Mbpp/57 | 通过 | 7557 ms | 2 | 通过 |  |
+| Mbpp/58 | 通过 | 33448 ms | 4 | 通过 |  |
+| Mbpp/59 | 通过 | 11298 ms | 3 | 通过 |  |
+| Mbpp/61 | 通过 | 57733 ms | 4 | 通过 |  |
+| Mbpp/62 | 通过 | 7108 ms | 2 | 通过 |  |
+| Mbpp/63 | 通过 | 7318 ms | 2 | 通过 |  |
+| Mbpp/64 | 通过 | 8616 ms | 3 | 通过 |  |
+| Mbpp/65 | 通过 | 7213 ms | 2 | 通过 |  |
+| Mbpp/66 | 通过 | 5273 ms | 2 | 通过 |  |
+| Mbpp/67 | 通过 | 11686 ms | 3 | 通过 |  |
+| Mbpp/68 | 通过 | 21010 ms | 3 | 通过 |  |
+| Mbpp/69 | 通过 | 26704 ms | 3 | 通过 |  |
+| Mbpp/70 | 通过 | 11734 ms | 3 | 通过 |  |
+| Mbpp/71 | 通过 | 11794 ms | 3 | 通过 |  |
+| Mbpp/72 | 通过 | 120097 ms | 5 | 通过 |  |
+| Mbpp/74 | 通过 | 58103 ms | 5 | 通过 |  |
+| Mbpp/75 | 通过 | 9159 ms | 3 | 通过 |  |
+| Mbpp/77 | 通过 | 6136 ms | 2 | 通过 |  |
+| Mbpp/79 | 通过 | 6153 ms | 2 | 通过 |  |
+| Mbpp/80 | 通过 | 25446 ms | 4 | 通过 |  |
+| Mbpp/82 | 通过 | 24852 ms | 3 | 通过 |  |
+| Mbpp/83 | 通过 | 24656 ms | 2 | 通过 |  |
+| Mbpp/84 | 通过 | 21044 ms | 4 | 通过 |  |
+| Mbpp/85 | 通过 | 10185 ms | 3 | 通过 |  |
+| Mbpp/86 | 通过 | 27709 ms | 6 | 通过 |  |
+| Mbpp/87 | 失败 | 30612 ms | 6 | 断言失败 | AssertionError |
+| Mbpp/88 | 通过 | 33252 ms | 5 | 通过 |  |
+| Mbpp/89 | 通过 | 7986 ms | 3 | 通过 |  |
+| Mbpp/90 | 通过 | 14602 ms | 3 | 通过 |  |
+| Mbpp/91 | 通过 | 9886 ms | 3 | 通过 |  |
+| Mbpp/92 | 失败 | 71587 ms | 5 | 断言失败 | AssertionError |
+| Mbpp/93 | 通过 | 14719 ms | 4 | 通过 |  |
+| Mbpp/94 | 通过 | 25213 ms | 3 | 通过 |  |
+| Mbpp/95 | 通过 | 22362 ms | 5 | 通过 |  |
+| Mbpp/96 | 通过 | 26236 ms | 4 | 通过 |  |
+| Mbpp/97 | 通过 | 21581 ms | 3 | 通过 |  |
+| Mbpp/98 | 通过 | 9410 ms | 3 | 通过 |  |
+| Mbpp/99 | 通过 | 8813 ms | 3 | 通过 |  |
+| Mbpp/100 | 失败 | 120007 ms | 2 | 超时 | timeout |
+| Mbpp/101 | 通过 | 28207 ms | 3 | 通过 |  |
+| Mbpp/102 | 失败 | 26051 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/103 | 通过 | 46124 ms | 5 | 通过 |  |
+| Mbpp/104 | 通过 | 7771 ms | 3 | 通过 |  |
+| Mbpp/105 | 通过 | 8369 ms | 3 | 通过 |  |
+| Mbpp/106 | 失败 | 10970 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/108 | 通过 | 39803 ms | 5 | 通过 |  |
+| Mbpp/109 | 通过 | 23803 ms | 4 | 通过 |  |
+| Mbpp/111 | 失败 | 120114 ms | 2 | 超时 | timeout |
+| Mbpp/113 | 通过 | 26379 ms | 3 | 通过 |  |
+| Mbpp/115 | 通过 | 9852 ms | 3 | 通过 |  |
+| Mbpp/116 | 通过 | 20822 ms | 5 | 通过 |  |
+| Mbpp/117 | 通过 | 81974 ms | 5 | 通过 |  |
+| Mbpp/118 | 通过 | 10547 ms | 4 | 通过 |  |
+| Mbpp/119 | 失败 | 95668 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/120 | 通过 | 9331 ms | 3 | 通过 |  |
+| Mbpp/123 | 失败 | 91556 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/124 | 失败 | 7455 ms | 2 | 运行错误 | TypeError: must be real number, not complex |
+| Mbpp/125 | 通过 | 56010 ms | 5 | 通过 |  |
+| Mbpp/126 | 通过 | 24070 ms | 5 | 通过 |  |
+| Mbpp/127 | 通过 | 11617 ms | 3 | 通过 |  |
+| Mbpp/128 | 通过 | 9854 ms | 3 | 通过 |  |
+| Mbpp/129 | 通过 | 53496 ms | 6 | 通过 |  |
+| Mbpp/130 | 失败 | 120065 ms | 9 | 超时 | timeout |
+| Mbpp/131 | 通过 | 17082 ms | 3 | 通过 |  |
+| Mbpp/132 | 通过 | 6464 ms | 2 | 通过 |  |
+| Mbpp/133 | 通过 | 5952 ms | 2 | 通过 |  |
+| Mbpp/135 | 通过 | 28613 ms | 6 | 通过 |  |
+| Mbpp/137 | 通过 | 19379 ms | 3 | 通过 |  |
+| Mbpp/138 | 通过 | 37678 ms | 4 | 通过 |  |
+| Mbpp/139 | 通过 | 36767 ms | 7 | 通过 |  |
+| Mbpp/140 | 通过 | 9179 ms | 3 | 通过 |  |
+| Mbpp/141 | 失败 | 120113 ms | 1 | 超时 | timeout |
+| Mbpp/142 | 通过 | 24340 ms | 3 | 通过 |  |
+| Mbpp/143 | 失败 | 36823 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/145 | 通过 | 46583 ms | 3 | 通过 |  |
+| Mbpp/160 | 失败 | 120075 ms | 3 | 超时 | timeout |
+| Mbpp/161 | 通过 | 7866 ms | 2 | 通过 |  |
+| Mbpp/162 | 通过 | 16914 ms | 3 | 通过 |  |
+| Mbpp/163 | 失败 | 11340 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/164 | 通过 | 28216 ms | 3 | 通过 |  |
+| Mbpp/165 | 失败 | 92722 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/166 | 通过 | 11560 ms | 3 | 通过 |  |
+| Mbpp/167 | 通过 | 8696 ms | 3 | 通过 |  |
+| Mbpp/168 | 通过 | 7034 ms | 3 | 通过 |  |
+| Mbpp/170 | 通过 | 25670 ms | 4 | 通过 |  |
+| Mbpp/171 | 通过 | 15869 ms | 4 | 通过 |  |
+| Mbpp/172 | 通过 | 32942 ms | 6 | 通过 |  |
+| Mbpp/222 | 通过 | 6209 ms | 2 | 通过 |  |
+| Mbpp/223 | 通过 | 79585 ms | 8 | 通过 |  |
+| Mbpp/224 | 通过 | 18338 ms | 4 | 通过 |  |
+| Mbpp/226 | 通过 | 48845 ms | 9 | 通过 |  |
+| Mbpp/227 | 通过 | 20789 ms | 5 | 通过 |  |
+| Mbpp/228 | 通过 | 120041 ms | 4 | 通过 |  |
+| Mbpp/229 | 失败 | 120115 ms | 2 | 超时 | timeout |
+| Mbpp/230 | 通过 | 14949 ms | 4 | 通过 |  |
+| Mbpp/232 | 通过 | 8105 ms | 3 | 通过 |  |
+| Mbpp/233 | 通过 | 5483 ms | 2 | 通过 |  |
+| Mbpp/234 | 通过 | 6516 ms | 2 | 通过 |  |
+| Mbpp/235 | 失败 | 107899 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/237 | 失败 | 9907 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/238 | 通过 | 31541 ms | 5 | 通过 |  |
+| Mbpp/239 | 通过 | 76353 ms | 2 | 通过 |  |
+| Mbpp/240 | 通过 | 9259 ms | 3 | 通过 |  |
+| Mbpp/242 | 通过 | 8251 ms | 3 | 通过 |  |
+| Mbpp/244 | 通过 | 7974 ms | 3 | 通过 |  |
+| Mbpp/245 | 通过 | 67852 ms | 3 | 通过 |  |
+| Mbpp/246 | 通过 | 10212 ms | 3 | 通过 |  |
+| Mbpp/247 | 通过 | 36467 ms | 5 | 通过 |  |
+| Mbpp/248 | 失败 | 21529 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/249 | 通过 | 6805 ms | 2 | 通过 |  |
+| Mbpp/250 | 通过 | 7778 ms | 3 | 通过 |  |
+| Mbpp/251 | 通过 | 14439 ms | 3 | 通过 |  |
+| Mbpp/252 | 通过 | 27301 ms | 3 | 通过 |  |
+| Mbpp/253 | 通过 | 71659 ms | 15 | 通过 |  |
+| Mbpp/255 | 通过 | 31956 ms | 4 | 通过 |  |
+| Mbpp/256 | 通过 | 15884 ms | 3 | 通过 |  |
+| Mbpp/257 | 通过 | 7669 ms | 3 | 通过 |  |
+| Mbpp/259 | 失败 | 8284 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/260 | 失败 | 37855 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/261 | 通过 | 21609 ms | 4 | 通过 |  |
+| Mbpp/262 | 通过 | 8327 ms | 3 | 通过 |  |
+| Mbpp/264 | 通过 | 36602 ms | 3 | 通过 |  |
+| Mbpp/265 | 失败 | 33162 ms | 5 | 断言失败 | AssertionError |
+| Mbpp/266 | 通过 | 5834 ms | 2 | 通过 |  |
+| Mbpp/267 | 通过 | 7235 ms | 3 | 通过 |  |
+| Mbpp/268 | 通过 | 7521 ms | 3 | 通过 |  |
+| Mbpp/269 | 通过 | 7033 ms | 3 | 通过 |  |
+| Mbpp/270 | 通过 | 120057 ms | 3 | 通过 |  |
+| Mbpp/271 | 通过 | 21519 ms | 3 | 通过 |  |
+| Mbpp/272 | 通过 | 8589 ms | 3 | 通过 |  |
+| Mbpp/273 | 通过 | 8244 ms | 3 | 通过 |  |
+| Mbpp/274 | 通过 | 11741 ms | 3 | 通过 |  |
+| Mbpp/276 | 通过 | 8678 ms | 3 | 通过 |  |
+| Mbpp/277 | 通过 | 12844 ms | 2 | 通过 |  |
+| Mbpp/278 | 通过 | 21607 ms | 3 | 通过 |  |
+| Mbpp/279 | 通过 | 8395 ms | 2 | 通过 |  |
+| Mbpp/280 | 通过 | 6852 ms | 2 | 通过 |  |
+| Mbpp/281 | 通过 | 24007 ms | 7 | 通过 |  |
+| Mbpp/282 | 通过 | 18198 ms | 3 | 通过 |  |
+| Mbpp/283 | 通过 | 16834 ms | 3 | 通过 |  |
+| Mbpp/284 | 通过 | 16742 ms | 5 | 通过 |  |
+| Mbpp/285 | 通过 | 67881 ms | 10 | 通过 |  |
+| Mbpp/286 | 失败 | 102940 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/287 | 通过 | 8548 ms | 3 | 通过 |  |
+| Mbpp/290 | 通过 | 18228 ms | 4 | 通过 |  |
+| Mbpp/291 | 通过 | 23787 ms | 3 | 通过 |  |
+| Mbpp/292 | 通过 | 8233 ms | 3 | 通过 |  |
+| Mbpp/293 | 通过 | 9533 ms | 3 | 通过 |  |
+| Mbpp/294 | 通过 | 15590 ms | 4 | 通过 |  |
+| Mbpp/295 | 通过 | 14053 ms | 4 | 通过 |  |
+| Mbpp/296 | 通过 | 10293 ms | 3 | 通过 |  |
+| Mbpp/297 | 通过 | 12433 ms | 3 | 通过 |  |
+| Mbpp/299 | 失败 | 120037 ms | 8 | 超时 | timeout |
+| Mbpp/300 | 通过 | 54703 ms | 9 | 通过 |  |
+| Mbpp/301 | 通过 | 13697 ms | 3 | 通过 |  |
+| Mbpp/304 | 通过 | 40510 ms | 4 | 通过 |  |
+| Mbpp/305 | 失败 | 41130 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/306 | 失败 | 78014 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/307 | 失败 | 99735 ms | 7 | 断言失败 | AssertionError |
+| Mbpp/308 | 通过 | 10630 ms | 3 | 通过 |  |
+| Mbpp/309 | 通过 | 5544 ms | 2 | 通过 |  |
+| Mbpp/310 | 失败 | 12165 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/311 | 失败 | 29920 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/312 | 通过 | 16997 ms | 4 | 通过 |  |
+| Mbpp/388 | 通过 | 10120 ms | 3 | 通过 |  |
+| Mbpp/389 | 通过 | 20386 ms | 3 | 通过 |  |
+| Mbpp/390 | 通过 | 33569 ms | 8 | 通过 |  |
+| Mbpp/391 | 通过 | 9024 ms | 3 | 通过 |  |
+| Mbpp/392 | 通过 | 16752 ms | 3 | 通过 |  |
+| Mbpp/393 | 通过 | 9013 ms | 3 | 通过 |  |
+| Mbpp/394 | 通过 | 14280 ms | 4 | 通过 |  |
+| Mbpp/395 | 通过 | 10047 ms | 2 | 通过 |  |
+| Mbpp/396 | 失败 | 50893 ms | 13 | 断言失败 | AssertionError |
+| Mbpp/397 | 通过 | 28858 ms | 4 | 通过 |  |
+| Mbpp/398 | 失败 | 53022 ms | 5 | 运行错误 | TypeError: bad operand type for abs(): 'list' |
+| Mbpp/399 | 通过 | 10986 ms | 3 | 通过 |  |
+| Mbpp/400 | 通过 | 17397 ms | 3 | 通过 |  |
+| Mbpp/401 | 通过 | 8059 ms | 2 | 通过 |  |
+| Mbpp/404 | 通过 | 21063 ms | 5 | 通过 |  |
+| Mbpp/405 | 失败 | 17135 ms | 4 | 运行错误 | TypeError: 'in <string>' requires string as left operand, not tuple |
+| Mbpp/406 | 通过 | 67012 ms | 5 | 通过 |  |
+| Mbpp/407 | 通过 | 120005 ms | 6 | 通过 |  |
+| Mbpp/408 | 通过 | 34797 ms | 5 | 通过 |  |
+| Mbpp/409 | 通过 | 6737 ms | 2 | 通过 |  |
+| Mbpp/410 | 通过 | 8187 ms | 2 | 通过 |  |
+| Mbpp/411 | 通过 | 16404 ms | 4 | 通过 |  |
+| Mbpp/412 | 通过 | 120088 ms | 2 | 通过 |  |
+| Mbpp/413 | 通过 | 6666 ms | 2 | 通过 |  |
+| Mbpp/414 | 通过 | 16457 ms | 4 | 通过 |  |
+| Mbpp/415 | 通过 | 20215 ms | 4 | 通过 |  |
+| Mbpp/417 | 失败 | 87423 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/418 | 通过 | 7231 ms | 2 | 通过 |  |
+| Mbpp/419 | 通过 | 12121 ms | 3 | 通过 |  |
+| Mbpp/420 | 通过 | 20989 ms | 3 | 通过 |  |
+| Mbpp/421 | 通过 | 54042 ms | 4 | 通过 |  |
+| Mbpp/422 | 通过 | 9845 ms | 3 | 通过 |  |
+| Mbpp/424 | 失败 | 20449 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/425 | 通过 | 7941 ms | 2 | 通过 |  |
+| Mbpp/426 | 通过 | 16079 ms | 4 | 通过 |  |
+| Mbpp/427 | 通过 | 7660 ms | 3 | 通过 |  |
+| Mbpp/428 | 通过 | 8837 ms | 3 | 通过 |  |
+| Mbpp/429 | 通过 | 7767 ms | 3 | 通过 |  |
+| Mbpp/430 | 失败 | 42863 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/431 | 失败 | 26356 ms | 5 | 断言失败 | AssertionError |
+| Mbpp/432 | 通过 | 37722 ms | 11 | 通过 |  |
+| Mbpp/433 | 失败 | 7798 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/434 | 失败 | 14171 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/435 | 通过 | 11565 ms | 3 | 通过 |  |
+| Mbpp/436 | 通过 | 5551 ms | 2 | 通过 |  |
+| Mbpp/437 | 失败 | 15507 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/438 | 失败 | 9239 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/439 | 通过 | 21499 ms | 7 | 通过 |  |
+| Mbpp/440 | 失败 | 120071 ms | 1 | 超时 | timeout |
+| Mbpp/441 | 通过 | 11959 ms | 3 | 通过 |  |
+| Mbpp/442 | 失败 | 36869 ms | 5 | 断言失败 | AssertionError |
+| Mbpp/443 | 失败 | 19138 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/444 | 失败 | 24957 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/445 | 通过 | 27817 ms | 3 | 通过 |  |
+| Mbpp/446 | 通过 | 22045 ms | 4 | 通过 |  |
+| Mbpp/447 | 通过 | 17749 ms | 5 | 通过 |  |
+| Mbpp/448 | 失败 | 120062 ms | 1 | 超时 | timeout |
+| Mbpp/450 | 失败 | 41849 ms | 6 | 断言失败 | AssertionError |
+| Mbpp/451 | 通过 | 30925 ms | 6 | 通过 |  |
+| Mbpp/452 | 失败 | 16257 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/453 | 通过 | 6429 ms | 2 | 通过 |  |
+| Mbpp/454 | 失败 | 6910 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/455 | 通过 | 16916 ms | 4 | 通过 |  |
+| Mbpp/456 | 通过 | 8199 ms | 3 | 通过 |  |
+| Mbpp/457 | 通过 | 16937 ms | 3 | 通过 |  |
+| Mbpp/458 | 通过 | 11609 ms | 3 | 通过 |  |
+| Mbpp/459 | 失败 | 120022 ms | 4 | 超时 | timeout |
+| Mbpp/460 | 通过 | 10022 ms | 4 | 通过 |  |
+| Mbpp/461 | 失败 | 5778 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/462 | 失败 | 37530 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/463 | 通过 | 13169 ms | 3 | 通过 |  |
+| Mbpp/464 | 通过 | 7100 ms | 2 | 通过 |  |
+| Mbpp/465 | 通过 | 37927 ms | 3 | 通过 |  |
+| Mbpp/468 | 失败 | 17536 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/470 | 通过 | 6157 ms | 2 | 通过 |  |
+| Mbpp/471 | 通过 | 18126 ms | 4 | 通过 |  |
+| Mbpp/472 | 通过 | 7752 ms | 2 | 通过 |  |
+| Mbpp/473 | 通过 | 30178 ms | 3 | 通过 |  |
+| Mbpp/474 | 通过 | 17005 ms | 4 | 通过 |  |
+| Mbpp/475 | 失败 | 13172 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/476 | 通过 | 7823 ms | 3 | 通过 |  |
+| Mbpp/477 | 通过 | 20697 ms | 4 | 通过 |  |
+| Mbpp/478 | 通过 | 120053 ms | 8 | 通过 |  |
+| Mbpp/479 | 通过 | 32920 ms | 6 | 通过 |  |
+| Mbpp/554 | 通过 | 5730 ms | 2 | 通过 |  |
+| Mbpp/555 | 通过 | 20349 ms | 4 | 通过 |  |
+| Mbpp/556 | 通过 | 15389 ms | 4 | 通过 |  |
+| Mbpp/557 | 通过 | 7723 ms | 3 | 通过 |  |
+| Mbpp/558 | 失败 | 120052 ms | 3 | 超时 | timeout |
+| Mbpp/559 | 通过 | 6752 ms | 2 | 通过 |  |
+| Mbpp/560 | 失败 | 120056 ms | 2 | 超时 | timeout |
+| Mbpp/562 | 通过 | 9018 ms | 3 | 通过 |  |
+| Mbpp/563 | 通过 | 73928 ms | 9 | 通过 |  |
+| Mbpp/564 | 通过 | 28241 ms | 5 | 通过 |  |
+| Mbpp/565 | 通过 | 14730 ms | 2 | 通过 |  |
+| Mbpp/566 | 通过 | 35095 ms | 8 | 通过 |  |
+| Mbpp/567 | 通过 | 16929 ms | 4 | 通过 |  |
+| Mbpp/568 | 通过 | 20208 ms | 4 | 通过 |  |
+| Mbpp/569 | 通过 | 11098 ms | 4 | 通过 |  |
+| Mbpp/572 | 通过 | 10983 ms | 2 | 通过 |  |
+| Mbpp/573 | 通过 | 9373 ms | 3 | 通过 |  |
+| Mbpp/574 | 通过 | 59764 ms | 5 | 通过 |  |
+| Mbpp/576 | 失败 | 120039 ms | 3 | 超时 | timeout |
+| Mbpp/577 | 通过 | 88142 ms | 11 | 通过 |  |
+| Mbpp/578 | 通过 | 22377 ms | 6 | 通过 |  |
+| Mbpp/579 | 通过 | 11338 ms | 4 | 通过 |  |
+| Mbpp/580 | 通过 | 9656 ms | 3 | 通过 |  |
+| Mbpp/581 | 通过 | 55664 ms | 5 | 通过 |  |
+| Mbpp/582 | 通过 | 19364 ms | 5 | 通过 |  |
+| Mbpp/583 | 通过 | 11128 ms | 3 | 通过 |  |
+| Mbpp/584 | 失败 | 20738 ms | 7 | 断言失败 | AssertionError |
+| Mbpp/585 | 失败 | 14163 ms | 3 | 运行错误 | AttributeError: 'list' object has no attribute 'get' |
+| Mbpp/586 | 通过 | 6495 ms | 2 | 通过 |  |
+| Mbpp/587 | 通过 | 6923 ms | 3 | 通过 |  |
+| Mbpp/588 | 通过 | 7664 ms | 3 | 通过 |  |
+| Mbpp/589 | 通过 | 28942 ms | 4 | 通过 |  |
+| Mbpp/590 | 失败 | 29618 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/591 | 通过 | 36265 ms | 7 | 通过 |  |
+| Mbpp/592 | 失败 | 120078 ms | 1 | 超时 | timeout |
+| Mbpp/593 | 通过 | 30927 ms | 3 | 通过 |  |
+| Mbpp/594 | 通过 | 81424 ms | 6 | 通过 |  |
+| Mbpp/595 | 通过 | 64192 ms | 4 | 通过 |  |
+| Mbpp/596 | 通过 | 18880 ms | 4 | 通过 |  |
+| Mbpp/597 | 通过 | 10948 ms | 3 | 通过 |  |
+| Mbpp/598 | 通过 | 48697 ms | 6 | 通过 |  |
+| Mbpp/599 | 通过 | 50835 ms | 12 | 通过 |  |
+| Mbpp/600 | 通过 | 25828 ms | 5 | 通过 |  |
+| Mbpp/602 | 通过 | 7881 ms | 3 | 通过 |  |
+| Mbpp/603 | 失败 | 41509 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/604 | 通过 | 10248 ms | 3 | 通过 |  |
+| Mbpp/605 | 通过 | 14864 ms | 3 | 通过 |  |
+| Mbpp/606 | 通过 | 7516 ms | 3 | 通过 |  |
+| Mbpp/607 | 通过 | 41129 ms | 6 | 通过 |  |
+| Mbpp/608 | 通过 | 23385 ms | 3 | 通过 |  |
+| Mbpp/610 | 通过 | 58196 ms | 5 | 通过 |  |
+| Mbpp/611 | 通过 | 17516 ms | 4 | 通过 |  |
+| Mbpp/612 | 失败 | 16023 ms | 4 | 断言失败 | AssertionError |
+| Mbpp/614 | 通过 | 45940 ms | 3 | 通过 |  |
+| Mbpp/615 | 失败 | 9402 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/616 | 通过 | 31785 ms | 6 | 通过 |  |
+| Mbpp/617 | 失败 | 91610 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/618 | 通过 | 18582 ms | 4 | 通过 |  |
+| Mbpp/619 | 通过 | 52379 ms | 7 | 通过 |  |
+| Mbpp/620 | 通过 | 56533 ms | 5 | 通过 |  |
+| Mbpp/622 | 通过 | 10065 ms | 2 | 通过 |  |
+| Mbpp/623 | 通过 | 17822 ms | 4 | 通过 |  |
+| Mbpp/624 | 通过 | 20881 ms | 5 | 通过 |  |
+| Mbpp/625 | 通过 | 19044 ms | 5 | 通过 |  |
+| Mbpp/626 | 失败 | 13952 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/627 | 通过 | 60664 ms | 5 | 通过 |  |
+| Mbpp/628 | 通过 | 41763 ms | 9 | 通过 |  |
+| Mbpp/629 | 通过 | 8031 ms | 2 | 通过 |  |
+| Mbpp/630 | 失败 | 48123 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/631 | 通过 | 36238 ms | 4 | 通过 |  |
+| Mbpp/632 | 通过 | 8647 ms | 2 | 通过 |  |
+| Mbpp/633 | 通过 | 20934 ms | 3 | 通过 |  |
+| Mbpp/635 | 通过 | 52154 ms | 3 | 通过 |  |
+| Mbpp/637 | 通过 | 18971 ms | 4 | 通过 |  |
+| Mbpp/638 | 失败 | 101695 ms | 1 | 断言失败 | AssertionError |
+| Mbpp/639 | 通过 | 28689 ms | 3 | 通过 |  |
+| Mbpp/640 | 失败 | 60757 ms | 5 | 断言失败 | AssertionError |
+| Mbpp/641 | 通过 | 12283 ms | 3 | 通过 |  |
+| Mbpp/643 | 通过 | 67571 ms | 3 | 通过 |  |
+| Mbpp/644 | 通过 | 10841 ms | 3 | 通过 |  |
+| Mbpp/720 | 通过 | 32862 ms | 6 | 通过 |  |
+| Mbpp/721 | 通过 | 28230 ms | 3 | 通过 |  |
+| Mbpp/722 | 通过 | 9343 ms | 2 | 通过 |  |
+| Mbpp/723 | 通过 | 5838 ms | 2 | 通过 |  |
+| Mbpp/724 | 通过 | 21096 ms | 4 | 通过 |  |
+| Mbpp/725 | 通过 | 120118 ms | 2 | 通过 |  |
+| Mbpp/726 | 通过 | 18841 ms | 4 | 通过 |  |
+| Mbpp/728 | 通过 | 6561 ms | 2 | 通过 |  |
+| Mbpp/730 | 通过 | 14059 ms | 3 | 通过 |  |
+| Mbpp/731 | 通过 | 8078 ms | 3 | 通过 |  |
+| Mbpp/732 | 通过 | 12566 ms | 4 | 通过 |  |
+| Mbpp/733 | 通过 | 111039 ms | 5 | 通过 |  |
+| Mbpp/734 | 通过 | 70073 ms | 5 | 通过 |  |
+| Mbpp/735 | 通过 | 120023 ms | 5 | 通过 |  |
+| Mbpp/736 | 通过 | 26435 ms | 3 | 通过 |  |
+| Mbpp/737 | 通过 | 15281 ms | 3 | 通过 |  |
+| Mbpp/738 | 通过 | 36475 ms | 3 | 通过 |  |
+| Mbpp/739 | 通过 | 104841 ms | 5 | 通过 |  |
+| Mbpp/740 | 通过 | 6656 ms | 2 | 通过 |  |
+| Mbpp/741 | 通过 | 26616 ms | 3 | 通过 |  |
+| Mbpp/742 | 失败 | 92766 ms | 5 | 断言失败 | AssertionError |
+| Mbpp/743 | 通过 | 8342 ms | 3 | 通过 |  |
+| Mbpp/744 | 通过 | 64590 ms | 3 | 通过 |  |
+| Mbpp/745 | 通过 | 10678 ms | 3 | 通过 |  |
+| Mbpp/746 | 失败 | 103437 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/747 | 通过 | 10052 ms | 3 | 通过 |  |
+| Mbpp/748 | 失败 | 120113 ms | 1 | 超时 | timeout |
+| Mbpp/749 | 失败 | 9947 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/750 | 通过 | 67735 ms | 5 | 通过 |  |
+| Mbpp/751 | 通过 | 46117 ms | 6 | 通过 |  |
+| Mbpp/752 | 通过 | 10782 ms | 3 | 通过 |  |
+| Mbpp/753 | 通过 | 18738 ms | 3 | 通过 |  |
+| Mbpp/754 | 通过 | 26509 ms | 5 | 通过 |  |
+| Mbpp/755 | 通过 | 12898 ms | 2 | 通过 |  |
+| Mbpp/756 | 失败 | 12035 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/757 | 失败 | 45082 ms | 5 | 断言失败 | AssertionError |
+| Mbpp/758 | 通过 | 44595 ms | 6 | 通过 |  |
+| Mbpp/759 | 通过 | 22497 ms | 3 | 通过 |  |
+| Mbpp/760 | 通过 | 15303 ms | 3 | 通过 |  |
+| Mbpp/762 | 通过 | 15646 ms | 3 | 通过 |  |
+| Mbpp/763 | 通过 | 9552 ms | 3 | 通过 |  |
+| Mbpp/764 | 通过 | 12604 ms | 3 | 通过 |  |
+| Mbpp/765 | 通过 | 29333 ms | 3 | 通过 |  |
+| Mbpp/766 | 通过 | 26795 ms | 5 | 通过 |  |
+| Mbpp/767 | 通过 | 10847 ms | 3 | 通过 |  |
+| Mbpp/769 | 失败 | 14187 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/770 | 通过 | 15852 ms | 3 | 通过 |  |
+| Mbpp/771 | 通过 | 11613 ms | 4 | 通过 |  |
+| Mbpp/772 | 通过 | 19394 ms | 3 | 通过 |  |
+| Mbpp/773 | 通过 | 50700 ms | 5 | 通过 |  |
+| Mbpp/775 | 通过 | 39280 ms | 5 | 通过 |  |
+| Mbpp/776 | 失败 | 98889 ms | 2 | 断言失败 | AssertionError |
+| Mbpp/777 | 通过 | 98600 ms | 4 | 通过 |  |
+| Mbpp/778 | 通过 | 14550 ms | 3 | 通过 |  |
+| Mbpp/779 | 通过 | 29934 ms | 4 | 通过 |  |
+| Mbpp/780 | 通过 | 22542 ms | 3 | 通过 |  |
+| Mbpp/781 | 通过 | 44875 ms | 7 | 通过 |  |
+| Mbpp/782 | 通过 | 11656 ms | 3 | 通过 |  |
+| Mbpp/783 | 失败 | 98835 ms | 9 | 断言失败 | AssertionError |
+| Mbpp/784 | 通过 | 29094 ms | 3 | 通过 |  |
+| Mbpp/785 | 通过 | 9191 ms | 3 | 通过 |  |
+| Mbpp/786 | 通过 | 8139 ms | 3 | 通过 |  |
+| Mbpp/787 | 通过 | 16529 ms | 4 | 通过 |  |
+| Mbpp/788 | 失败 | 34802 ms | 3 | 断言失败 | AssertionError |
+| Mbpp/790 | 通过 | 16512 ms | 3 | 通过 |  |
+| Mbpp/791 | 通过 | 52734 ms | 2 | 通过 |  |
+| Mbpp/792 | 通过 | 10117 ms | 3 | 通过 |  |
+| Mbpp/793 | 通过 | 12259 ms | 4 | 通过 |  |
+| Mbpp/794 | 通过 | 41140 ms | 4 | 通过 |  |
+| Mbpp/796 | 通过 | 14846 ms | 3 | 通过 |  |
+| Mbpp/797 | 通过 | 13501 ms | 3 | 通过 |  |
+| Mbpp/798 | 通过 | 16112 ms | 3 | 通过 |  |
+| Mbpp/799 | 通过 | 9843 ms | 3 | 通过 |  |
+| Mbpp/800 | 通过 | 34121 ms | 6 | 通过 |  |
+| Mbpp/801 | 通过 | 19294 ms | 5 | 通过 |  |
+| Mbpp/802 | 通过 | 8084 ms | 2 | 通过 |  |
+| Mbpp/803 | 通过 | 27829 ms | 3 | 通过 |  |
+| Mbpp/804 | 通过 | 25036 ms | 4 | 通过 |  |
+| Mbpp/805 | 通过 | 16314 ms | 3 | 通过 |  |
+| Mbpp/806 | 通过 | 7083 ms | 2 | 通过 |  |
+| Mbpp/807 | 通过 | 17346 ms | 4 | 通过 |  |
+| Mbpp/808 | 通过 | 91000 ms | 3 | 通过 |  |
+| Mbpp/809 | 通过 | 64555 ms | 7 | 通过 |  |
