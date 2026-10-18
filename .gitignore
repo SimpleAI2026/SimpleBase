@@ -61,3 +61,6 @@ skills/**/outputs/
 skills/**/dist/
 skills/**/.original/
 *.skill
+
+# 本地技能备份
+.skill-backups/

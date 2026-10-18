@@ -1,0 +1,9 @@
+[submodule "skills/andrew-translate"]
+	path = skills/andrew-translate
+	url = https://github.com/linkxzhou/andrew-translate.git
+[submodule "skills/simplify-code"]
+	path = skills/simplify-code
+	url = https://github.com/linkxzhou/simplify-code.git
+[submodule "skills/code-refactor"]
+	path = skills/code-refactor
+	url = https://github.com/linkxzhou/code-refactor.git
