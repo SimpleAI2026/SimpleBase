@@ -17,9 +17,11 @@ import run_core
 import run_smoke as smoke
 
 FIXTURE = Path(__file__).resolve().parent / "tasks" / "core" / "mbpp_sanitized.jsonl"
-JSONL = smoke.RUN_ROOT / "mbpp-f1e7c1e.jsonl"
+JSONL = smoke.RUN_ROOT / "mbpp-headerfix.jsonl"
 PREV_JSONL = smoke.RUN_ROOT / "mbpp.jsonl"
-MARKER = "## MBPP sanitized 重跑"
+REGRESS_JSONL = smoke.RUN_ROOT / "mbpp-f1e7c1e.jsonl"
+MARKER = "## MBPP sanitized 首字节修复后"
+PREV_LABEL = "main e6994c6，352/427"
 FULL_N = 427
 CANONICAL = Path("/tmp/sanitized-mbpp.json")
 SELF_CHECK_IDS = (2, 6, 82)
@@ -184,14 +186,9 @@ def extrapolate(rows: list[dict], prompt_tokens: int, completion_tokens: int, fu
 
 
 def comparison_lines(rows: list[dict]) -> list[str]:
-    prev: dict[str, dict] = {}
-    if PREV_JSONL.exists():
-        for line in PREV_JSONL.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                row = json.loads(line)
-                prev[row["task_id"]] = row
+    prev = run_core.load_jsonl(PREV_JSONL)
     if len(prev) != FULL_N:
-        return ["上次 JSONL 不完整，没有逐题对比。", ""]
+        return [f"上次 JSONL 有 {len(prev)} 题，没有逐题对比。", ""]
     gained = []
     lost = []
     changed = []
@@ -201,7 +198,7 @@ def comparison_lines(rows: list[dict]) -> list[str]:
         if old is None:
             continue
         old_cat = run_core.category_of(old)
-        new_cat = "pass" if row["ok"] else (row.get("category") or run_core.category_of(row))
+        new_cat = run_core.category_of(row)
         if (not old["ok"]) and row["ok"]:
             gained.append(f"{task_id}（上次 {run_core.CATEGORY_LABEL.get(old_cat, old_cat)}）")
         elif old["ok"] and not row["ok"]:
@@ -214,7 +211,7 @@ def comparison_lines(rows: list[dict]) -> list[str]:
             )
     old_pass = sum(1 for row in prev.values() if row["ok"])
     return [
-        f"与上次（main e6994c6，352/427；JSONL 实计 {old_pass}/427）对比，同一套题、同一模型。这次 427 题全部新跑：",
+        f"与上次（{PREV_LABEL}；JSONL 实计 {old_pass}/{FULL_N}）对比，同一套题、同一模型：",
         "",
         f"- 新增通过 {len(gained)} 题：" + ("、".join(gained) if gained else "没有。"),
         f"- 新增失败 {len(lost)} 题：" + ("、".join(lost) if lost else "没有。"),
@@ -250,7 +247,7 @@ def write_section(meta: dict, rows: list[dict], preliminary: bool) -> None:
                 "模型、harness、120 秒上限和官方 `test_list` 都与那次相同。其余题目是这次续跑补上的。"
             )
         else:
-            follow = "427 题都是本次新跑的，没有复用已有 JSONL。cloudagent 在最新 origin/main 上重新编译。"
+            follow = "427 题都是本次新跑的，没有复用 e6994c6 或 f1e7c1e 的 JSONL。"
     else:
         scope = f"进行中：已有 {len(rows)}/{FULL_N} 题，还不是全量。"
         follow = "这一节会在 427 题到齐后换成全量结果。"
@@ -267,14 +264,18 @@ def write_section(meta: dict, rows: list[dict], preliminary: bool) -> None:
         follow,
         "",
     ]
-    if (not preliminary) and len(rows) == FULL_N:
+    if not preliminary and len(rows) == FULL_N:
         lines.extend(comparison_lines(rows))
-    lines.extend(
-        [
-        "失败分类：",
-        "",
-        ]
-    )
+    regress = run_core.load_jsonl(REGRESS_JSONL)
+    if regress:
+        regress_pass = sum(1 for row in regress.values() if row.get("ok"))
+        lines.extend(
+            [
+                f"同一 main 在修复前是 {regress_pass}/{len(regress)}。根因与 HumanEval 相同：30 秒响应头超时把慢首字节当成网关黑洞。",
+                "",
+            ]
+        )
+    lines.extend(["失败分类：", ""])
     if not counts:
         lines.append("- 没有失败。")
     else:

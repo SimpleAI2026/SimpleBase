@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
@@ -20,9 +21,14 @@ type scriptedClient struct {
 	mu       sync.Mutex
 	replies  []agentcore.ChatResponse
 	requests []agentcore.ChatRequest
+	// delay 让极快的假客户端也能产生非零的毫秒耗时。
+	delay time.Duration
 }
 
 func (c *scriptedClient) Chat(_ context.Context, _ string, req agentcore.ChatRequest) (agentcore.ChatResponse, error) {
+	if c.delay > 0 {
+		time.Sleep(c.delay)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.requests = append(c.requests, req)
@@ -279,6 +285,7 @@ func TestRunResultIncludesUsageAndModel(t *testing.T) {
 		Usage:   agentcore.ChatUsage{PromptTokens: 100, CompletionTokens: 50},
 		Model:   "test-model",
 	}}}
+	client.delay = 5 * time.Millisecond
 	r := &SessionRunner{Session: s, Client: client, Model: "test-model"}
 	res, err := r.Run(context.Background(), "question", nil)
 	if err != nil {

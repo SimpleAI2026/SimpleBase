@@ -80,6 +80,9 @@ func (h *LLMHandler) complete(c echo.Context, projectID string, req oaiChatReque
 //
 // 其余块类型（reasoning 等）不属于 OpenAI 标准帧，直接丢弃，绝不在流中插入非标准帧。
 func (h *LLMHandler) stream(c echo.Context, projectID string, req oaiChatRequest, lreq LLMRequest) error {
+	// 先解除写超时，再等上游。WriteTimeout 从读完请求头起算；若等模型首字节期间
+	// 还挂着默认 30s，连接会在响应头写出之前被切断。此时还没写 body，失败仍可返回 JSON 错误。
+	beginSSE(c)
 	reader, err := h.svc.Stream(c.Request().Context(), projectID, lreq)
 	if err != nil {
 		// 此时尚未写任何字节，可以返回正常的 HTTP 错误。
@@ -87,8 +90,6 @@ func (h *LLMHandler) stream(c echo.Context, projectID string, req oaiChatRequest
 	}
 	defer reader.Close()
 
-	// SSE 长连接需解除 WriteTimeout，否则会在 write_timeout（默认 30s）到点时被切断。
-	beginSSE(c)
 	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
 	c.Response().Header().Set("X-Accel-Buffering", "no")

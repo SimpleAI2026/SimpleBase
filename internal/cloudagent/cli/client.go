@@ -31,14 +31,22 @@ type HTTPClient struct {
 
 var _ agentcore.ChatClient = (*HTTPClient)(nil)
 
+// clientTimeout 是 CLI 等待一次模型 HTTP 响应的整体上限（含首字节与正文）。
+//
+// 不另设更短的 ResponseHeaderTimeout。SimpleBase 的 SSE 要等上游响应头才写自己的
+// 响应头，所以客户端的「等响应头」量的是上游首字节，不是本地建连。推理模型的首字节
+// 经常超过 30s；30s 会把还在思考的一轮掐掉，agent 只读完文件就退出（HumanEval
+// 158→150、MBPP 352→317 的主因）。建连黑洞由 llmgateway 的 ConnectTimeout 处理，
+// 静默上游由 provider RequestTimeout 和这里的整体上限处理。
+const clientTimeout = 5 * time.Minute
+
 func (c *HTTPClient) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	// planv6.1 O2: 首字节超时 30s（避免网关排队黑洞），整体超时 5min（agent 允许长响应）
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = 30 * time.Second
-	return &http.Client{Timeout: 5 * time.Minute, Transport: transport}
+	transport.ResponseHeaderTimeout = clientTimeout
+	return &http.Client{Timeout: clientTimeout, Transport: transport}
 }
 
 // url 拼出项目级 OpenAI 兼容路径；path 以 "/" 开头，如 "/chat/completions"。
@@ -154,7 +162,7 @@ func (u wireUsage) toChatUsage() agentcore.ChatUsage {
 }
 
 // Chat 走 POST .../v1/chat/completions（非流式）。
-// planv6.1 O2: 首字节超时 30s（httpClient），重试由后端 llmgateway 的 Resilience 统一处理。
+// 重试由后端 llmgateway 的 Resilience 统一处理；本客户端只保留整体超时。
 func (c *HTTPClient) Chat(ctx context.Context, _ string, req agentcore.ChatRequest) (agentcore.ChatResponse, error) {
 	body, err := json.Marshal(toWire(req))
 	if err != nil {

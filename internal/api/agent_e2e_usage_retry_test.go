@@ -80,7 +80,9 @@ func TestAgentE2ERetryReusesUserMessage(t *testing.T) {
 		Body:       `{"error":{"message":"boom"}}`,
 	}
 	ok := fakellm.Script{
-		Seq: 2,
+		// 网关对 500 会重试（MaxRetries=3，共 4 次）。成功剧本放在第 5 次，
+		// 留给 agent 级 retry，而不是被同一次 run 的 HTTP 重试吃掉。
+		Seq: 5,
 		Steps: []fakellm.Step{
 			{Content: "重试成功"},
 			{FinishReason: "stop"},
