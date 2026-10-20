@@ -1,0 +1,10 @@
+# 与 .gitignore 对齐：本地构建产物不进 Docker 构建上下文
+/simplebase
+/fakellm-server
+# 版本化产物目录
+/output/
+# 前端本地产物（CI 由 setup-ui 单独构建）
+/ui/node_modules
+/ui/coverage
+# 会话临时目录
+.session_tmps
