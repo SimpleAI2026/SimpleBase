@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/linkxzhou/SimpleBase/internal/utils/mask"
 )
 
 // LLMSession 是 sys_llm_sessions 一行。
@@ -50,13 +51,7 @@ type LLMSettings struct {
 
 // MaskSecretValue 掩码展示：仅保留首尾，避免完整 key 出现在 API 响应。
 func MaskSecretValue(v string) string {
-	if v == "" {
-		return ""
-	}
-	if len(v) <= 8 {
-		return "••••••••"
-	}
-	return v[:3] + "..." + v[len(v)-4:]
+	return mask.Secret(v)
 }
 
 // CreateLLMSession 创建会话。

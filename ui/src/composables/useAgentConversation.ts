@@ -72,11 +72,7 @@ export function useAgentConversation(opts: ConversationOptions) {
     return ''
   })
 
-  function start(
-    body: { content: string; mentions: { agent_id: string }[]; skills?: string[]; module?: string; retry_of_run_id?: string },
-    handlers: AgentStreamHandlers & { onReply?: (reply: ChatMsg) => void }
-  ) {
-    stop(false)
+  function begin() {
     phase.value = 'thinking'
     elapsedMs.value = 0
     toolName.value = ''
@@ -87,6 +83,16 @@ export function useAgentConversation(opts: ConversationOptions) {
     confirmation.value = null
     started = Date.now()
     timer = setInterval(() => { elapsedMs.value = Date.now() - started }, 1000)
+  }
+
+  type Handlers = AgentStreamHandlers & { onReply?: (reply: ChatMsg) => void }
+
+  function start(
+    body: { content: string; mentions: { agent_id: string }[]; module?: string; retry_of_run_id?: string },
+    handlers: Handlers
+  ) {
+    stop(false)
+    begin()
 
     const messages = opts.messages()
     // 重试时由调用方准备好消息列表（已移除失败气泡）；新消息在此追加。
@@ -100,7 +106,25 @@ export function useAgentConversation(opts: ConversationOptions) {
     conn = api.agentThreads.streamRun(opts.projectId(), opts.threadId(), {
       ...body,
       stream: true
-    }, {
+    }, bindHandlers(reply, handlers, false))
+  }
+
+  /**
+   * 续接后台仍在运行的 run（切换界面后回到会话）：新建 assistant 气泡，
+   * 从头回放事件缓存重建正文 / 工具卡，再跟随到 end。
+   */
+  function attach(id: string, handlers: Handlers & { module?: string } = {}) {
+    stop(false)
+    begin()
+    runId.value = id
+    const reply = reactive<ChatMsg>({ role: 'assistant', content: '', toolCalls: [], module: handlers.module })
+    opts.messages().push(reply)
+    handlers.onReply?.(reply)
+    conn = api.agentThreads.attachRun(opts.projectId(), id, bindHandlers(reply, handlers, true))
+  }
+
+  function bindHandlers(reply: ChatMsg, handlers: Handlers, attached: boolean): AgentStreamHandlers {
+    return {
       onRun: (id) => { runId.value = id; handlers.onRun?.(id) },
       onThinking: (ms, content) => {
         elapsedMs.value = ms
@@ -199,6 +223,16 @@ export function useAgentConversation(opts: ConversationOptions) {
       },
       onError: (e) => {
         const err = e as Error & { code?: string }
+        // 续接失败（事件已过期 stream_gap 等）不代表 run 失败：回到空闲，由宿主刷新消息。
+        if (attached) {
+          phase.value = 'idle'
+          const list = opts.messages()
+          const idx = list.indexOf(reply)
+          if (idx >= 0) list.splice(idx, 1)
+          cleanup()
+          handlers.onError?.(e)
+          return
+        }
         const text = agentErrorText(err)
         phase.value = 'error'
         lastError.value = { code: err?.code, text }
@@ -207,7 +241,7 @@ export function useAgentConversation(opts: ConversationOptions) {
         cleanup()
         handlers.onError?.(e)
       }
-    })
+    }
   }
 
   function cleanup() {
@@ -231,6 +265,10 @@ export function useAgentConversation(opts: ConversationOptions) {
     }
   }
 
+  /**
+   * cancel=true：用户点停止，关闭连接并让后端取消 run。
+   * cancel=false：仅断开连接（切换会话 / 离开页面），后端 run 继续，回来后可 attach 续接。
+   */
   function stop(cancel = true) {
     const active = conn
     active?.close()
@@ -239,9 +277,9 @@ export function useAgentConversation(opts: ConversationOptions) {
         toast.error(`${t('pages.agents.cancelFailed')}：${errorMessage(e, t('pages.agents.cancelFailed'))}`)
       })
     }
-    if (active && phase.value !== 'error' && phase.value !== 'done') phase.value = 'canceled'
+    if (active && phase.value !== 'error' && phase.value !== 'done') phase.value = cancel ? 'canceled' : 'idle'
     cleanup()
   }
 
-  return { phase, statusText, metrics, runId, sending, lastError, failedRunId, elapsedMs, confirmation, start, stop, resolveConfirm }
+  return { phase, statusText, metrics, runId, sending, lastError, failedRunId, elapsedMs, confirmation, start, attach, stop, resolveConfirm }
 }

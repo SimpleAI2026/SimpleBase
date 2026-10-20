@@ -11,14 +11,14 @@ vi.mock('@/services/api', async () => {
 import Sandboxes from '@/pages/Sandboxes.vue'
 
 const sample = {
-  id: 'sbx-1', name: 'ci-test', cloudName: 'sbx-1', source: 'api', status: 'running', image: 'python:3.12-slim',
-  cpus: 1, memoryMiB: 256, network: 'none', idleTimeoutS: 300, maxDurationS: 1800,
+  id: 'sbx-1', name: 'ci-test', templateId: 'python:3.12-slim', state: 'running', status: 'running', source: 'api',
+  cpuCount: 1, memoryMB: 256, idleTimeoutS: 300, metadata: {},
   createdAt: '2026-10-04T00:00:00Z', lastActiveAt: '2026-10-04T00:10:00Z'
 }
 const available = {
   available: true, backend: 'fake', images: ['python:3.12-slim'], defaultImage: 'python:3.12-slim',
-  cpusMax: 4, memoryMiBMax: 4096, maxFileBytes: 1048576, maxOutputBytes: 65536,
-  maxPerProject: 5, execTimeoutMaxS: 300, networkOptions: ['none']
+  cpus: 1, memoryMiB: 512, timeoutDefaultS: 300, timeoutMaxS: 3600, maxFileBytes: 1048576, maxOutputBytes: 65536,
+  maxPerProject: 5, terminal: true
 }
 const stubs = {
   SandboxCreateModal: { template: '<div data-modal />' },
@@ -31,13 +31,13 @@ describe('Sandboxes', () => {
   it('shows disabled configuration hints', async () => {
     const { wrapper } = await mountWithApp(Sandboxes, { stubs })
     expect(wrapper.text()).toContain('未配置云沙盒')
-    expect(wrapper.text()).toContain('SIMPLEBASE_SANDBOX_API_KEY')
+    expect(wrapper.text()).toContain('backend: local')
     expect(wrapper.text()).not.toContain('新建沙盒')
   })
 
   it('lists sandboxes, filters and triggers stop', async () => {
     api.sandboxes.capabilities.mockResolvedValue(available)
-    api.sandboxes.list.mockResolvedValue([sample, { ...sample, id: 'sbx-2', name: 'agent-test', status: 'pending', source: 'agent' }])
+    api.sandboxes.list.mockResolvedValue([sample, { ...sample, id: 'sbx-2', name: 'agent-test', state: 'paused', status: 'stopped', source: 'agent' }])
     const { wrapper } = await mountWithApp(Sandboxes, { stubs })
     expect(wrapper.text()).toContain('ci-test')
     expect(wrapper.text()).toContain('agent-test')
@@ -48,27 +48,27 @@ describe('Sandboxes', () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain('ci-test')
     expect(wrapper.text()).toContain('agent-test')
-    vm.sourceFilter = ''
+    vm.sourceFilter = '__all__'
     await flushPromises()
-    await clickText(wrapper, '停止')
-    expect(api.sandboxes.stop).toHaveBeenCalled()
+    await clickText(wrapper, '暂停')
+    expect(api.sandboxes.pause).toHaveBeenCalled()
   })
 
   it('starts, removes and surfaces failed sandbox requests', async () => {
     api.sandboxes.capabilities.mockResolvedValue(available)
-    api.sandboxes.list.mockResolvedValue([{ ...sample, status: 'stopped' }])
+    api.sandboxes.list.mockResolvedValue([{ ...sample, state: 'paused', status: 'stopped' }])
     const { wrapper } = await mountWithApp(Sandboxes, { stubs })
-    await clickText(wrapper, '启动')
+    await clickText(wrapper, '恢复')
     await flushPromises()
-    expect(api.sandboxes.start).toHaveBeenCalled()
+    expect(api.sandboxes.connect).toHaveBeenCalled()
     await clickText(wrapper, '删除')
     await flushPromises()
     expect(api.sandboxes.remove).toHaveBeenCalled()
     api.sandboxes.list.mockRejectedValueOnce(new Error('读取失败'))
     await clickText(wrapper, '刷新')
     await flushPromises()
-    api.sandboxes.start.mockRejectedValueOnce(new Error('启动失败'))
-    await clickText(wrapper, '启动')
+    api.sandboxes.connect.mockRejectedValueOnce(new Error('恢复失败'))
+    await clickText(wrapper, '恢复')
     await flushPromises()
     wrapper.unmount()
   })
@@ -87,12 +87,12 @@ describe('Sandboxes interactions', () => {
   it('opens create modal and drawer, reloads on child events and keeps selection fresh', async () => {
     api.sandboxes.capabilities.mockResolvedValue({ ...available, maxFileBytes: 0 })
     api.sandboxes.list.mockResolvedValue([
-      { ...sample, source: 'console', lastActiveAt: undefined, expiresAt: '2026-10-04T01:00:00Z' },
-      { ...sample, id: 'sbx-3', name: 'oneshot', source: 'run', status: 'error' }
+      { ...sample, source: 'console', lastActiveAt: undefined, endAt: '2026-10-04T01:00:00Z' },
+      { ...sample, id: 'sbx-3', name: 'agent-run', source: 'agent', status: 'error' }
     ])
     const { wrapper } = await mountWithApp(Sandboxes, { stubs: emitStubs })
     expect(wrapper.text()).toContain('控制台')
-    expect(wrapper.text()).toContain('一次性')
+    expect(wrapper.text()).toContain('Agent')
     expect(wrapper.text()).toContain('未启动')
     await clickText(wrapper, '新建沙盒')
     expect(wrapper.get('[data-modal]').attributes('data-open')).toBe('true')
@@ -124,11 +124,11 @@ describe('Sandboxes interactions', () => {
 
   it('filters by status and reloads when project changes', async () => {
     api.sandboxes.capabilities.mockResolvedValue(available)
-    api.sandboxes.list.mockResolvedValue([sample, { ...sample, id: 'sbx-2', name: 'idle-one', status: 'stopped' }])
+    api.sandboxes.list.mockResolvedValue([sample, { ...sample, id: 'sbx-2', name: 'idle-one', state: 'paused', status: 'stopped' }])
     const { wrapper, pinia } = await mountWithApp(Sandboxes, { stubs })
     // 状态过滤同样改为 ui/select：设 v-model 而非原生 select 取值。
     const vm = wrapper.vm as unknown as { statusFilter: string }
-    vm.statusFilter = 'stopped'
+    vm.statusFilter = 'paused'
     await flushPromises()
     expect(wrapper.text()).not.toContain('ci-test')
     expect(wrapper.text()).toContain('idle-one')
@@ -148,11 +148,11 @@ describe('Sandboxes interactions', () => {
 
     api.sandboxes.list.mockResolvedValue([sample])
     const { wrapper } = await mountWithApp(Sandboxes, { stubs })
-    api.sandboxes.stop.mockRejectedValueOnce('boom')
-    await clickText(wrapper, '停止')
+    api.sandboxes.pause.mockRejectedValueOnce('boom')
+    await clickText(wrapper, '暂停')
     await flushPromises()
-    api.sandboxes.stop.mockRejectedValueOnce(new Error('停止失败'))
-    await clickText(wrapper, '停止')
+    api.sandboxes.pause.mockRejectedValueOnce(new Error('暂停失败'))
+    await clickText(wrapper, '暂停')
     await flushPromises()
     api.sandboxes.remove.mockRejectedValueOnce('boom')
     await clickText(wrapper, '删除')
@@ -160,17 +160,27 @@ describe('Sandboxes interactions', () => {
     api.sandboxes.remove.mockRejectedValueOnce(new Error('删除失败'))
     await clickText(wrapper, '删除')
     await flushPromises()
-    api.sandboxes.list.mockResolvedValue([{ ...sample, status: 'expired' }])
+    api.sandboxes.list.mockResolvedValue([{ ...sample, state: 'paused', status: 'expired' }])
     await clickText(wrapper, '刷新')
     await flushPromises()
-    api.sandboxes.start.mockRejectedValueOnce('boom')
-    await clickText(wrapper, '启动')
+    api.sandboxes.connect.mockRejectedValueOnce('boom')
+    await clickText(wrapper, '恢复')
     await flushPromises()
     api.sandboxes.capabilities.mockRejectedValueOnce('boom')
     await clickText(wrapper, '刷新')
     await flushPromises()
-    expect(api.sandboxes.stop).toHaveBeenCalledTimes(2)
+    expect(api.sandboxes.pause).toHaveBeenCalledTimes(2)
     expect(api.sandboxes.remove).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('does not list sandboxes when the backend is unavailable', async () => {
+    api.sandboxes.capabilities.mockResolvedValue({ ...available, available: false, reason: 'migration v50 has not been applied' })
+    const { wrapper } = await mountWithApp(Sandboxes, { stubs })
+    await flushPromises()
+    expect(api.sandboxes.list).not.toHaveBeenCalled()
+    // 不可用时不显示「还没有云沙盒」这种引导式空态
+    expect(wrapper.text()).not.toContain('还没有云沙盒')
     wrapper.unmount()
   })
 

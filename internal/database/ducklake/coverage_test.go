@@ -14,6 +14,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -107,14 +108,14 @@ func TestSecretAndSQLQuote(t *testing.T) {
 	if !strings.Contains(sql2, "USE_SSL false") {
 		t.Fatal(sql2)
 	}
-	if quoteSQLString("a'b") != "'a''b'" {
-		t.Fatal(quoteSQLString("a'b"))
+	if sqlx.Literal("a'b") != "'a''b'" {
+		t.Fatal(sqlx.Literal("a'b"))
 	}
-	if quoteIdent(`a"b`) != `"a""b"` {
-		t.Fatal(quoteIdent(`a"b`))
+	if sqlx.Ident(`a"b`) != `"a""b"` {
+		t.Fatal(sqlx.Ident(`a"b`))
 	}
-	if !isSafeIdent("lake") || !isSafeIdent("_x1") || isSafeIdent("") || isSafeIdent("1x") || isSafeIdent("la-ke") {
-		t.Fatal("isSafeIdent")
+	if !sqlx.IsSafeIdent("lake") || !sqlx.IsSafeIdent("_x1") || sqlx.IsSafeIdent("") || sqlx.IsSafeIdent("1x") || sqlx.IsSafeIdent("la-ke") {
+		t.Fatal("sqlx.IsSafeIdent")
 	}
 	if _, err := buildDataURI(RemoteStorage{Bucket: ""}, "t", "d"); err == nil {
 		t.Fatal("empty bucket")

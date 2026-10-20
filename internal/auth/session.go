@@ -4,11 +4,12 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
 )
 
 // 会话错误。
@@ -163,8 +164,7 @@ func (s *SessionService) WithClock(now func() time.Time) *SessionService {
 
 // HashRefresh 计算 refresh token 摘要（绝不存原文）。
 func HashRefresh(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
+	return hashx.SumString(raw)
 }
 
 func newRefreshToken() (string, error) {

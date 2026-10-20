@@ -1,16 +1,18 @@
-# 云助手：自然语言、子 skill、SSE、删除确认
+# 云助手：自然语言、助手技能、SSE、删除确认
 
 这些用例不直接拼 CLI。脚本登录后的访问令牌调用控制台同一条运行接口：
 
 `POST /v1/projects/:projectID/agent-threads/:threadID/runs`
 
-请求体 `stream: true`，正文里写 `@数据库`、`@云函数` 等别名。脚本按控制台同样的别名表解析出 `skills`，与正文一起提交。响应是 SSE。破坏性命令出现 `confirmation_required` 时，脚本向
+请求体 `stream: true`。`@` 只用于点名助手，**不能**用它选技能：每个用例在 `cases.json` 里用 `module` 指定要用的助手，脚本按 `GET /agents` 找到该 module 的内置助手并建线程，技能由助手 module 在服务端自动加载。响应是 SSE。破坏性命令出现 `confirmation_required` 时，脚本向
 
 `POST /v1/projects/:projectID/agent-runs/:runID/confirmations/:callID`
 
 提交 `{"approve": true}`，然后继续读流，直到 `end`。
 
-内置助手默认 `writable=false`。第一条用例在未打开写权限时要求建库，预期 CLI 被 `write_not_allowed` 拒绝，并且不会弹出确认。随后脚本把「通用助手」设为可写，再跑建表、文档删除、KV 删除、云函数、对象删除、配额和定时任务。
+内置助手默认 `writable=false`。第一条用例在未打开写权限时要求建库，预期 CLI 被 `write_not_allowed` 拒绝，并且不会弹出确认。随后脚本把对应用例的助手设为可写，再跑建表、文档删除、KV 删除、云函数、对象删除和定时任务。
+
+`kv` / `gofunction` / `cron` 三个助手只在服务端启用 CLI 技能（`skills.cli`）时才会播种；缺少对应助手时脚本会记一条失败并提示原因。`project` 模块没有对应助手，因此不再有用例，其命令前缀白名单由 `internal/api` 的单元测试覆盖。
 
 模型是服务端 `.env` 里的 `SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL`。结果以「是否调用了 simplebase CLI」和「调用之后资源是否达到目标」为准，不以回复措辞为准。
 

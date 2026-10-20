@@ -124,13 +124,20 @@ func Apply(s spec.Spec) error {
 // Main 是 helper 的入口：args 形如 ["--policy", path, "--", argv...]。
 // 成功时不返回（exec 用户命令）；失败时写固定前缀并以 spec.ExitSetupFailed 退出。
 func Main(args []string, env []string) int {
-	policyPath, argv, err := parseArgs(args)
+	policyPath, ctty, argv, err := parseArgs(args)
 	if err != nil {
 		return fail(err)
 	}
 	s, err := LoadSpec(policyPath)
 	if err != nil {
 		return fail(fmt.Errorf("read policy: %w", err))
+	}
+	// 控制终端必须在 seccomp 之前设置：bwrap 的 --new-session 已让本进程成为会话首领，
+	// 这里把 stdin（PTY 从端）设为控制终端，shell 才有作业控制。
+	if ctty {
+		if err := setCtty(); err != nil {
+			return fail(fmt.Errorf("controlling tty: %w", err))
+		}
 	}
 	if err := Apply(s); err != nil {
 		return fail(err)
@@ -144,26 +151,37 @@ func Main(args []string, env []string) int {
 	return 0
 }
 
-func parseArgs(args []string) (policy string, argv []string, err error) {
+func parseArgs(args []string) (policy string, ctty bool, argv []string, err error) {
+	const usage = "usage: gosandbox-inner --policy FILE [--ctty] -- cmd..."
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--policy":
 			if i+1 >= len(args) {
-				return "", nil, errors.New("--policy needs a value")
+				return "", false, nil, errors.New("--policy needs a value")
 			}
 			i++
 			policy = args[i]
+		case "--ctty":
+			ctty = true
 		case "--":
 			argv = args[i+1:]
 			if policy == "" || len(argv) == 0 {
-				return "", nil, errors.New("usage: gosandbox-inner --policy FILE -- cmd...")
+				return "", false, nil, errors.New(usage)
 			}
-			return policy, argv, nil
+			return policy, ctty, argv, nil
 		default:
-			return "", nil, fmt.Errorf("unexpected argument %q", args[i])
+			return "", false, nil, fmt.Errorf("unexpected argument %q", args[i])
 		}
 	}
-	return "", nil, errors.New("usage: gosandbox-inner --policy FILE -- cmd...")
+	return "", false, nil, errors.New(usage)
+}
+
+// setCtty 把 fd 0 设为本进程（会话首领）的控制终端。
+func setCtty() error {
+	if err := unix.IoctlSetInt(0, unix.TIOCSCTTY, 0); err != nil {
+		return err
+	}
+	return nil
 }
 
 func fail(err error) int {

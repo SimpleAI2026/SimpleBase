@@ -8,12 +8,13 @@ package audit
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	"github.com/linkxzhou/SimpleBase/internal/utils/mask"
 )
 
 // Service 提供审计事件记录与查询。
@@ -75,16 +76,11 @@ type Query struct {
 
 // ListOperations 返回审计事件列表。依赖 catalog.Repository.ListOperations。
 func (s *Service) ListOperations(ctx context.Context, q Query) ([]catalog.Operation, error) {
-	if q.Limit <= 0 || q.Limit > 200 {
-		q.Limit = 50
-	}
+	q.Limit = limit.Normalize(q.Limit, 50, 200)
 	return s.repo.ListOperations(ctx, q.ProjectID, q.DatabaseID, q.Limit)
 }
 
 // Redact 对敏感字符串做脱敏（保留前2后2字符）。
 func Redact(s string) string {
-	if len(s) <= 4 {
-		return strings.Repeat("*", len(s))
-	}
-	return s[:2] + strings.Repeat("*", len(s)-4) + s[len(s)-2:]
+	return mask.KeepEnds(s, 2)
 }

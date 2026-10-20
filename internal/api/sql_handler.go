@@ -18,9 +18,7 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -33,6 +31,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
+	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
 )
 
 // SQLService 抽象 SQL handler 所需的 catalog + registry 能力。
@@ -512,6 +511,5 @@ func nanoToDuration(ns int64) time.Duration {
 
 // sqlSHA256 返回 SQL 的 SHA-256 摘要（用于审计日志，不记录原 SQL）。
 func sqlSHA256(sql string) string {
-	h := sha256.Sum256([]byte(sql))
-	return hex.EncodeToString(h[:])
+	return hashx.SumString(sql)
 }

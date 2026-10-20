@@ -86,7 +86,9 @@ export const api = {
     runs: vi.fn(),
     messages: vi.fn(),
     streamRun: vi.fn(),
+    attachRun: vi.fn(),
     cancel: vi.fn(),
+    active: vi.fn(),
     confirm: vi.fn()
   },
   agentSchedules: {
@@ -113,9 +115,10 @@ export const api = {
     test: vi.fn()
   },
   sandboxes: {
-    capabilities: vi.fn(), list: vi.fn(), create: vi.fn(), get: vi.fn(), update: vi.fn(),
-    remove: vi.fn(), start: vi.fn(), stop: vi.fn(), exec: vi.fn(),
-    files: { list: vi.fn(), read: vi.fn(), download: vi.fn(), write: vi.fn(), upload: vi.fn(), remove: vi.fn() }
+    capabilities: vi.fn(), list: vi.fn(), create: vi.fn(), get: vi.fn(),
+    remove: vi.fn(), connect: vi.fn(), pause: vi.fn(),
+    terminalTicket: vi.fn(), terminalWebSocketUrl: vi.fn(),
+    files: { list: vi.fn(), read: vi.fn(), write: vi.fn(), remove: vi.fn() }
   },
   cronjobs: {
     list: vi.fn(),
@@ -314,6 +317,8 @@ export function applyApiDefaults() {
   api.agentThreads.create.mockResolvedValue({ id: 'th-1', title: '云助手', created_at: 't', updated_at: 't' })
   api.agentThreads.messages.mockResolvedValue([])
   api.agentThreads.streamRun.mockReturnValue({ close: vi.fn() })
+  api.agentThreads.attachRun.mockReturnValue({ close: vi.fn() })
+  api.agentThreads.active.mockResolvedValue([])
   api.agentThreads.cancel.mockResolvedValue({ id: 'run-1', thread_id: 'th-1', agent_id: 'ag-1', status: 'canceled' })
   api.agentThreads.confirm.mockResolvedValue(undefined)
   api.agentSchedules.list.mockResolvedValue([])
@@ -403,20 +408,19 @@ export function applyApiDefaults() {
     error: ''
   })
   api.gofunctions.remove.mockResolvedValue(undefined)
-  api.sandboxes.capabilities.mockResolvedValue({ available: false, backend: 'cloud', images: [], defaultImage: '',
-    cpusMax: 4, memoryMiBMax: 4096, maxFileBytes: 1048576, maxOutputBytes: 65536,
-    maxPerProject: 5, execTimeoutMaxS: 300, networkOptions: ['none'] })
+  api.sandboxes.capabilities.mockResolvedValue({ available: false, backend: 'local', images: [], defaultImage: '',
+    cpus: 1, memoryMiB: 512, timeoutDefaultS: 300, timeoutMaxS: 3600, maxFileBytes: 1048576, maxOutputBytes: 65536,
+    maxPerProject: 5, terminal: false })
   api.sandboxes.list.mockResolvedValue([])
-  api.sandboxes.create.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'pending', source: 'api' })
-  api.sandboxes.start.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'running', source: 'api' })
-  api.sandboxes.stop.mockResolvedValue({ id: 'sbx-1', name: 'test', status: 'stopped', source: 'api' })
+  api.sandboxes.create.mockResolvedValue({ id: 'sbx-1', name: 'test', state: 'running', status: 'running', source: 'api' })
+  api.sandboxes.connect.mockResolvedValue({ id: 'sbx-1', name: 'test', state: 'running', status: 'running', source: 'api' })
+  api.sandboxes.pause.mockResolvedValue(undefined)
   api.sandboxes.remove.mockResolvedValue(undefined)
-  api.sandboxes.exec.mockResolvedValue({ stdout: 'ok\n', stderr: '', exitCode: 0, durationMs: 2, timedOut: false })
+  api.sandboxes.terminalTicket.mockResolvedValue({ ticket: 'tk', expiresIn: 30 })
+  api.sandboxes.terminalWebSocketUrl.mockImplementation((id: string, ticket: string) => `ws://localhost/e2b/ext/sandboxes/${id}/terminal?ticket=${ticket}`)
   api.sandboxes.files.list.mockResolvedValue([])
-  api.sandboxes.files.read.mockResolvedValue({ content: '', encoding: 'utf8', truncated: false })
-  api.sandboxes.files.download.mockResolvedValue(new Blob([]))
+  api.sandboxes.files.read.mockResolvedValue(new Blob([]))
   api.sandboxes.files.write.mockResolvedValue(undefined)
-  api.sandboxes.files.upload.mockResolvedValue(undefined)
   api.sandboxes.files.remove.mockResolvedValue(undefined)
   api.cronjobs.list.mockResolvedValue([])
   api.cronjobs.create.mockResolvedValue({

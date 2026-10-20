@@ -73,7 +73,7 @@ Researched 2026-10-13. Summarised in our own words; no text, images, or code cop
 | game-art SKILL.md (sickn33/agentic-awesome-skills) | https://github.com/sickn33/agentic-awesome-skills/blob/main/skills/game-development/game-art/SKILL.md | MIT | existing agent skill: style decision tree, "art serves gameplay", test at gameplay distance — ours adds scoring, genre profiles, metrics |
 | Other agent skills found (not used beyond confirming the gap) | https://github.com/ianlintner/ai-pixel-art-image-generation (MIT), https://github.com/isabellagreco1997/sprite-forge (MIT), https://github.com/majidmanzarpour/blender-game-skills (MIT) | MIT | pixel-art generation / sprite tooling exists; no game-art *critique* rubric skill found |
 | Otsu thresholding (1979) | https://doi.org/10.1109/TSMC.1979.4310076 | paper | figure-ground mask & separability in `review_image.py` |
-| Test images (local only, not redistributed) | Steam public CDN, e.g. https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1145360/… | © respective publishers | Hades, Hollow Knight, Dota 2, Baldur's Gate 3 screenshots/capsules used only for script testing in /workspace/gametest |
+| Test images (local only, not redistributed) | Steam public CDN, e.g. https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1145360/… | © respective publishers | Hades, Hollow Knight, Dota 2, Baldur's Gate 3 screenshots/capsules used only for local script testing |
 
 Genre palettes (e.g. 石青/朱砂 pigments, 墨分五色), HUD conventions per genre and numeric targets are our synthesis from common practice — **not** from a single citable standard; treat numbers as heuristics.
 

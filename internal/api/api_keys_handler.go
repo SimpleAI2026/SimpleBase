@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // APIKeysHandler 处理 /v1/projects/:projectID/api-keys。
@@ -279,14 +280,7 @@ func permissionStrings(perms []auth.Permission) []string {
 }
 
 func splitNonEmpty(csv string) []string {
-	parts := strings.Split(csv, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
+	return strutil.SplitCSV(csv)
 }
 
 // generateAPIKeySecret 生成 sb_live_<32 hex> 形态的明文 Key（与种子 Key 前缀一致）。

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 )
 
 // LIFE-05：没有 end 事件的 run 缓存必须被兜底清理，不能永久留在内存。

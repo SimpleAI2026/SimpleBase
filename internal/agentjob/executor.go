@@ -16,10 +16,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 const (
@@ -96,10 +98,8 @@ func (e *Executor) RunAgent(ctx context.Context, j systemdb.CronJob, trigger str
 		e.disableJob(ctx, j)
 		return cronjob.AgentResult{}, errors.New("agent not found")
 	}
-	skills, err := cloudagent.NormalizeSkills(nil, agent.Module)
-	if err != nil {
-		return cronjob.AgentResult{}, errors.New("schedule skills unavailable")
-	}
+	// 定时任务同样按助手 module 加载技能：无人值守运行没有 `@` 点名。
+	skills := cloudagent.SkillsForModule(agent.Module)
 
 	threadID := j.AgentThreadID
 	thread, err := e.Store.GetAgentThread(ctx, j.ProjectID, threadID)
@@ -147,9 +147,9 @@ func (e *Executor) RunAgent(ctx context.Context, j systemdb.CronJob, trigger str
 	}
 
 	res, runErr := e.Runner.StartRun(ctx, cloudagent.RunRequest{
-		ProjectID: j.ProjectID, Principal: principal, Agent: agent, Skills: skills,
+		ProjectID: j.ProjectID, Principal: agentbridge.ToModulePrincipal(principal), Agent: agentbridge.Agent(agent), Skills: skills,
 		ThreadID: thread.ID, RunID: agentRun.ID, UserText: j.AgentPrompt,
-		History: hist, Stream: false, Headless: true,
+		History: agentbridge.Messages(hist), Stream: false, Headless: true,
 	}, nil)
 	fin := time.Now().UTC()
 
@@ -157,7 +157,7 @@ func (e *Executor) RunAgent(ctx context.Context, j systemdb.CronJob, trigger str
 	if mw, ok := e.Store.(metricsWriter); ok {
 		code := ""
 		if runErr != nil {
-			code = cloudagent.ClassifyError(runErr).Code
+			code = agentbridge.ClassifyError(runErr).Code
 		}
 		_ = mw.UpdateAgentRunMetrics(ctx, j.ProjectID, agentRun.ID, systemdb.AgentRun{
 			DurationMS: res.DurationMS, PromptTokens: res.PromptTokens, CompletionTokens: res.CompletionTokens,
@@ -223,9 +223,6 @@ func SanitizeErr(err error) string {
 	if err == nil {
 		return ""
 	}
-	msg := err.Error()
-	if len(msg) > errorLimit {
-		msg = msg[:errorLimit]
-	}
+	msg := strutil.Truncate(err.Error(), errorLimit)
 	return msg
 }

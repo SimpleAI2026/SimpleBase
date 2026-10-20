@@ -5,7 +5,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // cleanPath 校验 p 落在 workdir 下（§8.2）：
@@ -42,7 +43,7 @@ func validName(n string) bool { return nameRe.MatchString(n) }
 var envKeyRe = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 // reservedEnvPrefixes 禁止注入的 env 前缀（§8.2：不把任何凭据送进沙盒）。
-var reservedEnvPrefixes = []string{"SIMPLEBASE_", "MSB_", "AWS_"}
+var reservedEnvPrefixes = []string{"SIMPLEBASE_", "AWS_"}
 
 func validateEnv(env map[string]string) error {
 	if len(env) > 32 {
@@ -66,18 +67,14 @@ func validateEnv(env map[string]string) error {
 
 // truncateUTF8 把 b 转成合法 UTF-8 并截到 max 字节以内（不截断半个字符）。
 func truncateUTF8(b []byte, max int) (string, bool) {
-	s := strings.ToValidUTF8(string(b), "\uFFFD")
-	if max <= 0 || len(s) <= max {
-		return s, false
-	}
-	cut := max
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut], true
+	return strutil.TruncateValidUTF8(b, max)
 }
 
-// CloudName 是 Cloud 侧 VM 名（§6）：sbx- + 去连字符的 id。
+// CloudName 是驱动侧的 VM 名：sbx- + 去连字符的 id（local 后端下即工作区目录名）。
 func CloudName(id string) string {
 	return "sbx-" + strings.ReplaceAll(strings.ToLower(strings.TrimSpace(id)), "-", "")
 }
+
+// ValidateEnvForE2B 校验 E2B 创建体里的 envVars，规则与命令执行时的 env 相同
+// （键格式、数量、长度、保留前缀）。
+func ValidateEnvForE2B(env map[string]string) error { return validateEnv(env) }

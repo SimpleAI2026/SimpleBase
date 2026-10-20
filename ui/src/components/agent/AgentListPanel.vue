@@ -68,6 +68,7 @@
           :active="a.id === activeId"
           :schedule-summary="a.id in scheduleByAgent ? scheduleSummary(scheduleByAgent[a.id]) : undefined"
           :schedule-enabled="!!scheduleByAgent[a.id]?.enabled"
+          :running="!!runningAgentIds?.has(a.id)"
           @select="emit('select', a.id)"
         />
       </div>
@@ -110,6 +111,8 @@ const props = defineProps<{
   scheduleByAgent: Record<string, AgentSchedule>
   /** 定时任务摘要格式化（宿主注入，复用同一份预设文案）。 */
   scheduleSummary: (s: AgentSchedule) => string
+  /** 正在回复的助手 id 集合（交互 + 定时任务）。 */
+  runningAgentIds?: Set<string>
 }>()
 
 const emit = defineEmits<{

@@ -9,6 +9,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 // CountDatabaseRows 统计库内全部 BASE TABLE 的行数之和。
@@ -69,9 +70,9 @@ func listTableNames(ctx context.Context, lease SQLLease) ([]string, error) {
 }
 
 func countTableRows(ctx context.Context, lease SQLLease, table string) (int64, error) {
-	// quoteIdentifier 来自 data_handler.go，防标识符注入。
+	// sqlx.Ident 转义双引号，防标识符注入。
 	result, err := lease.Query(ctx, database.Statement{
-		SQL: "SELECT COUNT(*) FROM " + quoteIdentifier(table),
+		SQL: "SELECT COUNT(*) FROM " + sqlx.Ident(table),
 	}, 1)
 	if err != nil {
 		return 0, err

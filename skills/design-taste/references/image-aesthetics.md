@@ -71,6 +71,6 @@ Conclusion stated before plotting · one hero panel · lowercase bold panel labe
 | `whitespace_ratio` | poster 0.25–0.75, product 0.3–0.8, figure 0.4–0.85 | share of flat 16px blocks |
 | `text_region_ratio_est` | — | rough stroke-pattern proxy; verify by eye |
 
-## 7. Report format (Chinese)
+## 7. Report format
 
-Use the `report.md` skeleton the script writes: 评分 → 关键指标 → 视觉评审（逐维度分+证据）→ P0/P1/P2 → 可执行改进（裁切比例、调色参数、HEX、版式、重生成提示词）→ 一句话结论. Always cite what you see ("左下角手指 6 根"、"标题压在树叶纹理上，对比约 2:1"), never just adjectives.
+Use the `report.md` skeleton the script writes (`--lang en|zh`): score → key metrics → visual review (per-dimension score + evidence) → P0/P1/P2 → actionable fixes (crop ratio, grading values, HEX, layout, regeneration prompt) → one-line verdict. Always cite what you see ("six fingers on the lower-left hand", "title sits on leaf texture, contrast ≈ 2:1"), never just adjectives.

@@ -23,6 +23,9 @@ const seatbeltBase = `(version 1)
 (allow file-read*)
 (allow file-write* (literal "/dev/null") (literal "/dev/tty") (literal "/dev/dtracehelper"))
 (allow file-ioctl (literal "/dev/null") (literal "/dev/tty"))
+; 交互终端：PTY 从端是 /dev/ttysN，stty / 作业控制需要对它 ioctl。
+(allow file-ioctl (literal "/dev/ptmx") (regex #"^/dev/ttys[0-9]+$"))
+(allow file-read* file-write* (literal "/dev/ptmx") (regex #"^/dev/ttys[0-9]+$"))
 `
 
 // SeatbeltProfile 生成 SBPL 与 -D 参数。路径一律经 -D 传入，不拼进策略文本，

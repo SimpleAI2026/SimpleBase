@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // LogEvent 是 sys_log_events 一行。
@@ -90,9 +92,7 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if q.Limit <= 0 || q.Limit > 500 {
-		q.Limit = 100
-	}
+	q.Limit = limit.Normalize(q.Limit, 100, 500)
 	if q.From.IsZero() {
 		q.From = time.Now().UTC().Add(-24 * time.Hour)
 	}

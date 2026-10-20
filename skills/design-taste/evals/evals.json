@@ -22,7 +22,7 @@
     {
       "id": 4,
       "prompt": "帮我评审一下这张海报的审美，给出打分和问题清单：poster.png（是用 AI 生成的活动海报）",
-      "expected_output": "Runs scripts/review_image.py poster.png --type poster (or ai), then looks at the image; fills the 8-dimension visual score with type weights from image-aesthetics.md; combines 0.4 metric + 0.6 visual; runs the AI-artifact checklist (text gibberish, hands, over-saturation, symmetry, glow); Chinese P0/P1/P2 with concrete evidence and actionable fixes (crop, HEX palette, type placement, regeneration prompt).",
+      "expected_output": "Runs scripts/review_image.py poster.png --type poster (or ai), then looks at the image; fills the 8-dimension visual score with type weights from image-aesthetics.md; combines 0.4 metric + 0.6 visual; runs the AI-artifact checklist (text gibberish, hands, over-saturation, symmetry, glow); P0/P1/P2 with concrete evidence and actionable fixes (crop, HEX palette, type placement, regeneration prompt).",
       "files": []
     },
     {
@@ -34,7 +34,7 @@
     {
       "id": 6,
       "prompt": "帮我做一下这张游戏截图的美术评审（MOBA 团战截图 teamfight.png），重点看可读性和 HUD。",
-      "expected_output": "Runs scripts/review_image.py teamfight.png --type game-screenshot --genre moba; inspects grayscale.png (value/silhouette) and HUD coverage; scores G1–G11 with screenshot weights from game-aesthetics.md; checks team color coding, VFX intensity tiers, center clutter; Chinese P0/P1/P2 report with evidence and MOBA-specific fixes (ground contrast, team rings, VFX tiers); combines 0.4 metric + 0.6 visual.",
+      "expected_output": "Runs scripts/review_image.py teamfight.png --type game-screenshot --genre moba; inspects grayscale.png (value/silhouette) and HUD coverage; scores G1–G11 with screenshot weights from game-aesthetics.md; checks team color coding, VFX intensity tiers, center clutter; P0/P1/P2 report with evidence and MOBA-specific fixes (ground contrast, team rings, VFX tiers); combines 0.4 metric + 0.6 visual.",
       "files": []
     },
     {

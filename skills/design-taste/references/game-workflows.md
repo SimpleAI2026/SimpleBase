@@ -7,7 +7,7 @@
    ```bash
    python3 scripts/review_image.py shot.png --type game-screenshot --genre moba --out review-shot
    ```
-   Outputs `metrics.json`, `report.md` (Chinese skeleton), `palette.png`, `thirds-overlay.png`, `grayscale.png`, `thumbnail.png`.
+   Outputs `metrics.json`, `report.md` (English skeleton by default; `--lang zh` for Chinese), `palette.png`, `thirds-overlay.png`, `grayscale.png`, `thumbnail.png`.
 3. **Look** at the original, then `grayscale.png` (gray | 3-value posterize | Otsu figure-ground mask) and `thumbnail.png` (store sizes, color + gray on Steam navy).
 4. **Run the five tests** and write evidence:
    | Test | How | Pass |
@@ -27,45 +27,45 @@
 6. **Score** 11 dims with type weights (`game-aesthetics.md §2`); total = 0.4 metric + 0.6 visual; P0 caps at 59.
 7. **Write the report** (template below) with concrete fixes; optionally produce a mock fix (value-adjusted crop, capsule redraft) and re-run the script to show deltas.
 
-## 2. Report template (Chinese)
+## 2. Report template
 
 ```markdown
-# 游戏美术评审：<文件名>｜<类型>｜<品类>
+# Game art review: <file> | <type> | <genre>
 
-**一句话结论：** <能不能用、最大问题、最该先改什么>
+**One-line verdict:** <usable or not, biggest problem, what to fix first>
 
-## 评分
-| 部分 | 分数 |
+## Score
+| Part | Score |
 |---|---|
-| 指标分（脚本 40%） | xx/100 |
-| 视觉分（Agent 60%） | xx/100 |
-| **总分**（有 P0 则 ≤59） | xx/100 |
+| Metric (script 40%) | xx/100 |
+| Visual (agent 60%) | xx/100 |
+| **Total** (≤59 if any P0) | xx/100 |
 
-| 维度 | 权重 | 分 | 证据 |
+| Dimension | Weight | Score | Evidence |
 |---|---|---|---|
-| G1 可读性/剪影 | | | 灰度图中敌人与地面明度差… |
-| G2 明度与色彩层级 | | | |
-| G3 玩法优先清晰度 | | | |
-| G4 美术方向统一 | | | |
-| G5 UI/HUD | | | HUD 边缘覆盖 xx% |
-| G6 特效克制 | | | |
-| G7 光影氛围 | | | |
-| G8 角色/场景设计 | | | |
-| G9 品牌/主视觉吸引力 | | | |
-| G10 技术完成度 | | | |
-| G11 AI 痕迹/原创 | | | |
+| G1 Readability/silhouette | | | in grayscale, enemy vs ground value gap… |
+| G2 Value & color hierarchy | | | |
+| G3 Gameplay-first clarity | | | |
+| G4 Art-direction consistency | | | |
+| G5 UI/HUD | | | HUD edge coverage xx% |
+| G6 VFX restraint | | | |
+| G7 Lighting & mood | | | |
+| G8 Character/environment design | | | |
+| G9 Brand/key-visual appeal | | | |
+| G10 Technical finish | | | |
+| G11 AI artifacts/originality | | | |
 
-## 问题清单
-### P0（阻断玩法或上架）
-1. **问题** — 证据（位置/指标）— 修改方法（具体数值/做法）
-### P1（明显降低质量）
-### P2（打磨）
+## Issues
+### P0 (blocks gameplay or store release)
+1. **Issue** — evidence (location/metric) — fix (concrete values/method)
+### P1 (clearly lowers quality)
+### P2 (polish)
 
-## 改进方案（按优先级）
-1. …（例：背景明度压到 30–45%，敌人加 2px 暖色描边）
-## 测试结论
-- 灰度测试：通过/不通过 · 剪影测试 · 缩略图测试（184×69 / 120×45）· 2 秒测试
-附件：grayscale.png、thumbnail.png、palette.png、thirds-overlay.png
+## Improvement plan (by priority)
+1. … (e.g. compress background value to 30–45%, add a 2px warm outline to enemies)
+## Tests
+- Grayscale test: pass/fail · silhouette test · thumbnail test (184×69 / 120×45) · 2-second test
+Attachments: grayscale.png, thumbnail.png, palette.png, thirds-overlay.png
 ```
 
 ## 3. Improvement recipes by genre
@@ -83,8 +83,8 @@
 | Horror | Lift blacks to ~8–15% luma; light pools on path/key objects; single accent hue; fog cards for depth |
 | Racing / sports | Track/pitch neutral; kits contrast in value; motion blur periphery only; broadcast-style HUD |
 | Pixel art | Choose one scale (e.g. 16/32 px tiles), 16–32-color palette with hue-shifted ramps, nearest-neighbour integer scale, selective outline |
-| 武侠/仙侠 | Palette from 石青/石绿/朱砂/赭石/月白; mist layers; reduce particle glow by half; calligraphy only for logo |
-| 水墨 | 5 ink values + 1 red seal; ≥ 30% 留白; dry brush at silhouette edges; no uniform digital texture |
+| Wuxia/xianxia (武侠/仙侠) | Palette from azurite/malachite/cinnabar/ochre/moon-white (石青/石绿/朱砂/赭石/月白); mist layers; reduce particle glow by half; calligraphy only for logo |
+| Ink wash (水墨) | 5 ink values + 1 red seal; ≥ 30% negative space (留白); dry brush at silhouette edges; no uniform digital texture |
 | Capsule / icon | Logo ≥ 60% of small capsule width, heavy weight, outline/shadow for contrast; one character or symbol; test 120×45 on `#1b2838`; separate art for small capsule if needed |
 
 ## 4. Prompt templates (game art without AI slop)

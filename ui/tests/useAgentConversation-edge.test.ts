@@ -75,6 +75,47 @@ describe('useAgentConversation edge branches', () => {
     expect(api.agentThreads.cancel).not.toHaveBeenCalled()
   })
 
+  it('stop(false) detaches without canceling the backend run', () => {
+    const { conv } = makeConv()
+    let handlers: Record<string, (...args: unknown[]) => void> = {}
+    api.agentThreads.streamRun.mockImplementation((_p, _t, _r, h) => {
+      handlers = h as Record<string, (...args: unknown[]) => void>
+      return { close: vi.fn() }
+    })
+    conv.start({ content: 'hi', mentions: [{ agent_id: 'a' }] }, {})
+    handlers.onRun?.('r1')
+    conv.stop(false)
+    expect(api.agentThreads.cancel).not.toHaveBeenCalled()
+    expect(conv.phase.value).toBe('idle')
+  })
+
+  it('attach replays a running run into a new reply; gap error drops the bubble', () => {
+    const { conv, messages } = makeConv()
+    messages.push({ role: 'user', content: 'q' })
+    let handlers: Record<string, (...args: unknown[]) => void> = {}
+    api.agentThreads.attachRun.mockImplementation((_p, _id, h) => {
+      handlers = h as Record<string, (...args: unknown[]) => void>
+      return { close: vi.fn() }
+    })
+    const onEnd = vi.fn()
+    conv.attach('r9', { onEnd })
+    expect(api.agentThreads.attachRun).toHaveBeenCalledWith('p1', 'r9', expect.any(Object))
+    expect(conv.runId.value).toBe('r9')
+    expect(conv.sending.value).toBe(true)
+    handlers.onToken?.('ok')
+    expect(messages[1].content).toBe('ok')
+    handlers.onEnd?.('stop')
+    expect(conv.phase.value).toBe('done')
+    expect(onEnd).toHaveBeenCalled()
+
+    const onError = vi.fn()
+    conv.attach('r10', { onError })
+    handlers.onError?.(Object.assign(new Error('gap'), { code: 'stream_gap' }))
+    expect(conv.phase.value).toBe('idle')
+    expect(messages).toHaveLength(2)
+    expect(onError).toHaveBeenCalled()
+  })
+
   it('thinking content accumulates into reply.thinking', () => {
     const { conv, messages } = makeConv()
     let handlers: Record<string, (...args: unknown[]) => void> = {}

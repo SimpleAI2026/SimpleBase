@@ -11,6 +11,9 @@ import (
 	"time"
 )
 
+// fakeEpoch 是 fake 驱动报告的固定修改时间，保证测试结果可复现。
+var fakeEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
 // Driver 是内存执行后端（仅 e2e / 单测；装配层要求 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）。
 //
 // 它不启动任何进程：Shell 只解释一个极小子集，足以让 e2e 覆盖完整链路——
@@ -232,10 +235,10 @@ func (d *Driver) ListDir(_ context.Context, t sb.Target, dir string) ([]sb.FileE
 		rest := strings.TrimPrefix(p, prefix)
 		if i := strings.IndexByte(rest, '/'); i >= 0 {
 			name := rest[:i]
-			seen[name] = sb.FileEntry{Name: name, Path: prefix + name, Kind: "directory"}
+			seen[name] = sb.FileEntry{Name: name, Path: prefix + name, Kind: "directory", Mode: 0o755, ModTime: fakeEpoch}
 			continue
 		}
-		seen[rest] = sb.FileEntry{Name: rest, Path: p, Kind: "file", Size: int64(len(b))}
+		seen[rest] = sb.FileEntry{Name: rest, Path: p, Kind: "file", Size: int64(len(b)), Mode: 0o644, ModTime: fakeEpoch}
 	}
 	out := make([]sb.FileEntry, 0, len(seen))
 	for _, e := range seen {

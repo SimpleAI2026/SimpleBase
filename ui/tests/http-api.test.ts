@@ -29,50 +29,99 @@ describe('httpApi', () => {
     Object.values(http).forEach((fn) => fn.mockReset())
   })
 
-  it('maps sandbox resources, execution and file paths', async () => {
-    const row = { id: 'sb-1', name: 'demo', cloud_name: 'vm-1', source: 'api', status: 'pending',
-      image: 'python:3.12-slim', cpus: 1, memory_mib: 256, idle_timeout_s: 300, created_at: 'today' }
+  it('maps sandbox resources, lifecycle and envd file paths', async () => {
     http.get.mockResolvedValueOnce({ data: { available: true, backend: 'fake', images: ['python:3.12-slim'],
-      default_image: 'python:3.12-slim', network_options: ['none'] } })
-    expect((await httpApi.sandboxes.capabilities(pid)).available).toBe(true)
-    http.get.mockResolvedValueOnce({ data: { sandboxes: [row] } })
-    expect((await httpApi.sandboxes.list(pid))[0].memoryMiB).toBe(256)
+      default_image: 'python:3.12-slim', default_template: 'base', cpus: 2, memory_mib: 512,
+      timeout_default_s: 300, timeout_max_s: 3600, max_file_bytes: 1024, max_output_bytes: 2048,
+      max_per_project: 5, terminal: true, envd_version: '0.2.0',
+      ssh: { enabled: true, listen: '127.0.0.1:2222', host_key_fingerprint: 'SHA256:x' } } })
+    const caps = await httpApi.sandboxes.capabilities(pid)
+    expect(caps).toMatchObject({ available: true, backend: 'fake', cpus: 2, memoryMiB: 512, terminal: true, envdVersion: '0.2.0' })
+    expect(caps.ssh).toEqual({ enabled: true, listen: '127.0.0.1:2222', hostKeyFingerprint: 'SHA256:x' })
+    expect(http.get.mock.calls[0][0]).toBe('/e2b/ext/capabilities')
+    expect(http.get.mock.calls[0][1].headers['X-SimpleBase-Project']).toBe(pid)
+
+    const row = { sandboxID: 'sb-1', templateID: 'base', state: 'running', startedAt: 'today', endAt: 'tomorrow',
+      cpuCount: 2, memoryMB: 512, metadata: { name: 'demo', 'simplebase.source': 'api' },
+      x_simplebase: { status: 'running', source: 'api', idleTimeoutS: 300, lastActiveAt: 'now', lastError: 'e' } }
+    http.get.mockResolvedValueOnce({ data: [row] })
+    const [item] = await httpApi.sandboxes.list(pid, 'running', { team: 'a' })
+    expect(item).toMatchObject({ id: 'sb-1', name: 'demo', state: 'running', status: 'running', cpuCount: 2,
+      memoryMB: 512, source: 'api', idleTimeoutS: 300, lastActiveAt: 'now', lastError: 'e' })
+    const listCfg = http.get.mock.calls[1][1]
+    expect(listCfg.params.metadata).toBe('team=a')
+    expect(listCfg.params.limit).toBe(100)
+
+    http.get.mockResolvedValueOnce({ data: row })
+    expect((await httpApi.sandboxes.get(pid, 'sb/1')).id).toBe('sb-1')
+    expect(http.get.mock.calls[2][0]).toBe('/e2b/sandboxes/sb%2F1')
+
     http.post.mockResolvedValueOnce({ data: row })
-    await httpApi.sandboxes.create(pid, { name: 'demo' }, 'idem')
-    expect(http.post.mock.calls[0][2].headers['Idempotency-Key']).toBe('idem')
+    await httpApi.sandboxes.create(pid, { name: 'demo', templateId: 'base', timeoutS: 120 })
+    expect(http.post.mock.calls[0][0]).toBe('/e2b/sandboxes')
+    expect(http.post.mock.calls[0][1]).toMatchObject({ templateID: 'base', timeout: 120, metadata: { name: 'demo' } })
+
     http.post.mockResolvedValueOnce({ data: row })
-    await httpApi.sandboxes.start(pid, row.id)
-    http.post.mockResolvedValueOnce({ data: row })
-    await httpApi.sandboxes.stop(pid, row.id)
-    http.post.mockResolvedValueOnce({ data: { stdout: 'ok', exit_code: 3, duration_ms: 2 } })
-    expect((await httpApi.sandboxes.exec(pid, row.id, { command: 'exit 3' })).exitCode).toBe(3)
-    http.get.mockResolvedValueOnce({ data: { entries: [{ name: 'a.txt', path: '/workspace/a.txt', kind: 'file', size: 2 }] } })
-    expect((await httpApi.sandboxes.files.list(pid, row.id, '/workspace'))[0].name).toBe('a.txt')
-    http.get.mockResolvedValueOnce({ data: { content: 'hi', encoding: 'utf8' } })
-    expect((await httpApi.sandboxes.files.read(pid, row.id, '/workspace/a.txt')).content).toBe('hi')
-    http.put.mockResolvedValueOnce({ data: undefined })
-    await httpApi.sandboxes.files.write(pid, row.id, '/workspace/a.txt', 'hi')
-    http.put.mockResolvedValueOnce({ data: undefined })
-    await httpApi.sandboxes.files.upload(pid, row.id, '/workspace/data.bin', new Uint8Array([0, 255]))
-    expect(http.put.mock.calls[1][1]).toBeInstanceOf(Blob)
-    expect(http.put.mock.calls[1][2].headers['Content-Type']).toBe('application/octet-stream')
+    await httpApi.sandboxes.connect(pid, 'sb-1', 60)
+    expect(http.post.mock.calls[1][0]).toBe('/e2b/sandboxes/sb-1/connect')
+    expect(http.post.mock.calls[1][1]).toMatchObject({ timeout: 60 })
+
+    http.post.mockResolvedValueOnce({ data: undefined })
+    await httpApi.sandboxes.pause(pid, 'sb-1')
+    expect(http.post.mock.calls[2][0]).toBe('/e2b/sandboxes/sb-1/pause')
+
+    http.post.mockResolvedValueOnce({ data: { ticket: 'tk', expires_in: 30 } })
+    expect(await httpApi.sandboxes.terminalTicket(pid, 'sb-1')).toEqual({ ticket: 'tk', expiresIn: 30 })
+
+    http.post.mockResolvedValueOnce({ data: { entries: [{ name: 'a.txt', path: '/workspace/a.txt',
+      type: 'FILE_TYPE_FILE', size: '2', permissions: '-rw-r--r--' }] } })
+    const entries = await httpApi.sandboxes.files.list(pid, 'sb-1', '/workspace')
+    expect(entries[0]).toMatchObject({ name: 'a.txt', kind: 'file', size: 2, permissions: '-rw-r--r--' })
+    expect(http.post.mock.calls[4][0]).toBe('/e2b/envd/filesystem.Filesystem/ListDir')
+    expect(http.post.mock.calls[4][1]).toMatchObject({ path: '/workspace', depth: 1 })
+    expect(http.post.mock.calls[4][2].headers['E2b-Sandbox-Id']).toBe('sb-1')
+    expect(http.post.mock.calls[4][2].headers['Connect-Protocol-Version']).toBe('1')
+
+    const blob = { size: 2 }
+    http.get.mockResolvedValueOnce({ data: blob })
+    expect(await httpApi.sandboxes.files.read(pid, 'sb-1', '/workspace/a.txt')).toBe(blob)
+    expect(http.get.mock.calls[3][1]).toMatchObject({ params: { path: '/workspace/a.txt' }, responseType: 'blob' })
+
+    http.post.mockResolvedValueOnce({ data: undefined })
+    await httpApi.sandboxes.files.write(pid, 'sb-1', '/workspace/a.txt', 'hi')
+    expect(http.post.mock.calls[5][0]).toBe('/e2b/envd/files')
+    expect(http.post.mock.calls[5][1]).toBeInstanceOf(Blob)
+    expect(http.post.mock.calls[5][2].headers['Content-Type']).toBe('application/octet-stream')
+
+    http.post.mockResolvedValueOnce({ data: undefined })
+    await httpApi.sandboxes.files.write(pid, 'sb-1', '/workspace/d.bin', blob as unknown as Blob)
+    expect(http.post.mock.calls[6][1]).toBe(blob)
+
+    http.post.mockResolvedValueOnce({ data: undefined })
+    await httpApi.sandboxes.files.remove(pid, 'sb-1', '/workspace/a.txt')
+    expect(http.post.mock.calls[7][0]).toBe('/e2b/envd/filesystem.Filesystem/Remove')
+
     http.delete.mockResolvedValueOnce({ data: undefined })
-    await httpApi.sandboxes.files.remove(pid, row.id, '/workspace/a.txt')
-    http.delete.mockResolvedValueOnce({ data: undefined })
-    await httpApi.sandboxes.remove(pid, row.id)
-    expect(http.get.mock.calls[2][1].params.path).toBe('/workspace')
-    expect(http.put.mock.calls[0][2].params.path).toBe('/workspace/a.txt')
+    await httpApi.sandboxes.remove(pid, 'sb-1')
+    expect(http.delete.mock.calls[0][0]).toBe('/e2b/sandboxes/sb-1')
   })
 
-  it('follows sandbox list cursors until the last page', async () => {
-    http.get.mockResolvedValueOnce({ data: { sandboxes: [{ id: 'a' }], next_cursor: 'a' } })
-    http.get.mockResolvedValueOnce({ data: { sandboxes: [{ id: 'b' }] } })
-    const rows = await httpApi.sandboxes.list(pid, 'running', 'api')
+  it('builds the terminal websocket url with the ticket and keeps the base path', () => {
+    const url = new URL(httpApi.sandboxes.terminalWebSocketUrl('sb/1', 'tk+/='))
+    expect(url.pathname).toBe('/e2b/ext/sandboxes/sb%2F1/terminal')
+    expect(url.searchParams.get('ticket')).toBe('tk+/=')
+    expect(['ws:', 'wss:']).toContain(url.protocol)
+  })
+
+  it('follows the sandbox list X-Next-Token until the last page', async () => {
+    http.get.mockResolvedValueOnce({ data: [{ sandboxID: 'a', state: 'running' }], headers: { 'x-next-token': 't1' } })
+    http.get.mockResolvedValueOnce({ data: [{ sandboxID: 'b', state: 'paused' }], headers: {} })
+    const rows = await httpApi.sandboxes.list(pid, 'running')
     expect(rows.map((r) => r.id)).toEqual(['a', 'b'])
     expect(http.get).toHaveBeenCalledTimes(2)
-    expect(http.get.mock.calls[0][1].params).toEqual({ status: 'running', source: 'api', limit: 100, cursor: undefined })
-    expect(http.get.mock.calls[1][1].params.cursor).toBe('a')
-    http.get.mockResolvedValueOnce({ data: {} })
+    expect(http.get.mock.calls[0][1].params).toEqual({ state: 'running', metadata: undefined, limit: 100, nextToken: undefined })
+    expect(http.get.mock.calls[1][1].params.nextToken).toBe('t1')
+    http.get.mockResolvedValueOnce({ data: [] })
     expect(await httpApi.sandboxes.list(pid)).toEqual([])
   })
 
@@ -940,7 +989,7 @@ describe('httpApi', () => {
       }
     })
     const seen: string[] = []
-    httpApi.agentThreads.streamRun(pid, 'th', { content: '删库', mentions: [], skills: ['database'] }, {
+    httpApi.agentThreads.streamRun(pid, 'th', { content: '删库', mentions: [] }, {
       onRun: () => seen.push('run'),
       onToolCallDelta: () => seen.push('delta'),
       onToolStart: () => seen.push('start'),
@@ -958,7 +1007,9 @@ describe('httpApi', () => {
     const replay = String(fetchMock.mock.calls[1][0])
     expect(replay).toContain('/agent-runs/r9/events?after=8')
     const firstBody = JSON.parse(String(fetchMock.mock.calls[0][1].body))
-    expect(firstBody.skills).toEqual(['database'])
+    // 技能由后端按助手 module 决定，前端不再传 skills。
+    expect(firstBody.skills).toBeUndefined()
+    expect(firstBody.content).toBe('删库')
 
     hold = true
     const heldBefore = held.length
@@ -1235,24 +1286,24 @@ describe('httpApi', () => {
   it('falls back to defaults when sandbox and function payloads are sparse', async () => {
     http.get.mockResolvedValueOnce({ data: {} })
     const caps = await httpApi.sandboxes.capabilities(pid)
-    expect(caps).toMatchObject({ available: false, backend: 'cloud', images: [], cpusMax: 4, networkOptions: ['none'] })
-    http.get.mockResolvedValueOnce({ data: { sandboxes: [{}], next_cursor: 'c2' } }).mockResolvedValueOnce({ data: {} })
+    expect(caps).toMatchObject({ available: false, backend: '', images: [], cpus: 0, memoryMiB: 0, terminal: false })
+    expect(caps.reason).toBeUndefined()
+    expect(caps.ssh).toBeUndefined()
+    http.get.mockResolvedValueOnce({ data: [{}] })
     const list = await httpApi.sandboxes.list(pid)
     expect(list).toHaveLength(1)
-    expect(list[0]).toMatchObject({ id: '', network: 'none', cpus: 0, threadId: undefined, lastError: undefined })
-    http.get.mockResolvedValueOnce({ data: { sandboxes: [{ id: 's', thread_id: 't', last_error: 'e', started_at: 'a', last_active_at: 'b', expires_at: 'c' }] } })
-    expect((await httpApi.sandboxes.list(pid))[0]).toMatchObject({ threadId: 't', lastError: 'e', expiresAt: 'c' })
+    expect(list[0]).toMatchObject({ id: '', name: '', state: 'paused', status: '', source: '', cpuCount: 0,
+      lastActiveAt: undefined, lastError: undefined })
+    http.get.mockResolvedValueOnce({ data: [{ sandboxID: 's', state: 'running', metadata: { 'simplebase.source': 'console' } }] })
+    expect((await httpApi.sandboxes.list(pid))[0]).toMatchObject({ id: 's', source: 'console', endAt: undefined })
     http.post.mockResolvedValueOnce({ data: {} })
-    expect(await httpApi.sandboxes.exec(pid, 's', { command: 'x', timeoutS: 5 })).toMatchObject({ exitCode: 0, stdout: '', status: '' })
-    http.post.mockResolvedValueOnce({ data: {} })
-    await httpApi.sandboxes.create(pid, { name: 'n', start: true })
-    expect(http.post.mock.calls.at(-1)?.[2]).toMatchObject({ headers: undefined, timeout: 90000 })
-    http.get.mockResolvedValueOnce({ data: {} })
-    expect(await httpApi.sandboxes.files.list(pid, 's', '/')).toEqual([])
-    http.get.mockResolvedValueOnce({ data: { entries: [{}] } })
-    expect((await httpApi.sandboxes.files.list(pid, 's', '/'))[0]).toEqual({ name: '', path: '', kind: '', size: 0 })
-    http.get.mockResolvedValueOnce({ data: undefined })
-    expect(await httpApi.sandboxes.files.read(pid, 's', '/a')).toEqual({ content: '', encoding: 'utf8', truncated: false })
+    await httpApi.sandboxes.create(pid, {})
+    expect(http.post.mock.calls[0][1]).toMatchObject({ templateID: '', metadata: {} })
+    expect(http.post.mock.calls.at(-1)?.[2]).toMatchObject({ timeout: 90000 })
+    http.post.mockResolvedValueOnce({ data: { entries: [{}] } })
+    expect((await httpApi.sandboxes.files.list(pid, 's', '/'))[0]).toEqual({
+      name: '', path: '', kind: 'file', size: 0, permissions: '', modifiedTime: undefined
+    })
 
     http.get.mockResolvedValueOnce({ data: undefined })
     expect(await httpApi.gofunctions.listVersions(pid, 'n')).toEqual({ activeVersion: 0, versions: [] })

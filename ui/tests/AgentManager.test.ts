@@ -63,10 +63,10 @@ const agentStubs = {
     template: '<div class="conv" />'
   },
   ThreadSwitcher: {
-    props: ['threads', 'activeId', 'busy'],
+    props: ['threads', 'activeId', 'busy', 'runningThreadIds'],
     emits: ['create', 'select', 'remove'],
     template: `
-      <div class="ts">
+      <div class="ts" :data-running-threads="runningThreadIds ? [...runningThreadIds].join(',') : ''">
         <button type="button" class="ts-create" @click="$emit('create')">新会话</button>
         <button type="button" class="ts-select" @click="$emit('select', threads[0] && threads[0].id)">pick</button>
       </div>
@@ -134,6 +134,30 @@ describe('AgentManager (云助手)', () => {
         updated_at: 't'
       }
     ])
+  })
+
+  it('marks agents / threads with active runs (incl. scheduled) and stops polling when idle', async () => {
+    vi.useFakeTimers()
+    try {
+      api.agentThreads.active.mockResolvedValue([{ run_id: 'r-cron', agent_id: 'ag-1', thread_id: 'th-1' }])
+      const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+      await flushPromises()
+      expect(api.agentThreads.active).toHaveBeenCalledWith('testprj1')
+      expect(wrapper.find('[data-agent-running]').exists()).toBe(true)
+      expect(wrapper.get('.ts').attributes('data-running-threads')).toBe('th-1')
+
+      // 运行结束：下一轮轮询拿到空列表，转圈消失，之后不再轮询。
+      api.agentThreads.active.mockResolvedValue([])
+      await vi.advanceTimersByTimeAsync(3000)
+      await flushPromises()
+      expect(wrapper.find('[data-agent-running]').exists()).toBe(false)
+      const calls = api.agentThreads.active.mock.calls.length
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(api.agentThreads.active.mock.calls.length).toBe(calls)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('lists agents with schedule summary and selects one', async () => {
@@ -473,7 +497,7 @@ describe('AgentManager (云助手)', () => {
     setI18nLocale('zh-CN')
   })
 
-  it('sends @数据库 from a general thread as a database skill, not a different agent', async () => {
+  it('sends @数据库 from a general thread without treating it as an agent or a skill', async () => {
     api.agents.list.mockResolvedValue([
       { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
       { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' }
@@ -489,10 +513,10 @@ describe('AgentManager (云助手)', () => {
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
     await flushPromises()
     expect(api.agentThreads.page).toHaveBeenCalledWith('testprj1', 'general')
+    // @ 只点名助手；技能由后端按助手 module 决定，请求体不再携带 skills。
     expect(api.agentThreads.streamRun).toHaveBeenCalledWith('testprj1', 'general-thread', {
       content: '@数据库 查询统计表',
       mentions: [{ agent_id: 'general' }],
-      skills: ['database'],
       module: 'general',
       stream: true
     }, expect.any(Object))
@@ -632,9 +656,6 @@ describe('AgentManager (云助手)', () => {
     await vm.selectAgent('kv')
     await flushPromises()
     expect(wrapper.text()).toContain('需启用 CLI 技能')
-    const skills = (wrapper.vm as unknown as { mentionSkills: { id: string; available: boolean }[] }).mentionSkills
-    expect(skills.find((skill) => skill.id === 'database')?.available).toBe(false)
-    expect(skills.find((skill) => skill.id === 'sandbox')?.available).toBe(false)
     vm.draft = '查询缓存'
     await vm.onSend('查询缓存', [])
     await flushPromises()
@@ -728,7 +749,7 @@ describe('AgentManager (云助手)', () => {
   it('blocks sandbox module when sandbox_available is false', async () => {
     api.agents.modules.mockResolvedValue([
       { id: 'database', name: 'Database', description: 'd', default_tools: ['list_databases'], team_supported: false },
-      { id: 'sandbox', name: 'Sandbox', description: 'cloud microVM', default_tools: ['sandbox_exec', 'sandbox_shell', 'sandbox_read_file', 'sandbox_write_file'], team_supported: false, sandbox_available: false }
+      { id: 'sandbox', name: 'Sandbox', description: 'isolated sandbox', default_tools: ['sandbox_exec', 'sandbox_shell', 'sandbox_read_file', 'sandbox_write_file'], team_supported: false, sandbox_available: false }
     ])
     const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
     await flushPromises()
@@ -746,7 +767,7 @@ describe('AgentManager (云助手)', () => {
 
   it('allows sandbox module and shows sandbox hint when available', async () => {
     api.agents.modules.mockResolvedValue([
-      { id: 'sandbox', name: 'Sandbox', description: 'cloud microVM', default_tools: ['sandbox_exec', 'sandbox_shell', 'sandbox_read_file', 'sandbox_write_file'], team_supported: false, sandbox_available: true }
+      { id: 'sandbox', name: 'Sandbox', description: 'isolated sandbox', default_tools: ['sandbox_exec', 'sandbox_shell', 'sandbox_read_file', 'sandbox_write_file'], team_supported: false, sandbox_available: true }
     ])
     api.agents.list.mockResolvedValue([
       { ...sampleAgent, tool_ids: ['sandbox_exec', 'sandbox_shell'] }
@@ -828,6 +849,10 @@ describe('AgentManager (云助手)', () => {
     handlers.onRun?.('run-2')
     vm.onStop()
     expect(vm.chatMessages.at(-1)?.canceled).toBe(true)
+    // 重试分支的两个回调：onEnd 刷新会话列表，onError 走 toast。
+    handlers.onEnd?.('stop')
+    handlers.onError?.(Object.assign(new Error('retry failed'), { code: 'x' }))
+    expect(toast.error).toHaveBeenCalledWith('retry failed')
   })
 
   it('covers thread errors and safe retry guards', async () => {

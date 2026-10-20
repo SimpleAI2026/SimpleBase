@@ -7,3 +7,6 @@
 [submodule "skills/code-refactor"]
 	path = skills/code-refactor
 	url = https://github.com/linkxzhou/code-refactor.git
+[submodule "skills/ambition-loop"]
+	path = skills/ambition-loop
+	url = https://github.com/linkxzhou/ambition-loop.git

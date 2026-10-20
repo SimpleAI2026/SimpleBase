@@ -5,7 +5,7 @@
 // macOS：系统自带 /usr/bin/sandbox-exec。
 //
 // 这是共享内核的进程沙盒，不是 VM：它不承诺挡住内核提权漏洞，
-// 多租户不可信代码应使用 vm 包的 microVM 后端。
+// 多租户不可信代码不应交给它；需要 VM 级隔离时应另行实现 vm.Driver。
 //
 // 失败语义：隔离开着但不可用，一律 fail-closed（ErrIsolationUnavailable），
 // 不退回裸执行；只有 Enabled=false 或 danger-full-access 才返回 ErrNotIsolated，
@@ -35,6 +35,12 @@ var (
 	ErrNotIsolated = errors.New("host: isolation not requested")
 	// ErrIsolationUnavailable：要求隔离但无法建立，命令没有被执行。
 	ErrIsolationUnavailable = errors.New("host: isolation unavailable")
+	// ErrNotPTY：对非 PTY 进程调用了 Resize。
+	ErrNotPTY = errors.New("host: process has no pty")
+	// ErrUnsupportedSignal：只允许 SIGTERM 与 SIGKILL。
+	ErrUnsupportedSignal = errors.New("host: unsupported signal")
+	// ErrPTYUnsupported：当前平台没有可用的 PTY 实现。
+	ErrPTYUnsupported = errors.New("host: pty unsupported on this platform")
 )
 
 // DefaultReadOnlySubpaths 是工作区内默认再盖成只读的子路径。
@@ -59,6 +65,9 @@ type Policy struct {
 	PidsMax        int64
 	// Timeout 是单条命令的超时；0 表示由调用方的 ctx 决定。
 	Timeout time.Duration
+	// MaxOutputBytes 是合并输出的内存上限，超出部分被丢弃并置 Result.OutputTruncated；
+	// 0 表示不限（本机 CLI 沿用旧行为）。服务端必须设置，否则命令可以刷满进程内存。
+	MaxOutputBytes int
 	// BwrapPath 为空表示在 PATH 上查找，结果必须解析为绝对路径。
 	BwrapPath string
 	// HelperPath 为空表示在可执行文件同目录查找 gosandbox-inner。
@@ -109,7 +118,7 @@ func Validate(p Policy) error {
 			return fmt.Errorf("host: deny_read path %q must be absolute", r)
 		}
 	}
-	if p.MemoryMaxBytes < 0 || p.PidsMax < 0 || p.Timeout < 0 {
+	if p.MemoryMaxBytes < 0 || p.PidsMax < 0 || p.Timeout < 0 || p.MaxOutputBytes < 0 {
 		return errors.New("host: limits and timeout must not be negative")
 	}
 	if p.CPUMax != "" {

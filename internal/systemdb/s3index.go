@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
+	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // S3Object 是 sys_s3_objects 一行。
@@ -81,9 +82,7 @@ func (s *Store) ListS3Objects(ctx context.Context, projectID, prefix string, lim
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if limit <= 0 || limit > 1000 {
-		limit = 1000
-	}
+	limit = pagelimit.Normalize(limit, 1000, 1000)
 	q := `SELECT id, project_id, object_key, size, etag, content_type, last_modified, created_at, deleted_at
 	      FROM sys_s3_objects WHERE project_id = ? AND deleted_at IS NULL`
 	args := []any{projectID}

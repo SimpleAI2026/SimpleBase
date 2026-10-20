@@ -14,7 +14,7 @@ export interface AgentPromptSet {
   keys: string[]
 }
 
-/** 通用助手：覆盖数据库 / 对象存储 / 日志的只读探索，外加两条能看见「对话即操作」的技能示例。 */
+/** 通用助手：覆盖数据库 / 对象存储 / 日志的只读探索，外加两条跨模块的写入示例。 */
 const generalKeys = ['listData', 'recentErrors', 'largestObjects', 'kvWriteRead', 'gofunctionCreate']
 
 export const AGENT_PROMPTS: AgentPromptSet[] = [

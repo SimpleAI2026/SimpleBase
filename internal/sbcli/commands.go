@@ -45,8 +45,6 @@ var readOnlyCommands = map[string]bool{
 	"sandbox capabilities": true,
 	"sandbox list":         true,
 	"sandbox get":          true,
-	"sandbox exec":         true,
-	"sandbox run":          true,
 	"log search":           true,
 	"user list":            true,
 	"user get":             true,
@@ -66,9 +64,8 @@ func CommandReadOnly(resource, action string) bool {
 // CommandReadOnlyWithArgv 处理带子动作的命令（planv6.0 v2 §3.4）：
 //   - log retention get|set
 //   - function versions list|get|create|activate
-//   - sandbox files list|read|write|delete
 //
-// 其余命令退化为 CommandReadOnly（只看前两段）。
+// 其余命令退化为 CommandReadOnly（只看前两段）。沙盒的 files 子命令已删除。
 func CommandReadOnlyWithArgv(argv []string) bool {
 	if len(argv) == 0 {
 		return false
@@ -87,8 +84,6 @@ func CommandReadOnlyWithArgv(argv []string) bool {
 		return sub == "get"
 	case "function versions":
 		return sub == "list" || sub == "get"
-	case "sandbox files":
-		return sub == "list" || sub == "read"
 	}
 	return CommandReadOnly(resource, action)
 }
@@ -181,18 +176,10 @@ func dispatch(resource, action string) commandFunc {
 		return cmdSandboxCreate
 	case "sandbox delete":
 		return cmdSandboxDelete
-	case "sandbox start":
-		return cmdSandboxStart
-	case "sandbox stop":
-		return cmdSandboxStop
-	case "sandbox exec":
-		return cmdSandboxExec
-	case "sandbox update":
-		return cmdSandboxUpdate
-	case "sandbox run":
-		return cmdSandboxRun
-	case "sandbox files":
-		return cmdSandboxFiles
+	case "sandbox connect":
+		return cmdSandboxConnect
+	case "sandbox pause":
+		return cmdSandboxPause
 	case "log search":
 		return cmdLogSearch
 	case "log retention":
@@ -1036,8 +1023,13 @@ func cmdSandboxCaps(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []st
 	return c.SandboxCapabilities(ctx)
 }
 
-func cmdSandboxList(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
-	return c.ListSandboxes(ctx, "", "", 0)
+func cmdSandboxList(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	f, _, err := mustFlags(args, "state", "limit")
+	if err != nil {
+		return nil, err
+	}
+	limit, _ := strconv.Atoi(*f["limit"])
+	return c.ListSandboxes(ctx, *f["state"], limit)
 }
 
 func cmdSandboxGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
@@ -1045,15 +1037,23 @@ func cmdSandboxGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []
 	if err != nil {
 		return nil, err
 	}
-	return c.GetSandbox(ctx, id, false)
+	return c.GetSandbox(ctx, id)
 }
 
 func cmdSandboxCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "image", "name")
+	f, _, err := mustFlags(args, "template", "name", "timeout")
 	if err != nil {
 		return nil, err
 	}
-	return c.CreateSandbox(ctx, gosdk.CreateSandboxInput{Image: *f["image"], Name: *f["name"]})
+	in := gosdk.CreateSandboxInput{TemplateID: *f["template"], Name: *f["name"]}
+	if s := strings.TrimSpace(*f["timeout"]); s != "" {
+		n, perr := strconv.ParseInt(s, 10, 64)
+		if perr != nil {
+			return nil, usagef("--timeout must be an integer")
+		}
+		in.TimeoutS = n
+	}
+	return c.CreateSandbox(ctx, in)
 }
 
 func cmdSandboxDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
@@ -1067,101 +1067,35 @@ func cmdSandboxDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args
 	return map[string]any{"ok": true}, nil
 }
 
-func cmdSandboxStart(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+func cmdSandboxConnect(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	f, _, err := mustFlags(args, "id", "timeout")
+	if err != nil {
+		return nil, err
+	}
+	id, err := need(f, "id")
+	if err != nil {
+		return nil, err
+	}
+	timeout := int64(0)
+	if s := strings.TrimSpace(*f["timeout"]); s != "" {
+		n, perr := strconv.ParseInt(s, 10, 64)
+		if perr != nil {
+			return nil, usagef("--timeout must be an integer")
+		}
+		timeout = n
+	}
+	return c.ConnectSandbox(ctx, id, timeout)
+}
+
+func cmdSandboxPause(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
 	id, err := one(args, "id")
 	if err != nil {
 		return nil, err
 	}
-	return c.StartSandbox(ctx, id)
-}
-
-func cmdSandboxStop(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
+	if err := c.PauseSandbox(ctx, id); err != nil {
 		return nil, err
 	}
-	return c.StopSandbox(ctx, id)
-}
-
-func cmdSandboxExec(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "id", "command")
-	if err != nil {
-		return nil, err
-	}
-	id, err := need(f, "id")
-	if err != nil {
-		return nil, err
-	}
-	command, err := need(f, "command")
-	if err != nil {
-		return nil, err
-	}
-	return c.ExecSandbox(ctx, id, gosdk.SandboxExecInput{Command: command})
-}
-
-func cmdSandboxUpdate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "id", "name")
-	if err != nil {
-		return nil, err
-	}
-	id, err := need(f, "id")
-	if err != nil {
-		return nil, err
-	}
-	var name *string
-	if s := strings.TrimSpace(*f["name"]); s != "" {
-		name = &s
-	}
-	return c.UpdateSandbox(ctx, id, gosdk.UpdateSandboxInput{Name: name})
-}
-
-func cmdSandboxRun(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "command", "image")
-	if err != nil {
-		return nil, err
-	}
-	command, err := need(f, "command")
-	if err != nil {
-		return nil, err
-	}
-	return c.RunSandbox(ctx, gosdk.SandboxRunInput{SandboxExecInput: gosdk.SandboxExecInput{Command: command}, Image: *f["image"]})
-}
-
-func cmdSandboxFiles(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	if len(args) == 0 {
-		return nil, usagef("usage: sandbox files <list|read|write|delete>")
-	}
-	sub := args[0]
-	f, _, err := mustFlags(args[1:], "id", "path", "content")
-	if err != nil {
-		return nil, err
-	}
-	id, err := need(f, "id")
-	if err != nil {
-		return nil, err
-	}
-	path, err := need(f, "path")
-	if err != nil {
-		return nil, err
-	}
-	switch sub {
-	case "list":
-		return c.ListSandboxFiles(ctx, id, path)
-	case "read":
-		return c.ReadSandboxFile(ctx, id, path)
-	case "write":
-		if err := c.WriteSandboxFile(ctx, id, path, *f["content"]); err != nil {
-			return nil, err
-		}
-		return map[string]any{"ok": true}, nil
-	case "delete":
-		if err := c.DeleteSandboxFile(ctx, id, path); err != nil {
-			return nil, err
-		}
-		return map[string]any{"ok": true}, nil
-	default:
-		return nil, usagef("unknown sandbox files action")
-	}
+	return map[string]any{"ok": true}, nil
 }
 
 func cmdLogSearch(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {

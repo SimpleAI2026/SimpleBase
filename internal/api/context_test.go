@@ -48,10 +48,7 @@ func TestPrincipalContextRoundTrip(t *testing.T) {
 	}
 }
 
-func TestItoaAndZapFields(t *testing.T) {
-	if itoa(0) != "0" || itoa(-7) != "-7" || itoa(2048) != "2048" {
-		t.Fatalf("itoa failed")
-	}
+func TestZapFields(t *testing.T) {
 	sf := fieldString("k", "v")
 	if sf.Key != "k" || sf.Type != zapcore.StringType || sf.String != "v" {
 		t.Fatalf("fieldString=%+v", sf)

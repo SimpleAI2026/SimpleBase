@@ -411,12 +411,12 @@ const zhCN: MessageTree = {
     },
 
     sandboxes: {
-      subtitle: '按需启动的隔离 Linux 环境，空闲后自动回收',
+      subtitle: '项目级隔离命令环境（本机进程隔离，无网络），空闲后自动回收',
       cardTitle: '云沙盒列表',
       cardDesc: '项目级隔离环境 · {n} 个沙盒',
       create: '新建沙盒',
       notConfiguredTitle: '未配置云沙盒',
-      notConfiguredDesc: '启用 sandbox.enabled，并通过 SIMPLEBASE_SANDBOX_API_KEY 配置 Cloud 密钥。',
+      notConfiguredDesc: '在 config.yaml 中启用 sandbox.enabled。使用本机隔离，不需要任何密钥；本机不具备隔离能力时服务会跳过此功能并在日志里说明原因。',
       adminUnsupported: '系统项目不支持云沙盒',
       adminUnsupportedDesc: '请切换到普通项目使用',
       filterStatus: '状态',
@@ -425,27 +425,26 @@ const zhCN: MessageTree = {
       filterSourceAria: '按来源过滤',
       colName: '名称',
       colStatus: '状态',
-      colImage: '镜像',
+      colTemplate: '模板',
       colSpec: '规格',
       colSource: '来源',
       colLastActive: '最近活跃',
       colExpires: '到期',
       colActions: '操作',
       emptyTitle: '还没有云沙盒',
-      emptyDesc: '新建后按需启动；空闲后会自动回收',
+      emptyDesc: '新建后即可在终端、文件与 E2B SDK 中使用；到期后会自动回收',
       sourceApi: 'API',
       sourceConsole: '控制台',
       sourceAgent: 'Agent',
-      sourceRun: '一次性',
       open: '打开',
-      stop: '停止',
-      start: '启动',
+      stop: '暂停',
+      start: '恢复',
       deleteConfirm: '确认删除 {name}？',
       delete: '删除',
-      startedToast: '沙盒已启动',
-      startFailed: '启动失败',
-      stoppedToast: '沙盒已停止',
-      stopFailed: '停止失败',
+      startedToast: '沙盒已恢复',
+      startFailed: '恢复失败',
+      stoppedToast: '沙盒已暂停',
+      stopFailed: '暂停失败',
       deletedToast: '沙盒已删除',
       deleteFailed: '删除失败',
       loadFailed: '加载云沙盒失败'
@@ -523,10 +522,6 @@ const zhCN: MessageTree = {
         general: '通用助手', database: '数据库助手', kv: '键值助手', gofunction: '云函数助手',
         cron: '定时任务助手', s3: '对象存储助手', logs: '日志助手', sandbox: '沙盒助手'
       },
-      skillNames: {
-        database: '数据库', kv: '键值', s3: '对象存储', gofunction: '云函数',
-        cron: '定时任务', sandbox: '沙盒', logs: '日志', project: '项目'
-      },
       create: '新建',
       searchPlaceholder: '搜索助手',
       searchClear: '清除搜索',
@@ -560,7 +555,7 @@ const zhCN: MessageTree = {
       formWritable: '允许写操作',
       formWritableHint: '关闭时该助手只能执行只读命令；开启后可在已加载技能范围内写（破坏性命令仍需确认）',
       toolLabel: '工具：{label}',
-      composerWithAgent: "给 {name} 发消息，{'@'} 调用技能",
+      composerWithAgent: "给 {name} 发消息，{'@'} 点名助手",
       composerIdle: "输入 {'@'} 点名 Agent",
       mentionHint: "点名 {'@'}{name} 后发送",
       mentionHintGeneric: '点名一个 Agent 后发送',
@@ -604,8 +599,8 @@ const zhCN: MessageTree = {
           listData: '列出项目里所有数据库和集合',
           recentErrors: '最近 1 小时有哪些错误日志？按类型汇总',
           largestObjects: '对象存储里最大的 10 个文件是什么',
-          kvWriteRead: "用 {'@'}键值 写入 key demo 值 hello，再读出来",
-          gofunctionCreate: "用 {'@'}云函数 创建一个返回 Hello SimpleBase 的函数并调用一次"
+          kvWriteRead: '写入 key demo 值 hello，再读出来',
+          gofunctionCreate: '创建一个返回 Hello SimpleBase 的函数并调用一次'
         },
         database: {
           listTables: '列出每个库的表和字段',
@@ -688,6 +683,7 @@ const zhCN: MessageTree = {
 
     agentCard: {
       selectAria: '选择 Agent {name}',
+      running: '正在回复',
       builtin: '内置',
       readonly: '只读',
       readonlyHint: '该助手未开启写权限，写命令会直接失败。在「编辑助手」中打开「允许写操作」后可写',
@@ -738,7 +734,8 @@ const zhCN: MessageTree = {
       deleteConfirm: '确认删除当前会话？',
       deleteAria: '删除会话 {title}',
       loadingThreads: '正在加载会话',
-      selectThread: '选择会话'
+      selectThread: '选择会话',
+      running: '正在回复'
     },
 
     agentSchedule: {
@@ -780,10 +777,8 @@ const zhCN: MessageTree = {
 
     aiComposer: {
       noAgentMatch: '无匹配 Agent',
-      noMentionMatch: '无匹配技能或助手',
-      skillGroup: '技能',
+      noMentionMatch: '无匹配助手',
       agentGroup: '助手',
-      unavailable: '不可用',
       selectMention: '同名或含空格的助手无法凭手输确定，请选择候选后再发送',
       stop: '停止',
       stopAria: '停止生成',
@@ -1450,20 +1445,16 @@ const zhCN: MessageTree = {
 
     sandboxCreate: {
       title: '新建云沙盒',
-      description: '沙盒按需启动，空闲后自动回收。',
+      description: '沙盒创建后立即运行，超时后自动回收。',
       nameLabel: '名称（留空自动生成）',
       namePlaceholder: 'etl-check',
       nameAria: '沙盒名称',
       nameInvalid: '仅限小写字母、数字与连字符，最长 63 位',
-      imageLabel: '镜像',
-      imageAria: '沙盒镜像',
-      cpuLabel: 'CPU 核数',
-      cpuAria: 'CPU 核数',
-      memoryLabel: '内存 MiB',
-      memoryAria: '内存 MiB',
-      networkLabel: '网络',
-      networkAria: '沙盒网络',
-      startNow: '立即启动',
+      templateLabel: '模板',
+      templateAria: '沙盒模板',
+      timeoutLabel: '存活时间（秒）',
+      timeoutAria: '沙盒存活时间（秒）',
+      timeoutInvalid: '请输入 1 到 {max} 之间的整数',
       created: '云沙盒已创建',
       createFailed: '创建云沙盒失败'
     },
@@ -1473,15 +1464,6 @@ const zhCN: MessageTree = {
       tabTerminal: '终端',
       tabFiles: '文件',
       tabInfo: '信息',
-      agentReadonly: '此沙盒由 Agent 会话使用，终端只读。',
-      commandAria: '沙盒命令',
-      commandPlaceholder: '输入命令，例如 python -V',
-      coldStart: '冷启动中…',
-      execute: '执行',
-      exitMeta: 'exit {code} · {duration}ms',
-      timedOut: ' · 超时',
-      truncatedSuffix: ' · 输出已截断',
-      noCommand: '尚未执行命令。执行是同步请求，输出会一次性返回。',
       refresh: '刷新',
       goUp: '上一级',
       newFile: '新建文件',
@@ -1495,13 +1477,19 @@ const zhCN: MessageTree = {
       save: '保存',
       download: '下载',
       binaryHint: '二进制文件无法编辑；可下载原始文件。',
-      statusLabel: '状态：{status} · 来源：{source}',
-      specLabel: '镜像：{image} · {cpus}C / {memory}MiB · 网络：{network}',
-      timeLabel: '创建于：{created} · 最后活动：{active}',
+      infoState: '状态 · 来源',
+      infoTemplate: '模板',
+      infoSpec: '规格',
+      infoStarted: '启动时间',
+      infoLastActive: '最近活跃',
+      infoEndAt: '到期时间',
+      sshTitle: 'SSH 登录',
+      copySsh: '复制 SSH 命令',
+      e2bTitle: 'E2B SDK 接入',
+      copyE2b: '复制接入片段',
       copyCurlExample: '复制 curl 示例',
       loadFilesFailed: '加载文件失败',
-      executeFailed: '执行失败',
-      contentTruncated: '文件内容已截断',
+      contentTruncated: '文件超出大小限制，已按二进制处理',
       readFailed: '读取失败',
       fileSaved: '文件已保存',
       saveFailed: '保存失败',
@@ -1511,8 +1499,33 @@ const zhCN: MessageTree = {
       uploadSuccess: '上传成功',
       uploadFailed: '上传失败',
       downloadFailed: '下载失败',
+      sshCopied: 'SSH 命令已复制',
+      e2bCopied: '接入片段已复制',
       curlCopied: 'curl 示例已复制',
       clipboardFailed: '无法复制到剪贴板'
+    },
+
+    sandboxTerminal: {
+      reconnect: '重新连接',
+      ticketFailed: '无法获取终端票据',
+      exited: '会话已退出（exit {code}）',
+      status: {
+        idle: '未连接',
+        connecting: '连接中…',
+        connected: '已连接',
+        closed: '连接已关闭',
+        error: '连接失败'
+      },
+      unavailable: {
+        agent: '此沙盒由 Agent 会话使用，不开放终端。',
+        agentTitle: '终端不可用',
+        unsupported: '当前后端不支持交互终端。',
+        unsupportedTitle: '终端未启用',
+        notRunning: '沙盒已暂停，请先在列表中恢复后再打开终端。',
+        notRunningTitle: '沙盒未运行',
+        readonly: '当前账号只有只读权限，不能打开终端。',
+        readonlyTitle: '无终端权限'
+      }
     },
 
     connection: {

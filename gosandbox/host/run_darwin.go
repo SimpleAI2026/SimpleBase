@@ -50,8 +50,8 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 	}
 	c.Env = cmd.Env
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	var out bytes.Buffer
-	c.Stdout, c.Stderr = &out, &out
+	out := &cappedBuffer{max: p.MaxOutputBytes}
+	c.Stdout, c.Stderr = out, out
 
 	start := time.Now()
 	if err := c.Start(); err != nil {
@@ -68,7 +68,7 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 		_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
 		werr = <-done
 	}
-	res := Result{Output: out.Bytes(), TimedOut: timedOut, Duration: time.Since(start),
+	res := Result{Output: out.buf.Bytes(), OutputTruncated: out.truncated, TimedOut: timedOut, Duration: time.Since(start),
 		Limits: Limits{Configured: limitsConfigured(p), Backend: cgroupNone}}
 	if timedOut {
 		res.ExitCode = -1

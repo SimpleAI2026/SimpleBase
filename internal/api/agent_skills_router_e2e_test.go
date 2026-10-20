@@ -22,9 +22,10 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
@@ -147,8 +148,8 @@ func newSkillRouterEnv(t *testing.T) *skillRouterEnv {
 
 	llm := &scriptLLM{}
 	rt := &cloudagent.Runtime{
-		LLM: llm, SkillsCLI: true, CLI: cloudagent.InProcessCLI{},
-		APIBaseURL: srv.URL, Issuer: auth.HMACDelegationIssuer{Secret: "test-secret", Reg: delegations},
+		LLM: llm, SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
+		APIBaseURL: srv.URL, Policy: agentbridge.NewCommandPolicy(), Issuer: agentbridge.NewDelegationIssuer("test-secret", delegations),
 		// Confirm 留空：由 NewRouter 注入统一的 confirmHub，
 		// 保证 Runtime.Wait 与 handler.Resolve 用同一个 hub。
 		ConfirmTimeout: 30 * time.Second, DelegationTTL: time.Minute,
@@ -260,12 +261,14 @@ func (env *skillRouterEnv) req(method, path string, body []byte) *httptest.Respo
 }
 
 // srRun 对真实 router 发起流式 run，读到 end 返回全部事件。
-func (env *skillRouterEnv) run(t *testing.T, content string, skills []string, steps [][]cloudagent.StreamDelta) []sseEvent {
+// srRun 对真实 router 发起流式 run，读到 end 返回全部事件。
+// 技能由 thread 绑定的助手 module 决定，请求体不再传 skills。
+func (env *skillRouterEnv) run(t *testing.T, content string, module string, steps [][]cloudagent.StreamDelta) []sseEvent {
 	t.Helper()
 	env.dataHits.reset()
 	env.llm.reset(steps)
-	thread := env.createThread(t)
-	body := map[string]any{"content": content, "skills": skills, "stream": true}
+	thread := env.createThreadFor(t, module)
+	body := map[string]any{"content": content, "stream": true}
 	raw, _ := json.Marshal(body)
 	rec := env.req(http.MethodPost, "/v1/projects/proj-1/agent-threads/"+thread+"/runs", raw)
 	if rec.Code != http.StatusOK {
@@ -276,6 +279,34 @@ func (env *skillRouterEnv) run(t *testing.T, content string, skills []string, st
 		t.Fatal(err)
 	}
 	return evs
+}
+
+// createThreadFor 取某个 module 的内置助手并建绑定 thread。
+func (env *skillRouterEnv) createThreadFor(t *testing.T, module string) string {
+	t.Helper()
+	list, err := env.store.ListCloudAgents(context.Background(), "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range list {
+		if a.Module != module || a.BuiltinKey != module {
+			continue
+		}
+		raw, _ := json.Marshal(map[string]any{"title": "t", "agent_id": a.ID})
+		rec := env.req(http.MethodPost, "/v1/projects/proj-1/agent-threads", raw)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("thread %d %s", rec.Code, rec.Body.String())
+		}
+		var out struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.ID
+	}
+	t.Fatalf("seeded agent for module %s not found", module)
+	return ""
 }
 
 func (env *skillRouterEnv) createThread(t *testing.T) string {
@@ -333,7 +364,7 @@ func sseResultIsError(evs []sseEvent, code string) bool {
 func TestAgentSkillsRouterE2E_16_GoFunctionCreateInvoke(t *testing.T) {
 	env := newSkillRouterEnv(t)
 	src := base64.StdEncoding.EncodeToString([]byte("package main\ntype Req struct{ Name string }\nfunc Hello(req Req) string { return \"hi\" }"))
-	evs := env.run(t, "写一个 Hello 云函数并调用", []string{"gofunction"},
+	evs := env.run(t, "写一个 Hello 云函数并调用", "gofunction",
 		[][]cloudagent.StreamDelta{
 			toolStdin("c1", []string{"function", "create", "--name", "hello", "--file", "-", "--source-b64", src}, ""),
 			toolDeltas("c2", []string{"function", "invoke", "--name", "hello", "--export", "Hello"}),
@@ -396,7 +427,7 @@ func TestAgentSkillsRouterE2E_17_DelegationCannotCallAgentRoutes(t *testing.T) {
 // 修复前失败：CLI 直接读宿主机文件并上传。
 func TestAgentSkillsRouterE2E_18_HostFileForbiddenInAgentMode(t *testing.T) {
 	env := newSkillRouterEnv(t)
-	evs := env.run(t, "把宿主机文件传上去", []string{"gofunction"},
+	evs := env.run(t, "把宿主机文件传上去", "gofunction",
 		[][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"function", "create", "--name", "evil", "--file", "/etc/hosts"}),
 			textDeltas("no"),
@@ -418,12 +449,12 @@ func TestAgentSkillsRouterE2E_18_HostFileForbiddenInAgentMode(t *testing.T) {
 func TestAgentSkillsRouterE2E_19_InitiatorCheck(t *testing.T) {
 	env := newSkillRouterEnv(t)
 	env.dataHits.reset()
-	thread := env.createThread(t)
+	thread := env.createThreadFor(t, "database")
 	env.llm.reset([][]cloudagent.StreamDelta{
 		toolDeltas("c1", []string{"database", "delete", "--id", "db-1"}),
 		textDeltas("done"),
 	})
-	body, _ := json.Marshal(map[string]any{"content": "删掉库", "skills": []string{"database"}, "stream": true})
+	body, _ := json.Marshal(map[string]any{"content": "删掉库", "stream": true})
 	endpoint := env.srv.URL + "/v1/projects/proj-1/agent-threads/" + thread + "/runs"
 	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(string(body)))
 	if err != nil {
@@ -487,26 +518,14 @@ func TestAgentSkillsRouterE2E_19_InitiatorCheck(t *testing.T) {
 	}
 }
 
-// 20：@项目 quota → audit，走真实 /quota 与 /audit（D4：project 只保留只读两面）。
-func TestAgentSkillsRouterE2E_20_ProjectQuotaAudit(t *testing.T) {
-	env := newSkillRouterEnv(t)
-	evs := env.run(t, "查配额和审计", []string{"project"},
-		[][]cloudagent.StreamDelta{
-			toolDeltas("c1", []string{"quota", "get"}),
-			toolDeltas("c2", []string{"audit", "list", "--limit", "5"}),
-			textDeltas("done"),
-		})
-	if env.dataHits.count(http.MethodGet, "/quota", true) != 1 {
-		t.Fatalf("quota hits=%+v", env.dataHits.hits)
+// 20：project 技能的 allow 前缀（D4：只保留 quota / audit 只读两面）。
+// `@` 只点名助手后，没有助手 module 对应 project，该技能不再有运行入口，
+// 因此这里只校验前缀白名单，不再走真实 /quota 与 /audit 调用链。
+func TestAgentSkillsRouterE2E_20_ProjectSkillPrefixes(t *testing.T) {
+	if !cloudagent.AllowArgv([]string{"project"}, []string{"quota", "get"}) ||
+		!cloudagent.AllowArgv([]string{"project"}, []string{"audit", "list"}) {
+		t.Fatal("project skill 应放行 quota / audit")
 	}
-	if env.dataHits.count(http.MethodGet, "/audit", true) != 1 {
-		t.Fatalf("audit hits=%+v", env.dataHits.hits)
-	}
-	if sseLastReason(evs) != "stop" {
-		t.Fatalf("events: %+v", evs)
-	}
-	// project skill 的 allow 前缀不含 user/apikey/settings：
-	// AllowArgv 应拒绝这些命令。
 	if cloudagent.AllowArgv([]string{"project"}, []string{"user", "list"}) {
 		t.Fatal("user 命令不应被 project skill 放行（D4）")
 	}

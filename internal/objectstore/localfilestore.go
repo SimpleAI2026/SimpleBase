@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
 )
 
 // localFileStore 把对象内容持久化到 root 目录下的相对路径文件。
@@ -95,12 +97,7 @@ func (s *localFileStore) Put(ctx context.Context, key string, r io.Reader, size 
 		return FileObject{}, err
 	}
 	// 先写临时文件再 rename，避免进程中断产生半截文件。
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return FileObject{}, err
-	}
-	if err := os.Rename(tmp, p); err != nil {
-		_ = os.Remove(tmp)
+	if err := atomicfile.Write(p, data, 0o644); err != nil {
 		return FileObject{}, err
 	}
 	info, err := os.Stat(p)

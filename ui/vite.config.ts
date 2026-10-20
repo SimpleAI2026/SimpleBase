@@ -56,7 +56,10 @@ export default defineConfig({
       '/health': { target: apiTarget, changeOrigin: true },
       // 云函数调用面前缀（ui-gofunction-plan §7.2）：UI 自身不请求此前缀，
       // 仅供 GoFuncTestModal 展示的 invokeUrl 在 dev 模式下手动 curl 时转发
-      '/go': { target: apiTarget, changeOrigin: true }
+      '/go': { target: apiTarget, changeOrigin: true },
+      // 云沙盒 E2B 兼容 API（控制面 /e2b/**、envd /e2b/envd/**、扩展 /e2b/ext/**）。
+      // 终端 WebSocket 后端会校验 Origin 与 Host 同源，所以保留原 Host（changeOrigin: false）并开启 ws。
+      '/e2b': { target: apiTarget, changeOrigin: false, ws: true }
     }
   },
   preview: {

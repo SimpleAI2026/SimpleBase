@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // SandboxRow 是 sys_sandboxes 一行（planv4.0 cloud-sandbox-plan §6）。
@@ -32,11 +35,14 @@ type SandboxRow struct {
 	LastActiveAt time.Time
 	ExpiresAt    time.Time
 	DeletedAt    time.Time
+	// Metadata 是用户自定义键值（E2B metadata）的 JSON 对象；空串等价于 "{}"。
+	// 对应 v50 迁移新增的 metadata 列，追加在列清单末尾。
+	Metadata string
 }
 
 const sandboxColumns = `id, project_id, name, cloud_name, source, thread_id, image, cpus, memory_mib, network,
 	idle_timeout_s, max_duration_s, status, last_error, created_by, created_at, started_at, last_active_at,
-	expires_at, deleted_at`
+	expires_at, deleted_at, metadata`
 
 // CreateSandbox 插入一行；ID 为空时生成 uuid。名称唯一性由调用方先查后写保证。
 func (s *Store) CreateSandbox(ctx context.Context, r SandboxRow) (SandboxRow, error) {
@@ -51,10 +57,11 @@ func (s *Store) CreateSandbox(ctx context.Context, r SandboxRow) (SandboxRow, er
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sys_sandboxes(`+sandboxColumns+`)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.ProjectID, r.Name, r.CloudName, r.Source, nullString(r.ThreadID), r.Image, r.CPUs, r.MemoryMiB, r.Network,
 		r.IdleTimeoutS, r.MaxDurationS, r.Status, r.LastError, r.CreatedBy, r.CreatedAt.UTC(),
-		nullTimeValue(r.StartedAt), nullTimeValue(r.LastActiveAt), nullTimeValue(r.ExpiresAt), nullTimeValue(r.DeletedAt))
+		nullTimeValue(r.StartedAt), nullTimeValue(r.LastActiveAt), nullTimeValue(r.ExpiresAt), nullTimeValue(r.DeletedAt),
+		metadataOrEmpty(r.Metadata))
 	if err != nil {
 		return SandboxRow{}, err
 	}
@@ -71,6 +78,42 @@ func (s *Store) GetSandbox(ctx context.Context, projectID, id string) (SandboxRo
 		`SELECT `+sandboxColumns+` FROM sys_sandboxes
 		 WHERE id = ? AND project_id = ? AND deleted_at IS NULL`, id, projectID)
 	return scanSandbox(row)
+}
+
+// GetSandboxByID 不带项目条件按 id 取未删除行。只供「请求里没有项目」的入口使用
+// （SSH 登录按沙盒 ID 反查），调用方取到后必须再校验主体对 row.ProjectID 的访问权。
+func (s *Store) GetSandboxByID(ctx context.Context, id string) (SandboxRow, error) {
+	if s == nil || s.db == nil {
+		return SandboxRow{}, ErrUnavailable
+	}
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+sandboxColumns+` FROM sys_sandboxes WHERE id = ? AND deleted_at IS NULL`, id)
+	return scanSandbox(row)
+}
+
+// SandboxSchemaReady 报告 sys_sandboxes 是否已有 metadata 列（迁移 v50 是否已应用）。
+// 只做一次 LIMIT 0 的 SELECT，缺列时驱动报错；不改结构，也不依赖具体数据库的元数据表。
+// 未迁移时沙盒模块自行置为不可用，而不是让每个请求失败。
+func (s *Store) SandboxSchemaReady(ctx context.Context) (bool, error) {
+	if s == nil || s.db == nil {
+		return false, ErrUnavailable
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT metadata FROM sys_sandboxes LIMIT 0`)
+	if err != nil {
+		if isMissingColumn(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, rows.Close()
+}
+
+// isMissingColumn 判断是不是「列不存在」。SQLite 的文案是 "no such column"，
+// DuckDB 是 "does not have a column" / "Referenced column ... not found"。
+func isMissingColumn(err error) bool {
+	m := strings.ToLower(err.Error())
+	return strings.Contains(m, "no such column") || strings.Contains(m, "does not have a column") ||
+		(strings.Contains(m, "column") && strings.Contains(m, "not found"))
 }
 
 // GetSandboxByName 按项目内名称取未删除行。
@@ -106,9 +149,7 @@ func (s *Store) ListSandboxes(ctx context.Context, projectID, status, source, cu
 	if s == nil || s.db == nil {
 		return nil, "", ErrUnavailable
 	}
-	if limit <= 0 || limit > 500 {
-		limit = 500
-	}
+	limit = pagelimit.Normalize(limit, 500, 500)
 	q := `SELECT ` + sandboxColumns + ` FROM sys_sandboxes WHERE project_id = ? AND deleted_at IS NULL`
 	args := []any{projectID}
 	if status != "" {
@@ -273,9 +314,10 @@ func scanSandbox(sc rowScanner) (SandboxRow, error) {
 	var thread sql.NullString
 	var cpus, mem int64
 	var started, active, expires, deleted sql.NullTime
+	var meta sql.NullString
 	err := sc.Scan(&r.ID, &r.ProjectID, &r.Name, &r.CloudName, &r.Source, &thread, &r.Image, &cpus, &mem, &r.Network,
 		&r.IdleTimeoutS, &r.MaxDurationS, &r.Status, &r.LastError, &r.CreatedBy, &r.CreatedAt,
-		&started, &active, &expires, &deleted)
+		&started, &active, &expires, &deleted, &meta)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SandboxRow{}, sql.ErrNoRows
 	}
@@ -283,6 +325,7 @@ func scanSandbox(sc rowScanner) (SandboxRow, error) {
 		return SandboxRow{}, err
 	}
 	r.ThreadID = thread.String
+	r.Metadata = metadataOrEmpty(meta.String)
 	r.CPUs, r.MemoryMiB = int(cpus), int(mem)
 	if started.Valid {
 		r.StartedAt = started.Time
@@ -305,4 +348,12 @@ func nullTimeValue(t time.Time) any {
 		return nil
 	}
 	return t.UTC()
+}
+
+// metadataOrEmpty 把空串归一为 "{}"，保证库里始终是合法 JSON 对象。
+func metadataOrEmpty(m string) string {
+	if m == "" {
+		return "{}"
+	}
+	return m
 }

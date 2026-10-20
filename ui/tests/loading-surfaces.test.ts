@@ -54,12 +54,12 @@ function hold<T>(): Deferred<T> {
 
 const available = {
   available: true, backend: 'fake', images: ['python:3.12-slim'], defaultImage: 'python:3.12-slim',
-  cpusMax: 4, memoryMiBMax: 4096, maxFileBytes: 1048576, maxOutputBytes: 65536,
-  maxPerProject: 5, execTimeoutMaxS: 300, networkOptions: ['none']
+  cpus: 1, memoryMiB: 512, timeoutDefaultS: 300, timeoutMaxS: 3600, maxFileBytes: 1048576, maxOutputBytes: 65536,
+  maxPerProject: 5, terminal: true
 }
 const sandbox = {
-  id: 'sbx-1', name: 'ci-test', cloudName: 'sbx-1', source: 'api', status: 'running', image: 'python:3.12-slim',
-  cpus: 1, memoryMiB: 256, network: 'none', idleTimeoutS: 300, maxDurationS: 1800,
+  id: 'sbx-1', name: 'ci-test', templateId: 'python:3.12-slim', state: 'running', status: 'running', source: 'api',
+  cpuCount: 1, memoryMB: 256, idleTimeoutS: 300, metadata: {},
   createdAt: '2026-10-04T00:00:00Z', lastActiveAt: '2026-10-04T00:10:00Z'
 }
 const fnRecord = {
@@ -253,10 +253,10 @@ describe('loading surfaces', () => {
     const files = hold<unknown[]>()
     api.sandboxes.files.list.mockReturnValue(files.promise)
     const drawer = mount(SandboxDrawer, {
-      props: { open: true, projectId: 'p', sandbox, maxFileBytes: 1048576 },
-      global: { stubs: uiStubs }
+      props: { open: true, projectId: 'p', sandbox, capabilities: available },
+      global: { stubs: { ...uiStubs, Tabs: false, TabsList: false, TabsTrigger: false, TabsContent: false, SandboxTerminal: { template: '<div />' } } }
     })
-    await clickText(drawer, '文件')
+    await drawer.findAll('[data-slot="tabs-trigger"]').find((t) => t.text() === '文件')!.trigger('mousedown')
     await flushPromises()
     expect(drawer.text()).not.toContain('目录为空')
     expect(drawer.text()).toContain('正在加载')

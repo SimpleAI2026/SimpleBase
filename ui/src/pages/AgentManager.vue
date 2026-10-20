@@ -14,6 +14,7 @@
           :error="agentsError"
           :schedule-by-agent="scheduleByAgent"
           :schedule-summary="scheduleSummary"
+          :running-agent-ids="runningAgentIds"
           @reload="loadAgents"
           @create="openCreate"
           @select="selectAgent"
@@ -42,6 +43,7 @@
                 :active-id="threadId"
                 :busy="sending"
                 :pending="threadPending && !threadHasData"
+                :running-thread-ids="runningThreadIds"
                 @create="resetThread"
                 @select="selectThread"
               />
@@ -151,7 +153,6 @@
               :disabled="!threadId || !!activeCapabilityError"
               :placeholder="composerPlaceholder"
               :mention-agents="mentionAgents"
-              :mention-skills="mentionSkills"
               @send="onSend"
               @stop="onStop"
             />
@@ -214,7 +215,7 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { i18n } from '@/locales'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -254,7 +255,7 @@ import AgentScheduleModal from '../components/ai/AgentScheduleModal.vue'
 import { useAgentConversation } from '../composables/useAgentConversation'
 import { useLoadState } from '@/composables/useLoadState'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
-import type { AgentMessage } from '../services/types'
+import type { ActiveAgentRun, AgentMessage } from '../services/types'
 import type { ChatMsg } from '../composables/useAiChat'
 import type { AgentSchedule } from '../services/types'
 
@@ -321,6 +322,62 @@ const confirmation = conv.confirmation
 const statusText = conv.statusText
 const failedRunId = conv.failedRunId
 
+/**
+ * 「正在回复」指示（助手列表头像进度环 + 会话切换器转圈）。
+ * 服务端 /agent-runs/active 覆盖后台续跑与定时任务；当前会话的 sending 本地立即生效。
+ * 有运行中的 run 时每 3s 轮询，全部结束即停；页面隐藏时暂停。
+ */
+const activeRuns = ref<ActiveAgentRun[]>([])
+let activePollTimer: ReturnType<typeof setTimeout> | null = null
+let activeDisposed = false
+const ACTIVE_POLL_MS = 3000
+
+const runningAgentIds = computed(() => {
+  const ids = new Set(activeRuns.value.map((r) => r.agent_id))
+  if (sending.value && activeId.value) ids.add(activeId.value)
+  return ids
+})
+const runningThreadIds = computed(() => {
+  const ids = new Set(activeRuns.value.map((r) => r.thread_id))
+  if (sending.value && threadId.value) ids.add(threadId.value)
+  return ids
+})
+
+function clearActivePoll() {
+  if (activePollTimer) clearTimeout(activePollTimer)
+  activePollTimer = null
+}
+
+async function refreshActiveRuns() {
+  clearActivePoll()
+  const projectId = project.id
+  if (!projectId || activeDisposed) return
+  try {
+    const list = await api.agentThreads.active(projectId)
+    if (activeDisposed || project.id !== projectId) return
+    activeRuns.value = Array.isArray(list) ? list : []
+  } catch {
+    // 指示性数据：失败静默，保留上一次结果，下轮再试。
+  }
+  if (activeDisposed || project.id !== projectId) return
+  if (activeRuns.value.length || sending.value) {
+    activePollTimer = setTimeout(() => {
+      activePollTimer = null
+      // 页面隐藏时暂停，回到前台由 visibilitychange 续上。
+      if (typeof document !== 'undefined' && document.hidden) return
+      void refreshActiveRuns()
+    }, ACTIVE_POLL_MS)
+  }
+}
+
+function onVisibilityChange() {
+  if (!document.hidden && !activePollTimer) void refreshActiveRuns()
+}
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange)
+
+// 本地 run 开始 / 结束都刷新一次：开始时启动轮询，结束时及时去掉转圈。
+watch(sending, () => { void refreshActiveRuns() })
+
 const builtinDefaultNames: Record<string, string> = {
   general: '通用助手', database: 'Database', s3: 'S3', logs: 'Logs',
   kv: '键值助手', gofunction: '云函数助手', cron: '定时任务助手', sandbox: '沙盒助手'
@@ -349,15 +406,6 @@ const mentionAgents = computed(() => displayedAgents.value.map((a) => ({
   legacyName: a.builtin_key ? agents.value.find((raw) => raw.id === a.id)?.name : undefined,
   builtinKey: a.builtin_key && agents.value.find((raw) => raw.id === a.id)?.name === builtinDefaultNames[a.builtin_key] ? a.builtin_key : undefined
 })))
-const mentionSkills = computed(() => {
-  const cliEnabled = modules.value.some((module) => module.id === 'kv')
-  return ['database', 'kv', 's3', 'gofunction', 'cron', 'sandbox', 'logs', 'project'].map((id) => ({
-    id,
-    name: t(`pages.agents.skillNames.${id}`),
-    available: cliEnabled && (id !== 'sandbox' || modules.value.find((m) => m.id === 'sandbox')?.sandbox_available === true),
-    unavailableReason: !cliEnabled ? t('pages.agents.cliSkillsUnavailable') : (id === 'sandbox' && modules.value.find((m) => m.id === 'sandbox')?.sandbox_available !== true ? t('pages.agents.sandboxUnavailable') : undefined)
-  }))
-})
 const composerPlaceholder = computed(() =>
   activeAgent.value
     ? t('pages.agents.composerWithAgent', { name: activeAgent.value.name })
@@ -417,6 +465,7 @@ watch(
   () => project.id,
   () => {
     switchTargetId.value = ''
+    activeRuns.value = []
     void bootstrap()
   }
 )
@@ -438,7 +487,7 @@ async function loadModelOptions() {
 async function bootstrap() {
   // loadThreads 依赖 activeId（由 loadAgents 决定），所以两者必须串行；
   // 调度与模型候选与它们无关，可以和 loadAgents 并行。
-  await Promise.all([loadSchedules(), loadModelOptions(), (async () => {
+  await Promise.all([loadSchedules(), loadModelOptions(), refreshActiveRuns(), (async () => {
     await loadAgents()
     await loadThreads()
   })()])
@@ -575,12 +624,38 @@ async function loadThreadMessages(id: string): Promise<boolean> {
   const msgs = await api.agentThreads.messages(project.id, id)
   if (threadId.value !== id) return false
   chatMessages.value = msgs.map((m) => toChatMessage(m, agents.value.find((a) => a.id === m.agent_id)?.module))
+  void resumeActiveRun(id)
   return chatMessages.value.length > 0
+}
+
+/**
+ * 回到会话时续接后台仍在运行的 run：切换界面只断开 SSE，不取消 run，
+ * 这里查最新一次 run，仍在运行就回放事件并继续跟随。
+ */
+async function resumeActiveRun(id: string) {
+  if (sending.value) return
+  const runs = await api.agentThreads.runs(project.id, id, 1).catch(() => [])
+  const run = runs?.[0]
+  if (!run || threadId.value !== id || sending.value) return
+  if (run.status !== 'running' && run.status !== 'queued') return
+  conv.attach(run.id, {
+    module: agents.value.find((a) => a.id === run.agent_id)?.module,
+    onEnd: () => {
+      refreshThreadsForAgent()
+    },
+    // 事件缓存已过期等：不打扰用户，重新拉一次已落库的消息。
+    onError: () => {
+      void api.agentThreads.messages(project.id, id).then((list) => {
+        if (threadId.value !== id || sending.value) return
+        chatMessages.value = list.map((m) => toChatMessage(m, agents.value.find((a) => a.id === m.agent_id)?.module))
+      }).catch(() => undefined)
+    }
+  })
 }
 
 async function selectThread(id: string) {
   if (!id || !threads.value.some((thread) => thread.id === id)) return
-  onStop()
+  detachRun()
   switchTargetId.value = ''
   threadId.value = id
   if (router?.replace) void router.replace({ query: { ...route.query, thread: id } })
@@ -600,7 +675,7 @@ function reloadThread() {
  */
 async function selectAgent(id: string) {
   if (!id || id === activeId.value) return
-  onStop()
+  detachRun()
   switchTargetId.value = ''
   activeId.value = id
   threadId.value = ''
@@ -780,7 +855,7 @@ async function removeAgent(a: CloudAgent) {
 }
 
 async function resetThread() {
-  onStop()
+  detachRun()
   switchTargetId.value = ''
   if (!activeId.value) return
   try {
@@ -810,7 +885,7 @@ function refreshThreadsForAgent() {
   })
 }
 
-async function onSend(text: string, mentions: { agent_id: string }[], skills: string[] = []) {
+async function onSend(text: string, mentions: { agent_id: string }[]) {
   const content = text.trim()
   if (!content || sending.value) return
   if (new Set(mentions.map((m) => m.agent_id)).size > 1) {
@@ -840,7 +915,7 @@ async function onSend(text: string, mentions: { agent_id: string }[], skills: st
     return
   }
   draft.value = ''
-  conv.start({ content, mentions: [...used], skills, module: speaker?.module }, {
+  conv.start({ content, mentions: [...used], module: speaker?.module }, {
     onEnd: () => {
       refreshThreadsForAgent()
     },
@@ -878,6 +953,19 @@ function onStop() {
   }
   conv.stop()
 }
+
+/** 切换会话 / 助手：只断开 SSE，后端 run 继续，回到该会话时自动续接。 */
+function detachRun() {
+  conv.stop(false)
+}
+
+// 离开页面（路由切换）：只关闭 SSE，不取消后端 run。
+onBeforeUnmount(() => {
+  detachRun()
+  activeDisposed = true
+  clearActivePoll()
+  if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 
 void bootstrap()
 </script>

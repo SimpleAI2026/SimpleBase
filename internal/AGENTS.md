@@ -8,7 +8,7 @@
 cmd/simplebase → app → api → auth / catalog / database / objectstore
                               ↓
                         systemdb（常驻系统库连接）
-                        cloudagent → llmgateway / catalog / systemdb
+                        agentbridge → cloudagent（嵌套独立模块）/ auth / systemdb / sbcli / sqlguard / llmgateway
                         usage / audit → catalog
 ```
 
@@ -29,10 +29,12 @@ cmd/simplebase → app → api → auth / catalog / database / objectstore
 | `database/cache` | 缓存目录 LRU、路径防穿越 | 淘汰活跃库 |
 | `objectstore` | S3 边界、KeyBuilder、descriptor | 用户可控字符串直接拼对象键 |
 | `systemdb` | 系统库 bootstrap、迁移、常驻连接 | — |
-| `cloudagent` | 只读工具，或在 `skills_cli` 打开时经 CLI 调既有 HTTP API；沙盒工具经 `Sandbox` 接口；本机 `shell` 在 `shell_isolation.enabled` 时经 `gosandbox/host` | 直接写 DuckLake / S3 / 系统库；向沙盒注入 SimpleBase 凭据；直接 import `sandbox`、`gosandbox/vm` 或 microsandbox（`gosandbox/host` 是唯一例外，仅用于本机 shell）；隔离开启但不可用时退回裸执行 |
-| `sandbox` | 云沙盒业务层：Manager（资源、限额、路径、reaper）+ Store 元数据；执行后端（Driver、cloud、fake）来自独立模块 `gosandbox/vm` | 读写 DuckLake/S3/系统库凭据；向沙盒注入 SimpleBase 凭据；本地 microVM 回退；import `gosandbox/host` |
-| `gosandbox`（嵌套模块） | `vm/`：VM 执行后端；`host/`：本机进程隔离（bwrap + Landlock + seccomp / Seatbelt）；`cmd/gosandbox-inner`：沙盒内 helper | import 根模块任何包（含 `internal/...`）；`host` 与 `vm` 互相 import；把 `host` 当作 Cloud 沙盒失败后的替身（无 `DriverHost`） |
+| `agentbridge` | 宿主与独立 `cloudagent` 模块之间的适配：身份 / 助手 / 消息映射、`CommandPolicy`、最终错误分类、委托签发、日志与设置 store 适配、`InProcessCLI` | import `api` / `app` / `agentjob`（它们复用本包，不能反向）；在映射中丢失 Role / TenantID / ProjectIDs；让委托令牌携带比本轮降权后更多的权限 |
+| `cloudagent`（嵌套模块，目录在仓库根 `cloudagent/`） | 只读工具，或在 `skills_cli` 打开时经 CLI 调既有 HTTP API；沙盒工具经 `Sandbox` 接口；本机 `shell` 在 `shell_isolation.enabled` 时经 `gosandbox/host` | import 根模块任何包（含 `internal/...`、`skills`）；直接写 DuckLake / S3 / 系统库；向沙盒注入 SimpleBase 凭据；直接 import `sandbox` 或 `gosandbox/vm`（`gosandbox/host` 是唯一例外，仅用于本机 shell）；隔离开启但不可用时退回裸执行；策略缺失时放行命令 |
+| `sandbox` | 云沙盒业务层：Manager（资源、限额、路径、reaper）+ Store 元数据；执行后端（Driver、local、fake）来自独立模块 `gosandbox/vm` | 读写 DuckLake/S3/系统库凭据；向沙盒注入 SimpleBase 凭据；隔离不可用时退回裸执行；向沙盒内命令暴露 `data_dir` / 缓存目录 / `config.yaml` / `.env`；直接 import `gosandbox/host`（经 `gosandbox/vm/local` 间接使用） |
+| `gosandbox`（嵌套模块） | `vm/`：云沙盒执行后端（`local` 复用 `host`，`fake` 仅测试）；`host/`：本机进程隔离（bwrap + Landlock + seccomp / Seatbelt）；`cmd/gosandbox-inner`：沙盒内 helper | import 根模块任何包（含 `internal/...`）；`host` import `vm`（依赖只能 `vm/local → host`，不得反向）；在 `vm/local` 之外为 `host` 新增 `Driver` 实现；让 `local` 在隔离不可用时退回裸执行 |
 | `llmgateway` | provider 配置、Chat/Stream、CredentialRef | 密钥从环境变量自动发现 |
+| `utils` | 零业务依赖的纯函数（`crontab` / `strutil` / `limit` / `mask` / `hashx` / `atomicfile` / `sqlx` / `singleflight`） | import 任何根模块业务包；把绑定驱动/协议或适配层的东西搬进来 |
 
 ## 系统库规则（重要）
 

@@ -11,11 +11,10 @@ import (
 // yamlSecretPresence records whether the YAML file contained non-empty secret values.
 // Secrets must come from environment variables or .env, never from YAML.
 type yamlSecretPresence struct {
-	s3Access   bool
-	s3Secret   bool
-	auth       bool
-	llmKeys    bool
-	sandboxKey bool
+	s3Access bool
+	s3Secret bool
+	auth     bool
+	llmKeys  bool
 }
 
 func rejectYAMLSecrets(s yamlSecretPresence) error {
@@ -31,9 +30,6 @@ func rejectYAMLSecrets(s yamlSecretPresence) error {
 	}
 	if s.llmKeys {
 		which = append(which, "llm.providers.*.api_key")
-	}
-	if s.sandboxKey {
-		which = append(which, "sandbox.api_key")
 	}
 	if len(which) == 0 {
 		return nil
@@ -190,8 +186,6 @@ type yamlLimits struct {
 
 type yamlSandbox struct {
 	Enabled        *bool    `yaml:"enabled"`
-	APIURL         *string  `yaml:"api_url"`
-	APIKey         *string  `yaml:"api_key"`
 	Image          *string  `yaml:"image"`
 	CPUs           *int     `yaml:"cpus"`
 	MemoryMiB      *int     `yaml:"memory_mib"`
@@ -207,6 +201,24 @@ type yamlSandbox struct {
 	ExecTimeoutMax yamlDur  `yaml:"exec_timeout_max"`
 	MaxPerProject  *int     `yaml:"max_per_project"`
 	ReapInterval   yamlDur  `yaml:"reap_interval"`
+	Root           *string  `yaml:"root"`
+	PidsMax        *int64   `yaml:"pids_max"`
+	BwrapPath      *string  `yaml:"bwrap_path"`
+	HelperPath     *string  `yaml:"helper_path"`
+
+	Terminal struct {
+		Enabled               *bool   `yaml:"enabled"`
+		MaxSessionsPerSandbox *int    `yaml:"max_sessions_per_sandbox"`
+		IdleTimeout           yamlDur `yaml:"idle_timeout"`
+	} `yaml:"terminal"`
+	SSH struct {
+		Listen      *string `yaml:"listen"`
+		HostKeyPath *string `yaml:"host_key_path"`
+	} `yaml:"ssh"`
+	E2B struct {
+		DefaultTemplate *string `yaml:"default_template"`
+		EnvdVersion     *string `yaml:"envd_version"`
+	} `yaml:"e2b"`
 }
 
 type yamlObservability struct {
@@ -366,13 +378,6 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Limits.MaxConcurrentGoRuns, yc.Limits.MaxConcurrentGoRuns)
 
 	setBool(&cfg.Sandbox.Enabled, yc.Sandbox.Enabled)
-	setStr(&cfg.Sandbox.APIURL, yc.Sandbox.APIURL)
-	if yc.Sandbox.APIKey != nil {
-		cfg.Sandbox.APIKey = *yc.Sandbox.APIKey
-		if *yc.Sandbox.APIKey != "" {
-			secrets.sandboxKey = true
-		}
-	}
 	setStr(&cfg.Sandbox.Image, yc.Sandbox.Image)
 	setInt(&cfg.Sandbox.CPUs, yc.Sandbox.CPUs)
 	setInt(&cfg.Sandbox.MemoryMiB, yc.Sandbox.MemoryMiB)
@@ -390,6 +395,17 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setDur(&cfg.Sandbox.ExecTimeoutMax, yc.Sandbox.ExecTimeoutMax)
 	setInt(&cfg.Sandbox.MaxPerProject, yc.Sandbox.MaxPerProject)
 	setDur(&cfg.Sandbox.ReapInterval, yc.Sandbox.ReapInterval)
+	setStr(&cfg.Sandbox.Root, yc.Sandbox.Root)
+	setInt64(&cfg.Sandbox.PidsMax, yc.Sandbox.PidsMax)
+	setStr(&cfg.Sandbox.BwrapPath, yc.Sandbox.BwrapPath)
+	setStr(&cfg.Sandbox.HelperPath, yc.Sandbox.HelperPath)
+	setBool(&cfg.Sandbox.Terminal.Enabled, yc.Sandbox.Terminal.Enabled)
+	setInt(&cfg.Sandbox.Terminal.MaxSessionsPerSandbox, yc.Sandbox.Terminal.MaxSessionsPerSandbox)
+	setDur(&cfg.Sandbox.Terminal.IdleTimeout, yc.Sandbox.Terminal.IdleTimeout)
+	setStr(&cfg.Sandbox.SSH.Listen, yc.Sandbox.SSH.Listen)
+	setStr(&cfg.Sandbox.SSH.HostKeyPath, yc.Sandbox.SSH.HostKeyPath)
+	setStr(&cfg.Sandbox.E2B.DefaultTemplate, yc.Sandbox.E2B.DefaultTemplate)
+	setStr(&cfg.Sandbox.E2B.EnvdVersion, yc.Sandbox.E2B.EnvdVersion)
 
 	applyYAMLObservability(&cfg.Observability, yc.Observability)
 

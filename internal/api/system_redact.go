@@ -1,6 +1,10 @@
 package api
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
+)
 
 // systemSensitiveColumns 是系统库里不能离开服务端的凭证列。
 // 比较时忽略大小写。用量列（token_input 等）不在此列。
@@ -55,9 +59,9 @@ func systemSQLReferencesSensitive(sql string) bool {
 				return true
 			}
 			i = next
-		case isSQLIdentByte(sql[i]):
+		case sqlx.IsIdentByte(sql[i]):
 			start := i
-			for i < len(sql) && isSQLIdentByte(sql[i]) {
+			for i < len(sql) && sqlx.IsIdentByte(sql[i]) {
 				i++
 			}
 			if isSystemSensitiveColumn(sql[start:i]) {
@@ -87,10 +91,6 @@ func readSQLQuotedIdent(sql string, i int) (string, int) {
 		i++
 	}
 	return b.String(), i
-}
-
-func isSQLIdentByte(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
 }
 
 // redactSystemResult 把结果里的敏感列改成 nil，并返回这些列名。没有命中时返回 nil。

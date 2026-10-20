@@ -2,6 +2,8 @@ package vm
 
 import (
 	"context"
+	"io"
+	"syscall"
 	"time"
 )
 
@@ -55,6 +57,9 @@ type FileEntry struct {
 	Path string `json:"path"`
 	Kind string `json:"kind"` // file | directory | symlink | other
 	Size int64  `json:"size"`
+	// Mode 是 Unix 权限位（含类型位之外的低 12 位）；ModTime 是最后修改时间。零值表示驱动没有提供。
+	Mode    uint32    `json:"-"`
+	ModTime time.Time `json:"-"`
 }
 
 // Driver 是执行后端。所有需要 VM 的操作都按 Target 懒创建 / 接回，
@@ -70,4 +75,45 @@ type Driver interface {
 	Stop(ctx context.Context, name string) error
 	// Remove 停止并删除 VM；不存在视为成功。
 	Remove(ctx context.Context, name string) error
+}
+
+// PTYSize 是伪终端大小。
+type PTYSize struct{ Cols, Rows uint16 }
+
+// StartSpec 描述一个需要保持句柄的进程。Cmd+Args 与 Shell 二选一，语义同 ExecSpec；
+// 不含 Timeout：生命周期由 ctx 与 Proc.Close 控制。
+type StartSpec struct {
+	Cmd   string
+	Args  []string
+	Shell string
+	Env   map[string]string
+	Cwd   string
+	// PTY 为 nil 时用管道（stdout 与 stderr 合并为一路）；非 nil 时分配伪终端。
+	PTY *PTYSize
+}
+
+// ProcExit 是进程结束信息。
+type ProcExit struct {
+	ExitCode int
+	Signaled bool
+}
+
+// Proc 是正在运行的进程。Output 是单一合并流，调用方必须持续读取（写端有背压，不在内存里堆积）。
+type Proc interface {
+	PID() int
+	Stdin() io.WriteCloser
+	Output() io.Reader
+	Resize(PTYSize) error
+	// Signal 只支持 SIGTERM 与 SIGKILL。
+	Signal(sig syscall.Signal) error
+	Wait() ProcExit
+	Done() <-chan struct{}
+	// Close 终止进程（若仍在运行）并释放资源，可重复调用。
+	Close() error
+}
+
+// Interactive 是 Driver 的可选能力：启动后保持句柄的进程（终端、后台进程、流式输出）。
+// 不实现它的后端，上层必须关闭终端与 process.Start 能力，而不是退化成同步执行。
+type Interactive interface {
+	Start(ctx context.Context, t Target, req StartSpec) (Proc, error)
 }

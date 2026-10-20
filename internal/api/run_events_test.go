@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 )
 
 // planv6.0 v2 §2.4：run_events 的 after 边界与 gap 语义回归。

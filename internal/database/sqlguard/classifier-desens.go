@@ -11,6 +11,8 @@ package sqlguard
 
 import (
 	"strings"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 // Intent 表示调用方期望的 SQL 意图。
@@ -116,9 +118,9 @@ func hasDuckLakeMetadataIdentifier(sql string) bool {
 			if strings.HasPrefix(strings.ToLower(identifier.String()), prefix) {
 				return true
 			}
-		case isSQLIdentByte(sql[i]):
+		case sqlx.IsIdentByte(sql[i]):
 			start := i
-			for i < len(sql) && isSQLIdentByte(sql[i]) {
+			for i < len(sql) && sqlx.IsIdentByte(sql[i]) {
 				i++
 			}
 			if strings.HasPrefix(strings.ToLower(sql[start:i]), prefix) {
@@ -129,10 +131,6 @@ func hasDuckLakeMetadataIdentifier(sql string) bool {
 		}
 	}
 	return false
-}
-
-func isSQLIdentByte(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
 }
 
 // basicCheck 执行与意图无关的基础校验。

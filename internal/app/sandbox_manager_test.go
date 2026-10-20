@@ -32,20 +32,17 @@ func newSandboxManagerTest(t *testing.T, limit int) (*sandbox.Manager, *fake.Dri
 	cfg := config.SandboxConfig{Enabled: true, Backend: "fake", Image: "python:3.12-slim", CPUs: 1,
 		MemoryMiB: 256, Network: "none", Workdir: "/workspace", IdleTimeout: time.Minute,
 		MaxDuration: 30 * time.Minute, ExecTimeout: time.Second, ExecTimeoutMax: time.Minute,
-		MaxOutputBytes: 4, MaxFileBytes: 8, MaxPerProject: limit}
+		MaxOutputBytes: 4, MaxFileBytes: 8, MaxPerProject: limit,
+		Terminal: config.SandboxTerminalConfig{Enabled: true, MaxSessionsPerSandbox: 2, IdleTimeout: time.Minute}}
 	return sandbox.NewManager(cfg, sandboxStoreAdapter{s: store}, driver), driver, store
 }
 
 func TestSandboxManagerLifecycleAndLimits(t *testing.T) {
 	m, d, store := newSandboxManagerTest(t, 2)
 	ctx := context.Background()
-	first, err := m.Create(ctx, "p", sandbox.CreateInput{Name: "demo", IdempotencyKey: "once"}, "u")
+	first, err := m.Create(ctx, "p", sandbox.CreateInput{Name: "demo"}, "u")
 	if err != nil || first.Status != "pending" || d.VMCount() != 0 {
 		t.Fatalf("lazy create: %+v, %v, vms=%d", first, err, d.VMCount())
-	}
-	dup, err := m.Create(ctx, "p", sandbox.CreateInput{Name: "demo", IdempotencyKey: "once"}, "u")
-	if err != nil || dup.ID != first.ID || !dup.Reused {
-		t.Fatalf("idempotency: %+v, %v", dup, err)
 	}
 	if _, err = m.Create(ctx, "p", sandbox.CreateInput{Name: "demo"}, "u"); !errors.Is(err, sandbox.ErrNameConflict) {
 		t.Fatalf("name conflict: %v", err)
@@ -92,27 +89,20 @@ func TestSandboxManagerLifecycleAndLimits(t *testing.T) {
 	}
 }
 
-func TestSandboxManagerRunCleanupAndThreadCompatibility(t *testing.T) {
-	m, d, store := newSandboxManagerTest(t, 3)
+func TestSandboxManagerThreadCompatibility(t *testing.T) {
+	m, _, store := newSandboxManagerTest(t, 3)
 	ctx := context.Background()
-	result, err := m.RunOnce(ctx, "p", sandbox.RunInput{Command: "cat /workspace/file", Files: []sandbox.RunFile{{Path: "/workspace/file", Content: "ok"}}}, "u")
-	if err != nil || result.Stdout != "ok" || d.VMCount() != 0 {
-		t.Fatalf("run cleanup: %+v %v vms=%d", result, err, d.VMCount())
-	}
-	kept, err := m.RunOnce(ctx, "p", sandbox.RunInput{Command: "echo ok", Keep: true}, "u")
-	if err != nil || kept.SandboxID == "" {
-		t.Fatalf("keep: %+v %v", kept, err)
-	}
-	if row, err := store.GetSandbox(ctx, "p", kept.SandboxID); err != nil || row.Source != "api" {
-		t.Fatalf("keep source: %+v %v", row, err)
-	}
 	thread := "550e8400-e29b-41d4-a716-446655440000"
 	agent, err := m.EnsureForThread(ctx, "p", thread)
 	if err != nil || !strings.HasPrefix(agent.CloudName, "sbx-") {
 		t.Fatalf("thread: %+v %v", agent, err)
 	}
+	// agent 来源的沙盒对 HTTP 一侧是只读的。
 	if _, err = m.Exec(ctx, "p", agent.ID, sandbox.ExecInput{Command: "echo no"}); !errors.Is(err, sandbox.ErrBusy) {
 		t.Fatalf("agent HTTP exec: %v", err)
+	}
+	if _, err = m.StartProc(ctx, "p", agent.ID, sandbox.StartSpec{Kind: sandbox.ProcTerminal}); !errors.Is(err, sandbox.ErrBusy) {
+		t.Fatalf("agent sandboxes must refuse terminals too: %v", err)
 	}
 	if _, err = m.ExecForThread(ctx, "p", thread, sandbox.ExecInput{Command: "echo yes"}); err != nil {
 		t.Fatal(err)
@@ -122,9 +112,6 @@ func TestSandboxManagerRunCleanupAndThreadCompatibility(t *testing.T) {
 	}
 	if _, err = store.GetSandboxByThread(ctx, "p", thread); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("thread released: %v", err)
-	}
-	if err = m.Delete(ctx, "p", kept.SandboxID); err != nil {
-		t.Fatal(err)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 func setupBareEcho(injectPrincipal, injectProject bool, register func(*echo.Echo)) *echo.Echo {
@@ -519,8 +520,8 @@ func TestDataHandler_Branches(t *testing.T) {
 	if !isMissingRelation(errors.New("relation does not exist")) || isMissingRelation(nil) || !isMissingRelation(errors.New("NOT FOUND")) {
 		t.Fatal("isMissingRelation")
 	}
-	if quoteIdentifier("t") != `"t"` {
-		t.Fatal(quoteIdentifier("t"))
+	if sqlx.Ident("t") != `"t"` {
+		t.Fatal(sqlx.Ident("t"))
 	}
 	if !strings.Contains(createCollectionSQL("T"), "CREATE TABLE") {
 		t.Fatal(createCollectionSQL("T"))

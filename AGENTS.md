@@ -5,11 +5,11 @@
 - [`internal/AGENTS.md`](internal/AGENTS.md) — 后端分层、系统库保护、API 协议
 - [`ui/AGENTS.md`](ui/AGENTS.md) — 前端目录职责、API 层、样式定稿规范
 - [`gofunction/README.md`](gofunction/README.md) — 解释器公共 API、能力边界、已注册包清单
-- [`gosandbox/README.md`](gosandbox/README.md) — 沙盒执行层：本机 shell 隔离（bwrap/Landlock/seccomp/Seatbelt）与 VM 后端
+- [`gosandbox/README.md`](gosandbox/README.md) — 沙盒执行层：本机 shell 隔离（bwrap/Landlock/seccomp/Seatbelt）与云沙盒的执行后端（local / fake）
 
 ## 项目概述
 
-SimpleBase 是单写实例的云端数据库服务：DuckLake + S3 在线持久层做存储，Echo v4 提供 REST API，`go:embed` 内嵌 Vue 3 控制台，进程内 `gofunction` 解释器运行 Go 云函数，llmgateway 封装多供应商 LLM 与云 Agent。模块 `github.com/linkxzhou/SimpleBase`（Go 1.25）；`gofunction/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gofunction`（自带 `go.mod`，根 `go.mod` 用 `replace => ./gofunction` 引用，import 路径不变）；`gosandbox/` 同样是嵌套独立模块（沙盒执行层，见 [`gosandbox/README.md`](gosandbox/README.md)）。
+SimpleBase 是单写实例的云端数据库服务：DuckLake + S3 在线持久层做存储，Echo v4 提供 REST API，`go:embed` 内嵌 Vue 3 控制台，进程内 `gofunction` 解释器运行 Go 云函数，llmgateway 封装多供应商 LLM 与云 Agent。模块 `github.com/linkxzhou/SimpleBase`（Go 1.25）；`gofunction/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gofunction`（自带 `go.mod`，根 `go.mod` 用 `replace => ./gofunction` 引用，import 路径不变）；`gosandbox/` 同样是嵌套独立模块（沙盒执行层，见 [`gosandbox/README.md`](gosandbox/README.md)）；`cloudagent/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/cloudagent`（云 Agent 运行时、本地 CLI 与本机工具，**不得 import 根模块任何包**；SimpleBase 的鉴权 / 系统库 / sbcli / sqlguard / llmgateway 经 `internal/agentbridge` 适配注入）。
 
 ## 常用命令
 
@@ -33,6 +33,7 @@ go test ./...                               # 后端全量
 (cd gofunction && go run ./cmd/gofunction help)   # 解释器命令行：run / check / list / packages
 (cd gofunction && go test -run='^$' -bench=. -benchmem ./bench)   # 性能基准（原 benchmarks/gofunction）
 (cd gosandbox && go build ./... && go vet ./... && go test ./...)   # 沙盒执行层（独立模块；真 bwrap 用例无 bwrap 时自动 Skip）
+(cd cloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...)   # 云 Agent 模块（独立模块，根目录 ./... 不含它；两侧 go.mod 各自声明 gosandbox 的 replace，replace 不传递）
 
 cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.24% 未达标，见 planv5.0 §7.2
 cd ui && yarn build                         # 前端构建必须通过
@@ -55,21 +56,28 @@ cd packages/js-sdk && npm run typecheck && npm test   # SDK
 cmd/simplebase → app → api → auth / catalog / database / objectstore
                              ↓
                        systemdb（常驻系统库连接）
-                       cloudagent → llmgateway / catalog / systemdb
+                       agentbridge（宿主适配层）→ cloudagent / auth / systemdb / sbcli / sqlguard / llmgateway
+                       cloudagent（嵌套独立模块，只依赖 gosandbox/host，不 import 根模块）
                          └─ agentcore（与运行时无关：模型适配 / 协议 / 脱敏 / 事件）
                          └─ cli（本地命令行外壳：命令面 / 会话 / REPL / 模板）
                          └─ tools（本机工具：shell / 文件 / glob / grep / web 搜索）
-                       sandbox（唯一 import microsandbox SDK 的包）
-                       cronjob → crontab / gofunction
+                       sandbox（云沙盒业务层；执行后端来自 gosandbox/vm：local 复用 gosandbox/host，无任何第三方沙盒 SDK）
+                       cronjob → utils/crontab / gofunction
                        usage / audit → catalog
+                       utils/{crontab,strutil,limit,mask,hashx,atomicfile,sqlx,singleflight}（零业务依赖，全部模块可引）
 ```
 
 - 依赖只能自上而下，**禁止反向 import**（如 `catalog` import `api`）。
+- `internal/utils/` 只放**零业务依赖**的纯函数（当前八个包均只 import 标准库）：不 import `catalog` / `auth` / `systemdb` / `api` / `database`，否则会把依赖方向拉平。入库标准、现有包职责与「不要放这里」的清单见 [`internal/utils/README.md`](internal/utils/README.md)。
 - `app` 是唯一装配点：跨模块依赖在 `assembleDeps` 按序创建，`Close` 反向释放；新增模块必须挂进装配顺序并在失败路径回收。
 - handler 不直接依赖具体实现，必须走 `api.Dependencies` 接口 + adapter。
 - 对象键使用内部 UUID，**禁止**把用户可控字符串直接拼进 S3 键。
 - `cloudagent` 的子包（`agentcore` / `cli` / `tools`）**必须**挂在 `cloudagent` 下而非平级新包：它们复用的是 cloudagent 的技能授权（`AllowArgv`）、提示词约定与事件语义。`cloudagent/agentcore` 不得 import `cloudagent`（会成环）。
-- `cmd/cloudagent` 是本地 CLI 二进制，入口**只 import `internal/cloudagent`**（父包门面 `RunCLI` / `SetCLIVersion` 转发到子包），不直接依赖 `cli` / `tools` 子包——否则「入口依赖哪个子包」就成了实现细节，子包重组会牵动 `cmd`。不进服务镜像（`Dockerfile` 不含它），会话落 `~/.cloudagent/`。
+- `cloudagent/cmd/cloudagent` 是本地 CLI 二进制，入口**只 import cloudagent 模块根包**（门面 `RunCLI` / `SetCLIVersion` 转发到子包），不直接依赖 `cli` / `tools` 子包。产物统一输出到 `build/bin/cloudagent`（仓库根的 `cloudagent/` 是模块源码目录，不能再放二进制）；不进服务镜像，会话落 `~/.cloudagent/`。
+- **cloudagent 与宿主的边界**：模块自有 `Principal` / `Agent` / `Message` / `LogEvent` / `LLMSettings` 等无密钥 DTO；身份转换（`ToModulePrincipal` / `ToHostPrincipal`）、命令策略 `CommandPolicy`（只读 / 破坏性分类与 argv 脱敏，事实来源仍是 `sbcli` 与 `database/sqlguard`）、最终错误分类 `agentbridge.ClassifyError`、委托签发、`InProcessCLI` 全部在 `internal/agentbridge`。`agentbridge` 不得 import `api` / `app` / `agentjob`。
+- **fail-closed**：`Runtime.Policy` 缺失或 `Classify` 出错时，CLI 工具返回 `command_policy_unavailable` 且不确认、不执行。委托签发只写入传入（已按 writable 降权）的权限，不自行求交集。
+- **LLM 错误归一化只在最终出口**：`agentcore` 的 native→text 回退与 stream→chat 退化依赖原始 `*providers.LiteLLMError` 与文案，运行内部不得提前压成 `RunError`。
+- 技能文档（`cloudagent/skills/simplebase/`）随模块 embed；与 `sbcli` 的 readonly / 分发对账测试在 `internal/agentbridge`，不要复制只读表进模块。
 
 ## 硬性约束
 

@@ -34,7 +34,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 )
 
 const (
@@ -739,7 +739,7 @@ func (w *respStreamWriter) finish(reason string) error {
 // 标准事件，SDK 能正确解析，所以这里发事件而不是静默断流。
 // code/message 来自 ClassifyError 的固定文案，不透传上游原文，避免泄漏供应商地址或凭据。
 func (w *respStreamWriter) fail(err error) {
-	re := cloudagent.ClassifyError(err)
+	re := agentbridge.ClassifyError(err)
 	obj := w.meta.object(respStatusFailed, "", w.snapshot(respStatusIncomplete), w.usage)
 	obj.Error = &oaiRespError{Code: re.Code, Message: re.Message}
 	_ = w.event("response.failed", map[string]any{"response": obj})

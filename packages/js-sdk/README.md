@@ -24,13 +24,12 @@ const sb = createClient({
 
 ```ts
 const result = await sb.sandboxes.run({
-  image: 'python:3.12-slim',
   files: [{ path: '/workspace/test.py', content: 'assert 1+1==2\nprint("ok")' }],
-  command: 'python test.py'
+  command: 'python3 test.py'
 })
 if (result.timed_out || result.exit_code !== 0) throw new Error(result.stderr)
 ```
 
-`run` 同步执行并清理临时 VM（`keep:true` 可保留）。[查看完整云沙盒文档](../../docs/automation/sandbox-e2e.md)。
+`run` 同步执行并清理临时沙盒（`keep:true` 可保留）。[查看完整云沙盒文档](../../docs/automation/sandbox-e2e.md)。
 
 Docs: see [`docs/sdk/`](../../docs/sdk/) in the repo Wiki (`/docs`).

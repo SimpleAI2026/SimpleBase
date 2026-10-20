@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/voocel/litellm/providers"
 )
@@ -422,7 +422,7 @@ func writeOAILLMError(c echo.Context, err error, rid string) error {
 		return writeOAIError(c, http.StatusBadRequest, oaiToolsUnsupportedCode,
 			"the upstream model does not support tool calling")
 	}
-	re := cloudagent.ClassifyError(err)
+	re := agentbridge.ClassifyError(err)
 	if ae := Error(re, rid); ae != nil {
 		return writeOAIError(c, ae.HTTPStatus, ae.Body.Error.Code, ae.Body.Error.Message)
 	}

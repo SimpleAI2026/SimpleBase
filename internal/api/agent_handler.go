@@ -14,8 +14,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
@@ -296,11 +297,11 @@ func (h *cloudAgentHandler) normalizeAgent(projectID string, body upsertAgentBod
 	}
 	if !h.sandboxAvailable() {
 		if strings.EqualFold(a.Module, cloudagent.ModuleSandbox) {
-			return systemdb.CloudAgent{}, errors.New("cloud sandbox is not enabled; sandbox module is unavailable")
+			return systemdb.CloudAgent{}, errors.New("sandbox is not enabled; sandbox module is unavailable")
 		}
 		for _, id := range a.ToolIDs {
 			if cloudagent.IsSandboxTool(id) {
-				return systemdb.CloudAgent{}, errors.New("cloud sandbox is not enabled; sandbox tools are unavailable")
+				return systemdb.CloudAgent{}, errors.New("sandbox is not enabled; sandbox tools are unavailable")
 			}
 		}
 	}
@@ -448,6 +449,43 @@ func (h *cloudAgentHandler) ListThreadRuns(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"runs": out})
 }
 
+// activeRunDTO 是「正在回复」指示所需的最小元数据，不含正文。
+type activeRunDTO struct {
+	RunID     string     `json:"run_id"`
+	AgentID   string     `json:"agent_id"`
+	ThreadID  string     `json:"thread_id"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+}
+
+// ListActiveRuns 返回项目内正在执行的 run（交互 + 定时任务），供助手列表 / 会话切换器显示转圈。
+// 库里 running 的行还要与运行时内存态核对，过滤掉进程重启后残留的僵尸记录。
+func (h *cloudAgentHandler) ListActiveRuns(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	out := make([]activeRunDTO, 0)
+	if h.runtime == nil {
+		return c.JSON(http.StatusOK, map[string]any{"runs": out})
+	}
+	list, err := h.store.ListActiveAgentRuns(c.Request().Context(), pc.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	for _, r := range list {
+		if !h.runtime.IsRunActive(r.ID) {
+			continue
+		}
+		dto := activeRunDTO{RunID: r.ID, AgentID: r.AgentID, ThreadID: r.ThreadID}
+		if !r.StartedAt.IsZero() {
+			t := r.StartedAt
+			dto.StartedAt = &t
+		}
+		out = append(out, dto)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"runs": out})
+}
+
 func (h *cloudAgentHandler) CreateThread(c echo.Context) error {
 	if err := h.denyReadonly(c); err != nil {
 		return err
@@ -550,7 +588,6 @@ type mentionDTO struct {
 type createRunBody struct {
 	Content  string       `json:"content"`
 	Mentions []mentionDTO `json:"mentions"`
-	Skills   []string     `json:"skills"`
 	Stream   bool         `json:"stream"`
 	// RetryOfRunID 非空表示重试该 run：复用其 user 消息，不重复落库（BUG-03）。
 	RetryOfRunID string `json:"retry_of_run_id"`
@@ -603,13 +640,10 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "cli_skills_unavailable", "this agent requires CLI skills", RequestIDFromContext(c.Request().Context())))
 	}
 	if agent.Module == cloudagent.ModuleSandbox && !h.sandboxAvailable() {
-		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "sandbox_unavailable", "cloud sandbox is unavailable", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "sandbox_unavailable", "sandbox is unavailable", RequestIDFromContext(c.Request().Context())))
 	}
-	skills, err := cloudagent.NormalizeSkills(body.Skills, agent.Module)
-	if err != nil {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
-	}
-	body.Skills = skills
+	// 技能由助手所属 module 决定（`@` 只点名助手，不能点名技能）。
+	skills := cloudagent.SkillsForModule(agent.Module)
 	// 重试校验（BUG-03）：目标 run 必须属于本 thread、状态 failed/canceled、且是 thread 最新一次 run。
 	var retryUser systemdb.AgentMessage
 	if body.RetryOfRunID != "" {
@@ -712,9 +746,11 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	}
 	hist = filtered
 
+	// 身份与历史消息在边界转换成模块 DTO：cloudagent 是独立模块，
+	// 只认识自己的无密钥类型（见 internal/agentbridge）。
 	req := cloudagent.RunRequest{
-		ProjectID: pc.ID, Principal: principal, Agent: agent,
-		ThreadID: threadID, RunID: run.ID, UserText: body.Content, History: hist, Stream: body.Stream,
+		ProjectID: pc.ID, Principal: agentbridge.ToModulePrincipal(principal), Agent: agentbridge.Agent(agent),
+		ThreadID: threadID, RunID: run.ID, UserText: body.Content, History: agentbridge.Messages(hist), Stream: body.Stream,
 		Skills: skills,
 	}
 
@@ -731,7 +767,7 @@ func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string
 		if errors.Is(runErr, context.Canceled) {
 			status = systemdb.AgentRunCanceled
 		} else {
-			code = cloudagent.ClassifyError(runErr).Code
+			code = agentbridge.ClassifyError(runErr).Code
 		}
 	}
 	if res.Content != "" || len(res.ToolCallsJSON) > 2 {
@@ -772,7 +808,7 @@ func (h *cloudAgentHandler) completeRun(c echo.Context, projectID string, run sy
 		return WriteError(c, err)
 	}
 	if runErr != nil {
-		return WriteError(c, cloudagent.ClassifyError(runErr))
+		return WriteError(c, agentbridge.ClassifyError(runErr))
 	}
 	row, err := h.store.GetAgentRun(c.Request().Context(), projectID, run.ID)
 	if err != nil {
@@ -897,7 +933,11 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 			}
 		}
 	}()
-	res, runErr := h.runtime.StartRun(c.Request().Context(), req, func(ev cloudagent.Event) {
+	// 运行与 HTTP 连接解耦：前端切换界面 / 刷新只会断开 SSE，run 继续执行，
+	// 事件照常写入 h.events 供 ReplayEvents 续接；真正取消只走 CancelRun
+	// （runtime 内部登记的 cancel）或 RunTimeout。保留 context 中的身份等值。
+	runBase := context.WithoutCancel(c.Request().Context())
+	res, runErr := h.runtime.StartRun(runBase, req, func(ev cloudagent.Event) {
 		switch ev.Type {
 		case "token", "tool_call", "tool_call_delta", "tool_start", "tool_result", "confirmation_required", "confirmation_resolved":
 			mu.Lock()
@@ -919,7 +959,7 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 		return nil
 	}
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
-		re := cloudagent.ClassifyError(runErr)
+		re := agentbridge.ClassifyError(runErr)
 		write(cloudagent.Event{Type: "error", Code: re.Code, Message: re.Message})
 	}
 	write(cloudagent.Event{Type: "usage", DurationMS: res.DurationMS, PromptTokens: res.PromptTokens,

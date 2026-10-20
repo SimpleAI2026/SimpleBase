@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
 )
 
 // LocalState 是本地 catalog 副本的水位文件（multi-instance-consistency-plan §4.3）。
@@ -72,13 +74,8 @@ func saveLocalStateAt(path string, st LocalState) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		return fmt.Errorf("ducklake: write local-state tmp: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("ducklake: rename local-state: %w", err)
+	if err := atomicfile.Write(path, body, 0o644); err != nil {
+		return fmt.Errorf("ducklake: write local-state: %w", err)
 	}
 	return nil
 }

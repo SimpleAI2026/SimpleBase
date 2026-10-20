@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
+	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
 )
 
 // InstanceFormatVersion 是实例级格式标记的格式版本（ducklake-duckdb-catalog-plan §4.1）。
@@ -240,13 +241,8 @@ func writeLocalFormat(cacheDir string, f InstanceFormat) error {
 		return err
 	}
 	path := LocalInstanceFormatPath(cacheDir)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+	if err := atomicfile.Write(path, body, 0o644); err != nil {
 		return fmt.Errorf("ducklake: write local instance format: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("ducklake: rename local instance format: %w", err)
 	}
 	return nil
 }

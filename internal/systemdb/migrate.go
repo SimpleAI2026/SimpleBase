@@ -682,6 +682,16 @@ var systemMigrations = []migration{
 			ALTER TABLE sys_cron_jobs ADD COLUMN agent_thread_id VARCHAR DEFAULT '';
 			ALTER TABLE sys_cron_jobs ADD COLUMN agent_prompt VARCHAR DEFAULT ''`,
 	},
+	{
+		// v50：E2B 兼容 API 的 metadata（创建时传入、列表时按键值过滤）。
+		// 只存用户自己的键值；name / simplebase.source 沿用 name / source 列。
+		// 列追加在末尾（sandboxColumns 同步更新），避免按位扫描错位。
+		// 本迁移只定义，不会被自动执行到运行库之外：由 init_db / 正常启动应用，
+		// 或由用户手动执行 ALTER TABLE sys_sandboxes ADD COLUMN metadata VARCHAR DEFAULT '{}'。
+		version: 50,
+		name:    "sys_sandboxes_metadata",
+		stmt:    `ALTER TABLE sys_sandboxes ADD COLUMN metadata VARCHAR DEFAULT '{}'`,
+	},
 }
 
 // retireOpenCloseStatusSQL 把未软删的 closed/opening/closing/recovering 写成 ready。

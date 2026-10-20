@@ -288,3 +288,18 @@ func TestSchemaRowsOrderFallback(t *testing.T) {
 		t.Fatal("expected empty columns error")
 	}
 }
+
+// 列名来自 information_schema，用户可通过 SQL 接口创建含 " 的列；
+// 拼进 SELECT 时必须双写转义，否则能提前闭合标识符。
+func TestSchemaRowsSelectEscapesQuotedColumn(t *testing.T) {
+	sqlText, err := schemaRowsSelectSQL("t", []schemaColumnJSON{
+		{Name: `a" , (SELECT 1) AS "b`, Type: "VARCHAR"},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `"a"" , (SELECT 1) AS ""b"`
+	if !strings.Contains(sqlText, want) {
+		t.Fatalf("column not escaped: %s", sqlText)
+	}
+}

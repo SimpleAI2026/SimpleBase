@@ -11,7 +11,7 @@ Outputs (in --out, default ./review-<host>):
   hero.png          largest image/video/background-image in the first viewport (if >= 12% of it)
   hero-image/       review_image.py output for hero.png (needs Pillow + numpy; skipped otherwise)
   metrics.json      raw metrics + metric sub-scores + metric_score
-  report.md         Chinese report skeleton; the agent fills the visual score
+  report.md         report skeleton (--lang en|zh); the agent fills the visual score
 
 Dependency: playwright only.
   pip install playwright && python3 -m playwright install chromium
@@ -20,6 +20,12 @@ Score = 45% metric (computed here) + 55% visual (agent judges screenshots).
 """
 import argparse, asyncio, csv, json, os, statistics, sys
 from urllib.parse import urlparse
+
+LANG = "en"  # default report language for this copy; override with --lang en|zh
+
+
+def T(zh, en):
+    return zh if LANG == "zh" else en
 
 try:
     from playwright.async_api import async_playwright
@@ -151,18 +157,18 @@ def score_metrics(m):
 
 
 # Targets = median of top-20 sites across both benchmark runs (see references/benchmarks.md).
-TARGETS = [("colorsTotal", "颜色总数", "≤15", lambda v: v <= 15),
-           ("fontCount", "字体族", "≤2", lambda v: v <= 2),
-           ("fontSizesSig", "字号档", "≤7", lambda v: v <= 7),
-           ("fontWeights", "字重", "≤3", lambda v: v <= 3),
-           ("radii", "圆角值", "≤3", lambda v: v <= 3),
-           ("shadows", "阴影值", "≤1", lambda v: v <= 1),
-           ("gradients", "渐变", "≤1", lambda v: v <= 1),
-           ("heroSize", "Hero 标题 px", "≥56", lambda v: v >= 56),
-           ("bodySize", "正文 px", "≥16", lambda v: v is not None and v >= 16),
-           ("heroBodyRatio", "Hero/正文比", "≥3.5", lambda v: v >= 3.5),
-           ("contrast", "正文对比度", "≥12", lambda v: v is not None and v >= 12),
-           ("lowContrastShare", "低于 AA 文本占比", "0%", lambda v: v is not None and v <= 0.02)]
+TARGETS = [("colorsTotal", ("颜色总数", "Total colors"), "≤15", lambda v: v <= 15),
+           ("fontCount", ("字体族", "Font families"), "≤2", lambda v: v <= 2),
+           ("fontSizesSig", ("字号档", "Font sizes"), "≤7", lambda v: v <= 7),
+           ("fontWeights", ("字重", "Font weights"), "≤3", lambda v: v <= 3),
+           ("radii", ("圆角值", "Radii"), "≤3", lambda v: v <= 3),
+           ("shadows", ("阴影值", "Shadows"), "≤1", lambda v: v <= 1),
+           ("gradients", ("渐变", "Gradients"), "≤1", lambda v: v <= 1),
+           ("heroSize", ("Hero 标题 px", "Hero title px"), "≥56", lambda v: v >= 56),
+           ("bodySize", ("正文 px", "Body px"), "≥16", lambda v: v is not None and v >= 16),
+           ("heroBodyRatio", ("Hero/正文比", "Hero/body ratio"), "≥3.5", lambda v: v >= 3.5),
+           ("contrast", ("正文对比度", "Body contrast"), "≥12", lambda v: v is not None and v >= 12),
+           ("lowContrastShare", ("低于 AA 文本占比", "Text below AA"), "0%", lambda v: v is not None and v <= 0.02)]
 
 
 def load_bench(industry):
@@ -205,13 +211,26 @@ def review_hero(out):
     try:
         sys.path.insert(0, HERE)
         import review_image
-        m, _ = review_image.run(path, os.path.join(out, "hero-image"), "photo")
+        m, _ = review_image.run(path, os.path.join(out, "hero-image"), "photo", lang=LANG)
         return {k: m[k] for k in ("metric_score", "sub_scores", "palette", "harmony_guess", "flags", "width", "height")}
     except Exception as e:  # Pillow/numpy missing or odd image
         return {"error": str(e)[:200]}
 
 
 def build_report(url, m, s, industry, mobile, hero=None):
+    return (_report_zh if LANG == "zh" else _report_en)(url, m, s, industry, mobile, hero)
+
+
+def _metric_rows(m, s, zh):
+    out = []
+    for key, names, target, ok in TARGETS:
+        v = s.get(key, m.get(key))
+        shown = f"{v:.0%}" if key == "lowContrastShare" and v is not None else fmt(v)
+        out.append(f"| {names[0] if zh else names[1]} | {shown} | {target} | {'✅' if ok(v) else '⚠️'} |")
+    return out
+
+
+def _report_zh(url, m, s, industry, mobile, hero=None):
     lines = [f"# 网站设计评审：{m.get('title') or url}", "",
              f"- URL：{url}（最终：{m.get('finalUrl')}）",
              f"- 行业：{industry or '未指定'}｜视口 1440×900{' + 390×844' if mobile else ''}",
@@ -224,10 +243,7 @@ def build_report(url, m, s, industry, mobile, hero=None):
              f"子分：色彩 {s['m_color']}｜字号体系 {s['m_type']}｜一致性 {s['m_consist']}｜层级 {s['m_hier']}｜可访问性 {s['m_access']}", "",
              "## 2. 指标 vs 基准（Top 20 中位数）", "",
              "| 指标 | 本站 | 目标 | 结论 |", "|---|---|---|---|"]
-    for key, name, target, ok in TARGETS:
-        v = s.get(key, m.get(key))
-        shown = f"{v:.0%}" if key == "lowContrastShare" and v is not None else fmt(v)
-        lines.append(f"| {name} | {shown} | {target} | {'✅' if ok(v) else '⚠️'} |")
+    lines += _metric_rows(m, s, True)
     lines += ["", f"字体：{', '.join(m['fonts'])}", f"常用字号：{', '.join(m['topFontSizes'])}",
               f"Hero 文本：{m['heroText']!r}｜首屏媒体占比 {m['heroMediaRatio']:.0%}｜max-width {m['maxWidth'] or '-'}px", ""]
     if hero and "error" not in hero:
@@ -256,6 +272,51 @@ def build_report(url, m, s, industry, mobile, hero=None):
               "### P1（明显降低质感）", "- TODO", "", "### P2（打磨）", "- TODO", "",
               "## 5. 美化建议", "", "### Token 方案", "```css", ":root {", "  /* TODO：颜色 ≤12、字号 ≤7 档、圆角一族、阴影 ≤2 */", "}", "```", "",
               "### Before → After", "", "| 区域 | 现状 | 建议 |", "|---|---|---|", "| Hero | TODO | TODO |", "", "## 6. 一句话结论", "", "TODO", ""]
+    return "\n".join(lines)
+
+
+def _report_en(url, m, s, industry, mobile, hero=None):
+    lines = [f"# Website design review: {m.get('title') or url}", "",
+             f"- URL: {url} (final: {m.get('finalUrl')})",
+             f"- Industry: {industry or 'not specified'} | viewport 1440×900{' + 390×844' if mobile else ''}",
+             f"- Screenshots: `fold.png`, `full.png`{', `mobile.png`' if mobile else ''}", "",
+             "## 1. Score", "",
+             "| Item | Score |", "|---|---|",
+             f"| Metric score (45%) | **{s['metric_score']}** |",
+             "| Visual score (55%) | **TODO** (1–10 ×10, fill in after viewing screenshots) |",
+             f"| Total | **TODO** = 0.45×{s['metric_score']} + 0.55×visual |", "",
+             f"Sub-scores: color {s['m_color']} | type scale {s['m_type']} | consistency {s['m_consist']} | hierarchy {s['m_hier']} | accessibility {s['m_access']}", "",
+             "## 2. Metrics vs benchmark (top-20 median)", "",
+             "| Metric | This site | Target | Verdict |", "|---|---|---|---|"]
+    lines += _metric_rows(m, s, False)
+    lines += ["", f"Fonts: {', '.join(m['fonts'])}", f"Common font sizes: {', '.join(m['topFontSizes'])}",
+              f"Hero text: {m['heroText']!r} | first-screen media share {m['heroMediaRatio']:.0%} | max-width {m['maxWidth'] or '-'}px", ""]
+    if hero and "error" not in hero:
+        pal = ", ".join(f"`{c['hex']}` {c['pct']}%" for c in hero["palette"] if c["pct"] >= 3)
+        lines += ["### Hero image (hero.png → hero-image/)", "",
+                  f"- Image metric score {hero['metric_score']}/100 (reference only, not part of the site metric score) | {hero['width']}×{hero['height']} | harmony {hero['harmony_guess']}",
+                  f"- Main colors: {pal}", "- Flags: " + ("; ".join(hero["flags"]) or "none"),
+                  "- TODO: rate the hero per references/image-aesthetics.md (clear subject, shares brand colors?, text-on-image legibility, AI artifacts)", ""]
+    elif hero:
+        lines += [f"Hero image analysis skipped: {hero['error']}", ""]
+    else:
+        lines += ["No hero/background image covering ≥12% of the first viewport detected.", ""]
+    b = load_bench(industry)
+    if b:
+        rows, peers, rank_in = b
+        est = s["metric_score"]
+        lines += ["## 3. Benchmark", "",
+                  f"- Benchmark set: {len(rows)} companies; by metric score this site ranks about #{1 + sum(float(r['metric_score']) > est for r in rows)} (recompute once the visual score is in)."]
+        if peers:
+            top = sorted(peers, key=lambda r: -float(r["score"]))[:3]
+            lines.append(f"- {len(peers)} peers in the same industry, mean score {statistics.mean(float(r['score']) for r in peers):.1f}; top 3: "
+                         + "; ".join(f"{r['company']} {r['score']} ({r.get('comment_en') or r['comment']})" for r in top))
+        lines.append("- TODO: pick 1–2 closest benchmark sites from references/benchmarks.md and describe the gap.")
+        lines.append("")
+    lines += ["## 4. Issues", "", "### P0 (hurts readability/usability)", "- TODO", "",
+              "### P1 (clearly lowers polish)", "- TODO", "", "### P2 (polish)", "- TODO", "",
+              "## 5. Improvements", "", "### Token plan", "```css", ":root {", "  /* TODO: colors ≤12, font sizes ≤7, one radius family, shadows ≤2 */", "}", "```", "",
+              "### Before → After", "", "| Area | Now | Proposal |", "|---|---|---|", "| Hero | TODO | TODO |", "", "## 6. One-line verdict", "", "TODO", ""]
     return "\n".join(lines)
 
 
@@ -305,13 +366,17 @@ async def capture(url, out, mobile, full_max):
 
 
 def main():
+    global LANG
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("url")
     ap.add_argument("--out")
     ap.add_argument("--industry", help="e.g. Pharma, Finance, Internet, Software/Cloud, Semiconductors, Hardware/Devices")
     ap.add_argument("--mobile", action="store_true", help="also capture 390x844")
     ap.add_argument("--full-max", type=int, default=8000)
+    ap.add_argument("--lang", choices=["en", "zh"], default=None, help=f"report language (default {LANG})")
     a = ap.parse_args()
+    if a.lang:
+        LANG = a.lang
     url = a.url if "://" in a.url else "https://" + a.url
     out = a.out or "review-" + urlparse(url).netloc.replace(":", "_")
     os.makedirs(out, exist_ok=True)

@@ -162,3 +162,67 @@ func TestSandboxListCursorPagination(t *testing.T) {
 		}
 	}
 }
+
+// v50：metadata 列往返；老行（NULL）读出来是 "{}"。
+func TestSandboxMetadataRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	r, err := s.CreateSandbox(ctx, SandboxRow{ProjectID: "p", Name: "m", CloudName: "sbx-m", Source: "api",
+		Image: "i", CPUs: 1, MemoryMiB: 256, Network: "none", Status: "pending", Metadata: `{"team":"a"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSandbox(ctx, "p", r.ID)
+	if err != nil || got.Metadata != `{"team":"a"}` {
+		t.Fatalf("metadata = %q err=%v", got.Metadata, err)
+	}
+	empty, err := s.CreateSandbox(ctx, SandboxRow{ProjectID: "p", Name: "n", CloudName: "sbx-n", Source: "api",
+		Image: "i", CPUs: 1, MemoryMiB: 256, Network: "none", Status: "pending"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetSandbox(ctx, "p", empty.ID); got.Metadata != "{}" {
+		t.Fatalf("empty metadata must normalize to {}, got %q", got.Metadata)
+	}
+	// 历史行：metadata 为 NULL。
+	if _, err := s.db.ExecContext(ctx, `UPDATE sys_sandboxes SET metadata = NULL WHERE id = ?`, empty.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.GetSandbox(ctx, "p", empty.ID); err != nil || got.Metadata != "{}" {
+		t.Fatalf("NULL metadata = %q err=%v", got.Metadata, err)
+	}
+}
+
+func TestGetSandboxByIDAndSchemaReady(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	r, err := s.CreateSandbox(ctx, SandboxRow{ProjectID: "p1", Name: "g", CloudName: "sbx-g", Source: "api",
+		Image: "i", CPUs: 1, MemoryMiB: 256, Network: "none", Status: "pending"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSandboxByID(ctx, r.ID)
+	if err != nil || got.ProjectID != "p1" {
+		t.Fatalf("by id: %+v %v", got, err)
+	}
+	if _, err := s.GetSandboxByID(ctx, "nope"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing id must be ErrNoRows, got %v", err)
+	}
+	if err := s.SoftDeleteSandbox(ctx, "p1", r.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSandboxByID(ctx, r.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("deleted row must be hidden, got %v", err)
+	}
+	ok, err := s.SandboxSchemaReady(ctx)
+	if err != nil || !ok {
+		t.Fatalf("migrated store must report ready: %v %v", ok, err)
+	}
+	// 模拟未迁移：删列后自检为 false。
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE sys_sandboxes DROP COLUMN metadata`); err != nil {
+		t.Skipf("driver cannot drop column: %v", err)
+	}
+	if ok, err := s.SandboxSchemaReady(ctx); err != nil || ok {
+		t.Fatalf("unmigrated store must report not ready: %v %v", ok, err)
+	}
+}

@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"strings"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 const maxSchemaColumns = 32
@@ -62,13 +64,13 @@ func buildCreateTableSQL(table string, cols []schemaColumnSpec) (string, error) 
 		if err != nil {
 			return "", err
 		}
-		def := quoteIdentifier(name) + " " + typ
+		def := sqlx.Ident(name) + " " + typ
 		if !col.Nullable {
 			def += " NOT NULL"
 		}
 		defs = append(defs, def)
 	}
-	return "CREATE TABLE " + quoteIdentifier(table) + " (" + strings.Join(defs, ", ") + ")", nil
+	return "CREATE TABLE " + sqlx.Ident(table) + " (" + strings.Join(defs, ", ") + ")", nil
 }
 
 func buildAddColumnSQL(table string, col schemaColumnSpec) (string, error) {
@@ -84,7 +86,7 @@ func buildAddColumnSQL(table string, col schemaColumnSpec) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sql := "ALTER TABLE " + quoteIdentifier(table) + " ADD COLUMN " + quoteIdentifier(name) + " " + typ
+	sql := "ALTER TABLE " + sqlx.Ident(table) + " ADD COLUMN " + sqlx.Ident(name) + " " + typ
 	if !col.Nullable {
 		sql += " NOT NULL"
 	}

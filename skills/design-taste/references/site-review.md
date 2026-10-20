@@ -1,6 +1,6 @@
 # Site Review — score and beautify any URL
 
-Use this when the user asks to review, benchmark or beautify a live website (评审网站 / 主页评审 / 网站美化 / 对标). The output is a Chinese report with a score, P0/P1/P2 issues and concrete token-level fixes.
+Use this when the user asks to review, benchmark or beautify a live website (评审网站 / 主页评审 / 网站美化 / 对标). The output is a report (in the user's language; `--lang en|zh`, default `en`) with a score, P0/P1/P2 issues and concrete token-level fixes.
 
 ## 1. Capture and measure
 
@@ -21,7 +21,7 @@ Metrics are taken from computed styles of visible elements that carry text: dist
 
 - The script also saves the largest image/video/background element in the first viewport (≥ 12% of it) as `hero.png` and runs `review_image.py` on it into `hero-image/` (metrics.json, palette.png, thirds-overlay.png, report.md). Needs Pillow + numpy; skipped with a note otherwise. The hero image score is **reference only** and does not change the site metric score.
 - Judge the hero with `image-aesthetics.md` (type `photo`, `product` or `illustration` as fits): subject clarity, does its palette share a source with the brand tokens, legibility of text laid over it, AI-artifact checklist for generated imagery, resolution vs. displayed size.
-- Other key images (product tiles, team photos, OG/share image): screenshot or download them and run `python3 scripts/review_image.py <img> --type product|photo|social`. Report image problems in the same P0/P1/P2 list, tagged 【图片】.
+- Other key images (product tiles, team photos, OG/share image): screenshot or download them and run `python3 scripts/review_image.py <img> --type product|photo|social`. Report image problems in the same P0/P1/P2 list, tagged [Image].
 
 Known noise to discount: carousels, product-tile pages (Apple-style zoning inflates colour counts), video that never rendered, and overlays that could not be dismissed.
 
@@ -53,37 +53,37 @@ Judge these: whitespace and spacing rhythm, hierarchy clarity, consistency, a si
 - Pick 1–2 close benchmarks from the same industry playbook (`benchmarks.md` §3) and name concrete gaps, e.g. "Hero 48px vs. IBM 54px / Robinhood 72px".
 - Estimate the rank: `1 + count(benchmarks.csv score > total)`. Report it along with the industry average.
 
-## 4. Report template (Chinese)
+## 4. Report template
 
-Start from the `report.md` the script wrote and replace every TODO:
+Start from the `report.md` the script wrote and replace every TODO (pass `--lang zh` for a Chinese skeleton):
 
 ```markdown
-# 网站设计评审：<站点>
-- URL / 行业 / 视口 / 截图 / 抓取时间（UTC+8）
+# Website design review: <site>
+- URL / industry / viewport / screenshots / capture time (with time zone)
 
-## 1. 评分
-指标分 X（45%）｜视觉分 Y（55%）｜**总分 Z**｜基准库约第 N/147 名，行业均分 M
-子分：色彩/字号体系/一致性/层级/可访问性
+## 1. Score
+Metric X (45%) | Visual Y (55%) | **Total Z** | ≈ rank N/147 in the benchmark set, industry mean M
+Sub-scores: color / type scale / consistency / hierarchy / accessibility
 
-## 2. 指标 vs 基准（Top 20 中位数）
-（脚本生成的表格 + 1–2 句解读：哪些超标是"设计债"，哪些是测量噪音）
+## 2. Metrics vs benchmark (top-20 median)
+(script table + 1–2 sentences: which overages are real design debt, which are measurement noise)
 
-## 3. 对标
-最接近的 1–2 个标杆，以及具体差距（数字）
+## 3. Benchmark
+The 1–2 closest reference sites and the concrete gap (numbers)
 
-## 4. 问题清单
-### P0 — 可读性/可用性：低对比正文、弹层遮挡首屏、正文 <14px、移动端溢出、主 CTA 不可见
-### P1 — 质感：颜色/字号/圆角/阴影超标、首屏多焦点、AI 模板感、门户化/促销化
-### P2 — 打磨：间距节奏、字距/行高、图标风格不一、hover/focus 态缺失
-每条写：现象（附数字或截图位置）→ 原因 → 修改方式
+## 4. Issues
+### P0 — readability/usability: low-contrast body, overlays covering the first screen, body < 14px, mobile overflow, invisible primary CTA
+### P1 — polish: too many colors/sizes/radii/shadows, multiple focal points above the fold, AI-template feel, portal/promo clutter
+### P2 — refinement: spacing rhythm, tracking/leading, mixed icon styles, missing hover/focus states
+Each item: symptom (with a number or screenshot location) → cause → fix
 
-## 5. 美化建议
-### Token 方案（CSS 变量；颜色 ≤12、字号 ≤7 档、圆角一族 ≤3、阴影 ≤2、渐变 0–1）
-### Before → After 表（Hero / 导航 / 卡片 / CTA / 正文 / 页脚）
-| 区域 | 现状 | 建议（具体值） |
-### 预期收益：按改后的 token 数量重算指标分，作为估算
+## 5. Improvements
+### Token plan (CSS variables; colors ≤12, font sizes ≤7, one radius family ≤3, shadows ≤2, gradients 0–1)
+### Before → After table (Hero / nav / cards / CTA / body / footer)
+| Area | Now | Proposal (concrete values) |
+### Expected gain: recompute the metric score with the new token counts as an estimate
 
-## 6. 一句话结论
+## 6. One-line verdict
 ```
 
 Rules for the suggestions:

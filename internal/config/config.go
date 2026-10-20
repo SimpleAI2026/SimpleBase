@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,7 +231,7 @@ type AgentConfig struct {
 	// 内容层是 internal/AGENTS.md 脱敏约定的显式例外，仅在此开关为真时生效。
 	TraceLog bool `yaml:"trace_log"`
 	// ShellIsolation 是本机 shell 的隔离策略（planv6.2）。默认关闭。
-	// 服务端云助手的 sandbox_shell 走 Cloud 沙盒，不经过它；
+	// 服务端云助手的 sandbox_shell 走云沙盒（sandbox.*），不经过它；
 	// 目前只有 cloudagent CLI 会启动本机 shell，而 CLI 读的是 ~/.cloudagent/config.json，
 	// 这一段在服务端只做解析与校验，供操作者对照抄写。
 	ShellIsolation ShellIsolationConfig `yaml:"shell_isolation"`
@@ -337,43 +338,96 @@ type ProviderConfig struct {
 	Timeout       time.Duration `yaml:"timeout"`
 }
 
-// SandboxConfig 控制云 Agent 的 microsandbox Cloud 沙盒
-// （cloud-agent-sandbox-plan §5）。生产环境 api_key 只能来自
-// SIMPLEBASE_SANDBOX_API_KEY，YAML 里的非空值会被拒绝。
+// SandboxConfig 控制「云沙盒」：项目级的隔离命令环境。
+//
+// 后端只有两种：local（本机进程隔离，经 gosandbox/host：Linux bubblewrap + Landlock + seccomp，
+// macOS Seatbelt）与 fake（内存假后端，仅测试）。不再依赖任何外部沙盒服务，没有 API Key。
+// local 与宿主共享内核，不是 VM，只适合自托管 / 受信任用户。
 type SandboxConfig struct {
-	Enabled        bool          `yaml:"enabled"`
-	APIURL         string        `yaml:"api_url"` // 空 = https://api.microsandbox.dev
-	APIKey         string        `yaml:"api_key"` // 生产必须来自环境变量
+	Enabled bool `yaml:"enabled"`
+	// Image 在 local 后端下只是展示用的标签（不拉取任何镜像），默认 "host"。
 	Image          string        `yaml:"image"`
-	CPUs           int           `yaml:"cpus"`       // 1–4
-	MemoryMiB      int           `yaml:"memory_mib"` // 128–4096
+	CPUs           int           `yaml:"cpus"`       // 1–4；cgroup 不可用时不会生效
+	MemoryMiB      int           `yaml:"memory_mib"` // 128–4096；cgroup 不可用时不会生效
 	MaxDuration    time.Duration `yaml:"max_duration"`
 	IdleTimeout    time.Duration `yaml:"idle_timeout"`
 	ExecTimeout    time.Duration `yaml:"exec_timeout"`
 	MaxOutputBytes int           `yaml:"max_output_bytes"`
 	MaxFileBytes   int           `yaml:"max_file_bytes"`
-	Network        string        `yaml:"network"` // none | public
+	Network        string        `yaml:"network"` // 仅 none：local 后端不提供网络
 	Workdir        string        `yaml:"workdir"`
 
-	// 以下为 planv4.0 cloud-sandbox-plan §5 新增字段；零值表示取默认。
-	Backend        string        `yaml:"backend"`          // cloud | fake（fake 仅测试环境，须 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）
-	Images         []string      `yaml:"images"`           // 镜像白名单；空 = 仅 Image
+	Backend        string        `yaml:"backend"`          // local | fake（fake 仅测试环境，须 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）
+	Images         []string      `yaml:"images"`           // 展示用标签白名单；空 = 仅 Image
 	ExecTimeoutMax time.Duration `yaml:"exec_timeout_max"` // API 可自定 timeout 的上限
 	MaxPerProject  int           `yaml:"max_per_project"`  // 项目内未删除沙盒上限
 	ReapInterval   time.Duration `yaml:"reap_interval"`    // 过期清理周期；0 = 关闭
+	// Root 是沙盒工作区的父目录；空 = <storage.data_dir>/sandboxes。
+	Root string `yaml:"root"`
+	// PidsMax 是 cgroup pids.max；0 = 不限。cgroup 不可用时不会生效。
+	PidsMax int64 `yaml:"pids_max"`
+	// BwrapPath / HelperPath 见 gosandbox/host.Policy；macOS 忽略。
+	BwrapPath  string `yaml:"bwrap_path"`
+	HelperPath string `yaml:"helper_path"`
+
+	Terminal SandboxTerminalConfig `yaml:"terminal"`
+	SSH      SandboxSSHConfig      `yaml:"ssh"`
+	E2B      SandboxE2BConfig      `yaml:"e2b"`
 }
 
-// SandboxBackendCloud / SandboxBackendFake 是 sandbox.backend 的合法取值。
+// SandboxTerminalConfig 控制控制台的浏览器终端（WebSocket + 进程内 SSH，不占端口）。
+type SandboxTerminalConfig struct {
+	// Enabled 默认 true；后端不支持 PTY 时自动降级为 capabilities.terminal=false。
+	Enabled               bool          `yaml:"enabled"`
+	MaxSessionsPerSandbox int           `yaml:"max_sessions_per_sandbox"` // 1-32
+	IdleTimeout           time.Duration `yaml:"idle_timeout"`             // >= 1m
+}
+
+// EffectiveSessionsPerSandbox 返回每个沙盒的会话数上限，零值取默认 4。
+func (t SandboxTerminalConfig) EffectiveSessionsPerSandbox() int {
+	if t.MaxSessionsPerSandbox <= 0 {
+		return 4
+	}
+	return t.MaxSessionsPerSandbox
+}
+
+// EffectiveIdleTimeout 返回终端空闲断开时间，零值取默认 15 分钟。
+func (t SandboxTerminalConfig) EffectiveIdleTimeout() time.Duration {
+	if t.IdleTimeout <= 0 {
+		return 15 * time.Minute
+	}
+	return t.IdleTimeout
+}
+
+// SandboxSSHConfig 控制是否对外开放真实 SSH 端口。默认不开放：它会在宿主上新开一个能拿到 shell 的端口。
+type SandboxSSHConfig struct {
+	// Listen 为空 = 不开放。例：127.0.0.1:2222；对外开放必须由操作者显式写 0.0.0.0 或经反向代理。
+	Listen string `yaml:"listen"`
+	// HostKeyPath 为空 = <storage.data_dir>/sandbox_ssh_host_ed25519，不存在时生成。
+	HostKeyPath string `yaml:"host_key_path"`
+}
+
+// SandboxE2BConfig 是 E2B 兼容 API 的展示配置。E2B 面随 sandbox.enabled 开关，没有单独的开关。
+type SandboxE2BConfig struct {
+	// DefaultTemplate 是 templateID="base" 对应的镜像别名；空取 sandbox.image。
+	DefaultTemplate string `yaml:"default_template"`
+	// EnvdVersion 是响应里报告的 envd 版本，SDK 据此判断能力；空取内置值。
+	EnvdVersion string `yaml:"envd_version"`
+}
+
+// SandboxBackendLocal / SandboxBackendFake 是 sandbox.backend 的合法取值。
 const (
-	SandboxBackendCloud = "cloud"
+	SandboxBackendLocal = "local"
 	SandboxBackendFake  = "fake"
+	// SandboxDefaultImage 是 local 后端的镜像标签。
+	SandboxDefaultImage = "host"
 )
 
-// EffectiveBackend 返回归一后的 backend（空 = cloud）。
+// EffectiveBackend 返回归一后的 backend（空 = local）。
 func (s SandboxConfig) EffectiveBackend() string {
 	b := strings.ToLower(strings.TrimSpace(s.Backend))
 	if b == "" {
-		return SandboxBackendCloud
+		return SandboxBackendLocal
 	}
 	return b
 }
@@ -533,8 +587,8 @@ func defaults() Config {
 		},
 		Sandbox: SandboxConfig{
 			Enabled:        false,
-			Backend:        SandboxBackendCloud,
-			Image:          "python:3.12-slim",
+			Backend:        SandboxBackendLocal,
+			Image:          SandboxDefaultImage,
 			CPUs:           1,
 			MemoryMiB:      256,
 			MaxDuration:    30 * time.Minute,
@@ -547,6 +601,12 @@ func defaults() Config {
 			ReapInterval:   5 * time.Minute,
 			Network:        "none",
 			Workdir:        "/workspace",
+			Terminal: SandboxTerminalConfig{
+				Enabled:               true,
+				MaxSessionsPerSandbox: 4,
+				IdleTimeout:           15 * time.Minute,
+			},
+			E2B: SandboxE2BConfig{DefaultTemplate: "base"},
 		},
 		Limits: LimitsConfig{
 			MaxRequestBytes:      1 << 20,
@@ -772,24 +832,32 @@ func isWithin(inner, outer string) bool {
 	return !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
 }
 
-// validateSandbox 校验 sandbox 配置段（cloud-agent-sandbox-plan §5；planv4.0 cloud-sandbox-plan §5）。
-// enabled 且 backend=cloud 且 key 为空：Validate 失败，进程不启动。enabled=false 时忽略。
+// validateSandbox 校验 sandbox 配置段。enabled=false 时忽略。
 func validateSandbox(s SandboxConfig) error {
 	if !s.Enabled {
 		return nil
 	}
 	var errs []error
 	switch s.EffectiveBackend() {
-	case SandboxBackendCloud:
-		if strings.TrimSpace(s.APIKey) == "" {
-			errs = append(errs, errors.New("sandbox.api_key is required when sandbox.enabled is true"))
+	case SandboxBackendLocal:
+		if s.BwrapPath != "" && !filepath.IsAbs(s.BwrapPath) {
+			errs = append(errs, errors.New("sandbox.bwrap_path must be an absolute path"))
+		}
+		if s.HelperPath != "" && !filepath.IsAbs(s.HelperPath) {
+			errs = append(errs, errors.New("sandbox.helper_path must be an absolute path"))
+		}
+		if s.Root != "" && !filepath.IsAbs(s.Root) {
+			errs = append(errs, errors.New("sandbox.root must be an absolute path"))
 		}
 	case SandboxBackendFake:
 		if !allowFakeSandbox() {
 			errs = append(errs, errors.New("sandbox.backend=fake is only allowed when SIMPLEBASE_SANDBOX_ALLOW_FAKE=1 (e2e / unit tests)"))
 		}
 	default:
-		errs = append(errs, fmt.Errorf("sandbox.backend must be cloud or fake (got %q)", s.Backend))
+		errs = append(errs, fmt.Errorf("sandbox.backend must be local or fake (got %q)", s.Backend))
+	}
+	if s.PidsMax < 0 {
+		errs = append(errs, errors.New("sandbox.pids_max must not be negative"))
 	}
 	if len(s.Images) > 0 && strings.TrimSpace(s.Image) != "" {
 		found := false
@@ -813,9 +881,9 @@ func validateSandbox(s SandboxConfig) error {
 		errs = append(errs, errors.New("sandbox.reap_interval must not be negative"))
 	}
 	switch strings.ToLower(strings.TrimSpace(s.Network)) {
-	case "", "none", "public":
+	case "", "none":
 	default:
-		errs = append(errs, fmt.Errorf("sandbox.network must be none or public (got %q)", s.Network))
+		errs = append(errs, fmt.Errorf("sandbox.network must be none (got %q)", s.Network))
 	}
 	if s.CPUs < 1 || s.CPUs > 4 {
 		errs = append(errs, fmt.Errorf("sandbox.cpus must be 1-4 (got %d)", s.CPUs))
@@ -831,6 +899,21 @@ func validateSandbox(s SandboxConfig) error {
 	}
 	if s.MaxOutputBytes <= 0 || s.MaxFileBytes <= 0 {
 		errs = append(errs, errors.New("sandbox.max_output_bytes and sandbox.max_file_bytes must be positive"))
+	}
+	// 终端子段零值 = 取默认（EffectiveTerminal），所以只校验显式设置过的值。
+	if n := s.Terminal.MaxSessionsPerSandbox; n != 0 && (n < 1 || n > 32) {
+		errs = append(errs, fmt.Errorf("sandbox.terminal.max_sessions_per_sandbox must be 1-32 (got %d)", n))
+	}
+	if d := s.Terminal.IdleTimeout; d != 0 && d < time.Minute {
+		errs = append(errs, errors.New("sandbox.terminal.idle_timeout must be at least 1m"))
+	}
+	if l := strings.TrimSpace(s.SSH.Listen); l != "" {
+		if _, port, err := net.SplitHostPort(l); err != nil || port == "" {
+			errs = append(errs, fmt.Errorf("sandbox.ssh.listen must be host:port (got %q)", s.SSH.Listen))
+		}
+	}
+	if s.SSH.HostKeyPath != "" && !filepath.IsAbs(s.SSH.HostKeyPath) {
+		errs = append(errs, errors.New("sandbox.ssh.host_key_path must be an absolute path"))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("sandbox validation failed: %w", joinErrors(errs))
@@ -927,8 +1010,8 @@ func (c Config) Redacted() map[string]any {
 			"exec_timeout_max": c.Sandbox.ExecTimeoutMax.String(),
 			"max_per_project":  c.Sandbox.MaxPerProject,
 			"reap_interval":    c.Sandbox.ReapInterval.String(),
-			"api_url":          c.Sandbox.APIURL,
-			"has_api_key":      c.Sandbox.APIKey != "",
+			"root":             c.Sandbox.Root,
+			"pids_max":         c.Sandbox.PidsMax,
 			"image":            c.Sandbox.Image,
 			"cpus":             c.Sandbox.CPUs,
 			"memory_mib":       c.Sandbox.MemoryMiB,

@@ -29,14 +29,13 @@ HTTP 非 2xx 错误可通过 `errors.As(err, &apiErr)` 提取 `*gosdk.APIError`�
 
 ```go
 result, err := client.RunSandbox(ctx, gosdk.SandboxRunInput{
-    Image: "python:3.12-slim",
     Files: []gosdk.SandboxRunFile{{Path: "/workspace/test.py", Content: "print('ok')\n"}},
-    SandboxExecInput: gosdk.SandboxExecInput{Command: "python test.py"},
+    SandboxExecInput: gosdk.SandboxExecInput{Command: "python3 test.py"},
 })
 if err != nil { log.Fatal(err) }
 if result.TimedOut || result.ExitCode != 0 { log.Fatal(result.Stderr) }
 ```
 
-`run` 同步执行，默认自动清理临时 VM。完整接口见 [`docs/automation/sandbox-e2e.md`](../../docs/automation/sandbox-e2e.md)。
+`run` 同步执行，默认自动清理临时沙盒。完整接口见 [`docs/automation/sandbox-e2e.md`](../../docs/automation/sandbox-e2e.md)。
 
 验证：`go test ./packages/go-sdk`。

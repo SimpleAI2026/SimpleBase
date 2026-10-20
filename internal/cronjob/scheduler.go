@@ -13,8 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/crontab"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/utils/crontab"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // Trigger 来源常量。
@@ -340,8 +341,5 @@ func (s *Scheduler) log(message string, at time.Time) {
 
 // truncate 裁剪字符串，避免大返回值整段落库。
 func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
+	return strutil.Truncate(s, n)
 }

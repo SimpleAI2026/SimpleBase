@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // 用户领域错误（api 层映射到 4xx）。
@@ -205,9 +207,7 @@ func (s *UserService) GetByUsername(ctx context.Context, username string) (User,
 }
 
 func (s *UserService) List(ctx context.Context, limit int, cursor string) ([]User, string, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
+	limit = pagelimit.Normalize(limit, 20, 100)
 	return s.repo.List(ctx, limit, cursor)
 }
 

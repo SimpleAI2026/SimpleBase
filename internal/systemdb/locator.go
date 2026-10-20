@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
 )
 
 const locatorFileName = "locator.json"
@@ -50,12 +52,8 @@ func SaveLocator(dir string, loc Locator) error {
 	if err != nil {
 		return fmt.Errorf("systemdb: marshal locator: %w", err)
 	}
-	tmp := locatorPath(dir) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("systemdb: write locator tmp: %w", err)
-	}
-	if err := os.Rename(tmp, locatorPath(dir)); err != nil {
-		return fmt.Errorf("systemdb: rename locator: %w", err)
+	if err := atomicfile.Write(locatorPath(dir), data, 0o644); err != nil {
+		return fmt.Errorf("systemdb: write locator: %w", err)
 	}
 	return nil
 }

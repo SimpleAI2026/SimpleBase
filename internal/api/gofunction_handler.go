@@ -34,6 +34,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/gofunction"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // GoFunctionHandler 依赖系统库；writable=false 时写/测试返回 503。
@@ -883,10 +884,7 @@ func mapGoFunctionRunError(err error, rid string) error {
 
 // truncateMessage 错误 message 截断脱敏。
 func truncateMessage(msg string, max int) string {
-	if len(msg) <= max {
-		return msg
-	}
-	return msg[:max] + "…"
+	return strutil.TruncateEllipsis(msg, max)
 }
 
 // errWriterUnavailable 复用统一只读实例错误。

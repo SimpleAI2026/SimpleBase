@@ -10,6 +10,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 type sqlAPIKeyRepository struct {
@@ -128,13 +130,10 @@ func parsePermissions(csv string) []Permission {
 	if csv == "" {
 		return nil
 	}
-	parts := strings.Split(csv, ",")
+	parts := strutil.SplitCSV(csv)
 	out := make([]Permission, 0, len(parts))
 	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, Permission(p))
-		}
+		out = append(out, Permission(p))
 	}
 	return out
 }

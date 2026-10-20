@@ -6,10 +6,12 @@ SimpleBase 的沙盒执行层，独立 Go 模块 `github.com/linkxzhou/SimpleBas
 host/                  本机进程隔离（cloudagent CLI 的本机 shell 用）
   inner/               沙盒内加载 Landlock + seccomp（仅 linux）
 cmd/gosandbox-inner/   沙盒内 helper 二进制，纯 Go，不链接 DuckDB
-vm/                    VM 执行后端：Driver 接口、cloud（microsandbox Cloud）、fake（测试）
+vm/                    云沙盒的执行后端：Driver 接口，以及 local（本机隔离）与 fake（内存假后端，仅测试）
+  local/               Driver 的本机实现：每个沙盒是一个工作区目录，命令经 host 隔离执行
+  fake/
 ```
 
-`host` 与 `vm` 互不 import。本机隔离**不是** Cloud 沙盒失败后的回退，也没有 `Driver` 实现。
+依赖方向只有 `vm/local → host`；`host` 不 import `vm`。`vm/local` 在隔离不可用时返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK（不再有 microsandbox）。
 
 ## host：本机命令隔离
 
@@ -48,11 +50,25 @@ vm/                    VM 执行后端：Driver 接口、cloud（microsandbox Cl
 
 ### 已知限制
 
-- 共享内核：不承诺挡住 Dirty Pipe、CVE-2024-1086 等内核提权；多租户 / 不可信代码用 Cloud microVM。
+- 共享内核：不承诺挡住 Dirty Pipe、CVE-2024-1086 等内核提权；多租户 / 不可信代码不应交给本层；需要 VM 级隔离时应另行实现 `vm.Driver`。
 - 挡不住工作区**内部**的误删，所以 `rm -rf` 等的确认保留；`--yolo` 只跳过确认，不跳过隔离。
 - 文件工具（`read_file` 等）在父进程里运行，不在沙盒里；`deny_read` 由 `host.DeniesRead` 同时约束它们。
 - `.git` 默认只读，所以沙盒内 `git commit` 会失败；要让 agent 提交，把 `.git` 从 `read_only_subpaths` 去掉，并接受 hook 可被改写的风险。
 - seccomp 默认拒绝新建 `AF_UNIX` / `AF_VSOCK` socket，依赖本地 socket 的工具可能受影响。
+
+## vm/local：云沙盒的本机后端
+
+`vm/local` 把 `host` 包成 `vm.Driver`，供服务端的云沙盒使用：
+
+- 每个沙盒是 `Root/<vm 名>/ws` 目录；`Ensure` 懒创建，`Stop` 只写标记，`Remove` 删目录，`Status` 由目录与标记推导。没有常驻进程。
+- `New` 会做一次真实的隔离冒烟测试（跑 `true`），不通过就返回 `vm.ErrUnavailable`。
+- 命令固定为 `workspace-write` 档；网络恒为关闭，`Spec.Network=public` 被拒绝。
+- 服务自己的数据通过 `Options.ProtectDirs` / `ProtectFiles` 以 `DenyRead` 遮住（`data_dir`、缓存、配置、`.env`），工作区之外的其他沙盒目录也被遮住。
+- 沙盒进程的环境变量**不继承**服务进程，只有最小集合加调用方传入的 `Env`。
+- 文件读写走 `os.Root`，沙盒里放的符号链接无法把父进程的读写带出工作区；`cwd` 也会校验解析后仍在工作区内。
+- 输出受 `Options.MaxOutputBytes` 约束（超限丢弃，不会撑大服务内存）；stdout 与 stderr 合并后放在 `ExecResult.Stdout`。
+- API 层的路径是 `Spec.Workdir`（默认 `/workspace`）下的逻辑路径，驱动映射到真实工作区；命令的当前目录就是真实工作区，命令里请用相对路径，字面量 `/workspace` 在沙盒里不存在。
+- 资源限额沿用 `host` 的语义：cgroup 不可用时不限制。
 
 ### 性能
 

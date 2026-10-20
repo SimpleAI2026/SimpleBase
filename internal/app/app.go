@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,14 +21,15 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
-	"github.com/linkxzhou/SimpleBase/gosandbox/vm/cloud"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm/local"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
 	"github.com/linkxzhou/SimpleBase/internal/agentjob"
 	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/database"
@@ -40,6 +42,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
+	"github.com/linkxzhou/SimpleBase/internal/sandbox/sshd"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
 	// 云函数脚本可 import 的宿主标准库注册（blank import 必须保留，
@@ -47,6 +50,7 @@ import (
 	_ "github.com/linkxzhou/SimpleBase/gofunction/packages"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/ssh"
 )
 
 // App 是运行中的 SimpleBase 实例。它持有 HTTP server 与已创建资源。
@@ -73,6 +77,8 @@ type App struct {
 	auditSvc      *audit.Service
 	llmSvc        llmgateway.Service
 	sandboxMgr    *sandbox.Manager
+	// sshHostKey 是沙盒终端的 SSH 主机密钥（setupSandboxTerminal 装配）。
+	sshHostKey ssh.Signer
 
 	// 多实例一致性（multi-instance-consistency-plan Phase A/B）。
 	casSupported bool           // 启动探针结果；false 时禁用租约/manifest 互斥
@@ -225,30 +231,57 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	}
 
 	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
+	sandboxNotReady := ""
 	if cfg.Sandbox.Enabled && a.systemStore != nil {
+		// 迁移 v50 给 sys_sandboxes 加了 metadata 列，整个沙盒模块都读它。迁移只定义、不自动对运行库执行
+		// （TIMER_NO_RUN=1 的纯 API 模式不会应用迁移），所以这里做一次只读自检：缺列就让沙盒模块自行
+		// 不可用并写明原因，而不是让每个请求都因缺列失败，也不拖累数据库、KV 等其它功能。
+		if ok, err := a.systemStore.SandboxSchemaReady(ctx); err != nil {
+			sandboxNotReady = "cannot verify the sys_sandboxes schema"
+			if logger != nil {
+				logger.Warn("sandbox disabled: schema check failed", zap.Error(err))
+			}
+		} else if !ok {
+			sandboxNotReady = "migration v50 has not been applied: run ALTER TABLE sys_sandboxes ADD COLUMN metadata VARCHAR DEFAULT '{}' or start the service with TIMER_NO_RUN=0"
+			if logger != nil {
+				logger.Warn("sandbox disabled: " + sandboxNotReady)
+			}
+		}
+	}
+	if cfg.Sandbox.Enabled && a.systemStore != nil && sandboxNotReady == "" {
 		var driver vm.Driver
-		if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendFake {
+		driverLog := sandboxDriverLog(logger)
+		switch cfg.Sandbox.EffectiveBackend() {
+		case config.SandboxBackendFake:
 			driver = fake.New()
-		} else if cfg.Sandbox.EffectiveBackend() == config.SandboxBackendCloud {
-			cloudDrv, err := cloud.New(cloud.Options{APIKey: cfg.Sandbox.APIKey, APIURL: cfg.Sandbox.APIURL,
-				Home: cfg.Database.CacheDir, MaxFileBytes: cfg.Sandbox.MaxFileBytes})
+		case config.SandboxBackendLocal:
+			localDrv, err := local.New(ctx, sandboxLocalOptions(cfg, driverLog))
 			if err == nil {
-				driver = cloudDrv
-				if logger != nil {
-					logger.Info("sandbox cloud backend ready")
-				}
+				driver = localDrv
 			} else if logger != nil {
-				logger.Warn("sandbox disabled: cloud backend unavailable (no local fallback)")
+				// 隔离不可用时不退回裸执行：云沙盒功能整体不可用，其余服务照常启动。
+				logger.Warn("sandbox disabled: local isolation unavailable (no unisolated fallback)", zap.Error(err))
 			}
 		}
 		if driver != nil {
+			driver = vm.WithLogging(driver, driverLog)
 			a.sandboxMgr = sandbox.NewManager(cfg.Sandbox, sandboxStoreAdapter{s: a.systemStore}, driver)
+			if logger != nil {
+				a.sandboxMgr.SetLogger(logger)
+				logger.Info("sandbox manager ready", zap.String("backend", cfg.Sandbox.EffectiveBackend()),
+					zap.String("image", cfg.Sandbox.Image), zap.Int("max_per_project", cfg.Sandbox.MaxPerProject),
+					zap.Duration("idle_timeout", cfg.Sandbox.IdleTimeout), zap.Duration("reap_interval", cfg.Sandbox.ReapInterval))
+			}
 			a.registerCloser(a.sandboxMgr)
 			if a.schedulerCancel == nil {
 				a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
 			}
 			a.sandboxMgr.StartReaper(a.schedulerBaseCtx)
 		}
+	}
+	var terminal *api.TerminalBridge
+	if a.sandboxMgr != nil && a.sandboxMgr.Available() && a.sandboxMgr.Interactive() {
+		terminal = a.setupSandboxTerminal(cfg, logger)
 	}
 
 	// 统一定时任务调度器（ui-cronjob-plan §5.4 + planv6.0 cloudagent-cli-and-cronjob-unification-plan §2）：
@@ -312,12 +345,20 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		CronScheduler:   cronScheduler,
 		Sandbox:         a.sandboxMgr,
 		SandboxUsage:    a.usageSvc,
+		Terminal:        terminal,
+
+		SandboxNotReadyReason: sandboxNotReady,
 	}
 	a.echo = api.NewRouter(deps)
+	if terminal != nil {
+		// 认证器需要 SandboxHandler（API Key 校验、项目解析），而 handler 在 NewRouter 里才构造，
+		// 所以认证器在这里挂上：用同一份 deps 构造一个只做认证的轻量 handler。
+		terminal.Server = a.bindSandboxSSHAuth(terminal, deps)
+	}
 
 	writeTimeout := cfg.HTTP.WriteTimeout
 	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
-		// 同步执行包含 Cloud 冷启动，写超时须覆盖最长命令及启动预算。
+		// 同步执行写超时须覆盖最长命令及启动预算。
 		minTimeout := cfg.Sandbox.ExecTimeoutMax + time.Minute
 		if minTimeout > writeTimeout {
 			writeTimeout = minTimeout
@@ -944,8 +985,8 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		LLM:            api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
 		DB:             api.NewCloudAgentDB(a.catalog, a.registry),
 		Obj:            api.NewCloudAgentObj(a.fileStore, a.systemStore),
-		Logs:           cloudagent.NewLogAccess(a.systemStore),
-		Settings:       cloudagent.NewSettingsAccess(a.systemStore),
+		Logs:           agentbridge.NewLogAccess(a.systemStore),
+		Settings:       agentbridge.NewSettingsAccess(a.systemStore),
 		MaxIterations:  a.cfg.LLM.EffectiveAgentMaxIterations(),
 		RunTimeout:     a.cfg.LLM.EffectiveAgentRunTimeout(),
 		ToolProtocol:   a.cfg.LLM.EffectiveAgentToolProtocol(),
@@ -955,7 +996,9 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		APIBaseURL:     loopbackBase(a.cfg.HTTP.Address),
 		ConfirmTimeout: a.cfg.Agent.EffectiveConfirmTimeout(),
 		DelegationTTL:  a.cfg.Agent.EffectiveDelegationTTL(),
-		Issuer:         auth.HMACDelegationIssuer{Secret: a.cfg.Auth.APIKeyHashSecret, Reg: reg},
+		Issuer:         agentbridge.NewDelegationIssuer(a.cfg.Auth.APIKeyHashSecret, reg),
+		// 命令只读/破坏性分类的唯一入口：规则在宿主（sbcli + sqlguard）。
+		Policy: agentbridge.NewCommandPolicy(),
 		// planv6.0 v2 §5：运行日志出口与内容层开关（默认关闭）。
 		Logger:   a.logger,
 		TraceLog: a.cfg.Agent.TraceLog,
@@ -1126,6 +1169,58 @@ func (c leaseCloser) Close() error {
 	return nil
 }
 
+// sandboxLocalOptions 把配置转成本机沙盒驱动的显式选项，并把服务自己的数据
+// （data_dir、缓存目录、配置文件与 .env）列为对沙盒内命令不可读的路径。
+func sandboxLocalOptions(cfg config.Config, log vm.LogFunc) local.Options {
+	root := cfg.Sandbox.Root
+	if root == "" {
+		root = filepath.Join(cfg.Storage.DataDir, "sandboxes")
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	opts := local.Options{
+		Root: root, Workdir: cfg.Sandbox.Workdir,
+		MaxFileBytes: cfg.Sandbox.MaxFileBytes, MaxOutputBytes: cfg.Sandbox.MaxOutputBytes,
+		PidsMax: cfg.Sandbox.PidsMax, BwrapPath: cfg.Sandbox.BwrapPath, HelperPath: cfg.Sandbox.HelperPath,
+		Log: log,
+	}
+	opts.ProtectDirs = []string{cfg.Storage.DataDir, cfg.Database.CacheDir}
+	cfgPath := os.Getenv("SIMPLEBASE_CONFIG_PATH")
+	if cfgPath == "" {
+		cfgPath = "config.yaml"
+	}
+	opts.ProtectFiles = []string{cfgPath, ".env"}
+	return opts
+}
+
+// sandboxDriverLog 把 gosandbox 的 vm.LogFunc 适配到 observability.Logger；logger 为 nil 时返回 nil（不输出）。
+func sandboxDriverLog(l observability.Logger) vm.LogFunc {
+	if l == nil {
+		return nil
+	}
+	return func(level, msg string, kv ...any) {
+		fields := make([]zap.Field, 0, len(kv)/2+1)
+		for i := 0; i+1 < len(kv); i += 2 {
+			key, ok := kv[i].(string)
+			if !ok {
+				continue
+			}
+			fields = append(fields, zap.Any(key, kv[i+1]))
+		}
+		switch level {
+		case "debug":
+			l.Debug(msg, fields...)
+		case "warn":
+			l.Warn(msg, fields...)
+		case "error":
+			l.Error(msg, fields...)
+		default:
+			l.Info(msg, fields...)
+		}
+	}
+}
+
 // zapAdapter 把 observability.Logger 适配为 lease.Logger。
 type zapAdapter struct{ l observability.Logger }
 
@@ -1134,3 +1229,58 @@ func (a zapAdapter) Printf(format string, args ...any) {
 		a.l.Info(fmt.Sprintf(format, args...))
 	}
 }
+
+// setupSandboxTerminal 装配浏览器终端与（可选的）外部 SSH 端口。失败只关闭终端，不影响沙盒的其它能力。
+//
+// 返回的 TerminalBridge 里 Server 先是 nil：它的认证器要等 api.NewRouter 构造出 handler 后才能挂上
+// （见 bindSandboxSSHAuth）。因此这里只准备主机密钥与指纹。
+func (a *App) setupSandboxTerminal(cfg config.Config, logger observability.Logger) *api.TerminalBridge {
+	keyPath := cfg.Sandbox.SSH.HostKeyPath
+	if keyPath == "" {
+		keyPath = filepath.Join(cfg.Storage.DataDir, "sandbox_ssh_host_ed25519")
+	}
+	signer, err := sshd.LoadOrCreateHostKey(keyPath)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("sandbox terminal disabled: host key unavailable", zap.Error(err))
+		}
+		return nil
+	}
+	a.sshHostKey = signer
+	return &api.TerminalBridge{Fingerprint: sshd.Fingerprint(signer), SSHListen: strings.TrimSpace(cfg.Sandbox.SSH.Listen)}
+}
+
+// bindSandboxSSHAuth 构造 SSH 服务端并按需开放外部端口。返回服务端供 TerminalBridge 使用。
+func (a *App) bindSandboxSSHAuth(t *api.TerminalBridge, deps api.Dependencies) *sshd.Server {
+	h := api.NewSandboxHandler(deps.Sandbox, deps.Config.Instance.Writable, deps.Audit, deps.System, deps.SandboxUsage, deps)
+	audit := func(ctx context.Context, id sshd.Identity, kind string, d time.Duration, exit int) {
+		if a.auditSvc == nil {
+			return
+		}
+		_ = a.auditSvc.Record(ctx, audit.Event{ProjectID: id.ProjectID, PrincipalID: id.Actor, Kind: "sandbox.terminal." + kind,
+			Status: "ok", Detail: fmt.Sprintf("%s duration_ms=%d exit=%d", id.SandboxID, d.Milliseconds(), exit)})
+	}
+	srv, err := sshd.New(sshd.Options{HostKey: a.sshHostKey, Authenticator: api.NewSSHAuthenticator(h), Sessions: a.sandboxMgr, Audit: audit})
+	if err != nil {
+		if a.logger != nil {
+			a.logger.Warn("sandbox terminal disabled", zap.Error(err))
+		}
+		return nil
+	}
+	a.registerCloser(closerFunc(srv.Close))
+	if t.SSHListen != "" {
+		l, lerr := net.Listen("tcp", t.SSHListen)
+		if lerr != nil {
+			a.logger.Warn("sandbox ssh listener failed; the browser terminal still works", zap.String("listen", t.SSHListen), zap.Error(lerr))
+			t.SSHListen = ""
+		} else {
+			go func() { _ = srv.Serve(l) }()
+			a.logger.Info("sandbox ssh listening", zap.String("listen", t.SSHListen), zap.String("host_key", t.Fingerprint))
+		}
+	}
+	return srv
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }

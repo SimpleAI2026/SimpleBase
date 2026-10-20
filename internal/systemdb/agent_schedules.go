@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // AgentSchedule 是 sys_agent_schedules 一行（Cloud Agent 定时执行配置）。
@@ -198,9 +200,7 @@ func (s *Store) ListDueAgentSchedules(ctx context.Context, now time.Time, limit 
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
+	limit = pagelimit.Normalize(limit, 100, 500)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+agentScheduleColumns+`
 		 FROM sys_agent_schedules
@@ -309,9 +309,7 @@ func (s *Store) ListAgentScheduleRuns(ctx context.Context, projectID, scheduleID
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
+	limit = pagelimit.Normalize(limit, 20, 100)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+agentScheduleRunColumns+`
 		 FROM sys_agent_schedule_runs WHERE project_id = ? AND schedule_id = ?

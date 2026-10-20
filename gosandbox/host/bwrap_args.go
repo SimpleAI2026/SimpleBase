@@ -28,6 +28,8 @@ type BwrapInput struct {
 	Exists func(string) bool
 	// IsDir 判断路径是否为目录；nil 取 os.Stat。
 	IsDir func(string) bool
+	// CTTY 为真时让 helper 把 stdin 设为控制终端（交互 PTY 会话）。
+	CTTY bool
 }
 
 // BwrapArgs 生成 bwrap 参数（不含 bwrap 本身）。
@@ -118,7 +120,11 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 	if in.Dir != "" {
 		args = append(args, "--chdir", in.Dir)
 	}
-	args = append(args, "--", in.Helper, "--policy", InnerPolicyPath, "--")
+	args = append(args, "--", in.Helper, "--policy", InnerPolicyPath)
+	if in.CTTY {
+		args = append(args, "--ctty")
+	}
+	args = append(args, "--")
 	args = append(args, in.Argv...)
 	return args, nil
 }

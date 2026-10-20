@@ -102,14 +102,21 @@ func ruleStrings(rules []landlock.Rule) []string {
 }
 
 func TestParseArgs(t *testing.T) {
-	p, argv, err := parseArgs([]string{"--policy", "/p.json", "--", "/bin/sh", "-c", "echo"})
-	if err != nil || p != "/p.json" || strings.Join(argv, " ") != "/bin/sh -c echo" {
-		t.Fatalf("%q %v %v", p, argv, err)
+	p, ctty, argv, err := parseArgs([]string{"--policy", "/p.json", "--", "/bin/sh", "-c", "echo"})
+	if err != nil || p != "/p.json" || ctty || strings.Join(argv, " ") != "/bin/sh -c echo" {
+		t.Fatalf("%q %v %v %v", p, ctty, argv, err)
 	}
 	for _, bad := range [][]string{nil, {"--policy"}, {"--policy", "p"}, {"--", "x"}, {"--bogus"}, {"--policy", "p", "--"}} {
-		if _, _, err := parseArgs(bad); err == nil {
+		if _, _, _, err := parseArgs(bad); err == nil {
 			t.Fatalf("%v must be rejected", bad)
 		}
+	}
+}
+
+func TestParseArgsCtty(t *testing.T) {
+	_, ctty, argv, err := parseArgs([]string{"--policy", "/p.json", "--ctty", "--", "/bin/sh"})
+	if err != nil || !ctty || len(argv) != 1 {
+		t.Fatalf("%v %v %v", ctty, argv, err)
 	}
 }
 

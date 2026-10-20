@@ -22,7 +22,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/testutil/fakellm"
@@ -38,7 +38,7 @@ type harnessDB struct {
 	sqlError  string // 非空时 ReadOnlyQuery 返回该错误（sqlguard 拒绝模拟）
 }
 
-func (f *harnessDB) ListDatabases(context.Context, auth.Principal, string) ([]cloudagent.DatabaseInfo, error) {
+func (f *harnessDB) ListDatabases(context.Context, cloudagent.Principal, string) ([]cloudagent.DatabaseInfo, error) {
 	f.mu.Lock()
 	f.listCalls++
 	block := f.blockFor
@@ -54,11 +54,11 @@ func (f *harnessDB) ListDatabases(context.Context, auth.Principal, string) ([]cl
 	return []cloudagent.DatabaseInfo{{ID: "d1", Name: "orders", Status: "ready"}, {ID: "d2", Name: "users", Status: "ready"}}, nil
 }
 
-func (f *harnessDB) ListCollections(context.Context, auth.Principal, string, string) ([]string, error) {
+func (f *harnessDB) ListCollections(context.Context, cloudagent.Principal, string, string) ([]string, error) {
 	return []string{"t1"}, nil
 }
 
-func (f *harnessDB) ReadOnlyQuery(_ context.Context, _ auth.Principal, _, _, sqlText string, _ int) (cloudagent.SQLResult, error) {
+func (f *harnessDB) ReadOnlyQuery(_ context.Context, _ cloudagent.Principal, _, _, sqlText string, _ int) (cloudagent.SQLResult, error) {
 	f.mu.Lock()
 	f.sqlCalls++
 	errText := f.sqlError
@@ -79,15 +79,15 @@ type harnessLogs struct {
 	calls int
 }
 
-func (f *harnessLogs) SearchLogs(context.Context, string, string, string, int) ([]systemdb.LogEvent, error) {
+func (f *harnessLogs) SearchLogs(context.Context, string, string, string, int) ([]cloudagent.LogEvent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
-	return []systemdb.LogEvent{{Level: "error", Logger: "app", Message: "boom"}}, nil
+	return []cloudagent.LogEvent{{Level: "error", Logger: "app", Message: "boom"}}, nil
 }
 
-func (f *harnessLogs) LevelStats(context.Context, string) ([]systemdb.LogLevelCount, error) {
-	return []systemdb.LogLevelCount{{Level: "error", Count: 3}}, nil
+func (f *harnessLogs) LevelStats(context.Context, string) ([]cloudagent.LogLevelCount, error) {
+	return []cloudagent.LogLevelCount{{Level: "error", Count: 3}}, nil
 }
 
 // agentHarness 聚合全链路依赖。
@@ -176,6 +176,7 @@ func registerAgentRoutes(e *echo.Echo, h *cloudAgentHandler) {
 	e.GET("/agent-threads/:threadID/messages", h.ListMessages)
 	e.GET("/agent-threads/:threadID/runs", h.ListThreadRuns)
 	e.POST("/agent-threads/:threadID/runs", h.CreateRun)
+	e.GET("/agent-runs/active", h.ListActiveRuns)
 	e.POST("/agent-runs/:runID/cancel", h.CancelRun)
 	e.POST("/agent-runs/:runID/confirmations/:callID", h.ConfirmRun)
 	e.GET("/agent-runs/:runID/events", h.ReplayEvents)

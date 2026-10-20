@@ -55,12 +55,8 @@ var commandReadOnlyExpectation = map[string]bool{
 	"sandbox get":          true,
 	"sandbox create":       false,
 	"sandbox delete":       false,
-	"sandbox start":        false,
-	"sandbox stop":         false,
-	"sandbox exec":         true,
-	"sandbox update":       false,
-	"sandbox run":          true,
-	"sandbox files":        false, // 含 write/delete，按写处理；子动作另有细分
+	"sandbox connect":      false,
+	"sandbox pause":        false,
 	"log search":           true,
 	"log retention":        false, // get/set 双形态，按写处理；子动作另有细分
 	"user list":            true,
@@ -121,10 +117,8 @@ func TestCommandReadOnlyWithArgvSubActions(t *testing.T) {
 		{[]string{"function", "versions", "get"}, true},
 		{[]string{"function", "versions", "create"}, false},
 		{[]string{"function", "versions", "activate"}, false},
-		{[]string{"sandbox", "files", "list"}, true},
-		{[]string{"sandbox", "files", "read"}, true},
-		{[]string{"sandbox", "files", "write"}, false},
-		{[]string{"sandbox", "files", "delete"}, false},
+		{[]string{"sandbox", "files", "list"}, false}, // 命令已删除，未知命令 fail-closed
+		{[]string{"sandbox", "exec"}, false},
 		{[]string{"sql", "query"}, true},
 		{[]string{"sql", "exec"}, false},
 		{[]string{"database"}, false},

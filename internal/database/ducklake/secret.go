@@ -2,8 +2,8 @@ package ducklake
 
 import (
 	"fmt"
-	"strings"
-	"unicode"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 // buildCreateSecretSQL 生成 httpfs S3 SECRET（在 ATTACH 之前执行）。
@@ -12,12 +12,12 @@ func buildCreateSecretSQL(remote RemoteStorage) string {
 	parts := []string{
 		"CREATE OR REPLACE SECRET simplebase_s3 (",
 		"TYPE S3",
-		", KEY_ID " + quoteSQLString(remote.AccessKey),
-		", SECRET " + quoteSQLString(remote.SecretKey),
-		", REGION " + quoteSQLString(remote.Region),
+		", KEY_ID " + sqlx.Literal(remote.AccessKey),
+		", SECRET " + sqlx.Literal(remote.SecretKey),
+		", REGION " + sqlx.Literal(remote.Region),
 	}
 	if host := remote.s3EndpointHost(); host != "" {
-		parts = append(parts, ", ENDPOINT "+quoteSQLString(host))
+		parts = append(parts, ", ENDPOINT "+sqlx.Literal(host))
 	}
 	if remote.ForcePathStyle {
 		parts = append(parts, ", URL_STYLE 'path'")
@@ -54,32 +54,6 @@ func buildDataURI(remote RemoteStorage, projectID, databaseID string) (string, e
 
 // —— SQL 字面量与标识符构造（原 sqlquote.go）——
 
-func quoteSQLString(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-func quoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
 func sqlPath(p string) string {
-	return quoteSQLString(filepathToSlash(p))
-}
-
-func isSafeIdent(name string) bool {
-	if name == "" {
-		return false
-	}
-	for i, r := range name {
-		if i == 0 {
-			if !unicode.IsLetter(r) && r != '_' {
-				return false
-			}
-			continue
-		}
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
-			return false
-		}
-	}
-	return true
+	return sqlx.Literal(filepathToSlash(p))
 }

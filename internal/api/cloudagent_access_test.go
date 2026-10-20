@@ -10,7 +10,8 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/registry"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
@@ -56,7 +57,7 @@ func TestCloudAgentDB_ListAndQuery(t *testing.T) {
 	realReg := registry.New(memFactory{}, nil, registry.Options{Writable: true}, nil, nil)
 	access := NewCloudAgentDB(cat, &liveRegistry{inner: realReg})
 	ctx := context.Background()
-	p := auth.Principal{APIKeyID: "k"}
+	p := agentbridge.ToModulePrincipal(auth.Principal{APIKeyID: "k"})
 
 	list, err := access.ListDatabases(ctx, p, "proj-1")
 	if err != nil || len(list) != 2 || list[0].Name != "one" {

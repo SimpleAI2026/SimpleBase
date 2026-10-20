@@ -47,7 +47,8 @@ SSE 依次包含 `run`、可选 `thinking`、逐段 `token`、工具执行时同
 ## 自动化回归
 
 ```sh
-go test ./internal/cloudagent ./internal/api ./internal/llmgateway ./internal/config ./internal/systemdb
+go test ./internal/agentbridge ./internal/api ./internal/llmgateway ./internal/config ./internal/systemdb
+(cd cloudagent && go test ./...)
 cd ui && yarn build && yarn test
 ```
 

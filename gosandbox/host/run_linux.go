@@ -76,8 +76,8 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 	c.ExtraFiles = []*os.File{pr}
 	// 独立进程组：超时时向整组发 SIGKILL，不依赖 CommandContext 只杀直接子进程。
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	var out bytes.Buffer
-	c.Stdout, c.Stderr = &out, &out
+	out := &cappedBuffer{max: p.MaxOutputBytes}
+	c.Stdout, c.Stderr = out, out
 
 	limits := Limits{Configured: limitsConfigured(p), Backend: cgroupNone}
 	var grp *cgroupGroup
@@ -121,7 +121,7 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 		defer grp.remove()
 	}
 
-	res := Result{Output: out.Bytes(), TimedOut: timedOut, Limits: limits, Duration: time.Since(start)}
+	res := Result{Output: out.buf.Bytes(), OutputTruncated: out.truncated, TimedOut: timedOut, Limits: limits, Duration: time.Since(start)}
 	if timedOut {
 		res.ExitCode = -1
 		return res, nil

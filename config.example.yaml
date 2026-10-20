@@ -5,7 +5,7 @@
 #
 # 密钥规则（重要）：
 #   所有密钥（auth.api_key_hash_secret、s3.access_key/secret_key、
-#   llm.providers.*.api_key、sandbox.api_key）都只能来自环境变量或 .env。
+#   llm.providers.*.api_key）都只能来自环境变量或 .env。
 #   YAML 里出现非空密钥会被 Validate() 直接拒绝启动。
 #
 # 本地开发最短路径：
@@ -155,7 +155,7 @@ llm:
   # SIMPLEBASE_LLM_PROVIDERS=openai,anthropic 可增补 provider 名。
 
 # ── Agent（云助手 CLI skill）──────────────────────────
-# 代码：internal/cloudagent、cmd/simplebase；只有 config.yaml + SIMPLEBASE_* 环境变量生效（env 覆盖 YAML）。
+# 代码：cloudagent、internal/agentbridge、cmd/simplebase；只有 config.yaml + SIMPLEBASE_* 环境变量生效（env 覆盖 YAML）。
 # skills_cli=true 时，数据库/S3/日志等助手经宿主进程中的 simplebase CLI 调用现有 HTTP API；
 # CLI 不在云沙盒内运行，不向云沙盒注入凭据。关闭 skills_cli 只保留旧只读工具。
 # 服务和 CLI 共用 simplebase 二进制；./build.sh 与 Docker 镜像均只构建一个产物。
@@ -173,7 +173,7 @@ agent:
                               # 输出前 RedactSecrets + 截断 2000 字符。默认关闭，属脱敏约定的显式例外。
                               # SIMPLEBASE_AGENT_TRACE_LOG=true 覆盖
   # 本机 shell 隔离（planv6.2，代码：gosandbox/host）。默认关闭。
-  # 注意：服务端云助手的 sandbox_shell 走 Cloud 沙盒，不经过这里；目前只有 cloudagent CLI 会启动本机 shell，
+  # 注意：服务端云助手的 sandbox_shell 走云沙盒（见下方 sandbox 段），不经过这里；目前只有 cloudagent CLI 会启动本机 shell，
   # 而 CLI 读的是 ~/.cloudagent/config.json 的同名 shell_isolation 段，不读本文件——这一段在服务端只做解析与校验，
   # 请把需要的字段抄进 CLI 配置。Linux 需要 bubblewrap(>=0.8.0)、内核 Landlock ABI>=3；macOS 用 /usr/bin/sandbox-exec。
   # --yolo 只跳过确认，不会关闭隔离；隔离开启但不可用时命令不会执行（isolation_unavailable），不退回裸执行。
@@ -197,31 +197,39 @@ agent:
     helper_path: ""             # 空 = 与 cloudagent 同目录的 gosandbox-inner
 
 # ── Sandbox（云沙盒）──────────────────────────────────
-# 代码：internal/sandbox
+# 代码：internal/sandbox（业务层）+ gosandbox/vm/local（执行后端，复用 gosandbox/host）
 # 侧栏「自动化 → 云沙盒」与 /v1/projects/:id/sandboxes/** 共用同一后端。
+#
+# 后端是本机进程隔离，不是虚拟机，也不依赖任何外部服务（没有 API Key）：
+#   Linux : bubblewrap(>=0.8.0) + Landlock(ABI>=3) + seccomp；需要 gosandbox-inner（./build.sh 会与 cloudagent 一起构建）
+#   macOS : 系统自带 /usr/bin/sandbox-exec
+# 与宿主共享内核：只适合自托管 / 受信任用户，不适合多租户不可信代码。
+# 本机不具备隔离能力时，服务照常启动，仅此功能被跳过并在日志里写明原因；绝不退回裸执行。
+# 网络恒为关闭。cpus / memory_mib / pids_max 只有在 cgroup v2 已委派给当前进程时才生效，否则不限制（日志有提示）。
+# 沙盒内命令看不到服务数据：storage.data_dir、database.cache_dir、config.yaml 与 .env 都被遮住。
 sandbox:
   enabled: false              # SIMPLEBASE_SANDBOX_ENABLED
-  backend: cloud              # cloud | fake（fake 为内存假后端，仅测试用）
+  backend: local              # local | fake（fake 为内存假后端，仅测试用）
                               # fake 需要 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1，否则拒绝启动
-  api_url: ""                 # 空 = 官方默认地址。SIMPLEBASE_SANDBOX_API_URL
-                              # api_key 只能来自 SIMPLEBASE_SANDBOX_API_KEY
-  image: "python:3.12-slim"   # 默认镜像。SIMPLEBASE_SANDBOX_IMAGE
-  images:                     # 镜像白名单（须包含 image）。SIMPLEBASE_SANDBOX_IMAGES
-    - "python:3.12-slim"
-    - "node:22-alpine"
-    - "alpine:3.20"
-  cpus: 1                     # 单沙盒 CPU（1–4）
-  memory_mib: 256             # 单沙盒内存 MiB（128–4096）
-  max_duration: 30m           # VM 总寿命
+  root: ""                    # 工作区父目录；空 = <storage.data_dir>/sandboxes。SIMPLEBASE_SANDBOX_ROOT
+  image: "host"               # local 下只是展示用标签，不拉取镜像。SIMPLEBASE_SANDBOX_IMAGE
+  images:                     # 展示标签白名单（须包含 image）。SIMPLEBASE_SANDBOX_IMAGES
+    - "host"
+  cpus: 1                     # 1–4
+  memory_mib: 256             # 128–4096
+  pids_max: 0                 # 0 = 不限
+  max_duration: 30m           # 沙盒总寿命
   idle_timeout: 5m            # 空闲回收
   exec_timeout: 30s           # 单次命令默认时限
   exec_timeout_max: 300s      # API 可自定 timeout 的上限
-  max_output_bytes: 65536     # 单次输出上限
+  max_output_bytes: 65536     # 单次输出上限（stdout 与 stderr 合并）
   max_file_bytes: 1048576     # 单文件大小上限
   max_per_project: 5          # 项目内未删除沙盒上限。SIMPLEBASE_SANDBOX_MAX_PER_PROJECT
   reap_interval: 5m           # 过期清理周期；0 = 关闭
-  network: none               # none | public
-  workdir: /workspace
+  network: none               # 仅 none
+  workdir: /workspace         # API 层使用的逻辑路径；命令的当前目录是真实工作区，命令里请用相对路径
+  bwrap_path: ""              # 空 = 在 PATH 上查找；必须解析为绝对路径且非 setuid
+  helper_path: ""             # 空 = 与 simplebase 可执行文件同目录的 gosandbox-inner
 
 # ── Limits ────────────────────────────────────────────
 # 代码：internal/api（SQLLimits）、internal/gofunction（并发闸门）

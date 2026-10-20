@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5" //nolint:gosec // 仅用于 COS 要求的 Content-MD5 请求头，非安全用途
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +20,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
+	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
+	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // BlobStore 读写二进制对象（DuckLake catalog.sqlite 等）。
@@ -227,13 +229,8 @@ func (c *s3Client) DownloadFile(ctx context.Context, key, destPath string) (Obje
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return ObjectInfo{}, fmt.Errorf("objectstore: mkdir for download: %w", err)
 	}
-	tmp := destPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return ObjectInfo{}, fmt.Errorf("objectstore: write download tmp: %w", err)
-	}
-	if err := os.Rename(tmp, destPath); err != nil {
-		_ = os.Remove(tmp)
-		return ObjectInfo{}, fmt.Errorf("objectstore: rename download: %w", err)
+	if err := atomicfile.Write(destPath, data, 0o644); err != nil {
+		return ObjectInfo{}, fmt.Errorf("objectstore: write download: %w", err)
 	}
 	return info, nil
 }
@@ -261,9 +258,7 @@ func (c *s3Client) Delete(ctx context.Context, key string) error {
 
 // List 分页列举前缀下对象（ListObjectsV2）。limit<=0 或 >1000 时取 1000。
 func (c *s3Client) List(ctx context.Context, prefix, cursor string, limit int) ([]string, string, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 1000
-	}
+	limit = pagelimit.Normalize(limit, 1000, 1000)
 	in := &s3.ListObjectsV2Input{
 		Bucket:  aws.String(c.bucket),
 		Prefix:  aws.String(prefix),
@@ -376,11 +371,10 @@ func (m *memoryBlobStore) PutIfAbsent(_ context.Context, key string, data []byte
 		return ObjectInfo{}, ErrPreconditionFailed
 	}
 	cp := append([]byte(nil), data...)
-	sum := sha256.Sum256(cp)
 	m.store[key] = cp
 	now := time.Now().UTC()
 	m.meta[key] = now
-	return ObjectInfo{Key: key, Size: int64(len(cp)), ETag: hex.EncodeToString(sum[:8]), LastModified: now}, nil
+	return ObjectInfo{Key: key, Size: int64(len(cp)), ETag: hashx.Short(cp, 8), LastModified: now}, nil
 }
 
 func (m *memoryBlobStore) GetBytes(_ context.Context, key string) ([]byte, ObjectInfo, error) {
@@ -402,12 +396,7 @@ func (m *memoryBlobStore) DownloadFile(ctx context.Context, key, destPath string
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return ObjectInfo{}, err
 	}
-	tmp := destPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return ObjectInfo{}, err
-	}
-	if err := os.Rename(tmp, destPath); err != nil {
-		_ = os.Remove(tmp)
+	if err := atomicfile.Write(destPath, data, 0o644); err != nil {
 		return ObjectInfo{}, err
 	}
 	return info, nil
@@ -422,9 +411,7 @@ func (m *memoryBlobStore) Delete(_ context.Context, key string) error {
 }
 
 func (m *memoryBlobStore) List(_ context.Context, prefix, cursor string, limit int) ([]string, string, error) {
-	if limit <= 0 {
-		limit = 1000
-	}
+	limit = pagelimit.Clamp(limit, 1000, 0)
 	m.mu.RLock()
 	keys := make([]string, 0, len(m.store))
 	for k := range m.store {

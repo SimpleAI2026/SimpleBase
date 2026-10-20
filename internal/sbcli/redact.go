@@ -1,11 +1,9 @@
 package sbcli
 
-import "regexp"
-
-var sensitiveKey = regexp.MustCompile(`(?i)(^|_)(password|passwd|secret|api_key|access_key|token|credential|dsn|authorization)($|_)`)
+import "github.com/linkxzhou/SimpleBase/internal/utils/mask"
 
 func sensitiveName(name string) bool {
-	return sensitiveKey.MatchString(name)
+	return mask.IsSensitiveKey(name)
 }
 
 // redact walks JSON-like values. A top-level API key secret is kept for human

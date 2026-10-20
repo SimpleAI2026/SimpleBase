@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 )
 
 // fakeAPISandbox 实现 cloudagent.Sandbox 的测试假件。

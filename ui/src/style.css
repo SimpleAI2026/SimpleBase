@@ -178,6 +178,22 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  /* 「正在回复」是必要的状态提示：减少动态时放慢但保持旋转，否则只剩一个静止色块。 */
+  .sb-spin {
+    animation-duration: 1.6s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* 运行中指示：匀速旋转（助手头像进度环、会话切换器）。 */
+.sb-spin {
+  animation: sb-spin 0.9s linear infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes sb-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 768px) {

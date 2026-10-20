@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
@@ -40,8 +40,9 @@ func newCloudAgentDB(cat CatalogService, reg RegistryService) cloudagent.Databas
 	return &cloudAgentDB{catalog: cat, registry: reg}
 }
 
-func (a *cloudAgentDB) ListDatabases(ctx context.Context, principal auth.Principal, projectID string) ([]cloudagent.DatabaseInfo, error) {
-	list, _, err := a.catalog.ListDatabases(ctx, principal, projectID, catalog.Page{Limit: 50})
+func (a *cloudAgentDB) ListDatabases(ctx context.Context, principal cloudagent.Principal, projectID string) ([]cloudagent.DatabaseInfo, error) {
+	// 还原成宿主身份：catalog 的项目授权依赖 Role / TenantID / ProjectIDs。
+	list, _, err := a.catalog.ListDatabases(ctx, agentbridge.ToHostPrincipal(principal), projectID, catalog.Page{Limit: 50})
 	if err != nil {
 		return nil, err
 	}
@@ -52,8 +53,8 @@ func (a *cloudAgentDB) ListDatabases(ctx context.Context, principal auth.Princip
 	return out, nil
 }
 
-func (a *cloudAgentDB) ListCollections(ctx context.Context, principal auth.Principal, projectID, databaseID string) ([]string, error) {
-	db, err := a.catalog.GetDatabase(ctx, principal, projectID, databaseID)
+func (a *cloudAgentDB) ListCollections(ctx context.Context, principal cloudagent.Principal, projectID, databaseID string) ([]string, error) {
+	db, err := a.catalog.GetDatabase(ctx, agentbridge.ToHostPrincipal(principal), projectID, databaseID)
 	if err != nil {
 		return nil, err
 	}
@@ -81,11 +82,11 @@ func (a *cloudAgentDB) ListCollections(ctx context.Context, principal auth.Princ
 	return names, nil
 }
 
-func (a *cloudAgentDB) ReadOnlyQuery(ctx context.Context, principal auth.Principal, projectID, databaseID, sqlText string, maxRows int) (cloudagent.SQLResult, error) {
+func (a *cloudAgentDB) ReadOnlyQuery(ctx context.Context, principal cloudagent.Principal, projectID, databaseID, sqlText string, maxRows int) (cloudagent.SQLResult, error) {
 	if err := sqlguard.Validate(sqlText, sqlguard.ReadOnly); err != nil {
 		return cloudagent.SQLResult{}, err
 	}
-	db, err := a.catalog.GetDatabase(ctx, principal, projectID, databaseID)
+	db, err := a.catalog.GetDatabase(ctx, agentbridge.ToHostPrincipal(principal), projectID, databaseID)
 	if err != nil {
 		return cloudagent.SQLResult{}, err
 	}

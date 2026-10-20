@@ -36,7 +36,7 @@ export interface SandboxCreateInput {
   image?: string
   cpus?: number
   memory_mib?: number
-  network?: 'none' | 'public'
+  network?: 'none'
   idle_timeout_s?: number
   start?: boolean
 }

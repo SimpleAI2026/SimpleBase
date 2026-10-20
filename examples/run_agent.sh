@@ -18,8 +18,9 @@ fi
 
 # 本地 cloudagent 走服务端的 OpenAI 兼容出口，本机工具是 shell/文件，不是 @skill。
 # headless 下破坏性 shell 不能拿到界面确认。这里只要求它调用 simplebase database list。
-local_bin="$ROOT/cloudagent"
-if [[ -x "$local_bin" ]]; then
+local_bin="$ROOT/build/bin/cloudagent"
+# 必须是普通可执行文件：仅用 -x 会把可进入的目录（如模块源码目录）也判成可执行。
+if [[ -f "$local_bin" && -x "$local_bin" ]]; then
   echo "==> local cloudagent"
   home="$(mktemp -d /tmp/simplebase-ca.XXXXXX)"
   chmod 700 "$home"

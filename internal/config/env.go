@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 func applyEnv(cfg *Config) {
@@ -162,15 +164,9 @@ func applyEnvAgent(cfg *Config) {
 	setEnvDuration(&cfg.Agent.ShellIsolation.Timeout, "SIMPLEBASE_AGENT_SHELL_ISOLATION_TIMEOUT")
 }
 
-// applyEnvSandbox 映射 SIMPLEBASE_SANDBOX_* 环境变量（cloud-agent-sandbox-plan §5）。
+// applyEnvSandbox 映射 SIMPLEBASE_SANDBOX_* 环境变量。
 func applyEnvSandbox(cfg *Config) {
 	setEnvBool(&cfg.Sandbox.Enabled, "SIMPLEBASE_SANDBOX_ENABLED")
-	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_API_KEY"); ok {
-		cfg.Sandbox.APIKey = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_API_URL"); ok {
-		cfg.Sandbox.APIURL = v
-	}
 	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_IMAGE"); ok {
 		cfg.Sandbox.Image = v
 	}
@@ -185,13 +181,16 @@ func applyEnvSandbox(cfg *Config) {
 	}
 	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_IMAGES"); ok {
 		cfg.Sandbox.Images = nil
-		for _, img := range strings.Split(v, ",") {
-			if img = strings.TrimSpace(img); img != "" {
-				cfg.Sandbox.Images = append(cfg.Sandbox.Images, img)
-			}
-		}
+		cfg.Sandbox.Images = append(cfg.Sandbox.Images, strutil.SplitCSV(v)...)
 	}
 	setEnvInt(&cfg.Sandbox.MaxPerProject, "SIMPLEBASE_SANDBOX_MAX_PER_PROJECT")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_ROOT"); ok {
+		cfg.Sandbox.Root = v
+	}
+	setEnvBool(&cfg.Sandbox.Terminal.Enabled, "SIMPLEBASE_SANDBOX_TERMINAL_ENABLED")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SANDBOX_SSH_LISTEN"); ok {
+		cfg.Sandbox.SSH.Listen = v
+	}
 }
 
 func applyEnvLLM(cfg *Config) {
@@ -206,11 +205,8 @@ func applyEnvLLM(cfg *Config) {
 		names[n] = struct{}{}
 	}
 	if csv, ok := os.LookupEnv("SIMPLEBASE_LLM_PROVIDERS"); ok && csv != "" {
-		for _, n := range strings.Split(csv, ",") {
-			n = strings.TrimSpace(n)
-			if n != "" {
-				names[n] = struct{}{}
-			}
+		for _, n := range strutil.SplitCSV(csv) {
+			names[n] = struct{}{}
 		}
 	}
 	if cfg.LLM.Providers == nil {
@@ -389,15 +385,7 @@ func envList(key string) []string {
 	if v == "" {
 		return nil
 	}
-	parts := strings.Split(v, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
+	return strutil.SplitCSV(v)
 }
 
 // loadLLMProviders is kept for tests that call it directly; it only reads env.

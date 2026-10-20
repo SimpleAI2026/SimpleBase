@@ -34,13 +34,19 @@ func decodeAPIError(res *http.Response) error {
 			Message   string `json:"message"`
 			RequestID string `json:"request_id"`
 		} `json:"error"`
-		Code      string `json:"code"`
-		Message   string `json:"message"`
-		RequestID string `json:"request_id"`
+		// E2B 兼容面的 code 是整数（HTTP 状态），业务码在 error_code；其余接口的 code 是字符串。
+		Code      json.RawMessage `json:"code"`
+		ErrorCode string          `json:"error_code"`
+		Message   string          `json:"message"`
+		RequestID string          `json:"request_id"`
 	}
 	if json.Unmarshal(data, &payload) == nil {
-		if payload.Code != "" {
-			out.Code = payload.Code
+		var codeStr string
+		if json.Unmarshal(payload.Code, &codeStr) == nil && codeStr != "" {
+			out.Code = codeStr
+		}
+		if payload.ErrorCode != "" {
+			out.Code = payload.ErrorCode
 		}
 		if payload.Message != "" {
 			out.Message = payload.Message

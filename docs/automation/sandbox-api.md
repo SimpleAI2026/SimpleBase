@@ -10,15 +10,15 @@ group: 云沙盒
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| GET | `/capabilities` | read | 可用性、镜像列表与限制；关闭时仍返回 `available:false` |
+| GET | `/capabilities` | read | 可用性、后端、展示标签与限制；关闭时仍返回 `available:false` |
 | GET | `/` | read | 项目资源列表（创建时间倒序），可选 `status` / `source` / `limit`（1–100，默认 50）/ `cursor`；还有下一页时响应带 `next_cursor` |
 | POST | `/` | write | 创建资源；请求头 `Idempotency-Key` 可选，值仅进程内存保存 |
 | POST | `/run` | write | 一次性沙盒：写入文件、执行、删除；`keep:true` 可保留 |
-| GET | `/:id?refresh=1` | read | 资源详情，`refresh=1` 刷新云端状态 |
+| GET | `/:id?refresh=1` | read | 资源详情，`refresh=1` 以驱动实际状态刷新 |
 | PATCH | `/:id` | write | 更改 `name`、`idle_timeout_s` |
-| DELETE | `/:id` | write | 停止、删除 VM 并软删记录 |
+| DELETE | `/:id` | write | 删除工作区并软删记录 |
 | POST | `/:id/start` | write | 立即启动或重建过期工作区 |
-| POST | `/:id/stop` | write | 停止 VM，保留元数据 |
+| POST | `/:id/stop` | write | 标记停止，保留元数据与文件 |
 | POST | `/:id/exec` | write | 同步执行命令 |
 | GET | `/:id/files?path=/workspace` | read | 列出一层目录 |
 | GET | `/:id/files/content?path=...` | read | 读文本文件 `{content, encoding, truncated}`；`Accept: application/octet-stream` 返回原始字节 |
@@ -28,22 +28,22 @@ group: 云沙盒
 ## 创建和执行
 
 ```json
-{"name":"etl-check","image":"python:3.12-slim","cpus":1,"memory_mib":256,"network":"none","start":false}
+{"name":"etl-check","cpus":1,"memory_mib":256,"network":"none","start":false}
 ```
 
 创建返回 201 和 `id/status:"pending"`。执行请求：
 
 ```json
-{"command":"python -V","timeout_s":30,"cwd":"/workspace"}
+{"command":"python3 -V","timeout_s":30,"cwd":"/workspace"}
 ```
 
-也可使用 `{"cmd":"python","args":["-V"]}` 不通过 shell 执行；两种方式二选一。`env` 最多 32 项，拒绝 `SIMPLEBASE_`、`MSB_`、`AWS_` 前缀。响应：
+也可使用 `{"cmd":"python3","args":["-V"]}` 不通过 shell 执行；两种方式二选一。`env` 最多 32 项，拒绝 `SIMPLEBASE_`、`AWS_` 前缀。响应：
 
 ```json
 {"exit_code":0,"stdout":"Python 3.12\n","stderr":"","timed_out":false,"stdout_truncated":false,"stderr_truncated":false,"duration_ms":420,"status":"running"}
 ```
 
-`exit_code != 0` 或 `timed_out=true` 仍为 HTTP 200；传输故障才是 5xx。输出不写数据库，stdout / stderr 各有 `max_output_bytes` 截断限制。单个文件最大 `max_file_bytes`（默认 1 MiB），路径必须是 `/workspace` 内绝对路径。
+`exit_code != 0` 或 `timed_out=true` 仍为 HTTP 200；传输故障才是 5xx。输出不写数据库，stdout 与 stderr 在本机后端下合并到 `stdout`，并受 `max_output_bytes` 截断限制。单个文件最大 `max_file_bytes`（默认 1 MiB），路径必须是 `/workspace` 内绝对路径。
 
 ## 列表分页
 

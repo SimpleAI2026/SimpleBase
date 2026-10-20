@@ -12,9 +12,9 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -289,12 +289,12 @@ func TestCreateRunGeneralThreadDatabaseSkillContract(t *testing.T) {
 	path := "/agent-threads/" + thread.ID + "/runs"
 	body := map[string]any{
 		"content": "@数据库 查询统计表", "mentions": []map[string]string{{"agent_id": general.ID}},
-		"skills": []string{"database"}, "stream": false,
+		"stream": false,
 	}
 	// 无 LLM 时应停在模型未配置，而不是错误地把技能当成另一个助手。
 	rec := agentReq(e, http.MethodPost, path, body)
 	if rec.Code != http.StatusServiceUnavailable || !bytes.Contains(rec.Body.Bytes(), []byte("llm_not_configured")) {
-		t.Fatalf("general + database skill: status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("general thread with @数据库 text: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body["mentions"] = []map[string]string{{"agent_id": database.ID}}
 	rec = agentReq(e, http.MethodPost, path, body)

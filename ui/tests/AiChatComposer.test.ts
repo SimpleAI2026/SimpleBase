@@ -9,73 +9,53 @@ const agents = [
 ]
 
 describe('AiChatComposer', () => {
-  it('leaves ordinary text and known skill aliases sendable without agent candidates', async () => {
+  it('sends plain text without any mention candidate and never treats a skill alias as a mention', async () => {
     const w = mount(AiChatComposer, {
       props: { modelValue: '@数据库 查询统计表', mentionAgents: [] }, global: { stubs: uiStubs }
     })
     await w.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(w.emitted('send')?.[0]).toEqual([[], ['database']])
+    expect(w.emitted('send')?.[0]).toEqual([[]])
     await w.setProps({ modelValue: '直接查询统计表' })
     await w.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(w.emitted('send')?.[1]).toEqual([[], []])
+    expect(w.emitted('send')?.[1]).toEqual([[]])
     await w.setProps({ modelValue: '@未知助手 请解释' })
     await w.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(w.emitted('send')?.[2]).toEqual([[], []])
+    expect(w.emitted('send')?.[2]).toEqual([[]])
     await w.setProps({ modelValue: '@数据库' })
     await w.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(w.emitted('send')?.[3]).toEqual([[], ['database']])
+    expect(w.emitted('send')?.[3]).toEqual([[]])
     w.unmount()
   })
 
-  it('offers enabled skills separately from agent mentions and inserts a skill token', async () => {
+  it('offers only agent mentions and inserts a mention token', async () => {
     const w = mount(AiChatComposer, {
       props: {
-        modelValue: '@键', mentionAgents: [{ id: 'kv', name: '键值助手', module: 'kv' }],
-        mentionSkills: [{ id: 'kv', name: '键值', available: true }, { id: 'sandbox', name: '沙盒', available: false }]
+        modelValue: '@键', mentionAgents: [{ id: 'kv', name: '键值助手', module: 'kv' }]
       },
       global: { stubs: uiStubs }
     })
-    const vm = w.vm as unknown as { parseMentionQuery: (text: string) => void; pickSkill: (skill: { id: string; name: string; available: boolean }) => void }
+    const vm = w.vm as unknown as { parseMentionQuery: (text: string) => void; pickMention: (agent: { id: string; name: string; module?: string }) => void }
     vm.parseMentionQuery('@键')
     await flushPromises()
-    expect(w.text()).toContain('技能')
     expect(w.text()).toContain('助手')
-    expect(w.text()).toContain('键值')
-    vm.pickSkill({ id: 'kv', name: '键值', available: true })
-    expect(w.emitted('update:modelValue')?.at(-1)?.[0]).toBe('@键值 ')
+    // `@` 菜单里只有助手分组，不再出现技能分组。
+    expect(w.text()).not.toContain('技能')
+    vm.pickMention({ id: 'kv', name: '键值助手', module: 'kv' })
+    expect(w.emitted('update:modelValue')?.at(-1)?.[0]).toBe('@键值助手 ')
     expect(w.emitted('send')).toBeUndefined()
-    vm.pickSkill({ id: 'sandbox', name: '沙盒', available: false })
-    expect(w.emitted('update:modelValue')).toHaveLength(1)
-    vm.parseMentionQuery('@sandbox')
-    await flushPromises()
-    expect(w.text()).toContain('不可用')
-    await w.setProps({ mentionSkills: [{ id: 'sandbox', name: '沙盒', available: false, unavailableReason: '云沙盒未启用' }] })
-    vm.parseMentionQuery('@沙')
-    await flushPromises()
-    expect(w.text()).toContain('云沙盒未启用')
     w.unmount()
   })
 
-  it('keeps a selected skill id when a custom agent has the same name', async () => {
-    const sameName = { id: 'custom', name: 'reports', module: 'general' }
-    const skill = { id: 'project', name: 'reports', available: true }
+  it('does not open the mention menu for a skill-only alias', async () => {
     const w = mount(AiChatComposer, {
-      props: { modelValue: '@rep', mentionAgents: [sameName], mentionSkills: [skill] },
+      props: { modelValue: '@沙', mentionAgents: [] },
       global: { stubs: uiStubs }
     })
-    const vm = w.vm as unknown as {
-      pickSkill: (value: typeof skill) => void
-      mentionsForSend: (text: string) => { agent_id: string }[]
-      skillsForSend: (text: string) => string[]
-    }
-    vm.pickSkill(skill)
-    await w.setProps({ modelValue: '@reports ' })
-    expect(vm.mentionsForSend('@reports ')).toEqual([])
-    expect(vm.skillsForSend('@reports ')).toEqual(['project'])
-    await w.get('textarea').setValue('@reports 请生成报告')
-    expect(vm.skillsForSend('@reports 请生成报告')).toEqual(['project'])
-    await w.setProps({ modelValue: '@reportsx ' })
-    expect(vm.skillsForSend('@reportsx ')).toEqual([])
+    const vm = w.vm as unknown as { parseMentionQuery: (text: string) => void; mentionOpen: boolean }
+    vm.parseMentionQuery('@沙')
+    await flushPromises()
+    expect(vm.mentionOpen).toBe(false)
+    expect(w.text()).not.toContain('技能')
     w.unmount()
   })
 
@@ -92,25 +72,24 @@ describe('AiChatComposer', () => {
     const vm = w.vm as unknown as {
       pickMention: (agent: typeof sameName[number]) => void
       mentionsForSend: (text: string) => { agent_id: string }[]
-      skillsForSend: (text: string) => string[]
     }
     vm.pickMention(sameName[1])
     await w.setProps({ modelValue: '@报告助手 ' })
     expect(vm.mentionsForSend('@报告助手 ')).toEqual([{ agent_id: 'a2' }])
     await w.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(w.emitted('send')?.[0]).toEqual([[{ agent_id: 'a2' }], []])
+    expect(w.emitted('send')?.[0]).toEqual([[{ agent_id: 'a2' }]])
     const ta = w.get('textarea')
     await ta.setValue('@报告助手 请生成报告')
     expect(vm.mentionsForSend('@报告助手 请生成报告')).toEqual([{ agent_id: 'a2' }])
-    expect(vm.mentionsForSend('@数据库 ')).toEqual([])
-    expect(vm.skillsForSend('@数据库 ')).toEqual(['database'])
+    // 「数据库」在这里是助手名，不再是技能别名：命中助手而非技能。
+    expect(vm.mentionsForSend('@数据库 ')).toEqual([{ agent_id: 'database' }])
     await w.setProps({ modelValue: '@数据库 ' })
     vm.pickMention(sameName[2])
     await w.setProps({ modelValue: '@数据库 ' })
     expect(vm.mentionsForSend('@数据库 ')).toEqual([{ agent_id: 'database' }])
-    expect(vm.skillsForSend('@数据库 ')).toEqual([])
     await w.setProps({ modelValue: '@数据库 @报告助手 ' })
-    expect(vm.skillsForSend('@数据库 @报告助手 ')).toEqual([])
+    // 两个助手名都在候选里；「报告助手」有两个同名助手，未点选就不算点名。
+    expect(vm.mentionsForSend('@数据库 @报告助手 ')).toEqual([{ agent_id: 'database' }])
     await w.setProps({ modelValue: '@数据库x ' })
     expect(vm.mentionsForSend('@数据库x ')).toEqual([])
     await w.setProps({ modelValue: '' })
@@ -131,13 +110,13 @@ describe('AiChatComposer', () => {
     await w.setProps({ modelValue: '分析 @统计 报表助手 生成摘要' })
     expect(vm.mentionsForSend('分析 @统计 报表助手 生成摘要')).toEqual([{ agent_id: 'spaced' }])
     await w.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(w.emitted('send')?.[0]).toEqual([[{ agent_id: 'spaced' }], []])
+    expect(w.emitted('send')?.[0]).toEqual([[{ agent_id: 'spaced' }]])
     await w.setProps({ modelValue: '分析 @统计 报表助手 再检查' })
     await w.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(w.emitted('send')?.[1]).toEqual([[{ agent_id: 'spaced' }], []])
+    expect(w.emitted('send')?.[1]).toEqual([[{ agent_id: 'spaced' }]])
     await w.setProps({ modelValue: '分析 @统计 报表助手' })
     await w.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(w.emitted('send')?.[2]).toEqual([[{ agent_id: 'spaced' }], []])
+    expect(w.emitted('send')?.[2]).toEqual([[{ agent_id: 'spaced' }]])
     await w.setProps({ modelValue: '' })
     expect(vm.mentionsForSend('@统计 报表助手 生成摘要')).toEqual([])
     w.unmount()
@@ -170,16 +149,16 @@ describe('AiChatComposer', () => {
     w.unmount()
   })
 
-  it('keeps built-in agent mentions across locale switches without changing skill aliases', async () => {
+  it('keeps built-in agent mentions across locale switches', async () => {
     const w = mount(AiChatComposer, {
       props: { modelValue: '@数据库助手 查询', mentionAgents: [{ id: 'database', name: 'Database Assistant', legacyName: 'Database', builtinKey: 'database', module: 'database' }] },
       global: { stubs: uiStubs }
     })
-    const vm = w.vm as unknown as { mentionsForSend: (text: string) => { agent_id: string }[]; skillsForSend: (text: string) => string[] }
+    const vm = w.vm as unknown as { mentionsForSend: (text: string) => { agent_id: string }[] }
     expect(vm.mentionsForSend('@数据库助手 查询')).toEqual([{ agent_id: 'database' }])
-    expect(vm.skillsForSend('@数据库助手 查询')).toEqual([])
     expect(vm.mentionsForSend('@Database 查询')).toEqual([{ agent_id: 'database' }])
-    expect(vm.skillsForSend('@数据库 查询')).toEqual(['database'])
+    // 别名「数据库」不再隐式命中助手：不带「助手」后缀就不是助手名。
+    expect(vm.mentionsForSend('@数据库 查询')).toEqual([])
     w.unmount()
   })
 
@@ -221,7 +200,6 @@ describe('AiChatComposer', () => {
     vm.onInput({ target: { value: '@' } } as unknown as Event)
     w.unmount()
   })
-})
 
   it('AiChatComposer mention parsing and send', async () => {
     const w = mount(AiChatComposer, {
@@ -251,8 +229,9 @@ describe('AiChatComposer', () => {
     vm.pickMention({ id: 'cron', name: '定时任务', module: 'cron' })
     expect(vm.mentionsForSend('plain')).toEqual([])
     expect(vm.mentionsForSend('@Bot @Bot')).toEqual([{ agent_id: 'a1' }])
-    expect(vm.skillsForSend('@定时任务 @KV')).toEqual(['cron', 'kv'])
+    expect(vm.mentionsForSend('@定时任务 @KV')).toEqual([])
     vm.parseMentionQuery('@')
     expect(vm.filteredMentions.length).toBeGreaterThan(0)
     w.unmount()
   })
+})

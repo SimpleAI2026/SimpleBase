@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // sqlRepository 基于 database/sql 访问系统 DuckLake（sys_* 表）。
@@ -222,9 +224,7 @@ func (r *sqlRepository) ListDatabasesByStatuses(ctx context.Context, statuses []
 
 func (r *sqlRepository) listDatabasesWhere(ctx context.Context, projectID string, kindWhere string, kindArgs []any, page Page) ([]Database, string, error) {
 	limit := page.Limit
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
+	limit = pagelimit.Normalize(limit, 50, 200)
 	args := append([]any{projectID}, kindArgs...)
 	cursorWhere := ""
 	if page.Cursor != "" {
@@ -621,9 +621,7 @@ func (r *sqlRepository) SumUsageSince(ctx context.Context, projectID string, sin
 }
 
 func (r *sqlRepository) ListOperations(ctx context.Context, projectID, databaseID string, limit int) ([]Operation, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
+	limit = pagelimit.Normalize(limit, 50, 200)
 	q := `SELECT id, database_id, project_id, principal_id, kind, request_id, status, created_at
 	      FROM sys_operations WHERE 1=1`
 	args := []any{}

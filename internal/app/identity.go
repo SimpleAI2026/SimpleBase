@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/config"
+	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
 )
 
 // storageIdentity 记录实例首次启动时的持久层身份。
@@ -75,13 +76,8 @@ func checkStorageIdentity(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		return fmt.Errorf("app: write storage identity tmp: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("app: rename storage identity: %w", err)
+	if err := atomicfile.Write(path, body, 0o644); err != nil {
+		return fmt.Errorf("app: write storage identity: %w", err)
 	}
 	return nil
 }

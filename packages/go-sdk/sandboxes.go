@@ -7,207 +7,133 @@ import (
 	"strconv"
 )
 
-// SandboxInfo is a project-scoped sandbox resource.
-type SandboxInfo struct {
-	ID        string `json:"id"`
-	ProjectID string `json:"project_id"`
-	Name      string `json:"name"`
-	CloudName string `json:"cloud_name"`
-	Source    string `json:"source"`
-	Image     string `json:"image"`
-	CPUs      int    `json:"cpus"`
-	MemoryMiB int    `json:"memory_mib"`
-	Network   string `json:"network"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
+// 云沙盒只有 E2B 兼容 API（/e2b/**）。这里封装其控制面；沙盒内的命令与文件（envd 数据面）
+// 请使用官方 e2b SDK，把 E2B_API_URL / E2B_DOMAIN 指向本服务（见 docs/automation/sandbox-api.md）。
+
+// SandboxExt 是 SimpleBase 附加在标准响应上的扩展信息（E2B 没有的字段）。
+type SandboxExt struct {
+	Status       string `json:"status"`
+	Source       string `json:"source"`
+	LastError    string `json:"lastError,omitempty"`
+	LastActiveAt string `json:"lastActiveAt,omitempty"`
+	IdleTimeoutS int64  `json:"idleTimeoutS"`
 }
 
+// SandboxInfo 对应 E2B 的 ListedSandbox / Sandbox。envdAccessToken 有意不暴露：
+// 它是可写的数据面令牌，不应出现在命令行输出里。
+type SandboxInfo struct {
+	ID         string            `json:"sandboxID"`
+	TemplateID string            `json:"templateID"`
+	Alias      string            `json:"alias,omitempty"`
+	State      string            `json:"state,omitempty"`
+	StartedAt  string            `json:"startedAt,omitempty"`
+	EndAt      string            `json:"endAt,omitempty"`
+	CPUCount   int               `json:"cpuCount,omitempty"`
+	MemoryMB   int               `json:"memoryMB,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	Ext        *SandboxExt       `json:"x_simplebase,omitempty"`
+}
+
+// SandboxCapabilities 对应 GET /e2b/ext/capabilities。
 type SandboxCapabilities struct {
 	Available     bool     `json:"available"`
+	Reason        string   `json:"reason,omitempty"`
 	Backend       string   `json:"backend"`
 	Images        []string `json:"images"`
-	DefaultImage  string   `json:"default_image"`
-	MaxPerProject int      `json:"max_per_project"`
-	MaxFileBytes  int      `json:"max_file_bytes"`
-}
-type CreateSandboxInput struct {
-	Name         string `json:"name,omitempty"`
-	Image        string `json:"image,omitempty"`
-	CPUs         int    `json:"cpus,omitempty"`
-	MemoryMiB    int    `json:"memory_mib,omitempty"`
-	Network      string `json:"network,omitempty"`
-	IdleTimeoutS int64  `json:"idle_timeout_s,omitempty"`
-	Start        bool   `json:"start,omitempty"`
-}
-type UpdateSandboxInput struct {
-	Name         *string `json:"name,omitempty"`
-	IdleTimeoutS *int64  `json:"idle_timeout_s,omitempty"`
-}
-type SandboxExecInput struct {
-	Command  string            `json:"command,omitempty"`
-	Cmd      string            `json:"cmd,omitempty"`
-	Args     []string          `json:"args,omitempty"`
-	Cwd      string            `json:"cwd,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	TimeoutS int64             `json:"timeout_s,omitempty"`
-}
-type SandboxExecResult struct {
-	ExitCode        int    `json:"exit_code"`
-	Stdout          string `json:"stdout"`
-	Stderr          string `json:"stderr"`
-	StdoutTruncated bool   `json:"stdout_truncated"`
-	StderrTruncated bool   `json:"stderr_truncated"`
-	TimedOut        bool   `json:"timed_out"`
-	DurationMs      int64  `json:"duration_ms"`
-	Status          string `json:"status"`
-	SandboxID       string `json:"sandbox_id,omitempty"`
-}
-type SandboxRunInput struct {
-	SandboxExecInput
-	Image string           `json:"image,omitempty"`
-	Files []SandboxRunFile `json:"files,omitempty"`
-	Keep  bool             `json:"keep,omitempty"`
-}
-type SandboxRunFile struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-}
-type SandboxFileEntry struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-	Kind string `json:"kind"`
-	Size int64  `json:"size"`
-}
-type SandboxFileContent struct {
-	Content   string `json:"content"`
-	Encoding  string `json:"encoding"`
-	Truncated bool   `json:"truncated"`
+	DefaultImage  string   `json:"default_image,omitempty"`
+	MaxPerProject int      `json:"max_per_project,omitempty"`
+	MaxFileBytes  int      `json:"max_file_bytes,omitempty"`
+	Terminal      bool     `json:"terminal"`
 }
 
-func (c *Client) sandboxPath(id, suffix string) string {
-	p := "/sandboxes"
+// CreateSandboxInput 对应 E2B 的 NewSandbox。Name 是便利字段，写入 metadata["name"]。
+type CreateSandboxInput struct {
+	Name       string
+	TemplateID string
+	// TimeoutS 为沙盒存活秒数；0 使用服务端默认。
+	TimeoutS int64
+	Metadata map[string]string
+}
+
+func (c *Client) e2bPath(id, suffix string) string {
+	p := "/e2b/sandboxes"
 	if id != "" {
 		p += "/" + url.PathEscape(id)
 	}
-	return c.projectPath(p + suffix)
+	return p + suffix
 }
+
+// SandboxCapabilities 查询沙盒是否可用及其限额；不可用时 Available=false 并带 Reason。
 func (c *Client) SandboxCapabilities(ctx context.Context) (*SandboxCapabilities, error) {
 	var out SandboxCapabilities
-	err := c.requestJSON(ctx, http.MethodGet, c.sandboxPath("", "/capabilities"), nil, nil, &out)
+	err := c.requestJSON(ctx, http.MethodGet, "/e2b/ext/capabilities", nil, nil, &out)
 	return &out, err
 }
-func (c *Client) ListSandboxes(ctx context.Context, status, source string, limit int) ([]SandboxInfo, error) {
-	page, err := c.ListSandboxesPage(ctx, SandboxListOptions{Status: status, Source: source, Limit: limit})
-	if err != nil {
-		return nil, err
-	}
-	return page.Sandboxes, nil
-}
 
-// SandboxListOptions filters and paginates ListSandboxesPage.
-type SandboxListOptions struct {
-	Status string
-	Source string
-	Limit  int
-	// Cursor is the NextCursor of the previous page; empty starts from the first page.
-	Cursor string
-}
-
-// SandboxPage is one page of sandboxes. NextCursor is empty on the last page.
-type SandboxPage struct {
-	Sandboxes  []SandboxInfo `json:"sandboxes"`
-	NextCursor string        `json:"next_cursor"`
-}
-
-// ListSandboxesPage returns one page, newest first.
-func (c *Client) ListSandboxesPage(ctx context.Context, opts SandboxListOptions) (*SandboxPage, error) {
+// ListSandboxes 返回项目内的沙盒（项目沙盒数有上限，一页即可覆盖）。state 可为 running / paused。
+func (c *Client) ListSandboxes(ctx context.Context, state string, limit int) ([]SandboxInfo, error) {
 	q := url.Values{}
-	if opts.Status != "" {
-		q.Set("status", opts.Status)
+	if state != "" {
+		q.Set("state", state)
 	}
-	if opts.Source != "" {
-		q.Set("source", opts.Source)
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
 	}
-	if opts.Limit > 0 {
-		q.Set("limit", strconv.Itoa(opts.Limit))
-	}
-	if opts.Cursor != "" {
-		q.Set("cursor", opts.Cursor)
-	}
-	var out SandboxPage
-	if err := c.requestJSON(ctx, http.MethodGet, c.sandboxPath("", ""), q, nil, &out); err != nil {
+	var out []SandboxInfo
+	if err := c.requestJSON(ctx, http.MethodGet, "/e2b/v2/sandboxes", q, nil, &out); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return out, nil
 }
+
+// CreateSandbox 创建并启动沙盒。
 func (c *Client) CreateSandbox(ctx context.Context, in CreateSandboxInput) (*SandboxInfo, error) {
-	var out SandboxInfo
-	err := c.requestJSON(ctx, http.MethodPost, c.sandboxPath("", ""), nil, in, &out)
-	return &out, err
-}
-func (c *Client) GetSandbox(ctx context.Context, id string, refresh bool) (*SandboxInfo, error) {
-	q := url.Values{}
-	if refresh {
-		q.Set("refresh", "1")
+	md := make(map[string]string, len(in.Metadata)+1)
+	for k, v := range in.Metadata {
+		md[k] = v
+	}
+	if in.Name != "" {
+		md["name"] = in.Name
+	}
+	body := map[string]any{}
+	if in.TemplateID != "" {
+		body["templateID"] = in.TemplateID
+	}
+	if in.TimeoutS > 0 {
+		body["timeout"] = in.TimeoutS
+	}
+	if len(md) > 0 {
+		body["metadata"] = md
 	}
 	var out SandboxInfo
-	err := c.requestJSON(ctx, http.MethodGet, c.sandboxPath(id, ""), q, nil, &out)
+	err := c.requestJSON(ctx, http.MethodPost, "/e2b/v2/sandboxes", nil, body, &out)
 	return &out, err
 }
-func (c *Client) UpdateSandbox(ctx context.Context, id string, in UpdateSandboxInput) (*SandboxInfo, error) {
+
+// GetSandbox 返回单个沙盒详情。
+func (c *Client) GetSandbox(ctx context.Context, id string) (*SandboxInfo, error) {
 	var out SandboxInfo
-	err := c.requestJSON(ctx, http.MethodPatch, c.sandboxPath(id, ""), nil, in, &out)
+	err := c.requestJSON(ctx, http.MethodGet, c.e2bPath(id, ""), nil, nil, &out)
 	return &out, err
 }
+
+// DeleteSandbox 删除沙盒及其工作区。
 func (c *Client) DeleteSandbox(ctx context.Context, id string) error {
-	return c.requestJSON(ctx, http.MethodDelete, c.sandboxPath(id, ""), nil, nil, nil)
+	return c.requestJSON(ctx, http.MethodDelete, c.e2bPath(id, ""), nil, nil, nil)
 }
-func (c *Client) StartSandbox(ctx context.Context, id string) (*SandboxInfo, error) {
-	var out SandboxInfo
-	err := c.requestJSON(ctx, http.MethodPost, c.sandboxPath(id, "/start"), nil, nil, &out)
-	return &out, err
-}
-func (c *Client) StopSandbox(ctx context.Context, id string) (*SandboxInfo, error) {
-	var out SandboxInfo
-	err := c.requestJSON(ctx, http.MethodPost, c.sandboxPath(id, "/stop"), nil, nil, &out)
-	return &out, err
-}
-func (c *Client) ExecSandbox(ctx context.Context, id string, in SandboxExecInput) (*SandboxExecResult, error) {
-	var out SandboxExecResult
-	err := c.requestJSON(ctx, http.MethodPost, c.sandboxPath(id, "/exec"), nil, in, &out)
-	return &out, err
-}
-func (c *Client) RunSandbox(ctx context.Context, in SandboxRunInput) (*SandboxExecResult, error) {
-	// anonymous embedded structs are flattened explicitly to keep JSON field names at the root.
-	body := struct {
-		SandboxExecInput
-		Image string           `json:"image,omitempty"`
-		Files []SandboxRunFile `json:"files,omitempty"`
-		Keep  bool             `json:"keep,omitempty"`
-	}{SandboxExecInput: in.SandboxExecInput, Image: in.Image, Files: in.Files, Keep: in.Keep}
-	var out SandboxExecResult
-	err := c.requestJSON(ctx, http.MethodPost, c.sandboxPath("", "/run"), nil, body, &out)
-	return &out, err
-}
-func (c *Client) ListSandboxFiles(ctx context.Context, id, path string) ([]SandboxFileEntry, error) {
-	q := url.Values{"path": {path}}
-	var out struct {
-		Entries []SandboxFileEntry `json:"entries"`
+
+// ConnectSandbox 启动已暂停的沙盒，或延长运行中沙盒的存活时间（E2B connect 语义）。
+func (c *Client) ConnectSandbox(ctx context.Context, id string, timeoutS int64) (*SandboxInfo, error) {
+	body := map[string]any{}
+	if timeoutS > 0 {
+		body["timeout"] = timeoutS
 	}
-	err := c.requestJSON(ctx, http.MethodGet, c.sandboxPath(id, "/files"), q, nil, &out)
-	return out.Entries, err
-}
-func (c *Client) ReadSandboxFile(ctx context.Context, id, path string) (*SandboxFileContent, error) {
-	q := url.Values{"path": {path}}
-	var out SandboxFileContent
-	err := c.requestJSON(ctx, http.MethodGet, c.sandboxPath(id, "/files/content"), q, nil, &out)
+	var out SandboxInfo
+	err := c.requestJSON(ctx, http.MethodPost, "/e2b/v2/sandboxes/"+url.PathEscape(id)+"/connect", nil, body, &out)
 	return &out, err
 }
-func (c *Client) WriteSandboxFile(ctx context.Context, id, path, content string) error {
-	q := url.Values{"path": {path}}
-	return c.requestJSON(ctx, http.MethodPut, c.sandboxPath(id, "/files/content"), q, map[string]string{"content": content}, nil)
-}
-func (c *Client) DeleteSandboxFile(ctx context.Context, id, path string) error {
-	q := url.Values{"path": {path}}
-	return c.requestJSON(ctx, http.MethodDelete, c.sandboxPath(id, "/files/content"), q, nil, nil)
+
+// PauseSandbox 暂停沙盒：保留工作区文件，不保存进程与内存。
+func (c *Client) PauseSandbox(ctx context.Context, id string) error {
+	return c.requestJSON(ctx, http.MethodPost, c.e2bPath(id, "/pause"), nil, nil, nil)
 }

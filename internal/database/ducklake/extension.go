@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 // MinDuckDBVersion 是 DuckLake v1.0 的硬性下限（§2.1）。
@@ -28,7 +30,7 @@ var extensionAliases = map[string][]string{
 func extensionBootSQL(opts Options) []string {
 	out := make([]string, 0, 8)
 	if opts.ExtensionDir != "" {
-		out = append(out, "SET extension_directory = "+quoteSQLString(opts.ExtensionDir))
+		out = append(out, "SET extension_directory = "+sqlx.Literal(opts.ExtensionDir))
 	}
 	for _, ext := range requiredExtensions(opts.CatalogEngine) {
 		out = append(out, "INSTALL "+ext)

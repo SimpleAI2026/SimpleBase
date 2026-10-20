@@ -9,6 +9,12 @@
       <SelectContent>
         <SelectGroup>
           <SelectItem v-for="th in threads" :key="th.id" :value="th.id">
+            <LoaderCircleIcon
+              v-if="runningThreadIds?.has(th.id)"
+              class="sb-spin size-3.5 shrink-0 text-primary"
+              data-thread-running
+              :aria-label="t('components.threadSwitcher.running')"
+            />
             {{ th.title }}
             <span class="ml-1 text-muted-foreground">{{ relativeTime(th.updated_at) }}</span>
           </SelectItem>
@@ -31,7 +37,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { PlusIcon } from '@lucide/vue'
+import { LoaderCircleIcon, PlusIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { relativeTime } from '@/utils/relative-time'
@@ -43,6 +49,8 @@ interface Props {
   busy?: boolean
   /** 会话历史尚未返回，且触发器还没有可显示的标题。 */
   pending?: boolean
+  /** 正在回复的会话 id 集合。 */
+  runningThreadIds?: Set<string>
 }
 
 const props = withDefaults(defineProps<Props>(), {

@@ -20,6 +20,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 	"go.uber.org/zap"
 )
 
@@ -183,7 +184,7 @@ func (f *Factory) Open(ctx context.Context, db catalog.Database, mode database.A
 		defer bootMu.Unlock()
 		queries := boot
 		if booted {
-			queries = []string{"USE " + quoteIdent(opts.LakeAlias)}
+			queries = []string{"USE " + sqlx.Ident(opts.LakeAlias)}
 		}
 		initCtx := ctx
 		if booted {
@@ -317,7 +318,7 @@ func buildBootSQL(layout Layout, opts Options, remote RemoteStorage, dataPath st
 		out = append(out, buildCreateSecretSQL(remote))
 	}
 	out = append(out,
-		"SET memory_limit = "+quoteSQLString(opts.MemoryLimit),
+		"SET memory_limit = "+sqlx.Literal(opts.MemoryLimit),
 		"SET threads = "+strconv.Itoa(opts.Threads),
 		"SET temp_directory = "+sqlPath(layout.TempDir),
 		"SET allowed_directories = ["+strings.Join(allowedDirectorySQL(layout, opts), ", ")+"]",
@@ -325,7 +326,7 @@ func buildBootSQL(layout Layout, opts Options, remote RemoteStorage, dataPath st
 
 	// 远端模式允许内联小写入；上传 catalog 快照前由同步器刷出内联数据。
 
-	out = append(out, bootAttachSQL(layout, opts, remote, dataPath), "USE "+quoteIdent(alias))
+	out = append(out, bootAttachSQL(layout, opts, remote, dataPath), "USE "+sqlx.Ident(alias))
 	out = append(out, optionSQL(alias, opts)...)
 	// 本地盘：ATTACH 后关闭外部访问，仅靠 allowed_directories 白名单。
 	// 远端 S3 DATA_PATH：写 parquet 仍需外部访问；关闭会导致
@@ -340,7 +341,7 @@ func buildBootSQL(layout Layout, opts Options, remote RemoteStorage, dataPath st
 func bootAttachSQL(layout Layout, opts Options, remote RemoteStorage, dataPath string) string {
 	attachOpts := fmt.Sprintf(
 		"DATA_PATH %s, DATA_INLINING_ROW_LIMIT %d, AUTOMATIC_MIGRATION false",
-		quoteSQLString(dataPath), opts.DataInliningRowLimit,
+		sqlx.Literal(dataPath), opts.DataInliningRowLimit,
 	)
 	if remote.Enabled {
 		attachOpts += ", OVERRIDE_DATA_PATH true"
@@ -350,7 +351,7 @@ func bootAttachSQL(layout Layout, opts Options, remote RemoteStorage, dataPath s
 	if p := enginePrefix(engine); p != "" {
 		dsn = "ducklake:" + p + ":" + filepathToSlash(layout.CatalogFile)
 	}
-	return fmt.Sprintf("ATTACH '%s' AS %s (%s)", dsn, quoteIdent(opts.LakeAlias), attachOpts)
+	return fmt.Sprintf("ATTACH '%s' AS %s (%s)", dsn, sqlx.Ident(opts.LakeAlias), attachOpts)
 }
 
 func allowedDirectorySQL(layout Layout, opts Options) []string {
@@ -365,11 +366,11 @@ func allowedDirectorySQL(layout Layout, opts Options) []string {
 }
 
 func optionSQL(alias string, opts Options) []string {
-	target := quoteIdent(alias)
+	target := sqlx.Ident(alias)
 	out := []string{
-		fmt.Sprintf("CALL %s.set_option('parquet_compression', %s)", target, quoteSQLString(opts.ParquetCompression)),
-		fmt.Sprintf("CALL %s.set_option('target_file_size', %s)", target, quoteSQLString(opts.TargetFileSize)),
-		fmt.Sprintf("CALL %s.set_option('data_inlining_row_limit', %s)", target, quoteSQLString(strconv.Itoa(opts.DataInliningRowLimit))),
+		fmt.Sprintf("CALL %s.set_option('parquet_compression', %s)", target, sqlx.Literal(opts.ParquetCompression)),
+		fmt.Sprintf("CALL %s.set_option('target_file_size', %s)", target, sqlx.Literal(opts.TargetFileSize)),
+		fmt.Sprintf("CALL %s.set_option('data_inlining_row_limit', %s)", target, sqlx.Literal(strconv.Itoa(opts.DataInliningRowLimit))),
 	}
 	if opts.RequireCommitMessage {
 		out = append(out, fmt.Sprintf("CALL %s.set_option('require_commit_message', 'true')", target))

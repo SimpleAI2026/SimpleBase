@@ -201,32 +201,27 @@ describe('AiChatComposer 提及与按钮', () => {
   })
 })
 
-describe('SandboxCreateModal 网络与启动开关', () => {
-  it('切换网络选项与「立即启动」写入表单', async () => {
-    api.sandboxes.create.mockResolvedValue({ id: 'sbx-1' })
+describe('SandboxCreateModal 模板与超时', () => {
+  it('选择模板与超时时间写入表单', async () => {
     const caps = {
       available: true, backend: 'fake', images: ['python:3.12-slim'], defaultImage: 'python:3.12-slim',
-      cpusMax: 4, memoryMiBMax: 4096, maxFileBytes: 1048576, maxOutputBytes: 65536,
-      maxPerProject: 5, execTimeoutMaxS: 300, networkOptions: ['none', 'bridge']
+      defaultTemplate: 'base', cpus: 1, memoryMiB: 512, timeoutDefaultS: 300, timeoutMaxS: 600,
+      maxFileBytes: 1048576, maxOutputBytes: 65536, maxPerProject: 5, terminal: false
     }
+    // 弹窗在 open 由 false→true 时按 capabilities 复位表单，必须先关后开。
     const w = mount(SandboxCreateModal, {
-      props: { open: true, projectId: 'p', capabilities: caps },
+      props: { open: false, projectId: 'p', capabilities: caps },
       global: { stubs: uiStubs, plugins: [i18n] }
     })
+    await w.setProps({ open: true })
     await flushPromises()
-    const vm = w.vm as unknown as { network: string; start: boolean; name: string }
+    const vm = w.vm as unknown as { name: string; image: string; timeoutS: number }
     vm.name = 'ci'
-    vm.network = 'bridge'
-    await flushPromises()
-    await w.get('input[type="checkbox"]').setValue(true)
+    vm.timeoutS = 600
     await flushPromises()
     await w.get('.sb-ok').trigger('click')
     await flushPromises()
-    expect(api.sandboxes.create).toHaveBeenCalledWith(
-      'p',
-      expect.objectContaining({ name: 'ci', network: 'bridge', start: true }),
-      expect.any(String)
-    )
+    expect(api.sandboxes.create).toHaveBeenCalledWith('p', { name: 'ci', templateId: 'base', timeoutS: 600 })
     w.unmount()
   })
 })

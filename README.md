@@ -154,7 +154,7 @@ internal/database/      DuckLake 连接、事务、查询、错误映射
   ├─ kv/                键值数据操作
   ├─ lease/             数据库租约与写入门控
   └─ serialize.go       行序列化
-internal/cloudagent/    云 Agent 运行时与只读工具
+cloudagent/             云 Agent 运行时与只读工具（嵌套独立模块；宿主适配在 internal/agentbridge）
 internal/sandbox/       云沙盒 Driver、Manager 与路径校验
 internal/llmgateway/    LLM 服务端封装、流式转发、用量计量
 internal/objectstore/   S3 client、KeyBuilder、descriptor、health

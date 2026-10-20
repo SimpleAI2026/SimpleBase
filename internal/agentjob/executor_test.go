@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/auth"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -231,7 +230,7 @@ func TestRunAgentSuccess(t *testing.T) {
 	if req.Principal.APIKeyID != PrincipalID {
 		t.Fatalf("principal = %q", req.Principal.APIKeyID)
 	}
-	if _, ok := req.Principal.Permissions[auth.DatabaseRead]; !ok || len(req.Principal.Permissions) != 1 {
+	if _, ok := req.Principal.Permissions[cloudagent.DatabaseRead]; !ok || len(req.Principal.Permissions) != 1 {
 		t.Fatalf("principal must be read-only: %+v", req.Principal.Permissions)
 	}
 	if len(req.Skills) != 1 || req.Skills[0] != "database" {

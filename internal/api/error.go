@@ -9,7 +9,8 @@ import (
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/kv"
 	"github.com/linkxzhou/SimpleBase/internal/database/lease"
@@ -70,7 +71,7 @@ func Error(err error, requestID string) *APIError {
 	// 云 Agent 错误码只使用固定文案，不将上游原文传给前端。
 	var agentError *cloudagent.RunError
 	if errors.Is(err, cloudagent.ErrThreadBusy) || errors.As(err, &agentError) {
-		re := cloudagent.ClassifyError(err)
+		re := agentbridge.ClassifyError(err)
 		known := map[string]int{
 			"agent_thread_busy":     http.StatusConflict,
 			"llm_not_configured":    http.StatusServiceUnavailable,
@@ -96,7 +97,7 @@ func Error(err error, requestID string) *APIError {
 		status        int
 		code, message string
 	}{
-		{vm.ErrUnavailable, http.StatusServiceUnavailable, "sandbox_unavailable", "cloud sandbox is unavailable"},
+		{vm.ErrUnavailable, http.StatusServiceUnavailable, "sandbox_unavailable", "sandbox is unavailable"},
 		{sandbox.ErrNotFound, http.StatusNotFound, "sandbox_not_found", "sandbox not found"},
 		{vm.ErrFileNotFound, http.StatusNotFound, "sandbox_file_not_found", "file not found"},
 		{sandbox.ErrNameConflict, http.StatusConflict, "sandbox_name_conflict", "sandbox name already exists"},

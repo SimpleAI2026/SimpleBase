@@ -14,6 +14,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 var collectionNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,62}$`)
@@ -108,7 +109,7 @@ func (h *DataHandler) ListDocuments(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	defer lease.Release()
-	result, err := lease.Query(c.Request().Context(), database.Statement{SQL: "SELECT id, data FROM " + quoteIdentifier(collection) + " ORDER BY created_at DESC"}, 1000)
+	result, err := lease.Query(c.Request().Context(), database.Statement{SQL: "SELECT id, data FROM " + sqlx.Ident(collection) + " ORDER BY created_at DESC"}, 1000)
 	if err != nil {
 		if isMissingRelation(err) {
 			return c.JSON(http.StatusOK, rowsResponse{Rows: []map[string]any{}})
@@ -163,7 +164,7 @@ func (h *DataHandler) CreateDocument(c echo.Context) error {
 	defer lease.Release()
 	_, err = lease.Execute(c.Request().Context(), database.Statement{SQL: createCollectionSQL(collection)})
 	if err == nil {
-		_, err = lease.Execute(c.Request().Context(), database.Statement{SQL: "INSERT INTO " + quoteIdentifier(collection) + " (id, data, created_at) VALUES (?, ?, ?)", Args: []any{id, string(body), time.Now().UTC().Format(time.RFC3339Nano)}})
+		_, err = lease.Execute(c.Request().Context(), database.Statement{SQL: "INSERT INTO " + sqlx.Ident(collection) + " (id, data, created_at) VALUES (?, ?, ?)", Args: []any{id, string(body), time.Now().UTC().Format(time.RFC3339Nano)}})
 	}
 	if err != nil {
 		return WriteError(c, err)
@@ -202,7 +203,7 @@ func (h *DataHandler) UpdateDocument(c echo.Context) error {
 	}
 	defer lease.Release()
 	result, err := lease.Execute(c.Request().Context(), database.Statement{
-		SQL:  "UPDATE " + quoteIdentifier(collection) + " SET data = ? WHERE id = ?",
+		SQL:  "UPDATE " + sqlx.Ident(collection) + " SET data = ? WHERE id = ?",
 		Args: []any{string(body), id},
 	})
 	if err != nil {
@@ -235,7 +236,7 @@ func (h *DataHandler) DeleteDocument(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	defer lease.Release()
-	_, err = lease.Execute(c.Request().Context(), database.Statement{SQL: "DELETE FROM " + quoteIdentifier(collection) + " WHERE id = ?", Args: []any{id}})
+	_, err = lease.Execute(c.Request().Context(), database.Statement{SQL: "DELETE FROM " + sqlx.Ident(collection) + " WHERE id = ?", Args: []any{id}})
 	if err != nil && !isMissingRelation(err) {
 		return WriteError(c, err)
 	}
@@ -298,11 +299,9 @@ func collectionParam(c echo.Context) (string, error) {
 	return name, nil
 }
 
-func quoteIdentifier(name string) string { return `"` + name + `"` }
-
 // DuckLake 不支持 PRIMARY KEY / sequences；文档 ID 由应用层生成 UUID。
 func createCollectionSQL(name string) string {
-	return "CREATE TABLE IF NOT EXISTS " + quoteIdentifier(name) +
+	return "CREATE TABLE IF NOT EXISTS " + sqlx.Ident(name) +
 		" (id VARCHAR NOT NULL, data VARCHAR NOT NULL, created_at VARCHAR NOT NULL)"
 }
 

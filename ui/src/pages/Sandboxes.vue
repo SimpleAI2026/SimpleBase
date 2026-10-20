@@ -24,7 +24,7 @@
             <template #empty>
               <template v-if="notice === 'unconfigured'">
                 <SbEmptyState :title="t('pages.sandboxes.notConfiguredTitle')" :description="t('pages.sandboxes.notConfiguredDesc')" />
-                <pre class="overflow-auto rounded-md bg-muted p-3 text-xs">sandbox:\n  enabled: true\n  backend: cloud\n# SIMPLEBASE_SANDBOX_API_KEY=...</pre>
+                <pre class="overflow-auto rounded-md bg-muted p-3 text-xs">sandbox:\n  enabled: true\n  backend: local</pre>
               </template>
               <SbEmptyState v-else :title="t('pages.sandboxes.adminUnsupported')" :description="t('pages.sandboxes.adminUnsupportedDesc')" />
             </template>
@@ -34,28 +34,27 @@
           <div class="flex flex-wrap gap-2 border-b p-3 text-sm">
             <div class="flex items-center gap-2">
               <span>{{ t('pages.sandboxes.filterStatus') }}</span>
-              <Select :model-value="statusFilter" @update:model-value="(v: string) => (statusFilter = v)">
+              <Select :model-value="statusFilter" @update:model-value="(v) => (statusFilter = String(v))">
                 <SelectTrigger class="h-8 w-32" :aria-label="t('pages.sandboxes.filterStatusAria')">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{{ t('common.all') }}</SelectItem>
+                  <SelectItem :value="FILTER_ALL">{{ t('common.all') }}</SelectItem>
                   <SelectItem v-for="s in SANDBOX_STATUSES" :key="s" :value="s">{{ s }}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div class="flex items-center gap-2">
               <span>{{ t('pages.sandboxes.filterSource') }}</span>
-              <Select :model-value="sourceFilter" @update:model-value="(v: string) => (sourceFilter = v)">
+              <Select :model-value="sourceFilter" @update:model-value="(v) => (sourceFilter = String(v))">
                 <SelectTrigger class="h-8 w-32" :aria-label="t('pages.sandboxes.filterSourceAria')">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{{ t('common.all') }}</SelectItem>
+                  <SelectItem :value="FILTER_ALL">{{ t('common.all') }}</SelectItem>
                   <SelectItem value="api">{{ t('pages.sandboxes.sourceApi') }}</SelectItem>
                   <SelectItem value="console">{{ t('pages.sandboxes.sourceConsole') }}</SelectItem>
                   <SelectItem value="agent">{{ t('pages.sandboxes.sourceAgent') }}</SelectItem>
-                  <SelectItem value="run">{{ t('pages.sandboxes.sourceRun') }}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -65,7 +64,7 @@
               <TableRow>
                 <TableHead>{{ t('pages.sandboxes.colName') }}</TableHead>
                 <TableHead>{{ t('pages.sandboxes.colStatus') }}</TableHead>
-                <TableHead>{{ t('pages.sandboxes.colImage') }}</TableHead>
+                <TableHead>{{ t('pages.sandboxes.colTemplate') }}</TableHead>
                 <TableHead>{{ t('pages.sandboxes.colSpec') }}</TableHead>
                 <TableHead>{{ t('pages.sandboxes.colSource') }}</TableHead>
                 <TableHead>{{ t('pages.sandboxes.colLastActive') }}</TableHead>
@@ -89,32 +88,32 @@
               <TableRow v-for="item in filtered" :key="item.id">
                 <TableCell class="sb-mono">{{ item.name }}</TableCell>
                 <TableCell>
-                  <Badge :variant="item.status === 'running' ? 'default' : item.status === 'error' ? 'destructive' : 'secondary'">{{ item.status }}</Badge>
+                  <Badge :variant="item.status === 'error' ? 'destructive' : item.state === 'running' ? 'default' : 'secondary'">{{ item.state }}</Badge>
                 </TableCell>
-                <TableCell class="sb-mono">{{ item.image }}</TableCell>
-                <TableCell>{{ item.cpus }}C / {{ item.memoryMiB }}M</TableCell>
+                <TableCell class="sb-mono">{{ item.templateId }}</TableCell>
+                <TableCell>{{ item.cpuCount }}C / {{ item.memoryMB }}M</TableCell>
                 <TableCell>{{ sourceText(item.source) }}</TableCell>
                 <TableCell>{{ item.lastActiveAt ? formatTime(item.lastActiveAt) : t('common.notStarted') }}</TableCell>
-                <TableCell>{{ item.expiresAt ? formatTime(item.expiresAt) : '—' }}</TableCell>
+                <TableCell>{{ item.endAt ? formatTime(item.endAt) : '—' }}</TableCell>
                 <TableCell>
                   <div class="flex flex-wrap justify-center gap-1">
                     <Button variant="ghost" size="sm" @click="selected = item">{{ t('pages.sandboxes.open') }}</Button>
                     <Button
-                      v-if="auth.canWrite && item.status === 'running'"
+                      v-if="auth.canWrite && item.state === 'running'"
                       variant="ghost"
                       size="sm"
                       :disabled="stopping.has(item.id)"
-                      @click="stop(item)"
+                      @click="pause(item)"
                     >
                       <Spinner v-if="stopping.has(item.id)" data-icon="inline-start" />
                       {{ t('pages.sandboxes.stop') }}
                     </Button>
                     <Button
-                      v-if="auth.canWrite && ['stopped','expired','error'].includes(item.status)"
+                      v-if="auth.canWrite && item.state === 'paused'"
                       variant="ghost"
                       size="sm"
                       :disabled="starting.has(item.id)"
-                      @click="start(item)"
+                      @click="resume(item)"
                     >
                       <Spinner v-if="starting.has(item.id)" data-icon="inline-start" />
                       {{ t('pages.sandboxes.start') }}
@@ -141,7 +140,7 @@
         </div>
       </Card>
       <SandboxCreateModal v-model:open="createOpen" :project-id="projectId" :capabilities="capabilities" @saved="load" />
-      <SandboxDrawer :open="!!selected" :project-id="projectId" :sandbox="selected" :max-file-bytes="capabilities?.maxFileBytes || 1048576" @update:open="!$event && (selected = null)" @changed="load" />
+      <SandboxDrawer :open="!!selected" :project-id="projectId" :sandbox="selected" :capabilities="capabilities" @update:open="!$event && (selected = null)" @changed="load" />
     </PageContainer>
   </ProjectScope>
 </template>
@@ -177,12 +176,14 @@ const store = useProjectStore()
 const auth = useAuthStore()
 
 /** 状态过滤下拉的可选值（值本身是后端枚举，不翻译）。 */
-const SANDBOX_STATUSES = ['pending', 'running', 'stopped', 'expired', 'error']
+const SANDBOX_STATUSES = ['running', 'paused']
 const { projectId, isAdmin: isAdminProject } = storeToRefs(store)
 const capabilities = ref<SandboxCapabilities | null>(null)
 const records = ref<SandboxItem[]>([])
-const statusFilter = ref('')
-const sourceFilter = ref('')
+/** reka-ui 的 SelectItem 不允许空字符串 value，用哨兵值表示「全部」。 */
+const FILTER_ALL = '__all__'
+const statusFilter = ref(FILTER_ALL)
+const sourceFilter = ref(FILTER_ALL)
 const createOpen = ref(false)
 const selected = ref<SandboxItem | null>(null)
 const starting = ref(new Set<string>())
@@ -196,12 +197,12 @@ const { pending, settled, showSkeleton, showEmpty, showError, refreshing, error,
 function sourceText(source: string): string {
   if (source === 'agent') return t('pages.sandboxes.sourceAgent')
   if (source === 'api') return t('pages.sandboxes.sourceApi')
-  if (source === 'run') return t('pages.sandboxes.sourceRun')
   return t('pages.sandboxes.sourceConsole')
 }
 
 const filtered = computed(() => records.value.filter((s) =>
-  (!statusFilter.value || s.status === statusFilter.value) && (!sourceFilter.value || s.source === sourceFilter.value)))
+  (statusFilter.value === FILTER_ALL || s.state === statusFilter.value) &&
+  (sourceFilter.value === FILTER_ALL || s.source === sourceFilter.value)))
 
 const notice = computed(() => {
   if (!settled.value || pending.value || showError.value) return ''
@@ -235,10 +236,10 @@ async function runRow(bucket: typeof starting, id: string, task: () => Promise<v
   }
 }
 
-async function start(item: SandboxItem) {
+async function resume(item: SandboxItem) {
   await runRow(starting, item.id, async () => {
     try {
-      await api.sandboxes.start(projectId.value, item.id)
+      await api.sandboxes.connect(projectId.value, item.id)
       await load()
       toast.success(t('pages.sandboxes.startedToast'))
     } catch (e) {
@@ -247,10 +248,10 @@ async function start(item: SandboxItem) {
   })
 }
 
-async function stop(item: SandboxItem) {
+async function pause(item: SandboxItem) {
   await runRow(stopping, item.id, async () => {
     try {
-      await api.sandboxes.stop(projectId.value, item.id)
+      await api.sandboxes.pause(projectId.value, item.id)
       await load()
       toast.success(t('pages.sandboxes.stoppedToast'))
     } catch (e) {

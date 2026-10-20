@@ -12,6 +12,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 var errNoSchemaColumns = errors.New("api: schema table has no columns")
@@ -63,7 +64,7 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 		}
 	}
 
-	countSQL := "SELECT COUNT(*) FROM " + quoteIdentifier(tableName)
+	countSQL := "SELECT COUNT(*) FROM " + sqlx.Ident(tableName)
 	if err := sqlguard.Validate(countSQL, sqlguard.ReadOnly); err != nil {
 		return WriteError(c, err)
 	}
@@ -190,14 +191,14 @@ func schemaRowsSelectSQL(table string, cols []schemaColumnJSON, system bool) (st
 	}
 	proj := make([]string, 0, len(cols))
 	for _, col := range cols {
-		quoted := quoteIdentifier(col.Name)
+		quoted := sqlx.Ident(col.Name)
 		if system && isSystemSensitiveColumn(col.Name) {
 			proj = append(proj, "NULL AS "+quoted)
 			continue
 		}
 		proj = append(proj, quoted)
 	}
-	sqlText := "SELECT " + strings.Join(proj, ", ") + " FROM " + quoteIdentifier(table)
+	sqlText := "SELECT " + strings.Join(proj, ", ") + " FROM " + sqlx.Ident(table)
 	if order := schemaRowsOrder(cols); order != "" {
 		sqlText += " ORDER BY " + order
 	}
@@ -214,19 +215,19 @@ func schemaRowsOrder(cols []schemaColumnJSON) string {
 		if !ok {
 			continue
 		}
-		order := quoteIdentifier(actual) + " DESC"
+		order := sqlx.Ident(actual) + " DESC"
 		if id, ok := byLower["id"]; ok {
-			order += ", " + quoteIdentifier(id) + " ASC"
+			order += ", " + sqlx.Ident(id) + " ASC"
 		}
 		return order
 	}
 	if id, ok := byLower["id"]; ok {
-		return quoteIdentifier(id) + " ASC"
+		return sqlx.Ident(id) + " ASC"
 	}
 	if len(cols) == 0 {
 		return ""
 	}
-	return quoteIdentifier(cols[0].Name) + " ASC"
+	return sqlx.Ident(cols[0].Name) + " ASC"
 }
 
 func finishSchemaTables(tables []schemaTableJSON, system bool) []schemaTableJSON {

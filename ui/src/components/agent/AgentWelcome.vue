@@ -15,11 +15,11 @@
       <li v-for="(key, i) in prompts" :key="key">
         <button
           type="button"
-          class="flex min-h-11 w-full items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs leading-relaxed text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          class="flex min-h-11 w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-xs leading-relaxed text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           :data-prompt-index="i"
           @click="$emit('pick', t(key))"
         >
-          <SparklesIcon class="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+          <SparklesIcon class="size-3.5 shrink-0 text-primary" aria-hidden="true" />
           <span>{{ t(key) }}</span>
         </button>
       </li>

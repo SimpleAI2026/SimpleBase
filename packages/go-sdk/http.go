@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 const maxResponseBytes = 32 << 20
@@ -28,6 +29,10 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Accept", "application/json")
+	if strings.HasPrefix(path, "/e2b/") {
+		// E2B 的请求里没有项目：用头指明（见 internal/api/e2b_auth.go）。
+		req.Header.Set("X-SimpleBase-Project", c.projectID)
+	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}

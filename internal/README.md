@@ -55,6 +55,20 @@ LLM 服务端封装。项目隔离的 provider 配置（从 catalog `llm_provide
 ### `observability`
 结构化日志（Zap 封装）、Prometheus 指标、健康检查聚合。
 
+### `utils`
+跨包复用的通用能力，**只放零业务依赖的纯函数**（当前八个子包都只 import 标准库）：
+
+- `crontab/`：受限 5 字段 cron 解析与下次触发计算（UTC、分钟粒度，`*` / `*/n` / `n` / `a-b` / 逗号列表；不支持名称与步进区间）。
+- `strutil/`：字符串截断（字节 / rune / UTF-8 安全三种语义）与 CSV 列表切分。
+- `limit/`：分页参数归一化（`Normalize` 超限回落默认值、`Clamp` 截到上限）。
+- `mask/`：敏感字段名判定与密钥掩码。
+- `hashx/`：无密钥 SHA-256 hex 封装。
+- `atomicfile/`：tmp + rename 原子写（不 fsync）。
+- `sqlx/`：SQL 标识符 / 字面量转义；只构造片段，不做校验（校验仍归 `database/sqlguard`）。
+- `singleflight/`：泛型按 key 单飞，不缓存结果。
+
+入库标准与「不要放这里」的清单见 `internal/utils/README.md`。`cloudagent` / `gosandbox` / `gofunction` 是嵌套独立模块，不能 import 本目录，因此各自保留少量同义实现，这是有意的，不要强行统一。
+
 ## 依赖关系
 
 ```text

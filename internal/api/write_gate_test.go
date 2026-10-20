@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -79,7 +80,7 @@ func TestWriteGate_AllWriteRoutesBlockedOnReadOnly(t *testing.T) {
 			continue
 		}
 		if rec.Code != http.StatusServiceUnavailable {
-			leaked = append(leaked, r.method+" "+r.path+" -> "+itoa(rec.Code))
+			leaked = append(leaked, r.method+" "+r.path+" -> "+strconv.Itoa(rec.Code))
 		}
 	}
 	if len(leaked) > 0 {

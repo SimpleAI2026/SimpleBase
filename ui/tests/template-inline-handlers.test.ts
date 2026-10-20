@@ -226,11 +226,10 @@ describe('Sandboxes 过滤与行操作', () => {
     createdAt: '2026-10-04T00:00:00Z'
   }
 
-  it('sourceText 覆盖 console / run / agent / api 四个分支', async () => {
+  it('sourceText 覆盖 console / agent / api 三个分支', async () => {
     api.sandboxes.capabilities.mockResolvedValue(caps)
     api.sandboxes.list.mockResolvedValue([
       { ...item, id: 'a', source: 'console' },
-      { ...item, id: 'b', source: 'run' },
       { ...item, id: 'c', source: 'agent' },
       { ...item, id: 'd', source: 'api' }
     ])
@@ -243,7 +242,6 @@ describe('Sandboxes 过滤与行操作', () => {
     await flushPromises()
     const text = w.text()
     expect(text).toContain('控制台')
-    expect(text).toContain('一次性')
     expect(text).toContain('Agent')
     expect(text).toContain('API')
     w.unmount()

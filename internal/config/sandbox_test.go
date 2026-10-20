@@ -41,10 +41,10 @@ func TestSandboxDefaults(t *testing.T) {
 	if cfg.Sandbox.Enabled {
 		t.Fatal("sandbox must default to disabled")
 	}
-	if cfg.Sandbox.Image != "python:3.12-slim" || cfg.Sandbox.CPUs != 1 || cfg.Sandbox.MemoryMiB != 256 {
+	if cfg.Sandbox.Image != SandboxDefaultImage || cfg.Sandbox.CPUs != 1 || cfg.Sandbox.MemoryMiB != 256 {
 		t.Fatalf("unexpected sandbox defaults: %+v", cfg.Sandbox)
 	}
-	if cfg.Sandbox.EffectiveBackend() != SandboxBackendCloud || cfg.Sandbox.MaxPerProject != 5 ||
+	if cfg.Sandbox.EffectiveBackend() != SandboxBackendLocal || cfg.Sandbox.MaxPerProject != 5 ||
 		cfg.Sandbox.IdleTimeout != 5*time.Minute || cfg.Sandbox.ExecTimeoutMax != 300*time.Second {
 		t.Fatalf("unexpected sandbox defaults: %+v", cfg.Sandbox)
 	}
@@ -53,27 +53,41 @@ func TestSandboxDefaults(t *testing.T) {
 	}
 }
 
-func TestSandboxValidateEnabledWithoutKey(t *testing.T) {
+func TestSandboxValidateLocalNeedsNoKey(t *testing.T) {
 	cfg := validTestConfig(t)
-	cfg.Sandbox.Enabled = true
-	cfg.Sandbox.APIKey = ""
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sandbox.api_key") {
-		t.Fatalf("enabled without key must fail, got %v", err)
+	cfg.Sandbox = validEnabledSandbox()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("local backend must validate without any key: %v", err)
 	}
 }
 
-func TestSandboxValidateDisabledIgnoresKey(t *testing.T) {
+func TestSandboxValidateDisabledSkipsChecks(t *testing.T) {
 	cfg := validTestConfig(t)
-	cfg.Sandbox.Enabled = false
-	cfg.Sandbox.APIKey = ""
+	cfg.Sandbox = SandboxConfig{Enabled: false, Network: "bogus"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("disabled sandbox must not fail: %v", err)
 	}
 }
 
+func TestSandboxValidateLocalPaths(t *testing.T) {
+	for name, mut := range map[string]func(*SandboxConfig){
+		"sandbox.root":        func(s *SandboxConfig) { s.Root = "relative" },
+		"sandbox.bwrap_path":  func(s *SandboxConfig) { s.BwrapPath = "bwrap" },
+		"sandbox.helper_path": func(s *SandboxConfig) { s.HelperPath = "./gosandbox-inner" },
+		"sandbox.pids_max":    func(s *SandboxConfig) { s.PidsMax = -1 },
+	} {
+		cfg := validTestConfig(t)
+		cfg.Sandbox = validEnabledSandbox()
+		mut(&cfg.Sandbox)
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), name) {
+			t.Fatalf("%s: want validation error, got %v", name, err)
+		}
+	}
+}
+
 func TestSandboxValidateNetwork(t *testing.T) {
 	cfg := validTestConfig(t)
-	cfg.Sandbox = SandboxConfig{Enabled: true, APIKey: "k", Network: "allowall",
+	cfg.Sandbox = SandboxConfig{Enabled: true, Network: "allowall",
 		CPUs: 1, MemoryMiB: 512, MaxDuration: time.Minute, IdleTimeout: time.Minute,
 		ExecTimeout: time.Second, MaxOutputBytes: 1, MaxFileBytes: 1}
 	err := cfg.Validate()
@@ -82,9 +96,18 @@ func TestSandboxValidateNetwork(t *testing.T) {
 	}
 }
 
+func TestSandboxValidateRejectsPublicNetwork(t *testing.T) {
+	cfg := validTestConfig(t)
+	cfg.Sandbox = validEnabledSandbox()
+	cfg.Sandbox.Network = "public"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sandbox.network") {
+		t.Fatalf("local backend has no network, public must fail, got %v", err)
+	}
+}
+
 func TestSandboxValidateResourceBounds(t *testing.T) {
 	cfg := validTestConfig(t)
-	cfg.Sandbox = SandboxConfig{Enabled: true, APIKey: "k", Network: "none",
+	cfg.Sandbox = SandboxConfig{Enabled: true, Network: "none",
 		CPUs: 8, MemoryMiB: 99999, MaxDuration: time.Minute, IdleTimeout: time.Minute,
 		ExecTimeout: time.Second, MaxOutputBytes: 1, MaxFileBytes: 1}
 	if err := cfg.Validate(); err == nil {
@@ -99,15 +122,11 @@ func TestSandboxValidateResourceBounds(t *testing.T) {
 
 func TestSandboxEnvOverrides(t *testing.T) {
 	t.Setenv("SIMPLEBASE_SANDBOX_ENABLED", "true")
-	t.Setenv("SIMPLEBASE_SANDBOX_API_KEY", "sk-test")
-	t.Setenv("SIMPLEBASE_SANDBOX_IMAGE", "node:20")
-	t.Setenv("SIMPLEBASE_SANDBOX_NETWORK", "public")
+	t.Setenv("SIMPLEBASE_SANDBOX_IMAGE", "custom")
+	t.Setenv("SIMPLEBASE_SANDBOX_ROOT", "/var/lib/sb")
 	t.Setenv("SIMPLEBASE_SANDBOX_EXEC_TIMEOUT", "45s")
 	cfg := loadFromEnv()
-	if !cfg.Sandbox.Enabled || cfg.Sandbox.APIKey != "sk-test" {
-		t.Fatalf("env not applied: %+v", cfg.Sandbox)
-	}
-	if cfg.Sandbox.Image != "node:20" || cfg.Sandbox.Network != "public" {
+	if !cfg.Sandbox.Enabled || cfg.Sandbox.Image != "custom" || cfg.Sandbox.Root != "/var/lib/sb" {
 		t.Fatalf("env not applied: %+v", cfg.Sandbox)
 	}
 	if cfg.Sandbox.ExecTimeout != 45*time.Second {
@@ -115,29 +134,7 @@ func TestSandboxEnvOverrides(t *testing.T) {
 	}
 }
 
-func TestSandboxYAMLKeyRejectedInProduction(t *testing.T) {
-	yaml := `
-instance:
-  id: inst-1
-  writable: false
-database:
-  cache_dir: /tmp/x
-sandbox:
-  enabled: true
-  api_key: yaml-secret-key
-`
-	path := writeTempConfig(t, yaml)
-	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
-	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "env-secret")
-	os.Unsetenv("SIMPLEBASE_SANDBOX_API_KEY")
-	defer os.Unsetenv("SIMPLEBASE_CONFIG_PATH")
-	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "sandbox.api_key") {
-		t.Fatalf("production YAML secret must be rejected, got %v", err)
-	}
-}
-
-func TestSandboxYAMLNonSecretFieldsApplied(t *testing.T) {
+func TestSandboxYAMLFieldsApplied(t *testing.T) {
 	yaml := `
 instance:
   id: inst-1
@@ -145,42 +142,36 @@ database:
   cache_dir: /tmp/x
 sandbox:
   enabled: true
-  image: "node:20"
-  network: public
+  image: "custom"
   cpus: 2
   memory_mib: 1024
+  root: /var/lib/sb
+  pids_max: 128
 `
 	path := writeTempConfig(t, yaml)
 	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
 	t.Setenv("SIMPLEBASE_INSTANCE_WRITABLE", "false")
-	t.Setenv("SIMPLEBASE_SANDBOX_API_KEY", "env-key")
 	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "env-secret")
-	defer os.Unsetenv("SIMPLEBASE_CONFIG_PATH")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Sandbox.Enabled || cfg.Sandbox.APIKey != "env-key" {
-		t.Fatalf("env key must win: %+v", cfg.Sandbox)
-	}
-	if cfg.Sandbox.Image != "node:20" || cfg.Sandbox.Network != "public" || cfg.Sandbox.CPUs != 2 || cfg.Sandbox.MemoryMiB != 1024 {
+	if !cfg.Sandbox.Enabled || cfg.Sandbox.Image != "custom" || cfg.Sandbox.CPUs != 2 || cfg.Sandbox.MemoryMiB != 1024 ||
+		cfg.Sandbox.Root != "/var/lib/sb" || cfg.Sandbox.PidsMax != 128 {
 		t.Fatalf("yaml fields not applied: %+v", cfg.Sandbox)
 	}
 }
 
-func TestSandboxRedactedHasNoKey(t *testing.T) {
+func TestSandboxRedactedView(t *testing.T) {
 	cfg := validTestConfig(t)
-	cfg.Sandbox = SandboxConfig{Enabled: true, APIKey: "super-secret", Network: "public",
-		CPUs: 1, MemoryMiB: 512, MaxDuration: time.Minute, IdleTimeout: time.Minute,
-		ExecTimeout: time.Second, MaxOutputBytes: 1, MaxFileBytes: 1, Image: "python:3.12"}
-	r := cfg.Redacted()
-	sb := r["sandbox"].(map[string]any)
-	if sb["has_api_key"] != true {
-		t.Fatal("has_api_key must be true")
+	cfg.Sandbox = validEnabledSandbox()
+	cfg.Sandbox.Root = "/var/lib/sb"
+	sb := cfg.Redacted()["sandbox"].(map[string]any)
+	if sb["backend"] != SandboxBackendLocal || sb["root"] != "/var/lib/sb" {
+		t.Fatalf("redacted = %+v", sb)
 	}
-	s, _ := marshalTestJSON(sb)
-	if strings.Contains(s, "super-secret") {
-		t.Fatalf("redacted view leaked api key: %s", s)
+	if _, ok := sb["has_api_key"]; ok {
+		t.Fatal("api key no longer exists")
 	}
 }
 
@@ -190,7 +181,7 @@ func marshalTestJSON(v any) (string, error) {
 }
 
 func validEnabledSandbox() SandboxConfig {
-	return SandboxConfig{Enabled: true, APIKey: "k", Network: "none", Image: "python:3.12-slim",
+	return SandboxConfig{Enabled: true, Network: "none", Image: "python:3.12-slim",
 		CPUs: 1, MemoryMiB: 256, MaxDuration: time.Minute, IdleTimeout: time.Minute,
 		ExecTimeout: time.Second, ExecTimeoutMax: time.Minute, MaxOutputBytes: 1, MaxFileBytes: 1,
 		MaxPerProject: 5}
@@ -200,15 +191,14 @@ func TestSandboxValidateFakeBackend(t *testing.T) {
 	cfg := validTestConfig(t)
 	cfg.Sandbox = validEnabledSandbox()
 	cfg.Sandbox.Backend = "fake"
-	cfg.Sandbox.APIKey = ""
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ALLOW_FAKE") {
 		t.Fatalf("fake backend without opt-in must fail, got %v", err)
 	}
 	t.Setenv("SIMPLEBASE_SANDBOX_ALLOW_FAKE", "1")
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("fake backend with SIMPLEBASE_SANDBOX_ALLOW_FAKE=1 must pass without key: %v", err)
+		t.Fatalf("fake backend with SIMPLEBASE_SANDBOX_ALLOW_FAKE=1 must pass: %v", err)
 	}
-	cfg.Sandbox.Backend = "local"
+	cfg.Sandbox.Backend = "cloud"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sandbox.backend") {
 		t.Fatalf("unknown backend must fail, got %v", err)
 	}
@@ -246,5 +236,88 @@ func TestSandboxEnvV4Fields(t *testing.T) {
 	}
 	if len(cfg.Sandbox.Images) != 2 || cfg.Sandbox.Images[1] != "alpine:3.20" {
 		t.Fatalf("images = %#v", cfg.Sandbox.Images)
+	}
+}
+
+func TestSandboxTerminalSSHDefaultsAndValidation(t *testing.T) {
+	cfg := defaults()
+	if !cfg.Sandbox.Terminal.Enabled || cfg.Sandbox.Terminal.EffectiveSessionsPerSandbox() != 4 ||
+		cfg.Sandbox.Terminal.EffectiveIdleTimeout() != 15*time.Minute {
+		t.Fatalf("terminal defaults: %+v", cfg.Sandbox.Terminal)
+	}
+	if cfg.Sandbox.SSH.Listen != "" {
+		t.Fatal("external SSH must be closed by default")
+	}
+	if cfg.Sandbox.E2B.DefaultTemplate != "base" {
+		t.Fatalf("e2b default template = %q", cfg.Sandbox.E2B.DefaultTemplate)
+	}
+	// 零值取默认，不应被判为非法。
+	if (SandboxTerminalConfig{}).EffectiveSessionsPerSandbox() != 4 || (SandboxTerminalConfig{}).EffectiveIdleTimeout() != 15*time.Minute {
+		t.Fatal("zero value must fall back to defaults")
+	}
+	bad := map[string]func(*SandboxConfig){
+		"sessions too many": func(s *SandboxConfig) { s.Terminal.MaxSessionsPerSandbox = 33 },
+		"sessions negative": func(s *SandboxConfig) { s.Terminal.MaxSessionsPerSandbox = -1 },
+		"idle too short":    func(s *SandboxConfig) { s.Terminal.IdleTimeout = 10 * time.Second },
+		"listen no port":    func(s *SandboxConfig) { s.SSH.Listen = "127.0.0.1" },
+		"host key relative": func(s *SandboxConfig) { s.SSH.HostKeyPath = "key" },
+	}
+	for name, mut := range bad {
+		c := validTestConfig(t)
+		c.Sandbox = validEnabledSandbox()
+		mut(&c.Sandbox)
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s must be rejected", name)
+		}
+	}
+	good := validTestConfig(t)
+	good.Sandbox = validEnabledSandbox()
+	good.Sandbox.SSH.Listen = "127.0.0.1:2222"
+	good.Sandbox.Terminal.MaxSessionsPerSandbox = 8
+	if err := good.Validate(); err != nil {
+		t.Fatalf("valid ssh/terminal config rejected: %v", err)
+	}
+}
+
+func TestSandboxTerminalSSHYAMLAndEnv(t *testing.T) {
+	path := writeTempConfig(t, `
+instance:
+  id: inst-1
+database:
+  cache_dir: /tmp/x
+sandbox:
+  enabled: true
+  terminal:
+    enabled: false
+    max_sessions_per_sandbox: 2
+    idle_timeout: 3m
+  ssh:
+    listen: "127.0.0.1:2200"
+    host_key_path: /var/lib/sb/host_key
+  e2b:
+    default_template: py
+    envd_version: 0.9.9
+`)
+	t.Setenv("SIMPLEBASE_CONFIG_PATH", path)
+	t.Setenv("SIMPLEBASE_INSTANCE_WRITABLE", "false")
+	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "env-secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb := cfg.Sandbox
+	if sb.Terminal.Enabled || sb.Terminal.MaxSessionsPerSandbox != 2 || sb.Terminal.IdleTimeout != 3*time.Minute ||
+		sb.SSH.Listen != "127.0.0.1:2200" || sb.SSH.HostKeyPath != "/var/lib/sb/host_key" ||
+		sb.E2B.DefaultTemplate != "py" || sb.E2B.EnvdVersion != "0.9.9" {
+		t.Fatalf("yaml not applied: %+v", sb)
+	}
+	t.Setenv("SIMPLEBASE_SANDBOX_TERMINAL_ENABLED", "true")
+	t.Setenv("SIMPLEBASE_SANDBOX_SSH_LISTEN", "")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Sandbox.Terminal.Enabled || cfg.Sandbox.SSH.Listen != "" {
+		t.Fatalf("env override not applied: %+v", cfg.Sandbox)
 	}
 }

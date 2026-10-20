@@ -316,11 +316,7 @@ func TestCLIResources(t *testing.T) {
 	fail(t, "user-token", []string{"cron", "create", "--schedule-kind", "interval", "--interval-seconds", "10"}, "", "invalid_interval")
 
 	ok(t, []string{"sandbox", "capabilities"})
-	ok(t, []string{"sandbox", "create", "--name", "box", "--image", "alpine"})
-	ok(t, []string{"sandbox", "exec", "--id", "sb1", "--command", "echo hi"})
-	ok(t, []string{"sandbox", "update", "--id", "sb1", "--name", "box2"})
-	ok(t, []string{"sandbox", "run", "--command", "echo hi"})
-	ok(t, []string{"sandbox", "files", "list", "--id", "sb1", "--path", "/workspace"})
+	ok(t, []string{"sandbox", "create", "--name", "box", "--template", "base"})
 	ok(t, []string{"sandbox", "delete", "--id", "sb1"})
 	fail(t, "nosandbox", []string{"sandbox", "list"}, "", "sandbox_unavailable")
 	code, out, errb := runCLI(t, []string{"HOME=" + home, "SIMPLEBASE_URL=" + srv.URL, "SIMPLEBASE_TOKEN=nosandbox", "SIMPLEBASE_PROJECT_ID=p1"}, []string{"sandbox", "capabilities"}, "")

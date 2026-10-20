@@ -15,7 +15,8 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -58,7 +59,7 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 	gw := llmgateway.NewService(resolver, nil, nil)
 	rt := &cloudagent.Runtime{
 		LLM:          NewCloudAgentLLM(NewLLMService(gw)),
-		Settings:     cloudagent.NewSettingsAccess(store),
+		Settings:     agentbridge.NewSettingsAccess(store),
 		ToolProtocol: "native",
 		RunTimeout:   30 * time.Second,
 	}

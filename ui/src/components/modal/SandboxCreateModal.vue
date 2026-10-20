@@ -21,9 +21,9 @@
         <FieldError v-if="nameInvalid">{{ t('components.sandboxCreate.nameInvalid') }}</FieldError>
       </Field>
       <Field>
-        <FieldLabel for="sb-create-image">{{ t('components.sandboxCreate.imageLabel') }}</FieldLabel>
+        <FieldLabel for="sb-create-image">{{ t('components.sandboxCreate.templateLabel') }}</FieldLabel>
         <Select v-model="image">
-          <SelectTrigger id="sb-create-image" class="w-full" :aria-label="t('components.sandboxCreate.imageAria')">
+          <SelectTrigger id="sb-create-image" class="w-full" :aria-label="t('components.sandboxCreate.templateAria')">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -31,45 +31,18 @@
           </SelectContent>
         </Select>
       </Field>
-      <div class="grid grid-cols-2 gap-3">
-        <Field>
-          <FieldLabel for="sb-create-cpus">{{ t('components.sandboxCreate.cpuLabel') }}</FieldLabel>
-          <Input
-            id="sb-create-cpus"
-            v-model.number="cpus"
-            type="number"
-            min="1"
-            :max="capabilities?.cpusMax || 4"
-            :aria-label="t('components.sandboxCreate.cpuAria')"
-          />
-        </Field>
-        <Field>
-          <FieldLabel for="sb-create-memory">{{ t('components.sandboxCreate.memoryLabel') }}</FieldLabel>
-          <Input
-            id="sb-create-memory"
-            v-model.number="memoryMiB"
-            type="number"
-            min="128"
-            :max="capabilities?.memoryMiBMax || 4096"
-            :aria-label="t('components.sandboxCreate.memoryAria')"
-          />
-        </Field>
-      </div>
       <Field>
-        <FieldLabel for="sb-create-network">{{ t('components.sandboxCreate.networkLabel') }}</FieldLabel>
-        <Select v-model="network">
-          <SelectTrigger id="sb-create-network" class="w-full" :aria-label="t('components.sandboxCreate.networkAria')">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="option in capabilities?.networkOptions || ['none']" :key="option" :value="option">{{ option }}</SelectItem>
-          </SelectContent>
-        </Select>
+        <FieldLabel for="sb-create-timeout">{{ t('components.sandboxCreate.timeoutLabel') }}</FieldLabel>
+        <Input
+          id="sb-create-timeout"
+          v-model.number="timeoutS"
+          type="number"
+          min="1"
+          :max="timeoutMax"
+          :aria-label="t('components.sandboxCreate.timeoutAria')"
+        />
+        <FieldError v-if="timeoutInvalid">{{ t('components.sandboxCreate.timeoutInvalid', { max: timeoutMax }) }}</FieldError>
       </Field>
-      <label class="flex items-center gap-2 text-sm">
-        <input v-model="start" type="checkbox" class="size-4 accent-primary" />
-        {{ t('components.sandboxCreate.startNow') }}
-      </label>
     </FieldGroup>
   </SbModal>
 </template>
@@ -94,31 +67,20 @@ const { t } = useI18n()
 
 const name = ref('')
 const image = ref('')
-const cpus = ref(1)
-const memoryMiB = ref(256)
-const network = ref('none')
-const start = ref(false)
+const timeoutS = ref(300)
 const saving = ref(false)
 
 const nameInvalid = computed(() => Boolean(name.value) && !SANDBOX_NAME_RE.test(name.value))
+const timeoutMax = computed(() => props.capabilities?.timeoutMaxS || 3600)
+const timeoutInvalid = computed(() => !Number.isInteger(timeoutS.value) || timeoutS.value < 1 || timeoutS.value > timeoutMax.value)
 
-const valid = computed(
-  () =>
-    !nameInvalid.value &&
-    cpus.value >= 1 &&
-    cpus.value <= (props.capabilities?.cpusMax || 4) &&
-    memoryMiB.value >= 128 &&
-    memoryMiB.value <= (props.capabilities?.memoryMiBMax || 4096)
-)
+const valid = computed(() => !nameInvalid.value && !timeoutInvalid.value)
 
 watch(() => props.open, (open) => {
   if (!open) return
   name.value = ''
-  image.value = props.capabilities?.defaultImage || ''
-  cpus.value = 1
-  memoryMiB.value = 256
-  network.value = 'none'
-  start.value = false
+  image.value = props.capabilities?.defaultTemplate || props.capabilities?.defaultImage || ''
+  timeoutS.value = props.capabilities?.timeoutDefaultS || 300
 })
 
 async function save() {
@@ -127,12 +89,9 @@ async function save() {
   try {
     await api.sandboxes.create(props.projectId, {
       name: name.value || undefined,
-      image: image.value,
-      cpus: cpus.value,
-      memoryMiB: memoryMiB.value,
-      network: network.value,
-      start: start.value
-    }, crypto.randomUUID())
+      templateId: image.value || undefined,
+      timeoutS: timeoutS.value
+    })
     emit('update:open', false)
     emit('saved')
     toast.success(t('components.sandboxCreate.created'))

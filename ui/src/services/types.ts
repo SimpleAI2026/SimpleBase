@@ -554,6 +554,14 @@ export interface AgentRun extends Partial<AgentRunMetrics> {
   error?: string
 }
 
+/** 正在执行的 run（交互 + 定时任务），用于助手列表 / 会话切换器的「正在回复」指示。 */
+export interface ActiveAgentRun {
+  run_id: string
+  agent_id: string
+  thread_id: string
+  started_at?: string
+}
+
 /* ---------- Agent Schedule（定时执行） ---------- */
 
 export interface AgentSchedule {
@@ -595,8 +603,6 @@ export interface AgentRunRequest {
   content: string
   mentions: AgentMention[]
   stream?: boolean
-  /** 本轮 @ 加载的 skill id。 */
-  skills?: string[]
   /** 重试指定失败 run（planv4.1 BUG-03）：复用原 user 消息，不重复落库。 */
   retry_of_run_id?: string
 }
@@ -805,73 +811,68 @@ export interface CronJobCreate {
   enabled?: boolean
 }
 
-/* ---------- 云沙盒（planv4.0 cloud-sandbox-plan） ---------- */
+/* ---------- 云沙盒（planv6.2 E2B 兼容 API） ---------- */
 
+export interface SandboxSshInfo {
+  enabled: boolean
+  listen?: string
+  hostKeyFingerprint?: string
+}
 export interface SandboxCapabilities {
   available: boolean
   backend: string
+  /** 不可用时的原因（后端固定文案） */
+  reason?: string
   images: string[]
   defaultImage: string
-  cpusMax: number
-  memoryMiBMax: number
-  execTimeoutMaxS: number
+  defaultTemplate?: string
+  cpus: number
+  memoryMiB: number
+  timeoutDefaultS: number
+  timeoutMaxS: number
   maxFileBytes: number
   maxOutputBytes: number
   maxPerProject: number
-  networkOptions: string[]
+  terminal: boolean
+  ssh?: SandboxSshInfo
+  envdVersion?: string
 }
 export interface SandboxItem {
   id: string
   name: string
-  cloudName: string
-  source: string
-  threadId?: string
+  templateId: string
+  /** E2B 二态 */
+  state: 'running' | 'paused'
+  /** x_simplebase 扩展里的五态原值：pending|running|stopped|expired|error */
   status: string
-  image: string
-  cpus: number
-  memoryMiB: number
-  network: string
-  idleTimeoutS: number
-  maxDurationS: number
-  lastError?: string
-  createdAt: string
+  source: string
+  cpuCount: number
+  memoryMB: number
   startedAt?: string
+  endAt?: string
   lastActiveAt?: string
-  expiresAt?: string
+  lastError?: string
+  idleTimeoutS: number
+  metadata: Record<string, string>
 }
 export interface SandboxCreate {
   name?: string
-  image?: string
-  cpus?: number
-  memoryMiB?: number
-  network?: string
-  idleTimeoutS?: number
-  start?: boolean
-}
-export interface SandboxExecInput {
-  command: string
+  templateId?: string
   timeoutS?: number
+  metadata?: Record<string, string>
 }
-export interface SandboxExecResult {
-  exitCode: number
-  stdout: string
-  stderr: string
-  stdoutTruncated: boolean
-  stderrTruncated: boolean
-  timedOut: boolean
-  durationMs: number
-  status: string
+export interface SandboxTerminalTicket {
+  ticket: string
+  expiresIn: number
 }
 export interface SandboxFileEntry {
   name: string
   path: string
-  kind: string
+  kind: 'file' | 'directory'
+  /** envd 的 size 是字符串形式的 int64，这里已转为 number */
   size: number
-}
-export interface SandboxFileContent {
-  content: string
-  encoding: string
-  truncated: boolean
+  permissions: string
+  modifiedTime?: string
 }
 
 /**
@@ -914,18 +915,18 @@ export interface Api {
   }
   sandboxes: {
     capabilities: (projectId: string) => Promise<SandboxCapabilities>
-    list: (projectId: string, status?: string, source?: string) => Promise<SandboxItem[]>
-    create: (projectId: string, body: SandboxCreate, idempotencyKey?: string) => Promise<SandboxItem>
+    list: (projectId: string, state?: string, metadataFilter?: Record<string, string>) => Promise<SandboxItem[]>
+    get: (projectId: string, id: string) => Promise<SandboxItem>
+    create: (projectId: string, body: SandboxCreate) => Promise<SandboxItem>
     remove: (projectId: string, id: string) => Promise<void>
-    start: (projectId: string, id: string) => Promise<SandboxItem>
-    stop: (projectId: string, id: string) => Promise<SandboxItem>
-    exec: (projectId: string, id: string, body: SandboxExecInput) => Promise<SandboxExecResult>
+    connect: (projectId: string, id: string, timeoutS?: number) => Promise<SandboxItem>
+    pause: (projectId: string, id: string) => Promise<void>
+    terminalTicket: (projectId: string, id: string) => Promise<SandboxTerminalTicket>
+    terminalWebSocketUrl: (id: string, ticket: string) => string
     files: {
-      list: (projectId: string, id: string, path: string) => Promise<SandboxFileEntry[]>
-      read: (projectId: string, id: string, path: string) => Promise<SandboxFileContent>
-      download: (projectId: string, id: string, path: string) => Promise<Blob>
-      write: (projectId: string, id: string, path: string, content: string) => Promise<void>
-      upload: (projectId: string, id: string, path: string, content: Uint8Array) => Promise<void>
+      list: (projectId: string, id: string, path: string, depth?: number) => Promise<SandboxFileEntry[]>
+      read: (projectId: string, id: string, path: string) => Promise<Blob>
+      write: (projectId: string, id: string, path: string, content: Blob | string) => Promise<void>
       remove: (projectId: string, id: string, path: string) => Promise<void>
     }
   }
@@ -1063,7 +1064,11 @@ export interface Api {
       req: AgentRunRequest,
       handlers: AgentStreamHandlers
     ) => LlmStreamConnection
+    /** 续接进行中的 run（回放事件缓存并跟随到 end）。 */
+    attachRun: (projectId: string, runId: string, handlers: AgentStreamHandlers) => LlmStreamConnection
     cancel: (projectId: string, runId: string) => Promise<AgentRun>
+    /** 项目内正在执行的 run。 */
+    active: (projectId: string) => Promise<ActiveAgentRun[]>
     confirm: (projectId: string, runId: string, callId: string, approve: boolean) => Promise<void>
   }
   agentSchedules: {

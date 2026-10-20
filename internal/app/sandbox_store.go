@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -17,7 +18,7 @@ func toSandbox(r systemdb.SandboxRow) sandbox.Sandbox {
 	out := sandbox.Sandbox{ID: r.ID, ProjectID: r.ProjectID, Name: r.Name, CloudName: r.CloudName, Source: r.Source,
 		ThreadID: r.ThreadID, Image: r.Image, CPUs: r.CPUs, MemoryMiB: r.MemoryMiB, Network: r.Network,
 		IdleTimeoutS: r.IdleTimeoutS, MaxDurationS: r.MaxDurationS, Status: r.Status, LastError: r.LastError,
-		CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt}
+		CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, Metadata: decodeMetadata(r.Metadata)}
 	if !r.StartedAt.IsZero() {
 		t := r.StartedAt
 		out.StartedAt = &t
@@ -40,7 +41,7 @@ func toSandboxRow(r sandbox.Sandbox) systemdb.SandboxRow {
 	out := systemdb.SandboxRow{ID: r.ID, ProjectID: r.ProjectID, Name: r.Name, CloudName: r.CloudName, Source: r.Source,
 		ThreadID: r.ThreadID, Image: r.Image, CPUs: r.CPUs, MemoryMiB: r.MemoryMiB, Network: r.Network,
 		IdleTimeoutS: r.IdleTimeoutS, MaxDurationS: r.MaxDurationS, Status: r.Status, LastError: r.LastError,
-		CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt}
+		CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, Metadata: encodeMetadata(r.Metadata)}
 	if r.StartedAt != nil {
 		out.StartedAt = *r.StartedAt
 	}
@@ -61,6 +62,10 @@ func (a sandboxStoreAdapter) CreateSandbox(ctx context.Context, r sandbox.Sandbo
 }
 func (a sandboxStoreAdapter) GetSandbox(ctx context.Context, p, id string) (sandbox.Sandbox, error) {
 	r, err := a.s.GetSandbox(ctx, p, id)
+	return toSandbox(r), err
+}
+func (a sandboxStoreAdapter) GetSandboxByID(ctx context.Context, id string) (sandbox.Sandbox, error) {
+	r, err := a.s.GetSandboxByID(ctx, id)
 	return toSandbox(r), err
 }
 func (a sandboxStoreAdapter) GetSandboxByName(ctx context.Context, p, name string) (sandbox.Sandbox, error) {
@@ -132,3 +137,26 @@ func (a sandboxStoreAdapter) PurgeDeletedSandboxes(ctx context.Context, before t
 }
 
 var _ sandbox.Store = sandboxStoreAdapter{}
+
+// decodeMetadata 把库里的 JSON 对象还原成 map；损坏的值按空处理，不让一行坏数据拖垮列表。
+func decodeMetadata(raw string) map[string]string {
+	if raw == "" || raw == "{}" {
+		return nil
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(raw), &m); err != nil || len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+func encodeMetadata(m map[string]string) string {
+	if len(m) == 0 {
+		return "{}"
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}

@@ -51,10 +51,7 @@ func TestGateSerializesSameKey(t *testing.T) {
 		if got := atomic.LoadInt32(&execCount); got != 1 {
 			t.Fatalf("execCount = %d, want 1（同 key 只允许一次执行）", got)
 		}
-		g.mu.Lock()
-		_, inflight := g.inflight["db-1"]
-		g.mu.Unlock()
-		if !inflight {
+		if !g.g.InFlight("db-1") {
 			t.Fatal("leader left inflight before release")
 		}
 		time.Sleep(20 * time.Millisecond)

@@ -170,9 +170,10 @@ describe('httpApi auth/users mapping', () => {
   it('downloads sandbox files as raw blobs', async () => {
     const blob = new Blob([new Uint8Array([0, 255])])
     httpMock.get.mockResolvedValueOnce({ data: blob })
-    expect(await httpApi.sandboxes.files.download('p', 'sbx-1', '/workspace/a.bin')).toBe(blob)
+    expect(await httpApi.sandboxes.files.read('p', 'sbx-1', '/workspace/a.bin')).toBe(blob)
     const [url, cfg] = httpMock.get.mock.calls[0]
-    expect(url).toBe('/v1/projects/p/sandboxes/sbx-1/files/content')
-    expect(cfg).toEqual({ params: { path: '/workspace/a.bin' }, responseType: 'blob', headers: { Accept: 'application/octet-stream' } })
+    expect(url).toBe('/e2b/envd/files')
+    expect(cfg).toMatchObject({ params: { path: '/workspace/a.bin' }, responseType: 'blob' })
+    expect(cfg.headers).toMatchObject({ 'E2b-Sandbox-Id': 'sbx-1', 'X-SimpleBase-Project': 'p' })
   })
 })

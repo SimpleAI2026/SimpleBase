@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/testutil/fakellm"
 )
 

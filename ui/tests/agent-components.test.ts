@@ -37,6 +37,19 @@ describe('AgentCard', () => {
     const writable = mount(AgentCard, { props: { agent: { ...sampleAgent, writable: true } } })
     expect(writable.find('[data-agent-readonly]').exists()).toBe(false)
   })
+
+  it('shows a spinning ring around the avatar while replying', () => {
+    const idle = mount(AgentCard, { props: { agent: sampleAgent } })
+    expect(idle.find('[data-agent-running]').exists()).toBe(false)
+    expect(idle.get('button').attributes('aria-busy')).toBeUndefined()
+    const running = mount(AgentCard, { props: { agent: sampleAgent, running: true } })
+    expect(running.find('[data-agent-running]').exists()).toBe(true)
+    const row = running.get('button')
+    expect(row.attributes('aria-busy')).toBe('true')
+    expect(row.attributes('aria-label')).toContain('正在回复')
+    // 样式 B：描述不变
+    expect(running.text()).toContain('查库助手')
+  })
 })
 
 describe('AgentToolCard', () => {
@@ -159,5 +172,16 @@ describe('ThreadSwitcher', () => {
     const create = wrapper.get('button[aria-label="新会话"]')
     await create.trigger('click')
     expect(wrapper.emitted('create')).toHaveLength(1)
+  })
+
+  it('accepts running thread ids without breaking render', () => {
+    const wrapper = mount(ThreadSwitcher, {
+      props: {
+        threads: [{ id: 't1', title: '会话一', created_at: 't', updated_at: new Date().toISOString() }],
+        activeId: 't1',
+        runningThreadIds: new Set(['t1'])
+      }
+    })
+    expect(wrapper.find('button[aria-label="新会话"]').exists()).toBe(true)
   })
 })

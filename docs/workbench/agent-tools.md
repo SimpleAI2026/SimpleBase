@@ -14,7 +14,7 @@ group: 云助手
 
 ## 云沙盒
 
-启用沙盒模块后，可选 `sandbox_exec`（程序 + 参数）、`sandbox_shell`（`/bin/sh -c`）、`sandbox_read_file` 与 `sandbox_write_file`；读写路径必须位于 `/workspace` 下。沙盒每个会话对应独立资源，使用后可在「云沙盒」页面查看与清理；数量计入项目上限。该模块需要部署时启用云沙盒并有可用 Cloud 后端；本地开发可以使用 fake 后端验证控制面，但不支持真实 Python 命令。
+启用沙盒模块后，可选 `sandbox_exec`（程序 + 参数）、`sandbox_shell`（`/bin/sh -c`）、`sandbox_read_file` 与 `sandbox_write_file`；文件读写路径必须是 `/workspace` 下的绝对路径；命令内部的当前目录就是该工作区，请使用相对路径。沙盒每个会话对应独立资源，使用后可在「云沙盒」页面查看与清理；数量计入项目上限。该模块需要部署时启用云沙盒并有可用 Cloud 后端；本地开发可以使用 fake 后端验证控制面，但不支持真实 Python 命令。
 
 ## 会话与调度
 

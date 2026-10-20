@@ -2,65 +2,57 @@
   {
     "id": "readonly-guard",
     "needsWritable": false,
-    "skills": ["database"],
+    "module": "database",
     "timeoutSec": 180,
-    "prompt": "@数据库 请调用 simplebase CLI，创建 data_model 为 sql 的数据库，名称必须是 ro-{{RUN_ID}}。如果命令被拒绝，请在回复里写出错误码，不要改用别的库名，也不要改项目设置。",
+    "prompt": "请调用 simplebase CLI，创建 data_model 为 sql 的数据库，名称必须是 ro-{{RUN_ID}}。如果命令被拒绝，请在回复里写出错误码，不要改用别的库名，也不要改项目设置。",
     "verify": "readonly"
   },
   {
     "id": "sql-crud",
     "needsWritable": true,
-    "skills": ["database"],
+    "module": "database",
     "timeoutSec": 240,
-    "prompt": "@数据库 请只用 simplebase CLI 完成，不要删库。数据库名称 sql-agent-{{RUN_ID}}，data_model 为 sql。建表 items，列 id（BIGINT，不可空）和 title（VARCHAR）。再加列 qty（INTEGER）。插入一行 id=1、title=demo、qty=3。最后用 sql query 执行 SELECT id, title, qty FROM items，并在回复里写出 qty。库 id 先用 database list 查，不要猜。",
+    "prompt": "请只用 simplebase CLI 完成，不要删库。数据库名称 sql-agent-{{RUN_ID}}，data_model 为 sql。建表 items，列 id（BIGINT，不可空）和 title（VARCHAR）。再加列 qty（INTEGER）。插入一行 id=1、title=demo、qty=3。最后用 sql query 执行 SELECT id, title, qty FROM items，并在回复里写出 qty。库 id 先用 database list 查，不要猜。",
     "verify": "sql"
   },
   {
     "id": "documents-delete",
     "needsWritable": true,
-    "skills": ["database"],
+    "module": "database",
     "timeoutSec": 240,
-    "prompt": "@数据库 请用 simplebase CLI：创建集合数据库，名称 doc-agent-{{RUN_ID}}（不要传 sql）。创建集合 notes。插入文档 {\"title\":\"hello\",\"body\":\"world\"}。列出文档确认标题是 hello。然后删除这篇文档。删除需要我在界面确认，请直接发起 document delete，不要因为需要确认就停下来。删完再列出，确认这篇文档已经不在。",
+    "prompt": "请用 simplebase CLI：创建集合数据库，名称 doc-agent-{{RUN_ID}}（不要传 sql）。创建集合 notes。插入文档 {\"title\":\"hello\",\"body\":\"world\"}。列出文档确认标题是 hello。然后删除这篇文档。删除需要我在界面确认，请直接发起 document delete，不要因为需要确认就停下来。删完再列出，确认这篇文档已经不在。",
     "verify": "documents"
   },
   {
     "id": "kv-delete",
     "needsWritable": true,
-    "skills": ["kv"],
+    "module": "kv",
     "timeoutSec": 180,
-    "prompt": "@键值 请用 kv exec：SET 键 ex:agent:{{RUN_ID}} 的值为 blue，GET 确认是 blue，再 DEL 这个键。DEL 需要我确认，请发起删除并在确认后用 GET 检查键已经不存在。不要删除别的键。",
+    "prompt": "请用 kv exec：SET 键 ex:agent:{{RUN_ID}} 的值为 blue，GET 确认是 blue，再 DEL 这个键。DEL 需要我确认，请发起删除并在确认后用 GET 检查键已经不存在。不要删除别的键。",
     "verify": "kv"
   },
   {
     "id": "function-invoke",
     "needsWritable": true,
-    "skills": ["gofunction"],
+    "module": "gofunction",
     "timeoutSec": 300,
-    "prompt": "@云函数 请创建名为 agreet{{RUN_ID}} 的云函数并调用导出函数 Greet。源码放进工具的 stdin，argv 使用 --file -，不要读宿主机文件。源码如下：\n\npackage main\n\ntype GreetRequest struct {\n\tName string `json:\"name\"`\n}\ntype GreetResponse struct {\n\tMessage string `json:\"message\"`\n}\nfunc Greet(req GreetRequest) GreetResponse {\n\tname := req.Name\n\tif name == \"\" {\n\t\tname = \"world\"\n\t}\n\treturn GreetResponse{Message: \"hello \" + name}\n}\n\n创建后 invoke，--export Greet，--input 为 {\"name\":\"simplebase\"}。请在回复里写出返回的 message。",
+    "prompt": "请创建名为 agreet{{RUN_ID}} 的云函数并调用导出函数 Greet。源码放进工具的 stdin，argv 使用 --file -，不要读宿主机文件。源码如下：\n\npackage main\n\ntype GreetRequest struct {\n\tName string `json:\"name\"`\n}\ntype GreetResponse struct {\n\tMessage string `json:\"message\"`\n}\nfunc Greet(req GreetRequest) GreetResponse {\n\tname := req.Name\n\tif name == \"\" {\n\t\tname = \"world\"\n\t}\n\treturn GreetResponse{Message: \"hello \" + name}\n}\n\n创建后 invoke，--export Greet，--input 为 {\"name\":\"simplebase\"}。请在回复里写出返回的 message。",
     "verify": "function"
   },
   {
     "id": "object-delete",
     "needsWritable": true,
-    "skills": ["s3"],
+    "module": "s3",
     "timeoutSec": 220,
-    "prompt": "@对象存储 请上传对象，key 必须是 examples/agent-{{RUN_ID}}/note.txt，内容是一行 agent-ok。用 object upload --file -，内容放 stdin，不要读宿主机路径。然后 object list 确认看得到这个 key。最后删除它。删除需要我确认，请发起 object delete。确认后不要再上传同名对象。",
+    "prompt": "请上传对象，key 必须是 examples/agent-{{RUN_ID}}/note.txt，内容是一行 agent-ok。用 object upload --file -，内容放 stdin，不要读宿主机路径。然后 object list 确认看得到这个 key。最后删除它。删除需要我确认，请发起 object delete。确认后不要再上传同名对象。",
     "verify": "object"
-  },
-  {
-    "id": "quota",
-    "needsWritable": true,
-    "skills": ["project"],
-    "timeoutSec": 150,
-    "prompt": "@项目 请用 simplebase CLI 执行 quota get，查看当前项目配额。不要修改任何数据，也不要调用别的模块。回复里说明命令是否成功即可。",
-    "verify": "quota"
   },
   {
     "id": "cron",
     "needsWritable": true,
-    "skills": ["cron", "gofunction"],
+    "module": "cron",
     "timeoutSec": 300,
-    "prompt": "@定时任务 @云函数 请先创建云函数 atick{{RUN_ID}}，源码放 stdin（--file -）：\n\npackage main\n\ntype TickIn struct { N int `json:\"n\"` }\ntype TickOut struct { N int `json:\"n\"` }\nfunc Tick(in TickIn) TickOut { return TickOut{N: in.N + 1} }\n\n然后创建定时任务，名称 tick-agent-{{RUN_ID}}，schedule-kind 为 interval，interval-seconds 为 3600，func-file 为 atick{{RUN_ID}}，func-export 为 Tick，input 为 {\"n\":1}，enabled 为 false。创建后用 cron get 核对 id。不要 trigger，不要 delete。",
+    "prompt": "请创建定时任务，名称 tick-agent-{{RUN_ID}}，schedule-kind 为 interval，interval-seconds 为 3600，func-file 为 atick{{RUN_ID}}，func-export 为 Tick，input 为 {\"n\":1}，enabled 为 false。创建后用 cron get 核对 id。不要 trigger，不要 delete。",
     "verify": "cron"
   }
 ]

@@ -1,7 +1,9 @@
 package lease
 
 import (
-	"sync"
+	"errors"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/singleflight"
 )
 
 // Gate 按 key 串行化首次租约获取（perf §1.5）。
@@ -11,53 +13,27 @@ import (
 // 观察等待，最终其中一个请求得到 ErrLeaseHeld（45s + 500）。
 // Gate 保证同一 dbID 同时只有一个 Acquire 在执行，后来的请求
 // 复用第一个的结果（成功后由 ValidFor/Has 快速路径返回）。
+//
+// 单飞机制本身在 internal/utils/singleflight；这里只负责把 ErrInFlight
+// 翻译成租约领域的 ErrAcquiring。
 type Gate struct {
-	mu       sync.Mutex
-	inflight map[string]*gateCall
-}
-
-type gateCall struct {
-	done chan struct{}
-	err  error
+	g singleflight.Group[struct{}]
 }
 
 // NewGate 构造写门。
 func NewGate() *Gate {
-	return &Gate{inflight: map[string]*gateCall{}}
+	return &Gate{}
 }
 
 // Do 执行 fn：同 key 并发调用只有一个真正执行，其余等待并复用其结果。
 // fn 内部的二次检查（ValidFor/Has）保证成功获取后后续调用走缓存路径。
-// 若首个调用仍在执行，等待者返回 ErrAcquiring（调用方可立即回 503+Retry-After，
-// 不再挂等首次获取完成的整个 TTL+Grace 窗口）。
+// 第一个调用成功时，等待者返回 nil，调用方需自行复查快速路径（ValidFor）。
 func (g *Gate) Do(key string, fn func() error) error {
 	if g == nil {
 		return fn()
 	}
-	g.mu.Lock()
-	if g.inflight == nil {
-		g.inflight = map[string]*gateCall{}
-	}
-	if call, ok := g.inflight[key]; ok {
-		g.mu.Unlock()
-		<-call.done
-		if call.err != nil {
-			return call.err
-		}
-		// 第一个调用成功：调用方需自行复查快速路径（ValidFor）。
-		return nil
-	}
-	call := &gateCall{done: make(chan struct{})}
-	g.inflight[key] = call
-	g.mu.Unlock()
-
-	call.err = fn()
-	close(call.done)
-
-	g.mu.Lock()
-	delete(g.inflight, key)
-	g.mu.Unlock()
-	return call.err
+	_, err := g.g.Do(key, wrap(fn))
+	return err
 }
 
 // TryDo 与 Do 类似，但同 key 已有在途调用时**不等待**，直接返回 ErrAcquiring。
@@ -67,25 +43,11 @@ func (g *Gate) TryDo(key string, fn func() error) error {
 	if g == nil {
 		return fn()
 	}
-	g.mu.Lock()
-	if g.inflight == nil {
-		g.inflight = map[string]*gateCall{}
-	}
-	if _, ok := g.inflight[key]; ok {
-		g.mu.Unlock()
+	_, err := g.g.TryDo(key, wrap(fn))
+	if errors.Is(err, singleflight.ErrInFlight) {
 		return ErrAcquiring
 	}
-	call := &gateCall{done: make(chan struct{})}
-	g.inflight[key] = call
-	g.mu.Unlock()
-
-	call.err = fn()
-	close(call.done)
-
-	g.mu.Lock()
-	delete(g.inflight, key)
-	g.mu.Unlock()
-	return call.err
+	return err
 }
 
 // Clear 失租回调后清除记录：允许后续请求重新竞争（Gate 本身无状态残留，
@@ -94,7 +56,9 @@ func (g *Gate) Clear(key string) {
 	if g == nil {
 		return
 	}
-	g.mu.Lock()
-	delete(g.inflight, key)
-	g.mu.Unlock()
+	g.g.Forget(key)
+}
+
+func wrap(fn func() error) func() (struct{}, error) {
+	return func() (struct{}, error) { return struct{}{}, fn() }
 }

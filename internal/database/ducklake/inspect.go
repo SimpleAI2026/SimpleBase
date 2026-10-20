@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 // Snapshot 是 lake.snapshots() 的一行。
@@ -41,11 +43,11 @@ type queryRower interface {
 
 // CurrentSnapshot 返回 lake.current_snapshot() 的最新快照 id。
 func CurrentSnapshot(ctx context.Context, db queryRower, alias string) (int64, error) {
-	if !isSafeIdent(alias) {
+	if !sqlx.IsSafeIdent(alias) {
 		return 0, fmt.Errorf("ducklake: invalid lake alias")
 	}
 	var id int64
-	err := db.QueryRowContext(ctx, fmt.Sprintf("SELECT id FROM %s.current_snapshot()", quoteIdent(alias))).Scan(&id)
+	err := db.QueryRowContext(ctx, fmt.Sprintf("SELECT id FROM %s.current_snapshot()", sqlx.Ident(alias))).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("ducklake: current_snapshot: %w", err)
 	}
@@ -54,7 +56,7 @@ func CurrentSnapshot(ctx context.Context, db queryRower, alias string) (int64, e
 
 // ListSnapshots 返回全部快照（管理面 / 审计流水）。
 func ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, error) {
-	if !isSafeIdent(alias) {
+	if !sqlx.IsSafeIdent(alias) {
 		return nil, fmt.Errorf("ducklake: invalid lake alias")
 	}
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`
@@ -64,7 +66,7 @@ func ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, e
 		       COALESCE(commit_message, ''),
 		       COALESCE(CAST(commit_extra_info AS VARCHAR), '')
 		FROM %s.snapshots()
-		ORDER BY snapshot_id`, quoteIdent(alias)))
+		ORDER BY snapshot_id`, sqlx.Ident(alias)))
 	if err != nil {
 		return nil, fmt.Errorf("ducklake: snapshots: %w", err)
 	}
@@ -88,10 +90,10 @@ func ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, e
 //
 // Open 路径的 data_path 校验依赖本函数，必须兼容当前已加载的扩展。
 func ListSettings(ctx context.Context, db *sql.DB, alias string) ([]Setting, error) {
-	if !isSafeIdent(alias) {
+	if !sqlx.IsSafeIdent(alias) {
 		return nil, fmt.Errorf("ducklake: invalid lake alias")
 	}
-	q := fmt.Sprintf("SELECT * FROM %s.settings()", quoteIdent(alias))
+	q := fmt.Sprintf("SELECT * FROM %s.settings()", sqlx.Ident(alias))
 	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("ducklake: settings: %w", err)
@@ -162,7 +164,7 @@ func ListSettings(ctx context.Context, db *sql.DB, alias string) ([]Setting, err
 
 // ListTableFiles 列出表的数据/删除文件。
 func ListTableFiles(ctx context.Context, db *sql.DB, alias, table string) ([]TableFile, error) {
-	if !isSafeIdent(alias) || !isSafeIdent(table) {
+	if !sqlx.IsSafeIdent(alias) || !sqlx.IsSafeIdent(table) {
 		return nil, fmt.Errorf("ducklake: invalid identifier")
 	}
 	rows, err := db.QueryContext(ctx,

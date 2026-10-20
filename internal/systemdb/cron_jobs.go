@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // 定时任务调度模式（ui-cronjob-plan §3）。
@@ -257,9 +259,7 @@ func (s *Store) ListDueCronJobs(ctx context.Context, now time.Time, limit int) (
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
+	limit = pagelimit.Normalize(limit, 100, 500)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs
@@ -368,9 +368,7 @@ func (s *Store) ListCronJobRuns(ctx context.Context, projectID, jobID string, li
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
+	limit = pagelimit.Normalize(limit, 20, 100)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+cronJobRunColumns+`
 		 FROM sys_cron_job_runs WHERE project_id = ? AND job_id = ?

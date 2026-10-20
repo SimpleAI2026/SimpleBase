@@ -6,7 +6,6 @@ import type { ChatMsg } from '@/composables/useAiChat'
 import AgentComposer from '@/components/agent/AgentComposer.vue'
 import AgentToolCard from '@/components/agent/AgentToolCard.vue'
 import ConversationView from '@/components/agent/ConversationView.vue'
-import { resolveSkillAlias, skillsInText } from '@/utils/agent-skills'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -38,7 +37,7 @@ describe('agent skill stream', () => {
       handlers = h as Record<string, (...args: unknown[]) => void>
       return { close: vi.fn() }
     })
-    conv.start({ content: '建库', mentions: [{ agent_id: 'a1' }], skills: ['database'], module: 'database' }, {})
+    conv.start({ content: '建库', mentions: [{ agent_id: 'a1' }], module: 'database' }, {})
     expect(messages[1]?.module).toBe('database')
     handlers.onToolCallDelta?.('simplebase', '{"argv"', 'c1')
     handlers.onToolCallDelta?.('simplebase', ':[]}', 'c1')
@@ -75,14 +74,7 @@ describe('agent skill stream', () => {
     expect(messages[1]?.toolCalls?.[0]?.status).toBe('error')
   })
 
-  it('covers skill alias edges and tool-card fallbacks', async () => {
-    expect(resolveSkillAlias('   ')).toBe('')
-    expect(resolveSkillAlias('@')).toBe('')
-    expect(resolveSkillAlias('DATABASE')).toBe('database')
-    expect(resolveSkillAlias('Nope', ['Nope'])).toBe('')
-    expect(resolveSkillAlias('nope')).toBe('')
-    expect(skillsInText('@云函数 @云函数 @未知')).toEqual(['gofunction'])
-
+  it('covers tool-card fallbacks', async () => {
     /**
      * 成功态默认折叠成一行摘要（planv6.0 §3.6 #3），
      * 需要看结果正文的断言先展开再取文本。
@@ -189,13 +181,7 @@ describe('agent skill stream', () => {
     expect(conv.phase.value).toBe('canceled')
   })
 
-  it('@云函数 is a skill and @Database stays an agent mention', async () => {
-    expect(resolveSkillAlias('云函数', ['Database'])).toBe('gofunction')
-    expect(resolveSkillAlias('Database', ['Database'])).toBe('')
-    expect(resolveSkillAlias('数据库', ['数据库'])).toBe('database')
-    expect(skillsInText('@云函数 @定时任务', ['Database'])).toEqual(['gofunction', 'cron'])
-    expect(skillsInText('@Database', ['Database'])).toEqual([])
-
+  it('@ only mentions agents; a module alias is not a skill token', async () => {
     const wrapper = mount(AgentComposer, {
       props: {
         modelValue: '@云函数 写一个 Hello',
@@ -205,7 +191,8 @@ describe('agent skill stream', () => {
     })
     await wrapper.get('textarea').setValue('@云函数 写一个 Hello')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
-    expect(wrapper.emitted('send')?.[0]).toEqual(['@云函数 写一个 Hello', [], ['gofunction']])
+    // @云函数 既不是助手名也不是技能：只发文本，不带技能、不带点名。
+    expect(wrapper.emitted('send')?.[0]).toEqual(['@云函数 写一个 Hello', []])
     wrapper.unmount()
   })
 

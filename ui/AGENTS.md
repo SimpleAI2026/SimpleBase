@@ -45,7 +45,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - 组件内用 `useI18n()`；**组件外**（`services/http.ts`、`utils/*`、`composables/*`、Pinia getter）一律用 `@/locales` 导出的 `t()`（即 `i18n.global.t`）—— `useI18n()` 在无组件上下文处会抛错。
 - 「key 或已是文案」的兜底入口（`useLoadState({ fallback })`、`errorMessage(e, fallback)`）传 i18n key 即可，内部经 `resolveText()` 解析；传后端裸文案则原样保留。
 - 带插值的文案用命名参数（`t('agentPhase.done', { secs, tokens, calls })`），不要在代码里拼接中文/英文片段。
-- 以下**不属于**待迁移文案：代码注释、`services/http-api.ts`、`utils/agent-skills.ts` 的中文别名表（解析输入用）、`constants/llmProviders.ts` 的服务商名、`src/docs/*`（文档正文）、`src/components/ui/**`（fork 库代码，如 `DialogContent` 的 `Close`）。
+- 以下**不属于**待迁移文案：代码注释、`services/http-api.ts`、`constants/llmProviders.ts` 的服务商名、`src/docs/*`（文档正文）、`src/components/ui/**`（fork 库代码，如 `DialogContent` 的 `Close`）。
 - key 用命名空间点号：`common.*` / `nav.*` / `status.*` / `logLevel.*` / `cron.*` / `error.*` / `pages.<page>.*` / `components.<component>.*`。新增文案必须**同时**补 `zh-CN.ts` 与 `en-US.ts`，两棵树 key 集合必须完全一致（`ui/tests/i18n.test.ts` 会卡）。
 - 路由标题走 `meta.titleKey`（不是 `meta.title`），由 `NavMenu` 与 `DefaultLayout` 的 `t()` 消费。
 - 禁止在 `v-for` 模板里现拼 key；列表项文案用 `computed` 预算或绑定常量 key。

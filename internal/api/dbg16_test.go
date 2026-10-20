@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 )
 
 func TestDbg16(t *testing.T) {
@@ -16,8 +16,8 @@ func TestDbg16(t *testing.T) {
 		toolDeltas("c1", []string{"function", "list"}),
 		textDeltas("done"),
 	})
-	thread := env.createThread(t)
-	body, _ := json.Marshal(map[string]any{"content": "x", "skills": []string{"gofunction"}, "stream": true})
+	thread := env.createThreadFor(t, "gofunction")
+	body, _ := json.Marshal(map[string]any{"content": "x", "stream": true})
 	req := httptest.NewRequest(http.MethodPost, "/v1/projects/proj-1/agent-threads/"+thread+"/runs", strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer sk-router-e2e-key")

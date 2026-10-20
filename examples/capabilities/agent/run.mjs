@@ -15,26 +15,6 @@ if (!url || !token || !project) {
   process.exit(1)
 }
 
-const aliases = {
-  '数据库': 'database', database: 'database', db: 'database',
-  '键值': 'kv', kv: 'kv',
-  '对象存储': 's3', s3: 's3', '对象': 's3',
-  '云函数': 'gofunction', '函数': 'gofunction', gofunction: 'gofunction',
-  '定时任务': 'cron', '定时': 'cron', cron: 'cron',
-  '沙盒': 'sandbox', sandbox: 'sandbox',
-  '日志': 'logs', logs: 'logs',
-  '项目': 'project', project: 'project'
-}
-
-function skillsInText(text) {
-  const ids = []
-  for (const match of text.matchAll(/@([^\s@]+)/g)) {
-    const id = aliases[match[1]] || aliases[match[1].toLowerCase()]
-    if (id && !ids.includes(id)) ids.push(id)
-  }
-  return ids
-}
-
 function redact(s) {
   return String(s || '')
     .replace(/(secret|token|password|api_key|authorization|refresh_token)("?:?\s*"?)[^\s",}]+/gi, '$1$2[redacted]')
@@ -124,7 +104,6 @@ function argvOf(event) {
 async function runCase(agentID, spec) {
   const started = Date.now()
   const prompt = spec.prompt.replaceAll('{{RUN_ID}}', runID)
-  const skills = skillsInText(prompt)
   const thread = await api('POST', `/v1/projects/${project}/agent-threads`, {
     title: spec.id,
     agent_id: agentID
@@ -141,7 +120,7 @@ async function runCase(agentID, spec) {
     const res = await fetch(`${url}/v1/projects/${project}/agent-threads/${thread.id}/runs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ content: prompt, skills, stream: true }),
+      body: JSON.stringify({ content: prompt, stream: true }),
       signal: ac.signal
     })
     runIDHeader = res.headers.get('x-run-id') || ''
@@ -195,7 +174,7 @@ async function runCase(agentID, spec) {
     detail: verdict.detail,
     cli: commands.map((argv) => argv.join(' ')).slice(0, 12),
     confirmations: confirmations.map((argv) => argv.join(' ')),
-    skills,
+    module: spec.module,
     reason
   }
   await record(row)
@@ -275,17 +254,28 @@ async function verify(kind, ctx) {
 const cases = JSON.parse(await readFile(join(here, 'cases.json'), 'utf8'))
 const only = (process.env.AGENT_ONLY || '').split(',').map((s) => s.trim()).filter(Boolean)
 const agents = await api('GET', `/v1/projects/${project}/agents`)
-const general = (agents.agents || []).find((agent) => agent.builtin_key === 'general' || agent.name === '通用助手')
-if (!general) {
-  await record({ suite: 'agent', case: 'agent', step: 'list-agents', command: 'GET /agents', ok: false, ms: 0, detail: 'general agent missing' })
-  process.exit(1)
+// 技能由助手 module 决定：每个用例挑自己 module 的内置助手，`@` 不再选技能。
+const agentByModule = new Map()
+for (const agent of agents.agents || []) {
+  if (agent.builtin_key && agent.builtin_key === agent.module && !agentByModule.has(agent.module)) {
+    agentByModule.set(agent.module, agent)
+  }
 }
 let failed = 0
 for (const spec of cases) {
   if (only.length && !only.includes(spec.id)) continue
-  await api('PATCH', `/v1/projects/${project}/agents/${general.id}`, { writable: Boolean(spec.needsWritable) })
+  const agent = agentByModule.get(spec.module)
+  if (!agent) {
+    failed += 1
+    await record({
+      suite: 'agent', case: 'agent', step: spec.id, command: 'GET /agents',
+      ok: false, ms: 0, detail: `agent for module ${spec.module} missing（需在服务端启用 CLI 技能）`
+    })
+    continue
+  }
+  await api('PATCH', `/v1/projects/${project}/agents/${agent.id}`, { writable: Boolean(spec.needsWritable) })
   try {
-    const ok = await runCase(general.id, spec)
+    const ok = await runCase(agent.id, spec)
     if (!ok) failed += 1
   } catch (err) {
     failed += 1

@@ -23,8 +23,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
-	"github.com/linkxzhou/SimpleBase/internal/crontab"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/utils/crontab"
 )
 
 // cronJobNameRe 任务名：字母开头，字母数字_-，1~63（§6.2）。

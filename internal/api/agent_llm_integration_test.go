@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -20,14 +20,14 @@ const integrationModel = "deepseek-ai/DeepSeek-V4-Flash"
 
 type integrationDB struct{ calls int }
 
-func (f *integrationDB) ListDatabases(context.Context, auth.Principal, string) ([]cloudagent.DatabaseInfo, error) {
+func (f *integrationDB) ListDatabases(context.Context, cloudagent.Principal, string) ([]cloudagent.DatabaseInfo, error) {
 	f.calls++
 	return []cloudagent.DatabaseInfo{{ID: "d1", Name: "orders", Status: "ready"}, {ID: "d2", Name: "users", Status: "ready"}}, nil
 }
-func (*integrationDB) ListCollections(context.Context, auth.Principal, string, string) ([]string, error) {
+func (*integrationDB) ListCollections(context.Context, cloudagent.Principal, string, string) ([]string, error) {
 	return nil, nil
 }
-func (*integrationDB) ReadOnlyQuery(context.Context, auth.Principal, string, string, string, int) (cloudagent.SQLResult, error) {
+func (*integrationDB) ReadOnlyQuery(context.Context, cloudagent.Principal, string, string, string, int) (cloudagent.SQLResult, error) {
 	return cloudagent.SQLResult{}, nil
 }
 

@@ -5,6 +5,7 @@ import type {
   AgentMessage,
   AgentModuleInfo,
   AgentRun,
+  ActiveAgentRun,
   AgentRunMetrics,
   AgentRunRequest,
   AgentSchedule,
@@ -23,7 +24,6 @@ import type {
   CronJobWire,
   SandboxCapabilities,
   SandboxItem,
-  SandboxExecResult,
   SandboxFileEntry,
   StorageSettings,
   StorageUpdateResult,
@@ -359,31 +359,63 @@ function toGoFunctionItem(raw: Record<string, any>): GoFunctionItem {
 }
 /* v8 ignore stop */
 
-function sandboxesPath(projectId: string, id = '', suffix = '') {
-  return '/v1/projects/' + encodeURIComponent(projectId) + '/sandboxes' +
-    (id ? '/' + encodeURIComponent(id) : '') + suffix
+/* ---------- 云沙盒：E2B 兼容 API（planv6.2）。控制面 /e2b/**，envd 面 /e2b/envd/**，扩展 /e2b/ext/** ---------- */
+const E2B_BASE = '/e2b'
+const ENVD_BASE = '/e2b/envd'
+const SB_META_NAME = 'name'
+const SB_META_SOURCE = 'simplebase.source'
+
+function e2bHeaders(projectId: string): Record<string, string> {
+  return { 'X-SimpleBase-Project': projectId }
+}
+
+function sandboxPath(id: string, suffix = ''): string {
+  return E2B_BASE + '/sandboxes/' + encodeURIComponent(id) + suffix
+}
+
+function num(v: unknown): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
 }
 
 function toSandboxItem(raw: Record<string, unknown>): SandboxItem {
+  const ext = (raw.x_simplebase || {}) as Record<string, unknown>
+  const metadata = (raw.metadata || {}) as Record<string, string>
   return {
-    id: String(raw.id ?? ''), name: String(raw.name ?? ''), cloudName: String(raw.cloud_name ?? ''),
-    source: String(raw.source ?? ''), threadId: raw.thread_id ? String(raw.thread_id) : undefined,
-    status: String(raw.status ?? ''), image: String(raw.image ?? ''), cpus: Number(raw.cpus ?? 0),
-    memoryMiB: Number(raw.memory_mib ?? 0), network: String(raw.network ?? 'none'),
-    idleTimeoutS: Number(raw.idle_timeout_s ?? 0), maxDurationS: Number(raw.max_duration_s ?? 0),
-    lastError: raw.last_error ? String(raw.last_error) : undefined,
-    createdAt: String(raw.created_at ?? ''), startedAt: raw.started_at ? String(raw.started_at) : undefined,
-    lastActiveAt: raw.last_active_at ? String(raw.last_active_at) : undefined,
-    expiresAt: raw.expires_at ? String(raw.expires_at) : undefined
+    id: String(raw.sandboxID ?? ''),
+    name: String(metadata[SB_META_NAME] ?? ''),
+    templateId: String(raw.alias || raw.templateID || ''),
+    state: raw.state === 'running' ? 'running' : 'paused',
+    status: String(ext.status ?? ''),
+    source: String(ext.source ?? metadata[SB_META_SOURCE] ?? ''),
+    cpuCount: num(raw.cpuCount),
+    memoryMB: num(raw.memoryMB),
+    startedAt: raw.startedAt ? String(raw.startedAt) : undefined,
+    endAt: raw.endAt ? String(raw.endAt) : undefined,
+    lastActiveAt: ext.lastActiveAt ? String(ext.lastActiveAt) : undefined,
+    lastError: ext.lastError ? String(ext.lastError) : undefined,
+    idleTimeoutS: num(ext.idleTimeoutS),
+    metadata
   }
 }
 
-function toSandboxExecResult(raw: Record<string, unknown>): SandboxExecResult {
+/** envd 的 EntryInfo：type 是枚举字符串，size 是字符串形式的 int64。 */
+function toSandboxFileEntry(raw: Record<string, unknown>): SandboxFileEntry {
   return {
-    exitCode: Number(raw.exit_code ?? 0), stdout: String(raw.stdout ?? ''), stderr: String(raw.stderr ?? ''),
-    stdoutTruncated: Boolean(raw.stdout_truncated), stderrTruncated: Boolean(raw.stderr_truncated),
-    timedOut: Boolean(raw.timed_out), durationMs: Number(raw.duration_ms ?? 0), status: String(raw.status ?? '')
+    name: String(raw.name ?? ''),
+    path: String(raw.path ?? ''),
+    kind: raw.type === 'FILE_TYPE_DIRECTORY' ? 'directory' : 'file',
+    size: num(raw.size),
+    permissions: String(raw.permissions ?? ''),
+    modifiedTime: raw.modifiedTime ? String(raw.modifiedTime) : undefined
   }
+}
+
+/** envd 的一元 Connect-JSON 调用。 */
+function envdRpc(projectId: string, id: string, method: string, body: Record<string, unknown>) {
+  return http.post(ENVD_BASE + method, body, {
+    headers: { ...e2bHeaders(projectId), 'Connect-Protocol-Version': '1', 'E2b-Sandbox-Id': id }
+  })
 }
 
 /** 定时任务路径：/v1/projects/:pid/cron-jobs[/:jobId[/runs|/trigger]] */
@@ -646,11 +678,51 @@ function streamAgentRun(
   req: AgentRunRequest,
   handlers: AgentStreamHandlers
 ): LlmStreamConnection {
+  return openAgentRunStream(projectId, handlers, '', (signal) =>
+    fetch(`${baseURL}${agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/runs')}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAccessToken() || getApiKey()}`
+      },
+      body: JSON.stringify({
+        content: req.content,
+        mentions: req.mentions,
+        stream: true,
+        ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {})
+      }),
+      signal
+    })
+  )
+}
+
+/** 续接进行中的 run：从头回放事件缓存（after=0）并跟随直到 end（切换界面后回到会话时使用）。 */
+function attachAgentRun(projectId: string, runId: string, handlers: AgentStreamHandlers): LlmStreamConnection {
+  return openAgentRunStream(projectId, handlers, runId, (signal) => fetchAgentRunEvents(projectId, runId, '', signal))
+}
+
+function fetchAgentRunEvents(projectId: string, runId: string, after: string, signal: AbortSignal) {
+  return fetch(
+    `${baseURL}${agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/events')}?after=${encodeURIComponent(after)}`,
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${getAccessToken() || getApiKey()}` },
+      signal
+    }
+  )
+}
+
+function openAgentRunStream(
+  projectId: string,
+  handlers: AgentStreamHandlers,
+  initialRunId: string,
+  open: (signal: AbortSignal) => Promise<Response>
+): LlmStreamConnection {
   const controller = new AbortController()
   let ended = false
   let failed = false
   let lastId = ''
-  let runId = ''
+  let runId = initialRunId
   const fireEnd = (reason?: string) => {
     if (!ended) {
       ended = true
@@ -719,24 +791,7 @@ function streamAgentRun(
   }
   ;(async () => {
     try {
-      const resp = await fetch(
-        `${baseURL}${agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/runs')}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${getAccessToken() || getApiKey()}`
-          },
-          body: JSON.stringify({
-            content: req.content,
-            mentions: req.mentions,
-            stream: true,
-            ...(req.skills && req.skills.length ? { skills: req.skills } : {}),
-            ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {})
-          }),
-          signal: controller.signal
-        }
-      )
+      const resp = await open(controller.signal)
       const ct = resp.headers.get('content-type') || ''
       if (ct.includes('text/html')) {
         throw new Error('接口不存在或返回了 HTML 页面')
@@ -771,14 +826,7 @@ function streamAgentRun(
             }, { once: true })
           })
           if (controller.signal.aborted) return
-          const resp = await fetch(
-            `${baseURL}${agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/events')}?after=${encodeURIComponent(lastId)}`,
-            {
-              method: 'GET',
-              headers: { Authorization: `Bearer ${getAccessToken() || getApiKey()}` },
-              signal: controller.signal
-            }
-          )
+          const resp = await fetchAgentRunEvents(projectId, runId, lastId, controller.signal)
           if (!resp.ok || !resp.body) throw new Error(`请求失败 (${resp.status})`)
           await readSse(resp, onEvent)
           if (!ended && !failed) throw new Error(t('error.streamFailed'))
@@ -979,60 +1027,99 @@ export const httpApi: Api = {
         }))
   },
   sandboxes: {
-    capabilities: (projectId) => http.get(sandboxesPath(projectId, '', '/capabilities')).then((r) => {
+    capabilities: (projectId) => http.get(E2B_BASE + '/ext/capabilities', { headers: e2bHeaders(projectId) }).then((r) => {
       const raw = r.data as Record<string, unknown>
+      const ssh = raw.ssh as Record<string, unknown> | undefined
       return {
-        available: Boolean(raw.available), backend: String(raw.backend ?? 'cloud'),
+        available: Boolean(raw.available),
+        backend: String(raw.backend ?? ''),
+        reason: raw.reason ? String(raw.reason) : undefined,
         images: Array.isArray(raw.images) ? raw.images.map(String) : [],
-        defaultImage: String(raw.default_image ?? ''), cpusMax: Number(raw.cpus_max ?? 4),
-        memoryMiBMax: Number(raw.memory_mib_max ?? 4096),
-        execTimeoutMaxS: Number(raw.exec_timeout_max_s ?? 300),
-        maxFileBytes: Number(raw.max_file_bytes ?? 1048576),
-        maxOutputBytes: Number(raw.max_output_bytes ?? 65536),
-        maxPerProject: Number(raw.max_per_project ?? 5),
-        networkOptions: Array.isArray(raw.network_options) ? raw.network_options.map(String) : ['none']
+        defaultImage: String(raw.default_image ?? ''),
+        defaultTemplate: raw.default_template ? String(raw.default_template) : undefined,
+        cpus: num(raw.cpus),
+        memoryMiB: num(raw.memory_mib),
+        timeoutDefaultS: num(raw.timeout_default_s),
+        timeoutMaxS: num(raw.timeout_max_s),
+        maxFileBytes: num(raw.max_file_bytes),
+        maxOutputBytes: num(raw.max_output_bytes),
+        maxPerProject: num(raw.max_per_project),
+        terminal: Boolean(raw.terminal),
+        ssh: ssh
+          ? {
+              enabled: Boolean(ssh.enabled),
+              listen: ssh.listen ? String(ssh.listen) : undefined,
+              hostKeyFingerprint: ssh.host_key_fingerprint ? String(ssh.host_key_fingerprint) : undefined
+            }
+          : undefined,
+        envdVersion: raw.envd_version ? String(raw.envd_version) : undefined
       } satisfies SandboxCapabilities
     }),
-    // 服务端按 cursor 分页（单页上限 100）；项目上限同为 100，这里取完全部页。
-    list: async (projectId, status, source) => {
+    // GET /e2b/v2/sandboxes：X-Next-Token 分页，单页上限 100；项目上限同为 100，这里取完全部页。
+    list: async (projectId, state, metadataFilter) => {
       const out: SandboxItem[] = []
-      let cursor: string | undefined
+      let nextToken: string | undefined
+      const metadata = metadataFilter
+        ? Object.entries(metadataFilter).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&')
+        : undefined
       for (let page = 0; page < 20; page++) {
-        const r = await http.get(sandboxesPath(projectId), { params: { status, source, limit: 100, cursor } })
-        const rows: Record<string, unknown>[] = Array.isArray(r.data?.sandboxes) ? r.data.sandboxes : []
+        const r = await http.get(E2B_BASE + '/v2/sandboxes', {
+          headers: e2bHeaders(projectId),
+          params: { state, metadata, limit: 100, nextToken }
+        })
+        const rows: Record<string, unknown>[] = Array.isArray(r.data) ? r.data : []
         out.push(...rows.map((raw) => toSandboxItem(raw)))
-        cursor = r.data?.next_cursor ? String(r.data.next_cursor) : undefined
-        if (!cursor) break
+        const next = r.headers?.['x-next-token']
+        nextToken = next ? String(next) : undefined
+        if (!nextToken) break
       }
       return out
     },
-    create: (projectId, body, key) => http.post(sandboxesPath(projectId), {
-      name: body.name, image: body.image, cpus: body.cpus, memory_mib: body.memoryMiB,
-      network: body.network, idle_timeout_s: body.idleTimeoutS, start: body.start
-    }, { headers: key ? { 'Idempotency-Key': key } : undefined, timeout: body.start ? 90000 : undefined }).then((r) => toSandboxItem(r.data)),
-    remove: (projectId, id) => http.delete(sandboxesPath(projectId, id)).then(() => undefined),
-    start: (projectId, id) => http.post(sandboxesPath(projectId, id, '/start'), undefined, { timeout: 90000 }).then((r) => toSandboxItem(r.data)),
-    stop: (projectId, id) => http.post(sandboxesPath(projectId, id, '/stop')).then((r) => toSandboxItem(r.data)),
-    exec: (projectId, id, body) => http.post(sandboxesPath(projectId, id, '/exec'), {
-      command: body.command, timeout_s: body.timeoutS
-    }, { timeout: ((body.timeoutS || 30) + 75) * 1000 }).then((r) => toSandboxExecResult(r.data)),
+    get: (projectId, id) => http.get(sandboxPath(id), { headers: e2bHeaders(projectId) }).then((r) => toSandboxItem(r.data)),
+    create: (projectId, body) => {
+      const metadata: Record<string, string> = { ...(body.metadata || {}) }
+      if (body.name) metadata[SB_META_NAME] = body.name
+      return http.post(E2B_BASE + '/sandboxes', {
+        templateID: body.templateId || '',
+        timeout: body.timeoutS,
+        metadata
+      }, { headers: e2bHeaders(projectId), timeout: 90000 }).then((r) => toSandboxItem(r.data))
+    },
+    remove: (projectId, id) => http.delete(sandboxPath(id), { headers: e2bHeaders(projectId) }).then(() => undefined),
+    connect: (projectId, id, timeoutS) => http.post(sandboxPath(id, '/connect'), { timeout: timeoutS ?? 300 }, {
+      headers: e2bHeaders(projectId), timeout: 90000
+    }).then((r) => toSandboxItem(r.data)),
+    pause: (projectId, id) => http.post(sandboxPath(id, '/pause'), undefined, { headers: e2bHeaders(projectId) }).then(() => undefined),
+    terminalTicket: (projectId, id) => http.post(E2B_BASE + '/ext/sandboxes/' + encodeURIComponent(id) + '/terminal-tickets', undefined, {
+      headers: e2bHeaders(projectId)
+    }).then((r) => ({ ticket: String(r.data?.ticket ?? ''), expiresIn: num(r.data?.expires_in) })),
+    // 浏览器 WebSocket 不能带 Authorization，凭一次性票据升级；协议随页面（https→wss）。
+    terminalWebSocketUrl: (id, ticket) => {
+      const base = new URL(baseURL || window.location.origin, window.location.origin)
+      base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:'
+      base.pathname = E2B_BASE + '/ext/sandboxes/' + encodeURIComponent(id) + '/terminal'
+      base.search = '?ticket=' + encodeURIComponent(ticket)
+      return base.toString()
+    },
     files: {
-      list: (projectId, id, path) => http.get(sandboxesPath(projectId, id, '/files'), { params: { path } })
-        .then((r) => (Array.isArray(r.data?.entries) ? r.data.entries : []).map((raw: Record<string, unknown>): SandboxFileEntry => ({
-          name: String(raw.name ?? ''), path: String(raw.path ?? ''), kind: String(raw.kind ?? ''), size: Number(raw.size ?? 0)
-        }))),
-      read: (projectId, id, path) => http.get(sandboxesPath(projectId, id, '/files/content'), { params: { path } })
-        .then((r) => ({ content: String(r.data?.content ?? ''), encoding: String(r.data?.encoding ?? 'utf8'), truncated: Boolean(r.data?.truncated) })),
-      download: (projectId, id, path) => http.get<Blob>(sandboxesPath(projectId, id, '/files/content'), {
-        params: { path }, responseType: 'blob', headers: { Accept: 'application/octet-stream' }
+      // envd filesystem.Filesystem/ListDir（Connect-JSON）
+      list: (projectId, id, path, depth) => envdRpc(projectId, id, '/filesystem.Filesystem/ListDir', { path, depth: depth ?? 1 })
+        .then((r) => (Array.isArray(r.data?.entries) ? r.data.entries : []).map((raw: Record<string, unknown>) => toSandboxFileEntry(raw))),
+      // envd GET /files?path=
+      read: (projectId, id, path) => http.get<Blob>(ENVD_BASE + '/files', {
+        headers: { ...e2bHeaders(projectId), 'E2b-Sandbox-Id': id },
+        params: { path }, responseType: 'blob'
       }).then((r) => r.data),
-      write: (projectId, id, path, content) => http.put(sandboxesPath(projectId, id, '/files/content'), { content }, { params: { path } }).then(() => undefined),
-      // TS 5.7 起 Uint8Array 带 ArrayBufferLike 泛型，不再直接满足 BlobPart；
-      // 重新构造一个 ArrayBuffer 视图既满足类型也保证按字节拷贝。
-      upload: (projectId, id, path, content) => http.put(sandboxesPath(projectId, id, '/files/content'), new Blob([new Uint8Array(content)], { type: 'application/octet-stream' }), {
-        params: { path }, headers: { 'Content-Type': 'application/octet-stream' }
-      }).then(() => undefined),
-      remove: (projectId, id, path) => http.delete(sandboxesPath(projectId, id, '/files/content'), { params: { path } }).then(() => undefined)
+      // envd POST /files?path=（application/octet-stream，自动建父目录、覆盖已有文件）
+      write: (projectId, id, path, content) => http.post(
+        ENVD_BASE + '/files',
+        typeof content === 'string' ? new Blob([content], { type: 'application/octet-stream' }) : content,
+        {
+          headers: { ...e2bHeaders(projectId), 'E2b-Sandbox-Id': id, 'Content-Type': 'application/octet-stream' },
+          params: { path }
+        }
+      ).then(() => undefined),
+      remove: (projectId, id, path) => envdRpc(projectId, id, '/filesystem.Filesystem/Remove', { path }).then(() => undefined)
     }
   },
   cronjobs: {
@@ -1393,10 +1480,15 @@ export const httpApi: Api = {
           return list.map(toAgentMessage)
         }),
     streamRun: streamAgentRun,
+    attachRun: attachAgentRun,
     cancel: (projectId, runId) =>
       http
         .post(agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/cancel'))
         .then((r) => r.data as AgentRun),
+    active: (projectId) =>
+      http
+        .get(agentPath(projectId, '/agent-runs/active'))
+        .then((r) => (Array.isArray(r.data?.runs) ? r.data.runs : []) as ActiveAgentRun[]),
     confirm: (projectId, runId, callId, approve) =>
       http
         .post(agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/confirmations/' + encodeURIComponent(callId)), { approve })

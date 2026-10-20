@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
+	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 const (
@@ -302,9 +303,7 @@ func (s *Store) ListAgentThreads(ctx context.Context, projectID, agentID string,
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
+	limit = pagelimit.Normalize(limit, 50, 200)
 	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, created_at, updated_at
 		 FROM sys_agent_threads WHERE project_id = ? AND archived_at IS NULL`
 	args := []any{projectID}
@@ -371,9 +370,7 @@ func (s *Store) PageAgentThreads(ctx context.Context, projectID, agentID, cursor
 	if s == nil || s.db == nil {
 		return nil, "", ErrUnavailable
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
+	limit = pagelimit.Normalize(limit, 50, 200)
 	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, created_at, updated_at FROM sys_agent_threads WHERE project_id=? AND archived_at IS NULL`
 	args := []any{projectID}
 	if agentID != "" {
@@ -501,9 +498,7 @@ func (s *Store) ListAgentMessages(ctx context.Context, projectID, threadID strin
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if limit <= 0 || limit > 500 {
-		limit = 200
-	}
+	limit = pagelimit.Normalize(limit, 200, 500)
 	start := time.Now()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT recent.id, recent.thread_id, recent.project_id, recent.role, recent.content, recent.agent_id,
@@ -595,10 +590,37 @@ func (s *Store) ListAgentRuns(ctx context.Context, projectID, threadID string, l
 	if s == nil || s.db == nil {
 		return nil, ErrUnavailable
 	}
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
+	limit = pagelimit.Normalize(limit, 20, 100)
 	rows, err := s.db.QueryContext(ctx, `SELECT `+agentRunColumns+` FROM sys_agent_runs WHERE project_id=? AND thread_id=? ORDER BY created_at DESC, id DESC LIMIT ?`, projectID, threadID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]AgentRun, 0)
+	for rows.Next() {
+		var r AgentRun
+		var start, finish sql.NullTime
+		if err := rows.Scan(&r.ID, &r.ThreadID, &r.ProjectID, &r.AgentID, &r.Status, &r.Error, &start, &finish, &r.CreatedAt, &r.DurationMS, &r.PromptTokens, &r.CompletionTokens, &r.ReasoningTokens, &r.ToolCalls, &r.ErrorCode, &r.InitiatorID); err != nil {
+			return nil, err
+		}
+		if start.Valid {
+			r.StartedAt = start.Time
+		}
+		if finish.Valid {
+			r.FinishedAt = finish.Time
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ListActiveAgentRuns 列出项目内状态仍为 running/queued 的 run（含定时任务触发的）。
+// 进程重启后可能残留未收尾的 running 行，调用方需再与运行时内存态核对。
+func (s *Store) ListActiveAgentRuns(ctx context.Context, projectID string) ([]AgentRun, error) {
+	if s == nil || s.db == nil {
+		return nil, ErrUnavailable
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentRunColumns+` FROM sys_agent_runs WHERE project_id=? AND status IN (?, ?) ORDER BY created_at DESC, id DESC LIMIT 200`, projectID, AgentRunRunning, AgentRunQueued)
 	if err != nil {
 		return nil, err
 	}

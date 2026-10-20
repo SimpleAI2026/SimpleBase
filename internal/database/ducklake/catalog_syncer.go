@@ -3,9 +3,7 @@ package ducklake
 import (
 	"context"
 	crand "crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +15,8 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 	"go.uber.org/zap"
 )
 
@@ -564,22 +564,22 @@ func (s *CatalogSyncer) captureCatalog(ctx context.Context, sqlDB *sql.DB, meta 
 	backupAlias := "sb_catalog_backup"
 	var attach string
 	if engine == EngineSQLite {
-		attach = fmt.Sprintf("ATTACH %s AS %s (TYPE SQLITE)", sqlPath(staging), quoteIdent(backupAlias))
+		attach = fmt.Sprintf("ATTACH %s AS %s (TYPE SQLITE)", sqlPath(staging), sqlx.Ident(backupAlias))
 	} else {
 		// 显式 TYPE DUCKDB：避免 .ducklake 后缀被扩展自动识别为 DuckLake 目录。
-		attach = fmt.Sprintf("ATTACH %s AS %s (TYPE DUCKDB)", sqlPath(staging), quoteIdent(backupAlias))
+		attach = fmt.Sprintf("ATTACH %s AS %s (TYPE DUCKDB)", sqlPath(staging), sqlx.Ident(backupAlias))
 	}
 	if _, err := conn.ExecContext(wctx, attach); err != nil {
 		return 0, nil, fmt.Errorf("ducklake: attach staging catalog: %w", err)
 	}
 	detach := func() {
 		// 必须沿用持锁的 wctx，否则 DETACH 会在同一 goroutine 上再次抢写锁。
-		_, _ = conn.ExecContext(wctx, "DETACH "+quoteIdent(backupAlias))
+		_, _ = conn.ExecContext(wctx, "DETACH "+sqlx.Ident(backupAlias))
 	}
 
 	// DuckLake catalog 在 ATTACH 后通常暴露为 __ducklake_metadata_{alias}
 	metaName := "__ducklake_metadata_" + alias
-	copySQL := fmt.Sprintf("COPY FROM DATABASE %s TO %s", quoteIdent(metaName), quoteIdent(backupAlias))
+	copySQL := fmt.Sprintf("COPY FROM DATABASE %s TO %s", sqlx.Ident(metaName), sqlx.Ident(backupAlias))
 	if _, err := conn.ExecContext(wctx, copySQL); err != nil {
 		detach()
 		return 0, nil, fmt.Errorf("ducklake: copy catalog backup: %w", err)
@@ -587,7 +587,7 @@ func (s *CatalogSyncer) captureCatalog(ctx context.Context, sqlDB *sql.DB, meta 
 	// duckdb 引擎：COPY 的内容可能仍在 staging 的 WAL 里；显式 CHECKPOINT
 	// 合并进主文件，保证下面 ReadFile 读到的是完整快照。
 	if engine == EngineDuckDB {
-		if _, err := conn.ExecContext(wctx, "CHECKPOINT "+quoteIdent(backupAlias)); err != nil {
+		if _, err := conn.ExecContext(wctx, "CHECKPOINT "+sqlx.Ident(backupAlias)); err != nil {
 			detach()
 			return 0, nil, fmt.Errorf("ducklake: checkpoint catalog backup: %w", err)
 		}
@@ -719,14 +719,13 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta catalo
 }
 
 // publishSnapshot 执行 syncOnce 的远端发布段（原连续逻辑，保序移动）：
-//  1) 不可变快照对象 PutIfAbsent；
-//  2) manifest 推进 PutIfAbsent（冲突 = split-brain 确证）。
+//  1. 不可变快照对象 PutIfAbsent；
+//  2. manifest 推进 PutIfAbsent（冲突 = split-brain 确证）。
 //
 // 必须先于一切可覆盖写：manifest 失败时不得污染任何回退源（§3.1）。
 // 返回发布成功后的 manifest seq、writer epoch 与快照 key（供调用方日志）。
 func (s *CatalogSyncer) publishSnapshot(ctx context.Context, meta catalog.Database, snap int64, data []byte) (int64, int64, string, error) {
-	sum := sha256.Sum256(data)
-	sha := hex.EncodeToString(sum[:])
+	sha := hashx.Sum(data)
 
 	uploadStart := time.Now()
 	kb := s.Remote.keyBuilder()
@@ -1161,8 +1160,7 @@ func verifySnapshotBody(data []byte, m *Manifest) error {
 	if int64(len(data)) != m.Size {
 		return fmt.Errorf("ducklake: downloaded catalog size %d != manifest %d (seq %d)", len(data), m.Size, m.Seq)
 	}
-	sum := sha256.Sum256(data)
-	if hex.EncodeToString(sum[:]) != m.SHA256 {
+	if hashx.Sum(data) != m.SHA256 {
 		return fmt.Errorf("ducklake: downloaded catalog sha256 mismatch (seq %d)", m.Seq)
 	}
 	return nil

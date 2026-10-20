@@ -7,15 +7,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/linkxzhou/SimpleBase/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
@@ -71,6 +72,10 @@ type Dependencies struct {
 	SandboxUsage interface {
 		RecordSandbox(context.Context, string, string, int64) error
 	}
+	// Terminal 是浏览器终端的 SSH 桥；nil 表示终端不可用（capabilities.terminal=false）。
+	Terminal *TerminalBridge
+	// SandboxSchemaReady 报告迁移 v50 是否已应用；为 false 时沙盒模块不可用并在 capabilities 里给出原因。
+	SandboxNotReadyReason string
 	// login-auth-plan：登录态与用户管理。
 	Sessions *auth.SessionService
 	Users    *auth.UserService
@@ -275,6 +280,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	if deps.Auth != nil && deps.DatabaseHandler != nil {
 		mountV1Routes(e, deps)
 		mountGoRoutes(e, deps)
+		mountE2BRoutes(e, deps)
 	}
 
 	// 管理端静态资源：所有未匹配 API 路由的 GET 请求回退到前端 SPA。
@@ -475,9 +481,6 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		// 云函数 + 定时任务管理面（B3 提取，见 mountGoFunctionAndCronRoutes）。
 		mountGoFunctionAndCronRoutes(p, deps, delegable, writeGate)
 	}
-
-	// 云沙盒项目接口。未启用时保留 capabilities，供控制台展示配置空态。
-	mountSandboxRoutes(p, deps, require)
 }
 
 // mountGoFunctionAndCronRoutes 挂载云函数 + 定时任务管理面路由块
@@ -544,6 +547,7 @@ func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permis
 	p.POST("/agent-threads/:threadID/runs", ah.CreateRun, require(auth.DatabaseRead), writeGate)
 	// SEC-04：取消/确认是破坏性操作（终止他人 run / 放行工具执行），
 	// 权限从 DatabaseRead 收紧为 DatabaseWrite；handler 内再校验主体。
+	p.GET("/agent-runs/active", ah.ListActiveRuns, require(auth.DatabaseRead))
 	p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseWrite), writeGate)
 	p.POST("/agent-runs/:runID/confirmations/:callID", ah.ConfirmRun, require(auth.DatabaseWrite), writeGate)
 	p.GET("/agent-runs/:runID/events", ah.ReplayEvents, require(auth.DatabaseRead))
@@ -559,41 +563,89 @@ func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permis
 	p.POST("/agent-schedules/:scheduleID/run", sch.Gone, require(auth.DatabaseWrite), writeGate)
 }
 
-// mountSandboxRoutes 挂载云沙盒路由块（原 mountV1Routes 尾部连续块，
-// B3 提取；路由、权限、writeGate 与注册顺序保持原样）。
-// capabilities 无条件挂载；其余路由要求 deps.Sandbox 可用。
-func mountSandboxRoutes(p *echo.Group, deps Dependencies, require func(auth.Permission) echo.MiddlewareFunc) {
-	sh := NewSandboxHandler(deps.Sandbox, deps.Config.Instance.Writable, deps.Audit, deps.System, deps.SandboxUsage)
-	p.GET("/sandboxes/capabilities", sh.Capabilities, require(auth.DatabaseRead))
-	if deps.Sandbox != nil && deps.Sandbox.Available() {
-		delegable := func(perm auth.Permission) echo.MiddlewareFunc {
-			return auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())
+// mountE2BRoutes 挂载云沙盒的 E2B 兼容 API。这是沙盒唯一的 HTTP 面，旧的
+// /v1/projects/:projectID/sandboxes/** 已整体删除，不保留任何兼容层。
+//
+//   - 控制面：/e2b/sandboxes、/e2b/v2/sandboxes/**（X-API-Key 或 Bearer 鉴权）；
+//   - envd 数据面：根路径（SDK 拼 /files 会丢掉基址里的路径前缀，所以必须在根）与
+//     /e2b/envd/**（控制台用）两处挂同一组 handler；
+//   - ext：/e2b/ext/**，E2B 没有对应物但控制台需要（能力查询、终端）。
+//
+// 必须在 web.Register（SPA GET fallback）之前调用。
+func mountE2BRoutes(e *echo.Echo, deps Dependencies) {
+	sh := NewSandboxHandler(deps.Sandbox, deps.Config.Instance.Writable, deps.Audit, deps.System, deps.SandboxUsage, deps)
+	authMW := timedAuthMiddleware(deps.authMW())
+	cred := e2bCredentialMiddleware()
+	proj := e2bProjectMiddleware(deps)
+	available := deps.Sandbox != nil && deps.Sandbox.Available()
+
+	// ext：capabilities 无条件挂载，沙盒不可用时给出原因，控制台据此展示空态。
+	ext := e.Group(e2bPrefix+"/ext", cred, authMW, proj)
+	ext.GET("/capabilities", sh.Capabilities)
+	if !available {
+		// 其余 E2B 路径统一返回 503，而不是落进 SPA fallback。
+		for _, prefix := range []string{e2bPrefix + "/*"} {
+			e.Any(prefix, sh.unavailable)
 		}
-		writeGate := func(next echo.HandlerFunc) echo.HandlerFunc {
-			return func(c echo.Context) error {
-				if !deps.Config.Instance.Writable {
-					return c.JSON(http.StatusServiceUnavailable, APIErrorBody{Error: APIErrorDetail{
-						Code: "readonly_instance", Message: "instance is read-only",
-						RequestID: RequestIDFromContext(c.Request().Context()),
-					}})
-				}
-				return next(c)
-			}
-		}
-		p.GET("/sandboxes", sh.List, delegable(auth.DatabaseRead))
-		p.POST("/sandboxes", sh.Create, delegable(auth.DatabaseWrite), writeGate)
-		p.POST("/sandboxes/run", sh.RunOnce, delegable(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(int64(deps.Config.Sandbox.MaxFileBytes+64<<10))))
-		p.GET("/sandboxes/:sandboxID", sh.Get, delegable(auth.DatabaseRead))
-		p.PATCH("/sandboxes/:sandboxID", sh.Update, delegable(auth.DatabaseWrite), writeGate)
-		p.DELETE("/sandboxes/:sandboxID", sh.Delete, delegable(auth.DatabaseWrite), writeGate)
-		p.POST("/sandboxes/:sandboxID/start", sh.Start, require(auth.DatabaseWrite), writeGate)
-		p.POST("/sandboxes/:sandboxID/stop", sh.Stop, require(auth.DatabaseWrite), writeGate)
-		p.POST("/sandboxes/:sandboxID/exec", sh.Exec, require(auth.DatabaseWrite), writeGate)
-		p.GET("/sandboxes/:sandboxID/files", sh.ListDir, require(auth.DatabaseRead))
-		p.GET("/sandboxes/:sandboxID/files/content", sh.ReadFile, require(auth.DatabaseRead))
-		p.PUT("/sandboxes/:sandboxID/files/content", sh.WriteFile, require(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(int64(deps.Config.Sandbox.MaxFileBytes+64<<10))))
-		p.DELETE("/sandboxes/:sandboxID/files/content", sh.RemoveFile, require(auth.DatabaseWrite), writeGate)
+		return
 	}
+
+	// ---- 控制面 ----
+	cp := e.Group(e2bPrefix, cred, authMW, proj)
+	cp.POST("/sandboxes", sh.Create)
+	cp.POST("/v2/sandboxes", sh.Create)
+	cp.GET("/sandboxes", sh.List)
+	cp.GET("/v2/sandboxes", sh.List)
+	cp.GET("/sandboxes/:sandboxID", sh.Get)
+	cp.DELETE("/sandboxes/:sandboxID", sh.Delete)
+	cp.POST("/sandboxes/:sandboxID/timeout", sh.SetTimeout)
+	cp.POST("/sandboxes/:sandboxID/pause", sh.Pause)
+	cp.POST("/sandboxes/:sandboxID/resume", sh.Connect)
+	cp.POST("/sandboxes/:sandboxID/connect", sh.Connect)
+	cp.POST("/v2/sandboxes/:sandboxID/connect", sh.Connect)
+	for _, u := range []string{"fork", "snapshots", "logs", "metrics", "network", "refreshes"} {
+		cp.Any("/sandboxes/:sandboxID/"+u, sh.Unsupported)
+		cp.Any("/v2/sandboxes/:sandboxID/"+u, sh.Unsupported)
+	}
+
+	// ---- ext：终端 ----
+	if deps.Terminal != nil && deps.Sandbox.Interactive() {
+		ext.POST("/sandboxes/:sandboxID/terminal-tickets", sh.TerminalTicket)
+		// WebSocket 升级不带 Authorization，靠一次性票据 + 同源校验，所以不经过 authMW。
+		e.GET(e2bPrefix+"/ext/sandboxes/:sandboxID/terminal", sh.Terminal)
+	}
+
+	// ---- envd 数据面：同一组 handler 挂两处 ----
+	envdAuth := sh.envdAuth(func(next echo.HandlerFunc) echo.HandlerFunc { return cred(authMW(next)) })
+	mountEnvd := func(g *echo.Group) {
+		g.GET("/health", sh.Health)
+		g.GET("/envs", sh.Envs)
+		g.GET("/metrics", sh.EnvdMetrics)
+		g.GET("/files", sh.FilesGet)
+		g.POST("/files", sh.FilesPost)
+		fs := "/filesystem.Filesystem/"
+		g.POST(fs+"Stat", sh.FsStat)
+		g.POST(fs+"ListDir", sh.FsListDir)
+		g.POST(fs+"MakeDir", sh.FsMakeDir)
+		g.POST(fs+"Move", sh.FsMove)
+		g.POST(fs+"Remove", sh.FsRemove)
+		for _, m := range []string{"WatchDir", "CreateWatcher", "GetWatcherEvents", "RemoveWatcher"} {
+			g.POST(fs+m, sh.FsUnimplemented)
+		}
+		pr := "/process.Process/"
+		g.POST(pr+"Start", sh.ProcStart)
+		g.POST(pr+"Connect", sh.ProcConnect)
+		g.POST(pr+"List", sh.ProcList)
+		g.POST(pr+"SendInput", sh.ProcSendInput)
+		g.POST(pr+"SendSignal", sh.ProcSendSignal)
+		g.POST(pr+"CloseStdin", sh.ProcCloseStdin)
+		g.POST(pr+"Update", sh.ProcUpdate)
+		g.POST(pr+"StreamInput", sh.ProcStreamInput)
+	}
+	mountEnvd(e.Group("", envdAuth))
+	mountEnvd(e.Group(e2bEnvdPrefix, envdAuth))
+	// /e2b/** 下其余未注册的路径：E2B 形状的 404（而不是 SPA 的 index.html）。
+	e.Any(e2bPrefix+"/*", sh.notFound)
 }
 
 // mountGoRoutes 挂载对外调用面 /go/:projectID/:name/:functionName（§7.2）。
@@ -634,19 +686,18 @@ func skipS3UploadBodyLimit(enabled bool) middleware.Skipper {
 	}
 }
 
-// skipLargeUploadBodyLimit 允许沙盒文件与一次性运行请求使用各自独立的上限。
+// skipLargeUploadBodyLimit 允许沙盒文件上传（envd POST /files）使用自己的上限，而不是全局 max_request_bytes。
 func skipLargeUploadBodyLimit(s3Enabled, sandboxEnabled bool) middleware.Skipper {
 	s3 := skipS3UploadBodyLimit(s3Enabled)
 	return func(c echo.Context) bool {
 		if s3(c) {
 			return true
 		}
-		if !sandboxEnabled || c.Request().URL == nil {
+		if !sandboxEnabled || c.Request().URL == nil || c.Request().Method != http.MethodPost {
 			return false
 		}
 		p := c.Request().URL.Path
-		return strings.Contains(p, "/sandboxes/") && ((c.Request().Method == http.MethodPut && strings.HasSuffix(p, "/files/content")) ||
-			(c.Request().Method == http.MethodPost && strings.HasSuffix(p, "/sandboxes/run")))
+		return p == "/files" || p == e2bEnvdPrefix+"/files"
 	}
 }
 
@@ -659,14 +710,14 @@ func bodyLimit(bytes int64) string {
 	const k = 1 << 10
 	const m = 1 << 20
 	if bytes%m == 0 {
-		return itoa(int(bytes/m)) + "M"
+		return strconv.Itoa(int(bytes/m)) + "M"
 	}
 	if bytes%k == 0 {
-		return itoa(int(bytes/k)) + "K"
+		return strconv.Itoa(int(bytes/k)) + "K"
 	}
 	// 向上取整到 KB，确保不超出限制语义。
 	kb := (bytes + k - 1) / k
-	return itoa(int(kb)) + "K"
+	return strconv.Itoa(int(kb)) + "K"
 }
 
 func requestIDMiddleware() echo.MiddlewareFunc {
@@ -755,12 +806,12 @@ func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 					fieldString("request_id", rid),
 					fieldString("method", c.Request().Method),
 					fieldString("route", c.Path()),
-					fieldString("status", itoa(status)),
+					fieldString("status", strconv.Itoa(status)),
 					fieldDuration("duration", latency),
 				)
 			}
 			if deps.Metrics != nil {
-				deps.Metrics.HTTPRequests.WithLabelValues(c.Path(), c.Request().Method, itoa(status)).Inc()
+				deps.Metrics.HTTPRequests.WithLabelValues(c.Path(), c.Request().Method, strconv.Itoa(status)).Inc()
 				deps.Metrics.HTTPRequestDuration.WithLabelValues(c.Path(), c.Request().Method).Observe(latency.Seconds())
 			}
 			if deps.System != nil {
@@ -775,7 +826,7 @@ func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 						Level:      "info",
 						Logger:     "http",
 						Message:    c.Request().Method + " " + c.Path(),
-						FieldsJSON: `{"status":` + itoa(status) + `,"duration_ms":` + itoa(int(latency.Milliseconds())) + `}`,
+						FieldsJSON: `{"status":` + strconv.Itoa(status) + `,"duration_ms":` + strconv.Itoa(int(latency.Milliseconds())) + `}`,
 						RequestID:  rid,
 					})
 				}
@@ -798,6 +849,11 @@ func errorHandler(deps Dependencies) echo.HTTPErrorHandler {
 			return
 		}
 		rid := RequestIDFromContext(c.Request().Context())
+		// E2B 兼容面（含认证 / BodyLimit 等中间件产生的错误）统一用 E2B 的错误体。
+		if isE2BPath(c.Request().URL.Path) {
+			_ = writeE2BErr(c, err)
+			return
+		}
 		// 业务错误统一通过 WriteError 写入；若 handler 未处理，此处兜底。
 		if apiErr := mapEchoError(err, rid); apiErr != nil {
 			if cErr := c.JSON(apiErr.HTTPStatus, apiErr.Body); cErr != nil && deps.Logger != nil {

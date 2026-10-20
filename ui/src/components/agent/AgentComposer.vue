@@ -1,5 +1,5 @@
 <template>
-  <!-- AgentComposer：对话输入区（planv4.1 §3.2）。发送/停止切换；@ 点名。 -->
+  <!-- AgentComposer：对话输入区（planv4.1 §3.2）。发送/停止切换；@ 只点名助手。 -->
   <AiChatComposer
     ref="inner"
     v-model="model"
@@ -7,8 +7,7 @@
     :disabled="disabled"
     :placeholder="placeholder"
     :mention-agents="mentionAgents"
-    :mention-skills="mentionSkills"
-    @send="(mentions, skills) => $emit('send', model, mentions, skills || [])"
+    @send="(mentions) => $emit('send', model, mentions)"
     @stop="$emit('stop')"
   />
 </template>
@@ -16,7 +15,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import AiChatComposer from '../ai/AiChatComposer.vue'
-import type { MentionAgent, MentionSkill } from '../ai/AiChatComposer.vue'
+import type { MentionAgent } from '../ai/AiChatComposer.vue'
 
 const model = defineModel<string>({ default: '' })
 
@@ -26,13 +25,12 @@ withDefaults(
     disabled?: boolean
     placeholder?: string
     mentionAgents?: MentionAgent[]
-    mentionSkills?: MentionSkill[]
   }>(),
-  { sending: false, disabled: false, mentionAgents: () => [], mentionSkills: () => [] }
+  { sending: false, disabled: false, mentionAgents: () => [] }
 )
 
 defineEmits<{
-  (e: 'send', text: string, mentions: { agent_id: string }[], skills: string[]): void
+  (e: 'send', text: string, mentions: { agent_id: string }[]): void
   (e: 'stop'): void
 }>()
 

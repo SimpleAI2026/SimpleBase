@@ -93,9 +93,6 @@ func parseQueryLimit(c echo.Context, def, max int) (int, bool) {
 	return n, true
 }
 
-// itoa 是 strconv.Itoa 的局部别名，避免在多处 import strconv。
-func itoa(i int) string { return strconv.Itoa(i) }
-
 // fieldString/fieldDuration 是 zap.Field 构造的别名，便于中间件内联。
 func fieldString(k, v string) zap.Field                 { return zap.String(k, v) }
 func fieldDuration(k string, d time.Duration) zap.Field { return zap.Duration(k, d) }

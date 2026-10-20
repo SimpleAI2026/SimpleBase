@@ -22,7 +22,7 @@ For "make this photo look like a magazine page / product hero / poster", palette
 
 ## 3. Restyle loop
 
-Score → pick the 1–3 biggest problems (P0 first) → apply one recipe → re-score. Report the metric deltas (e.g. "显著色 9 → 4，饱和 p95 0.97 → 0.82，重心到三分点 0.21 → 0.06") and show before/after side by side.
+Score → pick the 1–3 biggest problems (P0 first) → apply one recipe → re-score. Report the metric deltas (e.g. "significant colors 9 → 4, saturation p95 0.97 → 0.82, centroid-to-thirds 0.21 → 0.06") and show before/after side by side.
 
 ## 4. Scientific figure (Nature-style) checklist
 

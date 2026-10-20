@@ -17,9 +17,10 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
+	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -347,7 +348,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	store := systemdb.NewStoreForTest(db)
 	// planv6.0 v2 D-C1a：v48 起助手默认只读。本用例集验证的是写流程，
 	// 因此把内置助手显式标为可写；只读拒绝由 14/15 单独覆盖。
-	if err := store.SeedDefaultCloudAgents(context.Background(), "testprj1"); err != nil {
+	if err := store.SeedDefaultCloudAgentsWithCapabilities(context.Background(), "testprj1", false, true); err != nil {
 		t.Fatal(err)
 	}
 	for _, a := range mustListAgents(t, store) {
@@ -362,8 +363,8 @@ func TestAgentSkillsE2E(t *testing.T) {
 	confirms := newConfirmHub()
 	events := newRunEventHub()
 	rt := &cloudagent.Runtime{
-		LLM: llm, SkillsCLI: true, CLI: cloudagent.InProcessCLI{},
-		APIBaseURL: dataSrv.URL, Issuer: auth.HMACDelegationIssuer{Secret: secret, Reg: reg},
+		LLM: llm, SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
+		APIBaseURL: dataSrv.URL, Policy: agentbridge.NewCommandPolicy(), Issuer: agentbridge.NewDelegationIssuer(secret, reg),
 		// 确认窗口必须短于 RunTimeout。CI 上同机并行包会把调度拖过几秒，
 		// 3s 确认或 20s 运行上限都会在批准发出前到期。超时路径由
 		// "confirmation timeout" 子测试把窗口改成 200ms 覆盖。
@@ -408,9 +409,13 @@ func TestAgentSkillsE2E(t *testing.T) {
 		return resp
 	}
 
-	newThread := func(t *testing.T) string {
+	newThread := func(t *testing.T, agentID string) string {
 		t.Helper()
-		resp := postJSON(t, "/agent-threads", "user", map[string]any{"title": "t"})
+		body := map[string]any{"title": "t"}
+		if agentID != "" {
+			body["agent_id"] = agentID
+		}
+		resp := postJSON(t, "/agent-threads", "user", body)
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusCreated {
 			b, _ := io.ReadAll(resp.Body)
@@ -423,6 +428,19 @@ func TestAgentSkillsE2E(t *testing.T) {
 			t.Fatal(err)
 		}
 		return out.ID
+	}
+
+	// agentIDForModule 取某个模块的内置助手：技能由助手 module 决定，
+	// `@` 只点名助手，不再按消息文本选技能。
+	agentIDForModule := func(t *testing.T, module string) string {
+		t.Helper()
+		for _, a := range mustListAgents(t, store) {
+			if a.Module == module && a.BuiltinKey == module {
+				return a.ID
+			}
+		}
+		t.Fatalf("seeded agent for module %s not found", module)
+		return ""
 	}
 
 	approve := func(t *testing.T, runID, callID string, ok bool) {
@@ -441,12 +459,12 @@ func TestAgentSkillsE2E(t *testing.T) {
 		}
 	}
 
-	run := func(t *testing.T, content string, skills []string, role string, steps [][]cloudagent.StreamDelta) (string, []sseEv) {
+	run := func(t *testing.T, content string, module string, role string, steps [][]cloudagent.StreamDelta) (string, []sseEv) {
 		t.Helper()
 		data.reset()
 		llm.reset(steps)
-		threadID := newThread(t)
-		resp := postJSON(t, "/agent-threads/"+threadID+"/runs", role, map[string]any{"content": content, "skills": skills, "stream": true})
+		threadID := newThread(t, agentIDForModule(t, module))
+		resp := postJSON(t, "/agent-threads/"+threadID+"/runs", role, map[string]any{"content": content, "stream": true})
 		t.Cleanup(func() { resp.Body.Close() })
 		if resp.StatusCode != http.StatusOK {
 			b, _ := io.ReadAll(resp.Body)
@@ -457,12 +475,12 @@ func TestAgentSkillsE2E(t *testing.T) {
 
 	// The signature above always reads to end. Destructive samples need a pause.
 	// runPaused returns the body so the caller can continue.
-	openRun := func(t *testing.T, content string, skills []string, role string, steps [][]cloudagent.StreamDelta) (string, *http.Response) {
+	openRun := func(t *testing.T, content string, module string, role string, steps [][]cloudagent.StreamDelta) (string, *http.Response) {
 		t.Helper()
 		data.reset()
 		llm.reset(steps)
-		threadID := newThread(t)
-		resp := postJSON(t, "/agent-threads/"+threadID+"/runs", role, map[string]any{"content": content, "skills": skills, "stream": true})
+		threadID := newThread(t, agentIDForModule(t, module))
+		resp := postJSON(t, "/agent-threads/"+threadID+"/runs", role, map[string]any{"content": content, "stream": true})
 		t.Cleanup(func() { resp.Body.Close() })
 		if resp.StatusCode != http.StatusOK {
 			b, _ := io.ReadAll(resp.Body)
@@ -515,7 +533,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	}
 
 	t.Run("1 create database", func(t *testing.T) {
-		_, resp := openRun(t, "建一个名为 shop 的 SQL 库", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "建一个名为 shop 的 SQL 库", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "create", "--name", "shop", "--data-model", "sql"}),
 			textDeltas("已创建"),
 		})
@@ -530,18 +548,18 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("2 create table", func(t *testing.T) {
-		_, resp := openRun(t, "在 shop 建 orders 表", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "在 shop 建 orders 表", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"schema", "create-table", "--database", "shop", "--name", "orders", "--columns", `[{"name":"id","type":"BIGINT"},{"name":"amount","type":"DOUBLE"}]`}),
 			textDeltas("ok"),
 		})
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
 		if data.count(http.MethodPost, "/schema/tables", true) != 1 || lastReason(evs) != "stop" {
-			t.Fatalf("%+v %s", data.hits, typesOf(evs))
+			t.Fatalf("%+v %s %s", data.hits, typesOf(evs), joinResults(evs))
 		}
 	})
 
 	t.Run("3 insert", func(t *testing.T) {
-		_, resp := openRun(t, "插入一行", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "插入一行", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "exec", "--database", "shop", "--statement", "INSERT INTO orders VALUES (1, 10)"}),
 			textDeltas("ok"),
 		})
@@ -552,7 +570,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("4 query", func(t *testing.T) {
-		_, resp := openRun(t, "查出 amount", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "查出 amount", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "query", "--database", "shop", "--statement", "SELECT amount FROM orders"}),
 			textDeltas("10"),
 		})
@@ -563,7 +581,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("5 delete confirms", func(t *testing.T) {
-		_, resp := openRun(t, "删掉 shop 库", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉 shop 库", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("deleted"),
 		})
@@ -580,7 +598,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("6 system database", func(t *testing.T) {
-		_, resp := openRun(t, "系统库也删掉", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "系统库也删掉", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "simplebase-system"}),
 			textDeltas("no"),
 		})
@@ -595,19 +613,19 @@ func TestAgentSkillsE2E(t *testing.T) {
 
 	t.Run("7 function", func(t *testing.T) {
 		src := "package main\nimport \"fmt\"\ntype Req struct{}\nfunc Hello(req Req) string { fmt.Println(\"hi\"); return \"hi\" }\n"
-		_, resp := openRun(t, "写一个 Hello 云函数并调用", []string{"gofunction"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "写一个 Hello 云函数并调用", "gofunction", "user", [][]cloudagent.StreamDelta{
 			toolStdinDeltas("c1", []string{"function", "create", "--name", "hello", "--file", "-"}, src),
 			toolDeltas("c2", []string{"function", "invoke", "--name", "hello", "--export", "Hello"}),
 			textDeltas("hi"),
 		})
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
 		if data.count(http.MethodPost, "/gofunctions", true) != 1 || data.count(http.MethodPost, "/go/", true) != 1 || lastReason(evs) != "stop" {
-			t.Fatalf("%+v %s", data.hits, typesOf(evs))
+			t.Fatalf("%+v %s %s", data.hits, typesOf(evs), joinResults(evs))
 		}
 	})
 
 	t.Run("8 cron", func(t *testing.T) {
-		_, resp := openRun(t, "每天 0 点跑", []string{"cron", "gofunction"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "每天 0 点跑", "cron", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"cron", "create", "--schedule-kind", "cron", "--cron", "0 0 * * *"}),
 			textDeltas("ok"),
 		})
@@ -618,7 +636,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("9 trigger confirms", func(t *testing.T) {
-		_, resp := openRun(t, "现在就跑一次", []string{"cron"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "现在就跑一次", "cron", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"cron", "trigger", "--id", "job1"}),
 			textDeltas("ok"),
 		})
@@ -635,19 +653,19 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("10 kv", func(t *testing.T) {
-		_, resp := openRun(t, "设一个键再读", []string{"kv"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "设一个键再读", "kv", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"kv", "exec", "--command", "SET", "--arg", "a", "--arg", "1"}),
 			toolDeltas("c2", []string{"kv", "exec", "--command", "GET", "--arg", "a"}),
 			textDeltas("1"),
 		})
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
 		if data.count(http.MethodPost, "/kv", true) != 2 || lastReason(evs) != "stop" {
-			t.Fatalf("%+v %s", data.hits, typesOf(evs))
+			t.Fatalf("%+v %s %s", data.hits, typesOf(evs), joinResults(evs))
 		}
 	})
 
 	t.Run("11 kv delete confirms", func(t *testing.T) {
-		_, resp := openRun(t, "删掉键 a", []string{"kv"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉键 a", "kv", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"kv", "exec", "--command", "DEL", "--arg", "a"}),
 			textDeltas("ok"),
 		})
@@ -664,18 +682,18 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("12 upload", func(t *testing.T) {
-		_, resp := openRun(t, "上传 readme", []string{"s3"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "上传 readme", "s3", "user", [][]cloudagent.StreamDelta{
 			toolStdinDeltas("c1", []string{"object", "upload", "--key", "readme", "--file", "-"}, "hello"),
 			textDeltas("ok"),
 		})
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
 		if data.count(http.MethodPost, "/s3/objects", true) != 1 || lastReason(evs) != "stop" {
-			t.Fatalf("%+v %s", data.hits, typesOf(evs))
+			t.Fatalf("%+v %s %s", data.hits, typesOf(evs), joinResults(evs))
 		}
 	})
 
 	t.Run("13 skill not loaded", func(t *testing.T) {
-		_, resp := openRun(t, "删掉所有库", nil, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉所有库", "general", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("no"),
 		})
@@ -686,7 +704,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("14 admin forbidden", func(t *testing.T) {
-		_, resp := openRun(t, "插入一行", []string{"database"}, "admin", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "插入一行", "database", "admin", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "exec", "--database", "shop", "--statement", "INSERT INTO orders VALUES (1, 10)"}),
 			textDeltas("no"),
 		})
@@ -700,7 +718,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 		// planv6.0 v2 §3.8：助手级只读开关对写命令的拒绝，且不进入确认流程。
 		setAgentsWritable(t, store, false)
 		t.Cleanup(func() { setAgentsWritable(t, store, true) })
-		_, resp := openRun(t, "删掉 shop 库", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉 shop 库", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("no"),
 		})
@@ -720,7 +738,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	t.Run("14c readonly agent still allows reads", func(t *testing.T) {
 		setAgentsWritable(t, store, false)
 		t.Cleanup(func() { setAgentsWritable(t, store, true) })
-		_, resp := openRun(t, "查一下", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "查一下", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "query", "--database", "shop", "--statement", "SELECT 1"}),
 			textDeltas("ok"),
 		})
@@ -734,7 +752,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("15 cancel", func(t *testing.T) {
-		_, resp := openRun(t, "停掉", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "停掉", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "query", "--database", "shop", "--statement", "SELECT slow"}),
 			textDeltas("no"),
 		})
@@ -751,13 +769,24 @@ func TestAgentSkillsE2E(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown skill", func(t *testing.T) {
-		threadID := newThread(t)
+	t.Run("client skills are ignored", func(t *testing.T) {
+		// `@` 只点名助手：请求体里的 skills 不再是入口，未知 id 也不再报 unknown_skill，
+		// 真正生效的技能由助手 module 决定（general 不加载子技能）。
+		data.reset()
+		llm.reset([][]cloudagent.StreamDelta{
+			toolDeltas("c1", []string{"database", "list"}),
+			textDeltas("no"),
+		})
+		threadID := newThread(t, agentIDForModule(t, "general"))
 		resp := postJSON(t, "/agent-threads/"+threadID+"/runs", "user", map[string]any{"content": "x", "skills": []string{"nope"}, "stream": true})
 		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "unknown_skill") {
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
 			t.Fatalf("%d %s", resp.StatusCode, b)
+		}
+		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
+		if !resultIsError(evs, "skill_not_loaded") || len(data.hits) != 0 {
+			t.Fatalf("general must not inherit client skills: hits %+v results %s", data.hits, joinResults(evs))
 		}
 	})
 
@@ -765,7 +794,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 		prev := rt.ConfirmTimeout
 		rt.ConfirmTimeout = 200 * time.Millisecond
 		t.Cleanup(func() { rt.ConfirmTimeout = prev })
-		_, resp := openRun(t, "删掉", []string{"database"}, "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("no"),
 		})

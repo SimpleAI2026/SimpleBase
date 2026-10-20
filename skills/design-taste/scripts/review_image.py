@@ -11,7 +11,7 @@ Outputs (in --out, default ./image-review-<name>):
   palette.png        swatch strip of the dominant colors with %
   thirds-overlay.png image + rule-of-thirds (white) / golden-ratio (amber) lines,
                      edge-energy heat and visual-weight centroid (red dot)
-  report.md          Chinese report skeleton: metric score filled, visual score left for the agent
+  report.md          report skeleton (--lang en|zh): metric score filled, visual score left for the agent
   game types also write:
   grayscale.png      grayscale | 3-value posterize (dark/mid/light) | Otsu figure-ground mask
   thumbnail.png      store-size thumbnails (capsule 184x69 & 120x45 / icon 128 & 64 / 320x180),
@@ -22,6 +22,14 @@ Metrics are proxies: they catch blur, clipping, muddy palettes, crowded or off-b
 layouts. They do NOT judge meaning, emotion, or AI artifacts — the agent must look at the image.
 """
 import argparse, colorsys, json, math, os, sys
+
+LANG = "en"  # default report language for this copy; override with --lang en|zh
+
+
+def T(zh, en):
+    return zh if LANG == "zh" else en
+
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
@@ -79,6 +87,39 @@ GENRES = {
     "ink": ("水墨", (40, 95), 4, 0.20, (0.00, 0.50), ["墨分五色：焦浓重淡清，明度分层即结构", "一个朱红点题", "留白≥30%，避免满屏数码笔刷纹理"]),
 }
 ANALYSIS_MAX = 640
+
+GENRES_EN = {
+    "rpg-western": ("Western RPG", ["Low-saturation realistic materials + one strong accent (magic/danger)", "HUD grouped in corners, skill bar bottom-center", "Check that shadows don't swallow interactables"]),
+    "jrpg": ("JRPG", ["High value, high saturation, character outlines/cel shading", "Menus may be stylized (Persona-like) but hierarchy must stay clear", "Separate characters from background by value"]),
+    "arpg": ("ARPG / looter", ["Dark background + bright skills/loot", "Monster silhouettes >= 2 value steps from ground", "Loot rarity color coding must be consistent"]),
+    "moba": ("MOBA", ["Map mid/low saturation, heroes and skills high contrast", "Ally/enemy coding (blue/red) must not be overridden by skins", "Skill VFX intensity = importance (ultimate > basic attack)"]),
+    "shooter": ("FPS/TPS shooter", ["Enemy silhouettes/outlines stronger than environment", "HUD hugs edges, crosshair area stays clean", "Low-frequency environment detail, no full-screen particles"]),
+    "battle-royale": ("Battle royale", ["Long-range readability: players separated from foliage by value", "Safe-zone/circle color is unique", "Minimap + teammate markers high contrast"]),
+    "open-world": ("Open world", ["Aerial perspective layering (near dark, far light/cool)", "Landmark silhouettes readable from afar", "Minimal, hideable HUD"]),
+    "platformer": ("2D platformer / metroidvania", ["Walkable surfaces separated from background by value/saturation", "Foreground-midground-background layers, background lower contrast", "Hazards share one color/shape language"]),
+    "pixel": ("Pixel art", ["Limited palette (16-32 colors) and one pixel scale", "No mixed pixel scales / sub-pixel rotation / blurry scaling", "Integer upscaling, nearest neighbor"]),
+    "gacha": ("Anime / gacha", ["Character art is the star, the face is the focal point", "Ornate UI but clear hierarchy; don't overload currency/event entries", "Consistent rarity colors (gold/purple/blue)"]),
+    "slg": ("SLG / 4X strategy", ["High info density: low-saturation map, high-saturation units/factions", "Distinguish resources by icon shape, not color alone", "Readable across zoom levels (LOD)"]),
+    "card": ("Card / CCG", ["Unified card frames; cost/attack/defense numbers top priority", "Art still legible at thumbnail size", "Consistent rarity/faction color coding"]),
+    "casual": ("Casual / match-3", ["High saturation but each element double-coded by hue + shape", "Rounded shape language, big buttons", "Strong board/background separation"]),
+    "idle": ("Idle / incremental", ["Number hierarchy (main currency largest)", "Button states (affordable/not) obvious at a glance", "Long viewing: avoid high-frequency flashing"]),
+    "horror": ("Horror", ["Low-key lighting, large dark areas but readable key objects", "Single warning color (red / sickly green)", "Blacks must not crush outlines"]),
+    "racing": ("Racing", ["Speed: motion blur only at periphery", "Track edge vs road value contrast", "HUD in bottom corners, RPM/position clear"]),
+    "sports": ("Sports", ["Team colors mutually exclusive (different value too)", "Broadcast-style scoreboard, neutral pitch/court", "Ball/focus high contrast"]),
+    "roguelike": ("Roguelike / roguelite", ["Highlight enemy bullets/damage zones in dense combat", "Lower room background contrast", "Relic/blessing icons distinguishable by shape"]),
+    "mmo": ("MMO", ["Customizable HUD with sensible default zones", "Characters/nameplates stay legible in crowds", "Unified style to avoid gear collage"]),
+    "wuxia": ("Wuxia / xianxia", ["Eastern palette (azurite, cinnabar, ochre, moon white)", "Negative space and layered mist", "Calligraphic fonts for titles only; body stays readable"]),
+    "ink": ("Ink wash", ["Five ink tones: value layering is the structure", "One vermilion accent", "Negative space >= 30%, avoid uniform digital brush texture"]),
+}
+
+
+def genre_name(g):
+    return GENRES[g][0] if LANG == "zh" else GENRES_EN[g][0]
+
+
+def genre_tips(g):
+    return GENRES[g][5] if LANG == "zh" else GENRES_EN[g][1]
+
 
 
 def to_gray(a):
@@ -395,21 +436,22 @@ def game_sub_scores(gm, kind, genre):
 def genre_hints(m, genre):
     if not genre:
         return []
-    name, (clo, chi), maxcol, hudmax, (slo, shi), _ = GENRES[genre]
+    _, (clo, chi), maxcol, hudmax, (slo, shi), _ = GENRES[genre]
+    name = genre_name(genre)
     t, gm, out = m["tone"], m["game"], []
     c = t["contrast_rms"]
-    if c < clo: out.append(f"P1 [{name}] 明度对比 {c} 低于该类型常见区间 {clo}–{chi}：主体/可交互物可能读不出来，先做灰度测试")
-    elif c > chi: out.append(f"P2 [{name}] 明度对比 {c} 高于常见区间 {clo}–{chi}：可能刺眼或噪，背景降对比")
-    if m["palette_significant_colors"] > maxcol: out.append(f"P1 [{name}] 显著色 {m['palette_significant_colors']} > {maxcol}：缺主色，建议主色+1 强调色+功能色")
+    if c < clo: out.append(T(f"P1 [{name}] 明度对比 {c} 低于该类型常见区间 {clo}–{chi}：主体/可交互物可能读不出来，先做灰度测试", f"P1 [{name}] value contrast {c} below the usual {clo}–{chi} for this genre: subject/interactables may not read; do a grayscale test first"))
+    elif c > chi: out.append(T(f"P2 [{name}] 明度对比 {c} 高于常见区间 {clo}–{chi}：可能刺眼或噪，背景降对比", f"P2 [{name}] value contrast {c} above the usual {clo}–{chi}: may be harsh or noisy; lower background contrast"))
+    if m["palette_significant_colors"] > maxcol: out.append(T(f"P1 [{name}] 显著色 {m['palette_significant_colors']} > {maxcol}：缺主色，建议主色+1 强调色+功能色", f"P1 [{name}] significant colors {m['palette_significant_colors']} > {maxcol}: no dominant color; use one main + one accent + functional colors"))
     sp = t["saturation_p95"]
-    if sp < slo: out.append(f"P2 [{name}] 饱和 p95 {sp} 低于常见 {slo}–{shi}：可能显灰/不吸睛（除非刻意）")
-    elif sp > shi: out.append(f"P1 [{name}] 饱和 p95 {sp} 高于常见 {slo}–{shi}：饱和过载，焦点失效")
+    if sp < slo: out.append(T(f"P2 [{name}] 饱和 p95 {sp} 低于常见 {slo}–{shi}：可能显灰/不吸睛（除非刻意）", f"P2 [{name}] saturation p95 {sp} below the usual {slo}–{shi}: may look dull (unless intentional)"))
+    elif sp > shi: out.append(T(f"P1 [{name}] 饱和 p95 {sp} 高于常见 {slo}–{shi}：饱和过载，焦点失效", f"P1 [{name}] saturation p95 {sp} above the usual {slo}–{shi}: oversaturated, focus is lost"))
     if m["type"] in ("game-screenshot", "game-ui") and gm["hud_edge_coverage_est"] > hudmax:
-        out.append(f"P1 [{name}] 边缘 HUD 覆盖估计 {gm['hud_edge_coverage_est']:.0%} > {hudmax:.0%}：信息过载或面板过重")
+        out.append(T(f"P1 [{name}] 边缘 HUD 覆盖估计 {gm['hud_edge_coverage_est']:.0%} > {hudmax:.0%}：信息过载或面板过重", f"P1 [{name}] edge HUD coverage est. {gm['hud_edge_coverage_est']:.0%} > {hudmax:.0%}: information overload or heavy panels"))
     if genre in ("pixel",) and gm["unique_colors_exact"] and gm["unique_colors_exact"] > 256:
-        out.append(f"P1 [{name}] 精确色数 {gm['unique_colors_exact']} > 256：疑似缩放插值/抗锯齿/AI 生成，非干净像素")
+        out.append(T(f"P1 [{name}] 精确色数 {gm['unique_colors_exact']} > 256：疑似缩放插值/抗锯齿/AI 生成，非干净像素", f"P1 [{name}] exact colors {gm['unique_colors_exact']} > 256: likely interpolated scaling/anti-aliasing/AI, not clean pixels"))
     if genre == "ink" and m["palette_chromatic_colors"] > 2:
-        out.append(f"P1 [{name}] 彩色族 {m['palette_chromatic_colors']} 个：水墨通常墨色+1 点朱红")
+        out.append(T(f"P1 [{name}] 彩色族 {m['palette_chromatic_colors']} 个：水墨通常墨色+1 点朱红", f"P1 [{name}] {m['palette_chromatic_colors']} chromatic color families: ink wash is usually ink tones + one vermilion accent"))
     return out
 
 
@@ -525,16 +567,16 @@ def analyze(path, kind="photo", genre=None):
         "text_region_ratio_est": round(txt, 3),
     }
     flags = []
-    if min(W0, H0) < 600 and kind not in ("capsule", "icon", "sprite", "game-ui"): flags.append("P1 低分辨率：短边 < 600px，大屏/印刷会糊")
-    if kind not in ("ui", "figure", "illustration", "poster") and lapvar < 60: flags.append("P0 疑似失焦/模糊（Laplacian 方差低）")
-    if noise > 8 and kind not in ("capsule", "icon"): flags.append("P1 噪点偏高")
+    if min(W0, H0) < 600 and kind not in ("capsule", "icon", "sprite", "game-ui"): flags.append(T("P1 低分辨率：短边 < 600px，大屏/印刷会糊", "P1 low resolution: short side < 600px, will blur on large screens/print"))
+    if kind not in ("ui", "figure", "illustration", "poster") and lapvar < 60: flags.append(T("P0 疑似失焦/模糊（Laplacian 方差低）", "P0 likely out of focus/blurry (low Laplacian variance)"))
+    if noise > 8 and kind not in ("capsule", "icon"): flags.append(T("P1 噪点偏高", "P1 high noise"))
     t = m["tone"]
-    if kind in ("photo", "ai") and t["clip_light_pct"] > 5: flags.append("P1 高光溢出 >5%")
-    if kind in ("photo", "ai") and t["clip_dark_pct"] > 8: flags.append("P2 暗部死黑 >8%")
-    if t["saturation_p95"] > 0.92 and kind not in ("illustration",) and not genre: flags.append("P1 饱和度过高（AI/滤镜感风险）")
-    if m["palette_significant_colors"] > PROFILE[kind][1] + 2: flags.append("P1 色彩过多，缺主色")
-    if comp["mirror_symmetry"] > 0.85 and kind in ("ai", "photo", "poster"): flags.append("P2 近乎镜像对称（AI 对称套路风险）")
-    if kind in ("poster", "social", "product", "ui", "figure") and ws < PROFILE[kind][0][0]: flags.append("P1 留白不足，画面拥挤")
+    if kind in ("photo", "ai") and t["clip_light_pct"] > 5: flags.append(T("P1 高光溢出 >5%", "P1 clipped highlights > 5%"))
+    if kind in ("photo", "ai") and t["clip_dark_pct"] > 8: flags.append(T("P2 暗部死黑 >8%", "P2 crushed shadows > 8%"))
+    if t["saturation_p95"] > 0.92 and kind not in ("illustration",) and not genre: flags.append(T("P1 饱和度过高（AI/滤镜感风险）", "P1 saturation too high (AI/filter look risk)"))
+    if m["palette_significant_colors"] > PROFILE[kind][1] + 2: flags.append(T("P1 色彩过多，缺主色", "P1 too many colors, no dominant color"))
+    if comp["mirror_symmetry"] > 0.85 and kind in ("ai", "photo", "poster"): flags.append(T("P2 近乎镜像对称（AI 对称套路风险）", "P2 near-mirror symmetry (AI symmetry cliché risk)"))
+    if kind in ("poster", "social", "product", "ui", "figure") and ws < PROFILE[kind][0][0]: flags.append(T("P1 留白不足，画面拥挤", "P1 not enough negative space, crowded"))
     m["genre"] = genre
     fg = None
     if kind in GAME_TYPES:
@@ -542,17 +584,17 @@ def analyze(path, kind="photo", genre=None):
         m["game"] = gm
         gs = game_sub_scores(gm, kind, genre)
         b = gm["value_bands"]
-        if max(b.values()) > 0.85: flags.append("P1 明度结构单一：一个明度带占比 >85%，灰度下主体难分离")
-        if gm["figure_ground_gap"] < 60: flags.append("P1 图底明度差小（Otsu 两类均值差 < 60）：剪影/主体可读性风险")
+        if max(b.values()) > 0.85: flags.append(T("P1 明度结构单一：一个明度带占比 >85%，灰度下主体难分离", "P1 flat value structure: one value band > 85%, subject hard to separate in grayscale"))
+        if gm["figure_ground_gap"] < 60: flags.append(T("P1 图底明度差小（Otsu 两类均值差 < 60）：剪影/主体可读性风险", "P1 small figure-ground value gap (Otsu class mean gap < 60): silhouette/subject readability risk"))
         for tb in gm["thumbnails"]:
             if kind in ("capsule", "icon", "key-art") and (tb["contrast_rms"] < 35 or tb["contrast_retention"] < 0.75):
-                flags.append(f"P0 缩略图 {tb['size']} 可读性差（对比 {tb['contrast_rms']}，保留 {tb['contrast_retention']}）：标题/主体在商店列表会糊")
+                flags.append(T(f"P0 缩略图 {tb['size']} 可读性差（对比 {tb['contrast_rms']}，保留 {tb['contrast_retention']}）：标题/主体在商店列表会糊", f"P0 thumbnail {tb['size']} poorly readable (contrast {tb['contrast_rms']}, retention {tb['contrast_retention']}): title/subject will blur in store listings"))
         if kind == "capsule" and m["text_region_ratio_est"] < 0.01:
-            flags.append("P2 胶囊图未检测到明显文字区：Steam 要求可读的游戏名/Logo（人工确认）")
+            flags.append(T("P2 胶囊图未检测到明显文字区：Steam 要求可读的游戏名/Logo（人工确认）", "P2 no clear text region in capsule: Steam requires a readable game name/logo (check manually)"))
         if kind in ("game-screenshot",) and gm["hud_center_clutter_est"] > 0.15:
-            flags.append("P2 画面中心 UI/直线元素偏多：可能遮挡玩法焦点")
+            flags.append(T("P2 画面中心 UI/直线元素偏多：可能遮挡玩法焦点", "P2 lots of UI/straight-line elements in the center: may block gameplay focus"))
         if kind == "sprite" and gm["unique_colors_exact"] and gm["unique_colors_exact"] > 256:
-            flags.append("P1 精灵图色数 > 256：疑似插值缩放或 AI 噪色，像素不干净")
+            flags.append(T("P1 精灵图色数 > 256：疑似插值缩放或 AI 噪色，像素不干净", "P1 sprite has > 256 colors: likely interpolated scaling or AI noise, pixels not clean"))
         flags.extend(genre_hints(m, genre))
     m["flags"] = flags
     m["sub_scores"], m["metric_score"] = sub_scores(m, kind)
@@ -568,7 +610,7 @@ def analyze(path, kind="photo", genre=None):
     return m, rgb, mag, fg
 
 
-REPORT = """# 图片审美评审：{name}
+REPORT_ZH = """# 图片审美评审：{name}
 
 > 类型：{kind}｜尺寸 {w}×{h}（{aspect}）｜文件 `{file}`
 
@@ -618,7 +660,7 @@ REPORT = """# 图片审美评审：{name}
 """
 
 
-GAME_REPORT = """
+GAME_REPORT_ZH = """
 ## 2b. 游戏美术指标（{genre}）
 - 明度三档（暗/中/亮）：{vb}｜5 档中使用 {vl} 档｜Otsu 图底可分离度 {sep}｜图底明度差 {fgg}
 - 中心-边缘明度差 {cbl}｜中心/边缘细节比 {cbe}｜大形边缘保留 {ser}｜剪影边界复杂度 {mbc}｜强边缘密度 {ed}
@@ -633,11 +675,76 @@ GAME_REPORT = """
 """
 
 
+REPORT_EN = """# Image aesthetics review: {name}
+
+> Type: {kind} | Size {w}×{h} ({aspect}) | File `{file}`
+
+## 1. Score
+| Part | Score | Notes |
+|---|---|---|
+| Metric score (script, 40%) | {ms}/100 | sharpness, exposure, contrast, noise, palette discipline, saturation restraint, whitespace, composition proxies |
+| Visual score (agent, 60%) | __/100 | rate each dimension 1–10 × weight per references/image-aesthetics.md |
+| **Total** | __/100 | 0.4 × metric + 0.6 × visual |
+
+### Metric sub-scores (0–10)
+{subs}
+
+## 2. Key metrics
+- Main colors (≥3%): {pal}
+- Significant colors {ncol} (chromatic {nchrom}) | harmony guess: **{harm}**
+- Mean brightness {bm} | RMS contrast {cr} | clipped highlights {cl}% | crushed shadows {cd}% | saturation p95 {sp} | colorfulness {cf}
+- Sharpness (Laplacian variance) {lv} | noise σ≈{nz}
+- Visual centroid {cen} (to nearest thirds point {dt}, to center {dc}) | mirror symmetry {sym} | thirds-band energy ratio {tr}
+- Whitespace ratio {ws} | text region est. {tx}
+
+Automatic flags:
+{flags}
+
+Attachments: `palette.png` (swatches), `thirds-overlay.png` (white = thirds, amber = golden ratio, red dot = visual centroid, red heat = edge energy)
+
+## 3. Visual review (agent fills in, 1–10 per dimension)
+| Dimension | Weight | Score | Evidence / issue |
+|---|---|---|---|
+| Composition & subject | | | |
+| Light | | | |
+| Color harmony | | | |
+| Text / typography on image | | | |
+| Clarity & technical quality | | | |
+| Style consistency | | | |
+| Mood & story | | | |
+| AI artifacts (if applicable) | | | |
+
+## 4. Issues
+### P0 — 
+### P1 — 
+### P2 — 
+
+## 5. Improvement / restyle plan (actionable: crop ratio, grading values, palette HEX, layout, generation prompt)
+
+## 6. One-line verdict
+"""
+
+
+GAME_REPORT_EN = """
+## 2b. Game art metrics ({genre})
+- Three value bands (dark/mid/light): {vb} | {vl} of 5 value levels used | Otsu figure-ground separability {sep} | figure-ground value gap {fgg}
+- Center-border value gap {cbl} | center/border detail ratio {cbe} | big-shape edge retention {ser} | silhouette boundary complexity {mbc} | strong edge density {ed}
+- HUD edge coverage est. {hud} | UI-like coverage {uic} | center UI clutter {hcc}
+- Colors: 5-bit bins covering 95% = {cb} | exact colors {uc} | pixel run mode {prm}
+- Thumbnails: {thumbs}
+
+Attachments: `grayscale.png` (grayscale | 3-value | Otsu figure-ground), `thumbnail.png` (store-size thumbnails, color + grayscale, on Steam navy)
+
+### Genre tips
+{hints}
+"""
+
+
 def build_report(m):
     t, c = m["tone"], m["composition"]
     subs = "\n".join(f"- {k}: {v}" for k, v in m["sub_scores"].items())
-    pal = "、".join(f'`{p["hex"]}` {p["pct"]}%' for p in m["palette"] if p["pct"] >= 3)
-    return REPORT.format(name=os.path.basename(m["file"]), kind=m["type"], w=m["width"], h=m["height"],
+    pal = T("、", ", ").join(f'`{p["hex"]}` {p["pct"]}%' for p in m["palette"] if p["pct"] >= 3)
+    return T(REPORT_ZH, REPORT_EN).format(name=os.path.basename(m["file"]), kind=m["type"], w=m["width"], h=m["height"],
                          aspect=m["aspect"], file=m["file"], ms=m["metric_score"], subs=subs, pal=pal,
                          ncol=m["palette_significant_colors"], nchrom=m["palette_chromatic_colors"],
                          harm=m["harmony_guess"], bm=t["brightness_mean"], cr=t["contrast_rms"],
@@ -646,22 +753,22 @@ def build_report(m):
                          cen=c["centroid"], dt=c["centroid_to_thirds_point"], dc=c["centroid_to_center"],
                          sym=c["mirror_symmetry"], tr=c["thirds_band_energy_ratio"], ws=m["whitespace_ratio"],
                          tx=m["text_region_ratio_est"],
-                         flags="\n".join(f"- {f}" for f in m["flags"]) or "- （无）") + game_report(m)
+                         flags="\n".join(f"- {f}" for f in m["flags"]) or T("- （无）", "- (none)")) + game_report(m)
 
 
 def game_report(m):
     if "game" not in m:
         return ""
     gm = m["game"]; g = m.get("genre")
-    hints = GENRES[g][5] if g else ["未指定 --genre：按 references/game-aesthetics.md 通用量表评审"]
-    return GAME_REPORT.format(
-        genre=(GENRES[g][0] if g else "通用"), vb=gm["value_bands"], vl=gm["value_levels_used_5"],
+    hints = genre_tips(g) if g else [T("未指定 --genre：按 references/game-aesthetics.md 通用量表评审", "No --genre given: review with the generic rubric in references/game-aesthetics.md")]
+    return T(GAME_REPORT_ZH, GAME_REPORT_EN).format(
+        genre=(genre_name(g) if g else T("通用", "generic")), vb=gm["value_bands"], vl=gm["value_levels_used_5"],
         sep=gm["figure_ground_separability"], fgg=gm["figure_ground_gap"], cbl=gm["center_border_luma_gap"],
         cbe=gm["center_border_edge_ratio"], ser=gm["shape_edge_retention"], mbc=gm["mask_boundary_complexity"],
         ed=gm["edge_density"], hud=f'{gm["hud_edge_coverage_est"]:.1%}', uic=f'{gm["ui_like_coverage_est"]:.1%}',
         hcc=f'{gm["hud_center_clutter_est"]:.1%}', cb=gm["color_bins_95pct"], uc=gm["unique_colors_exact"],
         prm=gm["pixel_run_mode"],
-        thumbs="；".join(f'{t["size"]} 对比 {t["contrast_rms"]}（保留 {t["contrast_retention"]}）边缘保留 {t["edge_retention"]}' for t in gm["thumbnails"]),
+        thumbs=T("；", "; ").join(T(f'{t["size"]} 对比 {t["contrast_rms"]}（保留 {t["contrast_retention"]}）边缘保留 {t["edge_retention"]}', f'{t["size"]} contrast {t["contrast_rms"]} (retention {t["contrast_retention"]}) edge retention {t["edge_retention"]}') for t in gm["thumbnails"]),
         hints="\n".join(f"- {h}" for h in hints))
 
 
@@ -691,7 +798,10 @@ def draw_thumbs(rgb, kind, path):
     canvas.save(path)
 
 
-def run(path, out=None, kind="photo", genre=None):
+def run(path, out=None, kind="photo", genre=None, lang=None):
+    global LANG
+    if lang:
+        LANG = lang
     name = os.path.splitext(os.path.basename(path))[0]
     out = out or f"image-review-{name}"
     os.makedirs(out, exist_ok=True)
@@ -710,16 +820,20 @@ def run(path, out=None, kind="photo", genre=None):
 
 
 def main():
+    global LANG
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image", nargs="?")
     ap.add_argument("--genre", choices=sorted(GENRES), help="game genre profile (game types only)")
     ap.add_argument("--list-genres", action="store_true")
     ap.add_argument("--out")
     ap.add_argument("--type", default="photo", choices=TYPES)
+    ap.add_argument("--lang", choices=["en", "zh"], default=None, help=f"report language (default {LANG})")
     a = ap.parse_args()
+    if a.lang:
+        LANG = a.lang
     if a.list_genres:
         for k, v in GENRES.items():
-            print(f"{k:14s} {v[0]}")
+            print(f"{k:14s} {genre_name(k)}")
         return
     if not a.image:
         ap.error("image is required")
@@ -727,7 +841,7 @@ def main():
         ap.error("--genre needs a game --type (" + "|".join(GAME_TYPES) + ")")
     if not os.path.isfile(a.image):
         sys.exit(f"not found: {a.image}")
-    m, out = run(a.image, a.out, a.type, a.genre)
+    m, out = run(a.image, a.out, a.type, a.genre, a.lang)
     print(f"metric_score={m['metric_score']} colors={m['palette_significant_colors']} harmony={m['harmony_guess']} "
           f"sharp={m['sharpness_laplacian_var']} noise={m['noise_sigma']} whitespace={m['whitespace_ratio']}")
     for fl in m["flags"]:
