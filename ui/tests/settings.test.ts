@@ -48,6 +48,18 @@ describe('settings store', () => {
     expect(store.defaultsFor('p1').temperature).toBe(0.2)
   })
 
+  it('applies persisted locale to i18n and <html lang>', () => {
+    const store = useSettingsStore()
+    store.setLocale('zh-CN')
+    // applyLocaleToI18n：启动时把已持久化的语言同步到 i18n 与 <html lang>
+    document.documentElement.removeAttribute('lang')
+    store.applyLocaleToI18n()
+    expect(document.documentElement.getAttribute('lang')).toBe('zh-CN')
+    store.setLocale('en-US')
+    // htmlLang('en-US') 取主语言段（locales/index.ts §htmlLang）
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+  })
+
   it('loads missing nested maps and tolerates a legacy payload', () => {
     localStorage.setItem('sb_settings_v1', JSON.stringify({ theme: 'light' }))
     setActivePinia(createPinia())

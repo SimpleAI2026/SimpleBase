@@ -1314,4 +1314,70 @@ describe('httpApi', () => {
       ok: false, statusCode: 0, durationMs: 0, version: 2, activeVersion: 0, functionName: 'Fn', error: ''
     })
   })
+
+  it('covers agentRuns.active / attachAgentRun and storage endpoints', async () => {
+    // agentThreads.active：runs 数组正常映射，非数组回退为空
+    http.get.mockResolvedValueOnce({ data: { runs: [{ run_id: 'r1', agent_id: 'ag1' }] } })
+    const actives = await httpApi.agentThreads.active(pid)
+    expect(actives).toHaveLength(1)
+    expect(http.get.mock.calls[0][0]).toBe(`/v1/projects/${encodeURIComponent(pid)}/agent-runs/active`)
+    http.get.mockResolvedValueOnce({ data: { runs: null } })
+    expect(await httpApi.agentThreads.active(pid)).toEqual([])
+
+    // attachAgentRun：透传 SSE 事件流（fetch 流式解析）
+    const sseChunks = [
+      `data: ${JSON.stringify({ type: 'run', run_id: 'r1' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'token', content: 'hi' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'end' })}\n\n`
+    ]
+    const encoder = new TextEncoder()
+    let sseIdx = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          headers: new Map([['content-type', 'text/event-stream']]),
+          body: {
+            getReader: () => ({
+              read: () =>
+                Promise.resolve(
+                  sseIdx < sseChunks.length
+                    ? { done: false, value: encoder.encode(sseChunks[sseIdx++]) }
+                    : { done: true, value: undefined }
+                )
+            })
+          },
+          status: 200
+        })
+      )
+    )
+    try {
+      const events: Record<string, unknown>[] = []
+      const conn = httpApi.agentThreads.attachRun(pid, 'r1', {
+        onRun: (id) => events.push({ type: 'run', id }),
+        onToken: (t) => events.push({ type: 'token', t }),
+        onEnd: () => events.push({ type: 'end' })
+      })
+      await new Promise((r) => setTimeout(r, 20))
+      expect(events).toEqual([{ type: 'run', id: 'r1' }, { type: 'token', t: 'hi' }, { type: 'end' }])
+      conn.close()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    // storage.get / storage.put
+    http.get.mockResolvedValueOnce({
+      data: { database: 'local', files: 'local', data_dir: './data', cache_dir: './cache',
+        writable_config: true, bucket: '', prefix: '', source: {} }
+    })
+    const s = await httpApi.storage.get()
+    expect(s).toMatchObject({ database: 'local', data_dir: './data', writable_config: true })
+    expect(http.get.mock.calls.at(-1)?.[0]).toBe('/v1/system/storage')
+
+    http.put.mockResolvedValueOnce({ data: { ok: true } })
+    const putRes = await httpApi.storage.put({ database: 's3', files: 'local', data_dir: './data', confirm_reset: true })
+    expect(putRes).toEqual({ ok: true })
+    expect(http.put.mock.calls[0][0]).toBe('/v1/system/storage')
+  })
 })

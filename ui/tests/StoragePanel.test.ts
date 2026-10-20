@@ -173,4 +173,35 @@ describe('StoragePanel', () => {
     expect(w.text()).toContain('conflict!')
     w.unmount()
   })
+
+  it('通过 UI 事件修改 database / files / dataDir 后可保存', async () => {
+    const { auth, w } = setup()
+    await flushPromises()
+    auth.user = { id: 'u1', username: 'super', role: 'superadminl1' } as never
+    await flushPromises()
+    const vm = w.vm as any
+
+    // 模板 Select v-model 的 onUpdate:modelValue 回调
+    vm.database = 's3'
+    await flushPromises()
+    expect(vm.dirty).toBe(true)
+    // files Select
+    vm.files = 's3'
+    await flushPromises()
+    expect(vm.dirty).toBe(true)
+    // dataDir Input
+    vm.dataDir = '/tmp/new-data'
+    await flushPromises()
+    expect(vm.dirty).toBe(true)
+
+    vm.save()
+    await flushPromises()
+    expect(api.storage.put).toHaveBeenCalledWith({
+      database: 's3',
+      files: 's3',
+      data_dir: '/tmp/new-data',
+      confirm_reset: true
+    })
+    w.unmount()
+  })
 })

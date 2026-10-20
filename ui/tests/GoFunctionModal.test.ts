@@ -106,5 +106,33 @@ describe('GoFunctionModal', () => {
     w.unmount()
   })
 
-
+  it('modal close 转发 update:open，monaco 输入更新 sourceValue', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useProjectStore().setProject('dev-shop')
+    const w = mount(GoFunctionModal, {
+      props: { open: true, mode: 'create' },
+      global: {
+        plugins: [pinia],
+        stubs: {
+          ...uiStubs,
+          // 带 emit 的编辑器桩，触发模板 v-model 的 onUpdate:modelValue 回调
+          GoMonacoEditor: {
+            props: ['modelValue', 'readOnly', 'minHeight'],
+            emits: ['update:modelValue'],
+            template:
+              '<textarea class="monaco" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
+          }
+        }
+      }
+    })
+    // SbModal 桩的关闭按钮 → @update:open 转发
+    await w.get('.sb-modal-close').trigger('click')
+    expect(w.emitted('update:open')?.at(-1)).toEqual([false])
+    // GoMonacoEditor 桩 v-model → sourceValue
+    await w.get('.monaco').setValue('package main\nfunc Echo() {}')
+    const vm = w.vm as Record<string, any>
+    expect(vm.sourceValue).toContain('func Echo() {}')
+    w.unmount()
+  })
 })
