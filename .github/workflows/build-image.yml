@@ -6,8 +6,8 @@ on:
     - 'v*'
 
 env:
-  # 镜像名：<registry>/<namespace>/<repo>，registry 由 secret TENCENT_REGISTRY 提供
-  IMAGE: ${{ secrets.TENCENT_REGISTRY }}/serverless2025/simplebase
+  # 镜像名：<registry>/<namespace>/<repo>，registry 由 secret REGISTRY_URL 提供
+  IMAGE: ${{ secrets.REGISTRY_URL }}/serverless2025/simplebase
 
 jobs:
 
@@ -50,9 +50,9 @@ jobs:
     - name: Login to Tencent TCR
       uses: docker/login-action@v3
       with:
-        registry: ${{ secrets.TENCENT_REGISTRY }}
-        username: ${{ secrets.TENCENT_USERNAME }}
-        password: ${{ secrets.TENCENT_PASSWORD }}
+        registry: ${{ secrets.REGISTRY_URL }}
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_TOKEN }}
 
     - name: Build and push
       uses: docker/build-push-action@v6
