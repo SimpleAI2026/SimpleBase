@@ -57,7 +57,14 @@ func Register(e *echo.Echo) {
 	staticFS := StaticFS()
 	fileServer := http.FileServer(http.FS(staticFS))
 
-	e.GET("/*", func(c echo.Context) error {
+	// 显式注册 "/"：e.Group("", mw) 会为根路径注册带鉴权中间件的 Any("")，
+	// 精确匹配优先于 "/*" 通配，导致访问根路径返回 401。同方法同路径后注册者覆盖。
+	e.GET("/", spaHandler(staticFS, fileServer))
+	e.GET("/*", spaHandler(staticFS, fileServer))
+}
+
+func spaHandler(staticFS fs.FS, fileServer http.Handler) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		// 未构建前端时返回明确提示，避免返回空白页面。
 		if indexHTML == nil {
 			return c.String(http.StatusServiceUnavailable,
@@ -78,5 +85,5 @@ func Register(e *echo.Echo) {
 
 		fileServer.ServeHTTP(c.Response(), c.Request())
 		return nil
-	})
+	}
 }

@@ -94,6 +94,47 @@ func TestRegisterBuiltSPAAndStatic(t *testing.T) {
 	}
 }
 
+// 回归：e.Group("") 会在根节点注册带组中间件的 RouteNotFound 兜底（见
+// api.mountEnvd 的 envdAuth），根路径 "/" 曾因此先被鉴权中间件命中返回 401。
+// Register 必须显式覆盖 "/"，否则控制台首页打不开。
+func TestRegisterOverridesRootFromGroupMiddleware(t *testing.T) {
+	orig := indexHTML
+	indexHTML = []byte("<html>spa</html>")
+	t.Cleanup(func() { indexHTML = orig })
+
+	e := echo.New()
+	// 模拟 mountEnvd：组中间件对未匹配路径返回 401。
+	deny := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			return c.String(http.StatusUnauthorized, "unauthenticated")
+		}
+	}
+	g := e.Group("", deny) //nolint:staticcheck // 复现真实挂载方式
+	g.GET("/files", func(c echo.Context) error { return c.String(http.StatusOK, "files") })
+
+	Register(e)
+
+	for _, path := range []string{"/", "/dashboard"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%q", path, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "<html>spa</html>") {
+			t.Fatalf("%s body=%q", path, rec.Body.String())
+		}
+	}
+
+	// 组内已注册路由仍由鉴权中间件处理，未被 SPA 覆盖。
+	req := httptest.NewRequest(http.MethodGet, "/files", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/files status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestLoadIndexHTMLAbsent(t *testing.T) {
 	// 工作区已构建 UI 时 loadIndexHTML 返回真实 index.html；未构建返回 nil。
 	got := loadIndexHTML()
