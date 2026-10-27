@@ -2,7 +2,7 @@
 
 > 日期：2026-10-12  
 > 状态：请求契约/切换引导、统计模块、沙盒按可用性播种、已知默认名双语展示及关闭能力门禁已实施；`@` 技能/助手分组菜单、同名/空格名候选 ID 绑定、KV 兼容别名及调度 thread 归属防护已实施；通用助手跨助手交接、用户助手仍待安全契约；未操作运行库或迁移  
-> 范围：`ui/src/pages/AgentManager.vue`、`ui/src/components/ai/AiChatComposer.vue`、`internal/cloudagent/`、`internal/api/agent_handler.go`、`internal/systemdb/agents.go` 及测试/文案  
+> 范围：`ui/src/pages/AgentManager.vue`、`ui/src/components/ai/AiChatComposer.vue`、`internal/gocloudagent/`、`internal/api/agent_handler.go`、`internal/systemdb/agents.go` 及测试/文案  
 > 关联：[`cloud-assistant-chat-ux-plan.md`](./cloud-assistant-chat-ux-plan.md)、[`cloud-assistant-skills-cli-v2-plan.md`](./cloud-assistant-skills-cli-v2-plan.md)、[`bugfix-cloud-agent-cli-chain.md`](./bugfix-cloud-agent-cli-chain.md)  
 > 约束：不新增依赖；不得绕过项目、角色、系统库及工具权限；不得由代理运行 `init_db`、ALTER/DDL；对象形状使用 TypeScript `interface`；中英文文案同时更新。
 
@@ -59,7 +59,7 @@
 
 - `ui/tests/AgentManager.test.ts` 用真实 `AgentComposer` 验证 `@数据库` → 通用助手 ID + `database` 技能；用专用助手的 `@KV助手` 验证旧逻辑错误发到数据库 thread；`internal/api/agent_handler_test.go` 验证隔离内存库中的归属冲突。测试没有使用用户运行库。
 - 已修复专用助手点名另一助手的发送前引导与 409 `agent_switch_required`；不取消服务器 thread 归属保护；未点名按绑定的助手执行。**未复现线上原始请求，不宣称 `@数据库` 线上报错已根治。** 后续结合用户现场请求核对 thread/mentions/skills；如确认是旧客户端或会话状态问题，再补针对性测试。
-- 若决定支持跨 Agent 交接，先核对 `internal/cloudagent/runtime.go`、`scheduler.go`、`systemdb/agents.go` 的 run/历史/调度数据归属；现有调度 thread 并非一律绑定 schedule Agent，不能把“调度始终按绑定助手执行”当成现状。
+- 若决定支持跨 Agent 交接，先核对 `internal/gocloudagent/runtime.go`、`scheduler.go`、`systemdb/agents.go` 的 run/历史/调度数据归属；现有调度 thread 并非一律绑定 schedule Agent，不能把“调度始终按绑定助手执行”当成现状。
 
 ### B. 模块与默认助手（统计模块、沙盒可用时播种已实施；用户助手待单列）
 

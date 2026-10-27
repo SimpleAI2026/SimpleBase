@@ -1,3 +1,30 @@
+// 文件说明：output_hub.go — internal/sandbox 中 Subscription、Read 等符号的实现
+//
+// 用法
+//
+//	(s *Subscription) Read(p []byte) (int, error)  // Read 阻塞到有新数据、进程输出结束（io.EOF）或订阅被 Close（io.ErrClosedPipe）
+//	(s *Subscription) Close()  // Close 结束订阅，唤醒阻塞中的 Read
+//	同包调用：Read() → manager.go, proc.go；Close() → manager.go, proc.go；outputHub → proc.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/sandbox/sshd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/output_hub.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] errors.go, manager.go, paths.go, proc.go, pty.go
+//	[关键引用] Read() ← manager.go, proc.go
+//
+// 主要符号
+//
+//	type Subscription struct {…}
+//	(s *Subscription) Read(p []byte) (int, error)
+//	(s *Subscription) Close()
+//	... 另有 5 个顶层符号
+
 package sandbox
 
 import (

@@ -1,13 +1,26 @@
-// Package web 将前端构建产物嵌入二进制，并提供 SPA 静态文件服务。
+// 文件说明：web.go — 将前端构建产物嵌入二进制，并提供 SPA 静态文件服务
 //
-// 构建流程（见根目录 build.sh）：
-//  1. vite build 将 UI 编译到 ui/dist
-//  2. 脚本将 ui/dist 复制到 internal/web/dist
-//  3. go build 通过 go:embed 将 dist 打包进二进制
+// 用法
 //
-// 运行时由 api.NewRouter 挂载：已注册的 API 路由（/v1、/health、/metrics 等）
-// 优先匹配；其余路径回退到静态文件，找不到时返回 index.html 以支持 Vue
-// history 模式的前端路由。
+//	StaticFS() fs.FS  // StaticFS 返回剥离 "dist" 前缀后的根文件系统，用于 http.FileServer
+//	Register(e *echo.Echo)  // Register 将静态文件服务挂载到 echo 实例
+//
+// 调用架构
+//
+//	[上游] internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/web/web.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	StaticFS() fs.FS
+//	Register(e *echo.Echo)
+//	... 另有 4 个顶层符号
+
 package web
 
 import (

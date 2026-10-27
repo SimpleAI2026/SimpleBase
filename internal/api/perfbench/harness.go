@@ -1,9 +1,33 @@
-// Package perfbench 实现 api-db-perf-validation-plan §2.2/§2.4 的压测 harness。
+// 文件说明：harness.go — api-db-perf-validation-plan §2.2/§2.4 的压测 harness
 //
-// 定位：独立测量工具包，不进生产二进制（仅 cmd/perfbench 引用）。
-// 装配真实链路：真实 Router + catalog + registry + ducklake factory
-// （本地存储，data 与 cache 都落临时目录），用 httptest.Server 提供
-// 真实 HTTP 语义（含 echo 中间件、认证、分段计时），排除外网噪声。
+// 用法
+//
+//	type benchEnv（包内使用）
+//	type byteReader（包内使用）
+//	同包调用：benchEnv → cases.go, helpers.go 等；Close() → cases.go, runner.go；Do() → cases.go, helpers.go
+//
+// 调用架构
+//
+//	[上游] cmd/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/perfbench/harness.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/app, internal/auth, internal/config
+//	[同包] cases.go, helpers.go, loadgen.go, runner.go, stage_report.go
+//	[关键引用] benchEnv ← cases.go, helpers.go, loadgen.go
+//
+// 主要符号
+//
+//	type benchEnv struct {…}
+//	const benchProjectName
+//	newEnv(ctx context.Context, cacheRoot string) (*benchEnv, error)
+//	(e *benchEnv) bootstrapProject(ctx context.Context) error
+//	(e *benchEnv) login(username, password string) (string, error)
+//	(e *benchEnv) createProject() (string, error)
+//	... 另有 14 个顶层符号
+
 package perfbench
 
 import (
@@ -226,7 +250,7 @@ func defaultBenchConfig() config.Config {
 			},
 		},
 		Database: config.DatabaseConfig{
-			Engine:            config.EngineDuckLake,
+			Engine:            config.EngineDuckDB,
 			CacheMaxBytes:     config.DefaultCacheMaxBytes,
 			CacheMaxDatabases: config.DefaultCacheMaxDatabases,
 			IdleTimeout:       5 * time.Minute,
@@ -302,29 +326,6 @@ func (e *benchEnv) Do(method, path string, body any) (int, []byte, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+e.APIKey)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.Client.Do(req)
-	if err != nil {
-		return 0, nil, err
-	}
-	defer resp.Body.Close()
-	bs, err := io.ReadAll(resp.Body)
-	return resp.StatusCode, bs, err
-}
-
-// DoRaw 发一次带认证的请求（body 由调用方构造）。
-func (e *benchEnv) DoRaw(method, path string, body []byte) (int, []byte, error) {
-	var rd io.Reader
-	if body != nil {
-		rd = &byteReader{data: body}
-	}
-	req, err := http.NewRequest(method, e.Server.URL+path, rd)
-	if err != nil {
-		return 0, nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+e.APIKey)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
 	resp, err := e.Client.Do(req)
 	if err != nil {
 		return 0, nil, err

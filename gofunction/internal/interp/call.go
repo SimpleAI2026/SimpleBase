@@ -1,3 +1,31 @@
+// 文件说明：call.go — gofunction/internal/interp 的内部实现（callExternal、call 等）
+//
+// 用法
+//
+//	同包调用：zero() → eval.go, instruction.go 等；callSSA() → frame.go, program.go；callExternal() → eval.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/call.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/value
+//	[同包] compile.go, eval.go, executor.go, frame.go, gofunction.go 等 13 个
+//	[关键引用] zero() ← eval.go, instruction.go, program.go
+//
+// 主要符号
+//
+//	callExternal(fn reflect.Value, args []value.Value) value.Value
+//	call(caller *frame, callpos token.Pos, fn interface{}, args []value.Value) ...
+//	var framePool
+//	getFrameFromPool(caller *frame, fn *ssa.Function) *frame
+//	putFrameToPool(fr *frame)
+//	callSSA(caller *frame, fn *ssa.Function, args []value.Value, env []*value.Value) ...
+//	... 另有 3 个顶层符号
+
 package interp
 
 import (

@@ -1,3 +1,33 @@
+// 文件说明：errors.go — internal/catalog 中 ErrNotFound、ErrAlreadyExists 等符号的实现
+//
+// 用法
+//
+//	IsNotFound(err error) bool  // IsNotFound 判断错误是否为 ErrNotFound（含 wrapped）
+//	IsAlreadyExists(err error) bool  // IsAlreadyExists 判断错误是否为 ErrAlreadyExists（含 wrapped）
+//	同包调用：Error() → project_storage.go, service.go 等；ErrNotFound → repository.go, service.go 等；ErrInvalidName → project_storage.go, service.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/errors.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cache.go, data_model.go, model.go, project_storage.go, repository.go 等 9 个
+//	[关键引用] Error() ← project_storage.go, service.go, sql_repository.go
+//
+// 主要符号
+//
+//	var ErrNotFound
+//	var ErrAlreadyExists
+//	var ErrInvalidName
+//	var ErrInvalidDatabasePath
+//	var ErrInvalidCursor
+//	var ErrInvalidState
+//	... 另有 10 个顶层符号
+
 package catalog
 
 import (
@@ -13,6 +43,8 @@ var (
 	ErrAlreadyExists = errors.New("catalog: already exists")
 	// ErrInvalidName 名称不合法（400）。
 	ErrInvalidName = errors.New("catalog: invalid name")
+	// ErrInvalidDatabasePath 项目数据库存储元数据不合法（500）。
+	ErrInvalidDatabasePath = errors.New("catalog: invalid database path")
 	// ErrInvalidCursor 分页游标无效或不属于当前项目（400）。
 	ErrInvalidCursor = errors.New("catalog: invalid cursor")
 	// ErrInvalidState 非法状态转换（409）。

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
 )
 
 func TestIsNotFoundAndAlreadyExists(t *testing.T) {
@@ -30,9 +32,9 @@ func TestIsNotFoundAndAlreadyExists(t *testing.T) {
 }
 
 func TestStateTransitionError(t *testing.T) {
-	e := &StateTransitionError{From: []DatabaseStatus{DatabaseReady, DatabaseClosed}, To: DatabaseCreating}
+	e := &StateTransitionError{From: []DatabaseStatus{DatabaseReady, DatabaseDegraded}, To: DatabaseCreating}
 	msg := e.Error()
-	if !strings.Contains(msg, "ready") || !strings.Contains(msg, "closed") || !strings.Contains(msg, "creating") {
+	if !strings.Contains(msg, "ready") || !strings.Contains(msg, "degraded") || !strings.Contains(msg, "creating") {
 		t.Fatalf("error text: %s", msg)
 	}
 	if !errors.Is(e, ErrInvalidState) {
@@ -92,11 +94,11 @@ func TestIsUniqueViolationAndNullTime(t *testing.T) {
 	if isUniqueViolation(errors.New("syntax error")) {
 		t.Fatal("unrelated")
 	}
-	if nullTime(nil) != nil {
+	if sqlval.NullTime(nil) != nil {
 		t.Fatal("nil time")
 	}
 	now := time.Now()
-	if nullTime(&now) == nil {
+	if sqlval.NullTime(&now) == nil {
 		t.Fatal("non-nil time")
 	}
 }

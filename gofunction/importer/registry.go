@@ -1,3 +1,34 @@
+// 文件说明：registry.go — gofunction/importer 中 RegistryConfig、DefaultConfig 等符号的实现
+//
+// 用法
+//
+//	NewRegistry() *Registry
+//	(r *Registry) RegisterPackage(path, name string, objects ...*Object) error  // RegisterPackage 注册包
+//	(r *Registry) CreateFunction(name string, fn interface{}, documentation string) ...  // CreateFunction 创建函数对象
+//	同包调用：SetExternalType() → importer.go, importer.go；Registry → importer.go；GetPackage() → importer.go
+//
+// 调用架构
+//
+//	[上游] gofunction/cmd/gofunction, gofunction/internal/interp, gofunction/packages 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/importer/registry.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] importer.go, types.go
+//	[关键引用] SetExternalType() ← importer.go
+//
+// 主要符号
+//
+//	type RegistryConfig struct {…}
+//	var DefaultConfig
+//	type Registry struct {…}
+//	NewRegistry() *Registry
+//	NewRegistryWithConfig(config *RegistryConfig) *Registry
+//	(r *Registry) RegisterPackage(path, name string, objects ...*Object) error
+//	... 另有 21 个顶层符号
+
 package importer
 
 import (

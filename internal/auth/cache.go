@@ -1,10 +1,29 @@
-// cache.go 实现 §7.2 P1.2：API Key 认证缓存。
+// 文件说明：cache.go — §7.2 P1.2：API Key 认证缓存
 //
-// 每请求一次 FindByHash 系统库点查（约 4ms）是固定开销的主体。
-// 缓存 keyHash → Principal，TTL 30s；本进程吊销/删除时主动失效，
-// 多实例靠 TTL 兜底（最坏 30s 吊销延迟，安全语义见 plan §7.2 P1）。
-// 无效 Key 负缓存 5s，防随机 Key 打穿缓存；同时保留逐 Key 限流由
-// 上层（未来）补充。
+// 用法
+//
+//	(s *Service) CachedAuthenticate(ctx context.Context, rawKey string) (Principal ...  // CachedAuthenticate 是带缓存的认证入口（Service 内部使用）
+//	type apiKeyCacheEntry（包内使用）
+//	type apiKeyNegEntry（包内使用）
+//	同包调用：InvalidateAll() → api_key_repository.go；Error() → policy.go；apiKeyCache → service.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/cache.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, delegation.go, id.go, jwt.go, middleware.go 等 15 个
+//	[关键引用] InvalidateAll() ← api_key_repository.go
+//
+// 主要符号
+//
+//	(s *Service) CachedAuthenticate(ctx context.Context, rawKey string) (Principal ...
+//	... 另有 16 个顶层符号
+
 package auth
 
 import (
@@ -136,21 +155,6 @@ func (c *apiKeyCache) InvalidateAll() {
 	defer c.mu.Unlock()
 	c.entries = map[string]apiKeyCacheEntry{}
 	c.neg = map[string]apiKeyNegEntry{}
-}
-
-// invalidateUser 禁用用户时按 TenantID 粗粒度失效（Principal 不含用户维度，
-// JWT 通道的用户禁用依赖 SessionService 校验；此处兜底 API Key 侧影响面）。
-func (c *apiKeyCache) invalidateTenant(tenantID string) {
-	if c == nil || tenantID == "" {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for k, e := range c.entries {
-		if e.principal.TenantID == tenantID {
-			delete(c.entries, k)
-		}
-	}
 }
 
 // CachedAuthenticate 是带缓存的认证入口（Service 内部使用）。

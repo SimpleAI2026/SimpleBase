@@ -1,3 +1,34 @@
+// 文件说明：types.go — gofunction/importer 中 ObjectKind、UnknownKind 等符号的实现
+//
+// 用法
+//
+//	NewObject(name string, kind ObjectKind, value interface{}, doc string) *Object
+//	(k ObjectKind) String() string  // String 返回对象类型的字符串表示
+//	(o *Object) GetDoc() string  // 向后兼容的字段别名
+//	同包调用：String() → importer.go, registry.go；Package → importer.go, registry.go；Object → importer.go, registry.go
+//
+// 调用架构
+//
+//	[上游] gofunction/cmd/gofunction, gofunction/internal/interp, gofunction/packages 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/importer/types.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] importer.go, registry.go
+//	[关键引用] String() ← importer.go, registry.go
+//
+// 主要符号
+//
+//	type ObjectKind int
+//	const UnknownKind
+//	const Var
+//	const Const
+//	const TypeName
+//	const Function
+//	... 另有 12 个顶层符号
+
 package importer
 
 import (

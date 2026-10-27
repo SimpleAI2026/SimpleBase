@@ -92,14 +92,115 @@ func TestLinuxReadOnlyBlocksWorkspaceWrite(t *testing.T) {
 	}
 }
 
-func TestLinuxGitReadonly(t *testing.T) {
+// .git 内会被宿主侧执行的部分只读：hooks、config。
+func TestLinuxGitHooksAndConfigReadOnly(t *testing.T) {
 	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
-	if err := os.MkdirAll(filepath.Join(ws, ".git"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Run(context.Background(), p, shell("mkdir "+filepath.Join(ws, ".git", "hooks")))
+	cfg := filepath.Join(ws, ".git", "config")
+	if err := os.WriteFile(cfg, []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, script := range map[string]string{
+		"new hook":       "touch " + filepath.Join(ws, ".git", "hooks", "pre-commit"),
+		"config rewrite": "echo '[alias]' >> " + cfg,
+	} {
+		res, err := Run(context.Background(), p, shell(script))
+		if err != nil || res.ExitCode == 0 {
+			t.Errorf("%s must fail: res=%+v err=%v out=%s", name, res, err, res.Output)
+		}
+	}
+	if b, _ := os.ReadFile(cfg); string(b) != "[core]\n" {
+		t.Fatalf(".git/config changed on the host: %q", b)
+	}
+}
+
+// D1：.git 的其余部分可写，所以沙盒内 git init / add / commit 能完整工作。
+func TestLinuxGitInitAndCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
+	script := "cd " + ws + " && git init -q . && echo hi > a.txt && git add a.txt && " +
+		"git -c user.name=t -c user.email=t@t commit -q -m first && git log --oneline"
+	res, err := Run(context.Background(), p, Command{Argv: []string{"/bin/sh", "-c", script},
+		Env: []string{"PATH=/usr/bin:/bin", "HOME=" + ws, "GIT_CONFIG_NOSYSTEM=1"}})
+	if err != nil || res.ExitCode != 0 || !strings.Contains(string(res.Output), "first") {
+		t.Fatalf("git init+commit must work in the sandbox: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+}
+
+// D7：.git 不存在时不保护（git init 才能成功）；init 完成后的下一条命令起 hooks 即受保护。
+func TestLinuxGitHooksProtectedAfterInit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
+	env := []string{"PATH=/usr/bin:/bin", "HOME=" + ws, "GIT_CONFIG_NOSYSTEM=1"}
+	res, err := Run(context.Background(), p, Command{Argv: []string{"/bin/sh", "-c", "cd " + ws + " && git init -q ."}, Env: env})
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("git init must succeed when .git does not exist yet: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+	hook := filepath.Join(ws, ".git", "hooks", "pre-commit")
+	res, err = Run(context.Background(), p, Command{Argv: []string{"/bin/sh", "-c", "echo evil > " + hook}, Env: env})
 	if err != nil || res.ExitCode == 0 {
-		t.Fatalf(".git must be read-only: res=%+v err=%v", res, err)
+		t.Fatalf("writing a hook after init must fail: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+	if _, serr := os.Stat(hook); serr == nil {
+		t.Fatal("hook appeared on the host")
+	}
+}
+
+// 工作区根下的 .gitmodules、.mcp.json、.vscode 同样受强制表保护（存在时）。
+func TestLinuxForceDenyWorkspaceFiles(t *testing.T) {
+	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
+	for _, name := range []string{".gitmodules", ".mcp.json"} {
+		if err := os.WriteFile(filepath.Join(ws, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(ws, ".vscode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{".gitmodules", ".mcp.json", ".vscode/tasks.json"} {
+		res, err := Run(context.Background(), p, shell("echo x > "+filepath.Join(ws, target)))
+		if err != nil || res.ExitCode == 0 {
+			t.Errorf("%s must be read-only: res=%+v err=%v", target, res, err)
+		}
+	}
+	res, err := Run(context.Background(), p, shell("echo ok > "+filepath.Join(ws, "plain.txt")))
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("plain file must stay writable: res=%+v err=%v", res, err)
+	}
+}
+
+// DisableForceDeny 回到旧行为，并在 Result.Warnings 里如实说明。
+func TestLinuxDisableForceDeny(t *testing.T) {
+	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p.DisableForceDeny = true
+	res, err := Run(context.Background(), p, shell("touch "+filepath.Join(ws, ".git", "hooks", "pre-commit")))
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("hooks must be writable when the table is disabled: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("Warnings = %v", res.Warnings)
+	}
+}
+
+// 显式配置旧值时，整个 .git 仍然只读（想要旧行为的操作者的出口）。
+func TestLinuxLegacyWholeGitReadOnly(t *testing.T) {
+	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "refs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p.ReadOnlySubpaths = []string{".git", ".gocloudagent"}
+	res, err := Run(context.Background(), p, shell("touch "+filepath.Join(ws, ".git", "refs", "x")))
+	if err != nil || res.ExitCode == 0 {
+		t.Fatalf("legacy config must keep the whole .git read-only: res=%+v err=%v", res, err)
 	}
 }
 
@@ -120,6 +221,35 @@ func TestLinuxDenyReadToken(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(token); string(b) != "TOPSECRET" {
 		t.Fatalf("host file changed: %q", b)
+	}
+}
+
+func TestLinuxDenyReadGlobEnv(t *testing.T) {
+	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
+	subdir := filepath.Join(ws, "a", "b")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env1 := filepath.Join(ws, ".env")
+	env2 := filepath.Join(subdir, ".env")
+	if err := os.WriteFile(env1, []byte("ROOT_SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(env2, []byte("NESTED_SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.DenyRead = []string{ws + "/**/.env"}
+	script := "cat " + env1 + " " + env2 + "; echo NEW > " + subdir + "/fresh.env; cat " + subdir + "/fresh.env"
+	res, err := Run(context.Background(), p, shell(script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(res.Output)
+	if strings.Contains(out, "ROOT_SECRET") || strings.Contains(out, "NESTED_SECRET") {
+		t.Fatalf("glob **/.env must hide existing .env files: %s", out)
+	}
+	if !strings.Contains(out, "NEW") {
+		t.Fatalf("snapshot semantics: newly created matching file must not be masked: %s", out)
 	}
 }
 

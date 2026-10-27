@@ -1,6 +1,26 @@
-// Package mask 提供敏感值掩码与敏感键名判定。
+// 文件说明：mask.go — 敏感值掩码与敏感键名判定
 //
-// 只允许 import 标准库；不得 import 根模块任何业务包（见 internal/utils/README.md）。
+// 用法
+//
+//	IsSensitiveKey(name string) bool  // IsSensitiveKey 判断字段名是否是敏感字段（password / token / api_key 等）
+//	Secret(v string) string  // Secret 掩码展示一个密钥：保留前 3 后 4 字符，长度不足 8 时全部遮蔽
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/sbcli, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/mask/mask.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	IsSensitiveKey(name string) bool
+//	Secret(v string) string
+//	... 另有 1 个顶层符号
+
 package mask
 
 import "regexp"
@@ -25,28 +45,4 @@ func Secret(v string) string {
 		return "••••••••"
 	}
 	return v[:3] + "..." + v[len(v)-4:]
-}
-
-// KeepEnds 保留首尾各 keep 个字符，中间用小星星等量替换（按字节计）。
-//
-// 语义与 internal/audit.Redact 一致：长度不超过 2*keep 时全部遮蔽。
-func KeepEnds(s string, keep int) string {
-	if keep < 0 {
-		keep = 0
-	}
-	if len(s) <= 2*keep {
-		return repeated(len(s))
-	}
-	return s[:keep] + repeated(len(s)-2*keep) + s[len(s)-keep:]
-}
-
-func repeated(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	out := make([]byte, n)
-	for i := range out {
-		out[i] = '*'
-	}
-	return string(out)
 }

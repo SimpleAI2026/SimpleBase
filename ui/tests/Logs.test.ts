@@ -133,6 +133,17 @@ describe('Logs (日志管理)', () => {
 
   })
 
+  it('exports CSV and reports export errors', async () => {
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() })
+    const { wrapper } = await mountWithApp(Logs)
+    await wrapper.vm.exportCSV()
+    expect(api.logs.export).toHaveBeenCalled()
+    expect(URL.revokeObjectURL).toHaveBeenCalled()
+    api.logs.export.mockRejectedValueOnce(new Error('export'))
+    await wrapper.vm.exportCSV()
+    expect(toast.error).toHaveBeenCalledWith('export')
+  })
+
   it('Logs load, save retention, and poll', async () => {
     const { wrapper: w } = await mountWithApp(Logs)
     await flushPromises()

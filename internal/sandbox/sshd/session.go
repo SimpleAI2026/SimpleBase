@@ -1,3 +1,31 @@
+// 文件说明：session.go — internal/sandbox/sshd 的内部实现（handleSession、pty 等）
+//
+// 用法
+//
+//	同包调用：mu → membuf.go, server.go；handleSession() → server.go；pty → server.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/sshd/session.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/vm, internal/sandbox
+//	[同包] membuf.go, server.go
+//	[关键引用] mu ← membuf.go, server.go
+//
+// 主要符号
+//
+//	(s *Server) handleSession(id Identity, ch ssh.Channel, reqs <-chan *ssh.Request)
+//	var pty
+//	var term
+//	var started
+//	var handle
+//	var mu
+//	... 另有 5 个顶层符号
+
 package sshd
 
 import (
@@ -63,7 +91,7 @@ func (s *Server) handleSession(id Identity, ch ssh.Channel, reqs <-chan *ssh.Req
 				reply(req, false)
 				continue
 			}
-			_ = h.Resize(vm.PTYSize{Cols: clamp(w.Cols, 80), Rows: clamp(w.Rows, 24)})
+			_ = h.Resize(vm.PTYSize{Cols: sandbox.ClampPTYDim(w.Cols, 80), Rows: sandbox.ClampPTYDim(w.Rows, 24)})
 			h.Touch()
 			reply(req, true)
 		case "shell", "exec":
@@ -73,7 +101,7 @@ func (s *Server) handleSession(id Identity, ch ssh.Channel, reqs <-chan *ssh.Req
 			}
 			spec := sandbox.StartSpec{Kind: sandbox.ProcTerminal}
 			if pty != nil {
-				spec.PTY = &vm.PTYSize{Cols: clamp(pty.Cols, 80), Rows: clamp(pty.Rows, 24)}
+				spec.PTY = &vm.PTYSize{Cols: sandbox.ClampPTYDim(pty.Cols, 80), Rows: sandbox.ClampPTYDim(pty.Rows, 24)}
 				if term != "" && validTerm(term) {
 					spec.Env = map[string]string{"TERM": term}
 				}
@@ -196,16 +224,6 @@ func sendExit(ch ssh.Channel, code uint32) {
 	var b [4]byte
 	binary.BigEndian.PutUint32(b[:], code)
 	_, _ = ch.SendRequest("exit-status", false, b[:])
-}
-
-func clamp(v uint32, def uint16) uint16 {
-	if v == 0 {
-		return def
-	}
-	if v > 1000 {
-		return 1000
-	}
-	return uint16(v)
 }
 
 // validTerm 只接受常见终端类型名，防止把任意字符串塞进环境变量。

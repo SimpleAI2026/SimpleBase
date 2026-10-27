@@ -1,12 +1,28 @@
-// tenant_ctx.go 实现 §7.2 P1.1：请求路径上避免重复解析 project→tenant。
+// 文件说明：tenant_ctx.go — §7.2 P1.1：请求路径上避免重复解析 project→tenant
 //
-// api 的 projectContextMiddleware 已通过 ResolveProjectTenant 解析出
-// {projectID, tenantID}；下游 catalog.ensureProjectAccess / GetKVDatabase
-// 再查一次 GetProjectTenant / ProjectBelongsToTenant 是同一数据的重复点查
-// （每次约 4ms）。本文件提供 context 通道：上游解析后注入，下游命中即免查。
+// 用法
 //
-// 语义：ctx 中的 tenant 仅为「免重复查询」的捷径；值必须来自
-// ResolveProjectTenant 同一请求的解析结果（非缓存，无失效问题）。
+//	WithResolvedProjectTenant(ctx context.Context, projectID, tenantID string) ...  // WithResolvedProjectTenant 把已解析的
+//	type resolvedTenantKey（包内使用）
+//	同包调用：tenantMatches() → service.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/tenant_ctx.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cache.go, data_model.go, errors.go, model.go, project_storage.go 等 9 个
+//	[关键引用] tenantMatches() ← service.go
+//
+// 主要符号
+//
+//	WithResolvedProjectTenant(ctx context.Context, projectID, tenantID string) ...
+//	... 另有 3 个顶层符号
+
 package catalog
 
 import "context"

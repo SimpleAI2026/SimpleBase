@@ -164,7 +164,7 @@
 | P0 | `database/ducklake-notes.md` | SimpleBase 下的约束：无主键/唯一/索引、单写实例、`sqlguard` 拦截的语句、最终一致读 | `internal/database/sqlguard`、`plan/planv4.0/ducklake-rw-latency-eventual-consistency-plan.md` |
 | P1 | `database/sql.md` | SQL 工作台三种模式、query/execute/batch 端点、集合与文档接口 | `internal/api`、`docs/sdk/database-sql.md` |
 | P1 | `storage/index.md`、`storage/api.md` | 项目级隔离、上传/列举/预签名/删除、大小限制 | `internal/api` S3 handler、`internal/objectstore` |
-| P1 | `agent/index.md`、`agent/tools.md` | 模块、工具列表、`@` 调用、沙盒工具、定时调度 | `internal/cloudagent` |
+| P1 | `agent/index.md`、`agent/tools.md` | 模块、工具列表、`@` 调用、沙盒工具、定时调度 | `internal/gocloudagent` |
 | P1 | `ops/logs.md`、`ops/users.md` | 日志级别与保留期、审计事件；三种角色、API Key 权限点 | `internal/log`、`internal/audit`、`internal/auth` |
 | P1 | `cronjob/api.md` | 7 个端点的请求/响应示例 | `internal/api` cron handler |
 | P2 | `sdk/sandboxes.md` | JS `client.sandboxes.*`、Go `*Sandbox*` 方法、分页 | `packages/js-sdk/src/sandboxes.ts`、`packages/go-sdk/sandboxes.go` |

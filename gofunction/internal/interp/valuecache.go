@@ -1,3 +1,31 @@
+// 文件说明：valuecache.go — gofunction/internal/interp 的内部实现（trueValue、falseValue 等）
+//
+// 用法
+//
+//	同包调用：init() → gofunction.go, jsonrun.go 等；boolValue() → eval.go；intValue() → eval.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/valuecache.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/value
+//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
+//	[关键引用] init() ← gofunction.go, jsonrun.go, program.go
+//
+// 主要符号
+//
+//	var trueValue
+//	var falseValue
+//	const smallIntMin
+//	const smallIntMax
+//	var smallIntValues
+//	init()
+//	... 另有 2 个顶层符号
+
 package interp
 
 import (

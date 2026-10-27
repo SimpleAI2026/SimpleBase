@@ -6,7 +6,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 
 | 目录 | 职责 | 约束 |
 | --- | --- | --- |
-| `src/pages/` | 路由页面（Home / Dashboard / Databases / KeyValue / S3Manager / GoFunctions / CronJobs / AgentManager / Logs / Users / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.title`，需角色控制的配 `meta.requiresRole`（如 Users 的 `superadminl1`）。全局设置不是全页，见 `SettingsModal` |
+| `src/pages/` | 路由页面（Home / Dashboard / Databases / DataBrowser / ApiPreview / KeyValue / S3Manager / GoFunctions / FunctionTriggers / CronJobs / AgentManager / Logs / Users / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.titleKey`，需角色控制的配 `meta.requiresRole`（如 Users 的 `superadminl1`）。全局设置不是全页，见 `SettingsModal` |
 | `src/components/ui/` | 基础组件库（button / table / dialog / select 等，shadcn 风格） | **视为本地 fork 的库代码**：只增删组件不改风格约定；删除组件前必须全局确认零引用 |
 | `src/components/` | 业务组件：`databases/` `modal/` `ai/` `agent/` `chat/` `cronjob/` `sandbox/` `editor/` `settings/` `docs/` 分域，加顶层通用件（ConfirmAction / NavMenu / PageContainer / TablePager / SettingsModal / GlobalProjectSwitcher / TrendChart / SbAsyncRegion / SbEmptyState / SbErrorState / SbTabsPanel / SbCodeBlock / UserMenu 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖 |
 | `src/services/` | API 层：`api.ts`（固定导出 `httpApi`）→ `http-api.ts`（实现）→ `http.ts`（axios 实例、token 存取、401 处理）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
@@ -79,7 +79,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - `SbEmptyState` 的操作按钮图标由 `actionIcon` 决定（默认 `PlusIcon` 仅适合「新建」语义；「重试/刷新/查看」必须显式传图标）。
 - **页面内边距只走 `--page-pad`**（`style.css` 定义，`DefaultLayout` 施加在 `router-view` 容器上，带窄屏/大屏断点）。需要按视口算高度的页面（如云助手的对话区 `h-[calc(100svh-var(--header-height)-var(--page-pad)-var(--page-pad))]`）必须引用这个变量，**不要写 `6rem` 之类的字面量**——那等于把布局的内边距复制到页面里，改一处就会让另一处对不上。
 - **确认交互**：删除、覆盖一类破坏性操作统一用 `ConfirmAction`（`AlertDialog`）。唯一的例外是**云助手对话中的运行确认**——它用 `components/agent/AgentConfirmCard.vue` 行内卡片，因为模态会遮住上下文，而用户需要一边看工具调用一边决定是否放行（planv6.0 §3.6 #1）。删除助手/会话仍用 `ConfirmAction`。行内卡片出现时聚焦「确认执行」，`Esc` 等于取消，**不绑定 Enter 确认**（避免与输入框的 Enter 发送冲突）。
-- 全局设置：右上角齿轮打开 `SettingsModal`（`SbModal` + `:max-width="720"` + `hide-footer`），不是全页、不是 Sheet。页签只有 `connection` / `models`，由 `SbTabsPanel`（`variant="line"`）承载；`SettingsTab` 类型在 `stores/auth.ts`，`DefaultLayout.vue` 的 `SETTINGS_TABS` 白名单必须同步。模型连接（API Key / Base URL）与默认参数同属「模型」页，写同一个 `sys_llm_settings` 行。界面语言切换在顶栏（设置按钮旁的 `Select`），窄屏（<sm）顶栏整组隐藏时回落到侧栏底部那组入口，与文档/主题/设置一致。侧栏常规菜单不放「设置」。`/settings` 仅作 deep-link redirect。
+- 全局设置：右上角齿轮打开 `SettingsModal`（`SbModal` + `:max-width="720"` + `hide-footer`），不是全页、不是 Sheet。页签为 `connection` / `models` / `storage` / `backups`，由 `SbTabsPanel`（`variant="line"`）承载；`SettingsTab` 类型在 `stores/auth.ts`，`DefaultLayout.vue` 的 `SETTINGS_TABS` 白名单必须同步。模型连接（API Key / Base URL）与默认参数同属「模型」页，写同一个 `sys_llm_settings` 行。界面语言切换在顶栏（设置按钮旁的 `Select`），窄屏（<sm）顶栏整组隐藏时回落到侧栏底部那组入口，与文档/主题/设置一致。侧栏常规菜单不放「设置」。`/settings` 仅作 deep-link redirect。
 
 ## 拆分后的目录约定
 
@@ -95,4 +95,4 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - 不新增依赖、不升级依赖版本、不改 `package.json` / `tsconfig.json` / `vite.config.ts`，除非用户明确要求。
 - 类型：不使用 `any` 落盘新代码；跨层契约必须走 `types.ts`；对象形状一律用 `interface` 定义（不用 `type`）。
 - 已删除的零引用组件（checkbox / drawer / dropdown-menu / pagination / radio-group）不得重新引入——对应能力分别由 switch、sheet、原生方案、TablePager、toggle/radio 内联实现。
-- 路由 redirect：`/console` 与控制台入口（首页「进入控制台」、文档站「返回控制台」）落到 `agents`（`/console/agents`）；监控大盘是 `/console/dashboard`。旧路径仍是 `/databases` 等八个 → `/console/*`，`/sql`、`/data` → `/console/databases`，`/llm` → `/console/agents`，`/settings` → `/console/agents?settings=1`。
+- 路由 redirect：`/console` 与控制台入口（首页「进入控制台」、文档站「返回控制台」）落到 `agents`（`/console/agents`）；监控大盘是 `/console/dashboard`。旧路径仍是 `/databases` 等八个 → `/console/*`，`/sql` → `/console/databases`，`/data` → `/console/data`（真实数据浏览器），`/llm` → `/console/agents`，`/settings` → `/console/agents?settings=1`。

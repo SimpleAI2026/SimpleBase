@@ -1,11 +1,33 @@
-// filestore.go 提供面向用户文件的对象存储抽象（FileStore）。
+// 文件说明：filestore.go — 面向用户文件的对象存储抽象（FileStore）
 //
-// 与平台级 Client 的区别：
-//   - Client 只读写 catalog/descriptor 等平台对象，key 由 KeyBuilder 生成；
-//   - FileStore 服务用户上传的文件，key 是用户提供的相对路径，
-//     所有 key 先经 ValidateFileKey 校验，再由实现拼接物理前缀（项目隔离）。
+// 用法
 //
-// 物理布局：{root}/{env}/files/{projectID}/{userKey}（前缀由 app 装配时注入）。
+//	NewS3FileStore(ctx context.Context, cfg Config, basePrefix string, logger ...
+//	ValidateFileKey(key string) error  // ValidateFileKey 校验用户相对 key：
+//	同包调用：List() → blob.go, blob.go 等；Delete() → blob.go, blob.go 等；physical() → content_local.go, content_s3.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/filestore.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/observability
+//	[同包] blob.go, client.go, content.go, content_local.go, content_s3.go 等 10 个
+//	[关键引用] List() ← blob.go, client.go
+//
+// 主要符号
+//
+//	var ErrInvalidKey
+//	ValidateFileKey(key string) error
+//	type FileObject struct {…}
+//	type FileStore interface {…}
+//	NewS3FileStore(ctx context.Context, cfg Config, basePrefix string, logger ...
+//	NewMemoryFileStore() FileStore
+//	... 另有 15 个顶层符号
+
 package objectstore
 
 import (

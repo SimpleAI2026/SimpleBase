@@ -1,7 +1,31 @@
-// query_cache.go 进程内短 TTL 缓存 + per-key 单飞（perf §1 P1-D）。
+// 文件说明：query_cache.go — 进程内短 TTL 缓存 + per-key 单飞（perf §1 P1-D）
 //
-// 仪表盘类读接口（metrics/summary、metrics/trend）刷新频繁但数据本身是近似值，
-// 用 10s 级 TTL 合并并发与连发请求，避免每次都打系统库唯一连接 / 远端对象存储。
+// 用法
+//
+//	type queryCacheItem（包内使用）
+//	type queryCall（包内使用）
+//	同包调用：Do() → metrics.go；queryCache → store.go；newQueryCache() → store.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/query_cache.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] Do() ← metrics.go
+//
+// 主要符号
+//
+//	type queryCacheItem[T any] struct
+//	type queryCall[T any] struct
+//	type queryCache[T any] struct
+//	newQueryCache[T any](ttl time.Duration) *queryCache[T]
+//	(c *queryCache[T]) Do(key string, fn func() (T, error)) (T, error)
+
 package systemdb
 
 import (

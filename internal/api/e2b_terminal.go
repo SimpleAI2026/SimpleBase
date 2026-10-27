@@ -1,3 +1,32 @@
+// 文件说明：e2b_terminal.go — internal/api 中 TerminalBridge、TerminalTicket 等符号的实现
+//
+// 用法
+//
+//	NewSSHAuthenticator(h *SandboxHandler) sshd.Authenticator
+//	(h *SandboxHandler) TerminalTicket(c echo.Context) error  // TerminalTicket 对应 POST /e2b/ext/sandboxes/{id}/terminal-tickets
+//	(h *SandboxHandler) Terminal(c echo.Context) error  // Terminal 对应 GET /e2b/ext/sandboxes/{id}/terminal?ticket=...：WebSocket 升级
+//	同包调用：Terminal() → router.go, sandbox_handler.go；TerminalBridge → router.go；TerminalTicket() → router.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/e2b_terminal.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/auth, internal/sandbox/sshd
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Terminal() ← router.go, sandbox_handler.go
+//
+// 主要符号
+//
+//	type TerminalBridge struct {…}
+//	(h *SandboxHandler) TerminalTicket(c echo.Context) error
+//	(h *SandboxHandler) Terminal(c echo.Context) error
+//	NewSSHAuthenticator(h *SandboxHandler) sshd.Authenticator
+//	... 另有 16 个顶层符号
+
 package api
 
 import (

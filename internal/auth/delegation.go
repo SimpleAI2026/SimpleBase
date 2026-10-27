@@ -1,3 +1,34 @@
+// 文件说明：delegation.go — internal/auth 中 DelegationAudience、DelegationType 等符号的实现
+//
+// 用法
+//
+//	NewDelegationRegistry() *DelegationRegistry
+//	(r *DelegationRegistry) Remember(runID, jti string, exp time.Time)  // Remember 记下一次签发，供 RevokeRun 找到 jti
+//	(r *DelegationRegistry) RevokeRun(runID string)  // RevokeRun 作废该 run 签发过的全部 jti
+//	同包调用：DelegationType → middleware.go；DelegationRegistry → middleware.go；Revoked() → middleware.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/delegation.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, id.go, jwt.go, middleware.go 等 15 个
+//	[关键引用] DelegationType ← middleware.go
+//
+// 主要符号
+//
+//	const DelegationAudience
+//	const DelegationType
+//	type DelegationRegistry struct {…}
+//	NewDelegationRegistry() *DelegationRegistry
+//	(r *DelegationRegistry) Remember(runID, jti string, exp time.Time)
+//	(r *DelegationRegistry) RevokeRun(runID string)
+//	... 另有 8 个顶层符号
+
 package auth
 
 import (

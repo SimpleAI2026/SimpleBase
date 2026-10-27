@@ -13,7 +13,7 @@
 │                                                     │
 │ API Gateway                                         │
 │ ├─ Auth / Project / Quota / Audit                   │
-│ ├─ Database Management API                          │
+│ ├─ Data Management API                          │
 │ ├─ SQL Query API                                    │
 │ └─ LLM Gateway API                                  │
 │                                                     │
@@ -73,7 +73,7 @@ docker run -p 8080:8080 --env-file .env simplebase
 
 所有业务路由位于 `/v1/projects/:projectID/...`，需 `Authorization: Bearer <api-key>` 认证并按 project 上下文校验权限。
 
-### 数据库管理
+### 数据管理
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
@@ -146,7 +146,7 @@ internal/auth/          API Key、项目身份、权限与上下文
 internal/audit/         不可变审计事件与脱敏
 internal/catalog/       元数据：tenant/project/database/LLM 配置/usage
 internal/config/        配置加载
-internal/database/      DuckLake 连接、事务、查询、错误映射
+godatabase/            数据库运行时库（独立模块）：单文件库 / DuckLake / 注册表 / KV / 租约 / SQL 守卫
   ├─ registry/          进程内每库唯一 writer、引用计数、空闲卸载
   ├─ cache/             本地缓存目录、配额、LRU 淘汰
   ├─ ducklake/          用户库 / 系统库工厂与 catalog 同步
@@ -154,7 +154,7 @@ internal/database/      DuckLake 连接、事务、查询、错误映射
   ├─ kv/                键值数据操作
   ├─ lease/             数据库租约与写入门控
   └─ serialize.go       行序列化
-cloudagent/             云 Agent 运行时与只读工具（嵌套独立模块；宿主适配在 internal/agentbridge）
+gocloudagent/           云 Agent 运行时与只读工具（嵌套独立模块；宿主适配在 internal/agentbridge）
 internal/sandbox/       云沙盒 Driver、Manager 与路径校验
 internal/llmgateway/    LLM 服务端封装、流式转发、用量计量
 internal/objectstore/   S3 client、KeyBuilder、descriptor、health

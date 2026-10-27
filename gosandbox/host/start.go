@@ -1,3 +1,33 @@
+// 文件说明：start.go — gosandbox/host 中 PTYSize、StartSpec 等符号的实现
+//
+// 用法
+//
+//	WaitTimeout(p Proc, d time.Duration) bool  // WaitTimeout 等待进程结束或超时，供测试与关停使用
+//	type PTYSize（导出类型，同包与上层均可使用）
+//	type StartSpec（导出类型，同包与上层均可使用）
+//	同包调用：process → cgroup_linux.go, policy.go 等；PTYSize → pty_darwin.go, pty_linux.go 等；Close() → pty_darwin.go, pty_linux.go 等
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/start.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 13 个
+//	[关键引用] process ← cgroup_linux.go, policy.go, seatbelt.go
+//
+// 主要符号
+//
+//	type PTYSize struct {…}
+//	type StartSpec struct {…}
+//	type ExitInfo struct {…}
+//	type Proc interface {…}
+//	WaitTimeout(p Proc, d time.Duration) bool
+//	... 另有 10 个顶层符号
+
 package host
 
 import (
@@ -63,7 +93,6 @@ type process struct {
 	closeOnce sync.Once
 
 	done chan struct{}
-	once sync.Once
 	exit ExitInfo
 }
 

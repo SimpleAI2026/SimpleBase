@@ -21,7 +21,11 @@ export type {
   AddColumnInput
 } from './databases.js'
 export type { SqlApi } from './sql.js'
-export type { CollectionsApi, CollectionApi } from './collections.js'
+export type {
+  CollectionsApi, CollectionApi, CollectionField, CollectionSchema, CollectionInfo, CollectionList, SchemaDryRunResult, ViewDryRunResult,
+  DocumentRecord, DocumentList, ListDocumentsOptions, ImportCollectionOptions,
+  ImportCollectionResult, ExportCollectionOptions
+} from './collections.js'
 export type { StorageApi, UploadBody } from './storage.js'
 export type {
   SandboxesApi, SandboxInfo, SandboxCapabilities, SandboxCreateInput, SandboxUpdateInput,

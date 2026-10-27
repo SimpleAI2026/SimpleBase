@@ -1,3 +1,34 @@
+// 文件说明：store.go — internal/systemdb 中 ErrUnavailable、IsAdminProject 等符号的实现
+//
+// 用法
+//
+//	NewStoreForTest(db *sql.DB) *Store
+//	IsAdminProject(projectID string) bool  // IsAdminProject 判断 projectID 是否为 admin（系统）项目
+//	(s *Store) DB() *sql.DB// DB 返回底层连接（供仓储使用）
+//	同包调用：Store → agent_schedules.go, agents.go 等；ErrUnavailable → agent_schedules.go, agents.go 等；notifyWrite() → agent_schedules.go, agents.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/store.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/dbbridge, godatabase/ducklake, internal/auth, internal/catalog 等
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] Store ← agent_schedules.go, agents.go, async_flush.go
+//
+// 主要符号
+//
+//	var ErrUnavailable
+//	IsAdminProject(projectID string) bool
+//	type Store struct {…}
+//	(s *Store) DB() *sql.DB
+//	NewStoreForTest(db *sql.DB) *Store
+//	(s *Store) Meta() catalog.Database
+//	... 另有 16 个顶层符号
+
 package systemdb
 
 import (
@@ -5,12 +36,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
 	"sync"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"go.uber.org/zap"
 )
@@ -97,7 +129,7 @@ func (s *Store) notifyWrite(ctx context.Context) {
 	if s == nil || s.factory == nil {
 		return
 	}
-	_ = s.factory.AfterWrite(ctx, s.meta, s.db)
+	_ = s.factory.AfterWrite(ctx, dbbridge.SpecOf(s.meta), s.db)
 }
 
 // NotifyWrite 导出写后同步通知（SYNC-01）：auth 仓储等直接持有 *sql.DB
@@ -125,7 +157,7 @@ func (s *Store) Ping(ctx context.Context) error {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	var n int64
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_migration_versions`).Scan(&n); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_tenants`).Scan(&n); err != nil {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	return nil

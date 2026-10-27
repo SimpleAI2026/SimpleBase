@@ -1,3 +1,33 @@
+// 文件说明：config.go — internal/config 中 Config、StorageModeLocal 等符号的实现
+//
+// 用法
+//
+//	(l LLMConfig) EffectiveAgentToolProtocol() string  // EffectiveAgentToolProtocol 返回归一后的工具协议，空值视为 auto
+//	(l LLMConfig) EffectiveAgentMaxIterations() int  // EffectiveAgentMaxIterations 返回工具迭代上限，零值为 8
+//	同包调用：Config → env.go, http_boundary.go 等；ProviderConfig → env.go, yaml.go；defaults() → env.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/config.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backup.go, env.go, http_boundary.go, yaml.go
+//	[关键引用] Config ← env.go, http_boundary.go, yaml.go
+//
+// 主要符号
+//
+//	type Config struct {…}
+//	const StorageModeLocal
+//	const StorageModeS3
+//	const DefaultDataDir
+//	type StorageConfig struct {…}
+//	type HTTPConfig struct {…}
+//	... 另有 63 个顶层符号
+
 package config
 
 import (
@@ -33,6 +63,8 @@ type Config struct {
 	Limits         LimitsConfig         `yaml:"limits"`
 	Observability  ObservabilityConfig  `yaml:"observability"`
 	SystemDatabase SystemDatabaseConfig `yaml:"system_database"`
+	Files          FilesConfig          `yaml:"files"`
+	Backup         BackupConfig         `yaml:"backup"`
 }
 
 // 存储模式取值（storage.database / storage.files）。
@@ -65,6 +97,9 @@ type HTTPConfig struct {
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	IdleTimeout     time.Duration `yaml:"idle_timeout"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+	Gzip            bool          `yaml:"gzip"`
+	TrustedProxies  []string      `yaml:"trusted_proxies"`
+	CORS            CORSConfig    `yaml:"cors"`
 }
 
 type InstanceConfig struct {
@@ -85,7 +120,8 @@ type InstanceLeaseConfig struct {
 }
 
 const (
-	EngineDuckLake = "ducklake"
+	EngineDuckDB = "duckdb"
+	EngineSQLite = "sqlite"
 
 	// catalog 引擎取值（ducklake-duckdb-catalog-plan §2）。
 	CatalogEngineDuckDB = "duckdb"
@@ -96,7 +132,7 @@ const (
 )
 
 type DatabaseConfig struct {
-	// Engine 用户库后端；仅允许 ducklake（缺省即 ducklake）。历史 local/turso 已退役。
+	// Engine 新建项目默认的单文件引擎：duckdb（缺省）| sqlite。每个项目一个文件，建后不可变更。
 	Engine            string         `yaml:"engine"`
 	CacheDir          string         `yaml:"cache_dir"`
 	CacheMaxBytes     int64          `yaml:"cache_max_bytes"`
@@ -232,7 +268,7 @@ type AgentConfig struct {
 	TraceLog bool `yaml:"trace_log"`
 	// ShellIsolation 是本机 shell 的隔离策略（planv6.2）。默认关闭。
 	// 服务端云助手的 sandbox_shell 走云沙盒（sandbox.*），不经过它；
-	// 目前只有 cloudagent CLI 会启动本机 shell，而 CLI 读的是 ~/.cloudagent/config.json，
+	// 目前只有 gocloudagent CLI 会启动本机 shell，而 CLI 读的是 ~/.gocloudagent/config.json，
 	// 这一段在服务端只做解析与校验，供操作者对照抄写。
 	ShellIsolation ShellIsolationConfig `yaml:"shell_isolation"`
 }
@@ -439,10 +475,14 @@ type LimitsConfig struct {
 	MaxConcurrentQueries int           `yaml:"max_concurrent_queries"`
 	MaxBatchStatements   int           `yaml:"max_batch_statements"`
 	MaxSQLBytes          int           `yaml:"max_sql_bytes"`
-	// MaxConcurrentGoRuns 是 /go 调用与调试台试跑的并发上限（GF-RUN-04）。
+	// MaxConcurrentGoRuns 是 /go、调试试跑、cron 与事件触发器的共享并发上限（GF-RUN-04）。
 	// 每次调用都会编译执行源码，满载时返回 503 拒绝，防止高频调用耗尽
 	// CPU / 内存。0 视为默认值（见 defaults）。
-	MaxConcurrentGoRuns int `yaml:"max_concurrent_go_runs"`
+	MaxConcurrentGoRuns int             `yaml:"max_concurrent_go_runs"`
+	MaxFilterScanRows   int             `yaml:"max_filter_scan_rows"`
+	MaxImportBytes      int64           `yaml:"max_import_bytes"`
+	RealtimeMaxConns    int             `yaml:"realtime_max_conns"`
+	RateLimit           RateLimitConfig `yaml:"rate_limit"`
 }
 
 type ObservabilityConfig struct {
@@ -532,6 +572,12 @@ func defaults() Config {
 			WriteTimeout:    30 * time.Second,
 			IdleTimeout:     60 * time.Second,
 			ShutdownTimeout: 30 * time.Second,
+			CORS: CORSConfig{
+				AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+				AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-Id"},
+				ExposedHeaders: []string{"X-Request-Id", "Content-Disposition"},
+				MaxAge:         600,
+			},
 		},
 		Instance: InstanceConfig{
 			Writable: true,
@@ -543,7 +589,7 @@ func defaults() Config {
 			},
 		},
 		Database: DatabaseConfig{
-			Engine:            EngineDuckLake,
+			Engine:            EngineDuckDB,
 			CacheMaxBytes:     DefaultCacheMaxBytes,
 			CacheMaxDatabases: DefaultCacheMaxDatabases,
 			IdleTimeout:       5 * time.Minute,
@@ -616,6 +662,10 @@ func defaults() Config {
 			MaxBatchStatements:   100,
 			MaxSQLBytes:          65536,
 			MaxConcurrentGoRuns:  16,
+			MaxFilterScanRows:    50000,
+			MaxImportBytes:       128 << 20,
+			RealtimeMaxConns:     200,
+			RateLimit:            RateLimitConfig{Burst: 2, ExemptSSE: true},
 		},
 		Observability: ObservabilityConfig{
 			LogLevel:    "info",
@@ -628,6 +678,9 @@ func defaults() Config {
 			MetricsFlushInterval: 15 * time.Second,
 			LogFlushInterval:     15 * time.Second,
 			LogKeepDays:          14,
+		},
+		Backup: BackupConfig{
+			Dir: "./backups", KeepLast: 7, KeepDays: 30, MaxPerProject: 14, SnapshotTimeout: 10 * time.Minute,
 		},
 	}
 }
@@ -689,10 +742,10 @@ func (c Config) Validate() error {
 	if c.Instance.Lease.TTL < 0 || c.Instance.Lease.Grace < 0 || c.Instance.Lease.RenewInterval < 0 {
 		errs = append(errs, errors.New("instance.lease durations must be non-negative"))
 	}
-	switch strings.ToLower(c.Database.Engine) {
-	case "", EngineDuckLake:
+	switch strings.ToLower(strings.TrimSpace(c.Database.Engine)) {
+	case "", EngineDuckDB, EngineSQLite:
 	default:
-		errs = append(errs, fmt.Errorf("database.engine must be ducklake (got %q); local/turso engines were removed", c.Database.Engine))
+		errs = append(errs, fmt.Errorf("database.engine must be duckdb or sqlite (got %q)", c.Database.Engine))
 	}
 	if c.Database.DuckLake.Threads < 0 {
 		errs = append(errs, errors.New("database.ducklake.threads must be non-negative"))
@@ -749,6 +802,10 @@ func (c Config) Validate() error {
 	}
 	errs = append(errs, validateLLMAgent(c.LLM)...)
 	errs = append(errs, validateAgent(c.Agent)...)
+	errs = append(errs, validateHTTPBoundary(c)...)
+	if err := validateBackup(c.Backup); err != nil {
+		errs = append(errs, err)
+	}
 
 	if err := validateStorage(c.Storage, c.Database.CacheDir); err != nil {
 		errs = append(errs, err)

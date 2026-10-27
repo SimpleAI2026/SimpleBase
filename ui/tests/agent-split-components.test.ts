@@ -92,7 +92,7 @@ describe('AgentListPanel', () => {
 
   it('空态提供创建入口，重试事件透传到宿主', async () => {
     const w = mountList({ agents: [], showEmpty: true })
-    expect(w.text()).toContain('还没有 Agent')
+    expect(w.text()).toContain('暂无 Agent')
     await w.get('.empty-action').trigger('click')
     expect(w.emitted('create')).toHaveLength(1)
 

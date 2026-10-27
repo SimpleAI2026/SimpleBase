@@ -94,8 +94,14 @@ func TestCreateDatabase_Success(t *testing.T) {
 	if db.DataModel != DataModelCollection {
 		t.Fatalf("default data model %s", db.DataModel)
 	}
-	if descriptor.calls != 1 {
-		t.Fatalf("expected 1 descriptor write, got %d", descriptor.calls)
+	if db.DatabasePath == "" {
+		t.Fatal("expected project database path")
+	}
+	if engine, err := DatabaseEngine(db.DatabasePath); err != nil || engine != EngineDuckDB {
+		t.Fatalf("engine=%q err=%v", engine, err)
+	}
+	if descriptor.calls != 0 {
+		t.Fatalf("project file model must not write DuckLake descriptor, got %d", descriptor.calls)
 	}
 }
 
@@ -117,6 +123,9 @@ func TestCreateDatabase_SQLDataModelRoundTrip(t *testing.T) {
 	}
 	if got.DataModel != DataModelSQL {
 		t.Fatalf("loaded model %s", got.DataModel)
+	}
+	if got.DatabasePath != db.DatabasePath || got.DatabasePath == "" {
+		t.Fatalf("loaded database path %q, want project storage path", got.DatabasePath)
 	}
 	if _, err := svc.CreateDatabase(ctx, CreateDatabaseInput{
 		TenantID: tenantID, ProjectID: projectID, Name: "bad", DataModel: "document",
@@ -153,28 +162,28 @@ func TestCreateDatabase_DuplicateNameRejected(t *testing.T) {
 }
 
 func TestCreateDatabase_DescriptorWriteFailureDegrades(t *testing.T) {
+	// 项目单文件模型不再写 S3 descriptor；descriptor 故障不得影响建库。
 	descriptor := &fakeDescriptorWriter{failNext: true}
 	svc, repo, tenantID, projectID := setupService(t, descriptor)
 
-	_, err := svc.CreateDatabase(context.Background(), CreateDatabaseInput{
+	db, err := svc.CreateDatabase(context.Background(), CreateDatabaseInput{
 		TenantID:  tenantID,
 		ProjectID: projectID,
 		Name:      "mydb",
 	})
-	if !errors.Is(err, ErrDescriptorWrite) {
-		t.Fatalf("expected ErrDescriptorWrite, got %v", err)
+	if err != nil {
+		t.Fatalf("descriptor must not gate project database creation: %v", err)
+	}
+	if db.Status != DatabaseReady || descriptor.calls != 0 {
+		t.Fatalf("status=%s calls=%d", db.Status, descriptor.calls)
 	}
 
-	// 数据库记录仍存在且被标记为 degraded（补偿），而非丢失。
 	dbs, _, err := repo.ListDatabases(context.Background(), projectID, Page{})
 	if err != nil {
 		t.Fatalf("list databases: %v", err)
 	}
 	if len(dbs) != 1 {
-		t.Fatalf("expected 1 database record, got %d", len(dbs))
-	}
-	if dbs[0].Status != DatabaseDegraded {
-		t.Fatalf("expected degraded status, got %s", dbs[0].Status)
+		t.Fatalf("expected 1 default database record, got %d", len(dbs))
 	}
 }
 
@@ -222,7 +231,7 @@ func TestStateTransitions(t *testing.T) {
 
 // doIllegalTransition 尝试 ready -> creating（非法），验证 repository 拒绝。
 func doIllegalTransition(svc *Service, id string) error {
-	_, err := svc.repo.TransitionDatabase(context.Background(), id, []DatabaseStatus{DatabaseOpening}, DatabaseCreating, time.Now())
+	_, err := svc.repo.TransitionDatabase(context.Background(), id, []DatabaseStatus{DatabaseDegraded}, DatabaseCreating, time.Now())
 	return err
 }
 

@@ -1,3 +1,34 @@
+// 文件说明：error.go — internal/api 中 APIError、APIErrorBody 等符号的实现
+//
+// 用法
+//
+//	NewAPIError(status int, code, message, requestID string) *APIError
+//	(e *APIError) Error() string
+//	Error(err error, requestID string) *APIError  // Error 编码已知的领域错误类型到 APIError
+//	同包调用：Error() → agent_handler.go, agent_handler.go 等；WriteError() → agent_handler.go, agent_schedule_handler.go 等；NewAPIError() → agent_handler.go, api_keys_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/error.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gocloudagent, godatabase, godatabase/kv, godatabase/lease 等
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Error() ← agent_handler.go, agent_schedule_handler.go
+//
+// 主要符号
+//
+//	type APIError struct {…}
+//	type APIErrorBody struct {…}
+//	type APIErrorDetail struct {…}
+//	(e *APIError) Error() string
+//	NewAPIError(status int, code, message, requestID string) *APIError
+//	Error(err error, requestID string) *APIError
+//	... 另有 5 个顶层符号
+
 package api
 
 import (
@@ -6,15 +37,15 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/kv"
+	"github.com/linkxzhou/SimpleBase/godatabase/lease"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/cloudagent"
-	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/kv"
-	"github.com/linkxzhou/SimpleBase/internal/database/lease"
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
@@ -33,9 +64,11 @@ type APIErrorBody struct {
 }
 
 type APIErrorDetail struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	RequestID string `json:"request_id"`
+	Code        string `json:"code"`
+	Message     string `json:"message"`
+	RequestID   string `json:"request_id"`
+	Field       string `json:"field,omitempty"`
+	FailedIndex *int   `json:"failed_index,omitempty"`
 }
 
 func (e *APIError) Error() string { return e.Body.Error.Code + ": " + e.Body.Error.Message }
@@ -69,8 +102,8 @@ func Error(err error, requestID string) *APIError {
 		return apiErr
 	}
 	// 云 Agent 错误码只使用固定文案，不将上游原文传给前端。
-	var agentError *cloudagent.RunError
-	if errors.Is(err, cloudagent.ErrThreadBusy) || errors.As(err, &agentError) {
+	var agentError *gocloudagent.RunError
+	if errors.Is(err, gocloudagent.ErrThreadBusy) || errors.As(err, &agentError) {
 		re := agentbridge.ClassifyError(err)
 		known := map[string]int{
 			"agent_thread_busy":     http.StatusConflict,
@@ -169,6 +202,9 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, catalog.ErrInvalidName) {
 		return NewAPIError(http.StatusBadRequest, "invalid_database_name", "invalid database name", requestID)
 	}
+	if errors.Is(err, catalog.ErrInvalidDatabasePath) {
+		return NewAPIError(http.StatusInternalServerError, "invalid_database_path", "project database storage is invalid", requestID)
+	}
 	if errors.Is(err, catalog.ErrInvalidCursor) {
 		return NewAPIError(http.StatusBadRequest, "invalid_cursor", "invalid database list cursor", requestID)
 	}
@@ -194,13 +230,13 @@ func Error(err error, requestID string) *APIError {
 		return NewAPIError(http.StatusServiceUnavailable, "system_store_unavailable", "system database unavailable", requestID)
 	}
 	// database 运行时错误
-	if errors.Is(err, database.ErrDatabaseDeleting) {
+	if errors.Is(err, godatabase.ErrDatabaseDeleting) {
 		return NewAPIError(http.StatusConflict, "database_deleting", "database is being deleted", requestID)
 	}
-	if errors.Is(err, database.ErrDatabaseNotReady) {
+	if errors.Is(err, godatabase.ErrDatabaseNotReady) {
 		return NewAPIError(http.StatusConflict, "database_not_ready", "database is not ready", requestID)
 	}
-	if errors.Is(err, database.ErrWriterUnavailable) {
+	if errors.Is(err, godatabase.ErrWriterUnavailable) {
 		return NewAPIError(http.StatusServiceUnavailable, "writer_unavailable", "this instance is not writable", requestID)
 	}
 	// 写租约获取在途（perf §1.5）：503 + Retry-After，客户端应稍后重试。
@@ -210,16 +246,16 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, lease.ErrLeaseHeld) {
 		return NewAPIError(http.StatusServiceUnavailable, "lease_held", "write lease held by another instance; retry shortly", requestID)
 	}
-	if errors.Is(err, database.ErrRowLimitExceeded) {
+	if errors.Is(err, godatabase.ErrRowLimitExceeded) {
 		return NewAPIError(422, "row_limit_exceeded", "query row limit exceeded", requestID)
 	}
-	if errors.Is(err, database.ErrRegistryClosed) {
+	if errors.Is(err, godatabase.ErrRegistryClosed) {
 		return NewAPIError(http.StatusServiceUnavailable, "registry_closed", "database registry is closed", requestID)
 	}
-	if errors.Is(err, database.ErrUnsupportedValue) {
+	if errors.Is(err, godatabase.ErrUnsupportedValue) {
 		return NewAPIError(http.StatusInternalServerError, "unsupported_value_type", "unsupported column value type", requestID)
 	}
-	if errors.Is(err, database.ErrQueryConcurrency) {
+	if errors.Is(err, godatabase.ErrQueryConcurrency) {
 		return NewAPIError(http.StatusTooManyRequests, "query_concurrency_exceeded", "query concurrency limit exceeded", requestID)
 	}
 	// sqlguard 错误

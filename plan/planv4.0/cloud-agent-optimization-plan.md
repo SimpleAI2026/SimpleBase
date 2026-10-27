@@ -3,7 +3,7 @@
 > **仓库**：SimpleBase
 > **状态**：已实施（2026-10-08）。S0–S5 全部落地：fakellm 测试基建与 E01–E16 全链路用例、后端 BUG 修复（02/03/06/07/08/11）、前端两列布局与 `components/agent/` 组件族、`useAgentConversation` 状态层、脚本（test.sh / smoke.sh / llm-integration.sh / fakellm-server）。验证：`./scripts/test.sh` 后端全绿；前端 `npm test` 463 用例全过（分支覆盖 95.07%，函数 94.24% 为存量缺口）。
 > **前置**：`plan/planv2.0/cloud-agent-plan.md`、`plan/planv3.0/cloud-agent-sandbox-plan.md`、`plan/planv4.0/cloud-sandbox-plan.md`
-> **关联代码**：`internal/cloudagent/{runtime,model,modules,access}.go`、`internal/api/{agent_handler,cloudagent_access}.go`、`internal/systemdb/agents.go`、`ui/src/pages/AgentManager.vue`、`ui/src/components/ai/*`、`ui/src/composables/useAgentRun.ts`、`ui/src/services/http-api.ts`
+> **关联代码**：`internal/gocloudagent/{runtime,model,modules,access}.go`、`internal/api/{agent_handler,gocloudagent_access}.go`、`internal/systemdb/agents.go`、`ui/src/pages/AgentManager.vue`、`ui/src/components/ai/*`、`ui/src/composables/useAgentRun.ts`、`ui/src/services/http-api.ts`
 > **联调模型**：SiliconFlow `deepseek-ai/DeepSeek-V4-Flash`（OpenAI 兼容）；默认测试一律用本地 fake upstream，不访问外网。
 
 ---
@@ -212,14 +212,14 @@ LLM 未启用时返回 `{"default_model":"","models":[]}`（200），前端显�
 |---|---|---|
 | fake OpenAI 兼容 upstream | `internal/testutil/fakellm/server.go` | `httptest.Server` 实现 `/v1/chat/completions`（stream / 非 stream）。按「剧本」返回：正文分块（可设每块延迟）、`reasoning_content` 增量、原生 `tool_calls` 增量（含缺 id）、文本协议 `TOOL_CALL`、usage 尾帧、指定 HTTP 状态（400 tools 不支持 / 401 / 429 / 500）、中途断流、永不返回（测超时）。记录每次请求体供断言（是否带 `tools`、消息历史内容） |
 | 剧本匹配 | 同上 | 按最后一条 user 消息关键字或请求序号选择响应；剧本以 Go 结构体声明，可 JSON 序列化（供 §5.5 进程模式复用） |
-| 全链路 harness | `internal/api/agent_e2e_harness_test.go` | 用 fakellm 的 URL 构造真实 `config.LLM` → 真实 `llmgateway.Service` → `cloudagent.Runtime` → 真实 router（`httptest`）；DB / S3 / Logs 工具依赖用 fake 实现；systemdb 用现有测试用嵌入式库 |
+| 全链路 harness | `internal/api/agent_e2e_harness_test.go` | 用 fakellm 的 URL 构造真实 `config.LLM` → 真实 `llmgateway.Service` → `gocloudagent.Runtime` → 真实 router（`httptest`）；DB / S3 / Logs 工具依赖用 fake 实现；systemdb 用现有测试用嵌入式库 |
 | SSE 解析辅助 | `internal/api/sse_test_helpers_test.go` | 读取响应体为 `[]Event`，带时间戳（测首帧延迟、帧顺序） |
 
 > fakellm 不含任何真实 key；harness 用占位 key `test-key`，并断言日志 / 审计 / SSE 中不出现该字符串（验证脱敏路径）。
 
 ### 5.2 后端用例
 
-**模型适配与 runtime（`internal/cloudagent`，fake ChatClient 或 fakellm）**
+**模型适配与 runtime（`internal/gocloudagent`，fake ChatClient 或 fakellm）**
 
 | ID | 用例 | 断言 |
 |---|---|---|
@@ -304,7 +304,7 @@ v4.0 的 U01–U11 保留并迁移到新组件路径。
 | 脚本 | 用途 |
 |---|---|
 | `scripts/agent/fakellm/main.go` | 以进程方式启动 §5.1 的 fakellm（`go run ./scripts/agent/fakellm -addr :18081 -script default`），让本地 dev server 不配真实 key 也能完整联调 UI |
-| `scripts/agent/test.sh` | 一键回归：`go build ./internal/... ./cmd/...` → `go test ./internal/cloudagent ./internal/api ./internal/llmgateway ./internal/systemdb ./internal/config` → `go test -race` 同范围 → `cd ui && yarn build && yarn test`；任一失败即退出非零 |
+| `scripts/agent/test.sh` | 一键回归：`go build ./internal/... ./cmd/...` → `go test ./internal/gocloudagent ./internal/api ./internal/llmgateway ./internal/systemdb ./internal/config` → `go test -race` 同范围 → `cd ui && yarn build && yarn test`；任一失败即退出非零 |
 | `scripts/agent/smoke.sh` | 对运行中的服务做 curl 冒烟：创建 thread → 选通用助手 → 流式 run → 校验帧序（run → token → … → usage → end）、`call_id` 配对、取消、重试、runs 指标；依赖 `curl`、`jq`；参数 `BASE_URL`、`PROJECT_ID`、`SIMPLEBASE_API_KEY` 从环境读取，**不接受命令行明文 key** |
 | `scripts/agent/llm-integration.sh` | 检查 `SIMPLEBASE_LLM_PROVIDER_OPENAI_API_KEY` 是否存在（只打印「已设置/未设置」），运行 `go test -tags llm_integration ./internal/api -run 'TestLLM' -v -timeout 10m`，汇总 R01–R12 结果行 |
 

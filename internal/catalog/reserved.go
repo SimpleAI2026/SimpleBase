@@ -1,3 +1,33 @@
+// 文件说明：reserved.go — internal/catalog 中 DatabaseKindUser、DatabaseKindSystem 等符号的实现
+//
+// 用法
+//
+//	IsSystemProject(id string) bool  // IsSystemProject 判断是否为系统（admin）项目
+//	IsSystemDatabase(d Database) bool  // IsSystemDatabase 判断 catalog 行是否为系统库
+//	同包调用：DatabaseKindSystem → data_model.go, service.go 等；DatabaseKindKV → data_model.go, service.go 等；DataModelCollection → data_model.go, sql_repository.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/reserved.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cache.go, data_model.go, errors.go, model.go, project_storage.go 等 9 个
+//	[关键引用] DatabaseKindSystem ← data_model.go, service.go, sql_repository.go
+//
+// 主要符号
+//
+//	const DatabaseKindUser
+//	const DatabaseKindSystem
+//	const DatabaseKindKV
+//	const KVDatabaseName
+//	const ReservedTenantID
+//	const ReservedSystemProjectID
+//	... 另有 6 个顶层符号
+
 package catalog
 
 // 系统库使用的稳定 ID。

@@ -8,7 +8,7 @@ group: Key-Value
 
 每个项目自带一份 Key-Value，创建项目后即可使用。它不在某个数据库里，控制台也不需要选择数据库。
 
-语义与 Redis 的 key、string、hash、list、set、zset 对齐。底层是该项目专属的 DuckLake 存储，调用方只使用下面这一条 HTTP。
+语义与 Redis 的 key、string、hash、list、set、zset 对齐。底层与项目数据库共用同一个单文件（内部表以 `__sb_` 为前缀，用户 SQL 无法访问），调用方只使用下面这一条 HTTP。
 
 ## 请求
 

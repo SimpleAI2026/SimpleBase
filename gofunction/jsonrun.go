@@ -1,10 +1,32 @@
-// HTTP+JSON 调用云函数所需的公共 API 门面：
-// ValidateHTTPFuncs（保存时校验）与 RunJSON（invoke 时执行）。
+// 文件说明：jsonrun.go — HTTP+JSON 调用云函数所需的公共 API 门面：
 //
-// 约定（见 plan/planv2.0/ui-gofunction-plan.md §3.1/§6）：
-//   - 每个包级导出函数必须恰好 1 个入参、1 个返回值
-//   - 入参/返回值类型必须能通过 typeChange（未导出字段会 panic，须保存时拦截）
-//   - 未导出函数不可调用（与列表不可见一致）
+// 用法
+//
+//	ValidateHTTPFuncs(source string) ([]FuncInfo, error)  // ValidateHTTPFuncs 编译源码并校验全部包级导出函数符合 HTTP 约定：
+//	RunJSON(ctx context.Context, seqid, fname, source, funcName string, body []byte) ...  // RunJSON 编译并执行 funcName，body 解到唯一形参，返回值 JSON 编码
+//	同包调用：RunJSON() → gofunction.go
+//
+// 调用架构
+//
+//	[上游] gofunction/bench, gofunction/cmd/gofunction, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/jsonrun.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/internal/interp
+//	[同包] gofunction.go
+//	[关键引用] RunJSON() ← gofunction.go
+//
+// 主要符号
+//
+//	var ErrFunctionNotFound
+//	var ErrTimeout
+//	var ErrBind
+//	var ErrCompile
+//	ValidateHTTPFuncs(source string) ([]FuncInfo, error)
+//	RunJSON(ctx context.Context, seqid, fname, source, funcName string, body []byte) ...
+
 package gofunction
 
 import (

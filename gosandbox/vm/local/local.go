@@ -1,17 +1,32 @@
-// Package local 是 vm.Driver 的本机实现：每个「VM」是 Root 下的一个工作区目录，
-// 命令经 gosandbox/host（Linux: bubblewrap + Landlock + seccomp；macOS: Seatbelt）隔离执行。
+// 文件说明：local.go — vm.Driver 的本机实现：每个「VM」是 Root 下的一个工作区目录，
 //
-// 这不是虚拟机：命令与宿主共享内核，且能读到宿主文件系统的大部分内容。
-// 本包只把服务自己的数据（DataDir、缓存、配置、其他沙盒的工作区）从沙盒视角遮住，
-// 因此适合自托管 / 受信任用户，不适合多租户不可信代码。
+// 用法
 //
-// 约定：
-//   - API 层的路径仍是 Spec.Workdir（默认 /workspace）下的逻辑路径，驱动把它映射到真实工作区；
-//     命令的当前目录就是真实工作区，所以命令里请用相对路径，字面量 /workspace 在沙盒里不存在。
-//   - 沙盒进程的环境变量不继承服务进程，只有最小集合加调用方传入的 Env。
-//   - 输出为 stdout 与 stderr 合并（写入 ExecResult.Stdout）。
-//   - 网络恒为关闭；Spec.Network=public 会被拒绝。
-//   - 文件读写经 os.Root 完成，沙盒里创建的符号链接无法把父进程的读写带出工作区。
+//	New(ctx context.Context, opts Options) (*Driver, error)
+//	(d *Driver) Ensure(_ context.Context, t vm.Target) error  // Ensure 创建工作区（幂等）
+//	(d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecResult ...  // Exec 在隔离中执行一条命令
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/local/local.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/host, gosandbox/vm
+//	[同包] open_unix.go
+//
+// 主要符号
+//
+//	type Options struct {…}
+//	type Driver struct {…}
+//	New(ctx context.Context, opts Options) (*Driver, error)
+//	(d *Driver) Ensure(_ context.Context, t vm.Target) error
+//	(d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecResult ...
+//	(d *Driver) ReadFile(_ context.Context, t vm.Target, p string) ([]byte, error)
+//	... 另有 38 个顶层符号
+
 package local
 
 import (

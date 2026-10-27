@@ -1,7 +1,33 @@
-// Package auth 提供 SimpleBase 的认证与授权原语。
+// 文件说明：principal.go — SimpleBase 的认证与授权原语
 //
-// 本文件只定义 Principal 类型和权限常量，供 catalog/registry/api 共享。
-// Service、middleware、api_key_repository 由 Plan 5 补充。
+// 用法
+//
+//	(p Principal) HasPermission(perm Permission) bool  // HasPermission 判断 principal 是否拥有给定权限
+//	(p Principal) CanAccessProject(projectID string) bool  // CanAccessProject 判断 principal 是否可访问指定 project
+//	同包调用：Principal → cache.go, delegation.go 等；Permission → api_key_repository.go, delegation.go 等；HasPermission() → middleware.go, service.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/principal.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] Principal ← cache.go, delegation.go, middleware.go
+//
+// 主要符号
+//
+//	type Permission string
+//	const DatabaseRead
+//	const DatabaseWrite
+//	const DatabaseAdmin
+//	const LLMInvoke
+//	const ProjectAdmin
+//	... 另有 4 个顶层符号
+
 package auth
 
 // Permission 是 SimpleBase 的权限粒度。
@@ -36,6 +62,7 @@ type Principal struct {
 	TenantID    string
 	ProjectIDs  map[string]struct{}
 	Permissions map[Permission]struct{}
+	Scope       *KeyPolicy
 	// Delegated 标记助手委托令牌主体（planv6.0 D1）：路由级 delegable 标记
 	// 由 api 包注入 Echo context，Require 据此拒绝未标记路由（默认拒绝）。
 	Delegated bool

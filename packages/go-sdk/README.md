@@ -21,7 +21,7 @@ if err != nil { log.Fatal(err) }
 fmt.Println(result.Columns, result.Rows)
 ```
 
-示例依次需要导入标准库 `context`、`fmt`、`log`、`os`。提供数据库列表/创建/获取/删除，数据库级 SQL 与文档集合 CRUD，以及项目级对象存储的列表、上传、删除与预签名。所有方法接受 `context.Context`；可通过 `Options.HTTPClient` 注入自定义 HTTP 客户端。上传接收 `io.Reader` 并流式构造 multipart 请求；调用方负责关闭自己提供的文件或其他资源。
+示例依次需要导入标准库 `context`、`fmt`、`log`、`os`。提供数据库列表/创建/获取/删除，数据库级 SQL 与文档集合 CRUD，以及项目级对象存储的列表、上传、删除与预签名。文档查询使用 `ListDocumentsWithOptions`；另有 `GetDocument`、`PatchDocument`、`BatchDocuments`、`TruncateCollection`、Schema 管理和项目备份 `List/Create/Delete/RestoreBackup`。所有方法接受 `context.Context`；可通过 `Options.HTTPClient` 注入自定义 HTTP 客户端。上传接收 `io.Reader` 并流式构造 multipart 请求；调用方负责关闭自己提供的文件或其他资源。集合 `ImportCollection` 同样接收 Reader，`ExportCollection` 直接写入调用方的 Writer。另有 `DryRunView`、事件触发器 CRUD/调用与 admin 项目 `MigrationStatus/MigrationPlan`。
 
 HTTP 非 2xx 错误可通过 `errors.As(err, &apiErr)` 提取 `*gosdk.APIError`（`Status`、`Code`、`Message`、`RequestID`）；事务批处理即使 HTTP 200 仍可能在 `BatchResult.Error` 返回回滚信息，非事务批处理逐项检查 `ErrorCode`。不要把长期 API Key 放在客户端代码或日志中。公共用法见 `docs/sdk/go-*.md`。
 

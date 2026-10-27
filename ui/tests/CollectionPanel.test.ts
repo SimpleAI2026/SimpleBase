@@ -10,7 +10,7 @@ vi.mock('@/services/api', async () => {
   return { api: m.api }
 })
 
-describe('CollectionPanel (数据库管理 / 集合)', () => {
+describe('CollectionPanel (数据管理 / 集合)', () => {
   beforeEach(() => resetApiMocks())
 
   it('loads collections and emits view / add / create actions', async () => {

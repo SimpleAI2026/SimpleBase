@@ -1,5 +1,34 @@
 //go:build linux
 
+// 文件说明：cgroup_linux.go — gosandbox/host 的内部实现（cgroupRoot、cgroupGroup 等）
+//
+// 用法
+//
+//	type cgroupGroup（包内使用）
+//	同包调用：cgroupGroup → run_linux.go, start_linux.go；newCgroupGroup() → run_linux.go, start_linux.go；apply() → run_linux.go, start_linux.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/cgroup_linux.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 14 个
+//	[关键引用] cgroupGroup ← run_linux.go, start_linux.go
+//
+// 主要符号
+//
+//	var cgroupRoot
+//	type cgroupGroup struct {…}
+//	currentCgroupDir() (string, error)
+//	delegatedBase() (string, error)
+//	newCgroupGroup() (*cgroupGroup, error)
+//	(g *cgroupGroup) apply(p Policy) error
+//	... 另有 2 个顶层符号
+
 package host
 
 import (

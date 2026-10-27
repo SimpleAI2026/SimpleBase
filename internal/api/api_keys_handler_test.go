@@ -24,7 +24,7 @@ func newAPIKeyTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
 	for _, stmt := range []string{
-		`CREATE TABLE sys_projects (id VARCHAR NOT NULL, tenant_id VARCHAR NOT NULL, name VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL)`,
+		`CREATE TABLE sys_projects (id VARCHAR NOT NULL, tenant_id VARCHAR NOT NULL, name VARCHAR NOT NULL, database_path VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL)`,
 		`CREATE TABLE sys_api_keys (
 			id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, key_hash VARCHAR NOT NULL, permissions VARCHAR NOT NULL,
 			created_at TIMESTAMP NOT NULL, revoked_at TIMESTAMP)`,
@@ -34,7 +34,7 @@ func newAPIKeyTestDB(t *testing.T) *sql.DB {
 		}
 	}
 	now := time.Now().UTC()
-	if _, err := db.ExecContext(ctx, `INSERT INTO sys_projects(id, tenant_id, name, created_at) VALUES(?, ?, ?, ?)`,
+	if _, err := db.ExecContext(ctx, `INSERT INTO sys_projects(id, tenant_id, name, database_path, created_at) VALUES(?, ?, ?, '', ?)`,
 		"proj-1", "tenant-1", "p", now); err != nil {
 		t.Fatal(err)
 	}

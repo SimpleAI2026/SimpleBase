@@ -1,3 +1,26 @@
+// 文件说明：catalog_engine.go — internal/app 的内部实现（bootID、checkCatalogEngine 等）
+//
+// 用法
+//
+//	同包调用：checkCatalogEngine() → app.go；bootID → reset.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/catalog_engine.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/ducklake, internal/objectstore
+//	[同包] app.go, cron_runner.go, identity.go, project_purger.go, reset.go 等 6 个
+//	[关键引用] checkCatalogEngine() ← app.go
+//
+// 主要符号
+//
+//	var bootID
+//	(a *App) checkCatalogEngine(ctx context.Context) error
+
 package app
 
 import (
@@ -5,7 +28,7 @@ import (
 	"os"
 
 	"github.com/google/uuid"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"go.uber.org/zap"
 )
@@ -20,7 +43,7 @@ func (a *App) checkCatalogEngine(ctx context.Context) error {
 	in := ducklake.FormatCheckInput{
 		Engine:    cfg.Database.DuckLake.CatalogEngine,
 		DataRoot:  cfg.Storage.DataDir,
-		Keys:      objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix},
+		Keys:      objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}.DB(),
 		CreatedBy: cfg.Instance.ID + "/" + bootID,
 		Bucket:    cfg.S3.Bucket,
 	}

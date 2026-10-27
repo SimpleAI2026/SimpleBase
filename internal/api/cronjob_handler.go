@@ -1,14 +1,34 @@
-// cronjob_handler.go 实现定时任务（Cron Jobs）的管理与手动触发 handler（ui-cronjob-plan §6）。
+// 文件说明：cronjob_handler.go — 定时任务（Cron Jobs）的管理与手动触发 handler（ui-cronjob-plan §6）
 //
-// 管理面（挂在 /v1/projects/:projectID/cron-jobs 下）：
+// 用法
 //
-//	GET    /cron-jobs            列出
-//	POST   /cron-jobs            创建（校验调度与目标云函数）
-//	GET    /cron-jobs/:jobID     详情
-//	PATCH  /cron-jobs/:jobID     更新（name 不可改）
-//	DELETE /cron-jobs/:jobID     软删
-//	GET    /cron-jobs/:jobID/runs    运行记录
-//	POST   /cron-jobs/:jobID/trigger 手动立即执行（异步，202）
+//	NewCronJobHandler(store *systemdb.Store, writable bool, scheduler ...
+//	(h *CronJobHandler) WithUsage(u UsageService) *CronJobHandler  // WithUsage 挂接配额服务，返回自身便于链式装配
+//	(h *CronJobHandler) List(c echo.Context) error  // List 列出项目内全部任务，附 target_missing 标记
+//	同包调用：Get() → collection_meta_handler.go, collection_transfer.go 等；List() → api_keys_handler.go, backup_handler.go 等；Delete() → api_keys_handler.go, backup_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/cronjob_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/agentbridge, internal/cronjob, internal/systemdb, internal/utils/crontab
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Get() ← collection_meta_handler.go, collection_transfer.go, data_handler.go
+//
+// 主要符号
+//
+//	type CronJobHandler struct {…}
+//	NewCronJobHandler(store *systemdb.Store, writable bool, scheduler ...
+//	(h *CronJobHandler) WithUsage(u UsageService) *CronJobHandler
+//	(h *CronJobHandler) List(c echo.Context) error
+//	(h *CronJobHandler) Get(c echo.Context) error
+//	(h *CronJobHandler) Create(c echo.Context) error
+//	... 另有 23 个顶层符号
+
 package api
 
 import (
@@ -22,6 +42,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/utils/crontab"
@@ -34,7 +55,8 @@ var cronJobNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,62}$`)
 const cronJobInputLimit = 8 * 1024
 
 // cronJobAgentPromptLimit agent 任务提示词上限：16KiB（字节口径，与 cronJobInputLimit 的 len() 一致）。
-const cronJobAgentPromptLimit = 16 * 1024
+// 单一来源在 agentbridge，执行侧按同一值截断。
+const cronJobAgentPromptLimit = agentbridge.CronAgentPromptLimit
 
 // cronJobInterval 域：60s ~ 30 天（§3）。
 const (

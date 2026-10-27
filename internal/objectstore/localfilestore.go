@@ -1,5 +1,26 @@
-// localfilestore.go 提供 FileStore 的本地磁盘实现：文件落在指定根目录下，
-// 进程重启后数据保留。仅用于测试，生产环境使用真实 S3 持久层或本地磁盘持久层。
+// 文件说明：localfilestore.go — FileStore 的本地磁盘实现：文件落在指定根目录下，
+//
+// 用法
+//
+//	NewLocalFileStore(root string) (FileStore, error)
+//	type localFileStore（包内使用）
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/localfilestore.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/atomicfile
+//	[同包] blob.go, client.go, content.go, content_local.go, content_s3.go 等 10 个
+//
+// 主要符号
+//
+//	NewLocalFileStore(root string) (FileStore, error)
+//	... 另有 7 个顶层符号
+
 package objectstore
 
 import (

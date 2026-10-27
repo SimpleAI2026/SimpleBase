@@ -25,7 +25,7 @@ describe('SettingsModal', () => {
     expect(modal.attributes('data-title')).toBe('设置')
     expect(modal.attributes('data-max-width')).toBe('720')
     expect(modal.attributes('data-hide-footer')).toBe('true')
-    expect(wrapper.text()).toContain('连接、默认模型与存储')
+    expect(wrapper.text()).toContain('连接、默认模型、存储与备份')
     expect(wrapper.text()).toContain('连接')
     expect(wrapper.text()).not.toContain('外观')
     const scroller = wrapper.get('.overflow-y-auto')
@@ -34,7 +34,7 @@ describe('SettingsModal', () => {
     expect(wrapper.text()).toContain('模型')
     // 供应商 / 语言页签已下线：语言切换在顶栏，厂商 Key 在模型页
     const tabs = wrapper.findAll('.tab-trigger').map((t) => t.attributes('data-tab'))
-    expect(tabs).toEqual(['connection', 'models', 'storage'])
+    expect(tabs).toEqual(['connection', 'models', 'storage', 'backups'])
 
     await wrapper.get('.tab-emit').trigger('click')
     expect(auth.settingsTab).toBe('connection')

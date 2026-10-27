@@ -2,7 +2,7 @@
 
 > **状态：A1 / A2 / A3 / B1 / C 全部已落地**（见文末 §8 实施记录）。下文 §3–§7 保留为设计依据。
 > 上一轮已完成 `internal/utils` 的建立与第一批抽取（见 §2），本文只规划**剩余部分**。
-> 与 `plan/planv6.2/cloudagent-module-refactor-plan.md` 无关，也不改变任何 HTTP 协议、存储格式或权限语义。
+> 与 `plan/planv6.2/gocloudagent-module-refactor-plan.md` 无关，也不改变任何 HTTP 协议、存储格式或权限语义。
 
 ## 1. 目标与判定标准
 
@@ -23,12 +23,12 @@
 
 | 包 | 收敛的重复 |
 | --- | --- |
-| `crontab` | 从 `cloudagent` 迁出，`cronjob` + `api` 共用 |
+| `crontab` | 从 `gocloudagent` 迁出，`cronjob` + `api` 共用 |
 | `strutil` | 截断 5 份 + CSV 切分 3 份 |
 | `limit` | `Normalize` / `Clamp`，约 20 处 limit 归一 |
 | `mask` | 敏感键正则 2 份（字节级相同）+ `MaskSecretValue` + `audit.Redact` |
 
-基线：`go build ./internal/... ./cmd/...` 与 `go test ./...` 通过；`cloudagent` 模块独立构建通过。
+基线：`go build ./internal/... ./cmd/...` 与 `go test ./...` 通过；`gocloudagent` 模块独立构建通过。
 
 ## 3. 剩余候选（已逐处核对代码）
 
@@ -57,7 +57,7 @@ func Short(data []byte, n int) string     // 前 n 字节 hex，n<=0 返回空
 
 - `auth/service.go:68` 的 `HashKey` 是 HMAC（带 secret），**不合并**。
 - `llmgateway/service.go:231` `credFingerprint` 是多字段 + `\x00` 拼接，**不合并**。
-- `cloudagent/trace.go:77` `hashSummary` 是独立模块，**不可引用**，保持原样。
+- `gocloudagent/trace.go:77` `hashSummary` 是独立模块，**不可引用**，保持原样。
 
 风险：`objectstore/blob.go:383` 的 ETag 取前 8 字节，替换时不得变成全量（会改变对象元数据，虽然只在内存 fake store 中出现）。
 
@@ -190,14 +190,14 @@ func (g *Group[T]) Forget(key string)
 CGO_ENABLED=1 go build ./internal/... ./cmd/...
 CGO_ENABLED=1 go test ./...
 go vet ./internal/utils/... ./internal/database/... ./internal/api/...
-(cd cloudagent && GOWORK=off go build ./... && GOWORK=off go test ./...)
+(cd gocloudagent && GOWORK=off go build ./... && GOWORK=off go test ./...)
 ```
 
 `gofmt`：`internal/` 现有 7 个生产文件未通过：
 
 ```
 internal/api/agent_handler.go          internal/app/app.go
-internal/api/cloudagent_access.go      internal/database/ducklake/catalog_syncer.go
+internal/api/gocloudagent_access.go      internal/database/ducklake/catalog_syncer.go
 internal/api/error.go                  internal/llmgateway/service.go
 internal/api/router.go
 ```
@@ -222,12 +222,12 @@ internal/api/router.go
 1. **原子写并发**：固定 `path+".tmp"` 在并发写同一目标时会互相覆盖（`localfilestore.Put` 同一 key 并发、`local_state` 多写者）。本次**不修**，只是把现有行为收敛到一处，让将来统一修复只需改一个地方。修它需要单独评估权限位（0644 → 0600 + Chmod）与残留 tmp 清理策略。
 2. **`quoteIdentifier` 转义**：改成转义版是纯增强，但会改变含 `"` 标识符的生成 SQL。现有 `collectionNamePattern` / `normalizeSchemaIdent` 白名单已排除这类名字，所以对合法输入输出不变；`schema_rows` 的列名来自 `information_schema`，可能含引号，这是本次要堵的口子。
 3. **单飞泛型化的 panic 传播**：`Do` 内 `fn` panic 时必须先 close `done` 再继续 panic，否则等待者永久阻塞。这是本次必须新增的测试，不能只做 happy path。
-4. **跨模块不可见**：`cloudagent` 侧仍有 `agentcore.Truncate`、`tools.truncateText`、`cli_runner.limitOut`、`trace.hashSummary` 等副本。**不要**试图让它们 import `internal/utils`。若将来确需共用，按 `gosandbox` 模式新增零依赖小模块，由两侧 `require + replace`。
+4. **跨模块不可见**：`gocloudagent` 侧仍有 `agentcore.Truncate`、`tools.truncateText`、`cli_runner.limitOut`、`trace.hashSummary` 等副本。**不要**试图让它们 import `internal/utils`。若将来确需共用，按 `gosandbox` 模式新增零依赖小模块，由两侧 `require + replace`。
 5. **不为对称而建包**：`clamp`、`deref*`、`dedupeStrings` 都因不满足准入标准被明确排除。评审时若有人提议加，先回到 §1 的四条。
 
 ## 7. 与既有计划的差异
 
-- 上一轮排查报告曾建议「合并 6 份脱敏实现」为单一 `redact` 包。实际只做了 `mask`（键名判定 + 掩码），因为 `objectstore.redactor`（`scrubBetween` 按字节区间）、`api.system_redact`（列级白名单）、`cloudagent.agentcore.RedactSecrets`（5 条正则）三者服务对象不同，合并会产出一个带大量开关的组件。**保持现状**，不再推进。
+- 上一轮排查报告曾建议「合并 6 份脱敏实现」为单一 `redact` 包。实际只做了 `mask`（键名判定 + 掩码），因为 `objectstore.redactor`（`scrubBetween` 按字节区间）、`api.system_redact`（列级白名单）、`gocloudagent.agentcore.RedactSecrets`（5 条正则）三者服务对象不同，合并会产出一个带大量开关的组件。**保持现状**，不再推进。
 - 上一轮曾建议 `idgen` 统合 5 处随机 ID。因签名各自绑定业务而降级为「仅记录」，本文不再列入。
 
 ## 8. 实施记录
@@ -240,6 +240,6 @@ internal/api/router.go
 | B1 `singleflight` | 已落地，`lease.Gate` 改为薄封装 | `Gate.Do` 保持「等待者只复用 error」：泛型 `Group[struct{}]`，value 恒为零值。新增 panic 唤醒、`Forget` 不被旧 leader 误删用例；`lease`/`registry`/`utils` 均通过 `-race` |
 | C | 已落地 | 删除 `api.itoa`（`router.go` 补 `strconv`，并 `gofmt`）；`config/env.go` 三处改用 `strutil.SplitCSV`，`envList` 保留「未设置返回 nil」。`context_test` 里对 `itoa` 的断言随别名删除（它在测 `strconv`） |
 
-验收：`go build ./internal/... ./cmd/...`、`go vet ./internal/...`、`go test ./internal/... ./cmd/...` 全部通过；`-race` 覆盖 `utils` / `lease` / `objectstore` / `app`；`cloudagent` 独立模块 `GOWORK=off` 构建与测试通过；`go list -deps ./internal/utils/...` 中除 utils 自身外无任何 SimpleBase 包。
+验收：`go build ./internal/... ./cmd/...`、`go vet ./internal/...`、`go test ./internal/... ./cmd/...` 全部通过；`-race` 覆盖 `utils` / `lease` / `objectstore` / `app`；`gocloudagent` 独立模块 `GOWORK=off` 构建与测试通过；`go list -deps ./internal/utils/...` 中除 utils 自身外无任何 SimpleBase 包。
 
-遗留（沿用 §6，未处理）：固定 `path.tmp` 的并发覆盖风险；`gofmt` 仍有 5 个存量文件未通过（`agent_handler.go`、`cloudagent_access.go`、`error.go`、`app/app.go`、`llmgateway/service.go`），本次未触碰它们。
+遗留（沿用 §6，未处理）：固定 `path.tmp` 的并发覆盖风险；`gofmt` 仍有 5 个存量文件未通过（`agent_handler.go`、`gocloudagent_access.go`、`error.go`、`app/app.go`、`llmgateway/service.go`），本次未触碰它们。

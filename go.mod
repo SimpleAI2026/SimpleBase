@@ -12,7 +12,8 @@ require (
 	github.com/duckdb/duckdb-go/v2 v2.10505.0
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.14.0
-	github.com/linkxzhou/SimpleBase/cloudagent v0.0.0
+	github.com/linkxzhou/SimpleBase/gocloudagent v0.0.0
+	github.com/linkxzhou/SimpleBase/godatabase v0.0.0
 	github.com/linkxzhou/SimpleBase/gofunction v0.0.0
 	github.com/linkxzhou/SimpleBase/gosandbox v0.0.0
 	github.com/prometheus/client_golang v1.23.0
@@ -101,8 +102,10 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
+replace github.com/linkxzhou/SimpleBase/godatabase => ./godatabase
+
 replace github.com/linkxzhou/SimpleBase/gofunction => ./gofunction
 
 replace github.com/linkxzhou/SimpleBase/gosandbox => ./gosandbox
 
-replace github.com/linkxzhou/SimpleBase/cloudagent => ./cloudagent
+replace github.com/linkxzhou/SimpleBase/gocloudagent => ./gocloudagent

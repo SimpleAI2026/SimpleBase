@@ -8,6 +8,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/gofunction"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 func TestGoFunctionErrorHelpers(t *testing.T) {
@@ -44,10 +45,10 @@ func TestGoFunctionErrorHelpers(t *testing.T) {
 		}
 	}
 
-	if truncateMessage("abc", 10) != "abc" {
+	if strutil.TruncateEllipsis("abc", 10) != "abc" {
 		t.Fatal("short")
 	}
-	long := truncateMessage("abcdefghij", 3)
+	long := strutil.TruncateEllipsis("abcdefghij", 3)
 	if long != "abc…" {
 		t.Fatalf("trunc=%q", long)
 	}

@@ -1,4 +1,35 @@
-// session.go 实现 OAuth2 Password Grant 的会话签发与 JWT 校验（planv3.0 §4.3）。
+// 文件说明：session.go — OAuth2 Password Grant 的会话签发与 JWT 校验（planv3.0 §4.3）
+//
+// 用法
+//
+//	NewSessionService(users *UserService, repo SessionRepository, secret string, cfg ...
+//	(s *SessionService) OnWrite(fn func(ctx context.Context))  // OnWrite 注册写成功后的同步通知（SYNC-01）：session 仓储直接写
+//	(s *SessionService) WithAuthObserver(o AuthObserver) *SessionService  // WithAuthObserver 注入认证阶段观察者（P0 诊断
+//	同包调用：SessionService → middleware.go, observer.go；PrincipalFromClaims() → middleware.go, observer.go；VerifyAccess() → middleware.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/session.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/hashx
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] SessionService ← middleware.go, observer.go
+//
+// 主要符号
+//
+//	var ErrInvalidRefreshToken
+//	var ErrSessionRevoked
+//	type Session struct {…}
+//	type SessionRepository interface {…}
+//	type TokenPair struct {…}
+//	type SessionConfig struct {…}
+//	... 另有 26 个顶层符号
+//	session.go 实现 OAuth2 Password Grant 的会话签发与 JWT 校验（planv3.0 §4.3）。
+
 package auth
 
 import (

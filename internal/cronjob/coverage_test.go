@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 type cronHooks struct {
@@ -123,7 +124,7 @@ func TestSchedulerStartTickAndHelpers(t *testing.T) {
 		t.Fatal("released")
 	}
 	(&Scheduler{}).log("x", time.Now())
-	if truncate("ab", 10) != "ab" || truncate("abcdef", 3) != "abc" {
+	if strutil.Truncate("ab", 10) != "ab" || strutil.Truncate("abcdef", 3) != "abc" {
 		t.Fatal("truncate")
 	}
 }

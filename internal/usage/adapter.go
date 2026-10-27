@@ -1,4 +1,30 @@
-// adapter.go 提供 usage.Service 到 llmgateway.UsageRecorder 的适配。
+// 文件说明：adapter.go — usage.Service 到 llmgateway.UsageRecorder 的适配
+//
+// 用法
+//
+//	NewLLMRecorder(s *Service) llmgateway.UsageRecorder
+//	(r *LLMRecorder) RecordLLM(ctx context.Context, projectID, provider, model string ...  // RecordLLM 实现 llmgateway.UsageRecorder
+//	同包调用：RecordLLM() → service.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/usage/adapter.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/llmgateway
+//	[同包] service.go
+//	[关键引用] RecordLLM() ← service.go
+//
+// 主要符号
+//
+//	type LLMRecorder struct {…}
+//	NewLLMRecorder(s *Service) llmgateway.UsageRecorder
+//	(r *LLMRecorder) RecordLLM(ctx context.Context, projectID, provider, model string ...
+//	adapter.go 提供 usage.Service 到 llmgateway.UsageRecorder 的适配。
+
 package usage
 
 import (

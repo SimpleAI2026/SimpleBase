@@ -1,3 +1,30 @@
+// 文件说明：probe.go — gosandbox/host 中 Caps、MinLandlockABI 等符号的实现
+//
+// 用法
+//
+//	ResetProbeCache()  // ResetProbeCache 清掉进程内的探测缓存（测试用）
+//	Probe(ctx context.Context, p Policy) (Caps, error)  // Probe 探测本机能否按 p 建立隔离
+//	unavailable() → policy.go, probe_linux.go 等；Probe() → policy.go, run_darwin.go 等
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/probe.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 13 个
+//
+// 主要符号
+//
+//	type Caps struct {…}
+//	const MinLandlockABI
+//	ResetProbeCache()
+//	Probe(ctx context.Context, p Policy) (Caps, error)
+//	... 另有 14 个顶层符号
+
 package host
 
 import (

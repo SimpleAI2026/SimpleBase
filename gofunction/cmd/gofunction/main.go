@@ -1,14 +1,29 @@
-// Command gofunction 是 gofunction 解释器的命令行入口。
+// 文件说明：main.go — Command gofunction 是 gofunction 解释器的命令行入口
 //
-// 用法：
+// 用法
 //
-//	gofunction run   [-f file.go|-] -func Name [-body JSON] [-timeout 10s]
-//	gofunction check [-f file.go|-]
-//	gofunction list  [-f file.go|-] [-all]
-//	gofunction packages
+//	包内实现细节，由上层包经包级 API 间接触达。
 //
-// run 走 HTTP+JSON 调用路径（RunJSON）：函数必须是包级导出函数，
-// 恰好 1 个入参、1 个返回值；body 解到该入参，返回值以 JSON 输出。
+// 调用架构
+//
+//	[上游] （无，本包为入口）
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/cmd/gofunction/main.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction, gofunction/importer, gofunction/packages
+//
+// 主要符号
+//
+//	const usage
+//	main()
+//	run(args []string, stdin io.Reader, stdout, stderr io.Writer) int
+//	newFlagSet(name string, stderr io.Writer) *flag.FlagSet
+//	readSource(path string, stdin io.Reader) (string, error)
+//	var data
+//	... 另有 6 个顶层符号
+
 package main
 
 import (

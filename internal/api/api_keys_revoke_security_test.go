@@ -17,7 +17,7 @@ func TestAPIKeys_RevokeCrossProjectDenied(t *testing.T) {
 	// 项目 B 的 Key（不在当前 principal 的 ProjectIDs 内）。
 	otherRaw := "sb_live_crossproject0000000000000000"
 	if _, err := db.Exec(
-		`INSERT INTO sys_projects(id, tenant_id, name, created_at) VALUES(?, ?, ?, ?)`,
+		`INSERT INTO sys_projects(id, tenant_id, name, database_path, created_at) VALUES(?, ?, ?, '', ?)`,
 		"proj-2", "tenant-1", "p2", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestAPIKeys_RevokeOwnKeyStillWorks(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &created)
 	// 再造一个项目 B 的 Key，确保按 project 条件不会误伤。
 	if _, err := db.Exec(
-		`INSERT INTO sys_projects(id, tenant_id, name, created_at) VALUES(?, ?, ?, ?)`,
+		`INSERT INTO sys_projects(id, tenant_id, name, database_path, created_at) VALUES(?, ?, ?, '', ?)`,
 		"proj-2", "tenant-1", "p2", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}

@@ -12,34 +12,34 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 )
 
 // fakeSQLLease 模拟 SQLLease，可预设查询结果或错误。
 type fakeSQLLease struct {
 	released       bool
-	queryResult    database.QueryResult
+	queryResult    godatabase.QueryResult
 	queryErr       error
-	executeResult  database.QueryResult
+	executeResult  godatabase.QueryResult
 	executeErr     error
-	batchResults   []database.QueryResult
+	batchResults   []godatabase.QueryResult
 	batchErr       error
-	lastQueryStmt  database.Statement
-	queryStmts     []database.Statement
-	queryQueue     []database.QueryResult
-	lastExecStmt   database.Statement
-	execStmts      []database.Statement
-	lastBatchStmts []database.Statement
+	lastQueryStmt  godatabase.Statement
+	queryStmts     []godatabase.Statement
+	queryQueue     []godatabase.QueryResult
+	lastExecStmt   godatabase.Statement
+	execStmts      []godatabase.Statement
+	lastBatchStmts []godatabase.Statement
 	raw            *sql.DB
 	notifyCount    int
 }
 
 func (l *fakeSQLLease) Release() { l.released = true }
 
-func (l *fakeSQLLease) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
+func (l *fakeSQLLease) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, error) {
 	l.lastQueryStmt = stmt
 	l.queryStmts = append(l.queryStmts, stmt)
 	if len(l.queryQueue) > 0 {
@@ -50,13 +50,13 @@ func (l *fakeSQLLease) Query(ctx context.Context, stmt database.Statement, maxRo
 	return l.queryResult, l.queryErr
 }
 
-func (l *fakeSQLLease) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
+func (l *fakeSQLLease) Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error) {
 	l.lastExecStmt = stmt
 	l.execStmts = append(l.execStmts, stmt)
 	return l.executeResult, l.executeErr
 }
 
-func (l *fakeSQLLease) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
+func (l *fakeSQLLease) Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.QueryResult, error) {
 	l.lastBatchStmts = stmts
 	return l.batchResults, l.batchErr
 }
@@ -77,7 +77,7 @@ type fakeSQLService struct {
 	db           catalog.Database
 	getErr       error
 	acquireErr   error
-	acquiredMode database.AccessMode
+	acquiredMode godatabase.AccessMode
 	lease        *fakeSQLLease
 	calls        *serviceCallLog
 }
@@ -92,7 +92,7 @@ func (f *fakeSQLService) GetDatabase(ctx context.Context, principal auth.Princip
 	return f.db, nil
 }
 
-func (f *fakeSQLService) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error) {
+func (f *fakeSQLService) Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, error) {
 	if f.calls != nil {
 		f.calls.acquire++
 	}
@@ -153,7 +153,7 @@ func setupSQLTestRouter(t *testing.T, svc *fakeSQLService, writable bool) *echo.
 
 func TestSQLQuery_Success(t *testing.T) {
 	lease := &fakeSQLLease{
-		queryResult: database.QueryResult{
+		queryResult: godatabase.QueryResult{
 			Columns:      []string{"id", "name"},
 			Rows:         [][]any{{int64(1), "alice"}, {int64(2), "bob"}},
 			RowsAffected: 2,
@@ -185,7 +185,7 @@ func TestSQLQuery_Success(t *testing.T) {
 	if !lease.released {
 		t.Error("lease not released")
 	}
-	if svc.acquiredMode != database.ReadOnly {
+	if svc.acquiredMode != godatabase.ReadOnly {
 		t.Errorf("expected ReadOnly mode, got %v", svc.acquiredMode)
 	}
 }
@@ -252,7 +252,7 @@ func TestSQLQuery_AttachDenied(t *testing.T) {
 
 func TestSQLExecute_Success(t *testing.T) {
 	lease := &fakeSQLLease{
-		executeResult: database.QueryResult{
+		executeResult: godatabase.QueryResult{
 			RowsAffected: 3,
 			Duration:     2 * time.Millisecond,
 		},
@@ -279,7 +279,7 @@ func TestSQLExecute_Success(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "last_insert_id") {
 		t.Errorf("deprecated last_insert_id must not be serialized: %s", rec.Body.String())
 	}
-	if svc.acquiredMode != database.ReadWrite {
+	if svc.acquiredMode != godatabase.ReadWrite {
 		t.Errorf("expected ReadWrite mode, got %v", svc.acquiredMode)
 	}
 	if !lease.released {
@@ -321,7 +321,7 @@ func TestSQLExecute_SelectRejected(t *testing.T) {
 
 func TestSQLBatch_TransactionalSuccess(t *testing.T) {
 	lease := &fakeSQLLease{
-		batchResults: []database.QueryResult{
+		batchResults: []godatabase.QueryResult{
 			{RowsAffected: 1, Duration: time.Millisecond},
 			{RowsAffected: 1, Duration: time.Millisecond},
 		},
@@ -359,7 +359,7 @@ func TestSQLBatch_TransactionalSuccess(t *testing.T) {
 
 func TestSQLBatch_TransactionalRollback(t *testing.T) {
 	lease := &fakeSQLLease{
-		batchResults: []database.QueryResult{
+		batchResults: []godatabase.QueryResult{
 			{RowsAffected: 1},
 		},
 		batchErr: errors.New("database: batch statement 1 failed: syntax error"),
@@ -394,7 +394,7 @@ func TestSQLBatch_TransactionalRollback(t *testing.T) {
 
 func TestSQLBatch_NonTransactionalPartialFailure(t *testing.T) {
 	lease := &fakeSQLLease{
-		batchResults: []database.QueryResult{
+		batchResults: []godatabase.QueryResult{
 			{RowsAffected: 1},
 		},
 		batchErr: errors.New("database: batch statement 1 failed"),
@@ -495,7 +495,7 @@ func TestSQLQuery_GetDatabaseError(t *testing.T) {
 func TestSQLQuery_AcquireError(t *testing.T) {
 	svc := &fakeSQLService{
 		db:         catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseReady},
-		acquireErr: database.ErrWriterUnavailable,
+		acquireErr: godatabase.ErrWriterUnavailable,
 		lease:      &fakeSQLLease{},
 	}
 	e := setupSQLTestRouter(t, svc, true)
@@ -526,7 +526,7 @@ func TestSQLQuery_MaxRowsExceedsLimit(t *testing.T) {
 
 func TestSQLQuery_SerializedBlob(t *testing.T) {
 	lease := &fakeSQLLease{
-		queryResult: database.QueryResult{
+		queryResult: godatabase.QueryResult{
 			Columns: []string{"data"},
 			Rows:    [][]any{{[]byte{0x01, 0x02, 0x03}}},
 		},
@@ -626,7 +626,7 @@ func TestSQLSerializeAndDecodeExecute(t *testing.T) {
 	svc := &fakeSQLService{
 		db: catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseReady},
 		lease: &fakeSQLLease{
-			queryResult: database.QueryResult{Columns: []string{"f"}, Rows: [][]any{{func() {}}}},
+			queryResult: godatabase.QueryResult{Columns: []string{"f"}, Rows: [][]any{{func() {}}}},
 		},
 	}
 	e := setupSQLTestRouter(t, svc, true)
@@ -679,7 +679,7 @@ func TestSQLQuery_SystemCredentialColumns(t *testing.T) {
 	}
 
 	svc.acquireErr = nil
-	lease.queryResult = database.QueryResult{
+	lease.queryResult = godatabase.QueryResult{
 		Columns: []string{"password_hash", "id"},
 		Rows:    [][]any{{"secret", "u1"}},
 	}
@@ -695,7 +695,7 @@ func TestSQLQuery_SystemCredentialColumns(t *testing.T) {
 
 	user := &fakeSQLService{
 		db:    catalog.Database{ID: "db-1", ProjectID: "proj-1", Status: catalog.DatabaseReady, DataModel: catalog.DataModelSQL},
-		lease: &fakeSQLLease{queryResult: database.QueryResult{Columns: []string{"password_hash"}, Rows: [][]any{{"hash"}}}},
+		lease: &fakeSQLLease{queryResult: godatabase.QueryResult{Columns: []string{"password_hash"}, Rows: [][]any{{"hash"}}}},
 	}
 	e = setupSQLTestRouter(t, user, true)
 	rec = doRequest(e, http.MethodPost, "/v1/projects/proj-1/databases/db-1/query", QueryRequest{

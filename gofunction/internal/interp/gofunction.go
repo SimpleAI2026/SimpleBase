@@ -1,15 +1,31 @@
-// Package gofunction 提供基于 SSA 的 Go 脚本解释执行引擎。
+// 文件说明：gofunction.go — 基于 SSA 的 Go 脚本解释执行引擎
 //
-// 将 Go 源码编译为 SSA（golang.org/x/tools/go/ssa）后用反射逐指令
-// 解释执行，可在不调用 go build 的情况下运行用户脚本，并支持通过
-// importer 包将宿主函数注入脚本环境。
+// 用法
 //
-// 基本用法：
+//	Run(seqid, sourceCode string, funcName string, params ...interface{}) (interface{} ...  // Run 编译并执行代码中的指定函数
+//	ParseFuncList(sourceCode string, exportedAll bool) ([]string, error)  // ParseFuncList 解析源码并返回函数名列表
+//	同包调用：Run() → compile.go, layout.go 等；newSequenceID() → jsonrun.go, runtime.go；SetLogger() → frame.go
 //
-//	import _ "github.com/linkxzhou/SimpleBase/gofunction/packages" // 注册标准库
-//	result, err := gofunction.Run("seq-1", "package main\nfunc add(a, b int) int { return a + b }", "add", 1, 2)
+// 调用架构
 //
-// 详细用法、限制与已注册标准库清单见 README.md；用法样本见 testdata/，由 go test 加载执行。
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/gofunction.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
+//	[关键引用] Run() ← compile.go, layout.go, program.go
+//
+// 主要符号
+//
+//	Run(seqid, sourceCode string, funcName string, params ...interface{}) (interface{} ...
+//	ParseFuncList(sourceCode string, exportedAll bool) ([]string, error)
+//	SetLogger(l *slog.Logger)
+//	SetDebugOutput(w io.Writer)
+//	... 另有 1 个顶层符号
+
 package interp
 
 import (

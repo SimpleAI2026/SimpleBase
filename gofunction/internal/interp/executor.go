@@ -1,3 +1,34 @@
+// 文件说明：executor.go — gofunction/internal/interp 中 ErrPoolClosed、ErrPoolExhausted 等符号的实现
+//
+// 用法
+//
+//	NewExecutor(pool *ExecutorPool) *Executor
+//	(e *Executor) Execute(functionName, script string) (result interface{}, err error)  // Execute 编译并执行脚本中的指定函数
+//	(e *Executor) Compile(name, script string, strict bool) error  // Compile 编译脚本（预留接口）
+//	同包调用：Close() → call.go, call.go；Executor → program.go；Interrupt() → program.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/executor.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] call.go, compile.go, eval.go, frame.go, gofunction.go 等 13 个
+//	[关键引用] Close() ← call.go
+//
+// 主要符号
+//
+//	var ErrPoolClosed
+//	var ErrPoolExhausted
+//	type Executor struct {…}
+//	NewExecutor(pool *ExecutorPool) *Executor
+//	(e *Executor) Execute(functionName, script string) (result interface{}, err error)
+//	(e *Executor) Compile(name, script string, strict bool) error
+//	... 另有 28 个顶层符号
+
 package interp
 
 import (

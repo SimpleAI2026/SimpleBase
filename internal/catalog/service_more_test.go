@@ -18,10 +18,18 @@ type hookRepo struct {
 	Repository
 	belongsFn    func(ctx context.Context, projectID, tenantID string) (bool, error)
 	getTenantFn  func(ctx context.Context, projectID string) (string, error)
+	getProjectFn func(ctx context.Context, projectID string) (Project, error)
 	listProjFn   func(ctx context.Context, tenantID string) ([]Project, error)
 	transitionFn func(ctx context.Context, id string, from []DatabaseStatus, to DatabaseStatus, at time.Time) (Database, error)
 	markDelFn    func(ctx context.Context, id string, at time.Time) error
 	getDBFn      func(ctx context.Context, projectID, databaseID string) (Database, error)
+}
+
+func (r *hookRepo) GetProject(ctx context.Context, projectID string) (Project, error) {
+	if r.getProjectFn != nil {
+		return r.getProjectFn(ctx, projectID)
+	}
+	return r.Repository.GetProject(ctx, projectID)
 }
 
 func (r *hookRepo) ProjectBelongsToTenant(ctx context.Context, projectID, tenantID string) (bool, error) {
@@ -66,9 +74,10 @@ func (r *hookRepo) GetDatabase(ctx context.Context, projectID, databaseID string
 	return r.Repository.GetDatabase(ctx, projectID, databaseID)
 }
 
-type failPurger struct{ err error }
+type failProjectPurger struct{ err error }
 
-func (p failPurger) DeletePrefix(context.Context, string) error { return p.err }
+func (p failProjectPurger) PurgeProject(context.Context, string) error { return p.err }
+func (p failProjectPurger) DeletePrefix(context.Context, string) error { return p.err }
 
 func newHookedService(t *testing.T, descriptor DescriptorWriter, hook *hookRepo) (*Service, *hookRepo, string, string) {
 	t.Helper()
@@ -113,33 +122,11 @@ func TestService_CreateDatabaseValidationAndErrors(t *testing.T) {
 		t.Fatalf("belongs error: %v", err)
 	}
 
-	// invalid project id fails KeyBuilder.DataPrefix（租户已不参与路径）
-	raw := newTestDB(t)
-	repo := NewSQLRepository(raw)
-	keys := objectstore.KeyBuilder{RootPrefix: "simplebase"}
-	svc2 := NewService(repo, keys, nil, objectstore.DuckLakeStorage{}, nil)
-	tenantID2 := uuid.NewString()
-	if err := repo.CreateTenant(ctx, Tenant{ID: tenantID2, Name: "t", CreatedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	badPrj := "bad_id1" // 含下划线，非法
-	if err := repo.CreateProject(ctx, Project{ID: badPrj, TenantID: tenantID2, Name: "p", CreatedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc2.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenantID2, ProjectID: badPrj, Name: "n"}); err == nil || !strings.Contains(err.Error(), "build storage prefix") {
-		t.Fatalf("prefix error: %v", err)
-	}
-
-	// 项目 ID 合法但 descriptor 校验失败 → ErrDescriptorWrite
-	svc3, repo3, tenant3, project3 := setupService(t, &fakeDescriptorWriter{})
-	_ = project3
-	badPID := "not-valid!" // 非 8 位 [A-Za-z0-9-]
-	if err := repo3.CreateProject(ctx, Project{ID: badPID, TenantID: tenant3, Name: "bad", CreatedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	_, err := svc3.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenant3, ProjectID: badPID, Name: "n"})
-	if err == nil || !strings.Contains(err.Error(), "build storage prefix") {
-		t.Fatalf("expected storage prefix fail for bad project id, got %v", err)
+	// 非法项目 ID 无法生成项目文件路径（项目 ID 必须是 8 位 [A-Za-z0-9-]）
+	for _, badPrj := range []string{"bad_id1", "not-valid!"} {
+		if _, err := DatabasePathForProject(badPrj, EngineDuckDB); !errors.Is(err, ErrInvalidName) {
+			t.Fatalf("expected invalid project id for %q, got %v", badPrj, err)
+		}
 	}
 
 	// SetDatabaseReady after create fails → degrade
@@ -159,8 +146,8 @@ func TestService_CreateDatabaseValidationAndErrors(t *testing.T) {
 	hook2.transitionFn = func(context.Context, string, []DatabaseStatus, DatabaseStatus, time.Time) (Database, error) {
 		return Database{}, errors.New("cannot degrade")
 	}
-	if _, err := failAll.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenantID, ProjectID: projectID, Name: "n"}); !errors.Is(err, ErrDescriptorWrite) {
-		t.Fatalf("descriptor+degrade fail: %v", err)
+	if _, err := failAll.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenantID, ProjectID: projectID, Name: "n"}); err == nil || !strings.Contains(err.Error(), "mark ready after create") {
+		t.Fatalf("degrade fail path: %v", err)
 	}
 
 	if svc.Repository() == nil {
@@ -258,7 +245,7 @@ func TestService_GetListResolveAndProjects(t *testing.T) {
 
 func TestService_EnsureProjectAccessAndDeletePaths(t *testing.T) {
 	ctx := context.Background()
-	svc, repo, tenantID, projectID := setupService(t, &fakeDescriptorWriter{})
+	svc, _, tenantID, projectID := setupService(t, &fakeDescriptorWriter{})
 	logger := observability.NewLogger("warn", "json", io.Discard)
 	svc.logger = logger
 
@@ -290,42 +277,47 @@ func TestService_EnsureProjectAccessAndDeletePaths(t *testing.T) {
 		t.Fatal("second delete should fail transition")
 	}
 
-	// closer warn + purger fail
-	db2, err := svc.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenantID, ProjectID: projectID, Name: "purge-fail"})
+	// closer warn + purger fail（每项目只有一个默认库，使用独立项目）
+	project2, err := svc.CreateProject(ctx, adminPrincipal(tenantID), CreateProjectInput{Name: "purge-project"})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("create second project: %v", err)
 	}
-	_, err = svc.DeleteDatabaseSync(ctx, plain, projectID, db2.ID,
+	plain2 := newTestPrincipal(tenantID, project2.ID)
+	db2, err := svc.CreateDatabase(ctx, CreateDatabaseInput{TenantID: tenantID, ProjectID: project2.ID, Name: "purge-fail"})
+	if err != nil {
+		t.Fatalf("create second default database: %v", err)
+	}
+	_, err = svc.DeleteDatabaseSync(ctx, plain2, project2.ID, db2.ID,
 		func(context.Context, string) error { return errors.New("close failed") },
-		failPurger{err: errors.New("s3 down")},
+		failProjectPurger{err: errors.New("s3 down")},
 	)
-	if err == nil || !strings.Contains(err.Error(), "sync purge") {
+	if err == nil || !strings.Contains(err.Error(), "purge project database") {
 		t.Fatalf("purger fail: %v", err)
 	}
 
-	// DatabasePrefix fallback: non-UUID tenant/id so keys.DatabasePrefix fails
-	oddID := "not-uuid-db"
-	if err := repo.CreateDatabase(ctx, Database{
-		ID: oddID, TenantID: "not-uuid-tenant", ProjectID: projectID, Name: "odd",
-		Kind: DatabaseKindUser, Status: DatabaseReady, StoragePrefix: "fallback-prefix",
-		FormatVersion: 1, CreatedAt: time.Now(), UpdatedAt: time.Now(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	rec := &recordingPurger{}
-	out, err := svc.DeleteDatabaseSync(ctx, plain, projectID, oddID, nil, rec)
+	// 项目文件位置固定，不再依赖 StoragePrefix 回退
+	rec := &recordingProjectPurger{}
+	out, err := svc.DeleteDatabaseSync(ctx, plain2, project2.ID, db2.ID, nil, rec)
 	if err != nil {
-		t.Fatal(err)
+		// 上一次清理失败已把记录留在 deleting；重试路径应保持该状态而不回退。
+		if !strings.Contains(err.Error(), "invalid state transition") {
+			t.Fatalf("delete after failed purge: %v", err)
+		}
+		got, gerr := svc.repo.GetDatabase(ctx, project2.ID, db2.ID)
+		if gerr != nil || got.Status != DatabaseDeleting {
+			t.Fatalf("failed purge must stay deleting: %+v err=%v", got, gerr)
+		}
+		return
+	}
+	if len(rec.purged) != 1 || rec.purged[0] != project2.ID {
+		t.Fatalf("purged=%v want [%s]", rec.purged, project2.ID)
 	}
 	if out.Status != DatabaseDeleted {
-		t.Fatalf("status %s", out.Status)
-	}
-	if len(rec.deleted) != 1 || rec.deleted[0] != "fallback-prefix" {
-		t.Fatalf("fallback prefix: %v", rec.deleted)
+		t.Fatalf("status=%s", out.Status)
 	}
 
 	// MarkDatabaseDeleted idempotent on already-deleted
-	if err := svc.MarkDatabaseDeleted(ctx, oddID, time.Now()); err != nil {
+	if err := svc.MarkDatabaseDeleted(ctx, db2.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -395,5 +387,48 @@ func TestService_ProvidersAndUsage(t *testing.T) {
 		InputTokens: 1, OccurredAt: time.Now(),
 	}}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestResolveProjectStoragePathValidation(t *testing.T) {
+	ctx := context.Background()
+	svc, hook, tenantID, projectID := newHookedService(t, nil, &hookRepo{})
+	project, err := hook.Repository.GetProject(ctx, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, databasePath := range []string{projectID + "/database.duckdb", projectID + "/database.sqlite"} {
+		hook.getProjectFn = func(context.Context, string) (Project, error) {
+			project.DatabasePath = databasePath
+			return project, nil
+		}
+		got, err := svc.ResolveProjectStorage(ctx, tenantID, projectID)
+		if err != nil || got.DatabasePath != databasePath {
+			t.Fatalf("valid path %q: got=%+v err=%v", databasePath, got, err)
+		}
+	}
+
+	for _, databasePath := range []string{"", "database.duckdb", "zzzz9999/database.duckdb", projectID + "/other.duckdb"} {
+		hook.getProjectFn = func(context.Context, string) (Project, error) {
+			project.DatabasePath = databasePath
+			return project, nil
+		}
+		_, err := svc.ResolveProjectStorage(ctx, tenantID, projectID)
+		if !errors.Is(err, ErrInvalidDatabasePath) || errors.Is(err, ErrInvalidName) {
+			t.Fatalf("invalid path %q: %v", databasePath, err)
+		}
+		if strings.Contains(err.Error(), databasePath) && databasePath != "" {
+			t.Fatalf("error leaks database path: %v", err)
+		}
+	}
+
+	hook.belongsFn = func(context.Context, string, string) (bool, error) { return true, nil }
+	hook.getProjectFn = func(context.Context, string) (Project, error) {
+		return Project{ID: ReservedSystemProjectID, TenantID: tenantID, Name: "system"}, nil
+	}
+	got, err := svc.ResolveProjectStorage(ctx, tenantID, ReservedSystemProjectID)
+	if err != nil || got.DatabasePath != "" {
+		t.Fatalf("system storage: got=%+v err=%v", got, err)
 	}
 }

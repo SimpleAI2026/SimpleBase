@@ -33,7 +33,7 @@
 | `08-cron` | 目标函数、interval 任务（默认关闭）、手动触发、运行记录、删除 |
 | `agent` | 云助手自然语言。`@数据库` `@键值` `@云函数` `@对象存储` `@项目` `@定时任务`，SSE，删除确认 |
 
-云沙盒没有进这轮。`config.example.yaml` 里 `sandbox.enabled: false`，也没有沙盒 API Key。用户和 API Key 只在 CLI 里测：当前 skill 清单（`internal/cloudagent/skills.go`）没有认证模块，`@` 无法把 `user` / `apikey` 交给助手。
+云沙盒没有进这轮。`config.example.yaml` 里 `sandbox.enabled: false`，也没有沙盒 API Key。用户和 API Key 只在 CLI 里测：当前 skill 清单（`internal/gocloudagent/skills.go`）没有认证模块，`@` 无法把 `user` / `apikey` 交给助手。
 
 重复执行：`./examples/run_all.sh --start`。已有服务时去掉 `--start`。`--only 06-functions,08-cron` 和 `--skip-agent` 可缩小范围。`RUN_ID` 默认随机 6 位十六进制，避免和上一轮资源重名。
 
@@ -99,13 +99,13 @@
 
 删除确认出现在文档、KV、对象三条。只读守卫没有弹出确认，写权限拦截发生在确认之前，和 `cli_tool.go` 的顺序一致。
 
-### 5.1 本地 `cloudagent` 二进制
+### 5.1 本地 `gocloudagent` 二进制
 
 这是另一条入口：本机 shell/文件工具，模型仍走服务端。headless `--json -p` 没有界面确认通道，所以只要求它执行 `database list`。
 
 | 次序 | 结果 | 耗时 | 原因 |
 |---|---|---|---|
-| 1 | 失败 | 5.3s | 模型调用了 shell 和 `simplebase database list`，但 shell 会丢掉全部 `SIMPLEBASE_*` / `CLOUDAGENT_*`（`internal/cloudagent/tools/tools.go` `sanitizedEnv`）。CLI 回报 `config_missing`。模型正确说出 `ok` 为 false |
+| 1 | 失败 | 5.3s | 模型调用了 shell 和 `simplebase database list`，但 shell 会丢掉全部 `SIMPLEBASE_*` / `GOCLOUDAGENT_*`（`internal/gocloudagent/tools/tools.go` `sanitizedEnv`）。CLI 回报 `config_missing`。模型正确说出 `ok` 为 false |
 | 2 | 失败（脚本） | 7.1s | 改为写入模式 0600 的 XDG 配置后，模型列出了真实库并说明 `ok` 为 true。检查器在未解析的 JSON 事件文本里找 `"ok":true`，引号被转义，误判失败 |
 | 3 | 通过 | 6.8s | 先解析 NDJSON 事件，再看工具参数和信封。配置目录在进程结束后删除 |
 
@@ -117,7 +117,7 @@ CLI 够用。项目、认证、SQL、文档、KV、函数、对象、定时任�
 
 云助手（服务端 SSE + `@` skill）在这八条自然语言上够用：会选对子命令，会先 `database list` 拿库 id，会把源码放进 stdin 而不是读宿主机文件，删除会停在确认上而不是自己跳过。写权限默认关闭是有效的；打开之后写路径与 CLI 一致。
 
-本地 `cloudagent` 不能靠环境变量把令牌交给 shell，这是故意的。要让它操作同一套 CLI，得事先写好 `simplebase` 配置文件，并且不要让模型把文件打出来。它没有服务端那套 `@数据库` skill 和确认框。
+本地 `gocloudagent` 不能靠环境变量把令牌交给 shell，这是故意的。要让它操作同一套 CLI，得事先写好 `simplebase` 配置文件，并且不要让模型把文件打出来。它没有服务端那套 `@数据库` skill 和确认框。
 
 ## 7. 体验与缺陷
 
@@ -126,7 +126,7 @@ CLI 够用。项目、认证、SQL、文档、KV、函数、对象、定时任�
 1. **P0 `schema rows` CLI/SDK 解码失败。** 列元数据是对象数组，SDK 按 `[]string` 解。控制台若直接调 HTTP 则不受影响；脚本和 Go SDK 用户会在「看表数据」这一步失败。修法二选一：SDK 的 `TableRows.Columns` 改成与 `SchemaColumn` 相同的对象，或接口在该字段上返回列名字符串（与 `sql query` 对齐）。需要补一条解码测试。
 2. **P1 设置接口的 JSON 字段是 `Key` / `ValueJSON`。** `settings get` 能用，但和其他资源的 snake_case 不一致。调用方必须写 Go 导出名。
 3. **P1 内置助手默认不可写。** 行为正确，自然语言「建一个库」会得到 `write_not_allowed`，而且不会先弹确认。控制台需要让这个开关好找；skill 说明里可以写明「未开写权限时写命令会直接失败」。
-4. **P1 本地 cloudagent 的 shell 与 CLI 凭据隔绝。** 安全上合理，但模型只能看到 `config_missing`，无法区分「没配置」和「被剥离」。帮助文本可以写明：shell 看不到 `SIMPLEBASE_*`，请用 `simplebase` 配置文件。服务端助手已经有专用 `simplebase` 工具，不经过这条限制。
+4. **P1 本地 gocloudagent 的 shell 与 CLI 凭据隔绝。** 安全上合理，但模型只能看到 `config_missing`，无法区分「没配置」和「被剥离」。帮助文本可以写明：shell 看不到 `SIMPLEBASE_*`，请用 `simplebase` 配置文件。服务端助手已经有专用 `simplebase` 工具，不经过这条限制。
 5. **P2 云函数 `test` 与 `invoke` 的 JSON 形状不同。** invoke 的 CLI `data` 就是函数返回值；test 的 CLI `data` 是试跑信封，函数返回值在 `data.data`。文档或 `function test --help` 应写明。
 6. **P2 定时任务运行状态是 `completed`。** 示例最初按 `success` 判断。若对外文档写了 `success`，需要改成 `completed`。
 7. **P2 `./build.sh` 不生成 `config.yaml`。** `./build.sh dev` 会。只编译再启动的人会看到找不到配置文件。`run_all.sh --start` 已自行复制示例配置。

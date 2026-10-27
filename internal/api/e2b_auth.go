@@ -1,3 +1,33 @@
+// 文件说明：e2b_auth.go — internal/api 的内部实现（e2bPrefix、e2bEnvdPrefix 等）
+//
+// 用法
+//
+//	type e2bErrorBody（包内使用）
+//	type e2bMapping（包内使用）
+//	同包调用：writeE2BErr() → e2b_envd_handler.go, e2b_terminal.go 等；e2bProjectMiddleware() → e2b_envd_handler.go, router.go 等；Issue() → e2b_terminal.go, e2b_tickets.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/e2b_auth.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/vm, internal/auth, internal/catalog, internal/e2bproto 等
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] writeE2BErr() ← e2b_envd_handler.go, e2b_terminal.go, router.go
+//
+// 主要符号
+//
+//	const e2bPrefix
+//	const e2bEnvdPrefix
+//	const defaultEnvdVersion
+//	const e2bProjectHeader
+//	type e2bErrorBody struct {…}
+//	isE2BPath(p string) bool
+//	... 另有 16 个顶层符号
+
 package api
 
 import (

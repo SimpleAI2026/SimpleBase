@@ -49,6 +49,39 @@
         </FieldDescription>
       </Field>
     </FieldGroup>
+    <div class="flex flex-col gap-3 rounded-lg border border-border p-3">
+      <div class="text-sm font-medium">{{ t('components.connection.scopedTitle') }}</div>
+      <Field>
+        <FieldLabel>{{ t('components.connection.scopedResources') }}</FieldLabel>
+        <Input v-model="scopeResources" placeholder="collection:orders,object:public/" />
+        <FieldDescription>{{ t('components.connection.csvHint') }}</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel>{{ t('components.connection.scopedActions') }}</FieldLabel>
+        <Input v-model="scopeActions" placeholder="read,write" />
+      </Field>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <Field>
+          <FieldLabel>{{ t('components.connection.hiddenFields') }}</FieldLabel>
+          <Input v-model="scopeHidden" />
+        </Field>
+        <Field>
+          <FieldLabel>{{ t('components.connection.readonlyFields') }}</FieldLabel>
+          <Input v-model="scopeReadonly" />
+        </Field>
+      </div>
+      <Field>
+        <FieldLabel>{{ t('components.connection.expiresAt') }}</FieldLabel>
+        <Input v-model="scopeExpires" type="datetime-local" />
+      </Field>
+      <Button class="self-start" :disabled="issuing || !canReset" @click="issueScoped">
+        <Spinner v-if="issuing" data-icon="inline-start" />{{ t('components.connection.issueScoped') }}
+      </Button>
+      <Field v-if="scopedSecret">
+        <FieldLabel>{{ t('components.connection.scopedSecret') }}</FieldLabel>
+        <Input :model-value="scopedSecret" readonly class="font-mono" />
+      </Field>
+    </div>
   </div>
 </template>
 
@@ -77,6 +110,13 @@ const unauthorized = computed(() => authStore.lastUnauthorizedAt > 0)
 const key = ref(authStore.apiKey)
 const saving = ref(false)
 const resetting = ref(false)
+const issuing = ref(false)
+const scopeResources = ref('collection:*')
+const scopeActions = ref('read')
+const scopeHidden = ref('')
+const scopeReadonly = ref('')
+const scopeExpires = ref('')
+const scopedSecret = ref('')
 
 /** 项目显示名前缀：「显示名；」——显示名与 ID 相同时不重复展示。 */
 const projectPrefix = computed(() =>
@@ -118,6 +158,28 @@ const canReset = computed(() => {
   if (!authStore.user) return true
   return authStore.isSuper || authStore.isUser
 })
+
+function scopeList(value: string): string[] {
+  return value.split(',').map((item) => item.trim()).filter(Boolean)
+}
+async function issueScoped() {
+  issuing.value = true
+  try {
+    const created = await api.apiKeys.create(projectStore.id, undefined, {
+      resources: scopeList(scopeResources.value),
+      actions: scopeList(scopeActions.value),
+      hiddenFields: scopeList(scopeHidden.value),
+      readonlyFields: scopeList(scopeReadonly.value),
+      expiresAt: scopeExpires.value ? new Date(scopeExpires.value).toISOString() : undefined
+    })
+    scopedSecret.value = created.secret
+    toast.success(t('components.connection.scopedCreated'))
+  } catch (e) {
+    toast.error(errorMessage(e, t('components.connection.scopedFailed')))
+  } finally {
+    issuing.value = false
+  }
+}
 
 /**
  * 重置：为当前项目签发新 Key → 吊销旧 Key（仍用旧 Key 鉴权）→ 切换为新 Key。

@@ -60,6 +60,14 @@
             @retry="load"
             @empty-action="triggerUpload"
           >
+            <TableRow v-for="folder in folders" :key="folder">
+              <TableCell>
+                <Button variant="ghost" size="sm" class="max-w-full justify-start" @click="openFolder(folder)">
+                  <FolderIcon class="size-4 shrink-0 text-primary" /><span class="truncate">{{ folder }}</span>
+                </Button>
+              </TableCell>
+              <TableCell colspan="3" />
+            </TableRow>
             <TableRow v-for="record in paged" :key="record.key">
               <TableCell class="max-w-lg">
                 <span class="sb-mono inline-flex items-center gap-2 font-medium">
@@ -71,9 +79,9 @@
               <TableCell class="sb-col-md text-xs text-muted-foreground">{{ formatTime(record.lastModified) }}</TableCell>
               <TableCell class="w-32">
                 <div class="flex justify-center gap-1">
-                  <Button variant="ghost" size="sm" @click="openPreview(record)">
-                    {{ t('pages.s3.open') }}
-                  </Button>
+                  <Button variant="ghost" size="sm" @click="openPreview(record)">{{ t('pages.s3.open') }}</Button>
+                  <Button variant="ghost" size="sm" @click="download(record)">{{ t('pages.s3.download') }}</Button>
+                  <Button variant="ghost" size="sm" @click="copyPrivateLink(record)">{{ t('pages.s3.privateLink') }}</Button>
                   <ConfirmAction :title="t('pages.s3.deleteConfirm')" @confirm="remove(record.key)">
                     <Button variant="destructiveGhost" size="sm">
                       {{ t('common.del') }}
@@ -104,7 +112,7 @@ import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { FileIcon, RefreshCwIcon, SearchIcon, UploadIcon } from '@lucide/vue'
+import { FileIcon, FolderIcon, RefreshCwIcon, SearchIcon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -134,6 +142,7 @@ const { t } = useI18n()
 const projectStore = useProjectStore()
 const prefix = ref('')
 const objects = ref<S3Object[]>([])
+const folders = ref<string[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(objects)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
   fallback: 'pages.s3.loadFailed'
@@ -206,10 +215,37 @@ function triggerUpload() {
 
 function load() {
   return run(async () => {
-    const data = await api.s3.list(projectStore.id, prefix.value || undefined)
-    objects.value = data
-    return data.length > 0
+    const data = await api.s3.listDetailed(projectStore.id, prefix.value || undefined)
+    objects.value = data.objects
+    folders.value = data.folders
+    return data.objects.length + data.folders.length > 0
   })
+}
+function openFolder(folder: string) {
+  prefix.value = folder
+  void load()
+}
+async function download(record: S3Object) {
+  try {
+    const blob = await api.s3.download(projectStore.id, record.key)
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = record.key.split('/').pop() || 'download'
+    anchor.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    toast.error(errorMessage(e, t('pages.s3.downloadFailed')))
+  }
+}
+async function copyPrivateLink(record: S3Object) {
+  try {
+    const link = await api.s3.createLink(projectStore.id, record.key)
+    await navigator.clipboard.writeText(new URL(link.url, window.location.origin).toString())
+    toast.success(t('pages.s3.linkCopied'))
+  } catch (e) {
+    toast.error(errorMessage(e, t('pages.s3.linkFailed')))
+  }
 }
 
 async function remove(key: string) {

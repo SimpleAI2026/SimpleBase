@@ -1,10 +1,36 @@
-// session_repository.go 是 SessionRepository 的系统 DuckLake 实现（sys_user_sessions）。
+// 文件说明：session_repository.go — SessionRepository 的系统 DuckLake 实现（sys_user_sessions）
+//
+// 用法
+//
+//	NewSQLSessionRepository(db *sql.DB) SessionRepository
+//	type sqlSessionRepository（包内使用）
+//	同包调用：s → api_key_repository.go, cache.go 等；GetByID() → observer.go, session.go 等；Create() → session.go, user.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/session_repository.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/sqlval
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] s ← api_key_repository.go, cache.go, password.go
+//
+// 主要符号
+//
+//	NewSQLSessionRepository(db *sql.DB) SessionRepository
+//	... 另有 11 个顶层符号
+//	session_repository.go 是 SessionRepository 的系统 DuckLake 实现（sys_user_sessions）。
+
 package auth
 
 import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
 	"time"
 )
 
@@ -23,7 +49,7 @@ func (r *sqlSessionRepository) Create(ctx context.Context, s Session) error {
 			expires_at, created_at, revoked_at)
 		 VALUES(?,?,?,?,?,?,?,?,?)`,
 		s.ID, s.UserID, s.RefreshTokenHash, s.AccessJTI, s.UserAgent, s.IP,
-		s.ExpiresAt.UTC(), s.CreatedAt.UTC(), nullTime(s.RevokedAt),
+		s.ExpiresAt.UTC(), s.CreatedAt.UTC(), sqlval.NullTime(s.RevokedAt),
 	)
 	return err
 }
@@ -41,7 +67,7 @@ func (r *sqlSessionRepository) Update(ctx context.Context, s Session) error {
 		`UPDATE sys_user_sessions SET refresh_token_hash=?, access_jti=?, user_agent=?, ip=?,
 			expires_at=?, revoked_at=? WHERE id = ?`,
 		s.RefreshTokenHash, s.AccessJTI, s.UserAgent, s.IP,
-		s.ExpiresAt.UTC(), nullTime(s.RevokedAt), s.ID,
+		s.ExpiresAt.UTC(), sqlval.NullTime(s.RevokedAt), s.ID,
 	)
 	return err
 }

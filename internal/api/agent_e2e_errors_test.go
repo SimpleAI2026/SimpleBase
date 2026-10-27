@@ -21,7 +21,7 @@ func TestAgentE2EUpstream401MapsToErrorCode(t *testing.T) {
 	if len(errs) != 1 {
 		t.Fatalf("error frames=%d events=%+v", len(errs), events)
 	}
-	// 401 映射为 llm_auth_failed（cloudagent/errors.go 错误分类）。
+	// 401 映射为 llm_auth_failed（gocloudagent/errors.go 错误分类）。
 	if errs[0].Code != "llm_auth_failed" {
 		t.Fatalf("code=%s", errs[0].Code)
 	}

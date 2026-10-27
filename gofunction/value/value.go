@@ -1,7 +1,34 @@
-// Package value 提供解释器运行时的统一值抽象。
+// 文件说明：value.go — 解释器运行时的统一值抽象
 //
-// Value 接口是对 reflect.Value 的轻量包装，所有 SSA 指令执行过程中的
-// 中间值、常量、外部对象统一以 Value 表示。
+// 用法
+//
+//	NewRValueOf(v reflect.Value) Value
+//	ValueOf(v interface{}) Value  // ValueOf 将任意 Go 值包装为 Value
+//	(r RValue) Interface() interface{}  // Interface 返回接口值
+//	同包调用：RValue() → external.go, external.go 等；Value → external.go, tuple.go；Interface() → external.go, tuple.go
+//
+// 调用架构
+//
+//	[上游] gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/value/value.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] external.go, tuple.go
+//	[关键引用] RValue() ← external.go, tuple.go
+//
+// 主要符号
+//
+//	type Value interface {…}
+//	type RValue struct {…}
+//	ValueOf(v interface{}) Value
+//	NewRValueOf(v reflect.Value) Value
+//	(r RValue) Interface() interface
+//	(r RValue) Type() reflect.Type
+//	... 另有 19 个顶层符号
+
 package value
 
 import (

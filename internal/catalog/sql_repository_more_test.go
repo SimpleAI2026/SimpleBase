@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
 func TestSQLRepository_TenantsProjectsAndTouch(t *testing.T) {
@@ -28,14 +30,14 @@ func TestSQLRepository_TenantsProjectsAndTouch(t *testing.T) {
 		t.Fatal("afterWrite should run on create tenant")
 	}
 
-	p1 := Project{ID: uuid.NewString(), TenantID: t1.ID, Name: "alpha", CreatedAt: now}
+	p1 := Project{ID: objectstore.NewProjectID(), TenantID: t1.ID, Name: "alpha", CreatedAt: now}
 	if err := repo.CreateProject(ctx, p1); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.CreateProject(ctx, p1); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("dup project id: %v", err)
 	}
-	if err := repo.CreateProject(ctx, Project{ID: uuid.NewString(), TenantID: t1.ID, Name: "alpha", CreatedAt: now}); !errors.Is(err, ErrAlreadyExists) {
+	if err := repo.CreateProject(ctx, Project{ID: objectstore.NewProjectID(), TenantID: t1.ID, Name: "alpha", CreatedAt: now}); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("dup project name: %v", err)
 	}
 
@@ -71,7 +73,7 @@ func TestSQLRepository_DatabasesPaginationAndStates(t *testing.T) {
 	repo := NewSQLRepository(db)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	tenantID, projectID := uuid.NewString(), uuid.NewString()
+	tenantID, projectID := uuid.NewString(), objectstore.NewProjectID()
 	if err := repo.CreateTenant(ctx, Tenant{ID: tenantID, Name: "t", CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +170,7 @@ func TestSQLRepository_DatabasesPaginationAndStates(t *testing.T) {
 	if err != nil || len(sysPage2) != 1 || sysPage1[0].ID == sysPage2[0].ID || sysEnd != "" {
 		t.Fatalf("system page2=%v cursor=%q err=%v", sysPage2, sysEnd, err)
 	}
-	otherProjectID := uuid.NewString()
+	otherProjectID := objectstore.NewProjectID()
 	if err := repo.CreateProject(ctx, Project{ID: otherProjectID, TenantID: tenantID, Name: "other", CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
@@ -183,19 +185,19 @@ func TestSQLRepository_DatabasesPaginationAndStates(t *testing.T) {
 		}
 	}
 
-	if _, err := repo.TransitionDatabase(ctx, first.ID, nil, DatabaseClosing, now); err == nil {
+	if _, err := repo.TransitionDatabase(ctx, first.ID, nil, DatabaseDegraded, now); err == nil {
 		t.Fatal("empty from should fail")
 	}
-	if _, err := repo.TransitionDatabase(ctx, uuid.NewString(), []DatabaseStatus{DatabaseReady}, DatabaseClosing, now); err == nil {
+	if _, err := repo.TransitionDatabase(ctx, uuid.NewString(), []DatabaseStatus{DatabaseReady}, DatabaseDegraded, now); err == nil {
 		t.Fatal("missing id should fail")
 	} else if _, ok := err.(*StateTransitionError); !ok && !errors.Is(err, ErrInvalidState) {
 		t.Fatalf("want StateTransitionError, got %T %v", err, err)
 	}
-	if _, err := repo.TransitionDatabase(ctx, first.ID, []DatabaseStatus{DatabaseOpening}, DatabaseReady, now); err == nil {
+	if _, err := repo.TransitionDatabase(ctx, first.ID, []DatabaseStatus{DatabaseDegraded}, DatabaseReady, now); err == nil {
 		t.Fatal("wrong from should fail")
 	}
-	moved, err := repo.TransitionDatabase(ctx, first.ID, []DatabaseStatus{DatabaseReady}, DatabaseClosing, now)
-	if err != nil || moved.Status != DatabaseClosing {
+	moved, err := repo.TransitionDatabase(ctx, first.ID, []DatabaseStatus{DatabaseReady}, DatabaseDegraded, now)
+	if err != nil || moved.Status != DatabaseDegraded {
 		t.Fatalf("transition: %+v err=%v", moved, err)
 	}
 
@@ -350,7 +352,7 @@ func TestSQLRepository_QueryErrorsOnClosedDB(t *testing.T) {
 	if _, _, err := repo.ListDatabases(ctx, "p", Page{}); err == nil {
 		t.Fatal("expected closed-db error")
 	}
-	if _, err := repo.TransitionDatabase(ctx, "d", []DatabaseStatus{DatabaseReady}, DatabaseClosed, now); err == nil {
+	if _, err := repo.TransitionDatabase(ctx, "d", []DatabaseStatus{DatabaseReady}, DatabaseDegraded, now); err == nil {
 		t.Fatal("expected closed-db error")
 	}
 	if err := repo.MarkDeleted(ctx, "d", now); err == nil {

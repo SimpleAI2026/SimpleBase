@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 )
 
-// fakeAPISandbox 实现 cloudagent.Sandbox 的测试假件。
+// fakeAPISandbox 实现 gocloudagent.Sandbox 的测试假件。
 type fakeAPISandbox struct {
 	available bool
 	released  struct {
@@ -21,12 +21,12 @@ type fakeAPISandbox struct {
 
 func (f *fakeAPISandbox) Available() bool { return f.available }
 
-func (f *fakeAPISandbox) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (cloudagent.SandboxOutput, error) {
-	return cloudagent.SandboxOutput{}, nil
+func (f *fakeAPISandbox) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (gocloudagent.SandboxOutput, error) {
+	return gocloudagent.SandboxOutput{}, nil
 }
 
-func (f *fakeAPISandbox) Shell(ctx context.Context, projectID, threadID, command string) (cloudagent.SandboxOutput, error) {
-	return cloudagent.SandboxOutput{}, nil
+func (f *fakeAPISandbox) Shell(ctx context.Context, projectID, threadID, command string) (gocloudagent.SandboxOutput, error) {
+	return gocloudagent.SandboxOutput{}, nil
 }
 
 func (f *fakeAPISandbox) ReadFile(ctx context.Context, projectID, threadID, path string) (string, error) {
@@ -46,7 +46,7 @@ func TestModulesSandboxAvailableFlag(t *testing.T) {
 	store := openAgentStore(t)
 	e := agentEcho(store)
 	e.GET("/agents/modules/with", func(c echo.Context) error {
-		h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{Sandbox: &fakeAPISandbox{available: true}}}
+		h := &cloudAgentHandler{store: store, runtime: &gocloudagent.Runtime{Sandbox: &fakeAPISandbox{available: true}}}
 		return h.ListModules(c)
 	})
 	rec := agentReq(e, http.MethodGet, "/agents/modules/with", nil)
@@ -88,7 +88,7 @@ func TestCreateSandboxAgentRejectedWhenDisabled(t *testing.T) {
 func TestCreateSandboxAgentAllowedWhenEnabled(t *testing.T) {
 	store := openAgentStore(t)
 	sb := &fakeAPISandbox{available: true}
-	h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{Sandbox: sb}}
+	h := &cloudAgentHandler{store: store, runtime: &gocloudagent.Runtime{Sandbox: sb}}
 	e := agentEcho(store)
 	e.POST("/agents/enabled", h.CreateAgent)
 	rec := agentReq(e, http.MethodPost, "/agents/enabled", map[string]any{
@@ -105,7 +105,7 @@ func TestCreateSandboxAgentAllowedWhenEnabled(t *testing.T) {
 func TestDeleteThreadReleasesSandbox(t *testing.T) {
 	store := openAgentStore(t)
 	sb := &fakeAPISandbox{available: true}
-	h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{Sandbox: sb}}
+	h := &cloudAgentHandler{store: store, runtime: &gocloudagent.Runtime{Sandbox: sb}}
 	e := agentEcho(store)
 	e.DELETE("/agent-threads/:threadID", h.DeleteThread)
 	e.POST("/agent-threads", h.CreateThread)

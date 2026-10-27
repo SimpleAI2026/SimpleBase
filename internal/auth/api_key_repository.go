@@ -1,7 +1,34 @@
-// api_key_repository.go 是 auth.Repository 基于系统 DuckLake 的实现。
+// 文件说明：api_key_repository.go — auth.Repository 基于系统 DuckLake 的实现
 //
-// 复用系统迁移创建的 sys_api_keys / sys_projects。tenant_id 通过 JOIN 得到。
-// permissions 以逗号分隔字符串存储。不使用 PRIMARY KEY / 序列。
+// 用法
+//
+//	NewSQLAPIKeyRepository(db *sql.DB) Repository
+//	CreateAPIKey(ctx context.Context, db *sql.DB, id, projectID, keyHash string, perms ...  // CreateAPIKey 插入一条新的 sys_api_keys 记录
+//	RevokeAPIKey(ctx context.Context, db *sql.DB, id string, at time.Time) error  // RevokeAPIKey 将指定 key 标记为已撤销
+//	同包调用：FindByHash() → cache.go, service.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/api_key_repository.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/strutil
+//	[同包] cache.go, delegation.go, id.go, jwt.go, middleware.go 等 15 个
+//	[关键引用] FindByHash() ← cache.go, service.go
+//
+// 主要符号
+//
+//	NewSQLAPIKeyRepository(db *sql.DB) Repository
+//	CreateAPIKey(ctx context.Context, db *sql.DB, id, projectID, keyHash string, perms ...
+//	RevokeAPIKey(ctx context.Context, db *sql.DB, id string, at time.Time) error
+//	var ErrKeyNotFound
+//	RevokeProjectAPIKey(ctx context.Context, db *sql.DB, id, projectID string, at ...
+//	(s *Service) RevokeAPIKeyByID(ctx context.Context, db *sql.DB, id string, at ...
+//	... 另有 7 个顶层符号
+
 package auth
 
 import (

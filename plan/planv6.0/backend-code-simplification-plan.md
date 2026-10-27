@@ -38,8 +38,8 @@
   - 状态：**已完成表征与审计，零生产修改（2026-10-13）**。补 `c1_run_validation_test.go`（非最新 run 拒绝重试、retry 复用 user 消息等）；claim/run 落库/worker 协议未动。用户未选择进一步提取，按计划 C 类默认仅分析+表征。验证：`go test -short/race -count=1 ./internal/api`。 |
 | C2 · 高风险，后置 | `sandbox/manager.go:213-342` | 按锁内幂等、输入归一化/校验、落库整理为私有逻辑；提取前先明确 `in` 的变更及 `Start` 在锁外执行。 | 项目锁覆盖配额检查与创建、幂等 TTL/容量淘汰、同名与资源错误、重用时 Start 语义；`sandbox/manager_lock_test.go` 加完整 Create 表征测试。 |
   - 状态：**已完成表征与审计，零生产修改（2026-10-13）**。补 `c2_create_test.go`（幂等命中跳过校验、同名优先于配额、归一化在锁内等审计结论固化）；锁/幂等/Start 语义未动。用户未选择进一步提取，按计划 C 类默认仅分析+表征。验证：`go test -short/race -count=1 ./internal/sandbox`。 |
-| C3 · 高风险，后置 | `cloudagent/runtime.go:104-316` | 在稳定的 SSE 事件测试基础上，仅按事件归集/结果生成阶段拆解 `StartRun`。 | 事件顺序、tool call/result 配对、取消和超时、截断、用量计数；`cloudagent/runtime_test.go`、`run_limits_test.go`、`cli_tool_planv6_test.go`。不得改沙盒/CLI 信任边界。 |
-  - 状态：**已完成表征与审计，零生产修改（2026-10-13）**。补 `c3_startrun_events_test.go`（usage 缺失、tool 失败、多次增量等事件轨迹）；channel 所有权/取消/超时未动。用户未选择进一步提取，按计划 C 类默认仅分析+表征。验证：`go test -short/race -count=1 ./internal/cloudagent`。 |
+| C3 · 高风险，后置 | `gocloudagent/runtime.go:104-316` | 在稳定的 SSE 事件测试基础上，仅按事件归集/结果生成阶段拆解 `StartRun`。 | 事件顺序、tool call/result 配对、取消和超时、截断、用量计数；`gocloudagent/runtime_test.go`、`run_limits_test.go`、`cli_tool_planv6_test.go`。不得改沙盒/CLI 信任边界。 |
+  - 状态：**已完成表征与审计，零生产修改（2026-10-13）**。补 `c3_startrun_events_test.go`（usage 缺失、tool 失败、多次增量等事件轨迹）；channel 所有权/取消/超时未动。用户未选择进一步提取，按计划 C 类默认仅分析+表征。验证：`go test -short/race -count=1 ./internal/gocloudagent`。 |
 | C4 · 高风险，最后评估 | `database/registry/registry.go:83-173`、`database/ducklake/catalog_syncer.go:525-763` | registry 先审计 `entry.openErr` 等状态的读写方；仅确认不可观察且无并发意义才删。syncer 仅在更强回归后考虑锁内捕获/锁外发布/水位推进的保序提取。 | 单 writer、失败重试、关闭/失租不 flush、快照 → manifest → 水位、CAS 冲突与 split-brain 判定；`registry/registry_test.go`、`always_open_test.go`、`ducklake/catalog_syncer_test.go`、`manifest_chain_test.go`、`write_gate_test.go`。缺测试或无法证明等价时保持原状。 |
 
 **本轮不强行统一**：`api/kv_handler.go` 的 typed 写入与 `/kv` 命令写入（读命令共用 POST，且历史项目可在读取时补建 KV 行）；`objectstore` 的 S3/本地/内存 FileStore（默认列表上限、排序、错误语义不同）；`catalog/sql_repository.go` 的不同实体创建流程；两个 scheduler 的公开 Trigger 接口及锁约束。仅在后续有相同业务语义和充分测试时重新评估，不因代码形似即抽象。
@@ -78,7 +78,7 @@
 # 每个候选：实际包按本批涉及范围选择；全量命令不要在每个微改后重复跑
 go test -short -count=1 ./internal/catalog ./internal/llmgateway ./internal/systemdb
 go test -short -count=1 ./internal/config ./internal/api ./internal/app
-go test -race -short -count=3 ./internal/api ./internal/app ./internal/database/registry ./internal/cloudagent ./internal/sandbox
+go test -race -short -count=3 ./internal/api ./internal/app ./internal/database/registry ./internal/gocloudagent ./internal/sandbox
 go vet ./internal/...
 go build ./internal/... ./cmd/...
 go test ./...
@@ -266,13 +266,13 @@ C 类除 P0/S1–S6 外，还必须提交“锁/状态/事件轨迹表 + 失败�
 4. 用户选择后首选只提取 image 至 idle 的连续归一化/校验段。用 `*CreateInput` 或返回更新后的输入都必须明确保存原闭包内变更，否则后续落库会用旧值。项目锁、m.mu、Start 调用位置不动。
 5. 验证 `go test -short -count=1 ./internal/sandbox` 和 `go test -race -short -count=3 ./internal/sandbox`；使用已有 fake driver/store，禁止连接真实沙盒。
 
-### C3：cloudagent.StartRun 事件阶段
+### C3：gocloudagent.StartRun 事件阶段
 
 1. 对现有 runtime 测试列出正常、tool call/result、多工具、取消、超时、截断、usage 的事件轨迹；保留事件名称/ID/先后、最终响应和完成状态。
 2. 确认 nil 与空 content、usage 缺失、多次增量及 tool 失败的旧行为，不能顺便修正计数或补发事件。
 3. 用户选择后仅提取一个连续的事件归集或结果生成片段，不改 channel 所有权、context、取消传播、超时计时或 goroutine 数量。
 4. 不更改 CLI 参数、凭据、sandbox 接口和工具信任边界；不得因“纯结果 helper”调用外部工具。
-5. 验证 `go test -short -count=1 ./internal/cloudagent` 和 `go test -race -short -count=3 ./internal/cloudagent`；检查 runtime/run_limits/cli_tool_planv6 对应测试实际存在和执行。
+5. 验证 `go test -short -count=1 ./internal/gocloudagent` 和 `go test -race -short -count=3 ./internal/gocloudagent`；检查 runtime/run_limits/cli_tool_planv6 对应测试实际存在和执行。
 
 ### C4-registry 与 C4-syncer：两个独立研究项
 

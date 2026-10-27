@@ -1,3 +1,31 @@
+// 文件说明：instruction.go — gofunction/internal/interp 的内部实现（containerValue、runAlloc 等）
+//
+// 用法
+//
+//	同包调用：runStore() → compile.go, runframe.go 等；runDefer() → compile.go, frame.go 等；runAlloc() → compile.go, runframe.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/instruction.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/value
+//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
+//	[关键引用] runStore() ← compile.go, runframe.go, valuecache.go
+//
+// 主要符号
+//
+//	containerValue(v value.Value) reflect.Value
+//	runAlloc(fr *frame, instr *ssa.Alloc) step
+//	runUnOp(fr *frame, instr *ssa.UnOp) step
+//	runBinOp(fr *frame, instr *ssa.BinOp) step
+//	runMakeInterface(fr *frame, instr *ssa.MakeInterface) step
+//	runReturn(fr *frame, instr *ssa.Return) step
+//	... 另有 29 个顶层符号
+
 package interp
 
 import (

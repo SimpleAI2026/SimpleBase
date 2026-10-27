@@ -1,10 +1,10 @@
 <template>
-  <div class="min-w-0 shrink sm:shrink-0">
+  <div class="w-32 min-w-0 shrink sm:w-auto sm:shrink-0">
     <Popover v-model:open="open">
       <PopoverTrigger as-child>
         <Button
           variant="outline"
-          class="h-9 min-w-0 max-w-full justify-start gap-1 rounded-lg px-2 shadow-xs sm:w-56 sm:gap-2.5 sm:px-3"
+          class="h-9 w-full min-w-0 max-w-full justify-start gap-1 rounded-lg px-2 shadow-xs sm:w-56 sm:gap-2.5 sm:px-3"
           :aria-label="t('components.projectSwitcher.aria', { label: triggerLabel })"
         >
           <FolderIcon class="size-4 shrink-0 text-primary/80" />

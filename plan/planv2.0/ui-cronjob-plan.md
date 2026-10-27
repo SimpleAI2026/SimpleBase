@@ -36,8 +36,8 @@
 
 | 已有 | 位置 | 复用方式 |
 |---|---|---|
-| cron 解析 `ParseCron` / `CronSpec.NextAfter` | `internal/cloudagent/cron.go` | 纯函数无依赖，抽到公共包 `internal/crontab`（§5.1） |
-| 调度循环范式：tick / `ListDue*` / CAS `Claim*` / inFlight / `Trigger` | `internal/cloudagent/scheduler.go` | 镜像实现 `internal/cronjob/scheduler.go`，执行器换成 RunJSON |
+| cron 解析 `ParseCron` / `CronSpec.NextAfter` | `internal/gocloudagent/cron.go` | 纯函数无依赖，抽到公共包 `internal/crontab`（§5.1） |
+| 调度循环范式：tick / `ListDue*` / CAS `Claim*` / inFlight / `Trigger` | `internal/gocloudagent/scheduler.go` | 镜像实现 `internal/cronjob/scheduler.go`，执行器换成 RunJSON |
 | 执行内核 `RunJSON(ctx, seqid, name, source, funcName, body)` | `gofunction/jsonrun.go` | 直接调用；超时/编译/绑定错误已由哨兵区分 |
 | 任务目标数据 `sys_gofunctions` | v28 | 保存任务时校验文件存在 + 导出函数在 exports 内 |
 | metrics 通道 `RecordMetric` / audit 通道 `AuditService` | `internal/api` | 直接复用，新增 3 个指标与 kind=`cronjob` |
@@ -127,20 +127,20 @@ DTO 结构体 `CronJob` / `CronJobRun` 字段与表一一对应；`next_run_at` 
 
 ### 5.1 cron 引擎公共化（`internal/crontab`）
 
-- 将 `internal/cloudagent/cron.go` **移动**为 `internal/crontab/crontab.go`（`ParseCron`/`CronSpec.NextAfter` 原样，纯函数零依赖，附带全部测试迁移）。
-- `internal/cloudagent/cron.go` 改薄封装保持兼容：
+- 将 `internal/gocloudagent/cron.go` **移动**为 `internal/crontab/crontab.go`（`ParseCron`/`CronSpec.NextAfter` 原样，纯函数零依赖，附带全部测试迁移）。
+- `internal/gocloudagent/cron.go` 改薄封装保持兼容：
 
   ```
   type CronSpec = crontab.CronSpec          // type alias
   func ParseCron(expr string) (CronSpec, error) { return crontab.ParseCron(expr) }
   ```
 
-  → cloudagent 既有调用点与测试零改动；cronjob 直接 import `internal/crontab`，语义干净。
+  → gocloudagent 既有调用点与测试零改动；cronjob 直接 import `internal/crontab`，语义干净。
 - 语法不变：受限 5 字段（分 时 日 月 周），支持 `*`、`*/n`、`n`、`a-b`、逗号列表；UTC；分钟粒度。
 
 ### 5.2 调度器（`internal/cronjob/scheduler.go`）
 
-镜像 `cloudagent.Scheduler` 的骨架与并发语义：
+镜像 `gocloudagent.Scheduler` 的骨架与并发语义：
 
 ```
 type Runner interface {
@@ -418,7 +418,7 @@ func(ctx, projectID, file, export, input):
 
 ## 12. 风险与坑（评审清单）
 
-1. **cron 包迁移的连锁改动**——cloudagent 内所有 `ParseCron` 引用点与测试需随 alias 方案验证；若嫌动面广，备选方案是 cronjob 直接 `import cloudagent` 复用（语义差但零迁移成本）。**建议按 alias 方案做**，一次性理清。
+1. **cron 包迁移的连锁改动**——gocloudagent 内所有 `ParseCron` 引用点与测试需随 alias 方案验证；若嫌动面广，备选方案是 cronjob 直接 `import gocloudagent` 复用（语义差但零迁移成本）。**建议按 alias 方案做**，一次性理清。
 2. **interval 漂移**：以「认领时刻 + interval」推进而非 `last_run_at + interval`，长任务不会错位压缩；文档注明。
 3. **目标变更**：云函数改名/删除后任务不自动清理；`target_missing` 只是提示，执行照常记 failed——文档写清「任务不随云函数删除而删除」。
 4. **input_json 与函数签名不匹配**：保存时不 dry-run（副作用），运行时 ErrBind → failed；UI Alert 提示用户自行保证。

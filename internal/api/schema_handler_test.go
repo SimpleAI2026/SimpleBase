@@ -1,14 +1,15 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 )
 
 func setupSchemaRouter(t *testing.T, svc *fakeDataService, writable bool) *echo.Echo {
@@ -38,7 +39,7 @@ func setupSchemaRouter(t *testing.T, svc *fakeDataService, writable bool) *echo.
 
 func TestSchemaListAndMutateSQLDatabase(t *testing.T) {
 	lease := &fakeSQLLease{
-		queryResult: database.QueryResult{
+		queryResult: godatabase.QueryResult{
 			Rows: [][]any{
 				{"users", "id", "INTEGER", "YES"},
 				{"users", "email", "VARCHAR", "NO"},
@@ -48,7 +49,7 @@ func TestSchemaListAndMutateSQLDatabase(t *testing.T) {
 		},
 	}
 	svc := &fakeDataService{
-		dbs:   []catalog.Database{{ID: "db-sql", ProjectID: "proj-1", Kind: catalog.DatabaseKindUser, DataModel: catalog.DataModelSQL}},
+		dbs:   []catalog.Database{{ID: "db-sql", ProjectID: "proj-1", Kind: catalog.DatabaseKindUser, DataModel: catalog.DataModelSQL, DatabasePath: "proj0001/database.duckdb"}},
 		lease: lease,
 	}
 	e := setupSchemaRouter(t, svc, true)
@@ -59,7 +60,7 @@ func TestSchemaListAndMutateSQLDatabase(t *testing.T) {
 	if strings.Contains(rec.Body.String(), `"sensitive"`) {
 		t.Fatalf("user schema must not mark credential columns: %s", rec.Body.String())
 	}
-	if svc.acquiredMode != database.ReadOnly {
+	if svc.acquiredMode != godatabase.ReadOnly {
 		t.Fatalf("list mode %v", svc.acquiredMode)
 	}
 
@@ -133,7 +134,7 @@ func TestBuildSchemaSQLValidation(t *testing.T) {
 }
 
 func TestSchemaListSystemDatabase(t *testing.T) {
-	lease := &fakeSQLLease{queryResult: database.QueryResult{Rows: [][]any{
+	lease := &fakeSQLLease{queryResult: godatabase.QueryResult{Rows: [][]any{
 		{"sys_users", "id", "VARCHAR", "NO"},
 		{"sys_users", "password_hash", "VARCHAR", "NO"},
 		{"sys_users", "token_input", "BIGINT", "YES"},
@@ -157,17 +158,17 @@ func TestSchemaListSystemDatabase(t *testing.T) {
 	if strings.Contains(body, `"name":"token_input"`) && strings.Contains(body, `"name":"token_input","type":"BIGINT","nullable":true,"sensitive"`) {
 		t.Fatalf("token_input must stay visible: %s", body)
 	}
-	if svc.acquiredMode != database.ReadOnly {
+	if svc.acquiredMode != godatabase.ReadOnly {
 		t.Fatalf("mode %v", svc.acquiredMode)
 	}
 }
 
 func TestSchemaTableRowsSystemAndUser(t *testing.T) {
-	sysLease := &fakeSQLLease{queryQueue: []database.QueryResult{
+	sysLease := &fakeSQLLease{queryQueue: []godatabase.QueryResult{
 		{Rows: [][]any{
-			{"id", "VARCHAR", "NO"},
-			{"password_hash", "VARCHAR", "NO"},
-			{"created_at", "TIMESTAMP", "YES"},
+			{"sys_users", "id", "VARCHAR", "NO"},
+			{"sys_users", "password_hash", "VARCHAR", "NO"},
+			{"sys_users", "created_at", "TIMESTAMP", "YES"},
 		}},
 		{Rows: [][]any{{int64(2)}}},
 		{Rows: [][]any{{"u1", nil, "t"}}},
@@ -180,7 +181,7 @@ func TestSchemaTableRowsSystemAndUser(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"sensitive":true`) || !strings.Contains(rec.Body.String(), `"total":2`) {
 		t.Fatalf("system rows %d %s", rec.Code, rec.Body.String())
 	}
-	if sys.acquiredMode != database.ReadOnly {
+	if sys.acquiredMode != godatabase.ReadOnly {
 		t.Fatalf("mode %v", sys.acquiredMode)
 	}
 	var pageSQL string
@@ -199,18 +200,29 @@ func TestSchemaTableRowsSystemAndUser(t *testing.T) {
 		t.Fatalf("order %s", pageSQL)
 	}
 
-	userLease := &fakeSQLLease{queryQueue: []database.QueryResult{
-		{Rows: [][]any{{"id", "INTEGER", "NO"}, {"password_hash", "VARCHAR", "YES"}}},
+	userLease := &fakeSQLLease{queryQueue: []godatabase.QueryResult{
+		{Rows: [][]any{{"users", "id", "INTEGER", "NO"}, {"users", "password_hash", "VARCHAR", "YES"}}},
 		{Rows: [][]any{{int64(1)}}},
 		{Rows: [][]any{{int64(1), "hash"}}},
 	}}
 	user := &fakeDataService{dbs: []catalog.Database{{
 		ID: "db-sql", ProjectID: "proj-1", Kind: catalog.DatabaseKindUser, DataModel: catalog.DataModelSQL,
+		DatabasePath: "proj0001/database.duckdb",
 	}}, lease: userLease}
 	e = setupSchemaRouter(t, user, true)
 	rec = doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-sql/schema/tables/users/rows?limit=10&offset=20", nil)
 	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"sensitive"`) {
 		t.Fatalf("user rows %d %s", rec.Code, rec.Body.String())
+	}
+	var body schemaRowsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Columns) != 2 || body.Columns[0].Name != "id" || body.Columns[0].Type != "INTEGER" || body.Columns[0].Nullable {
+		t.Fatalf("columns = %+v", body.Columns)
+	}
+	if len(body.Rows) != 1 || len(body.Rows[0]) != 2 || body.Rows[0][0] != float64(1) || body.Rows[0][1] != "hash" {
+		t.Fatalf("rows = %#v", body.Rows)
 	}
 	found := false
 	for _, stmt := range userLease.queryStmts {
@@ -234,9 +246,9 @@ func TestSchemaTableRowsSystemAndUser(t *testing.T) {
 
 func TestSchemaTableRowsValidation(t *testing.T) {
 	svc := &fakeDataService{dbs: []catalog.Database{
-		{ID: "db-sql", ProjectID: "proj-1", DataModel: catalog.DataModelSQL},
+		{ID: "db-sql", ProjectID: "proj-1", DataModel: catalog.DataModelSQL, DatabasePath: "proj0001/database.duckdb"},
 		{ID: "db-col", ProjectID: "proj-1", DataModel: catalog.DataModelCollection},
-	}, lease: &fakeSQLLease{queryResult: database.QueryResult{}}}
+	}, lease: &fakeSQLLease{queryResult: godatabase.QueryResult{}}}
 	e := setupSchemaRouter(t, svc, true)
 	rec := doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-col/schema/tables/users/rows", nil)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "data_model_mismatch") {

@@ -31,8 +31,8 @@
             <InputGroupInput v-model="keyword" :placeholder="t('pages.logs.keyword')" />
           </InputGroup>
         </div>
-        <div class="flex w-full min-w-0 items-end gap-2 sm:w-auto">
-          <div class="flex min-w-0 flex-1 flex-col gap-1 sm:w-52 sm:flex-none">
+        <div class="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-end">
+          <div class="flex w-full min-w-0 flex-col gap-1 sm:w-52 sm:flex-none">
             <span class="text-xs text-muted-foreground">{{ t('pages.logs.start') }}</span>
             <Input v-model="from" type="datetime-local" class="w-full" />
           </div>
@@ -47,6 +47,7 @@
           <RefreshCwIcon v-else data-icon="inline-start" />
           {{ t('common.refresh') }}
         </Button>
+        <Button size="sm" variant="outline" @click="exportCSV">{{ t('pages.logs.export') }}</Button>
         <div class="flex items-center gap-2 pb-1">
           <Switch :model-value="autoRefresh" @update:model-value="autoRefresh = $event" />
           <span class="text-sm text-muted-foreground">{{ autoRefresh ? t('pages.logs.autoRefresh', { n: POLL_SEC }) : t('pages.logs.manualRefresh') }}</span>
@@ -101,6 +102,11 @@
     </Card>
 
     <Card>
+      <CardHeader class="border-b"><CardTitle>{{ t('pages.logs.trendTitle') }}</CardTitle></CardHeader>
+      <CardContent class="py-4"><TrendChart v-model:mode="trendMode" :points="trendPoints" /></CardContent>
+    </Card>
+
+    <Card>
       <CardHeader class="border-b">
         <CardTitle>{{ t('pages.logs.retentionTitle') }}</CardTitle>
       </CardHeader>
@@ -148,7 +154,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { api } from '../services/api'
-import type { LogEvent } from '../services/api'
+import type { LogEvent, TrendPoint } from '../services/api'
+import TrendChart, { type ChartMode } from '../components/TrendChart.vue'
 import { useProjectStore } from '../stores/project'
 import { useLoadState } from '../composables/useLoadState'
 import { usePagination } from '../composables/usePagination'
@@ -169,6 +176,8 @@ const keyword = ref('')
 const from = ref('')
 const to = ref('')
 const events = ref<LogEvent[]>([])
+const trendPoints = ref<TrendPoint[]>([])
+const trendMode = ref<ChartMode>('line')
 const { page, pageSize, total, pageCount, items: paged } = usePagination(events)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
   fallback: 'pages.logs.loadFailed'
@@ -206,11 +215,13 @@ function load() {
   return run(async () => {
     // retention 每项目只取一次（poll 不再重复拉取）
     const needRetention = retentionLoadedFor.value !== projectStore.id
-    const [list, retention] = await Promise.all([
+    const [list, retention, stats] = await Promise.all([
       api.logs.list(projectStore.id, queryParams()),
-      needRetention ? api.logs.getRetention(projectStore.id) : Promise.resolve(null)
+      needRetention ? api.logs.getRetention(projectStore.id) : Promise.resolve(null),
+      api.logs.stats(projectStore.id, queryParams(), 'hour').catch(() => [])
     ])
     events.value = list
+    trendPoints.value = stats.map((item) => ({ date: item.key, requests: item.count, errors: 0 }))
     if (retention) {
       keepDays.value = retention.keepDays
       retentionUpdatedAt.value = retention.updatedAt ? formatTime(retention.updatedAt) : ''
@@ -226,6 +237,20 @@ function clearFilters() {
   from.value = ''
   to.value = ''
   void load()
+}
+
+async function exportCSV() {
+  try {
+    const blob = await api.logs.export(projectStore.id, queryParams())
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'logs.csv'
+    anchor.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    toast.error((e as Error)?.message || t('pages.logs.exportFailed'))
+  }
 }
 
 async function saveRetention() {

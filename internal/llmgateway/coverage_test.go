@@ -272,7 +272,7 @@ func TestCatalogResolver(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	if err := systemdb.ApplySystemMigrations(ctx, db); err != nil {
+	if err := systemdb.EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	repo := catalog.NewSQLRepository(db)

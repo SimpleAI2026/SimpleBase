@@ -15,7 +15,7 @@ func newFlushTestStore(t *testing.T) (*Store, *sql.DB) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	return &Store{db: db}, db

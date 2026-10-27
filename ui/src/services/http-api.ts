@@ -2,6 +2,8 @@ import { http, baseURL, getApiKey, getAccessToken, setTokens, clearTokens } from
 import { t } from '@/locales'
 import type {
   Api,
+  APIPreviewResult,
+  OpenAPIDocument,
   AgentMessage,
   AgentModuleInfo,
   AgentRun,
@@ -29,6 +31,12 @@ import type {
   StorageUpdateResult,
   CreateDatabaseInput,
   DatabaseItem,
+  BackupItem,
+  CollectionInfo,
+  CollectionSchema,
+  DocumentItem,
+  DocumentPage,
+  SchemaDryRunResult,
   DatabaseSchema,
   SchemaColumn,
   SchemaTable,
@@ -58,7 +66,11 @@ import type {
   TrendPoint,
   UpdateUserRequest,
   UserItem,
-  UserListResult
+  UserListResult,
+  ViewDryRunResult,
+  CollectionImportResult,
+  FunctionTrigger,
+  FunctionTriggerInput
 } from './types'
 
 /* ---------- 命名转换：UI camelCase ↔ 后端 snake_case（集中在此） ---------- */
@@ -843,6 +855,135 @@ function openAgentRunStream(
   return { close: () => controller.abort() }
 }
 
+function collectionWire(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+}
+
+function toBackupItem(value: unknown): BackupItem {
+  const raw = collectionWire(value)
+  return {
+    id: String(raw.id ?? ''),
+    projectId: String(raw.project_id ?? ''),
+    sizeBytes: Number(raw.size_bytes ?? 0),
+    sha256: String(raw.sha256 ?? ''),
+    engine: String(raw.engine ?? ''),
+    formatVersion: Number(raw.format_version ?? 0),
+    status: String(raw.status ?? ''),
+    createdAt: String(raw.created_at ?? ''),
+    expiresAt: raw.expires_at ? String(raw.expires_at) : undefined
+  }
+}
+
+function toCollectionInfo(value: unknown): CollectionInfo {
+  const raw = collectionWire(value)
+  return {
+    name: String(raw.name ?? ''),
+    schemaMode: raw.schema_mode === 'view' ? 'view' : 'json',
+    fieldCount: Number(raw.field_count ?? 0),
+    documentCount: Number(raw.document_count ?? 0),
+    registered: raw.registered === true
+  }
+}
+
+function toCollectionSchema(value: unknown): CollectionSchema {
+  const raw = collectionWire(value)
+  const fields = Array.isArray(raw.fields) ? raw.fields : []
+  return {
+    id: raw.id ? String(raw.id) : undefined,
+    projectId: raw.project_id ? String(raw.project_id) : undefined,
+    name: String(raw.name ?? ''),
+    schemaMode: raw.schema_mode === 'view' ? 'view' : 'json',
+    viewQuery: raw.view_query ? String(raw.view_query) : undefined,
+    fields: fields.map((entry) => {
+      const field = collectionWire(entry)
+      const options = collectionWire(field.options)
+      const type = String(field.type ?? 'text') as CollectionSchema['fields'][number]['type']
+      return {
+        name: String(field.name ?? ''),
+        type,
+        required: field.required === true,
+        unique: field.unique === true,
+        default: field.default,
+        hidden: field.hidden === true,
+        readonly: field.readonly === true,
+        options: {
+          min: typeof options.min === 'number' || typeof options.min === 'string' ? options.min : undefined,
+          max: typeof options.max === 'number' || typeof options.max === 'string' ? options.max : undefined,
+          pattern: options.pattern ? String(options.pattern) : undefined,
+          values: Array.isArray(options.values) ? options.values.map(String) : undefined,
+          maxSelect: options.max_select ? Number(options.max_select) : undefined,
+          maxSize: options.max_size ? Number(options.max_size) : undefined,
+          onlyInt: options.only_int === true,
+          exceptDomains: Array.isArray(options.except_domains) ? options.except_domains.map(String) : undefined,
+          onlyDomains: Array.isArray(options.only_domains) ? options.only_domains.map(String) : undefined
+        }
+      }
+    })
+  }
+}
+
+function toFunctionTrigger(value: unknown): FunctionTrigger {
+  const raw = collectionWire(value)
+  return {
+    id: String(raw.id ?? ''),
+    projectId: String(raw.project_id ?? ''),
+    kind: raw.kind === 'http' || raw.kind === 'object_event' ? raw.kind : 'record_change',
+    target: String(raw.target ?? ''),
+    events: Array.isArray(raw.events) ? raw.events.map(String) : [],
+    funcFile: String(raw.func_file ?? ''),
+    funcExport: String(raw.func_export ?? ''),
+    filter: raw.filter ? String(raw.filter) : undefined,
+    enabled: raw.enabled === true,
+    createdAt: String(raw.created_at ?? ''),
+    updatedAt: String(raw.updated_at ?? '')
+  }
+}
+
+function toTriggerWire(input: Partial<FunctionTriggerInput>) {
+  return {
+    kind: input.kind,
+    target: input.target,
+    events: input.events,
+    func_file: input.funcFile,
+    func_export: input.funcExport,
+    filter: input.filter,
+    enabled: input.enabled
+  }
+}
+
+function toDocumentItem(value: unknown): DocumentItem {
+  const raw = collectionWire(value)
+  return {
+    id: String(raw.id ?? ''),
+    createdAt: String(raw.created_at ?? ''),
+    updatedAt: String(raw.updated_at ?? raw.created_at ?? ''),
+    data: collectionWire(raw.data)
+  }
+}
+
+function toDocumentPage(value: unknown): DocumentPage {
+  const raw = collectionWire(value)
+  return {
+    rows: Array.isArray(raw.rows) ? (raw.rows as DocumentPage['rows']) : [],
+    items: Array.isArray(raw.items) ? raw.items.map(toDocumentItem) : [],
+    nextCursor: raw.next_cursor ? String(raw.next_cursor) : undefined,
+    total: typeof raw.total === 'number' ? raw.total : undefined
+  }
+}
+
+function toSchemaDryRun(value: unknown): SchemaDryRunResult {
+  const raw = collectionWire(value)
+  const invalid = Array.isArray(raw.invalid) ? raw.invalid : []
+  return {
+    invalid: invalid.map((entry) => {
+      const item = collectionWire(entry)
+      return { id: String(item.id ?? ''), field: String(item.field ?? ''), reason: String(item.reason ?? '') }
+    }),
+    scanned: Number(raw.scanned ?? 0),
+    truncated: raw.truncated === true
+  }
+}
+
 function dataCollectionsPath(projectId: string, databaseId: string, collection?: string) {
   let path =
     '/v1/projects/' +
@@ -863,6 +1004,7 @@ function toProjectItem(raw: any): import('./types').ProjectItem {
   return {
     id: String(raw?.id ?? ''),
     name: String(raw?.name ?? ''),
+    engine: raw?.engine === 'sqlite' ? 'sqlite' : raw?.engine === 'duckdb' ? 'duckdb' : undefined,
     createdAt: String(raw?.created_at ?? raw?.createdAt ?? '')
   }
 }
@@ -910,6 +1052,14 @@ function toUserItem(d: Record<string, any>): UserItem {
 
 /** 真实后端实现（路径契约见 plan/planv2.0/proto-http.md） */
 export const httpApi: Api = {
+  preview: {
+    document: () => http.get<OpenAPIDocument>('/v1/openapi.json').then((r) => r.data),
+    request: (method, path, body) =>
+      http.request({ method, url: path, data: body, validateStatus: () => true }).then((r): APIPreviewResult => ({
+        status: r.status,
+        body: typeof r.data === 'string' ? r.data : JSON.stringify(r.data ?? null, null, 2)
+      }))
+  },
   auth: {
     login: (req) =>
       http
@@ -971,6 +1121,16 @@ export const httpApi: Api = {
           must_change_password: req.mustChangePassword
         })
         .then((r) => toUserItem(r.data))
+  },
+  triggers: {
+    list: (projectId) => http.get(`/v1/projects/${encodeURIComponent(projectId)}/function-triggers`)
+      .then((r) => Array.isArray(r.data?.items) ? r.data.items.map(toFunctionTrigger) : []),
+    create: (projectId, input) => http.post(`/v1/projects/${encodeURIComponent(projectId)}/function-triggers`, toTriggerWire(input))
+      .then((r) => toFunctionTrigger(r.data)),
+    patch: (projectId, id, input) => http.patch(`/v1/projects/${encodeURIComponent(projectId)}/function-triggers/${encodeURIComponent(id)}`, toTriggerWire(input))
+      .then((r) => toFunctionTrigger(r.data)),
+    remove: (projectId, id) => http.delete(`/v1/projects/${encodeURIComponent(projectId)}/function-triggers/${encodeURIComponent(id)}`).then(() => undefined),
+    invoke: (projectId, id, body) => http.post(`/v1/projects/${encodeURIComponent(projectId)}/function-triggers/${encodeURIComponent(id)}/invoke`, body).then(() => undefined)
   },
   gofunctions: {
     list: (projectId) =>
@@ -1155,6 +1315,7 @@ export const httpApi: Api = {
         .post('/v1/projects', {
           name: req.name,
           id: req.id || undefined,
+          engine: req.engine || undefined,
           owner_user_id: req.ownerUserId || undefined
         })
         .then((r) => toProjectItem(r.data))
@@ -1167,10 +1328,17 @@ export const httpApi: Api = {
           const list = Array.isArray(r.data?.keys) ? r.data.keys : []
           return list.map(toApiKeyItem)
         }),
-    create: (projectId, permissions) =>
+    create: (projectId, permissions, scope) =>
       http
         .post('/v1/projects/' + encodeURIComponent(projectId) + '/api-keys', {
-          permissions: permissions && permissions.length ? permissions : undefined
+          permissions: permissions && permissions.length ? permissions : undefined,
+          scope: scope ? {
+            resources: scope.resources,
+            actions: scope.actions,
+            hidden_fields: scope.hiddenFields,
+            readonly_fields: scope.readonlyFields,
+            expires_at: scope.expiresAt
+          } : undefined
         })
         .then((r) => {
           const item = toApiKeyItem(r.data) as ApiKeyItem & { secret: string }
@@ -1319,7 +1487,87 @@ export const httpApi: Api = {
             '/documents/' +
             encodeURIComponent(id)
         )
-        .then(() => undefined)
+        .then(() => undefined),
+    collectionItems: (projectId, databaseId) =>
+      http.get(dataCollectionsPath(projectId, databaseId)).then((r) =>
+        Array.isArray(r.data?.items) ? r.data.items.map(toCollectionInfo) : []
+      ),
+    exportCollection: (projectId, databaseId, collection, format, query) =>
+      http.get(dataCollectionsPath(projectId, databaseId, collection) + '/export', {
+        params: { ...query, format }, responseType: 'blob'
+      }).then((r) => r.data as Blob),
+    importCollection: (projectId, databaseId, collection, file, format, dryRun = false) =>
+      http.post(dataCollectionsPath(projectId, databaseId, collection) + '/import', file, {
+        params: { dry_run: dryRun ? 1 : undefined },
+        headers: { 'Content-Type': format === 'csv' ? 'text/csv' : 'application/x-ndjson' }
+      }).then((r): CollectionImportResult => ({
+        dryRun: r.data?.dry_run === true,
+        scanned: Number(r.data?.scanned ?? 0),
+        imported: Number(r.data?.imported ?? 0)
+      })),
+    dryRunView: (projectId, databaseId, name, query) =>
+      http.post(dataCollectionsPath(projectId, databaseId) + '/meta/dry-run-view', { name, query })
+        .then((r): ViewDryRunResult => ({
+          columns: Array.isArray(r.data?.columns) ? r.data.columns.map(String) : [],
+          fields: Array.isArray(r.data?.fields) ? r.data.fields.map((field: unknown) => toCollectionSchema({ fields: [field] }).fields[0]) : [],
+          items: Array.isArray(r.data?.items) ? r.data.items.map(toDocumentItem) : [],
+          scanned: Number(r.data?.scanned ?? 0)
+        })),
+    documents: (projectId, databaseId, collection, query) =>
+      http
+        .get(dataCollectionsPath(projectId, databaseId, collection), { params: query })
+        .then((r) => toDocumentPage(r.data)),
+    document: (projectId, databaseId, collection, id) =>
+      http
+        .get(
+          dataCollectionsPath(projectId, databaseId, collection) + '/documents/' + encodeURIComponent(id)
+        )
+        .then((r) => toDocumentItem(r.data)),
+    patch: (projectId, databaseId, collection, id, payload) =>
+      http
+        .patch(
+          dataCollectionsPath(projectId, databaseId, collection) + '/documents/' + encodeURIComponent(id),
+          payload
+        )
+        .then((r) => r.data),
+    batch: (projectId, databaseId, collection, documents) =>
+      http
+        .post(dataCollectionsPath(projectId, databaseId, collection) + '/documents/batch', { documents })
+        .then((r) => Array.isArray(r.data?.items) ? r.data.items.map(toDocumentItem) : []),
+    truncate: (projectId, databaseId, collection) =>
+      http.delete(dataCollectionsPath(projectId, databaseId, collection)).then(() => undefined),
+    getCollectionSchema: (projectId, databaseId, collection) =>
+      http
+        .get(dataCollectionsPath(projectId, databaseId, collection) + '/meta')
+        .then((r) => toCollectionSchema(r.data)),
+    putCollectionSchema: (projectId, databaseId, schema, dryRun = false) =>
+      http
+        .put(
+          dataCollectionsPath(projectId, databaseId, schema.name) + '/meta',
+          {
+            name: schema.name,
+            schema_mode: schema.schemaMode || 'json',
+            view_query: schema.viewQuery,
+            fields: schema.fields.map((field) => ({
+              ...field,
+              options: {
+                min: field.options.min,
+                max: field.options.max,
+                pattern: field.options.pattern,
+                values: field.options.values,
+                max_select: field.options.maxSelect,
+                max_size: field.options.maxSize,
+                only_int: field.options.onlyInt,
+                except_domains: field.options.exceptDomains,
+                only_domains: field.options.onlyDomains
+              }
+            }))
+          },
+          { params: { dry_run: dryRun ? 1 : undefined } }
+        )
+        .then((r) => Array.isArray(r.data?.invalid) ? toSchemaDryRun(r.data) : toCollectionSchema(r.data)),
+    deleteCollectionSchema: (projectId, databaseId, collection) =>
+      http.delete(dataCollectionsPath(projectId, databaseId, collection) + '/meta').then(() => undefined)
   },
 
   kv: {
@@ -1338,10 +1586,22 @@ export const httpApi: Api = {
           params: { prefix }
         })
         .then((r) => (Array.isArray(r.data) ? r.data : [])),
+    listDetailed: (projectId, prefix) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/s3/objects', { params: { prefix, delimiter: '/' } })
+        .then((r) => ({ folders: Array.isArray(r.data?.folders) ? r.data.folders : [], objects: Array.isArray(r.data?.objects) ? r.data.objects : [] })),
     presign: (projectId, key) =>
       http
         .get('/v1/projects/' + encodeURIComponent(projectId) + '/s3/presign', { params: { key } })
         .then((r) => r.data),
+    download: (projectId, key) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/s3/objects/content', { params: { key }, responseType: 'blob' })
+        .then((r) => r.data as Blob),
+    createLink: (projectId, key, ttlSeconds = 900) =>
+      http
+        .post('/v1/projects/' + encodeURIComponent(projectId) + '/s3/link', { key, ttl_seconds: ttlSeconds })
+        .then((r) => ({ url: String(r.data?.url ?? ''), expiresAt: String(r.data?.expires_at ?? '') })),
     remove: (projectId, key) =>
       http
         .delete('/v1/projects/' + encodeURIComponent(projectId) + '/s3/objects', { params: { key } })
@@ -1362,6 +1622,23 @@ export const httpApi: Api = {
     }
   },
 
+  backups: {
+    list: (projectId) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/backups')
+        .then((r) => Array.isArray(r.data?.items) ? r.data.items.map(toBackupItem) : []),
+    create: (projectId) =>
+      http.post('/v1/projects/' + encodeURIComponent(projectId) + '/backups', {}).then((r) => toBackupItem(r.data)),
+    remove: (projectId, id) =>
+      http.delete('/v1/projects/' + encodeURIComponent(projectId) + '/backups/' + encodeURIComponent(id)).then(() => undefined),
+    restore: (projectId, id) =>
+      http.post('/v1/projects/' + encodeURIComponent(projectId) + '/backups/' + encodeURIComponent(id) + '/restore', {}).then(() => undefined),
+    download: (projectId, id) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/backups/' + encodeURIComponent(id) + '/download', { responseType: 'blob' })
+        .then((r) => r.data as Blob)
+  },
+
   logs: {
     list: (projectId, q) =>
       http
@@ -1372,6 +1649,17 @@ export const httpApi: Api = {
           const list = Array.isArray(r.data?.events) ? r.data.events : Array.isArray(r.data) ? r.data : []
           return list.map(toLogEvent)
         }),
+    stats: (projectId, q, groupBy = 'hour') =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/logs/stats', { params: { ...logQueryParams(q), group_by: groupBy } })
+        .then((r) => Array.isArray(r.data?.items) ? r.data.items.map((item: unknown) => {
+          const stat = collectionWire(item)
+          return { key: String(stat.key ?? ''), count: Number(stat.count ?? 0) }
+        }) : []),
+    export: (projectId, q) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/logs/export', { params: logQueryParams(q), responseType: 'blob' })
+        .then((r) => r.data as Blob),
     getRetention: (projectId) =>
       http
         .get('/v1/projects/' + encodeURIComponent(projectId) + '/logs/retention')

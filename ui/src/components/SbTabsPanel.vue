@@ -1,6 +1,6 @@
 <template>
   <Tabs :model-value="modelValue" class="gap-1" @update:model-value="onUpdate">
-    <TabsList :variant="variant" :class="variant === 'line' ? 'w-full justify-start' : undefined">
+    <TabsList :variant="variant" :class="['max-w-full overflow-x-auto', variant === 'line' ? 'w-full justify-start' : undefined]">
       <TabsTrigger v-for="item in items" :key="item.value" :value="item.value" class="px-3">
         {{ item.label }}
       </TabsTrigger>

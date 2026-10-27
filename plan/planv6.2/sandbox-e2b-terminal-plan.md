@@ -34,8 +34,8 @@
 - **旧调用方（全部要改）**：
   - 前端：`ui/src/services/http-api.ts`（`sandboxesPath` 与 `sandboxes:` 段，约 362–1035 行）、`types.ts`（`Sandbox*` 类型）、`src/test/api-mock.ts`、`pages/Sandboxes.vue`、`components/sandbox/SandboxDrawer.vue`、`components/modal/SandboxCreateModal.vue`、`pages/AgentManager.vue`（仅引用，需核对）、`locales/{zh-CN,en-US}.ts`，以及 `ui/tests/` 下 9 个涉及沙盒的测试文件。
   - 后端：`internal/sbcli`（`sandbox *` 命令与 `commands.go` 的只读表）、`internal/api/delegation_route_table_test.go`（6 条沙盒委托路由）、`internal/app/sandbox_{e2e,cross_project,manager}_test.go`、`internal/api/{b3_sandbox_routes,sandbox_handler}_test.go`。
-  - SDK 与文档：`packages/js-sdk/src/sandboxes.ts`（含 `client.ts`、`index.ts`、`README.md`、`__tests__/sandboxes.test.ts`；`dist/` 是构建产物，重新构建，不手改）、`packages/go-sdk/sandboxes.go`（+ 测试）、`docs/sdk/index.md`、`docs/automation/{sandbox,sandbox-api,sandbox-e2e}.md`、`cloudagent/skills/simplebase/references/sandbox.md`。
-  - **不受影响**：云助手线程内的 `sandbox_exec` / `sandbox_shell` / `sandbox_read_file` / `sandbox_write_file` 工具走 `cloudagent.Sandbox` 接口 → `app.sandboxAdapter` → `Manager`，是进程内调用，不经过 HTTP（`internal/app/app.go:972`）。
+  - SDK 与文档：`packages/js-sdk/src/sandboxes.ts`（含 `client.ts`、`index.ts`、`README.md`、`__tests__/sandboxes.test.ts`；`dist/` 是构建产物，重新构建，不手改）、`packages/go-sdk/sandboxes.go`（+ 测试）、`docs/sdk/index.md`、`docs/automation/{sandbox,sandbox-api,sandbox-e2e}.md`、`gocloudagent/skills/simplebase/references/sandbox.md`。
+  - **不受影响**：云助手线程内的 `sandbox_exec` / `sandbox_shell` / `sandbox_read_file` / `sandbox_write_file` 工具走 `gocloudagent.Sandbox` 接口 → `app.sandboxAdapter` → `Manager`，是进程内调用，不经过 HTTP（`internal/app/app.go:972`）。
 - `Manager`：每个沙盒操作经 `withLock` 串行，等待超过 5 秒返回 `ErrBusy`；`source=agent` 的沙盒对 `Exec` 返回 `ErrBusy`（UI 把它当只读）；状态枚举 `pending/running/stopped/expired/error`；`expires_at` 由 `markActive` 设为启动时刻 + `max_duration`；reaper 只按 `expires_at` 把行标成 `expired`。
 - `sys_sandboxes`（`internal/systemdb/migrate.go:557`）**没有 metadata 列**；当前最新迁移版本是 49。沙盒 ID 是 UUID。
 - 认证：`auth.AuthMiddlewareWithDelegation` 同时支持 JWT（控制台登录）与 API Key（`Authorization: Bearer`），委托令牌（云助手）也走它。项目归属由 `projectContextMiddlewareEcho` 从路径参数 `:projectID` 解析并校验 `auth.CheckProjectAccess`。
@@ -240,10 +240,10 @@ E2B 没有对应物、但控制台必须有，只保留这 3 条，全部在 `/e
 | `internal/api/router.go` | 删除 `mountSandboxRoutes`；新增 `mountE2BRoutes`（控制面、envd 双挂载、ext、兜底 404 / 501）；`skipLargeUploadBodyLimit` 改匹配 envd `POST /files`；`WriteTimeout` 抬高逻辑保留 |
 | `internal/api/sandbox_handler.go` | 删除；`bindSandboxJSON`、`recordExec`、`guardWrite` 里可复用的部分搬进新文件，不留死代码 |
 | `internal/api/error.go` | 沙盒错误表改为服务 `writeE2BError`；旧 `sandbox_*` 错误码不再出现在响应里 |
-| `SandboxService` 接口 | 去掉 `Update`（若无其他调用）、`RunOnce`（仅当 `sandboxAdapter` 与 cloudagent 均无调用时，实施时 grep 确认）；增加 `SetExpiry`、`GetByID`、会话 / 进程方法。**同步所有 fake**（`fakeRouterSandbox`、`fakeAPISandbox`），否则整包编译失败 |
+| `SandboxService` 接口 | 去掉 `Update`（若无其他调用）、`RunOnce`（仅当 `sandboxAdapter` 与 gocloudagent 均无调用时，实施时 grep 确认）；增加 `SetExpiry`、`GetByID`、会话 / 进程方法。**同步所有 fake**（`fakeRouterSandbox`、`fakeAPISandbox`），否则整包编译失败 |
 | `internal/api/delegation_route_table_test.go` | 删掉 6 条旧沙盒项；见下表新增 E2B 项 |
 | `internal/sbcli` | 保留并改走 E2B：`sandbox list|get|create|delete|start|stop|capabilities`（纯 REST：`start`→`connect`，`stop`→`pause`）。**删除** `sandbox update|run|exec|files`（E2B 里没有对应 REST，需要 Connect 客户端；这些能力由 E2B SDK、终端、云助手线程内工具提供）。同步 `commands.go` 的只读表、`cli_test.go`、`internal/agentbridge` 的 readonly / 分发对账测试 |
-| `cloudagent/skills/simplebase/references/sandbox.md` | 命令清单改为 `list|get|create|delete`；删掉 `run` / `update` 小节；顺手改掉「云上隔离微虚机」的过时说法（现在是本机进程隔离）；错误码段改为 E2B 的 `error_code` |
+| `gocloudagent/skills/simplebase/references/sandbox.md` | 命令清单改为 `list|get|create|delete`；删掉 `run` / `update` 小节；顺手改掉「云上隔离微虚机」的过时说法（现在是本机进程隔离）；错误码段改为 E2B 的 `error_code` |
 | 控制台 UI | 见 §6.6 |
 | `packages/js-sdk` | 删除 `src/sandboxes.ts` 及其测试、`client.ts` / `index.ts` 里的导出、`README.md` 沙盒章节；`dist/` 重新构建。不改 `package.json`（版本号由你决定）。沙盒使用方改用官方 `e2b` npm 包 |
 | `packages/go-sdk` | 删除 `sandboxes.go` 与测试（E2B 没有官方 Go SDK） |

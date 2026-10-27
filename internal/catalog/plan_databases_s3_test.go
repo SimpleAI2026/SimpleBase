@@ -54,6 +54,25 @@ func (p *recordingPurger) DeletePrefix(ctx context.Context, prefix string) error
 	return nil
 }
 
+// recordingProjectPurger 模拟项目单文件删除平面。
+type recordingProjectPurger struct {
+	purged  []string
+	objects map[string]struct{}
+}
+
+func (p *recordingProjectPurger) PurgeProject(ctx context.Context, projectID string) error {
+	p.purged = append(p.purged, projectID)
+	prefix := "simplebase/" + projectID + "/database/"
+	for k := range p.objects {
+		if strings.HasPrefix(k, prefix) {
+			delete(p.objects, k)
+		}
+	}
+	return nil
+}
+
+func (p *recordingProjectPurger) DeletePrefix(context.Context, string) error { return nil }
+
 func TestPlan_CreateDatabaseBecomesReady(t *testing.T) {
 	desc := &recordingDescriptorWriter{}
 	svc, _, tenantID, projectID := setupService(t, desc)
@@ -67,23 +86,14 @@ func TestPlan_CreateDatabaseBecomesReady(t *testing.T) {
 	if db.Status != DatabaseReady {
 		t.Fatalf("plan DoD: create must return ready, got %s", db.Status)
 	}
-	if desc.calls != 1 {
-		t.Fatalf("expected descriptor write, got %d", desc.calls)
+	if desc.calls != 0 {
+		t.Fatalf("project file model must not write DuckLake descriptor, got %d", desc.calls)
 	}
-	if desc.last.FormatVersion != objectstore.DescriptorFormatVersion {
-		t.Fatalf("descriptor format_version: got %d want %d", desc.last.FormatVersion, objectstore.DescriptorFormatVersion)
+	if err := ValidateProjectDatabasePath(projectID, db.DatabasePath); err != nil {
+		t.Fatalf("database path: %v", err)
 	}
-	if desc.last.Engine != "ducklake" {
-		t.Fatalf("descriptor.engine: got %q want ducklake", desc.last.Engine)
-	}
-	if desc.last.DuckLakeStorage.Bucket == "" || desc.last.DuckLakeStorage.Region == "" {
-		t.Fatalf("ducklake_storage bucket/region required: %+v", desc.last.DuckLakeStorage)
-	}
-	if desc.last.DuckLakeStorage.Prefix != desc.last.DataPrefix {
-		t.Fatalf("prefix mismatch storage=%q data=%q", desc.last.DuckLakeStorage.Prefix, desc.last.DataPrefix)
-	}
-	if err := desc.last.Validate(); err != nil {
-		t.Fatalf("written descriptor must Validate: %v", err)
+	if db.StoragePrefix != "" {
+		t.Fatalf("storage prefix must not be used for project files: %q", db.StoragePrefix)
 	}
 }
 
@@ -96,15 +106,10 @@ func TestPlan_DeleteDatabaseSyncPurgesPlaneBOnly(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	dbPrefix, err := svc.keys.DatabasePrefix(projectID, db.ID)
-	if err != nil {
-		t.Fatalf("DatabasePrefix: %v", err)
-	}
 	planeAKey := "simplebase/" + projectID + "/files/notes/hello.txt"
-	planeBDesc := dbPrefix + "/descriptor.json"
-	planeBData := dbPrefix + "/data/part-0.parquet"
-
-	purger := newRecordingPurger(planeAKey, planeBDesc, planeBData)
+	projectPurger := &recordingProjectPurger{
+		objects: map[string]struct{}{planeAKey: {}, "simplebase/" + projectID + "/database/snapshots/1.duckdb": {}},
+	}
 	closerCalled := false
 	principal := newTestPrincipal(tenantID, projectID)
 
@@ -116,7 +121,7 @@ func TestPlan_DeleteDatabaseSyncPurgesPlaneBOnly(t *testing.T) {
 			}
 			return nil
 		},
-		purger,
+		projectPurger,
 	)
 	if err != nil {
 		t.Fatalf("DeleteDatabaseSync: %v", err)
@@ -127,17 +132,14 @@ func TestPlan_DeleteDatabaseSyncPurgesPlaneBOnly(t *testing.T) {
 	if !closerCalled {
 		t.Fatal("expected registry closer to be called")
 	}
-	if len(purger.deleted) != 1 || purger.deleted[0] != dbPrefix {
-		t.Fatalf("expected purge of database prefix %q, got %v", dbPrefix, purger.deleted)
+	if len(projectPurger.purged) != 1 || projectPurger.purged[0] != projectID {
+		t.Fatalf("expected purge of project %q, got %v", projectID, projectPurger.purged)
 	}
-	if _, ok := purger.objects[planeAKey]; !ok {
-		t.Fatal("plan DoD: plane A user file must survive database delete")
+	if _, ok := projectPurger.objects[planeAKey]; !ok {
+		t.Fatal("project files must survive database delete")
 	}
-	if _, ok := purger.objects[planeBDesc]; ok {
-		t.Fatal("plane B descriptor should be purged")
-	}
-	if _, ok := purger.objects[planeBData]; ok {
-		t.Fatal("plane B data object should be purged")
+	if _, ok := projectPurger.objects["simplebase/"+projectID+"/database/snapshots/1.duckdb"]; ok {
+		t.Fatal("project database snapshot should be purged")
 	}
 
 	// catalog 侧应为 deleted

@@ -1,3 +1,33 @@
+// 文件说明：e2b_envd_handler.go — internal/api 中 Health、Envs 等符号的实现
+//
+// 用法
+//
+//	(h *SandboxHandler) Health(c echo.Context) error  // Health 对应 envd GET /health：沙盒存在且运行中返回 204，否则 502（SDK 把 502 视为未运行）
+//	(h *SandboxHandler) Envs(c echo.Context) error  // Envs 对应 envd GET /envs：沙盒的默认环境变量（创建时的 envVars）
+//	同包调用：Error() → agent_handler.go, agent_schedule_handler.go 等；Envs() → e2b_process_handler.go, router.go 等；envdScope() → e2b_process_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/e2b_envd_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/vm, internal/auth, internal/catalog, internal/e2bproto 等
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Error() ← agent_handler.go, agent_schedule_handler.go, api_keys_handler.go
+//
+// 主要符号
+//
+//	(h *SandboxHandler) Health(c echo.Context) error
+//	(h *SandboxHandler) Envs(c echo.Context) error
+//	(h *SandboxHandler) EnvdMetrics(c echo.Context) error
+//	(h *SandboxHandler) FilesGet(c echo.Context) error
+//	(h *SandboxHandler) FilesPost(c echo.Context) error
+//	(h *SandboxHandler) FsStat(c echo.Context) error
+//	... 另有 20 个顶层符号
+
 package api
 
 import (

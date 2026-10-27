@@ -1,3 +1,33 @@
+// 文件说明：metrics.go — internal/systemdb 中 MetricSample、MetricsSummary 等符号的实现
+//
+// 用法
+//
+//	(s *Store) RecordMetric(sample MetricSample)  // RecordMetric 缓冲一条指标样本（§7.2 P3：热指标内存预聚合，请求路径 O(1)）
+//	(s *Store) FlushMetrics(ctx context.Context) error  // FlushMetrics 将缓冲样本与预聚合桶写入 sys_metric_samples（批量单事务）
+//	同包调用：MetricsSummary() → observe.go, observe.go 等；MetricSample → async_flush.go, store.go；TrendPoint → store.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/metrics.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] MetricsSummary() ← observe.go, store.go
+//
+// 主要符号
+//
+//	type MetricSample struct {…}
+//	type MetricsSummary struct {…}
+//	type TrendPoint struct {…}
+//	(s *Store) RecordMetric(sample MetricSample)
+//	(s *Store) FlushMetrics(ctx context.Context) error
+//	(s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSummary ...
+//	... 另有 4 个顶层符号
+
 package systemdb
 
 import (

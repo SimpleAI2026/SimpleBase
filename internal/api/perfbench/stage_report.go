@@ -1,22 +1,38 @@
-// stage_report.go 聚合分段计时指标（simplebase_api_stage_seconds）为段占比表，
-// 并输出结果报告（终端表格 + output/perf/<date>/<case>.json 原始数据）。
+// 文件说明：stage_report.go — 聚合分段计时指标（simplebase_api_stage_seconds）为段占比表，
 //
-// §7.2 M1/T6 修正：快照改为进程内 prometheus.Gatherer（不发 HTTP /metrics，
-// 抓取请求不再污染增量）；占比以 total 段为分母（不含 total 自身）；
-// 支持按用例 route 过滤并排除 /metrics、/health/*。
+// 用法
+//
+//	type stageSnapshot（包内使用）
+//	type stageKey（包内使用）
+//	同包调用：stageSnapshot() → loadgen.go, loadgen.go；stageDelta() → loadgen.go；reportCtx → runner.go
+//
+// 调用架构
+//
+//	[上游] cmd/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/perfbench/stage_report.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cases.go, harness.go, helpers.go, loadgen.go, runner.go
+//	[关键引用] stageSnapshot() ← loadgen.go
+//
+// 主要符号
+//
+//	const StageNameTotal
+//	... 另有 14 个顶层符号
+
 package perfbench
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )
 
@@ -79,9 +95,6 @@ func (e *benchEnv) stageSnapshot() stageSnapshot {
 	}
 	return snap
 }
-
-// stageSnapshot 兼容保留：进程内版本（fetchMetricsText 已废弃）。
-var _ = prometheus.NewRegistry
 
 // routeForEndpoint 把用例端点标签映射回路由模板（stage 指标的 route label）。
 func routeForEndpoint(bc benchCase) string {
@@ -252,9 +265,3 @@ func sanitize(s string) string {
 		return '_'
 	}, s)
 }
-
-var _ = math.Round
-var _ = json.Marshal
-
-// benchClock 返回单调时钟（报告头部环境信息用）。
-func benchClock() time.Time { return time.Now() }

@@ -14,9 +14,9 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/uglyer/go-sqlite3"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
@@ -28,107 +28,36 @@ func newTestStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	if err := ApplySystemMigrations(ctx, db); err != nil {
+	if err := EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return NewStoreForTest(db)
 }
 
-func TestApplySystemMigrationsIdempotent(t *testing.T) {
+func TestEnsureSystemSchemaIdempotent(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	if err := ApplySystemMigrations(ctx, db); err != nil {
+	if err := EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
-	if err := ApplySystemMigrations(ctx, db); err != nil {
+	if err := EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
 	var n int64
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_migration_versions`).Scan(&n); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'sys\_%' ESCAPE '\'`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if int(n) != MigrationCount() {
-		t.Fatalf("versions=%d want %d", n, MigrationCount())
+	if int(n) != SystemTableCount() {
+		t.Fatalf("tables=%d want %d", n, SystemTableCount())
 	}
-}
-
-func TestPlan_MigrateRetiredOpenCloseStatuses(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
+	var legacy int64
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE name = 'sys_migration_versions'`).Scan(&legacy); err != nil || legacy != 0 {
+		t.Fatalf("version table must not exist: n=%d err=%v", legacy, err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	ctx := context.Background()
-	if err := ApplySystemMigrations(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	insert := func(id, status string, deleted bool) {
-		t.Helper()
-		var deletedAt any
-		if deleted {
-			deletedAt = now
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO sys_databases(
-			id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at)
-			VALUES(?, 't', 'p', ?, 'user', ?, 'prefix', 1, ?, ?, ?)`,
-			id, id, status, deletedAt, now, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	insert("closed", "closed", false)
-	insert("opening", "opening", false)
-	insert("closing", "closing", false)
-	insert("recovering", "recovering", false)
-	insert("degraded", "degraded", false)
-	insert("creating", "creating", false)
-	insert("deleted-closed", "closed", true)
-
-	var dataModel string
-	if err := db.QueryRowContext(ctx, `SELECT data_model FROM sys_databases WHERE id = ?`, "creating").Scan(&dataModel); err != nil {
-		t.Fatal(err)
-	}
-	if dataModel != catalog.DataModelCollection {
-		t.Fatalf("existing/default data_model=%q", dataModel)
-	}
-
-	if _, err := db.ExecContext(ctx, retireOpenCloseStatusSQL); err != nil {
-		t.Fatal(err)
-	}
-	statusOf := func(id string) string {
-		t.Helper()
-		var status string
-		var deletedAt sql.NullTime
-		if err := db.QueryRowContext(ctx, `SELECT status, deleted_at FROM sys_databases WHERE id = ?`, id).Scan(&status, &deletedAt); err != nil {
-			t.Fatal(err)
-		}
-		if id == "deleted-closed" {
-			if !deletedAt.Valid || status != "closed" {
-				t.Fatalf("soft-deleted closed row: status=%s deleted=%v", status, deletedAt.Valid)
-			}
-			return status
-		}
-		if deletedAt.Valid {
-			t.Fatalf("%s unexpectedly soft-deleted", id)
-		}
-		return status
-	}
-	for _, id := range []string{"closed", "opening", "closing", "recovering"} {
-		if got := statusOf(id); got != "ready" {
-			t.Fatalf("%s status=%s", id, got)
-		}
-	}
-	if got := statusOf("degraded"); got != "degraded" {
-		t.Fatalf("degraded became %s", got)
-	}
-	if got := statusOf("creating"); got != "creating" {
-		t.Fatalf("creating became %s", got)
-	}
-	statusOf("deleted-closed")
 }
 
 func TestLocatorRoundTrip(t *testing.T) {
@@ -153,7 +82,7 @@ func TestSQLRepositoryOnSystemSchema(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	if err := ApplySystemMigrations(ctx, db); err != nil {
+	if err := EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	repo := catalog.NewSQLRepository(db)
@@ -403,7 +332,7 @@ func TestIsAdminProjectAndStoreLifecycle(t *testing.T) {
 		t.Fatalf("unmigrated ping: %v", err)
 	}
 
-	if err := ApplySystemMigrations(context.Background(), raw); err != nil {
+	if err := EnsureSystemSchema(context.Background(), raw); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Ping(context.Background()); err != nil {
@@ -420,66 +349,26 @@ func TestIsAdminProjectAndStoreLifecycle(t *testing.T) {
 	}
 }
 
-func TestSystemDatabaseDataModelMigration(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
+func TestEnsureSystemSchemaNilAndCount(t *testing.T) {
+	if err := EnsureSystemSchema(context.Background(), nil); err == nil || !errors.Is(err, catalog.ErrMigrationFailed) {
+		t.Fatalf("nil db: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	ctx := context.Background()
-	if err := ApplySystemMigrations(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	insert := func(id, kind, model string) {
-		t.Helper()
-		if _, err := db.ExecContext(ctx, `INSERT INTO sys_databases(
-			id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, created_at, updated_at, data_model)
-			VALUES(?, 't', 'p', ?, ?, 'ready', 'prefix', 1, ?, ?, ?)`,
-			id, id, kind, now, now, model); err != nil {
-			t.Fatal(err)
-		}
-	}
-	insert("sys", "system", "collection")
-	insert("user-col", "user", "collection")
-	insert("user-sql", "user", "sql")
-	if _, err := db.ExecContext(ctx, `DELETE FROM sys_migration_versions WHERE version = 44`); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplySystemMigrations(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplySystemMigrations(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	modelOf := func(id string) string {
-		t.Helper()
-		var model string
-		if err := db.QueryRowContext(ctx, `SELECT data_model FROM sys_databases WHERE id = ?`, id).Scan(&model); err != nil {
-			t.Fatal(err)
-		}
-		return model
-	}
-	if modelOf("sys") != catalog.DataModelSQL {
-		t.Fatalf("system model %s", modelOf("sys"))
-	}
-	if modelOf("user-col") != catalog.DataModelCollection || modelOf("user-sql") != catalog.DataModelSQL {
-		t.Fatalf("user models changed: %s %s", modelOf("user-col"), modelOf("user-sql"))
+	if SystemTableCount() < 20 {
+		t.Fatalf("system table count %d", SystemTableCount())
 	}
 }
 
-func TestApplySystemMigrationsNilAndSplit(t *testing.T) {
-	if err := ApplySystemMigrations(context.Background(), nil); err == nil || !errors.Is(err, catalog.ErrMigrationFailed) {
-		t.Fatalf("nil db: %v", err)
-	}
-	if MigrationCount() < 20 {
-		t.Fatalf("migration count %d", MigrationCount())
-	}
-	if got := splitStatements("  a ; ; b ; "); len(got) != 2 || got[0] != "a" || got[1] != "b" {
-		t.Fatalf("split: %#v", got)
-	}
-	if got := splitStatements(""); len(got) != 0 {
-		t.Fatalf("empty split: %#v", got)
+// 每张表只能定义一次，且都以 sys_ 开头、建表语句与 name 一致。
+func TestSystemTablesAreUniqueAndWellFormed(t *testing.T) {
+	seen := map[string]bool{}
+	for _, tb := range systemTables {
+		if !strings.HasPrefix(tb.name, "sys_") || seen[tb.name] {
+			t.Fatalf("bad or duplicate table %q", tb.name)
+		}
+		seen[tb.name] = true
+		if !strings.Contains(tb.ddl, "CREATE TABLE IF NOT EXISTS "+tb.name+" (") {
+			t.Fatalf("ddl of %s does not match its name", tb.name)
+		}
 	}
 }
 
@@ -750,6 +639,17 @@ func TestLogsMetricsAndRetention(t *testing.T) {
 	stats, err := s.LogLevelStats(ctx, "p1")
 	if err != nil || len(stats) == 0 {
 		t.Fatalf("stats: %+v err=%v", stats, err)
+	}
+	exported, err := s.ExportLogs(ctx, LogQuery{ProjectID: "p1", From: now.Add(-time.Hour), To: now.Add(time.Hour)})
+	if err != nil || len(exported) != 3 {
+		t.Fatalf("export logs n=%d err=%v", len(exported), err)
+	}
+	globalFound := false
+	for _, event := range exported {
+		globalFound = globalFound || event.ProjectID == ""
+	}
+	if !globalFound {
+		t.Fatal("export omitted global log")
 	}
 
 	ret, err := s.GetRetention(ctx, "p1")

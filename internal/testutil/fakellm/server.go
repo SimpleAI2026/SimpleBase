@@ -1,6 +1,31 @@
-// Package fakellm 提供本地 OpenAI 兼容假模型服务（planv4.1 §5.1）。
-// 默认 go test 不访问外网、不需要真实 key：全链路测试把它当作上游。
-// 不含任何真实密钥；调用方使用占位 key（如 test-key）并断言脱敏路径。
+// 文件说明：server.go — 本地 OpenAI 兼容假模型服务（planv4.1 §5.1）
+//
+// 用法
+//
+//	New(scripts []Script, defaultScript Script) *Server
+//	(s *Server) Requests() []Request  // Requests 返回已收到的请求副本
+//	(s *Server) RequestCount() int  // RequestCount 返回已收到的请求数
+//
+// 调用架构
+//
+//	[上游] scripts/fakellm-server
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/testutil/fakellm/server.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	type Step struct {…}
+//	type Script struct {…}
+//	type ToolCall struct {…}
+//	type Request struct {…}
+//	type Message struct {…}
+//	type ReqCall struct {…}
+//	... 另有 12 个顶层符号
+
 package fakellm
 
 import (
@@ -72,11 +97,10 @@ type Request struct {
 // Message 是请求消息。Content 兼容 OpenAI 的字符串与 content-parts 数组两种形式
 // （litellm 的 openai provider 发送 [{"type":"text","text":...}]）。
 type Message struct {
-	Role       string          `json:"role"`
-	Content    contentValue    `json:"content"`
-	ToolCalls  []ReqCall       `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	raw        json.RawMessage `json:"-"`
+	Role       string       `json:"role"`
+	Content    contentValue `json:"content"`
+	ToolCalls  []ReqCall    `json:"tool_calls,omitempty"`
+	ToolCallID string       `json:"tool_call_id,omitempty"`
 }
 
 // contentValue 兼容 string 与 [{"type":"text","text":...}]。

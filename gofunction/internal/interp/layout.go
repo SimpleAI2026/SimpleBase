@@ -1,3 +1,32 @@
+// 文件说明：layout.go — gofunction/internal/interp 的内部实现（funcLayout、slotOf 等）
+//
+// 用法
+//
+//	type funcLayout（包内使用）
+//	同包调用：layoutOf() → call.go, compile.go 等；funcLayout → frame.go, program.go；slotOf() → frame.go, runframe.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/layout.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/value
+//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
+//	[关键引用] layoutOf() ← call.go, compile.go, frame.go
+//
+// 主要符号
+//
+//	type funcLayout struct {…}
+//	(l *funcLayout) slotOf(v ssa.Value) (int, bool)
+//	(l *funcLayout) slotOfMust(v ssa.Value) int
+//	buildLayout(fn *ssa.Function) *funcLayout
+//	(p *Program) layoutOf(fn *ssa.Function) *funcLayout
+//	(fr *frame) prepareEnv(n int)
+//	... 另有 1 个顶层符号
+
 package interp
 
 import (

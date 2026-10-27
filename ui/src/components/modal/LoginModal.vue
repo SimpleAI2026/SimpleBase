@@ -160,6 +160,7 @@ async function submitLogin() {
   error.value = ''
   try {
     await auth.login(username.value.trim(), password.value)
+    window.location.reload()
   } catch (e) {
     error.value = errorMessage(e, t('components.login.badCredentials'))
   } finally {

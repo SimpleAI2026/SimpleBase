@@ -1,7 +1,27 @@
 //go:build linux
 
-// gosandbox-inner 在 bwrap 沙盒内加载 Landlock 与 seccomp，再 exec 用户命令。
-// 它只 import host/inner，不链接 DuckDB 等重依赖。
+// 文件说明：main_linux.go — gosandbox-inner 在 bwrap 沙盒内加载 Landlock 与 seccomp，再 exec 用户命令
+//
+// 用法
+//
+//	同包调用：main() → main_other.go
+//
+// 调用架构
+//
+//	[上游] （无，本包为入口）
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/cmd/gosandbox-inner/main_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/host/inner
+//	[同包] main_other.go
+//	[关键引用] main() ← main_other.go
+//
+// 主要符号
+//
+//	main()
+
 package main
 
 import (

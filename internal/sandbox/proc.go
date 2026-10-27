@@ -1,3 +1,33 @@
+// 文件说明：proc.go — internal/sandbox 中 ProcTerminal、ProcCommand 等符号的实现
+//
+// 用法
+//
+//	(h *ProcHandle) Touch()  // Touch 记录一次活动，供空闲超时与续期使用
+//	(h *ProcHandle) Close() error  // Close 终止进程并从进程表移除，可重复调用
+//	同包调用：Close() → manager.go, output_hub.go；procTable → manager.go；newProcTable() → manager.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/sandbox/sshd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/proc.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/vm
+//	[同包] errors.go, manager.go, output_hub.go, paths.go, pty.go
+//	[关键引用] Close() ← manager.go, output_hub.go
+//
+// 主要符号
+//
+//	const ProcTerminal
+//	const ProcCommand
+//	type ProcInfo struct {…}
+//	type ProcHandle struct {…}
+//	(h *ProcHandle) Touch()
+//	(h *ProcHandle) Close() error
+//	... 另有 20 个顶层符号
+
 package sandbox
 
 import (
@@ -101,20 +131,6 @@ func (t *procTable) countKind(sandboxID, kind string) int {
 	for _, h := range t.by[sandboxID] {
 		if h.Kind == kind {
 			n++
-		}
-	}
-	return n
-}
-
-func (t *procTable) countProject(projectID, kind string) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	n := 0
-	for _, m := range t.by {
-		for _, h := range m {
-			if h.ProjectID == projectID && h.Kind == kind {
-				n++
-			}
 		}
 	}
 	return n

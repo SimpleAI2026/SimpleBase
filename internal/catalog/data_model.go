@@ -1,3 +1,29 @@
+// 文件说明：data_model.go — internal/catalog 中 NormalizeDataModel、EffectiveDataModel 等符号的实现
+//
+// 用法
+//
+//	NormalizeDataModel(raw string) (string, error)  // NormalizeDataModel 把创建请求里的 data_model 收成 collection 或 sql
+//	EffectiveDataModel(d Database) string  // EffectiveDataModel 返回对外展示用的形态
+//	同包调用：NormalizeDataModel() → service.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/data_model.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cache.go, errors.go, model.go, project_storage.go, repository.go 等 9 个
+//	[关键引用] NormalizeDataModel() ← service.go
+//
+// 主要符号
+//
+//	NormalizeDataModel(raw string) (string, error)
+//	EffectiveDataModel(d Database) string
+//	IsSQLDataModel(d Database) bool
+
 package catalog
 
 import (

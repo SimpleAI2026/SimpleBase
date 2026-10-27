@@ -97,7 +97,7 @@ DevMode 种子项目与 **新项目首次列出 agents** 时幂等写入 3 个�
 
 ## 6. Eino 运行时
 
-包：`internal/cloudagent`
+包：`internal/gocloudagent`
 
 - `ChatModel` 适配现有 `llmgateway`（`Generate` / `Stream` + `model.WithTools`）
 - `adk.NewChatModelAgent`：单 agent + 上述 Tool

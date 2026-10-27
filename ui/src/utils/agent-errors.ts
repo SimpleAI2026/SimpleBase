@@ -1,5 +1,5 @@
 // agent-errors.ts：云助手错误码 → 用户文案（planv4.1 BUG-05）。
-// 后端错误码见 internal/cloudagent/errors.go；未知码回退原始 message。
+// 后端错误码见 internal/gocloudagent/errors.go；未知码回退原始 message。
 //
 // 文案统一走 i18n（plan/planv5.0/ui-optimization-v3-plan.md §3.2）：
 // 这里只映射 key，不存中文字面量；组件外没有 useI18n 上下文，用 i18n.global.t。

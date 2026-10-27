@@ -1,3 +1,32 @@
+// 文件说明：blob.go — internal/objectstore 中 BlobStore、ListResult 等符号的实现
+//
+// 用法
+//
+//	NewMemoryBlobStore() BlobStore
+//	type BlobStore（导出类型，同包与上层均可使用）
+//	type ListResult（导出类型，同包与上层均可使用）
+//	同包调用：Delete() → client.go, filestore.go 等；List() → client.go, filestore.go 等；ErrPreconditionFailed → client.go, probe.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/blob.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/blob, internal/utils/atomicfile, internal/utils/limit
+//	[同包] client.go, content.go, content_local.go, content_s3.go, descriptor.go 等 10 个
+//	[关键引用] Delete() ← client.go, filestore.go, localfilestore.go
+//
+// 主要符号
+//
+//	type BlobStore = blob.Store
+//	type ListResult = blob.ListResult
+//	var ErrPreconditionFailed
+//	NewMemoryBlobStore() BlobStore
+//	... 另有 14 个顶层符号
+
 package objectstore
 
 import (
@@ -10,10 +39,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -21,40 +47,24 @@ import (
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
-	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
 	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // BlobStore 读写二进制对象（DuckLake catalog.sqlite 等）。
 // 与 Client（JSON 平台对象）分离，避免把大文件塞进 PutJSON。
 //
-// PutIfAbsent 是唯一支持条件写的原语（multi-instance-consistency-plan §4.5）：
-// 仅当 key 不存在时写入，已存在返回 ErrPreconditionFailed。
-// 故意不提供 IfMatch 能力——目标端点 COS 会静默忽略它，制造假保护。
-type BlobStore interface {
-	Head(ctx context.Context, key string) (ObjectInfo, error)
-	PutBytes(ctx context.Context, key string, data []byte, contentType string) error
-	PutIfAbsent(ctx context.Context, key string, data []byte, contentType string) (ObjectInfo, error)
-	GetBytes(ctx context.Context, key string) ([]byte, ObjectInfo, error)
-	DownloadFile(ctx context.Context, key, destPath string) (ObjectInfo, error)
-	Delete(ctx context.Context, key string) error
-	// List 分页列举前缀下对象（ducklake-duckdb-catalog-plan §6）。
-	// cursor 为空从头开始；返回本页 keys、下一页 cursor（空表示结束）。
-	List(ctx context.Context, prefix, cursor string, limit int) (keys []string, next string, err error)
-	// DeleteMany 批量删除（S3 上限 1000/批）；容忍 key 不存在。
-	DeleteMany(ctx context.Context, keys []string) error
-}
+// 接口与错误的唯一定义在 godatabase/blob（数据库运行时库）；这里是别名，
+// 使 S3 实现返回的 ErrNotFound / ErrPreconditionFailed 与库内 errors.Is 判断恒等。
+type BlobStore = blob.Store
 
 // ListResult 是 List 的单页结果。
-type ListResult struct {
-	Keys []string
-	Next string
-}
+type ListResult = blob.ListResult
 
 // ErrPreconditionFailed 表示 create-if-absent 写入冲突（对象已存在）。
 // COS 返回 409 ObjectAlreadyExists、S3/R2 返回 412，统一映射到本错误。
-var ErrPreconditionFailed = errors.New("objectstore: object already exists")
+var ErrPreconditionFailed = blob.ErrPreconditionFailed
 
 // putIfAbsentInput 构造条件写的公共输入。
 // S3/GCS/R2 → If-None-Match: *；腾讯云 COS → x-cos-forbid-overwrite: true
@@ -330,109 +340,5 @@ func deleteObjectsError(out *s3.DeleteObjectsOutput) error {
 
 /* ---------- 内存 BlobStore（单测可选） ---------- */
 
-type memoryBlobStore struct {
-	mu    sync.RWMutex
-	store map[string][]byte
-	meta  map[string]time.Time
-}
-
-// NewMemoryBlobStore 构造进程内 BlobStore。
-func NewMemoryBlobStore() BlobStore {
-	return &memoryBlobStore{
-		store: map[string][]byte{},
-		meta:  map[string]time.Time{},
-	}
-}
-
-func (m *memoryBlobStore) Head(_ context.Context, key string) (ObjectInfo, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	b, ok := m.store[key]
-	if !ok {
-		return ObjectInfo{}, ErrNotFound
-	}
-	return ObjectInfo{Key: key, Size: int64(len(b)), LastModified: m.meta[key]}, nil
-}
-
-func (m *memoryBlobStore) PutBytes(_ context.Context, key string, data []byte, _ string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	cp := append([]byte(nil), data...)
-	m.store[key] = cp
-	m.meta[key] = time.Now().UTC()
-	return nil
-}
-
-// PutIfAbsent 仅当 key 不存在时写入；ETag 用内容 SHA256 前 16 hex（便于测试断言）。
-func (m *memoryBlobStore) PutIfAbsent(_ context.Context, key string, data []byte, contentType string) (ObjectInfo, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.store[key]; ok {
-		return ObjectInfo{}, ErrPreconditionFailed
-	}
-	cp := append([]byte(nil), data...)
-	m.store[key] = cp
-	now := time.Now().UTC()
-	m.meta[key] = now
-	return ObjectInfo{Key: key, Size: int64(len(cp)), ETag: hashx.Short(cp, 8), LastModified: now}, nil
-}
-
-func (m *memoryBlobStore) GetBytes(_ context.Context, key string) ([]byte, ObjectInfo, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	b, ok := m.store[key]
-	if !ok {
-		return nil, ObjectInfo{}, ErrNotFound
-	}
-	cp := append([]byte(nil), b...)
-	return cp, ObjectInfo{Key: key, Size: int64(len(cp)), LastModified: m.meta[key]}, nil
-}
-
-func (m *memoryBlobStore) DownloadFile(ctx context.Context, key, destPath string) (ObjectInfo, error) {
-	data, info, err := m.GetBytes(ctx, key)
-	if err != nil {
-		return ObjectInfo{}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return ObjectInfo{}, err
-	}
-	if err := atomicfile.Write(destPath, data, 0o644); err != nil {
-		return ObjectInfo{}, err
-	}
-	return info, nil
-}
-
-func (m *memoryBlobStore) Delete(_ context.Context, key string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.store, key)
-	delete(m.meta, key)
-	return nil
-}
-
-func (m *memoryBlobStore) List(_ context.Context, prefix, cursor string, limit int) ([]string, string, error) {
-	limit = pagelimit.Clamp(limit, 1000, 0)
-	m.mu.RLock()
-	keys := make([]string, 0, len(m.store))
-	for k := range m.store {
-		if strings.HasPrefix(k, prefix) && k > cursor {
-			keys = append(keys, k)
-		}
-	}
-	m.mu.RUnlock()
-	sort.Strings(keys)
-	if len(keys) > limit {
-		return keys[:limit], keys[limit-1], nil
-	}
-	return keys, "", nil
-}
-
-func (m *memoryBlobStore) DeleteMany(_ context.Context, keys []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, k := range keys {
-		delete(m.store, k)
-		delete(m.meta, k)
-	}
-	return nil
-}
+// NewMemoryBlobStore 构造进程内 BlobStore。实现在 godatabase/blob。
+func NewMemoryBlobStore() BlobStore { return blob.NewMemory() }

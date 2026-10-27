@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 )
 
 type fakeExec struct {

@@ -1,10 +1,31 @@
-// jsonrun.go 提供 HTTP+JSON 调用云函数所需的公共 API：
-// ValidateHTTPFuncs（保存时校验）与 RunJSON（invoke 时执行）。
+// 文件说明：jsonrun.go — HTTP+JSON 调用云函数所需的公共 API：
 //
-// 约定（见 plan/planv2.0/ui-gofunction-plan.md §3.1/§6）：
-//   - 每个包级导出函数必须恰好 1 个入参、1 个返回值
-//   - 入参/返回值类型必须能通过 typeChange（未导出字段会 panic，须保存时拦截）
-//   - 未导出函数不可调用（与列表不可见一致）
+// 用法
+//
+//	ValidateHTTPFuncs(source string) ([]FuncInfo, error)  // ValidateHTTPFuncs 编译源码并校验全部包级导出函数符合 HTTP 约定：
+//	RunJSON(ctx context.Context, seqid, fname, source, funcName string, body []byte) ...  // RunJSON 编译并执行 funcName，body 解到唯一形参，返回值 JSON 编码
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/jsonrun.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
+//
+// 主要符号
+//
+//	var ErrFunctionNotFound
+//	var ErrTimeout
+//	var ErrBind
+//	var ErrCompile
+//	type FuncInfo struct {…}
+//	ValidateHTTPFuncs(source string) ([]FuncInfo, error)
+//	... 另有 3 个顶层符号
+
 package interp
 
 import (

@@ -313,7 +313,7 @@ WHERE id = ? AND archived_at IS NULL AND enabled = 1
 后果按业务面展开：
 
 - 用户 cronjob 触发的云函数重复执行（重复副作用：重复发邮件、重复扣款）。
-- `internal/cloudagent/scheduler.go` 同范式 → Agent 任务重复调 LLM（重复计费）。
+- `internal/gocloudagent/scheduler.go` 同范式 → Agent 任务重复调 LLM（重复计费）。
 - `internal/usage` 配额计数分裂 → 限额失效（用户实际可用两倍额度）。
 - `internal/audit` 流水分裂 → 审计不完整。
 - `kv.Sweeper`（`database/kv/sweeper.go`，`key-value-ducklake-plan.md` §4.5）
@@ -1046,7 +1046,7 @@ ATTACH 'ducklake:postgres:dbname=simplebase_catalog host=... ' AS lake
 - **不改 DuckLake 数据面布局**（`data/` 前缀、Parquet 格式、descriptor、UUIDv7 命名）。
 - **不改 `Registry` 的 `CloseIdle` / `Shutdown` / `max_open` 语义**（Phase D 才加 `Swap`）。
 - **不把 degraded 自动恢复为 ready**（split-brain 标记的 degraded 需按 §9 流程人工确认后恢复）。
-- **不改云 Agent 工具**（`internal/cloudagent` 的 `list_databases` / `readonly_sql` 等）。
+- **不改云 Agent 工具**（`internal/gocloudagent` 的 `list_databases` / `readonly_sql` 等）。
 - **存储桶不开启对象版本控制**（与 §4.5 的条件写冲突；备份走 `snapshots/` 序列）。
 - 本 PR 不实现任何代码。
 
@@ -1092,7 +1092,7 @@ ATTACH 'ducklake:postgres:dbname=simplebase_catalog host=... ' AS lake
 
 不改
   internal/database/kv/*                （P4 需要同库多写才动；分片单写下现论证成立）
-  internal/cloudagent/*
+  internal/gocloudagent/*
   DuckLake 数据面布局与 descriptor 格式
 ```
 

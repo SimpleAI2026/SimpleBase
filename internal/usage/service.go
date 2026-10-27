@@ -1,7 +1,34 @@
-// Package usage 实现项目维度的用量记录与配额检查（plan9.md）。
+// 文件说明：service.go — 项目维度的用量记录与配额检查（plan9.md）
 //
-// 数据库与 LLM 共用 project 维度的用量基础设施，但资源池、超时、失败策略完全隔离。
-// 配额检查在请求入口（middleware）执行；用量记录在请求完成后异步追加。
+// 用法
+//
+//	NewService(repo catalog.Repository, logger observability.Logger) *Service
+//	(s *Service) RecordDatabase(ctx context.Context, projectID, requestID string, bytes ...  // RecordDatabase 记录数据库用量事件
+//	(s *Service) RecordLLM(ctx context.Context, projectID, provider, model string, u ...  // RecordLLM 记录 LLM 用量
+//	同包调用：Service → adapter.go；RecordLLM() → adapter.go；LLMUsage → adapter.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/usage/service.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/catalog, internal/observability
+//	[同包] adapter.go
+//	[关键引用] Service ← adapter.go
+//
+// 主要符号
+//
+//	type Service struct {…}
+//	NewService(repo catalog.Repository, logger observability.Logger) *Service
+//	(s *Service) RecordDatabase(ctx context.Context, projectID, requestID string, bytes ...
+//	(s *Service) RecordLLM(ctx context.Context, projectID, provider, model string, u ...
+//	(s *Service) RecordSandbox(ctx context.Context, projectID, requestID string ...
+//	type LLMUsage struct {…}
+//	... 另有 6 个顶层符号
+
 package usage
 
 import (
@@ -105,9 +132,7 @@ func (s *Service) CheckQuota(ctx context.Context, projectID string, kind string)
 			return fmt.Errorf("%w: llm tokens %d >= %d", ErrQuotaExceeded, sum.LLMTokens, quota.MaxLLMTokens)
 		}
 	case "database":
-		if quota.MaxDatabases > 0 {
-			// 数据库数量由 catalog 层在 CreateDatabase 时校验。
-		}
+		// 数据库数量由 catalog 层在 CreateDatabase 时校验。
 		if quota.MaxStorageBytes > 0 && sum.DatabaseStorage >= quota.MaxStorageBytes {
 			return fmt.Errorf("%w: storage %d >= %d", ErrQuotaExceeded, sum.DatabaseStorage, quota.MaxStorageBytes)
 		}

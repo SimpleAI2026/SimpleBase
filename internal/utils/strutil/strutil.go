@@ -1,6 +1,27 @@
-// Package strutil 提供跨包复用的字符串裁剪与列表切分工具。
+// 文件说明：strutil.go — 跨包复用的字符串裁剪与列表切分工具
 //
-// 只允许 import 标准库；不得 import 根模块任何业务包（见 internal/utils/README.md）。
+// 用法
+//
+//	Truncate(s string, max int) string  // Truncate 返回 s 的前 max 个字节
+//	TruncateEllipsis(s string, max int) string  // TruncateEllipsis 与 Truncate 相同，但发生截断时追加 "…"（额外 3 字节）
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/auth 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/strutil/strutil.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	Truncate(s string, max int) string
+//	TruncateEllipsis(s string, max int) string
+//	TruncateValidUTF8(b []byte, max int) (string, bool)
+//	SplitCSV(csv string) []string
+
 package strutil
 
 import (
@@ -10,8 +31,8 @@ import (
 
 // Truncate 返回 s 的前 max 个字节。max <= 0 时返回空串。
 //
-// 按字节截断，可能切断多字节字符；面向展示的文本用 TruncateRunes 或
-// TruncateValidUTF8。用途是给日志 / 落库字段设上限，不改变短字符串。
+// 按字节截断，可能切断多字节字符；面向展示的文本用 TruncateValidUTF8 或
+// TruncateEllipsis。用途是给日志 / 落库字段设上限，不改变短字符串。
 func Truncate(s string, max int) string {
 	if max <= 0 {
 		return ""
@@ -33,27 +54,6 @@ func TruncateEllipsis(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
-}
-
-// TruncateRunes 按字符（rune）截断到 max 个字符，保证结果始终是合法 UTF-8。
-//
-// 用于需要完整字符语义的场景（如截断用户可见的中文提示）；
-// 需要严格字节上限时用 Truncate。
-func TruncateRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	if utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	count := 0
-	for i := range s {
-		if count == max {
-			return s[:i]
-		}
-		count++
-	}
-	return s
 }
 
 // TruncateValidUTF8 把 b 转成合法 UTF-8 并截到 max 字节以内，不截断半个字符。

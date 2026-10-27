@@ -1,10 +1,33 @@
-// Package e2bproto 实现 E2B envd 数据面所需的线协议：Connect 的 envelope 帧，以及
-// process.Process / filesystem.Filesystem 的 JSON 报文。
+// 文件说明：envelope.go — E2B envd 数据面所需的线协议：Connect 的 envelope 帧，以及
 //
-// 只 import 标准库，不依赖 protobuf 代码生成：E2B 的 JS SDK 用 Connect 的 JSON 编码
-// （createConnectTransport 的 useBinaryFormat:false），所以这里只处理 JSON。
-// protobuf-JSON 的细节要照做：bytes 是 base64，int64/uint64 是字符串，枚举是名字或数字，
-// 零值字段可省略。
+// 用法
+//
+//	WriteFrame(w io.Writer, msg any) error  // WriteFrame 写一个数据 envelope：1 字节标志 + 4 字节大端长度 + JSON 消息
+//	WriteEndStream(w io.Writer, err *Error) error  // WriteEndStream 写流结束 envelope
+//	同包调用：Error() → messages.go, messages.go
+//
+// 调用架构
+//
+//	[上游] internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/e2bproto/envelope.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] messages.go
+//	[关键引用] Error() ← messages.go
+//
+// 主要符号
+//
+//	const ContentTypeUnary
+//	const ContentTypeStream
+//	const MaxFrameBytes
+//	var ErrFrameTooLarge
+//	var ErrCompressed
+//	WriteFrame(w io.Writer, msg any) error
+//	... 另有 24 个顶层符号
+
 package e2bproto
 
 import (

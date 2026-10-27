@@ -1,3 +1,33 @@
+// 文件说明：schema_handler.go — internal/api 中 SchemaHandler、NewSchemaHandler 等符号的实现
+//
+// 用法
+//
+//	NewSchemaHandler(svc DataService, writable bool, limits SQLLimits) *SchemaHandler
+//	(h *SchemaHandler) ListSchema(c echo.Context) error  // ListSchema: GET /v1/projects/:projectID/databases/:databaseID/schema
+//	(h *SchemaHandler) CreateTable(c echo.Context) error  // CreateTable: POST .../schema/tables
+//	同包调用：dialectForDatabase() → db_stats.go, gocloudagent_access.go 等；SchemaHandler → router.go, schema_rows.go；exec() → kv_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/schema_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, godatabase/sqlguard, internal/auth, internal/catalog
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] dialectForDatabase() ← db_stats.go, gocloudagent_access.go, schema_rows.go
+//
+// 主要符号
+//
+//	type SchemaHandler struct {…}
+//	NewSchemaHandler(svc DataService, writable bool, limits SQLLimits) *SchemaHandler
+//	(h *SchemaHandler) ListSchema(c echo.Context) error
+//	(h *SchemaHandler) CreateTable(c echo.Context) error
+//	(h *SchemaHandler) AddColumn(c echo.Context) error
+//	... 另有 13 个顶层符号
+
 package api
 
 import (
@@ -6,10 +36,10 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 )
 
 // SchemaHandler 管理 SQL 数据库的表与列。集合库不能走这些路由。
@@ -71,22 +101,17 @@ func (h *SchemaHandler) ListSchema(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	lease, err := h.svc.Acquire(c.Request().Context(), db, database.ReadOnly)
+	lease, err := h.svc.Acquire(c.Request().Context(), db, godatabase.ReadOnly)
 	if err != nil {
 		return WriteError(c, err)
 	}
 	defer lease.Release()
-	result, err := lease.Query(c.Request().Context(), database.Statement{
-		SQL: `SELECT c.table_name, c.column_name, c.data_type, c.is_nullable
-			FROM information_schema.columns c
-			JOIN information_schema.tables t
-			  ON c.table_catalog = t.table_catalog
-			 AND c.table_schema = t.table_schema
-			 AND c.table_name = t.table_name
-			WHERE t.table_catalog = current_database()
-			  AND t.table_schema = current_schema()
-			  AND t.table_type = 'BASE TABLE'
-			ORDER BY c.table_name, c.ordinal_position`,
+	dialect, err := dialectForDatabase(db)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	result, err := lease.Query(c.Request().Context(), godatabase.Statement{
+		SQL: dialect.TableColumnsSQL(""),
 	}, 5000)
 	if err != nil {
 		return WriteError(c, err)
@@ -162,18 +187,18 @@ func (h *SchemaHandler) AddColumn(c echo.Context) error {
 }
 
 func (h *SchemaHandler) exec(c echo.Context, db catalog.Database, sqlText string) error {
-	lease, err := h.svc.Acquire(c.Request().Context(), db, database.ReadWrite)
+	lease, err := h.svc.Acquire(c.Request().Context(), db, godatabase.ReadWrite)
 	if err != nil {
 		return err
 	}
 	defer lease.Release()
-	_, err = lease.Execute(c.Request().Context(), database.Statement{SQL: sqlText})
+	_, err = lease.Execute(c.Request().Context(), godatabase.Statement{SQL: sqlText})
 	return err
 }
 
 func (h *SchemaHandler) ensureSQL(c echo.Context, write bool) (catalog.Database, error) {
 	if write && !h.writable {
-		return catalog.Database{}, database.ErrWriterUnavailable
+		return catalog.Database{}, godatabase.ErrWriterUnavailable
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -195,6 +220,17 @@ func (h *SchemaHandler) ensureSQL(c echo.Context, write bool) (catalog.Database,
 		return catalog.Database{}, NewAPIError(http.StatusBadRequest, "data_model_mismatch", "只有 SQL 数据库可以管理表结构", RequestIDFromContext(c.Request().Context()))
 	}
 	return db, nil
+}
+
+func dialectForDatabase(db catalog.Database) (godatabase.Dialect, error) {
+	if catalog.IsSystemDatabase(db) {
+		return godatabase.DialectFor(catalog.EngineDuckDB)
+	}
+	engine, err := catalog.DatabaseEngine(db.DatabasePath)
+	if err != nil {
+		return nil, err
+	}
+	return godatabase.DialectFor(engine)
 }
 
 func schemaInputError(c echo.Context, err error) error {

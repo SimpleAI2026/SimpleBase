@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,10 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/filedb"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 )
 
 // —— fake KVService ——
@@ -40,9 +41,9 @@ func (f *fakeKVService) CreateKVDatabase(ctx context.Context, tenantID, projectI
 	return f.db, nil
 }
 
-func (f *fakeKVService) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error) {
+func (f *fakeKVService) Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, error) {
 	if f.lease == nil {
-		return nil, database.ErrWriterUnavailable
+		return nil, godatabase.ErrWriterUnavailable
 	}
 	return f.lease, nil
 }
@@ -244,16 +245,21 @@ func TestKVDatabaseNotFound(t *testing.T) {
 
 func kvRealEnv(t *testing.T) (*echo.Echo, *fakeKVService) {
 	t.Helper()
-	f := &ducklake.Factory{
+	f := &filedb.Factory{
+		DataRoot: t.TempDir(),
 		CacheDir: t.TempDir(),
-		Options:  ducklake.DefaultOptions(),
-		Syncer:   ducklake.NewLocalSyncer(),
+		Syncer:   filedb.NewNopSyncer(),
 	}
-	raw, err := f.Open(context.Background(), catalog.Database{
-		ID: uuid.NewString(), Name: "kv-e2e", Status: catalog.DatabaseReady,
-	}, database.ReadWrite)
+	databasePath, err := catalog.DatabasePathForProject("kve2e001", catalog.EngineDuckDB)
 	if err != nil {
-		t.Fatalf("open ducklake: %v", err)
+		t.Fatal(err)
+	}
+	raw, err := f.Open(context.Background(), dbbridge.SpecOf(catalog.Database{
+		ID: uuid.NewString(), ProjectID: "kve2e001", DatabasePath: databasePath,
+		Name: "kv-e2e", Status: catalog.DatabaseReady,
+	}), godatabase.ReadWrite)
+	if err != nil {
+		t.Fatalf("open project database: %v", err)
 	}
 	t.Cleanup(func() { _ = raw.Close() })
 	svc := &fakeKVService{

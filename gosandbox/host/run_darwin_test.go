@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,14 +69,116 @@ func TestDarwinReadOnlyBlocksWorkspaceWrite(t *testing.T) {
 	}
 }
 
-func TestDarwinGitSubpathReadOnly(t *testing.T) {
+// .git 内会被宿主侧执行的部分只读：hooks、config。
+func TestDarwinGitHooksAndConfigReadOnly(t *testing.T) {
 	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
 	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Run(context.Background(), p, sh("touch "+filepath.Join(ws, ".git", "hooks", "pre-commit")))
+	if err := os.WriteFile(filepath.Join(ws, ".git", "config"), []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, script := range map[string]string{
+		"new hook":        "touch " + filepath.Join(ws, ".git", "hooks", "pre-commit"),
+		"config rewrite":  "echo '[alias]' >> " + filepath.Join(ws, ".git", "config"),
+		"config replaced": "rm -f " + filepath.Join(ws, ".git", "config"),
+	} {
+		res, err := Run(context.Background(), p, sh(script))
+		if err != nil || res.ExitCode == 0 {
+			t.Errorf("%s must fail: res=%+v err=%v out=%s", name, res, err, res.Output)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(ws, ".git", "config")); string(b) != "[core]\n" {
+		t.Fatalf(".git/config changed on the host: %q", b)
+	}
+}
+
+// D1：.git 的其余部分可写，所以沙盒内 git init / add / commit 能完整工作。
+func TestDarwinGitInitAndCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
+	script := "cd " + ws + " && git init -q . && echo hi > a.txt && git add a.txt && " +
+		"git -c user.name=t -c user.email=t@t commit -q -m first && git log --oneline"
+	res, err := Run(context.Background(), p, Command{Argv: []string{"/bin/sh", "-c", script},
+		Env: []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + ws, "GIT_CONFIG_NOSYSTEM=1"}})
+	if err != nil || res.ExitCode != 0 || !strings.Contains(string(res.Output), "first") {
+		t.Fatalf("git init+commit must work in the sandbox: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+}
+
+// D7：.git 不存在时不保护（git init 才能成功）；init 完成后的下一条命令起 hooks 即受保护。
+func TestDarwinGitHooksProtectedAfterInit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
+	env := []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + ws, "GIT_CONFIG_NOSYSTEM=1"}
+	res, err := Run(context.Background(), p, Command{Argv: []string{"/bin/sh", "-c", "cd " + ws + " && git init -q ."}, Env: env})
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("git init must succeed when .git does not exist yet: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+	hook := filepath.Join(ws, ".git", "hooks", "pre-commit")
+	res, err = Run(context.Background(), p, Command{Argv: []string{"/bin/sh", "-c", "echo evil > " + hook}, Env: env})
 	if err != nil || res.ExitCode == 0 {
-		t.Fatalf(".git must be read-only: res=%+v err=%v", res, err)
+		t.Fatalf("writing a hook after init must fail: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+	if _, serr := os.Stat(hook); serr == nil {
+		t.Fatal("hook appeared on the host")
+	}
+}
+
+// 工作区根下的 .gitmodules、.mcp.json、.vscode 同样受强制表保护（存在时）。
+func TestDarwinForceDenyWorkspaceFiles(t *testing.T) {
+	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
+	for _, name := range []string{".gitmodules", ".mcp.json"} {
+		if err := os.WriteFile(filepath.Join(ws, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(ws, ".vscode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{".gitmodules", ".mcp.json", ".vscode/tasks.json"} {
+		res, err := Run(context.Background(), p, sh("echo x > "+filepath.Join(ws, target)))
+		if err != nil || res.ExitCode == 0 {
+			t.Errorf("%s must be read-only: res=%+v err=%v", target, res, err)
+		}
+	}
+	// 普通文件不受影响。
+	res, err := Run(context.Background(), p, sh("echo ok > "+filepath.Join(ws, "plain.txt")))
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("plain file must stay writable: res=%+v err=%v", res, err)
+	}
+}
+
+// DisableForceDeny 回到旧行为，并在 Result.Warnings 里如实说明。
+func TestDarwinDisableForceDeny(t *testing.T) {
+	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p.DisableForceDeny = true
+	res, err := Run(context.Background(), p, sh("touch "+filepath.Join(ws, ".git", "hooks", "pre-commit")))
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("hooks must be writable when the table is disabled: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+	if len(res.Warnings) != 1 {
+		t.Fatalf("Warnings = %v", res.Warnings)
+	}
+}
+
+// 显式配置旧值时，整个 .git 仍然只读（想要旧行为的操作者的出口）。
+func TestDarwinLegacyWholeGitReadOnly(t *testing.T) {
+	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
+	if err := os.MkdirAll(filepath.Join(ws, ".git", "refs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p.ReadOnlySubpaths = []string{".git", ".gocloudagent"}
+	res, err := Run(context.Background(), p, sh("touch "+filepath.Join(ws, ".git", "refs", "x")))
+	if err != nil || res.ExitCode == 0 {
+		t.Fatalf("legacy config must keep the whole .git read-only: res=%+v err=%v", res, err)
 	}
 }
 
@@ -104,6 +207,35 @@ func TestDarwinDenyRead(t *testing.T) {
 	}
 	if res.ExitCode == 0 || strings.Contains(string(res.Output), "TOPSECRET") {
 		t.Fatalf("deny_read must hide the file: res=%+v out=%s", res, res.Output)
+	}
+}
+
+func TestDarwinDenyReadGlobRecursive(t *testing.T) {
+	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
+	subdir := filepath.Join(ws, "x", "y")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sec1 := filepath.Join(ws, "k.pem")
+	sec2 := filepath.Join(subdir, "deep.pem")
+	if err := os.WriteFile(sec1, []byte("PRIVATE_KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sec2, []byte("NESTED_KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.DenyRead = []string{ws + "/**/*.pem"}
+	script := "cat " + sec1 + " " + sec2 + "; echo FRESH > " + subdir + "/new.pem; cat " + subdir + "/new.pem"
+	res, err := Run(context.Background(), p, sh(script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(res.Output)
+	if strings.Contains(out, "PRIVATE_KEY") || strings.Contains(out, "NESTED_KEY") {
+		t.Fatalf("glob **/*.pem must deny both existing files: %s", out)
+	}
+	if strings.Contains(out, "FRESH") {
+		t.Fatalf("macOS regex must cover newly created files (future semantics): %s", out)
 	}
 }
 

@@ -1,19 +1,34 @@
-// sql_handler.go 实现 Plan 6 的 SQL API handler。
+// 文件说明：sql_handler.go — Plan 6 的 SQL API handler
 //
-// 三个路由：
+// 用法
 //
-//	POST /v1/projects/:projectID/databases/:databaseID/query   (DatabaseRead)
-//	POST /v1/projects/:projectID/databases/:databaseID/execute (DatabaseWrite)
-//	POST /v1/projects/:projectID/databases/:databaseID/batch   (DatabaseWrite)
+//	NewSQLHandler(svc SQLService, limits SQLLimits, writable bool) *SQLHandler
+//	(h *SQLHandler) Query(c echo.Context) error  // Query: POST /v1/projects/:projectID/databases/:databaseID/query
+//	(h *SQLHandler) Execute(c echo.Context) error  // Execute: POST /v1/projects/:projectID/databases/:databaseID/execute
+//	同包调用：Query() → adapter.go, collection_meta_handler.go 等；SQLLease → adapter.go, collection_meta_handler.go 等；Execute() → adapter.go, collection_meta_handler.go 等
 //
-// 所有 handler 遵循同一流程：
-//  1. 从 context 取已校验的 ProjectContext 与 Principal。
-//  2. 解析 path 参数 databaseID；bind body 后显式校验。
-//  3. 通过 catalog 校验数据库归属与状态。
-//  4. sqlguard.Validate 按 intent 校验 SQL。
-//  5. Acquire 租约（query 默认 ReadOnly，execute/batch 先检查 writable 再 ReadWrite）。
-//  6. 执行 SQL；序列化结果。
-//  7. 审计只记录关键字、SQL SHA-256、耗时、行数、错误码；不记录原 SQL 与参数。
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/sql_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, godatabase/sqlguard, internal/auth, internal/catalog
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Query() ← adapter.go, collection_meta_handler.go, collection_transfer.go
+//
+// 主要符号
+//
+//	type SQLService interface {…}
+//	type SQLLease interface {…}
+//	type SQLLimits struct {…}
+//	type SQLHandler struct {…}
+//	NewSQLHandler(svc SQLService, limits SQLLimits, writable bool) *SQLHandler
+//	(h *SQLHandler) Query(c echo.Context) error
+//	... 另有 15 个顶层符号
+
 package api
 
 import (
@@ -23,15 +38,13 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
-	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
 )
 
 // SQLService 抽象 SQL handler 所需的 catalog + registry 能力。
@@ -40,7 +53,7 @@ type SQLService interface {
 	// GetDatabase 返回指定数据库的 catalog 记录（已校验 project 归属）。
 	GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (catalog.Database, error)
 	// Acquire 获取数据库访问租约。
-	Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error)
+	Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, error)
 }
 
 // SQLLease 是 SQL handler 使用的租约抽象，封装 Handle 的查询能力。
@@ -53,9 +66,9 @@ type SQLService interface {
 // （CatalogSyncer.MarkDirty → S3 同步）。
 type SQLLease interface {
 	Release()
-	Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error)
-	Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error)
-	Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error)
+	Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, error)
+	Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error)
+	Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.QueryResult, error)
 	// Raw 返回底层 *sql.DB（KV 仓库自管事务用；调用方不得关闭该连接）。
 	Raw() *sql.DB
 	// NotifyWrite 通知一次外部写提交（触发 onWrite 同步链路）。
@@ -80,7 +93,6 @@ type SQLHandler struct {
 
 	// 全局并发 semaphore（nil 表示不限制）
 	sem chan struct{}
-	mu  sync.Mutex
 
 	// DurabilityFor 返回写响应 durability；nil 时默认 committed_local。
 	DurabilityFor func(databaseID string) string
@@ -129,7 +141,7 @@ func (h *SQLHandler) acquireSem(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		return database.ErrQueryConcurrency
+		return godatabase.ErrQueryConcurrency
 	}
 }
 
@@ -182,20 +194,20 @@ func (h *SQLHandler) Query(c echo.Context) error {
 	semScope.Done()
 	defer h.releaseSem()
 
-	lease, err := h.svc.Acquire(ctx, db, database.ReadOnly)
+	lease, err := h.svc.Acquire(ctx, db, godatabase.ReadOnly)
 	if err != nil {
 		return WriteError(c, err)
 	}
 	defer lease.Release()
 
 	maxRows := effectiveMaxRows(req.MaxRows, h.limits.MaxQueryRows)
-	result, err := lease.Query(ctx, database.Statement{SQL: req.SQL, Args: req.Args}, maxRows)
+	result, err := lease.Query(ctx, godatabase.Statement{SQL: req.SQL, Args: req.Args}, maxRows)
 	if err != nil {
 		return WriteError(c, err)
 	}
 
 	serScope := timer.StageScope(StageSerialize)
-	serializedRows, err := database.SerializeRows(result.Rows)
+	serializedRows, err := godatabase.SerializeRows(result.Rows)
 	serScope.Done()
 	if err != nil {
 		return WriteError(c, err)
@@ -218,7 +230,7 @@ func (h *SQLHandler) Query(c echo.Context) error {
 // Execute: POST /v1/projects/:projectID/databases/:databaseID/execute
 func (h *SQLHandler) Execute(c echo.Context) error {
 	if !h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), nanoToDuration(h.limits.QueryTimeout))
 	defer cancel()
@@ -257,13 +269,13 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 	semScope.Done()
 	defer h.releaseSem()
 
-	lease, err := h.svc.Acquire(ctx, db, database.ReadWrite)
+	lease, err := h.svc.Acquire(ctx, db, godatabase.ReadWrite)
 	if err != nil {
 		return WriteError(c, err)
 	}
 	defer lease.Release()
 
-	result, err := lease.Execute(ctx, database.Statement{SQL: req.SQL, Args: req.Args})
+	result, err := lease.Execute(ctx, godatabase.Statement{SQL: req.SQL, Args: req.Args})
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -281,7 +293,7 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 // Batch: POST /v1/projects/:projectID/databases/:databaseID/batch
 func (h *SQLHandler) Batch(c echo.Context) error {
 	if !h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), nanoToDuration(h.limits.QueryTimeout))
 	defer cancel()
@@ -303,12 +315,12 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 	}
 
 	// 逐条校验 SQL
-	stmts := make([]database.Statement, 0, len(req.Statements))
+	stmts := make([]godatabase.Statement, 0, len(req.Statements))
 	for _, s := range req.Statements {
 		if err := sqlguard.Validate(s.SQL, sqlguard.WriteAllowed); err != nil {
 			return WriteError(c, err)
 		}
-		stmts = append(stmts, database.Statement{SQL: s.SQL, Args: s.Args})
+		stmts = append(stmts, godatabase.Statement{SQL: s.SQL, Args: s.Args})
 	}
 
 	db, err := h.writableDatabase(ctx, principal, project.ID, c.Param("databaseID"))
@@ -325,7 +337,7 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 	semScope.Done()
 	defer h.releaseSem()
 
-	lease, err := h.svc.Acquire(ctx, db, database.ReadWrite)
+	lease, err := h.svc.Acquire(ctx, db, godatabase.ReadWrite)
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -446,7 +458,7 @@ func effectiveMaxRows(reqMaxRows, cfgMax int) int {
 }
 
 // extractBatchIndex 从 batch 错误信息中提取失败语句索引。
-// database.Batch 返回的错误格式为 "database: batch statement N failed..."
+// godatabase.Batch 返回的错误格式为 "database: batch statement N failed..."
 func extractBatchIndex(err error) int {
 	if err == nil {
 		return -1
@@ -471,7 +483,7 @@ func extractBatchIndex(err error) int {
 }
 
 // toBatchResultsTransactional 将事务 batch 的成功结果转为响应项。
-func toBatchResultsTransactional(results []database.QueryResult) []BatchResultItem {
+func toBatchResultsTransactional(results []godatabase.QueryResult) []BatchResultItem {
 	items := make([]BatchResultItem, len(results))
 	for i, r := range results {
 		items[i] = BatchResultItem{
@@ -485,7 +497,7 @@ func toBatchResultsTransactional(results []database.QueryResult) []BatchResultIt
 
 // toBatchResultsNonTransactional 将非事务 batch 结果转为响应项。
 // 若有错误，错误位置之后的项不会出现在 results 中，需补全为失败项。
-func toBatchResultsNonTransactional(results []database.QueryResult, batchErr error) []BatchResultItem {
+func toBatchResultsNonTransactional(results []godatabase.QueryResult, batchErr error) []BatchResultItem {
 	items := make([]BatchResultItem, 0, len(results)+1)
 	for i, r := range results {
 		items = append(items, BatchResultItem{
@@ -507,9 +519,4 @@ func toBatchResultsNonTransactional(results []database.QueryResult, batchErr err
 // nanoToDuration 将纳秒转为 time.Duration。避免在本文件 import time。
 func nanoToDuration(ns int64) time.Duration {
 	return time.Duration(ns)
-}
-
-// sqlSHA256 返回 SQL 的 SHA-256 摘要（用于审计日志，不记录原 SQL）。
-func sqlSHA256(sql string) string {
-	return hashx.SumString(sql)
 }

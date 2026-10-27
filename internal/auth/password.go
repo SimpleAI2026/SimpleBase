@@ -1,5 +1,29 @@
-// password.go 提供口令哈希与校验（argon2id）。
-// 哈希串自描述参数，校验时按串内参数派生，不回显口令。
+// 文件说明：password.go — 口令哈希与校验（argon2id）
+//
+// 用法
+//
+//	HashPassword(plain string) (string, error)  // HashPassword 生成 `$argon2id$v=19$m=…,t=…,p=…$salt$hash` 编码串
+//	VerifyPassword(plain, encoded string) bool  // VerifyPassword 常量时间比对口令与哈希串
+//	同包调用：HashPassword() → user.go；VerifyPassword() → user.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/password.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] HashPassword() ← user.go
+//
+// 主要符号
+//
+//	HashPassword(plain string) (string, error)
+//	VerifyPassword(plain, encoded string) bool
+//	... 另有 5 个顶层符号
+
 package auth
 
 import (

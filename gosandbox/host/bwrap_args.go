@@ -1,3 +1,30 @@
+// 文件说明：bwrap_args.go — gosandbox/host 中 InnerPolicyPath、BwrapInput 等符号的实现
+//
+// 用法
+//
+//	BwrapArgs(in BwrapInput) ([]string, error)  // BwrapArgs 生成 bwrap 参数（不含 bwrap 本身）
+//	ScratchDirs(p Policy) []string  // ScratchDirs 返回沙盒内需要 tmpfs 的目录
+//	同包调用：BwrapInput → run_linux.go, start_linux.go；BwrapArgs() → run_linux.go, start_linux.go；ScratchDirs() → run_linux.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/bwrap_args.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cgroup.go, glob.go, mandatory.go, policy.go, probe.go 等 13 个
+//	[关键引用] BwrapInput ← run_linux.go, start_linux.go
+//
+// 主要符号
+//
+//	const InnerPolicyPath
+//	type BwrapInput struct {…}
+//	BwrapArgs(in BwrapInput) ([]string, error)
+//	ScratchDirs(p Policy) []string
+
 package host
 
 import (
@@ -24,10 +51,13 @@ type BwrapInput struct {
 	PolicyFD int
 	// DisableUserNS 为真时追加 --disable-userns（bwrap >= 0.8.0 且非 setuid）。
 	DisableUserNS bool
-	// Exists 判断路径是否存在；nil 取 os.Lstat。仅用于只读子路径与 deny_read，便于测试。
+	// Exists 判断路径是否存在；nil 取 os.Lstat。仅用于只读子路径、强制 deny 表与 deny_read，便于测试。
 	Exists func(string) bool
 	// IsDir 判断路径是否为目录；nil 取 os.Stat。
 	IsDir func(string) bool
+	// Home 是用户 HOME，用于判断强制 deny 表是否要追加 HOME 下的 shell/git 配置；
+	// 空串表示取 os.UserHomeDir()。测试可传入固定值。
+	Home string
 	// CTTY 为真时让 helper 把 stdin 设为控制终端（交互 PTY 会话）。
 	CTTY bool
 }
@@ -35,7 +65,7 @@ type BwrapInput struct {
 // BwrapArgs 生成 bwrap 参数（不含 bwrap 本身）。
 //
 // 顺序固定，后挂的更具体路径覆盖先挂的：
-// 会话/退出 → 只读根 → /tmp tmpfs → 可写绑定 → 只读子路径 → deny_read → /dev /proc →
+// 会话/退出 → 只读根 → /tmp tmpfs → 可写绑定 → 只读路径（含强制 deny 表）→ deny_read → /dev /proc →
 // 命名空间 → cap-drop → 策略文件 → chdir → helper。
 func BwrapArgs(in BwrapInput) ([]string, error) {
 	p := in.Policy
@@ -86,18 +116,36 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 		args = append(args, "--bind", w, w)
 	}
 
-	// 工作区内的只读子路径：只在可写时才有意义，且仅覆盖存在的路径。
+	// 工作区内的只读路径：用户配置的只读子路径加强制 deny 表。只在可写时才有意义，
+	// 且仅覆盖存在的路径（--ro-bind 到不存在的路径会让 bwrap 启动失败）。
+	// 文件与目录都用 --ro-bind 自身，不需要区分。
+	home := in.Home
+	if home == "" {
+		home = userHome()
+	}
 	if mode == ModeWorkspaceWrite {
-		for _, sub := range p.EffectiveReadOnlySubpaths() {
-			abs := resolveSub(p.Workspace, sub)
-			if exists(abs) {
-				args = append(args, "--ro-bind", abs, abs)
-			}
+		for _, abs := range readOnlyPaths(p, home, exists) {
+			args = append(args, "--ro-bind", abs, abs)
 		}
 	}
 
 	// 不可读路径：目录盖空 tmpfs，文件盖 /dev/null。
+	// glob 条目在这里展开为当下存在的路径（快照语义）。
+	var denied []string
 	for _, d := range p.DenyRead {
+		if isGlobEntry(d) {
+			path, _ := splitDenyEntry(d)
+			matches, err := ExpandGlob(path)
+			if err != nil {
+				return nil, err
+			}
+			denied = append(denied, matches...)
+			continue
+		}
+		path, _ := splitDenyEntry(d)
+		denied = append(denied, path)
+	}
+	for _, d := range denied {
 		d = filepath.Clean(d)
 		if !exists(d) {
 			continue

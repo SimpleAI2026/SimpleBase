@@ -1,5 +1,30 @@
 //go:build linux
 
+// 文件说明：run_linux.go — gosandbox/host 中 HelperName、Run 等符号的实现
+//
+// 用法
+//
+//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)  // Run 在沙盒里执行 cmd
+//	同包调用：Run() → run_darwin.go, run_other.go 等；innerSpec() → start_linux.go；resolveHelper() → start_linux.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/run_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/host/internal/spec
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 14 个
+//	[关键引用] Run() ← run_darwin.go, run_other.go, start_linux.go
+//
+// 主要符号
+//
+//	const HelperName
+//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)
+//	... 另有 3 个顶层符号
+
 package host
 
 import (
@@ -121,7 +146,8 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 		defer grp.remove()
 	}
 
-	res := Result{Output: out.buf.Bytes(), OutputTruncated: out.truncated, TimedOut: timedOut, Limits: limits, Duration: time.Since(start)}
+	res := Result{Output: out.buf.Bytes(), OutputTruncated: out.truncated, TimedOut: timedOut, Limits: limits,
+		Warnings: Warnings(p), Duration: time.Since(start)}
 	if timedOut {
 		res.ExitCode = -1
 		return res, nil

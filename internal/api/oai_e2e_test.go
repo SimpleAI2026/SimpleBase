@@ -14,13 +14,13 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cli"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/cloudagent"
-	"github.com/linkxzhou/SimpleBase/cloudagent/agentcore"
-	"github.com/linkxzhou/SimpleBase/cloudagent/cli"
 	"github.com/linkxzhou/SimpleBase/internal/config"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
@@ -53,14 +53,14 @@ func newOAIE2E(t *testing.T, scripts []fakellm.Script, def fakellm.Script) *oaiE
 	cat := &stubCatalog{tenant: "tenant-1", db: catalog.Database{ID: "db-1", ProjectID: "proj-1", Name: "n", Status: catalog.DatabaseReady}}
 	dbSvc := newFakeDBService()
 	dbSvc.dbs["db-1"] = cat.db
-	sqlSvc := &fakeSQLService{db: cat.db, lease: &fakeSQLLease{queryResult: database.QueryResult{Columns: []string{"n"}, Rows: [][]any{{1}}}}}
+	sqlSvc := &fakeSQLService{db: cat.db, lease: &fakeSQLLease{queryResult: godatabase.QueryResult{Columns: []string{"n"}, Rows: [][]any{{1}}}}}
 
 	sdb, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sdb.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), sdb); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), sdb); err != nil {
 		t.Fatal(err)
 	}
 
@@ -458,10 +458,10 @@ func TestOAIE2E_StreamSurvivesWriteTimeoutOverRealRouter(t *testing.T) {
 }
 
 // runCLIOnce 用真实的 cli.SessionRunner 跑一轮：真实 HTTPClient、真实 agent 循环、
-// 真实 echo 工具（计数其执行次数）。会话文件写到临时目录，不碰用户的 ~/.cloudagent。
+// 真实 echo 工具（计数其执行次数）。会话文件写到临时目录，不碰用户的 ~/.gocloudagent。
 func runCLIOnce(t *testing.T, client *cli.HTTPClient, text string, calls *int) (cli.RunResult, []cli.CLIEvent, error) {
 	t.Helper()
-	env := []string{"CLOUDAGENT_HOME=" + t.TempDir()}
+	env := []string{"GOCLOUDAGENT_HOME=" + t.TempDir()}
 	sess, err := cli.NewSession(env, cli.Config{Endpoint: client.Endpoint, ProjectID: client.ProjectID}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -482,4 +482,4 @@ func runCLIOnce(t *testing.T, client *cli.HTTPClient, text string, calls *int) (
 	return res, events, err
 }
 
-var _ = cloudagent.ClassifyError
+var _ = gocloudagent.ClassifyError

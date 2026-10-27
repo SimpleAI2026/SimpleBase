@@ -1,3 +1,27 @@
+// 文件说明：redact.go — internal/sbcli 的内部实现（sensitiveName、redact 等）
+//
+// 用法
+//
+//	同包调用：redact() → collection_transfer.go, commands.go 等
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/redact.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/mask
+//	[同包] collection_transfer.go, commands.go, config.go, migrations.go, output.go 等 6 个
+//	[关键引用] redact() ← collection_transfer.go, commands.go, config.go
+//
+// 主要符号
+//
+//	sensitiveName(name string) bool
+//	redact(v any) any
+//	redactSQLRows(cols, rows []any) []any
+
 package sbcli
 
 import "github.com/linkxzhou/SimpleBase/internal/utils/mask"

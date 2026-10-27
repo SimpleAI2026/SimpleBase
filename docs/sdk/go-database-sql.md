@@ -49,4 +49,4 @@ for _, item := range batch.Results {
 }
 ```
 
-事务回滚可能以 HTTP 200 返回 `BatchResult.Error`；非事务批处理中检查每一项的 `ErrorCode`。`maxRows=0` 使用服务端行数上限，`last_insert_id` 不适用于 DuckLake，请使用 `RETURNING` 或应用生成 ID。查询行数、请求体与执行时间还有服务端限制。
+事务回滚可能以 HTTP 200 返回 `BatchResult.Error`；非事务批处理中检查每一项的 `ErrorCode`。`maxRows=0` 使用服务端行数上限，`last_insert_id` 不适用，请使用 `RETURNING` 或应用生成 ID。查询行数、请求体与执行时间还有服务端限制。

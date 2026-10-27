@@ -10,11 +10,12 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
+	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
 )
 
 func setupBareEcho(injectPrincipal, injectProject bool, register func(*echo.Echo)) *echo.Echo {
@@ -181,7 +182,7 @@ func TestDatabaseHandler_MissingContextAndValidation(t *testing.T) {
 
 func TestSQLHandler_MissingContextAndSystem(t *testing.T) {
 	sysDB := catalog.Database{ID: "sys", ProjectID: "proj-1", Kind: catalog.DatabaseKindSystem, Status: catalog.DatabaseReady}
-	svc := &fakeSQLService{db: sysDB, lease: &fakeSQLLease{executeResult: database.QueryResult{RowsAffected: 1}}}
+	svc := &fakeSQLService{db: sysDB, lease: &fakeSQLLease{executeResult: godatabase.QueryResult{RowsAffected: 1}}}
 	h := NewSQLHandler(svc, testSQLLimits(), true)
 	e := setupBareEcho(false, false, func(e *echo.Echo) {
 		e.POST("/q", h.Query)
@@ -264,7 +265,7 @@ func TestSQLHandler_MissingContextAndSystem(t *testing.T) {
 
 	// DurabilityFor + serialize error
 	svc.lease.executeErr = nil
-	svc.lease.executeResult = database.QueryResult{RowsAffected: 1}
+	svc.lease.executeResult = godatabase.QueryResult{RowsAffected: 1}
 	h3 := NewSQLHandler(svc, testSQLLimits(), true)
 	h3.DurabilityFor = func(string) string { return "synced_s3" }
 	eD := setupBareEcho(true, true, func(e *echo.Echo) {
@@ -275,7 +276,7 @@ func TestSQLHandler_MissingContextAndSystem(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "synced_s3") {
 		t.Fatalf("durability %d %s", rec.Code, rec.Body.String())
 	}
-	svc.lease.batchResults = []database.QueryResult{{RowsAffected: 1}}
+	svc.lease.batchResults = []godatabase.QueryResult{{RowsAffected: 1}}
 	rec = doRequest(eD, http.MethodPost, "/b", BatchRequest{Transactional: true, Statements: []SQLStatementRequest{{SQL: "INSERT INTO t VALUES(1)"}}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "synced_s3") {
 		t.Fatalf("batch dur %d %s", rec.Code, rec.Body.String())
@@ -296,7 +297,7 @@ func TestSQLHandler_MissingContextAndSystem(t *testing.T) {
 		t.Fatalf("batch get %d", rec.Code)
 	}
 	svc.getErr = nil
-	svc.acquireErr = database.ErrWriterUnavailable
+	svc.acquireErr = godatabase.ErrWriterUnavailable
 	rec = doRequest(eD, http.MethodPost, "/e", ExecuteRequest{SQLStatementRequest: SQLStatementRequest{SQL: "INSERT INTO t VALUES(1)"}})
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("exec acquire %d", rec.Code)
@@ -332,8 +333,8 @@ func TestSQLHandler_MissingContextAndSystem(t *testing.T) {
 		t.Fatalf("too many args %d", rec.Code)
 	}
 
-	// sqlSHA256
-	if sqlSHA256("SELECT 1") == sqlSHA256("SELECT 2") {
+	// 审计摘要走 utils/hashx
+	if hashx.SumString("SELECT 1") == hashx.SumString("SELECT 2") {
 		t.Fatal("sha should differ")
 	}
 	_ = nanoToDuration(0)
@@ -350,8 +351,8 @@ func TestDataHandler_Branches(t *testing.T) {
 	svc := &fakeDataService{
 		dbs: []catalog.Database{{ID: "db-1", Name: "n", ProjectID: "proj-1"}},
 		lease: &fakeSQLLease{
-			queryResult:   database.QueryResult{Columns: []string{"table_name"}, Rows: [][]any{{"users"}, {1}, {}}},
-			executeResult: database.QueryResult{RowsAffected: 1},
+			queryResult:   godatabase.QueryResult{Columns: []string{"table_name"}, Rows: [][]any{{"users"}, {1}, {}}},
+			executeResult: godatabase.QueryResult{RowsAffected: 1},
 		},
 	}
 	h := NewDataHandler(svc, true)
@@ -384,7 +385,7 @@ func TestDataHandler_Branches(t *testing.T) {
 		t.Fatalf("create col %d %s", rec.Code, rec.Body.String())
 	}
 
-	svc.lease.queryResult = database.QueryResult{Rows: [][]any{{"id1", `{"n":1}`}, {"id2", "not-json"}, {"short"}}}
+	svc.lease.queryResult = godatabase.QueryResult{Rows: [][]any{{"id1", `{"n":1}`}, {"id2", "not-json"}, {"short"}}}
 	rec = doRequest(e, http.MethodGet, "/databases/db-1/data/collections/Users", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list docs %d %s", rec.Code, rec.Body.String())
@@ -419,16 +420,17 @@ func TestDataHandler_Branches(t *testing.T) {
 		t.Fatalf("null doc %d", rec.Code)
 	}
 
+	svc.lease.queryResult = godatabase.QueryResult{Rows: [][]any{{"id-1", `{"n":1}`, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"}}}
 	rec = doRequest(e, http.MethodPut, "/databases/db-1/data/collections/Users/documents/id-1", map[string]any{"n": 2})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update %d %s", rec.Code, rec.Body.String())
 	}
-	svc.lease.executeResult = database.QueryResult{RowsAffected: 0}
+	svc.lease.queryResult = godatabase.QueryResult{}
 	rec = doRequest(e, http.MethodPut, "/databases/db-1/data/collections/Users/documents/id-1", map[string]any{"n": 2})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("update missing %d", rec.Code)
 	}
-	svc.lease.executeResult = database.QueryResult{RowsAffected: 1}
+	svc.lease.queryResult = godatabase.QueryResult{Rows: [][]any{{"id-1", `{"n":1}`, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"}}}
 	svc.lease.executeErr = errors.New("upd")
 	rec = doRequest(e, http.MethodPut, "/databases/db-1/data/collections/Users/documents/id-1", map[string]any{"n": 2})
 	if rec.Code != http.StatusInternalServerError {
@@ -462,8 +464,10 @@ func TestDataHandler_Branches(t *testing.T) {
 	ctx := WithPrincipal(req.Context(), auth.Principal{APIKeyID: "k"})
 	ctx = WithProject(ctx, ProjectContext{ID: "proj-1"})
 	c.SetRequest(req.WithContext(ctx))
-	_ = h.UpdateDocument(c)
-	if rec.Code != http.StatusInternalServerError {
+	if err := h.UpdateDocument(c); err != nil {
+		_ = WriteError(c, err)
+	}
+	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("update no id %d", rec.Code)
 	}
 

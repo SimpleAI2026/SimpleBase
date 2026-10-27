@@ -1,3 +1,30 @@
+// 文件说明：seatbelt.go — gosandbox/host 中 SeatbeltExecutable、SeatbeltProfile 等符号的实现
+//
+// 用法
+//
+//	SeatbeltProfile(p Policy) (profile string, params []string, err error)  // SeatbeltProfile 生成 SBPL 与 -D 参数
+//	SeatbeltArgs(p Policy, argv []string) ([]string, error)  // SeatbeltArgs 返回 sandbox-exec 的参数：-p <profile> -D k=v ... -- argv...
+//	同包调用：SeatbeltExecutable → run_darwin.go, start_darwin.go；SeatbeltArgs() → run_darwin.go, start_darwin.go；canonical() → glob.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/seatbelt.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 13 个
+//	[关键引用] SeatbeltExecutable ← run_darwin.go, start_darwin.go
+//
+// 主要符号
+//
+//	const SeatbeltExecutable
+//	SeatbeltProfile(p Policy) (profile string, params []string, err error)
+//	SeatbeltArgs(p Policy, argv []string) ([]string, error)
+//	... 另有 3 个顶层符号
+
 package host
 
 import (
@@ -33,6 +60,14 @@ const seatbeltBase = `(version 1)
 //
 // 网络恒为拒绝：策略里没有 network 规则，(deny default) 即拒绝。
 func SeatbeltProfile(p Policy) (profile string, params []string, err error) {
+	return seatbeltProfile(p, userHome(), nil)
+}
+
+// seatbeltProfile 是 SeatbeltProfile 的可注入版本：home 与 exists 供测试使用。
+//
+// 只读路径（用户配置的 ReadOnlySubpaths 加强制 deny 表）只对生成时已存在的路径出规则，
+// 与 Linux 一致：对不存在的 .git/hooks 加 deny 会让沙盒内 git init 直接失败（D7）。
+func seatbeltProfile(p Policy, home string, exists func(string) bool) (profile string, params []string, err error) {
 	if !p.Isolates() {
 		return "", nil, ErrNotIsolated
 	}
@@ -57,19 +92,27 @@ func SeatbeltProfile(p Policy) (profile string, params []string, err error) {
 		params = append(params, fmt.Sprintf("W%d=%s", i, canonical(w)))
 	}
 
-	// 后写的 deny 覆盖前面的 allow：只读子路径、deny_read。
-	n := 0
+	// 后写的 deny 覆盖前面的 allow：只读路径、deny_read。
 	if p.EffectiveMode() == ModeWorkspaceWrite {
-		for _, sub := range p.EffectiveReadOnlySubpaths() {
-			abs := resolveSub(p.Workspace, sub)
+		for n, abs := range readOnlyPaths(p, home, exists) {
 			fmt.Fprintf(&b, "(deny file-write* (subpath (param \"R%d\")))\n", n)
 			params = append(params, fmt.Sprintf("R%d=%s", n, canonical(abs)))
-			n++
 		}
 	}
 	for i, d := range p.DenyRead {
+		if isGlobEntry(d) {
+			path, _ := splitDenyEntry(d)
+			expr, err := denyGlobRegex(path, canonical)
+			if err != nil {
+				return "", nil, err
+			}
+			fmt.Fprintf(&b, "(deny file-read* (regex (param \"D%d\")))\n", i)
+			params = append(params, fmt.Sprintf("D%d=%s", i, expr))
+			continue
+		}
+		path, _ := splitDenyEntry(d)
 		fmt.Fprintf(&b, "(deny file-read* (subpath (param \"D%d\")))\n", i)
-		params = append(params, fmt.Sprintf("D%d=%s", i, canonical(d)))
+		params = append(params, fmt.Sprintf("D%d=%s", i, canonical(path)))
 	}
 	return b.String(), params, nil
 }

@@ -309,17 +309,6 @@ func TestUnavailableSandboxAnswers503NotSPA(t *testing.T) {
 	}
 }
 
-func TestUnavailableCarriesMigrationReason(t *testing.T) {
-	deps, key := fullRouterDeps(t)
-	deps.Sandbox = nil
-	deps.SandboxNotReadyReason = "migration v50 has not been applied"
-	e := NewRouter(deps)
-	rec := call(e, "GET", "/e2b/ext/capabilities", key, "", nil)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "migration v50") {
-		t.Fatalf("reason missing: %d %s", rec.Code, rec.Body.String())
-	}
-}
-
 // ---- 凭据与错误体 ----
 
 func TestE2BCredentialsAndErrorShape(t *testing.T) {

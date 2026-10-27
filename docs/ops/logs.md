@@ -18,6 +18,10 @@ curl -sS "$BASE/v1/projects/$PROJECT/logs?level=error&limit=20" \
 
 控制台可用筛选器按级别、时间和关键词定位；监控概览还提供 `/metrics/summary` 与 `/metrics/trend?days=7`。
 
+## 统计与导出
+
+`GET /v1/projects/:projectID/logs/stats?group_by=level|hour|path&from=&to=` 返回 `[{key,count}]`（响应包装在 `items` 中）；`GET /v1/projects/:projectID/logs/export?format=csv` 导出固定列 CSV。两者需要 `database:read`，支持相同时间范围；默认最近 24 小时，最大 30 天。CSV 最多 10 万条，仍只含现有脱敏字段。控制台日志页显示小时趋势并可导出 CSV。
+
 ## 保留期
 
 `GET /v1/projects/:projectID/logs/retention` 返回 `scope`、`keep_days` 与 `updated_at`；`PUT` 同一路径提交 `{"keep_days":30}` 修改保留期，需要 `project:admin`。保留期受系统配置限制，超界会收到服务端错误。

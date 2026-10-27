@@ -1,3 +1,27 @@
+// 文件说明：init_sql.go — internal/api 的内部实现（maxInitSQLBytes、maxInitSQLStatements 等）
+//
+// 用法
+//
+//	同包调用：prepareInitSQL() → database_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/init_sql.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/sqlguard
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] prepareInitSQL() ← database_handler.go
+//
+// 主要符号
+//
+//	const maxInitSQLBytes
+//	const maxInitSQLStatements
+//	prepareInitSQL(raw string) ([]string, error)
+
 package api
 
 import (
@@ -5,7 +29,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 )
 
 const (

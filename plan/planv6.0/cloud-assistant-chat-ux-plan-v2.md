@@ -15,7 +15,7 @@
 | B | SSE 是否完整实现 | **骨架完整**（帧格式、Flush、双心跳、落库顺序、环形缓存 + `after` 续传都在）。但有 **5 个可确证缺陷**（续传缓存丢失返回空 200、子通道静默丢帧、`truncated` 断链、`confirmHub` 泄漏、连接建立期无法续传）和若干边界缺口 |
 | C-1 | Agent 写操作 | **写路径早就存在**（`skills_cli` + 委托令牌 + CLI 调 HTTP API），缺的是 **Agent 级开关**。当前所有 Agent 只要能加载 skill 就有写能力，且没有任何一层检查「这个 Agent 是否被允许写」 |
 | C-2 | skill 优化 | 现有 9 份 SKILL.md 共约 8KB，写命令与必填 flag 说明偏薄；补样例与生成规范，并新增机器可读的只读/可写标注 |
-| C-3 | cloudagent 运行日志 | 目前**零日志**。提示词与正文日志与 `internal/AGENTS.md` 的脱敏约定正面冲突，需新增显式开关作为例外，且**不得**写入系统库 logs 表 |
+| C-3 | gocloudagent 运行日志 | 目前**零日志**。提示词与正文日志与 `internal/AGENTS.md` 的脱敏约定正面冲突，需新增显式开关作为例外，且**不得**写入系统库 logs 表 |
 
 ---
 
@@ -85,7 +85,7 @@
 | thinking / tool_progress | `agent_handler.go:848-876` | 2s ticker；工具执行中发 `tool_progress`，空闲 ≥2s 发 `thinking`；两者入环 |
 | 收尾顺序 | `agent_handler.go:891-907` | 停后台 goroutine → 先落库（`finishAgentRun`）→ 再 `usage` → 最后 `end`。**收到 `end` 后立刻拉 `/messages` 必然能读到助手消息** |
 | 环形缓存 + 续传 | `internal/api/run_events.go:149-171`、`322-370` | `after` 语义、`stream_gap`、live 订阅都在 |
-| 输出截断 | `internal/cloudagent/runtime.go:250-264` | `maxToolCardChars=4000`，事件带 `Truncated` |
+| 输出截断 | `internal/gocloudagent/runtime.go:250-264` | `maxToolCardChars=4000`，事件带 `Truncated` |
 | reader 透传 | `internal/llmgateway/service.go:280-314`、`streaming.go:28-44` | `usageRecordingReader` 原样返回同一 chunk，不改内容、不吞帧 |
 
 上游协议侧也确认支持真流式：`model.go:120-207` 用 `schema.Pipe` 逐块 `Send`，`runtime.go:573-625` 的 `consumeAssistant` 逐块 `emit(Event{Type:"token"})`；`internal/api/agent_e2e_stream_test.go:27-51` 用 fake 上游断言「≥5 个 token 帧」。
@@ -227,7 +227,7 @@ agent.skills_cli=true (config.go:224, 默认 true :453)
 
 - `internal/sbcli/commands.go:20` 的 `dispatch` 是唯一的命令事实来源（`DispatchKnown` 已在 `run.go:85` 导出）。当前 `commands.go` 有 **76** 条 `case`。
 - 新增导出 `func CommandReadOnly(resource, action string) bool`，为这 76 个命令逐一标注只读性。
-- cloudagent 侧 `isWriteArgv` 直接查它；对账测试枚举 `dispatch` 的全部命令，要求**每个命令都有明确分类**（防止新增命令漏标）。
+- gocloudagent 侧 `isWriteArgv` 直接查它；对账测试枚举 `dispatch` 的全部命令，要求**每个命令都有明确分类**（防止新增命令漏标）。
 
 同理，`destructiveArgv`（`cli_tool.go:424-469`）语义是「需要用户确认」，与「是否写」是两回事，不能复用。
 
@@ -270,7 +270,7 @@ agent.skills_cli=true (config.go:224, 默认 true :453)
 ### 3.8 测试
 
 - `internal/systemdb`：v48 迁移 + `CloudAgent` 读写往返（含 `writable` 列顺序）。
-- `internal/cloudagent`：`isWriteArgv` 分类；不可写 Agent 对写命令返回 `write_not_allowed`；不可写 Agent 的令牌不含 `database:write`；提示词随 `Writable` 变化。
+- `internal/gocloudagent`：`isWriteArgv` 分类；不可写 Agent 对写命令返回 `write_not_allowed`；不可写 Agent 的令牌不含 `database:write`；提示词随 `Writable` 变化。
 - `internal/sbcli`：`CommandReadOnly` 对 72 个命令的**全量分类对账**。
 - `internal/api`：CreateAgent/PatchAgent 的权限提升防护（无 `database:write` 的主体设 `writable=true` → 403）；CreateRun 时不可写 Agent 的写命令被拒；e2e 中不可写 Agent 走 `@数据库` 的写样例返回 `write_not_allowed`。
 - `ui`：`AgentFormModal` 的开关；`AgentManager` 的表单状态。
@@ -283,7 +283,7 @@ agent.skills_cli=true (config.go:224, 默认 true :453)
 
 - 9 份文件：`skills/simplebase/SKILL.md`（索引，708B）+ 8 个子 skill（`cron` / `database` / `gofunction` / `kv` / `logs` / `project` / `s3` / `sandbox`），每份只有一个 `SKILL.md`。
 - 实测体积：索引 708B；子 skill 903B（cron）/ 1706B（database）/ 991B（gofunction）/ 775B（kv）/ 647B（logs）/ 656B（project）/ 869B（s3）/ 1021B（sandbox），**合计 8276B**。命令示例行共 **37** 条（database 11、sandbox 7、cron 4、gofunction 4、kv 3、logs 3、s3 3、project 2）。
-- 加载：`skills/embed.go` 的 `//go:embed simplebase` → `internal/cloudagent/skills.go:13` 的 `skillFS`；`SkillPrompt`(`:127-143`) 按 id 读；`AllowArgv`(`:110-124`) 校验 `argv[0]` 落在已加载 skill 的前缀表内。
+- 加载：`skills/embed.go` 的 `//go:embed simplebase` → `internal/gocloudagent/skills.go:13` 的 `skillFS`；`SkillPrompt`(`:127-143`) 按 id 读；`AllowArgv`(`:110-124`) 校验 `argv[0]` 落在已加载 skill 的前缀表内。
 - 体量：database 约 1.67KB，其余更薄。`cloud-assistant-skills-cli-v2-plan.md:23` 已记录「每个 skill 正文只有 127–637 字节，没有写 flag 和示例」；看来只补了一部分。
 - 格式约束（`skills_test.go` 强制）：
   - `:76` `TestEmbeddedAllowsMatchPrefixes`：每份的 `<!-- allow: … -->` 必须与 `skillPrefixes`(`skills.go:20-29`) 一致，且**条目数 = len(skillPrefixes)+1**（含 `index`）。`EmbeddedSkillAllows`(`skills.go:153-158`) 只走 `SKILL.md`，**新增其他文件名不受影响**。
@@ -312,11 +312,11 @@ agent.skills_cli=true (config.go:224, 默认 true :453)
 
 ---
 
-## 5. 议题 C-3：cloudagent 运行日志
+## 5. 议题 C-3：gocloudagent 运行日志
 
 ### 5.1 现状：零日志
 
-- `internal/cloudagent` 非测试代码里**没有任何 zap / slog 调用**，`Runtime` 结构体（`runtime.go:74-101`）没有 `Logger` 字段。
+- `internal/gocloudagent` 非测试代码里**没有任何 zap / slog 调用**，`Runtime` 结构体（`runtime.go:74-101`）没有 `Logger` 字段。
 - 唯一日志是 `scheduler.go:366-374` 的 `Scheduler.log`，写 `Store.RecordLog(...)` 到系统库 logs 表。**这条路径必须避开**：Agent 的 `search_logs` 工具（`tools.go:229-241`）会读回这张表——提示词与正文写进去会**跨用户泄漏到 LLM 上下文**。
 - llmgateway 有 logger（`service.go:105`），但只在用量记录失败时 warn（`:268-274`），不记内容。
 - `app.go:904-906` 已有 `a.logger`（zap），装配 `Runtime` 时（`app.go:911-927`）注入很容易。
@@ -385,10 +385,10 @@ agent.skills_cli=true (config.go:224, 默认 true :453)
 | --- | --- |
 | `internal/config/config.go`、`yaml.go`、`env.go`、`config.example.yaml` | 新增开关与默认值 |
 | `internal/app/app.go:911-927` | 给 `Runtime` 注入 `Logger` 与开关 |
-| `internal/cloudagent/runtime.go` | 增加字段；在入口/结束/终止分支/工具事件打点 |
-| `internal/cloudagent/model.go` | 请求与返回摘要；降级与退化 warn；内容层记最终消息列表 |
-| `internal/cloudagent/cli_tool.go`、`tools.go` | 命令被拒、确认结果、退出码、耗时 |
-| **新建** `internal/cloudagent/trace.go` | 集中放开关判断、脱敏 + 截断、hash 辅助函数，避免各处各写一套 |
+| `internal/gocloudagent/runtime.go` | 增加字段；在入口/结束/终止分支/工具事件打点 |
+| `internal/gocloudagent/model.go` | 请求与返回摘要；降级与退化 warn；内容层记最终消息列表 |
+| `internal/gocloudagent/cli_tool.go`、`tools.go` | 命令被拒、确认结果、退出码、耗时 |
+| **新建** `internal/gocloudagent/trace.go` | 集中放开关判断、脱敏 + 截断、hash 辅助函数，避免各处各写一套 |
 | `internal/AGENTS.md`、根 `AGENTS.md` | 写明内容层例外（仅 D-C3 通过时） |
 
 ### 5.6 测试
@@ -457,13 +457,13 @@ C-3（日志）                独立，但元数据层建议先落地，便于�
 | 6 | 实时流显示「已截断」 | UI 单测 |
 | 7 | `confirmHub.pending` 条目数不随确认次数增长 | `run_events_lifecycle_test.go` |
 | 8 | 连接建立期断开后仍能续传 | e2e（首个事件前断开） |
-| 9 | 不可写 Agent 的写命令返回 `write_not_allowed`，且不弹确认框 | `internal/cloudagent` + `internal/api` e2e |
+| 9 | 不可写 Agent 的写命令返回 `write_not_allowed`，且不弹确认框 | `internal/gocloudagent` + `internal/api` e2e |
 | 10 | 不可写 Agent 的委托令牌不含 `database:write` | `internal/api` 单测 |
 | 11 | 无 `database:write` 的主体不能把 Agent 设为可写 | `agent_handler_test.go` |
 | 12 | `sbcli` 全部命令的只读/可写分类完整 | 新建对账测试 |
-| 13 | 提示词随 `Writable` 变化，不再自相矛盾 | `internal/cloudagent` 单测 |
+| 13 | 提示词随 `Writable` 变化，不再自相矛盾 | `internal/gocloudagent` 单测 |
 | 14 | 37 条 skill 示例（补全后应更多）全部可分发、每份体积在 1–8KB | `skills_test.go`（新增体积断言） |
-| 15 | 开关关闭时日志无正文；打开时正文全部脱敏 + 截断 | `internal/cloudagent` 单测（含 JSON 密钥形态） |
+| 15 | 开关关闭时日志无正文；打开时正文全部脱敏 + 截断 | `internal/gocloudagent` 单测（含 JSON 密钥形态） |
 | 16 | `go build ./internal/... ./cmd/...`、`go test ./...`、`cd ui && yarn test && yarn build` 全部通过 | 命令 |
 
 ---
@@ -497,7 +497,7 @@ C-3（日志）                独立，但元数据层建议先落地，便于�
 | B5 建立期无法续传 | 完成 | 后端 `streamRun` 增设 `X-Run-Id` 响应头；前端 `fetch` 后读取该头作为 `runId` 初值 |
 | C-1 Agent 写能力 | 完成 | 迁移 **v48** `sys_cloud_agents.writable BIGINT DEFAULT 0`；`CloudAgent.Writable`；入口降权 `stripWritePermissions`；命令拦截 `write_not_allowed`；提示词 `capabilityWritable/Readonly`；API `writable` 贯通 + 提权防护；前端表单开关 |
 | C-2 skill 优化 | 完成 | 新增 `skills/simplebase/FORMAT.md`；7 份子 skill 加 `<!-- readonly: … -->` 标注；`EmbeddedSkillReadOnly` 解析；`sbcli.CommandReadOnly` / `CommandReadOnlyWithArgv` |
-| C-3 运行日志 | 完成 | 新增 `internal/cloudagent/trace.go`（`Meta`/`Warn`/`Payload`/`Redact`/`hashSummary`）；`Runtime.Logger` + `TraceLog`；`agent.trace_log` 配置（yaml/env/example）；`AGENTS.md` 例外说明 |
+| C-3 运行日志 | 完成 | 新增 `internal/gocloudagent/trace.go`（`Meta`/`Warn`/`Payload`/`Redact`/`hashSummary`）；`Runtime.Logger` + `TraceLog`；`agent.trace_log` 配置（yaml/env/example）；`AGENTS.md` 例外说明 |
 
 ### 10.2 与计划的偏差（实现时发现）
 
@@ -517,14 +517,14 @@ C-3（日志）                独立，但元数据层建议先落地，便于�
 | --- | --- |
 | `go build ./internal/... ./cmd/...` | 通过 |
 | `go test ./...` | **全部通过** |
-| `go vet ./internal/cloudagent/... ./internal/sbcli/... ./internal/api/...` | 通过 |
+| `go vet ./internal/gocloudagent/... ./internal/sbcli/... ./internal/api/...` | 通过 |
 | `gofmt -l internal/` | 无输出 |
 | `cd ui && yarn test` | **107 文件 / 728 用例全部通过**；statements 99.51% / branches 95.07% / **functions 95.1%**（达标） |
 | `cd ui && yarn build` | 通过 |
 
 **新增/改写的测试**：
 
-- 后端：`cloudagent/trace_test.go`（脱敏 + 截断 + JSON 密钥形态 + hash/argv 摘要）、`cloudagent/writable_test.go`（只读拒绝、可写放行、降权、提示词）、`api/run_events_test.go`（replay 边界 + gap + confirmHub 回收）、`api/agent_writable_test.go`（提权防护 + DTO 契约）、`systemdb/agent_writable_test.go`（v48 往返 + 存量兼容）、`sbcli/commands_readonly_test.go`（76 命令对账 + 子动作）、`cloudagent/skills_test.go` 增补（体积 + readonly 标注对账）。
+- 后端：`gocloudagent/trace_test.go`（脱敏 + 截断 + JSON 密钥形态 + hash/argv 摘要）、`gocloudagent/writable_test.go`（只读拒绝、可写放行、降权、提示词）、`api/run_events_test.go`（replay 边界 + gap + confirmHub 回收）、`api/agent_writable_test.go`（提权防护 + DTO 契约）、`systemdb/agent_writable_test.go`（v48 往返 + 存量兼容）、`sbcli/commands_readonly_test.go`（76 命令对账 + 子动作）、`gocloudagent/skills_test.go` 增补（体积 + readonly 标注对账）。
 - 前端：`http-api.test.ts` 增补（`truncated` 透传、`X-Run-Id` 初值、无 end 报错）、`agent-components.test.ts`（三点与头像改写）、`useAgentConversation.test.ts`（逐帧 DOM + 三点收尾）、`AgentManager.test.ts` / `agent-split-components.test.ts`（writable 开关）。
 - 改写既有：`agent_skills_router_e2e_test.go` 样例 19、`skills_test.go` 的 headless 用例、两个 E2E harness 的写权限前置。
 

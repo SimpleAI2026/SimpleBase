@@ -1,7 +1,7 @@
 <template>
   <!-- ThreadSwitcher：对话区头部的会话下拉切换器（planv4.1 §3.2：会话列表移入头部）。
        planv6.0 §3.6 #7：只留「下拉 + 新建」，删除会话收进宿主头部的「⋯」菜单。 -->
-  <div class="flex min-w-0 flex-1 items-center gap-1.5">
+  <div class="flex min-w-32 flex-1 items-center gap-1.5">
     <Select :model-value="activeId" @update:model-value="(id: string) => $emit('select', id)">
       <SelectTrigger class="h-8 min-w-0 flex-1" :aria-label="t('components.threadSwitcher.switchAria')">
         <SelectValue :placeholder="triggerPlaceholder" />

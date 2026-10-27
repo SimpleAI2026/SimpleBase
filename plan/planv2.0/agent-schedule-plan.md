@@ -9,7 +9,7 @@
 
 - Agent 列表每个 agent 可配置**一条定时执行**：到点由后端调度器以指定**提示词**自动触发一次非流式 run，结果落到该 schedule 专属 thread（会话内可回看）。
 - UI：`AgentManager.vue` 左栏 agent 卡片新增「定时」按钮，弹窗内填写**提示词框** + 频率 + 启用开关，并展示下次执行时间与最近执行历史。
-- 定时执行与手动对话**同一条只读路径**：复用 `cloudagent.Runtime.StartRun`（eino ChatModelAgent + 只读工具），不新增任何写工具。
+- 定时执行与手动对话**同一条只读路径**：复用 `gocloudagent.Runtime.StartRun`（eino ChatModelAgent + 只读工具），不新增任何写工具。
 
 ## 2. 明确不做（MVP）
 
@@ -55,9 +55,9 @@
 
 DuckLake 不用 PRIMARY KEY；唯一性与「每 agent 一条」由应用层保证。
 
-## 4. Cron 解析（`internal/cloudagent/cron.go` + `cron_test.go`）
+## 4. Cron 解析（`internal/gocloudagent/cron.go` + `cron_test.go`）
 
-`systemdb` 是底层包，**不得 import `cloudagent`**；因此 cron 解析只在 `cloudagent` 与 `api` 层发生，store 只存时间戳。
+`systemdb` 是底层包，**不得 import `gocloudagent`**；因此 cron 解析只在 `gocloudagent` 与 `api` 层发生，store 只存时间戳。
 
 - 5 字段：`分 时 日 月 周`，分钟粒度，UTC。
 - 支持语法：`*`、`*/n`、`n`、`a-b`、逗号列表组合（如 `0 8 * * 1,4`）。
@@ -92,12 +92,12 @@ ListAgentScheduleRuns(ctx, projectID, scheduleID string, limit int) ([]AgentSche
 
 `ClaimAgentSchedule` 是 CAS 认领：`UPDATE ... SET next_run_at=?, last_run_at=? WHERE id=? AND next_run_at=?`，`RowsAffected==0` 返回 false——同一任务不会被并发执行两次。
 
-## 6. 调度器（`internal/cloudagent/scheduler.go`）
+## 6. 调度器（`internal/gocloudagent/scheduler.go`）
 
 ### 依赖（接口，保持可测）
 
 ```go
-type ScheduleRunner interface { // *cloudagent.Runtime 天然满足
+type ScheduleRunner interface { // *gocloudagent.Runtime 天然满足
     StartRun(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error)
 }
 type ScheduleStore interface { // *systemdb.Store 天然满足
@@ -154,9 +154,9 @@ func (s *Scheduler) Trigger(ctx context.Context, schedule AgentSchedule) // 手�
 
 - `prompt` 空 → 400；`cron_expr` 解析失败 → 400 `invalid cron expression`；`agent_id` 不存在 → 400。
 - 该 agent 已有未归档 schedule → **409 `schedule already exists`**（前端据此切 PATCH）。
-- 创建/更新时服务端（handler 层）调用 `cloudagent.ParseCron + NextAfter(now)` 计算 `next_run_at` 后交给 store；`thread_id` 为空时自动 `CreateAgentThread(title="Scheduled: <agent name>")`。
+- 创建/更新时服务端（handler 层）调用 `gocloudagent.ParseCron + NextAfter(now)` 计算 `next_run_at` 后交给 store；`thread_id` 为空时自动 `CreateAgentThread(title="Scheduled: <agent name>")`。
 - DTO：`last_run_at` / `next_run_at` 用 `*time.Time` + omitempty；附带 `agent_name` 便于 UI 渲染。
-- `router.go`：`Dependencies` 增加 `AgentScheduler *cloudagent.Scheduler`；挂载在 `deps.System != nil` 分支，`deps.AgentScheduler != nil` 才挂 `/run` 手动触发路由。
+- `router.go`：`Dependencies` 增加 `AgentScheduler *gocloudagent.Scheduler`；挂载在 `deps.System != nil` 分支，`deps.AgentScheduler != nil` 才挂 `/run` 手动触发路由。
 
 `proto-http.md` 追加 §3.13 记录上表。
 
@@ -168,7 +168,7 @@ func (s *Scheduler) Trigger(ctx context.Context, schedule AgentSchedule) // 手�
 
 ## 9. 装配与生命周期（`internal/app/app.go`）
 
-- `assembleDeps`：`systemStore != nil && cloudAgentRuntime != nil` 时创建 `cloudagent.Scheduler{Store: a.systemStore, Runner: runtime, Quota: a.usageSvc}`，传入 `api.Dependencies.AgentScheduler`。
+- `assembleDeps`：`systemStore != nil && cloudAgentRuntime != nil` 时创建 `gocloudagent.Scheduler{Store: a.systemStore, Runner: runtime, Quota: a.usageSvc}`，传入 `api.Dependencies.AgentScheduler`。
 - `Start()` 中 `scheduler.Start(ctx)`（goroutine）；`Shutdown` cancel ctx 并等待 in-flight 收敛（超时随 shutdown deadline）；`registerCloser`。
 - **不新增 config 项**：tick/并发数为包内常量，后续需要再配置化（改 `config.yaml` 需另行确认）。
 

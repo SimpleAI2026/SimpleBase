@@ -1,7 +1,30 @@
-// streaming.go 实现流式响应的用量记录包装器（plan8.md）。
+// 文件说明：streaming.go — 流式响应的用量记录包装器（plan8.md）
 //
-// litellm 的 StreamReader 在最后一个 chunk 携带累计 Usage；
-// 本包装器在读取到 finish/usage chunk 时记录用量，在 Close 时兜底记录。
+// 用法
+//
+//	type usageRecordingReader（包内使用）
+//	同包调用：usageRecordingReader → service.go；Next() → service.go；Close() → service.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/streaming.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/observability
+//	[同包] catalog_resolver.go, fallback_resolver.go, project_cred_resolver.go, provider_driver.go, service.go
+//	[关键引用] usageRecordingReader ← service.go
+//
+// 主要符号
+//
+//	type usageRecordingReader struct {…}
+//	(r *usageRecordingReader) Next() (*providers.StreamChunk, error)
+//	(r *usageRecordingReader) Close() error
+//	(r *usageRecordingReader) maybeRecord()
+//	extractUsage(chunk *providers.StreamChunk) *Usage
+
 package llmgateway
 
 import (

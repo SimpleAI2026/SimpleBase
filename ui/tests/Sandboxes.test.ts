@@ -118,7 +118,7 @@ describe('Sandboxes interactions', () => {
     await clickText(wrapper, '刷新')
     await flushPromises()
     expect(wrapper.get('[data-drawer]').attributes('data-open')).toBe('false')
-    expect(wrapper.text()).toContain('还没有云沙盒')
+    expect(wrapper.text()).toContain('暂无云沙盒')
     wrapper.unmount()
   })
 
@@ -179,8 +179,8 @@ describe('Sandboxes interactions', () => {
     const { wrapper } = await mountWithApp(Sandboxes, { stubs })
     await flushPromises()
     expect(api.sandboxes.list).not.toHaveBeenCalled()
-    // 不可用时不显示「还没有云沙盒」这种引导式空态
-    expect(wrapper.text()).not.toContain('还没有云沙盒')
+    // 不可用时不显示「暂无云沙盒」这种引导式空态
+    expect(wrapper.text()).not.toContain('暂无云沙盒')
     wrapper.unmount()
   })
 

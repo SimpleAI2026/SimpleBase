@@ -1,3 +1,31 @@
+// 文件说明：metrics.go — internal/observability 中 Metrics、ObserveCacheBytes 等符号的实现
+//
+// 用法
+//
+//	NewMetrics(reg prometheus.Registerer) *Metrics
+//	(m *Metrics) ObserveCacheBytes(bytes int64)  // ObserveCacheBytes 更新当前缓存字节用量
+//	(m *Metrics) IncCacheEvictions()  // IncCacheEvictions 增加缓存淘汰计数
+//	同包调用：Metrics → stage_timing_metrics.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/audit 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/observability/metrics.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] logger.go, stage_timing_metrics.go, zaplog.go
+//	[关键引用] Metrics ← stage_timing_metrics.go
+//
+// 主要符号
+//
+//	type Metrics struct {…}
+//	(m *Metrics) ObserveCacheBytes(bytes int64)
+//	(m *Metrics) IncCacheEvictions()
+//	NewMetrics(reg prometheus.Registerer) *Metrics
+
 package observability
 
 import (
@@ -41,16 +69,17 @@ type Metrics struct {
 
 	// 分段计时（api-db-perf-validation-plan §2.1）。route/stage 均为低基数。
 	APIStageSeconds *prometheus.HistogramVec
+	APIRateLimited  *prometheus.CounterVec
 }
 
 // ObserveCacheBytes 更新当前缓存字节用量。
-// 满足 internal/database/cache.CacheMetrics 接口。
+// 满足 godatabase/cache.CacheMetrics 接口。
 func (m *Metrics) ObserveCacheBytes(bytes int64) {
 	m.CacheBytes.Set(float64(bytes))
 }
 
 // IncCacheEvictions 增加缓存淘汰计数。
-// 满足 internal/database/cache.CacheMetrics 接口。
+// 满足 godatabase/cache.CacheMetrics 接口。
 func (m *Metrics) IncCacheEvictions() {
 	m.CacheEvictions.Inc()
 }
@@ -185,5 +214,9 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help:    "Per-stage request timing (perf validation); buckets span 1ms to 40s.",
 			Buckets: PerfStageBuckets,
 		}, []string{"route", "stage"}),
+		APIRateLimited: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_api_rate_limited_total",
+			Help: "Number of requests rejected by API rate limits.",
+		}, []string{"rule"}),
 	}
 }

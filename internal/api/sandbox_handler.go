@@ -1,3 +1,34 @@
+// 文件说明：sandbox_handler.go — internal/api 中 SandboxService、SandboxHandler 等符号的实现
+//
+// 用法
+//
+//	NewSandboxHandler(svc SandboxService, writable bool, audit AuditService, store ...
+//	(h *SandboxHandler) Create(c echo.Context) error  // Create 对应 POST /v2/sandboxes 与 POST /sandboxes：创建并立即启动
+//	(h *SandboxHandler) List(c echo.Context) error  // List 对应 GET /v2/sandboxes 与 GET /sandboxes
+//	同包调用：project() → agent_handler.go, agent_schedule_handler.go 等；Get() → collection_meta_handler.go, collection_transfer.go 等；List() → api_keys_handler.go, backup_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/sandbox_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/vm, internal/auth, internal/sandbox, internal/systemdb 等
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] project() ← agent_handler.go, agent_schedule_handler.go, api_key_policy.go
+//
+// 主要符号
+//
+//	type SandboxService interface {…}
+//	type SandboxHandler struct {…}
+//	NewSandboxHandler(svc SandboxService, writable bool, audit AuditService, store ...
+//	(h *SandboxHandler) Create(c echo.Context) error
+//	(h *SandboxHandler) List(c echo.Context) error
+//	(h *SandboxHandler) Get(c echo.Context) error
+//	... 另有 38 个顶层符号
+
 package api
 
 import (
@@ -665,7 +696,7 @@ func (h *SandboxHandler) Connect(c echo.Context) error {
 	var row sandbox.Sandbox
 	if stateOf(cur.Status) == "paused" {
 		status = http.StatusCreated
-		if row, err = h.svc.Start(ctx, p, id); err != nil {
+		if _, err = h.svc.Start(ctx, p, id); err != nil {
 			return writeE2BErr(c, err)
 		}
 		if row, err = h.svc.SetExpiry(ctx, p, id, timeout); err != nil {
@@ -702,9 +733,6 @@ func (h *SandboxHandler) Capabilities(c echo.Context) error {
 	}
 	out := map[string]any{"available": false, "backend": "local", "images": []string{}, "terminal": false}
 	if h.svc == nil || !h.svc.Available() {
-		if r := h.deps.SandboxNotReadyReason; r != "" {
-			out["reason"] = r
-		}
 		return c.JSON(http.StatusOK, out)
 	}
 	caps := h.svc.Capabilities()

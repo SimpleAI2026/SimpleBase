@@ -8,12 +8,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/cache"
+	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/cache"
-	"github.com/linkxzhou/SimpleBase/internal/database/registry"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -108,7 +108,7 @@ type stubRegistry struct {
 	closedID   string
 }
 
-func (s *stubRegistry) Acquire(context.Context, catalog.Database, database.AccessMode) (*registry.Lease, error) {
+func (s *stubRegistry) Acquire(context.Context, catalog.Database, godatabase.AccessMode) (*registry.Lease, error) {
 	if s.acquireErr != nil {
 		return nil, s.acquireErr
 	}
@@ -136,7 +136,7 @@ func (s *stubSystemStore) DB() *sql.DB            { return s.db }
 
 type memFactory struct{}
 
-func (memFactory) Open(_ context.Context, _ catalog.Database, _ database.AccessMode) (*sql.DB, error) {
+func (memFactory) Open(_ context.Context, _ godatabase.Spec, _ godatabase.AccessMode) (*sql.DB, error) {
 	return sql.Open("sqlite3", ":memory:")
 }
 
@@ -181,7 +181,7 @@ func TestDatabaseServiceAdapter(t *testing.T) {
 
 	reg.acquireErr = errors.New("no lease")
 	sqlSvc := NewSQLServiceAdapter(cat, reg, nil)
-	if _, err := sqlSvc.Acquire(ctx, cat.db, database.ReadWrite); err == nil {
+	if _, err := sqlSvc.Acquire(ctx, cat.db, godatabase.ReadWrite); err == nil {
 		t.Fatal("expected acquire error")
 	}
 }
@@ -208,7 +208,7 @@ func TestSQLServiceAdapter(t *testing.T) {
 
 	// system + readonly → systemLeaseAdapter
 	sysDBRow := catalog.Database{ID: "sys", Kind: catalog.DatabaseKindSystem}
-	lease, err := svc.Acquire(ctx, sysDBRow, database.ReadOnly)
+	lease, err := svc.Acquire(ctx, sysDBRow, godatabase.ReadOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestSQLServiceAdapter(t *testing.T) {
 	}
 
 	// user db → sqlLeaseAdapter (or acquire error)
-	userLease, err := svc.Acquire(ctx, cat.db, database.ReadWrite)
+	userLease, err := svc.Acquire(ctx, cat.db, godatabase.ReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,14 +226,14 @@ func TestSQLServiceAdapter(t *testing.T) {
 	}
 
 	reg.acquireErr = errors.New("boom")
-	if _, err := svc.Acquire(ctx, cat.db, database.ReadOnly); err == nil {
+	if _, err := svc.Acquire(ctx, cat.db, godatabase.ReadOnly); err == nil {
 		t.Fatal("expected error")
 	}
 
 	// nil system: even system db goes to registry
 	reg.acquireErr = nil
 	svcNoSys := NewSQLServiceAdapter(cat, reg, nil)
-	l, err := svcNoSys.Acquire(ctx, sysDBRow, database.ReadOnly)
+	l, err := svcNoSys.Acquire(ctx, sysDBRow, godatabase.ReadOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,11 +253,11 @@ func TestSystemLeaseAdapter(t *testing.T) {
 	}
 	s := &systemLeaseAdapter{conn: db}
 	s.Release() // no-op
-	res, err := s.Query(context.Background(), database.Statement{SQL: "SELECT id FROM t"}, 10)
+	res, err := s.Query(context.Background(), godatabase.Statement{SQL: "SELECT id FROM t"}, 10)
 	if err != nil || len(res.Rows) != 1 {
 		t.Fatalf("query: %+v err=%v", res, err)
 	}
-	if _, err := s.Execute(context.Background(), database.Statement{SQL: "DELETE FROM t"}); !errors.Is(err, catalog.ErrSystemProtected) {
+	if _, err := s.Execute(context.Background(), godatabase.Statement{SQL: "DELETE FROM t"}); !errors.Is(err, catalog.ErrSystemProtected) {
 		t.Fatalf("execute: %v", err)
 	}
 	if _, err := s.Batch(context.Background(), nil, true); !errors.Is(err, catalog.ErrSystemProtected) {
@@ -267,18 +267,18 @@ func TestSystemLeaseAdapter(t *testing.T) {
 
 func TestSQLLeaseAdapter_WithRegistry(t *testing.T) {
 	reg := registry.New(memFactory{}, nil, registry.Options{Writable: true}, nil, nil)
-	lease, err := reg.Acquire(context.Background(), catalog.Database{ID: "db-sql", Status: catalog.DatabaseReady}, database.ReadWrite)
+	lease, err := reg.Acquire(context.Background(), godatabase.Spec{ID: "db-sql", Status: godatabase.StatusReady}, godatabase.ReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ad := &sqlLeaseAdapter{lease: lease}
-	if _, err := ad.Query(context.Background(), database.Statement{SQL: "SELECT 1"}, 10); err != nil {
+	if _, err := ad.Query(context.Background(), godatabase.Statement{SQL: "SELECT 1"}, 10); err != nil {
 		t.Fatalf("query: %v", err)
 	}
-	if _, err := ad.Execute(context.Background(), database.Statement{SQL: "CREATE TABLE x(id INT)"}); err != nil {
+	if _, err := ad.Execute(context.Background(), godatabase.Statement{SQL: "CREATE TABLE x(id INT)"}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if _, err := ad.Batch(context.Background(), []database.Statement{{SQL: "INSERT INTO x VALUES (1)"}}, true); err != nil {
+	if _, err := ad.Batch(context.Background(), []godatabase.Statement{{SQL: "INSERT INTO x VALUES (1)"}}, true); err != nil {
 		t.Fatalf("batch: %v", err)
 	}
 	ad.Release()
@@ -329,7 +329,7 @@ func TestUsageAndAuditAdapters(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	repo := catalog.NewSQLRepository(db)

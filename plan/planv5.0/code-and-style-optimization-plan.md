@@ -58,7 +58,7 @@
 | --- | --- |
 | `go build ./internal/... ./cmd/...` | ✅ 通过 |
 | `go vet ./internal/...` | ✅ 无输出 |
-| `go test ./internal/api ./internal/cloudagent ./internal/systemdb ./internal/llmgateway -short` | ✅ 全部 `ok`（api 21.7s / cloudagent 0.8s / systemdb 2.6s / llmgateway 0.7s） |
+| `go test ./internal/api ./internal/gocloudagent ./internal/systemdb ./internal/llmgateway -short` | ✅ 全部 `ok`（api 21.7s / gocloudagent 0.8s / systemdb 2.6s / llmgateway 0.7s） |
 | `cd ui && yarn build` | ✅ 通过（`dist/` 内 `DocsWiki` 与 `GoFunctions` 各自有独立 CSS chunk） |
 | `cd ui && yarn test` | ⚠️ **阈值失败**：statements 99.24%、branches 95.07%、**functions 94.24%（< 95%）**，退出码非零 |
 | `cd ui && yarn typecheck` | ❌ **262 处 TS 错误**（241 × TS2307 + 21 处其他），几乎全部在 `tests/**` |
@@ -422,7 +422,7 @@ func (r *KeyRepo) Count(ctx context.Context, pattern string) (int64, error) {
 | `internal/api/kv_commands.go` | 1426 | 一个 `var kvCommandTable = map[string]kvCmdSpec{…}` 从 86 行排到约 1200 行，62 条命令 | 按数据类型拆文件：`kv_commands_string.go` / `_key.go` / `_hash.go` / `_list.go` / `_set.go` / `_zset.go`，各自 `init()` 或由一个 `registerKVCommands` 注册进同一张表 |
 | `ui/src/services/http-api.ts` | 1171 | 39 个映射函数 + `streamAgentRun`（100 行）+ 全部接口定义 | 按域拆：`services/http/databases.ts` / `agents.ts` / `sandbox.ts` / `cronjobs.ts` / `logs.ts` / `auth.ts`，`http-api.ts` 只做聚合与 `export const httpApi: Api`。**必须保持 `api.ts` 的导出面不变**（页面统一 `from '../services/api'`） |
 | `internal/app/app.go` | 1020（`assembleDeps` 322 行） | 唯一装配点，按序创建 20+ 依赖 | 拆成 `assembleCoreDeps` / `assembleAgentDeps` / `assembleSandboxDeps`（保持线性调用顺序与失败回收），降低单函数认知负担 |
-| `internal/api/agent_handler.go` | 903 | HTTP 层里含 `normalizeAgent`（263-307）、`streamRun`（694-794）、run 状态收尾 | 把 `streamRun` 的 SSE 帧构造抽到 `internal/api/agent_sse.go`；`normalizeAgent` 里的业务校验考虑下沉到 `internal/cloudagent` |
+| `internal/api/agent_handler.go` | 903 | HTTP 层里含 `normalizeAgent`（263-307）、`streamRun`（694-794）、run 状态收尾 | 把 `streamRun` 的 SSE 帧构造抽到 `internal/api/agent_sse.go`；`normalizeAgent` 里的业务校验考虑下沉到 `internal/gocloudagent` |
 | `pages/AgentManager.vue` | 555 | 列表 + 对话 + 弹窗 + 定时 + 会话切换全在一页 | 把「新建/编辑 Agent 弹窗」抽成 `components/agent/AgentFormModal.vue`（现在内联在 86-144 行） |
 | `components/modal/CronJobModal.vue` | 464 | 调度类型（cron/interval/once）三种表单 | 三种调度各抽一个子组件，父组件只做切换与提交 |
 
@@ -529,8 +529,8 @@ internal/app/start_test.go
 internal/auth/cache_test.go
 internal/catalog/cache.go
 internal/catalog/tenant_ctx.go
-internal/cloudagent/coverage_test.go
-internal/cloudagent/sandbox_tools_test.go
+internal/gocloudagent/coverage_test.go
+internal/gocloudagent/sandbox_tools_test.go
 internal/config/sandbox_test.go
 internal/config/yaml.go
 internal/cronjob/scheduler_test.go
@@ -665,7 +665,7 @@ internal/testutil/fakellm/server.go
 
 | # | 项 | 现状 | 需要什么才能定性 |
 | --- | --- | --- | --- |
-| A-1 | `internal/cloudagent/scheduler.go` 的 goroutine 生命周期 | `stopCh` / `done` 的收发与 `IsRunning()` 读路径未见同步原语；`plan/planv4.0/cloud-agent-optimization-plan.md` 提到过一处 `close(nil)` 竞态已修，但当前代码未见锁 | `go test -race ./internal/cloudagent` + 专门的生命周期用例；需要一轮并发审计 |
+| A-1 | `internal/gocloudagent/scheduler.go` 的 goroutine 生命周期 | `stopCh` / `done` 的收发与 `IsRunning()` 读路径未见同步原语；`plan/planv4.0/cloud-agent-optimization-plan.md` 提到过一处 `close(nil)` 竞态已修，但当前代码未见锁 | `go test -race ./internal/gocloudagent` + 专门的生命周期用例；需要一轮并发审计 |
 | A-2 | KV 的 `time.Now()` 与 `nowMs()` 是否统一 | `kv_commands.go:1421` 的 `nowMs()` 与仓库层的 `r.t.nowMs()` 可能不是同一时钟来源 | 读 `internal/database/kv/executor.go` 的 `nowMs` 定义与注入方式；若不一致会影响 TTL 判定一致性 |
 | A-3 | `AccessLogMiddleware` 与 `perfStageMiddleware` 在系统库忙时是否互相放大 | v4.0 已处理「每请求写日志」，但 `stage_timing.go`（387 行）的埋点成本未量化 | 压测对比 `--http` 场景开/关埋点的 p95 |
 | A-4 | `db_stats_cache.go` 的失效策略 | 缓存不命中时是否逐个数据库串行统计 | 读 `db_stats_cache.go` 与 `db_stats.go`，或看压测 |

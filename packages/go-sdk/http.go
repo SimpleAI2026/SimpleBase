@@ -63,6 +63,33 @@ func (c *Client) request(ctx context.Context, method, path string, query url.Val
 	return nil
 }
 
+func (c *Client) requestStream(ctx context.Context, method, path string, query url.Values, body io.Reader, contentType string) (*http.Response, error) {
+	if ctx == nil {
+		return nil, errors.New("gosdk: context is required")
+	}
+	u := c.baseURL + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
+		return nil, fmt.Errorf("gosdk: create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("gosdk: request: %w", err)
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		defer res.Body.Close()
+		return nil, decodeAPIError(res)
+	}
+	return res, nil
+}
+
 func (c *Client) requestJSON(ctx context.Context, method, path string, query url.Values, input, output any) error {
 	if input == nil {
 		return c.request(ctx, method, path, query, nil, "", output)

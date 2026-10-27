@@ -1,3 +1,31 @@
+// 文件说明：output.go — internal/sbcli 的内部实现（exitOK、exitUsage 等）
+//
+// 用法
+//
+//	同包调用：exitOK → run.go；exitUsage → run.go；exitAPI → run.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/output.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] collection_transfer.go, commands.go, config.go, migrations.go, redact.go 等 6 个
+//	[关键引用] exitOK ← run.go
+//
+// 主要符号
+//
+//	const exitOK
+//	const exitUsage
+//	const exitAPI
+//	const exitConfig
+//	writeOK(w io.Writer, data any)
+//	writeFail(w io.Writer, code, message string, httpStatus int, requestID string)
+//	... 另有 1 个顶层符号
+
 package sbcli
 
 import (

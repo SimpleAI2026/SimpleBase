@@ -1,3 +1,33 @@
+// 文件说明：run_events.go — internal/api 的内部实现（runEventCap、runFrame 等）
+//
+// 用法
+//
+//	type runFrame（包内使用）
+//	type runBuf（包内使用）
+//	同包调用：append() → adapter.go, agent_handler.go 等；buf() → api_keys_handler.go, e2b_process_handler.go 等；Wait() → agent_handler.go, e2b_process_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/run_events.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gocloudagent
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] append() ← adapter.go, agent_handler.go, agent_schedule_handler.go
+//
+// 主要符号
+//
+//	const runEventCap
+//	type runFrame struct {…}
+//	type runBuf struct {…}
+//	type runEventHub struct {…}
+//	const runEventIdleTTL
+//	const runEventDefaultCap
+//	... 另有 21 个顶层符号
+
 package api
 
 import (
@@ -11,14 +41,14 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 )
 
 const runEventCap = 2000
 
 type runFrame struct {
 	id int64
-	ev cloudagent.Event
+	ev gocloudagent.Event
 }
 
 type runBuf struct {
@@ -50,7 +80,7 @@ func newRunEventHub() *runEventHub {
 	return &runEventHub{runs: map[string]*runBuf{}, maxRuns: runEventDefaultCap, idleTTL: runEventIdleTTL}
 }
 
-func (h *runEventHub) append(runID string, ev cloudagent.Event) int64 {
+func (h *runEventHub) append(runID string, ev gocloudagent.Event) int64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	b := h.buf(runID)
@@ -272,7 +302,7 @@ func (h *confirmHub) prepare(runID, callID, initiator string) chan bool {
 	return ch
 }
 
-// Prepare 预登记确认等待项（实现 cloudagent.ConfirmationPreparer）。
+// Prepare 预登记确认等待项（实现 gocloudagent.ConfirmationPreparer）。
 func (h *confirmHub) Prepare(runID, callID, initiator string) {
 	if h == nil {
 		return
@@ -380,7 +410,7 @@ func (h *cloudAgentHandler) ReplayEvents(c echo.Context) error {
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
 	c.Response().WriteHeader(http.StatusOK)
 	flusher, _ := c.Response().Writer.(http.Flusher)
-	write := func(id int64, ev cloudagent.Event) {
+	write := func(id int64, ev gocloudagent.Event) {
 		data, _ := json.Marshal(ev)
 		_, _ = c.Response().Write([]byte(fmt.Sprintf("id: %d\ndata: %s\n\n", id, data)))
 		if flusher != nil {
@@ -388,7 +418,7 @@ func (h *cloudAgentHandler) ReplayEvents(c echo.Context) error {
 		}
 	}
 	if gap {
-		write(0, cloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})
+		write(0, gocloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})
 		return nil
 	}
 	for _, f := range frames {
@@ -412,7 +442,7 @@ func (h *cloudAgentHandler) ReplayEvents(c echo.Context) error {
 			return nil
 		case f := <-sub:
 			if f.id != last+1 {
-				write(f.id, cloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})
+				write(f.id, gocloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})
 				return nil
 			}
 			last = f.id

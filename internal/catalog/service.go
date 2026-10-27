@@ -1,6 +1,34 @@
-// service.go 实现 catalog 的业务逻辑：创建/查询/删除数据库、状态转换、
-// provider 配置与 usage 追加。所有跨 project 校验在此完成，handler 不得
-// 直接访问 Repository。
+// 文件说明：service.go — catalog 的业务逻辑：创建/查询/删除数据库、状态转换、
+//
+// 用法
+//
+//	NewService(repo Repository, keys objectstore.KeyBuilder, descriptor ...
+//	(s *Service) Repository() Repository// Repository 返回底层 Repository，供 usage/audit/jobs 等内部服务共享访问
+//	(s *Service) ResolveProjectStorage(ctx context.Context, tenantID, projectID string) ...  // ResolveProjectStorage 返回项目级 KV 等内部数据面的运行时目标，不创建 kind=kv 记录
+//	同包调用：GetDatabase() → model.go, repository.go 等；Service → cache.go, repository.go；Repository() → repository.go, sql_repository.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/service.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/auth, internal/objectstore, internal/observability
+//	[同包] cache.go, data_model.go, errors.go, model.go, project_storage.go 等 9 个
+//	[关键引用] GetDatabase() ← model.go, repository.go, sql_repository.go
+//
+// 主要符号
+//
+//	type Clock func() time.Time
+//	type DescriptorWriter interface {…}
+//	type Service struct {…}
+//	(s *Service) Repository() Repository
+//	(s *Service) ResolveProjectStorage(ctx context.Context, tenantID, projectID string) ...
+//	NewService(repo Repository, keys objectstore.KeyBuilder, descriptor ...
+//	... 另有 32 个顶层符号
+
 package catalog
 
 import (
@@ -39,6 +67,8 @@ type Service struct {
 	storage objectstore.DuckLakeStorage
 	logger  observability.Logger
 	now     Clock
+	// defaultEngine 是新建项目的默认单文件引擎（实例配置 database.engine）。
+	defaultEngine string
 
 	// §7.2 P1.3/P1.4：读路径进程内缓存（写入路径同步失效）。
 	tenantCache *ttlCache[string]
@@ -49,6 +79,27 @@ type Service struct {
 // Repository 返回底层 Repository，供 usage/audit/jobs 等内部服务共享访问。
 // 外部 handler 不得使用此方法绕过 Service 校验。
 func (s *Service) Repository() Repository { return s.repo }
+
+// ResolveProjectStorage 返回项目级 KV 等内部数据面的运行时目标，不创建 kind=kv 记录。
+func (s *Service) ResolveProjectStorage(ctx context.Context, tenantID, projectID string) (Database, error) {
+	if tenantID == "" || projectID == "" {
+		return Database{}, fmt.Errorf("%w: tenant_id/project_id required", ErrInvalidName)
+	}
+	if !tenantMatches(ctx, projectID, tenantID) {
+		belongs, err := s.repo.ProjectBelongsToTenant(ctx, projectID, tenantID)
+		if err != nil || !belongs {
+			return Database{}, fmt.Errorf("%w: project %s not in tenant %s", ErrCrossProject, projectID, tenantID)
+		}
+	}
+	p, err := s.repo.GetProject(ctx, projectID)
+	if err != nil {
+		return Database{}, err
+	}
+	if err := ValidateProjectDatabasePath(projectID, p.DatabasePath); err != nil {
+		return Database{}, fmt.Errorf("%w: project storage metadata is invalid", ErrInvalidDatabasePath)
+	}
+	return Database{ID: projectID, TenantID: tenantID, ProjectID: projectID, Name: "project", Kind: DatabaseKindUser, DataModel: DataModelSQL, Status: DatabaseReady, DatabasePath: p.DatabasePath}, nil
+}
 
 // NewService 构造 Service。descriptor 可为 nil（本地模式 / 测试未配置 S3 时跳过 descriptor 写入）。
 // storage 在 descriptor 非 nil 时应提供 bucket/region 等（Prefix 按库生成）。
@@ -63,6 +114,18 @@ func NewService(repo Repository, keys objectstore.KeyBuilder, descriptor Descrip
 	}
 	s.enableCache()
 	return s
+}
+
+// SetDefaultEngine 设置新建项目的默认文件引擎（duckdb|sqlite）。
+func (s *Service) SetDefaultEngine(engine string) {
+	if s == nil {
+		return
+	}
+	normalized, err := NormalizeEngine(engine)
+	if err != nil {
+		return
+	}
+	s.defaultEngine = normalized
 }
 
 // CreateDatabaseInput 是创建数据库的输入。
@@ -132,7 +195,7 @@ func (s *Service) GetKVDatabase(ctx context.Context, tenantID, projectID string)
 	if err != nil {
 		return Database{}, err
 	}
-	return s.normalizeRetiredOpenStatus(ctx, db), nil
+	return db, nil
 }
 
 // ensureTenantMatch 校验 project 属于 principal 的租户；ctx 已携带同请求解析出的
@@ -168,12 +231,24 @@ func (s *Service) createDatabase(ctx context.Context, in CreateDatabaseInput, ki
 		return Database{}, fmt.Errorf("%w: project %s not in tenant %s", ErrCrossProject, in.ProjectID, in.TenantID)
 	}
 
-	id := uuid.NewString()
-	prefix, err := s.keys.DataPrefix(in.ProjectID, id)
+	project, err := s.repo.GetProject(ctx, in.ProjectID)
 	if err != nil {
-		return Database{}, fmt.Errorf("catalog: build storage prefix: %w", err)
+		return Database{}, err
+	}
+	if err := ValidateProjectDatabasePath(in.ProjectID, project.DatabasePath); err != nil {
+		return Database{}, err
+	}
+	if kind == DatabaseKindUser {
+		exists, err := s.repo.HasDefaultDatabase(ctx, in.ProjectID)
+		if err != nil {
+			return Database{}, err
+		}
+		if exists {
+			return Database{}, fmt.Errorf("%w: project %s already has a default database", ErrAlreadyExists, in.ProjectID)
+		}
 	}
 
+	id := uuid.NewString()
 	now := s.now()
 	db := Database{
 		ID:            id,
@@ -183,7 +258,7 @@ func (s *Service) createDatabase(ctx context.Context, in CreateDatabaseInput, ki
 		Kind:          kind,
 		DataModel:     dataModel,
 		Status:        DatabaseCreating,
-		StoragePrefix: prefix,
+		DatabasePath:  project.DatabasePath,
 		FormatVersion: objectstore.DescriptorFormatVersion,
 		CreatedAt:     now,
 		UpdatedAt:     now,
@@ -193,41 +268,6 @@ func (s *Service) createDatabase(ctx context.Context, in CreateDatabaseInput, ki
 		return Database{}, err
 	}
 	s.InvalidateDatabase(in.ProjectID, db.ID)
-
-	if s.descriptor != nil {
-		descKey, err := s.keys.DescriptorKey(in.ProjectID, id)
-		if err != nil {
-			s.degradeAfterCreateFailure(ctx, id, err)
-			return Database{}, fmt.Errorf("%w: build descriptor key: %v", ErrDescriptorWrite, err)
-		}
-		st := s.storage
-		st.Prefix = prefix
-		desc := objectstore.Descriptor{
-			FormatVersion:   objectstore.DescriptorFormatVersion,
-			TenantID:        in.TenantID,
-			ProjectID:       in.ProjectID,
-			DatabaseID:      id,
-			Name:            in.Name,
-			CreatedAt:       now,
-			DataPrefix:      prefix,
-			Status:          objectstore.StatusCreating,
-			Engine:          "ducklake",
-			DuckLakeStorage: st,
-		}
-		if err := desc.Validate(); err != nil {
-			s.degradeAfterCreateFailure(ctx, id, err)
-			return Database{}, fmt.Errorf("%w: invalid descriptor: %v", ErrDescriptorWrite, err)
-		}
-		if err := s.descriptor.PutJSON(ctx, descKey, desc, objectstore.PutOptions{}); err != nil {
-			// descriptor 写失败：标记 degraded，不删除已写入的 catalog 记录，
-			// 由运维/恢复流程决定补偿删除或重试。
-			s.degradeAfterCreateFailure(ctx, id, err)
-			return Database{}, fmt.Errorf("%w: %v", ErrDescriptorWrite, err)
-		}
-	}
-
-	// DuckLake 创建无异步开通：catalog（+可选 descriptor）写成功即视为就绪。
-	// 否则会永久停在 creating（历史上依赖未接线的 Runtime 回调）。
 	if err := s.SetDatabaseReady(ctx, id); err != nil {
 		s.degradeAfterCreateFailure(ctx, id, err)
 		return Database{}, fmt.Errorf("catalog: mark ready after create: %w", err)
@@ -262,7 +302,18 @@ func (s *Service) GetDatabase(ctx context.Context, principal auth.Principal, pro
 	if IsSystemDatabase(db) && !IsSystemProject(projectID) {
 		return Database{}, fmt.Errorf("%w: database %s in project %s", ErrNotFound, databaseID, projectID)
 	}
-	return s.normalizeRetiredOpenStatus(ctx, db), nil
+	if !IsSystemDatabase(db) {
+		tenantID := db.TenantID
+		if tenantID == "" {
+			tenantID = principal.TenantID
+		}
+		storage, err := s.ResolveProjectStorage(ctx, tenantID, projectID)
+		if err != nil {
+			return Database{}, err
+		}
+		db.DatabasePath = storage.DatabasePath
+	}
+	return db, nil
 }
 
 // ListDatabases 校验 principal 可访问 projectID 后分页列出数据库。
@@ -281,9 +332,6 @@ func (s *Service) ListDatabases(ctx context.Context, principal auth.Principal, p
 	}
 	if err != nil {
 		return nil, "", err
-	}
-	for i := range dbs {
-		dbs[i] = s.normalizeRetiredOpenStatus(ctx, dbs[i])
 	}
 	return dbs, next, nil
 }
@@ -355,8 +403,9 @@ func (s *Service) ListProjects(ctx context.Context, principal auth.Principal) ([
 
 // CreateProjectInput 是创建项目的输入。ID 为空时由服务端生成 8 位项目 ID。
 type CreateProjectInput struct {
-	Name string
-	ID   string
+	Name   string
+	ID     string
+	Engine string
 }
 
 // CreateProject 在 principal 所属租户下创建项目。需要 ProjectAdmin。
@@ -388,12 +437,21 @@ func (s *Service) CreateProject(ctx context.Context, principal auth.Principal, i
 		}
 	}
 
+	engine := in.Engine
+	if strings.TrimSpace(engine) == "" {
+		engine = s.defaultEngine
+	}
+	databasePath, err := DatabasePathForProject(id, engine)
+	if err != nil {
+		return Project{}, err
+	}
 	now := s.now().UTC()
 	p := Project{
-		ID:        id,
-		TenantID:  principal.TenantID,
-		Name:      name,
-		CreatedAt: now,
+		ID:           id,
+		TenantID:     principal.TenantID,
+		Name:         name,
+		DatabasePath: databasePath,
+		CreatedAt:    now,
 	}
 	if err := s.repo.CreateProject(ctx, p); err != nil {
 		return Project{}, err
@@ -437,13 +495,8 @@ func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Princi
 	if IsSystemDatabase(current) {
 		return Database{}, fmt.Errorf("%w: %s", ErrSystemProtected, databaseID)
 	}
-	// 迁移后的正常来源是 creating / ready / degraded。
-	// opening / closing / closed / recovering 仍接受，避免启动写回之前的旧行删不掉。
-	// deleted 不在来源里，不能再变回可用库。
-	from := []DatabaseStatus{
-		DatabaseCreating, DatabaseOpening, DatabaseClosing, DatabaseReady,
-		DatabaseClosed, DatabaseDegraded, DatabaseRecovering,
-	}
+	// 可删除的来源是 creating / ready / degraded；deleted 不在来源里，不能再变回可用库。
+	from := []DatabaseStatus{DatabaseCreating, DatabaseReady, DatabaseDegraded}
 	db, err := s.repo.TransitionDatabase(ctx, current.ID, from, DatabaseDeleting, s.now())
 	if err != nil {
 		return Database{}, err
@@ -461,12 +514,17 @@ func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Princi
 	return db, nil
 }
 
-// StoragePurger 抽象同步删除平面 B（DuckLake data/catalog/descriptor 所在前缀）。
+// StoragePurger 抽象同步删除平面 B（项目数据库快照/manifest/租约所在前缀）。
 type StoragePurger interface {
 	DeletePrefix(ctx context.Context, prefix string) error
 }
 
-// DeleteDatabaseSync 软删并同步清理存储：deleting → 关闭连接 → DeletePrefix(库前缀) → deleted。
+// ProjectFilePurger 是项目单文件模型的删除平面；保留 project files。
+type ProjectFilePurger interface {
+	PurgeProject(ctx context.Context, projectID string) error
+}
+
+// DeleteDatabaseSync 软删并同步清理存储：deleting → 关闭连接 → 清理项目数据库文件 → deleted。
 // purger / closer 可为 nil（本地模式无 S3 时只更新 catalog）。
 // 产品决策：不走 jobs 异步队列完成本轮清理。
 func (s *Service) DeleteDatabaseSync(
@@ -487,11 +545,11 @@ func (s *Service) DeleteDatabaseSync(
 		}
 	}
 	if purger != nil {
-		prefix := db.StoragePrefix
-		if dbPrefix, err := s.keys.DatabasePrefix(db.ProjectID, db.ID); err == nil && dbPrefix != "" {
-			prefix = dbPrefix
-		}
-		if prefix != "" {
+		if p, ok := purger.(ProjectFilePurger); ok {
+			if err := p.PurgeProject(ctx, db.ProjectID); err != nil {
+				return db, fmt.Errorf("catalog: purge project database: %w", err)
+			}
+		} else if prefix := db.StoragePrefix; prefix != "" {
 			if err := purger.DeletePrefix(ctx, prefix); err != nil {
 				return db, fmt.Errorf("catalog: sync purge storage prefix %s: %w", prefix, err)
 			}
@@ -504,16 +562,10 @@ func (s *Service) DeleteDatabaseSync(
 	return db, nil
 }
 
-// SetDatabaseReady 将数据库从 creating 或历史 open/close 状态转为 ready。
+// SetDatabaseReady 将数据库从 creating 转为 ready。
 // 已是 ready 时幂等成功。不从 degraded / deleting / deleted 转出。
 func (s *Service) SetDatabaseReady(ctx context.Context, id string) error {
-	from := []DatabaseStatus{
-		DatabaseCreating,
-		DatabaseOpening,
-		DatabaseClosing,
-		DatabaseClosed,
-		DatabaseRecovering,
-	}
+	from := []DatabaseStatus{DatabaseCreating}
 	_, err := s.repo.TransitionDatabase(ctx, id, from, DatabaseReady, s.now())
 	if err != nil && errors.Is(err, ErrInvalidState) {
 		return nil // 已是 ready，或当前状态不允许转出（含 degraded）
@@ -525,44 +577,16 @@ func (s *Service) SetDatabaseReady(ctx context.Context, id string) error {
 	return err
 }
 
-// isRetiredOpenStatus 报告历史「打开/关闭」状态。这些值不再写入，读到时按 ready 处理。
-func isRetiredOpenStatus(status DatabaseStatus) bool {
-	switch status {
-	case DatabaseClosed, DatabaseOpening, DatabaseClosing, DatabaseRecovering:
-		return true
-	default:
-		return false
-	}
-}
-
-// normalizeRetiredOpenStatus 把未软删的历史状态按 ready 返回并写回。
-// 不改 degraded，也不改已软删行。
-func (s *Service) normalizeRetiredOpenStatus(ctx context.Context, db Database) Database {
-	if db.DeletedAt != nil || !isRetiredOpenStatus(db.Status) {
-		return db
-	}
-	if err := s.SetDatabaseReady(ctx, db.ID); err != nil && s.logger != nil {
-		s.logger.Warn("catalog: write back retired database status",
-			zap.String("database_id", db.ID), zap.Error(err))
-	}
-	db.Status = DatabaseReady
-	db.UpdatedAt = s.now()
-	return db
-}
-
 // descriptorHead 探测 descriptor 对象是否存在。objectstore.Client 满足此接口。
 type descriptorHead interface {
 	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
 }
 
-// RepairDatabasesOnStartup 在进程启动、没有进行中的创建时修复残留行。
-// closed/opening/closing/recovering → ready。
-// 残留 creating：descriptor 未启用或对象已存在 → ready；对象存储启用但对象不存在 → degraded。
+// RepairDatabasesOnStartup 在进程启动、没有进行中的创建时修复崩溃残留的 creating 行：
+// descriptor 未启用或对象已存在 → ready；对象存储启用但对象不存在 → degraded。
 // 不改 degraded / deleting / deleted，不改对象存储内容。
 func (s *Service) RepairDatabasesOnStartup(ctx context.Context) error {
-	rows, err := s.repo.ListDatabasesByStatuses(ctx, []DatabaseStatus{
-		DatabaseClosed, DatabaseOpening, DatabaseClosing, DatabaseRecovering, DatabaseCreating,
-	})
+	rows, err := s.repo.ListDatabasesByStatuses(ctx, []DatabaseStatus{DatabaseCreating})
 	if err != nil {
 		return fmt.Errorf("catalog: list databases for startup repair: %w", err)
 	}
@@ -571,13 +595,7 @@ func (s *Service) RepairDatabasesOnStartup(ctx context.Context) error {
 		if db.DeletedAt != nil {
 			continue
 		}
-		var err error
-		if isRetiredOpenStatus(db.Status) {
-			err = s.SetDatabaseReady(ctx, db.ID)
-		} else if db.Status == DatabaseCreating {
-			err = s.repairStuckCreating(ctx, db)
-		}
-		if err != nil && firstErr == nil {
+		if err := s.repairStuckCreating(ctx, db); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -644,9 +662,7 @@ func (s *Service) GetLLMProviders(ctx context.Context, projectID string) (LLMPro
 // SetDatabaseDegraded 将数据库标记为 degraded 并记录 cause。
 // from 允许所有非终态状态，因为故障可能发生在任意阶段。
 func (s *Service) SetDatabaseDegraded(ctx context.Context, id string, cause error) error {
-	from := []DatabaseStatus{
-		DatabaseCreating, DatabaseOpening, DatabaseReady, DatabaseClosing, DatabaseRecovering,
-	}
+	from := []DatabaseStatus{DatabaseCreating, DatabaseReady}
 	_, err := s.repo.TransitionDatabase(ctx, id, from, DatabaseDegraded, s.now())
 	if err != nil {
 		return err

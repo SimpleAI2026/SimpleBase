@@ -1,10 +1,28 @@
-// latency_histogram.go 实现接口耗时固定桶直方图（planv4.0 dashboard-api-latency-percentiles-plan）。
+// 文件说明：latency_histogram.go — 接口耗时固定桶直方图（planv4.0 dashboard-api-latency-percentiles-plan）
 //
-// 每次 flush 每项目落一行 name=http_latency_histogram_ms：
-//   - labels_json = {"v":1,"b":[各桶计数]}（桶边界由版本号决定，见 latencyBucketsV1）；
-//   - value_double = 本批请求总数（用于校验）。
+// 用法
 //
-// 查询时逐桶相加后在命中桶内线性插值估算 P50/P90/P99。
+//	type latencyHistogram（包内使用）
+//	type latencyHistogramJSON（包内使用）
+//	同包调用：latencyHistogram → async_flush.go, metrics.go 等；metricLatencyHistogram → async_flush.go, metrics.go；newLatencyHistogram() → async_flush.go, metrics.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/latency_histogram.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] latencyHistogram ← async_flush.go, metrics.go, store.go
+//
+// 主要符号
+//
+//	var LatencyOverflowMS
+//	... 另有 13 个顶层符号
+
 package systemdb
 
 import (

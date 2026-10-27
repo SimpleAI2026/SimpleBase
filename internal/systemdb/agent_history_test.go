@@ -12,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	_ "github.com/uglyer/go-sqlite3"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
 )
 
 func TestStatisticalBuiltinsSeedWithoutOverwritingExisting(t *testing.T) {
@@ -236,7 +238,7 @@ func TestAgentMessagesReturnMostRecentPageInChronologicalOrder(t *testing.T) {
 	}
 	defer db.Close()
 	ctx := context.Background()
-	if err := ApplySystemMigrations(ctx, db); err != nil {
+	if err := EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	store := NewStoreForTest(db)
@@ -744,7 +746,7 @@ func TestCronAndGoFunctionRemainingBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if nullString("") != nil || nullString("x") == nil {
+	if sqlval.NullString("") != nil || sqlval.NullString("x") == nil {
 		t.Fatal("nullString")
 	}
 	if nullInt64IfZero(0) != nil || nullInt64IfZero(3) == nil {

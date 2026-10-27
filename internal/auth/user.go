@@ -1,4 +1,35 @@
-// user.go 定义控制台用户模型与 UserService（CRUD + 登录校验 + Principal 展开）。
+// 文件说明：user.go — 定义控制台用户模型与 UserService（CRUD + 登录校验 + Principal 展开）
+//
+// 用法
+//
+//	NewUserService(repo UserRepository, tenantID string) *UserService
+//	(s *UserService) WithClock(now func() time.Time) *UserService  // WithClock 注入时钟（测试用）
+//	(s *UserService) OnChange(fn func(string))  // OnChange 设置用户和项目归属变更后的缓存失效通知
+//	同包调用：GetByID() → observer.go, session.go 等；Create() → session.go, session_repository.go 等；Update() → session.go, session_repository.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/user.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/limit
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] GetByID() ← observer.go, session.go, session_repository.go
+//
+// 主要符号
+//
+//	var ErrUserNotFound
+//	var ErrUsernameTaken
+//	var ErrUserDisabled
+//	var ErrUserProtected
+//	var ErrInvalidRole
+//	var ErrWeakPassword
+//	... 另有 35 个顶层符号
+//	user.go 定义控制台用户模型与 UserService（CRUD + 登录校验 + Principal 展开）。
+
 package auth
 
 import (

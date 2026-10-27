@@ -1,3 +1,31 @@
+// 文件说明：messages.go — internal/e2bproto 中 Bytes、MarshalJSON 等符号的实现
+//
+// 用法
+//
+//	(b Bytes) MarshalJSON() ([]byte, error)
+//	(b *Bytes) UnmarshalJSON(data []byte) error
+//
+// 调用架构
+//
+//	[上游] internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/e2bproto/messages.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] envelope.go
+//
+// 主要符号
+//
+//	type Bytes []byte
+//	(b Bytes) MarshalJSON() ([]byte, error)
+//	(b *Bytes) UnmarshalJSON(data []byte) error
+//	type PTYSize struct {…}
+//	type PTY struct {…}
+//	type ProcessConfig struct {…}
+//	... 另有 43 个顶层符号
+
 package e2bproto
 
 import (

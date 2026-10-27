@@ -1,3 +1,33 @@
+// 文件说明：e2b_process_handler.go — internal/api 中 ProcStart、ProcConnect 等符号的实现
+//
+// 用法
+//
+//	(h *SandboxHandler) ProcStart(c echo.Context) error  // ProcStart 对应 process.Process/Start（服务端流）：启动进程并把事件流式返回
+//	(h *SandboxHandler) ProcConnect(c echo.Context) error  // ProcConnect 对应 process.Process/Connect：连接到已有进程，继续接收事件
+//	同包调用：event() → agent_handler.go, data_handler.go 等；end() → agent_handler.go, gocloudagent_access.go 等；stop() → kv_commands.go, oai_dto.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/e2b_process_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/vm, internal/e2bproto, internal/sandbox
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] event() ← agent_handler.go, data_handler.go, event_fanout.go
+//
+// 主要符号
+//
+//	(h *SandboxHandler) ProcStart(c echo.Context) error
+//	(h *SandboxHandler) ProcConnect(c echo.Context) error
+//	(h *SandboxHandler) ProcList(c echo.Context) error
+//	(h *SandboxHandler) ProcSendInput(c echo.Context) error
+//	(h *SandboxHandler) ProcSendSignal(c echo.Context) error
+//	(h *SandboxHandler) ProcCloseStdin(c echo.Context) error
+//	... 另有 13 个顶层符号
+
 package api
 
 import (
@@ -114,7 +144,7 @@ func (h *SandboxHandler) ProcStart(c echo.Context) error {
 		spec.Tag = *req.Tag
 	}
 	if req.PTY != nil {
-		spec.PTY = &vm.PTYSize{Cols: clampU16(req.PTY.Size.Cols, 80), Rows: clampU16(req.PTY.Size.Rows, 24)}
+		spec.PTY = &vm.PTYSize{Cols: sandbox.ClampPTYDim(req.PTY.Size.Cols, 80), Rows: sandbox.ClampPTYDim(req.PTY.Size.Rows, 24)}
 	}
 	// E2B 的 cmd 通常是 /bin/bash 配合 -l -c 'script'：保持 argv 原样交给驱动，不经额外一层 shell。
 	proc, err := h.svc.StartProc(c.Request().Context(), p, id, spec)
@@ -249,16 +279,6 @@ func (h *SandboxHandler) streamProc(c echo.Context, projectID, sandboxID string,
 	}
 }
 
-func clampU16(v uint32, def uint16) uint16 {
-	if v == 0 {
-		return def
-	}
-	if v > 1000 {
-		return 1000
-	}
-	return uint16(v)
-}
-
 // ProcList 对应 process.Process/List。
 func (h *SandboxHandler) ProcList(c echo.Context) error {
 	if err := h.readConnectUnary(c, &struct{}{}); err != nil {
@@ -373,7 +393,7 @@ func (h *SandboxHandler) ProcUpdate(c echo.Context) error {
 		return writeConnectErr(c, ferr)
 	}
 	if req.PTY != nil {
-		if rerr := proc.Resize(vm.PTYSize{Cols: clampU16(req.PTY.Size.Cols, 80), Rows: clampU16(req.PTY.Size.Rows, 24)}); rerr != nil {
+		if rerr := proc.Resize(vm.PTYSize{Cols: sandbox.ClampPTYDim(req.PTY.Size.Cols, 80), Rows: sandbox.ClampPTYDim(req.PTY.Size.Rows, 24)}); rerr != nil {
 			return writeConnectErr(c, &connectErr{e2bproto.CodeFailedPrecondition, "process has no pty"})
 		}
 	}

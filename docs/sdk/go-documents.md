@@ -28,4 +28,6 @@ err = db.DeleteDocument(ctx, "Notes", id)
 return err
 ```
 
-文档采用 JSON 对象，插入未提供 `id` 时由服务端生成。文档列表最多返回 1000 条，按 `created_at` 降序；此接口不提供分页。集合读取需要 `database:read`，创建和文档写入需要 `database:write`；系统库不允许写操作。
+文档采用 JSON 对象，插入未提供 `id` 时由服务端生成。`ListDocuments` 保留旧签名；`ListDocumentsWithOptions` 支持 `DocumentQuery{Limit,Cursor,Offset,Sort,Filter,Fields,Count}`，响应同时含旧 `Rows` 和结构化 `Items/NextCursor/Total`。`GetDocument`、`PatchDocument`、`BatchDocuments`、`TruncateCollection` 与 `Get/Put/DryRun/DeleteCollectionSchema` 对应单条读取、部分更新、单事务批量、清空和 Schema 管理。集合读取需要 `database:read`，创建和文档写入需要 `database:write`；系统库不允许写操作。
+
+`ImportCollection(ctx, collection, format, dryRun, reader)` 流式上传 CSV/NDJSON；`ExportCollection(ctx, collection, query, writer)` 逐行写入调用方的 `io.Writer`，不受 JSON 响应 32MiB 上限约束。`DryRunView` 试跑逻辑视图。`List/Create/Update/DeleteFunctionTrigger` 管理[事件触发器](/docs/automation/function-triggers)，`InvokeFunctionTrigger` 调用 HTTP 触发器；`MigrationStatus/MigrationPlan` 只读检查 admin 项目的最终态系统表。

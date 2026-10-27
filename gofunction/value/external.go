@@ -1,3 +1,34 @@
+// 文件说明：external.go — gofunction/value 中 ExternalValue、NewExternalValue 等符号的实现
+//
+// 用法
+//
+//	NewExternalValue(v reflect.Value) *ExternalValue
+//	(ev *ExternalValue) Interface() interface{}  // Interface 实现 Value 接口
+//	(ev *ExternalValue) String() string  // String 实现 Value 接口
+//	同包调用：Interface() → tuple.go, value.go；String() → tuple.go, value.go；Type() → tuple.go, value.go
+//
+// 调用架构
+//
+//	[上游] gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/value/external.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/importer
+//	[同包] tuple.go, value.go
+//	[关键引用] Interface() ← tuple.go, value.go
+//
+// 主要符号
+//
+//	type ExternalValue struct {…}
+//	NewExternalValue(v reflect.Value) *ExternalValue
+//	(ev *ExternalValue) Interface() interface
+//	(ev *ExternalValue) String() string
+//	(ev *ExternalValue) Type() reflect.Type
+//	(ev *ExternalValue) Kind() reflect.Kind
+//	... 另有 17 个顶层符号
+
 package value
 
 import (

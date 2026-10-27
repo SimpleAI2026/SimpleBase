@@ -1,3 +1,31 @@
+// 文件说明：config.go — internal/sbcli 的内部实现（loadedConfig、configPath 等）
+//
+// 用法
+//
+//	type loadedConfig（包内使用）
+//	同包调用：loadedConfig → collection_transfer.go, commands.go 等；loadFileConfig() → run.go；errInsecureConfig → run.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/config.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] collection_transfer.go, commands.go, migrations.go, output.go, redact.go 等 6 个
+//	[关键引用] loadedConfig ← collection_transfer.go, commands.go, migrations.go
+//
+// 主要符号
+//
+//	type loadedConfig struct {…}
+//	configPath(env []string) string
+//	loadFileConfig(env []string) (loadedConfig, error)
+//	var errInsecureConfig
+//	envGet(env []string, key string) (string, bool)
+//	applyEnv(cfg loadedConfig, env []string) loadedConfig
+
 package sbcli
 
 import (

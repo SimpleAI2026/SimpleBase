@@ -1,3 +1,33 @@
+// 文件说明：program.go — gofunction/internal/interp 中 Program、BuildProgram 等符号的实现
+//
+// 用法
+//
+//	BuildProgram(seqid, fname, sourceCode string, packages ...*ssa.Package) (*Program ...  // BuildProgram 编译代码
+//	(p *Program) Run(seqid, funcName string, params ...interface{}) (interface{}, error)  // Run 执行函数
+//	同包调用：Program → compile.go, executor.go 等；BuildProgram() → compile.go, executor.go 等；Run() → compile.go, gofunction.go 等
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/program.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/importer, gofunction/value
+//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
+//	[关键引用] Program ← compile.go, executor.go, frame.go
+//
+// 主要符号
+//
+//	type Program struct {…}
+//	BuildProgram(seqid, fname, sourceCode string, packages ...*ssa.Package) (*Program ...
+//	(p *Program) Run(seqid, funcName string, params ...interface{}) (interface{}, error)
+//	(p *Program) RunWithContext(seqid, funcName string, params ...interface{}) (result ...
+//	(p *Program) RunInParentContext(parent context.Context, seqid, funcName string ...
+//	(p *Program) SetGlobalValue(name string, val interface{}) error
+//	... 另有 9 个顶层符号
+
 package interp
 
 import (

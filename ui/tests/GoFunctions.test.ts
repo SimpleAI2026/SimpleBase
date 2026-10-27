@@ -107,7 +107,7 @@ describe('GoFunctions (云函数)', () => {
   it('shows the empty catalog for a normal project', async () => {
     api.gofunctions.list.mockResolvedValueOnce([])
     const { wrapper } = await mountWithApp(GoFunctions, { stubs: modalStub })
-    expect(wrapper.text()).toContain('还没有云函数')
+    expect(wrapper.text()).toContain('暂无云函数')
     expect(wrapper.text()).toContain('新建云函数')
     await clickText(wrapper, '刷新')
     await flushPromises()

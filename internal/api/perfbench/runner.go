@@ -1,4 +1,28 @@
-// runner.go 串起环境装配 → 用例执行 → 报告落盘（cmd/perfbench 的内核）。
+// 文件说明：runner.go — 串起环境装配 → 用例执行 → 报告落盘（cmd/perfbench 的内核）
+//
+// 用法
+//
+//	Run(ctx context.Context, opt RunOptions) error  // Run 执行选定套件并输出报告
+//	type RunOptions（导出类型，同包与上层均可使用）
+//
+// 调用架构
+//
+//	[上游] cmd/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/perfbench/runner.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cases.go, harness.go, helpers.go, loadgen.go, stage_report.go
+//
+// 主要符号
+//
+//	type RunOptions struct {…}
+//	Run(ctx context.Context, opt RunOptions) error
+//	... 另有 1 个顶层符号
+//	runner.go 串起环境装配 → 用例执行 → 报告落盘（cmd/perfbench 的内核）。
+
 package perfbench
 
 import (

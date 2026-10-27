@@ -1,7 +1,26 @@
-// Package hashx 提供无密钥 SHA-256 摘要的十六进制封装。
+// 文件说明：hashx.go — 无密钥 SHA-256 摘要的十六进制封装
 //
-// 只允许 import 标准库。带密钥的 HMAC（auth.HashKey）与多字段拼接指纹
-// （llmgateway.credFingerprint）语义不同，不在此包内。
+// 用法
+//
+//	Sum(data []byte) string  // Sum 返回 data 的 SHA-256 全量十六进制（64 字符）
+//	SumString(s string) string  // SumString 与 Sum 相同，入参为字符串
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/auth
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/hashx/hashx.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	Sum(data []byte) string
+//	SumString(s string) string
+//	Short(data []byte, n int) string
+
 package hashx
 
 import (

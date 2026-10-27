@@ -5,7 +5,7 @@
 
 ## 1. 目标与已定结论
 
-1. Linux 自托管时，cloudagent 本机 `shell` 工具在**原有破坏性命令确认之后**，改走 `gosandbox/host`。`Yolo` 只跳过确认，不跳过隔离。
+1. Linux 自托管时，gocloudagent 本机 `shell` 工具在**原有破坏性命令确认之后**，改走 `gosandbox/host`。`Yolo` 只跳过确认，不跳过隔离。
 2. 隔离路线与 Codex CLI、Anthropic sandbox-runtime 一致，不起 VM，只是 fork+exec，调研实测 bwrap 增量约 2 ms：
    - Linux：bubblewrap 负责挂载，并隔离 user / pid / ipc / net；沙盒内先 Landlock（`go-landlock` v0.10.1），再 seccomp（`elastic/go-seccomp-bpf` v1.6.0）。
    - macOS：系统自带 `/usr/bin/sandbox-exec`（只认这个绝对路径）。
@@ -31,7 +31,7 @@
 
 调用方：`internal/app/app.go`（装配 + `sandboxAdapter`）、`internal/app/sandbox_store.go`、`internal/api/sandbox_handler.go`、`internal/api/error.go`（按 `errors.Is` 映射 HTTP）、`internal/config`。
 
-cloudagent 本机 `shell`（`internal/cloudagent/tools/tools.go` 第 115–162 行）：确认通过后 `exec.CommandContext("/bin/sh","-c")`，`cmd.Env = sanitizedEnv(...)`，`CombinedOutput`。`resolvePath` 只约束 `cwd` 参数。装配点是 `internal/cloudagent/cli/repl.go:154` 的 `&tools.Workspace{Root, Confirm, Yolo}`。
+gocloudagent 本机 `shell`（`internal/gocloudagent/tools/tools.go` 第 115–162 行）：确认通过后 `exec.CommandContext("/bin/sh","-c")`，`cmd.Env = sanitizedEnv(...)`，`CombinedOutput`。`resolvePath` 只约束 `cwd` 参数。装配点是 `internal/gocloudagent/cli/repl.go:154` 的 `&tools.Workspace{Root, Confirm, Yolo}`。
 
 根 `go.mod` 里 `microsandbox/sdk/go v0.7.4` 是 indirect；`golang.org/x/sys v0.40.0` 是 indirect；没有 landlock / seccomp。
 
@@ -61,7 +61,7 @@ gosandbox/
   cmd/gosandbox-inner/       # 沙盒内 helper：只 import host/inner，不链接 DuckDB
 ```
 
-依赖方向：`internal/cloudagent/tools → gosandbox/host`；`internal/sandbox → gosandbox/vm`；`internal/app → gosandbox/vm/{cloud,fake}`。`host` 与 `vm` 互不 import。
+依赖方向：`internal/gocloudagent/tools → gosandbox/host`；`internal/sandbox → gosandbox/vm`；`internal/app → gosandbox/vm/{cloud,fake}`。`host` 与 `vm` 互不 import。
 
 `internal/sandbox` 保留：`Manager`、`Store`、`Sandbox/CreateInput/...` 业务类型、`paths.go` 里的校验与命名、业务错误。`config.SandboxConfig` 留在 `internal/config`（配置只来自 `config.yaml` + `SIMPLEBASE_*`），由 `app` 转成 `cloud.Options`。
 
@@ -75,7 +75,7 @@ type Policy struct {
     Mode             Mode
     Workspace        string
     WritableRoots    []string
-    ReadOnlySubpaths []string      // 相对 Workspace 或绝对；默认 .git .cloudagent
+    ReadOnlySubpaths []string      // 相对 Workspace 或绝对；默认 .git .gocloudagent
     DenyRead         []string      // 已展开 ~ 的绝对路径
     MemoryMaxBytes   int64         // 0 = 不限
     CPUMax           string        // cgroup v2 cpu.max 原文，空 = 不限
@@ -115,7 +115,7 @@ func Run(ctx, Policy, Command) (Result, error)
 ### 3.3 Linux 启动链
 
 ```text
-父进程(cloudagent)
+父进程(gocloudagent)
   resolvePath → approve(破坏性确认) → Probe
   → [cgroup 子组，可选] → exec bwrap …
         bwrap：只读根 → 可写 bind → 只读子路径/deny_read 覆盖 → /dev /proc → unshare user/pid/ipc/net → cap-drop ALL
@@ -133,7 +133,7 @@ func Run(ctx, Policy, Command) (Result, error)
 - **seccomp 拒绝清单**（默认允许 + `EPERM`）：`io_uring_*`、`ptrace`、`process_vm_readv/writev`；`socket(AF_UNIX|AF_VSOCK)`；网络 none 时再拒 `connect/accept/accept4/bind/listen/sendto/sendmmsg`。不拒 `socketpair`、`recvfrom`（Codex 注释：cargo / clippy 子进程需要）。条件字段按库里的拼写 `NamesWithCondtions`。
 - **超时**：`Setpgid` + 取消时 `SIGKILL` 进程组再 `Wait`，不依赖 `CommandContext` 只杀直接子进程的行为。
 - **bwrap 可信性**：拒绝相对路径与 cwd 下的同名文件；拒绝 setuid 的 bwrap（CVE-2020-5291）；`--help` 无 `--disable-userns`（< 0.8.0）则拒绝。探测命令 `bwrap --unshare-user --ro-bind / / --dev /dev --proc /proc --die-with-parent -- /bin/true` 失败（如 Ubuntu AppArmor 限制 userns）→ `ErrIsolationUnavailable`，错误信息指向 Launchpad #2046477，不建议改 sysctl。结果在进程内缓存。
-- **helper 定位**：`gosandbox-inner` 是单独的小二进制（纯 Go，`CGO_ENABLED=0` 可构建），以保证启动快、不拖进 cloudagent 的依赖。找不到则 fail-closed。
+- **helper 定位**：`gosandbox-inner` 是单独的小二进制（纯 Go，`CGO_ENABLED=0` 可构建），以保证启动快、不拖进 gocloudagent 的依赖。找不到则 fail-closed。
 
 ### 3.4 cgroup（可选，明确降级）
 
@@ -152,7 +152,7 @@ func Run(ctx, Policy, Command) (Result, error)
 | 模式 | 文件系统 | 网络 |
 |---|---|---|
 | `read-only` | 根只读，`/tmp` tmpfs | 无 |
-| `workspace-write` | 根只读；工作区与 `writable_roots` 可写；工作区内 `.git`、`.cloudagent` 再盖只读 | 无 |
+| `workspace-write` | 根只读；工作区与 `writable_roots` 可写；工作区内 `.git`、`.gocloudagent` 再盖只读 | 无 |
 | `danger-full-access` | 不启动沙盒，保持今天的裸执行 | 不限制 |
 
 `enabled=false` 与 `danger-full-access` 都返回 `ErrNotIsolated`。`Yolo` 不会变成 `danger-full-access`。默认模式（开启后未指定时）取 `workspace-write`。
@@ -167,7 +167,7 @@ agent:
     enabled: false
     mode: workspace-write          # read-only | workspace-write | danger-full-access
     writable_roots: []             # 额外可写绝对路径，必须已存在
-    read_only_subpaths: [".git", ".cloudagent"]
+    read_only_subpaths: [".git", ".gocloudagent"]
     deny_read: ["~/.ssh", "~/.aws", "~/.config/gcloud"]
     memory_max_bytes: 0            # 0 = 不限；cgroup 不可用时标「未限制」
     cpu_max: ""                    # cgroup v2 cpu.max 原文，如 "100000 100000"
@@ -179,15 +179,15 @@ agent:
 
 - 环境变量（沿用 `SIMPLEBASE_AGENT_*` 风格）：`..._SHELL_ISOLATION_ENABLED`、`..._MODE`、`..._TIMEOUT`。列表字段只放 YAML。
 - `internal/config` 增 `ShellIsolationConfig` 与校验：未知 mode、不存在的 `writable_roots`、非法 `cpu_max`、负数限额均报错。不含任何密钥字段。
-- 配置层把它转成 `host.Policy`（`~` 展开、相对路径基于 Workspace），`config` 包本身不 import `gosandbox`，转换放在 cloudagent 装配侧。
+- 配置层把它转成 `host.Policy`（`~` 展开、相对路径基于 Workspace），`config` 包本身不 import `gosandbox`，转换放在 gocloudagent 装配侧。
 
 ### 4.2 CLI
 
-CLI 不读服务器 `config.yaml`，沿用 `~/.cloudagent/config.json`（0600），增同形字段 `shell_isolation`；命令行 `--shell-isolation <mode>` 覆盖；缺省用内置默认（`enabled:false`）。`buildRunner` 把结果填进 `tools.Workspace.Isolation`，工具里不读任何配置文件。
+CLI 不读服务器 `config.yaml`，沿用 `~/.gocloudagent/config.json`（0600），增同形字段 `shell_isolation`；命令行 `--shell-isolation <mode>` 覆盖；缺省用内置默认（`enabled:false`）。`buildRunner` 把结果填进 `tools.Workspace.Isolation`，工具里不读任何配置文件。
 
 ## 5. 对现有代码的修改
 
-### 5.1 `internal/cloudagent/tools/tools.go`
+### 5.1 `internal/gocloudagent/tools/tools.go`
 
 - `Workspace` 增 `Isolation host.Policy`。
 - `shellTool`：确认通过后调 `host.Run`；`ErrNotIsolated` → 走原 `exec.CommandContext`；其他错误 → 返回 `ErrEnvelope("isolation_unavailable", …)`，不执行命令。超时仍返回 `timeout`。
@@ -227,8 +227,8 @@ CLI 不读服务器 `config.yaml`，沿用 `~/.cloudagent/config.json`（0600）
 - 只新增两个依赖，版本钉死：`github.com/landlock-lsm/go-landlock v0.10.1`、`github.com/elastic/go-seccomp-bpf v1.6.0`（写在 `gosandbox/go.mod`）。不升级 `golang.org/x/sys`；若它们要求更高版本，停下来与你确认，不自行升级。
 - 根 `go.mod` 增 `require github.com/linkxzhou/SimpleBase/gosandbox v0.0.0` + `replace => ./gosandbox`。
 - **嵌套模块不会被根目录 `go test ./...` / `go build ./...` 覆盖**：新增命令 `(cd gosandbox && go build ./... && go vet ./... && go test ./...)`，并写入 `scripts/test.sh`、`scripts/smoke.sh`、`AGENTS.md` 的命令表。
-- `Dockerfile`：在 `go mod download` 之前补 `COPY gosandbox/go.mod gosandbox/go.sum gosandbox/`，否则 `replace` 目标缺失导致构建失败。服务镜像仍是 distroless，**不含 bwrap 与 helper**，本机隔离只用于 cloudagent CLI。
-- `build.sh`：cloudagent 的构建产物旁同步产出 `gosandbox-inner`。
+- `Dockerfile`：在 `go mod download` 之前补 `COPY gosandbox/go.mod gosandbox/go.sum gosandbox/`，否则 `replace` 目标缺失导致构建失败。服务镜像仍是 distroless，**不含 bwrap 与 helper**，本机隔离只用于 gocloudagent CLI。
+- `build.sh`：gocloudagent 的构建产物旁同步产出 `gosandbox-inner`。
 - 现有 `AGENTS.md` 写的是“单 go.mod，gofunction 无独立模块”，需改为“`gosandbox` 为嵌套模块”。
 
 ## 6. 里程碑
@@ -238,7 +238,7 @@ CLI 不读服务器 `config.yaml`，沿用 `~/.cloudagent/config.json`（0600）
 | **M0 迁移（纯搬家，无行为变化）** | 建 `gosandbox` 模块、`replace`、Dockerfile；迁 `vm/` `vm/cloud` `vm/fake`；`internal/sandbox` / `app` 改 import；错误再导出 | 根与 gosandbox 两个模块 build / vet / test 全过；`internal/api`、`internal/app` 沙盒相关测试不改断言即通过；Cloud 失败仍打 `sandbox disabled: cloud backend unavailable (no local fallback)` |
 | **M1 清理** | §5.3「确定要做」三项；`cloud.Options` 去耦合 | 同 M0；`internal/sandbox` 无 microsandbox import（`go list -deps` 验证） |
 | **M2 host：策略、探测、参数** | `Policy/Validate/DeniesRead/Probe/BwrapArgs`；`config.ShellIsolationConfig` + yaml/env + `config.example.yaml` | 黄金文件 `TestBwrapArgsOrder`；`Validate` 拒绝非法输入；`TestRejectsRelativeBwrap`、`TestSetuidBwrapRejected`；`go test ./internal/config/` |
-| **M3 host：Linux 运行 + helper** | `Run`、`gosandbox-inner`（Landlock V3 严格 + seccomp）、进程组超时；tools 集成；CLI 配置 | 见 §7 逃逸表在有 bwrap 的 Linux 上通过；无 bwrap 环境自动 `t.Skip`；`enabled=false` 时 `go test ./internal/cloudagent/...` 与现状一致 |
+| **M3 host：Linux 运行 + helper** | `Run`、`gosandbox-inner`（Landlock V3 严格 + seccomp）、进程组超时；tools 集成；CLI 配置 | 见 §7 逃逸表在有 bwrap 的 Linux 上通过；无 bwrap 环境自动 `t.Skip`；`enabled=false` 时 `go test ./internal/gocloudagent/...` 与现状一致 |
 | **M4 deny_read 与文件工具** | `resolvePath` 调用方接 `DeniesRead` | `TestDenyReadToken` |
 | **M5 cgroup 或明确降级** | `cgroup_linux.go`、`Limits` | 本机（无委派）断言 `Enforced=false` 且命令仍隔离运行；委派环境补测 `memory.max` 读回 |
 | **M6 macOS Seatbelt** | `seatbelt.go`、`run_darwin.go` | SBPL 生成黄金文件（全平台）；macOS 上手动跑一遍写 / 读 / 断网用例 |
@@ -271,11 +271,11 @@ M0、M1 可独立合并，不依赖后续里程碑。
 
 ## 8. 边界与规则变更（M7 落到 AGENTS）
 
-- `internal/cloudagent` 仍**不得 import `internal/sandbox` 或 `gosandbox/vm`**；允许 import `gosandbox/host`（唯一例外，用于本机 shell）。
+- `internal/gocloudagent` 仍**不得 import `internal/sandbox` 或 `gosandbox/vm`**；允许 import `gosandbox/host`（唯一例外，用于本机 shell）。
 - `internal/api`、`internal/app` 直接 import `gosandbox/vm`（类型与驱动侧错误），不再经 `internal/sandbox` 再导出。
 - `gosandbox` 不得 import `internal/...`；`host` 与 `vm` 不互相 import。
 - 本机隔离不是 Cloud 失败的替身；不新增 `DriverHost`，不改 `EffectiveBackend()` 的空值语义（空 = `cloud`）。
-- 不向 shell 子进程注入 `SIMPLEBASE_*`、`CLOUDAGENT_*` 或凭据（`sanitizedEnv` 保持）；隔离失败只记模式 / 退出码 / 超时，不记命令正文（`agent.trace_log` 打开时按现有脱敏规则除外）。
+- 不向 shell 子进程注入 `SIMPLEBASE_*`、`GOCLOUDAGENT_*` 或凭据（`sanitizedEnv` 保持）；隔离失败只记模式 / 退出码 / 超时，不记命令正文（`agent.trace_log` 打开时按现有脱敏规则除外）。
 - 隔离开启但不可用一律 fail-closed（`isolation_unavailable`），不退回裸执行；只有 `enabled=false` 或 `danger-full-access` 才裸执行。
 - 威胁模型不变：本层是共享内核的进程沙盒，**不承诺**挡住 Dirty Pipe、CVE-2024-1086 等内核提权；多租户不可信代码继续用 Cloud microVM。工作区**内部**的误删也挡不住，`rm -rf` 的确认保留。
 

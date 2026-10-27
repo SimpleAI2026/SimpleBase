@@ -214,15 +214,4 @@ func TestGetSandboxByIDAndSchemaReady(t *testing.T) {
 	if _, err := s.GetSandboxByID(ctx, r.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("deleted row must be hidden, got %v", err)
 	}
-	ok, err := s.SandboxSchemaReady(ctx)
-	if err != nil || !ok {
-		t.Fatalf("migrated store must report ready: %v %v", ok, err)
-	}
-	// 模拟未迁移：删列后自检为 false。
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE sys_sandboxes DROP COLUMN metadata`); err != nil {
-		t.Skipf("driver cannot drop column: %v", err)
-	}
-	if ok, err := s.SandboxSchemaReady(ctx); err != nil || ok {
-		t.Fatalf("unmigrated store must report not ready: %v %v", ok, err)
-	}
 }

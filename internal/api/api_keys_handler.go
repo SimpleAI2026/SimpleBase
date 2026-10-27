@@ -1,12 +1,33 @@
-// api_keys_handler.go 提供项目 API Key 管理端点（创建 / 列表 / 吊销）。
+// 文件说明：api_keys_handler.go — 项目 API Key 管理端点（创建 / 列表 / 吊销）
 //
-// 背景：生产实例没有种子 Key，且平台此前没有任何签发入口，
-// SDK / examples 无法获得合法凭据。本 handler 允许：
-//   - 登录态：superadminl1 / user 角色可为自己有权的项目签发 Key；
-//   - API Key 通道：持 ProjectAdmin 权限的 Key 可再签发同项目 Key。
+// 用法
 //
-// 安全约定：Key 明文仅在创建响应中出现一次（服务端只存 HMAC 摘要）；
-// 列表只返回 id / 权限 / 时间，绝不回显明文。
+//	NewAPIKeysHandler(authSvc *auth.Service, db *sql.DB, afterWrite func(ctx ...
+//	(h *APIKeysHandler) Create(c echo.Context) error  // Create: POST /v1/projects/:projectID/api-keys
+//	(h *APIKeysHandler) List(c echo.Context) error  // List: GET /v1/projects/:projectID/api-keys →
+//	同包调用：List() → backup_handler.go, cronjob_handler.go 等；Delete() → backup_handler.go, collection_meta_handler.go 等；Create() → backup_handler.go, cronjob_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/api_keys_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/auth, internal/utils/strutil
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, auth_handler.go 等 59 个
+//	[关键引用] List() ← backup_handler.go, cronjob_handler.go, data_handler.go
+//
+// 主要符号
+//
+//	type APIKeysHandler struct {…}
+//	NewAPIKeysHandler(authSvc *auth.Service, db *sql.DB, afterWrite func(ctx ...
+//	(h *APIKeysHandler) Create(c echo.Context) error
+//	(h *APIKeysHandler) List(c echo.Context) error
+//	(h *APIKeysHandler) Delete(c echo.Context) error
+//	... 另有 12 个顶层符号
+
 package api
 
 import (
@@ -44,15 +65,17 @@ func NewAPIKeysHandler(authSvc *auth.Service, db *sql.DB, afterWrite func(ctx co
 }
 
 type createAPIKeyRequest struct {
-	Permissions []string `json:"permissions"`
+	Permissions []string           `json:"permissions"`
+	Scope       *apiKeyPolicyInput `json:"scope,omitempty"`
 }
 
 type apiKeyResponse struct {
-	ID          string   `json:"id"`
-	ProjectID   string   `json:"project_id"`
-	Permissions []string `json:"permissions"`
-	CreatedAt   string   `json:"created_at"`
-	RevokedAt   *string  `json:"revoked_at,omitempty"`
+	ID          string             `json:"id"`
+	ProjectID   string             `json:"project_id"`
+	Permissions []string           `json:"permissions"`
+	Scope       *apiKeyPolicyInput `json:"scope,omitempty"`
+	CreatedAt   string             `json:"created_at"`
+	RevokedAt   *string            `json:"revoked_at,omitempty"`
 	// Secret 仅出现在创建响应中，一次性回显。
 	Secret *string `json:"secret,omitempty"`
 }
@@ -99,6 +122,12 @@ func (h *APIKeysHandler) Create(c echo.Context) error {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "forbidden", "cannot issue permissions beyond your own", rid))
 	}
 
+	if p.Scope != nil && req.Scope == nil {
+		req.Scope = &apiKeyPolicyInput{Resources: p.Scope.Resources, Actions: p.Scope.Actions, HiddenFields: p.Scope.HiddenFields, ReadonlyFields: p.Scope.ReadonlyFields, ExpiresAt: p.Scope.ExpiresAt}
+	}
+	if err := validateAPIKeyPolicy(req.Scope); err != nil || !scopeSubset(p.Scope, req.Scope.policy()) {
+		return WriteError(c, NewAPIError(http.StatusForbidden, "key_scope_denied", "key scope denied", rid))
+	}
 	secret, err := generateAPIKeySecret()
 	if err != nil {
 		return WriteError(c, err)
@@ -109,6 +138,10 @@ func (h *APIKeysHandler) Create(c echo.Context) error {
 		h.auth.HashKey(secret), perms, now); err != nil {
 		return WriteError(c, err)
 	}
+	if err := putAPIKeyPolicy(c.Request().Context(), h.db, id, project.ID, req.Scope); err != nil {
+		_ = h.auth.RevokeProjectAPIKeyByID(c.Request().Context(), h.db, id, project.ID, time.Now().UTC())
+		return WriteError(c, err)
+	}
 	if h.afterWrite != nil {
 		h.afterWrite(c.Request().Context()) // SYNC-01：写后触发 catalog 同步
 	}
@@ -116,6 +149,7 @@ func (h *APIKeysHandler) Create(c echo.Context) error {
 		ID:          id,
 		ProjectID:   project.ID,
 		Permissions: permissionStrings(perms),
+		Scope:       req.Scope,
 		CreatedAt:   now.Format(time.RFC3339),
 		Secret:      &secret,
 	})

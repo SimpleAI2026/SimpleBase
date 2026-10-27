@@ -36,16 +36,23 @@ var expectedDelegableRoutes = map[string]bool{
 	"GET /v1/projects/:projectID/databases/:databaseID/data/collections":                              true,
 	"POST /v1/projects/:projectID/databases/:databaseID/data/collections":                             true,
 	"GET /v1/projects/:projectID/databases/:databaseID/data/collections/:collection":                  true,
+	"POST /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/import":          true,
+	"DELETE /v1/projects/:projectID/databases/:databaseID/data/collections/:collection":               true,
 	"POST /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/documents":       true,
+	"POST /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/documents/batch": true,
+	"GET /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/documents/:id":    true,
 	"PUT /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/documents/:id":    true,
+	"PATCH /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/documents/:id":  true,
 	"DELETE /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/documents/:id": true,
 	// kv skill
 	"POST /v1/projects/:projectID/kv": true,
 	// s3 skill
-	"GET /v1/projects/:projectID/s3/objects":    true,
-	"POST /v1/projects/:projectID/s3/objects":   true,
-	"DELETE /v1/projects/:projectID/s3/objects": true,
-	"GET /v1/projects/:projectID/s3/presign":    true,
+	"GET /v1/projects/:projectID/s3/objects":         true,
+	"GET /v1/projects/:projectID/s3/objects/content": true,
+	"POST /v1/projects/:projectID/s3/link":           true,
+	"POST /v1/projects/:projectID/s3/objects":        true,
+	"DELETE /v1/projects/:projectID/s3/objects":      true,
+	"GET /v1/projects/:projectID/s3/presign":         true,
 	// gofunction skill
 	"GET /v1/projects/:projectID/gofunctions":                               true,
 	"POST /v1/projects/:projectID/gofunctions":                              true,
@@ -74,7 +81,9 @@ var expectedDelegableRoutes = map[string]bool{
 	"PATCH /v1/projects/:projectID/sandboxes/:sandboxID":  true,
 	"DELETE /v1/projects/:projectID/sandboxes/:sandboxID": true,
 	// logs skill（只读；retention 不可委托）
-	"GET /v1/projects/:projectID/logs": true,
+	"GET /v1/projects/:projectID/logs":        true,
+	"GET /v1/projects/:projectID/logs/stats":  true,
+	"GET /v1/projects/:projectID/logs/export": true,
 	// project skill（只保留 quota/audit）
 	"GET /v1/projects/:projectID/quota": true,
 	"GET /v1/projects/:projectID/audit": true,
@@ -89,7 +98,7 @@ func TestDelegation_RouteTable(t *testing.T) {
 	var mismatches []string
 	for _, r := range env.echo.Routes() {
 		// 跳过非业务路由（metrics/pprof/静态资源）与 Echo 组前缀伪路由。
-		if !strings.HasPrefix(r.Path, "/v1/") && !strings.HasPrefix(r.Path, "/go/") {
+		if !strings.HasPrefix(r.Path, "/v1/") && !strings.HasPrefix(r.Path, "/go/") || r.Path == "/v1/openapi.json" {
 			continue
 		}
 		// Echo 为路由组注册的 NotFound 伪路由，其 Method 字段即为 "echo_route_not_found"

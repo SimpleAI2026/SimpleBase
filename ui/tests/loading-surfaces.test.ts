@@ -23,6 +23,7 @@ import Sandboxes from '@/pages/Sandboxes.vue'
 import AgentManager from '@/pages/AgentManager.vue'
 import GoFunctions from '@/pages/GoFunctions.vue'
 import CronJobs from '@/pages/CronJobs.vue'
+import FunctionTriggers from '@/pages/FunctionTriggers.vue'
 import Databases from '@/pages/Databases.vue'
 import Users from '@/pages/Users.vue'
 import Logs from '@/pages/Logs.vue'
@@ -101,17 +102,17 @@ describe('loading surfaces', () => {
     expect(wrapper.text()).toContain('正在加载')
     expect(wrapper.html()).toContain('aria-busy="true"')
     expect(wrapper.find('.spinner').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('还没有云沙盒')
+    expect(wrapper.text()).not.toContain('暂无云沙盒')
     expect(wrapper.text()).not.toContain('未配置云沙盒')
     await vi.advanceTimersByTimeAsync(LOAD_PLACEHOLDER_DELAY_MS)
     expect(wrapper.find('.skeleton').exists()).toBe(true)
     expect(wrapper.find('[aria-hidden="true"]').exists()).toBe(true)
     caps.resolve(available)
     await flushPromises()
-    expect(wrapper.text()).not.toContain('还没有云沙盒')
+    expect(wrapper.text()).not.toContain('暂无云沙盒')
     listed.resolve([])
     await flushPromises()
-    expect(wrapper.text()).toContain('还没有云沙盒')
+    expect(wrapper.text()).toContain('暂无云沙盒')
     wrapper.unmount()
   })
 
@@ -119,7 +120,7 @@ describe('loading surfaces', () => {
     api.sandboxes.capabilities.mockRejectedValueOnce(new Error('caps down'))
     const { wrapper } = await mountWithApp(Sandboxes, { stubs: sandboxStubs })
     expect(wrapper.text()).toContain('加载失败')
-    expect(wrapper.text()).not.toContain('还没有云沙盒')
+    expect(wrapper.text()).not.toContain('暂无云沙盒')
     api.sandboxes.capabilities.mockResolvedValue(available)
     api.sandboxes.list.mockResolvedValue([sandbox])
     await clickText(wrapper, '重试')
@@ -134,7 +135,7 @@ describe('loading surfaces', () => {
     again.reject(new Error('刷新失败'))
     await flushPromises()
     expect(wrapper.text()).toContain('ci-test')
-    expect(wrapper.text()).not.toContain('还没有云沙盒')
+    expect(wrapper.text()).not.toContain('暂无云沙盒')
     expect(toast.error).toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -149,13 +150,13 @@ describe('loading surfaces', () => {
     const { wrapper } = await mountWithApp(AgentManager, {
       stubs: { ConversationView: true, AgentComposer: true, AgentScheduleModal: true }
     })
-    expect(wrapper.text()).not.toContain('还没有 Agent')
+    expect(wrapper.text()).not.toContain('暂无 Agent')
     expect(wrapper.html()).toContain('aria-busy="true"')
     await vi.advanceTimersByTimeAsync(LOAD_PLACEHOLDER_DELAY_MS)
     expect(wrapper.find('.skeleton').exists()).toBe(true)
     listed.resolve([])
     await flushPromises()
-    expect(wrapper.text()).toContain('还没有 Agent')
+    expect(wrapper.text()).toContain('暂无 Agent')
     wrapper.unmount()
   })
 
@@ -291,11 +292,11 @@ describe('loading surfaces', () => {
     })
     await cron.setProps({ open: true })
     await flushPromises()
-    expect(cron.text()).not.toContain('还没有云函数')
+    expect(cron.text()).not.toContain('暂无云函数')
     expect(cron.find('.skeleton').exists()).toBe(true)
     fns.resolve([])
     await flushPromises()
-    expect(cron.text()).toContain('还没有云函数')
+    expect(cron.text()).toContain('暂无云函数')
     cron.unmount()
   })
 
@@ -359,12 +360,13 @@ describe('loading surfaces', () => {
   })
 
   it.each([
-    ['云函数', GoFunctions, () => api.gofunctions.list, '还没有云函数', [fnRecord], 'hello.go', []],
-    ['定时任务', CronJobs, () => api.cronjobs.list, '还没有定时任务', [{ id: 'c1', name: 'nightly', scheduleKind: 'cron', cronExpr: '0 2 * * *', enabled: true, funcFile: 'hello.go', funcExport: 'Hello', status: 'idle' }], 'nightly', []],
+    ['云函数', GoFunctions, () => api.gofunctions.list, '暂无云函数', [fnRecord], 'hello.go', []],
+    ['定时任务', CronJobs, () => api.cronjobs.list, '暂无定时任务', [{ id: 'c1', name: 'nightly', scheduleKind: 'cron', cronExpr: '0 2 * * *', enabled: true, funcFile: 'hello.go', funcExport: 'Hello', status: 'idle' }], 'nightly', []],
+    ['事件触发器', FunctionTriggers, () => api.triggers.list, '暂无触发器', [{ id: 't1', projectId: 'testprj1', kind: 'http', target: '', events: ['http'], funcFile: 'handler', funcExport: 'Handle', enabled: true }], 'handler.Handle', []],
     ['数据库', Databases, () => api.databases.list, '暂无数据库', [{ id: 'db-1', name: 'demo', status: 'ready', dataModel: 'sql', createdAt: 't' }], 'demo', []],
     ['用户', Users, () => api.users.list, '暂无用户', { users: [{ id: 'u1', username: 'ada', role: 'member', status: 'active', projectCount: 1 }] }, 'ada', { users: [] }],
     ['日志', Logs, () => api.logs.list, '暂无匹配日志', [{ id: 'l1', message: 'hello-log', level: 'info', logger: 'api', requestId: 'r', time: 't' }], 'hello-log', []],
-    ['对象', S3Manager, () => api.s3.list, '暂无对象', [{ key: 'a.txt', size: 1, lastModified: 't' }], 'a.txt', []]
+    ['对象', S3Manager, () => api.s3.listDetailed, '暂无对象', { folders: [], objects: [{ key: 'a.txt', size: 1, lastModified: 't' }] }, 'a.txt', { folders: [], objects: [] }]
   ] as const)('list page %s waits for data before the empty copy', async (_label, page, apiFn, emptyCopy, row, needle, empty) => {
     const pending = hold<unknown>()
     apiFn().mockReturnValue(pending.promise)

@@ -1,7 +1,31 @@
-// Package cronjob 实现定时任务调度（ui-cronjob-plan §5.2）：tick 扫描 + CAS 认领 + 并发上限。
-// 任务目标有两类：云函数（Runner）与云助手 Agent（AgentRunner），均通过接口注入，
-// 本包不直接依赖 gofunction 内核，也不依赖 cloudagent（避免 import 环与重依赖）。
-// planv6.0 cloudagent-cli-and-cronjob-unification-plan §2：cloudagent 不再自带调度器。
+// 文件说明：scheduler.go — 定时任务调度（ui-cronjob-plan §5.2）：tick 扫描 + CAS 认领 + 并发上限
+//
+// 用法
+//
+//	NewScheduler(store Store, runner Runner) *Scheduler
+//	(s *Scheduler) WithAgentRunner(a AgentRunner) *Scheduler  // WithAgentRunner 挂接 Agent 执行器（target_kind=agent），返回自身便于链式装配
+//	(s *Scheduler) Start(ctx context.Context)  // Start 启动后台循环
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/cronjob/scheduler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/systemdb, internal/utils/crontab, internal/utils/strutil
+//
+// 主要符号
+//
+//	const TriggerScheduled
+//	const TriggerManual
+//	type Runner interface {…}
+//	type AgentResult struct {…}
+//	type AgentRunner interface {…}
+//	type Store interface {…}
+//	... 另有 21 个顶层符号
+
 package cronjob
 
 import (
@@ -42,7 +66,7 @@ type AgentResult struct {
 	Response string
 }
 
-// AgentRunner 抽象一次 Agent 定时执行（target_kind=agent）；由 internal/agentjob 实现。
+// AgentRunner 抽象一次 Agent 定时执行（target_kind=agent）；由 internal/agentbridge 实现。
 // 实现方负责 Agent 侧的全部落库（会话/消息/run/指标）；调度器只记录
 // sys_cron_job_runs 与任务快照。错误文本不得包含密钥或 LLM 正文。
 type AgentRunner interface {
@@ -266,12 +290,12 @@ func (s *Scheduler) execute(ctx context.Context, j systemdb.CronJob, trigger str
 		if strings.Contains(runErr.Error(), "context canceled") {
 			status = systemdb.CronJobRunCanceled
 		}
-		_ = s.Store.UpdateCronJobRunStatus(ctx, j.ProjectID, run.ID, status, truncate(runErr.Error(), runErrorLimit), duration, "", &fin)
-		s.updateJobSnapshot(ctx, j, status, truncate(runErr.Error(), runErrorLimit))
+		_ = s.Store.UpdateCronJobRunStatus(ctx, j.ProjectID, run.ID, status, strutil.Truncate(runErr.Error(), runErrorLimit), duration, "", &fin)
+		s.updateJobSnapshot(ctx, j, status, strutil.Truncate(runErr.Error(), runErrorLimit))
 		s.log(fmt.Sprintf("cron job executed: job=%s trigger=%s status=%s", j.ID, trigger, status), fin)
 		return
 	}
-	_ = s.Store.UpdateCronJobRunStatus(ctx, j.ProjectID, run.ID, systemdb.CronJobRunCompleted, "", duration, truncate(string(out), runResponseLimit), &fin)
+	_ = s.Store.UpdateCronJobRunStatus(ctx, j.ProjectID, run.ID, systemdb.CronJobRunCompleted, "", duration, strutil.Truncate(string(out), runResponseLimit), &fin)
 	s.updateJobSnapshot(ctx, j, systemdb.CronJobRunCompleted, "")
 	s.log(fmt.Sprintf("cron job executed: job=%s trigger=%s status=completed duration_ms=%d", j.ID, trigger, duration), fin)
 }
@@ -337,9 +361,4 @@ func (s *Scheduler) log(message string, at time.Time) {
 		Level: "info", Logger: "cronjob", Message: message,
 		FieldsJSON: `{}`, OccurredAt: at,
 	})
-}
-
-// truncate 裁剪字符串，避免大返回值整段落库。
-func truncate(s string, n int) string {
-	return strutil.Truncate(s, n)
 }

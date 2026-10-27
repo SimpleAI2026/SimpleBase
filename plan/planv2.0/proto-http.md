@@ -5,7 +5,7 @@
 > 认证：所有 `/v1/*` 业务路由要求 `Authorization: Bearer <API_KEY>`
 > DevMode 种子凭据：`Authorization: Bearer sb_live_dev_key_12345`，项目 `00000000-0000-0000-0000-000000000002`（展示名「商城后台」），数据库 `default`。系统库 `simplebase-system` 不出现在列表中、不可删除。
 > 可执行样例：同目录 `proto.http`（VS Code REST Client / JetBrains HTTP Client 直接运行）
-> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/cloudagent/`
+> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/gocloudagent/`
 
 ---
 
@@ -360,7 +360,7 @@ data: {"type":"end"}
 
 ### 3.12 Cloud Agent（AgentManager 页，替代 LLM 对话）
 
-前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/cloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
+前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/gocloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
 
 权限与 LLM 对齐：读 `DatabaseRead`，写 agent/thread `DatabaseWrite`，**run 与 cancel 为 `DatabaseRead`**（另 `CheckQuota(projectID, "llm")`）。`/llm/*` 保持可用（deprecated）；UI `/llm` → `/agents`。
 
@@ -491,7 +491,7 @@ Prompt 组装（禁止密钥）：platform base → module template → `agent.s
 > 认证：所有 `/v1/*` 业务路由要求 `Authorization: Bearer <API_KEY>`
 > DevMode 种子凭据：`Authorization: Bearer sb_live_dev_key_12345`，项目 `00000000-0000-0000-0000-000000000002`（展示名「商城后台」），数据库 `default`。系统库 `simplebase-system` 不出现在列表中、不可删除。
 > 可执行样例：同目录 `proto.http`（VS Code REST Client / JetBrains HTTP Client 直接运行）
-> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/cloudagent/`
+> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/gocloudagent/`
 
 ---
 
@@ -846,7 +846,7 @@ data: {"type":"end"}
 
 ### 3.12 Cloud Agent（AgentManager 页，替代 LLM 对话）
 
-前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/cloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
+前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/gocloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
 
 权限与 LLM 对齐：读 `DatabaseRead`，写 agent/thread `DatabaseWrite`，**run 与 cancel 为 `DatabaseRead`**（另 `CheckQuota(projectID, "llm")`）。`/llm/*` 保持可用（deprecated）；UI `/llm` → `/agents`。
 
@@ -998,7 +998,7 @@ Metrics（`sys_metric_samples`，项目维度）：`gofunction_invokes`（计数
 > 认证：所有 `/v1/*` 业务路由要求 `Authorization: Bearer <API_KEY>`
 > DevMode 种子凭据：`Authorization: Bearer sb_live_dev_key_12345`，项目 `00000000-0000-0000-0000-000000000002`（展示名「商城后台」），数据库 `default`。系统库 `simplebase-system` 不出现在列表中、不可删除。
 > 可执行样例：同目录 `proto.http`（VS Code REST Client / JetBrains HTTP Client 直接运行）
-> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/cloudagent/`
+> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/gocloudagent/`
 
 ---
 
@@ -1353,7 +1353,7 @@ data: {"type":"end"}
 
 ### 3.12 Cloud Agent（AgentManager 页，替代 LLM 对话）
 
-前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/cloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
+前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/gocloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
 
 权限与 LLM 对齐：读 `DatabaseRead`，写 agent/thread `DatabaseWrite`，**run 与 cancel 为 `DatabaseRead`**（另 `CheckQuota(projectID, "llm")`）。`/llm/*` 保持可用（deprecated）；UI `/llm` → `/agents`。
 
@@ -1484,7 +1484,7 @@ Prompt 组装（禁止密钥）：platform base → module template → `agent.s
 > 认证：所有 `/v1/*` 业务路由要求 `Authorization: Bearer <API_KEY>`
 > DevMode 种子凭据：`Authorization: Bearer sb_live_dev_key_12345`，项目 `00000000-0000-0000-0000-000000000002`（展示名「商城后台」），数据库 `default`。系统库 `simplebase-system` 不出现在列表中、不可删除。
 > 可执行样例：同目录 `proto.http`（VS Code REST Client / JetBrains HTTP Client 直接运行）
-> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/cloudagent/`
+> 依据源码：`internal/api/router.go`、`error.go`、`database_handler.go`、`sql_handler.go`、`sql_types.go`、`data_handler.go`、`s3_handler.go`、`llm_handler.go`、`agent_handler.go`、`quota_handler.go`、`audit_handler.go`、`system_handlers.go`、`internal/systemdb/`、`internal/gocloudagent/`
 
 ---
 
@@ -1839,7 +1839,7 @@ data: {"type":"end"}
 
 ### 3.12 Cloud Agent（AgentManager 页，替代 LLM 对话）
 
-前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/cloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
+前缀 `:p` = `/v1/projects/:projectID`。实现：`internal/api/agent_handler.go` + `internal/gocloudagent`（eino ChatModelAgent）。模型与厂商密钥仍走 `sys_llm_settings` / LLM Gateway，**不**写入 agent 表或 prompt。
 
 权限与 LLM 对齐：读 `DatabaseRead`，写 agent/thread `DatabaseWrite`，**run 与 cancel 为 `DatabaseRead`**（另 `CheckQuota(projectID, "llm")`）。`/llm/*` 保持可用（deprecated）；UI `/llm` → `/agents`。
 

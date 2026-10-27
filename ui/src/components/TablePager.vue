@@ -38,7 +38,7 @@ const { t } = useI18n()
 
 const rootClass = computed(() =>
   props.variant === 'footer'
-    ? 'flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5'
+    ? 'flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-3 sm:px-5'
     : 'flex flex-wrap items-center justify-between gap-3 pt-3'
 )
 </script>

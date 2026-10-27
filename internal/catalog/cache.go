@@ -1,9 +1,28 @@
-// cache.go 实现 §7.2 P1.3/P1.4：project→tenant 与 database 行的进程内缓存。
+// 文件说明：cache.go — §7.2 P1.3/P1.4：project→tenant 与 database 行的进程内缓存
 //
-// 语义与失效（plan §7.2 P1）：
-//   - project→tenant：项目创建后 tenant 不可变，仅删除项目时失效；
-//   - database 行：catalog Service 是写入唯一入口，状态迁移成功后同步失效，
-//     本实例强一致；只读实例依赖短 TTL（2s）兜底。
+// 用法
+//
+//	(s *Service) InvalidateDatabase(projectID, databaseID string)  // InvalidateDatabase 写路径（状态迁移/删除/建库）后同步失效对应行
+//	(s *Service) InvalidateProject(projectID string)  // InvalidateProject 删除项目时失效 tenant 与该项目全部行缓存
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/cache.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] data_model.go, errors.go, model.go, project_storage.go, repository.go 等 9 个
+//
+// 主要符号
+//
+//	(s *Service) InvalidateDatabase(projectID, databaseID string)
+//	(s *Service) InvalidateProject(projectID string)
+//	(s *Service) InvalidateAllCatalogCache()
+//	... 另有 17 个顶层符号
+
 package catalog
 
 import (

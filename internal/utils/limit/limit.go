@@ -1,6 +1,25 @@
-// Package limit 提供分页参数的归一化处理。
+// 文件说明：limit.go — 分页参数的归一化处理
 //
-// 只允许 import 标准库；不得 import 根模块任何业务包（见 internal/utils/README.md）。
+// 用法
+//
+//	Normalize(n, def, max int) int  // Normalize 把分页参数 n 归一为合法值：n 非正或超过 max 时返回 def
+//	Clamp(n, def, max int) int  // Clamp 把 n 限制在 [1, max]：n 非正时返回 def，n 超过 max 时返回 max
+//
+// 调用架构
+//
+//	[上游] internal/audit, internal/auth, internal/catalog 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/limit/limit.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	Normalize(n, def, max int) int
+//	Clamp(n, def, max int) int
+
 package limit
 
 // Normalize 把分页参数 n 归一为合法值：n 非正或超过 max 时返回 def。

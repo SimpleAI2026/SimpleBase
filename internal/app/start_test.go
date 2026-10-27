@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
+	"github.com/linkxzhou/SimpleBase/godatabase/filedb"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -69,17 +69,17 @@ func TestStartListenError(t *testing.T) {
 }
 
 func TestSnapshotFromFactory(t *testing.T) {
-	if snapshotFromFactory(nil, "x") != nil {
+	if snapshotFromFileFactory(nil, "x") != nil {
 		t.Fatal("nil factory")
 	}
-	s := ducklake.NewLocalSyncer()
-	f := &ducklake.Factory{Syncer: s}
-	if snapshotFromFactory(f, "missing") != nil {
+	s := filedb.NewNopSyncer()
+	f := &filedb.Factory{Syncer: s}
+	if snapshotFromFileFactory(f, "missing") != nil {
 		t.Fatal("empty watermark")
 	}
-	s.MarkDirty("db-1", 9)
-	got := snapshotFromFactory(f, "db-1")
-	if got == nil || got.LastSyncedSnapshot != 9 {
+	s.MarkDirty("db-1")
+	got := snapshotFromFileFactory(f, "db-1")
+	if got == nil || got.LastSyncedSnapshot != 1 {
 		t.Fatalf("%+v", got)
 	}
 }

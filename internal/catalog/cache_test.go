@@ -31,6 +31,28 @@ func (r *countingRepo) GetProjectTenant(ctx context.Context, projectID string) (
 	return "", ErrNotFound
 }
 
+func (r *countingRepo) GetProject(ctx context.Context, projectID string) (Project, error) {
+	tenantID, ok := r.tenant[projectID]
+	if !ok {
+		return Project{}, ErrNotFound
+	}
+	databasePath, err := DatabasePathForProject(projectID, EngineDuckDB)
+	if err != nil {
+		return Project{}, err
+	}
+	return Project{ID: projectID, TenantID: tenantID, Name: "p", DatabasePath: databasePath}, nil
+}
+
+func (r *countingRepo) HasDefaultDatabase(ctx context.Context, projectID string) (bool, error) {
+	for key, db := range r.dbs {
+		if db.ProjectID == projectID && db.Kind != DatabaseKindSystem && db.Kind != DatabaseKindKV && db.DeletedAt == nil {
+			_ = key
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *countingRepo) GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error) {
 	r.dbQueries++
 	if db, ok := r.dbs[projectID+"/"+databaseID]; ok {
@@ -54,9 +76,9 @@ func (r *countingRepo) ProjectBelongsToTenant(ctx context.Context, projectID, te
 
 func TestCatalogReadCacheReducesQueries(t *testing.T) {
 	repo := &countingRepo{
-		tenant: map[string]string{"p1": "t1"},
-		dbs:    map[string]Database{"p1/d1": {ID: "d1", ProjectID: "p1", Status: DatabaseReady}},
-		kvRows: map[string]Database{"p1": {ID: "kv1", ProjectID: "p1", Kind: DatabaseKindKV, Status: DatabaseReady}},
+		tenant: map[string]string{"proj0001": "t1"},
+		dbs:    map[string]Database{"proj0001/d1": {ID: "d1", ProjectID: "proj0001", Status: DatabaseReady}},
+		kvRows: map[string]Database{"proj0001": {ID: "kv1", ProjectID: "proj0001", Kind: DatabaseKindKV, Status: DatabaseReady}},
 	}
 	svc := NewService(repo, objectstore.KeyBuilder{}, nil, objectstore.DuckLakeStorage{}, nil)
 	principal := auth.Principal{APIKeyID: "k1", TenantID: "t1"}
@@ -66,14 +88,14 @@ func TestCatalogReadCacheReducesQueries(t *testing.T) {
 	// 三条读路径各查 3 次：只有首次落库。GetDatabase 带上 ctx 注入
 	//（模拟 project 中间件），ensureTenantMatch 也免查（§7.2 P1.1）。
 	for i := 0; i < 3; i++ {
-		if _, err := svc.ResolveProjectTenant(ctx, "p1"); err != nil {
+		if _, err := svc.ResolveProjectTenant(ctx, "proj0001"); err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
-		rctx := WithResolvedProjectTenant(ctx, "p1", "t1")
-		if _, err := svc.GetDatabase(rctx, principal, "p1", "d1"); err != nil {
+		rctx := WithResolvedProjectTenant(ctx, "proj0001", "t1")
+		if _, err := svc.GetDatabase(rctx, principal, "proj0001", "d1"); err != nil {
 			t.Fatalf("get db: %v", err)
 		}
-		if _, err := svc.GetKVDatabase(rctx, "t1", "p1"); err != nil {
+		if _, err := svc.GetKVDatabase(rctx, "t1", "proj0001"); err != nil {
 			t.Fatalf("get kv: %v", err)
 		}
 	}
@@ -83,7 +105,7 @@ func TestCatalogReadCacheReducesQueries(t *testing.T) {
 
 	// 失效后重新查库。
 	svc.InvalidateAllCatalogCache()
-	if _, err := svc.ResolveProjectTenant(ctx, "p1"); err != nil {
+	if _, err := svc.ResolveProjectTenant(ctx, "proj0001"); err != nil {
 		t.Fatalf("resolve after invalidate: %v", err)
 	}
 	if repo.tenantQueries != 2 {
@@ -97,17 +119,17 @@ func TestCatalogReadCacheReducesQueries(t *testing.T) {
 }
 
 func TestCatalogCacheTTLExpiry(t *testing.T) {
-	repo := &countingRepo{tenant: map[string]string{"p1": "t1"}}
+	repo := &countingRepo{tenant: map[string]string{"proj0001": "t1"}}
 	svc := NewService(repo, objectstore.KeyBuilder{}, nil, objectstore.DuckLakeStorage{}, nil)
 	// 注入时钟越过 TTL。
 	svc.tenantCache.now = func() time.Time { return fakeClockNow }
 	fakeClockNow = time.Now()
 	ctx := context.Background()
-	if _, err := svc.ResolveProjectTenant(ctx, "p1"); err != nil {
+	if _, err := svc.ResolveProjectTenant(ctx, "proj0001"); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	fakeClockNow = fakeClockNow.Add(projectTenantTTL + time.Second)
-	if _, err := svc.ResolveProjectTenant(ctx, "p1"); err != nil {
+	if _, err := svc.ResolveProjectTenant(ctx, "proj0001"); err != nil {
 		t.Fatalf("resolve after ttl: %v", err)
 	}
 	if repo.tenantQueries != 2 {

@@ -1,3 +1,27 @@
+// 文件说明：seed.go — internal/systemdb 中 SeedInput、Seed 等符号的实现
+//
+// 用法
+//
+//	Seed(ctx context.Context, in SeedInput) error  // Seed 幂等写入保留租户与系统项目
+//	type SeedInput（导出类型，同包与上层均可使用）
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/seed.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/ducklake, internal/auth, internal/catalog, internal/observability
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//
+// 主要符号
+//
+//	type SeedInput struct {…}
+//	Seed(ctx context.Context, in SeedInput) error
+//	... 另有 6 个顶层符号
+
 package systemdb
 
 import (
@@ -7,9 +31,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"go.uber.org/zap"
 )

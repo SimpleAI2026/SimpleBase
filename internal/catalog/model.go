@@ -1,13 +1,33 @@
-// Package catalog 实现首期单实例 Catalog。
+// 文件说明：model.go — 首期单实例 Catalog
 //
-// Catalog 只保存产品元数据与配置，不承担分布式选主。它使用实例级系统 DuckLake
-// （sys_* 表），绝不能与用户 SQL 使用同一 database ID。用户 query 无法读取系统表。
+// 用法
 //
-// 设计原则（见 plan3.md）：
-//   - 所有读取必须带 projectID 或先由 service 验证资源归属；
-//     不存在 GetDatabase(id) 这种越权高风险 API。
-//   - 状态转换通过 UPDATE ... WHERE status IN (...) 并检查 affected rows，防止并发错序。
-//   - migration 只能前进；Catalog 启动失败则整个 server 不 ready。
+//	type DatabaseStatus（导出类型，同包与上层均可使用）
+//	type Tenant（导出类型，同包与上层均可使用）
+//	同包调用：Database → cache.go, data_model.go 等；DatabaseStatus → errors.go, repository.go 等；Project → project_storage.go, repository.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/model.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cache.go, data_model.go, errors.go, project_storage.go, repository.go 等 9 个
+//	[关键引用] Database ← cache.go, data_model.go, repository.go
+//
+// 主要符号
+//
+//	type DatabaseStatus string
+//	const DatabaseCreating
+//	const DatabaseReady
+//	const DatabaseDegraded
+//	const DatabaseDeleting
+//	const DatabaseDeleted
+//	... 另有 9 个顶层符号
+
 package catalog
 
 import (
@@ -16,20 +36,14 @@ import (
 
 // DatabaseStatus 表示数据库生命周期状态。
 // 用户可见：creating（仅创建请求内部）、ready、degraded、deleting、deleted。
-// opening / closing / closed / recovering 只留给历史行：启动迁移与读取时改为 ready，
-// 不再是现行状态机（不是 ready → closing → closed）。
 type DatabaseStatus string
 
 const (
-	DatabaseCreating   DatabaseStatus = "creating"
-	DatabaseOpening    DatabaseStatus = "opening"
-	DatabaseReady      DatabaseStatus = "ready"
-	DatabaseClosing    DatabaseStatus = "closing"
-	DatabaseClosed     DatabaseStatus = "closed"
-	DatabaseDegraded   DatabaseStatus = "degraded"
-	DatabaseDeleting   DatabaseStatus = "deleting"
-	DatabaseDeleted    DatabaseStatus = "deleted"
-	DatabaseRecovering DatabaseStatus = "recovering"
+	DatabaseCreating DatabaseStatus = "creating"
+	DatabaseReady    DatabaseStatus = "ready"
+	DatabaseDegraded DatabaseStatus = "degraded"
+	DatabaseDeleting DatabaseStatus = "deleting"
+	DatabaseDeleted  DatabaseStatus = "deleted"
 )
 
 // Tenant 是 SimpleBase 的租户。
@@ -41,10 +55,11 @@ type Tenant struct {
 
 // Project 属于某个 Tenant，是资源隔离边界。
 type Project struct {
-	ID        string
-	TenantID  string
-	Name      string
-	CreatedAt time.Time
+	ID           string
+	TenantID     string
+	Name         string
+	DatabasePath string
+	CreatedAt    time.Time
 }
 
 // Database 描述一个 logical database 的 catalog 记录。
@@ -60,6 +75,8 @@ type Database struct {
 	DataModel     string
 	Status        DatabaseStatus
 	StoragePrefix string
+	// DatabasePath 是项目级单文件的运行时位置，只从 sys_projects 补充，不写入 sys_databases。
+	DatabasePath  string
 	FormatVersion int
 	DeletedAt     *time.Time
 	CreatedAt     time.Time

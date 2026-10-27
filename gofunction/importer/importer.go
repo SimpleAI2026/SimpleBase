@@ -1,3 +1,34 @@
+// 文件说明：importer.go — gofunction/importer 中 Importer、NewImporter 等符号的实现
+//
+// 用法
+//
+//	NewImporter(importPackage ...*ssa.Package) *Importer
+//	(p *Importer) Import(path string) (*types.Package, error)  // Import 引入package
+//	(p *Importer) Package(path string) *types.Package  // Package 获取package类型信息
+//	同包调用：Package() → registry.go, types.go
+//
+// 调用架构
+//
+//	[上游] gofunction/cmd/gofunction, gofunction/internal/interp, gofunction/packages 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/importer/importer.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] registry.go, types.go
+//	[关键引用] Package() ← registry.go, types.go
+//
+// 主要符号
+//
+//	type Importer struct {…}
+//	NewImporter(importPackage ...*ssa.Package) *Importer
+//	NewImporterWithRegistry(registry *Registry, importPackage ...*ssa.Package) *Importer
+//	(p *Importer) Import(path string) (*types.Package, error)
+//	(p *Importer) Package(path string) *types.Package
+//	(p *Importer) SsaPackage(name string) *ssa.Package
+//	... 另有 8 个顶层符号
+
 package importer
 
 import (

@@ -1,8 +1,25 @@
-// Package atomicfile 提供「同目录临时文件 + rename」的原子文件写入。
+// 文件说明：atomicfile.go — 「同目录临时文件 + rename」的原子文件写入
 //
-// 只允许 import 标准库。本包刻意不做两件事：
-//   - 不 fsync：现有所有调用点都未 fsync，加上会改变水位文件等高频路径的 IO 特性；
-//   - 不改临时文件命名：沿用 path+".tmp"，保持残留文件可被固定名识别与清理。
+// 用法
+//
+//	Write(path string, data []byte, perm os.FileMode) error  // Write 先把 data 写入 path+".tmp"，再 rename 覆盖 path
+//	WriteEnsureDir(path string, data []byte, perm os.FileMode) error  // WriteEnsureDir 与 Write 相同，但先 MkdirAll(filepath.Dir(path), 0o755)
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/objectstore, internal/sandbox/sshd 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/atomicfile/atomicfile.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	Write(path string, data []byte, perm os.FileMode) error
+//	WriteEnsureDir(path string, data []byte, perm os.FileMode) error
+
 package atomicfile
 
 import (

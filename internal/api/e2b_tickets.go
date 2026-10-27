@@ -1,3 +1,33 @@
+// 文件说明：e2b_tickets.go — internal/api 的内部实现（ticketTTL、ticketMaxLive 等）
+//
+// 用法
+//
+//	type terminalTicket（包内使用）
+//	type ticketStore（包内使用）
+//	同包调用：Issue() → e2b_auth.go, e2b_terminal.go 等；ticketStore → e2b_terminal.go, sandbox_handler.go；newTicketStore() → e2b_terminal.go, sandbox_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/e2b_tickets.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Issue() ← e2b_auth.go, e2b_terminal.go, sandbox_handler.go
+//
+// 主要符号
+//
+//	const ticketTTL
+//	const ticketMaxLive
+//	const ticketBytesLen
+//	type terminalTicket struct {…}
+//	type ticketStore struct {…}
+//	newTicketStore() *ticketStore
+//	... 另有 2 个顶层符号
+
 package api
 
 import (

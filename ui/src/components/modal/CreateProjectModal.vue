@@ -33,6 +33,18 @@
         />
         <FieldDescription>{{ idError || t('components.createProject.projectIdHint') }}</FieldDescription>
       </Field>
+      <Field>
+        <FieldLabel for="project-engine">{{ t('components.createProject.engine') }}</FieldLabel>
+        <select
+          id="project-engine"
+          v-model="engine"
+          class="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+        >
+          <option value="duckdb">DuckDB</option>
+          <option value="sqlite">SQLite</option>
+        </select>
+        <FieldDescription>{{ t('components.createProject.engineHint') }}</FieldDescription>
+      </Field>
     </FieldGroup>
   </SbModal>
 </template>
@@ -63,6 +75,7 @@ const { t } = useI18n()
 
 const name = ref('')
 const customId = ref('')
+const engine = ref<'duckdb' | 'sqlite'>('duckdb')
 const submitting = ref(false)
 
 const nameError = computed(() => {
@@ -88,6 +101,7 @@ watch(
     if (v) {
       name.value = ''
       customId.value = ''
+      engine.value = 'duckdb'
       submitting.value = false
     }
   }
@@ -102,7 +116,8 @@ async function submit() {
   try {
     const created = await api.projects.create({
       name: name.value.trim(),
-      id: customId.value.trim() || undefined
+      id: customId.value.trim() || undefined,
+      engine: engine.value
     })
     toast.success(t('components.createProject.created', { name: created.name || created.id }))
     emit('created', created)

@@ -233,7 +233,7 @@ instance:
   id: yaml-instance
   writable: false
 database:
-  engine: ducklake
+  engine: duckdb
   cache_dir: /tmp/yaml-cache
   cache_max_bytes: 2048
   cache_max_databases: 4
@@ -577,7 +577,7 @@ func TestValidateTable(t *testing.T) {
 			Instance: InstanceConfig{ID: "id", Writable: false},
 			Storage:  StorageConfig{Database: StorageModeLocal, Files: StorageModeLocal, DataDir: "/tmp/data"},
 			Database: DatabaseConfig{
-				Engine: EngineDuckLake, CacheDir: "/tmp/c", IdleTimeout: time.Minute, MaxOpen: 1,
+				Engine: EngineDuckDB, CacheDir: "/tmp/c", IdleTimeout: time.Minute, MaxOpen: 1,
 				CacheMaxBytes: DefaultCacheMaxBytes, CacheMaxDatabases: DefaultCacheMaxDatabases,
 			},
 			Auth: AuthConfig{APIKeyHashSecret: "s"},
@@ -600,7 +600,7 @@ func TestValidateTable(t *testing.T) {
 		{"bad timeout", func(c *Config) { c.HTTP.ReadTimeout = 0 }, "timeouts"},
 		{"bad shutdown", func(c *Config) { c.HTTP.ShutdownTimeout = 0 }, "shutdown_timeout"},
 		{"empty instance", func(c *Config) { c.Instance.ID = "" }, "instance.id"},
-		{"bad engine", func(c *Config) { c.Database.Engine = "sqlite" }, "ducklake"},
+		{"bad engine", func(c *Config) { c.Database.Engine = "postgres" }, "duckdb or sqlite"},
 		{"neg threads", func(c *Config) { c.Database.DuckLake.Threads = -1 }, "threads"},
 		{"empty cache", func(c *Config) { c.Database.CacheDir = "" }, "cache_dir"},
 		{"bad idle", func(c *Config) { c.Database.IdleTimeout = 0 }, "idle_timeout"},
@@ -666,7 +666,7 @@ func TestRedactedIncludesProvidersAndOmitsSecrets(t *testing.T) {
 	cfg := Config{
 		HTTP:     HTTPConfig{Address: ":1", ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second, ShutdownTimeout: time.Second},
 		Instance: InstanceConfig{ID: "id", Writable: true},
-		Database: DatabaseConfig{Engine: EngineDuckLake, CacheDir: "/c", IdleTimeout: time.Minute, MaxOpen: 1,
+		Database: DatabaseConfig{Engine: EngineDuckDB, CacheDir: "/c", IdleTimeout: time.Minute, MaxOpen: 1,
 			CacheMaxBytes: 1, CacheMaxDatabases: 1,
 			DuckLake: DuckLakeConfig{MemoryLimit: "1MB", CatalogSync: CatalogSyncConfig{Mode: "debounce", Debounce: time.Millisecond}}},
 		S3:   S3Config{AccessKey: "AKIA", SecretKey: "SECRET", KMSKeyID: "kms", Bucket: "b", Region: "r", Prefix: "p"},
@@ -723,7 +723,7 @@ func TestJoinErrorsAndLoadWritableS3Pair(t *testing.T) {
 	t.Setenv("SIMPLEBASE_S3_ACCESS_KEY", "ak")
 	t.Setenv("SIMPLEBASE_S3_SECRET_KEY", "sk")
 	t.Setenv("SIMPLEBASE_S3_KMS_KEY_ID", "kms")
-	t.Setenv("SIMPLEBASE_DB_ENGINE", "DUCKLAKE")
+	t.Setenv("SIMPLEBASE_DB_ENGINE", "DUCKDB")
 	t.Setenv("SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT", "128MB")
 	t.Setenv("SIMPLEBASE_DUCKLAKE_THREADS", "3")
 	t.Setenv("SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN", "2d")

@@ -1,3 +1,31 @@
+// 文件说明：type.go — gofunction/internal/interp 的内部实现（builtinTypes、interfaceType 等）
+//
+// 用法
+//
+//	同包调用：typeChange() → call.go, frame.go 等；typeChangeCached() → eval.go, jsonrun.go；conv() → eval.go, instruction.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/type.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/importer, gofunction/value
+//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
+//	[关键引用] typeChange() ← call.go, frame.go, instruction.go
+//
+// 主要符号
+//
+//	var builtinTypes
+//	var interfaceType
+//	var typeCacheMu
+//	var typeCache
+//	typeChangeCached(typ types.Type) reflect.Type
+//	typeChange(typ types.Type) reflect.Type
+//	... 另有 1 个顶层符号
+
 package interp
 
 import (

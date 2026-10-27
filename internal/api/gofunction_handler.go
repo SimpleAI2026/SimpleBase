@@ -1,22 +1,34 @@
-// gofunction_handler.go 云函数管理 + 版本 + 调试台 + /go 调用
-// （gofunction-versions-testplan §5）。
+// 文件说明：gofunction_handler.go — 云函数管理 + 版本 + 调试台 + /go 调用
 //
-// 管理面（/v1/projects/:projectID/gofunctions）：
+// 用法
 //
-//	GET    /gofunctions                         列表（含 active/latest）
-//	POST   /gofunctions                         创建实体 + v1
-//	GET    /gofunctions/:name                   详情 + 版本摘要
-//	PATCH  /gofunctions/:name                   改 description
-//	DELETE /gofunctions/:name                   软删
-//	GET    /gofunctions/:name/versions          版本列表
-//	POST   /gofunctions/:name/versions          新建版本
-//	GET    /gofunctions/:name/versions/:ver     版本详情（含 source）
-//	POST   /gofunctions/:name/versions/:ver/activate  发布/回滚
-//	POST   /gofunctions/:name/versions/:ver/test      调试台试跑
+//	NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService ...
+//	(h *GoFunctionHandler) WithRunner(runner *functionrun.Runner) *GoFunctionHandler
+//	(h *GoFunctionHandler) List(c echo.Context) error  // List: GET /gofunctions
+//	同包调用：Get() → collection_meta_handler.go, collection_transfer.go 等；List() → api_keys_handler.go, backup_handler.go 等；Delete() → api_keys_handler.go, backup_handler.go 等
 //
-// 调用面：
+// 调用架构
 //
-//	POST /go/:projectID/:name/:functionName     只跑 active_version
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/gofunction_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, gofunction, internal/functionrun, internal/systemdb 等
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Get() ← collection_meta_handler.go, collection_transfer.go, cronjob_handler.go
+//
+// 主要符号
+//
+//	type GoFunctionHandler struct {…}
+//	NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService ...
+//	(h *GoFunctionHandler) WithRunner(runner *functionrun.Runner) *GoFunctionHandler
+//	(h *GoFunctionHandler) List(c echo.Context) error
+//	(h *GoFunctionHandler) Create(c echo.Context) error
+//	(h *GoFunctionHandler) Get(c echo.Context) error
+//	... 另有 36 个顶层符号
+
 package api
 
 import (
@@ -31,8 +43,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/gofunction"
-	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/internal/functionrun"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
@@ -46,6 +59,7 @@ type GoFunctionHandler struct {
 	// 每次调用都重新编译执行源码，恶意或高频调用会耗尽 CPU/内存。
 	// nil 表示不限流（旧测试路径）。
 	runSem chan struct{}
+	runner *functionrun.Runner
 }
 
 var (
@@ -67,8 +81,16 @@ func NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditServi
 	return h
 }
 
+func (h *GoFunctionHandler) WithRunner(runner *functionrun.Runner) *GoFunctionHandler {
+	h.runner = runner
+	return h
+}
+
 // acquireRunSlot 非阻塞获取执行槽位；满载返回 false（GF-RUN-04 → 503）。
 func (h *GoFunctionHandler) acquireRunSlot() bool {
+	if h.runner != nil {
+		return h.runner.Acquire()
+	}
 	if h.runSem == nil {
 		return true
 	}
@@ -81,10 +103,13 @@ func (h *GoFunctionHandler) acquireRunSlot() bool {
 }
 
 func (h *GoFunctionHandler) releaseRunSlot() {
-	if h.runSem == nil {
+	if h.runner != nil {
+		h.runner.Release()
 		return
 	}
-	<-h.runSem
+	if h.runSem != nil {
+		<-h.runSem
+	}
 }
 
 // ---------- DTO ----------
@@ -221,7 +246,7 @@ func (h *GoFunctionHandler) Create(c echo.Context) error {
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
-		return WriteError(c, errWriterUnavailable())
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	if systemdb.IsAdminProject(pc.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
@@ -326,7 +351,7 @@ func (h *GoFunctionHandler) Patch(c echo.Context) error {
 		return WriteError(c, errors.New("project context missing"))
 	}
 	if !h.writable {
-		return WriteError(c, errWriterUnavailable())
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -365,7 +390,7 @@ func (h *GoFunctionHandler) Delete(c echo.Context) error {
 		return WriteError(c, errors.New("project context missing"))
 	}
 	if !h.writable {
-		return WriteError(c, errWriterUnavailable())
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	if systemdb.IsAdminProject(pc.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", RequestIDFromContext(c.Request().Context())))
@@ -429,7 +454,7 @@ func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
-		return WriteError(c, errWriterUnavailable())
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	if systemdb.IsAdminProject(pc.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
@@ -528,7 +553,7 @@ func (h *GoFunctionHandler) ActivateVersion(c echo.Context) error {
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
-		return WriteError(c, errWriterUnavailable())
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -571,7 +596,7 @@ func (h *GoFunctionHandler) TestVersion(c echo.Context) error {
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
-		return WriteError(c, errWriterUnavailable())
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	if systemdb.IsAdminProject(pc.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
@@ -666,6 +691,26 @@ func (h *GoFunctionHandler) Invoke(c echo.Context) error {
 	}
 	if !gofunctionExportNameRe.MatchString(fnName) {
 		return fail(NewAPIError(http.StatusNotFound, "function_not_found", "function not found", rid))
+	}
+	if h.runner != nil {
+		body, readErr := io.ReadAll(c.Request().Body)
+		if readErr != nil {
+			return fail(NewAPIError(http.StatusBadRequest, "invalid_request", "cannot read request body", rid))
+		}
+		result, runErr := h.runner.Run(c.Request().Context(), functionrun.Request{ProjectID: pc.ID, FuncFile: name, FuncExport: fnName, Input: body, Channel: "go", RequestID: rid, Actor: actorID(c)})
+		if runErr != nil {
+			if errors.Is(runErr, functionrun.ErrTooManyRuns) {
+				return fail(NewAPIError(http.StatusServiceUnavailable, "too_many_go_runs", "go function run concurrency limit reached", rid))
+			}
+			if errors.Is(runErr, sql.ErrNoRows) {
+				return fail(NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", rid))
+			}
+			if errors.Is(runErr, systemdb.ErrNoActiveVersion) {
+				return fail(NewAPIError(http.StatusConflict, "no_active_version", "go function has no active version", rid))
+			}
+			return fail(mapGoFunctionRunError(runErr, rid))
+		}
+		return c.Blob(http.StatusOK, "application/json", result.Output)
 	}
 	// D8：只跑 active_version
 	v, err := h.store.ResolveActiveSource(c.Request().Context(), pc.ID, name)
@@ -852,7 +897,7 @@ func mapGoFunctionValidationError(err error, rid string) error {
 	if err == nil {
 		return nil
 	}
-	msg := truncateMessage(err.Error(), 512)
+	msg := strutil.TruncateEllipsis(err.Error(), 512)
 	// 编译/语法错误才用 compile_error；签名与导出约定问题统一 signature_invalid
 	if strings.Contains(err.Error(), "syntax error") ||
 		strings.Contains(err.Error(), "expected") ||
@@ -874,20 +919,10 @@ func mapGoFunctionRunError(err error, rid string) error {
 		return NewAPIError(http.StatusGatewayTimeout, "request_timeout", "go function execution timed out", rid)
 	}
 	if errors.Is(err, gofunction.ErrBind) {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", truncateMessage(err.Error(), 512), rid)
+		return NewAPIError(http.StatusBadRequest, "invalid_request", strutil.TruncateEllipsis(err.Error(), 512), rid)
 	}
 	if errors.Is(err, gofunction.ErrCompile) {
-		return NewAPIError(http.StatusInternalServerError, "gofunction_compile_error", truncateMessage(err.Error(), 512), rid)
+		return NewAPIError(http.StatusInternalServerError, "gofunction_compile_error", strutil.TruncateEllipsis(err.Error(), 512), rid)
 	}
-	return NewAPIError(http.StatusInternalServerError, "gofunction_runtime_error", truncateMessage(err.Error(), 512), rid)
-}
-
-// truncateMessage 错误 message 截断脱敏。
-func truncateMessage(msg string, max int) string {
-	return strutil.TruncateEllipsis(msg, max)
-}
-
-// errWriterUnavailable 复用统一只读实例错误。
-func errWriterUnavailable() error {
-	return database.ErrWriterUnavailable
+	return NewAPIError(http.StatusInternalServerError, "gofunction_runtime_error", strutil.TruncateEllipsis(err.Error(), 512), rid)
 }

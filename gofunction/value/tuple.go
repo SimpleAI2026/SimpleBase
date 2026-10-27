@@ -1,3 +1,34 @@
+// 文件说明：tuple.go — gofunction/value 中 MapIter、NewStringIter 等符号的实现
+//
+// 用法
+//
+//	NewStringIter(s string) *MapIter
+//	(iter *MapIter) IsSeq() bool// IsSeq 是否为序列迭代器（string/slice），供 runNext 分派
+//	(iter *MapIter) SeqLen() int  // Len 序列长度（string rune 数 / slice 元素数）
+//	同包调用：Interface() → external.go, value.go；String() → external.go, value.go；Type() → external.go, value.go
+//
+// 调用架构
+//
+//	[上游] gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/value/tuple.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] external.go, value.go
+//	[关键引用] Interface() ← external.go, value.go
+//
+// 主要符号
+//
+//	type MapIter struct {…}
+//	NewStringIter(s string) *MapIter
+//	NewSliceIter(v Value) *MapIter
+//	(iter *MapIter) IsSeq() bool
+//	(iter *MapIter) SeqLen() int
+//	(iter *MapIter) SeqElem(i int) (reflect.Value, reflect.Value)
+//	... 另有 22 个顶层符号
+
 package value
 
 import "reflect"
@@ -93,9 +124,6 @@ func (iter *MapIter) next() (bool, reflect.Value, reflect.Value) {
 	iter.I++
 	return true, key, val
 }
-
-// interfaceType 空 interface 的 reflect 类型
-var interfaceType = reflect.TypeOf((*interface{})(nil)).Elem()
 
 // --- Value 接口实现（迭代器作为不透明值传递，仅支持元信息） ---
 

@@ -1,3 +1,30 @@
+// 文件说明：frame.go — gofunction/internal/interp 中 Context、Output 等符号的实现
+//
+// 用法
+//
+//	(p *Context) Output() string  // Output 返回内置函数print和println打印的内容
+//	type Context（导出类型，同包与上层均可使用）
+//	type frame（包内使用）
+//	同包调用：frame → call.go, compile.go 等；get() → call.go, compile.go 等；Context → call.go, jsonrun.go 等
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/frame.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/value
+//	[同包] call.go, compile.go, eval.go, executor.go, gofunction.go 等 13 个
+//	[关键引用] frame ← call.go, compile.go, eval.go
+//
+// 主要符号
+//
+//	type Context struct {…}
+//	(p *Context) Output() string
+//	... 另有 17 个顶层符号
+
 package interp
 
 import (

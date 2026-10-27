@@ -1,12 +1,34 @@
-// Package sshd 是云沙盒的进程内 SSH 服务端：把 SSH 会话落到沙盒里的 PTY / 命令上。
+// 文件说明：server.go — 云沙盒的进程内 SSH 服务端：把 SSH 会话落到沙盒里的 PTY / 命令上
 //
-// 同一套认证与会话代码同时服务两个入口：
-//   - 浏览器终端：WebSocket 桥把 net.Pipe 的一端交给 ServeConn，不占任何 TCP 端口；
-//   - 真实 ssh 客户端：可选的 TCP 监听（sandbox.ssh.listen，默认关闭）。
+// 用法
 //
-// 只允许 session 通道里的 pty-req / window-change / shell / exec；
-// 拒绝端口转发、agent 转发、X11、subsystem（含 sftp）。沙盒本来没有网络，
-// 转发没有意义，拒绝是为了不把 SimpleBase 所在主机的网络当跳板。
+//	New(o Options) (*Server, error)
+//	(s *Server) ServeConn(nc net.Conn)  // ServeConn 在一个已建立的连接上完成 SSH 握手并处理会话，阻塞到连接结束
+//	(s *Server) Serve(l net.Listener) error  // Serve 在 listener 上接受连接，直到 Close
+//	同包调用：Close() → membuf.go, session.go；ServeConn() → membuf.go；Identity → session.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/sshd/server.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/sandbox, internal/utils/atomicfile
+//	[同包] membuf.go, session.go
+//	[关键引用] Close() ← membuf.go, session.go
+//
+// 主要符号
+//
+//	type Identity struct {…}
+//	type Authenticator interface {…}
+//	type Sessions interface {…}
+//	type Audit func(ctx context.Context, id Identity, kind string, duration ...
+//	type Server struct {…}
+//	type Options struct {…}
+//	... 另有 24 个顶层符号
+
 package sshd
 
 import (

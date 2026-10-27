@@ -351,7 +351,7 @@ func TestProcessValidationAndNotFound(t *testing.T) {
 }
 
 func TestClampU16(t *testing.T) {
-	if clampU16(0, 80) != 80 || clampU16(50, 80) != 50 || clampU16(5000, 80) != 1000 {
+	if sandbox.ClampPTYDim(0, 80) != 80 || sandbox.ClampPTYDim(50, 80) != 50 || sandbox.ClampPTYDim(5000, 80) != 1000 {
 		t.Fatal("clampU16")
 	}
 }

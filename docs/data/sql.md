@@ -1,12 +1,12 @@
 ---
 title: SQL 与集合
 order: 1
-group: 数据库管理
+group: 数据管理
 ---
 
 # SQL 与集合
 
-创建数据库时选择数据形态。用户数据库必须属于 URL 中的项目。两种形态都在创建成功后即可使用，不需要打开或关闭。存量库没有单独迁移数据文件，一律视为集合文档。
+每个项目只有一个数据库，对应一个 DuckDB 或 SQLite 文件；创建数据库时选择数据形态，已有数据库时再次创建返回 409。用户数据库必须属于 URL 中的项目。创建成功后即可使用，不需要打开或关闭。
 
 | 形态 | `data_model` | 控制台 |
 |---|---|---|
@@ -33,7 +33,7 @@ curl -sS -X POST "$BASE/v1/projects/$PROJECT/databases" \
 
 ## SQL 工作台
 
-创建数据库后，在控制台「数据库管理」可以进入 SQL 工作台。集合文档库还可以展开「查看数据」管理集合与文档；SQL 库展开的是表结构。
+创建数据库后，在控制台「数据管理」可以进入 SQL 工作台。集合文档库还可以展开「查看数据」管理集合与文档；SQL 库展开的是表结构。
 
 | 操作 | HTTP 路径（前缀 `/v1/projects/:projectID/databases/:databaseID`） | 权限 |
 |---|---|---|
@@ -58,11 +58,45 @@ curl -sS -X POST "$BASE/v1/projects/$PROJECT/databases/$DATABASE/query" \
 | 操作 | 路径 | 权限 |
 |---|---|---|
 | 列集合 / 新建集合 | `GET /` / `POST /` | read / write |
-| 列文档 | `GET /:collection` | read |
-| 新建文档 | `POST /:collection/documents` | write |
-| 更新 / 删除文档 | `PUT` / `DELETE /:collection/documents/:id` | write |
+| 读取 / 覆盖 / 注销 Schema | `GET` / `PUT` / `DELETE /:collection/meta` | read / write / write |
+| 列文档 / 清空集合 | `GET` / `DELETE /:collection` | read / project:admin |
+| 新建 / 批量新建文档 | `POST /:collection/documents`、`POST /:collection/documents/batch` | write |
+| 单条读取 | `GET /:collection/documents/:id` | read |
+| 整体替换 / 部分更新 / 删除 | `PUT` / `PATCH` / `DELETE /:collection/documents/:id` | write |
+
+列表支持 `limit`（1–200，默认 50）、`cursor`、`offset`、`sort`、`filter`、`fields` 和 `count`。响应含结构化 `items`、可选 `next_cursor/total/request_id`；旧 `rows` 扁平字段暂时保留。cursor 与 offset 互斥，且仅用于默认 `-created_at,id DESC` 排序；自定义排序请使用 offset。
+
+`filter` 支持 `&&`、`||`、括号、比较、`~`、`!~`、`in`、`is [not] null`。字段必须先在 Schema 注册，值始终参数化，不接受 SQL 片段或任意 JSON path。例如：
+
+```bash
+curl -sS --get "$BASE/v1/projects/$PROJECT/databases/$DATABASE/data/collections/orders" \
+  -H "Authorization: Bearer $SB_KEY" \
+  --data-urlencode 'filter=status="open" && priority>=2' \
+  --data-urlencode 'sort=-created_at,title' \
+  --data-urlencode 'fields=id,title,status' \
+  --data-urlencode 'limit=50&count=1'
+```
+
+JSON 列过滤有全表扫描成本，超过 `limits.max_filter_scan_rows` 返回 `filter_scan_limit_exceeded`。`count=1` 默认关闭，仅在需要总数时开启。`fields` 支持 `payload.owner.name` 形式的嵌套裁剪，`id` 始终保留。
+
+Schema 支持 `text/number/bool/date/email/url/select/json`，以及 required、unique、default、长度/范围、pattern、select 候选值、hidden 和 readonly。`PUT meta?dry_run=1` 只检查现有文档，不落库；删除字段或注销 Schema 不删除文档中的旧键。未注册 Schema 的旧集合继续保持宽松 JSON 模式。批量写入在单事务执行，错误中的 `failed_index` 是零基序号。
+
+`PATCH` 使用 JSON merge patch：`null` 删除键，嵌套对象递归合并。`PUT` 是整体替换。
 
 集合属于**用户数据库**；[项目级 Key-Value](/docs/data/kv) 不要求选择数据库，两者不是同一个接口。读写细节也可参见 [JS SDK 文档集合](/docs/sdk/documents) 和 [Go SDK 文档集合](/docs/sdk/go-documents)。
+
+## 导入导出与逻辑视图
+
+- `POST /:collection/import` 接受 `text/csv` 或 `application/x-ndjson`，默认整批一个事务；每 100 条校验并写入一批，但任一记录失败会回滚整个导入。`?dry_run=1` 只校验。请求体受 `limits.max_import_bytes`（默认 128MiB）限制，超限返回 413。CSV 按 Schema 转换 number/bool/json/select；`id/created_at/updated_at` 由服务端生成，readonly 字段不允许由客户端提供。
+- `GET /:collection/export?format=csv|ndjson` 逐行流式输出，支持 `filter/sort/fields`，隐藏字段不会导出，响应含 `Content-Disposition`。跨域前端需要暴露该响应头（默认配置已包含）。原始导出不允许 Agent 委托调用，CLI 在 `SIMPLEBASE_AGENT_RUN=1` 下也拒绝未脱敏导出。
+- `POST /data/collections/meta/dry-run-view` 以 `LIMIT 20` 试跑逻辑视图并推断字段。视图通过 `PUT /:collection/meta` 保存 `schema_mode:"view"` 和 `view_query`，需要 `project:admin`。查询必须是单条 `SELECT` 或 `WITH`，并通过只读 SQL 校验；返回 `id,data,created_at,updated_at` 四列，`data` 是 JSON 对象，时间使用 RFC3339。
+- 逻辑视图是元数据子查询，不创建物理表或物理 VIEW。列表、单条 GET 和导出均可使用；所有写路径返回 `collection_read_only`。视图 cursor 依赖合法的 `created_at`，其它情况使用 offset 分页。
+
+## 事件、Realtime 与迁移状态
+
+文档 API 写成功后可以把事件推送给 SSE 客户端，或异步调用云函数；SQL 直写不产生这些事件。订阅、续传与正文安全边界见[文档 Realtime](/docs/data/realtime)，触发器配置、调用与队列限制见[事件触发器](/docs/automation/function-triggers)。
+
+系统库采用最终态 `schema.go`，不提供 down 或自动迁移 API。admin 项目下 `GET /migrations/status` 与 `GET /migrations/plan` 只读报告最终态表是否齐全及待执行 DDL；空库检查不会建表。CLI 对应 `simplebase migrate status|plan`。`GET /v1/openapi.json` 从真实 Echo 路由生成 OpenAPI 3.0.3。
 
 ## 使用场景
 
@@ -103,7 +137,7 @@ curl -sS -X POST "$BASE/v1/projects/$PROJECT/databases/$DATABASE/query" \
 
 ### 场景三：幂等写入，避免重复订单
 
-DuckLake 没有可靠的唯一约束。需要「存在则更新、不存在则插入」时，用 `MERGE INTO` 按业务键合并：
+不要依赖未经验证的唯一约束。需要「存在则更新、不存在则插入」时，DuckDB 项目用 `MERGE INTO` 按业务键合并（SQLite 项目改用 `INSERT ... ON CONFLICT`）：
 
 ```bash
 curl -sS -X POST "$BASE/v1/projects/$PROJECT/databases/$DATABASE/execute" \

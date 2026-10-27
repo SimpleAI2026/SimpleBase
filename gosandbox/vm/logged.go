@@ -1,3 +1,30 @@
+// 文件说明：logged.go — gosandbox/vm 中 LogFunc、WithLogging 等符号的实现
+//
+// 用法
+//
+//	WithLogging(d Driver, log LogFunc) Driver  // WithLogging 为任意 Driver 增加操作日志：操作名、VM 名、耗时与失败原因
+//	type LogFunc（导出类型，同包与上层均可使用）
+//	type loggedDriver（包内使用）
+//	同包调用：Ensure() → driver.go；Exec() → driver.go；ReadFile() → driver.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/fake, gosandbox/vm/local, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/logged.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] driver.go, errors.go
+//	[关键引用] Ensure() ← driver.go
+//
+// 主要符号
+//
+//	type LogFunc func(level, msg string, kv ...any)
+//	WithLogging(d Driver, log LogFunc) Driver
+//	... 另有 15 个顶层符号
+
 package vm
 
 import (

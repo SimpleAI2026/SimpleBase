@@ -1,3 +1,30 @@
+// 文件说明：identity.go — internal/app 的内部实现（storageIdentity、storageIdentityPath 等）
+//
+// 用法
+//
+//	type storageIdentity（包内使用）
+//	同包调用：checkStorageIdentity() → app.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/identity.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/config, internal/utils/atomicfile
+//	[同包] app.go, catalog_engine.go, cron_runner.go, project_purger.go, reset.go 等 6 个
+//	[关键引用] checkStorageIdentity() ← app.go
+//
+// 主要符号
+//
+//	type storageIdentity struct {…}
+//	storageIdentityPath(dataRoot string) string
+//	const storageSystemDir
+//	checkStorageIdentity(cfg config.Config) error
+//	normalizeMode(mode string) string
+
 package app
 
 import (

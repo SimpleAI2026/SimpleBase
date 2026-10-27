@@ -1,12 +1,33 @@
-// oai_dto.go 实现 SimpleBase 对外 LLM 出口的 OpenAI Chat Completions 兼容协议
-// （planv6.0 openai-compatible-llm-api-plan）。
+// 文件说明：oai_dto.go — SimpleBase 对外 LLM 出口的 OpenAI Chat Completions 兼容协议
 //
-// 本文件只做协议编解码：DTO、请求/响应映射、错误信封、SSE 帧编码，不含业务逻辑。
+// 用法
 //
-// 为什么要偏离「错误统一走 WriteError」：OpenAI 官方 SDK 只认
-// {"error":{"message","type","param","code"}}，收到既有错误信封会直接抛解析异常。
-// 因此兼容路由组内的错误统一走 writeOAIError；type 与 code 仍从既有错误映射派生，
-// 不新造分类体系。该偏离严格限定在兼容路由组内，其余 handler 不动。
+//	type oaiChatRequest（包内使用）
+//	type oaiStreamOptions（包内使用）
+//	同包调用：raw() → adapter.go, agent_handler.go 等；write() → agent_handler.go, api_key_policy.go 等；start() → cronjob_handler.go, e2b_process_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/oai_dto.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/agentbridge, internal/llmgateway
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] raw() ← adapter.go, agent_handler.go, collection_filter.go
+//
+// 主要符号
+//
+//	const oaiObjectChatCompletion
+//	const oaiObjectChatCompletionChunk
+//	const oaiObjectModel
+//	const oaiObjectList
+//	const oaiSSEDone
+//	type oaiChatRequest struct {…}
+//	... 另有 44 个顶层符号
+
 package api
 
 import (
@@ -103,7 +124,7 @@ type oaiCallFunction struct {
 // 这是补齐工具调用能力的唯一入口：此前 llmMessageDTO 只有 role/content，
 // 工具声明与往返消息在类型层面就不存在，导致调用方只能退回文本协议。
 //
-// 命名带 oai 前缀：cloudagent_access.go 已有 toLLMRequest（cloudagent.ChatRequest →
+// 命名带 oai 前缀：gocloudagent_access.go 已有 toLLMRequest（gocloudagent.ChatRequest →
 // LLMRequest），两者入参不同，不能共用名字。
 func oaiToLLMRequest(req oaiChatRequest) LLMRequest {
 	out := LLMRequest{
@@ -415,7 +436,7 @@ func isToolsUnsupported(err error) bool {
 // writeOAILLMError 把 LLM 侧错误映射成可安全展示的 OpenAI 错误信封。
 //
 // 此前这类错误一律落成 500 internal_error：客户端既看不到原因，也无法判断是否该降级。
-// 这里复用云助手已有的分类（cloudagent.ClassifyError）与状态码映射（Error 对 RunError 的处理），
+// 这里复用云助手已有的分类（gocloudagent.ClassifyError）与状态码映射（Error 对 RunError 的处理），
 // 只使用固定文案，不透传上游原文，避免泄漏供应商地址或凭据片段。
 func writeOAILLMError(c echo.Context, err error, rid string) error {
 	if isToolsUnsupported(err) {

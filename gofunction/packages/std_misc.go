@@ -1,3 +1,26 @@
+// 文件说明：std_misc.go — gofunction/packages 的内部实现（stdErrors、stdStrconv 等）
+//
+// 用法
+//
+//	同包调用：stdErrors() → packages.go；stdStrconv() → packages.go
+//
+// 调用架构
+//
+//	[上游] gofunction/bench, gofunction/cmd/gofunction, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/packages/std_misc.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/importer
+//	[同包] packages.go, std_encoding.go, std_fmt.go, std_http.go, std_math.go 等 7 个
+//	[关键引用] stdErrors() ← packages.go
+//
+// 主要符号
+//
+//	stdErrors() []*importer.Object
+//	stdStrconv() []*importer.Object
+
 package packages
 
 import (

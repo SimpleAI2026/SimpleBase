@@ -1,14 +1,42 @@
+// 文件说明：bootstrap.go — internal/systemdb 中 DefaultName、BootstrapInput 等符号的实现
+//
+// 用法
+//
+//	Bootstrap(ctx context.Context, in BootstrapInput) (*Store, error)  // Bootstrap 创建或打开系统 DuckLake，应用迁移，回填 sys_databases
+//	type BootstrapInput（导出类型，同包与上层均可使用）
+//	同包调用：resumeCatalogSync() → seed.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/bootstrap.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/dbbridge, godatabase, godatabase/ducklake, internal/catalog 等
+//	[同包] agent_schedules.go, agents.go, async_flush.go, cron_jobs.go, function_triggers.go 等 22 个
+//	[关键引用] resumeCatalogSync() ← seed.go
+//
+// 主要符号
+//
+//	const DefaultName
+//	type BootstrapInput struct {…}
+//	Bootstrap(ctx context.Context, in BootstrapInput) (*Store, error)
+//	... 另有 3 个顶层符号
+
 package systemdb
 
 import (
 	"context"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"go.uber.org/zap"
@@ -84,14 +112,14 @@ func Bootstrap(ctx context.Context, in BootstrapInput) (*Store, error) {
 	// seed 还要写 owner 等行，必须等 seed 结束再放行，否则 flush 与 seed 抢同一张表。
 	pauseCatalogSync(in.Factory, loc.DatabaseID)
 
-	db, err := in.Factory.Open(ctx, meta, database.ReadWrite)
+	db, err := in.Factory.Open(ctx, dbbridge.SpecOf(meta), godatabase.ReadWrite)
 	if err != nil {
 		return nil, fmt.Errorf("systemdb: open: %w", err)
 	}
 
-	if err := ApplySystemMigrations(ctx, db); err != nil {
+	if err := EnsureSystemSchema(ctx, db); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("systemdb: migrate: %w", err)
+		return nil, fmt.Errorf("systemdb: ensure schema: %w", err)
 	}
 
 	store := &Store{

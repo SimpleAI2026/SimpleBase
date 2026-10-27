@@ -23,10 +23,10 @@
         <!-- 右列：对话区（planv6.0 §3.2/§3.8）。
              高度 = 视口 - 顶栏 - 上下页面内边距（--page-pad 由 DefaultLayout 施加，
              这里必须引用同一个变量，不能写死数值）。 -->
-        <Card class="flex h-[calc(100svh-var(--header-height)-var(--page-pad)-var(--page-pad))] min-h-[520px] flex-col">
+        <Card class="flex h-[calc(100svh-var(--header-height)-var(--page-pad)-var(--page-pad))] min-h-[420px] min-w-0 flex-col sm:min-h-[520px]">
           <CardHeader class="border-b">
-            <CardTitle class="flex w-full items-center gap-3">
-              <span class="min-w-0 shrink-0 truncate">{{ activeAgent ? '@' + activeAgent.name : t('pages.agents.dialogLabel') }}</span>
+            <CardTitle class="flex w-full flex-wrap items-center gap-2 sm:gap-3">
+              <span class="max-w-40 min-w-0 shrink truncate sm:max-w-56">{{ activeAgent ? '@' + activeAgent.name : t('pages.agents.dialogLabel') }}</span>
               <Badge
                 v-if="activeAgent && activeAgent.writable === false"
                 variant="outline"
@@ -464,7 +464,14 @@ const canRetry = computed(() => {
 watch(
   () => project.id,
   () => {
+    detachRun()
     switchTargetId.value = ''
+    activeId.value = ''
+    threadId.value = ''
+    threads.value = []
+    nextCursor.value = ''
+    chatMessages.value = []
+    scheduleByAgent.value = {}
     activeRuns.value = []
     void bootstrap()
   }
@@ -744,13 +751,16 @@ async function loadModules() {
 }
 
 async function loadAgents() {
+  const projectId = project.id
   await runAgents(async () => {
     await loadModules()
-    agents.value = await api.agents.list(project.id)
-    // BUG-11：通用助手默认选中。
-    if (!activeId.value && agents.value.length) {
+    const list = await api.agents.list(projectId)
+    if (project.id !== projectId) return false
+    agents.value = list
+    // BUG-11：通用助手默认选中；切项目后旧助手 ID 不得沿用。
+    if (!agents.value.some((a) => a.id === activeId.value)) {
       const general = agents.value.find((a) => a.builtin_key === 'general')
-      activeId.value = general?.id || agents.value[0].id
+      activeId.value = general?.id || agents.value[0]?.id || ''
     }
     return agents.value.length > 0
   })

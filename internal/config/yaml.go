@@ -1,3 +1,33 @@
+// 文件说明：yaml.go — internal/config 的内部实现（yamlSecretPresence、rejectYAMLSecrets 等）
+//
+// 用法
+//
+//	type yamlSecretPresence（包内使用）
+//	type yamlConfig（包内使用）
+//	同包调用：yamlSecretPresence → config.go；rejectYAMLSecrets() → config.go；unmarshalYAML() → config.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/yaml.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backup.go, config.go, env.go, http_boundary.go
+//	[关键引用] yamlSecretPresence ← config.go
+//
+// 主要符号
+//
+//	type yamlSecretPresence struct {…}
+//	rejectYAMLSecrets(s yamlSecretPresence) error
+//	type yamlConfig struct {…}
+//	type yamlBackup struct {…}
+//	type yamlStorage struct {…}
+//	type yamlHTTP struct {…}
+//	... 另有 31 个顶层符号
+
 package config
 
 import (
@@ -50,6 +80,21 @@ type yamlConfig struct {
 	Limits         yamlLimits         `yaml:"limits"`
 	Observability  yamlObservability  `yaml:"observability"`
 	SystemDatabase yamlSystemDatabase `yaml:"system_database"`
+	Backup         yamlBackup         `yaml:"backup"`
+	Files          struct {
+		AllowedMIME []string `yaml:"allowed_mime"`
+	} `yaml:"files"`
+}
+
+type yamlBackup struct {
+	Enabled         *bool   `yaml:"enabled"`
+	Dir             *string `yaml:"dir"`
+	UploadToS3      *bool   `yaml:"upload_to_s3"`
+	Schedule        *string `yaml:"schedule"`
+	KeepLast        *int    `yaml:"keep_last"`
+	KeepDays        *int    `yaml:"keep_days"`
+	MaxPerProject   *int    `yaml:"max_per_project"`
+	SnapshotTimeout yamlDur `yaml:"snapshot_timeout"`
 }
 
 type yamlStorage struct {
@@ -59,11 +104,35 @@ type yamlStorage struct {
 }
 
 type yamlHTTP struct {
-	Address         *string `yaml:"address"`
-	ReadTimeout     yamlDur `yaml:"read_timeout"`
-	WriteTimeout    yamlDur `yaml:"write_timeout"`
-	IdleTimeout     yamlDur `yaml:"idle_timeout"`
-	ShutdownTimeout yamlDur `yaml:"shutdown_timeout"`
+	Address         *string  `yaml:"address"`
+	ReadTimeout     yamlDur  `yaml:"read_timeout"`
+	WriteTimeout    yamlDur  `yaml:"write_timeout"`
+	IdleTimeout     yamlDur  `yaml:"idle_timeout"`
+	ShutdownTimeout yamlDur  `yaml:"shutdown_timeout"`
+	Gzip            *bool    `yaml:"gzip"`
+	TrustedProxies  []string `yaml:"trusted_proxies"`
+	CORS            yamlCORS `yaml:"cors"`
+}
+
+type yamlCORS struct {
+	Enabled          *bool    `yaml:"enabled"`
+	AllowedOrigins   []string `yaml:"allowed_origins"`
+	AllowedMethods   []string `yaml:"allowed_methods"`
+	AllowedHeaders   []string `yaml:"allowed_headers"`
+	ExposedHeaders   []string `yaml:"exposed_headers"`
+	AllowCredentials *bool    `yaml:"allow_credentials"`
+	MaxAge           *int     `yaml:"max_age"`
+}
+
+type yamlRateLimit struct {
+	Enabled *bool `yaml:"enabled"`
+	Rules   []struct {
+		Match  *string `yaml:"match"`
+		Max    *int    `yaml:"max"`
+		Window yamlDur `yaml:"window"`
+	} `yaml:"rules"`
+	Burst     *int  `yaml:"burst"`
+	ExemptSSE *bool `yaml:"exempt_sse"`
 }
 
 type yamlInstance struct {
@@ -175,13 +244,17 @@ type yamlProvider struct {
 }
 
 type yamlLimits struct {
-	MaxRequestBytes      *int64  `yaml:"max_request_bytes"`
-	MaxQueryRows         *int    `yaml:"max_query_rows"`
-	QueryTimeout         yamlDur `yaml:"query_timeout"`
-	MaxConcurrentQueries *int    `yaml:"max_concurrent_queries"`
-	MaxBatchStatements   *int    `yaml:"max_batch_statements"`
-	MaxSQLBytes          *int    `yaml:"max_sql_bytes"`
-	MaxConcurrentGoRuns  *int    `yaml:"max_concurrent_go_runs"`
+	MaxRequestBytes      *int64        `yaml:"max_request_bytes"`
+	MaxQueryRows         *int          `yaml:"max_query_rows"`
+	QueryTimeout         yamlDur       `yaml:"query_timeout"`
+	MaxConcurrentQueries *int          `yaml:"max_concurrent_queries"`
+	MaxBatchStatements   *int          `yaml:"max_batch_statements"`
+	MaxSQLBytes          *int          `yaml:"max_sql_bytes"`
+	MaxConcurrentGoRuns  *int          `yaml:"max_concurrent_go_runs"`
+	MaxFilterScanRows    *int          `yaml:"max_filter_scan_rows"`
+	MaxImportBytes       *int64        `yaml:"max_import_bytes"`
+	RealtimeMaxConns     *int          `yaml:"realtime_max_conns"`
+	RateLimit            yamlRateLimit `yaml:"rate_limit"`
 }
 
 type yamlSandbox struct {
@@ -276,6 +349,25 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setDur(&cfg.HTTP.WriteTimeout, yc.HTTP.WriteTimeout)
 	setDur(&cfg.HTTP.IdleTimeout, yc.HTTP.IdleTimeout)
 	setDur(&cfg.HTTP.ShutdownTimeout, yc.HTTP.ShutdownTimeout)
+	setBool(&cfg.HTTP.Gzip, yc.HTTP.Gzip)
+	setBool(&cfg.HTTP.CORS.Enabled, yc.HTTP.CORS.Enabled)
+	setBool(&cfg.HTTP.CORS.AllowCredentials, yc.HTTP.CORS.AllowCredentials)
+	setInt(&cfg.HTTP.CORS.MaxAge, yc.HTTP.CORS.MaxAge)
+	if yc.HTTP.TrustedProxies != nil {
+		cfg.HTTP.TrustedProxies = append([]string(nil), yc.HTTP.TrustedProxies...)
+	}
+	if yc.HTTP.CORS.AllowedOrigins != nil {
+		cfg.HTTP.CORS.AllowedOrigins = append([]string(nil), yc.HTTP.CORS.AllowedOrigins...)
+	}
+	if yc.HTTP.CORS.AllowedMethods != nil {
+		cfg.HTTP.CORS.AllowedMethods = append([]string(nil), yc.HTTP.CORS.AllowedMethods...)
+	}
+	if yc.HTTP.CORS.AllowedHeaders != nil {
+		cfg.HTTP.CORS.AllowedHeaders = append([]string(nil), yc.HTTP.CORS.AllowedHeaders...)
+	}
+	if yc.HTTP.CORS.ExposedHeaders != nil {
+		cfg.HTTP.CORS.ExposedHeaders = append([]string(nil), yc.HTTP.CORS.ExposedHeaders...)
+	}
 
 	setStr(&cfg.Instance.ID, yc.Instance.ID)
 	setBool(&cfg.Instance.Writable, yc.Instance.Writable)
@@ -376,6 +468,22 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Limits.MaxBatchStatements, yc.Limits.MaxBatchStatements)
 	setInt(&cfg.Limits.MaxSQLBytes, yc.Limits.MaxSQLBytes)
 	setInt(&cfg.Limits.MaxConcurrentGoRuns, yc.Limits.MaxConcurrentGoRuns)
+	setInt(&cfg.Limits.MaxFilterScanRows, yc.Limits.MaxFilterScanRows)
+	setInt64(&cfg.Limits.MaxImportBytes, yc.Limits.MaxImportBytes)
+	setInt(&cfg.Limits.RealtimeMaxConns, yc.Limits.RealtimeMaxConns)
+	setBool(&cfg.Limits.RateLimit.Enabled, yc.Limits.RateLimit.Enabled)
+	setInt(&cfg.Limits.RateLimit.Burst, yc.Limits.RateLimit.Burst)
+	setBool(&cfg.Limits.RateLimit.ExemptSSE, yc.Limits.RateLimit.ExemptSSE)
+	if yc.Limits.RateLimit.Rules != nil {
+		cfg.Limits.RateLimit.Rules = make([]RateLimitRule, 0, len(yc.Limits.RateLimit.Rules))
+		for _, rule := range yc.Limits.RateLimit.Rules {
+			item := RateLimitRule{Max: 0, Window: 0}
+			setStr(&item.Match, rule.Match)
+			setInt(&item.Max, rule.Max)
+			setDur(&item.Window, rule.Window)
+			cfg.Limits.RateLimit.Rules = append(cfg.Limits.RateLimit.Rules, item)
+		}
+	}
 
 	setBool(&cfg.Sandbox.Enabled, yc.Sandbox.Enabled)
 	setStr(&cfg.Sandbox.Image, yc.Sandbox.Image)
@@ -413,6 +521,17 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setDur(&cfg.SystemDatabase.MetricsFlushInterval, yc.SystemDatabase.MetricsFlushInterval)
 	setDur(&cfg.SystemDatabase.LogFlushInterval, yc.SystemDatabase.LogFlushInterval)
 	setInt(&cfg.SystemDatabase.LogKeepDays, yc.SystemDatabase.LogKeepDays)
+	setBool(&cfg.Backup.Enabled, yc.Backup.Enabled)
+	setStr(&cfg.Backup.Dir, yc.Backup.Dir)
+	setBool(&cfg.Backup.UploadToS3, yc.Backup.UploadToS3)
+	setStr(&cfg.Backup.Schedule, yc.Backup.Schedule)
+	setInt(&cfg.Backup.KeepLast, yc.Backup.KeepLast)
+	setInt(&cfg.Backup.KeepDays, yc.Backup.KeepDays)
+	setInt(&cfg.Backup.MaxPerProject, yc.Backup.MaxPerProject)
+	setDur(&cfg.Backup.SnapshotTimeout, yc.Backup.SnapshotTimeout)
+	if yc.Files.AllowedMIME != nil {
+		cfg.Files.AllowedMIME = append([]string(nil), yc.Files.AllowedMIME...)
+	}
 
 	return secrets, nil
 }

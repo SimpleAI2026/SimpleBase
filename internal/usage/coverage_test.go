@@ -25,10 +25,14 @@ func (s *stubRepo) CreateTenant(context.Context, catalog.Tenant) error { return 
 func (s *stubRepo) CreateProject(context.Context, catalog.Project) error {
 	return nil
 }
+func (s *stubRepo) GetProject(context.Context, string) (catalog.Project, error) {
+	return catalog.Project{}, catalog.ErrNotFound
+}
 func (s *stubRepo) ListProjectsByTenant(context.Context, string) ([]catalog.Project, error) {
 	return nil, nil
 }
-func (s *stubRepo) CreateDatabase(context.Context, catalog.Database) error { return nil }
+func (s *stubRepo) HasDefaultDatabase(context.Context, string) (bool, error) { return false, nil }
+func (s *stubRepo) CreateDatabase(context.Context, catalog.Database) error   { return nil }
 func (s *stubRepo) GetDatabase(context.Context, string, string) (catalog.Database, error) {
 	return catalog.Database{}, nil
 }

@@ -1,24 +1,43 @@
-// async_flush.go 实现 §7.2 P3：请求路径永不 flush、后台批量写、指标预聚合。
+// 文件说明：async_flush.go — §7.2 P3：请求路径永不 flush、后台批量写、指标预聚合
 //
-// 改造前：Record* 缓冲到 64 条时由当前请求 goroutine 同步逐条 INSERT
-// （每条一个事务），长尾 max 300–560ms 且独占系统库单连接。
-// 改造后：
-//   - Record* 只入队并非阻塞通知后台 flusher（O(1) 请求路径）；
-//   - flusher 单事务批量 INSERT（64 行 1 事务），notifyWrite 每批 1 次；
-//   - 指标按 (project, name) 在内存聚合 count/sum/max，flush 周期落盘
-//     聚合行，写入量约降 2 个量级；查询口径（Summary/Trend）仍读
-//     sys_metric_samples 的 SUM(value_double)，与单样本行兼容。
+// 用法
+//
+//	type asyncFlusher（包内使用）
+//	type execer（包内使用）
+//	同包调用：start() → agents.go, logs.go 等；notify() → logs.go, store.go；flushQueueCap → logs.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/async_flush.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/ducklake
+//	[同包] agent_schedules.go, agents.go, bootstrap.go, cron_jobs.go, function_triggers.go 等 22 个
+//	[关键引用] start() ← agents.go, logs.go, maintenance.go
+//
+// 主要符号
+//
+//	const flushQueueCap
+//	type asyncFlusher struct {…}
+//	newAsyncFlusher(flushAll func(ctx context.Context) error) *asyncFlusher
+//	(f *asyncFlusher) start() (stop func(ctx context.Context))
+//	(f *asyncFlusher) notify()
+//	(s *Store) drainLogs() []LogEvent
+//	... 另有 11 个顶层符号
+
 package systemdb
 
 import (
 	"context"
 	"database/sql"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 )
 
 // flushQueueCap 是日志/指标缓冲的硬上限；超出即丢弃并计数（请求路径 O(1)）。
@@ -28,9 +47,6 @@ const flushQueueCap = 10000
 // 信号通道容量 1：入队方非阻塞通知；flusher 空闲时立即处理，忙碌时合并。
 type asyncFlusher struct {
 	signal   chan struct{}
-	dropped  int64 // 丢弃计数（诊断用；无锁读近似值）
-	mu       sync.Mutex
-	closed   bool
 	flushAll func(ctx context.Context) error
 }
 

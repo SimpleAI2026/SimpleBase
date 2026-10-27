@@ -11,7 +11,7 @@
         @keydown.enter="emit('reload')"
       />
       <Select :model-value="typeFilter" @update:model-value="(v: string) => emit('update:typeFilter', v)">
-        <SelectTrigger class="w-32 shrink-0"><SelectValue :placeholder="t('components.kvPanel.typePlaceholder')" /></SelectTrigger>
+        <SelectTrigger class="w-28 shrink-0 sm:w-32"><SelectValue :placeholder="t('components.kvPanel.typePlaceholder')" /></SelectTrigger>
         <SelectContent>
           <SelectItem value="all">{{ t('components.kvPanel.typeAll') }}</SelectItem>
           <SelectItem value="string">string</SelectItem>

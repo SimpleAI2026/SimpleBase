@@ -14,15 +14,10 @@
       content-class="max-h-[min(calc(100vh-14rem),720px)] overflow-y-auto px-1 -mx-1 pt-4"
       @update:model-value="onTab"
     >
-      <template #connection>
-        <ConnectionPanel />
-      </template>
-      <template #models>
-        <ModelDefaultsPanel />
-      </template>
-      <template #storage>
-        <StoragePanel />
-      </template>
+      <template #connection><ConnectionPanel /></template>
+      <template #models><ModelDefaultsPanel /></template>
+      <template #storage><StoragePanel /></template>
+      <template #backups><BackupPanel /></template>
     </SbTabsPanel>
   </SbModal>
 </template>
@@ -35,27 +30,24 @@ import SbTabsPanel, { type SbTabsPanelItem } from './SbTabsPanel.vue'
 import ConnectionPanel from './settings/ConnectionPanel.vue'
 import ModelDefaultsPanel from './settings/ModelDefaultsPanel.vue'
 import StoragePanel from './settings/StoragePanel.vue'
+import BackupPanel from './settings/BackupPanel.vue'
 import { useAuthStore, type SettingsTab } from '../stores/auth'
 
 const auth = useAuthStore()
 const { t } = useI18n()
-
-/** 页签顺序即展示顺序；value 与 SettingsTab 联合类型逐项对应。 */
 const TAB_KEYS: { value: SettingsTab; labelKey: string }[] = [
   { value: 'connection', labelKey: 'components.settingsModal.tabConnection' },
   { value: 'models', labelKey: 'components.settingsModal.tabModels' },
-  { value: 'storage', labelKey: 'components.settingsModal.tabStorage' }
+  { value: 'storage', labelKey: 'components.settingsModal.tabStorage' },
+  { value: 'backups', labelKey: 'components.settingsModal.tabBackups' }
 ]
-
 const tabItems = computed<SbTabsPanelItem[]>(() =>
   TAB_KEYS.map((item) => ({ value: item.value, label: t(item.labelKey) }))
 )
-
 function onOpen(v: boolean) {
   if (v) auth.openSettings()
   else auth.closeSettings()
 }
-
 function onTab(v: string | number) {
   const tab = String(v)
   const hit = TAB_KEYS.find((item) => item.value === tab)

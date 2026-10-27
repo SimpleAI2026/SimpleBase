@@ -1,30 +1,59 @@
+// 文件说明：command.go — internal/agentbridge 中 CommandPolicy、NewCommandPolicy 等符号的实现
+//
+// 用法
+//
+//	NewCommandPolicy() CommandPolicy
+//	DestructiveArgv(argv []string, stdin string) bool  // DestructiveArgv 判断是否破坏性命令（planv6.0 D3）
+//	ArgvFlag(argv []string, name string) (string, bool)  // ArgvFlag 读取 --name value / --name=value
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/command.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gocloudagent, godatabase/sqlguard, internal/sbcli, internal/utils/mask
+//	[同包] cli.go, cron_agent.go, delegation.go, errors.go, principal.go 等 6 个
+//
+// 主要符号
+//
+//	type CommandPolicy struct {…}
+//	NewCommandPolicy() CommandPolicy
+//	DestructiveArgv(argv []string, stdin string) bool
+//	ArgvFlag(argv []string, name string) (string, bool)
+//	SQLDestructive(stmt string) bool
+//	RedactArgv(argv []string) []string
+//	... 另有 3 个顶层符号
+
 package agentbridge
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/linkxzhou/SimpleBase/cloudagent"
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/sbcli"
 	"github.com/linkxzhou/SimpleBase/internal/utils/mask"
 )
 
 // CommandPolicy 是宿主命令语义的实现：只读判定来自 sbcli，SQL 语义来自
-// database/sqlguard，展示脱敏沿用 planv6.0 §3.5 的规则。
+// godatabase/sqlguard，展示脱敏沿用 planv6.0 §3.5 的规则。
 //
-// cloudagent 侧只持有接口，不复制规则；策略缺失或出错时调用方必须拒绝执行。
+// gocloudagent 侧只持有接口，不复制规则；策略缺失或出错时调用方必须拒绝执行。
 type CommandPolicy struct{}
 
 // NewCommandPolicy 返回默认策略。无状态，可重复构造。
 func NewCommandPolicy() CommandPolicy { return CommandPolicy{} }
 
 // Classify 给出一条 simplebase 命令的安全分类。
-func (CommandPolicy) Classify(argv []string, stdin string) (cloudagent.CommandDecision, error) {
+func (CommandPolicy) Classify(argv []string, stdin string) (gocloudagent.CommandDecision, error) {
 	if len(argv) == 0 {
-		return cloudagent.CommandDecision{}, fmt.Errorf("empty argv")
+		return gocloudagent.CommandDecision{}, fmt.Errorf("empty argv")
 	}
-	return cloudagent.CommandDecision{
+	return gocloudagent.CommandDecision{
 		ReadOnly:    sbcli.CommandReadOnlyWithArgv(argv),
 		Destructive: DestructiveArgv(argv, stdin),
 	}, nil
@@ -126,12 +155,6 @@ func SQLDestructive(stmt string) bool {
 	return false
 }
 
-// sensitiveKeyPattern 匹配敏感 flag 名（planv6.0 §3.5：值替换 ***）。
-// 规则与 sbcli 的字段名脱敏共用 internal/utils/mask，避免两份正则漂移。
-func sensitiveFlag(name string) bool {
-	return mask.IsSensitiveKey(name)
-}
-
 // RedactArgv 生成确认事件里的脱敏 argv（planv6.0 §3.5）：
 //   - --statement 只保留首关键字 + 前 200 字符（防确认框泄漏大段 SQL/数据）；
 //   - kv exec 的 --arg 除第一个（key）以外全部替换 ***；
@@ -176,7 +199,7 @@ func RedactArgv(argv []string) []string {
 					out[valueIdx] = "***"
 				}
 			}
-		case sensitiveFlag(name):
+		case mask.IsSensitiveKey(name):
 			if inlineValue != nil {
 				out[i] = "--" + name + "=***"
 			} else if valueIdx >= 0 {
@@ -213,12 +236,8 @@ func RedactStatement(stmt string) string {
 	if len(stmt) <= 200 {
 		return stmt
 	}
-	kw := sqlguard.FirstKeyword(stmt)
-	head := stmt
-	if len(head) > 200 {
-		head = head[:200] + "..."
-	}
-	if kw != "" && strings.HasPrefix(stmt, kw+" ") {
+	head := stmt[:200] + "..."
+	if kw := sqlguard.FirstKeyword(stmt); kw != "" && strings.HasPrefix(stmt, kw+" ") {
 		return kw + " " + head[len(kw)+1:]
 	}
 	return head

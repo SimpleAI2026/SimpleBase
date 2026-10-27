@@ -1,5 +1,30 @@
 //go:build linux
 
+// 文件说明：start_linux.go — gosandbox/host 中 Start 等符号的实现
+//
+// 用法
+//
+//	Start(ctx context.Context, p Policy, spec StartSpec) (Proc, error)  // Start 在沙盒里启动一个进程并保持句柄
+//	type ptyWriter（包内使用）
+//	同包调用：ptmx → pty_darwin.go, pty_linux.go 等；Close() → pty_darwin.go, pty_linux.go 等；stdin → bwrap_args.go, pty_linux.go 等
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/start_linux.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 14 个
+//	[关键引用] ptmx ← pty_darwin.go, pty_linux.go, seatbelt.go
+//
+// 主要符号
+//
+//	Start(ctx context.Context, p Policy, spec StartSpec) (Proc, error)
+//	... 另有 10 个顶层符号
+
 package host
 
 import (

@@ -1,13 +1,39 @@
-// kv_handler.go 实现项目级 Key-Value 单端点（key-value-ducklake-plan §3）。
+// 文件说明：kv_handler.go — 项目级 Key-Value 单端点（key-value-ducklake-plan §3）
 //
-// 唯一路由：POST /v1/projects/:projectID/kv
-// 请求体两种形态：
-//   - {"type":"cmd","argvs":[...]}           Redis 语义命令（读写删扫过期自增）
-//   - {"type":"String|Hash|List|Set|ZSet","args":{...}}  按类型写入一份数据
+// 用法
 //
-// 项目 KV 是 catalog 里一行 kind=kv 的内部记录（建项目时创建）；不存在时
-// 尝试补建一次，系统项目直接 404。写命令在只读实例返回 503。
-// 成功响应 body 是这条命令的 Redis 回复编码成 JSON，不再包一层 {result:...}。
+//	NewKVHandler(svc KVService, writable bool) *KVHandler
+//	(h *KVHandler) Execute(c echo.Context) error  // Execute: POST /v1/projects/:projectID/kv
+//	同包调用：Error() → agent_handler.go, agent_schedule_handler.go 等；Execute() → adapter.go, collection_meta_handler.go 等；KVService → kv_init.go, projects_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/kv_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, godatabase/kv, internal/auth, internal/catalog
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Error() ← agent_handler.go, agent_schedule_handler.go, api_keys_handler.go
+//
+// 主要符号
+//
+//	type KVService interface {…}
+//	type KVHandler struct {…}
+//	NewKVHandler(svc KVService, writable bool) *KVHandler
+//	(h *KVHandler) Execute(c echo.Context) error
+//	... 另有 17 个顶层符号
+//	kv_handler.go 实现项目级 Key-Value 单端点（key-value-ducklake-plan §3）。
+//	唯一路由：POST /v1/projects/:projectID/kv
+//	请求体两种形态：
+//	-
+//	-
+//	项目 KV 是 catalog 里一行 kind=kv 的内部记录（建项目时创建）；不存在时
+//	尝试补建一次，系统项目直接 404。写命令在只读实例返回 503。
+//	成功响应 body 是这条命令的 Redis 回复编码成 JSON，不再包一层 {result:...}。
+
 package api
 
 import (
@@ -19,10 +45,10 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/kv"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/kv"
 )
 
 // KVService 抽象 KV handler 所需的 catalog + registry 能力（项目级）。
@@ -32,7 +58,7 @@ type KVService interface {
 	// CreateKVDatabase 补建项目 KV catalog 行（幂等）。
 	CreateKVDatabase(ctx context.Context, tenantID, projectID string) (catalog.Database, error)
 	// Acquire 获取 KV catalog 的访问租约。
-	Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error)
+	Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, error)
 }
 
 // KVHandler 实现项目级 KV 单端点。
@@ -56,7 +82,7 @@ func (l *kvLease) release() { l.lease.Release() }
 
 // acquireStore 前置流程：项目上下文 → 系统项目 404 → 取/补建 kind=kv 行 →
 // 写路径 writable 检查 → Acquire → 构造 kv.Store。
-func (h *KVHandler) acquireStore(c echo.Context, mode database.AccessMode) (*kvLease, error) {
+func (h *KVHandler) acquireStore(c echo.Context, mode godatabase.AccessMode) (*kvLease, error) {
 	if _, ok := PrincipalFromContext(c.Request().Context()); !ok {
 		return nil, auth.ErrMissingCredentials
 	}
@@ -82,8 +108,8 @@ func (h *KVHandler) acquireStore(c echo.Context, mode database.AccessMode) (*kvL
 			return nil, err
 		}
 	}
-	if mode == database.ReadWrite && !h.writable {
-		return nil, database.ErrWriterUnavailable
+	if mode == godatabase.ReadWrite && !h.writable {
+		return nil, godatabase.ErrWriterUnavailable
 	}
 	lease, err := h.svc.Acquire(ctx, db, mode)
 	if err != nil {
@@ -140,7 +166,7 @@ func (h *KVHandler) execTyped(c echo.Context, typ string, args *kvTypedArgs) err
 	if !principal.HasPermission(auth.DatabaseWrite) {
 		return WriteError(c, auth.ErrForbidden)
 	}
-	mode := database.ReadWrite
+	mode := godatabase.ReadWrite
 	l, err := h.acquireStore(c, mode)
 	if err != nil {
 		return WriteError(c, err)
@@ -281,7 +307,7 @@ func (h *KVHandler) execCmd(c echo.Context, argvs []string) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	mode := database.ReadOnly
+	mode := godatabase.ReadOnly
 	if spec.writable {
 		principal, ok := PrincipalFromContext(c.Request().Context())
 		if !ok {
@@ -290,7 +316,7 @@ func (h *KVHandler) execCmd(c echo.Context, argvs []string) error {
 		if !principal.HasPermission(auth.DatabaseWrite) {
 			return WriteError(c, auth.ErrForbidden)
 		}
-		mode = database.ReadWrite
+		mode = godatabase.ReadWrite
 	}
 	l, err := h.acquireStore(c, mode)
 	if err != nil {
@@ -300,7 +326,7 @@ func (h *KVHandler) execCmd(c echo.Context, argvs []string) error {
 	ctx := c.Request().Context()
 
 	// 读命令：无 schema 视为空库（不建表）；写命令由 Update 惰性建表。
-	if mode == database.ReadOnly {
+	if mode == godatabase.ReadOnly {
 		has, herr := l.store.HasSchema(ctx)
 		if herr != nil {
 			return WriteError(c, herr)

@@ -2,6 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetApiMocks } from '@/test/api-mock'
 import { mountWithApp } from '@/test/helpers'
+import { clearTokens, setTokens } from '@/services/http'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -32,6 +33,34 @@ import { useAuthStore } from '@/stores/auth'
 describe('DefaultLayout', () => {
   beforeEach(() => {
     resetApiMocks()
+    setTokens('a', 'r')
+  })
+
+  it('does not mount project data or pages before authentication', async () => {
+    clearTokens()
+    const { wrapper, pinia } = await mountWithApp(DefaultLayout, { path: '/' })
+    expect(wrapper.find('.switcher').exists()).toBe(false)
+    expect(wrapper.find('.nav-stub').exists()).toBe(true)
+    expect(wrapper.find('.settings-modal').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('dash')
+
+    useAuthStore(pinia).applyTokens({
+      accessToken: 'a',
+      refreshToken: 'r',
+      user: {
+        id: 'u1',
+        username: 'root',
+        role: 'superadminl1',
+        displayName: 'root',
+        email: '',
+        status: 'active',
+        mustChangePassword: false
+      }
+    })
+    await flushPromises()
+    expect(wrapper.find('.switcher').exists()).toBe(true)
+    expect(wrapper.find('.nav-stub').exists()).toBe(true)
+    expect(wrapper.text()).toContain('dash')
   })
 
   it('shows the route title, mock badge, and opens settings', async () => {
@@ -47,11 +76,18 @@ describe('DefaultLayout', () => {
     // 按无障碍标签定位，避免按钮增删（语言下拉）影响位置断言
     await wrapper.get('button[aria-label="设置"]').trigger('click')
     expect(auth.settingsOpen).toBe(true)
+    await wrapper.get('button[aria-label="刷新页面"]').trigger('click')
+    expect(reload).toHaveBeenCalled()
     auth.markUnauthorized()
     await flushPromises()
     expect(auth.settingsTab).toBe('connection')
-    await wrapper.get('button[aria-label="刷新页面"]').trigger('click')
-    expect(reload).toHaveBeenCalled()
+    expect(wrapper.find('.switcher').exists()).toBe(false)
+  })
+
+  it('provides a mobile navigation trigger in the header', async () => {
+    const { wrapper } = await mountWithApp(DefaultLayout, { path: '/' })
+    const trigger = wrapper.get('header button[aria-label="打开导航"]')
+    expect(trigger.classes()).toContain('md:hidden')
   })
 
   it('opens settings from the settings query deep-link', async () => {

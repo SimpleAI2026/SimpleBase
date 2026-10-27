@@ -1,3 +1,33 @@
+// 文件说明：agent_handler.go — internal/api 的内部实现（cloudAgentHandler、sandboxAvailable 等）
+//
+// 用法
+//
+//	type cloudAgentHandler（包内使用）
+//	type agentDTO（包内使用）
+//	同包调用：cloudAgentHandler → router.go, run_events.go；CancelRun() → router.go, run_events.go；ListModules() → router.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gocloudagent, godatabase, internal/agentbridge, internal/auth 等
+//	[同包] adapter.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go, auth_handler.go 等 59 个
+//	[关键引用] cloudAgentHandler ← router.go, run_events.go
+//
+// 主要符号
+//
+//	type cloudAgentHandler struct {…}
+//	(h *cloudAgentHandler) sandboxAvailable() bool
+//	type agentDTO struct {…}
+//	type threadDTO struct {…}
+//	type messageDTO struct {…}
+//	type runDTO struct {…}
+//	... 另有 38 个顶层符号
+
 package api
 
 import (
@@ -14,17 +44,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
 )
 
 type cloudAgentHandler struct {
 	store    *systemdb.Store
-	runtime  *cloudagent.Runtime
+	runtime  *gocloudagent.Runtime
 	usage    UsageService
 	audit    AuditService
 	writable *bool
@@ -135,12 +165,12 @@ func (h *cloudAgentHandler) ensureAgents(ctx context.Context, projectID string) 
 }
 
 func (h *cloudAgentHandler) ListModules(c echo.Context) error {
-	modules := cloudagent.Modules(h.sandboxAvailable())
+	modules := gocloudagent.Modules(h.sandboxAvailable())
 	if h.runtime == nil || !h.runtime.SkillsCLI {
 		available := modules[:0]
 		for _, module := range modules {
 			switch module.ID {
-			case cloudagent.ModuleKV, cloudagent.ModuleGoFunction, cloudagent.ModuleCron:
+			case gocloudagent.ModuleKV, gocloudagent.ModuleGoFunction, gocloudagent.ModuleCron:
 				continue
 			}
 			available = append(available, module)
@@ -185,7 +215,7 @@ type upsertAgentBody struct {
 
 func (h *cloudAgentHandler) denyReadonly(c echo.Context) error {
 	if h.writable != nil && !*h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	return nil
 }
@@ -292,15 +322,15 @@ func (h *cloudAgentHandler) normalizeAgent(projectID string, body upsertAgentBod
 	if body.Writable != nil && *body.Writable && !h.canWritePrincipal(p) {
 		return systemdb.CloudAgent{}, errors.New("write permission required to enable agent writes")
 	}
-	if (a.Module == cloudagent.ModuleKV || a.Module == cloudagent.ModuleGoFunction || a.Module == cloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
+	if (a.Module == gocloudagent.ModuleKV || a.Module == gocloudagent.ModuleGoFunction || a.Module == gocloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
 		return systemdb.CloudAgent{}, errors.New("this module requires CLI skills")
 	}
 	if !h.sandboxAvailable() {
-		if strings.EqualFold(a.Module, cloudagent.ModuleSandbox) {
+		if strings.EqualFold(a.Module, gocloudagent.ModuleSandbox) {
 			return systemdb.CloudAgent{}, errors.New("sandbox is not enabled; sandbox module is unavailable")
 		}
 		for _, id := range a.ToolIDs {
-			if cloudagent.IsSandboxTool(id) {
+			if gocloudagent.IsSandboxTool(id) {
 				return systemdb.CloudAgent{}, errors.New("sandbox is not enabled; sandbox tools are unavailable")
 			}
 		}
@@ -339,17 +369,17 @@ func normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAg
 		return systemdb.CloudAgent{}, errors.New("name is required")
 	}
 	if a.Module == "" {
-		a.Module = cloudagent.ModuleGeneral
+		a.Module = gocloudagent.ModuleGeneral
 	}
-	if !cloudagent.KnownModule(a.Module) {
+	if !gocloudagent.KnownModule(a.Module) {
 		return systemdb.CloudAgent{}, errors.New("unknown module")
 	}
 	if a.ToolIDs == nil {
-		a.ToolIDs = cloudagent.DefaultToolsForModule(a.Module)
+		a.ToolIDs = gocloudagent.DefaultToolsForModule(a.Module)
 	}
 	filtered := make([]string, 0, len(a.ToolIDs))
 	for _, id := range a.ToolIDs {
-		if cloudagent.KnownTool(id) {
+		if gocloudagent.KnownTool(id) {
 			filtered = append(filtered, id)
 		}
 	}
@@ -397,7 +427,7 @@ func (h *cloudAgentHandler) PatchThread(c echo.Context) error {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
 	}
 	if h.writable != nil && !*h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	var body struct {
 		Title string `json:"title"`
@@ -636,14 +666,14 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	if thread.AgentID != "" && thread.AgentID != agent.ID {
 		return WriteError(c, NewAPIError(http.StatusConflict, "agent_switch_required", "switch to the mentioned agent before sending", RequestIDFromContext(c.Request().Context())))
 	}
-	if (agent.Module == cloudagent.ModuleKV || agent.Module == cloudagent.ModuleGoFunction || agent.Module == cloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
+	if (agent.Module == gocloudagent.ModuleKV || agent.Module == gocloudagent.ModuleGoFunction || agent.Module == gocloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
 		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "cli_skills_unavailable", "this agent requires CLI skills", RequestIDFromContext(c.Request().Context())))
 	}
-	if agent.Module == cloudagent.ModuleSandbox && !h.sandboxAvailable() {
+	if agent.Module == gocloudagent.ModuleSandbox && !h.sandboxAvailable() {
 		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "sandbox_unavailable", "sandbox is unavailable", RequestIDFromContext(c.Request().Context())))
 	}
 	// 技能由助手所属 module 决定（`@` 只点名助手，不能点名技能）。
-	skills := cloudagent.SkillsForModule(agent.Module)
+	skills := gocloudagent.SkillsForModule(agent.Module)
 	// 重试校验（BUG-03）：目标 run 必须属于本 thread、状态 failed/canceled、且是 thread 最新一次 run。
 	var retryUser systemdb.AgentMessage
 	if body.RetryOfRunID != "" {
@@ -681,10 +711,10 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	}
 	if h.runtime == nil || h.runtime.LLM == nil {
 		if !body.Stream {
-			return WriteError(c, &cloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
+			return WriteError(c, &gocloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
 		}
 		// SSE 消费端仍收到规范的 error → end 帧；不持久化用户正文。
-		return h.streamRun(c, pc.ID, systemdb.AgentRun{ID: uuid.NewString()}, agent, cloudagent.RunRequest{})
+		return h.streamRun(c, pc.ID, systemdb.AgentRun{ID: uuid.NewString()}, agent, gocloudagent.RunRequest{})
 	}
 	if h.usage != nil {
 		if err := h.usage.CheckQuota(c.Request().Context(), pc.ID, "llm"); err != nil {
@@ -746,9 +776,9 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	}
 	hist = filtered
 
-	// 身份与历史消息在边界转换成模块 DTO：cloudagent 是独立模块，
+	// 身份与历史消息在边界转换成模块 DTO：gocloudagent 是独立模块，
 	// 只认识自己的无密钥类型（见 internal/agentbridge）。
-	req := cloudagent.RunRequest{
+	req := gocloudagent.RunRequest{
 		ProjectID: pc.ID, Principal: agentbridge.ToModulePrincipal(principal), Agent: agentbridge.Agent(agent),
 		ThreadID: threadID, RunID: run.ID, UserText: body.Content, History: agentbridge.Messages(hist), Stream: body.Stream,
 		Skills: skills,
@@ -760,7 +790,7 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	return h.completeRun(c, pc.ID, run, agent, req)
 }
 
-func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, res cloudagent.RunResult, runErr error) error {
+func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, res gocloudagent.RunResult, runErr error) error {
 	status, code := systemdb.AgentRunCompleted, ""
 	if runErr != nil {
 		status = systemdb.AgentRunFailed
@@ -798,10 +828,10 @@ func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string
 	return nil
 }
 
-func (h *cloudAgentHandler) completeRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req cloudagent.RunRequest) error {
+func (h *cloudAgentHandler) completeRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req gocloudagent.RunRequest) error {
 	if h.runtime == nil {
 		_ = h.failRun(c.Request().Context(), projectID, run.ID, "llm_not_configured")
-		return WriteError(c, &cloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
+		return WriteError(c, &gocloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
 	}
 	res, runErr := h.runtime.StartRun(c.Request().Context(), req, nil)
 	if err := h.finishAgentRun(context.Background(), projectID, run, agent, res, runErr); err != nil {
@@ -828,7 +858,7 @@ func (h *cloudAgentHandler) completeRun(c echo.Context, projectID string, run sy
 	return c.JSON(http.StatusOK, map[string]any{"run": toRunDTO(row), "message": asst, "agent_id": agent.ID})
 }
 
-func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req cloudagent.RunRequest) error {
+func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req gocloudagent.RunRequest) error {
 	// planv6.0 v2 §11：先解除 WriteTimeout，否则 run 会在 write_timeout
 	// （默认 30s）到点时被服务端切断，context 取消 → reason=canceled、无输出。
 	beginSSE(c)
@@ -843,7 +873,7 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 	// RACE-01：事件 ID 分配、事件缓存写入与 SSE 输出必须在同一把锁内完成；
 	// StartRun 回调与 thinking/heartbeat goroutine 会并发调用 write/writeBytes。
 	var seq int64
-	write := func(ev cloudagent.Event) {
+	write := func(ev gocloudagent.Event) {
 		if ev.RunID == "" {
 			ev.RunID = run.ID
 		}
@@ -870,10 +900,10 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 			flusher.Flush()
 		}
 	}
-	write(cloudagent.Event{Type: "run", RunID: run.ID})
+	write(gocloudagent.Event{Type: "run", RunID: run.ID})
 	if h.runtime == nil || h.runtime.LLM == nil {
-		write(cloudagent.Event{Type: "error", Code: "llm_not_configured", Message: "模型服务未配置"})
-		write(cloudagent.Event{Type: "end"})
+		write(gocloudagent.Event{Type: "error", Code: "llm_not_configured", Message: "模型服务未配置"})
+		write(gocloudagent.Event{Type: "end"})
 		return nil
 	}
 	// RACE-01：后台 goroutine 必须在 streamRun 返回前退出（stopWorkers 内 wg.Wait），
@@ -926,9 +956,9 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 				}
 				mu.Unlock()
 				if activeID != "" {
-					write(cloudagent.Event{Type: "tool_progress", CallID: activeID, ElapsedMS: time.Since(activeSince).Milliseconds()})
+					write(gocloudagent.Event{Type: "tool_progress", CallID: activeID, ElapsedMS: time.Since(activeSince).Milliseconds()})
 				} else if idle >= 2*time.Second {
-					write(cloudagent.Event{Type: "thinking", ElapsedMS: time.Since(started).Milliseconds()})
+					write(gocloudagent.Event{Type: "thinking", ElapsedMS: time.Since(started).Milliseconds()})
 				}
 			}
 		}
@@ -937,7 +967,7 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 	// 事件照常写入 h.events 供 ReplayEvents 续接；真正取消只走 CancelRun
 	// （runtime 内部登记的 cancel）或 RunTimeout。保留 context 中的身份等值。
 	runBase := context.WithoutCancel(c.Request().Context())
-	res, runErr := h.runtime.StartRun(runBase, req, func(ev cloudagent.Event) {
+	res, runErr := h.runtime.StartRun(runBase, req, func(ev gocloudagent.Event) {
 		switch ev.Type {
 		case "token", "tool_call", "tool_call_delta", "tool_start", "tool_result", "confirmation_required", "confirmation_resolved":
 			mu.Lock()
@@ -954,20 +984,20 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 	// 正常路径：StartRun 返回后先停后台 goroutine，再写收尾事件。
 	stopWorkers()
 	if err := h.finishAgentRun(context.Background(), projectID, run, agent, res, runErr); err != nil {
-		write(cloudagent.Event{Type: "error", Code: "llm_upstream_error", Message: "保存运行结果失败"})
-		write(cloudagent.Event{Type: "end"})
+		write(gocloudagent.Event{Type: "error", Code: "llm_upstream_error", Message: "保存运行结果失败"})
+		write(gocloudagent.Event{Type: "end"})
 		return nil
 	}
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
 		re := agentbridge.ClassifyError(runErr)
-		write(cloudagent.Event{Type: "error", Code: re.Code, Message: re.Message})
+		write(gocloudagent.Event{Type: "error", Code: re.Code, Message: re.Message})
 	}
-	write(cloudagent.Event{Type: "usage", DurationMS: res.DurationMS, PromptTokens: res.PromptTokens,
+	write(gocloudagent.Event{Type: "usage", DurationMS: res.DurationMS, PromptTokens: res.PromptTokens,
 		CompletionTokens: res.CompletionTokens, ReasoningTokens: res.ReasoningTokens, ToolCalls: res.ToolCalls})
 	if errors.Is(runErr, context.Canceled) {
 		res.Reason = "canceled"
 	}
-	write(cloudagent.Event{Type: "end", Reason: res.Reason})
+	write(gocloudagent.Event{Type: "end", Reason: res.Reason})
 	return nil
 }
 
@@ -1008,7 +1038,7 @@ func (h *cloudAgentHandler) CancelRun(c echo.Context) error {
 }
 
 // principalIdentity 生成发起人标识（planv6.0 D5）：登录态为 UserID，
-// API Key 为 "apikey:<id>"。与 cloudagent 包的判定保持一致。
+// API Key 为 "apikey:<id>"。与 gocloudagent 包的判定保持一致。
 func principalIdentity(p auth.Principal) string {
 	if p.UserID != "" {
 		return p.UserID
@@ -1044,11 +1074,11 @@ func (h *cloudAgentHandler) resolveMentionedAgent(ctx context.Context, projectID
 		return systemdb.CloudAgent{}, err
 	}
 	for _, agent := range list {
-		if agent.BuiltinKey == cloudagent.ModuleGeneral {
+		if agent.BuiltinKey == gocloudagent.ModuleGeneral {
 			return agent, nil
 		}
 	}
-	return systemdb.CloudAgent{}, &cloudagent.RunError{Code: "agent_required", Message: "请先选择一个 Agent"}
+	return systemdb.CloudAgent{}, &gocloudagent.RunError{Code: "agent_required", Message: "请先选择一个 Agent"}
 }
 
 // canWritePrincipal 判断主体是否可执行破坏性 run 操作（SEC-04）：

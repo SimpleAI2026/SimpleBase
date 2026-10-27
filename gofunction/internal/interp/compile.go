@@ -1,3 +1,33 @@
+// 文件说明：compile.go — gofunction/internal/interp 的内部实现（instrStep、compiledBlock 等）
+//
+// 用法
+//
+//	type instrStep（包内使用）
+//	type compiledBlock（包内使用）
+//	同包调用：compileProgram() → layout.go, program.go；runFrameCompiled() → call.go；compiledBlock → program.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/compile.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] call.go, eval.go, executor.go, frame.go, gofunction.go 等 13 个
+//	[关键引用] compileProgram() ← layout.go, program.go
+//
+// 主要符号
+//
+//	type instrStep func(fr *frame) step
+//	type compiledBlock struct {…}
+//	compileBlock(b *ssa.BasicBlock) *compiledBlock
+//	compileInstr(instr ssa.Instruction) instrStep
+//	compilePhi(instr *ssa.Phi) instrStep
+//	compileProgram(p *Program)
+//	... 另有 2 个顶层符号
+
 package interp
 
 import (

@@ -16,6 +16,15 @@ export interface HttpClient {
       headers?: Record<string, string>
     }
   ): Promise<T>
+  requestRaw(
+    method: HttpMethod,
+    path: string,
+    opts?: {
+      query?: Record<string, string | number | boolean | undefined | null>
+      body?: BodyInit
+      headers?: Record<string, string>
+    }
+  ): Promise<Response>
 }
 
 function joinUrl(base: string, path: string): string {
@@ -99,6 +108,34 @@ export function createHttpClient(opts: CreateClientOptions): HttpClient {
         return undefined as T
       }
       return parsed as T
+    },
+    async requestRaw(method, path, req = {}) {
+      const url = joinUrl(baseUrl, path) + buildQuery(req.query)
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${opts.apiKey}`,
+        ...(opts.headers || {}),
+        ...(req.headers || {})
+      }
+      let res: Response
+      try {
+        res = await f(url, { method, headers, body: req.body })
+      } catch (e) {
+        throw new SimpleBaseError({
+          message: e instanceof Error ? e.message : 'network error',
+          status: 0,
+          code: 'network_error'
+        })
+      }
+      if (!res.ok) {
+        const requestId = res.headers.get('x-request-id') || undefined
+        const text = await res.text()
+        let parsed: unknown = { message: text }
+        try {
+          parsed = text ? JSON.parse(text) : undefined
+        } catch {}
+        throw errorFromResponse(res.status, parsed, requestId)
+      }
+      return res
     }
   }
 }
