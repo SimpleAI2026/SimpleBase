@@ -1,5 +1,33 @@
-// loadgen.go 实现闭环压测（plan §2.2/§2.4.3）：固定 worker 并发，
-// 每 worker 固定请求数；输出 p50/p95/p99/max 与错误率；不引入第三方依赖。
+// 文件说明：loadgen.go — 闭环压测（plan §2.2/§2.4.3）：固定 worker 并发，
+//
+// 用法
+//
+//	type benchCase（包内使用）
+//	type benchOptions（包内使用）
+//	同包调用：benchCase → cases.go, runner.go 等；runCase() → runner.go, stage_report.go；benchOptions → runner.go
+//
+// 调用架构
+//
+//	[上游] cmd/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/perfbench/loadgen.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cases.go, harness.go, helpers.go, runner.go, stage_report.go
+//	[关键引用] benchCase ← cases.go, runner.go, stage_report.go
+//
+// 主要符号
+//
+//	type benchCase struct {…}
+//	(bc benchCase) RequestsPerSample() int
+//	type benchOptions struct {…}
+//	type benchResult struct {…}
+//	type latencySummary struct {…}
+//	runCase(env *benchEnv, bc benchCase, opt benchOptions) (*benchResult, error)
+//	... 另有 6 个顶层符号
+
 package perfbench
 
 import (

@@ -27,7 +27,7 @@ describe('Home', () => {
     expect(wrapper.findAll('article').map((item) => item.find('h3').text())).toEqual([
       'AI OS · 云助手', 'SaaS 模块协同', '低成本存储'
     ])
-    expect(wrapper.find('h1 span').classes()).toContain('whitespace-nowrap')
+    expect(wrapper.find('h1 span').classes()).toContain('sm:whitespace-nowrap')
     expect(wrapper.findAll('aside .grid > div').map((item) => item.text())).toEqual([
       'AGENTS云助手', 'DATABASE数据库', 'STORAGE对象存储', 'FUNCTIONS云函数'
     ])

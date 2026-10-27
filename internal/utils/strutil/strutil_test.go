@@ -38,24 +38,6 @@ func TestTruncateEllipsis(t *testing.T) {
 	}
 }
 
-func TestTruncateRunes(t *testing.T) {
-	// 每个汉字占 3 字节：按字节截断会切坏，按 rune 截断保持合法。
-	s := "零一二三四五"
-	got := TruncateRunes(s, 3)
-	if got != "零一二" {
-		t.Fatalf("got %q, want %q", got, "零一二")
-	}
-	if !utf8.ValidString(got) {
-		t.Fatal("result is not valid UTF-8")
-	}
-	if TruncateRunes(s, 100) != s {
-		t.Fatal("short input should be unchanged")
-	}
-	if TruncateRunes(s, 0) != "" {
-		t.Fatal("max=0 should be empty")
-	}
-}
-
 func TestTruncateValidUTF8(t *testing.T) {
 	// 截断点落在多字节字符中间时回退到字符边界。
 	s := []byte("零一二")

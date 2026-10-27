@@ -1,6 +1,6 @@
 <template>
-  <div class="relative flex min-h-[calc(100vh-var(--header-height))] flex-col overflow-x-clip bg-white [--docs-pad-y:2rem] [--docs-tabs-h:3.25rem] max-md:[--docs-pad-y:1.25rem] dark:bg-background">
-    <div v-if="!docCatalog.length" class="mx-auto w-full max-w-[1200px] px-4 py-12 md:px-6">
+  <div class="relative flex min-h-[calc(100svh-var(--header-height))] flex-col overflow-x-clip bg-background [--docs-pad-y:2.25rem] [--docs-tabs-h:3.5rem] max-md:[--docs-pad-y:1.25rem]">
+    <div v-if="!docCatalog.length" class="mx-auto w-full max-w-[1440px] px-4 py-12 sm:px-6 lg:px-8">
       <Alert>
         <AlertTitle>{{ t('pages.docsWiki.loadFailedTitle') }}</AlertTitle>
         <AlertDescription>{{ t('pages.docsWiki.loadFailedDesc', { count: loadedMarkdownCount }) }}</AlertDescription>
@@ -10,19 +10,19 @@
     <template v-else>
       <div
         data-docs-tabs
-        class="sticky top-[var(--header-height)] z-10 border-b-0 bg-white/90 shadow-[0_1px_0_0_var(--border)] backdrop-blur-xl dark:bg-background/85"
+        class="sticky top-[var(--header-height)] z-20 border-b border-border/70 bg-background/85 backdrop-blur-xl"
       >
         <Tabs :model-value="moduleId" class="gap-0" @update:model-value="onModuleTab">
-          <div class="mx-auto w-full max-w-[1200px] px-4 md:px-8">
+          <div class="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-8">
             <TabsList
               variant="line"
-              class="h-[var(--docs-tabs-h)] w-full justify-start gap-1 overflow-x-auto rounded-none border-b-0 bg-transparent p-0 group-data-[orientation=horizontal]/tabs:h-[var(--docs-tabs-h)]"
+              class="h-[var(--docs-tabs-h)] w-full justify-start gap-2 overflow-x-auto rounded-none border-b-0 bg-transparent p-0 group-data-[orientation=horizontal]/tabs:h-[var(--docs-tabs-h)]"
             >
               <TabsTrigger
                 v-for="m in docCatalog"
                 :key="m.id"
                 :value="m.id"
-                class="h-[var(--docs-tabs-h)] flex-none cursor-pointer px-4 text-sm font-medium transition-colors duration-200 after:h-0.5 after:rounded-t-full after:bg-primary hover:bg-primary/5 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 data-[state=active]:bg-primary/5 data-[state=active]:font-semibold data-[state=active]:text-primary group-data-[orientation=horizontal]/tabs:after:bottom-0 motion-reduce:transition-none dark:data-[state=active]:text-primary"
+                class="h-[var(--docs-tabs-h)] flex-none cursor-pointer px-3 text-sm font-medium text-muted-foreground transition-colors duration-200 after:h-0.5 after:rounded-t-full after:bg-primary hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-primary group-data-[orientation=horizontal]/tabs:after:bottom-0 motion-reduce:transition-none sm:px-4"
               >
                 {{ m.title }}
               </TabsTrigger>
@@ -31,17 +31,17 @@
         </Tabs>
       </div>
 
-      <div class="mx-auto flex min-h-0 w-full max-w-[1280px] flex-1 items-start gap-6 px-4 py-[var(--docs-pad-y)] max-md:flex-col md:px-8 lg:gap-8">
+      <div class="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 items-start gap-8 px-4 py-[var(--docs-pad-y)] max-md:flex-col sm:px-6 lg:px-8 xl:gap-10">
         <DocsSidebar
           v-if="currentModule"
           :module-id="currentModule.id"
           :pages="currentModule.pages"
           :active-slug="slug"
         />
-        <div v-if="currentModule" class="w-full rounded-xl border border-border/70 bg-card/80 p-4 shadow-sm md:hidden">
-          <p id="docs-page-label" class="mb-2 text-xs font-semibold tracking-wide text-muted-foreground">{{ t('pages.docsWiki.selectPage') }}</p>
+        <div v-if="currentModule" class="w-full md:hidden">
+          <p id="docs-page-label" class="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">{{ t('pages.docsWiki.selectPage') }}</p>
           <Select :model-value="slug" @update:model-value="onMobilePage">
-            <SelectTrigger class="w-full bg-card" aria-labelledby="docs-page-label">
+            <SelectTrigger class="h-10 w-full rounded-lg border-border/80 bg-card shadow-none" aria-labelledby="docs-page-label">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

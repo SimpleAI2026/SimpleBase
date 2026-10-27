@@ -1,3 +1,29 @@
+// 文件说明：reset.go — internal/app 中 ResetOptions、ResetSummary 等符号的实现
+//
+// 用法
+//
+//	Reset(ctx context.Context, cfg config.Config, opts ResetOptions) (ResetSummary ...  // Reset 清空本实例的全部数据（本地 data_dir + cache_dir
+//	type ResetOptions（导出类型，同包与上层均可使用）
+//	type ResetSummary（导出类型，同包与上层均可使用）
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/reset.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/config, internal/objectstore
+//	[同包] app.go, catalog_engine.go, cron_runner.go, identity.go, project_purger.go 等 6 个
+//
+// 主要符号
+//
+//	type ResetOptions struct {…}
+//	type ResetSummary struct {…}
+//	Reset(ctx context.Context, cfg config.Config, opts ResetOptions) (ResetSummary ...
+//	... 另有 15 个顶层符号
+
 package app
 
 import (
@@ -256,22 +282,30 @@ func acquireResetLock(ctx context.Context, store objectstore.BlobStore, kb objec
 	return nil
 }
 
-// leaseKeyRe 匹配 {project}/databases/{db}/catalog/lease/{epoch}.json。
+// leaseKeyRe 匹配系统库 per-database 租约 {project}/databases/{db}/catalog/lease/{epoch}.json。
 var leaseKeyRe = regexp.MustCompile(`/([^/]+)/databases/([^/]+)/catalog/lease/(\d+)\.json$`)
 
-// leaseEpochs 返回每个库观察到的最大租约 epoch（key 为 "{project}/{db}"）。
+// projectLeaseKeyRe 匹配项目单文件租约 {project}/database/lease/{epoch}.json。
+var projectLeaseKeyRe = regexp.MustCompile(`(?:^|/)([^/]+)/database/lease/(\d+)\.json$`)
+
+// leaseEpochs 返回每把租约观察到的最大 epoch。
+// key 为 "{project}/{db}"（系统库）或 "{project}"（项目文件）。
 func leaseEpochs(keys []string) map[string]int64 {
 	out := map[string]int64{}
 	for _, k := range keys {
-		m := leaseKeyRe.FindStringSubmatch(k)
-		if m == nil {
+		var id string
+		var epochStr string
+		if m := leaseKeyRe.FindStringSubmatch(k); m != nil {
+			id, epochStr = m[1]+"/"+m[2], m[3]
+		} else if m := projectLeaseKeyRe.FindStringSubmatch(k); m != nil {
+			id, epochStr = m[1], m[2]
+		} else {
 			continue
 		}
-		e, err := strconv.ParseInt(m[3], 10, 64)
+		e, err := strconv.ParseInt(epochStr, 10, 64)
 		if err != nil {
 			continue
 		}
-		id := m[1] + "/" + m[2]
 		if e > out[id] {
 			out[id] = e
 		}

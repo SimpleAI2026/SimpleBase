@@ -1,3 +1,31 @@
+// 文件说明：agent_schedules.go — internal/systemdb 中 AgentSchedule、AgentScheduleRun 等符号的实现
+//
+// 用法
+//
+//	(s *Store) CreateAgentSchedule(ctx context.Context, sc AgentSchedule) ...  // CreateAgentSchedule 写入一条 schedule
+//	(s *Store) GetAgentSchedule(ctx context.Context, projectID, id string) ...  // GetAgentSchedule 按 ID 取未归档 schedule
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/agent_schedules.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/limit
+//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go, function_triggers.go 等 22 个
+//
+// 主要符号
+//
+//	type AgentSchedule struct {…}
+//	type AgentScheduleRun struct {…}
+//	(s *Store) CreateAgentSchedule(ctx context.Context, sc AgentSchedule) ...
+//	(s *Store) GetAgentSchedule(ctx context.Context, projectID, id string) ...
+//	(s *Store) GetAgentScheduleByAgent(ctx context.Context, projectID, agentID string) ...
+//	(s *Store) ListAgentSchedules(ctx context.Context, projectID string) ...
+//	... 另有 11 个顶层符号
+
 package systemdb
 
 import (

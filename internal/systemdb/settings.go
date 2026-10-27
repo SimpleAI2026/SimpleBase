@@ -1,3 +1,30 @@
+// 文件说明：settings.go — internal/systemdb 中 SettingKV、GetGlobalSetting 等符号的实现
+//
+// 用法
+//
+//	(s *Store) GetGlobalSetting(ctx context.Context, key string) (SettingKV, error)  // GetGlobalSetting 读取实例级设置
+//	(s *Store) ListGlobalSettings(ctx context.Context) ([]SettingKV, error)  // ListGlobalSettings 列出全部实例级设置
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/settings.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//
+// 主要符号
+//
+//	type SettingKV struct {…}
+//	(s *Store) GetGlobalSetting(ctx context.Context, key string) (SettingKV, error)
+//	(s *Store) ListGlobalSettings(ctx context.Context) ([]SettingKV, error)
+//	(s *Store) PutGlobalSetting(ctx context.Context, key, valueJSON string) error
+//	(s *Store) ListProjectSettings(ctx context.Context, projectID string) ([]SettingKV ...
+//	(s *Store) PutProjectSetting(ctx context.Context, projectID, key, valueJSON string) ...
+
 package systemdb
 
 import (

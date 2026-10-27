@@ -1,3 +1,31 @@
+// 文件说明：fallback_resolver.go — internal/llmgateway 中 InstanceProvider、FallbackResolver 等符号的实现
+//
+// 用法
+//
+//	NewFallbackResolver(primary ProviderResolver, instance map[string]InstanceProvider) ...
+//	(r *FallbackResolver) Resolve(ctx context.Context, projectID string) ...
+//	同包调用：Resolve() → catalog_resolver.go, project_cred_resolver.go 等；FallbackResolver → project_cred_resolver.go；hasUsableKey() → project_cred_resolver.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/fallback_resolver.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] catalog_resolver.go, project_cred_resolver.go, provider_driver.go, service.go, streaming.go
+//	[关键引用] Resolve() ← catalog_resolver.go, project_cred_resolver.go, service.go
+//
+// 主要符号
+//
+//	type InstanceProvider struct {…}
+//	type FallbackResolver struct {…}
+//	NewFallbackResolver(primary ProviderResolver, instance map[string]InstanceProvider) ...
+//	(r *FallbackResolver) Resolve(ctx context.Context, projectID string) ...
+//	... 另有 2 个顶层符号
+
 package llmgateway
 
 import (

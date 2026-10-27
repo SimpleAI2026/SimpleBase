@@ -18,7 +18,7 @@ func newTestRepoForAudit(t *testing.T) catalog.Repository {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
 	return catalog.NewSQLRepository(db)
@@ -54,17 +54,5 @@ func TestRecordRejectsEmptyKind(t *testing.T) {
 	err := svc.Record(context.Background(), Event{ProjectID: "proj-1"})
 	if err == nil {
 		t.Fatal("expected error for empty kind")
-	}
-}
-
-func TestRedact(t *testing.T) {
-	got := Redact("sk-abcdef123456")
-	// 长度 15：前2 + 11星 + 后2
-	if got != "sk***********56" {
-		t.Fatalf("unexpected redaction: %s", got)
-	}
-	got = Redact("ab")
-	if got != "**" {
-		t.Fatalf("expected ** for short string, got %s", got)
 	}
 }

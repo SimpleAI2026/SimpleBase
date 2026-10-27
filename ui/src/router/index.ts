@@ -51,7 +51,18 @@ const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'nav.databases' }
       },
       { path: 'sql', redirect: (to) => ({ name: 'databases', query: to.query, hash: to.hash }) },
-      { path: 'data', redirect: (to) => ({ name: 'databases', query: to.query, hash: to.hash }) },
+      {
+        path: 'data',
+        name: 'data-browser',
+        component: () => import('../pages/DataBrowser.vue'),
+        meta: { titleKey: 'nav.dataBrowser' }
+      },
+      {
+        path: 'api-preview',
+        name: 'api-preview',
+        component: () => import('../pages/ApiPreview.vue'),
+        meta: { titleKey: 'nav.apiPreview' }
+      },
       {
         path: 'key-value',
         name: 'key-value',
@@ -69,6 +80,12 @@ const routes: RouteRecordRaw[] = [
         name: 'gofunctions',
         component: () => import('../pages/GoFunctions.vue'),
         meta: { titleKey: 'nav.gofunctions' }
+      },
+      {
+        path: 'function-triggers',
+        name: 'function-triggers',
+        component: () => import('../pages/FunctionTriggers.vue'),
+        meta: { titleKey: 'nav.functionTriggers' }
       },
       {
         path: 'cron-jobs',

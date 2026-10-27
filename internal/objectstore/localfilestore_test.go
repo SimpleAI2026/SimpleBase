@@ -3,12 +3,36 @@ package objectstore
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLocalFileStoreContentRange(t *testing.T) {
+	ctx := context.Background()
+	fs, err := NewLocalFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.Put(ctx, "docs/a.txt", strings.NewReader("0123456789"), 10, "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := fs.(ContentStore).GetContent(ctx, "docs/a.txt", "bytes=2-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer content.Body.Close()
+	body, err := io.ReadAll(content.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "2345" || content.RangeStart != 2 || content.RangeEnd != 5 || content.Size != 10 {
+		t.Fatalf("unexpected range body=%q content=%+v", body, content)
+	}
+}
 
 func TestLocalFileStore_CRUDAndPersist(t *testing.T) {
 	ctx := context.Background()

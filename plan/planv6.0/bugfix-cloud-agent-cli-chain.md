@@ -9,9 +9,9 @@
 
 本地 `http://127.0.0.1:5173/console/agents` 中点名 `@Database`，模型调用 `simplebase` 工具，参数为 `{"argv":["database","list"]}`，工具返回 `{"ok":false,"error":{"code":"cli_failed","message":"无法启动 CLI"}}`。
 
-**已验证的本地直接原因**：监听 `:8080` 的 `simplebased` 由 `go run` 启动，可执行文件位于 Go 构建缓存目录；其同目录不存在 `simplebase`，仓库根目录也没有该可执行文件。本地 `config.yaml` 未显式设置 `agent.cli_path`。`internal/app/app.go:893-918` 在未配置 CLI 路径时按 `os.Executable()` 同目录寻找 `simplebase`，`internal/cloudagent/cli_runner.go:43-69` 启动子进程，`internal/cloudagent/cli_tool.go:252-268` 将非退出码类启动错误统一转换成 `cli_failed`。因此这次请求尚未走到 SDK/HTTP 的数据库列表接口；不能把本次报错归因于数据库内容、权限或 `@Database` 的解析。
+**已验证的本地直接原因**：监听 `:8080` 的 `simplebased` 由 `go run` 启动，可执行文件位于 Go 构建缓存目录；其同目录不存在 `simplebase`，仓库根目录也没有该可执行文件。本地 `config.yaml` 未显式设置 `agent.cli_path`。`internal/app/app.go:893-918` 在未配置 CLI 路径时按 `os.Executable()` 同目录寻找 `simplebase`，`internal/gocloudagent/cli_runner.go:43-69` 启动子进程，`internal/gocloudagent/cli_tool.go:252-268` 将非退出码类启动错误统一转换成 `cli_failed`。因此这次请求尚未走到 SDK/HTTP 的数据库列表接口；不能把本次报错归因于数据库内容、权限或 `@Database` 的解析。
 
-`@Database` 是助手名称而非显式 skill（`ui/src/utils/agent-skills.ts:25-42`）；后端根据 Database 助手的 `database` 模块回落加载 database skill（`internal/api/agent_handler.go:552-560`、`internal/cloudagent/skills.go:81-89`），所以本次不属于 `skill_not_loaded`。
+`@Database` 是助手名称而非显式 skill（`ui/src/utils/agent-skills.ts:25-42`）；后端根据 Database 助手的 `database` 模块回落加载 database skill（`internal/api/agent_handler.go:552-560`、`internal/gocloudagent/skills.go:81-89`），所以本次不属于 `skill_not_loaded`。
 
 ## 2. 缺陷清单及优先级
 
@@ -19,12 +19,12 @@
 | --- | --- | --- |
 | P0 | 开发模式 `go run` 令默认 CLI 路径指向 Go 缓存；`build.sh dev` 不构建同目录 CLI。`skills_cli=true` 时，依赖 CLI 的助手命令普遍无法启动。完整构建虽将两个二进制放在仓库根，仍不能修复一个**继续以 `go run` 启动**的进程 | `build.sh:307-310,459-465`；`internal/app/app.go:898-918`；`internal/config/config.go:452-455` |
 | P0 | Docker 镜像只构建并复制 `simplebased`，不包含默认路径需要的 `/simplebase`；CLI 开启时镜像环境同样不可用 | `Dockerfile:6-12`；`internal/app/app.go:898-918` |
-| P1 | 定时执行的 `RunRequest` 不带 `Skills`，但 `execSimplebase` 严格按本轮 skills 放行 `argv[0]`；因此即使 CLI 可执行，定时任务也会报 `skill_not_loaded` | `internal/cloudagent/scheduler.go:287-291`；`internal/cloudagent/cli_tool.go:194-200`；`internal/cloudagent/skills.go:81-124` |
+| P1 | 定时执行的 `RunRequest` 不带 `Skills`，但 `execSimplebase` 严格按本轮 skills 放行 `argv[0]`；因此即使 CLI 可执行，定时任务也会报 `skill_not_loaded` | `internal/gocloudagent/scheduler.go:287-291`；`internal/gocloudagent/cli_tool.go:194-200`；`internal/gocloudagent/skills.go:81-124` |
 | P1 | 选择过 `@Database` 后，输入框 `selected` 缓存只追加不清理；删掉点名文本或进入后续一轮，仍可能携带旧助手 ID，意外路由到 Database 助手 | `ui/src/components/ai/AiChatComposer.vue:119,142-168`；`ui/src/pages/AgentManager.vue:705-714` |
 | P1 | 发送及重试结束后刷新会话列表时漏传 `activeId`，把项目内其他助手的会话混入当前助手；切换混入的会话仅更新 `threadId`，不更新当前助手，可能导致同项目内会话与助手不匹配 | `ui/src/pages/AgentManager.vue:511-559,715-732`；`ui/src/services/http-api.ts:1281-1285` |
 | P2 | 数据库列表 SQL 忽略 `page.Cursor`，当结果超过 page limit 时下一页重复第一页，next cursor 也重复。此缺陷**不是**当前 `cli_failed` 的原因 | `internal/catalog/sql_repository.go:223-256`；`internal/sbcli/commands.go:257-263` |
 | P2 | database skill 示例传 `--data-model relational`，而实际只接受 `collection`/`sql`；照示例建库会得到参数错误 | `skills/simplebase/database/SKILL.md:34-39`；`internal/catalog/data_model.go:8-18` |
-| P2 | CLI 启动时的原始错误没有安全的诊断出口：`cli_failed` 仅暴露通用描述；需在不泄露 token、argv、SQL、LLM 正文的前提下提供安全分类和可观测性 | `internal/cloudagent/cli_tool.go:252-268` |
+| P2 | CLI 启动时的原始错误没有安全的诊断出口：`cli_failed` 仅暴露通用描述；需在不泄露 token、argv、SQL、LLM 正文的前提下提供安全分类和可观测性 | `internal/gocloudagent/cli_tool.go:252-268` |
 
 ## 3. 修复方案与顺序
 
@@ -55,7 +55,7 @@
 
 ## 4. 回归与完成标准
 
-1. 后端：`go build ./internal/... ./cmd/...`、`go test ./...`；重点验证 `internal/cloudagent`、`internal/api`、`internal/sbcli`、`internal/catalog` 的针对性测试。使用 fake catalog/router，不连接或修改运行中的真实库。
+1. 后端：`go build ./internal/... ./cmd/...`、`go test ./...`；重点验证 `internal/gocloudagent`、`internal/api`、`internal/sbcli`、`internal/catalog` 的针对性测试。使用 fake catalog/router，不连接或修改运行中的真实库。
 2. 前端：`cd ui && yarn test && yarn build`；测试真实点名行为与会话切换，不仅断言桩组件的 emit。
 3. 开发/容器部署分别验证 CLI 路径；确认缺 CLI 时能从安全的日志判断失败类别，同时工具返回不泄漏 token、argv、SQL 参数或 LLM 正文。
 4. 只读人工验收顺序：进入现有线程 → `@Database` 列库 → 测多页分页 → 删除点名再发送 → 切换助手检查会话列表；定时任务通过隔离测试验证，不在用户环境触发写动作。

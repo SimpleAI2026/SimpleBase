@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
+
+	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 )
 
 func TestPutIfAbsentFirstWinsSecondConflicts(t *testing.T) {
@@ -57,18 +58,15 @@ func TestProbePutIfAbsentPassesOnRealStore(t *testing.T) {
 }
 
 // overwriteStore 忽略 create-if-absent：模拟 COS 版本控制失效。
-type overwriteStore struct{ memoryBlobStore }
+type overwriteStore struct{ *blob.Memory }
 
 func (o *overwriteStore) PutIfAbsent(ctx context.Context, key string, data []byte, contentType string) (ObjectInfo, error) {
-	_ = o.memoryBlobStore.PutBytes(ctx, key, data, contentType)
-	return o.memoryBlobStore.Head(ctx, key)
+	_ = o.Memory.PutBytes(ctx, key, data, contentType)
+	return o.Memory.Head(ctx, key)
 }
 
 func TestProbePutIfAbsentFailsOnOverwriteStore(t *testing.T) {
-	store := &overwriteStore{memoryBlobStore{
-		store: map[string][]byte{},
-		meta:  map[string]time.Time{},
-	}}
+	store := &overwriteStore{blob.NewMemory()}
 	res := ProbePutIfAbsent(context.Background(), store, "sb/env/catalog")
 	if res.CASSupported {
 		t.Fatal("probe must fail when endpoint allows overwrite")

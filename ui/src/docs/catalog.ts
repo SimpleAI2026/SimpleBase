@@ -37,7 +37,7 @@ const rawModules = import.meta.glob(['../../../docs/**/*.md', '!../../../docs/da
 const largeModules = import.meta.glob('../../../docs/data/ducklake.md', {
   query: '?raw', import: 'default'
 }) as Record<string, () => Promise<string>>
-const largeMeta = '---\ntitle: DuckLake 上游参考\norder: 3\ngroup: 数据库管理\n---\n# DuckLake 上游参考'
+const largeMeta = '---\ntitle: DuckLake 上游参考\norder: 3\ngroup: 数据管理\n---\n# DuckLake 上游参考'
 const catalogEntries: Record<string, string> = { ...rawModules,
   ...Object.fromEntries(Object.keys(largeModules).map((key) => [key, largeMeta])) }
 const loadedBodies = new Map<string, string>()

@@ -1,6 +1,27 @@
-// stage_timing_metrics.go 提供 perfStageMiddleware 的 Prometheus 输出端
-// （api-db-perf-validation-plan §2.1）。指标在 Metrics 上定义，本文件只做
-// 观测转发，保持 api → observability 单向依赖。
+// 文件说明：stage_timing_metrics.go — perfStageMiddleware 的 Prometheus 输出端
+//
+// 用法
+//
+//	(m *Metrics) ObserveStage(route string, stage string, seconds float64)  // ObserveStage 满足 internal/api 的 stageTimingRecorder 接口
+//	同包调用：PerfStageBuckets → metrics.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/audit 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/observability/stage_timing_metrics.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] logger.go, metrics.go, zaplog.go
+//	[关键引用] PerfStageBuckets ← metrics.go
+//
+// 主要符号
+//
+//	var PerfStageBuckets
+//	(m *Metrics) ObserveStage(route string, stage string, seconds float64)
+
 package observability
 
 // PerfStageBuckets 覆盖 1ms–40s：上限须容纳租约 TTL+Grace=40s 等待尾部

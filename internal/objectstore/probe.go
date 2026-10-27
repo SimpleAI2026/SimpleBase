@@ -1,3 +1,29 @@
+// 文件说明：probe.go — internal/objectstore 中 ProbeResult、ProbePutIfAbsent 等符号的实现
+//
+// 用法
+//
+//	ProbePutIfAbsent(ctx context.Context, store BlobStore, probePrefix string) ...  // ProbePutIfAbsent 启动探针（multi-instance-consistency-plan §4.5）：
+//	type ProbeResult（导出类型，同包与上层均可使用）
+//	同包调用：ProbePutIfAbsent() → blob.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/probe.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] blob.go, client.go, content.go, content_local.go, content_s3.go 等 10 个
+//	[关键引用] ProbePutIfAbsent() ← blob.go
+//
+// 主要符号
+//
+//	type ProbeResult struct {…}
+//	ProbePutIfAbsent(ctx context.Context, store BlobStore, probePrefix string) ...
+//	... 另有 1 个顶层符号
+
 package objectstore
 
 import (

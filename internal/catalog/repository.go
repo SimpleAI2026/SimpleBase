@@ -1,3 +1,31 @@
+// 文件说明：repository.go — internal/catalog 中 Repository、QuotaStore 等符号的实现
+//
+// 用法
+//
+//	type Repository（导出类型，同包与上层均可使用）
+//	type QuotaStore（导出类型，同包与上层均可使用）
+//	同包调用：Repository → service.go, sql_repository.go；UsageSummary → sql_repository.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/repository.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cache.go, data_model.go, errors.go, model.go, project_storage.go 等 9 个
+//	[关键引用] Repository ← service.go, sql_repository.go
+//
+// 主要符号
+//
+//	type Repository interface {…}
+//	type QuotaStore interface {…}
+//	type UsageSummary struct {…}
+//	type LLMProviderStore interface {…}
+//	type TenantProjectValidator interface {…}
+
 package catalog
 
 import (
@@ -14,9 +42,12 @@ import (
 type Repository interface {
 	CreateTenant(ctx context.Context, tenant Tenant) error
 	CreateProject(ctx context.Context, project Project) error
+	GetProject(ctx context.Context, projectID string) (Project, error)
 	// ListProjectsByTenant 列出租户下全部项目（按 created_at）。
 	ListProjectsByTenant(ctx context.Context, tenantID string) ([]Project, error)
 	CreateDatabase(ctx context.Context, db Database) error
+	// HasDefaultDatabase 报告项目是否已有未软删的用户数据库（项目单文件唯一性）。
+	HasDefaultDatabase(ctx context.Context, projectID string) (bool, error)
 	GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error)
 	// GetDatabaseByName 按 (projectID, name) 查未软删的库（含非 user kind）。
 	// 供 Service 定位 kind=kv 的项目 KV catalog 行。

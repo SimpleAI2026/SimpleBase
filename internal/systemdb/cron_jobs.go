@@ -1,9 +1,38 @@
+// 文件说明：cron_jobs.go — internal/systemdb 中 CronJobKindCron、CronJobKindInterval 等符号的实现
+//
+// 用法
+//
+//	(j CronJob) EffectiveTargetKind() string  // EffectiveTargetKind 返回规范化的目标类型：空串视同 function
+//	(s *Store) CreateCronJob(ctx context.Context, j CronJob) (CronJob, error)  // CreateCronJob 写入一条任务
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/cron_jobs.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/sqlval, internal/utils/limit
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, function_triggers.go 等 22 个
+//
+// 主要符号
+//
+//	const CronJobKindCron
+//	const CronJobKindInterval
+//	const CronJobKindOnce
+//	const CronJobTargetFunction
+//	const CronJobTargetAgent
+//	const CronJobRunRunning
+//	... 另有 22 个顶层符号
+
 package systemdb
 
 import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,7 +47,7 @@ const (
 	CronJobKindOnce     = "once"
 )
 
-// 定时任务目标类型（planv6.0 cloudagent-cli-and-cronjob-unification-plan §2.2）。
+// 定时任务目标类型（planv6.0 gocloudagent-cli-and-cronjob-unification-plan §2.2）。
 const (
 	CronJobTargetFunction = "function"
 	CronJobTargetAgent    = "agent"
@@ -127,7 +156,7 @@ func (s *Store) CreateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
 			created_by, created_at, updated_at, archived_at, target_kind, agent_id, agent_thread_id, agent_prompt)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
-		j.ID, j.ProjectID, j.Name, j.Description, j.ScheduleKind, nullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds), runAt,
+		j.ID, j.ProjectID, j.Name, j.Description, j.ScheduleKind, sqlval.NullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds), runAt,
 		j.FuncFile, j.FuncExport, j.InputJSON, enabled, lastRun, nextRun, j.LastStatus, j.LastError, j.RunCount,
 		j.CreatedBy, now, now, j.TargetKind, j.AgentID, j.AgentThreadID, j.AgentPrompt)
 	if err != nil {
@@ -219,7 +248,7 @@ func (s *Store) UpdateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 			last_status=?, last_error=?, run_count=?, updated_at=?,
 			target_kind=?, agent_id=?, agent_thread_id=?, agent_prompt=?
 		 WHERE id=? AND project_id=? AND archived_at IS NULL`,
-		j.Description, j.ScheduleKind, nullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds), runAt,
+		j.Description, j.ScheduleKind, sqlval.NullString(j.CronExpr), nullInt64IfZero(j.IntervalSeconds), runAt,
 		j.FuncFile, j.FuncExport, j.InputJSON, enabled, lastRun, nextRun,
 		j.LastStatus, j.LastError, j.RunCount, now,
 		j.TargetKind, j.AgentID, j.AgentThreadID, j.AgentPrompt, j.ID, j.ProjectID)
@@ -334,7 +363,7 @@ func (s *Store) InsertCronJobRun(ctx context.Context, r CronJobRun) (CronJobRun,
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sys_cron_job_runs(id, job_id, project_id, trigger, status, error, duration_ms, response_json, started_at, finished_at, created_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.JobID, r.ProjectID, r.Trigger, r.Status, r.Error, r.DurationMs, nullString(r.ResponseJSON), started, finished, now)
+		r.ID, r.JobID, r.ProjectID, r.Trigger, r.Status, r.Error, r.DurationMs, sqlval.NullString(r.ResponseJSON), started, finished, now)
 	if err != nil {
 		return CronJobRun{}, err
 	}
@@ -355,7 +384,7 @@ func (s *Store) UpdateCronJobRunStatus(ctx context.Context, projectID, id, statu
 		`UPDATE sys_cron_job_runs SET status=?, error=?, duration_ms=?, response_json=?,
 		 finished_at = CASE WHEN ? IS NOT NULL THEN ? ELSE finished_at END
 		 WHERE id=? AND project_id=?`,
-		status, errMsg, durationMs, nullString(response), finAny, finAny, id, projectID)
+		status, errMsg, durationMs, sqlval.NullString(response), finAny, finAny, id, projectID)
 	if err != nil {
 		return err
 	}
@@ -438,14 +467,6 @@ func scanCronJobRun(sc rowScanner) (CronJobRun, error) {
 		r.FinishedAt = finished.Time
 	}
 	return r, nil
-}
-
-// nullString 空串转 NULL（cron_expr / response_json 可空列）。
-func nullString(v string) any {
-	if v == "" {
-		return nil
-	}
-	return v
 }
 
 // nullInt64IfZero 0 转 NULL（interval_seconds 可空列）。

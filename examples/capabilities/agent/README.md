@@ -26,6 +26,6 @@ export RESULT_FILE=/tmp/sb-results.jsonl
 node examples/capabilities/agent/run.mjs
 ```
 
-指令全文在 `cases.json`。本地 `cloudagent` 二进制是另一条命令面（本机 shell / 文件工具，headless 下破坏性命令得不到界面确认），由 `examples/run_agent.sh` 额外探一次，不替代上面的 SSE 用例。
+指令全文在 `cases.json`。本地 `gocloudagent` 二进制是另一条命令面（本机 shell / 文件工具，headless 下破坏性命令得不到界面确认），由 `examples/run_agent.sh` 额外探一次，不替代上面的 SSE 用例。
 
-本地 `cloudagent` 的 shell 工具会剥离 `SIMPLEBASE_*` / `CLOUDAGENT_*` 与凭据类环境变量，所以 shell 里的 `simplebase` 会返回 `config_missing`（退出码 4）。这条探针改为事先写好 `$XDG_CONFIG_HOME/simplebase/config.json`（权限 `0600`），并在进程结束后删除该目录。详见 `docs/cli.md`。
+本地 `gocloudagent` 的 shell 工具会剥离 `SIMPLEBASE_*` / `GOCLOUDAGENT_*` 与凭据类环境变量，所以 shell 里的 `simplebase` 会返回 `config_missing`（退出码 4）。这条探针改为事先写好 `$XDG_CONFIG_HOME/simplebase/config.json`（权限 `0600`），并在进程结束后删除该目录。详见 `docs/cli.md`。

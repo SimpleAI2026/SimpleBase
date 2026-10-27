@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -51,14 +51,14 @@ func fullRouterDeps(t *testing.T) (Dependencies, string) {
 	cat := &stubCatalog{tenant: "tenant-1", db: catalog.Database{ID: "db-1", ProjectID: "proj-1", Name: "n", Status: catalog.DatabaseReady}}
 	dbSvc := newFakeDBService()
 	dbSvc.dbs["db-1"] = cat.db
-	sqlSvc := &fakeSQLService{db: cat.db, lease: &fakeSQLLease{queryResult: database.QueryResult{Columns: []string{"n"}, Rows: [][]any{{1}}}}}
+	sqlSvc := &fakeSQLService{db: cat.db, lease: &fakeSQLLease{queryResult: godatabase.QueryResult{Columns: []string{"n"}, Rows: [][]any{{1}}}}}
 
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)
@@ -204,7 +204,7 @@ func TestBodyLimitAndRequestTooLarge(t *testing.T) {
 		{2 << 20, "2M"},
 		{1 << 10, "1K"},
 		{512 << 10, "512K"},
-		{1500, "2K"},
+		{1500, "1500"},
 	}
 	for _, tc := range cases {
 		if got := bodyLimit(tc.n); got != tc.want {
@@ -378,7 +378,7 @@ func TestAccessLogAndErrorHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)

@@ -20,9 +20,9 @@ group: 云助手
 
 会话通过 `POST /v1/projects/:projectID/agent-threads` 创建，run 通过 `POST /agent-threads/:threadID/runs` 启动；已运行的任务可调用 `/agent-runs/:runID/cancel`。定时运行 Agent 使用 `/agent-schedules`，而[定时任务](/docs/automation/cronjob)直接调用云函数。具体响应字段可通过控制台 Network 与服务端接口查看；流式输出不适合按普通 JSON 响应解析。
 
-## 写权限与本地 cloudagent
+## 写权限与本地 gocloudagent
 
-内置助手默认不可写：写命令会直接返回 `write_not_allowed`，不会先弹出确认。需要在「编辑助手」里打开「允许写操作」。本地 `cloudagent` 二进制的 shell 工具会剥离 `SIMPLEBASE_*` 等凭据环境变量，shell 里的 `simplebase` 需要事先配置好配置文件，详见仓库 `docs/cli.md`。
+内置助手默认不可写：写命令会直接返回 `write_not_allowed`，不会先弹出确认。需要在「编辑助手」里打开「允许写操作」。本地 `gocloudagent` 二进制的 shell 工具会剥离 `SIMPLEBASE_*` 等凭据环境变量，shell 里的 `simplebase` 需要事先配置好配置文件，详见仓库 `docs/cli.md`。
 
 ## 安全提醒
 

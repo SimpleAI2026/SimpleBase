@@ -1,3 +1,29 @@
+// 文件说明：health.go — internal/api 中 HealthHandler、Live 等符号的实现
+//
+// 用法
+//
+//	(h *HealthHandler) Live(c echo.Context) error
+//	(h *HealthHandler) Ready(c echo.Context) error
+//	同包调用：HealthHandler → router.go；Live() → router.go；Ready() → router.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/health.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] HealthHandler ← router.go
+//
+// 主要符号
+//
+//	type HealthHandler struct {…}
+//	(h *HealthHandler) Live(c echo.Context) error
+//	(h *HealthHandler) Ready(c echo.Context) error
+
 package api
 
 import (

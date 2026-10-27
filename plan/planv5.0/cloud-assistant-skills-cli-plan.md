@@ -6,7 +6,7 @@
 > **状态**：只提交计划，本分支不写实现。  
 > **日期**：2026-10-09  
 > **Verified against**：`main` @ `a7697ad`。路径、路由、权限位与工具名按该提交核对。  
-> **关联**：[`internal/AGENTS.md`](../../internal/AGENTS.md)（cloudagent 不得直写存储、不得向沙盒注入凭据）、[`plan/planv4.0/cloud-agent-optimization-plan.md`](../planv4.0/cloud-agent-optimization-plan.md)（现有 SSE 与 function calling）、[`plan/planv5.0/cloud-assistant-sql-database-tabs-plan.md`](./cloud-assistant-sql-database-tabs-plan.md)（控制台称「云助手」）。
+> **关联**：[`internal/AGENTS.md`](../../internal/AGENTS.md)（gocloudagent 不得直写存储、不得向沙盒注入凭据）、[`plan/planv4.0/cloud-agent-optimization-plan.md`](../planv4.0/cloud-agent-optimization-plan.md)（现有 SSE 与 function calling）、[`plan/planv5.0/cloud-assistant-sql-database-tabs-plan.md`](./cloud-assistant-sql-database-tabs-plan.md)（控制台称「云助手」）。
 
 ## 0. 目标
 
@@ -54,7 +54,7 @@
 
 ### 1.2 后端工具、function calling、只读边界
 
-运行时在 `internal/cloudagent`。`Runtime.StartRun` 用 eino `ChatModelAgent`，工具由 `buildTools`（`tools.go`）按 Agent 的 `tool_ids` 注册。
+运行时在 `internal/gocloudagent`。`Runtime.StartRun` 用 eino `ChatModelAgent`，工具由 `buildTools`（`tools.go`）按 Agent 的 `tool_ids` 注册。
 
 只读数据面（`access.go` 的接口注释就是 readonly）：
 
@@ -66,11 +66,11 @@
 | `list_objects` / `head_object` | 项目相对键与元数据，不读对象正文 |
 | `search_logs` / `log_level_stats` | `sys_log_events`，不改保留期 |
 
-实现在 `internal/api/cloudagent_access.go`：查询走 `registry.Acquire(..., ReadOnly)`。系统提示（`modules.go` 的 `platformBasePrompt`）禁止 INSERT/UPDATE/DELETE/DROP 和对象上传。
+实现在 `internal/api/gocloudagent_access.go`：查询走 `registry.Acquire(..., ReadOnly)`。系统提示（`modules.go` 的 `platformBasePrompt`）禁止 INSERT/UPDATE/DELETE/DROP 和对象上传。
 
-沙盒工具 `sandbox_exec` / `sandbox_shell` / `sandbox_read_file` / `sandbox_write_file` 只作用于该 thread 的云沙盒 `/workspace`。`internal/AGENTS.md` 写明：`sandbox` 包禁止向沙盒注入 SimpleBase 凭据；`cloudagent` 禁止写 DuckLake / S3 / 系统库，禁止 import `sandbox` 或 microsandbox。沙盒能写的是微虚机里的文件，不是用户库。
+沙盒工具 `sandbox_exec` / `sandbox_shell` / `sandbox_read_file` / `sandbox_write_file` 只作用于该 thread 的云沙盒 `/workspace`。`internal/AGENTS.md` 写明：`sandbox` 包禁止向沙盒注入 SimpleBase 凭据；`gocloudagent` 禁止写 DuckLake / S3 / 系统库，禁止 import `sandbox` 或 microsandbox。沙盒能写的是微虚机里的文件，不是用户库。
 
-原生 function calling 已经接通：`LLMTool` / `LLMToolCall`（`internal/api/router.go`）、`ChatToolCall`（`cloudagent/access.go`）、eino ToolsNode。一次 run 默认最多 8 轮工具、180 秒超时。工具结果卡片截断到 4000 字。历史里工具调用被收成摘要再送回模型（`historyToSchema`），不回放完整参数。
+原生 function calling 已经接通：`LLMTool` / `LLMToolCall`（`internal/api/router.go`）、`ChatToolCall`（`gocloudagent/access.go`）、eino ToolsNode。一次 run 默认最多 8 轮工具、180 秒超时。工具结果卡片截断到 4000 字。历史里工具调用被收成摘要再送回模型（`historyToSchema`），不回放完整参数。
 
 审计 `agent.run` 只记 run/thread/agent、耗时和 token 计数，不记用户正文或工具参数。`prompt.go` 的 `RedactSecrets` 会抹掉形如 `api_key=...` 的行。SQL 结果列本身没有按列名脱敏。
 
@@ -78,7 +78,7 @@
 
 `POST /v1/projects/:projectID/agent-threads/:threadID/runs`，body `{content, mentions, stream, retry_of_run_id}`。`stream: true` 时 `streamRun` 回 `text/event-stream`，帧格式是 `data: {json}\n\n`，另有 15 秒 `: ping` 注释心跳。
 
-已有事件（`cloudagent.Event`）：
+已有事件（`gocloudagent.Event`）：
 
 | type | 何时 |
 | --- | --- |
@@ -227,7 +227,7 @@ API Key 创建（`api_keys_handler.go`）只在响应里返回一次 `secret`。
 
 | # | 决策 | 含义 |
 | --- | --- | --- |
-| 1 | 写操作只经过现有 HTTP API | cloudagent 仍然禁止直写 DuckLake / S3 / 系统库。模型的手是 CLI，CLI 的手是 SDK |
+| 1 | 写操作只经过现有 HTTP API | gocloudagent 仍然禁止直写 DuckLake / S3 / 系统库。模型的手是 CLI，CLI 的手是 SDK |
 | 2 | CLI 用 Go，放在 `cmd/simplebase` | 复用 `packages/go-sdk`。不引入 cobra 等新依赖，不改 `go.mod` |
 | 3 | 助手进程内执行 CLI，不进云沙盒 | 沙盒继续禁止注入 SimpleBase 凭据。token 不进微虚机、不落盘 |
 | 4 | 授权只认服务端 | CLI 不自己判断「能不能删库」。委托 token 的权限是调用方权限的子集 |
@@ -472,7 +472,7 @@ skills/simplebase/project/SKILL.md
 
 每个子目录的 `SKILL.md` 只描述该资源的命令、flag、哪条要确认、典型错误码。不复制 handler 源码。顶层文件用一段索引列出 id 与中文别名，并写明：没有被 `@` 到的命令不要编造。
 
-`internal/cloudagent` 用 `go:embed` 打进二进制，避免运行时依赖工作目录。embed 的是 Markdown，不是凭据。
+`internal/gocloudagent` 用 `go:embed` 打进二进制，避免运行时依赖工作目录。embed 的是 Markdown，不是凭据。
 
 每个子 skill 在代码里还有一份允许的 argv 前缀（例如 database skill 允许 `database`、`sql`、`schema`、`collection`、`document`）。Markdown 给人看，前缀表给宿主做拒绝。两者不一致时以前缀表为准，测试锁住两边。
 
@@ -619,7 +619,7 @@ API Key 用户在控制台里发消息时，委托 token 复制该 Key 的权限
 
 ### 5.2 事件
 
-沿用 `cloudagent.Event`，补字段时用 `omitempty`，旧前端忽略未知 type。
+沿用 `gocloudagent.Event`，补字段时用 `omitempty`，旧前端忽略未知 type。
 
 | type | 新增？ | 字段 | 前端 |
 | --- | --- | --- | --- |
@@ -645,8 +645,8 @@ API Key 用户在控制台里发消息时，委托 token 复制该 Key 的权限
 
 | 位置 | 改动 |
 | --- | --- |
-| `internal/cloudagent/runtime.go` | 转发参数增量；`tool_start`；`tool_result.is_error`；事件序号 |
-| `internal/cloudagent/tools.go` | `simplebase` 工具；确认挂起用 run 级 channel，取消时关闭 |
+| `internal/gocloudagent/runtime.go` | 转发参数增量；`tool_start`；`tool_result.is_error`；事件序号 |
+| `internal/gocloudagent/tools.go` | `simplebase` 工具；确认挂起用 run 级 channel，取消时关闭 |
 | `internal/api/agent_handler.go` | `createRunBody.Skills`；`streamRun` 写 `id:`；确认路由；续传路由 |
 | `internal/api/router.go` | `POST .../agent-runs/:runID/confirmations/:callID`（`database:read`，与发消息相同）；`GET .../agent-runs/:runID/events` |
 | `internal/llmgateway` | 确认工具参数增量已经能从供应商流里解析；缺的供应商在适配层补齐，没有增量时退化为今天的整段 `tool_call` |
@@ -714,7 +714,7 @@ API Key 用户在控制台里发消息时，委托 token 复制该 Key 的权限
 
 ### 6.3 Skill 路由
 
-`internal/cloudagent` 表驱动：
+`internal/gocloudagent` 表驱动：
 
 - `@数据库` → skills `[database]`，允许 `sql exec`，拒绝 `function delete`（`skill_not_loaded`）。
 - `@云函数` → 只允许 `function *`。
@@ -784,7 +784,7 @@ API Key 用户在控制台里发消息时，委托 token 复制该 Key 的权限
 不新增工作流依赖。在现有命令上加包：
 
 ```text
-go test ./packages/go-sdk ./cmd/simplebase ./internal/cloudagent ./internal/api -count=1
+go test ./packages/go-sdk ./cmd/simplebase ./internal/gocloudagent ./internal/api -count=1
 ```
 
 `go test ./...` 必须仍然通过。前端：
@@ -821,7 +821,7 @@ cd ui && yarn test && yarn build
 
 范围：`skills/simplebase/**`，embed，`@` 解析，`simplebase` 工具，委托 token，子进程，确认挂起与路由。`skills_cli` 仍默认 false，测试里打开。
 
-主要文件：`skills/simplebase/`，`internal/cloudagent/modules.go`（提示词在开关打开时替换只读禁令），`tools.go`，`runtime.go`，`internal/api/agent_handler.go`，`router.go`，`internal/config`，`ui` 的 composer 与 `http-api.ts`（先能把 `skills` 传上去；确认弹窗可在阶段 D 一起做，但 API 在本阶段测完）。
+主要文件：`skills/simplebase/`，`internal/gocloudagent/modules.go`（提示词在开关打开时替换只读禁令），`tools.go`，`runtime.go`，`internal/api/agent_handler.go`，`router.go`，`internal/config`，`ui` 的 composer 与 `http-api.ts`（先能把 `skills` 传上去；确认弹窗可在阶段 D 一起做，但 API 在本阶段测完）。
 
 验收：§6.3 与样例 1–4、7–8、10、12–14 的 HTTP 断言通过。样例 5、6、9、11 在本阶段用测试里的 approve 调用，不依赖弹窗。token 不出现在 SSE 与审计。沙盒工具测试确认环境里没有 `SIMPLEBASE_TOKEN`。
 
@@ -850,7 +850,7 @@ cd ui && yarn test && yarn build
 | 模型不点 `@` 就编造写命令 | 宿主前缀表拒绝，样例 13 锁住 |
 | 委托 token 泄漏进工具参数或日志 | 禁止 argv 携带 token 字样；审计保持现有字段；SSE 不回显环境 |
 | 有人把 CLI 放进沙盒以便「模型自己装包」 | 计划明确禁止。沙盒工具与 CLI 分路，测试检查沙盒环境 |
-| 子进程 + loopback 比进程内函数调用多一跳 | 换来与 API 完全同一鉴权。不在 cloudagent 里直接调 catalog |
+| 子进程 + loopback 比进程内函数调用多一跳 | 换来与 API 完全同一鉴权。不在 gocloudagent 里直接调 catalog |
 | 实例只读被旧 handler 绕过 | 阶段 B 先补 `writable`，再暴露写命令 |
 | SQL 破坏性分类漏判 | 拿不准就确认；sqlguard 仍会拒绝 ATTACH 等 |
 | 确认挂起占着 thread 锁 | 计入现有 180 秒 run 超时与 2 分钟确认超时；超时按拒绝并 `end` |
@@ -865,7 +865,7 @@ cd ui && yarn test && yarn build
 
 - 本 PR 不提交实现、不改 `go.mod` / `package.json` / 前端配置。
 - 不把 SimpleBase token 注入云沙盒，不用沙盒跑 CLI。
-- 不让 cloudagent 直接写 DuckLake、S3 或系统库。
+- 不让 gocloudagent 直接写 DuckLake、S3 或系统库。
 - 不把系统库改成可写，不给 admin 角色加写权限。
 - 不引入 WebSocket、不引入 cobra 或其它第三方 CLI 框架。
 - 不补 JS SDK 的 KV/云函数/定时任务。

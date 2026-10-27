@@ -1,9 +1,35 @@
+// 文件说明：system_redact.go — internal/api 的内部实现（systemSensitiveColumns、isSystemSensitiveColumn…
+//
+// 用法
+//
+//	同包调用：isSystemSensitiveColumn() → schema_rows.go；systemSQLReferencesSensitive() → sql_handler.go；redactSystemResult() → sql_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/system_redact.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/sqlx
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] isSystemSensitiveColumn() ← schema_rows.go
+//
+// 主要符号
+//
+//	var systemSensitiveColumns
+//	isSystemSensitiveColumn(name string) bool
+//	systemSQLReferencesSensitive(sql string) bool
+//	readSQLQuotedIdent(sql string, i int) (string, int)
+//	redactSystemResult(columns []string, rows [][]any) []string
+
 package api
 
 import (
 	"strings"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 )
 
 // systemSensitiveColumns 是系统库里不能离开服务端的凭证列。

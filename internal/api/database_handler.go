@@ -1,14 +1,34 @@
-// database_handler.go 实现 Plan 5 的数据库管理 API handler。
+// 文件说明：database_handler.go — Plan 5 的数据库管理 API handler
 //
-// 所有 handler 遵循同一流程：
-//  1. 从 context 取已校验的 ProjectContext（由 projectContextMiddleware 注入）。
-//  2. 从 context 取 Principal（由 auth.APIKeyMiddleware 注入）。
-//  3. 解析 path 参数；bind body 后显式校验。
-//  4. 调用 service 层；将 typed error 交给 WriteError 统一映射。
-//  5. 响应绝不包含 S3 key、DSN、凭据。
+// 用法
 //
-// handler 不直接访问 catalog.Repository 或 registry.Registry，只通过
-// DatabaseService 接口依赖，便于测试用假实现替换。
+//	NewDatabaseHandler(svc DatabaseService, writable bool) *DatabaseHandler
+//	(h *DatabaseHandler) CreateDatabase(c echo.Context) error  // CreateDatabase: POST /v1/projects/:projectID/databases
+//	(h *DatabaseHandler) ListDatabases(c echo.Context) error  // ListDatabases: GET /v1/projects/:projectID/databases
+//	同包调用：GetDatabase() → adapter.go, data_handler.go 等；ListDatabases() → adapter.go, data_handler.go 等；DatabaseService → adapter.go, sql_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/database_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, godatabase/sqlguard, internal/auth, internal/catalog
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] GetDatabase() ← adapter.go, data_handler.go, db_stats_cache.go
+//
+// 主要符号
+//
+//	type DatabaseService interface {…}
+//	type DatabaseHandler struct {…}
+//	NewDatabaseHandler(svc DatabaseService, writable bool) *DatabaseHandler
+//	type CreateDatabaseRequest struct {…}
+//	type DatabaseResponse struct {…}
+//	type DatabaseSnapshot struct {…}
+//	... 另有 15 个顶层符号
+
 package api
 
 import (
@@ -20,10 +40,10 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
 )
 
 // DatabaseService 抽象 handler 所需的 catalog + registry 能力。
@@ -106,7 +126,7 @@ type DeleteDatabaseResponse struct {
 // CreateDatabase: POST /v1/projects/:projectID/databases
 func (h *DatabaseHandler) CreateDatabase(c echo.Context) error {
 	if !h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -133,7 +153,7 @@ func (h *DatabaseHandler) CreateDatabase(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	if len(stmts) > 0 && h.InitSQL == nil {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 
 	db, err := h.svc.CreateDatabase(c.Request().Context(), catalog.CreateDatabaseInput{
@@ -155,7 +175,7 @@ func (h *DatabaseHandler) CreateDatabase(c echo.Context) error {
 
 // runInitSQL 逐条执行初始化语句。失败时删除刚创建的库，让同一个名称可以重试。
 func (h *DatabaseHandler) runInitSQL(c echo.Context, principal auth.Principal, project ProjectContext, db catalog.Database, stmts []string) error {
-	lease, err := h.InitSQL.Acquire(c.Request().Context(), db, database.ReadWrite)
+	lease, err := h.InitSQL.Acquire(c.Request().Context(), db, godatabase.ReadWrite)
 	if err != nil {
 		h.rollbackCreate(c, principal, project.ID, db.ID)
 		return err
@@ -166,7 +186,7 @@ func (h *DatabaseHandler) runInitSQL(c echo.Context, principal auth.Principal, p
 			h.rollbackCreate(c, principal, project.ID, db.ID)
 			return err
 		}
-		if _, err := lease.Execute(c.Request().Context(), database.Statement{SQL: stmt}); err != nil {
+		if _, err := lease.Execute(c.Request().Context(), godatabase.Statement{SQL: stmt}); err != nil {
 			h.rollbackCreate(c, principal, project.ID, db.ID)
 			return NewAPIError(http.StatusBadRequest, "init_sql_failed", fmt.Sprintf("初始化 SQL 第 %d 条执行失败：%s", i+1, err.Error()), RequestIDFromContext(c.Request().Context()))
 		}
@@ -304,7 +324,7 @@ func (h *DatabaseHandler) GetDatabase(c echo.Context) error {
 // status 在清理成功后为 deleted（契约仍用 202；前端以列表刷新为准）。
 func (h *DatabaseHandler) DeleteDatabase(c echo.Context) error {
 	if !h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {

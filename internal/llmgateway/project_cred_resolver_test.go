@@ -93,7 +93,7 @@ func TestSystemCredSourceReadsSettingsConnection(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	if err := systemdb.ApplySystemMigrations(ctx, db); err != nil {
+	if err := systemdb.EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)
@@ -160,7 +160,7 @@ func TestFirstUsablePrefersProjectKeysThenCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = repoDB.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), repoDB); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), repoDB); err != nil {
 		t.Fatal(err)
 	}
 	cat := catalog.NewService(catalog.NewSQLRepository(repoDB), objectstore.KeyBuilder{}, nil, objectstore.DuckLakeStorage{}, nil)

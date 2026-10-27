@@ -1,7 +1,30 @@
-// catalog_resolver.go 从 catalog 解析 project 的 LLM 供应商配置（plan8.md）。
+// 文件说明：catalog_resolver.go — 从 catalog 解析 project 的 LLM 供应商配置（plan8.md）
 //
-// 密钥来源：catalog 中 project 的 provider 配置（CredentialRef 指向密钥服务）。
-// 禁止从环境变量自动发现密钥；禁止日志/审计回显密钥原文。
+// 用法
+//
+//	NewCatalogResolver(cat *catalog.Service, cred CredentialResolver) *CatalogResolver
+//	(r *CatalogResolver) Resolve(ctx context.Context, projectID string) ...  // Resolve 从 catalog 读取 project 的 LLM 供应商配置并通过密钥服务解析密钥
+//	同包调用：Resolve() → fallback_resolver.go, project_cred_resolver.go 等；CredentialResolver → fallback_resolver.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/catalog_resolver.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/catalog
+//	[同包] fallback_resolver.go, project_cred_resolver.go, provider_driver.go, service.go, streaming.go
+//	[关键引用] Resolve() ← fallback_resolver.go, project_cred_resolver.go, service.go
+//
+// 主要符号
+//
+//	type CredentialResolver interface {…}
+//	type CatalogResolver struct {…}
+//	NewCatalogResolver(cat *catalog.Service, cred CredentialResolver) *CatalogResolver
+//	(r *CatalogResolver) Resolve(ctx context.Context, projectID string) ...
+
 package llmgateway
 
 import (

@@ -205,6 +205,7 @@ export const uiStubs = {
   AlertDialogFooter: { template: '<div><slot /></div>' },
   AlertDialogCancel: { template: '<button type="button">取消</button>' },
   AlertDialogAction: {
+    emits: ['click'],
     template: '<button type="button" class="ad-ok" @click="$emit(\'click\')">确定</button>'
   },
   Empty: { template: '<div class="empty-root"><slot /></div>' },
@@ -262,7 +263,7 @@ export const uiStubs = {
 
 export const defaultRoutes: RouteRecordRaw[] = [
   { path: '/', name: 'dashboard', component: { template: '<div>dash</div>' }, meta: { title: '监控大盘' } },
-  { path: '/databases', name: 'databases', component: { template: '<div>db</div>' }, meta: { title: '数据库管理' } },
+  { path: '/databases', name: 'databases', component: { template: '<div>db</div>' }, meta: { title: '数据管理' } },
   { path: '/s3', name: 's3', component: { template: '<div>s3</div>' }, meta: { title: '对象存储' } },
   { path: '/gofunctions', name: 'gofunctions', component: { template: '<div>go</div>' }, meta: { title: '云函数' } },
   { path: '/cron-jobs', name: 'cron-jobs', component: { template: '<div>cron</div>' }, meta: { title: '定时任务' } },

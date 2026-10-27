@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )

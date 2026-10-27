@@ -43,12 +43,3 @@ func TestRecordDefaultsDetailAndListLimits(t *testing.T) {
 		t.Fatalf("limit clamp ops=%d", len(ops))
 	}
 }
-
-func TestRedactLengths(t *testing.T) {
-	if Redact("") != "" || Redact("a") != "*" || Redact("abcd") != "****" {
-		t.Fatal("short redact")
-	}
-	if Redact("abcde") != "ab*de" {
-		t.Fatalf("%q", Redact("abcde"))
-	}
-}

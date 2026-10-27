@@ -49,11 +49,11 @@ describe('SchemaPanel', () => {
     )
     const wrapper = mountPanel()
     expect(wrapper.find('[aria-busy="true"]').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('还没有表')
+    expect(wrapper.text()).not.toContain('暂无表')
     expect(wrapper.find('form').exists()).toBe(false)
     resolveSchema({ tables: [] })
     await flushPromises()
-    expect(wrapper.text()).toContain('还没有表')
+    expect(wrapper.text()).toContain('暂无表')
     expect(wrapper.find('form.create-table').exists()).toBe(true)
     expect(wrapper.get('form.add-column button[type="submit"]').attributes('disabled')).toBeDefined()
     const vm = wrapper.vm as unknown as { submitColumn: () => Promise<void> }
@@ -69,7 +69,7 @@ describe('SchemaPanel', () => {
     api.databases.schema.mockResolvedValueOnce({ tables: [] })
     await wrapper.findAll('button').find((button) => button.text() === '重试')!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('还没有表')
+    expect(wrapper.text()).toContain('暂无表')
 
     api.databases.schema.mockResolvedValueOnce({
       tables: [{ name: 'orders', columns: [{ name: 'id', type: 'INTEGER', nullable: true }] }]

@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 )
 
 // B2-durability 表征（planv6.0 §8 B2）：durability 字段在响应路径上的选择语义
@@ -45,8 +45,8 @@ func TestSQLHandler_DurabilitySemantics(t *testing.T) {
 		svc := &fakeSQLService{}
 		svc.db = catalog.Database{ID: "u", ProjectID: "proj-1", Status: catalog.DatabaseReady}
 		svc.lease = &fakeSQLLease{
-			executeResult: database.QueryResult{RowsAffected: 1},
-			batchResults:  []database.QueryResult{{RowsAffected: 1}},
+			executeResult: godatabase.QueryResult{RowsAffected: 1},
+			batchResults:  []godatabase.QueryResult{{RowsAffected: 1}},
 		}
 		return svc
 	}

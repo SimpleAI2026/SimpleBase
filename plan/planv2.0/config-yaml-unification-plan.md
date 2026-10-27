@@ -210,7 +210,7 @@ Prefix `SIMPLEBASE_`. Helpers: `envStr`, `envBool`, `envInt`, `envInt64`, `envDu
 | Log/metrics buffer flush | 64 records, not time | `systemdb/logs.go`, `metrics.go` | yes; **ignores** flush-interval config |
 | Store close timeout | 15s | `systemdb/store.go` | yes |
 | Log retention default | 14 days | `systemdb/logs.go` `GetRetention` | yes; **ignores** `LogKeepDays` config |
-| Cloud agent scheduler | tick 30s, concurrency 4, history 40 | `cloudagent/scheduler.go` | yes |
+| Cloud agent scheduler | tick 30s, concurrency 4, history 40 | `gocloudagent/scheduler.go` | yes |
 | Cron scheduler | tick 30s, concurrency 4, response 4KiB | `cronjob/scheduler.go` | yes |
 | Cron search horizon | 2 years of minutes | `crontab/crontab.go` | yes |
 | Go function source cap | 256 KiB, 100 per project | `api/gofunction_handler.go` | yes |
@@ -607,7 +607,7 @@ Drop unused `mapstructure` tags unless a decoder is actually added.
 | Catalog list | `internal/catalog/service.go` | honor `hide_from_list` **or delete the field** |
 | Auth | `internal/auth/service.go` | no API change; secret still from cfg |
 | LLM | `internal/llmgateway/catalog_resolver.go`, `service.go` | instance-provider fallback; do not read raw `os.Getenv` |
-| Cloud agent / cron | `internal/cloudagent/scheduler.go`, `internal/cronjob/scheduler.go` | optional cfg tick/concurrency |
+| Cloud agent / cron | `internal/gocloudagent/scheduler.go`, `internal/cronjob/scheduler.go` | optional cfg tick/concurrency |
 | Go function | `internal/api/gofunction_handler.go`, `gofunction/frame.go` | optional cfg caps/timeout |
 | Entrypoint | **restore** `cmd/simplebased/main.go` | `Load` → `New` → `RunWithSignal` |
 | Docker | `Dockerfile` | already points at that binary |

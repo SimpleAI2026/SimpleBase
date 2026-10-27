@@ -14,7 +14,7 @@ import (
 	"github.com/voocel/litellm/providers"
 )
 
-// 空模型名的语义核查（用于定位「cloudagent: run start 日志里 model=""」）。
+// 空模型名的语义核查（用于定位「gocloudagent: run start 日志里 model=""」）。
 //
 // 结论：不是缺陷。云助手 runtime 的 model 字段只表示「助手级/项目级显式指定的模型」，
 // 为空时由网关回填供应商的 default_model，最终上游请求带的是真实模型名。
@@ -104,8 +104,8 @@ func TestMissingModelIsExplicitError(t *testing.T) {
 	if _, err := svc.Stream(ctx, "p1", Request{}); !errors.Is(err, ErrModelNotConfigured) {
 		t.Fatalf("stream err=%v want ErrModelNotConfigured", err)
 	}
-	// 错误码到前端文案的映射由 cloudagent.ClassifyError 负责，
-	// 断言放在 cloudagent 包（本包是 llmgateway，不能反向 import）。
+	// 错误码到前端文案的映射由 gocloudagent.ClassifyError 负责，
+	// 断言放在 gocloudagent 包（本包是 llmgateway，不能反向 import）。
 }
 
 // 解析后的模型必须写进日志，便于排查「日志显示 model="" 时到底用了什么模型」。

@@ -1,3 +1,33 @@
+// 文件说明：role.go — internal/auth 中 Role、RoleSuperAdmin 等符号的实现
+//
+// 用法
+//
+//	(r Role) Valid() bool  // Valid 判断是否为合法角色值
+//	(r Role) IsSuper() bool// IsSuper / IsAdmin / IsUser 便捷判定
+//	同包调用：Role → delegation.go, jwt.go 等；Valid() → api_key_repository.go, policy.go 等；IsSuper() → principal.go, user.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/role.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] Role ← delegation.go, jwt.go, principal.go
+//
+// 主要符号
+//
+//	type Role string
+//	const RoleSuperAdmin
+//	const RoleAdmin
+//	const RoleUser
+//	const UserAdmin
+//	(r Role) Valid() bool
+//	... 另有 7 个顶层符号
+
 package auth
 
 // Role 是控制台账号的三级角色（planv3.0 login-auth-plan §2）。

@@ -162,7 +162,7 @@ describe('ModelDefaultsPanel', () => {
       const { wrapper } = await mountWithApp(ModelDefaultsPanel)
       const card = wrapper.get('[data-testid="free-model-card"]')
       expect(card.get('[data-testid="free-model-name"]').text()).toContain('未设置')
-      expect(card.get('[data-testid="free-model-key"]').text()).toContain('尚未配置')
+      expect(card.get('[data-testid="free-model-key"]').text()).toContain('暂无配置')
       const keyCopy = card.findAll('button').find((b) => b.attributes('aria-label') === '复制 API Key')
       expect(keyCopy?.attributes('disabled')).toBeDefined()
       wrapper.unmount()

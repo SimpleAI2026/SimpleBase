@@ -5,7 +5,7 @@
 > **日期**：2026-09-27
 > **SDK**：`github.com/superradcompany/microsandbox/sdk/go`（核对日 pkg.go.dev 最新 tag 为 **v0.7.3**；仓库 `main` 的 `sdk/go/setup.go` 中 `sdkVersion` 为 **0.7.4**）。实现时 `go get` 锁定一个已发布的 `v0.7.x`，并把该版本写进 `go.mod`。
 > **文档**：https://docs.microsandbox.dev （Cloud、Local or cloud、Go SDK Sandbox / Execution / Filesystem / Networking）
-> **关联**：`plan/planv2.0/cloud-agent-plan.md`、`internal/cloudagent`、`internal/AGENTS.md`、`ui/src/pages/AgentManager.vue`
+> **关联**：`plan/planv2.0/cloud-agent-plan.md`、`internal/gocloudagent`、`internal/AGENTS.md`、`ui/src/pages/AgentManager.vue`
 
 用户已明确要求引入该 SDK。这是对 `internal/AGENTS.md`「不新增第三方依赖」的例外。
 
@@ -40,15 +40,15 @@
 
 ## 2. 现状（要对齐的代码）
 
-云 Agent 是 eino `ChatModelAgent` + 只读工具，跑在 `internal/cloudagent`。
+云 Agent 是 eino `ChatModelAgent` + 只读工具，跑在 `internal/gocloudagent`。
 
-- 工具目录与模块模板：`internal/cloudagent/modules.go`（`database` / `s3` / `logs` / `general`）。`KnownTool` 只认只读 id。
-- 工具装配：`internal/cloudagent/tools.go` 的 `buildTools`，经 `utils.InferTool` 挂到 eino。
-- 运行时：`internal/cloudagent/runtime.go` 的 `Runtime.StartRun`，`toolDeps` 只有 DB / Obj / Logs。
+- 工具目录与模块模板：`internal/gocloudagent/modules.go`（`database` / `s3` / `logs` / `general`）。`KnownTool` 只认只读 id。
+- 工具装配：`internal/gocloudagent/tools.go` 的 `buildTools`，经 `utils.InferTool` 挂到 eino。
+- 运行时：`internal/gocloudagent/runtime.go` 的 `Runtime.StartRun`，`toolDeps` 只有 DB / Obj / Logs。
 - 装配：`internal/app/app.go` 的 `cloudAgentRuntime()`。
 - 对话入口：`POST /v1/projects/:projectID/agent-threads/:threadID/runs`，权限 `database:read`，并 `CheckQuota(..., "llm")`（`internal/api/router.go`、`internal/api/agent_handler.go`）。
 - 控制台：`ui/src/pages/AgentManager.vue` 按模块默认工具画 badge，文案仍是「工具只读」。
-- 约束：`internal/AGENTS.md` 写明 `cloudagent`「禁止提供写工具」。实现时改成：禁止写 DuckLake / S3 / 系统库；允许只在 Cloud 沙盒内执行。
+- 约束：`internal/AGENTS.md` 写明 `gocloudagent`「禁止提供写工具」。实现时改成：禁止写 DuckLake / S3 / 系统库；允许只在 Cloud 沙盒内执行。
 
 沙盒命令不是对 SimpleBase 的写操作。它不经过 `sqlguard`，也不打开 registry。
 
@@ -153,15 +153,15 @@ text, err := fs.ReadString(ctx, path)
 ```text
 internal/config          sandbox 配置段（无密钥逻辑以外的字段）
 internal/sandbox         唯一 import microsandbox 的包：backend 核对、命名、路径约束、Client
-internal/cloudagent      新工具 id、模块模板、buildTools 调用 Sandbox 接口
+internal/gocloudagent      新工具 id、模块模板、buildTools 调用 Sandbox 接口
 internal/app             assembleDeps / cloudAgentRuntime 注入 Client；关闭时不扫全量删除
 internal/api             无新路由。modules 响应多一个 sandbox_available
 ui                       Agent 模块与工具 badge、composer 文案
 ```
 
-依赖方向：`app → sandbox` 与 `app → cloudagent`；`cloudagent` 只依赖自己声明的 `Sandbox` 接口，不 import `microsandbox`。`api` 不直接调用 SDK。
+依赖方向：`app → sandbox` 与 `app → gocloudagent`；`gocloudagent` 只依赖自己声明的 `Sandbox` 接口，不 import `microsandbox`。`api` 不直接调用 SDK。
 
-`cloudagent.Runtime` 增加字段：
+`gocloudagent.Runtime` 增加字段：
 
 ```go
 Sandbox Sandbox // nil 表示未启用
@@ -350,7 +350,7 @@ platform base 里「Tools are readonly」对 sandbox 模块改成：只读工具
 |---|---|
 | `internal/config` | YAML 生产拒绝 `sandbox.api_key`；env 覆盖；`enabled` 无 key 时 Validate 失败；`network` 只接受 `none`/`public` |
 | `internal/sandbox` | 名字生成、`/workspace` 路径接受与拒绝、输出截断。用假的执行后端，不 import 真实调用 |
-| `internal/cloudagent` | `buildTools` 在 Sandbox 为 nil 时返回明确错误；fake Sandbox 断言 exec 参数与脱敏；只读 principal 被拒绝；write principal 放行 |
+| `internal/gocloudagent` | `buildTools` 在 Sandbox 为 nil 时返回明确错误；fake Sandbox 断言 exec 参数与脱敏；只读 principal 被拒绝；write principal 放行 |
 | `internal/api` | 沙盒未启用时创建 `module=sandbox` 的 agent 返回 400；modules JSON 带 `sandbox_available` |
 | UI | `AgentManager` 在 `sandbox_available=false` 时不能选中 Sandbox 模块 |
 
@@ -362,7 +362,7 @@ platform base 里「Tools are readonly」对 sandbox 模块改成：只读工具
 
 ## 11. 实现顺序
 
-1. **配置与边界文档**：`SandboxConfig`、env、生产密钥拒绝；改 `internal/AGENTS.md` 的 cloudagent 行；`docs/getting-started/index.md` 的「只读工具」一句改为只读工具 + 可选云沙盒。
+1. **配置与边界文档**：`SandboxConfig`、env、生产密钥拒绝；改 `internal/AGENTS.md` 的 gocloudagent 行；`docs/getting-started/index.md` 的「只读工具」一句改为只读工具 + 可选云沙盒。
 2. **`internal/sandbox`**：backend 核对、`Client` 实现 §3.2、路径与截断。`app.assembleDeps` 在 LLM runtime 之前完成核对并注入。失败只关闭沙盒。
 3. **工具与模块**：`modules.go` / `tools.go` / `runtime.go` / prompt 测试。
 4. **API**：modules 字段与创建校验；thread 删除调用 `ReleaseThread`。

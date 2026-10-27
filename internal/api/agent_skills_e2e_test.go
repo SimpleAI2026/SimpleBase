@@ -17,7 +17,7 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -28,7 +28,7 @@ func TestRunEventHubGapAndConfirmTimeout(t *testing.T) {
 	hub := newRunEventHub()
 	// 容量 2000。丢掉两条之后，客户端只看到 id=1 时中间的 id=2 已经不在环里。
 	for i := 0; i < 2002; i++ {
-		hub.append("run", cloudagent.Event{Type: "token", Content: "x"})
+		hub.append("run", gocloudagent.Event{Type: "token", Content: "x"})
 	}
 	if _, gap, _, _ := hub.replay("run", 1); !gap {
 		t.Fatal("expected stream gap")
@@ -173,42 +173,42 @@ func writeAPI(w http.ResponseWriter, status int, code string) {
 
 type scriptLLM struct {
 	mu    sync.Mutex
-	steps [][]cloudagent.StreamDelta
+	steps [][]gocloudagent.StreamDelta
 	n     int
 }
 
-func (s *scriptLLM) reset(steps [][]cloudagent.StreamDelta) {
+func (s *scriptLLM) reset(steps [][]gocloudagent.StreamDelta) {
 	s.mu.Lock()
 	s.steps = steps
 	s.n = 0
 	s.mu.Unlock()
 }
 
-func (s *scriptLLM) Chat(context.Context, string, cloudagent.ChatRequest) (cloudagent.ChatResponse, error) {
-	return cloudagent.ChatResponse{Content: "done"}, nil
+func (s *scriptLLM) Chat(context.Context, string, gocloudagent.ChatRequest) (gocloudagent.ChatResponse, error) {
+	return gocloudagent.ChatResponse{Content: "done"}, nil
 }
 
-func (s *scriptLLM) Stream(context.Context, string, cloudagent.ChatRequest) (cloudagent.TokenStream, error) {
+func (s *scriptLLM) Stream(context.Context, string, gocloudagent.ChatRequest) (gocloudagent.TokenStream, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var deltas []cloudagent.StreamDelta
+	var deltas []gocloudagent.StreamDelta
 	if s.n < len(s.steps) {
 		deltas = s.steps[s.n]
 		s.n++
 	} else {
-		deltas = []cloudagent.StreamDelta{{Content: "done", Finish: true}}
+		deltas = []gocloudagent.StreamDelta{{Content: "done", Finish: true}}
 	}
 	return &stepDelta{deltas: deltas}, nil
 }
 
 type stepDelta struct {
-	deltas []cloudagent.StreamDelta
+	deltas []gocloudagent.StreamDelta
 	i      int
 }
 
-func (s *stepDelta) NextDelta() (cloudagent.StreamDelta, error) {
+func (s *stepDelta) NextDelta() (gocloudagent.StreamDelta, error) {
 	if s.i >= len(s.deltas) {
-		return cloudagent.StreamDelta{}, io.EOF
+		return gocloudagent.StreamDelta{}, io.EOF
 	}
 	d := s.deltas[s.i]
 	s.i++
@@ -225,31 +225,31 @@ func (s *stepDelta) Next() (string, bool, error) {
 
 func (s *stepDelta) Close() error { return nil }
 
-func toolDeltas(id string, argv []string) []cloudagent.StreamDelta {
+func toolDeltas(id string, argv []string) []gocloudagent.StreamDelta {
 	raw, _ := json.Marshal(map[string]any{"argv": argv})
 	s := string(raw)
 	cut := len(s) / 2
-	return []cloudagent.StreamDelta{
-		{ToolCall: &cloudagent.ToolCallDelta{Index: 0, ID: id, Name: "simplebase", ArgsDelta: s[:cut]}},
-		{ToolCall: &cloudagent.ToolCallDelta{Index: 0, ArgsDelta: s[cut:]}},
+	return []gocloudagent.StreamDelta{
+		{ToolCall: &gocloudagent.ToolCallDelta{Index: 0, ID: id, Name: "simplebase", ArgsDelta: s[:cut]}},
+		{ToolCall: &gocloudagent.ToolCallDelta{Index: 0, ArgsDelta: s[cut:]}},
 		{Finish: true},
 	}
 }
 
 // toolStdinDeltas 构造带内联 stdin 的工具调用（planv6.0 D3：--file -）。
-func toolStdinDeltas(id string, argv []string, stdin string) []cloudagent.StreamDelta {
+func toolStdinDeltas(id string, argv []string, stdin string) []gocloudagent.StreamDelta {
 	raw, _ := json.Marshal(map[string]any{"argv": argv, "stdin": stdin})
 	s := string(raw)
 	cut := len(s) / 2
-	return []cloudagent.StreamDelta{
-		{ToolCall: &cloudagent.ToolCallDelta{Index: 0, ID: id, Name: "simplebase", ArgsDelta: s[:cut]}},
-		{ToolCall: &cloudagent.ToolCallDelta{Index: 0, ArgsDelta: s[cut:]}},
+	return []gocloudagent.StreamDelta{
+		{ToolCall: &gocloudagent.ToolCallDelta{Index: 0, ID: id, Name: "simplebase", ArgsDelta: s[:cut]}},
+		{ToolCall: &gocloudagent.ToolCallDelta{Index: 0, ArgsDelta: s[cut:]}},
 		{Finish: true},
 	}
 }
 
-func textDeltas(text string) []cloudagent.StreamDelta {
-	return []cloudagent.StreamDelta{{Content: text, Finish: true}}
+func textDeltas(text string) []gocloudagent.StreamDelta {
+	return []gocloudagent.StreamDelta{{Content: text, Finish: true}}
 }
 
 type sseEv struct {
@@ -342,7 +342,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	defer dataSrv.Close()
 
 	db := openMemoryDB(t)
-	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)
@@ -362,7 +362,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	llm := &scriptLLM{}
 	confirms := newConfirmHub()
 	events := newRunEventHub()
-	rt := &cloudagent.Runtime{
+	rt := &gocloudagent.Runtime{
 		LLM: llm, SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
 		APIBaseURL: dataSrv.URL, Policy: agentbridge.NewCommandPolicy(), Issuer: agentbridge.NewDelegationIssuer(secret, reg),
 		// 确认窗口必须短于 RunTimeout。CI 上同机并行包会把调度拖过几秒，
@@ -459,7 +459,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 		}
 	}
 
-	run := func(t *testing.T, content string, module string, role string, steps [][]cloudagent.StreamDelta) (string, []sseEv) {
+	run := func(t *testing.T, content string, module string, role string, steps [][]gocloudagent.StreamDelta) (string, []sseEv) {
 		t.Helper()
 		data.reset()
 		llm.reset(steps)
@@ -475,7 +475,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 
 	// The signature above always reads to end. Destructive samples need a pause.
 	// runPaused returns the body so the caller can continue.
-	openRun := func(t *testing.T, content string, module string, role string, steps [][]cloudagent.StreamDelta) (string, *http.Response) {
+	openRun := func(t *testing.T, content string, module string, role string, steps [][]gocloudagent.StreamDelta) (string, *http.Response) {
 		t.Helper()
 		data.reset()
 		llm.reset(steps)
@@ -533,7 +533,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	}
 
 	t.Run("1 create database", func(t *testing.T) {
-		_, resp := openRun(t, "建一个名为 shop 的 SQL 库", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "建一个名为 shop 的 SQL 库", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "create", "--name", "shop", "--data-model", "sql"}),
 			textDeltas("已创建"),
 		})
@@ -548,7 +548,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("2 create table", func(t *testing.T) {
-		_, resp := openRun(t, "在 shop 建 orders 表", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "在 shop 建 orders 表", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"schema", "create-table", "--database", "shop", "--name", "orders", "--columns", `[{"name":"id","type":"BIGINT"},{"name":"amount","type":"DOUBLE"}]`}),
 			textDeltas("ok"),
 		})
@@ -559,7 +559,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("3 insert", func(t *testing.T) {
-		_, resp := openRun(t, "插入一行", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "插入一行", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "exec", "--database", "shop", "--statement", "INSERT INTO orders VALUES (1, 10)"}),
 			textDeltas("ok"),
 		})
@@ -570,7 +570,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("4 query", func(t *testing.T) {
-		_, resp := openRun(t, "查出 amount", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "查出 amount", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "query", "--database", "shop", "--statement", "SELECT amount FROM orders"}),
 			textDeltas("10"),
 		})
@@ -581,7 +581,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("5 delete confirms", func(t *testing.T) {
-		_, resp := openRun(t, "删掉 shop 库", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉 shop 库", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("deleted"),
 		})
@@ -598,7 +598,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("6 system database", func(t *testing.T) {
-		_, resp := openRun(t, "系统库也删掉", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "系统库也删掉", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "simplebase-system"}),
 			textDeltas("no"),
 		})
@@ -613,7 +613,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 
 	t.Run("7 function", func(t *testing.T) {
 		src := "package main\nimport \"fmt\"\ntype Req struct{}\nfunc Hello(req Req) string { fmt.Println(\"hi\"); return \"hi\" }\n"
-		_, resp := openRun(t, "写一个 Hello 云函数并调用", "gofunction", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "写一个 Hello 云函数并调用", "gofunction", "user", [][]gocloudagent.StreamDelta{
 			toolStdinDeltas("c1", []string{"function", "create", "--name", "hello", "--file", "-"}, src),
 			toolDeltas("c2", []string{"function", "invoke", "--name", "hello", "--export", "Hello"}),
 			textDeltas("hi"),
@@ -625,7 +625,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("8 cron", func(t *testing.T) {
-		_, resp := openRun(t, "每天 0 点跑", "cron", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "每天 0 点跑", "cron", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"cron", "create", "--schedule-kind", "cron", "--cron", "0 0 * * *"}),
 			textDeltas("ok"),
 		})
@@ -636,7 +636,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("9 trigger confirms", func(t *testing.T) {
-		_, resp := openRun(t, "现在就跑一次", "cron", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "现在就跑一次", "cron", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"cron", "trigger", "--id", "job1"}),
 			textDeltas("ok"),
 		})
@@ -653,7 +653,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("10 kv", func(t *testing.T) {
-		_, resp := openRun(t, "设一个键再读", "kv", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "设一个键再读", "kv", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"kv", "exec", "--command", "SET", "--arg", "a", "--arg", "1"}),
 			toolDeltas("c2", []string{"kv", "exec", "--command", "GET", "--arg", "a"}),
 			textDeltas("1"),
@@ -665,7 +665,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("11 kv delete confirms", func(t *testing.T) {
-		_, resp := openRun(t, "删掉键 a", "kv", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉键 a", "kv", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"kv", "exec", "--command", "DEL", "--arg", "a"}),
 			textDeltas("ok"),
 		})
@@ -682,7 +682,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("12 upload", func(t *testing.T) {
-		_, resp := openRun(t, "上传 readme", "s3", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "上传 readme", "s3", "user", [][]gocloudagent.StreamDelta{
 			toolStdinDeltas("c1", []string{"object", "upload", "--key", "readme", "--file", "-"}, "hello"),
 			textDeltas("ok"),
 		})
@@ -693,7 +693,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("13 skill not loaded", func(t *testing.T) {
-		_, resp := openRun(t, "删掉所有库", "general", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉所有库", "general", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("no"),
 		})
@@ -704,7 +704,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("14 admin forbidden", func(t *testing.T) {
-		_, resp := openRun(t, "插入一行", "database", "admin", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "插入一行", "database", "admin", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "exec", "--database", "shop", "--statement", "INSERT INTO orders VALUES (1, 10)"}),
 			textDeltas("no"),
 		})
@@ -718,7 +718,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 		// planv6.0 v2 §3.8：助手级只读开关对写命令的拒绝，且不进入确认流程。
 		setAgentsWritable(t, store, false)
 		t.Cleanup(func() { setAgentsWritable(t, store, true) })
-		_, resp := openRun(t, "删掉 shop 库", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉 shop 库", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("no"),
 		})
@@ -738,7 +738,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	t.Run("14c readonly agent still allows reads", func(t *testing.T) {
 		setAgentsWritable(t, store, false)
 		t.Cleanup(func() { setAgentsWritable(t, store, true) })
-		_, resp := openRun(t, "查一下", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "查一下", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "query", "--database", "shop", "--statement", "SELECT 1"}),
 			textDeltas("ok"),
 		})
@@ -752,7 +752,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 	})
 
 	t.Run("15 cancel", func(t *testing.T) {
-		_, resp := openRun(t, "停掉", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "停掉", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "query", "--database", "shop", "--statement", "SELECT slow"}),
 			textDeltas("no"),
 		})
@@ -773,7 +773,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 		// `@` 只点名助手：请求体里的 skills 不再是入口，未知 id 也不再报 unknown_skill，
 		// 真正生效的技能由助手 module 决定（general 不加载子技能）。
 		data.reset()
-		llm.reset([][]cloudagent.StreamDelta{
+		llm.reset([][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "list"}),
 			textDeltas("no"),
 		})
@@ -794,7 +794,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 		prev := rt.ConfirmTimeout
 		rt.ConfirmTimeout = 200 * time.Millisecond
 		t.Cleanup(func() { rt.ConfirmTimeout = prev })
-		_, resp := openRun(t, "删掉", "database", "user", [][]cloudagent.StreamDelta{
+		_, resp := openRun(t, "删掉", "database", "user", [][]gocloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("no"),
 		})

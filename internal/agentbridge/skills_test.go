@@ -5,17 +5,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/sbcli"
 )
 
 // 技能文档里的 `<!-- readonly: … -->` 标注必须与宿主 sbcli 判定一致，
 // 否则模型会按文档把写命令当成只读。
 //
-// 对账放在宿主侧：cloudagent 是独立模块，不 import sbcli；但它的 embed
+// 对账放在宿主侧：gocloudagent 是独立模块，不 import sbcli；但它的 embed
 // 文档通过公开 API 暴露，宿主的 sbcli 提供事实判定。
 func TestSkillReadOnlyAnnotationsMatchSbcli(t *testing.T) {
-	annotations, err := cloudagent.EmbeddedSkillReadOnly()
+	annotations, err := gocloudagent.EmbeddedSkillReadOnly()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestSkillReadOnlyAnnotationsMatchSbcli(t *testing.T) {
 		t.Fatal("kv 不应对 readonly 做任何声明")
 	}
 	for id, cmds := range annotations {
-		allows := cloudagent.SkillPrefixes(id)
+		allows := gocloudagent.SkillPrefixes(id)
 		for _, cmd := range cmds {
 			parts := strings.SplitN(cmd, " ", 2)
 			if len(parts) != 2 {
@@ -51,8 +51,8 @@ func TestSkillReadOnlyAnnotationsMatchSbcli(t *testing.T) {
 	}
 
 	// 反向：文档里出现的每个实际只读命令都必须被标注，防止漏标。
-	for _, id := range cloudagent.KnownSkillIDs() {
-		body := cloudagent.SkillBody(id)
+	for _, id := range gocloudagent.KnownSkillIDs() {
+		body := gocloudagent.SkillBody(id)
 		declared := map[string]bool{}
 		for _, c := range annotations[id] {
 			declared[c] = true
@@ -78,8 +78,8 @@ func TestSkillReadOnlyAnnotationsMatchSbcli(t *testing.T) {
 
 // 文档示例里的每条 `simplebase <resource> <action>` 都必须能被 sbcli 分发。
 func TestSkillCommandsDispatchable(t *testing.T) {
-	for _, id := range cloudagent.KnownSkillIDs() {
-		body := cloudagent.SkillBody(id)
+	for _, id := range gocloudagent.KnownSkillIDs() {
+		body := gocloudagent.SkillBody(id)
 		if body == "" {
 			t.Fatalf("skill %s 正文缺失", id)
 		}
@@ -101,14 +101,14 @@ func TestSkillCommandsDispatchable(t *testing.T) {
 
 // 嵌入的 allow 注释必须与模块内的技能前缀表一致。
 func TestEmbeddedAllowsMatchPrefixes(t *testing.T) {
-	allows, err := cloudagent.EmbeddedSkillAllows()
+	allows, err := gocloudagent.EmbeddedSkillAllows()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ids := cloudagent.KnownSkillIDs()
+	ids := gocloudagent.KnownSkillIDs()
 	for _, id := range ids {
 		got := append([]string(nil), allows[id]...)
-		want := cloudagent.SkillPrefixes(id)
+		want := gocloudagent.SkillPrefixes(id)
 		// embed 的 allow 注释与内部前缀表顺序不同，比较前统一排序。
 		sort.Strings(got)
 		sort.Strings(want)

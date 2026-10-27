@@ -1,4 +1,30 @@
-// helpers.go 用例共享的小工具（插入行、UUID、HTTP 构造、hash argvs）。
+// 文件说明：helpers.go — 用例共享的小工具（插入行、UUID、HTTP 构造、hash argvs）
+//
+// 用法
+//
+//	同包调用：benchInsert() → cases.go；benchUUID() → cases.go；hashArgvs() → cases.go
+//
+// 调用架构
+//
+//	[上游] cmd/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/perfbench/helpers.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cases.go, harness.go, loadgen.go, runner.go, stage_report.go
+//	[关键引用] benchInsert() ← cases.go
+//
+// 主要符号
+//
+//	timeNowNano() int64
+//	benchInsert(env *benchEnv, seq int) error
+//	benchUUID() string
+//	hashArgvs(fields map[string]string) []string
+//	httpNewRequest(method, url string) (*http.Request, error)
+//	helpers.go 用例共享的小工具（插入行、UUID、HTTP 构造、hash argvs）。
+
 package perfbench
 
 import (

@@ -19,7 +19,7 @@ import (
 	_ "github.com/uglyer/go-sqlite3"
 )
 
-// fakeLLMSvc 被本文件与 router_more / cloudagent_access / sse_write_timeout 等测试共用，
+// fakeLLMSvc 被本文件与 router_more / gocloudagent_access / sse_write_timeout 等测试共用，
 // 并记录最近一次请求以便断言协议映射（工具、tool_choice、工具往返消息）。
 type fakeLLMSvc struct {
 	chatErr   error
@@ -195,7 +195,7 @@ func TestChatCompletions_NonStream(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = db.Close() })
-		if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+		if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 			t.Fatal(err)
 		}
 		store := systemdb.NewStoreForTest(db)

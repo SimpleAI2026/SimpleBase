@@ -20,7 +20,7 @@ func newTestRepoForUsage(t *testing.T) catalog.Repository {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
 	return catalog.NewSQLRepository(db)

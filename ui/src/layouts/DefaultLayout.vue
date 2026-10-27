@@ -47,7 +47,8 @@
         class="sticky top-0 z-20 flex min-h-[var(--header-height)] shrink-0 items-center gap-2 border-b border-border/70 bg-background/80 px-3 py-1 backdrop-blur-xl sm:gap-4 sm:px-5 sm:py-0 lg:px-6"
       >
         <div class="flex min-w-0 flex-1 items-center gap-2">
-          <Breadcrumb>
+          <SidebarTrigger class="shrink-0 md:hidden" :aria-label="t('layout.openNavigation')" />
+          <Breadcrumb class="hidden min-w-0 md:block">
             <BreadcrumbList class="gap-1.5">
               <BreadcrumbItem>
                 <BreadcrumbPage class="truncate font-medium text-foreground">
@@ -73,7 +74,7 @@
 
           <div class="mx-0.5 hidden h-5 w-px bg-border/80 sm:block" />
 
-          <GlobalProjectSwitcher />
+          <GlobalProjectSwitcher v-if="authStore.isAuthenticated" />
 
           <div class="mx-0.5 hidden h-5 w-px bg-border/80 sm:block" />
 
@@ -122,7 +123,7 @@
       <div class="w-full flex-1" :style="{ padding: 'var(--page-pad)' }">
         <router-view v-slot="{ Component }">
           <transition name="sb-fade" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" v-if="authStore.isAuthenticated" />
           </transition>
         </router-view>
       </div>
@@ -159,7 +160,7 @@ import UserMenu from '../components/UserMenu.vue'
 import GlobalProjectSwitcher from '../components/GlobalProjectSwitcher.vue'
 import router from '../router'
 
-const SETTINGS_TABS: SettingsTab[] = ['connection', 'models']
+const SETTINGS_TABS: SettingsTab[] = ['connection', 'models', 'storage', 'backups']
 
 const route = useRoute()
 const vueRouter = useRouter()

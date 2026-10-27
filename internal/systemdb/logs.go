@@ -1,3 +1,33 @@
+// 文件说明：logs.go — internal/systemdb 中 LogEvent、LogQuery 等符号的实现
+//
+// 用法
+//
+//	(s *Store) RecordLog(ev LogEvent)  // RecordLog 缓冲一条运行日志（§7.2 P3.1：只入队，满批发信号由后台刷写）
+//	(s *Store) FlushLogs(ctx context.Context) error  // FlushLogs 将缓冲日志写入 sys_log_events（批量单事务，§7.2 P3.2）
+//	同包调用：LogEvent → async_flush.go, log_stats.go 等；LogQuery → log_stats.go；QueryLogs() → observe.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/logs.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/limit
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] LogEvent ← async_flush.go, log_stats.go, store.go
+//
+// 主要符号
+//
+//	type LogEvent struct {…}
+//	type LogQuery struct {…}
+//	type Retention struct {…}
+//	(s *Store) RecordLog(ev LogEvent)
+//	(s *Store) FlushLogs(ctx context.Context) error
+//	(s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error)
+//	... 另有 4 个顶层符号
+
 package systemdb
 
 import (

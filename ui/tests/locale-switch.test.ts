@@ -8,6 +8,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { localeOptions, useLocale } from '@/composables/useLocale'
 import { resetApiMocks } from '@/test/api-mock'
 import { mountWithApp, uiStubs } from '@/test/helpers'
+import { setTokens } from '@/services/http'
 import LocaleSelect from '@/components/LocaleSelect.vue'
 
 /**
@@ -110,6 +111,7 @@ describe('LocaleSelect', () => {
 describe('顶栏语言下拉', () => {
   beforeEach(() => {
     resetApiMocks()
+    setTokens('a', 'r')
     setI18nLocale('zh-CN')
     useSettingsStore().setLocale('zh-CN')
   })

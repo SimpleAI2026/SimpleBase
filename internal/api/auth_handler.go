@@ -1,4 +1,35 @@
-// auth_handler.go 提供登录态 API：login / refresh / logout / me / password（planv3.0 §4.3）。
+// 文件说明：auth_handler.go — 登录态 API：login / refresh / logout / me / password（planv3.0 §4.3）
+//
+// 用法
+//
+//	NewAuthHandler(sessions *auth.SessionService, users *auth.UserService) *AuthHandler
+//	(h *AuthHandler) Login(c echo.Context) error  // Login: POST /v1/auth/login（免认证）
+//	(h *AuthHandler) Refresh(c echo.Context) error  // Refresh: POST /v1/auth/refresh（免认证，持 refresh_token）
+//	同包调用：allow() → middleware_ratelimit.go；NewAuthHandler() → router.go；Login() → router.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/auth_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/auth
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] allow() ← middleware_ratelimit.go
+//
+// 主要符号
+//
+//	type AuthHandler struct {…}
+//	NewAuthHandler(sessions *auth.SessionService, users *auth.UserService) *AuthHandler
+//	(h *AuthHandler) Login(c echo.Context) error
+//	(h *AuthHandler) Refresh(c echo.Context) error
+//	(h *AuthHandler) Logout(c echo.Context) error
+//	(h *AuthHandler) Me(c echo.Context) error
+//	... 另有 14 个顶层符号
+//	auth_handler.go 提供登录态 API：login / refresh / logout / me / password（planv3.0 §4.3）。
+
 package api
 
 import (

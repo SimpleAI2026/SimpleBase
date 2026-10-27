@@ -1,3 +1,30 @@
+// 文件说明：sandbox_store.go — internal/app 的内部实现（sandboxStoreAdapter、toSandbox 等）
+//
+// 用法
+//
+//	type sandboxStoreAdapter（包内使用）
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/sandbox_store.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/sandbox, internal/systemdb
+//	[同包] app.go, catalog_engine.go, cron_runner.go, identity.go, project_purger.go 等 6 个
+//
+// 主要符号
+//
+//	type sandboxStoreAdapter struct {…}
+//	toSandbox(r systemdb.SandboxRow) sandbox.Sandbox
+//	toSandboxRow(r sandbox.Sandbox) systemdb.SandboxRow
+//	(a sandboxStoreAdapter) CreateSandbox(ctx context.Context, r sandbox.Sandbox) ...
+//	(a sandboxStoreAdapter) GetSandbox(ctx context.Context, p, id string) ...
+//	(a sandboxStoreAdapter) GetSandboxByID(ctx context.Context, id string) ...
+//	... 另有 13 个顶层符号
+
 package app
 
 import (

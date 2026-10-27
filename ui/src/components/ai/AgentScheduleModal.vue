@@ -50,7 +50,7 @@
       <template v-if="schedule">
         <Field>
           <FieldLabel>{{ t('components.agentSchedule.scheduleInfo') }}</FieldLabel>
-          <div class="grid grid-cols-2 gap-2 text-sm">
+          <div class="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
             <div class="rounded-lg border bg-muted/30 px-3 py-2">
               <div class="text-xs text-muted-foreground">{{ t('components.agentSchedule.nextExecution') }}</div>
               <div>{{ formatTime(schedule.next_run_at, '—') }}</div>

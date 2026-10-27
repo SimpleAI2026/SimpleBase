@@ -1,9 +1,32 @@
-// cases.go 实现 plan §2.4.1 用例矩阵的三个执行组（用户要求收敛为）：
-//   - HTTP：链路下限与管理面（SELECT 1 点查、库列表、健康检查）
-//   - DB  ：SQL 增删改查 + Data 文档增删改查（A/B 组合并）
-//   - KV  ：项目 KV 增删改查（C 组）
+// 文件说明：cases.go — plan §2.4.1 用例矩阵的三个执行组（用户要求收敛为）：
 //
-// 每条用例自带契约断言（状态码/行数/错误码），失败即计入错误样本。
+// 用法
+//
+//	type benchError（包内使用）
+//	同包调用：ErrCode() → loadgen.go；httpCases() → runner.go；dbCases() → runner.go
+//
+// 调用架构
+//
+//	[上游] cmd/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/perfbench/cases.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] harness.go, helpers.go, loadgen.go, runner.go, stage_report.go
+//	[关键引用] ErrCode() ← loadgen.go
+//
+// 主要符号
+//
+//	type benchError struct {…}
+//	(e *benchError) Error() string
+//	(e *benchError) ErrCode() string
+//	fail(code, msg string, args ...any) error
+//	httpCases() []benchCase
+//	dbCases() []benchCase
+//	... 另有 1 个顶层符号
+
 package perfbench
 
 import (

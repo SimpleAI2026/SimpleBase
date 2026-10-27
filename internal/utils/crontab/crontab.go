@@ -1,5 +1,27 @@
-// Package crontab 提供受限 5 字段 cron 解析与下次触发计算（ui-cronjob-plan §5.1）。
-// 纯函数零依赖，任何需要 cron 语义的模块都可直接引用。
+// 文件说明：crontab.go — 受限 5 字段 cron 解析与下次触发计算（ui-cronjob-plan §5.1）
+//
+// 用法
+//
+//	ParseCron(expr string) (CronSpec, error)  // ParseCron 解析并校验 cron 表达式
+//	(c CronSpec) NextAfter(t time.Time) (time.Time, error)  // NextAfter 返回 t 之后（严格大于 t）的第一个触发时刻
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/backup, internal/cronjob
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/crontab/crontab.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	type CronSpec struct {…}
+//	ParseCron(expr string) (CronSpec, error)
+//	(c CronSpec) NextAfter(t time.Time) (time.Time, error)
+//	... 另有 3 个顶层符号
+
 package crontab
 
 import (

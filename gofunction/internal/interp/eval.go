@@ -1,3 +1,31 @@
+// 文件说明：eval.go — gofunction/internal/interp 的内部实现（skipFastEval、unop 等）
+//
+// 用法
+//
+//	同包调用：goCall() → call.go, instruction.go；callOp() → frame.go, instruction.go；constValue() → frame.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/eval.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/value
+//	[同包] call.go, compile.go, executor.go, frame.go, gofunction.go 等 13 个
+//	[关键引用] goCall() ← call.go, instruction.go
+//
+// 主要符号
+//
+//	var skipFastEval
+//	unop(instr *ssa.UnOp, x value.Value) value.Value
+//	binop(instr *ssa.BinOp, x, y value.Value) value.Value
+//	binopFast(instr *ssa.BinOp, x, y value.Value) (value.Value, bool)
+//	binopShiftFast(instr *ssa.BinOp, x, y value.Value) (value.Value, bool)
+//	binopCompareFast(instr *ssa.BinOp, x, y value.Value) (value.Value, bool)
+//	... 另有 8 个顶层符号
+
 package interp
 
 import (

@@ -1,27 +1,34 @@
-// Package gofunction 提供基于 SSA 的 Go 脚本解释执行引擎。
+// 文件说明：gofunction.go — 基于 SSA 的 Go 脚本解释执行引擎
 //
-// 将 Go 源码编译为 SSA（golang.org/x/tools/go/ssa）后用反射逐指令
-// 解释执行，可在不调用 go build 的情况下运行用户脚本，并支持通过
-// importer 包将宿主函数注入脚本环境。
+// 用法
 //
-// 本包是**公共 API 门面**：类型以别名、函数以薄转发暴露
-// `gofunction/internal/interp` 的实现，import 路径与历史版本一致。
-// 目录结构：
+//	NewRuntime() *Runtime
+//	Run(seqid, sourceCode string, funcName string, params ...interface{}) (interface{} ...  // Run 编译并执行代码中的指定函数
+//	BuildProgram(seqid, fname, sourceCode string, packages ...*ssa.Package) (*Program ...  // BuildProgram 编译代码
+//	同包调用：BuildProgram() → jsonrun.go
 //
-//	gofunction/            门面（Run / BuildProgram / RunJSON / Executor…）
-//	gofunction/internal/interp/  解释器实现（SSA 编译、指令执行、池化）
-//	gofunction/importer/   宿主包注册与 go/types Importer
-//	gofunction/packages/   标准库注册（blank-import 生效）
-//	gofunction/value/      解释器值抽象
-//	gofunction/testdata/   用法样本（由 go test 加载）
-//	gofunction/cmd/gofunction/  命令行入口
+// 调用架构
 //
-// 基本用法：
+//	[上游] gofunction/bench, gofunction/cmd/gofunction, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/gofunction.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/internal/interp
+//	[同包] jsonrun.go
+//	[关键引用] BuildProgram() ← jsonrun.go
 //
-//	import _ "github.com/linkxzhou/SimpleBase/gofunction/packages" // 注册标准库
-//	result, err := gofunction.Run("seq-1", "package main\nfunc add(a, b int) int { return a + b }", "add", 1, 2)
+// 主要符号
 //
-// 详细用法、限制与已注册标准库清单见 README.md。
+//	Run(seqid, sourceCode string, funcName string, params ...interface{}) (interface{} ...
+//	BuildProgram(seqid, fname, sourceCode string, packages ...*ssa.Package) (*Program ...
+//	ParseFuncList(sourceCode string, exportedAll bool) ([]string, error)
+//	SetLogger(l *slog.Logger)
+//	SetDebugOutput(w io.Writer)
+//	NewRuntime() *Runtime
+//	... 另有 6 个顶层符号
+
 package gofunction
 
 import (

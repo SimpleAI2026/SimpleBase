@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 )
 
 type fakeDataService struct {
@@ -21,7 +21,7 @@ type fakeDataService struct {
 	acquireErr   error
 	lastGetID    string
 	listCalled   bool
-	acquiredMode database.AccessMode
+	acquiredMode godatabase.AccessMode
 	lease        *fakeSQLLease
 }
 
@@ -49,7 +49,7 @@ func (f *fakeDataService) ListDatabases(ctx context.Context, principal auth.Prin
 	return f.dbs, "", nil
 }
 
-func (f *fakeDataService) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error) {
+func (f *fakeDataService) Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, error) {
 	if f.acquireErr != nil {
 		return nil, f.acquireErr
 	}
@@ -97,7 +97,7 @@ func TestDataListCollections_UsesPathDatabaseID(t *testing.T) {
 			{ID: "db-target", Name: "target", ProjectID: "proj-1"},
 		},
 		lease: &fakeSQLLease{
-			queryResult: database.QueryResult{
+			queryResult: godatabase.QueryResult{
 				Columns: []string{"table_name"},
 				Rows:    [][]any{{"users"}, {"orders"}},
 			},
@@ -149,7 +149,7 @@ func TestDataCreateCollection_CollectionDatabaseStillWorks(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if svc.acquiredMode != database.ReadWrite {
+	if svc.acquiredMode != godatabase.ReadWrite {
 		t.Fatalf("mode=%v", svc.acquiredMode)
 	}
 }
@@ -181,7 +181,7 @@ func TestDataCreateDocument_ScopedToPathDatabase(t *testing.T) {
 			{ID: "db-target", Name: "target", ProjectID: "proj-1"},
 		},
 		lease: &fakeSQLLease{
-			executeResult: database.QueryResult{RowsAffected: 1},
+			executeResult: godatabase.QueryResult{RowsAffected: 1},
 		},
 	}
 	e := setupDataTestRouter(t, svc, true)
@@ -202,7 +202,7 @@ func TestDataCreateDocument_ScopedToPathDatabase(t *testing.T) {
 	if svc.lastGetID != "db-target" {
 		t.Fatalf("GetDatabase id = %q, want db-target", svc.lastGetID)
 	}
-	if svc.acquiredMode != database.ReadWrite {
+	if svc.acquiredMode != godatabase.ReadWrite {
 		t.Fatalf("mode = %v, want ReadWrite", svc.acquiredMode)
 	}
 }
@@ -215,10 +215,16 @@ func TestDataAcquireGetError(t *testing.T) {
 		t.Fatalf("status=%d", rec.Code)
 	}
 	svc.getErr = nil
-	svc.acquireErr = database.ErrWriterUnavailable
+	svc.acquireErr = godatabase.ErrWriterUnavailable
 	rec = doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-1/data/collections", nil)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("acquire %d", rec.Code)
+	}
+
+	svc.acquireErr = catalog.ErrInvalidDatabasePath
+	rec = doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-1/data/collections", nil)
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "invalid_database_path") || strings.Contains(rec.Body.String(), "invalid_database_name") {
+		t.Fatalf("invalid storage metadata %d %s", rec.Code, rec.Body.String())
 	}
 
 	svc.acquireErr = nil

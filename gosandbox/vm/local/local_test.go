@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -392,6 +393,28 @@ func TestRealIsolationHidesProtectedData(t *testing.T) {
 	}
 	if strings.Contains(string(res.Stdout), "TOP-SECRET-VALUE") {
 		t.Fatalf("protected data readable from the sandbox: %q", res.Stdout)
+	}
+}
+
+// 云沙盒继承 host 的新默认：整个 .git 可写所以能 git commit，但 hooks 在 init 之后的命令里只读（planv6.3 D1/D7）。
+func TestRealIsolationGitCommitButHooksProtected(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	d := realDriver(t)
+	ctx := context.Background()
+	tg := target("sbx-git")
+	res, err := d.Exec(ctx, tg, vm.ExecSpec{Timeout: 30 * time.Second, Shell: "git init -q . && echo hi > a.txt && git add a.txt && " +
+		"git -c user.name=t -c user.email=t@t commit -q -m first && git log --oneline"})
+	if err != nil || res.ExitCode != 0 || !strings.Contains(string(res.Stdout), "first") {
+		t.Fatalf("git init+commit must work: res=%+v err=%v out=%s", res, err, res.Stdout)
+	}
+	res, err = d.Exec(ctx, tg, vm.ExecSpec{Shell: "echo evil > .git/hooks/pre-commit", Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode == 0 {
+		t.Fatalf("writing .git/hooks after init must fail: %s", res.Stdout)
 	}
 }
 

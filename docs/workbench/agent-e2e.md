@@ -48,7 +48,7 @@ SSE 依次包含 `run`、可选 `thinking`、逐段 `token`、工具执行时同
 
 ```sh
 go test ./internal/agentbridge ./internal/api ./internal/llmgateway ./internal/config ./internal/systemdb
-(cd cloudagent && go test ./...)
+(cd gocloudagent && go test ./...)
 cd ui && yarn build && yarn test
 ```
 

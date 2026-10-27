@@ -1,18 +1,29 @@
-// observe.go 实现 planv5.0 §4 P0.1/P0.2 的系统库读路径低基数观测。
+// 文件说明：observe.go — planv5.0 §4 P0.1/P0.2 的系统库读路径低基数观测
 //
-// Store 的关键读入口（QueryLogs、MetricsSummary 等）此前只有调用方总耗时，
-// 无法区分「SQL 执行」与「扫描/资源等待」。本文件提供：
-//   - observeRead：按固定 operation 标签记录耗时与行数（debug 日志，
-//     不落 Prometheus——systemdb 包不依赖 observability 注册器）；
-//   - ConnStats：连接池水位快照（open/in_use/idle/max_open 与累计等待），
-//     供 api 层窗口差值评估整池拥塞。
+// 用法
 //
-// 安全约束：operation 是固定集合；行数只记录总数；禁止输出 SQL/参数/
-// 项目 ID/用户身份。
+//	ConnStats(db *sql.DB) sql.DBStats  // ConnStats 返回连接池水位快照（planv5.0 §4 P0.2）
+//	ObserveConnWait(before, after sql.DBStats) (count int64, duration time.Duration)  // ObserveConnWait 计算两次采样间的新增连接等待（窗口差）
+//	同包调用：observeRead() → agents.go, logs.go 等；observeReadPart() → agents.go, logs.go 等
 //
-// 补段通则（planv5.0 §慢因复查 四-1）：凡路由日志中 `unattributed` 占比
-// 超过 50% 的系统库读入口，必须在本层补 observeRead/observeReadPart，
-// 使耗时可归因到 query/scan 子段；不允许长期停留在"未归因"状态。
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/observe.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] observeRead() ← agents.go, logs.go, metrics.go
+//
+// 主要符号
+//
+//	ConnStats(db *sql.DB) sql.DBStats
+//	ObserveConnWait(before, after sql.DBStats) (count int64, duration time.Duration)
+//	... 另有 2 个顶层符号
+
 package systemdb
 
 import (

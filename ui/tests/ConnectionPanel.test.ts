@@ -145,6 +145,35 @@ describe('ConnectionPanel', () => {
     w.unmount()
   })
 
+  it('issues scoped keys with field limits and surfaces failures', async () => {
+    const { w } = setup()
+    const vm = w.vm as any
+    vm.scopeResources = 'collection:orders, object:public/'
+    vm.scopeActions = 'read,write'
+    vm.scopeHidden = 'secret,owner_email'
+    vm.scopeReadonly = 'created_by'
+    vm.scopeExpires = '2026-10-26T12:00'
+    const scopedInputs = w.findAll('input')
+    for (const input of scopedInputs.slice(2, 7)) await input.setValue('x')
+    vm.scopeResources = 'collection:orders, object:public/'
+    vm.scopeActions = 'read,write'
+    vm.scopeHidden = 'secret,owner_email'
+    vm.scopeReadonly = 'created_by'
+    vm.scopeExpires = '2026-10-26T12:00'
+    await vm.issueScoped()
+    expect(api.apiKeys.create).toHaveBeenCalledWith('dev-shop', undefined, expect.objectContaining({
+      resources: ['collection:orders', 'object:public/'],
+      actions: ['read', 'write'],
+      hiddenFields: ['secret', 'owner_email'],
+      readonlyFields: ['created_by']
+    }))
+    expect(vm.scopedSecret).toBe('sb_live_mock_secret')
+    api.apiKeys.create.mockRejectedValueOnce(new Error('scope'))
+    await vm.issueScoped()
+    expect(toast.error).toHaveBeenCalledWith('scope')
+    w.unmount()
+  })
+
   it('handles close interactions', async () => {
     const { w: key } = setup()
     const keyInput = key.find('input')

@@ -1,3 +1,31 @@
+// 文件说明：llm.go — internal/systemdb 中 LLMSession、LLMMessage 等符号的实现
+//
+// 用法
+//
+//	MaskSecretValue(v string) string  // MaskSecretValue 掩码展示：仅保留首尾，避免完整 key 出现在 API 响应
+//	(s *Store) CreateLLMSession(ctx context.Context, sess LLMSession) (LLMSession ...  // CreateLLMSession 创建会话
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/llm.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/mask
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//
+// 主要符号
+//
+//	type LLMSession struct {…}
+//	type LLMMessage struct {…}
+//	type LLMSettings struct {…}
+//	MaskSecretValue(v string) string
+//	(s *Store) CreateLLMSession(ctx context.Context, sess LLMSession) (LLMSession ...
+//	(s *Store) AppendLLMMessage(ctx context.Context, msg LLMMessage) (LLMMessage, error)
+//	... 另有 2 个顶层符号
+
 package systemdb
 
 import (

@@ -56,7 +56,7 @@ describe('router', () => {
     }
     for (const [source, target] of [
       ['/sql', '/console/databases'],
-      ['/data', '/console/databases'],
+      ['/data', '/console/data'],
       ['/llm', '/console/agents']
     ]) {
       await router.push(`${source}?from=bookmark`)
@@ -87,7 +87,7 @@ describe('router', () => {
     // 路由只存 key，标题文案在语言包里；中文界面下求值就是原来的中文标题。
     setI18nLocale('zh-CN')
     expect(t(keyOf('dashboard') as string)).toBe('监控大盘')
-    expect(t(keyOf('databases') as string)).toBe('数据库管理')
+    expect(t(keyOf('databases') as string)).toBe('数据管理')
     setI18nLocale('en-US')
     expect(t(keyOf('dashboard') as string)).toBe('Dashboard')
     setI18nLocale('zh-CN')

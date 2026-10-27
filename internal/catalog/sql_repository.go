@@ -1,3 +1,29 @@
+// 文件说明：sql_repository.go — internal/catalog 中 NewSQLRepository 等符号的实现
+//
+// 用法
+//
+//	NewSQLRepository(db *sql.DB, afterWrite ...func(context.Context)) Repository
+//	type sqlRepository（包内使用）
+//	type scanner（包内使用）
+//	同包调用：GetDatabase() → model.go, repository.go 等；ProjectBelongsToTenant() → repository.go, service.go 等；GetProjectTenant() → repository.go, service.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/sql_repository.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/sqlval, internal/utils/limit
+//	[同包] cache.go, data_model.go, errors.go, model.go, project_storage.go 等 9 个
+//	[关键引用] GetDatabase() ← model.go, repository.go, service.go
+//
+// 主要符号
+//
+//	NewSQLRepository(db *sql.DB, afterWrite ...func(context.Context)) Repository
+//	... 另有 33 个顶层符号
+
 package catalog
 
 import (
@@ -5,6 +31,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
 	"strings"
 	"time"
 
@@ -60,6 +87,13 @@ func (r *sqlRepository) CreateTenant(ctx context.Context, t Tenant) error {
 }
 
 func (r *sqlRepository) CreateProject(ctx context.Context, p Project) error {
+	if p.DatabasePath == "" && !IsSystemProject(p.ID) {
+		databasePath, err := DatabasePathForProject(p.ID, EngineDuckDB)
+		if err != nil {
+			return err
+		}
+		p.DatabasePath = databasePath
+	}
 	var existing string
 	err := r.db.QueryRowContext(ctx, `SELECT id FROM sys_projects WHERE id = ?`, p.ID).Scan(&existing)
 	if err == nil {
@@ -77,8 +111,8 @@ func (r *sqlRepository) CreateProject(ctx context.Context, p Project) error {
 		return err
 	}
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO sys_projects(id, tenant_id, name, created_at) VALUES(?, ?, ?, ?)`,
-		p.ID, p.TenantID, p.Name, p.CreatedAt.UTC())
+		`INSERT INTO sys_projects(id, tenant_id, name, database_path, created_at) VALUES(?, ?, ?, ?, ?)`,
+		p.ID, p.TenantID, p.Name, p.DatabasePath, p.CreatedAt.UTC())
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("%w: project name %q in tenant %s", ErrAlreadyExists, p.Name, p.TenantID)
@@ -89,9 +123,22 @@ func (r *sqlRepository) CreateProject(ctx context.Context, p Project) error {
 	return nil
 }
 
+func (r *sqlRepository) GetProject(ctx context.Context, projectID string) (Project, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT id, tenant_id, name, database_path, created_at FROM sys_projects WHERE id = ?`, projectID)
+	var p Project
+	if err := row.Scan(&p.ID, &p.TenantID, &p.Name, &p.DatabasePath, &p.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Project{}, fmt.Errorf("%w: project %s", ErrNotFound, projectID)
+		}
+		return Project{}, err
+	}
+	return p, nil
+}
+
 func (r *sqlRepository) ListProjectsByTenant(ctx context.Context, tenantID string) ([]Project, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, tenant_id, name, created_at FROM sys_projects WHERE tenant_id = ? ORDER BY created_at ASC, id ASC`,
+		`SELECT id, tenant_id, name, database_path, created_at FROM sys_projects WHERE tenant_id = ? ORDER BY created_at ASC, id ASC`,
 		tenantID)
 	if err != nil {
 		return nil, err
@@ -100,7 +147,7 @@ func (r *sqlRepository) ListProjectsByTenant(ctx context.Context, tenantID strin
 	out := make([]Project, 0)
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.TenantID, &p.Name, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.Name, &p.DatabasePath, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -123,7 +170,7 @@ func (r *sqlRepository) CreateDatabase(ctx context.Context, d Database) error {
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if d.Kind != DatabaseKindSystem {
+	if d.Kind != DatabaseKindSystem && d.Kind != DatabaseKindKV {
 		err = r.db.QueryRowContext(ctx,
 			`SELECT id FROM sys_databases WHERE project_id = ? AND name = ? AND deleted_at IS NULL`,
 			d.ProjectID, d.Name).Scan(&existing)
@@ -138,7 +185,7 @@ func (r *sqlRepository) CreateDatabase(ctx context.Context, d Database) error {
 		`INSERT INTO sys_databases(id, tenant_id, project_id, name, kind, status, storage_prefix, format_version, deleted_at, created_at, updated_at, data_model)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ID, d.TenantID, d.ProjectID, d.Name, d.Kind, string(d.Status), d.StoragePrefix,
-		int64(d.FormatVersion), nullTime(d.DeletedAt), d.CreatedAt.UTC(), d.UpdatedAt.UTC(), d.DataModel)
+		int64(d.FormatVersion), sqlval.NullTime(d.DeletedAt), d.CreatedAt.UTC(), d.UpdatedAt.UTC(), d.DataModel)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return fmt.Errorf("%w: database name %q in project %s", ErrAlreadyExists, d.Name, d.ProjectID)
@@ -147,6 +194,20 @@ func (r *sqlRepository) CreateDatabase(ctx context.Context, d Database) error {
 	}
 	r.touch(ctx)
 	return nil
+}
+
+func (r *sqlRepository) HasDefaultDatabase(ctx context.Context, projectID string) (bool, error) {
+	var id string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM sys_databases WHERE project_id = ? AND kind = ? AND deleted_at IS NULL`,
+		projectID, DatabaseKindUser).Scan(&id)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, err
 }
 
 func (r *sqlRepository) GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error) {
@@ -505,13 +566,6 @@ func isUniqueViolation(err error) bool {
 	return strings.Contains(msg, "UNIQUE constraint failed") ||
 		strings.Contains(msg, "constraint failed: UNIQUE") ||
 		strings.Contains(msg, "duplicate")
-}
-
-func nullTime(t *time.Time) any {
-	if t == nil {
-		return nil
-	}
-	return t.UTC()
 }
 
 func (r *sqlRepository) GetLLMProviders(ctx context.Context, projectID string) (LLMProviders, error) {

@@ -12,11 +12,17 @@ vi.mock('@/services/api', async () => {
 })
 
 const mockApi = await import('@/test/api-mock')
+const reload = vi.fn()
 
 describe('LoginModal / UserMenu / UserFormModal', () => {
   beforeEach(() => {
     resetApiMocks()
     clearTokens()
+    reload.mockReset()
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, reload }
+    })
   })
 
   it('LoginModal submits credentials', async () => {
@@ -45,6 +51,7 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     await btn!.trigger('submit')
     await flushPromises()
     expect(mockApi.api.auth.login).toHaveBeenCalled()
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 
   it('LoginModal shows error on failure', async () => {
@@ -60,6 +67,7 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     await btn!.trigger('submit')
     await flushPromises()
     expect(wrapper.text()).toContain('登录失败')
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('LoginModal password mode shows mismatch hint', async () => {

@@ -18,8 +18,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UI_DIR="$ROOT_DIR/ui"
 WEB_DIST_DIR="$ROOT_DIR/internal/web/dist"
 OUTPUT_BIN="$ROOT_DIR/simplebase"
-# cloudagent CLI 与 gosandbox helper 的产物目录（planv6.2 模块拆分）。
-# 不能输出到仓库根的 "cloudagent"：那里现在是独立模块的源码目录。
+# gocloudagent CLI 与 gosandbox helper 的产物目录（planv6.2 模块拆分）。
+# 不能输出到仓库根的 "gocloudagent"：那里现在是独立模块的源码目录。
 CLI_BIN_DIR="$ROOT_DIR/build/bin"
 
 # 开发默认：前端入口（经 proxy 访问后端）
@@ -44,8 +44,8 @@ usage() {
 
 构建产物:
   simplebase        服务端二进制（cmd/simplebase）
-  build/bin/cloudagent  云 Agent 本地 CLI（cloudagent/cmd/cloudagent；会话存
-                    ~/.cloudagent/，模型出口走 simplebase HTTP API，不进服务镜像）
+  build/bin/gocloudagent  云 Agent 本地 CLI（gocloudagent/cmd/gocloudagent；会话存
+                          ~/.gocloudagent/，模型出口走 simplebase HTTP API，不进服务镜像）
   build/bin/gosandbox-inner  Linux 上的本机 shell 隔离 helper（与 CLI 同目录）
 
 开发选项（跟在 dev 后）:
@@ -337,20 +337,20 @@ cmd_build() {
   echo "    产物: $OUTPUT_BIN"
 
   # 云 Agent 本地 CLI：独立模块（planv6.2），不进服务镜像（planv6.0 §5.1）。
-  # 产物固定到 build/bin：仓库根的 cloudagent 是模块源码目录。
-  if [[ -d "$ROOT_DIR/cloudagent/cmd/cloudagent" ]]; then
+  # 产物固定到 build/bin：仓库根的 gocloudagent 是模块源码目录。
+  if [[ -d "$ROOT_DIR/gocloudagent/cmd/gocloudagent" ]]; then
     if [[ -d "$CLI_BIN_DIR" && ! -w "$CLI_BIN_DIR" ]]; then
       echo "错误: 产物目录不可写: $CLI_BIN_DIR" >&2
       exit 1
     fi
     mkdir -p "$CLI_BIN_DIR"
-    local agent_bin="$CLI_BIN_DIR/cloudagent"
+    local agent_bin="$CLI_BIN_DIR/gocloudagent"
     if [[ -d "$agent_bin" ]]; then
       echo "错误: CLI 产物路径是目录而非文件: $agent_bin" >&2
       exit 1
     fi
-    echo "==> 编译 cloudagent CLI (go build)"
-    (cd "$ROOT_DIR/cloudagent" && go build -o "$agent_bin" ./cmd/cloudagent)
+    echo "==> 编译 gocloudagent CLI (go build)"
+    (cd "$ROOT_DIR/gocloudagent" && go build -o "$agent_bin" ./cmd/gocloudagent)
     echo "    产物: $agent_bin"
     # 本机 shell 隔离的沙盒内 helper（planv6.2）：Linux 上 CLI 在同目录找它；
     # 纯 Go、CGO_ENABLED=0，不链接 DuckDB。macOS 走 sandbox-exec，不需要 helper。

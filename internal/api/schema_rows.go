@@ -1,3 +1,29 @@
+// 文件说明：schema_rows.go — internal/api 中 ErrSchemaTableNotFound、ListTableRows 等符号的实现
+//
+// 用法
+//
+//	(h *SchemaHandler) ListTableRows(c echo.Context) error  // ListTableRows: GET /v1/projects/:projectID/databases/:databaseID/schema/tables/:table/rows
+//	type schemaRowsResponse（包内使用）
+//	同包调用：ListTableRows() → router.go；finishSchemaTables() → schema_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/schema_rows.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, godatabase/sqlguard, godatabase/sqlx, internal/catalog
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] ListTableRows() ← router.go
+//
+// 主要符号
+//
+//	var ErrSchemaTableNotFound
+//	(h *SchemaHandler) ListTableRows(c echo.Context) error
+//	... 另有 13 个顶层符号
+
 package api
 
 import (
@@ -9,13 +35,16 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
 )
 
 var errNoSchemaColumns = errors.New("api: schema table has no columns")
+
+// ErrSchemaTableNotFound 表示目标表不存在（handler 统一映射为 table_not_found）。
+var ErrSchemaTableNotFound = errors.New("api: schema table not found")
 
 const (
 	schemaRowsDefaultLimit = 50
@@ -35,7 +64,7 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	tableName := strings.TrimSpace(c.Param("table"))
-	if strings.HasPrefix(tableName, "__") {
+	if godatabase.IsInternalTableName(tableName) {
 		return WriteError(c, tableNotFound(c))
 	}
 	tableName, err = normalizeSchemaIdent(tableName)
@@ -45,13 +74,20 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 
 	ctx, cancel := h.withQueryTimeout(c.Request().Context())
 	defer cancel()
-	lease, err := h.svc.Acquire(ctx, db, database.ReadOnly)
+	lease, err := h.svc.Acquire(ctx, db, godatabase.ReadOnly)
 	if err != nil {
 		return WriteError(c, err)
 	}
 	defer lease.Release()
 
-	cols, err := h.loadTableColumns(ctx, c, lease, tableName)
+	cols, err := h.loadTableColumns(ctx, db, lease, tableName)
+	if err != nil {
+		if errors.Is(err, ErrSchemaTableNotFound) {
+			return WriteError(c, tableNotFound(c))
+		}
+		return WriteError(c, err)
+	}
+	dialect, err := dialectForDatabase(db)
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -64,11 +100,11 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 		}
 	}
 
-	countSQL := "SELECT COUNT(*) FROM " + sqlx.Ident(tableName)
+	countSQL := dialect.CountRowsSQL(tableName)
 	if err := sqlguard.Validate(countSQL, sqlguard.ReadOnly); err != nil {
 		return WriteError(c, err)
 	}
-	countResult, err := lease.Query(ctx, database.Statement{SQL: countSQL}, 1)
+	countResult, err := lease.Query(ctx, godatabase.Statement{SQL: countSQL}, 1)
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -84,14 +120,14 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 	if err := sqlguard.Validate(pageSQL, sqlguard.ReadOnly); err != nil {
 		return WriteError(c, err)
 	}
-	pageResult, err := lease.Query(ctx, database.Statement{
+	pageResult, err := lease.Query(ctx, godatabase.Statement{
 		SQL:  pageSQL,
 		Args: []any{limit, offset},
 	}, limit)
 	if err != nil {
 		return WriteError(c, err)
 	}
-	rows, err := database.SerializeRows(pageResult.Rows)
+	rows, err := godatabase.SerializeRows(pageResult.Rows)
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -145,42 +181,36 @@ func tableNotFound(c echo.Context) error {
 	return NewAPIError(http.StatusNotFound, "table_not_found", "table not found", RequestIDFromContext(c.Request().Context()))
 }
 
-func (h *SchemaHandler) loadTableColumns(ctx context.Context, c echo.Context, lease SQLLease, table string) ([]schemaColumnJSON, error) {
-	const lookup = `SELECT c.column_name, c.data_type, c.is_nullable
-		FROM information_schema.columns c
-		JOIN information_schema.tables t
-		  ON c.table_catalog = t.table_catalog
-		 AND c.table_schema = t.table_schema
-		 AND c.table_name = t.table_name
-		WHERE t.table_catalog = current_database()
-		  AND t.table_schema = current_schema()
-		  AND t.table_type = 'BASE TABLE'
-		  AND c.table_name = ?
-		ORDER BY c.ordinal_position`
+func (h *SchemaHandler) loadTableColumns(ctx context.Context, db catalog.Database, lease SQLLease, table string) ([]schemaColumnJSON, error) {
+	dialect, err := dialectForDatabase(db)
+	if err != nil {
+		return nil, err
+	}
+	lookup := dialect.TableColumnsSQL(table)
 	if err := sqlguard.Validate(lookup, sqlguard.ReadOnly); err != nil {
 		return nil, err
 	}
-	result, err := lease.Query(ctx, database.Statement{SQL: lookup, Args: []any{table}}, schemaColumnScanLimit)
+	result, err := lease.Query(ctx, godatabase.Statement{SQL: lookup}, schemaColumnScanLimit)
 	if err != nil {
 		return nil, err
 	}
 	cols := make([]schemaColumnJSON, 0, len(result.Rows))
 	for _, row := range result.Rows {
-		if len(row) < 3 {
+		if len(row) < 4 {
 			continue
 		}
-		name := cellString(row[0])
+		name := cellString(row[1])
 		if _, err := normalizeSchemaIdent(name); err != nil || name == "" {
 			continue
 		}
 		cols = append(cols, schemaColumnJSON{
 			Name:     name,
-			Type:     cellString(row[1]),
-			Nullable: strings.EqualFold(cellString(row[2]), "YES"),
+			Type:     cellString(row[2]),
+			Nullable: strings.EqualFold(cellString(row[3]), "YES"),
 		})
 	}
 	if len(cols) == 0 {
-		return nil, tableNotFound(c)
+		return nil, ErrSchemaTableNotFound
 	}
 	return cols, nil
 }
@@ -233,7 +263,7 @@ func schemaRowsOrder(cols []schemaColumnJSON) string {
 func finishSchemaTables(tables []schemaTableJSON, system bool) []schemaTableJSON {
 	out := make([]schemaTableJSON, 0, len(tables))
 	for _, table := range tables {
-		if table.Name == "" || strings.HasPrefix(table.Name, "__") {
+		if table.Name == "" || godatabase.IsInternalTableName(table.Name) {
 			continue
 		}
 		if system {

@@ -40,7 +40,7 @@ HTTP 路由层（Echo v4）。职责：
 ### `objectstore`
 S3 边界。`client.go`（AWS SDK v2 封装）、`keys.go`（KeyBuilder 生成隔离前缀）、`descriptor.go`（database descriptor 读写）、`health.go`（S3 可达性检查）。对象键使用内部 UUID，禁止用户名直接入键。
 
-### `cloudagent`
+### `gocloudagent`
 项目级云 Agent 运行时。只读工具（数据库 / S3 / 日志 / 设置）+ 会话线程，依赖 LLM Gateway 与系统库。
 
 ### `llmgateway`
@@ -67,7 +67,7 @@ LLM 服务端封装。项目隔离的 provider 配置（从 catalog `llm_provide
 - `sqlx/`：SQL 标识符 / 字面量转义；只构造片段，不做校验（校验仍归 `database/sqlguard`）。
 - `singleflight/`：泛型按 key 单飞，不缓存结果。
 
-入库标准与「不要放这里」的清单见 `internal/utils/README.md`。`cloudagent` / `gosandbox` / `gofunction` 是嵌套独立模块，不能 import 本目录，因此各自保留少量同义实现，这是有意的，不要强行统一。
+入库标准与「不要放这里」的清单见 `internal/utils/README.md`。`gocloudagent` / `gosandbox` / `gofunction` 是嵌套独立模块，不能 import 本目录，因此各自保留少量同义实现，这是有意的，不要强行统一。
 
 ## 依赖关系
 
@@ -76,7 +76,7 @@ cmd/simplebase → app → api → auth → catalog
                          ↓        ↓
                    database/* ←───┘
                    objectstore
-                   cloudagent → llmgateway, catalog, systemdb
+                   gocloudagent → llmgateway, catalog, systemdb
                    llmgateway → litellm, catalog, usage, audit
                    usage → catalog
                    audit → catalog

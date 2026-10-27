@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/internal/database/sqlguard"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 )
 
 func TestPrepareInitSQL(t *testing.T) {

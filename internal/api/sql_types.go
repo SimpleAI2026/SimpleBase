@@ -1,3 +1,33 @@
+// 文件说明：sql_types.go — internal/api 中 SQLStatementRequest、QueryRequest 等符号的实现
+//
+// 用法
+//
+//	type SQLStatementRequest（导出类型，同包与上层均可使用）
+//	type QueryRequest（导出类型，同包与上层均可使用）
+//	同包调用：QueryRequest → sql_handler.go；ExecuteRequest → sql_handler.go；BatchRequest → sql_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/sql_types.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] QueryRequest ← sql_handler.go
+//
+// 主要符号
+//
+//	type SQLStatementRequest struct {…}
+//	type QueryRequest struct {…}
+//	type ExecuteRequest struct {…}
+//	type BatchRequest struct {…}
+//	type QueryResponse struct {…}
+//	type ExecuteResponse struct {…}
+//	... 另有 3 个顶层符号
+
 package api
 
 // sql_types.go 定义 SQL API 的 HTTP DTO（见 plan6.md）。

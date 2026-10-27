@@ -6,13 +6,28 @@ import DefaultLayout from '@/layouts/DefaultLayout.vue'
 import DocsLayout from '@/layouts/DocsLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 
-vi.mock('@/services/api', () => ({
-  api: {}
-}))
+vi.mock('@/services/api', async () => {
+  const m = await import('@/test/api-mock')
+  return { api: m.api }
+})
 
 describe('layouts', () => {
   it('DefaultLayout shows route title and opens settings', async () => {
-    setActivePinia(createPinia())
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore(pinia).applyTokens({
+      accessToken: 'a',
+      refreshToken: 'r',
+      user: {
+        id: 'u1',
+        username: 'root',
+        role: 'superadminl1',
+        displayName: 'root',
+        email: '',
+        status: 'active',
+        mustChangePassword: false
+      }
+    })
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -29,7 +44,7 @@ describe('layouts', () => {
     Object.defineProperty(window, 'location', { value: { reload }, writable: true })
     const w = mount(DefaultLayout, {
       global: {
-        plugins: [router, createPinia()],
+        plugins: [router, pinia],
         stubs: {
           SidebarProvider: { template: '<div><slot /></div>' },
           Sidebar: { template: '<div><slot /></div>' },
@@ -88,7 +103,7 @@ describe('layouts', () => {
     expect(w.text()).toContain('doc')
     expect(w.find('a[href*="github.com"]').exists()).toBe(true)
     expect(w.find('a[title="返回首页"]').attributes('href')).toBe('/')
-    expect(w.findAll('a').find((link) => link.text() === '返回控制台')?.attributes('href')).toBe('/console/agents')
+    expect(w.findAll('a').find((link) => link.text().includes('返回控制台'))?.attributes('href')).toBe('/console/agents')
   })
 
   it('sends a signed-in non-super user from the users page to agents', async () => {

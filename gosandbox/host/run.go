@@ -1,3 +1,29 @@
+// 文件说明：run.go — gosandbox/host 中 Command、Result 等符号的实现
+//
+// 用法
+//
+//	type Command（导出类型，同包与上层均可使用）
+//	type Result（导出类型，同包与上层均可使用）
+//	同包调用：Command → probe_linux.go, run_darwin.go 等；Result → policy.go, run_darwin.go 等；Write() → run_linux.go, start_darwin.go 等
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/run.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 13 个
+//	[关键引用] Command ← probe_linux.go, run_darwin.go, run_linux.go
+//
+// 主要符号
+//
+//	type Command struct {…}
+//	type Result struct {…}
+//	... 另有 2 个顶层符号
+
 package host
 
 import (
@@ -22,9 +48,11 @@ type Result struct {
 	// OutputTruncated 为真表示输出超过 Policy.MaxOutputBytes，尾部已丢弃。
 	OutputTruncated bool
 	ExitCode        int
-	TimedOut bool
+	TimedOut        bool
 	// Limits 如实报告资源限额是否生效。
 	Limits Limits
+	// Warnings 是安全相关的提示（如强制 deny 表被关闭），调用方应原样上报，不要吞掉。
+	Warnings []string
 	// Duration 是从启动 bwrap 到结束的耗时。
 	Duration time.Duration
 }

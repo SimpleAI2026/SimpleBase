@@ -57,72 +57,6 @@ func seedStatus(t *testing.T, repo Repository, tenantID, projectID string, statu
 	return db
 }
 
-func TestPlan_RetiredOpenStatusListsAsReady(t *testing.T) {
-	svc, repo, tenantID, projectID := setupService(t, nil)
-	principal := newTestPrincipal(tenantID, projectID)
-	ctx := context.Background()
-
-	closed := seedStatus(t, repo, tenantID, projectID, DatabaseClosed, false)
-	opening := seedStatus(t, repo, tenantID, projectID, DatabaseOpening, false)
-	closing := seedStatus(t, repo, tenantID, projectID, DatabaseClosing, false)
-	recovering := seedStatus(t, repo, tenantID, projectID, DatabaseRecovering, false)
-	degraded := seedStatus(t, repo, tenantID, projectID, DatabaseDegraded, false)
-	creating := seedStatus(t, repo, tenantID, projectID, DatabaseCreating, false)
-	softClosed := seedStatus(t, repo, tenantID, projectID, DatabaseClosed, true)
-
-	listed, _, err := svc.ListDatabases(ctx, principal, projectID, Page{Limit: 50})
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	byID := map[string]Database{}
-	for _, db := range listed {
-		byID[db.ID] = db
-		if db.DeletedAt != nil {
-			t.Fatalf("list included soft-deleted %s", db.ID)
-		}
-	}
-	for _, id := range []string{closed.ID, opening.ID, closing.ID, recovering.ID} {
-		got, ok := byID[id]
-		if !ok {
-			t.Fatalf("missing %s in list", id)
-		}
-		if got.Status != DatabaseReady {
-			t.Fatalf("%s listed as %s, want ready", id, got.Status)
-		}
-		stored, err := repo.GetDatabase(ctx, projectID, id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if stored.Status != DatabaseReady {
-			t.Fatalf("writeback %s status=%s", id, stored.Status)
-		}
-		if stored.DeletedAt != nil {
-			t.Fatalf("retired status %s was soft-deleted", id)
-		}
-	}
-	if byID[degraded.ID].Status != DatabaseDegraded {
-		t.Fatalf("degraded became %s", byID[degraded.ID].Status)
-	}
-	if byID[creating.ID].Status != DatabaseCreating {
-		t.Fatalf("creating was promoted on list to %s", byID[creating.ID].Status)
-	}
-	if _, ok := byID[softClosed.ID]; ok {
-		t.Fatal("soft-deleted closed row must stay off the list")
-	}
-	storedSoft, err := repo.GetDatabase(ctx, projectID, softClosed.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if storedSoft.Status != DatabaseClosed || storedSoft.DeletedAt == nil {
-		t.Fatalf("soft-deleted closed row changed: %+v", storedSoft)
-	}
-
-	one, err := svc.GetDatabase(ctx, principal, projectID, closed.ID)
-	if err != nil || one.Status != DatabaseReady || one.DeletedAt != nil {
-		t.Fatalf("get closed: status=%s deleted=%v err=%v", one.Status, one.DeletedAt, err)
-	}
-}
-
 func TestPlan_SetDatabaseReadyDoesNotPromoteDegraded(t *testing.T) {
 	svc, repo, tenantID, projectID := setupService(t, nil)
 	db := seedStatus(t, repo, tenantID, projectID, DatabaseDegraded, false)
@@ -201,9 +135,9 @@ func TestPlan_StartupRepairCreating(t *testing.T) {
 	})
 }
 
-func TestPlan_DeleteClosedIsSoftDelete(t *testing.T) {
+func TestPlan_DeleteReadyIsSoftDelete(t *testing.T) {
 	svc, repo, tenantID, projectID := setupService(t, nil)
-	db := seedStatus(t, repo, tenantID, projectID, DatabaseClosed, false)
+	db := seedStatus(t, repo, tenantID, projectID, DatabaseReady, false)
 	principal := newTestPrincipal(tenantID, projectID)
 	purger := newRecordingPurger()
 	out, err := svc.DeleteDatabaseSync(context.Background(), principal, projectID, db.ID, func(context.Context, string) error {

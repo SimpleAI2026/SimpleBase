@@ -113,3 +113,33 @@ func TestSQLDatabaseAndSchema(t *testing.T) {
 		t.Fatalf("add column: %+v %v", col, err)
 	}
 }
+
+func TestCreateProjectSendsEngineOnlyWhenSet(t *testing.T) {
+	var bodies []map[string]string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/projects" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		bodies = append(bodies, body)
+		io.WriteString(w, `{"id":"p1","name":"n","engine":"sqlite"}`)
+	})
+	if _, err := c.CreateProject(context.Background(), "n", "sqlite"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateProject(context.Background(), "n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("requests = %d", len(bodies))
+	}
+	if bodies[0]["engine"] != "sqlite" || bodies[0]["name"] != "n" {
+		t.Fatalf("first body %v", bodies[0])
+	}
+	if _, ok := bodies[1]["engine"]; ok {
+		t.Fatalf("empty engine must be omitted: %v", bodies[1])
+	}
+}

@@ -1,13 +1,13 @@
 ---
 title: DuckLake 上游参考
 order: 3
-group: 数据库管理
+group: 数据管理
 description: DuckLake 官方文档的离线镜像；请先阅读 SimpleBase 使用须知。上游版本与同步日期待核实。
 ---
 
 # DuckLake 上游参考
 
-> 这是 DuckLake 上游文档的离线镜像，版本与同步日期尚未核实；SimpleBase 的实际限制请以 [DuckLake 使用须知](/docs/data/ducklake-notes) 为准。
+> 这是 DuckLake 上游文档的离线镜像，版本与同步日期暂无核实结果；SimpleBase 的实际限制请以 [DuckLake 使用须知](/docs/data/ducklake-notes) 为准。
 
 ## 上游文档目录
 

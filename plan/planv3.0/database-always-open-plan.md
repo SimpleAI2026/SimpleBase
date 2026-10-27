@@ -259,7 +259,7 @@ handler 的 `DatabaseService` 上，只为 open/close 存在的 `Acquire`、`Clo
 | `internal/database/registry` | **不**删 `CloseDatabase` / `CloseIdle` / `Shutdown`。补：idle 之后再次 `Acquire` 成功，且不改 catalog status |
 | `internal/database/cache/evict.go` | 只改注释，见 §6 |
 | `packages/js-sdk/src/databases.ts` 与 `dist/*` | 删除 `open` / `close`。`dist` 已入库，必须一起改 |
-| `internal/cloudagent` | 不改 |
+| `internal/gocloudagent` | 不改 |
 
 `Operation.Kind` 注释里的 `"open" | "close"` 没有对应的生产审计写入。不必回填旧审计行；新代码不要再写这两种 kind。
 

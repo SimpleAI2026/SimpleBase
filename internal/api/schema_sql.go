@@ -1,10 +1,39 @@
+// 文件说明：schema_sql.go — internal/api 的内部实现（maxSchemaColumns、schemaColumnTypes 等）
+//
+// 用法
+//
+//	type schemaColumnSpec（包内使用）
+//	同包调用：normalizeSchemaIdent() → schema_handler.go, schema_rows.go；schemaColumnSpec → schema_handler.go；normalizeSchemaType() → schema_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/schema_sql.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/sqlx
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] normalizeSchemaIdent() ← schema_handler.go, schema_rows.go
+//
+// 主要符号
+//
+//	const maxSchemaColumns
+//	var schemaColumnTypes
+//	type schemaColumnSpec struct {…}
+//	normalizeSchemaType(raw string) (string, error)
+//	normalizeSchemaIdent(raw string) (string, error)
+//	buildCreateTableSQL(table string, cols []schemaColumnSpec) (string, error)
+//	... 另有 1 个顶层符号
+
 package api
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlx"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 )
 
 const maxSchemaColumns = 32

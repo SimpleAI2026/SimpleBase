@@ -1,14 +1,34 @@
-// Package llmgateway 在 SimpleBase 内部封装 litellm 多供应商客户端，
-// 暴露受项目隔离的 LLM 服务端 API（plan8.md）。
+// 文件说明：service.go — 在 SimpleBase 内部封装 litellm 多供应商客户端，
 //
-// 关键约束：
-//   - 禁止从环境变量自动发现或记录供应商密钥。密钥来源只能是 catalog 中的 provider 配置。
-//   - handler 不直接依赖 litellm.Client；通过 Service 接口隔离。
-//   - 用量按 project 维度统计，与数据库用量共用 usage 基础设施（plan9.md）。
-//   - 流式响应使用 SSE/分块转发，禁止缓冲完整响应。
+// 用法
 //
-// litellm v1.5.8 的 Client 绑定单个 Provider；本包为每个 project+provider
-// 维护独立 client（按需创建、缓存）。
+//	NewService(resolver ProviderResolver, recorder UsageRecorder, logger ...
+//	type ProviderConfig（导出类型，同包与上层均可使用）
+//	type ProjectProviders（导出类型，同包与上层均可使用）
+//	同包调用：service → catalog_resolver.go, fallback_resolver.go 等；ProviderConfig → catalog_resolver.go, fallback_resolver.go 等；ProjectProviders → catalog_resolver.go, fallback_resolver.go 等
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/service.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/observability
+//	[同包] catalog_resolver.go, fallback_resolver.go, project_cred_resolver.go, provider_driver.go, streaming.go
+//	[关键引用] service ← catalog_resolver.go, fallback_resolver.go, project_cred_resolver.go
+//
+// 主要符号
+//
+//	type ProviderConfig struct {…}
+//	type ProjectProviders struct {…}
+//	type Request struct {…}
+//	type Response struct {…}
+//	type Usage struct {…}
+//	type StreamReader interface {…}
+//	... 另有 20 个顶层符号
+
 package llmgateway
 
 import (

@@ -113,7 +113,7 @@ func TestSQLAPIKeyRepository(t *testing.T) {
 	ctx := context.Background()
 	for _, stmt := range []string{
 		`CREATE TABLE sys_tenants (id VARCHAR NOT NULL, name VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL)`,
-		`CREATE TABLE sys_projects (id VARCHAR NOT NULL, tenant_id VARCHAR NOT NULL, name VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL)`,
+		`CREATE TABLE sys_projects (id VARCHAR NOT NULL, tenant_id VARCHAR NOT NULL, name VARCHAR NOT NULL, database_path VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL)`,
 		`CREATE TABLE sys_api_keys (
 			id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, key_hash VARCHAR NOT NULL, permissions VARCHAR NOT NULL,
 			created_at TIMESTAMP NOT NULL, revoked_at TIMESTAMP)`,
@@ -128,7 +128,7 @@ func TestSQLAPIKeyRepository(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO sys_tenants(id, name, created_at) VALUES(?, ?, ?)`, tenantID, "t", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO sys_projects(id, tenant_id, name, created_at) VALUES(?, ?, ?, ?)`, projectID, tenantID, "p", now); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO sys_projects(id, tenant_id, name, database_path, created_at) VALUES(?, ?, ?, '', ?)`, projectID, tenantID, "p", now); err != nil {
 		t.Fatal(err)
 	}
 

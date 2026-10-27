@@ -1,3 +1,26 @@
+// 文件说明：health.go — internal/objectstore 中 HealthChecker、AssertHealth 等符号的实现
+//
+// 用法
+//
+//	AssertHealth(ctx context.Context, c Client) error  // AssertHealth 对 objectstore 做最小连通与权限验证
+//	type HealthChecker（导出类型，同包与上层均可使用）
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/health.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] blob.go, client.go, content.go, content_local.go, content_s3.go 等 10 个
+//
+// 主要符号
+//
+//	type HealthChecker interface {…}
+//	AssertHealth(ctx context.Context, c Client) error
+
 package objectstore
 
 import (

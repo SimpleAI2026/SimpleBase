@@ -51,7 +51,7 @@ yarn dev              # http://127.0.0.1:5173
 | `/` | Home | 产品首页（独立布局，与控制台拆分） |
 | `/console` | — | 重定向到云助手 `/console/agents` |
 | `/console/dashboard` | Dashboard | 监控大盘（指标趋势、项目用量） |
-| `/console/databases` | Databases | 数据库管理、文档数据浏览、SQL 工作台 |
+| `/console/databases` | Databases | 数据管理、文档数据浏览、SQL 工作台 |
 | `/console/key-value` | KeyValue | 项目 KV 数据管理 |
 | `/console/s3` | S3Manager | 对象存储管理（上传 / 删除 / 预签名） |
 | `/console/gofunctions` | GoFunctions | 云函数（版本、激活、在线测试） |

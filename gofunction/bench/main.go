@@ -1,29 +1,28 @@
-// Command bench: gofunction 云函数 HTTP 服务性能示例
+// 文件说明：main.go — Command bench: gofunction 云函数 HTTP 服务性能示例
 //
-// 本示例演示 SimpleBase 的典型生产形态：HTTP 接入层（标准库 net/http）+
-// 云函数脚本（运行在 gofunction 解释器中）承载业务逻辑，
-// 并与「同等逻辑的原生 Go 实现」做性能对照。
+// 用法
 //
-// 三组有性能代表性的负载：
+//	Compute(n int) int  // Compute 递归 fib
+//	JSON(order string) string  // JSON 处理一笔订单：重算小计/校验/格式化摘要
 //
-//  1. Compute  递归 fib(22)      —— 纯解释执行开销（CPU 密集）
-//  2. JSON     订单记录编解码     —— 结构体/切片/map/字符串（真实业务形态）
-//  3. Text     日志行解析聚合     —— 字符串切分/拼接/map 聚合（IO 服务常见）
+// 调用架构
 //
-// 启动：
+//	[上游] （无，本包为入口）
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/bench/main.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction, gofunction/packages
 //
-//	go run ./bench
+// 主要符号
 //
-// 基准（服务起来后另开终端）：
-//
-//	go test -bench=. -benchmem ./bench      # 进程内直接调用对照
-//	hey -z 10s -c 8 http://127.0.0.1:8091/bench/compute   # HTTP 层压测（未安装 hey 可用 ab）
-//
-// 三条路径对照：
-//
-//	/native/*   原生 Go 编写的同逻辑 handler（性能上限基准）
-//	/bench/*    脚本函数经 RunJSON 执行（生产调用路径）
-//	/inproc/*   脚本函数进程内直调（剥离 HTTP 开销，测解释器净耗时）
+//	Compute(n int) int
+//	type Order struct {…}
+//	JSON(order string) string
+//	Text(logs string) string
+//	... 另有 17 个顶层符号
+
 package main
 
 import (

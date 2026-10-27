@@ -13,10 +13,10 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/cloudagent"
-	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -33,7 +33,7 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	if err := systemdb.ApplySystemMigrations(ctx, db); err != nil {
+	if err := systemdb.EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)
@@ -57,7 +57,7 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 		llmgateway.NewCatalogResolver(cat, nil),
 	)
 	gw := llmgateway.NewService(resolver, nil, nil)
-	rt := &cloudagent.Runtime{
+	rt := &gocloudagent.Runtime{
 		LLM:          NewCloudAgentLLM(NewLLMService(gw)),
 		Settings:     agentbridge.NewSettingsAccess(store),
 		ToolProtocol: "native",

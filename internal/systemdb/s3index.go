@@ -1,3 +1,30 @@
+// 文件说明：s3index.go — internal/systemdb 中 S3Object、UpsertS3Object 等符号的实现
+//
+// 用法
+//
+//	(s *Store) UpsertS3Object(ctx context.Context, projectID, key string, size int64 ...  // UpsertS3Object 上传成功后写入索引
+//	(s *Store) SoftDeleteS3Object(ctx context.Context, projectID, key string) error  // SoftDeleteS3Object 删除成功后软删索引行
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/s3index.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/objectstore, internal/utils/limit
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//
+// 主要符号
+//
+//	type S3Object struct {…}
+//	(s *Store) UpsertS3Object(ctx context.Context, projectID, key string, size int64 ...
+//	(s *Store) SoftDeleteS3Object(ctx context.Context, projectID, key string) error
+//	(s *Store) ListS3Objects(ctx context.Context, projectID, prefix string, limit int) ...
+//	(s *Store) GetS3Object(ctx context.Context, projectID, key string) (S3Object, error)
+//	(s *Store) RefreshS3Index(ctx context.Context, projectID string, listed ...
+
 package systemdb
 
 import (

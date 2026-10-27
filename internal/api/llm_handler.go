@@ -1,17 +1,30 @@
-// llm_handler.go 实现 LLM Gateway 的 OpenAI 兼容 HTTP handler
-// （planv6.0 openai-compatible-llm-api-plan）。
+// 文件说明：llm_handler.go — LLM Gateway 的 OpenAI 兼容 HTTP handler
 //
-// 路由：
+// 用法
 //
-//	POST /v1/projects/:projectID/v1/chat/completions   （stream:true 时为 SSE）
-//	GET  /v1/projects/:projectID/v1/models
+//	(h *LLMHandler) ChatCompletions(c echo.Context) error  // ChatCompletions 处理 POST .../v1/chat/completions
+//	(h *LLMHandler) ListModels(c echo.Context) error  // ListModels 处理 GET .../v1/models，返回严格 OpenAI list
+//	同包调用：stream() → agent_handler.go, e2b_envd_handler.go 等；recordAudit() → cronjob_handler.go, gofunction_handler.go 等；LLMHandler → oai_responses.go, router.go
 //
-// 路径里的两段 v1 都是刻意保留的，不是笔误：前一段是 SimpleBase 自身的 API 版本前缀，
-// 后一段是 OpenAI SDK 约定的资源前缀。只有保留 base_url 尾部这个 /v1，
-// 官方 SDK 才能把 base_url 指向 ".../projects/<id>/v1" 并原样拼出 /chat/completions。
-// 请勿"顺手修正"成单段 v1（路由测试 TestOpenAIRoutePaths 会锁定这一点）。
+// 调用架构
 //
-// 旧的 /llm/chat、/llm/stream、/llm/providers 已删除，不保留兼容期。
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/llm_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/systemdb
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] stream() ← agent_handler.go, e2b_envd_handler.go, e2b_process_handler.go
+//
+// 主要符号
+//
+//	type LLMHandler struct {…}
+//	(h *LLMHandler) ChatCompletions(c echo.Context) error
+//	(h *LLMHandler) ListModels(c echo.Context) error
+//	... 另有 4 个顶层符号
+
 package api
 
 import (

@@ -1,5 +1,32 @@
-// Package observability 提供 SimpleBase 的结构化日志、Prometheus 指标和脱敏工具。
-// 服务层统一通过本包创建并使用结构化日志。
+// 文件说明：logger.go — SimpleBase 的结构化日志、Prometheus 指标和脱敏工具
+//
+// 用法
+//
+//	NewLogger(level, format string, w io.Writer) Logger
+//	WriterFor(output string) io.Writer  // WriterFor 将 observability.log_output 映射到进程 writer
+//	Sync(l Logger) error  // Sync 刷新底层日志缓冲
+//	同包调用：Logger → zaplog.go；Sync() → zaplog.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/audit 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/observability/logger.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] metrics.go, stage_timing_metrics.go, zaplog.go
+//	[关键引用] Logger ← zaplog.go
+//
+// 主要符号
+//
+//	type Logger = *zapLogger
+//	WriterFor(output string) io.Writer
+//	NewLogger(level, format string, w io.Writer) Logger
+//	Sync(l Logger) error
+//	... 另有 1 个顶层符号
+
 package observability
 
 import (

@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
+	"github.com/linkxzhou/SimpleBase/godatabase/filedb"
 	"github.com/linkxzhou/SimpleBase/internal/config"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -119,7 +120,7 @@ func TestDuckLakeOptionsAndFactories(t *testing.T) {
 	a.cfg.Database.CacheDir = t.TempDir()
 	a.cfg.Database.DuckLake = cfg
 	f := a.newUserDatabaseFactory(a.cfg.Database.CacheDir)
-	if f == nil || a.duckFactory == nil {
+	if f == nil || a.fileFactory == nil {
 		t.Fatal("user factory")
 	}
 	sys := a.newSystemDatabaseFactory()
@@ -135,13 +136,13 @@ func TestNewUserFactoryRemoteWithoutBlobs(t *testing.T) {
 	a := &App{cfg: testConfig(true)}
 	a.cfg.Storage.Database = config.StorageModeS3
 	a.cfg.S3.Bucket = "b"
-	f := a.newUserDatabaseFactory(t.TempDir()).(*ducklake.Factory)
-	if !f.Remote.Enabled || f.Syncer == nil {
+	f := a.newUserDatabaseFactory(t.TempDir()).(*filedb.Factory)
+	if !f.Remote || f.Syncer == nil {
 		t.Fatal(f.Remote, f.Syncer)
 	}
 	sys := a.newSystemDatabaseFactory()
-	if sys.Remote.Enabled != f.Remote.Enabled {
-		t.Fatal(sys.Remote)
+	if sys.Remote.Enabled {
+		t.Fatal("system remote requires a BlobStore-backed object client")
 	}
 }
 
@@ -302,18 +303,21 @@ func TestNewUserFactoryWithBlobStore(t *testing.T) {
 	a.cfg.Storage.Database = config.StorageModeS3
 	a.cfg.S3.Bucket = "b"
 	a.objectStore = clientBlob{blob: objectstore.NewMemoryBlobStore()}
-	f := a.newUserDatabaseFactory(t.TempDir()).(*ducklake.Factory)
-	if f.Blobs == nil || a.catalogSyncer == nil {
-		t.Fatal("expected catalog syncer")
+	f := a.newUserDatabaseFactory(t.TempDir()).(*filedb.Factory)
+	if _, ok := f.Syncer.(*filedb.FileSyncer); !ok {
+		t.Fatalf("expected project file syncer, got %T", f.Syncer)
+	}
+	if err := f.Syncer.(*filedb.FileSyncer).Close(); err != nil {
+		t.Fatal(err)
+	}
+	sys := a.newSystemDatabaseFactory()
+	if sys.Syncer == nil {
+		t.Fatal("system syncer")
 	}
 	if cs, ok := a.catalogSyncer.(*ducklake.CatalogSyncer); ok {
 		if err := (syncerCloser{cs: cs}).Close(); err != nil {
 			t.Fatal(err)
 		}
-	}
-	sys := a.newSystemDatabaseFactory()
-	if sys.Syncer == nil {
-		t.Fatal("system syncer")
 	}
 }
 
@@ -460,5 +464,23 @@ func TestAssembleDepsLocalStorageMkdirFail(t *testing.T) {
 	cfg.Database.CacheDir = file
 	if _, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry()); err == nil {
 		t.Fatal("expected mkdir fail")
+	}
+}
+
+func TestLeaseEpochsRecognizesProjectFileLeases(t *testing.T) {
+	got := leaseEpochs([]string{
+		"root/prj00001/database/lease/00000000000000000001.json",
+		"root/prj00001/database/lease/00000000000000000003.json",
+		"root/prj00001/files/lease/00000000000000000009.json",
+		"root/prj00002/databases/db1/catalog/lease/00000000000000000002.json",
+	})
+	if got["prj00001"] != 3 {
+		t.Fatalf("project lease epoch = %d, want 3 (%v)", got["prj00001"], got)
+	}
+	if got["prj00002/db1"] != 2 {
+		t.Fatalf("system lease epoch = %d, want 2 (%v)", got["prj00002/db1"], got)
+	}
+	if _, ok := got["prj00001/files"]; ok {
+		t.Fatalf("files prefix must not count as a lease: %v", got)
 	}
 }

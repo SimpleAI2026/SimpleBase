@@ -1,4 +1,32 @@
-// handlers_plan79.go 实现 Plan 7-9 的配额查询与审计查询 handler。
+// 文件说明：quota_audit_handler.go — Plan 7-9 的配额查询与审计查询 handler
+//
+// 用法
+//
+//	(h *QuotaHandler) GetQuota(c echo.Context) error  // GetQuota 返回当前 project 的配额可用状态
+//	(h *AuditHandler) ListOperations(c echo.Context) error  // ListOperations 返回当前 project 的审计事件列表（读 sys_operations）
+//	同包调用：ListOperations() → adapter.go, router.go；QuotaHandler → router.go；GetQuota() → router.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/quota_audit_handler.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] ListOperations() ← adapter.go, router.go
+//
+// 主要符号
+//
+//	type QuotaHandler struct {…}
+//	(h *QuotaHandler) GetQuota(c echo.Context) error
+//	type AuditHandler struct {…}
+//	(h *AuditHandler) ListOperations(c echo.Context) error
+//	... 另有 3 个顶层符号
+//	handlers_plan79.go 实现 Plan 7-9 的配额查询与审计查询 handler。
+
 package api
 
 import (

@@ -3,7 +3,7 @@
 > **日期**：2026-09-17（v2 修订版，基于对 v1 版本的复核）
 > **范围**：`internal/`（约 22,000+ 行 Go）+ `ui/src`（约 5,800+ 行 Vue/TS/JS）
 > **依据**：`plan/planv2.0/` 全部规划（ui-plan-v2 / databases-and-s3 / system-database / cloud-agent / proto-http）
-> **v2 修订说明**：v1 版本完成分析时，代码库刚合入 Cloud Agent（`internal/cloudagent`、`AgentManager.vue`）功能，部分结论已被后续代码演进推翻（如 `SbCodeBlock` 从"零引用"变为"已被复用"、`LlmManager.vue` 从"待补功能"变为"孤儿页面"）。本版本已重新核对全部条目并修正。
+> **v2 修订说明**：v1 版本完成分析时，代码库刚合入 Cloud Agent（`internal/gocloudagent`、`AgentManager.vue`）功能，部分结论已被后续代码演进推翻（如 `SbCodeBlock` 从"零引用"变为"已被复用"、`LlmManager.vue` 从"待补功能"变为"孤儿页面"）。本版本已重新核对全部条目并修正。
 > **结论摘要**：DuckLake-only 与系统库 Phase A/B 已落地，Cloud Agent Phase 0-2 已落地；v1.0 时代的 Turso 双轨、jobs 队列、多引擎装配已整体失效但仍留在主构建中；LLM 对话页已被 Cloud Agent 取代但旧页面未清理；前端 FaaS/WS Logs/metrics 旧路径与后端能力错位。
 
 ---
@@ -47,7 +47,7 @@
 | # | 文件 | 位置 | 内容 | 标签 | 说明 |
 |---|---|---|---|---|---|
 | L1 | `internal/app/app.go` | 62-63、191-192（`JobEnqueuer` 字段行号随当前文件为准）、369-375、390-396 | `jobWorker`/`jobEnqueuer` 字段、`JobEnqueuer: api.NewJobEnqueuer(...)`、`Start`/`Shutdown` 中 worker 分支 | B | 随 B2 删除；`import jobs` 一并去掉 |
-| L2 | `internal/api/router.go` | `Dependencies.JobEnqueuer` 字段 + `JobEnqueuer`/`JobInput` 接口定义（约 43、136-147 行） | 同上 | B | 零消费（handler 从不读它）；**注意**：`router.go` 现已 import `internal/cloudagent`，删除时不要误删 CloudAgent 相关行 |
+| L2 | `internal/api/router.go` | `Dependencies.JobEnqueuer` 字段 + `JobEnqueuer`/`JobInput` 接口定义（约 43、136-147 行） | 同上 | B | 零消费（handler 从不读它）；**注意**：`router.go` 现已 import `internal/gocloudagent`，删除时不要误删 CloudAgent 相关行 |
 | L3 | `internal/api/adapters_plan79.go` | `jobEnqueuerAdapter` + `NewJobEnqueuer`（约 153-172 行） | 同上 | B | 唯一调用方是 app.go（将删） |
 | L4 | `internal/catalog/model.go` | `JobType` 四枚举、`JobStatus`、`Job` struct | B | jobs 删除后仅 `sql_repository.go` 的表操作还引用——见 L5 |
 | L5 | `internal/catalog/repository.go` + `sql_repository.go` + **`job_queue_test.go`**（139 行，v1 遗漏） | 接口方法 `Enqueue/Claim/Complete/Retry/MarkDeadLetter/GetJob/ListJobs` + `sys_jobs` 表读写实现 + **对应测试文件整删** | B | 生产零调用；`sys_jobs` 表 DDL（migrate.go）**保留**（兼容已部署实例的迁移历史，加注释 deprecated）；**v1 遗漏点**：`internal/catalog/job_queue_test.go` 整个文件依赖被删的 Job 方法，必须同步整删，否则编译失败 |
@@ -59,7 +59,7 @@
 | L11（**v2 新增**） | `internal/observability/metrics.go` | `JobsTotal *prometheus.CounterVec`、`JobDurationSeconds *prometheus.HistogramVec`、`IncJobTotal()`、`ObserveJobDuration()` | B | **v1 只写"rg 确认后删"，现已确认具体 4 个符号**；随 jobs 删除同步移除，注意 `simplebase_jobs_total`/`simplebase_job_duration_seconds` 两个指标名从 Grafana/告警规则中一并摘除（若有） |
 | — | `internal/database/hooks.go`（`WriteHookFactory`） | — | **保留** | ducklake Factory 实现它、registry 消费——活代码，不删 |
 | — | `internal/llmgateway/catalog_resolver.go`、`streaming.go` | — | **保留** | app.go:329、service.go:228 均在用 |
-| — | `internal/cloudagent/`、`internal/api/cloudagent_access.go` | — | **保留，不在本计划清理范围** | Cloud Agent Phase 0-2 已落地的活代码；`go.mod` 的 `cloudwego/eino v0.9.19` 依赖随之保留 |
+| — | `internal/gocloudagent/`、`internal/api/gocloudagent_access.go` | — | **保留，不在本计划清理范围** | Cloud Agent Phase 0-2 已落地的活代码；`go.mod` 的 `cloudwego/eino v0.9.19` 依赖随之保留 |
 
 ### 2.3 go.mod 依赖清理（B2/B5/B7 完成后）
 
@@ -129,7 +129,7 @@ rg "LlmManager" ui/src/**/*.vue ui/src/**/*.ts → 仅自身文件【v2 新增�
 rg "JobsTotal|JobDurationSeconds" --type go → 仅 metrics.go 定义 + jobs/queue.go 消费（将随 jobs 删除）【v2 坐实符号名】
 rg "job_queue_test" internal/catalog/ → 存在，139 行，依赖将删除的 Repository.Enqueue 等方法【v2 新增发现】
 rg "cloudwego/eino" go.mod → 存在，Cloud Agent 依赖，不在清理范围
-rg "internal/cloudagent" internal/jobs internal/deploy internal/utils internal/prom → 0 命中（Cloud Agent 不依赖待删包，删除安全）
+rg "internal/gocloudagent" internal/jobs internal/deploy internal/utils internal/prom → 0 命中（Cloud Agent 不依赖待删包，删除安全）
 ```
 
 ---
@@ -141,7 +141,7 @@ rg "internal/cloudagent" internal/jobs internal/deploy internal/utils internal/p
 1. 删 `internal/jobs/`（3 文件）、`internal/deploy/`、`internal/utils/`、`internal/prom/`、`internal/catalog/alias.go`、`internal/log/config.go`、`internal/log/log_tree.go`。
 2. 删 `internal/catalog/job_queue_test.go`（**v2 补充**，否则编译报错）。
 3. `app.go`：删 L1 列出的代码块与 `jobs` import。
-4. `router.go`：删 `JobEnqueuer`/`JobInput` 与 `Dependencies.JobEnqueuer`（**注意保留 `cloudagent` 相关 import 与字段，不要一并误删**）。
+4. `router.go`：删 `JobEnqueuer`/`JobInput` 与 `Dependencies.JobEnqueuer`（**注意保留 `gocloudagent` 相关 import 与字段，不要一并误删**）。
 5. `adapters_plan79.go`：删 jobEnqueuerAdapter。
 6. `catalog/repository.go` + `sql_repository.go`：删 6 个 Job 方法实现；`service.go` 删 `GetDatabaseForJob`。
 7. `migrate.go`：`sys_jobs` DDL **保留**（版本历史兼容），加注释「deprecated, retained for migration history」。
@@ -206,7 +206,7 @@ logs: {
 
 ### R10【P2，v2 新增】文档补写：README.md 缺 Cloud Agent 一节
 
-`README.md` 当前完整未提及 Cloud Agent（`/agents`、`internal/cloudagent`），与代码现状脱节程度已超出「清理」范畴，属于文档补写任务，建议与 §2.4 的 Turso 措辞清理合并为一个文档 PR。
+`README.md` 当前完整未提及 Cloud Agent（`/agents`、`internal/gocloudagent`），与代码现状脱节程度已超出「清理」范畴，属于文档补写任务，建议与 §2.4 的 Turso 措辞清理合并为一个文档 PR。
 
 ---
 

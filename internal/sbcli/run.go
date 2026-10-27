@@ -1,5 +1,29 @@
-// Package sbcli is the SimpleBase resource CLI used by cmd/simplebase.
-// The assistant host may call RunIO in-process; operators run the binary.
+// 文件说明：run.go — is the SimpleBase resource CLI used by cmd/simplebase
+//
+// 用法
+//
+//	RunIO(ctx context.Context, args, environ []string, stdout, stderr io.Writer, stdin ...  // RunIO executes one CLI invocation. environ is explicit so tests stay isolated.
+//	DispatchKnown(resource, action string) bool  // DispatchKnown 报告 resource+action 是否为可分发的 CLI 命令
+//	同包调用：usagef() → collection_transfer.go, commands.go 等；rawOutput → collection_transfer.go；Error() → commands.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/run.go
+//	         │ 依赖
+//	         ▼
+//	[下游] packages/go-sdk
+//	[同包] collection_transfer.go, commands.go, config.go, migrations.go, output.go 等 6 个
+//	[关键引用] usagef() ← collection_transfer.go, commands.go, migrations.go
+//
+// 主要符号
+//
+//	RunIO(ctx context.Context, args, environ []string, stdout, stderr io.Writer, stdin ...
+//	DispatchKnown(resource, action string) bool
+//	... 另有 5 个顶层符号
+
 package sbcli
 
 import (
@@ -8,16 +32,10 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"strings"
 
 	gosdk "github.com/linkxzhou/SimpleBase/packages/go-sdk"
 )
-
-// Run is the process entrypoint.
-func Run(args []string) int {
-	return RunIO(context.Background(), args, os.Environ(), os.Stdout, os.Stderr, os.Stdin)
-}
 
 // RunIO executes one CLI invocation. environ is explicit so tests stay isolated.
 func RunIO(ctx context.Context, args, environ []string, stdout, stderr io.Writer, stdin io.Reader) int {
@@ -69,12 +87,25 @@ func RunIO(ctx context.Context, args, environ []string, stdout, stderr io.Writer
 		writeFail(stderr, "usage", err.Error(), 0, "")
 		return exitUsage
 	}
+	if raw, ok := data.(rawOutput); ok {
+		if cfg.Agent {
+			writeFail(stderr, "agent_raw_export_disabled", "raw collection export is unavailable in agent mode", 0, "")
+			return exitUsage
+		}
+		if _, err := stdout.Write(raw.data); err != nil {
+			writeFail(stderr, "output_error", err.Error(), 0, "")
+			return exitUsage
+		}
+		return exitOK
+	}
 	if cfg.Agent {
 		data = stripAgentSecrets(data)
 	}
 	writeOK(stdout, data)
 	return exitOK
 }
+
+type rawOutput struct{ data []byte }
 
 type usageError struct{ msg string }
 
@@ -133,7 +164,7 @@ func parseArgs(args, environ []string) (loadedConfig, []string, int, error) {
 	if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Token) == "" || strings.TrimSpace(cfg.ProjectID) == "" {
 		return loadedConfig{}, nil, exitConfig, errors.New("endpoint, token, and project are required " +
 			"(set SIMPLEBASE_URL / SIMPLEBASE_TOKEN / SIMPLEBASE_PROJECT_ID or the simplebase config file; " +
-			"shells started by the local cloudagent do not inherit SIMPLEBASE_* variables, use the config file there)")
+			"shells started by the local gocloudagent do not inherit SIMPLEBASE_* variables, use the config file there)")
 	}
 	u, err := url.Parse(cfg.Endpoint)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {

@@ -11,7 +11,7 @@
 | 1 | P0 | `schema rows` CLI/SDK 解码失败 | SDK `TableRows.Columns` 改为 `[]SchemaColumn`，补 `Total/Limit/Offset/Table`，补解码测试 | 是（go-sdk） | A |
 | 2 | P1 | settings 响应字段是 `Key` / `ValueJSON` | `systemdb.SettingKV` 补 json tag（snake_case） | 是（systemdb） | A |
 | 3 | P1 | 内置助手默认不可写，不好发现 | 提示词/拒绝文案/SKILL.md/控制台提示统一说明 | 是（文案 + UI） | B |
-| 4 | P1 | 本地 cloudagent shell 与 CLI 凭据隔绝 | `config_missing` 与 `--help` 补充说明 | 是（文案） | B |
+| 4 | P1 | 本地 gocloudagent shell 与 CLI 凭据隔绝 | `config_missing` 与 `--help` 补充说明 | 是（文案） | B |
 | 5 | P2 | `function test` 比 `invoke` 多一层信封 | 文档与 skill 参考写明；CLI 不改形状 | 否（文档） | C |
 | 6 | P2 | 定时任务运行状态是 `completed` | 文档与 skill 参考写明取值 | 否（文档） | C |
 | 7 | P2 | `./build.sh` 不生成 `config.yaml` | 构建路径缺文件时给出明确提示，帮助文案限定 `dev` | 是（脚本） | C |
@@ -86,7 +86,7 @@ type SettingKV struct {
 }
 ```
 
-**影响面排查**（已核对）：`ui/src`、`packages/` 无消费 `ValueJSON` 的代码；Go 内部（`internal/cloudagent/runtime.go`、`agent_handler.go`、`systemdb_test.go`）使用的是 Go 字段名，加 tag 不影响。唯一依赖旧字段名的是 `examples/capabilities/01-project/run.sh:25`。
+**影响面排查**（已核对）：`ui/src`、`packages/` 无消费 `ValueJSON` 的代码；Go 内部（`internal/gocloudagent/runtime.go`、`agent_handler.go`、`systemdb_test.go`）使用的是 Go 字段名，加 tag 不影响。唯一依赖旧字段名的是 `examples/capabilities/01-project/run.sh:25`。
 
 **改动**
 
@@ -106,8 +106,8 @@ type SettingKV struct {
 **现状**
 
 - 默认值：`internal/systemdb/agents.go:713-770` `defaultCloudAgentSpecs` 不设 `Writable`，库列默认 0（`migrate.go:670`）。该行为是安全默认，**不改默认值**。
-- 拦截：`internal/cloudagent/cli_tool.go:217-218` 拒绝文案「该助手未开启写权限，只能执行只读命令」，在确认流程之前触发。
-- 提示词：`internal/cloudagent/prompt.go:41-42` `capabilityWritable / capabilityReadonly`。
+- 拦截：`internal/gocloudagent/cli_tool.go:217-218` 拒绝文案「该助手未开启写权限，只能执行只读命令」，在确认流程之前触发。
+- 提示词：`internal/gocloudagent/prompt.go:41-42` `capabilityWritable / capabilityReadonly`。
 - skill 文档：`skills/simplebase/SKILL.md:27`。
 - 控制台开关：`ui/src/components/modal/AgentFormModal.vue:88-99`，文案 `locales/zh-CN.ts:560-561`（`formWritable` / `formWritableHint`），页面 `ui/src/pages/AgentManager.vue`。
 
@@ -122,23 +122,23 @@ type SettingKV struct {
    - 先读 `AgentManager.vue` / 对话页，确认现有只读助手是否有徽标；
    - 在助手列表与会话头部为 `writable=false` 的助手加一个「只读」标签，悬浮说明并带跳转编辑的入口（用现有 `SbModal` 编辑流程，不新增页面）；
    - 文案同时补 `zh-CN.ts` 与 `en-US.ts`，key 集合保持一致（`ui/tests/i18n.test.ts` 会卡）。
-5. 测试：`internal/cloudagent` 补拒绝文案断言（沿用现有 `cli_tool` 测试）；前端补只读标签渲染用例，断言打在真实 DOM 上，不桩 `Switch`。
+5. 测试：`internal/gocloudagent` 补拒绝文案断言（沿用现有 `cli_tool` 测试）；前端补只读标签渲染用例，断言打在真实 DOM 上，不桩 `Switch`。
 
-**验收**：`go test ./internal/cloudagent/...`；`cd ui && yarn test && yarn build`；`examples/capabilities/agent` 的 `readonly-guard` 仍通过。
+**验收**：`go test ./internal/gocloudagent/...`；`cd ui && yarn test && yarn build`；`examples/capabilities/agent` 的 `readonly-guard` 仍通过。
 
-### 4.2 #4 本地 cloudagent shell 与 CLI 凭据隔绝
+### 4.2 #4 本地 gocloudagent shell 与 CLI 凭据隔绝
 
-**现状**：`internal/cloudagent/tools/tools.go:140` 用 `sanitizedEnv`（`:191-204`）启动 shell，丢弃 `SIMPLEBASE_` / `CLOUDAGENT_` 前缀与含 `TOKEN|SECRET|PASSWORD|API_KEY|…` 的变量。`simplebase` CLI 在子进程里取不到配置，回 `config_missing`（`internal/sbcli/run.go:133-135`，退出码 4），模型无法区分「没配置」与「被剥离」。
+**现状**：`internal/gocloudagent/tools/tools.go:140` 用 `sanitizedEnv`（`:191-204`）启动 shell，丢弃 `SIMPLEBASE_` / `GOCLOUDAGENT_` 前缀与含 `TOKEN|SECRET|PASSWORD|API_KEY|…` 的变量。`simplebase` CLI 在子进程里取不到配置，回 `config_missing`（`internal/sbcli/run.go:133-135`，退出码 4），模型无法区分「没配置」与「被剥离」。
 
 **不放宽安全策略**。只补信息：
 
-1. `internal/sbcli/run.go:133-135`：`endpoint, token, and project are required` 之后追加提示 `（若在 cloudagent 的 shell 中运行：该环境不继承 SIMPLEBASE_*，请使用 simplebase 配置文件）`。先核对该文案是否被测试或 `cli_tool.go:319-323` 的 `case 4` 依赖，再改。
-2. `internal/cloudagent/cli/command.go:336-376` `printUsage` 的环境变量段落后补一句「shell 工具不会把 SIMPLEBASE_* / CLOUDAGENT_* 传给子进程」。
+1. `internal/sbcli/run.go:133-135`：`endpoint, token, and project are required` 之后追加提示 `（若在 gocloudagent 的 shell 中运行：该环境不继承 SIMPLEBASE_*，请使用 simplebase 配置文件）`。先核对该文案是否被测试或 `cli_tool.go:319-323` 的 `case 4` 依赖，再改。
+2. `internal/gocloudagent/cli/command.go:336-376` `printUsage` 的环境变量段落后补一句「shell 工具不会把 SIMPLEBASE_* / GOCLOUDAGENT_* 传给子进程」。
 3. `tools.go` 里 shell 工具对模型的 description 补同一句，并说明正确做法是事先写好 `simplebase` 配置文件、不要把文件内容打印出来。
-4. `docs/workbench/agent-tools.md` 增加「本地 cloudagent 的环境隔离」小节；`examples/capabilities/agent/README.md:27` 已提到本地 shell，同步指向该小节。
+4. `docs/workbench/agent-tools.md` 增加「本地 gocloudagent 的环境隔离」小节；`examples/capabilities/agent/README.md:27` 已提到本地 shell，同步指向该小节。
 5. 测试：`tools_test.go` 现有 `TestSanitizedEnvStripsCredentials` 保持；新增对 `config_missing` 信息含提示的断言。
 
-**验收**：`go test ./internal/sbcli/... ./internal/cloudagent/...`。
+**验收**：`go test ./internal/sbcli/... ./internal/gocloudagent/...`。
 
 ## 5. 阶段 C：文档与脚本（#5、#6、#7）
 
@@ -180,9 +180,9 @@ type SettingKV struct {
 
 ### 6.1 #8 认证进 skill
 
-**结论：本轮不做。** 现状是有意设计：`internal/cloudagent/skills.go:17-19` 注释写明 user / apikey / settings 保留给人类操作者，`SKILL.md:28` 同步声明。助手代管用户与 Key 意味着创建用户、签发 Key 都是敏感写操作，需要独立的确认模型、审计字段与权限分层（超管才可用），应单列设计，不混入体验修复。
+**结论：本轮不做。** 现状是有意设计：`internal/gocloudagent/skills.go:17-19` 注释写明 user / apikey / settings 保留给人类操作者，`SKILL.md:28` 同步声明。助手代管用户与 Key 意味着创建用户、签发 Key 都是敏感写操作，需要独立的确认模型、审计字段与权限分层（超管才可用），应单列设计，不混入体验修复。
 
-仅记录一条前置事实供将来设计：skill 清单有三处需同步——`internal/cloudagent/skills.go`（`skillPrefixes` / `skillAliases`）、`ui/src/utils/agent-skills.ts`（手工同步副本）、`skills/simplebase/SKILL.md` 与 `references/*.md`。
+仅记录一条前置事实供将来设计：skill 清单有三处需同步——`internal/gocloudagent/skills.go`（`skillPrefixes` / `skillAliases`）、`ui/src/utils/agent-skills.ts`（手工同步副本）、`skills/simplebase/SKILL.md` 与 `references/*.md`。
 
 ### 6.2 #9 简写 LLM 超时
 
@@ -224,7 +224,7 @@ type SettingKV struct {
 ```bash
 go build ./internal/... ./cmd/...
 go test ./internal/systemdb/... ./internal/api/... ./internal/sbcli/... \
-        ./internal/cloudagent/... ./internal/config/... ./packages/go-sdk/...
+        ./internal/gocloudagent/... ./internal/config/... ./packages/go-sdk/...
 go vet ./packages/go-sdk/... ./internal/sbcli/...
 cd ui && yarn test && yarn build         # 仅阶段 B 需要
 ./examples/run_all.sh --start            # 目标：63/63 通过；agent 8 条仍通过
@@ -254,15 +254,15 @@ cd ui && yarn test && yarn build         # 仅阶段 B 需要
 | #2 | `internal/systemdb/settings.go` | `SettingKV` 加 `json` tag（`key` / `value_json` / `updated_at`） |
 | #2 | `internal/api/system_handlers_test.go` | `TestSettingsHandlers` 断言 snake_case 且旧字段名不泄漏 |
 | #2 | `examples/capabilities/01-project/{run.sh,expected.md}` | `.Key` → `.key` |
-| #3 | `internal/cloudagent/cli_tool.go` | 拒绝文案补「编辑助手 → 允许写操作」出路 |
-| #3 | `internal/cloudagent/prompt.go` | `capabilityReadonly` 要求直接说明去哪里开启，不重试 |
+| #3 | `internal/gocloudagent/cli_tool.go` | 拒绝文案补「编辑助手 → 允许写操作」出路 |
+| #3 | `internal/gocloudagent/prompt.go` | `capabilityReadonly` 要求直接说明去哪里开启，不重试 |
 | #3 | `skills/simplebase/SKILL.md` | 写明写命令直接失败、不弹确认 |
 | #3 | `ui/src/components/agent/AgentCard.vue`、`ui/src/pages/AgentManager.vue` | `writable=false` 时显示「只读」标签（列表 + 会话头部），头部标签点击直达编辑 |
 | #3 | `ui/src/locales/{zh-CN,en-US}.ts` | `components.agentCard.readonly` / `readonlyHint` |
 | #3 | `ui/tests/agent-components.test.ts` | 只读标签仅在 `writable === false` 出现（旧后端无字段时不误报） |
 | #4 | `internal/sbcli/run.go` | `config_missing` 文案说明 shell 不继承 `SIMPLEBASE_*`、改用配置文件 |
-| #4 | `internal/cloudagent/cli/command.go` | `--help` 新增 shell 环境隔离一节 |
-| #4 | `internal/cloudagent/tools/tools.go` | shell 工具 description 说明剥离范围与 `config_missing` 含义 |
+| #4 | `internal/gocloudagent/cli/command.go` | `--help` 新增 shell 环境隔离一节 |
+| #4 | `internal/gocloudagent/tools/tools.go` | shell 工具 description 说明剥离范围与 `config_missing` 含义 |
 | #4 | `docs/cli.md`、`docs/workbench/agent-tools.md`、`examples/capabilities/agent/README.md` | 补同一说明 |
 | #5 | `docs/automation/gofunction-invoke.md`、`docs/cli.md`、`skills/simplebase/references/gofunction.md` | 写明 `test` 的 `data.data` 信封 |
 | #6 | `docs/automation/cronjob-api.md`、`skills/simplebase/references/cron.md`、`docs/cli.md` | 状态枚举 `running/completed/failed/canceled`，明确没有 `success` |
@@ -282,13 +282,13 @@ cd ui && yarn test && yarn build         # 仅阶段 B 需要
 ### 验证
 
 ```bash
-gofmt -l internal/cloudagent internal/sbcli internal/config packages/go-sdk   # 无输出
+gofmt -l internal/gocloudagent internal/sbcli internal/config packages/go-sdk   # 无输出
 go build ./internal/... ./cmd/... ./packages/...
 go vet ./packages/go-sdk/... ./internal/sbcli/... ./internal/config/...
 go test ./...                                   # 除既有 skills/simplify-code-eval-std 夹具外全绿
 cd ui && npx vitest run --coverage              # 107 files / 744 tests 通过
 cd ui && yarn build                             # 通过
-./build.sh                                      # 通过，含 cloudagent 二进制
+./build.sh                                      # 通过，含 gocloudagent 二进制
 ./build.sh --help                                # 帮助文案已限定 dev
 ```
 

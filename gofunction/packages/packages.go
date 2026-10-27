@@ -1,12 +1,30 @@
-// Package packages 向 importer 注册脚本可用的宿主包。
+// 文件说明：packages.go — 向 importer 注册脚本可用的宿主包
 //
-// 解释器无法直接访问宿主程序的包，需要在此以反射方式注册
-// 标准库（或任意宿主包）的函数、常量与变量。注册通过 init()
-// 自动完成，使用方只需 blank import 本包：
+// 用法
 //
-//	import _ "github.com/linkxzhou/SimpleBase/gofunction/packages"
+//	同包调用：funcObj() → std_encoding.go, std_fmt.go 等；typeObj() → std_encoding.go, std_http.go 等；constObj() → std_http.go, std_math.go 等
 //
-// 各标准库的注册清单按 std_<pkg>.go 拆分，按测试用例需求逐步补齐。
+// 调用架构
+//
+//	[上游] gofunction/bench, gofunction/cmd/gofunction, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/packages/packages.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gofunction/importer
+//	[同包] std_encoding.go, std_fmt.go, std_http.go, std_math.go, std_misc.go 等 7 个
+//	[关键引用] funcObj() ← std_encoding.go, std_fmt.go, std_http.go
+//
+// 主要符号
+//
+//	init()
+//	mustRegister(path, name string, objects ...*importer.Object)
+//	funcObj(name string, fn interface{}) *importer.Object
+//	constObj(name string, value interface{}) *importer.Object
+//	varObj(name string, addr interface{}, typ reflect.Type) *importer.Object
+//	typeObj(name string, typ reflect.Type) *importer.Object
+
 package packages
 
 import (

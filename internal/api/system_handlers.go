@@ -1,6 +1,37 @@
+// 文件说明：system_handlers.go — internal/api 的内部实现（metricsHandler、Summary 等）
+//
+// 用法
+//
+//	type metricsHandler（包内使用）
+//	type logsHTTPHandler（包内使用）
+//	同包调用：List() → api_keys_handler.go, backup_handler.go 等；Export() → collection_transfer.go, router.go；Stats() → router.go, stage_timing.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/system_handlers.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/auth, internal/systemdb
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] List() ← api_keys_handler.go, backup_handler.go, cronjob_handler.go
+//
+// 主要符号
+//
+//	type metricsHandler struct {…}
+//	(h *metricsHandler) Summary(c echo.Context) error
+//	(h *metricsHandler) Trend(c echo.Context) error
+//	type logsHTTPHandler struct {…}
+//	(h *logsHTTPHandler) List(c echo.Context) error
+//	(h *logsHTTPHandler) Stats(c echo.Context) error
+//	... 另有 12 个顶层符号
+
 package api
 
 import (
+	"encoding/csv"
 	"net/http"
 	"strconv"
 	"time"
@@ -70,6 +101,63 @@ func (h *logsHTTPHandler) List(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"events": events})
+}
+
+func (h *logsHTTPHandler) Stats(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	from, to, err := logTimeWindow(c)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	items, err := h.store.LogStats(c.Request().Context(), pc.ID, c.QueryParam("group_by"), from, to)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *logsHTTPHandler) Export(c echo.Context) error {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+	}
+	from, to, err := logTimeWindow(c)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	events, err := h.store.ExportLogs(c.Request().Context(), systemdb.LogQuery{ProjectID: pc.ID, Level: c.QueryParam("level"), Q: c.QueryParam("q"), From: from, To: to})
+	if err != nil {
+		return WriteError(c, err)
+	}
+	c.Response().Header().Set(echo.HeaderContentType, "text/csv; charset=utf-8")
+	c.Response().Header().Set("Content-Disposition", `attachment; filename="logs.csv"`)
+	c.Response().WriteHeader(http.StatusOK)
+	writer := csv.NewWriter(c.Response())
+	_ = writer.Write([]string{"id", "project_id", "level", "logger", "message", "fields_json", "request_id", "occurred_at"})
+	for _, event := range events {
+		_ = writer.Write([]string{event.ID, event.ProjectID, event.Level, event.Logger, event.Message, event.FieldsJSON, event.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano)})
+	}
+	writer.Flush()
+	return writer.Error()
+}
+
+func logTimeWindow(c echo.Context) (time.Time, time.Time, error) {
+	to := time.Now().UTC()
+	from := to.Add(-24 * time.Hour)
+	var err error
+	if value := c.QueryParam("from"); value != "" {
+		from, err = time.Parse(time.RFC3339, value)
+	}
+	if err == nil && c.QueryParam("to") != "" {
+		to, err = time.Parse(time.RFC3339, c.QueryParam("to"))
+	}
+	if err != nil || from.After(to) || to.Sub(from) > 30*24*time.Hour {
+		return time.Time{}, time.Time{}, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid time window; maximum is 30 days", RequestIDFromContext(c.Request().Context()))
+	}
+	return from, to, nil
 }
 
 func (h *logsHTTPHandler) GetRetention(c echo.Context) error {

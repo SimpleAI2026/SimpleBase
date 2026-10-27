@@ -19,9 +19,12 @@ import {
 export const sidebarIcons: Record<string, Component> = {
   dashboard: LayoutDashboardIcon,
   databases: DatabaseIcon,
+  'api-preview': CodeIcon,
+  'data-browser': DatabaseIcon,
   'key-value': BracesIcon,
   s3: CloudUploadIcon,
   gofunctions: CodeIcon,
+  'function-triggers': TimerIcon,
   'cron-jobs': TimerIcon,
   sandboxes: BoxIcon,
   agents: BotIcon,

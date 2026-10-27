@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 )
 
 // planv6.0 v2 §2.4：run_events 的 after 边界与 gap 语义回归。
@@ -22,8 +22,8 @@ func TestRunEventHub_ReplayMissingRunReportsGap(t *testing.T) {
 
 func TestRunEventHub_ReplayAfterDropReportsGap(t *testing.T) {
 	h := newRunEventHub()
-	h.append("run", cloudagent.Event{Type: "run", RunID: "run"})
-	h.append("run", cloudagent.Event{Type: "end", RunID: "run"})
+	h.append("run", gocloudagent.Event{Type: "run", RunID: "run"})
+	h.append("run", gocloudagent.Event{Type: "end", RunID: "run"})
 	// 模拟 2 分钟后的 drop（测试直接删除，等价于 AfterFunc 触发）。
 	h.mu.Lock()
 	delete(h.runs, "run")
@@ -35,9 +35,9 @@ func TestRunEventHub_ReplayAfterDropReportsGap(t *testing.T) {
 
 func TestRunEventHub_ReplayBoundaries(t *testing.T) {
 	h := newRunEventHub()
-	h.append("run", cloudagent.Event{Type: "run", RunID: "run"})   // id=1
-	h.append("run", cloudagent.Event{Type: "token", RunID: "run"}) // id=2
-	h.append("run", cloudagent.Event{Type: "end", RunID: "run"})   // id=3
+	h.append("run", gocloudagent.Event{Type: "run", RunID: "run"})   // id=1
+	h.append("run", gocloudagent.Event{Type: "token", RunID: "run"}) // id=2
+	h.append("run", gocloudagent.Event{Type: "end", RunID: "run"})   // id=3
 	cases := []struct {
 		after int64
 		want  int

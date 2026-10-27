@@ -3,7 +3,7 @@
 > **仓库**：SimpleBase
 > **状态**：实施中（2026-10-05）。S1–S8 已实现并通过 fake e2e、SDK、UI 覆盖率门槛；唯一未关闭项是真实 Cloud 冒烟（待凭据，未运行）。详见 §16。
 > **日期**：2026-10-04
-> **前置**：`plan/planv3.0/cloud-agent-sandbox-plan.md`（下称 **v3**，已落地：`internal/sandbox/client.go`、`cloudagent` 四个沙盒工具、`config.SandboxConfig`、`AgentManager` Sandbox 模块）
+> **前置**：`plan/planv3.0/cloud-agent-sandbox-plan.md`（下称 **v3**，已落地：`internal/sandbox/client.go`、`gocloudagent` 四个沙盒工具、`config.SandboxConfig`、`AgentManager` Sandbox 模块）
 > **SDK**：沿用 `github.com/superradcompany/microsandbox/sdk/go v0.7.4`（`go.mod` 已有，**不新增依赖**；实现时把 `// indirect` 去掉即可）
 
 ---
@@ -40,12 +40,12 @@
 | 位置 | 现状 | v4 处理 |
 |---|---|---|
 | `internal/sandbox/client.go` | `Client` 直接调 SDK，按 `threadID` 命名 `sb-{hex}`，无元数据 | 拆成 `Driver`（SDK 适配）+ `Manager`（业务）；`Client` 删除或保留为 Manager 的薄壳 |
-| `internal/cloudagent/access.go` | `Sandbox` 接口按 `(projectID, threadID)` 寻址 | 接口**不变**；app 层 adapter 改为调 `Manager.EnsureForThread` |
-| `internal/app/app.go` `sandboxClient()` | 只在 cloudAgentRuntime 内创建 | 提升为 `assembleDeps` 内的独立模块 `a.sandboxMgr`，同时注入 api 和 cloudagent |
+| `internal/gocloudagent/access.go` | `Sandbox` 接口按 `(projectID, threadID)` 寻址 | 接口**不变**；app 层 adapter 改为调 `Manager.EnsureForThread` |
+| `internal/app/app.go` `sandboxClient()` | 只在 cloudAgentRuntime 内创建 | 提升为 `assembleDeps` 内的独立模块 `a.sandboxMgr`，同时注入 api 和 gocloudagent |
 | `internal/api/agent_handler.go` | thread 删除时 `ReleaseThread` | 保留；改为 Manager 删除对应资源行 |
 | `internal/config` `SandboxConfig` | enabled / key / image / 规格 / 超时 / network | 新增 `backend`、`images`、`max_per_project`、`exec_timeout_max`、`reap_interval`（§5） |
 | `ui` | 仅 `AgentManager.vue` 有 Sandbox 模块 | 新增 `Sandboxes.vue` 页 + 侧栏入口 |
-| `internal/AGENTS.md` | `cloudagent` 职责「禁止提供写工具」；无 `sandbox` 行 | 增加 `sandbox` 行；cloudagent 行改成「禁止写 DuckLake/S3/系统库；沙盒执行仅经 sandbox.Manager」 |
+| `internal/AGENTS.md` | `gocloudagent` 职责「禁止提供写工具」；无 `sandbox` 行 | 增加 `sandbox` 行；gocloudagent 行改成「禁止写 DuckLake/S3/系统库；沙盒执行仅经 sandbox.Manager」 |
 
 沙盒不是对 SimpleBase 数据面的写操作：不经 `sqlguard`、不开 registry、不碰 DuckLake / S3。
 
@@ -77,10 +77,10 @@ internal/sandbox   Manager ──┬── Store 接口（systemdb 实现，app 
                              └── Driver 接口
                                    ├── cloudDriver（唯一 import microsandbox）
                                    └── fakeDriver（仅 dev_mode，内存实现）
-internal/cloudagent  Sandbox 接口（不变）── app adapter → Manager.EnsureForThread
+internal/gocloudagent  Sandbox 接口（不变）── app adapter → Manager.EnsureForThread
 ```
 
-依赖方向：`app → api / sandbox / cloudagent / systemdb`；`sandbox` 只依赖 `config`、`observability`；`api`、`cloudagent` 不 import `sandbox`（经各自声明的接口 + app adapter），保持 `internal/AGENTS.md` 的分层约定。
+依赖方向：`app → api / sandbox / gocloudagent / systemdb`；`sandbox` 只依赖 `config`、`observability`；`api`、`gocloudagent` 不 import `sandbox`（经各自声明的接口 + app adapter），保持 `internal/AGENTS.md` 的分层约定。
 
 ### 4.1 包内文件
 
@@ -422,7 +422,7 @@ Reaper 随 `App.Close` 停止，复用 `cronjob.Scheduler` 的 Start/Stop 模式
 
 ### 9.2 云 Agent（复用同一 Manager）
 
-- `cloudagent.Sandbox` 接口与四个工具**不变**；app 层 `sandboxAdapter` 改为：
+- `gocloudagent.Sandbox` 接口与四个工具**不变**；app 层 `sandboxAdapter` 改为：
   `EnsureForThread(projectID, threadID)` → 拿到资源行 → 调 `Manager.Exec/ReadFile/WriteFile`。
 - `EnsureForThread`：按 `thread_id` 查 `source=agent` 未删除行；没有则插入一行，`cloud_name` **沿用 v3 的 `sb-{threadHex}`**，保证已在 Cloud 上的 VM 能接回。
 - agent 来源计入 `max_per_project`；超限时工具返回明确错误「项目云沙盒数量已达上限」。
@@ -491,7 +491,7 @@ Reaper 随 `App.Close` 停止，复用 `cronjob.Scheduler` 的 Start/Stop 模式
 | `internal/sandbox` | Manager + fakeDriver：懒创建（create 后 driver 未被调用）、状态机全部边、项目上限、名称冲突、幂等、路径校验、截断、超时 → `timed_out`、env 黑名单、`run` 必删（含 exec 失败 / panic 路径）、reaper 三条规则（注入 `now`）、锁等待超时 → `ErrBusy` |
 | `internal/systemdb` | 迁移 38 幂等；CRUD；`thread_id` 查询；软删过滤 |
 | `internal/api` | `sandbox_handler_test.go`：fake service 覆盖每条路由的 2xx 与 §7.3 每个错误码；只读 key 写接口 403；跨项目 404；`writable=false` 写接口 503；`deps.Sandbox=nil` 时仅 capabilities 可用 |
-| `internal/cloudagent` | 现有 `sandbox_tools_test.go` 不改断言即通过（接口未变） |
+| `internal/gocloudagent` | 现有 `sandbox_tools_test.go` 不改断言即通过（接口未变） |
 | `internal/app` | adapter：`EnsureForThread` 沿用 `sb-` 旧名 |
 
 `driver_cloud.go` 不加 build tag。默认测试只要不构造 cloudDriver 就不会触发 FFI 加载；cloudDriver 只在 `app` 中构造，并且要求 `backend=cloud && enabled`。
@@ -531,7 +531,7 @@ Reaper 随 `App.Close` 停止，复用 `cronjob.Scheduler` 的 Start/Stop 模式
 | S1 配置与文档边界 | §5 新字段、Validate、env；`config.example.yaml`；`internal/AGENTS.md` | config 测试 |
 | S2 sandbox 包重构 | Driver 接口；v3 `client.go` 迁成 `driver_cloud.go`；`driver_fake.go`；`paths.go`、`errors.go` | 单测（fake） |
 | S3 系统表 + Manager | 迁移 38、`systemdb` 仓库、Manager 全部方法、reaper | Manager 单测 |
-| S4 app 装配 + Agent 迁移 | `a.sandboxMgr` 独立装配、关闭顺序；cloudagent adapter 改走 Manager | 现有 Agent 测试全绿 |
+| S4 app 装配 + Agent 迁移 | `a.sandboxMgr` 独立装配、关闭顺序；gocloudagent adapter 改走 Manager | 现有 Agent 测试全绿 |
 | S5 HTTP API | `sandbox_handler.go`、路由、错误映射、审计、用量 | handler 测试 + §11.2 e2e |
 | S6 SDK | js-sdk / go-sdk 方法与测试 | SDK 测试 |
 | S7 控制台 | 路由、侧栏、页面、弹窗、抽屉、mock、服务层 | UI 测试 |

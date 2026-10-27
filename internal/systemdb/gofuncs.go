@@ -1,5 +1,33 @@
-// gofuncs.go 云函数实体 + 不可变版本快照（gofunction-versions-testplan §4）。
-// 旧 sys_gofunctions 已废弃；本文件只读写 sys_go_funcs / sys_go_func_versions。
+// 文件说明：gofuncs.go — 云函数实体 + 不可变版本快照（gofunction-versions-testplan §4）
+//
+// 用法
+//
+//	(s *Store) ListGoFuncs(ctx context.Context, projectID string) ([]GoFunc, error)  // ListGoFuncs 列出项目内未归档云函数
+//	(s *Store) GetGoFunc(ctx context.Context, projectID, name string) (GoFunc, error)  // GetGoFunc 按项目 + 名称取未归档实体
+//	同包调用：v → cron_jobs.go, latency_histogram.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/gofuncs.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] v ← cron_jobs.go, latency_histogram.go, llm.go
+//
+// 主要符号
+//
+//	const MaxGoFuncVersions
+//	var ErrVersionLimit
+//	var ErrNoActiveVersion
+//	type GoFunc struct {…}
+//	type GoFuncVersion struct {…}
+//	(s *Store) ListGoFuncs(ctx context.Context, projectID string) ([]GoFunc, error)
+//	... 另有 17 个顶层符号
+
 package systemdb
 
 import (

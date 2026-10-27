@@ -1,12 +1,33 @@
-// maintenance.go 系统库周期维护（perf §1 P1-C）。
+// 文件说明：maintenance.go — 系统库周期维护（perf §1 P1-C）
 //
-// 步骤：ducklake_merge_adjacent_files → ducklake_expire_snapshots → ducklake_cleanup_old_files。
-// 约束（multi-instance-consistency-plan §3.2）：
-//   - 绝不做 ducklake_delete_orphaned_files——基于单边 catalog 视图删除有丢数据风险；
-//   - 仅在实例可写且持有系统库写租约（启用租约时）的 writer 上执行，否则直接跳过；
-//   - cleanup_old_files 首轮 dry_run（只记录将删除的对象），短期开关
-//     SIMPLEBASE_SYSTEMDB_CLEANUP_DELETE=1 才真实删除，验证一轮后移除该开关；
-//   - 全部走系统库唯一连接，步骤间让出，避免长时间占住连接。
+// 用法
+//
+//	NewMaintenanceRunner(store *Store, opts ducklake.MaintenanceOptions, writable ...
+//	(r *MaintenanceRunner) Start()  // Start 启动维护循环（幂等
+//	(r *MaintenanceRunner) Close() error  // Close 停止维护循环（io.Closer，供 app 反向释放）
+//	同包调用：Close() → agent_schedules.go, agents.go 等；interval() → bootstrap.go, cron_jobs.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/maintenance.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/ducklake, internal/observability
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] Close() ← agent_schedules.go, agents.go, bootstrap.go
+//
+// 主要符号
+//
+//	const MaintenanceInitialDelay
+//	type MaintenanceRunner struct {…}
+//	NewMaintenanceRunner(store *Store, opts ducklake.MaintenanceOptions, writable ...
+//	(r *MaintenanceRunner) Start()
+//	(r *MaintenanceRunner) Close() error
+//	... 另有 8 个顶层符号
+
 package systemdb
 
 import (
@@ -15,7 +36,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"go.uber.org/zap"
 )

@@ -1,10 +1,37 @@
-// user_repository.go 是 UserRepository 的系统 DuckLake 实现（sys_users / sys_project_owners）。
+// 文件说明：user_repository.go — UserRepository 的系统 DuckLake 实现（sys_users / sys_project_owners）
+//
+// 用法
+//
+//	NewSQLUserRepository(db *sql.DB) UserRepository
+//	type sqlUserRepository（包内使用）
+//	type userReadObserverKey（包内使用）
+//	同包调用：GetByID() → observer.go, session.go 等；role → jwt.go, role.go 等；Create() → session.go, session_repository.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/user_repository.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/sqlval
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] GetByID() ← observer.go, session.go, session_repository.go
+//
+// 主要符号
+//
+//	NewSQLUserRepository(db *sql.DB) UserRepository
+//	... 另有 22 个顶层符号
+//	user_repository.go 是 UserRepository 的系统 DuckLake 实现（sys_users / sys_project_owners）。
+
 package auth
 
 import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
 	"time"
 )
 
@@ -39,8 +66,8 @@ func (r *sqlUserRepository) Create(ctx context.Context, u User) error {
 			must_change_password, created_by, created_at, updated_at, last_login_at, disabled_at)
 		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		u.ID, u.Username, u.PasswordHash, string(u.Role), u.DisplayName, u.Email, u.Status,
-		boolToInt(u.MustChangePassword), u.CreatedBy,
-		u.CreatedAt.UTC(), u.UpdatedAt.UTC(), nullTime(u.LastLoginAt), nullTime(u.DisabledAt),
+		sqlval.BoolInt(u.MustChangePassword), u.CreatedBy,
+		u.CreatedAt.UTC(), u.UpdatedAt.UTC(), sqlval.NullTime(u.LastLoginAt), sqlval.NullTime(u.DisabledAt),
 	)
 	return err
 }
@@ -92,14 +119,9 @@ func (r *sqlUserRepository) GetByUsername(ctx context.Context, username string) 
 }
 
 func (r *sqlUserRepository) List(ctx context.Context, limit int, cursor string) ([]User, string, error) {
-	args := []any{limit + 1}
-	q := userSelect
-	if cursor != "" {
-		q += ` WHERE username > ?`
-		args = append(args, cursor)
-	}
-	q += ` ORDER BY username ASC LIMIT ?`
-	// 重新排参数：LIMIT 在最后
+	// 参数顺序与 SQL 占位符一致：cursor 在前，LIMIT 在最后。
+	var q string
+	var args []any
 	if cursor != "" {
 		q = userSelect + ` WHERE username > ? ORDER BY username ASC LIMIT ?`
 		args = []any{cursor, limit + 1}
@@ -136,8 +158,8 @@ func (r *sqlUserRepository) Update(ctx context.Context, u User) error {
 		`UPDATE sys_users SET password_hash=?, role=?, display_name=?, email=?, status=?,
 			must_change_password=?, updated_at=?, last_login_at=?, disabled_at=? WHERE id = ?`,
 		u.PasswordHash, string(u.Role), u.DisplayName, u.Email, u.Status,
-		boolToInt(u.MustChangePassword), u.UpdatedAt.UTC(),
-		nullTime(u.LastLoginAt), nullTime(u.DisabledAt), u.ID,
+		sqlval.BoolInt(u.MustChangePassword), u.UpdatedAt.UTC(),
+		sqlval.NullTime(u.LastLoginAt), sqlval.NullTime(u.DisabledAt), u.ID,
 	)
 	if err != nil {
 		return err
@@ -259,18 +281,4 @@ func scanUser(row rowScanner) (User, error) {
 		u.DisabledAt = &t
 	}
 	return u, nil
-}
-
-func boolToInt(b bool) int64 {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func nullTime(t *time.Time) any {
-	if t == nil {
-		return nil
-	}
-	return t.UTC()
 }

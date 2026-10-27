@@ -41,7 +41,7 @@ func setupGoFunctionTestRouter(t *testing.T, writable bool, projectID string) (*
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	if err := systemdb.ApplySystemMigrations(ctx, db); err != nil {
+	if err := systemdb.EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	store := systemdb.NewStoreForTest(db)

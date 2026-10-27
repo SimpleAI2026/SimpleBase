@@ -1,7 +1,34 @@
-// Package app 装配 SimpleBase 单实例服务的全部依赖并管理生命周期。
-// 依赖创建顺序：S3 client → catalog DB → database factory/registry →
-// auth → usage → LLM gateway → API router。
-// 任一失败时反向关闭已创建资源。
+// 文件说明：app.go — 装配 SimpleBase 单实例服务的全部依赖并管理生命周期
+//
+// 用法
+//
+//	New(ctx context.Context, cfg config.Config) (*App, error)
+//	(a *App) Close(ctx context.Context) error  // Close 反向关闭所有已注册资源
+//	(a *App) Start() error  // Start 启动 HTTP server
+//	同包调用：New() → cron_runner.go, reset.go；App → catalog_engine.go；ReadFile() → identity.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/app.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gocloudagent, godatabase, godatabase/cache, godatabase/ducklake 等
+//	[同包] catalog_engine.go, cron_runner.go, identity.go, project_purger.go, reset.go 等 6 个
+//	[关键引用] New() ← cron_runner.go, reset.go
+//
+// 主要符号
+//
+//	type App struct {…}
+//	New(ctx context.Context, cfg config.Config) (*App, error)
+//	NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Registerer) ...
+//	(a *App) Close(ctx context.Context) error
+//	(a *App) Start() error
+//	(a *App) Handler() http.Handler
+//	... 另有 43 个顶层符号
+
 package app
 
 import (
@@ -20,30 +47,35 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/cache"
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
+	"github.com/linkxzhou/SimpleBase/godatabase/filedb"
+	"github.com/linkxzhou/SimpleBase/godatabase/kv"
+	"github.com/linkxzhou/SimpleBase/godatabase/lease"
+	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
-	"github.com/linkxzhou/SimpleBase/gosandbox/vm/local"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
-	"github.com/linkxzhou/SimpleBase/internal/agentjob"
+	"github.com/linkxzhou/SimpleBase/gosandbox/vm/local"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	"github.com/linkxzhou/SimpleBase/internal/backup"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/cloudagent"
-	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/collection"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/cache"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
-	"github.com/linkxzhou/SimpleBase/internal/database/kv"
-	"github.com/linkxzhou/SimpleBase/internal/database/lease"
-	"github.com/linkxzhou/SimpleBase/internal/database/registry"
+	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
+	"github.com/linkxzhou/SimpleBase/internal/functionrun"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox/sshd"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/trigger"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
 	// 云函数脚本可 import 的宿主标准库注册（blank import 必须保留，
 	// 否则解释器 BuildProgram 找不到 fmt/json 等包，见 ui-gofunction-plan §4）
@@ -65,7 +97,8 @@ type App struct {
 	objectStore   objectstore.Client
 	fileStore     objectstore.FileStore
 	catalogSyncer ducklake.Syncer
-	duckFactory   *ducklake.Factory
+	fileFactory   *filedb.Factory
+	fileSyncer    filedb.Syncer
 	systemStore   *systemdb.Store
 	catalog       *catalog.Service
 	registry      *registry.Registry
@@ -87,11 +120,12 @@ type App struct {
 	leaseGate    *lease.Gate       // 同库并发首写串行化（perf §1.5）
 	onLostLease  func(dbID string) // 失租回调（租约获取处闭包捕获）
 
-	delegations      *auth.DelegationRegistry
-	cronScheduler    *cronjob.Scheduler
-	kvSweeper        *kv.Sweeper
-	schedulerCancel  context.CancelFunc
-	schedulerBaseCtx context.Context
+	delegations       *auth.DelegationRegistry
+	cronScheduler     *cronjob.Scheduler
+	triggerDispatcher *trigger.Dispatcher
+	kvSweeper         *kv.Sweeper
+	schedulerCancel   context.CancelFunc
+	schedulerBaseCtx  context.Context
 
 	kvInitOnce sync.Once
 	kvInit     api.KVInitializer // 惰性单例：路由装配与 systemdb 种子共用
@@ -170,29 +204,29 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	a.health = &healthService{app: a}
 
 	dbHandler := api.NewDatabaseHandler(
-		api.NewDatabaseServiceAdapter(a.catalog, a.registry, a.objectStore),
+		api.NewDatabaseServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), newProjectPurger(a.fileFactory, a.fileSyncer)),
 		cfg.Instance.Writable,
 	)
 	// 项目 KV 初始化器（key-value-ducklake-plan §2）：建项目后立即建 kv schema。
 	// readonly 实例或无 registry 时为 nil（不初始化）；与种子库初始化共用同一实例。
 	kvInit := a.kvInitializer()
-	if a.duckFactory != nil {
-		f := a.duckFactory
+	if a.fileFactory != nil {
+		f := a.fileFactory
 		dbHandler.SnapshotFor = func(databaseID string) *api.DatabaseSnapshot {
-			return snapshotFromFactory(f, databaseID)
+			return snapshotFromFileFactory(f, databaseID)
 		}
 	}
 	// 数据库列表「数据量」列（v2.0 计划 §4-P1）：统计改为缓存 + 后台有界
 	// 并发刷新，列表请求不再同步逐库 Acquire + COUNT(*)（N+1 同步请求链）。
 	// 新鲜度 = TTL + 同步水位变化（写后失效）。
-	sqlSvcForStats := api.NewSQLServiceAdapter(a.catalog, a.registry, a.systemStore)
+	sqlSvcForStats := api.NewSQLServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), a.systemStore)
 	countRows := func(ctx context.Context, db catalog.Database) (int64, error) {
 		return api.CountDatabaseRows(ctx, sqlSvcForStats, db)
 	}
 	dbHandler.RowCountFor = countRows
 	var rowWatermark func(dbID string) (int64, int64)
-	if a.duckFactory != nil {
-		rowWatermark = a.duckFactory.SnapshotStatus
+	if a.fileFactory != nil {
+		rowWatermark = a.fileFactory.SnapshotStatus
 	}
 	dbHandler.RowCounts = api.NewRowCountCache(api.RowCountCacheOptions{
 		Count:     countRows,
@@ -204,6 +238,20 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	// query 路由也只在 writable 实例提供（首期 readonly 不开放 SQL API）。
 	var sqlHandler *api.SQLHandler
 	var dataHandler *api.DataHandler
+	realtimeHandler := api.NewRealtimeHandler(cfg.Limits.RealtimeMaxConns)
+	recordEvents := &api.RecordEventFanout{}
+	recordEvents.Add(realtimeHandler)
+	var functionRunner *functionrun.Runner
+	var triggerEvents *api.TriggerEventPublisher
+	var functionTriggerHandler *api.FunctionTriggerHandler
+	if a.systemStore != nil {
+		functionRunner = functionrun.NewRunner(a.systemStore, cfg.Limits.MaxConcurrentGoRuns)
+		a.triggerDispatcher = trigger.NewDispatcher(a.systemStore, functionRunner, 1024, 4)
+		triggerEvents = api.NewTriggerEventPublisher(a.triggerDispatcher)
+		recordEvents.Add(triggerEvents)
+		functionTriggerHandler = api.NewFunctionTriggerHandler(a.systemStore, a.triggerDispatcher, cfg.Instance.Writable)
+	}
+	var collectionMetaHandler *api.CollectionMetaHandler
 	var schemaHandler *api.SchemaHandler
 	var kvHandler *api.KVHandler
 	var kvService api.KVService
@@ -216,39 +264,27 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 			MaxSQLBytes:        cfg.Limits.MaxSQLBytes,
 			MaxRequestBytes:    cfg.Limits.MaxRequestBytes,
 		}
-		sqlService := api.NewSQLServiceAdapter(a.catalog, a.registry, a.systemStore)
+		sqlService := api.NewSQLServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), a.systemStore)
 		sqlHandler = api.NewSQLHandler(sqlService, sqlLimits, cfg.Instance.Writable)
-		if a.duckFactory != nil {
-			f := a.duckFactory
+		if a.fileFactory != nil {
+			f := a.fileFactory
 			sqlHandler.DurabilityFor = f.DurabilityFor
 		}
-		dataHandler = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable)
+		dataHandler = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable).WithEvents(recordEvents).WithImportLimit(cfg.Limits.MaxImportBytes)
+		if a.systemStore != nil {
+			schemas := collection.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
+			dataHandler.WithCollections(schemas, cfg.Limits.MaxFilterScanRows)
+			collectionMetaHandler = api.NewCollectionMetaHandler(sqlService.(api.DataService), schemas, cfg.Instance.Writable, cfg.Limits.MaxFilterScanRows)
+		}
 		schemaHandler = api.NewSchemaHandler(sqlService.(api.DataService), cfg.Instance.Writable, sqlLimits)
 		dbHandler.InitSQL = sqlService
 		// 项目级 KV（key-value-ducklake-plan §2/§3）：catalog + registry 桥接。
-		kvService = api.NewKVServiceAdapter(a.catalog, a.registry)
+		kvService = api.NewKVServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry))
 		kvHandler = api.NewKVHandler(kvService, cfg.Instance.Writable)
 	}
 
 	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
-	sandboxNotReady := ""
 	if cfg.Sandbox.Enabled && a.systemStore != nil {
-		// 迁移 v50 给 sys_sandboxes 加了 metadata 列，整个沙盒模块都读它。迁移只定义、不自动对运行库执行
-		// （TIMER_NO_RUN=1 的纯 API 模式不会应用迁移），所以这里做一次只读自检：缺列就让沙盒模块自行
-		// 不可用并写明原因，而不是让每个请求都因缺列失败，也不拖累数据库、KV 等其它功能。
-		if ok, err := a.systemStore.SandboxSchemaReady(ctx); err != nil {
-			sandboxNotReady = "cannot verify the sys_sandboxes schema"
-			if logger != nil {
-				logger.Warn("sandbox disabled: schema check failed", zap.Error(err))
-			}
-		} else if !ok {
-			sandboxNotReady = "migration v50 has not been applied: run ALTER TABLE sys_sandboxes ADD COLUMN metadata VARCHAR DEFAULT '{}' or start the service with TIMER_NO_RUN=0"
-			if logger != nil {
-				logger.Warn("sandbox disabled: " + sandboxNotReady)
-			}
-		}
-	}
-	if cfg.Sandbox.Enabled && a.systemStore != nil && sandboxNotReady == "" {
 		var driver vm.Driver
 		driverLog := sandboxDriverLog(logger)
 		switch cfg.Sandbox.EffectiveBackend() {
@@ -284,19 +320,19 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		terminal = a.setupSandboxTerminal(cfg, logger)
 	}
 
-	// 统一定时任务调度器（ui-cronjob-plan §5.4 + planv6.0 cloudagent-cli-and-cronjob-unification-plan §2）：
+	// 统一定时任务调度器（ui-cronjob-plan §5.4 + planv6.0 gocloudagent-cli-and-cronjob-unification-plan §2）：
 	// 同时承载云函数与 Agent 两类目标，仅在系统库齐备时创建。Agent 执行器仅在
 	// Cloud Agent 运行时可用时挂接；缺失时 agent 任务触发会落 failed 记录而非静默跳过。
 	var cronScheduler *cronjob.Scheduler
 	runtime := a.cloudAgentRuntime()
 	if a.systemStore != nil {
-		cronScheduler = cronjob.NewScheduler(a.systemStore, &systemDBRunner{store: a.systemStore})
+		cronScheduler = cronjob.NewScheduler(a.systemStore, &systemDBRunner{runner: functionRunner})
 		if runtime != nil {
-			var quota agentjob.Quota
+			var quota agentbridge.CronAgentQuota
 			if a.usageSvc != nil {
 				quota = a.usageSvc
 			}
-			cronScheduler.WithAgentRunner(agentjob.New(a.systemStore, runtime, quota))
+			cronScheduler.WithAgentRunner(agentbridge.NewCronAgentExecutor(a.systemStore, runtime, quota))
 		}
 		a.cronScheduler = cronScheduler
 		if a.schedulerCancel == nil {
@@ -305,9 +341,30 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		cronScheduler.Start(a.schedulerBaseCtx)
 	}
 
+	var backupHandler *api.BackupHandler
+	if cfg.Backup.Enabled && a.systemStore != nil && a.registry != nil && a.fileFactory != nil {
+		repo := backup.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
+		var blobs objectstore.BlobStore
+		if a.objectStore != nil {
+			blobs, _ = a.objectStore.(objectstore.BlobStore)
+		}
+		service := backup.NewService(cfg.Backup, cfg.Instance.ID, a.catalog, a.registry, a.fileFactory, repo, blobs, objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix})
+		backupHandler = api.NewBackupHandler(service, api.NewAuditService(a.auditSvc), cfg.Instance.Writable)
+		if cfg.Backup.Schedule != "" {
+			scheduler, err := backup.NewScheduler(service, repo, cfg.Backup.Schedule)
+			if err != nil {
+				return nil, fmt.Errorf("backup schedule: %w", err)
+			}
+			if a.schedulerCancel == nil {
+				a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
+			}
+			scheduler.Start(a.schedulerBaseCtx)
+		}
+	}
+
 	// KV TTL 后台清扫（key-value-ducklake-plan §4.5）：仅可写实例 + registry 齐备时创建。
 	if cfg.Instance.Writable && a.registry != nil {
-		kvSweeper := kv.NewSweeper(a.registry, 60*time.Second, logger)
+		kvSweeper := kv.NewSweeper(a.registry, 60*time.Second, dbbridge.LoggerFrom(logger))
 		a.kvSweeper = kvSweeper
 		if a.schedulerCancel == nil {
 			a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
@@ -320,34 +377,38 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		Logger:  logger,
 		Metrics: metrics,
 		// /metrics 输出源与 Metrics 同 registry（perfbench 抓 stage 指标依赖）。
-		MetricsRegistry: metricsGatherer(reg),
-		Health:          a.health,
-		Auth:            a.auth,
-		Sessions:        a.sessions,
-		Users:           a.users,
-		Catalog:         a.catalog,
-		Registry:        a.registry,
-		DatabaseHandler: dbHandler,
-		SQLHandler:      sqlHandler,
-		DataHandler:     dataHandler,
-		SchemaHandler:   schemaHandler,
-		KVHandler:       kvHandler,
-		KVService:       kvService,
-		KVInit:          kvInit,
-		Cache:           api.NewCacheService(a.cacheMgr),
-		Usage:           api.NewUsageService(a.usageSvc),
-		Audit:           api.NewAuditService(a.auditSvc),
-		LLM:             api.NewLLMService(a.llmSvc),
-		S3FileStore:     a.fileStore,
-		System:          a.systemStore,
-		CloudAgent:      runtime,
-		Delegations:     a.delegations,
-		CronScheduler:   cronScheduler,
-		Sandbox:         a.sandboxMgr,
-		SandboxUsage:    a.usageSvc,
-		Terminal:        terminal,
-
-		SandboxNotReadyReason: sandboxNotReady,
+		MetricsRegistry:        metricsGatherer(reg),
+		Health:                 a.health,
+		Auth:                   a.auth,
+		Sessions:               a.sessions,
+		Users:                  a.users,
+		Catalog:                a.catalog,
+		Registry:               dbbridge.RegistryFrom(a.registry),
+		DatabaseHandler:        dbHandler,
+		SQLHandler:             sqlHandler,
+		DataHandler:            dataHandler,
+		CollectionMetaHandler:  collectionMetaHandler,
+		BackupHandler:          backupHandler,
+		RealtimeHandler:        realtimeHandler,
+		FunctionRunner:         functionRunner,
+		FunctionTriggerHandler: functionTriggerHandler,
+		TriggerEvents:          triggerEvents,
+		SchemaHandler:          schemaHandler,
+		KVHandler:              kvHandler,
+		KVService:              kvService,
+		KVInit:                 kvInit,
+		Cache:                  api.NewCacheService(a.cacheMgr),
+		Usage:                  api.NewUsageService(a.usageSvc),
+		Audit:                  api.NewAuditService(a.auditSvc),
+		LLM:                    api.NewLLMService(a.llmSvc),
+		S3FileStore:            a.fileStore,
+		System:                 a.systemStore,
+		CloudAgent:             runtime,
+		Delegations:            a.delegations,
+		CronScheduler:          cronScheduler,
+		Sandbox:                a.sandboxMgr,
+		SandboxUsage:           a.usageSvc,
+		Terminal:               terminal,
 	}
 	a.echo = api.NewRouter(deps)
 	if terminal != nil {
@@ -506,6 +567,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		KMSKeyIDRef:    cfg.S3.KMSKeyID,
 	}
 	a.catalog = catalog.NewService(repo, keys, descWriter, ducklakeStore, a.logger)
+	a.catalog.SetDefaultEngine(cfg.Database.Engine)
 	if err := a.catalog.RepairDatabasesOnStartup(ctx); err != nil {
 		return fmt.Errorf("repair database availability: %w", err)
 	}
@@ -519,7 +581,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}
 	a.assembleWriteLease(ctx, cfg, regOpts)
 
-	a.registry = registry.New(userFactory, a.catalog, regOpts, a.logger, a.metrics)
+	a.registry = registry.New(userFactory, dbbridge.ResolverFrom(a.catalog), regOpts, dbbridge.LoggerFrom(a.logger), dbbridge.ObserverFrom(a.metrics))
 
 	a.assembleAuthServices(store, cfg)
 	if err := a.seedAndStartMaintenance(ctx, store, cfg); err != nil {
@@ -533,8 +595,8 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		MaxDatabases: cfg.Database.CacheMaxDatabases,
 		Registry:     a.registry,
 		Closer:       a.registry,
-		Logger:       a.logger,
-		Metrics:      a.metrics,
+		Logger:       dbbridge.LoggerFrom(a.logger),
+		Observer:     dbbridge.ObserverFrom(a.metrics),
 	})
 	if err != nil {
 		return fmt.Errorf("create cache manager: %w", err)
@@ -555,7 +617,9 @@ func (a *App) assembleDeps(ctx context.Context) error {
 // B4 提取）。SYNC-01：user/session 仓储直接写系统库表，绕过 Store.notifyWrite；
 // 注入写后同步通知，防止改密/禁用是唯一一次写入时 catalog 漏发布。
 func (a *App) assembleAuthServices(store *systemdb.Store, cfg config.Config) {
-	a.auth = auth.NewService(store.AuthRepo(), cfg.Auth.APIKeyHashSecret)
+	a.auth = auth.NewService(store.AuthRepo(), cfg.Auth.APIKeyHashSecret).WithPolicyLoader(func(ctx context.Context, keyID, projectID string) (*auth.KeyPolicy, error) {
+		return auth.LoadKeyPolicy(ctx, store.DB(), keyID, projectID)
+	})
 	a.users = auth.NewUserService(auth.NewSQLUserRepository(store.DB()), catalog.ReservedTenantID)
 	a.users.OnWrite(store.NotifyWrite)
 	a.sessions = auth.NewSessionService(a.users, auth.NewSQLSessionRepository(store.DB()),
@@ -618,13 +682,14 @@ func (a *App) assembleWriteLease(ctx context.Context, cfg config.Config, regOpts
 	if cfg.Instance.Writable && dbRemote && cfg.Instance.Lease.Enabled && a.casSupported {
 		if blobs, ok := a.objectStore.(objectstore.BlobStore); ok {
 			keys := objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}
-			lm := lease.NewManager(blobs, keys, lease.Config{
+			lm := lease.NewManager(blobs, keys.DB(), lease.Config{
 				Enabled:       true,
 				TTL:           cfg.Instance.Lease.TTL,
 				RenewInterval: cfg.Instance.Lease.RenewInterval,
 				Grace:         cfg.Instance.Lease.Grace,
 			})
 			lm.SetLogger(zapAdapter{a.logger})
+			lm.EnableProjectScope()
 			a.leaseMgr = lm
 			a.leaseKeys = keys
 			a.leaseGate = lease.NewGate()
@@ -635,48 +700,52 @@ func (a *App) assembleWriteLease(ctx context.Context, cfg config.Config, regOpts
 			)
 
 			// 失租回调：停同步 PUT + 释放句柄（§4.6 onLost 顺序）。
-			a.onLostLease = func(dbID string) {
+			a.onLostLease = func(scope string) {
 				a.logger.Error("write lease LOST: releasing database handle and disabling further writes",
-					zap.String("database_id", dbID))
+					zap.String("database_id", scope))
 				if a.metrics != nil && a.metrics.LeaseLost != nil {
-					a.metrics.LeaseLost.WithLabelValues(dbID).Inc()
+					a.metrics.LeaseLost.WithLabelValues(scope).Inc()
 				}
 				if a.metrics != nil && a.metrics.LeaseState != nil {
-					a.metrics.LeaseState.WithLabelValues(dbID).Set(0)
+					a.metrics.LeaseState.WithLabelValues(scope).Set(0)
 				}
 				// 同步器立即进入失租模式：后续 Flush/Close 不再 PUT（§4.6 第 1 步）。
 				if cs, ok := a.catalogSyncer.(*ducklake.CatalogSyncer); ok {
-					cs.CloseNoFlush(dbID)
+					cs.CloseNoFlush(scope)
+				}
+				if fs, ok := a.fileSyncer.(*filedb.FileSyncer); ok {
+					fs.CloseNoFlush(scope)
 				}
 				if strings.EqualFold(cfg.Instance.Lease.OnLost, "exit") {
 					a.logger.Fatal("write lease lost and on_lost=exit: terminating process")
 				}
-				a.registry.Remove(dbID)
+				a.registry.Remove(scope)
 				// perf §1.5：失租后清除本进程的写门记录，允许后续重新竞争租约。
-				a.leaseGate.Clear(dbID)
+				a.leaseGate.Clear(scope)
 			}
 
 			// WriteGate：ReadWrite Acquire 前必须持租（惰性首次获取）。
 			// 失租（ValidFor=false 且已有租约记录）→ 拒绝新写。
 			// perf §1.5：同库并发首写在 leaseGate 上按 dbID 串行化，
 			// 只触发一次 Acquire，其余请求复用结果（修复并发首写 45s + 500）。
-			regOpts.WriteGate = func(db catalog.Database) error {
-				if lm.ValidFor(db.ID) {
+			regOpts.WriteGate = func(db godatabase.Spec) error {
+				scope := lm.ScopeKey(db.ProjectID, db.ID)
+				if lm.ValidFor(scope) {
 					return nil
 				}
 				// 已有租约记录但未持租 = 失租后：拒绝。
-				if lm.Has(db.ID) {
+				if lm.Has(scope) {
 					return fmt.Errorf("instance: write lease lost for database %s; writes rejected until lease recovered", db.ID)
 				}
 				// 首次写：获取租约。他人持租 → 拒绝（该实例应降级只读）。
-				if err := a.leaseGate.TryDo(db.ID, func() error {
-					if lm.ValidFor(db.ID) {
+				if err := a.leaseGate.TryDo(scope, func() error {
+					if lm.ValidFor(scope) {
 						return nil
 					}
-					if lm.Has(db.ID) {
+					if lm.Has(scope) {
 						return fmt.Errorf("instance: write lease lost for database %s; writes rejected until lease recovered", db.ID)
 					}
-					if _, err := lm.Acquire(ctx, db.ProjectID, db.ID, cfg.Instance.ID, a.onLostLease); err != nil {
+					if _, err := lm.Acquire(ctx, db.ProjectID, scope, cfg.Instance.ID, a.onLostLease); err != nil {
 						if lease.IsHeld(err) {
 							if a.metrics != nil && a.metrics.LeaseHeldRejected != nil {
 								a.metrics.LeaseHeldRejected.WithLabelValues(db.ID).Inc()
@@ -698,11 +767,14 @@ func (a *App) assembleWriteLease(ctx context.Context, cfg config.Config, regOpts
 						a.metrics.LeaseState.WithLabelValues(db.ID).Set(1)
 					}
 					if a.metrics.LeaseEpoch != nil {
-						a.metrics.LeaseEpoch.WithLabelValues(db.ID).Set(float64(lm.EpochFor(db.ID)))
+						a.metrics.LeaseEpoch.WithLabelValues(db.ID).Set(float64(lm.EpochFor(scope)))
 					}
 				}
 				if cs, ok := a.catalogSyncer.(*ducklake.CatalogSyncer); ok {
-					cs.SetWriterEpoch(db.ID, lm.EpochFor(db.ID))
+					cs.SetWriterEpoch(db.ID, lm.EpochFor(scope))
+				}
+				if fs, ok := a.fileSyncer.(*filedb.FileSyncer); ok {
+					fs.SetWriterEpoch(db.ProjectID, lm.EpochFor(scope))
 				}
 				return nil
 			}
@@ -844,6 +916,18 @@ func (a *App) Shutdown(ctx context.Context) error {
 			a.logger.Warn("cron scheduler stop timed out")
 		}
 	}
+	if a.triggerDispatcher != nil {
+		done := make(chan struct{})
+		go func() {
+			a.triggerDispatcher.Close()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			a.logger.Warn("trigger dispatcher stop timed out")
+		}
+	}
 
 	// 停止 KV TTL 清扫器（schedulerCancel 已停其循环，此处等待退出）。
 	if a.kvSweeper != nil {
@@ -868,18 +952,51 @@ func (a *App) Shutdown(ctx context.Context) error {
 	return firstErr
 }
 
-// newUserDatabaseFactory 返回 DuckLake 用户库工厂（唯一引擎）。
-// dbRemote 为真时启用 S3 catalog 同步与远端 DATA_PATH，否则数据落 DataRoot。
-func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
+// newUserDatabaseFactory 返回项目单文件用户库工厂（DuckDB / SQLite）。
+// dbRemote 为真时使用本地工作副本 + 不可变快照同步；本地模式直接持久化。
+func (a *App) newUserDatabaseFactory(cacheDir string) godatabase.Factory {
 	cfg := a.cfg
 	dbRemote := cfg.IsDBRemote()
-	opts := duckLakeOptions(cfg.Database.DuckLake)
-	remote := ducklake.RemoteStorage{}
-	var syncer ducklake.Syncer = ducklake.NewLocalSyncer()
-	var blobs objectstore.BlobStore
+	var syncer filedb.Syncer = filedb.NewNopSyncer()
+	if dbRemote && cfg.S3.Bucket != "" && a.objectStore != nil {
+		if blobs, ok := a.objectStore.(objectstore.BlobStore); ok {
+			fs := filedb.NewFileSyncer(blobs, objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}.DB(), cacheDir,
+				cfg.Database.DuckLake.CatalogSync.Interval, cfg.Database.DuckLake.CatalogSync.KeepVersions, dbbridge.LoggerFrom(a.logger))
+			fs.Start(context.Background())
+			syncer = fs
+			a.registerCloser(fs)
+		}
+	}
+	f := &filedb.Factory{
+		DataRoot: cfg.Storage.DataDir,
+		CacheDir: cacheDir,
+		Remote:   dbRemote,
+		Options: filedb.Options{
+			MemoryLimit: cfg.Database.DuckLake.MemoryLimit,
+			Threads:     cfg.Database.DuckLake.Threads,
+		},
+		Syncer: syncer,
+		Logger: dbbridge.LoggerFrom(a.logger),
+	}
+	a.fileFactory = f
+	a.fileSyncer = syncer
+	return f
+}
 
-	if dbRemote && cfg.S3.Bucket != "" {
-		remote = ducklake.RemoteStorage{
+// newSystemDatabaseFactory 返回系统库专用 DuckLake Factory；与用户库无共享可变状态。
+// 系统库 catalog 归到一个独立的缓存子目录，避免与用户库混用。
+func (a *App) newSystemDatabaseFactory() *ducklake.Factory {
+	cfg := a.cfg
+	opts := duckLakeOptions(cfg.Database.DuckLake)
+	f := &ducklake.Factory{
+		CacheDir: filepath.Join(cfg.Database.CacheDir, "system", "dbs"),
+		DataRoot: cfg.Storage.DataDir,
+		Options:  opts,
+		Logger:   dbbridge.LoggerFrom(a.logger),
+		Observer: dbbridge.ObserverFrom(a.metrics),
+	}
+	if cfg.IsDBRemote() && cfg.S3.Bucket != "" {
+		remote := ducklake.RemoteStorage{
 			Enabled:        true,
 			Endpoint:       cfg.S3.Endpoint,
 			Region:         cfg.S3.Region,
@@ -889,52 +1006,20 @@ func (a *App) newUserDatabaseFactory(cacheDir string) database.Factory {
 			SecretKey:      cfg.S3.SecretKey,
 			ForcePathStyle: cfg.S3.ForcePathStyle,
 		}
+		var blobs objectstore.BlobStore
 		if a.objectStore != nil {
 			if b, ok := a.objectStore.(objectstore.BlobStore); ok {
 				blobs = b
 			}
 		}
 		if blobs != nil {
-			cs := ducklake.NewCatalogSyncer(blobs, remote, cacheDir, opts.CatalogSync, opts.CatalogEngine, a.logger, a.metrics)
-			syncer = cs
+			cs := ducklake.NewCatalogSyncer(blobs, remote, f.CacheDir, opts.CatalogSync, opts.CatalogEngine, dbbridge.LoggerFrom(a.logger), dbbridge.ObserverFrom(a.metrics))
+			f.Remote = remote
+			f.Blobs = blobs
+			f.Syncer = cs
 			a.catalogSyncer = cs
 			a.registerCloser(syncerCloser{cs: cs})
 		}
-	}
-
-	f := &ducklake.Factory{
-		CacheDir: cacheDir,
-		DataRoot: cfg.Storage.DataDir,
-		Options:  opts,
-		Syncer:   syncer,
-		Remote:   remote,
-		Blobs:    blobs,
-		Logger:   a.logger,
-		Metrics:  a.metrics,
-	}
-	a.duckFactory = f
-	return f
-}
-
-// newSystemDatabaseFactory 返回系统库专用 Factory；与用户库共享 DataRoot/Remote/Syncer。
-// 系统库 catalog 归到一个独立的缓存子目录，避免与用户库混用。
-func (a *App) newSystemDatabaseFactory() *ducklake.Factory {
-	cfg := a.cfg
-	opts := duckLakeOptions(cfg.Database.DuckLake)
-	f := &ducklake.Factory{
-		CacheDir: filepath.Join(cfg.Database.CacheDir, "system", "dbs"),
-		DataRoot: cfg.Storage.DataDir,
-		Options:  opts,
-		Logger:   a.logger,
-		Metrics:  a.metrics,
-	}
-	if a.duckFactory != nil {
-		f.Remote = a.duckFactory.Remote
-		f.Blobs = a.duckFactory.Blobs
-		f.Syncer = a.duckFactory.Syncer
-	}
-	if a.catalogSyncer != nil {
-		f.Syncer = a.catalogSyncer
 	}
 	if f.Syncer == nil {
 		f.Syncer = ducklake.NewLocalSyncer()
@@ -947,7 +1032,7 @@ func (a *App) newSystemDatabaseFactory() *ducklake.Factory {
 func (a *App) kvInitializer() api.KVInitializer {
 	a.kvInitOnce.Do(func() {
 		if a.cfg.Instance.Writable && a.registry != nil {
-			a.kvInit = api.NewKVInitializer(a.registry, a.logger)
+			a.kvInit = api.NewKVInitializer(dbbridge.RegistryFrom(a.registry), a.logger)
 		}
 	})
 	return a.kvInit
@@ -964,7 +1049,7 @@ func (a *App) initKVFunc() func(ctx context.Context, db catalog.Database) error 
 }
 
 // cloudAgentRuntime 装配云 Agent 运行时；沙盒按配置注入（cloud-agent-sandbox-plan §3.1）。
-func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
+func (a *App) cloudAgentRuntime() *gocloudagent.Runtime {
 	if a.systemStore == nil {
 		return nil
 	}
@@ -975,15 +1060,15 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		}
 	}
 	if a.cfg.Agent.SkillsCLI && a.logger != nil {
-		if failure := cloudagent.ValidateCLIPath(cliPath); failure != "" {
+		if failure := gocloudagent.ValidateCLIPath(cliPath); failure != "" {
 			a.logger.Warn("cloud agent CLI unavailable", zap.String("reason", failure))
 		}
 	}
 	reg := auth.NewDelegationRegistry()
 	a.delegations = reg
-	rt := &cloudagent.Runtime{
+	rt := &gocloudagent.Runtime{
 		LLM:            api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
-		DB:             api.NewCloudAgentDB(a.catalog, a.registry),
+		DB:             api.NewCloudAgentDB(a.catalog, dbbridge.RegistryFrom(a.registry)),
 		Obj:            api.NewCloudAgentObj(a.fileStore, a.systemStore),
 		Logs:           agentbridge.NewLogAccess(a.systemStore),
 		Settings:       agentbridge.NewSettingsAccess(a.systemStore),
@@ -992,7 +1077,7 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		ToolProtocol:   a.cfg.LLM.EffectiveAgentToolProtocol(),
 		SkillsCLI:      a.cfg.Agent.SkillsCLI,
 		CLIPath:        cliPath,
-		CLI:            cloudagent.SubprocessCLI{Path: cliPath},
+		CLI:            gocloudagent.SubprocessCLI{Path: cliPath},
 		APIBaseURL:     loopbackBase(a.cfg.HTTP.Address),
 		ConfirmTimeout: a.cfg.Agent.EffectiveConfirmTimeout(),
 		DelegationTTL:  a.cfg.Agent.EffectiveDelegationTTL(),
@@ -1009,7 +1094,7 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 	return rt
 }
 
-// sandboxAdapter 只适配 cloudagent 的线程工具接口，业务状态统一由 Manager 管理。
+// sandboxAdapter 只适配 gocloudagent 的线程工具接口，业务状态统一由 Manager 管理。
 type sandboxAdapter struct{ m *sandbox.Manager }
 
 func loopbackBase(addr string) string {
@@ -1049,13 +1134,13 @@ func splitHostPortLoose(addr string) (string, string, error) {
 }
 
 func (s *sandboxAdapter) Available() bool { return s.m.Available() }
-func (s *sandboxAdapter) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (cloudagent.SandboxOutput, error) {
+func (s *sandboxAdapter) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (gocloudagent.SandboxOutput, error) {
 	out, err := s.m.ExecForThread(ctx, projectID, threadID, sandbox.ExecInput{Cmd: cmd, Args: args})
-	return cloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
+	return gocloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
 }
-func (s *sandboxAdapter) Shell(ctx context.Context, projectID, threadID, command string) (cloudagent.SandboxOutput, error) {
+func (s *sandboxAdapter) Shell(ctx context.Context, projectID, threadID, command string) (gocloudagent.SandboxOutput, error) {
 	out, err := s.m.ExecForThread(ctx, projectID, threadID, sandbox.ExecInput{Command: command})
-	return cloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
+	return gocloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
 }
 func (s *sandboxAdapter) ReadFile(ctx context.Context, projectID, threadID, path string) (string, error) {
 	file, err := s.m.ReadFileForThread(ctx, projectID, threadID, path)
@@ -1068,9 +1153,8 @@ func (s *sandboxAdapter) ReleaseThread(ctx context.Context, projectID, threadID 
 	return s.m.ReleaseThread(ctx, projectID, threadID)
 }
 
-// snapshotFromFactory maps DuckLake sync watermarks to the API snapshot DTO.
-// Extracted so tests can cover both empty and non-empty watermarks without HTTP.
-func snapshotFromFactory(f *ducklake.Factory, databaseID string) *api.DatabaseSnapshot {
+// snapshotFromFileFactory 返回项目文件同步水位（databaseID 或 projectID 均可）。
+func snapshotFromFileFactory(f *filedb.Factory, databaseID string) *api.DatabaseSnapshot {
 	last, lag := f.SnapshotStatus(databaseID)
 	if last == 0 && lag == 0 {
 		return nil

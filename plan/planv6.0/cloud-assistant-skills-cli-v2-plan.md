@@ -4,7 +4,7 @@
 > **日期**：2026-10-11  
 > **核对基线**：`main` @ `5a03d47` + 工作区未提交改动（含 backend-optimization-v3 的 SEC/LIFE/WR 修复）  
 > **前版**：[`plan/planv5.0/cloud-assistant-skills-cli-plan.md`](../planv5.0/cloud-assistant-skills-cli-plan.md)（下称 v5）  
-> **约束**：[`internal/AGENTS.md`](../../internal/AGENTS.md)，cloudagent 不得直写存储，不得向沙盒注入凭据
+> **约束**：[`internal/AGENTS.md`](../../internal/AGENTS.md)，gocloudagent 不得直写存储，不得向沙盒注入凭据
 
 ## 0. 结论：v5 完成了吗
 
@@ -80,7 +80,7 @@
 ### 3.2 P0-2 宿主机文件隔离（D3）
 
 - `internal/sbcli`：`loadedConfig.Agent == true` 时，`readFileOrDash` 只接受 `-`（stdin）；传入其他路径一律返回 `usage` / `file_not_allowed`。人类操作者的行为不变。
-- `cloudagent.execSimplebase`：
+- `gocloudagent.execSimplebase`：
   - 工具参数从 `{argv}` 扩展为 `{argv, stdin?}`，`stdin` 是字符串，上限 256KiB（`function create` / `sql batch` / `object upload` 用 base64 的场景，CLI 侧解码）。
   - `destructiveArgv` 不再读文件，改为分析 `stdin` 的内容。argv 里出现 `--file`/`--init-sql` 且值不是 `-` 时，直接返回 `file_not_allowed`，不启动 CLI。
   - `SubprocessCLI` 设 `cmd.Dir` 为空的临时目录，进一步缩小攻击面（防御纵深，不作为唯一边界）。
@@ -103,7 +103,7 @@
 ### 3.5 P2 脱敏与 SQL 分类
 
 - `redactArgv`：`--statement` 的值只保留首关键字和前 200 字符；`kv exec` 的 `--arg` 除第一个（key）以外全部替换为 `***`；匹配 `sensitiveKey` 的 flag 值替换为 `***`。
-- `sqlDestructive`：改用 `sqlguard` 已有的语句切分（`sqlguard.Split`，如果没有就在 sqlguard 内补一个能识别引号和注释的切分），不在 cloudagent 里再写一套。
+- `sqlDestructive`：改用 `sqlguard` 已有的语句切分（`sqlguard.Split`，如果没有就在 sqlguard 内补一个能识别引号和注释的切分），不在 gocloudagent 里再写一套。
 - 测试：含 `';'` 字面量的 INSERT 不判为破坏性；`DELETE` 藏在第二条语句里仍判为破坏性。
 
 ### 3.6 skill 精简与补全（D4）
@@ -135,7 +135,7 @@
 | 阶段 | 内容 | 门槛 |
 | --- | --- | --- |
 | A | 3.7 的真实 router 测试框架 + 样例 16、17、18 **先写成失败用例** | 在当前代码上 16、17、18 失败，且失败原因与第 0 节一致 |
-| B | 3.1 + 3.2 | A 中的失败用例全部通过；`go test -race ./internal/auth ./internal/api ./internal/cloudagent ./internal/sbcli -count=3` |
+| B | 3.1 + 3.2 | A 中的失败用例全部通过；`go test -race ./internal/auth ./internal/api ./internal/gocloudagent ./internal/sbcli -count=3` |
 | C | 3.3 + 3.4 + 3.5，样例 19 | 迁移在空库和已有数据的库上都能应用；gate 计数测试通过 |
 | D | 3.6 + 样例 20 + 前端别名同步 | `cd ui && yarn test && yarn build`，覆盖率阈值不下降 |
 | E | 3.8 文档；全量验收 | 见第 6 节 |
@@ -158,7 +158,7 @@ A→B 的顺序不能对调：先证明 P0 存在，再修。
 go build ./internal/... ./cmd/... ./gofunction/...
 go vet ./internal/... ./cmd/...
 go test -short -count=1 ./internal/... ./cmd/... ./packages/go-sdk
-go test -race -short -count=3 ./internal/auth ./internal/api ./internal/cloudagent ./internal/sbcli
+go test -race -short -count=3 ./internal/auth ./internal/api ./internal/gocloudagent ./internal/sbcli
 go test -count=1 -run TestAgentSkills ./internal/api
 cd ui && yarn test && yarn build
 ```

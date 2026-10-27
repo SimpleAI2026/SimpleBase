@@ -5,11 +5,12 @@
 - [`internal/AGENTS.md`](internal/AGENTS.md) — 后端分层、系统库保护、API 协议
 - [`ui/AGENTS.md`](ui/AGENTS.md) — 前端目录职责、API 层、样式定稿规范
 - [`gofunction/README.md`](gofunction/README.md) — 解释器公共 API、能力边界、已注册包清单
+- [`godatabase/README.md`](godatabase/README.md) — 数据库运行时库（独立模块）：单文件库 / DuckLake / 注册表 / KV / 租约 / SQL 守卫 / 对象存储接口
 - [`gosandbox/README.md`](gosandbox/README.md) — 沙盒执行层：本机 shell 隔离（bwrap/Landlock/seccomp/Seatbelt）与云沙盒的执行后端（local / fake）
 
 ## 项目概述
 
-SimpleBase 是单写实例的云端数据库服务：DuckLake + S3 在线持久层做存储，Echo v4 提供 REST API，`go:embed` 内嵌 Vue 3 控制台，进程内 `gofunction` 解释器运行 Go 云函数，llmgateway 封装多供应商 LLM 与云 Agent。模块 `github.com/linkxzhou/SimpleBase`（Go 1.25）；`gofunction/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gofunction`（自带 `go.mod`，根 `go.mod` 用 `replace => ./gofunction` 引用，import 路径不变）；`gosandbox/` 同样是嵌套独立模块（沙盒执行层，见 [`gosandbox/README.md`](gosandbox/README.md)）；`cloudagent/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/cloudagent`（云 Agent 运行时、本地 CLI 与本机工具，**不得 import 根模块任何包**；SimpleBase 的鉴权 / 系统库 / sbcli / sqlguard / llmgateway 经 `internal/agentbridge` 适配注入）。
+SimpleBase 是单写实例的云端数据库服务：每个项目一个 DuckDB 或 SQLite 单文件（SQL、集合、KV 共用，S3 模式下以快照加 manifest 同步），系统库使用 DuckLake，Echo v4 提供 REST API，`go:embed` 内嵌 Vue 3 控制台，进程内 `gofunction` 解释器运行 Go 云函数，llmgateway 封装多供应商 LLM 与云 Agent。模块 `github.com/linkxzhou/SimpleBase`（Go 1.25）；`gofunction/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gofunction`（自带 `go.mod`，根 `go.mod` 用 `replace => ./gofunction` 引用，import 路径不变）；`gosandbox/` 同样是嵌套独立模块（沙盒执行层，见 [`gosandbox/README.md`](gosandbox/README.md)）；`godatabase/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/godatabase`（数据库运行时库，**不得 import 根模块任何包**；SimpleBase 的 catalog / observability / objectstore 经 `internal/dbbridge` 适配注入）；`gocloudagent/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gocloudagent`（云 Agent 运行时、本地 CLI 与本机工具，**不得 import 根模块任何包**；SimpleBase 的鉴权 / 系统库 / sbcli / sqlguard / llmgateway 经 `internal/agentbridge` 适配注入）。
 
 ## 常用命令
 
@@ -32,8 +33,9 @@ go test ./...                               # 后端全量
 (cd gofunction && go vet ./...)
 (cd gofunction && go run ./cmd/gofunction help)   # 解释器命令行：run / check / list / packages
 (cd gofunction && go test -run='^$' -bench=. -benchmem ./bench)   # 性能基准（原 benchmarks/gofunction）
+(cd godatabase && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./... -timeout 900s)   # 数据库运行时库（独立模块；ducklake 与 lease 用例较慢，需放宽超时）
 (cd gosandbox && go build ./... && go vet ./... && go test ./...)   # 沙盒执行层（独立模块；真 bwrap 用例无 bwrap 时自动 Skip）
-(cd cloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...)   # 云 Agent 模块（独立模块，根目录 ./... 不含它；两侧 go.mod 各自声明 gosandbox 的 replace，replace 不传递）
+(cd gocloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...)   # 云 Agent 模块（独立模块，根目录 ./... 不含它；两侧 go.mod 各自声明 gosandbox 的 replace，replace 不传递）
 
 cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.24% 未达标，见 planv5.0 §7.2
 cd ui && yarn build                         # 前端构建必须通过
@@ -53,11 +55,11 @@ cd packages/js-sdk && npm run typecheck && npm test   # SDK
 ## 代码结构与依赖方向
 
 ```text
-cmd/simplebase → app → api → auth / catalog / database / objectstore
-                             ↓
+cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
+                             ↓            └→ dbbridge（宿主适配层）→ godatabase（嵌套独立模块，不 import 根模块）
                        systemdb（常驻系统库连接）
-                       agentbridge（宿主适配层）→ cloudagent / auth / systemdb / sbcli / sqlguard / llmgateway
-                       cloudagent（嵌套独立模块，只依赖 gosandbox/host，不 import 根模块）
+                       agentbridge（宿主适配层）→ gocloudagent / auth / systemdb / sbcli / sqlguard / llmgateway
+                       gocloudagent（嵌套独立模块，只依赖 gosandbox/host，不 import 根模块）
                          └─ agentcore（与运行时无关：模型适配 / 协议 / 脱敏 / 事件）
                          └─ cli（本地命令行外壳：命令面 / 会话 / REPL / 模板）
                          └─ tools（本机工具：shell / 文件 / glob / grep / web 搜索）
@@ -68,16 +70,16 @@ cmd/simplebase → app → api → auth / catalog / database / objectstore
 ```
 
 - 依赖只能自上而下，**禁止反向 import**（如 `catalog` import `api`）。
-- `internal/utils/` 只放**零业务依赖**的纯函数（当前八个包均只 import 标准库）：不 import `catalog` / `auth` / `systemdb` / `api` / `database`，否则会把依赖方向拉平。入库标准、现有包职责与「不要放这里」的清单见 [`internal/utils/README.md`](internal/utils/README.md)。
+- `internal/utils/` 只放**零业务依赖**的纯函数（当前六个包均只 import 标准库）：不 import `catalog` / `auth` / `systemdb` / `api` / `godatabase`，否则会把依赖方向拉平。入库标准、现有包职责与「不要放这里」的清单见 [`internal/utils/README.md`](internal/utils/README.md)。
 - `app` 是唯一装配点：跨模块依赖在 `assembleDeps` 按序创建，`Close` 反向释放；新增模块必须挂进装配顺序并在失败路径回收。
 - handler 不直接依赖具体实现，必须走 `api.Dependencies` 接口 + adapter。
 - 对象键使用内部 UUID，**禁止**把用户可控字符串直接拼进 S3 键。
-- `cloudagent` 的子包（`agentcore` / `cli` / `tools`）**必须**挂在 `cloudagent` 下而非平级新包：它们复用的是 cloudagent 的技能授权（`AllowArgv`）、提示词约定与事件语义。`cloudagent/agentcore` 不得 import `cloudagent`（会成环）。
-- `cloudagent/cmd/cloudagent` 是本地 CLI 二进制，入口**只 import cloudagent 模块根包**（门面 `RunCLI` / `SetCLIVersion` 转发到子包），不直接依赖 `cli` / `tools` 子包。产物统一输出到 `build/bin/cloudagent`（仓库根的 `cloudagent/` 是模块源码目录，不能再放二进制）；不进服务镜像，会话落 `~/.cloudagent/`。
-- **cloudagent 与宿主的边界**：模块自有 `Principal` / `Agent` / `Message` / `LogEvent` / `LLMSettings` 等无密钥 DTO；身份转换（`ToModulePrincipal` / `ToHostPrincipal`）、命令策略 `CommandPolicy`（只读 / 破坏性分类与 argv 脱敏，事实来源仍是 `sbcli` 与 `database/sqlguard`）、最终错误分类 `agentbridge.ClassifyError`、委托签发、`InProcessCLI` 全部在 `internal/agentbridge`。`agentbridge` 不得 import `api` / `app` / `agentjob`。
+- `gocloudagent` 的子包（`agentcore` / `cli` / `tools`）**必须**挂在 `gocloudagent` 下而非平级新包：它们复用的是 gocloudagent 的技能授权（`AllowArgv`）、提示词约定与事件语义。`gocloudagent/agentcore` 不得 import `gocloudagent`（会成环）。
+- `gocloudagent/cmd/gocloudagent` 是本地 CLI 二进制，入口**只 import gocloudagent 模块根包**（门面 `RunCLI` / `SetCLIVersion` 转发到子包），不直接依赖 `cli` / `tools` 子包。产物统一输出到 `build/bin/gocloudagent`（仓库根的 `gocloudagent/` 是模块源码目录，不能再放二进制）；不进服务镜像，会话落 `~/.gocloudagent/`。
+- **gocloudagent 与宿主的边界**：模块自有 `Principal` / `Agent` / `Message` / `LogEvent` / `LLMSettings` 等无密钥 DTO；身份转换（`ToModulePrincipal` / `ToHostPrincipal`）、命令策略 `CommandPolicy`（只读 / 破坏性分类与 argv 脱敏，事实来源仍是 `sbcli` 与 `database/sqlguard`）、最终错误分类 `agentbridge.ClassifyError`、委托签发、`InProcessCLI`，以及 agent 定时任务执行（实现 `cronjob.AgentRunner`）全部在 `internal/agentbridge`。`agentbridge` 不得 import `api` / `app`。
 - **fail-closed**：`Runtime.Policy` 缺失或 `Classify` 出错时，CLI 工具返回 `command_policy_unavailable` 且不确认、不执行。委托签发只写入传入（已按 writable 降权）的权限，不自行求交集。
 - **LLM 错误归一化只在最终出口**：`agentcore` 的 native→text 回退与 stream→chat 退化依赖原始 `*providers.LiteLLMError` 与文案，运行内部不得提前压成 `RunError`。
-- 技能文档（`cloudagent/skills/simplebase/`）随模块 embed；与 `sbcli` 的 readonly / 分发对账测试在 `internal/agentbridge`，不要复制只读表进模块。
+- 技能文档（`gocloudagent/skills/simplebase/`）随模块 embed；与 `sbcli` 的 readonly / 分发对账测试在 `internal/agentbridge`，不要复制只读表进模块。
 
 ## 硬性约束
 

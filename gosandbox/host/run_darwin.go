@@ -1,5 +1,29 @@
 //go:build darwin
 
+// 文件说明：run_darwin.go — gosandbox/host 中 Run 等符号的实现
+//
+// 用法
+//
+//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)  // Run 在 Seatbelt 沙盒里执行 cmd
+//	同包调用：probeDarwin() → probe.go, probe_linux.go 等；Run() → run_linux.go, run_other.go 等
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/run_darwin.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 13 个
+//	[关键引用] probeDarwin() ← probe.go, probe_linux.go, run_other.go
+//
+// 主要符号
+//
+//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)
+//	... 另有 1 个顶层符号
+
 package host
 
 import (
@@ -69,7 +93,7 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 		werr = <-done
 	}
 	res := Result{Output: out.buf.Bytes(), OutputTruncated: out.truncated, TimedOut: timedOut, Duration: time.Since(start),
-		Limits: Limits{Configured: limitsConfigured(p), Backend: cgroupNone}}
+		Warnings: Warnings(p), Limits: Limits{Configured: limitsConfigured(p), Backend: cgroupNone}}
 	if timedOut {
 		res.ExitCode = -1
 		return res, nil

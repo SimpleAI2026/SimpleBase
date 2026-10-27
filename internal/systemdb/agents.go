@@ -1,3 +1,33 @@
+// 文件说明：agents.go — internal/systemdb 中 AgentRunQueued、AgentRunRunning 等符号的实现
+//
+// 用法
+//
+//	(s *Store) CreateCloudAgent(ctx context.Context, a CloudAgent) (CloudAgent, error)  // CreateCloudAgent 写入一个 agent
+//	(s *Store) ListCloudAgents(ctx context.Context, projectID string) (out ...  // ListCloudAgents 列出未归档 agent
+//	同包调用：rowScanner → agent_schedules.go, cron_jobs.go 等；AgentRun → agent_schedules.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/agents.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/ducklake, internal/utils/limit
+//	[同包] agent_schedules.go, async_flush.go, bootstrap.go, cron_jobs.go, function_triggers.go 等 22 个
+//	[关键引用] rowScanner ← agent_schedules.go, cron_jobs.go, function_triggers.go
+//
+// 主要符号
+//
+//	const AgentRunQueued
+//	const AgentRunRunning
+//	const AgentRunCompleted
+//	const AgentRunFailed
+//	const AgentRunCanceled
+//	type CloudAgent struct {…}
+//	... 另有 37 个顶层符号
+
 package systemdb
 
 import (
@@ -9,7 +39,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/linkxzhou/SimpleBase/internal/database/ducklake"
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 

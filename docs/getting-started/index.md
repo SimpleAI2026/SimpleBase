@@ -6,7 +6,7 @@ description: 从启动 SimpleBase 到操作项目、数据库、云沙盒与自�
 
 # SimpleBase 入门
 
-SimpleBase 以**项目**为隔离单位，集中管理 DuckLake 数据库、项目级 Key-Value、对象存储和自动化功能。控制台适合交互操作；HTTP API 与 JS / Go SDK 适合应用和脚本集成。
+SimpleBase 以**项目**为隔离单位，集中管理项目数据库（DuckDB 或 SQLite 单文件）、项目级 Key-Value、对象存储和自动化功能。控制台适合交互操作；HTTP API 与 JS / Go SDK 适合应用和脚本集成。
 
 ## 第一次使用
 
@@ -22,6 +22,7 @@ SimpleBase 以**项目**为隔离单位，集中管理 DuckLake 数据库、项�
 | 查询数据或管理文档 | [数据库](/docs/data)、[Key-Value](/docs/data/kv) |
 | 上传和下载对象 | [对象存储](/docs/data/storage) |
 | 运行 Go 代码或定时作业 | [云函数](/docs/automation/gofunction)、[定时任务](/docs/automation/cronjob) |
+| 响应文档变更或对象事件 | [文档 Realtime](/docs/data/realtime)、[事件触发器](/docs/automation/function-triggers) |
 | 隔离执行脚本与 CI 用例 | [云沙盒](/docs/automation/sandbox) |
 | 用自然语言调用工具 | [云助手](/docs/workbench/agent) |
 | 用 OpenAI SDK 调用项目默认模型 | [OpenAI 兼容接口](/docs/getting-started/openai-compatible) |
@@ -37,8 +38,8 @@ SimpleBase 以**项目**为隔离单位，集中管理 DuckLake 数据库、项�
 
 | 步骤 | 目的 | 使用模块 |
 |---|---|---|
-| 1. 建库建表 | 保存订单与订单行 | [数据库管理](/docs/data/sql) |
-| 2. 写入订单 | 事务内写订单主表和明细 | [数据库管理](/docs/data/sql) |
+| 1. 建库建表 | 保存订单与订单行 | [数据管理](/docs/data/sql) |
+| 2. 写入订单 | 事务内写订单主表和明细 | [数据管理](/docs/data/sql) |
 | 3. 缓存库存 | 热点库存放进 KV，设置过期 | [Key-Value](/docs/data/kv) |
 | 4. 保存商品图 | 上传图片，控制台里点击「打开」即可预览 | [对象存储](/docs/data/storage) |
 | 5. 计算金额 | 用云函数统一折扣与税费计算 | [云函数](/docs/automation/gofunction) |
@@ -65,7 +66,7 @@ curl -sS -X POST "$BASE/v1/projects/$PROJECT/kv" \
   -d '{"type":"cmd","argvs":["SET","stock:sku-1","120","EX","60"]}'
 ```
 
-> **提示** DuckLake 不保证 `PRIMARY KEY` 唯一，订单号请用 UUID 或业务唯一编号，并在应用层做幂等；详见[DuckLake 使用须知](/docs/data/ducklake-notes)。
+> **提示** 订单号请用 UUID 或业务唯一编号，并在应用层做幂等；引擎差异与约束见[数据库引擎与约束](/docs/data/ducklake-notes)。
 
 ## 常见问题
 

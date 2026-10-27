@@ -1,8 +1,30 @@
-// Package audit 实现管理操作审计（plan9.md）。
+// 文件说明：service.go — 管理操作审计（plan9.md）
 //
-// 所有写操作（创建/删除库、配置变更、密钥轮换、恢复）必须记录不可变审计事件。
-// 审计事件复用 catalog.Operation 表；本包提供便捷的 Service 和查询 API。
-// 审计日志禁止回显密钥原文、SQL 参数中的敏感数据。
+// 用法
+//
+//	NewService(repo catalog.Repository, logger observability.Logger) *Service
+//	(s *Service) Record(ctx context.Context, e Event) error  // Record 记录一条审计事件
+//	(s *Service) ListOperations(ctx context.Context, q Query) ([]catalog.Operation ...  // ListOperations 返回审计事件列表
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/audit/service.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/catalog, internal/observability, internal/utils/limit
+//
+// 主要符号
+//
+//	type Service struct {…}
+//	NewService(repo catalog.Repository, logger observability.Logger) *Service
+//	type Event struct {…}
+//	(s *Service) Record(ctx context.Context, e Event) error
+//	type Query struct {…}
+//	(s *Service) ListOperations(ctx context.Context, q Query) ([]catalog.Operation ...
+
 package audit
 
 import (
@@ -14,7 +36,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/utils/limit"
-	"github.com/linkxzhou/SimpleBase/internal/utils/mask"
 )
 
 // Service 提供审计事件记录与查询。
@@ -78,9 +99,4 @@ type Query struct {
 func (s *Service) ListOperations(ctx context.Context, q Query) ([]catalog.Operation, error) {
 	q.Limit = limit.Normalize(q.Limit, 50, 200)
 	return s.repo.ListOperations(ctx, q.ProjectID, q.DatabaseID, q.Limit)
-}
-
-// Redact 对敏感字符串做脱敏（保留前2后2字符）。
-func Redact(s string) string {
-	return mask.KeepEnds(s, 2)
 }

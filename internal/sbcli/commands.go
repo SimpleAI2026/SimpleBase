@@ -1,3 +1,29 @@
+// 文件说明：commands.go — internal/sbcli 中 CommandReadOnly、CommandReadOnlyWithArgv 等符号的实现
+//
+// 用法
+//
+//	CommandReadOnly(resource, action string) bool  // CommandReadOnly 报告命令是否只读（planv6.0 v2 §3.4）
+//	CommandReadOnlyWithArgv(argv []string) bool  // CommandReadOnlyWithArgv 处理带子动作的命令（planv6.0 v2 §3.4）：
+//	同包调用：one() → redact.go, run.go；need() → redact.go；dispatch() → run.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/commands.go
+//	         │ 依赖
+//	         ▼
+//	[下游] packages/go-sdk
+//	[同包] collection_transfer.go, config.go, migrations.go, output.go, redact.go 等 6 个
+//	[关键引用] one() ← redact.go, run.go
+//
+// 主要符号
+//
+//	CommandReadOnly(resource, action string) bool
+//	CommandReadOnlyWithArgv(argv []string) bool
+//	... 另有 91 个顶层符号
+
 package sbcli
 
 import (
@@ -19,7 +45,7 @@ type commandFunc func(ctx context.Context, c *gosdk.Client, cfg loadedConfig, ar
 
 // readOnlyCommands 是「不改变任何服务端状态」的命令集合（planv6.0 v2 §3.4）。
 // 它是助手写权限分级（不可写 Agent 只能执行这里登记的命令）的唯一事实来源：
-// cloudagent 的 isWriteArgv 直接查 CommandReadOnly，而不是再维护一份会漂移的表。
+// gocloudagent 的 isWriteArgv 直接查 CommandReadOnly，而不是再维护一份会漂移的表。
 //
 // 判定口径：只做 GET/查询类读取，或只影响沙盒内临时环境（sandbox exec/run）
 // 而不触碰项目持久数据。凡不在表内的命令一律视为写命令（fail-closed）。
@@ -27,32 +53,38 @@ type commandFunc func(ctx context.Context, c *gosdk.Client, cfg loadedConfig, ar
 // 带子动作的命令（function versions / sandbox files / log retention）不在此表，
 // 由 CommandReadOnlyWithArgv 按第三段细分。
 var readOnlyCommands = map[string]bool{
-	"database list":        true,
-	"database get":         true,
-	"sql query":            true,
-	"schema show":          true,
-	"schema rows":          true,
-	"collection list":      true,
-	"document list":        true,
-	"object list":          true,
-	"object presign":       true,
-	"function list":        true,
-	"function get":         true,
-	"function test":        true,
-	"cron list":            true,
-	"cron get":             true,
-	"cron runs":            true,
-	"sandbox capabilities": true,
-	"sandbox list":         true,
-	"sandbox get":          true,
-	"log search":           true,
-	"user list":            true,
-	"user get":             true,
-	"apikey list":          true,
-	"project list":         true,
-	"quota get":            true,
-	"audit list":           true,
-	"settings get":         true,
+	"database list":         true,
+	"database get":          true,
+	"sql query":             true,
+	"schema show":           true,
+	"schema rows":           true,
+	"collection list":       true,
+	"collection schema-get": true,
+	"document list":         true,
+	"document get":          true,
+	"document export":       true,
+	"object list":           true,
+	"object presign":        true,
+	"function list":         true,
+	"function get":          true,
+	"function test":         true,
+	"cron list":             true,
+	"cron get":              true,
+	"cron runs":             true,
+	"sandbox capabilities":  true,
+	"sandbox list":          true,
+	"sandbox get":           true,
+	"log search":            true,
+	"user list":             true,
+	"user get":              true,
+	"apikey list":           true,
+	"project list":          true,
+	"quota get":             true,
+	"audit list":            true,
+	"backup list":           true,
+	"migrate status":        true,
+	"migrate plan":          true,
+	"settings get":          true,
 }
 
 // CommandReadOnly 报告命令是否只读（planv6.0 v2 §3.4）。
@@ -116,14 +148,42 @@ func dispatch(resource, action string) commandFunc {
 		return cmdCollectionList
 	case "collection create":
 		return cmdCollectionCreate
+	case "collection truncate":
+		return cmdCollectionTruncate
+	case "collection schema-get":
+		return cmdCollectionSchemaGet
+	case "collection schema-put":
+		return cmdCollectionSchemaPut
 	case "document list":
 		return cmdDocumentList
+	case "document get":
+		return cmdDocumentGet
+	case "document import":
+		return cmdDocumentImport
+	case "document export":
+		return cmdDocumentExport
 	case "document insert":
 		return cmdDocumentInsert
 	case "document update":
 		return cmdDocumentUpdate
+	case "document patch":
+		return cmdDocumentPatch
+	case "document batch":
+		return cmdDocumentBatch
 	case "document delete":
 		return cmdDocumentDelete
+	case "backup list":
+		return cmdBackupList
+	case "backup create":
+		return cmdBackupCreate
+	case "backup restore":
+		return cmdBackupRestore
+	case "backup delete":
+		return cmdBackupDelete
+	case "migrate status":
+		return cmdMigrateStatus
+	case "migrate plan":
+		return cmdMigratePlan
 	case "kv exec":
 		return cmdKV
 	case "object list":
@@ -226,15 +286,6 @@ func dispatchNested(resource, action string) commandFunc {
 	default:
 		return nil
 	}
-}
-
-func fs(args []string) (*flag.FlagSet, error) {
-	set := flag.NewFlagSet("simplebase", flag.ContinueOnError)
-	set.SetOutput(io.Discard)
-	if err := set.Parse(args); err != nil {
-		return nil, usagef("%s", err.Error())
-	}
-	return set, nil
 }
 
 func mustFlags(args []string, names ...string) (map[string]*string, *flag.FlagSet, error) {
@@ -571,7 +622,7 @@ func cmdCollectionCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, a
 }
 
 func cmdDocumentList(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "database", "collection")
+	f, _, err := mustFlags(args, "database", "collection", "limit", "cursor", "offset", "filter", "sort", "fields", "count")
 	if err != nil {
 		return nil, err
 	}
@@ -583,7 +634,21 @@ func cmdDocumentList(ctx context.Context, c *gosdk.Client, _ loadedConfig, args 
 	if err != nil {
 		return nil, err
 	}
-	return c.Database(id).ListDocuments(ctx, name)
+	query := gosdk.DocumentQuery{Cursor: *f["cursor"], Filter: *f["filter"], Sort: *f["sort"], Count: *f["count"] == "1" || *f["count"] == "true"}
+	if *f["fields"] != "" {
+		query.Fields = strings.Split(*f["fields"], ",")
+	}
+	for name, target := range map[string]*int{"limit": &query.Limit, "offset": &query.Offset} {
+		if *f[name] == "" {
+			continue
+		}
+		value, err := strconv.Atoi(*f[name])
+		if err != nil {
+			return nil, usagef("--%s must be an integer", name)
+		}
+		*target = value
+	}
+	return c.Database(id).ListDocumentsWithOptions(ctx, name, query)
 }
 
 func cmdDocumentInsert(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
@@ -617,6 +682,144 @@ func cmdDocumentDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, arg
 	return map[string]any{"ok": true}, nil
 }
 
+func cmdCollectionTruncate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	db, col, err := documentCollectionFlags(args)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Database(db).TruncateCollection(ctx, col); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func cmdCollectionSchemaGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	db, col, err := documentCollectionFlags(args)
+	if err != nil {
+		return nil, err
+	}
+	return c.Database(db).GetCollectionSchema(ctx, col)
+}
+
+func cmdCollectionSchemaPut(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	f, _, err := mustFlags(args, "database", "collection", "json")
+	if err != nil {
+		return nil, err
+	}
+	db, err := need(f, "database")
+	if err != nil {
+		return nil, err
+	}
+	col, err := need(f, "collection")
+	if err != nil {
+		return nil, err
+	}
+	raw, err := need(f, "json")
+	if err != nil {
+		return nil, err
+	}
+	var schema gosdk.CollectionSchema
+	if err := json.Unmarshal([]byte(raw), &schema); err != nil {
+		return nil, usagef("--json must be a collection schema")
+	}
+	schema.Name = col
+	return c.Database(db).PutCollectionSchema(ctx, schema)
+}
+
+func documentCollectionFlags(args []string) (string, string, error) {
+	f, _, err := mustFlags(args, "database", "collection")
+	if err != nil {
+		return "", "", err
+	}
+	db, err := need(f, "database")
+	if err != nil {
+		return "", "", err
+	}
+	col, err := need(f, "collection")
+	return db, col, err
+}
+
+func cmdDocumentGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	f, _, err := mustFlags(args, "database", "collection", "id")
+	if err != nil {
+		return nil, err
+	}
+	db, err := need(f, "database")
+	if err != nil {
+		return nil, err
+	}
+	col, err := need(f, "collection")
+	if err != nil {
+		return nil, err
+	}
+	id, err := need(f, "id")
+	if err != nil {
+		return nil, err
+	}
+	return c.Database(db).GetDocument(ctx, col, id)
+}
+
+func cmdDocumentPatch(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	return docWrite(ctx, c, args, "patch")
+}
+
+func cmdDocumentBatch(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	f, _, err := mustFlags(args, "database", "collection", "json")
+	if err != nil {
+		return nil, err
+	}
+	db, err := need(f, "database")
+	if err != nil {
+		return nil, err
+	}
+	col, err := need(f, "collection")
+	if err != nil {
+		return nil, err
+	}
+	raw, err := need(f, "json")
+	if err != nil {
+		return nil, err
+	}
+	var documents []gosdk.Document
+	if err := json.Unmarshal([]byte(raw), &documents); err != nil || len(documents) == 0 {
+		return nil, usagef("--json must be a non-empty document array")
+	}
+	items, err := c.Database(db).BatchDocuments(ctx, col, documents)
+	return map[string]any{"items": items}, err
+}
+
+func cmdBackupList(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
+	items, err := c.ListBackups(ctx)
+	return map[string]any{"items": items}, err
+}
+
+func cmdBackupCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
+	return c.CreateBackup(ctx)
+}
+
+func cmdBackupRestore(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	return backupIDCommand(ctx, args, c.RestoreBackup)
+}
+
+func cmdBackupDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	return backupIDCommand(ctx, args, c.DeleteBackup)
+}
+
+func backupIDCommand(ctx context.Context, args []string, action func(context.Context, string) error) (any, error) {
+	f, _, err := mustFlags(args, "id")
+	if err != nil {
+		return nil, err
+	}
+	id, err := need(f, "id")
+	if err != nil {
+		return nil, err
+	}
+	if err := action(ctx, id); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
 func docWrite(ctx context.Context, c *gosdk.Client, args []string, kind string) (any, error) {
 	f, _, err := mustFlags(args, "database", "collection", "id", "json")
 	if err != nil {
@@ -638,10 +841,13 @@ func docWrite(ctx context.Context, c *gosdk.Client, args []string, kind string) 
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		return nil, usagef("--json must be an object")
 	}
-	if kind == "update" {
+	if kind == "update" || kind == "patch" {
 		id, err := need(f, "id")
 		if err != nil {
 			return nil, err
+		}
+		if kind == "patch" {
+			return c.Database(db).PatchDocument(ctx, col, id, doc)
 		}
 		return c.Database(db).UpdateDocument(ctx, col, id, doc)
 	}
@@ -1190,11 +1396,15 @@ func cmdProjectList(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []st
 }
 
 func cmdProjectCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	name, err := one(args, "name")
+	f, _, err := mustFlags(args, "name", "engine")
 	if err != nil {
 		return nil, err
 	}
-	raw, err := c.CreateProject(ctx, name)
+	name, err := need(f, "name")
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.CreateProject(ctx, name, strings.TrimSpace(*f["engine"]))
 	return decodeRaw(raw), err
 }
 

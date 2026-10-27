@@ -26,7 +26,7 @@ config.yaml
 .codebuddy/
 
 # ─── 构建产物 ────────────────────────────────────────
-# 注意：二进制只忽略根目录。cloudagent 与 gosandbox-inner 现在是模块源码目录
+# 注意：二进制只忽略根目录。gocloudagent 与 gosandbox-inner 现在是模块源码目录
 # （planv6.2），产物统一落在 build/bin/，因此不能再按根路径忽略。
 /simplebase
 /gosandbox-inner

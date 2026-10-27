@@ -1,15 +1,33 @@
-// Package host 在本机用操作系统原语隔离一条命令（planv6.2）。
+// 文件说明：policy.go — 在本机用操作系统原语隔离一条命令（planv6.2）
 //
-// Linux：bubblewrap 负责挂载与 user/pid/ipc/net 命名空间，沙盒内再依次加载
-// Landlock 与 seccomp（见 inner 子包与 cmd/gosandbox-inner）。
-// macOS：系统自带 /usr/bin/sandbox-exec。
+// 用法
 //
-// 这是共享内核的进程沙盒，不是 VM：它不承诺挡住内核提权漏洞，
-// 多租户不可信代码不应交给它；需要 VM 级隔离时应另行实现 vm.Driver。
+//	(p Policy) Isolates() bool  // Isolates 报告该策略是否要求启动沙盒
+//	(p Policy) EffectiveMode() Mode  // EffectiveMode 返回生效的档位
+//	同包调用：Policy → bwrap_args.go, cgroup.go 等；Isolates() → bwrap_args.go, mandatory.go 等；ErrNotIsolated → bwrap_args.go, probe.go 等
 //
-// 失败语义：隔离开着但不可用，一律 fail-closed（ErrIsolationUnavailable），
-// 不退回裸执行；只有 Enabled=false 或 danger-full-access 才返回 ErrNotIsolated，
-// 由调用方自行决定裸执行。
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/policy.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, probe.go 等 13 个
+//	[关键引用] Policy ← bwrap_args.go, cgroup.go, cgroup_linux.go
+//
+// 主要符号
+//
+//	type Mode string
+//	const ModeReadOnly
+//	const ModeWorkspaceWrite
+//	const ModeDangerFullAccess
+//	var ErrNotIsolated
+//	var ErrIsolationUnavailable
+//	... 另有 12 个顶层符号
+
 package host
 
 import (
@@ -44,7 +62,11 @@ var (
 )
 
 // DefaultReadOnlySubpaths 是工作区内默认再盖成只读的子路径。
-var DefaultReadOnlySubpaths = []string{".git", ".cloudagent"}
+//
+// 不含 .git：整个 .git 只读会让沙盒内 git commit 必失败。.git 里会被宿主侧程序执行的部分
+// （hooks、config 等）由 ForceDenyWriteSubpaths 单独保护，见 mandatory.go。
+// 想要旧行为的调用方显式传 []string{".git", ".gocloudagent"}。
+var DefaultReadOnlySubpaths = []string{".gocloudagent"}
 
 // Policy 描述一次隔离执行的约束。网络恒为关闭：放开网络只有 danger-full-access。
 type Policy struct {
@@ -55,8 +77,17 @@ type Policy struct {
 	// WritableRoots 是额外可写的绝对路径，必须已存在。
 	WritableRoots []string
 	// ReadOnlySubpaths 是工作区内再盖成只读的路径（相对 Workspace 或绝对）。
+	// nil 取 DefaultReadOnlySubpaths；空切片表示显式不盖（不影响强制 deny 表）。
+	// 只对生成命令时已存在的路径生效。
 	ReadOnlySubpaths []string
+	// DisableForceDeny 为真时关闭强制 deny 表（ForceDenyWriteSubpaths 与 HOME 下的 shell/git 配置）。
+	// 零值（false）即开启，所以忘记设置也是安全的；关闭时 Result.Warnings 会如实提示。
+	DisableForceDeny bool
 	// DenyRead 是不可读的绝对路径（文件盖成空文件，目录盖成空 tmpfs）。
+	// 支持 glob（*、**、?、[abc]，没有转义字符；拼不出集合的方括号按字面量，如 [user-id]），
+	// 不以 / 结尾。"literal:" 前缀强制字面量。
+	// Linux 在生成命令时展开为当下存在的路径（快照语义，之后新建的匹配文件不受掩蔽，
+	// 单个 glob 最多 MaxGlobMatches 条）；macOS 转成 SBPL 正则，覆盖未来新建的文件。
 	DenyRead []string
 	// MemoryMaxBytes / CPUMax / PidsMax 对应 cgroup v2 的 memory.max / cpu.max / pids.max。
 	// 零值表示不限；cgroup 不可用时不会生效，Result.Limits 会如实标注。
@@ -114,8 +145,8 @@ func Validate(p Policy) error {
 		}
 	}
 	for _, r := range p.DenyRead {
-		if !filepath.IsAbs(r) {
-			return fmt.Errorf("host: deny_read path %q must be absolute", r)
+		if err := validateDenyEntry(r); err != nil {
+			return err
 		}
 	}
 	if p.MemoryMaxBytes < 0 || p.PidsMax < 0 || p.Timeout < 0 || p.MaxOutputBytes < 0 {
@@ -166,6 +197,13 @@ func DeniesRead(p Policy, absPath string) bool {
 	}
 	target := filepath.Clean(absPath)
 	for _, d := range p.DenyRead {
+		if isGlobEntry(d) {
+			if globMatchesPath(d, target) {
+				return true
+			}
+			continue
+		}
+		d, _ = splitDenyEntry(d)
 		d = filepath.Clean(d)
 		if target == d || strings.HasPrefix(target, d+string(filepath.Separator)) {
 			return true

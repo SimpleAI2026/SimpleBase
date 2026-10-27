@@ -33,7 +33,7 @@ DuckLake / S3 对象布局不改。两种形态都是同一套用户库文件，
 
 会话默认标题写在 `AgentManager.vue`（`'云 Agent'`）。`internal/systemdb/agents.go` 在用户发出第一条消息时，若标题是 `New thread` 或 `云 Agent`，会改成消息摘要。
 
-模型系统提示仍是英文 `SimpleBase Cloud Agent`（`internal/cloudagent/modules.go`）。这是模型行为，不是控制台文案，本次不改。
+模型系统提示仍是英文 `SimpleBase Cloud Agent`（`internal/gocloudagent/modules.go`）。这是模型行为，不是控制台文案，本次不改。
 
 ### 1.2 数据库、集合与 SQL
 

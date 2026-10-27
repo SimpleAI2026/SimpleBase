@@ -249,9 +249,14 @@ func (c *Client) ListProjects(ctx context.Context) (json.RawMessage, error) {
 	return c.Raw(ctx, http.MethodGet, "/v1/projects", nil, nil)
 }
 
-// CreateProject creates a project.
-func (c *Client) CreateProject(ctx context.Context, name string) (json.RawMessage, error) {
-	return c.Raw(ctx, http.MethodPost, "/v1/projects", nil, map[string]string{"name": name})
+// CreateProject creates a project. engine selects the single-file database
+// engine ("duckdb" or "sqlite"); empty lets the server use its default.
+func (c *Client) CreateProject(ctx context.Context, name, engine string) (json.RawMessage, error) {
+	body := map[string]string{"name": name}
+	if engine != "" {
+		body["engine"] = engine
+	}
+	return c.Raw(ctx, http.MethodPost, "/v1/projects", nil, body)
 }
 
 // APIKey is a project API key. Secret is set only on create.

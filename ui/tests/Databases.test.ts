@@ -106,7 +106,7 @@ function expandButtons(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wrappe
   return wrapper.findAll('button').filter((b) => (b.attributes('class') || '').includes('rounded-full'))
 }
 
-describe('Databases (数据库管理)', () => {
+describe('Databases (数据管理)', () => {
   beforeEach(() => {
     resetApiMocks()
     api.databases.list.mockResolvedValue([readyDb, creatingDb, degradedDb, deletingDb])

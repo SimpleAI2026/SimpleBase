@@ -424,6 +424,20 @@ describe('httpApi', () => {
     expect((await httpApi.sql.batch(pid, db, { statements: [{ sql: 's' }], transactional: false })).results).toEqual([])
   })
 
+  it('exports a collection as JSON with the current query', async () => {
+    const blob = new Blob(['[]'], { type: 'application/json' })
+    http.get.mockResolvedValueOnce({ data: blob })
+    const result = await httpApi.db.exportCollection(pid, db, 'task items', 'json', {
+      filter: 'priority>1',
+      sort: '-created_at'
+    })
+    expect(result).toBe(blob)
+    expect(http.get).toHaveBeenCalledWith(
+      '/v1/projects/proj%201/databases/db%201/data/collections/task%20items/export',
+      { params: { filter: 'priority>1', sort: '-created_at', format: 'json' }, responseType: 'blob' }
+    )
+  })
+
   it('covers data, s3, logs, quota, llm, agents and schedules', async () => {
     http.get.mockResolvedValueOnce({ data: { collections: ['u'] } })
     expect(await httpApi.db.collections(pid, db)).toEqual(['u'])

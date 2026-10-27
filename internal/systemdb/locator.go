@@ -1,3 +1,30 @@
+// 文件说明：locator.go — internal/systemdb 中 Locator、LoadLocator 等符号的实现
+//
+// 用法
+//
+//	LoadLocator(dir string) (Locator, bool, error)  // LoadLocator 读取 locator.json
+//	SaveLocator(dir string, loc Locator) error  // SaveLocator 原子写入 locator.json
+//	同包调用：Locator → bootstrap.go, store.go；LoadLocator() → bootstrap.go；SaveLocator() → bootstrap.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/locator.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/atomicfile
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] Locator ← bootstrap.go, store.go
+//
+// 主要符号
+//
+//	type Locator struct {…}
+//	LoadLocator(dir string) (Locator, bool, error)
+//	SaveLocator(dir string, loc Locator) error
+//	... 另有 2 个顶层符号
+
 package systemdb
 
 import (

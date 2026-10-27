@@ -137,7 +137,7 @@ describe('文案出口随语言变化', () => {
     expect(statusText('closed')).toBe('closed')
     expect(logLevelText('error')).toBe('Error')
     expect(logLevelText('')).toBe('-')
-    expect(cronStatusText('')).toBe('Not run yet')
+    expect(cronStatusText('')).toBe('Not run')
   })
 
   it('agentErrorText 已知码走 i18n、未知码回退后端原文', () => {

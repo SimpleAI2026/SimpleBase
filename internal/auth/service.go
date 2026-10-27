@@ -1,7 +1,34 @@
-// service.go 实现 auth.Service：解析 API key、构造 Principal、鉴权判断。
+// 文件说明：service.go — auth.Service：解析 API key、构造 Principal、鉴权判断
 //
-// API key 原文只在接收请求时短暂出现于内存；持久化只保存带 server secret 的
-// HMAC 摘要，绝不可逆。日志/错误/审计不得回显 key 原文。
+// 用法
+//
+//	NewService(repo Repository, secret string) *Service
+//	(s *Service) WithAuthObserver(o AuthObserver) *Service  // WithAuthObserver 注入 API Key 通道的认证阶段观察者（P0 诊断
+//	(s *Service) HashKey(rawKey string) string  // HashKey 计算 API key 的 HMAC-SHA256 摘要，用于存储与比对
+//	同包调用：Service → api_key_repository.go, cache.go 等；ErrInvalidCredentials → api_key_repository.go, cache.go 等；HashKey() → api_key_repository.go, cache.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/service.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] Service ← api_key_repository.go, cache.go, middleware.go
+//
+// 主要符号
+//
+//	var ErrMissingCredentials
+//	var ErrInvalidCredentials
+//	var ErrKeyRevoked
+//	var ErrForbidden
+//	type APIKeyRecord struct {…}
+//	type Repository interface {…}
+//	... 另有 9 个顶层符号
+
 package auth
 
 import (
@@ -44,9 +71,10 @@ type Repository interface {
 
 // Service 是认证与授权服务。
 type Service struct {
-	repo   Repository
-	secret string
-	cache  *apiKeyCache // §7.2 P1.2：keyHash → Principal 缓存
+	repo         Repository
+	secret       string
+	policyLoader PolicyLoader
+	cache        *apiKeyCache // §7.2 P1.2：keyHash → Principal 缓存
 
 	// authObs 是 P0 诊断观察者（planv5.0 §4 P0.1）；nil 时全部 no-op。
 	authObs AuthObserver
@@ -108,11 +136,20 @@ func (s *Service) authenticateUncached(ctx context.Context, hash string) (Princi
 	for _, p := range rec.Permissions {
 		perms[p] = struct{}{}
 	}
+	var policy *KeyPolicy
+	if s.policyLoader != nil && len(rec.ProjectIDs) > 0 {
+		var err error
+		policy, err = s.policyLoader(ctx, rec.ID, rec.ProjectIDs[0])
+		if err != nil {
+			return Principal{}, err
+		}
+	}
 	return Principal{
 		APIKeyID:    rec.ID,
 		TenantID:    rec.TenantID,
 		ProjectIDs:  pids,
 		Permissions: perms,
+		Scope:       policy,
 	}, nil
 }
 

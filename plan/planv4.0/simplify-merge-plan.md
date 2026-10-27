@@ -52,8 +52,8 @@
 - **动作**：
   1. 删除 `client.go`、`client_test.go`；
   2. 将仍有价值的测试（路径防穿越、截断）确认已被 `manager`/`paths.go` 测试覆盖，否则迁移到 `paths_test.go`；
-  3. 修订 `cloudagent/access.go:99` 注释「实现方为 internal/sandbox.Client」→「实现方为 app.sandboxAdapter（包装 sandbox.Manager）」；修订 `driver_cloud.go:15` 注释。
-- **验证**：`go build ./... && go test ./internal/sandbox/... ./internal/app/... ./internal/cloudagent/...`；`grep -rn "microsandbox" internal --include='*.go' -l` 只剩 `driver_cloud*.go`。
+  3. 修订 `gocloudagent/access.go:99` 注释「实现方为 internal/sandbox.Client」→「实现方为 app.sandboxAdapter（包装 sandbox.Manager）」；修订 `driver_cloud.go:15` 注释。
+- **验证**：`go build ./... && go test ./internal/sandbox/... ./internal/app/... ./internal/gocloudagent/...`；`grep -rn "microsandbox" internal --include='*.go' -l` 只剩 `driver_cloud*.go`。
 
 ### S2. `GoFunctionHandler.Update`（旧 PUT 兼容）
 - **证据**：`gofunction_handler.go:364-368` 仅转调 `CreateVersion`；`router.go` 未挂载，仅 `coverage_push_test.go:69` 引用。
@@ -69,7 +69,7 @@
 
 ### S4. LLM sessions 读 CRUD 路由（原 cleanup-plan D2，本轮提级）
 - **证据**：`router.go:348-354` 六条 `/llm/sessions*`；UI、JS-SDK、Go-SDK、docs **全部 0 消费**（2026-10-06 grep）。写入侧 `llm_handler.persistChat` → `CreateLLMSession` 仍活跃。
-- **动作**：删除 6 条路由 + `system_handlers.go` 中 `llmSessionHandler`（List/Create/Get/Delete/ListMessages/PostMessage）+ 对应测试；`systemdb/llm.go` 中仅被这些 handler 使用的 `ListLLMSessions/GetLLMSession/ArchiveLLMSession` 等一并删除（先 grep 确认 cloudagent 不用）。
+- **动作**：删除 6 条路由 + `system_handlers.go` 中 `llmSessionHandler`（List/Create/Get/Delete/ListMessages/PostMessage）+ 对应测试；`systemdb/llm.go` 中仅被这些 handler 使用的 `ListLLMSessions/GetLLMSession/ArchiveLLMSession` 等一并删除（先 grep 确认 gocloudagent 不用）。
 - **保守选项**：若担心外部调用方，先只摘路由保留 store 方法，下一版再删。
 - **验证**：`go test ./internal/api/ ./internal/systemdb/`。
 

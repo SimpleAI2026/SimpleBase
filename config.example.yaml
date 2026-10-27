@@ -28,16 +28,26 @@ http:
                               # 生效条件：启用沙盒时会被自动抬高到 exec_timeout_max + 1m
   idle_timeout: 60s           # keep-alive 空闲上限。SIMPLEBASE_HTTP_IDLE_TIMEOUT
   shutdown_timeout: 30s       # SIGTERM 优雅退出预算。SIMPLEBASE_HTTP_SHUTDOWN_TIMEOUT
+  gzip: false                 # 响应压缩；SSE、文件下载与重定向自动跳过。SIMPLEBASE_HTTP_GZIP
+  trusted_proxies: []         # 可信反向代理 CIDR；为空时忽略 X-Forwarded-For
+  cors:
+    enabled: false            # 浏览器直连时显式开启
+    allowed_origins: []       # 精确 origin，例如 https://app.example.com；禁止无条件使用 *
+    allowed_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS] # 允许的跨域方法
+    allowed_headers: [Authorization, Content-Type, X-Request-Id] # 允许的请求头
+    exposed_headers: [X-Request-Id, Content-Disposition] # 暴露给浏览器的响应头
+    allow_credentials: false  # true 时 allowed_origins 不得包含 *
+    max_age: 600
 
 # ── Instance ──────────────────────────────────────────
-# 代码：internal/app/app.go（日志/指标身份、租约 owner）、internal/database/lease
+# 代码：internal/app/app.go（日志/指标身份、租约 owner）、godatabase/lease
 instance:
   id: "simplebase-dev-1"      # 实例身份，用于日志、指标、租约 owner、reset --confirm。SIMPLEBASE_INSTANCE_ID
                               # 不再参与存储路径（路径按项目 ID 组织）
   writable: true              # false = 只读实例，不挂载写路由。SIMPLEBASE_INSTANCE_WRITABLE
                               # 生效条件：storage.database=s3 且 writable=false 时不启动同步器
   lease:                      # per-database 写租约；仅 writable + storage.database=s3 时生效
-                              # 代码：internal/database/lease、internal/app/app.go
+                              # 代码：godatabase/lease、internal/app/app.go
     enabled: false            # 单实例默认关闭；多实例必须显式开启。SIMPLEBASE_INSTANCE_LEASE_ENABLED
                               # 条件写探针失败且此处为 true 时拒绝启动（不静默降级）
     ttl: 30s                  # 持租判活窗口。SIMPLEBASE_INSTANCE_LEASE_TTL
@@ -47,7 +57,7 @@ instance:
 
 # ── Storage（持久层位置）──────────────────────────────
 # 代码：internal/config/config.go（validateStorage）、internal/app/app.go（assembleDeps、
-#       newUserDatabaseFactory）、internal/database/ducklake/factory.go（layoutFor）
+#       newUserDatabaseFactory）、godatabase/ducklake/factory.go（layoutFor）
 storage:
   # 数据库持久层（系统库 + 用户库的 catalog 与 parquet）。
   # 默认 local；改为 s3 时必须同时配置 s3.bucket / s3.region，并先执行 ./build.sh reset。
@@ -58,11 +68,28 @@ storage:
   # 该目录与 database.cache_dir 不能相同、也不能互相包含：缓存淘汰会删除 cache_dir 下的内容。
   data_dir: "./data"          # SIMPLEBASE_DATA_DIR
 
+# ── Files（用户文件）─────────────────────────────────
+files:
+  allowed_mime: []            # 例如 [image/png, image/jpeg, application/pdf]；空 = 不限制
+                              # SIMPLEBASE_FILES_ALLOWED_MIME（逗号分隔）
+  # SIMPLEBASE_FILES_TOKEN_SECRET：私有下载 HMAC 密钥，只能来自环境变量，禁止写入 YAML。
+
+# ── Backup（用户项目单文件；不含系统库）────────────────
+backup:
+  enabled: false              # 是否开放备份 API 与定时任务；SIMPLEBASE_BACKUP_ENABLED
+  dir: "./backups"           # 本地备份与 S3 暂存目录；SIMPLEBASE_BACKUP_DIR
+  upload_to_s3: false         # 同时上传到 {s3.prefix}/_backups/<projectID>/；SIMPLEBASE_BACKUP_UPLOAD_TO_S3
+  schedule: ""                # 五段 cron，UTC；空 = 不自动备份。SIMPLEBASE_BACKUP_SCHEDULE
+  keep_last: 7                # 每项目至少保留最近 N 份
+  keep_days: 30               # 同时按创建时间清理
+  max_per_project: 14         # 硬上限；keep_last 不得超过此值
+  snapshot_timeout: 10m       # 大库快照会阻塞该项目写入，需按库大小调整
+
 # ── Database / 缓存 / DuckLake ────────────────────────
-# 代码：internal/database/cache（淘汰）、internal/database/registry（句柄生命周期）、
-#       internal/database/ducklake（引擎选项）
+# 代码：godatabase/cache（淘汰）、godatabase/registry（句柄生命周期）、
+#       godatabase/ducklake（引擎选项）
 database:
-  engine: ducklake            # 仅允许 ducklake。SIMPLEBASE_DB_ENGINE
+  engine: duckdb              # 新建项目的默认单文件引擎：duckdb | sqlite。SIMPLEBASE_DB_ENGINE
   cache_dir: ".cache"         # 可丢弃的缓存根：tmp、S3 模式的 catalog 工作副本。SIMPLEBASE_DB_CACHE_DIR
                               # 容量不足时按 LRU 整体删除子目录，因此绝不能指向 storage.data_dir
   cache_max_bytes: 1073741824 # 缓存容量上限（1GiB）。SIMPLEBASE_DB_CACHE_MAX_BYTES
@@ -71,7 +98,7 @@ database:
   max_open: 8                 # 同时打开的库数上限。SIMPLEBASE_DB_MAX_OPEN
   ducklake:
     # catalog 引擎：duckdb | sqlite。切换前必须先 reset，否则拒绝启动。
-    # 代码：internal/database/ducklake/instance_format.go
+    # 代码：godatabase/ducklake/instance_format.go
     catalog_engine: duckdb    # SIMPLEBASE_DUCKLAKE_CATALOG_ENGINE
     memory_limit: 512MB       # 每个库 DuckDB 实例的内存上限。SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT
     threads: 2                # 每个库的 DuckDB 线程数。SIMPLEBASE_DUCKLAKE_THREADS
@@ -83,8 +110,8 @@ database:
     require_commit_message: false # true 时写事务必须带 commit message。SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE
     catalog_sync:
       # 仅在 storage.database=s3 时生效；local 模式忽略整个 catalog_sync 段。
-      # 代码：internal/database/ducklake/catalog_syncer.go
-      mode: interval          # interval | debounce；旧 sync_on_commit 自动降级为 interval
+      # 代码：godatabase/ducklake/catalog_syncer.go
+      mode: interval          # interval | debounce
       interval: 15s           # 周期同步间隔。SIMPLEBASE_DUCKLAKE_SYNC_INTERVAL
       max_lag: 30s            # 允许的最大落后；同步故障时可能超出。SIMPLEBASE_DUCKLAKE_SYNC_MAX_LAG
       debounce: 200ms         # debounce 模式去抖窗口。SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS
@@ -155,7 +182,7 @@ llm:
   # SIMPLEBASE_LLM_PROVIDERS=openai,anthropic 可增补 provider 名。
 
 # ── Agent（云助手 CLI skill）──────────────────────────
-# 代码：cloudagent、internal/agentbridge、cmd/simplebase；只有 config.yaml + SIMPLEBASE_* 环境变量生效（env 覆盖 YAML）。
+# 代码：gocloudagent、internal/agentbridge、cmd/simplebase；只有 config.yaml + SIMPLEBASE_* 环境变量生效（env 覆盖 YAML）。
 # skills_cli=true 时，数据库/S3/日志等助手经宿主进程中的 simplebase CLI 调用现有 HTTP API；
 # CLI 不在云沙盒内运行，不向云沙盒注入凭据。关闭 skills_cli 只保留旧只读工具。
 # 服务和 CLI 共用 simplebase 二进制；./build.sh 与 Docker 镜像均只构建一个产物。
@@ -173,8 +200,8 @@ agent:
                               # 输出前 RedactSecrets + 截断 2000 字符。默认关闭，属脱敏约定的显式例外。
                               # SIMPLEBASE_AGENT_TRACE_LOG=true 覆盖
   # 本机 shell 隔离（planv6.2，代码：gosandbox/host）。默认关闭。
-  # 注意：服务端云助手的 sandbox_shell 走云沙盒（见下方 sandbox 段），不经过这里；目前只有 cloudagent CLI 会启动本机 shell，
-  # 而 CLI 读的是 ~/.cloudagent/config.json 的同名 shell_isolation 段，不读本文件——这一段在服务端只做解析与校验，
+  # 注意：服务端云助手的 sandbox_shell 走云沙盒（见下方 sandbox 段），不经过这里；目前只有 gocloudagent CLI 会启动本机 shell，
+  # 而 CLI 读的是 ~/.gocloudagent/config.json 的同名 shell_isolation 段，不读本文件——这一段在服务端只做解析与校验，
   # 请把需要的字段抄进 CLI 配置。Linux 需要 bubblewrap(>=0.8.0)、内核 Landlock ABI>=3；macOS 用 /usr/bin/sandbox-exec。
   # --yolo 只跳过确认，不会关闭隔离；隔离开启但不可用时命令不会执行（isolation_unavailable），不退回裸执行。
   shell_isolation:
@@ -182,10 +209,16 @@ agent:
     mode: workspace-write       # read-only | workspace-write | danger-full-access。SIMPLEBASE_AGENT_SHELL_ISOLATION_MODE
                                 # 默认不能上网；放开网络只有 danger-full-access（等于关闭隔离）
     writable_roots: []          # 额外可写绝对路径，必须已存在
-    read_only_subpaths:         # 工作区内再盖成只读；省略则取默认 [.git, .cloudagent]
-      - .git
-      - .cloudagent
-    deny_read:                  # 命令里读到空内容，且文件工具同样拒绝（支持 ~）
+    read_only_subpaths:         # 工作区内再盖成只读；省略则取默认 [.gocloudagent]
+      - .gocloudagent             # .git/hooks、.git/config 等由内置强制表另行保护，所以沙盒内可以 git commit；
+                                # 想要旧行为（整个 .git 只读）就在这里加上 .git
+    deny_read:                  # 命令里读到空内容，且文件工具同样拒绝
+                                # 条目必须是绝对路径或以 ~ 开头（不支持相对的 **/.env）
+                                # 支持 glob：* 不跨段、** 跨段、? 单字符、[abc] 字符集；无转义字符；结尾不能有 /
+                                # 示例：~/projects/**/.env 匹配该目录下任意深度的 .env、
+                                #       ~/keys/*.pem 匹配该目录下的 .pem 文件
+                                # Linux 在命令启动时展开为当下存在的文件（之后新建的匹配文件不受掩蔽）；
+                                # macOS 按正则匹配，新建文件同样被拒
       - ~/.ssh
       - ~/.aws
       - ~/.config/gcloud
@@ -194,14 +227,14 @@ agent:
     pids_max: 0                 # 0 = 不限
     timeout: 120s               # 0 = 沿用 shell 默认 120s。SIMPLEBASE_AGENT_SHELL_ISOLATION_TIMEOUT
     bwrap_path: ""              # 空 = 在 PATH 上查找；必须解析为绝对路径且非 setuid
-    helper_path: ""             # 空 = 与 cloudagent 同目录的 gosandbox-inner
+    helper_path: ""             # 空 = 与 gocloudagent 同目录的 gosandbox-inner
 
 # ── Sandbox（云沙盒）──────────────────────────────────
 # 代码：internal/sandbox（业务层）+ gosandbox/vm/local（执行后端，复用 gosandbox/host）
 # 侧栏「自动化 → 云沙盒」与 /v1/projects/:id/sandboxes/** 共用同一后端。
 #
 # 后端是本机进程隔离，不是虚拟机，也不依赖任何外部服务（没有 API Key）：
-#   Linux : bubblewrap(>=0.8.0) + Landlock(ABI>=3) + seccomp；需要 gosandbox-inner（./build.sh 会与 cloudagent 一起构建）
+#   Linux : bubblewrap(>=0.8.0) + Landlock(ABI>=3) + seccomp；需要 gosandbox-inner（./build.sh 会与 gocloudagent 一起构建）
 #   macOS : 系统自带 /usr/bin/sandbox-exec
 # 与宿主共享内核：只适合自托管 / 受信任用户，不适合多租户不可信代码。
 # 本机不具备隔离能力时，服务照常启动，仅此功能被跳过并在日志里写明原因；绝不退回裸执行。
@@ -240,7 +273,15 @@ limits:
   max_concurrent_queries: 64        # 并发查询上限。SIMPLEBASE_LIMITS_MAX_CONCURRENT_QUERIES
   max_batch_statements: 100         # 批量语句条数上限。SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS
   max_sql_bytes: 65536              # 单条 SQL 字节上限。SIMPLEBASE_LIMITS_MAX_SQL_BYTES
-  max_concurrent_go_runs: 16        # /go 与调试台试跑的全局并发上限（满载 503）。SIMPLEBASE_LIMITS_MAX_CONCURRENT_GO_RUNS
+  max_concurrent_go_runs: 16        # /go、调试试跑、cron、事件触发器的共享并发上限（满载 503）。SIMPLEBASE_LIMITS_MAX_CONCURRENT_GO_RUNS
+  max_filter_scan_rows: 50000       # 集合 filter/dry-run 最大扫描行数
+  max_import_bytes: 134217728       # 集合导入请求体上限（128MiB）
+  realtime_max_conns: 200           # 每项目 realtime SSE 连接上限
+  rate_limit:
+    enabled: false                  # SIMPLEBASE_RATE_LIMIT_ENABLED
+    burst: 2                        # 桶容量为 max 的倍数；SIMPLEBASE_RATE_LIMIT_BURST
+    exempt_sse: true                # SSE 长连接不计入常规限流
+    rules: []                       # 例：{match: "/v1/auth/login", max: 10, window: 1m}
 
 # ── Observability ─────────────────────────────────────
 # 代码：internal/observability（zap 日志、Prometheus 指标）

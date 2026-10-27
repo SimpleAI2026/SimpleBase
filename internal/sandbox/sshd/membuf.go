@@ -1,3 +1,29 @@
+// 文件说明：membuf.go — internal/sandbox/sshd 中 NewPipe、WithRemote 等符号的实现
+//
+// 用法
+//
+//	NewPipe() (net.Conn, net.Conn)
+//	WithRemote(conn net.Conn, remote string) net.Conn  // WithRemote 返回一个报告指定远端地址的连接包装，供服务端按真实来源限速
+//	同包调用：Write() → server.go, session.go；Close() → server.go, session.go；RemoteAddr() → server.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/sshd/membuf.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] server.go, session.go
+//	[关键引用] Write() ← server.go, session.go
+//
+// 主要符号
+//
+//	NewPipe() (net.Conn, net.Conn)
+//	WithRemote(conn net.Conn, remote string) net.Conn
+//	... 另有 17 个顶层符号
+
 package sshd
 
 import (

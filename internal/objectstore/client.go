@@ -1,11 +1,34 @@
-// Package objectstore 是 SimpleBase 平台配置与元数据的 S3 访问层。
-// 它只负责 descriptor/state/manifest 等平台对象的读写与最小健康检查；
-// 数据库数据对象（data/）由 DuckLake 管理；本包提供 Blob/File API，不解析 Parquet 内容。
+// 文件说明：client.go — SimpleBase 平台配置与元数据的 S3 访问层
 //
-// 与旧 internal/s3 的区别：
-//   - 不提供 AppendObject / SelectObject（旧 storage API 专用，Plan 10 删除）
-//   - 凭据来源由 config.Config 显式注入，不使用全局单例 default.go
-//   - 支持 AWS default credential chain（工作负载身份），不仅限 AccessKey/SecretKey
+// 用法
+//
+//	NewClient(ctx context.Context, cfg Config, logger observability.Logger, metrics ...
+//	type Client（导出类型，同包与上层均可使用）
+//	type Deleter（导出类型，同包与上层均可使用）
+//	同包调用：ErrNotFound → blob.go, content_local.go 等；Client → blob.go, filestore.go 等；derefStr() → blob.go, content_s3.go 等
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/client.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/blob, internal/observability
+//	[同包] blob.go, content.go, content_local.go, content_s3.go, descriptor.go 等 10 个
+//	[关键引用] ErrNotFound ← blob.go, content_local.go, filestore.go
+//
+// 主要符号
+//
+//	var ErrNotFound
+//	type Client interface {…}
+//	type Deleter interface {…}
+//	type PutOptions struct {…}
+//	type ObjectInfo = blob.ObjectInfo
+//	type Config struct {…}
+//	... 另有 26 个顶层符号
+
 package objectstore
 
 import (
@@ -22,13 +45,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"go.uber.org/zap"
 )
 
 // ErrNotFound 表示请求的对象在 S3 中不存在。
 // GetJSON/Head 在对象缺失时返回此错误，调用方可用 errors.Is 判别。
-var ErrNotFound = errors.New("objectstore: object not found")
+var ErrNotFound = blob.ErrNotFound
 
 // Client 是平台对象存储的抽象接口。测试可注入 fake 实现。
 type Client interface {
@@ -55,12 +79,7 @@ type PutOptions struct {
 }
 
 // ObjectInfo 描述对象元数据。禁止包含 body 或预签名 URL。
-type ObjectInfo struct {
-	Key          string
-	Size         int64
-	ETag         string
-	LastModified time.Time
-}
+type ObjectInfo = blob.ObjectInfo
 
 // s3Client 是基于 aws-sdk-go-v2 的 Client 实现。
 type s3Client struct {

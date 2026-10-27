@@ -46,4 +46,4 @@ await sb.storage.list({ prefix: 'reports/' })    // 对象存储
 await sb.sandboxes.listPage({ limit: 20 })       // 云沙盒（需部署启用）
 ```
 
-需要完整可跑的例子，直接看[示例](/docs/sdk/examples)里的「从建库到上传」脚本。
+需要完整可跑的例子，直接看[示例](/docs/sdk/examples)里的「从建库到上传」脚本。文档变更订阅与写后自动化分别见[文档 Realtime](/docs/data/realtime)和[事件触发器](/docs/automation/function-triggers)；生产备份接口见[备份与恢复](/docs/ops/backups)。

@@ -1,3 +1,34 @@
+// 文件说明：projects_handler.go — internal/api 中 ProjectResponse、ProjectListResponse 等符号的实现
+//
+// 用法
+//
+//	NewProjectsHandler(cat CatalogService, users *auth.UserService) *ProjectsHandler
+//	(h *ProjectsHandler) ListProjects(c echo.Context) error  // ListProjects: GET /v1/projects
+//	(h *ProjectsHandler) CreateProject(c echo.Context) error  // CreateProject: POST /v1/projects
+//	同包调用：ListProjects() → adapter.go, router.go；CreateProject() → adapter.go, router.go；NewProjectsHandler() → router.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/projects_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/auth, internal/catalog, internal/observability
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] ListProjects() ← adapter.go, router.go
+//
+// 主要符号
+//
+//	type ProjectResponse struct {…}
+//	type ProjectListResponse struct {…}
+//	type CreateProjectRequest struct {…}
+//	type ProjectsHandler struct {…}
+//	NewProjectsHandler(cat CatalogService, users *auth.UserService) *ProjectsHandler
+//	(h *ProjectsHandler) ListProjects(c echo.Context) error
+//	... 另有 4 个顶层符号
+
 package api
 
 import (
@@ -19,6 +50,7 @@ import (
 type ProjectResponse struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
+	Engine    string    `json:"engine"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -31,6 +63,8 @@ type ProjectListResponse struct {
 type CreateProjectRequest struct {
 	Name string `json:"name"`
 	ID   string `json:"id,omitempty"`
+	// Engine 为新项目的单文件引擎：duckdb（默认）| sqlite。
+	Engine string `json:"engine,omitempty"`
 	// OwnerUserID 仅 superadminl1 可指定；默认创建者。
 	OwnerUserID string `json:"owner_user_id,omitempty"`
 }
@@ -83,8 +117,9 @@ func (h *ProjectsHandler) CreateProject(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	p, err := h.catalog.CreateProject(c.Request().Context(), principal, catalog.CreateProjectInput{
-		Name: req.Name,
-		ID:   req.ID,
+		Name:   req.Name,
+		ID:     req.ID,
+		Engine: req.Engine,
 	})
 	if err != nil {
 		rid := RequestIDFromContext(c.Request().Context())
@@ -148,6 +183,7 @@ func toProjectResponse(p catalog.Project) ProjectResponse {
 	return ProjectResponse{
 		ID:        p.ID,
 		Name:      p.Name,
+		Engine:    p.Engine(),
 		CreatedAt: p.CreatedAt,
 	}
 }

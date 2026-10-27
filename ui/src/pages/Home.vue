@@ -25,7 +25,7 @@
             <span aria-hidden="true" class="size-1.5 rounded-full bg-primary" /> SimpleBase · WORKSPACE
           </div>
           <h1 class="font-serif text-[clamp(2.25rem,5vw,4.5rem)] leading-[1.09] font-semibold tracking-[-0.045em]">
-            {{ t('pages.home.heroTitlePre') }}<span class="block whitespace-nowrap text-[clamp(2.25rem,4vw,3.5rem)] text-primary">{{ t('pages.home.heroTitleHighlight') }}</span>
+            {{ t('pages.home.heroTitlePre') }}<span class="block text-[clamp(2.25rem,4vw,3.5rem)] text-primary sm:whitespace-nowrap">{{ t('pages.home.heroTitleHighlight') }}</span>
           </h1>
           <p class="mt-7 max-w-lg text-base leading-8 text-muted-foreground sm:text-lg">
             {{ t('pages.home.heroDescription') }}
@@ -52,8 +52,8 @@
               <div class="flex items-center gap-2"><span aria-hidden="true" class="size-2 rounded-full bg-primary" /><span class="font-mono text-[11px] font-semibold tracking-widest text-muted-foreground">SIMPLEBASE / WORKSPACE</span></div>
               <span class="font-mono text-[10px] text-muted-foreground">OVERVIEW</span>
             </div>
-            <div class="p-5 sm:p-7">
-              <div class="flex items-center justify-between gap-3"><span class="text-sm font-semibold">{{ t('pages.home.previewTitle') }}</span><span class="rounded-md border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary">PRODUCT PREVIEW</span></div>
+            <div class="p-3 sm:p-7">
+              <div class="flex items-center justify-between gap-3"><span class="text-sm font-semibold">{{ t('pages.home.previewTitle') }}</span><span class="hidden rounded-md border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] text-primary sm:inline">PRODUCT PREVIEW</span></div>
               <div class="mt-6 grid grid-cols-2 gap-3">
                 <div v-for="item in previewItems" :key="item.label" class="rounded-xl border border-border bg-background/70 p-4">
                   <component :is="item.icon" aria-hidden="true" class="size-5 text-primary" />

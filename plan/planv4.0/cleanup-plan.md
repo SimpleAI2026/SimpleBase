@@ -139,7 +139,7 @@
 - **动作**：按实际结构重写「目录结构」小节，修两处失效引用。
 
 ### C2. `internal/README.md`
-- 模块清单缺：`cronjob`、`crontab`、`sandbox`、`systemdb`、`web`、`database/kv`、`database/lease`；`api` 小节缺 kv/gofunction/cronjob/agent_schedule/users/auth/cloudagent_access 等 handler 说明；依赖关系图不含 gofunction/cronjob 链路。
+- 模块清单缺：`cronjob`、`crontab`、`sandbox`、`systemdb`、`web`、`database/kv`、`database/lease`；`api` 小节缺 kv/gofunction/cronjob/agent_schedule/users/auth/gocloudagent_access 等 handler 说明；依赖关系图不含 gofunction/cronjob 链路。
 - **动作**：补齐模块清单与依赖图（与 `internal/AGENTS.md` 对齐）。
 
 ### C3. `internal/database/README.md`（v1.1 新增，过期最严重）

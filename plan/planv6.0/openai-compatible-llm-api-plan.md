@@ -4,23 +4,23 @@
 > **日期**：2026-10-14
 > **状态**：设计稿，待确认开放问题后实施
 > **核对基线**：`main` @ `2896f82` + 2026-10-14 工作区未提交改动。实施前必须重新核对 `git status --short`（claude CLI 与 v6.0 系列计划均未提交）
-> **依据**：[`internal/AGENTS.md`](../../internal/AGENTS.md)（API 协议约定）、[`internal/llmgateway/service.go`](../../internal/llmgateway/service.go)、[`plan/planv1.0/plan8.md`](../planv1.0/plan8.md)（LLM Gateway 原始设计）、[`pi-readme.md`](../../internal/cloudagent/pi-readme.md) §4.6（压缩与协议）、[`cloudagent-cli-and-cronjob-unification-plan.md`](./cloudagent-cli-and-cronjob-unification-plan.md) §5（CLI 模型出口决策 D-D1）
+> **依据**：[`internal/AGENTS.md`](../../internal/AGENTS.md)（API 协议约定）、[`internal/llmgateway/service.go`](../../internal/llmgateway/service.go)、[`plan/planv1.0/plan8.md`](../planv1.0/plan8.md)（LLM Gateway 原始设计）、[`pi-readme.md`](../../internal/gocloudagent/pi-readme.md) §4.6（压缩与协议）、[`gocloudagent-cli-and-cronjob-unification-plan.md`](./gocloudagent-cli-and-cronjob-unification-plan.md) §5（CLI 模型出口决策 D-D1）
 > **约束**：遵循 `AGENTS.md` / `internal/AGENTS.md` / `ui/AGENTS.md`；**不新增第三方依赖**、不改 `go.mod` 结构；对象形状用 TS `interface`；错误统一走领域错误 + `WriteError`；本计划**不含任何 DDL**，无需用户执行迁移
 
 ---
 
 ## 1. 两个问题的核查结论
 
-### 1.1 cloudagent 是否用 function calling 协议
+### 1.1 gocloudagent 是否用 function calling 协议
 
 **分路径回答，结论不同**：
 
 | 路径 | 是否 function calling | 证据 |
 | --- | --- | --- |
 | **云端 Runtime**（云助手） | **是**（`auto`：先原生，失败降级文本） | `runtime.go:198-199` 设 `chatModel.Protocol = r.ToolProtocol`；`r.ToolProtocol` 来自 `config.LLM.EffectiveAgentToolProtocol()`（`app.go:944`），默认 `auto`（`config.example.yaml:138`） |
-| **CLI**（`cmd/cloudagent`） | **否，恒为文本协议** | `cli/runner.go:86` 调 `agentcore.NewModel(...)` 后**从不设 `Protocol`**；`NewModel` 默认 `Protocol: "text"`（`agentcore/model.go:49`） |
+| **CLI**（`cmd/gocloudagent`） | **否，恒为文本协议** | `cli/runner.go:86` 调 `agentcore.NewModel(...)` 后**从不设 `Protocol`**；`NewModel` 默认 `Protocol: "text"`（`agentcore/model.go:49`） |
 
-云端之所以不受影响，是因为它**不走 HTTP**：`Runtime.LLM` 是 `ChatClient` 接口（`runtime.go:79`），由 `llmChatClient` 在**进程内**实现（`api/cloudagent_access.go:200-243`），直接把 `ChatRequest.Tools` 转成 `LLMRequest.Tools`（同文件 `:218-220`）。
+云端之所以不受影响，是因为它**不走 HTTP**：`Runtime.LLM` 是 `ChatClient` 接口（`runtime.go:79`），由 `llmChatClient` 在**进程内**实现（`api/gocloudagent_access.go:200-243`），直接把 `ChatRequest.Tools` 转成 `LLMRequest.Tools`（同文件 `:218-220`）。
 
 CLI 走 HTTP，因此受下面 §1.2 的 DTO 断点影响，只能退回文本协议。
 
@@ -34,7 +34,7 @@ CLI 走 HTTP，因此受下面 §1.2 的 DTO 断点影响，只能退回文本�
 | llmgateway 请求 | 透传 | `Request.Tools []providers.Tool`（`service.go:55`）→ `prepareRequest`（`:278`） |
 | llmgateway 响应 | 透传 | `Response.ToolCalls []providers.ToolCall`（`service.go:65`），`Chat` 回填（`:298`） |
 | llmgateway 流式 | 透传增量 | `StreamChunk.ToolCallDelta *ToolCallDelta`（litellm `provider.go:131`），含 `Index`/`FunctionName`/`ArgumentsDelta` |
-| api 适配层 | **已透传** | `toGatewayRequest` 把 `req.Tools` 转成 `providers.Tool`（`adapter.go:296-305`）；`llmStreamReaderAdapter` 把 `ToolCallDelta` 铺进 `LLMStreamChunk`（`adapter.go:341-346`）；`llmChatClient` 同样透传（`cloudagent_access.go:218-220, 231-233`） |
+| api 适配层 | **已透传** | `toGatewayRequest` 把 `req.Tools` 转成 `providers.Tool`（`adapter.go:296-305`）；`llmStreamReaderAdapter` 把 `ToolCallDelta` 铺进 `LLMStreamChunk`（`adapter.go:341-346`）；`llmChatClient` 同样透传（`gocloudagent_access.go:218-220, 231-233`） |
 | **api HTTP DTO** | **丢弃（唯一断点）** | 见下 |
 
 **断点全在 `internal/api/llm_handler.go` 的 DTO，共四处**：
@@ -254,7 +254,7 @@ data: [DONE]
 
 ## 4. 客户端改造
 
-### 4.1 CLI（`internal/cloudagent/cli`）
+### 4.1 CLI（`internal/gocloudagent/cli`）
 
 | 改动 | 位置 | 说明 |
 | --- | --- | --- |
@@ -312,7 +312,7 @@ data: [DONE]
 | --- | --- | --- |
 | **S1** | 服务端：`oai_handler.go`（新 DTO + `ChatCompletions` + `ListModels` + `writeOAIError`），路由挂载，`LLMInvoke` 权限 | `go build`；新增 `oai_handler_test.go` 覆盖非流式/流式/工具/错误形状 |
 | **S2** | 服务端：流式工具增量与 `[DONE]`、usage 尾帧 | SSE 单测断言帧序列；`beginSSE` 有 `sse_write_timeout_test.go` 风格用例 |
-| **S3** | CLI：wire 形状改 OpenAI 标准 + 路径切换 + `Protocol="auto"` | `go test ./internal/cloudagent/...`；**端到端**：真实模型跑「用 shell 执行 pwd」，断言出现 `tool_call` 且工具真实执行 |
+| **S3** | CLI：wire 形状改 OpenAI 标准 + 路径切换 + `Protocol="auto"` | `go test ./internal/gocloudagent/...`；**端到端**：真实模型跑「用 shell 执行 pwd」，断言出现 `tool_call` 且工具真实执行 |
 | **S4** | 前端：路径 + `readSse` 哨兵识别 + 旧分支清理 | `cd ui && yarn test && yarn build`；覆盖率不低于基线 |
 | **S5** | examples / docs 同步 | 示例可跑；文档端点表更新 |
 | **S6** | 全量回归 + 手动验收（§9） | `go test ./...`；`./scripts/smoke.sh` |
@@ -349,7 +349,7 @@ data: [DONE]
 
 **前端**：`yarn test`（覆盖率 statements/branches/functions 均 95% 阈值）+ `yarn build`。新增解析分支必须补测，不得沿用当前 94.24% 的未达标基线。
 
-**CLI**：`go test ./internal/cloudagent/...`；wire 形状用 `httptest.Server` 断言请求体是标准 OpenAI 嵌套，响应解析覆盖 `choices[0]` 与 `[DONE]`。
+**CLI**：`go test ./internal/gocloudagent/...`；wire 形状用 `httptest.Server` 断言请求体是标准 OpenAI 嵌套，响应解析覆盖 `choices[0]` 与 `[DONE]`。
 
 ---
 
@@ -357,7 +357,7 @@ data: [DONE]
 
 1. `curl` 直连新端点：非流式返回 `object: "chat.completion"`、`choices[0].message`；流式以 `data: [DONE]` 收尾。
 2. **官方 OpenAI SDK 直连**（Python 或 Node）：`base_url=http://127.0.0.1:8080/v1/projects/<id>/v1`，一次普通对话 + 一次带 `tools` 的调用，`tool_calls` 能正确返回。
-3. **CLI 端到端**：`./cloudagent -p "用 shell 执行 pwd"` 出现 `tool_call` 事件、工具真实执行、结果回灌、模型据此作答（对照 2026-10-14 文本协议下的一轮即止）。
+3. **CLI 端到端**：`./gocloudagent -p "用 shell 执行 pwd"` 出现 `tool_call` 事件、工具真实执行、结果回灌、模型据此作答（对照 2026-10-14 文本协议下的一轮即止）。
 4. **CLI 带工具的多轮**：连续两次工具调用后给出最终答案。
 5. **降级路径仍可用**：把一个不支持 tools 的供应商配为项目默认，`Protocol="auto"` 时自动降级文本协议，对话不中断。
 6. **前端**：控制台 AI 对话流式输出正常、`onEnd` 正常触发（不被 `[DONE]` 卡住）、`yarn test`/`yarn build` 通过。
@@ -395,6 +395,6 @@ data: [DONE]
 ## 12. 与既有计划的关系
 
 - [`plan8.md`](../planv1.0/plan8.md)：LLM Gateway 的原始设计**本就要求** `chat/completions` 与 `LLMInvoke` 权限。本计划是把它补完，不是新方向；唯一偏离是把兼容路径放到 `projects/:projectID/v1/...` 之下（原设计只写了 `v1.POST("/llm/chat/completions")`，未含 project 段）。
-- [`cloudagent-cli-and-cronjob-unification-plan.md`](./cloudagent-cli-and-cronjob-unification-plan.md) §5 / 决策 D-D1：CLI「走服务端 HTTP API、不自管供应商密钥」的决策不变。本次只是让它**用得对**——文本协议是当时 DTO 不支持工具造成的意外回退，不是 D-D1 的本意。
-- [`cloudagent-cli-and-cronjob-unification-plan.md`](./cloudagent-cli-and-cronjob-unification-plan.md) §13.5 / P7 压缩：**不冲突**。压缩作用于会话历史与摘要，与工具协议正交；`agentcore.Model.Protocol` 变化不影响 `compaction.go` 的 `summarize` 调用（它不传 tools）。
+- [`gocloudagent-cli-and-cronjob-unification-plan.md`](./gocloudagent-cli-and-cronjob-unification-plan.md) §5 / 决策 D-D1：CLI「走服务端 HTTP API、不自管供应商密钥」的决策不变。本次只是让它**用得对**——文本协议是当时 DTO 不支持工具造成的意外回退，不是 D-D1 的本意。
+- [`gocloudagent-cli-and-cronjob-unification-plan.md`](./gocloudagent-cli-and-cronjob-unification-plan.md) §13.5 / P7 压缩：**不冲突**。压缩作用于会话历史与摘要，与工具协议正交；`agentcore.Model.Protocol` 变化不影响 `compaction.go` 的 `summarize` 调用（它不传 tools）。
 - [`backend-code-simplification-plan.md`](./backend-code-simplification-plan.md)：本文新增的 `oai_handler.go` 应遵守其分层约定（handler 只依赖 `Dependencies` 接口 + adapter），不直接依赖 `llmgateway`。

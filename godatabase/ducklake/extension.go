@@ -1,0 +1,173 @@
+// 文件说明：extension.go — godatabase/ducklake 中 MinDuckDBVersion、AssertDuckDBVersion 等符号的实现
+//
+// 用法
+//
+//	AssertDuckDBVersion(ctx context.Context, db *sql.DB) (string, error)  // AssertDuckDBVersion 确认当前连接的 DuckDB ≥ MinDuckDBVersion
+//	AssertExtensionsLoaded(ctx context.Context, db *sql.DB, engine string) error  // AssertExtensionsLoaded 确认当前引擎所需的扩展均已加载
+//	同包调用：extensionBootSQL() → factory.go；AssertDuckDBVersion() → factory.go；AssertExtensionsLoaded() → factory.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/extension.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/sqlx
+//	[同包] catalog_syncer.go, errors.go, factory.go, gated_conn.go, inspect.go 等 14 个
+//	[关键引用] extensionBootSQL() ← factory.go
+//
+// 主要符号
+//
+//	const MinDuckDBVersion
+//	AssertDuckDBVersion(ctx context.Context, db *sql.DB) (string, error)
+//	AssertExtensionsLoaded(ctx context.Context, db *sql.DB, engine string) error
+//	... 另有 7 个顶层符号
+
+package ducklake
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
+)
+
+// MinDuckDBVersion 是 DuckLake v1.0 的硬性下限（§2.1）。
+const MinDuckDBVersion = "1.5.2"
+
+// requiredExtensions 按引擎返回必需扩展（ducklake-duckdb-catalog-plan §3）：
+// duckdb 引擎无需 sqlite 扩展。
+func requiredExtensions(engine string) []string {
+	if NormalizeCatalogEngine(engine) == EngineSQLite {
+		return []string{"ducklake", "sqlite", "httpfs"}
+	}
+	return []string{"ducklake", "httpfs"}
+}
+
+// extensionAliases maps INSTALL 名到 duckdb_extensions() 可能返回的名字。
+var extensionAliases = map[string][]string{
+	"sqlite": {"sqlite", "sqlite_scanner"},
+}
+
+func extensionBootSQL(opts Options) []string {
+	out := make([]string, 0, 8)
+	if opts.ExtensionDir != "" {
+		out = append(out, "SET extension_directory = "+sqlx.Literal(opts.ExtensionDir))
+	}
+	for _, ext := range requiredExtensions(opts.CatalogEngine) {
+		out = append(out, "INSTALL "+ext)
+		out = append(out, "LOAD "+ext)
+	}
+	return out
+}
+
+// AssertDuckDBVersion 确认当前连接的 DuckDB ≥ MinDuckDBVersion。
+func AssertDuckDBVersion(ctx context.Context, db *sql.DB) (string, error) {
+	var version string
+	if err := db.QueryRowContext(ctx, "SELECT version()").Scan(&version); err != nil {
+		return "", fmt.Errorf("ducklake: query duckdb version: %w", err)
+	}
+	normalized := normalizeDuckDBVersion(version)
+	ok, err := versionAtLeast(normalized, MinDuckDBVersion)
+	if err != nil {
+		return version, fmt.Errorf("ducklake: parse duckdb version %q: %w", version, err)
+	}
+	if !ok {
+		return version, fmt.Errorf("ducklake: duckdb %s is below required %s", version, MinDuckDBVersion)
+	}
+	return version, nil
+}
+
+// AssertExtensionsLoaded 确认当前引擎所需的扩展均已加载。
+func AssertExtensionsLoaded(ctx context.Context, db *sql.DB, engine string) error {
+	rows, err := db.QueryContext(ctx, `
+		SELECT extension_name, loaded
+		FROM duckdb_extensions()
+		WHERE extension_name IN ('ducklake', 'sqlite', 'sqlite_scanner', 'httpfs')`)
+	if err != nil {
+		return fmt.Errorf("ducklake: list extensions: %w", err)
+	}
+	defer rows.Close()
+
+	loaded := map[string]bool{}
+	for rows.Next() {
+		var name string
+		var isLoaded bool
+		if err := rows.Scan(&name, &isLoaded); err != nil {
+			return err
+		}
+		loaded[name] = isLoaded
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, ext := range requiredExtensions(engine) {
+		if !extensionLoaded(loaded, ext) {
+			return fmt.Errorf("ducklake: required extension %s is not loaded (seen=%v)", ext, loaded)
+		}
+	}
+	return nil
+}
+
+func extensionLoaded(loaded map[string]bool, name string) bool {
+	candidates := extensionAliases[name]
+	if len(candidates) == 0 {
+		candidates = []string{name}
+	}
+	for _, c := range candidates {
+		if loaded[c] {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeDuckDBVersion(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexAny(v, " -+"); i >= 0 {
+		v = v[:i]
+	}
+	return v
+}
+
+func versionAtLeast(got, min string) (bool, error) {
+	g, err := parseSemver3(got)
+	if err != nil {
+		return false, err
+	}
+	m, err := parseSemver3(min)
+	if err != nil {
+		return false, err
+	}
+	for i := 0; i < 3; i++ {
+		if g[i] > m[i] {
+			return true, nil
+		}
+		if g[i] < m[i] {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func parseSemver3(v string) ([3]int, error) {
+	var out [3]int
+	parts := strings.Split(v, ".")
+	if len(parts) < 2 {
+		return out, fmt.Errorf("invalid semver %q", v)
+	}
+	for i := 0; i < 3 && i < len(parts); i++ {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return out, fmt.Errorf("invalid semver %q", v)
+		}
+		out[i] = n
+	}
+	return out, nil
+}

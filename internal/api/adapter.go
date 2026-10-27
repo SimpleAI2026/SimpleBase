@@ -1,7 +1,34 @@
-// adapter.go 提供 catalog.Service + registry.Registry 到 api.DatabaseService 的适配器。
+// 文件说明：adapter.go — catalog.Service + registry.Registry 到 api.DatabaseService 的适配器
 //
-// handler 只依赖 api.DatabaseService 接口；本文件把具体实现桥接到该接口，
-// 使 handler 可测试且不直接依赖 catalog/registry 具体类型。
+// 用法
+//
+//	NewDatabaseServiceAdapter(cat CatalogService, reg RegistryService, purger ...
+//	type CatalogService（导出类型，同包与上层均可使用）
+//	type RegistryService（导出类型，同包与上层均可使用）
+//	同包调用：Release() → collection_meta_handler.go, collection_meta_handler.go 等；Query() → collection_meta_handler.go, collection_meta_handler.go 等；Execute() → collection_meta_handler.go, collection_meta_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/adapter.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, godatabase/cache, godatabase/registry, internal/audit 等
+//	[同包] agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go, auth_handler.go 等 59 个
+//	[关键引用] Release() ← collection_meta_handler.go, collection_transfer.go
+//
+// 主要符号
+//
+//	type CatalogService interface {…}
+//	type RegistryService interface {…}
+//	NewDatabaseServiceAdapter(cat CatalogService, reg RegistryService, purger ...
+//	type SystemStoreRef interface {…}
+//	NewSQLServiceAdapter(cat CatalogService, reg RegistryService, system ...
+//	NewCacheService(m *cache.Manager) CacheService
+//	... 另有 44 个顶层符号
+
 package api
 
 import (
@@ -9,14 +36,13 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/cache"
+	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/cache"
-	"github.com/linkxzhou/SimpleBase/internal/database/registry"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
-	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
 	"github.com/voocel/litellm/providers"
 )
@@ -35,7 +61,7 @@ type CatalogService interface {
 
 // RegistryService 是 handler 依赖的 registry 的最小接口。
 type RegistryService interface {
-	Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (*registry.Lease, error)
+	Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (*registry.Lease, error)
 	CloseDatabase(ctx context.Context, databaseID string) error
 }
 
@@ -43,11 +69,11 @@ type RegistryService interface {
 type dbServiceAdapter struct {
 	catalog  CatalogService
 	registry RegistryService
-	purger   objectstore.Deleter // 可为 nil（本地模式）
+	purger   catalog.StoragePurger // 可为 nil（本地模式）
 }
 
-// NewDatabaseServiceAdapter 构造 DatabaseService。purger 用于删库时同步清理平面 B。
-func NewDatabaseServiceAdapter(cat CatalogService, reg RegistryService, purger objectstore.Deleter) DatabaseService {
+// NewDatabaseServiceAdapter 构造 DatabaseService。purger 用于删库时清理项目数据库文件。
+func NewDatabaseServiceAdapter(cat CatalogService, reg RegistryService, purger catalog.StoragePurger) DatabaseService {
 	return &dbServiceAdapter{catalog: cat, registry: reg, purger: purger}
 }
 
@@ -103,9 +129,9 @@ func (a *sqlServiceAdapter) GetDatabase(ctx context.Context, principal auth.Prin
 	return a.catalog.GetDatabase(ctx, principal, projectID, databaseID)
 }
 
-func (a *sqlServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error) {
+func (a *sqlServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, error) {
 	// 系统库：桥接到 systemdb 常驻连接（只读查询），不经 registry。
-	if catalog.IsSystemDatabase(db) && a.system != nil && mode == database.ReadOnly {
+	if catalog.IsSystemDatabase(db) && a.system != nil && mode == godatabase.ReadOnly {
 		return WrapTimedLease(ctx, &systemLeaseAdapter{conn: a.system.DB()}), nil
 	}
 	timer := StageTimerFrom(ctx)
@@ -135,15 +161,15 @@ type systemLeaseAdapter struct {
 
 func (s *systemLeaseAdapter) Release() {}
 
-func (s *systemLeaseAdapter) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
-	return database.Query(ctx, s.conn, stmt, maxRows)
+func (s *systemLeaseAdapter) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, error) {
+	return godatabase.Query(ctx, s.conn, stmt, maxRows)
 }
 
-func (s *systemLeaseAdapter) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
-	return database.QueryResult{}, catalog.ErrSystemProtected
+func (s *systemLeaseAdapter) Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error) {
+	return godatabase.QueryResult{}, catalog.ErrSystemProtected
 }
 
-func (s *systemLeaseAdapter) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
+func (s *systemLeaseAdapter) Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.QueryResult, error) {
 	return nil, catalog.ErrSystemProtected
 }
 
@@ -162,15 +188,15 @@ func (s *sqlLeaseAdapter) Release() {
 	s.lease.Release()
 }
 
-func (s *sqlLeaseAdapter) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
+func (s *sqlLeaseAdapter) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, error) {
 	return s.lease.Handle.Query(ctx, stmt, maxRows)
 }
 
-func (s *sqlLeaseAdapter) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
+func (s *sqlLeaseAdapter) Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error) {
 	return s.lease.Handle.Execute(ctx, stmt)
 }
 
-func (s *sqlLeaseAdapter) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
+func (s *sqlLeaseAdapter) Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.QueryResult, error) {
 	return s.lease.Handle.Batch(ctx, stmts, transactional)
 }
 

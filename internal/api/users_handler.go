@@ -1,4 +1,33 @@
-// users_handler.go 提供 /v1/users 用户管理（planv3.0 §4.4）。
+// 文件说明：users_handler.go — /v1/users 用户管理（planv3.0 §4.4）
+//
+// 用法
+//
+//	NewUsersHandler(users *auth.UserService, sessions *auth.SessionService) ...
+//	(h *UsersHandler) List(c echo.Context) error  // List: GET /v1/users
+//	(h *UsersHandler) Create(c echo.Context) error  // Create: POST /v1/users（仅 superadminl1）
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/users_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/auth
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//
+// 主要符号
+//
+//	type UsersHandler struct {…}
+//	NewUsersHandler(users *auth.UserService, sessions *auth.SessionService) ...
+//	(h *UsersHandler) List(c echo.Context) error
+//	(h *UsersHandler) Create(c echo.Context) error
+//	(h *UsersHandler) Get(c echo.Context) error
+//	(h *UsersHandler) Patch(c echo.Context) error
+//	... 另有 7 个顶层符号
+//	users_handler.go 提供 /v1/users 用户管理（planv3.0 §4.4）。
+
 package api
 
 import (

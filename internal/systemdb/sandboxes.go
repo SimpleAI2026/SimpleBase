@@ -1,10 +1,38 @@
+// 文件说明：sandboxes.go — internal/systemdb 中 SandboxRow、CreateSandbox 等符号的实现
+//
+// 用法
+//
+//	(s *Store) CreateSandbox(ctx context.Context, r SandboxRow) (SandboxRow, error)  // CreateSandbox 插入一行
+//	(s *Store) GetSandbox(ctx context.Context, projectID, id string) (SandboxRow, error)  // GetSandbox 按 (project, id) 取未删除行
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/sandboxes.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/sqlval, internal/utils/limit
+//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//
+// 主要符号
+//
+//	type SandboxRow struct {…}
+//	(s *Store) CreateSandbox(ctx context.Context, r SandboxRow) (SandboxRow, error)
+//	(s *Store) GetSandbox(ctx context.Context, projectID, id string) (SandboxRow, error)
+//	(s *Store) GetSandboxByID(ctx context.Context, id string) (SandboxRow, error)
+//	(s *Store) GetSandboxByName(ctx context.Context, projectID, name string) ...
+//	(s *Store) GetSandboxByThread(ctx context.Context, projectID, threadID string) ...
+//	... 另有 13 个顶层符号
+
 package systemdb
 
 import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
+	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,9 +86,9 @@ func (s *Store) CreateSandbox(ctx context.Context, r SandboxRow) (SandboxRow, er
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sys_sandboxes(`+sandboxColumns+`)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.ProjectID, r.Name, r.CloudName, r.Source, nullString(r.ThreadID), r.Image, r.CPUs, r.MemoryMiB, r.Network,
+		r.ID, r.ProjectID, r.Name, r.CloudName, r.Source, sqlval.NullString(r.ThreadID), r.Image, r.CPUs, r.MemoryMiB, r.Network,
 		r.IdleTimeoutS, r.MaxDurationS, r.Status, r.LastError, r.CreatedBy, r.CreatedAt.UTC(),
-		nullTimeValue(r.StartedAt), nullTimeValue(r.LastActiveAt), nullTimeValue(r.ExpiresAt), nullTimeValue(r.DeletedAt),
+		sqlval.NullTimeValue(r.StartedAt), sqlval.NullTimeValue(r.LastActiveAt), sqlval.NullTimeValue(r.ExpiresAt), sqlval.NullTimeValue(r.DeletedAt),
 		metadataOrEmpty(r.Metadata))
 	if err != nil {
 		return SandboxRow{}, err
@@ -89,31 +117,6 @@ func (s *Store) GetSandboxByID(ctx context.Context, id string) (SandboxRow, erro
 	row := s.db.QueryRowContext(ctx,
 		`SELECT `+sandboxColumns+` FROM sys_sandboxes WHERE id = ? AND deleted_at IS NULL`, id)
 	return scanSandbox(row)
-}
-
-// SandboxSchemaReady 报告 sys_sandboxes 是否已有 metadata 列（迁移 v50 是否已应用）。
-// 只做一次 LIMIT 0 的 SELECT，缺列时驱动报错；不改结构，也不依赖具体数据库的元数据表。
-// 未迁移时沙盒模块自行置为不可用，而不是让每个请求失败。
-func (s *Store) SandboxSchemaReady(ctx context.Context) (bool, error) {
-	if s == nil || s.db == nil {
-		return false, ErrUnavailable
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT metadata FROM sys_sandboxes LIMIT 0`)
-	if err != nil {
-		if isMissingColumn(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, rows.Close()
-}
-
-// isMissingColumn 判断是不是「列不存在」。SQLite 的文案是 "no such column"，
-// DuckDB 是 "does not have a column" / "Referenced column ... not found"。
-func isMissingColumn(err error) bool {
-	m := strings.ToLower(err.Error())
-	return strings.Contains(m, "no such column") || strings.Contains(m, "does not have a column") ||
-		(strings.Contains(m, "column") && strings.Contains(m, "not found"))
 }
 
 // GetSandboxByName 按项目内名称取未删除行。
@@ -210,7 +213,7 @@ func (s *Store) UpdateSandbox(ctx context.Context, r SandboxRow) error {
 			started_at=?, last_active_at=?, expires_at=?
 		 WHERE id=? AND project_id=? AND deleted_at IS NULL`,
 		r.Name, r.IdleTimeoutS, r.Status, r.LastError,
-		nullTimeValue(r.StartedAt), nullTimeValue(r.LastActiveAt), nullTimeValue(r.ExpiresAt),
+		sqlval.NullTimeValue(r.StartedAt), sqlval.NullTimeValue(r.LastActiveAt), sqlval.NullTimeValue(r.ExpiresAt),
 		r.ID, r.ProjectID)
 	if err != nil {
 		return err
@@ -340,14 +343,6 @@ func scanSandbox(sc rowScanner) (SandboxRow, error) {
 		r.DeletedAt = deleted.Time
 	}
 	return r, nil
-}
-
-// nullTimeValue 零值时间转 NULL。
-func nullTimeValue(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t.UTC()
 }
 
 // metadataOrEmpty 把空串归一为 "{}"，保证库里始终是合法 JSON 对象。

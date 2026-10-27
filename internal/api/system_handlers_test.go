@@ -24,7 +24,7 @@ func openSystemAPI(t *testing.T) *systemdb.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	return systemdb.NewStoreForTest(db)

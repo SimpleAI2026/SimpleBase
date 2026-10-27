@@ -271,28 +271,3 @@ func TestSandboxE2B_CrossProject(t *testing.T) {
 		t.Errorf("X-SimpleBase-Project pointing at another project: %d", code)
 	}
 }
-
-// 迁移 v50 未应用时，沙盒模块自行不可用并写明原因，其余功能不受影响。
-func TestSandboxE2B_UnmigratedDatabaseDisablesOnlyTheSandbox(t *testing.T) {
-	cfg := testConfig(true)
-	cfg.Storage = config.StorageConfig{Database: config.StorageModeLocal, Files: config.StorageModeLocal, DataDir: t.TempDir()}
-	cfg.S3 = config.S3Config{}
-	cfg.Database.CacheDir = t.TempDir()
-	cfg.Sandbox = config.SandboxConfig{Enabled: true, Backend: "fake", Image: "x", CPUs: 1, MemoryMiB: 256, Network: "none",
-		Workdir: "/workspace", MaxDuration: time.Minute, IdleTimeout: time.Minute, ExecTimeout: time.Second,
-		ExecTimeoutMax: time.Minute, MaxFileBytes: 1 << 10, MaxOutputBytes: 1 << 10, MaxPerProject: 1}
-	// 先建好库并应用迁移，再模拟一个「还没迁移到 v50」的运行库：删掉 metadata 列。
-	a, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.SystemStore().DB().ExecContext(context.Background(), `ALTER TABLE sys_sandboxes DROP COLUMN metadata`); err != nil {
-		_ = a.Shutdown(context.Background())
-		t.Skipf("the driver cannot drop a column: %v", err)
-	}
-	ok, _ := a.SystemStore().SandboxSchemaReady(context.Background())
-	if ok {
-		t.Fatal("precondition: schema must report not ready")
-	}
-	_ = a.Shutdown(context.Background())
-}

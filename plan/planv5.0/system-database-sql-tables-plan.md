@@ -84,7 +84,7 @@ admin 项目的列表本身只含系统库：`catalog.Service.ListDatabases` 在
 
 `sqlguard` 只做首关键字、多语句、NUL、DuckLake 元数据标识符和危险指令。它不管列名。用户库里名叫 `password_hash` 的列必须还能被自己的主人读到，所以敏感列规则不能写进 `sqlguard`。
 
-云 Agent 的 `readonly_sql`（`internal/api/cloudagent_access.go` 的 `ReadOnlyQuery`）走 `registry.Acquire`，不走 `systemLeaseAdapter`。按 `internal/AGENTS.md`，这条路径打开的是空 catalog，读不到真实系统表。本次不要把它改接到系统库上（见 §5）。
+云 Agent 的 `readonly_sql`（`internal/api/gocloudagent_access.go` 的 `ReadOnlyQuery`）走 `registry.Acquire`，不走 `systemLeaseAdapter`。按 `internal/AGENTS.md`，这条路径打开的是空 catalog，读不到真实系统表。本次不要把它改接到系统库上（见 §5）。
 
 ### 1.5 谁能看见系统库
 

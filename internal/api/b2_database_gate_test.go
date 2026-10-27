@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 )
 
 // B2-database 表征（planv6.0 §8 B2）：GetDatabase → IsSystemDatabase 连续段在
@@ -22,8 +22,8 @@ func TestSQLHandler_ExecuteDatabaseGate(t *testing.T) {
 		return &fakeSQLService{
 			db: catalog.Database{ID: "u", ProjectID: "proj-1", Status: catalog.DatabaseReady},
 			lease: &fakeSQLLease{
-				executeResult: database.QueryResult{RowsAffected: 1},
-				batchResults:  []database.QueryResult{{RowsAffected: 1}},
+				executeResult: godatabase.QueryResult{RowsAffected: 1},
+				batchResults:  []godatabase.QueryResult{{RowsAffected: 1}},
 			},
 		}
 	}
@@ -89,7 +89,7 @@ func TestSQLHandler_ExecuteDatabaseGate(t *testing.T) {
 	// 5. Acquire 失败：lease 为 nil，错误原样返回。
 	{
 		svc := newUserSvc()
-		svc.acquireErr = database.ErrWriterUnavailable
+		svc.acquireErr = godatabase.ErrWriterUnavailable
 		svc.calls = &serviceCallLog{}
 		h := NewSQLHandler(svc, testSQLLimits(), true)
 		code, _ := execReq(h)
@@ -110,7 +110,7 @@ func TestSQLHandler_ExecuteDatabaseGate(t *testing.T) {
 		if code != http.StatusOK || !strings.Contains(body, `"rows_affected":1`) {
 			t.Fatalf("success status=%d body=%s", code, body)
 		}
-		if svc.calls.acquire != 1 || svc.acquiredMode != database.ReadWrite {
+		if svc.calls.acquire != 1 || svc.acquiredMode != godatabase.ReadWrite {
 			t.Fatalf("acquire=%d mode=%v want 1 ReadWrite", svc.calls.acquire, svc.acquiredMode)
 		}
 		if !svc.lease.released {
@@ -127,8 +127,8 @@ func TestSQLHandler_BatchDatabaseGate(t *testing.T) {
 		return &fakeSQLService{
 			db: catalog.Database{ID: "u", ProjectID: "proj-1", Status: catalog.DatabaseReady},
 			lease: &fakeSQLLease{
-				executeResult: database.QueryResult{RowsAffected: 1},
-				batchResults:  []database.QueryResult{{RowsAffected: 1}},
+				executeResult: godatabase.QueryResult{RowsAffected: 1},
+				batchResults:  []godatabase.QueryResult{{RowsAffected: 1}},
 			},
 		}
 	}
@@ -185,7 +185,7 @@ func TestSQLHandler_BatchDatabaseGate(t *testing.T) {
 		if code != http.StatusOK || !strings.Contains(body, `"durability":"committed_local"`) {
 			t.Fatalf("success status=%d body=%s", code, body)
 		}
-		if svc.calls.acquire != 1 || svc.acquiredMode != database.ReadWrite {
+		if svc.calls.acquire != 1 || svc.acquiredMode != godatabase.ReadWrite {
 			t.Fatalf("acquire=%d mode=%v want 1 ReadWrite", svc.calls.acquire, svc.acquiredMode)
 		}
 		if !svc.lease.released {

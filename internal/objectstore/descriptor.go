@@ -1,3 +1,32 @@
+// 文件说明：descriptor.go — internal/objectstore 中 DescriptorFormatVersion、DuckLakeStorage 等符号的…
+//
+// 用法
+//
+//	(d *Descriptor) Validate() error  // Validate 校验 descriptor 的关键字段
+//	type DuckLakeStorage（导出类型，同包与上层均可使用）
+//	type Descriptor（导出类型，同包与上层均可使用）
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/descriptor.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] blob.go, client.go, content.go, content_local.go, content_s3.go 等 10 个
+//
+// 主要符号
+//
+//	const DescriptorFormatVersion
+//	type DuckLakeStorage struct {…}
+//	type Descriptor struct {…}
+//	const StatusCreating
+//	const StatusOpening
+//	const StatusReady
+//	... 另有 7 个顶层符号
+
 package objectstore
 
 import (

@@ -1,3 +1,34 @@
+// 文件说明：runtime.go — gofunction/internal/interp 中 Runtime、NewRuntime 等符号的实现
+//
+// 用法
+//
+//	NewRuntime() *Runtime
+//	(r *Runtime) Initialize(sequenceID string)  // Initialize 初始化运行时
+//	(r *Runtime) GetUserData(key string) (interface{}, bool)  // GetUserData 获取用户数据
+//	同包调用：Runtime → executor.go；Initialize() → executor.go；Reset() → executor.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/runtime.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
+//	[关键引用] Runtime ← executor.go
+//
+// 主要符号
+//
+//	type Runtime struct {…}
+//	NewRuntime() *Runtime
+//	(r *Runtime) Initialize(sequenceID string)
+//	(r *Runtime) GetUserData(key string) (interface{}, bool)
+//	(r *Runtime) SetUserData(key string, value interface{})
+//	(r *Runtime) Reset()
+//	... 另有 1 个顶层符号
+
 package interp
 
 import (

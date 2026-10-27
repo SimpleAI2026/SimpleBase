@@ -1,5 +1,25 @@
-// Package spec 是父进程（host）与沙盒内 helper（cmd/gosandbox-inner）之间的协议。
-// 单独成包，是为了让 host 不必链接 go-landlock / go-seccomp-bpf。
+// 文件说明：spec.go — 父进程（host）与沙盒内 helper（cmd/gosandbox-inner）之间的协议
+//
+// 用法
+//
+//	type Spec（导出类型，同包与上层均可使用）
+//
+// 调用架构
+//
+//	[上游] （无，本包为入口）
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/internal/spec/spec.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//
+// 主要符号
+//
+//	const ExitSetupFailed
+//	const FailPrefix
+//	type Spec struct {…}
+
 package spec
 
 // ExitSetupFailed 是 helper 在 Landlock / seccomp 装载失败时的退出码。

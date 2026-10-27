@@ -6,7 +6,7 @@ group: JavaScript
 
 # 安装
 
-当前尚未发布到 npm。在仓库内构建后通过 `file:` 引用：
+当前暂无 npm 发布版本。在仓库内构建后通过 `file:` 引用：
 
 ```bash
 cd packages/js-sdk

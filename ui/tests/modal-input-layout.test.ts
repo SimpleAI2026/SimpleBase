@@ -50,7 +50,7 @@ describe('modal input layout', () => {
   it('KvKeyListPanel search input shrinks on narrow width', () => {
     const src = read('databases/kv/KvKeyListPanel.vue')
     expect(src).toContain('min-w-0 flex-1 sm:w-64 sm:flex-none')
-    expect(src).toContain('w-32 shrink-0')
+    expect(src).toContain('w-28 shrink-0 sm:w-32')
   })
 
   it.each([
@@ -76,5 +76,13 @@ describe('modal input layout', () => {
     const src = read('ai/AgentScheduleModal.vue')
     expect(src).toContain('flex flex-wrap items-center justify-between')
     expect(src).not.toContain('class="min-w-50"')
+  })
+
+  it('FunctionTriggerModal uses responsive fields without nested horizontal scrolling', () => {
+    const src = read('modal/FunctionTriggerModal.vue')
+    expect(src).toContain('grid gap-5 md:grid-cols-2')
+    expect(src).toContain('class="md:col-span-2"')
+    expect(src).not.toContain('overflow-x-auto')
+    expect(src).not.toContain('class="w-56"')
   })
 })

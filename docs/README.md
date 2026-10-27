@@ -6,9 +6,9 @@
 |---|---|---|---|
 | `getting-started` | 入门 | 上手、核心概念 | — |
 | `workbench` | 工作台 | 云助手、监控大盘 | 工作台 |
-| `data` | 数据 | 数据库管理、Key-Value、对象存储 | 数据 |
-| `automation` | 自动化 | 云函数、定时任务、云沙盒 | 自动化 |
-| `ops` | 运维 | 日志与审计、部署与故障处理 | 运维 |
+| `data` | 数据 | 数据管理、Realtime、Key-Value、对象存储 | 数据 |
+| `automation` | 自动化 | 云函数、事件触发、定时任务、云沙盒 | 自动化 |
+| `ops` | 运维 | 日志与审计、部署与故障处理、备份恢复 | 运维 |
 | `sdk` | SDK | JavaScript、Go | — |
 
 模块清单与顺序登记在 `_meta.json`；`ui/tests/docs-order.test.ts` 会校验 Tab 数量与顺序，改动时同步更新。

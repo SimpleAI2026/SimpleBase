@@ -17,7 +17,7 @@ func validTestConfig(t *testing.T) Config {
 			IdleTimeout: time.Second, ShutdownTimeout: time.Second},
 		Instance: InstanceConfig{ID: "i1", Writable: false},
 		Storage:  StorageConfig{Database: StorageModeLocal, Files: StorageModeLocal, DataDir: "/tmp/data"},
-		Database: DatabaseConfig{Engine: EngineDuckLake, CacheDir: "/tmp/x", CacheMaxBytes: 1,
+		Database: DatabaseConfig{Engine: EngineDuckDB, CacheDir: "/tmp/x", CacheMaxBytes: 1,
 			CacheMaxDatabases: 1, IdleTimeout: time.Second, MaxOpen: 1},
 		Auth: AuthConfig{APIKeyHashSecret: "s"},
 		Limits: LimitsConfig{MaxRequestBytes: 1, MaxQueryRows: 1, QueryTimeout: time.Second,

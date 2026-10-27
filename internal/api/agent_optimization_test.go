@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -93,7 +93,7 @@ func TestAgentRunMetricsAuditOmitsConversation(t *testing.T) {
 	}
 	audit := &fakeAudit{}
 	h := &cloudAgentHandler{store: store, audit: audit}
-	res := cloudagent.RunResult{Content: "private conversation", ToolCallsJSON: "[]", DurationMS: 500, PromptTokens: 12, CompletionTokens: 3, ToolCalls: 1}
+	res := gocloudagent.RunResult{Content: "private conversation", ToolCallsJSON: "[]", DurationMS: 500, PromptTokens: 12, CompletionTokens: 3, ToolCalls: 1}
 	if err := h.finishAgentRun(context.Background(), "testprj1", run, systemdb.CloudAgent{ID: "agent"}, res, nil); err != nil {
 		t.Fatal(err)
 	}

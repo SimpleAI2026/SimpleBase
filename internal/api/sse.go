@@ -1,3 +1,25 @@
+// 文件说明：sse.go — internal/api 的内部实现（beginSSE 等）
+//
+// 用法
+//
+//	同包调用：beginSSE() → agent_handler.go, e2b_process_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/sse.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] beginSSE() ← agent_handler.go, e2b_process_handler.go, e2b_terminal.go
+//
+// 主要符号
+//
+//	beginSSE(c echo.Context)
+
 package api
 
 import (

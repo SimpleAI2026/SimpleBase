@@ -15,7 +15,7 @@ import (
 	_ "github.com/uglyer/go-sqlite3"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -310,10 +310,10 @@ func TestWrapTimedLeaseRecordsExec(t *testing.T) {
 	if _, ok := lease.(*timedLease); !ok {
 		t.Fatalf("want timedLease, got %T", lease)
 	}
-	if _, err := lease.Execute(ctx, database.Statement{SQL: "CREATE TABLE t(id INT)"}); err != nil {
+	if _, err := lease.Execute(ctx, godatabase.Statement{SQL: "CREATE TABLE t(id INT)"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := lease.Query(ctx, database.Statement{SQL: "SELECT 1 AS v"}, 10)
+	res, err := lease.Query(ctx, godatabase.Statement{SQL: "SELECT 1 AS v"}, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestWrapTimedLeaseRecordsExec(t *testing.T) {
 		t.Fatalf("rows meta=%d", timer.Meta("rows"))
 	}
 
-	if _, err := lease.Batch(ctx, []database.Statement{{SQL: "INSERT INTO t VALUES (1)"}}, true); err != nil {
+	if _, err := lease.Batch(ctx, []godatabase.Statement{{SQL: "INSERT INTO t VALUES (1)"}}, true); err != nil {
 		t.Fatal(err)
 	}
 	lease.NotifyWrite(ctx) // 记入 on_write
@@ -354,16 +354,16 @@ func newFakeLease(t *testing.T) *fakeLease {
 
 func (f *fakeLease) Release() {}
 
-func (f *fakeLease) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
-	return database.Query(ctx, f.db, stmt, maxRows)
+func (f *fakeLease) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, error) {
+	return godatabase.Query(ctx, f.db, stmt, maxRows)
 }
 
-func (f *fakeLease) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
-	return database.Execute(ctx, f.db, stmt)
+func (f *fakeLease) Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error) {
+	return godatabase.Execute(ctx, f.db, stmt)
 }
 
-func (f *fakeLease) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
-	return database.Batch(ctx, f.db, stmts, transactional)
+func (f *fakeLease) Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.QueryResult, error) {
+	return godatabase.Batch(ctx, f.db, stmts, transactional)
 }
 
 func (f *fakeLease) Raw() *sql.DB { return f.db }

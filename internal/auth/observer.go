@@ -1,14 +1,33 @@
-// observer.go 实现 planv5.0 P0 的认证阶段低基数观测。
+// 文件说明：observer.go — planv5.0 P0 的认证阶段低基数观测
 //
-// SessionService.PrincipalFromClaims 曾在 principalMu 内做库查询（潜在锁
-// convoy），P0 先不改行为，只把认证拆成可归因的子阶段：
-//   - auth_lock_wait：等待 principalMu 的耗时（锁 convoy 的直接证据）；
-//   - auth_cache_hit / auth_cache_miss：缓存命中状态；
-//   - auth_user_load：GetByID 查用户耗时；
-//   - auth_project_expand：PrincipalFromUser 展开项目集耗时。
+// 用法
 //
-// 观察者是可选依赖（nil-safe），由 api 装配处注入 StageTimer 桥接；
-// 只记录时长与命中状态等低基数标签，禁止输出 token/用户名/SQL。
+//	type AuthStage（导出类型，同包与上层均可使用）
+//	type AuthCacheState（导出类型，同包与上层均可使用）
+//	同包调用：AuthObserver → service.go, session.go 等；AuthCacheHit → cache.go, session.go；AuthCacheMiss → cache.go, session.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/observer.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] AuthObserver ← service.go, session.go, user_repository.go
+//
+// 主要符号
+//
+//	type AuthStage string
+//	const AuthStageLockWait
+//	const AuthStageUserLoad
+//	const AuthStageUserConn
+//	const AuthStageUserQuery
+//	const AuthStageUserScan
+//	... 另有 13 个顶层符号
+
 package auth
 
 import (
@@ -61,25 +80,6 @@ type AuthObserver interface {
 	ObserveAuthStage(ctx context.Context, stage AuthStage, d time.Duration)
 	// ObserveAuthCache 记录缓存命中状态（hit/miss；无缓存通道用 none）。
 	ObserveAuthCache(ctx context.Context, state AuthCacheState)
-}
-
-// authObservers 组合多个观察者（装配处用于同时写 StageTimer 与指标）。
-type authObservers []AuthObserver
-
-func (os authObservers) ObserveAuthStage(ctx context.Context, stage AuthStage, d time.Duration) {
-	for _, o := range os {
-		if o != nil {
-			o.ObserveAuthStage(ctx, stage, d)
-		}
-	}
-}
-
-func (os authObservers) ObserveAuthCache(ctx context.Context, state AuthCacheState) {
-	for _, o := range os {
-		if o != nil {
-			o.ObserveAuthCache(ctx, state)
-		}
-	}
 }
 
 // noopAuthObserver 是缺省空观察者。

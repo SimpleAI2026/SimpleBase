@@ -130,11 +130,12 @@ describe('空态与搜索动作', () => {
     // navigate 已在 DocsSearch.test.ts 覆盖真实路由跳转；这里只验证结果项
     // 的点击接线不会因为缺 router 而抛错（组件级 stub 场景）。
     const w = mount(DocsSearch, {
-      global: { stubs: { RouterLink: true } }
+      attachTo: document.body,
+      global: { stubs: { RouterLink: true, teleport: false } }
     })
     await w.find('button[aria-label="搜索文档"]').trigger('click')
     await flushPromises()
-    expect(w.find('input[type="search"]').exists()).toBe(true)
+    expect(document.body.querySelector('input[type="search"]')).not.toBeNull()
     w.unmount()
   })
 

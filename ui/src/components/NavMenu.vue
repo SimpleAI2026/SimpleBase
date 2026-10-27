@@ -77,9 +77,9 @@ interface MenuItem {
 /** 分类定义（planv3.0 侧栏美化）：工作台 / 数据 / 自动化 / 运维。label 是 i18n key。 */
 const GROUP_DEFS: { key: string; labelKey: string; names: string[] }[] = [
   { key: 'workspace', labelKey: 'nav.groupWorkspace', names: ['agents', 'dashboard'] },
-  { key: 'data', labelKey: 'nav.groupData', names: ['databases', 'key-value', 's3'] },
-  { key: 'automation', labelKey: 'nav.groupAutomation', names: ['gofunctions', 'cron-jobs', 'sandboxes'] },
-  { key: 'ops', labelKey: 'nav.groupOps', names: ['logs', 'users'] }
+  { key: 'data', labelKey: 'nav.groupData', names: ['databases', 'data-browser', 'key-value', 's3'] },
+  { key: 'automation', labelKey: 'nav.groupAutomation', names: ['gofunctions', 'function-triggers', 'cron-jobs', 'sandboxes'] },
+  { key: 'ops', labelKey: 'nav.groupOps', names: ['api-preview', 'logs', 'users'] }
 ]
 
 function isVisible(name: string): boolean {

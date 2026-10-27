@@ -1,3 +1,31 @@
+// 文件说明：env.go — internal/config 的内部实现（applyEnv、applyEnvAgent 等）
+//
+// 用法
+//
+//	同包调用：applyEnv() → config.go；parseDuration() → yaml.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/env.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/utils/strutil
+//	[同包] backup.go, config.go, http_boundary.go, yaml.go
+//	[关键引用] applyEnv() ← config.go
+//
+// 主要符号
+//
+//	applyEnv(cfg *Config)
+//	applyEnvAgent(cfg *Config)
+//	applyEnvSandbox(cfg *Config)
+//	applyEnvLLM(cfg *Config)
+//	setEnvBool(dst *bool, key string)
+//	setEnvInt(dst *int, key string)
+//	... 另有 12 个顶层符号
+
 package config
 
 import (
@@ -18,6 +46,37 @@ func applyEnv(cfg *Config) {
 	setEnvDuration(&cfg.HTTP.WriteTimeout, "SIMPLEBASE_HTTP_WRITE_TIMEOUT")
 	setEnvDuration(&cfg.HTTP.IdleTimeout, "SIMPLEBASE_HTTP_IDLE_TIMEOUT")
 	setEnvDuration(&cfg.HTTP.ShutdownTimeout, "SIMPLEBASE_HTTP_SHUTDOWN_TIMEOUT")
+	setEnvBool(&cfg.HTTP.Gzip, "SIMPLEBASE_HTTP_GZIP")
+	setEnvBool(&cfg.HTTP.CORS.Enabled, "SIMPLEBASE_HTTP_CORS_ENABLED")
+	setEnvBool(&cfg.HTTP.CORS.AllowCredentials, "SIMPLEBASE_HTTP_CORS_ALLOW_CREDENTIALS")
+	setEnvInt(&cfg.HTTP.CORS.MaxAge, "SIMPLEBASE_HTTP_CORS_MAX_AGE")
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_CORS_ALLOWED_ORIGINS"); ok {
+		cfg.HTTP.CORS.AllowedOrigins = strutil.SplitCSV(v)
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_TRUSTED_PROXIES"); ok {
+		cfg.HTTP.TrustedProxies = strutil.SplitCSV(v)
+	}
+	setEnvBool(&cfg.Limits.RateLimit.Enabled, "SIMPLEBASE_RATE_LIMIT_ENABLED")
+	setEnvInt(&cfg.Limits.RateLimit.Burst, "SIMPLEBASE_RATE_LIMIT_BURST")
+	setEnvBool(&cfg.Limits.RateLimit.ExemptSSE, "SIMPLEBASE_RATE_LIMIT_EXEMPT_SSE")
+	if v, ok := os.LookupEnv("SIMPLEBASE_FILES_TOKEN_SECRET"); ok {
+		cfg.Files.TokenSecret = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_FILES_ALLOWED_MIME"); ok {
+		cfg.Files.AllowedMIME = strutil.SplitCSV(v)
+	}
+	setEnvBool(&cfg.Backup.Enabled, "SIMPLEBASE_BACKUP_ENABLED")
+	setEnvBool(&cfg.Backup.UploadToS3, "SIMPLEBASE_BACKUP_UPLOAD_TO_S3")
+	setEnvInt(&cfg.Backup.KeepLast, "SIMPLEBASE_BACKUP_KEEP_LAST")
+	setEnvInt(&cfg.Backup.KeepDays, "SIMPLEBASE_BACKUP_KEEP_DAYS")
+	setEnvInt(&cfg.Backup.MaxPerProject, "SIMPLEBASE_BACKUP_MAX_PER_PROJECT")
+	setEnvDuration(&cfg.Backup.SnapshotTimeout, "SIMPLEBASE_BACKUP_SNAPSHOT_TIMEOUT")
+	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_DIR"); ok {
+		cfg.Backup.Dir = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_SCHEDULE"); ok {
+		cfg.Backup.Schedule = v
+	}
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_ID"); ok {
 		cfg.Instance.ID = v
@@ -122,6 +181,9 @@ func applyEnv(cfg *Config) {
 	setEnvInt(&cfg.Limits.MaxBatchStatements, "SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS")
 	setEnvInt(&cfg.Limits.MaxSQLBytes, "SIMPLEBASE_LIMITS_MAX_SQL_BYTES")
 	setEnvInt(&cfg.Limits.MaxConcurrentGoRuns, "SIMPLEBASE_LIMITS_MAX_CONCURRENT_GO_RUNS")
+	setEnvInt(&cfg.Limits.MaxFilterScanRows, "SIMPLEBASE_LIMITS_MAX_FILTER_SCAN_ROWS")
+	setEnvInt64(&cfg.Limits.MaxImportBytes, "SIMPLEBASE_LIMITS_MAX_IMPORT_BYTES")
+	setEnvInt(&cfg.Limits.RealtimeMaxConns, "SIMPLEBASE_LIMITS_REALTIME_MAX_CONNS")
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_LOG_LEVEL"); ok {
 		cfg.Observability.LogLevel = v

@@ -3,7 +3,7 @@
 SimpleBase 的沙盒执行层，独立 Go 模块 `github.com/linkxzhou/SimpleBase/gosandbox`（根 `go.mod` 用 `replace => ./gosandbox` 引用）。**不得 import 根模块任何包**（含 `internal/...`）。
 
 ```text
-host/                  本机进程隔离（cloudagent CLI 的本机 shell 用）
+host/                  本机进程隔离（gocloudagent CLI 的本机 shell 用）
   inner/               沙盒内加载 Landlock + seccomp（仅 linux）
 cmd/gosandbox-inner/   沙盒内 helper 二进制，纯 Go，不链接 DuckDB
 vm/                    云沙盒的执行后端：Driver 接口，以及 local（本机隔离）与 fake（内存假后端，仅测试）
@@ -26,10 +26,27 @@ vm/                    云沙盒的执行后端：Driver 接口，以及 local�
 | 模式 | 文件系统 | 网络 |
 |---|---|---|
 | `read-only` | 根只读，`/tmp` 为 tmpfs | 无 |
-| `workspace-write` | 根只读；工作区与 `writable_roots` 可写；工作区内 `.git`、`.cloudagent` 再盖成只读 | 无 |
+| `workspace-write` | 根只读；工作区与 `writable_roots` 可写；工作区内 `.gocloudagent` 与强制 deny 表（见下）再盖成只读 | 无 |
 | `danger-full-access` | 不启动沙盒（等同关闭隔离） | 不限制 |
 
 网络没有「按域名放行」：放开网络只有 `danger-full-access`。
+
+### 强制 deny 表（planv6.3）
+
+`workspace-write` 下，下面这些路径在**生成命令时已存在**的前提下再盖成只读，即使它们落在可写区内。它们会被沙盒之外的程序执行或读取，沙盒内写入不会立刻越界，但会在用户之后于宿主侧操作该目录时被触发：
+
+| 路径（相对工作区与每个 `writable_roots`） | 谁会用到 |
+|---|---|
+| `.git/hooks`、`.git/config`、`.git/info/attributes` | git 的 hook、`core.fsmonitor` / `alias` / `filter.*` |
+| `.gitmodules` | 子模块 URL 与更新命令 |
+| `.mcp.json` | MCP 客户端 |
+| `.vscode`、`.idea` | IDE 打开项目即触发的任务与运行配置 |
+| `~/.bashrc` `~/.bash_profile` `~/.zshrc` `~/.zprofile` `~/.profile` `~/.gitconfig` | **仅当某个可写根覆盖了 HOME 时**追加；根本来就只读，否则不需要 |
+
+- `Policy.DisableForceDeny=true` 可关闭；零值即开启。关闭时 `Result.Warnings` 如实提示，shell 工具的返回里带 `warnings`。
+- `read_only_subpaths` 与强制表取并集后去重。显式写空数组只关闭前者，不关闭强制表。
+- 默认的 `read_only_subpaths` 是 `[".gocloudagent"]`，**不含整个 `.git`**，所以沙盒内 `git init` / `add` / `commit` 可用。想要旧行为（整个 `.git` 只读，`git commit` 失败）就显式写 `[".git", ".gocloudagent"]`。
+- **只保护已存在的路径。** 对尚不存在的 `.git/hooks` 加 deny 会让沙盒内 `git init` 直接失败（macOS 真机实测）。所以工作区还没有 `.git` 时不做保护，`git init` 之后的**下一条命令**起即受保护；**同一条命令里「`git init` 后写入 hook」的窗口无法关闭**。
 
 ### 失败语义
 
@@ -42,7 +59,7 @@ vm/                    云沙盒的执行后端：Driver 接口，以及 local�
 - bwrap：绝对路径、非 setuid（CVE-2020-5291）、`--help` 含 `--disable-userns`（bubblewrap >= 0.8.0），不会选中当前目录里的同名文件。
 - 用户命名空间可用。Ubuntu 的 AppArmor 限制会让探测失败，错误信息指向 <https://bugs.launchpad.net/bugs/2046477>；不要为此把 sysctl 改成 0。
 - Landlock ABI >= 3（V3 起含 truncate）；seccomp 可用。
-- helper `gosandbox-inner`：显式 `helper_path`，否则取调用方可执行文件同目录。`./build.sh` 在 Linux 上会把它构建到 `cloudagent` 旁边。
+- helper `gosandbox-inner`：显式 `helper_path`，否则取调用方可执行文件同目录。`./build.sh` 在 Linux 上会把它构建到 `gocloudagent` 旁边。
 
 ### 资源限额
 
@@ -53,7 +70,9 @@ vm/                    云沙盒的执行后端：Driver 接口，以及 local�
 - 共享内核：不承诺挡住 Dirty Pipe、CVE-2024-1086 等内核提权；多租户 / 不可信代码不应交给本层；需要 VM 级隔离时应另行实现 `vm.Driver`。
 - 挡不住工作区**内部**的误删，所以 `rm -rf` 等的确认保留；`--yolo` 只跳过确认，不跳过隔离。
 - 文件工具（`read_file` 等）在父进程里运行，不在沙盒里；`deny_read` 由 `host.DeniesRead` 同时约束它们。
-- `.git` 默认只读，所以沙盒内 `git commit` 会失败；要让 agent 提交，把 `.git` 从 `read_only_subpaths` 去掉，并接受 hook 可被改写的风险。
+- 默认 `.git` 里只有 hooks / config / info/attributes 只读，其余可写，所以沙盒内 `git commit` 可用。代价（接受的残余风险）：`HEAD`、`refs`、`objects` 可写，沙盒内命令能改写分支指向、植入对象。它们不直接导致宿主侧代码执行，但会影响用户之后检出 / 合并的内容。需要更严时显式配 `read_only_subpaths: [".git", ".gocloudagent"]`，此时 `git commit` 会失败。
+- 强制 deny 表只覆盖已存在的路径：同一条命令里先 `git init` 再写 `.git/hooks/*` 会成功（见上文）。
+- `deny_read` 支持 glob（`*` 不跨段，`**` 跨段，`?`，`[abc]`；无转义字符，拼不出集合的方括号如 `[user-id]` 按字面量；glob 不得以 `/` 结尾；`literal:` 前缀强制字面量）。两个平台语义不同：Linux 在生成命令时展开成当下存在的路径（快照，之后新建的匹配文件不受掩蔽，单个 glob 最多 1024 条，超限报错而不是截断）；macOS 转成 SBPL 正则，新建文件也被拒。`host.DeniesRead` 始终按完整 glob 判断，所以文件工具比 Linux 的 shell 更严。
 - seccomp 默认拒绝新建 `AF_UNIX` / `AF_VSOCK` socket，依赖本地 socket 的工具可能受影响。
 
 ## vm/local：云沙盒的本机后端

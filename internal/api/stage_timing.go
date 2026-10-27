@@ -1,13 +1,33 @@
-// stage_timing.go 实现 api-db-perf-validation-plan §2.1 的请求分段计时。
+// 文件说明：stage_timing.go — api-db-perf-validation-plan §2.1 的请求分段计时
 //
-// 每个业务请求被划分为固定阶段（Stage*），StageTimer 在 context 上累计各段
-// 耗时；perfStageMiddleware 负责创建/回收并在请求结束时输出：
-//   - Prometheus histogram（simplebase_api_stage_seconds，buckets 覆盖 1ms–40s）；
-//   - debug 结构化日志（仅 request_id/耗时/行数/错误码，禁止记录 SQL 与参数）。
+// 用法
 //
-// 计时默认关闭（nil timer 即 no-op）；通过 Observability.PerfStageTiming
-// 或 SIMPLEBASE_PERF_STAGE_TIMING=true 开启。所有 StageXXX 函数 nil-safe，
-// 关闭时开销为一次指针判空。
+//	(t *StageTimer) WithContext(ctx context.Context) context.Context  // WithContext 返回携带本 timer 的 context（供 adapter/handler 深层取用）
+//	StageTimerFrom(ctx context.Context) *StageTimer  // StageTimerFrom 取出 ctx 上的 timer
+//	同包调用：Done() → adapter.go, agent_handler.go 等；StageScope → adapter.go, adapter.go 等；Release() → adapter.go, collection_meta_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/stage_timing.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, internal/auth
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Done() ← adapter.go, agent_handler.go, auth_handler.go
+//
+// 主要符号
+//
+//	type Stage string
+//	const StageTotal
+//	const StageAuth
+//	const StageProject
+//	const StageDecode
+//	const StageCatalog
+//	... 另有 54 个顶层符号
+
 package api
 
 import (
@@ -17,8 +37,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
-	"github.com/linkxzhou/SimpleBase/internal/database"
 	"go.uber.org/zap"
 )
 
@@ -42,7 +62,7 @@ const (
 	StageAcquire Stage = "acquire"
 	// StageDBQueue 单连接排队（*sql.DB 内部等待），由 timedLease 记录。
 	StageDBQueue Stage = "db_conn_queue"
-	// StageDBExec SQL 执行 + 行扫描（database.Query/Execute 内部）。
+	// StageDBExec SQL 执行 + 行扫描（godatabase.Query/Execute 内部）。
 	StageDBExec Stage = "db_exec"
 	// StageDBCommit KV 自管事务的 commit 部分（写放大分析；SQL 路径并入 db_exec）。
 	StageDBCommit Stage = "db_commit"
@@ -363,8 +383,8 @@ func (t *timedLease) observeDB(ctx context.Context, conn *sql.DB, op func() erro
 
 func (t *timedLease) Release() { t.inner.Release() }
 
-func (t *timedLease) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
-	var res database.QueryResult
+func (t *timedLease) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, error) {
+	var res godatabase.QueryResult
 	err := t.observeDB(ctx, t.inner.Raw(), func() error {
 		var qerr error
 		res, qerr = t.inner.Query(ctx, stmt, maxRows)
@@ -378,8 +398,8 @@ func (t *timedLease) Query(ctx context.Context, stmt database.Statement, maxRows
 	return res, err
 }
 
-func (t *timedLease) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
-	var res database.QueryResult
+func (t *timedLease) Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error) {
+	var res godatabase.QueryResult
 	err := t.observeDB(ctx, t.inner.Raw(), func() error {
 		var xerr error
 		res, xerr = t.inner.Execute(ctx, stmt)
@@ -388,8 +408,8 @@ func (t *timedLease) Execute(ctx context.Context, stmt database.Statement) (data
 	return res, err
 }
 
-func (t *timedLease) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
-	var res []database.QueryResult
+func (t *timedLease) Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.QueryResult, error) {
+	var res []godatabase.QueryResult
 	err := t.observeDB(ctx, t.inner.Raw(), func() error {
 		var berr error
 		res, berr = t.inner.Batch(ctx, stmts, transactional)

@@ -67,7 +67,7 @@
     </div>
 
     <template #footer>
-      <div class="flex w-full items-center justify-end gap-2">
+      <div class="flex w-full flex-wrap items-center justify-end gap-2">
         <Button
           v-if="isTextLike(info.kind)"
           variant="outline"

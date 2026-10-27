@@ -1,3 +1,29 @@
+// 文件说明：interactive.go — gosandbox/vm/fake 中 Start 等符号的实现
+//
+// 用法
+//
+//	(d *Driver) Start(ctx context.Context, t sb.Target, req sb.StartSpec) (sb.Proc ...  // Start 实现 vm.Interactive：不启动任何真进程，用一个极小的行解释器模拟交互 shell
+//	type fakeProc（包内使用）
+//	type byteQueue（包内使用）
+//	同包调用：Done() → fake.go；Size() → fake.go；run() → fake.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/fake/interactive.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/vm
+//	[同包] fake.go
+//	[关键引用] Done() ← fake.go
+//
+// 主要符号
+//
+//	(d *Driver) Start(ctx context.Context, t sb.Target, req sb.StartSpec) (sb.Proc ...
+//	... 另有 20 个顶层符号
+
 package fake
 
 import (

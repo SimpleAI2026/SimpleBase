@@ -1,8 +1,32 @@
-// kv_commands.go 是 cmd 分发器：命令名 → 解析函数 → 仓库方法（key-value-ducklake-plan §3.3）。
+// 文件说明：kv_commands.go — cmd 分发器：命令名 → 解析函数 → 仓库方法（key-value-ducklake-plan §3.3…
 //
-// dispatcher 只做参数解析与调用编排，不拼 SQL、不新增表；
-// 所有数据操作走 internal/database/kv 现有仓库方法。
-// 命令名大小写不敏感；参数个数不对、选项不认识 → 400 kv_invalid_argument。
+// 用法
+//
+//	type kvCmdSpec（包内使用）
+//	同包调用：kvCommandTable → kv_handler.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/kv_commands.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase/kv
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] kvCommandTable ← kv_handler.go
+//
+// 主要符号
+//
+//	type kvCmdSpec struct {…}
+//	kvArgErr(c echo.Context, msg string) error
+//	kvNeedArgs(c echo.Context, argv []string, n int) error
+//	kvNeedAtLeast(c echo.Context, argv []string, n int) error
+//	kvParseInt(c echo.Context, s string) (int64, error)
+//	kvParseFloat(c echo.Context, s string) (float64, error)
+//	... 另有 14 个顶层符号
+
 package api
 
 import (
@@ -15,7 +39,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/linkxzhou/SimpleBase/internal/database/kv"
+	"github.com/linkxzhou/SimpleBase/godatabase/kv"
 )
 
 // kvCmdSpec 描述一条命令。
@@ -65,22 +89,6 @@ func kvParseFloat(c echo.Context, s string) (float64, error) {
 	}
 	return f, nil
 }
-
-// kvIntArgv 把全部剩余参数解析为整数。
-func kvIntArgv(c echo.Context, argv []string) ([]int64, error) {
-	out := make([]int64, len(argv))
-	for i, s := range argv {
-		n, err := kvParseInt(c, s)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = n
-	}
-	return out, nil
-}
-
-// kvEmptyNone 无 schema 空库时读命令返回 nil（GET 等）。
-func kvEmptyNone(*echo.Context) any { return nil }
 
 // kvCommandTable 是全部支持的命令。
 var kvCommandTable = map[string]kvCmdSpec{
@@ -1188,16 +1196,11 @@ var kvCommandTable = map[string]kvCmdSpec{
 
 // —— 执行辅助 ——
 
-// kvCtxFromRequest 由 handler 设置当前请求 context（仓库方法需要 ctx 做超时/取消）。
-// 简化处理：命令表在 parse 阶段无法拿到 ctx，这里用包级约定——
-// execCmd 在执行前调用 kvBindContext(ctx) 绑定本次请求的 context。
-var kvRequestCtx = context.Background()
-
-func kvBindContext(ctx context.Context) { kvRequestCtx = ctx }
-
+// kvCtxFromRequest 取当前请求的 context（仓库方法需要 ctx 做超时/取消）。
+// c 为 nil 时退回 Background，与命令表 parse 阶段拿不到 ctx 的历史行为一致。
 func kvCtx(c echo.Context) context.Context {
 	if c == nil {
-		return kvRequestCtx
+		return context.Background()
 	}
 	return c.Request().Context()
 }

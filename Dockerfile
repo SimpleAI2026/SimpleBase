@@ -2,7 +2,8 @@ FROM golang:1.25 AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 COPY gosandbox/go.mod gosandbox/go.sum gosandbox/
-COPY cloudagent/go.mod cloudagent/go.sum cloudagent/
+COPY godatabase/go.mod godatabase/go.sum godatabase/
+COPY gocloudagent/go.mod gocloudagent/go.sum gocloudagent/
 COPY gofunction/go.mod gofunction/go.sum ./gofunction/
 RUN go mod download
 COPY . .

@@ -1,3 +1,34 @@
+// 文件说明：manager.go — internal/sandbox 中 Sandbox、Store 等符号的实现
+//
+// 用法
+//
+//	NewManager(cfg config.SandboxConfig, store Store, driver vm.Driver) *Manager
+//	(m *Manager) SetLogger(l Logger)  // SetLogger 注入日志器
+//	(m *Manager) Available() bool
+//	同包调用：Store → errors.go, proc.go；Manager → errors.go, proc.go；Start() → output_hub.go, proc.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/sandbox/sshd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/manager.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gosandbox/vm, internal/config, internal/utils/limit
+//	[同包] errors.go, output_hub.go, paths.go, proc.go, pty.go
+//	[关键引用] Store ← errors.go, proc.go
+//
+// 主要符号
+//
+//	type Sandbox struct {…}
+//	type Store interface {…}
+//	type CreateInput struct {…}
+//	type ExecInput struct {…}
+//	type ExecOutput struct {…}
+//	type FileContent struct {…}
+//	... 另有 42 个顶层符号
+
 package sandbox
 
 import (

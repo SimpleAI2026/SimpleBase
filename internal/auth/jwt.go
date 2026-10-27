@@ -1,5 +1,33 @@
-// jwt.go 提供 HS256 JWT 的签发与校验（标准库实现，不引第三方）。
-// 仅支持 HS256；alg=none 一律拒绝。
+// 文件说明：jwt.go — HS256 JWT 的签发与校验（标准库实现，不引第三方）
+//
+// 用法
+//
+//	SignJWT(secret string, claims JWTClaims) (string, error)  // SignJWT 用 secret 签发 HS256 JWT
+//	VerifyJWT(secret, token string, now time.Time) (JWTClaims, error)  // VerifyJWT 校验签名、alg、iss、exp，返回 claims
+//	同包调用：JWTClaims → delegation.go, middleware.go 等；VerifyJWT() → delegation.go, middleware.go 等；ErrInvalidToken → delegation.go, session.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/jwt.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, middleware.go 等 15 个
+//	[关键引用] JWTClaims ← delegation.go, middleware.go, session.go
+//
+// 主要符号
+//
+//	var ErrInvalidToken
+//	var ErrExpiredToken
+//	type JWTClaims struct {…}
+//	SignJWT(secret string, claims JWTClaims) (string, error)
+//	VerifyJWT(secret, token string, now time.Time) (JWTClaims, error)
+//	LooksLikeJWT(raw string) bool
+//	... 另有 2 个顶层符号
+
 package auth
 
 import (

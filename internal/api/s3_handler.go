@@ -1,14 +1,32 @@
-// s3_handler.go 实现用户文件存储的 HTTP handler。
+// 文件说明：s3_handler.go — 用户文件存储的 HTTP handler
 //
-// 路由（挂在 /v1/projects/:projectID/s3 下）：
+// 用法
 //
-//	GET    /objects?prefix=xxx   列出对象
-//	POST   /objects              上传对象（multipart: key + file）
-//	DELETE /objects?key=xxx      删除对象
-//	GET    /presign?key=xxx      生成预签名下载 URL
+//	(h *S3Handler) ListObjects(c echo.Context) error  // ListObjects 列出当前项目下的对象
+//	(h *S3Handler) UploadObject(c echo.Context) error  // UploadObject 上传一个文件
+//	同包调用：joinKey() → gocloudagent_access.go, s3_content_handler.go；ListObjects() → gocloudagent_access.go, router.go；S3Handler → router.go, s3_content_handler.go
 //
-// 项目隔离：handler 从 ProjectContext 取 projectID，
-// 所有 key 前自动拼接 "{projectID}/" 作为物理前缀。
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/s3_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, internal/objectstore, internal/systemdb
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] joinKey() ← gocloudagent_access.go, s3_content_handler.go
+//
+// 主要符号
+//
+//	type S3Handler struct {…}
+//	(h *S3Handler) ListObjects(c echo.Context) error
+//	(h *S3Handler) UploadObject(c echo.Context) error
+//	(h *S3Handler) DeleteObject(c echo.Context) error
+//	(h *S3Handler) PresignObject(c echo.Context) error
+//	... 另有 5 个顶层符号
+
 package api
 
 import (
@@ -18,16 +36,19 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/internal/database"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
 // S3Handler 依赖 objectstore.FileStore，可选系统库对象索引。
 type S3Handler struct {
-	store    objectstore.FileStore
-	index    *systemdb.Store
-	writable *bool
+	store       objectstore.FileStore
+	index       *systemdb.Store
+	writable    *bool
+	tokenSecret string
+	allowedMIME []string
+	events      objectEventPublisher
 }
 
 // s3ObjectDTO 是列表/上传返回的对象元数据。
@@ -101,7 +122,7 @@ func (h *S3Handler) ListObjects(c echo.Context) error {
 			}
 			dtos = append(dtos, dto)
 		}
-		return c.JSON(http.StatusOK, dtos)
+		return s3ListResponse(c, prefix, dtos)
 	}
 	objects, err := h.store.List(c.Request().Context(), joinKey(pc.ID, prefix), 1000)
 	if err != nil {
@@ -111,13 +132,13 @@ func (h *S3Handler) ListObjects(c echo.Context) error {
 	for _, obj := range objects {
 		dtos = append(dtos, toDTO(obj, pc.ID))
 	}
-	return c.JSON(http.StatusOK, dtos)
+	return s3ListResponse(c, prefix, dtos)
 }
 
 // UploadObject 上传一个文件。使用 multipart/form-data，字段：key + file。
 func (h *S3Handler) UploadObject(c echo.Context) error {
 	if h.writable != nil && !*h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -139,13 +160,19 @@ func (h *S3Handler) UploadObject(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	defer src.Close()
-	contentType := file.Header.Get("Content-Type")
-	obj, err := h.store.Put(c.Request().Context(), joinKey(pc.ID, key), src, file.Size, contentType)
+	uploadReader, contentType, err := sniffUploadMIME(src, key, file.Header.Get("Content-Type"), h.allowedMIME)
+	if err != nil {
+		return WriteError(c, NewAPIError(http.StatusUnsupportedMediaType, "mime_mismatch", "file MIME type is not allowed or does not match", RequestIDFromContext(c.Request().Context())))
+	}
+	obj, err := h.store.Put(c.Request().Context(), joinKey(pc.ID, key), uploadReader, file.Size, contentType)
 	if err != nil {
 		return WriteError(c, err)
 	}
 	if h.index != nil {
 		_ = h.index.UpsertS3Object(c.Request().Context(), pc.ID, key, obj.Size, "", contentType, obj.LastModified)
+	}
+	if h.events != nil {
+		h.events.PublishObject(ObjectEvent{ProjectID: pc.ID, Key: key, Action: "upload"})
 	}
 	return c.JSON(http.StatusOK, toDTO(obj, pc.ID))
 }
@@ -153,7 +180,7 @@ func (h *S3Handler) UploadObject(c echo.Context) error {
 // DeleteObject 删除指定 key 的对象。
 func (h *S3Handler) DeleteObject(c echo.Context) error {
 	if h.writable != nil && !*h.writable {
-		return WriteError(c, database.ErrWriterUnavailable)
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
@@ -171,6 +198,9 @@ func (h *S3Handler) DeleteObject(c echo.Context) error {
 	}
 	if h.index != nil {
 		_ = h.index.SoftDeleteS3Object(c.Request().Context(), pc.ID, key)
+	}
+	if h.events != nil {
+		h.events.PublishObject(ObjectEvent{ProjectID: pc.ID, Key: key, Action: "delete"})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }

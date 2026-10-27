@@ -77,7 +77,7 @@
 | `go vet ./internal/... ./gofunction/... ./cmd/...` | 通过，无输出 |
 | `go test -short -count=1 -parallel 1 -timeout 20m ./internal/... ./cmd/...` | 全部通过；`database/ducklake` 约 142s、`lease` 31s、`app`/`api` 约 21s |
 | `go test -short -count=1 ./gofunction/...` | 通过（主包约 11s） |
-| `go test -race -short -count=1 -parallel 1 ./internal/api ./internal/auth ./internal/cloudagent ./internal/cronjob ./internal/database/registry ./internal/sandbox ./internal/systemdb ./gofunction/...` | **`internal/api` 失败**：RACE-01，共 5 处；其余包通过 |
+| `go test -race -short -count=1 -parallel 1 ./internal/api ./internal/auth ./internal/gocloudagent ./internal/cronjob ./internal/database/registry ./internal/sandbox ./internal/systemdb ./gofunction/...` | **`internal/api` 失败**：RACE-01，共 5 处；其余包通过 |
 | `gofmt -l internal gofunction cmd` | 32 个文件未格式化（`gofunction` 与 `cmd` 为 0） |
 
 尚未运行：全部包的 race、覆盖率、benchmark、非 short 的外网用例、真实 S3。所以第 2 节中“静态确认”的条目仍需在实施时先写出失败用例。
@@ -88,7 +88,7 @@
 | --- | --- | --- |
 | A | 补齐基线：剩余包的 race、分包覆盖率、易抖动测试清单 | 只记录，不改行为 |
 | B1 | SEC-01/02/03：先写失败用例，再修复 | 越权用例全部变为 403/404；正常签发和 CLI 命令不受影响；外部行为变化写入说明 |
-| B2 | RACE-01，以及 LIFE-01/02/03 | `go test -race ./internal/api ./internal/cronjob ./internal/cloudagent` 连续 `-count=5` 无 race；Stop 有界返回 |
+| B2 | RACE-01，以及 LIFE-01/02/03 | `go test -race ./internal/api ./internal/cronjob ./internal/gocloudagent` 连续 `-count=5` 无 race；Stop 有界返回 |
 | B3 | GF-RUN-01/02/03 | 取消后有界返回；print 并发在 race 下通过；`RunJSON` 签名不变 |
 | C | 先复现 SEC-04、LIFE-04/05、SYNC-01、GF-RUN-04，确认后再修 | 复现不了的条目保持“候选”，不修改行为 |
 | D | WR-01 写门禁统一、执行器池修复 | 路由表驱动测试覆盖全部写接口 |
@@ -121,7 +121,7 @@
 | `sbcli/commands.go` | 1223 | 按领域拆分 | 命令名、退出码、输出 |
 | `ducklake/catalog_syncer.go` | 1172 | 按捕获、发布、水位拆分 | 写锁、manifest 提交点 |
 | `sandbox/manager.go` | 934 | 按生命周期、路径、配额拆分 | Driver 边界 |
-| 两个调度器 | — | ~~可以抽出共用的生命周期实现~~ **已评估（2026-10-10）：不抽取**。Trigger 签名不同（cronjob 返回 `error`，cloudagent 返回 `(string, error)` 且有独有 `ErrScheduleExecuting`），统一需改公开 API；抽取必须注入闭包转发 tickOnce/execute，违反"不增加只做转发的薄封装层"原则；且 stopped 判定与 wg.Add 同锁的不变式（LIFE-02）分散到共享类型后出错面更大 | 各自的执行与落库逻辑 |
+| 两个调度器 | — | ~~可以抽出共用的生命周期实现~~ **已评估（2026-10-10）：不抽取**。Trigger 签名不同（cronjob 返回 `error`，gocloudagent 返回 `(string, error)` 且有独有 `ErrScheduleExecuting`），统一需改公开 API；抽取必须注入闭包转发 tickOnce/execute，违反"不增加只做转发的薄封装层"原则；且 stopped 判定与 wg.Add 同锁的不变式（LIFE-02）分散到共享类型后出错面更大 | 各自的执行与落库逻辑 |
 | `NewHTTPError(status, "裸字符串")` | 75 处 | 按模块逐步替换为领域错误 | HTTP 状态码与 `error.code` |
 
 只有能降低耦合时才拆分；不新建通用框架，也不增加只做转发的薄封装层。

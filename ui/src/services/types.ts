@@ -69,6 +69,120 @@ export interface DbRow {
   [key: string]: unknown
 }
 
+export interface CollectionInfo {
+  name: string
+  schemaMode: 'json' | 'view'
+  fieldCount: number
+  documentCount: number
+  registered: boolean
+}
+
+export interface CollectionFieldOptions {
+  min?: number | string
+  max?: number | string
+  pattern?: string
+  values?: string[]
+  maxSelect?: number
+  maxSize?: number
+  onlyInt?: boolean
+  exceptDomains?: string[]
+  onlyDomains?: string[]
+}
+
+export interface CollectionField {
+  name: string
+  type: 'text' | 'number' | 'bool' | 'date' | 'email' | 'url' | 'select' | 'json'
+  required: boolean
+  unique: boolean
+  default?: unknown
+  options: CollectionFieldOptions
+  hidden: boolean
+  readonly: boolean
+}
+
+export interface CollectionSchema {
+  id?: string
+  projectId?: string
+  name: string
+  schemaMode: 'json' | 'view'
+  viewQuery?: string
+  fields: CollectionField[]
+}
+
+export interface CollectionSchemaInput {
+  name: string
+  schemaMode?: 'json' | 'view'
+  viewQuery?: string
+  fields: CollectionField[]
+}
+
+export interface ViewDryRunResult {
+  columns: string[]
+  fields: CollectionField[]
+  items: DocumentItem[]
+  scanned: number
+}
+
+export interface CollectionImportResult {
+  dryRun: boolean
+  scanned: number
+  imported: number
+}
+
+export interface FunctionTrigger {
+  id: string
+  projectId: string
+  kind: 'record_change' | 'object_event' | 'http'
+  target: string
+  events: string[]
+  funcFile: string
+  funcExport: string
+  filter?: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FunctionTriggerInput {
+  kind: FunctionTrigger['kind']
+  target: string
+  events: string[]
+  funcFile: string
+  funcExport: string
+  filter?: string
+  enabled: boolean
+}
+
+export interface DocumentItem {
+  id: string
+  createdAt: string
+  updatedAt: string
+  data: Record<string, unknown>
+}
+
+export interface DocumentQuery {
+  limit?: number
+  cursor?: string
+  offset?: number
+  sort?: string
+  filter?: string
+  fields?: string
+  count?: boolean
+}
+
+export interface DocumentPage {
+  rows: DbRow[]
+  items: DocumentItem[]
+  nextCursor?: string
+  total?: number
+}
+
+export interface SchemaDryRunResult {
+  invalid: { id: string; field: string; reason: string }[]
+  scanned: number
+  truncated: boolean
+}
+
 // —— Key-Value 数据服务（key-value-ducklake-plan §3，项目级单端点）——
 
 export type KvType = 'string' | 'list' | 'set' | 'hash' | 'zset'
@@ -127,6 +241,18 @@ export interface S3Object {
   size: number
   /** 注意：S3 域是后端 snake_case 命名的例外（proto-http.md §3.4） */
   lastModified?: string
+}
+
+export interface BackupItem {
+  id: string
+  projectId: string
+  sizeBytes: number
+  sha256: string
+  engine: string
+  formatVersion: number
+  status: string
+  createdAt: string
+  expiresAt?: string
 }
 
 export interface LogEvent {
@@ -212,6 +338,8 @@ export interface LlmSettings {
 export interface ProjectItem {
   id: string
   name: string
+  /** 项目单文件数据库引擎；物理路径不对外暴露 */
+  engine?: 'duckdb' | 'sqlite'
   createdAt: string
   /** admin 管理数据库（系统项目）标记，super/admin 可见 */
   managed?: boolean
@@ -220,12 +348,35 @@ export interface ProjectItem {
 /* ---------- 项目 API Keys ---------- */
 
 /** API Key 条目（列表返回；不含明文） */
+export interface ApiKeyScope {
+  resources: string[]
+  actions: string[]
+  hiddenFields: string[]
+  readonlyFields: string[]
+  expiresAt?: string
+}
+
 export interface ApiKeyItem {
   id: string
   projectId: string
   permissions: string[]
   createdAt: string
   revokedAt?: string
+}
+
+export interface S3ListResult {
+  folders: string[]
+  objects: S3Object[]
+}
+
+export interface S3Link {
+  url: string
+  expiresAt: string
+}
+
+export interface LogStat {
+  key: string
+  count: number
 }
 
 /* ---------- Auth / Users（login-auth-plan） ---------- */
@@ -875,12 +1026,39 @@ export interface SandboxFileEntry {
   modifiedTime?: string
 }
 
+export interface OpenAPIParameter {
+  name: string
+  in: 'path' | 'query'
+  required: boolean
+}
+
+export interface OpenAPIOperation {
+  operationId: string
+  'x-tryable': boolean
+  parameters?: OpenAPIParameter[]
+  requestBody?: { required: boolean; content: Record<string, unknown> }
+}
+
+export interface OpenAPIDocument {
+  openapi: string
+  paths: Record<string, Record<string, OpenAPIOperation>>
+}
+
+export interface APIPreviewResult {
+  status: number
+  body: string
+}
+
 /**
  * API 统一抽象：http 实现与 mock 实现均遵循该接口。
  * projectId 一律为方法首个参数，由调用方从 stores/project.ts 读取后显式传入
  * （services 层不 import store，保持无状态可测）。
  */
 export interface Api {
+  preview: {
+    document: () => Promise<OpenAPIDocument>
+    request: (method: string, path: string, body?: unknown) => Promise<APIPreviewResult>
+  }
   auth: {
     login: (req: LoginRequest) => Promise<TokenPair>
     logout: (refreshToken?: string) => Promise<void>
@@ -891,6 +1069,13 @@ export interface Api {
     list: (limit?: number, cursor?: string) => Promise<UserListResult>
     create: (req: CreateUserRequest) => Promise<UserItem>
     update: (id: string, req: UpdateUserRequest) => Promise<UserItem>
+  }
+  triggers: {
+    list: (projectId: string) => Promise<FunctionTrigger[]>
+    create: (projectId: string, input: FunctionTriggerInput) => Promise<FunctionTrigger>
+    patch: (projectId: string, id: string, input: Partial<FunctionTriggerInput>) => Promise<FunctionTrigger>
+    remove: (projectId: string, id: string) => Promise<void>
+    invoke: (projectId: string, id: string, body: Record<string, unknown>) => Promise<void>
   }
   gofunctions: {
     list: (projectId: string) => Promise<GoFunctionItem[]>
@@ -942,12 +1127,12 @@ export interface Api {
   }
   projects: {
     list: () => Promise<ProjectItem[]>
-    create: (req: { name: string; id?: string; ownerUserId?: string }) => Promise<ProjectItem>
+    create: (req: { name: string; id?: string; engine?: 'duckdb' | 'sqlite'; ownerUserId?: string }) => Promise<ProjectItem>
   }
   /** 项目 API Key 管理（创建/列表/吊销；明文仅创建响应一次性返回） */
   apiKeys: {
     list: (projectId: string) => Promise<ApiKeyItem[]>
-    create: (projectId: string, permissions?: string[]) => Promise<ApiKeyItem & { secret: string }>
+    create: (projectId: string, permissions?: string[], scope?: ApiKeyScope) => Promise<ApiKeyItem & { secret: string }>
     revoke: (projectId: string, keyId: string) => Promise<void>
   }
   metrics: {
@@ -1004,6 +1189,39 @@ export interface Api {
       payload: Record<string, unknown>
     ) => Promise<DbRow>
     remove: (projectId: string, databaseId: string, collection: string, id: string) => Promise<void>
+    collectionItems: (projectId: string, databaseId: string) => Promise<CollectionInfo[]>
+    exportCollection: (projectId: string, databaseId: string, collection: string, format: 'csv' | 'ndjson' | 'json', query?: DocumentQuery) => Promise<Blob>
+    importCollection: (projectId: string, databaseId: string, collection: string, file: File, format: 'csv' | 'ndjson', dryRun?: boolean) => Promise<CollectionImportResult>
+    dryRunView: (projectId: string, databaseId: string, name: string, query: string) => Promise<ViewDryRunResult>
+    documents: (
+      projectId: string,
+      databaseId: string,
+      collection: string,
+      query?: DocumentQuery
+    ) => Promise<DocumentPage>
+    document: (projectId: string, databaseId: string, collection: string, id: string) => Promise<DocumentItem>
+    patch: (
+      projectId: string,
+      databaseId: string,
+      collection: string,
+      id: string,
+      payload: Record<string, unknown>
+    ) => Promise<DbRow>
+    batch: (
+      projectId: string,
+      databaseId: string,
+      collection: string,
+      documents: Record<string, unknown>[]
+    ) => Promise<DocumentItem[]>
+    truncate: (projectId: string, databaseId: string, collection: string) => Promise<void>
+    getCollectionSchema: (projectId: string, databaseId: string, collection: string) => Promise<CollectionSchema>
+    putCollectionSchema: (
+      projectId: string,
+      databaseId: string,
+      schema: CollectionSchemaInput,
+      dryRun?: boolean
+    ) => Promise<CollectionSchema | SchemaDryRunResult>
+    deleteCollectionSchema: (projectId: string, databaseId: string, collection: string) => Promise<void>
   }
   /** Key-Value 数据服务：项目级单端点（key-value-ducklake-plan §3） */
   kv: {
@@ -1015,7 +1233,10 @@ export interface Api {
   }
   s3: {
     list: (projectId: string, prefix?: string) => Promise<S3Object[]>
+    listDetailed: (projectId: string, prefix?: string) => Promise<S3ListResult>
     presign: (projectId: string, key: string) => Promise<{ url: string }>
+    download: (projectId: string, key: string) => Promise<Blob>
+    createLink: (projectId: string, key: string, ttlSeconds?: number) => Promise<S3Link>
     remove: (projectId: string, key: string) => Promise<void>
     upload: (
       projectId: string,
@@ -1024,8 +1245,17 @@ export interface Api {
       onProgress?: (percent: number) => void
     ) => Promise<S3Object>
   }
+  backups: {
+    list: (projectId: string) => Promise<BackupItem[]>
+    create: (projectId: string) => Promise<BackupItem>
+    remove: (projectId: string, id: string) => Promise<void>
+    restore: (projectId: string, id: string) => Promise<void>
+    download: (projectId: string, id: string) => Promise<Blob>
+  }
   logs: {
     list: (projectId: string, q?: LogQuery) => Promise<LogEvent[]>
+    stats: (projectId: string, q?: LogQuery, groupBy?: 'level' | 'hour' | 'path') => Promise<LogStat[]>
+    export: (projectId: string, q?: LogQuery) => Promise<Blob>
     getRetention: (projectId: string) => Promise<LogRetention>
     putRetention: (projectId: string, keepDays: number) => Promise<void>
   }

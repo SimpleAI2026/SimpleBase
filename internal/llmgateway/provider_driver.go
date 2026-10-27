@@ -1,3 +1,25 @@
+// 文件说明：provider_driver.go — internal/llmgateway 的内部实现（litellmDriver 等）
+//
+// 用法
+//
+//	同包调用：litellmDriver() → service.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/provider_driver.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] catalog_resolver.go, fallback_resolver.go, project_cred_resolver.go, service.go, streaming.go
+//	[关键引用] litellmDriver() ← service.go
+//
+// 主要符号
+//
+//	litellmDriver(name string) (string, bool)
+
 package llmgateway
 
 import "strings"

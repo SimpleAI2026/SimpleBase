@@ -1,3 +1,33 @@
+// 文件说明：zaplog.go — internal/observability 中 Level、InfoLevel 等符号的实现
+//
+// 用法
+//
+//	Default() *zapLogger
+//	ResetDefault(l *zapLogger)
+//	同包调用：Level → logger.go；InfoLevel → logger.go；WarnLevel → logger.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/audit 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/observability/zaplog.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] logger.go, metrics.go, stage_timing_metrics.go
+//	[关键引用] Level ← logger.go
+//
+// 主要符号
+//
+//	type Level = zapcore.Level
+//	const InfoLevel
+//	const WarnLevel
+//	const ErrorLevel
+//	const DPanicLevel
+//	const PanicLevel
+//	... 另有 101 个顶层符号
+
 package observability
 
 import (

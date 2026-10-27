@@ -24,7 +24,7 @@ func newSandboxManagerTest(t *testing.T, limit int) (*sandbox.Manager, *fake.Dri
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := systemdb.ApplySystemMigrations(context.Background(), db); err != nil {
+	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)

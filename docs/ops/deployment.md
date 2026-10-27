@@ -39,7 +39,7 @@ instance:
 
 ```yaml
 database:
-  engine: ducklake
+  engine: duckdb                 # 新建项目的默认单文件引擎：duckdb | sqlite
   cache_dir: "/var/lib/simplebase/cache"
   cache_max_bytes: 10737418240   # 10GiB 生产建议；代码/示例默认 1GiB
   cache_max_databases: 256
@@ -93,6 +93,35 @@ observability:
 ```
 
 HTTP 优雅退出超时：`http.shutdown_timeout`（默认 30s）。
+
+## HTTP 边界与浏览器直连
+
+CORS、gzip 和限流默认关闭，安全响应头与 `X-Request-Id` 默认开启。跨域前端只放行明确来源；凭据模式禁止通配符：
+
+```yaml
+http:
+  gzip: true
+  trusted_proxies: ["10.0.0.0/8"]
+  cors:
+    enabled: true
+    allowed_origins: ["https://app.example.com"]
+    allowed_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+    allowed_headers: [Authorization, Content-Type, X-Request-Id]
+    allow_credentials: false
+limits:
+  max_filter_scan_rows: 50000
+  realtime_max_conns: 200
+  rate_limit:
+    enabled: true
+    burst: 2
+    exempt_sse: true
+    rules:
+      - match: "/v1/*"
+        max: 100
+        window: 1m
+```
+
+未配置可信代理时，`X-Forwarded-For` 不参与真实 IP 判定。限流返回 429 与 `Retry-After`；SSE 和文件下载不做 gzip。`SIMPLEBASE_*` 对应覆盖项见 `config.example.yaml`。
 
 ## Docker 部署
 
@@ -251,7 +280,7 @@ spec:
 
 ### 场景 4：数据库恢复
 
-备份/恢复 HTTP 路由（`/backups`、`/restore`）与 jobs worker 已退役。节点丢失本地缓存后，从 S3 上的 DuckLake catalog / DATA_PATH 重建。
+用户项目可通过 `/v1/projects/:projectID/backups` 创建、下载和恢复快照。恢复失败时保留原文件；进程在替换阶段中断后，下次打开项目文件会从 `.restore-old` 自愈。节点丢失本地缓存后，也可按 S3 上项目 manifest 指向的最新快照恢复。
 
 ### 场景 5：误启多实例
 
@@ -264,9 +293,17 @@ spec:
 
 ## 备份策略
 
-- **S3 在线数据**：DuckLake catalog 与 Parquet DATA_PATH 存在对象存储；启用 bucket 版本控制作为对象级保护。
-- **系统库**：实例级 DuckLake（`system_database.name`），与用户库隔离。
-- **独立 backups/restore API**：已移除（此前仅 501）。
+- **S3 在线数据**：每个项目的数据库以不可变快照加 manifest 存放在 `{project}/database/` 下，由项目级写租约保护；启用 bucket 版本控制作为对象级保护。
+- **系统库**：实例级 DuckLake（`system_database.name`），与用户库隔离；用户库不使用 DuckLake。
+- **独立备份 API**：`backup.enabled=true` 后，普通项目可通过 `/v1/projects/:p/backups` 创建、下载、删除和恢复快照，均需 `project:admin`。备份不含系统库，配置、保留策略和恢复验收见[备份与恢复](/docs/ops/backups)。
+- **一致性代价**：快照在项目写租约内完成，大库会造成写排队。恢复先关闭项目句柄、校验 SHA-256/大小/引擎，再原子替换；失败回滚，S3 恢复后发布为新 manifest 版本。
+
+## 事件触发器与运维边界
+
+- 记录与对象事件使用有界进程内队列，队列满丢弃，重启不恢复未处理事件；需要持久工作流时应自行消费 `sys_go_func_invokes` 监控失败，不要把该能力当 exactly-once 消息系统。
+- `/go`、调试试跑、cron 与触发器共享 `limits.max_concurrent_go_runs`，调高前应评估解释器 CPU/内存成本。
+- `migrate status|plan` 只读检查最终态系统表，不执行变更；本项目无 down 迁移。
+- 集合导入上限为 `limits.max_import_bytes`，导出是流式响应，应关闭这些路径的 gzip（默认中间件已跳过），CORS 需暴露 `Content-Disposition`。
 
 ## 安全基线
 

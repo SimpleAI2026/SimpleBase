@@ -136,15 +136,23 @@ describe('router-backed chrome', () => {
     expect(w.text()).toContain('自动化')
     expect(w.text()).toContain('运维')
     const names = (w.vm as unknown as { menuItems: { name: string }[] }).menuItems.map((i) => i.name)
-    expect(names).toEqual(['agents', 'dashboard', 'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'sandboxes', 'logs'])
+    expect(names).toEqual(['agents', 'dashboard', 'databases', 'data-browser', 'key-value', 's3', 'gofunctions', 'function-triggers', 'cron-jobs', 'sandboxes', 'api-preview', 'logs'])
     const groups = (w.vm as unknown as { menuGroups: { key: string; items: { name: string; title: string }[] }[] }).menuGroups
     expect(groups[0].key).toBe('workspace')
     expect(groups[0].items[0]).toMatchObject({ name: 'agents', title: '云助手' })
+    expect(groups.find((group) => group.key === 'data')?.items.map((item) => item.name)).toEqual([
+      'databases',
+      'data-browser',
+      'key-value',
+      's3'
+    ])
     expect(groups.find((group) => group.key === 'automation')?.items.map((item) => item.name)).toEqual([
       'gofunctions',
+      'function-triggers',
       'cron-jobs',
       'sandboxes'
     ])
+    expect(groups.find((group) => group.key === 'ops')?.items[0].name).toBe('api-preview')
     expect(w.text()).toContain('云沙盒')
   })
 })

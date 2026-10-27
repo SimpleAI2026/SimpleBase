@@ -99,7 +99,7 @@ func TestLoadSucceedsWithCompleteConfig(t *testing.T) {
 	if cfg.Limits.QueryTimeout != 5*time.Second {
 		t.Fatalf("unexpected query timeout: %v", cfg.Limits.QueryTimeout)
 	}
-	if cfg.Database.Engine != EngineDuckLake {
+	if cfg.Database.Engine != EngineDuckDB {
 		t.Fatalf("unexpected engine: %s", cfg.Database.Engine)
 	}
 	if cfg.Database.DuckLake.MemoryLimit != "512MB" {
@@ -135,7 +135,7 @@ func TestRedactedOmitsSecrets(t *testing.T) {
 }
 
 func TestValidateRejectsLegacyEngines(t *testing.T) {
-	for _, engine := range []string{"turso", "local", "sqlite"} {
+	for _, engine := range []string{"turso", "local", "ducklake", "postgres"} {
 		t.Setenv("SIMPLEBASE_INSTANCE_ID", "id")
 		t.Setenv("SIMPLEBASE_DB_CACHE_DIR", "/tmp/c")
 		t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "0123456789abcdef0123456789abcdef")
@@ -146,9 +146,11 @@ func TestValidateRejectsLegacyEngines(t *testing.T) {
 			t.Fatalf("engine %q: expected validation error", engine)
 		}
 	}
-	t.Setenv("SIMPLEBASE_DB_ENGINE", "ducklake")
-	t.Setenv("SIMPLEBASE_INSTANCE_WRITABLE", "false")
-	if _, err := Load(); err != nil {
-		t.Fatalf("ducklake should be accepted: %v", err)
+	for _, ok := range []string{"duckdb", "sqlite"} {
+		t.Setenv("SIMPLEBASE_DB_ENGINE", ok)
+		t.Setenv("SIMPLEBASE_INSTANCE_WRITABLE", "false")
+		if _, err := Load(); err != nil {
+			t.Fatalf("%s should be accepted: %v", ok, err)
+		}
 	}
 }

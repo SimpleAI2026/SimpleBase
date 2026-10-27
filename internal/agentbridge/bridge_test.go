@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
@@ -18,7 +18,7 @@ import (
 )
 
 // 这些用例验证「宿主规则」一侧：只读表、SQL 切分、错误哨兵、store 适配。
-// cloudagent 模块内不复制这些规则，因此对账只能在这里做。
+// gocloudagent 模块内不复制这些规则，因此对账只能在这里做。
 
 func TestCommandPolicyReadOnlyMatchesSbcli(t *testing.T) {
 	p := agentbridge.NewCommandPolicy()
@@ -135,7 +135,7 @@ func TestClassifyErrorMatchesHostSentinels(t *testing.T) {
 		{llmgateway.ErrModelNotConfigured, "llm_not_configured"},
 		{fmt.Errorf("llmgateway: chat: %w", llmgateway.ErrModelNotConfigured), "llm_not_configured"},
 		{llmgateway.ErrModelNotAllowed, "llm_model_not_allowed"},
-		{cloudagent.ErrThreadBusy, "agent_thread_busy"},
+		{gocloudagent.ErrThreadBusy, "agent_thread_busy"},
 		{context.DeadlineExceeded, "llm_timeout"},
 		{fmt.Errorf("provider failed: %s", secret), "llm_upstream_error"},
 	} {
@@ -164,11 +164,11 @@ func TestPrincipalRoundTrip(t *testing.T) {
 	if _, ok := mid.ProjectIDs["p1"]; !ok {
 		t.Fatal("project ids lost")
 	}
-	if !mid.HasPermission(cloudagent.DatabaseWrite) {
+	if !mid.HasPermission(gocloudagent.DatabaseWrite) {
 		t.Fatal("permissions lost")
 	}
 	// 修改模块侧权限集合不应影响宿主原对象（委托签发依赖这一点）。
-	delete(mid.Permissions, cloudagent.DatabaseWrite)
+	delete(mid.Permissions, gocloudagent.DatabaseWrite)
 	if _, ok := src.Permissions[auth.DatabaseWrite]; !ok {
 		t.Fatal("source principal was mutated")
 	}
@@ -182,7 +182,7 @@ func TestPrincipalRoundTrip(t *testing.T) {
 	}
 
 	// nil 集合保持 nil（不变成空 map），避免授权判定语义漂移。
-	empty := agentbridge.ToHostPrincipal(cloudagent.Principal{UserID: "u2"})
+	empty := agentbridge.ToHostPrincipal(gocloudagent.Principal{UserID: "u2"})
 	if empty.ProjectIDs != nil || empty.Permissions != nil {
 		t.Fatalf("nil maps must stay nil: %+v", empty)
 	}
@@ -230,7 +230,7 @@ func TestStoreAccessWrappers(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
-	if err := systemdb.ApplySystemMigrations(ctx, db); err != nil {
+	if err := systemdb.EnsureSystemSchema(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)
@@ -271,10 +271,10 @@ func TestStoreAccessWrappers(t *testing.T) {
 func TestDelegationIssuerUsesGivenPermissions(t *testing.T) {
 	reg := auth.NewDelegationRegistry()
 	issuer := agentbridge.NewDelegationIssuer("test-secret", reg)
-	p := cloudagent.Principal{
+	p := gocloudagent.Principal{
 		UserID: "u1", Username: "alice", Role: string(auth.RoleAdmin), TenantID: "t1",
 		ProjectIDs:  map[string]struct{}{"p1": {}},
-		Permissions: map[cloudagent.Permission]struct{}{cloudagent.DatabaseRead: {}},
+		Permissions: map[gocloudagent.Permission]struct{}{gocloudagent.DatabaseRead: {}},
 	}
 	tok, err := issuer.Issue(p, "p1", "run-1", 5*time.Minute)
 	if err != nil {

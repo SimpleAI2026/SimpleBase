@@ -1,6 +1,10 @@
 import { vi } from 'vitest'
 
 export const api = {
+  preview: {
+    document: vi.fn(),
+    request: vi.fn()
+  },
   auth: {
     login: vi.fn(),
     logout: vi.fn(),
@@ -43,16 +47,40 @@ export const api = {
     rows: vi.fn(),
     insert: vi.fn(),
     update: vi.fn(),
-    remove: vi.fn()
+    remove: vi.fn(),
+    collectionItems: vi.fn(),
+    exportCollection: vi.fn(),
+    importCollection: vi.fn(),
+    dryRunView: vi.fn(),
+    documents: vi.fn(),
+    document: vi.fn(),
+    patch: vi.fn(),
+    batch: vi.fn(),
+    truncate: vi.fn(),
+    getCollectionSchema: vi.fn(),
+    putCollectionSchema: vi.fn(),
+    deleteCollectionSchema: vi.fn()
   },
   s3: {
     list: vi.fn(),
+    listDetailed: vi.fn(),
     presign: vi.fn(),
+    download: vi.fn(),
+    createLink: vi.fn(),
     remove: vi.fn(),
     upload: vi.fn()
   },
+  backups: {
+    list: vi.fn(),
+    create: vi.fn(),
+    remove: vi.fn(),
+    restore: vi.fn(),
+    download: vi.fn()
+  },
   logs: {
     list: vi.fn(),
+    stats: vi.fn(),
+    export: vi.fn(),
     getRetention: vi.fn(),
     putRetention: vi.fn()
   },
@@ -102,6 +130,13 @@ export const api = {
   storage: {
     get: vi.fn(),
     put: vi.fn()
+  },
+  triggers: {
+    list: vi.fn(),
+    create: vi.fn(),
+    patch: vi.fn(),
+    remove: vi.fn(),
+    invoke: vi.fn()
   },
   gofunctions: {
     list: vi.fn(),
@@ -250,12 +285,32 @@ export function applyApiDefaults() {
   api.db.createCollection.mockResolvedValue(undefined)
   api.db.rows.mockResolvedValue([{ id: 'row-1', name: 'Ada' }])
   api.db.insert.mockResolvedValue({ id: 'row-2' })
+  api.db.update.mockResolvedValue({ id: 'row-1' })
   api.db.remove.mockResolvedValue(undefined)
+  api.db.collectionItems.mockResolvedValue([])
+  api.db.documents.mockResolvedValue({ rows: [], items: [] })
+  api.db.document.mockResolvedValue({ id: 'row-1', createdAt: '', updatedAt: '', data: {} })
+  api.db.patch.mockResolvedValue({ id: 'row-1' })
+  api.db.batch.mockResolvedValue([])
+  api.db.truncate.mockResolvedValue(undefined)
+  api.db.getCollectionSchema.mockResolvedValue({ name: 'users', fields: [] })
+  api.db.putCollectionSchema.mockResolvedValue({ name: 'users', fields: [] })
+  api.db.deleteCollectionSchema.mockResolvedValue(undefined)
   api.s3.list.mockResolvedValue([])
+  api.s3.listDetailed.mockResolvedValue({ folders: [], objects: [] })
   api.s3.presign.mockResolvedValue({ url: 'https://example.test/obj' })
+  api.s3.download.mockResolvedValue(new Blob(['x']))
+  api.s3.createLink.mockResolvedValue({ url: '/files/token', expiresAt: '2026-01-01T00:00:00Z' })
   api.s3.remove.mockResolvedValue(undefined)
   api.s3.upload.mockResolvedValue({ key: 'a.txt', size: 1 })
+  api.backups.list.mockResolvedValue([])
+  api.backups.create.mockResolvedValue({ id: 'b1', projectId: 'p', sizeBytes: 1, sha256: 'x', engine: 'duckdb', formatVersion: 1, status: 'ready', createdAt: '2026-01-01T00:00:00Z' })
+  api.backups.remove.mockResolvedValue(undefined)
+  api.backups.restore.mockResolvedValue(undefined)
+  api.backups.download.mockResolvedValue(new Blob(['x']))
   api.logs.list.mockResolvedValue([])
+  api.logs.stats.mockResolvedValue([])
+  api.logs.export.mockResolvedValue(new Blob(['id\n']))
   api.logs.getRetention.mockResolvedValue({ scope: 'project', keepDays: 14, updatedAt: '2024-01-01T00:00:00Z' })
   api.logs.putRetention.mockResolvedValue(undefined)
   api.quota.status.mockResolvedValue({ llmAllowed: true, databaseAllowed: true })

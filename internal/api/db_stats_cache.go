@@ -1,15 +1,34 @@
-// db_stats_cache.go 实现「库内用户表总行数」的缓存与后台刷新
-// （ducklake-storage-latency-optimization-v2.0-plan §4-P1）。
+// 文件说明：db_stats_cache.go — 「库内用户表总行数」的缓存与后台刷新
 //
-// 背景：数据库列表原先对每个 ready 库同步执行 Acquire + 每表 COUNT(*)
-// （N+1 同步请求链，单库最多 3s 串行累加，冷库还触发 S3 下载）。
-// 本组件把统计移出请求路径：列表只读缓存，未命中省略 document_count，
-// 由后台有界并发任务补齐。
+// 用法
 //
-// 新鲜度（近似 (dbID, snapshotID) 键）：
-//  1. TTL 兜底；
-//  2. 同步水位（lastSynced, lag）变化即失效——写后 MarkDirty 使 lag>0、
-//     Sync 完成使 lastSynced 前进，两个方向都会让旧缓存过期（写后失效）。
+//	NewRowCountCache(opts RowCountCacheOptions) *RowCountCache
+//	(c *RowCountCache) Get(dbID string) (int64, bool)  // Get 返回命中且新鲜的行数
+//	(c *RowCountCache) RefreshAsync(dbs []catalog.Database)  // RefreshAsync 对未命中/过期的 ready 库发起后台有界并发刷新（每库去重，
+//	同包调用：Get() → collection_meta_handler.go, collection_transfer.go 等；refresh() → auth_handler.go, error.go 等；finish() → llm_handler.go, oai_dto.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/db_stats_cache.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/catalog, internal/observability
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Get() ← collection_meta_handler.go, collection_transfer.go, cronjob_handler.go
+//
+// 主要符号
+//
+//	type RowCountCacheOptions struct {…}
+//	type RowCountCache struct {…}
+//	NewRowCountCache(opts RowCountCacheOptions) *RowCountCache
+//	(c *RowCountCache) Get(dbID string) (int64, bool)
+//	(c *RowCountCache) RefreshAsync(dbs []catalog.Database)
+//	(c *RowCountCache) RefreshSync(ctx context.Context, db catalog.Database, timeout ...
+//	... 另有 6 个顶层符号
+
 package api
 
 import (

@@ -1,3 +1,34 @@
+// 文件说明：project_cred_resolver.go — internal/llmgateway 中 ProjectCreds、ProjectCredSource 等符号的实现
+//
+// 用法
+//
+//	NewProjectCredResolver(src ProjectCredSource) *ProjectCredResolver
+//	(r *ProjectCredResolver) Resolve(ctx context.Context, projectID string) ...  // Resolve 按 projectID 读取带 api_key 的供应商
+//	(r *FirstUsableResolver) Resolve(ctx context.Context, projectID string) ...  // Resolve 返回第一个含密钥的供应商集合
+//	同包调用：Resolve() → catalog_resolver.go, catalog_resolver.go 等
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/project_cred_resolver.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/systemdb
+//	[同包] catalog_resolver.go, fallback_resolver.go, provider_driver.go, service.go, streaming.go
+//	[关键引用] Resolve() ← catalog_resolver.go, fallback_resolver.go
+//
+// 主要符号
+//
+//	type ProjectCreds struct {…}
+//	type ProjectCredSource interface {…}
+//	type ProjectCredResolver struct {…}
+//	NewProjectCredResolver(src ProjectCredSource) *ProjectCredResolver
+//	(r *ProjectCredResolver) Resolve(ctx context.Context, projectID string) ...
+//	NewSystemCredSource(store *systemdb.Store) ProjectCredSource
+//	... 另有 6 个顶层符号
+
 package llmgateway
 
 import (

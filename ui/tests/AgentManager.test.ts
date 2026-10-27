@@ -416,6 +416,66 @@ describe('AgentManager (云助手)', () => {
     wrapper.unmount()
   })
 
+  it('resets the selected agent when switching to a new project', async () => {
+    const oldAgent = { ...sampleAgent, id: 'ag-old', builtin_key: 'general' }
+    const newAgent = { ...sampleAgent, id: 'ag-new', builtin_key: 'general' }
+    api.agents.list.mockImplementation((projectId: string) =>
+      Promise.resolve([projectId === 'testprj1' ? oldAgent : newAgent])
+    )
+    api.agentThreads.page.mockImplementation((_projectId: string, agentId?: string) =>
+      Promise.resolve({
+        threads: [{ id: `th-${agentId}`, title: 'T', agent_id: agentId, created_at: 't', updated_at: 't' }],
+        next_cursor: ''
+      })
+    )
+    const { wrapper, pinia } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as { activeId: string }
+    expect(vm.activeId).toBe('ag-old')
+
+    useProjectStore(pinia).setProject('newproj1', 'New')
+    await flushPromises()
+
+    expect(vm.activeId).toBe('ag-new')
+    expect(api.agentThreads.page).toHaveBeenLastCalledWith('newproj1', 'ag-new')
+    expect(api.agentThreads.page).not.toHaveBeenCalledWith('newproj1', 'ag-old')
+    wrapper.unmount()
+  })
+
+  it('clears the old agent and skips thread loading when the new project has no agents', async () => {
+    api.agents.list.mockImplementation((projectId: string) =>
+      Promise.resolve(projectId === 'testprj1' ? [{ ...sampleAgent, id: 'ag-old' }] : [])
+    )
+    const { wrapper, pinia } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    useProjectStore(pinia).setProject('newproj1', 'New')
+    await flushPromises()
+
+    expect((wrapper.vm as unknown as { activeId: string }).activeId).toBe('')
+    expect(api.agentThreads.page).not.toHaveBeenCalledWith('newproj1', 'ag-old')
+    wrapper.unmount()
+  })
+
+  it('ignores an old project agent list that resolves after switching', async () => {
+    let resolveOld!: (agents: Array<typeof sampleAgent>) => void
+    const oldAgent = { ...sampleAgent, id: 'ag-old', builtin_key: 'general' }
+    const newAgent = { ...sampleAgent, id: 'ag-new', builtin_key: 'general' }
+    api.agents.list.mockImplementation((projectId: string) => {
+      if (projectId === 'testprj1') {
+        return new Promise<Array<typeof sampleAgent>>((resolve) => { resolveOld = resolve })
+      }
+      return Promise.resolve([newAgent])
+    })
+    const { wrapper, pinia } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    useProjectStore(pinia).setProject('newproj1', 'New')
+    await flushPromises()
+    resolveOld([oldAgent])
+    await flushPromises()
+
+    const vm = wrapper.vm as unknown as { activeId: string; agents: { id: string }[] }
+    expect(vm.activeId).toBe('ag-new')
+    expect(vm.agents.map((agent) => agent.id)).toEqual(['ag-new'])
+    wrapper.unmount()
+  })
+
   it('keeps a separate conversation per agent', async () => {
     // planv6.0 §3.7 修订：会话归属助手，切换助手要换一份会话列表。
     api.agents.list.mockResolvedValue([
@@ -702,7 +762,7 @@ describe('AgentManager (云助手)', () => {
     api.agentThreads.page.mockResolvedValue({ threads: [], next_cursor: '' })
     const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
     await flushPromises()
-    // 该助手还没有会话 → 自动建一个，并带上 agent_id
+    // 该助手暂无会话 → 自动建一个，并带上 agent_id
     expect(api.agentThreads.create).toHaveBeenCalledWith('testprj1', expect.any(String), 'ag-9')
     wrapper.unmount()
   })
@@ -728,7 +788,7 @@ describe('AgentManager (云助手)', () => {
   it('shows empty-state create and reloads on project change', async () => {
     api.agents.list.mockResolvedValueOnce([])
     const { wrapper, pinia } = await mountWithApp(AgentManager, { stubs: agentStubs })
-    expect(wrapper.text()).toContain('还没有 Agent')
+    expect(wrapper.text()).toContain('暂无 Agent')
     await wrapper.get('.empty-action').trigger('click')
     expect(wrapper.find('.sb-modal').exists()).toBe(true)
 

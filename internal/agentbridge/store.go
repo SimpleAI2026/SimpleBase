@@ -1,13 +1,44 @@
+// 文件说明：store.go — internal/agentbridge 中 LogAccess、NewLogAccess 等符号的实现
+//
+// 用法
+//
+//	NewLogAccess(store *systemdb.Store) *LogAccess
+//	(l *LogAccess) SearchLogs(ctx context.Context, projectID, level, q string, limit ...  // SearchLogs 查询项目日志
+//	(l *LogAccess) LevelStats(ctx context.Context, projectID string) ...  // LevelStats 按 level 统计
+//	同包调用：LogAccess → principal.go；SettingsAccess → principal.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/store.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gocloudagent, internal/systemdb
+//	[同包] cli.go, command.go, cron_agent.go, delegation.go, errors.go 等 6 个
+//	[关键引用] LogAccess ← principal.go
+//
+// 主要符号
+//
+//	type LogAccess struct {…}
+//	NewLogAccess(store *systemdb.Store) *LogAccess
+//	(l *LogAccess) SearchLogs(ctx context.Context, projectID, level, q string, limit ...
+//	(l *LogAccess) LevelStats(ctx context.Context, projectID string) ...
+//	type SettingsAccess struct {…}
+//	NewSettingsAccess(store *systemdb.Store) *SettingsAccess
+//	... 另有 1 个顶层符号
+
 package agentbridge
 
 import (
 	"context"
 
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-// LogAccess 把 systemdb 的日志查询适配成 cloudagent.LogAccess。
+// LogAccess 把 systemdb 的日志查询适配成 gocloudagent.LogAccess。
 // 保持原有只读语义与 admin 项目不过滤 project 的行为（由 Store 内部处理）。
 type LogAccess struct{ store *systemdb.Store }
 
@@ -21,14 +52,14 @@ func NewLogAccess(store *systemdb.Store) *LogAccess {
 }
 
 // SearchLogs 查询项目日志。
-func (l *LogAccess) SearchLogs(ctx context.Context, projectID, level, q string, limit int) ([]cloudagent.LogEvent, error) {
+func (l *LogAccess) SearchLogs(ctx context.Context, projectID, level, q string, limit int) ([]gocloudagent.LogEvent, error) {
 	rows, err := l.store.QueryLogs(ctx, systemdb.LogQuery{ProjectID: projectID, Level: level, Q: q, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]cloudagent.LogEvent, 0, len(rows))
+	out := make([]gocloudagent.LogEvent, 0, len(rows))
 	for _, e := range rows {
-		out = append(out, cloudagent.LogEvent{
+		out = append(out, gocloudagent.LogEvent{
 			ID:         e.ID,
 			ProjectID:  e.ProjectID,
 			Level:      e.Level,
@@ -43,19 +74,19 @@ func (l *LogAccess) SearchLogs(ctx context.Context, projectID, level, q string, 
 }
 
 // LevelStats 按 level 统计。
-func (l *LogAccess) LevelStats(ctx context.Context, projectID string) ([]cloudagent.LogLevelCount, error) {
+func (l *LogAccess) LevelStats(ctx context.Context, projectID string) ([]gocloudagent.LogLevelCount, error) {
 	stats, err := l.store.LogLevelStats(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]cloudagent.LogLevelCount, 0, len(stats))
+	out := make([]gocloudagent.LogLevelCount, 0, len(stats))
 	for _, s := range stats {
-		out = append(out, cloudagent.LogLevelCount{Level: s.Level, Count: s.Count})
+		out = append(out, gocloudagent.LogLevelCount{Level: s.Level, Count: s.Count})
 	}
 	return out, nil
 }
 
-// SettingsAccess 把 sys_llm_settings 适配成 cloudagent.SettingsAccess。
+// SettingsAccess 把 sys_llm_settings 适配成 gocloudagent.SettingsAccess。
 // 只转出默认模型，API Key / BaseURL 不出宿主。
 type SettingsAccess struct{ store *systemdb.Store }
 
@@ -68,10 +99,10 @@ func NewSettingsAccess(store *systemdb.Store) *SettingsAccess {
 }
 
 // LLMSettings 返回项目默认模型。
-func (s *SettingsAccess) LLMSettings(ctx context.Context, projectID string) (cloudagent.LLMSettings, error) {
+func (s *SettingsAccess) LLMSettings(ctx context.Context, projectID string) (gocloudagent.LLMSettings, error) {
 	st, err := s.store.GetLLMSettings(ctx, projectID)
 	if err != nil {
-		return cloudagent.LLMSettings{}, err
+		return gocloudagent.LLMSettings{}, err
 	}
-	return cloudagent.LLMSettings{ProjectID: st.ProjectID, DefaultModel: st.DefaultModel}, nil
+	return gocloudagent.LLMSettings{ProjectID: st.ProjectID, DefaultModel: st.DefaultModel}, nil
 }

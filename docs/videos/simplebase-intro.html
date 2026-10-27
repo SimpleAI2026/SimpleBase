@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>SimpleBase · 让数据与智能，简单发生</title>
+  <style>
+    :root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#e6edf7;background:#070d18;font-synthesis:none}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% -20%,#18345b 0,transparent 45%),#070d18}
+    button,input{font:inherit}.shell{width:min(1600px,100%);margin:auto;padding:20px 24px 24px}.topbar{height:42px;display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+    .brand{display:flex;align-items:center;gap:10px;font:600 18px Georgia,"Songti SC",serif;letter-spacing:-.02em}.brand-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:#4f8cff;color:white;font:600 16px Georgia,serif;box-shadow:0 0 28px #4f8cff33}
+    .edition{color:#7f90a9;font-size:11px;letter-spacing:.16em;text-transform:uppercase}.player{position:relative;overflow:hidden;border:1px solid #26344a;border-radius:18px;background:#0a1220;box-shadow:0 30px 100px #0008}
+    #video{display:block;width:100%;height:auto;aspect-ratio:16/9;outline:none}.controls{display:grid;grid-template-columns:auto auto 1fr auto auto auto;align-items:center;gap:10px;margin-top:14px}
+    .control{height:38px;min-width:38px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #26344a;border-radius:10px;background:#101a2a;color:#c6d2e4;cursor:pointer;transition:.18s ease}
+    .control:hover{color:white;border-color:#4f8cff;background:#17253a}.control:focus-visible,.chapter:focus-visible,#seek:focus-visible{outline:2px solid #70a5ff;outline-offset:3px}.control.primary{background:#edf5ff;color:#12203a;border-color:#edf5ff}.control.primary:hover{background:white}.control.recording{color:#ff9c9c;border-color:#804343}
+    #seek{width:100%;height:4px;margin:0 8px;accent-color:#6c9fff;cursor:pointer}.time{min-width:112px;text-align:center;color:#93a3ba;font:12px ui-monospace,SFMono-Regular,Consolas,monospace;font-variant-numeric:tabular-nums}
+    .chapters{display:flex;align-items:center;gap:7px;margin-top:14px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:thin}.chapter{flex:1;min-width:108px;padding:9px 10px;border:0;border-top:2px solid #233149;background:transparent;color:#71829b;text-align:left;font-size:11px;cursor:pointer;white-space:nowrap;transition:.2s}.chapter:hover{color:#c4d2e6}.chapter.active{color:#8eb8ff;border-top-color:#6c9fff}.chapter span{display:block;margin-bottom:3px;font:9px ui-monospace,monospace;letter-spacing:.12em}
+    .hint{display:flex;justify-content:space-between;gap:20px;margin-top:9px;color:#53657f;font-size:11px;line-height:1.6}.hint kbd{padding:1px 5px;border:1px solid #2a394e;border-radius:4px;color:#8294ae;font:10px ui-monospace,monospace}
+    #toast{position:absolute;left:50%;bottom:28px;z-index:4;transform:translate(-50%,12px);padding:10px 16px;border:1px solid #3a4c66;border-radius:10px;background:#0c1625ee;color:#d8e5f7;font-size:12px;opacity:0;pointer-events:none;transition:.25s}#toast.show{opacity:1;transform:translate(-50%,0)}
+    #recordStatus{position:absolute;top:18px;right:18px;z-index:4;display:none;align-items:center;gap:8px;padding:8px 12px;border-radius:99px;background:#111c2eee;color:#ffd3d3;font-size:11px}#recordStatus.on{display:flex}#recordStatus:before{content:"";width:7px;height:7px;border-radius:50%;background:#ff6464;box-shadow:0 0 12px #ff6464}
+    .help{position:absolute;inset:0;z-index:5;display:none;place-items:center;background:#07101ddd;backdrop-filter:blur(12px)}.help.open{display:grid}.help-card{width:min(540px,90%);padding:28px;border:1px solid #34455e;border-radius:18px;background:#111c2e;box-shadow:0 30px 70px #0007}.help-card h2{margin:0 0 18px;font:600 24px Georgia,"Songti SC",serif}.help-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;color:#9badc4;font-size:13px}.help-grid div{display:flex;justify-content:space-between;gap:12px}.help-card p{margin:20px 0 0;color:#71849e;font-size:12px;line-height:1.8}.help-close{margin-top:20px;width:100%}
+    body.clean .shell{padding:0;width:100%;max-width:none}body.clean .topbar,body.clean .controls,body.clean .chapters,body.clean .hint{display:none}body.clean .player{border:0;border-radius:0;box-shadow:none}body.clean #video{height:100vh;width:100vw;object-fit:contain;background:#070d18}
+    :fullscreen .shell{padding:0;width:100%;max-width:none}:fullscreen .topbar,:fullscreen .controls,:fullscreen .chapters,:fullscreen .hint{display:none}:fullscreen .player{height:100vh;border:0;border-radius:0}:fullscreen #video{width:100%;height:100%;object-fit:contain}
+    @media(max-width:720px){.shell{padding:10px}.topbar{margin-bottom:8px}.edition{display:none}.controls{grid-template-columns:auto auto 1fr auto}.controls .optional{display:none}.time{min-width:90px;font-size:10px}.hint{display:none}.chapter{min-width:100px}.player{border-radius:12px}}
+    @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">S</span> SimpleBase</div>
+    <div class="edition">小微企业产品介绍 · 02:30 · 16:9</div>
+  </header>
+  <main class="player" id="player">
+    <svg id="video" viewBox="0 0 1600 900" role="img" aria-labelledby="videoTitle videoDesc" tabindex="0" xmlns="http://www.w3.org/2000/svg">
+      <title id="videoTitle">SimpleBase 小微企业云服务产品介绍</title>
+      <desc id="videoDesc">一段 150 秒的中文动态产品视频，面向小微企业介绍一体化控制台、AI 经营分析、模型网关、智能自动化和系统架构，以 AI 驱动的 Supabase 为定位，突出整个服务只需承担 S3 存储成本。所有界面和数据均为演示。</desc>
+      <defs>
+        <style>
+          text{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;fill:#e8eef8}.serif{font-family:Georgia,"Songti SC","SimSun",serif}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.muted{fill:#8b9bb2}.faint{fill:#53657e}.blue{fill:#79a8ff}.green{fill:#4fd1a5}.darktext{fill:#152238}.ui-muted{fill:#64748b}.ui-faint{fill:#94a3b8}.ui-blue{fill:#2563eb}.ui-green{fill:#059669}.darktext text{fill:#152238}.ui-muted text{fill:#64748b}.ui-faint text{fill:#94a3b8}.muted text{fill:#8b9bb2}.faint text{fill:#53657e}.blue text{fill:#79a8ff}.green text{fill:#4fd1a5}text[fill="#081426"]{fill:#081426}text[fill="#fff"]{fill:#fff}.label{font-size:12px;font-weight:600;letter-spacing:2px}.title{font-size:42px;font-weight:600;letter-spacing:-1.2px}.subtitle{font-size:17px}.ui-title{font-size:18px;font-weight:600}.ui-body{font-size:14px}.ui-small{font-size:12px}.ui-tiny{font-size:10px}.hair{stroke:#26364d;stroke-width:1}.ui-hair{stroke:#e2e8f0;stroke-width:1}.scene{pointer-events:none}.round{stroke-linecap:round;stroke-linejoin:round}
+        </style>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0a1322"/><stop offset=".55" stop-color="#0d1728"/><stop offset="1" stop-color="#08111e"/></linearGradient>
+        <radialGradient id="halo"><stop stop-color="#367cf4" stop-opacity=".28"/><stop offset="1" stop-color="#367cf4" stop-opacity="0"/></radialGradient>
+        <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#81b4ff"/><stop offset="1" stop-color="#3977ed"/></linearGradient>
+        <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#3b82f6" stop-opacity=".3"/><stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></linearGradient>
+        <linearGradient id="shine" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+        <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#8cb6ff" stroke-opacity=".045"/></pattern>
+        <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000" flood-opacity=".28"/></filter>
+        <filter id="soft" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="24"/></filter>
+        <filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <clipPath id="appClip"><rect x="106" y="206" width="1388" height="584" rx="20"/></clipPath>
+        <clipPath id="chartClip"><rect id="chartReveal" x="632" y="466" width="0" height="254"/></clipPath>
+        <clipPath id="sqlResultClip"><rect x="144" y="562" width="1312" height="186" rx="10"/></clipPath>
+
+        <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+        <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v4M8 12h.01M16 12h.01M8 16h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+        <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 20 11a3.5 3.5 0 0 1-1 7H7Z" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+        <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m7 9 3 3-3 3m6 0h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 5v9l9 5 9-5V8M12 13v9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+        <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 9h18M9 9v11M15 9v11" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z" fill="currentColor"/></symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 2 2.3 7.7L22 12l-7.7 2.3L12 22l-2.3-7.7L2 12l7.7-2.3L12 2Z" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+      </defs>
+
+      <rect width="1600" height="900" fill="url(#bg)"/>
+      <rect width="1600" height="900" fill="url(#grid)"/>
+      <ellipse cx="1320" cy="120" rx="500" ry="430" fill="url(#halo)"/>
+      <ellipse id="ambient" cx="240" cy="760" rx="390" ry="300" fill="url(#halo)" opacity=".5"/>
+      <g opacity=".7"><path d="M56 92V56h36M1508 56h36v36M56 808v36h36M1508 844h36v-36" fill="none" stroke="#56718f" stroke-opacity=".45"/></g>
+      <g id="filmBrand"><rect x="64" y="52" width="28" height="28" rx="8" fill="url(#brandGrad)"/><text x="78" y="73" text-anchor="middle" font-size="17" font-weight="700" class="serif">S</text><text x="104" y="72" font-size="16" font-weight="600" class="serif">SimpleBase</text></g>
+      <text x="1536" y="70" text-anchor="end" class="mono faint" font-size="10" letter-spacing="2">产品介绍 / 2026</text>
+
+      <!-- 00 · 开场 -->
+      <g class="scene" id="scene0">
+        <g id="introCopy">
+          <text x="124" y="240" class="label blue">专为小微企业打造的一体化云服务</text>
+          <text x="118" y="332" font-size="82" font-weight="600" letter-spacing="-4" class="serif">SimpleBase</text>
+          <text x="124" y="400" font-size="36" font-weight="500">让数据与智能，简单发生。</text>
+          <text x="126" y="450" class="subtitle muted">数据库、AI 与自动化，一个平台就够了。</text>
+          <g transform="translate(126 504)"><rect width="174" height="48" rx="12" fill="#5b94ff"/><text x="24" y="30" font-size="14" font-weight="600" fill="#081426">探索 SimpleBase</text><use href="#i-arrow" x="136" y="12" width="24" height="24" color="#081426"/></g>
+          <g transform="translate(126 594)"><circle cx="5" cy="-4" r="4" fill="#4fd1a5"/><text x="20" class="mono muted" font-size="12" letter-spacing="1">少些运维负担，多些业务增长</text></g>
+        </g>
+        <g id="introOrbit">
+          <circle cx="1160" cy="425" r="284" fill="none" stroke="#5c91e8" stroke-opacity=".13"/>
+          <circle cx="1160" cy="425" r="214" fill="none" stroke="#5c91e8" stroke-opacity=".18" stroke-dasharray="3 8"/>
+          <path d="M968 259 1338 277 1372 568 1006 610Z" fill="none" stroke="#5688d7" stroke-opacity=".25"/>
+          <circle id="orbitDot" cx="1160" cy="141" r="5" fill="#8db9ff" filter="url(#glow)"/>
+          <circle cx="1160" cy="425" r="132" fill="#397cf0" opacity=".08" filter="url(#soft)"/>
+          <rect x="1080" y="345" width="160" height="160" rx="42" fill="#122846" stroke="#5d98fa" stroke-opacity=".6" filter="url(#shadow)"/>
+          <rect x="1104" y="369" width="112" height="112" rx="30" fill="url(#brandGrad)"/>
+          <text x="1160" y="453" text-anchor="middle" font-size="74" font-weight="600" class="serif">S</text>
+          <g id="introNodes">
+            <g transform="translate(895 205)"><rect width="184" height="82" rx="18" fill="#111f33" stroke="#2c4667"/><use href="#i-database" x="20" y="25" width="30" height="30" color="#78aaff"/><text x="64" y="36" font-size="14" font-weight="600">云端数据</text><text x="64" y="57" class="mono muted" font-size="10">DUCKLAKE / S3</text></g>
+            <g transform="translate(1280 240)"><rect width="174" height="82" rx="18" fill="#111f33" stroke="#2c4667"/><use href="#i-bot" x="20" y="25" width="30" height="30" color="#4fd1a5"/><text x="64" y="36" font-size="14" font-weight="600">AI 云助手</text><text x="64" y="57" class="mono muted" font-size="10">工具调用 / 大模型</text></g>
+            <g transform="translate(1260 570)"><rect width="196" height="82" rx="18" fill="#111f33" stroke="#2c4667"/><use href="#i-code" x="20" y="25" width="30" height="30" color="#c4a3ff"/><text x="64" y="36" font-size="14" font-weight="600">业务自动化</text><text x="64" y="57" class="mono muted" font-size="10">函数 / 定时 / 沙盒</text></g>
+            <g transform="translate(862 568)"><rect width="184" height="82" rx="18" fill="#111f33" stroke="#2c4667"/><use href="#i-chart" x="20" y="25" width="30" height="30" color="#f1bf69"/><text x="64" y="36" font-size="14" font-weight="600">运行可观测</text><text x="64" y="57" class="mono muted" font-size="10">指标 / 审计 / 用量</text></g>
+          </g>
+        </g>
+        <text x="800" y="816" text-anchor="middle" class="mono faint" font-size="12" letter-spacing="3">为成长中的团队，构建简单可靠的云底座</text>
+      </g>
+
+      <!-- 01 · 控制台与数据库 -->
+      <g class="scene" id="scene1">
+        <text x="106" y="128" class="label blue">01 / 一体化工作台</text>
+        <text x="106" y="174" class="title serif">不用拼凑多套系统，一个控制台就够了</text>
+        <text x="1494" y="168" text-anchor="end" class="subtitle muted">少些重复采购与配置，把精力留给客户</text>
+        <g filter="url(#shadow)"><rect x="106" y="206" width="1388" height="584" rx="20" fill="#f8fafc"/></g>
+        <g clip-path="url(#appClip)">
+          <rect x="106" y="206" width="198" height="584" fill="#fff"/>
+          <path d="M304 206v584" class="ui-hair"/>
+          <rect x="126" y="228" width="30" height="30" rx="8" fill="#2563eb"/><text x="141" y="250" text-anchor="middle" font-size="17" class="serif darktext" fill="#fff">S</text><text x="168" y="249" class="serif darktext" font-size="16" font-weight="700">SimpleBase</text>
+          <text x="128" y="294" class="ui-tiny ui-faint" font-weight="600" letter-spacing="1.5">工作台</text>
+          <g id="navDashboard"><rect id="navDashboardBg" x="118" y="306" width="174" height="38" rx="9" fill="#eff6ff"/><use href="#i-chart" x="134" y="315" width="20" height="20" color="#2563eb"/><text x="168" y="331" class="ui-small ui-blue" font-weight="600">监控大盘</text></g>
+          <g id="navAgents"><use href="#i-bot" x="134" y="359" width="20" height="20" color="#64748b"/><text x="168" y="375" class="ui-small ui-muted">云助手</text></g>
+          <text x="128" y="424" class="ui-tiny ui-faint" font-weight="600" letter-spacing="1.5">数据</text>
+          <g id="navDatabases"><rect id="navDatabaseBg" x="118" y="436" width="174" height="38" rx="9" fill="transparent"/><use href="#i-database" x="134" y="445" width="20" height="20" color="#64748b"/><text id="navDatabaseText" x="168" y="461" class="ui-small ui-muted">数据库</text></g>
+          <use href="#i-table" x="134" y="489" width="20" height="20" color="#64748b"/><text x="168" y="505" class="ui-small ui-muted">Key-Value</text>
+          <use href="#i-cloud" x="134" y="533" width="20" height="20" color="#64748b"/><text x="168" y="549" class="ui-small ui-muted">对象存储</text>
+          <text x="128" y="604" class="ui-tiny ui-faint" font-weight="600" letter-spacing="1.5">自动化</text>
+          <use href="#i-code" x="134" y="626" width="20" height="20" color="#64748b"/><text x="168" y="642" class="ui-small ui-muted">云函数</text>
+          <use href="#i-clock" x="134" y="670" width="20" height="20" color="#64748b"/><text x="168" y="686" class="ui-small ui-muted">定时任务</text>
+          <use href="#i-terminal" x="134" y="714" width="20" height="20" color="#64748b"/><text x="168" y="730" class="ui-small ui-muted">云沙盒</text>
+          <rect x="304" y="206" width="1190" height="54" fill="#ffffffcc"/><path d="M304 260h1190" class="ui-hair"/>
+          <text x="328" y="239" class="ui-small darktext" font-weight="600">我的工作区</text>
+          <rect x="1202" y="218" width="196" height="30" rx="8" fill="#fff" stroke="#e2e8f0"/><circle cx="1220" cy="233" r="5" fill="#3b82f6"/><text x="1233" y="238" class="ui-small darktext">演示项目</text><path d="m1378 230 4 4 4-4" fill="none" stroke="#64748b"/>
+          <rect x="1414" y="218" width="56" height="30" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="1442" y="238" text-anchor="middle" class="ui-tiny ui-muted">中文</text>
+
+          <g id="dashboardView">
+            <text x="328" y="294" class="ui-title darktext">项目概览</text><text x="328" y="316" class="ui-small ui-muted">项目资源、请求趋势与运行状态</text>
+            <g id="metricCards">
+              <g transform="translate(328 340)"><rect width="266" height="88" rx="12" fill="#fff" stroke="#e2e8f0"/><rect x="16" y="20" width="42" height="42" rx="10" fill="#eff6ff"/><use href="#i-database" x="26" y="30" width="22" height="22" color="#2563eb"/><text x="74" y="30" class="ui-tiny ui-muted">数据库总数</text><text id="metricDb" x="74" y="61" class="darktext" font-size="26" font-weight="600">0</text></g>
+              <g transform="translate(610 340)"><rect width="266" height="88" rx="12" fill="#fff" stroke="#e2e8f0"/><rect x="16" y="20" width="42" height="42" rx="10" fill="#ecfdf5"/><use href="#i-check" x="26" y="30" width="22" height="22" color="#059669"/><text x="74" y="30" class="ui-tiny ui-muted">正常数据库</text><text id="metricReady" x="74" y="61" class="darktext" font-size="26" font-weight="600">0</text></g>
+              <g transform="translate(892 340)"><rect width="266" height="88" rx="12" fill="#fff" stroke="#e2e8f0"/><rect x="16" y="20" width="42" height="42" rx="10" fill="#eff6ff"/><use href="#i-chart" x="26" y="30" width="22" height="22" color="#2563eb"/><text x="74" y="30" class="ui-tiny ui-muted">请求总数 / 24H</text><text id="metricRequests" x="74" y="61" class="darktext" font-size="26" font-weight="600">0</text></g>
+              <g transform="translate(1174 340)"><rect width="266" height="88" rx="12" fill="#fff" stroke="#e2e8f0"/><rect x="16" y="20" width="42" height="42" rx="10" fill="#ecfdf5"/><use href="#i-check" x="26" y="30" width="22" height="22" color="#059669"/><text x="74" y="30" class="ui-tiny ui-muted">配额状态</text><text x="74" y="58" class="ui-green" font-size="20" font-weight="600">正常</text></g>
+            </g>
+            <rect x="328" y="446" width="1112" height="306" rx="12" fill="#fff" stroke="#e2e8f0"/>
+            <text x="350" y="478" class="ui-body darktext" font-weight="600">请求趋势</text><text x="1418" y="478" text-anchor="end" class="ui-tiny ui-muted">近 24 小时 · 自动刷新</text>
+            <g transform="translate(350 504)"><rect width="70" height="58" rx="8" fill="#f8fafc" stroke="#e2e8f0"/><text x="12" y="20" class="ui-tiny ui-muted">P50</text><text x="12" y="43" class="darktext" font-size="18" font-weight="600">24 ms</text></g>
+            <g transform="translate(430 504)"><rect width="70" height="58" rx="8" fill="#f8fafc" stroke="#e2e8f0"/><text x="12" y="20" class="ui-tiny ui-muted">P90</text><text x="12" y="43" class="darktext" font-size="18" font-weight="600">68 ms</text></g>
+            <g transform="translate(510 504)"><rect width="70" height="58" rx="8" fill="#f8fafc" stroke="#e2e8f0"/><text x="12" y="20" class="ui-tiny ui-muted">P99</text><text x="12" y="43" class="darktext" font-size="18" font-weight="600">142 ms</text></g>
+            <g stroke="#edf2f7"><path d="M632 520h778M632 566h778M632 612h778M632 658h778M632 704h778"/></g>
+            <g clip-path="url(#chartClip)"><path d="M632 696 682 680 732 686 782 646 832 664 882 610 932 625 982 574 1032 596 1082 550 1132 580 1182 540 1232 566 1282 520 1332 552 1382 512V720H632Z" fill="url(#chartFill)"/><path id="trendLine" d="M632 696 682 680 732 686 782 646 832 664 882 610 932 625 982 574 1032 596 1082 550 1132 580 1182 540 1232 566 1282 520 1332 552 1382 512" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <circle id="chartPoint" cx="1382" cy="512" r="5" fill="#fff" stroke="#3b82f6" stroke-width="3"/>
+            <g class="mono ui-faint" font-size="9"><text x="632" y="737">00:00</text><text x="876" y="737">06:00</text><text x="1122" y="737">12:00</text><text x="1360" y="737">18:00</text></g>
+          </g>
+
+          <g id="databaseView" opacity="0">
+            <text x="328" y="294" class="ui-title darktext">数据库</text><text x="328" y="316" class="ui-small ui-muted">管理项目中的 DuckLake 数据库</text>
+            <rect x="328" y="340" width="1112" height="412" rx="12" fill="#fff" stroke="#e2e8f0"/>
+            <text x="350" y="374" class="ui-body darktext" font-weight="600">数据库列表</text><text x="350" y="395" class="ui-small ui-muted">共 3 个数据库</text>
+            <rect x="1304" y="355" width="114" height="32" rx="8" fill="#2563eb"/><text x="1361" y="376" text-anchor="middle" class="ui-small" font-weight="600">＋ 新建数据库</text>
+            <path d="M328 410h1112" class="ui-hair"/><rect x="328" y="410" width="1112" height="42" fill="#f8fafc"/>
+            <g class="ui-small ui-muted" font-weight="500"><text x="382" y="436">名称</text><text x="650" y="436">ID</text><text x="900" y="436">状态</text><text x="1030" y="436">数据量</text><text x="1210" y="436">创建时间</text><text x="1370" y="436">操作</text></g>
+            <g id="dbRows">
+              <g><use href="#i-database" x="350" y="471" width="19" height="19" color="#2563eb"/><text x="382" y="486" class="mono darktext" font-size="13" font-weight="600">shop-production</text><rect x="518" y="468" width="38" height="20" rx="5" fill="#f8fafc" stroke="#e2e8f0"/><text x="537" y="482" text-anchor="middle" class="ui-tiny ui-muted">SQL</text><text x="650" y="486" class="mono ui-muted" font-size="11">db_8fa2…c91</text><rect x="890" y="468" width="62" height="23" rx="11" fill="#ecfdf5"/><circle cx="904" cy="479" r="3" fill="#10b981"/><text x="914" y="484" class="ui-tiny ui-green">就绪</text><text x="1030" y="486" class="ui-small darktext">12,840</text><text x="1210" y="486" class="ui-small ui-muted">2026/10/18</text><text x="1370" y="486" class="ui-small ui-blue" font-weight="600">SQL</text></g>
+              <path d="M344 510h1080" class="ui-hair"/>
+              <g><use href="#i-database" x="350" y="531" width="19" height="19" color="#2563eb"/><text x="382" y="546" class="mono darktext" font-size="13" font-weight="600">user-events</text><rect x="480" y="528" width="72" height="20" rx="5" fill="#f8fafc" stroke="#e2e8f0"/><text x="516" y="542" text-anchor="middle" class="ui-tiny ui-muted">集合</text><text x="650" y="546" class="mono ui-muted" font-size="11">db_31bd…a07</text><rect x="890" y="528" width="62" height="23" rx="11" fill="#ecfdf5"/><circle cx="904" cy="539" r="3" fill="#10b981"/><text x="914" y="544" class="ui-tiny ui-green">就绪</text><text x="1030" y="546" class="ui-small darktext">86,210</text><text x="1210" y="546" class="ui-small ui-muted">2026/10/12</text><text x="1370" y="546" class="ui-small ui-blue" font-weight="600">SQL</text></g>
+              <path d="M344 570h1080" class="ui-hair"/>
+              <g><use href="#i-database" x="350" y="591" width="19" height="19" color="#2563eb"/><text x="382" y="606" class="mono darktext" font-size="13" font-weight="600">analytics</text><rect x="448" y="588" width="38" height="20" rx="5" fill="#f8fafc" stroke="#e2e8f0"/><text x="467" y="602" text-anchor="middle" class="ui-tiny ui-muted">SQL</text><text x="650" y="606" class="mono ui-muted" font-size="11">db_c702…4e2</text><rect x="890" y="588" width="62" height="23" rx="11" fill="#ecfdf5"/><circle cx="904" cy="599" r="3" fill="#10b981"/><text x="914" y="604" class="ui-tiny ui-green">就绪</text><text x="1030" y="606" class="ui-small darktext">4,096</text><text x="1210" y="606" class="ui-small ui-muted">2026/10/08</text><text x="1370" y="606" class="ui-small ui-blue" font-weight="600">SQL</text></g>
+              <path d="M344 630h1080" class="ui-hair"/>
+            </g>
+            <g transform="translate(350 666)"><circle cx="10" cy="10" r="10" fill="#eff6ff"/><use href="#i-check" x="4" y="4" width="12" height="12" color="#2563eb"/><text x="30" y="15" class="ui-small ui-muted">每库唯一写入实例 · 项目级隔离 · S3 在线持久化</text></g>
+          </g>
+          <g id="cursorDashboard"><circle r="14" fill="#2563eb" opacity=".16"/><path d="M0 0 4 19 9 13 14 22 18 20 13 11 21 9Z" fill="#fff" stroke="#172554" stroke-width="1.5"/></g>
+        </g>
+        <g transform="translate(106 816)"><rect width="1388" height="34" rx="10" fill="#101d30" stroke="#243750"/><circle cx="20" cy="17" r="4" fill="#4fd1a5"/><text x="34" y="22" class="mono muted" font-size="11">实时项目工作台</text><text x="1368" y="22" text-anchor="end" class="ui-small muted">统一项目上下文 · 用量与权限贯穿所有能力</text></g>
+      </g>
+
+      <!-- 02 · SQL -->
+      <g class="scene" id="scene2">
+        <text x="106" y="128" class="label blue">02 / SQL 数据工作台</text>
+        <text x="106" y="174" class="title serif">从一个问题，到一份答案</text>
+        <text x="1494" y="168" text-anchor="end" class="subtitle muted">参数化查询 · 执行边界 · 即时结果</text>
+        <g filter="url(#shadow)"><rect x="106" y="206" width="1388" height="584" rx="20" fill="#f8fafc"/></g>
+        <g clip-path="url(#appClip)">
+          <rect x="106" y="206" width="1388" height="54" fill="#fff"/><path d="M106 260h1388" class="ui-hair"/>
+          <rect x="126" y="218" width="30" height="30" rx="8" fill="#2563eb"/><text x="141" y="240" text-anchor="middle" font-size="17" class="serif">S</text><text x="170" y="239" class="ui-small darktext" font-weight="600">shop-production</text><path d="m262 229 5 5 5-5" fill="none" stroke="#64748b"/>
+          <rect x="1290" y="218" width="180" height="30" rx="8" fill="#f0fdf4"/><circle cx="1308" cy="233" r="4" fill="#10b981"/><text x="1320" y="238" class="ui-small ui-green">DuckLake · 就绪</text>
+          <text x="130" y="295" class="ui-small ui-muted">数据库 / shop-production /</text><text x="378" y="295" class="ui-small darktext" font-weight="600">SQL 工作台</text>
+          <rect x="126" y="316" width="1348" height="450" rx="14" fill="#fff" stroke="#e2e8f0"/>
+          <rect x="126" y="316" width="1348" height="46" rx="14" fill="#fbfdff"/><path d="M126 362h1348" class="ui-hair"/>
+          <rect x="144" y="327" width="84" height="25" rx="6" fill="#eff6ff"/><text x="186" y="344" text-anchor="middle" class="ui-small ui-blue" font-weight="600">查询</text><text x="258" y="344" class="ui-small ui-muted">执行</text><text x="334" y="344" class="ui-small ui-muted">批量事务</text>
+          <rect id="runButton" x="1342" y="324" width="112" height="32" rx="8" fill="#2563eb"/><use href="#i-play" x="1354" y="331" width="18" height="18" color="#fff"/><text x="1409" y="345" text-anchor="middle" class="ui-small" font-weight="600">运行查询</text>
+          <rect x="144" y="380" width="688" height="164" rx="10" fill="#0f172a"/>
+          <rect x="144" y="380" width="688" height="30" rx="10" fill="#17233a"/><circle cx="162" cy="395" r="4" fill="#f87171"/><circle cx="176" cy="395" r="4" fill="#fbbf24"/><circle cx="190" cy="395" r="4" fill="#34d399"/><text x="810" y="400" text-anchor="end" class="mono muted" font-size="9">query.sql</text>
+          <g class="mono" font-size="13"><text id="sqlText" x="164" y="438" xml:space="preserve"></text><rect id="sqlCaret" x="164" y="424" width="2" height="17" fill="#7aa7ff"/></g>
+          <g transform="translate(850 380)"><rect width="606" height="164" rx="10" fill="#f8fafc" stroke="#e2e8f0"/><text x="18" y="28" class="ui-small darktext" font-weight="600">查询提示</text><g transform="translate(18 48)"><circle cx="8" cy="8" r="8" fill="#dbeafe"/><text x="8" y="12" text-anchor="middle" class="ui-tiny ui-blue" font-weight="700">1</text><text x="28" y="12" class="ui-small ui-muted">使用参数化 SQL，隔离用户输入</text></g><g transform="translate(18 82)"><circle cx="8" cy="8" r="8" fill="#dbeafe"/><text x="8" y="12" text-anchor="middle" class="ui-tiny ui-blue" font-weight="700">2</text><text x="28" y="12" class="ui-small ui-muted">自动应用超时与最大返回行数</text></g><g transform="translate(18 116)"><circle cx="8" cy="8" r="8" fill="#dbeafe"/><text x="8" y="12" text-anchor="middle" class="ui-tiny ui-blue" font-weight="700">3</text><text x="28" y="12" class="ui-small ui-muted">写操作与敏感操作独立授权</text></g></g>
+          <g id="sqlResults" clip-path="url(#sqlResultClip)">
+            <rect x="144" y="562" width="1312" height="186" rx="10" fill="#fff" stroke="#e2e8f0"/>
+            <rect x="144" y="562" width="1312" height="38" rx="10" fill="#f8fafc"/><text x="162" y="586" class="ui-small darktext" font-weight="600">查询结果</text><text id="queryStatus" x="1434" y="586" text-anchor="end" class="mono ui-green" font-size="11">3 行 · 42 毫秒</text>
+            <g class="ui-small ui-muted" font-weight="600"><text x="166" y="625">日期</text><text x="540" y="625">订单数</text><text x="890" y="625">营业收入</text><text x="1230" y="625">增长率</text></g><path d="M144 640h1312" class="ui-hair"/>
+            <g class="mono darktext" font-size="12"><g class="result-row"><text x="166" y="666">2026-10-20</text><text x="540" y="666">328</text><text x="890" y="666">¥ 18,620.00</text><text x="1230" y="666" class="ui-green">+ 8.2%</text></g><g class="result-row"><text x="166" y="694">2026-10-21</text><text x="540" y="694">364</text><text x="890" y="694">¥ 21,480.00</text><text x="1230" y="694" class="ui-green">+ 15.4%</text></g><g class="result-row"><text x="166" y="722">2026-10-22</text><text x="540" y="722">402</text><text x="890" y="722">¥ 24,260.00</text><text x="1230" y="722" class="ui-green">+ 12.9%</text></g></g>
+          </g>
+          <g id="cursorSql"><circle r="14" fill="#2563eb" opacity=".16"/><path d="M0 0 4 19 9 13 14 22 18 20 13 11 21 9Z" fill="#fff" stroke="#172554" stroke-width="1.5"/></g>
+        </g>
+        <g transform="translate(106 816)"><rect width="1388" height="34" rx="10" fill="#101d30" stroke="#243750"/><use href="#i-database" x="14" y="7" width="20" height="20" color="#79a8ff"/><text x="46" y="22" class="mono muted" font-size="11">DUCKDB / DUCKLAKE</text><text x="1368" y="22" text-anchor="end" class="ui-small muted">分析能力，不止于存储</text></g>
+      </g>
+
+      <!-- 03 · 云 Agent -->
+      <g class="scene" id="scene3">
+        <text x="106" y="128" class="label blue">03 / AI 经营分析师</text>
+        <text x="106" y="174" class="title serif">不会写代码，也能让数据开口说话</text>
+        <text x="1494" y="168" text-anchor="end" class="subtitle muted">一句话提问，AI 查数据、看趋势、给答案</text>
+        <g filter="url(#shadow)"><rect x="106" y="206" width="1388" height="584" rx="20" fill="#f8fafc"/></g>
+        <g clip-path="url(#appClip)">
+          <rect x="106" y="206" width="198" height="584" fill="#fff"/><path d="M304 206v584" class="ui-hair"/>
+          <rect x="126" y="228" width="30" height="30" rx="8" fill="#2563eb"/><text x="141" y="250" text-anchor="middle" font-size="17" class="serif">S</text><text x="168" y="249" class="serif darktext" font-size="16" font-weight="700">SimpleBase</text>
+          <text x="128" y="294" class="ui-tiny ui-faint" font-weight="600" letter-spacing="1.5">工作台</text><use href="#i-chart" x="134" y="315" width="20" height="20" color="#64748b"/><text x="168" y="331" class="ui-small ui-muted">监控大盘</text>
+          <rect x="118" y="350" width="174" height="38" rx="9" fill="#eff6ff"/><use href="#i-bot" x="134" y="359" width="20" height="20" color="#2563eb"/><text x="168" y="375" class="ui-small ui-blue" font-weight="600">云助手</text>
+          <text x="128" y="424" class="ui-tiny ui-faint" font-weight="600" letter-spacing="1.5">数据</text><use href="#i-database" x="134" y="445" width="20" height="20" color="#64748b"/><text x="168" y="461" class="ui-small ui-muted">数据库</text><use href="#i-table" x="134" y="489" width="20" height="20" color="#64748b"/><text x="168" y="505" class="ui-small ui-muted">Key-Value</text><use href="#i-cloud" x="134" y="533" width="20" height="20" color="#64748b"/><text x="168" y="549" class="ui-small ui-muted">对象存储</text>
+          <text x="128" y="604" class="ui-tiny ui-faint" font-weight="600" letter-spacing="1.5">自动化</text><use href="#i-code" x="134" y="626" width="20" height="20" color="#64748b"/><text x="168" y="642" class="ui-small ui-muted">云函数</text><use href="#i-clock" x="134" y="670" width="20" height="20" color="#64748b"/><text x="168" y="686" class="ui-small ui-muted">定时任务</text>
+          <rect x="304" y="206" width="1190" height="54" fill="#fff"/><path d="M304 260h1190" class="ui-hair"/><text x="328" y="239" class="ui-small darktext" font-weight="600">云助手</text><rect x="1224" y="218" width="174" height="30" rx="8" fill="#fff" stroke="#e2e8f0"/><circle cx="1242" cy="233" r="5" fill="#3b82f6"/><text x="1255" y="238" class="ui-small darktext">演示项目</text><rect x="1414" y="218" width="56" height="30" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="1442" y="238" text-anchor="middle" class="ui-tiny ui-muted">中文</text>
+          <rect x="322" y="278" width="196" height="494" rx="12" fill="#fff" stroke="#e2e8f0"/><text x="340" y="310" class="ui-body darktext" font-weight="600">助手</text><rect x="448" y="290" width="52" height="26" rx="7" fill="#eff6ff"/><text x="474" y="308" text-anchor="middle" class="ui-small ui-blue">＋ 新建</text>
+          <rect x="334" y="332" width="172" height="78" rx="10" fill="#eff6ff" stroke="#bfdbfe"/><rect x="346" y="345" width="34" height="34" rx="9" fill="#2563eb"/><use href="#i-spark" x="353" y="352" width="20" height="20" color="#fff"/><text x="391" y="358" class="ui-small darktext" font-weight="600">数据分析师</text><text x="391" y="377" class="ui-tiny ui-muted">数据库 · 只读</text><circle cx="492" cy="349" r="3" fill="#10b981"/>
+          <g transform="translate(334 422)"><rect width="172" height="66" rx="10" fill="#fff"/><rect x="12" y="12" width="32" height="32" rx="9" fill="#f1f5f9"/><use href="#i-bot" x="19" y="19" width="18" height="18" color="#64748b"/><text x="54" y="26" class="ui-small darktext">运维助手</text><text x="54" y="45" class="ui-tiny ui-muted">日志 · 沙盒</text></g>
+          <g transform="translate(334 496)"><rect width="172" height="66" rx="10" fill="#fff"/><rect x="12" y="12" width="32" height="32" rx="9" fill="#f1f5f9"/><use href="#i-code" x="19" y="19" width="18" height="18" color="#64748b"/><text x="54" y="26" class="ui-small darktext">函数开发</text><text x="54" y="45" class="ui-tiny ui-muted">Go · 调试</text></g>
+          <rect x="534" y="278" width="942" height="494" rx="12" fill="#fff" stroke="#e2e8f0"/><path d="M534 330h942" class="ui-hair"/><text x="556" y="311" class="ui-body darktext" font-weight="600">@数据分析师</text><rect x="690" y="294" width="48" height="21" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="714" y="309" text-anchor="middle" class="ui-tiny ui-muted">只读</text><rect x="1300" y="292" width="154" height="26" rx="7" fill="#f8fafc"/><text x="1377" y="310" text-anchor="middle" class="ui-small ui-muted">本周收入分析 ▾</text>
+          <g id="agentEmpty"><circle cx="1004" cy="443" r="36" fill="#eff6ff"/><use href="#i-spark" x="980" y="419" width="48" height="48" color="#2563eb"/><text x="1004" y="505" text-anchor="middle" class="ui-title darktext">今天想分析什么？</text><text x="1004" y="532" text-anchor="middle" class="ui-small ui-muted">用自然语言查询数据、诊断问题、自动化工作</text></g>
+          <g id="userMessage" opacity="0"><rect x="876" y="352" width="540" height="58" rx="14" fill="#2563eb"/><text x="1394" y="387" text-anchor="end" font-size="14">分析本周订单趋势，找出收入最高的一天</text></g>
+          <g id="agentThinking" opacity="0"><rect x="556" y="432" width="34" height="34" rx="10" fill="#2563eb"/><use href="#i-spark" x="563" y="439" width="20" height="20" color="#fff"/><text x="604" y="453" class="ui-small ui-muted">数据分析师正在思考</text><circle cx="772" cy="448" r="3" fill="#94a3b8"/><circle cx="784" cy="448" r="3" fill="#94a3b8"/><circle cx="796" cy="448" r="3" fill="#94a3b8"/></g>
+          <g id="toolCall" opacity="0"><rect x="604" y="434" width="650" height="76" rx="12" fill="#f8fafc" stroke="#e2e8f0"/><rect x="618" y="448" width="38" height="38" rx="9" fill="#eaf2ff"/><use href="#i-database" x="627" y="457" width="20" height="20" color="#2563eb"/><text x="670" y="459" class="ui-small darktext" font-weight="600">database.query</text><text x="670" y="481" class="mono ui-muted" font-size="11">shop-production · SELECT daily revenue…</text><g id="toolDone"><circle cx="1218" cy="466" r="11" fill="#dcfce7"/><use href="#i-check" x="1210" y="458" width="16" height="16" color="#059669"/></g><text id="toolStatus" x="1194" y="491" text-anchor="end" class="ui-tiny ui-green">完成 · 5 行数据</text></g>
+          <g id="agentAnswer" opacity="0"><rect x="556" y="532" width="34" height="34" rx="10" fill="#2563eb"/><use href="#i-spark" x="563" y="539" width="20" height="20" color="#fff"/><text id="answerLine1" x="604" y="552" class="ui-body darktext"></text><text id="answerLine2" x="604" y="580" class="ui-body darktext"></text><g id="answerChart"><rect x="604" y="596" width="500" height="58" rx="9" fill="#f8fafc"/><g fill="#bfdbfe"><rect x="626" y="624" width="38" height="18" rx="3"/><rect x="684" y="616" width="38" height="26" rx="3"/><rect x="742" y="620" width="38" height="22" rx="3"/><rect x="800" y="609" width="38" height="33" rx="3"/><rect x="858" y="600" width="38" height="42" rx="3" fill="#3b82f6"/><rect x="916" y="614" width="38" height="28" rx="3"/><rect x="974" y="618" width="38" height="24" rx="3"/></g><text x="877" y="614" text-anchor="middle" class="ui-tiny ui-blue" font-weight="600">周五</text></g></g>
+          <rect x="552" y="682" width="906" height="70" rx="18" fill="#f1f5f9"/><text id="agentPrompt" x="574" y="714" class="ui-small darktext"></text><text id="agentPlaceholder" x="574" y="714" class="ui-small ui-muted">向 @数据分析师 提问…</text><rect id="sendButton" x="1404" y="696" width="40" height="40" rx="12" fill="#2563eb"/><path d="m1416 716 18-8-8 18-3-7-7-3Z" fill="#fff"/>
+          <text x="556" y="671" class="ui-tiny ui-muted">可用工具：database.query · database.schema</text>
+          <g id="cursorAgent"><circle r="14" fill="#2563eb" opacity=".16"/><path d="M0 0 4 19 9 13 14 22 18 20 13 11 21 9Z" fill="#fff" stroke="#172554" stroke-width="1.5"/></g>
+        </g>
+        <g transform="translate(106 816)"><rect width="1388" height="34" rx="10" fill="#101d30" stroke="#243750"/><use href="#i-bot" x="14" y="7" width="20" height="20" color="#4fd1a5"/><text x="46" y="22" class="mono muted" font-size="11">AI 云助手 + 模型网关</text><text x="1368" y="22" text-anchor="end" class="ui-small muted">工具权限按需授予 · 流式响应 · 用量计量</text></g>
+      </g>
+
+      <!-- 04 · 自动化 -->
+      <g class="scene" id="scene4">
+        <text x="106" y="128" class="label blue">05 / AI 智能自动化</text>
+        <text x="106" y="174" class="title serif">让 AI 不只给建议，还能替你完成工作</text>
+        <text x="1494" y="168" text-anchor="end" class="subtitle muted">经营分析、报表生成、任务执行，自动运转</text>
+        <g id="automationCards">
+          <g transform="translate(106 222)"><rect width="424" height="502" rx="20" fill="#111d30" stroke="#2a3c55"/><rect x="24" y="24" width="48" height="48" rx="13" fill="#7c5cff22"/><use href="#i-code" x="36" y="36" width="24" height="24" color="#bfa8ff"/><text x="88" y="44" font-size="20" font-weight="600">Go 云函数</text><text x="88" y="65" class="ui-small muted">在进程内运行业务逻辑</text><rect x="24" y="94" width="376" height="226" rx="12" fill="#0b1423" stroke="#273950"/><circle cx="42" cy="112" r="3" fill="#f87171"/><circle cx="54" cy="112" r="3" fill="#fbbf24"/><circle cx="66" cy="112" r="3" fill="#34d399"/><text x="378" y="117" text-anchor="end" class="mono faint" font-size="9">handler.go</text><g class="mono" font-size="12"><text x="42" y="150" fill="#c4b5fd">func <tspan fill="#7dd3fc">Handler</tspan><tspan fill="#dbe7f7">(ctx Context) {</tspan></text><text x="42" y="178" fill="#94a3b8">  rows, err := ctx.DB.</text><text x="42" y="202" fill="#7dd3fc">    Query<tspan fill="#dbe7f7">(</tspan><tspan fill="#a5d6a7">"SELECT …"</tspan><tspan fill="#dbe7f7">)</tspan></text><text x="42" y="234" fill="#94a3b8">  if err != nil {</text><text x="42" y="258" fill="#c4b5fd">    return <tspan fill="#dbe7f7">err</tspan></text><text x="42" y="282" fill="#94a3b8">  }</text><text x="42" y="306" fill="#c4b5fd">  return <tspan fill="#dbe7f7">ctx.JSON(rows)</tspan></text><text x="42" y="330" fill="#dbe7f7">}</text></g><rect x="24" y="340" width="376" height="64" rx="11" fill="#13263a"/><circle id="functionStatusDot" cx="45" cy="362" r="5" fill="#fbbf24"/><text id="functionStatus" x="60" y="367" class="ui-small muted">正在运行测试…</text><text id="functionResult" x="44" y="390" class="mono faint" font-size="10">POST /go/daily-report</text><rect x="24" y="426" width="376" height="48" rx="12" fill="#5f48c9"/><use href="#i-play" x="132" y="440" width="20" height="20" color="#fff"/><text x="229" y="457" text-anchor="middle" font-size="13" font-weight="600">运行函数</text></g>
+          <g transform="translate(588 222)"><rect width="424" height="502" rx="20" fill="#111d30" stroke="#2a3c55"/><rect x="24" y="24" width="48" height="48" rx="13" fill="#3b82f622"/><use href="#i-clock" x="36" y="36" width="24" height="24" color="#79a8ff"/><text x="88" y="44" font-size="20" font-weight="600">定时任务</text><text x="88" y="65" class="ui-small muted">让工作按计划发生</text><rect x="24" y="94" width="376" height="82" rx="12" fill="#0b1423" stroke="#273950"/><text x="44" y="124" class="ui-small muted">AI 每日经营分析</text><text x="44" y="153" class="mono blue" font-size="18">0 9 * * *</text><rect x="300" y="116" width="76" height="28" rx="14" fill="#173e36"/><circle cx="318" cy="130" r="4" fill="#4fd1a5"/><text x="332" y="135" class="ui-tiny green">已启用</text><text x="26" y="210" class="label muted">接下来</text><path d="M50 250v154" stroke="#2c4564" stroke-width="2"/><g id="cronRuns"><g transform="translate(50 252)"><circle r="8" fill="#172b45" stroke="#79a8ff" stroke-width="2"/><text x="26" y="-2" class="ui-small">明天 · 09:00</text><text x="26" y="18" class="ui-small muted">生成报表并写入对象存储</text></g><g transform="translate(50 326)"><circle r="8" fill="#172b45" stroke="#405a7b" stroke-width="2"/><text x="26" y="-2" class="ui-small">周一 · 09:30</text><text x="26" y="18" class="ui-small muted">汇总上周业务指标</text></g><g transform="translate(50 400)"><circle r="8" fill="#172b45" stroke="#405a7b" stroke-width="2"/><text x="26" y="-2" class="ui-small">每月 1 日 · 10:00</text><text x="26" y="18" class="ui-small muted">归档历史订单数据</text></g></g></g>
+          <g transform="translate(1070 222)"><rect width="424" height="502" rx="20" fill="#111d30" stroke="#2a3c55"/><rect x="24" y="24" width="48" height="48" rx="13" fill="#10b98122"/><use href="#i-terminal" x="36" y="36" width="24" height="24" color="#4fd1a5"/><text x="88" y="44" font-size="20" font-weight="600">云沙盒</text><text x="88" y="65" class="ui-small muted">隔离执行每一次任务</text><rect x="24" y="94" width="376" height="298" rx="12" fill="#09131f" stroke="#273950"/><circle cx="42" cy="112" r="3" fill="#f87171"/><circle cx="54" cy="112" r="3" fill="#fbbf24"/><circle cx="66" cy="112" r="3" fill="#34d399"/><text x="378" y="117" text-anchor="end" class="mono faint" font-size="9">sandbox / zsh</text><g class="mono" font-size="12"><text x="42" y="154" class="green">➜ <tspan class="muted">workspace</tspan></text><text id="terminalCommand" x="42" y="184" class="mono"></text><g id="terminalOutput" opacity="0"><text x="42" y="220" class="muted">正在编译报表…</text><text x="42" y="250" class="muted">正在查询 DuckLake…</text><text x="42" y="280" class="blue">✓ 已处理 5 行数据</text><text x="42" y="310" class="green">✓ 经营报表已生成</text><text x="42" y="350" class="green">➜ <tspan class="muted">workspace</tspan></text></g></g><g transform="translate(24 418)"><rect width="376" height="56" rx="12" fill="#102a2a"/><use href="#i-check" x="16" y="16" width="24" height="24" color="#4fd1a5"/><text x="54" y="24" class="ui-small green">隔离执行环境</text><text x="54" y="43" class="ui-tiny muted">本地与云端统一执行接口</text></g></g>
+        </g>
+        <g transform="translate(106 754)"><rect width="1388" height="76" rx="16" fill="#101d30" stroke="#263950"/><text x="28" y="30" class="label muted">更多云服务能力</text><g transform="translate(284 18)"><rect width="178" height="40" rx="10" fill="#17263b"/><use href="#i-table" x="16" y="10" width="20" height="20" color="#79a8ff"/><text x="48" y="26" class="ui-small">Key-Value</text></g><g transform="translate(480 18)"><rect width="178" height="40" rx="10" fill="#17263b"/><use href="#i-cloud" x="16" y="10" width="20" height="20" color="#79a8ff"/><text x="48" y="26" class="ui-small">对象存储 / S3</text></g><g transform="translate(676 18)"><rect width="178" height="40" rx="10" fill="#17263b"/><use href="#i-code" x="16" y="10" width="20" height="20" color="#79a8ff"/><text x="48" y="26" class="ui-small">JavaScript SDK</text></g><g transform="translate(872 18)"><rect width="178" height="40" rx="10" fill="#17263b"/><use href="#i-box" x="16" y="10" width="20" height="20" color="#79a8ff"/><text x="48" y="26" class="ui-small">Go SDK</text></g><g transform="translate(1068 18)"><rect width="276" height="40" rx="10" fill="#17263b"/><use href="#i-chart" x="16" y="10" width="20" height="20" color="#4fd1a5"/><text x="48" y="26" class="ui-small">日志 · 审计 · 配额</text></g></g>
+      </g>
+
+      <!-- 06 · 架构 -->
+      <g class="scene" id="scene5">
+        <text x="106" y="128" class="label blue">06 / 可靠技术底座</text>
+        <text x="106" y="174" class="title serif">小团队，也值得拥有可靠的云底座</text>
+        <text x="1494" y="168" text-anchor="end" class="subtitle muted">使用简单，安全与可靠性不打折</text>
+        <g id="architecture">
+          <g transform="translate(106 230)"><rect width="244" height="98" rx="18" fill="#111e31" stroke="#2b405c"/><use href="#i-layers" x="24" y="31" width="34" height="34" color="#79a8ff"/><text x="76" y="40" font-size="17" font-weight="600">客户端</text><text x="76" y="65" class="mono muted" font-size="11">SDK / CLI / REST</text></g>
+          <g transform="translate(106 370)"><rect width="244" height="98" rx="18" fill="#111e31" stroke="#2b405c"/><use href="#i-code" x="24" y="31" width="34" height="34" color="#bfa8ff"/><text x="76" y="40" font-size="17" font-weight="600">业务应用</text><text x="76" y="65" class="mono muted" font-size="11">网站 / 移动端 / AI</text></g>
+          <path id="flowIn1" d="M350 279C440 279 418 382 510 382" fill="none" stroke="#4d81c7" stroke-width="2"/>
+          <path id="flowIn2" d="M350 419H510" fill="none" stroke="#4d81c7" stroke-width="2"/>
+          <g transform="translate(510 226)" filter="url(#shadow)"><rect width="680" height="436" rx="24" fill="#101e32" stroke="#4a78b6" stroke-opacity=".65"/><rect x="1" y="1" width="678" height="64" rx="23" fill="#152944"/><text x="28" y="41" class="serif" font-size="22" font-weight="600">SimpleBase 云服务</text><rect x="520" y="19" width="132" height="28" rx="14" fill="#173d36"/><circle cx="538" cy="33" r="4" fill="#4fd1a5"/><text x="550" y="38" class="ui-tiny green">单写实例</text>
+            <g transform="translate(26 88)"><rect width="628" height="62" rx="12" fill="#172941" stroke="#314b6c"/><text x="20" y="27" font-size="14" font-weight="600">统一 API 网关</text><text x="20" y="47" class="ui-tiny muted">鉴权 · 项目上下文 · 配额 · 审计</text><g class="mono blue" font-size="10"><text x="350" y="36">鉴权</text><text x="416" y="36">项目</text><text x="502" y="36">配额</text><text x="572" y="36">审计</text></g></g>
+            <g transform="translate(26 170)"><rect width="304" height="134" rx="14" fill="#12243a" stroke="#2f4d70"/><use href="#i-database" x="20" y="20" width="28" height="28" color="#79a8ff"/><text x="60" y="39" font-size="15" font-weight="600">数据库运行时</text><text x="20" y="78" class="mono muted" font-size="11">DuckLake / DuckDB</text><text x="20" y="101" class="mono muted" font-size="11">连接管理 / SQL 防护</text><rect x="20" y="113" width="92" height="3" rx="2" fill="#4d8eff"/></g>
+            <g transform="translate(350 170)"><rect width="304" height="134" rx="14" fill="#12243a" stroke="#2f4d70"/><use href="#i-bot" x="20" y="20" width="28" height="28" color="#4fd1a5"/><text x="60" y="39" font-size="15" font-weight="600">模型 / 助手运行时</text><text x="20" y="78" class="mono muted" font-size="11">多模型 / 流式响应</text><text x="20" y="101" class="mono muted" font-size="11">工具调用 / 用量计量</text><rect x="20" y="113" width="92" height="3" rx="2" fill="#4fd1a5"/></g>
+            <g transform="translate(26 324)"><rect width="628" height="84" rx="14" fill="#0d192a" stroke="#293f5b"/><use href="#i-code" x="20" y="25" width="28" height="28" color="#bfa8ff"/><text x="62" y="36" font-size="14" font-weight="600">自动化运行时</text><text x="62" y="59" class="mono muted" font-size="11">Go 云函数 · 定时任务 · 云沙盒</text><text x="590" y="49" text-anchor="end" class="mono blue" font-size="11">构建 → 运行 → 观测</text></g>
+          </g>
+          <path id="flowOut1" d="M1190 382C1270 382 1250 279 1338 279" fill="none" stroke="#4d81c7" stroke-width="2"/>
+          <path id="flowOut2" d="M1190 419H1338" fill="none" stroke="#4d81c7" stroke-width="2"/>
+          <g transform="translate(1338 230)"><rect width="156" height="98" rx="18" fill="#111e31" stroke="#2b405c"/><use href="#i-cloud" x="55" y="16" width="46" height="46" color="#79a8ff"/><text x="78" y="82" text-anchor="middle" font-size="14" font-weight="600">S3 对象存储</text></g>
+          <g transform="translate(1338 370)"><rect width="156" height="98" rx="18" fill="#111e31" stroke="#2b405c"/><use href="#i-spark" x="55" y="16" width="46" height="46" color="#4fd1a5"/><text x="78" y="82" text-anchor="middle" font-size="14" font-weight="600">多厂商大模型</text></g>
+          <g class="flow-dot" data-path="flowIn1"><circle r="5" fill="#8db9ff" filter="url(#glow)"/></g><g class="flow-dot" data-path="flowIn2"><circle r="5" fill="#8db9ff" filter="url(#glow)"/></g><g class="flow-dot" data-path="flowOut1"><circle r="5" fill="#4fd1a5" filter="url(#glow)"/></g><g class="flow-dot" data-path="flowOut2"><circle r="5" fill="#4fd1a5" filter="url(#glow)"/></g>
+        </g>
+        <g transform="translate(106 716)"><g><rect width="322" height="100" rx="16" fill="#101d30" stroke="#263950"/><text x="24" y="36" font-size="16" font-weight="600">项目级隔离</text><text x="24" y="64" class="ui-small muted">独立数据库与对象前缀</text><use href="#i-layers" x="266" y="34" width="30" height="30" color="#79a8ff"/></g><g transform="translate(356)"><rect width="322" height="100" rx="16" fill="#101d30" stroke="#263950"/><text x="24" y="36" font-size="16" font-weight="600">S3 在线持久层</text><text x="24" y="64" class="ui-small muted">本地磁盘仅作缓存与工作集</text><use href="#i-cloud" x="266" y="34" width="30" height="30" color="#79a8ff"/></g><g transform="translate(712)"><rect width="322" height="100" rx="16" fill="#101d30" stroke="#263950"/><text x="24" y="36" font-size="16" font-weight="600">安全执行边界</text><text x="24" y="64" class="ui-small muted">参数化 SQL · 权限 · 超时</text><use href="#i-check" x="266" y="34" width="30" height="30" color="#4fd1a5"/></g><g transform="translate(1068)"><rect width="320" height="100" rx="16" fill="#101d30" stroke="#263950"/><text x="24" y="36" font-size="16" font-weight="600">全链路可观测</text><text x="24" y="64" class="ui-small muted">指标 · 日志 · 审计 · 用量</text><use href="#i-chart" x="264" y="34" width="30" height="30" color="#4fd1a5"/></g></g>
+      </g>
+
+      <!-- 04 · AI 模型网关 -->
+      <g class="scene" id="scene6">
+        <text x="106" y="128" class="label blue">04 / AI 应用接入</text>
+        <text x="106" y="174" class="title serif">你的现有应用，也能快速拥有 AI</text>
+        <text x="1494" y="168" text-anchor="end" class="subtitle muted">不用重建系统，一套接口连接多厂商大模型</text>
+        <g id="gatewayCodeCard" filter="url(#shadow)">
+          <rect x="106" y="222" width="674" height="500" rx="20" fill="#0d1828" stroke="#2b405c"/>
+          <rect x="106" y="222" width="674" height="56" rx="20" fill="#14243a"/><circle cx="132" cy="250" r="4" fill="#f87171"/><circle cx="148" cy="250" r="4" fill="#fbbf24"/><circle cx="164" cy="250" r="4" fill="#34d399"/><text x="190" y="256" class="ui-small" font-weight="600">一段代码，接入 AI</text><text x="752" y="256" text-anchor="end" class="mono muted" font-size="10">app.js</text>
+          <text x="134" y="314" class="label blue">兼容 OPENAI 接口</text>
+          <g class="mono" font-size="13">
+            <text x="134" y="354" fill="#c4b5fd">const <tspan fill="#dbe7f7">response = </tspan><tspan fill="#7dd3fc">await fetch</tspan><tspan fill="#dbe7f7">(</tspan></text>
+            <text x="134" y="384" fill="#a5d6a7">  "/v1/projects/demo/v1/chat/completions"</text>
+            <text x="134" y="414" fill="#dbe7f7">  { method: <tspan fill="#a5d6a7">"POST"</tspan><tspan>, headers,</tspan></text>
+            <text x="134" y="444" fill="#dbe7f7">    body: JSON.stringify({</text>
+            <text x="134" y="474" fill="#dbe7f7">      model, messages, stream: <tspan fill="#7dd3fc">true</tspan></text>
+            <text x="134" y="504" fill="#dbe7f7">    })</text>
+            <text x="134" y="534" fill="#dbe7f7">  }</text>
+            <text x="134" y="564" fill="#dbe7f7">);</text>
+          </g>
+          <rect x="130" y="604" width="626" height="82" rx="12" fill="#12263b" stroke="#294765"/>
+          <circle id="gatewayStatusDot" cx="154" cy="631" r="5" fill="#fbbf24"/><text id="gatewayRequestStatus" x="170" y="636" class="ui-small muted">正在建立连接…</text>
+          <text x="150" y="665" class="mono faint" font-size="11">统一鉴权 · 项目隔离 · 流式转发 · 用量计量</text>
+        </g>
+        <g id="gatewayChatCard" filter="url(#shadow)">
+          <rect x="812" y="222" width="682" height="500" rx="20" fill="#f8fafc"/>
+          <rect x="812" y="222" width="682" height="64" rx="20" fill="#fff"/><path d="M812 286h682" class="ui-hair"/>
+          <rect x="836" y="236" width="36" height="36" rx="10" fill="#2563eb"/><use href="#i-spark" x="844" y="244" width="20" height="20" color="#fff"/>
+          <text x="886" y="253" class="ui-body darktext" font-weight="600">AI 经营助手</text><text x="886" y="271" class="ui-tiny ui-muted">已经融入你的业务系统</text>
+          <rect x="1312" y="240" width="156" height="28" rx="14" fill="#ecfdf5"/><circle cx="1330" cy="254" r="4" fill="#10b981"/><text x="1342" y="259" class="ui-tiny ui-green">多模型连接正常</text>
+          <g id="gatewayProviders">
+            <g transform="translate(836 308)"><rect width="140" height="40" rx="10" fill="#fff" stroke="#dbe5f0"/><circle cx="20" cy="20" r="6" fill="#111827"/><text x="36" y="25" class="ui-small darktext">OpenAI</text></g>
+            <g transform="translate(990 308)"><rect width="140" height="40" rx="10" fill="#fff" stroke="#dbe5f0"/><circle cx="20" cy="20" r="6" fill="#d4a27f"/><text x="36" y="25" class="ui-small darktext">Anthropic</text></g>
+            <g transform="translate(1144 308)"><rect width="194" height="40" rx="10" fill="#fff" stroke="#dbe5f0"/><use href="#i-layers" x="14" y="10" width="20" height="20" color="#2563eb"/><text x="44" y="25" class="ui-small darktext">更多兼容模型</text></g>
+          </g>
+          <rect x="1002" y="376" width="442" height="56" rx="14" fill="#2563eb"/><text x="1424" y="411" text-anchor="end" class="ui-small">帮我总结今天的经营情况</text>
+          <g id="gatewayAnswerGroup" opacity="0">
+            <rect x="836" y="456" width="34" height="34" rx="10" fill="#2563eb"/><use href="#i-spark" x="843" y="463" width="20" height="20" color="#fff"/>
+            <rect x="884" y="448" width="504" height="136" rx="14" fill="#fff" stroke="#e2e8f0"/>
+            <text id="gatewayAnswer1" x="908" y="484" class="ui-body darktext"></text>
+            <text id="gatewayAnswer2" x="908" y="514" class="ui-body darktext"></text>
+            <text id="gatewayAnswer3" x="908" y="550" class="ui-small ui-muted"></text>
+          </g>
+          <rect x="836" y="616" width="608" height="66" rx="16" fill="#eef2f7"/><text x="860" y="656" class="ui-small ui-muted">继续提问，或让 AI 调用业务工具…</text><rect x="1388" y="630" width="38" height="38" rx="11" fill="#2563eb"/><path d="m1399 649 17-8-8 17-3-7-6-2Z" fill="#fff"/>
+          <text id="gatewayStreaming" x="850" y="604" class="ui-tiny ui-blue">流式响应 · 内容正在生成</text>
+        </g>
+        <path id="modelFlow" d="M780 474C802 474 792 474 812 474" fill="none" stroke="#79a8ff" stroke-width="2"/>
+        <g class="model-flow-dot" data-path="modelFlow"><circle r="6" fill="#8db9ff" filter="url(#glow)"/></g>
+        <g transform="translate(106 754)"><rect width="1388" height="76" rx="16" fill="#101d30" stroke="#263950"/><g transform="translate(32 20)"><use href="#i-check" width="24" height="24" color="#4fd1a5"/><text x="40" y="18" class="ui-small">一套 API，自由选择模型</text></g><g transform="translate(500 20)"><use href="#i-check" width="24" height="24" color="#4fd1a5"/><text x="40" y="18" class="ui-small">权限、配额统一管理</text></g><g transform="translate(968 20)"><use href="#i-check" width="24" height="24" color="#4fd1a5"/><text x="40" y="18" class="ui-small">流式对话与工具调用</text></g></g>
+      </g>
+
+      <!-- 07 · 小微企业价值 -->
+      <g class="scene" id="scene7">
+        <text x="106" y="128" class="label blue">07 / 低成本的一体化云服务</text>
+        <text x="106" y="174" class="title serif">把预算留给增长，而不是重复建设</text>
+        <text x="1494" y="168" text-anchor="end" class="subtitle muted">对标 Supabase · AI 原生 · 成本更清晰</text>
+        <g id="valueCards">
+          <g transform="translate(106 226)"><rect width="424" height="394" rx="22" fill="#111e31" stroke="#2b405c"/><text x="28" y="58" class="serif blue" font-size="48">01</text><use href="#i-layers" x="342" y="28" width="48" height="48" color="#79a8ff"/><text x="28" y="128" font-size="24" font-weight="600">一体，而非拼凑</text><text x="28" y="172" class="subtitle muted">数据库、存储、云函数与 AI</text><text x="28" y="202" class="subtitle muted">一个项目，就能开始。</text><path d="M28 238h368" class="hair"/><text x="28" y="280" class="ui-body muted">不用再为多套服务分别采购、</text><text x="28" y="310" class="ui-body muted">配置、学习和维护。</text><rect x="28" y="338" width="176" height="32" rx="16" fill="#17324f"/><text x="116" y="360" text-anchor="middle" class="ui-small blue">更少系统，更少负担</text></g>
+          <g transform="translate(588 226)"><rect width="424" height="394" rx="22" fill="#111e31" stroke="#2b405c"/><text x="28" y="58" class="serif blue" font-size="48">02</text><use href="#i-spark" x="342" y="28" width="48" height="48" color="#4fd1a5"/><text x="28" y="128" font-size="24" font-weight="600">AI，直接变成生产力</text><text x="28" y="172" class="subtitle muted">经营分析、智能对话、自动报表</text><text x="28" y="202" class="subtitle muted">从真实业务里创造价值。</text><path d="M28 238h368" class="hair"/><text x="28" y="280" class="ui-body muted">不是昂贵的技术展示，</text><text x="28" y="310" class="ui-body muted">而是每天都能使用的工作能力。</text><rect x="28" y="338" width="176" height="32" rx="16" fill="#173e36"/><text x="116" y="360" text-anchor="middle" class="ui-small green">小团队，也能有 AI</text></g>
+          <g transform="translate(1070 226)"><rect width="424" height="394" rx="22" fill="#14273a" stroke="#5d98fa" stroke-opacity=".75"/><text x="28" y="58" class="serif blue" font-size="48">03</text><use href="#i-cloud" x="342" y="28" width="48" height="48" color="#4fd1a5"/><text x="28" y="132" class="serif" font-size="54" font-weight="600">S3</text><text x="142" y="128" font-size="24" font-weight="600">只为存储付费</text><text x="28" y="176" class="subtitle muted">整个服务，只需承担</text><text x="28" y="206" class="subtitle muted">S3 对象存储成本。</text><path d="M28 238h368" class="hair"/><text x="28" y="280" class="ui-body muted">一个平台承载完整业务，</text><text x="28" y="310" class="ui-body muted">成本更清晰，增长更轻盈。</text><rect x="28" y="338" width="204" height="32" rx="16" fill="#24553f"/><text x="130" y="360" text-anchor="middle" class="ui-small green">低成本 · 更清晰</text></g>
+        </g>
+        <g id="valueBanner" transform="translate(106 660)"><rect width="1388" height="142" rx="20" fill="#132945" stroke="#4d81c7"/><text x="36" y="42" class="label blue">传统方式</text><text x="36" y="82" font-size="19" class="muted">多套服务 · 多处配置 · 多重成本</text><use href="#i-arrow" x="500" y="58" width="34" height="34" color="#79a8ff"/><path d="M568 26v90" stroke="#345173"/><text x="612" y="42" class="label green">选择 SIMPLEBASE</text><text x="612" y="82" font-size="22" font-weight="600">一个平台 · 一套接口 · 只为 S3 存储付费</text><rect x="1138" y="45" width="212" height="52" rx="14" fill="#5b94ff"/><text x="1244" y="78" text-anchor="middle" font-size="15" font-weight="600" fill="#081426">低成本，开始构建</text></g>
+      </g>
+
+      <!-- 08 · AI 驱动与低成本 -->
+      <g class="scene" id="scene8">
+        <circle cx="800" cy="400" r="380" fill="url(#halo)"/>
+        <g id="closingLogo"><rect x="750" y="112" width="100" height="100" rx="28" fill="url(#brandGrad)" filter="url(#shadow)"/><text x="800" y="186" text-anchor="middle" class="serif" font-size="66" font-weight="600">S</text></g>
+        <text x="800" y="292" text-anchor="middle" class="serif" font-size="62" font-weight="600" letter-spacing="-3">SimpleBase</text>
+        <g id="costHighlight"><rect x="474" y="334" width="652" height="88" rx="24" fill="#142f4d" stroke="#6da5f7" stroke-opacity=".7"/><text x="800" y="394" text-anchor="middle" font-size="44" font-weight="600">AI 驱动的 <tspan class="blue">Supabase</tspan></text></g>
+        <text x="800" y="478" text-anchor="middle" font-size="28">整个服务，只需承担 S3 存储成本。</text>
+        <text x="800" y="522" text-anchor="middle" class="subtitle muted">数据库 × 云函数 × AI 云助手，低成本启动，随业务成长。</text>
+        <g transform="translate(574 568)"><rect width="452" height="56" rx="14" fill="#5b94ff"/><text x="226" y="36" text-anchor="middle" font-size="17" font-weight="600" fill="#081426">用更低成本，构建你的 AI 应用</text></g>
+        <g transform="translate(488 656)"><rect width="190" height="40" rx="20" fill="#12263c" stroke="#2c4667"/><use href="#i-check" x="18" y="10" width="20" height="20" color="#4fd1a5"/><text x="50" y="26" class="ui-small">AI 原生能力</text></g><g transform="translate(700 656)"><rect width="220" height="40" rx="20" fill="#12263c" stroke="#2c4667"/><use href="#i-check" x="18" y="10" width="20" height="20" color="#4fd1a5"/><text x="50" y="26" class="ui-small">只为 S3 存储付费</text></g><g transform="translate(942 656)"><rect width="170" height="40" rx="20" fill="#12263c" stroke="#2c4667"/><use href="#i-check" x="18" y="10" width="20" height="20" color="#4fd1a5"/><text x="50" y="26" class="ui-small">长期服务维护</text></g>
+        <text x="800" y="750" text-anchor="middle" class="mono blue" font-size="13" letter-spacing="1">github.com/linkxzhou/SimpleBase</text>
+        <text x="800" y="802" text-anchor="middle" class="muted" font-size="13" letter-spacing="2">把复杂留给 SimpleBase，把成本优势留给你的业务</text>
+      </g>
+
+      <g id="filmFooter"><text id="chapterNumber" x="64" y="858" class="mono faint" font-size="10">00</text><path d="M94 854h44" stroke="#354861"/><text id="chapterName" x="154" y="858" class="mono muted" font-size="10" letter-spacing="1.4">产品开场</text><text x="1536" y="858" text-anchor="end" class="mono faint" font-size="10">界面演示 · 模拟数据</text></g>
+      <rect id="fade" width="1600" height="900" fill="#070d18" opacity="0" pointer-events="none"/>
+    </svg>
+    <div id="toast" role="status"></div>
+    <div id="recordStatus">正在录制 <span id="recordTime">00:00</span></div>
+    <section class="help" id="help" aria-label="播放帮助">
+      <div class="help-card">
+        <h2>播放与导出</h2>
+        <div class="help-grid"><div><span>播放 / 暂停</span><kbd>Space</kbd></div><div><span>前后 5 秒</span><kbd>← / →</kbd></div><div><span>跳转分镜</span><kbd>1 — 9</kbd></div><div><span>从头播放</span><kbd>R</kbd></div><div><span>全屏</span><kbd>F</kbd></div><div><span>打开帮助</span><kbd>H / Esc</kbd></div></div>
+        <p>点击“导出视频”会从片头实时渲染并下载 WebM（1600 × 900，无音轨）。导出期间请保持当前标签页可见，时长约 150 秒。Chrome / Edge 推荐； Safari 的导出格式取决于浏览器支持。画面中的 UI 与数据均为产品演示，并非实时业务数据。</p>
+        <button class="control help-close" id="closeHelp">返回视频</button>
+      </div>
+    </section>
+  </main>
+  <div class="controls">
+    <button class="control primary" id="play" aria-label="暂停">暂停</button>
+    <button class="control" id="restart" aria-label="从头播放" title="从头播放 (R)">↺</button>
+    <input id="seek" type="range" min="0" max="150" step="0.01" value="0" aria-label="视频进度">
+    <span class="time"><span id="current">00:00</span> / 02:30</span>
+    <button class="control optional" id="export" title="实时导出 WebM 视频">导出视频</button>
+    <button class="control optional" id="fullscreen" aria-label="全屏" title="全屏 (F)">全屏</button>
+    <button class="control" id="helpButton" aria-label="帮助" title="帮助 (H)">?</button>
+  </div>
+  <nav class="chapters" id="chapters" aria-label="视频分镜"></nav>
+  <footer class="hint"><span><kbd>Space</kbd> 暂停　<kbd>←</kbd><kbd>→</kbd> 快退 / 快进　<kbd>F</kbd> 全屏　<kbd>H</kbd> 帮助</span><span>单文件 · 无外部依赖 · 可用 ?t=58&amp;autoplay=1 指定开始时间</span></footer>
+</div>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const svg = $('video');
+  const duration = 150;
+  const chapters = [
+    { start: 0, end: 8, short: '小微企业的云底座', name: '产品开场' },
+    { start: 8, end: 23, short: '一个控制台就够了', name: '一体化工作台' },
+    { start: 23, end: 36, short: '数据即刻变答案', name: 'SQL 工作台' },
+    { start: 36, end: 58, short: 'AI 经营分析师', name: '云助手 · 经营分析' },
+    { start: 58, end: 80, short: '让应用拥有 AI', name: '模型网关 · 应用接入' },
+    { start: 80, end: 100, short: 'AI 自动替你工作', name: '智能自动化' },
+    { start: 100, end: 114, short: '小团队也有坚实底座', name: '系统架构' },
+    { start: 114, end: 134, short: '只为 S3 存储付费', name: '低成本云服务' },
+    { start: 134, end: 150, short: 'AI 驱动 · S3 成本', name: 'AI 驱动的 Supabase' }
+  ];
+  const scenes = ['scene0', 'scene1', 'scene2', 'scene3', 'scene6', 'scene4', 'scene5', 'scene7', 'scene8'].map($);
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const smooth = v => { const x = clamp(v); return x * x * (3 - 2 * x); };
+  const between = (t, a, b) => smooth((t - a) / (b - a));
+  const opacity = (id, value) => { $(id).setAttribute('opacity', clamp(value)); };
+  const transform = (id, value) => { $(id).setAttribute('transform', value); };
+  const text = (id, value) => { $(id).textContent = value; };
+  const format = t => Math.floor(t / 60).toString().padStart(2, '0') + ':' + Math.floor(t % 60).toString().padStart(2, '0');
+  let time = 0;
+  let playing = false;
+  let frame = 0;
+  let lastTick = 0;
+  let exporting = false;
+  let activeChapter = -1;
+  let toastTimer;
+
+  chapters.forEach((chapter, i) => {
+    const button = document.createElement('button');
+    button.className = 'chapter';
+    button.innerHTML = '<span>' + String(i).padStart(2, '0') + ' · ' + format(chapter.start) + '</span>' + chapter.short;
+    button.addEventListener('click', () => seek(chapter.start + 0.01, true));
+    $('chapters').appendChild(button);
+  });
+
+  function notify(message) {
+    text('toast', message);
+    $('toast').classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $('toast').classList.remove('show'), 2200);
+  }
+
+  function setPlaying(value) {
+    if (exporting) return;
+    playing = value;
+    text('play', playing ? '暂停' : '播放');
+    $('play').setAttribute('aria-label', playing ? '暂停' : '播放');
+    lastTick = performance.now();
+    cancelAnimationFrame(frame);
+    if (playing) frame = requestAnimationFrame(tick);
+  }
+
+  function seek(value, keepPlaying = false) {
+    if (exporting) return;
+    time = clamp(value, 0, duration);
+    if (!keepPlaying) setPlaying(false);
+    if (time >= duration) setPlaying(false);
+    lastTick = performance.now();
+    render(time);
+  }
+
+  function tick(now) {
+    const delta = Math.min((now - lastTick) / 1000, 0.1);
+    lastTick = now;
+    time = Math.min(duration, time + delta);
+    render(time);
+    if (time >= duration) {
+      setPlaying(false);
+      return;
+    }
+    if (playing) frame = requestAnimationFrame(tick);
+  }
+
+  function moveCursor(id, points, t) {
+    let index = 0;
+    while (index < points.length - 2 && t > points[index + 1].t) index++;
+    const a = points[index];
+    const b = points[index + 1];
+    const p = smooth((t - a.t) / (b.t - a.t));
+    transform(id, 'translate(' + (a.x + (b.x - a.x) * p) + ' ' + (a.y + (b.y - a.y) * p) + ')');
+  }
+
+  function typeText(full, t, seconds) {
+    return full.slice(0, Math.floor(full.length * clamp(t / seconds)));
+  }
+
+  function render(t) {
+    const chapterIndex = Math.min(chapters.length - 1, chapters.findIndex(c => t < c.end) === -1 ? chapters.length - 1 : chapters.findIndex(c => t < c.end));
+    scenes.forEach((scene, i) => {
+      const c = chapters[i];
+      const local = t - c.start;
+      const fadeIn = i === 0 ? 1 : smooth(local / 0.65);
+      const fadeOut = i === chapters.length - 1 ? 1 : 1 - smooth((local - (c.end - c.start - 0.55)) / 0.55);
+      const alpha = clamp(fadeIn * fadeOut);
+      scene.setAttribute('opacity', alpha);
+      scene.setAttribute('visibility', alpha < 0.005 ? 'hidden' : 'visible');
+    });
+    if (chapterIndex !== activeChapter) {
+      activeChapter = chapterIndex;
+      [...$('chapters').children].forEach((el, i) => el.classList.toggle('active', i === chapterIndex));
+      text('chapterNumber', String(chapterIndex).padStart(2, '0'));
+      text('chapterName', chapters[chapterIndex].name);
+    }
+    $('seek').value = t;
+    text('current', format(t));
+    $('ambient').setAttribute('cx', 240 + Math.sin(t / 9) * 100);
+    renderIntro(t);
+    renderDashboard(t - 8);
+    renderSql(t - 23);
+    renderAgent((t - 36) * 0.72);
+    renderGateway(t - 58);
+    renderAutomation((t - 80) * 0.65);
+    renderArchitecture(t - 100);
+    renderValue(t - 114);
+    renderClosing(t - 134);
+  }
+
+  function renderIntro(t) {
+    const enter = between(t, 0.2, 1.4);
+    transform('introCopy', 'translate(0 ' + ((1 - enter) * 24) + ')');
+    $('introCopy').setAttribute('opacity', enter);
+    transform('introOrbit', 'translate(0 ' + ((1 - between(t, 0.5, 1.8)) * 20) + ')');
+    const angle = (t * 24 - 90) * Math.PI / 180;
+    $('orbitDot').setAttribute('cx', 1160 + Math.cos(angle) * 284);
+    $('orbitDot').setAttribute('cy', 425 + Math.sin(angle) * 284);
+    [...$('introNodes').children].forEach((node, i) => node.setAttribute('opacity', between(t, 1 + i * 0.35, 1.8 + i * 0.35)));
+  }
+
+  function renderDashboard(t) {
+    if (t < 0 || t > 13) return;
+    const local = Math.max(0, t);
+    const p = between(local, 0.8, 3.4);
+    text('metricDb', Math.round(3 * p));
+    text('metricReady', Math.round(3 * p));
+    text('metricRequests', Math.round(12846 * p).toLocaleString('en-US'));
+    $('chartReveal').setAttribute('width', 790 * between(local, 1.2, 4.5));
+    opacity('chartPoint', between(local, 4.2, 4.6));
+    const inDatabase = between(local, 6.6, 7.2);
+    opacity('dashboardView', 1 - inDatabase);
+    opacity('databaseView', inDatabase);
+    transform('databaseView', 'translate(0 ' + ((1 - inDatabase) * 10) + ')');
+    $('navDashboardBg').setAttribute('fill', inDatabase > 0.5 ? 'transparent' : '#eff6ff');
+    $('navDatabaseBg').setAttribute('fill', inDatabase > 0.5 ? '#eff6ff' : 'transparent');
+    $('navDatabaseText').setAttribute('class', inDatabase > 0.5 ? 'ui-small ui-blue' : 'ui-small ui-muted');
+    [...$('dbRows').children].filter(n => n.tagName === 'g').forEach((row, i) => row.setAttribute('opacity', between(local, 7.1 + i * 0.25, 7.7 + i * 0.25)));
+    moveCursor('cursorDashboard', [
+      { t: 0, x: 1450, y: 740 }, { t: 1.5, x: 1450, y: 740 }, { t: 4.8, x: 215, y: 455 },
+      { t: 5.2, x: 215, y: 455 }, { t: 5.45, x: 215, y: 459 }, { t: 5.8, x: 215, y: 455 },
+      { t: 9.5, x: 1390, y: 480 }, { t: 13, x: 1390, y: 480 }
+    ], local);
+  }
+
+  const sql = "SELECT order_date, count(*) AS orders,\n       sum(amount) AS revenue\nFROM orders\nWHERE status = 'paid'\nGROUP BY order_date\nORDER BY order_date;";
+  let lastSqlLength = -1;
+  function renderSql(t) {
+    if (t < 0 || t > 13) return;
+    const count = Math.floor(sql.length * clamp((t - 0.8) / 4));
+    if (count !== lastSqlLength) {
+      lastSqlLength = count;
+      const lines = sql.slice(0, count).split('\n');
+      $('sqlText').replaceChildren(...lines.map((line, i) => {
+        const span = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+        span.setAttribute('x', '164');
+        span.setAttribute('dy', i === 0 ? '0' : '21');
+        span.setAttribute('fill', i === 0 || i === 2 || i === 3 || i === 4 || i === 5 ? '#7dd3fc' : '#dbe7f7');
+        span.textContent = line || ' ';
+        return span;
+      }));
+      const last = lines[lines.length - 1];
+      $('sqlCaret').setAttribute('x', 164 + last.length * 7.8);
+      $('sqlCaret').setAttribute('y', 424 + (lines.length - 1) * 21);
+    }
+    opacity('sqlCaret', t < 5.2 && Math.floor(t * 2) % 2 === 0 ? 1 : 0);
+    opacity('sqlResults', between(t, 6.0, 6.6));
+    transform('sqlResults', 'translate(0 ' + ((1 - between(t, 6.0, 6.6)) * 18) + ')');
+    document.querySelectorAll('.result-row').forEach((row, i) => row.setAttribute('opacity', between(t, 6.5 + i * 0.4, 7.1 + i * 0.4)));
+    $('runButton').setAttribute('fill', t > 5.1 && t < 5.55 ? '#1d4ed8' : '#2563eb');
+    text('queryStatus', t < 6.2 ? '正在查询…' : '3 行 · 42 毫秒');
+    moveCursor('cursorSql', [
+      { t: 0, x: 1388, y: 340 }, { t: 4.6, x: 600, y: 460 }, { t: 5.0, x: 1388, y: 340 },
+      { t: 5.25, x: 1388, y: 344 }, { t: 5.6, x: 1388, y: 340 }, { t: 9, x: 1120, y: 665 }, { t: 13, x: 1120, y: 665 }
+    ], Math.max(0, t));
+  }
+
+  const prompt = '分析本周订单趋势，找出收入最高的一天';
+  const answer1 = '本周收入 ¥128,640，较上周增长 18.6%。';
+  const answer2 = '周五收入最高，达到 ¥28,420。';
+  function renderAgent(t) {
+    if (t < 0 || t > 15) return;
+    text('agentPrompt', t < 3.8 ? typeText(prompt, t - 0.5, 2.8) : '');
+    opacity('agentPlaceholder', t < 0.55 || t >= 3.8 ? 1 : 0);
+    opacity('agentEmpty', 1 - between(t, 3.6, 4.1));
+    opacity('userMessage', between(t, 3.8, 4.25));
+    transform('userMessage', 'translate(0 ' + ((1 - between(t, 3.8, 4.25)) * 12) + ')');
+    opacity('agentThinking', between(t, 4.2, 4.6) * (1 - between(t, 5.6, 6.0)));
+    opacity('toolCall', between(t, 5.4, 5.9));
+    opacity('toolDone', between(t, 7.3, 7.7));
+    text('toolStatus', t < 7.4 ? '执行中…' : '查询完成 · 5 行数据');
+    opacity('agentAnswer', between(t, 8.0, 8.4));
+    text('answerLine1', typeText(answer1, t - 8.2, 2.2));
+    text('answerLine2', typeText(answer2, t - 10.1, 1.8));
+    opacity('answerChart', between(t, 11.7, 12.3));
+    $('sendButton').setAttribute('fill', t > 3.55 && t < 3.95 ? '#1d4ed8' : '#2563eb');
+    moveCursor('cursorAgent', [
+      { t: 0, x: 1080, y: 710 }, { t: 3.0, x: 1080, y: 710 }, { t: 3.4, x: 1424, y: 714 },
+      { t: 3.65, x: 1424, y: 718 }, { t: 4.0, x: 1424, y: 714 }, { t: 6.4, x: 930, y: 470 },
+      { t: 10, x: 1110, y: 550 }, { t: 15, x: 1110, y: 550 }
+    ], Math.max(0, t));
+  }
+
+  const command = 'go run ./cmd/report --days 7';
+  function renderAutomation(t) {
+    if (t < 0 || t > 12) return;
+    [...$('automationCards').children].forEach((card, i) => {
+      const enter = between(t, i * 0.35, 1 + i * 0.35);
+      card.setAttribute('opacity', enter);
+      card.setAttribute('transform', 'translate(' + [106, 588, 1070][i] + ' ' + (222 + (1 - enter) * 22) + ')');
+    });
+    text('functionStatus', t < 3.4 ? '正在运行测试…' : '测试通过 · 128 ms');
+    $('functionStatusDot').setAttribute('fill', t < 3.4 ? '#fbbf24' : '#4fd1a5');
+    text('functionResult', t < 3.4 ? 'POST /go/daily-report' : '执行成功 · 已生成 5 行经营数据');
+    opacity('terminalOutput', between(t, 5.2, 5.6));
+    text('terminalCommand', typeText(command, t - 2.5, 2.2));
+    [...$('terminalOutput').children].forEach((line, i) => line.setAttribute('opacity', between(t, 5.2 + i * 0.5, 5.7 + i * 0.5)));
+    [...$('cronRuns').children].forEach((run, i) => run.setAttribute('opacity', between(t, 1.8 + i * 0.5, 2.5 + i * 0.5)));
+  }
+
+  function renderGateway(t) {
+    if (t < 0 || t > 22) return;
+    text('gatewayRequestStatus', t < 3 ? '正在建立连接…' : '连接成功 · AI 已在你的应用中就绪');
+    $('gatewayStatusDot').setAttribute('fill', t < 3 ? '#fbbf24' : '#4fd1a5');
+    [...$('gatewayProviders').children].forEach((provider, i) => provider.setAttribute('opacity', between(t, 1.2 + i * 0.45, 2 + i * 0.45)));
+    opacity('gatewayAnswerGroup', between(t, 4.2, 4.8));
+    text('gatewayAnswer1', typeText('今日营收 ¥24,260，订单 402 笔。', t - 4.8, 3));
+    text('gatewayAnswer2', typeText('收入保持增长，周五是本周峰值。', t - 7.4, 3));
+    text('gatewayAnswer3', typeText('需要的话，我可以每天自动生成经营分析。', t - 10.2, 3.5));
+    text('gatewayStreaming', t < 13.8 ? '流式响应 · 内容正在生成' : '回答完成 · 本次用量已计入项目');
+    document.querySelectorAll('.model-flow-dot').forEach((dot, i) => {
+      const path = $(dot.dataset.path);
+      const point = path.getPointAtLength(path.getTotalLength() * ((t * 0.35 + i * 0.3) % 1));
+      dot.setAttribute('transform', 'translate(' + point.x + ' ' + point.y + ')');
+      dot.setAttribute('opacity', between(t, 2.2, 3));
+    });
+  }
+
+  function renderValue(t) {
+    if (t < 0 || t > 20) return;
+    [...$('valueCards').children].forEach((card, i) => {
+      const enter = between(t, 0.6 + i * 0.6, 1.8 + i * 0.6);
+      card.setAttribute('opacity', enter);
+      card.setAttribute('transform', 'translate(' + [106, 588, 1070][i] + ' ' + (226 + (1 - enter) * 24) + ')');
+    });
+    opacity('valueBanner', between(t, 3.4, 4.4));
+  }
+
+  function renderArchitecture(t) {
+    if (t < 0 || t > 14) return;
+    document.querySelectorAll('.flow-dot').forEach((dot, i) => {
+      const path = $(dot.dataset.path);
+      const length = path.getTotalLength();
+      const progress = ((Math.max(0, t) * 0.22 + i * 0.24) % 1);
+      const point = path.getPointAtLength(length * progress);
+      dot.setAttribute('transform', 'translate(' + point.x + ' ' + point.y + ')');
+      dot.setAttribute('opacity', between(t, 1.5, 2.2));
+    });
+  }
+
+  function renderClosing(t) {
+    opacity('fade', t > 13 && t <= 16 ? between(t, 13, 16) * 0.72 : 0);
+    if (t < 0 || t > 16) return;
+    const enter = between(t, 0, 1.2);
+    transform('closingLogo', 'translate(0 ' + ((1 - enter) * 18) + ')');
+    opacity('closingLogo', enter);
+    opacity('costHighlight', between(t, 1, 2.2));
+  }
+
+  $('play').addEventListener('click', () => {
+    if (time >= duration) time = 0;
+    setPlaying(!playing);
+  });
+  $('restart').addEventListener('click', () => { time = 0; render(0); setPlaying(true); });
+  $('seek').addEventListener('input', event => seek(Number(event.target.value)));
+  $('fullscreen').addEventListener('click', toggleFullscreen);
+  $('helpButton').addEventListener('click', () => toggleHelp(true));
+  $('closeHelp').addEventListener('click', () => toggleHelp(false));
+  function toggleHelp(open) { $('help').classList.toggle('open', open); if (open) setPlaying(false); }
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await $('player').requestFullscreen();
+    } catch (_) { document.body.classList.toggle('clean'); }
+  }
+  document.addEventListener('keydown', event => {
+    if (event.target.tagName === 'INPUT') return;
+    if (event.code === 'Space') { event.preventDefault(); $('play').click(); }
+    else if (event.key === 'ArrowLeft') seek(time - 5);
+    else if (event.key === 'ArrowRight') seek(time + 5);
+    else if (event.key.toLowerCase() === 'r') $('restart').click();
+    else if (event.key.toLowerCase() === 'f') toggleFullscreen();
+    else if (event.key.toLowerCase() === 'h') toggleHelp(!$('help').classList.contains('open'));
+    else if (event.key === 'Escape') toggleHelp(false);
+    else if (/^[1-9]$/.test(event.key)) seek(chapters[Number(event.key) - 1].start + 0.01, playing);
+    else if (event.key === 'Home') seek(0);
+    else if (event.key === 'End') seek(duration);
+  });
+
+  function supportedMime() {
+    if (!window.MediaRecorder) return '';
+    return ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find(type => MediaRecorder.isTypeSupported(type)) || '';
+  }
+
+  async function exportVideo() {
+    if (exporting) return;
+    const mime = supportedMime();
+    if (!mime || !HTMLCanvasElement.prototype.captureStream) {
+      notify('当前浏览器不支持直接导出，请使用系统录屏');
+      return;
+    }
+    setPlaying(false);
+    exporting = true;
+    $('export').classList.add('recording');
+    text('export', '停止导出');
+    $('recordStatus').classList.add('on');
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 900;
+    const ctx = canvas.getContext('2d');
+    const stream = canvas.captureStream(30);
+    const chunks = [];
+    const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
+    recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+    const finished = new Promise(resolve => { recorder.onstop = resolve; });
+    let cancelled = false;
+    const cancel = () => { cancelled = true; };
+    $('export').addEventListener('click', cancel, { once: true });
+    try {
+      time = 0;
+      render(0);
+      const first = await rasterize(canvas, ctx);
+      if (!first) throw new Error('rasterize');
+      recorder.start(1000);
+      const started = performance.now();
+      while (!cancelled && time < duration) {
+        const now = performance.now();
+        time = Math.min(duration, (now - started) / 1000);
+        render(time);
+        await rasterize(canvas, ctx);
+        text('recordTime', format(time));
+        await new Promise(resolve => setTimeout(resolve, 24));
+      }
+    } catch (_) {
+      notify('导出未完成，请重试或使用系统录屏');
+    } finally {
+      if (recorder.state !== 'inactive') {
+        recorder.stop();
+        await finished;
+      }
+      stream.getTracks().forEach(track => track.stop());
+      $('export').removeEventListener('click', cancel);
+      exporting = false;
+      $('export').classList.remove('recording');
+      $('recordStatus').classList.remove('on');
+      text('export', '导出视频');
+      if (chunks.length && !cancelled) {
+        const blob = new Blob(chunks, { type: mime });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'simplebase-intro.' + (mime.includes('mp4') ? 'mp4' : 'webm');
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        notify('视频导出完成');
+      }
+    }
+  }
+
+  function rasterize(canvas, ctx) {
+    return new Promise(resolve => {
+      const source = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const image = new Image();
+      image.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(true);
+      };
+      image.onerror = () => { URL.revokeObjectURL(url); resolve(false); };
+      image.src = url;
+    });
+  }
+
+  $('export').addEventListener('click', exportVideo);
+  const params = new URLSearchParams(location.search);
+  time = clamp(Number(params.get('t')) || 0, 0, duration);
+  if (params.get('clean') === '1') document.body.classList.add('clean');
+  render(time);
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  setPlaying(params.get('autoplay') === '1' || (!params.has('t') && !reduced));
+})();
+</script>
+</body>
+</html>

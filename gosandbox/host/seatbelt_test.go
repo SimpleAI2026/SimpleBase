@@ -64,39 +64,81 @@ func TestSeatbeltProfileHostilePath(t *testing.T) {
 	}
 }
 
-// read-only 不放行工作区写入；workspace-write 默认盖住 .git 与 .cloudagent。
+// read-only 不放行工作区写入；workspace-write 默认盖住 .gocloudagent 与强制 deny 表（仅已存在的路径）。
 func TestSeatbeltProfileModes(t *testing.T) {
+	exists := fakeExists("/work/ws/.gocloudagent", "/work/ws/.git/hooks")
+
 	ro := seatbeltPolicy()
 	ro.Mode = ModeReadOnly
-	_, roParams, err := SeatbeltProfile(ro)
+	_, roParams, err := seatbeltProfile(ro, "/home/u", exists)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(strings.Join(roParams, "\n"), "=/work/ws") {
 		t.Fatalf("read-only must not make the workspace writable: %v", roParams)
 	}
-	_, rwParams, err := SeatbeltProfile(seatbeltPolicy())
+	_, rwParams, err := seatbeltProfile(seatbeltPolicy(), "/home/u", exists)
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(rwParams, "\n")
-	for _, want := range []string{"R0=/work/ws/.git", "R1=/work/ws/.cloudagent"} {
+	// 用名称而不是序号断言：强制表会让 R 序号随存在的路径而变。
+	for _, want := range []string{"=/work/ws/.gocloudagent", "=/work/ws/.git/hooks"} {
 		if !strings.Contains(joined, want) {
-			t.Fatalf("missing read-only subpath %q: %v", want, rwParams)
+			t.Fatalf("missing read-only path %q: %v", want, rwParams)
 		}
+	}
+	// 整个 .git 不在默认只读里，git commit 才能工作。
+	for _, p := range rwParams {
+		if strings.HasSuffix(p, "=/work/ws/.git") {
+			t.Fatalf("whole .git must stay writable by default: %v", rwParams)
+		}
+	}
+}
+
+// D7：不存在的路径不生成 deny 规则，否则沙盒内 git init 会直接失败（macOS 真机实测）。
+func TestSeatbeltProfileSkipsMissingPaths(t *testing.T) {
+	profile, params, err := seatbeltProfile(seatbeltPolicy(), "/home/u", fakeExists())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range params {
+		if strings.HasPrefix(p, "R") {
+			t.Fatalf("missing paths must not produce deny rules: %v", params)
+		}
+	}
+	if strings.Contains(profile, `(param "R`) {
+		t.Fatalf("profile must not reference R params:\n%s", profile)
+	}
+}
+
+func TestSeatbeltProfileForceDenyDisabled(t *testing.T) {
+	p := seatbeltPolicy()
+	p.DisableForceDeny = true
+	_, params, err := seatbeltProfile(p, "/home/u", fakeExists("/work/ws/.git/hooks", "/work/ws/.gocloudagent"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(params, "\n")
+	if strings.Contains(joined, ".git/hooks") {
+		t.Fatalf("DisableForceDeny must drop the table: %v", params)
+	}
+	if !strings.Contains(joined, "=/work/ws/.gocloudagent") {
+		t.Fatalf("ReadOnlySubpaths still applies: %v", params)
 	}
 }
 
 // deny 规则必须排在 allow 之后，才能覆盖前面的放行。
 func TestSeatbeltProfileDenyAfterAllow(t *testing.T) {
-	profile, _, err := SeatbeltProfile(seatbeltPolicy())
+	profile, _, err := seatbeltProfile(seatbeltPolicy(), "/home/u",
+		fakeExists("/work/ws/.gocloudagent", "/work/ws/.git/hooks"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	lastAllowWrite := strings.LastIndex(profile, "(allow file-write*")
 	firstDeny := strings.Index(profile, `(deny file-write* (subpath (param "R0")))`)
 	denyRead := strings.Index(profile, `(deny file-read* (subpath (param "D0")))`)
-	if firstDeny < lastAllowWrite || denyRead < lastAllowWrite {
+	if firstDeny < 0 || denyRead < 0 || firstDeny < lastAllowWrite || denyRead < lastAllowWrite {
 		t.Fatalf("deny rules must follow allow rules:\n%s", profile)
 	}
 }

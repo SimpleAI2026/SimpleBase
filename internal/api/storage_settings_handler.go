@@ -1,3 +1,33 @@
+// 文件说明：storage_settings_handler.go — internal/api 的内部实现（settingsStorageHandler、storageSettingsDTO 等）
+//
+// 用法
+//
+//	type settingsStorageHandler（包内使用）
+//	type storageSettingsDTO（包内使用）
+//	同包调用：snapshot() → database_handler.go, oai_responses.go；settingsStorageHandler → router.go；GetStorage() → router.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/storage_settings_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/auth, internal/config, internal/observability
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] snapshot() ← database_handler.go, oai_responses.go
+//
+// 主要符号
+//
+//	type settingsStorageHandler struct {…}
+//	type storageSettingsDTO struct {…}
+//	storageSource(envKey string, fromYAML bool) string
+//	(h *settingsStorageHandler) GetStorage(c echo.Context) error
+//	(h *settingsStorageHandler) snapshot() (storageSettingsDTO, error)
+//	(h *settingsStorageHandler) yamlStorageKeys() (map[string]bool, error)
+//	... 另有 6 个顶层符号
+
 package api
 
 import (

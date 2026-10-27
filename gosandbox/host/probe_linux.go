@@ -1,5 +1,31 @@
 //go:build linux
 
+// 文件说明：probe_linux.go — gosandbox/host 的内部实现（landlockABI、seccompSupported 等）
+//
+// 用法
+//
+//	同包调用：probeDarwin() → probe.go, run_darwin.go 等；landlockABI() → probe.go, probe_other.go；seccompSupported() → probe.go, probe_other.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/probe_linux.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 14 个
+//	[关键引用] probeDarwin() ← probe.go, run_darwin.go, run_other.go
+//
+// 主要符号
+//
+//	landlockABI() int
+//	seccompSupported() bool
+//	detectCgroup() string
+//	systemdScopeAvailable() bool
+//	probeDarwin() (Caps, error)
+
 package host
 
 import (

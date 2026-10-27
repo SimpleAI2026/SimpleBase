@@ -1,24 +1,29 @@
-// oai_responses.go 实现 OpenAI Responses API 兼容出口：
+// 文件说明：oai_responses.go — OpenAI Responses API 兼容出口：
 //
-//	POST /v1/projects/:projectID/v1/responses   （stream:true 时为 SSE 事件流）
+// 用法
 //
-// 路线：不直接调用 litellm 的 Responses（它只支持 OpenAI 这一个 provider，上游若是
-// DeepSeek、SiliconFlow 等 OpenAI 兼容网关就用不了），而是在现有 LLMService.Chat/Stream
-// 之上做协议转换——Responses 请求 → chat 请求 → chat 响应 → Responses 响应。
-// 这样 LLMService 接口不变，所有已配置的供应商都能用；代价是只支持下面明确列出的子集，
-// 其余请求一律返回 400，不伪造完整兼容（plan8.md 的既有约定）。
+//	(h *LLMHandler) Responses(c echo.Context) error  // Responses 处理 POST .../v1/responses
+//	type oaiRespRequest（包内使用）
+//	type oaiRespTextConfig（包内使用）
+//	同包调用：object() → adapter.go, api_key_policy.go 等；text() → agent_handler.go, collection_filter.go 等；start() → cronjob_handler.go, e2b_process_handler.go 等
 //
-// 支持：
-//   - input 为字符串，或 message / function_call / function_call_output 条目数组
-//     （reasoning 条目被忽略：本服务从不产出它，客户端回传时直接丢弃）
-//   - instructions、max_output_tokens、temperature、stream
-//   - tools（仅 type=function，Responses 的平铺形状）与 tool_choice
+// 调用架构
 //
-// 不支持（返回 400）：previous_response_id / conversation（本端点无状态，请在 input
-// 里重发完整对话）、background、结构化输出（text.format 非 text）、内置工具
-// （web_search / file_search / code_interpreter / mcp 等）、非文本内容（图片、文件）。
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/oai_responses.go
+//	         │ 依赖
+//	         ▼
+//	[下游] internal/agentbridge
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] object() ← adapter.go, api_key_policy.go, collection_pick.go
 //
-// 响应不落库、不保存：store 参数被接受但忽略。
+// 主要符号
+//
+//	(h *LLMHandler) Responses(c echo.Context) error
+//	... 另有 50 个顶层符号
+
 package api
 
 import (

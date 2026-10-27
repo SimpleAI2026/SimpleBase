@@ -1,11 +1,31 @@
-// kv_init.go 提供项目级 KV catalog 的初始化钩子（key-value-ducklake-plan §2）。
+// 文件说明：kv_init.go — 项目级 KV catalog 的初始化钩子（key-value-ducklake-plan §2）
 //
-// 项目 KV 是 catalog 里一行 kind=kv 的内部记录，随「项目创建」同步建立
-// （失败不回滚项目，只记 warn；下一次 KV 请求会补建）。本文件同时承担：
-//   - KVService 适配器：把 catalog.Service + RegistryService 桥接为
-//     api.KVService（GetKVDatabase / CreateKVDatabase / Acquire）；
-//   - 项目 KV 初始化：EnsureSchema（幂等 CREATE ... IF NOT EXISTS），
-//     保证新建项目后控制台与 HTTP 可直接写入，不存在「未初始化」中间态。
+// 用法
+//
+//	NewKVInitializer(reg RegistryService, logger observability.Logger) KVInitializer
+//	type KVInitializer（导出类型，同包与上层均可使用）
+//	type kvInitializer（包内使用）
+//	同包调用：Release() → adapter.go, collection_meta_handler.go 等；Acquire() → adapter.go, data_handler.go 等；Query() → adapter.go, collection_meta_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/kv_init.go
+//	         │ 依赖
+//	         ▼
+//	[下游] godatabase, godatabase/kv, godatabase/registry, internal/catalog 等
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Release() ← adapter.go, collection_meta_handler.go, collection_transfer.go
+//
+// 主要符号
+//
+//	type KVInitializer interface {…}
+//	NewKVInitializer(reg RegistryService, logger observability.Logger) KVInitializer
+//	NewKVServiceAdapter(cat *catalog.Service, reg RegistryService) KVService
+//	... 另有 14 个顶层符号
+
 package api
 
 import (
@@ -15,10 +35,10 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/kv"
+	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/database"
-	"github.com/linkxzhou/SimpleBase/internal/database/kv"
-	"github.com/linkxzhou/SimpleBase/internal/database/registry"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 )
 
@@ -59,7 +79,7 @@ func (k *kvInitializer) InitKV(ctx context.Context, db catalog.Database) error {
 }
 
 func (k *kvInitializer) ensure(ctx context.Context, db catalog.Database) error {
-	lease, err := k.reg.Acquire(ctx, db, database.ReadWrite)
+	lease, err := k.reg.Acquire(ctx, db, godatabase.ReadWrite)
 	if err != nil {
 		return fmt.Errorf("api: acquire database for kv init: %w", err)
 	}
@@ -87,17 +107,17 @@ func (a *kvServiceAdapter) GetKVDatabase(ctx context.Context, tenantID, projectI
 	timer := StageTimerFrom(ctx)
 	scope := timer.StageScope(StageCatalog)
 	defer scope.Done()
-	return a.catalog.GetKVDatabase(ctx, tenantID, projectID)
+	return a.catalog.ResolveProjectStorage(ctx, tenantID, projectID)
 }
 
 func (a *kvServiceAdapter) CreateKVDatabase(ctx context.Context, tenantID, projectID string) (catalog.Database, error) {
 	timer := StageTimerFrom(ctx)
 	scope := timer.StageScope(StageCatalog)
 	defer scope.Done()
-	return a.catalog.CreateKVDatabase(ctx, tenantID, projectID)
+	return a.catalog.ResolveProjectStorage(ctx, tenantID, projectID)
 }
 
-func (a *kvServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mode database.AccessMode) (SQLLease, error) {
+func (a *kvServiceAdapter) Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, error) {
 	timer := StageTimerFrom(ctx)
 	acquireScope := timer.StageScope(StageAcquire)
 	l, err := a.registry.Acquire(ctx, db, mode)
@@ -117,15 +137,15 @@ type kvLeaseAdapter struct {
 
 func (s *kvLeaseAdapter) Release() { s.lease.Release() }
 
-func (s *kvLeaseAdapter) Query(ctx context.Context, stmt database.Statement, maxRows int) (database.QueryResult, error) {
+func (s *kvLeaseAdapter) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, error) {
 	return s.lease.Handle.Query(ctx, stmt, maxRows)
 }
 
-func (s *kvLeaseAdapter) Execute(ctx context.Context, stmt database.Statement) (database.QueryResult, error) {
+func (s *kvLeaseAdapter) Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error) {
 	return s.lease.Handle.Execute(ctx, stmt)
 }
 
-func (s *kvLeaseAdapter) Batch(ctx context.Context, stmts []database.Statement, transactional bool) ([]database.QueryResult, error) {
+func (s *kvLeaseAdapter) Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.QueryResult, error) {
 	return s.lease.Handle.Batch(ctx, stmts, transactional)
 }
 

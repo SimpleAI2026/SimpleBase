@@ -1,0 +1,114 @@
+NormalizeEngine[""] => duckdb
+NormalizeEngine["duckdb"] => duckdb
+NormalizeEngine["DuckDB"] => duckdb
+NormalizeEngine[" sqlite "] => sqlite
+NormalizeEngine["SQLITE"] => sqlite
+NormalizeEngine["pg"] => ERR[invalid_name=true] catalog: invalid name: unsupported database engine "pg"
+DatabasePathForProject["abcd1234" ""] => abcd1234/database.duckdb
+DatabasePathForProject["abcd1234" "duckdb"] => abcd1234/database.duckdb
+DatabasePathForProject["abcd1234" "sqlite"] => abcd1234/database.sqlite
+DatabasePathForProject["abcd1234" "oracle"] => ERR[invalid_name=true] catalog: invalid name: unsupported database engine "oracle"
+DatabasePathForProject["ABCD-123" ""] => ABCD-123/database.duckdb
+DatabasePathForProject["ABCD-123" "duckdb"] => ABCD-123/database.duckdb
+DatabasePathForProject["ABCD-123" "sqlite"] => ABCD-123/database.sqlite
+DatabasePathForProject["ABCD-123" "oracle"] => ERR[invalid_name=true] catalog: invalid name: unsupported database engine "oracle"
+DatabasePathForProject["short" ""] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["short" "duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["short" "sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["short" "oracle"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["ab/cd123" ""] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["ab/cd123" "duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["ab/cd123" "sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["ab/cd123" "oracle"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["" ""] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["" "duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["" "sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["" "oracle"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+DatabasePathForProject["sb-admin" ""] => sb-admin/database.duckdb
+DatabasePathForProject["sb-admin" "duckdb"] => sb-admin/database.duckdb
+DatabasePathForProject["sb-admin" "sqlite"] => sb-admin/database.sqlite
+DatabasePathForProject["sb-admin" "oracle"] => ERR[invalid_name=true] catalog: invalid name: unsupported database engine "oracle"
+DatabaseEngine[""] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateDatabasePath[""] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+DatabaseEngine["abcd1234/database.duckdb"] => duckdb
+ValidateDatabasePath["abcd1234/database.duckdb"] => ok
+DatabaseEngine["abcd1234/database.sqlite"] => sqlite
+ValidateDatabasePath["abcd1234/database.sqlite"] => ok
+DatabaseEngine["abcd1234/database.db"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateDatabasePath["abcd1234/database.db"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+DatabaseEngine["/abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateDatabasePath["/abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+DatabaseEngine["abcd1234//database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateDatabasePath["abcd1234//database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+DatabaseEngine["abcd1234/./database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateDatabasePath["abcd1234/./database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+DatabaseEngine["abcd1234\\database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateDatabasePath["abcd1234\\database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+DatabaseEngine["abcd1234/database.duckdb\x00"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateDatabasePath["abcd1234/database.duckdb\x00"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+DatabaseEngine["a/b/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateDatabasePath["a/b/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+DatabaseEngine["abcd1234"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateDatabasePath["abcd1234"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+DatabaseEngine["short/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateDatabasePath["short/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+DatabaseEngine["ab..d123/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateDatabasePath["ab..d123/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+DatabaseEngine["../database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateDatabasePath["../database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["abcd1234" ""] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["abcd1234" "abcd1234/database.duckdb"] => ok
+ValidateProjectDatabasePath["abcd1234" "abcd1234/database.sqlite"] => ok
+ValidateProjectDatabasePath["abcd1234" "abcd1234/database.db"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["abcd1234" "/abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["abcd1234" "abcd1234//database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["abcd1234" "abcd1234/./database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["abcd1234" "abcd1234\\database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["abcd1234" "abcd1234/database.duckdb\x00"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["abcd1234" "a/b/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["abcd1234" "abcd1234"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["abcd1234" "short/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["abcd1234" "ab..d123/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["abcd1234" "../database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["wxyz9876" ""] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["wxyz9876" "abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path does not belong to project
+ValidateProjectDatabasePath["wxyz9876" "abcd1234/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: database path does not belong to project
+ValidateProjectDatabasePath["wxyz9876" "abcd1234/database.db"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["wxyz9876" "/abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["wxyz9876" "abcd1234//database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["wxyz9876" "abcd1234/./database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["wxyz9876" "abcd1234\\database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["wxyz9876" "abcd1234/database.duckdb\x00"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["wxyz9876" "a/b/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["wxyz9876" "abcd1234"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["wxyz9876" "short/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["wxyz9876" "ab..d123/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["wxyz9876" "../database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["sb-admin" ""] => ok
+ValidateProjectDatabasePath["sb-admin" "abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "abcd1234/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "abcd1234/database.db"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "/abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "abcd1234//database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "abcd1234/./database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "abcd1234\\database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "abcd1234/database.duckdb\x00"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "a/b/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "abcd1234"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "short/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "ab..d123/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["sb-admin" "../database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: system project database path must be empty
+ValidateProjectDatabasePath["" ""] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["" "abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+ValidateProjectDatabasePath["" "abcd1234/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id
+ValidateProjectDatabasePath["" "abcd1234/database.db"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["" "/abcd1234/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["" "abcd1234//database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["" "abcd1234/./database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: database path must be a clean relative path
+ValidateProjectDatabasePath["" "abcd1234\\database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["" "abcd1234/database.duckdb\x00"] => ERR[invalid_name=true] catalog: invalid name: invalid database path
+ValidateProjectDatabasePath["" "a/b/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["" "abcd1234"] => ERR[invalid_name=true] catalog: invalid name: invalid project database path
+ValidateProjectDatabasePath["" "short/database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["" "ab..d123/database.sqlite"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path
+ValidateProjectDatabasePath["" "../database.duckdb"] => ERR[invalid_name=true] catalog: invalid name: invalid project id in database path

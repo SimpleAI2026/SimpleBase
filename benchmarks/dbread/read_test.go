@@ -22,7 +22,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-const benchProject = "proj-bench"
+const benchProject = "benchprj"
 
 // BenchmarkLogsQueryDense 复现 /v1/projects/:id/logs 的读放大。
 // 每轮先按 flushes 参数堆积小文件，再测一次 QueryLogs。

@@ -7,7 +7,7 @@ order: 3
 
 ## 项目与数据库
 
-项目是请求、权限与资源的隔离边界。HTTP 路径使用 `/v1/projects/:projectID`；项目内可建立多个用户数据库。SQL 和文档接口还需要数据库 ID，而 [Key-Value](/docs/data/kv)、[对象存储](/docs/data/storage)、[云函数](/docs/automation/gofunction)和[云沙盒](/docs/automation/sandbox)只需项目 ID。请求不能越权访问其他项目的数据。
+项目是请求、权限与资源的隔离边界。HTTP 路径使用 `/v1/projects/:projectID`；每个普通项目只有一个用户数据库，对应一个 DuckDB 或 SQLite 单文件，引擎在创建项目时确定。SQL 和文档接口还需要数据库 ID，而 [Key-Value](/docs/data/kv)、[对象存储](/docs/data/storage)、[云函数](/docs/automation/gofunction)和[云沙盒](/docs/automation/sandbox)只需项目 ID。请求不能越权访问其他项目的数据。
 
 ## 系统项目
 
@@ -19,4 +19,4 @@ order: 3
 
 ## 持久化与执行
 
-用户数据在 DuckLake 中；对象存储经 S3 协议访问；云函数负责短时 Go 代码调用；云沙盒提供独立 Linux 环境用于脚本执行，命令与输出不写入系统数据库。部署时遵循[单写实例约束](/docs/ops/deployment)。
+每个项目的用户数据保存在一个 DuckDB 或 SQLite 单文件中（SQL、集合文档与 Key-Value 共用，创建项目时选择引擎且之后不可更改）；对象存储经 S3 协议访问；云函数负责短时 Go 代码调用；云沙盒提供独立 Linux 环境用于脚本执行，命令与输出不写入系统数据库。部署时遵循[单写实例约束](/docs/ops/deployment)。

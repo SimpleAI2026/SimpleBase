@@ -1,6 +1,32 @@
-// middleware.go 提供 Echo 中间件：APIKeyMiddleware 完成认证并注入 Principal，
-// Require 校验特定权限。两者都不直接依赖 internal/api，避免循环 import；
-// 中间件返回标准 echo.HTTPError，由 internal/api 的错误协议统一序列化。
+// 文件说明：middleware.go — Echo 中间件：APIKeyMiddleware 完成认证并注入 Principal，
+//
+// 用法
+//
+//	APIKeyMiddleware(svc *Service, inject func(ctx context.Context, p Principal) ...  // APIKeyMiddleware 解析 "Authorization: Bearer <key>"，认证失败返回 401
+//	Require(permission Permission, extract func(ctx context.Context) (Principal, bool)) ...  // Require 构造一个校验 principal 是否拥有指定权限的中间件
+//	同包调用：DelegableContextKey → delegation.go；RequireDelegable() → delegation.go；Require() → principal.go
+//
+// 调用架构
+//
+//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/middleware.go
+//	         │
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
+//	[关键引用] DelegableContextKey ← delegation.go
+//
+// 主要符号
+//
+//	APIKeyMiddleware(svc *Service, inject func(ctx context.Context, p Principal) ...
+//	Require(permission Permission, extract func(ctx context.Context) (Principal, bool)) ...
+//	const DelegableContextKey
+//	RequireDelegable(permission Permission, extract func(ctx context.Context) ...
+//	type SessionAuthenticator interface {…}
+//	AuthMiddlewareWithDelegation(sessions SessionAuthenticator, keys *Service, inject ...
+
 package auth
 
 import (
@@ -84,12 +110,6 @@ func RequireDelegable(permission Permission, extract func(ctx context.Context) (
 type SessionAuthenticator interface {
 	VerifyAccess(token string) (JWTClaims, error)
 	PrincipalFromClaims(ctx context.Context, claims JWTClaims) (Principal, error)
-}
-
-// AuthMiddleware 是双通道认证（login-auth-plan §4.6）：
-// Bearer 形如 JWT → 登录态；否则回落 API Key。两者都注入 Principal。
-func AuthMiddleware(sessions SessionAuthenticator, keys *Service, inject func(ctx context.Context, p Principal) context.Context) echo.MiddlewareFunc {
-	return AuthMiddlewareWithDelegation(sessions, keys, inject, "", nil)
 }
 
 // AuthMiddlewareWithDelegation 在 JWT 通道里识别助手委托令牌。

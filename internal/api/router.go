@@ -1,5 +1,34 @@
-// Package api 提供 SimpleBase 的 v1 HTTP API。
-// 路由、中间件与错误协议在本包内组装；业务 handler 由各 plan 逐步挂载。
+// 文件说明：router.go — SimpleBase 的 v1 HTTP API
+//
+// 用法
+//
+//	NewRouter(deps Dependencies) *echo.Echo
+//	type Dependencies（导出类型，同包与上层均可使用）
+//	type CacheService（导出类型，同包与上层均可使用）
+//	同包调用：AuditService → adapter.go, agent_handler.go 等；AuditEvent → adapter.go, agent_handler.go 等；UsageService → adapter.go, agent_handler.go 等
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/router.go
+//	         │ 依赖
+//	         ▼
+//	[下游] gocloudagent, internal/auth, internal/catalog, internal/config 等
+//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] AuditService ← adapter.go, agent_handler.go, backup_handler.go
+//
+// 主要符号
+//
+//	type Dependencies struct {…}
+//	type CacheService interface {…}
+//	type CacheUsage struct {…}
+//	type UsageService interface {…}
+//	type AuditService interface {…}
+//	type AuditEvent struct {…}
+//	... 另有 27 个顶层符号
+
 package api
 
 import (
@@ -14,11 +43,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/linkxzhou/SimpleBase/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
+	"github.com/linkxzhou/SimpleBase/internal/functionrun"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -44,8 +74,14 @@ type Dependencies struct {
 	Registry        RegistryService
 	DatabaseHandler *DatabaseHandler
 	// Plan 6：SQL 执行 handler。writable=false 时仅 query 可用。
-	SQLHandler  *SQLHandler
-	DataHandler *DataHandler
+	SQLHandler             *SQLHandler
+	DataHandler            *DataHandler
+	CollectionMetaHandler  *CollectionMetaHandler
+	BackupHandler          *BackupHandler
+	RealtimeHandler        *RealtimeHandler
+	FunctionRunner         *functionrun.Runner
+	FunctionTriggerHandler *FunctionTriggerHandler
+	TriggerEvents          objectEventPublisher
 	// SchemaHandler 管理 SQL 数据库的表结构。nil 时不挂载。
 	SchemaHandler *SchemaHandler
 	// KVHandler：项目级 Key-Value 数据服务（key-value-ducklake-plan）。
@@ -64,7 +100,7 @@ type Dependencies struct {
 	// System 是实例系统 DuckLake（元数据 / 指标 / 日志 / S3 索引 / LLM 会话 / Cloud Agent）。
 	System *systemdb.Store
 	// CloudAgent 是 Phase 1 单 agent + 只读工具运行时。
-	CloudAgent *cloudagent.Runtime
+	CloudAgent *gocloudagent.Runtime
 	// CronScheduler 是统一定时任务调度器（云函数 + Agent）；nil 时 trigger 返回 503。
 	CronScheduler *cronjob.Scheduler
 	// Sandbox 是项目级云沙盒服务；未配置时仅 capabilities 路由可用。
@@ -74,8 +110,6 @@ type Dependencies struct {
 	}
 	// Terminal 是浏览器终端的 SSH 桥；nil 表示终端不可用（capabilities.terminal=false）。
 	Terminal *TerminalBridge
-	// SandboxSchemaReady 报告迁移 v50 是否已应用；为 false 时沙盒模块不可用并在 capabilities 里给出原因。
-	SandboxNotReadyReason string
 	// login-auth-plan：登录态与用户管理。
 	Sessions *auth.SessionService
 	Users    *auth.UserService
@@ -216,8 +250,13 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	e.HidePort = true
 	e.HTTPErrorHandler = errorHandler(deps)
 	requestLogger = deps.Logger
+	e.IPExtractor = trustedIPExtractor(deps.Config.HTTP.TrustedProxies)
 
 	e.Use(requestIDMiddleware())
+	if deps.Config.HTTP.CORS.Enabled {
+		e.Use(corsMiddleware(deps.Config.HTTP.CORS))
+	}
+	e.Use(securityHeadersMiddleware())
 	// 分段计时（api-db-perf-validation-plan §2.1）：默认关闭，开启后输出
 	// simplebase_api_stage_seconds 与 debug 日志行。必须在 requestID 之后。
 	if deps.Config.Observability.PerfStageTiming {
@@ -249,6 +288,10 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	}
 	e.Use(middleware.Recover())
 	e.Use(accessLogMiddleware(deps))
+	if deps.Config.HTTP.Gzip {
+		e.Use(gzipMiddleware())
+	}
+	e.Use(newRateLimiter(deps.Config.Limits.RateLimit, deps.Metrics).middleware())
 	e.Use(middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
 		// S3 上传单独放宽，见 s3UploadBodyLimit。全局 1MB 会让控制台允许的文件先 413，
 		// 开发代理再把未读完的请求体报成 500。
@@ -283,6 +326,10 @@ func NewRouter(deps Dependencies) *echo.Echo {
 		mountE2BRoutes(e, deps)
 	}
 
+	e.GET("/v1/openapi.json", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, buildOpenAPI(e.Routes()))
+	})
+
 	// 管理端静态资源：所有未匹配 API 路由的 GET 请求回退到前端 SPA。
 	// 必须在 /v1、/health、/metrics 等路由注册后调用，以免拦截 API 请求。
 	web.Register(e)
@@ -309,11 +356,15 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	authMW := timedAuthMiddleware(deps.authMW())
 	// require 不带 delegable：路由对委托令牌默认拒绝（planv6.0 D1）。
 	require := func(perm auth.Permission) echo.MiddlewareFunc {
-		return auth.Require(perm, PrincipalFromContext)
+		return func(next echo.HandlerFunc) echo.HandlerFunc {
+			return policyGate(auth.Require(perm, PrincipalFromContext)(next))
+		}
 	}
 	// delegable 在 require 基础上标记路由可被委托令牌访问（planv6.0 §3.1 表）。
 	delegable := func(perm auth.Permission) echo.MiddlewareFunc {
-		return auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())
+		return func(next echo.HandlerFunc) echo.HandlerFunc {
+			return policyGate(auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())(next))
+		}
 	}
 	// WR-01：统一写门禁（纵深防御）。只读实例当前不启动系统库、不挂这些
 	// 路由；但若未来只读实例也打开系统库，缺少这层门禁的写接口会立即变成
@@ -405,9 +456,35 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/databases/:databaseID/data/collections", dh.ListCollections, delegable(auth.DatabaseRead))
 		p.POST("/databases/:databaseID/data/collections", dh.CreateCollection, delegable(auth.DatabaseWrite), writeGate)
 		p.GET("/databases/:databaseID/data/collections/:collection", dh.ListDocuments, delegable(auth.DatabaseRead))
+		p.GET("/databases/:databaseID/data/collections/:collection/export", dh.Export, require(auth.DatabaseRead))
+		p.POST("/databases/:databaseID/data/collections/:collection/import", dh.Import, delegable(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(deps.Config.Limits.MaxImportBytes)))
 		p.POST("/databases/:databaseID/data/collections/:collection/documents", dh.CreateDocument, delegable(auth.DatabaseWrite), writeGate)
+		p.POST("/databases/:databaseID/data/collections/:collection/documents/batch", dh.BatchDocuments, delegable(auth.DatabaseWrite), writeGate)
+		p.GET("/databases/:databaseID/data/collections/:collection/documents/:id", dh.GetDocument, delegable(auth.DatabaseRead))
+		p.PATCH("/databases/:databaseID/data/collections/:collection/documents/:id", dh.PatchDocument, delegable(auth.DatabaseWrite), writeGate)
 		p.PUT("/databases/:databaseID/data/collections/:collection/documents/:id", dh.UpdateDocument, delegable(auth.DatabaseWrite), writeGate)
 		p.DELETE("/databases/:databaseID/data/collections/:collection/documents/:id", dh.DeleteDocument, delegable(auth.DatabaseWrite), writeGate)
+		p.DELETE("/databases/:databaseID/data/collections/:collection", dh.TruncateCollection, delegable(auth.ProjectAdmin), writeGate)
+	}
+	if deps.CollectionMetaHandler != nil {
+		mh := deps.CollectionMetaHandler
+		p.POST("/databases/:databaseID/data/collections/meta/dry-run-view", mh.DryRunView, require(auth.ProjectAdmin))
+		p.GET("/databases/:databaseID/data/collections/:collection/meta", mh.Get, delegable(auth.DatabaseRead))
+		p.PUT("/databases/:databaseID/data/collections/:collection/meta", mh.Put, delegable(auth.DatabaseWrite), writeGate)
+		p.DELETE("/databases/:databaseID/data/collections/:collection/meta", mh.Delete, delegable(auth.DatabaseWrite), writeGate)
+	}
+	if deps.BackupHandler != nil {
+		bh := deps.BackupHandler
+		p.GET("/backups", bh.List, require(auth.ProjectAdmin))
+		p.POST("/backups", bh.Create, require(auth.ProjectAdmin), writeGate)
+		p.GET("/backups/:id/download", bh.Download, require(auth.ProjectAdmin))
+		p.DELETE("/backups/:id", bh.Delete, require(auth.ProjectAdmin), writeGate)
+		p.POST("/backups/:id/restore", bh.Restore, require(auth.ProjectAdmin), writeGate)
+	}
+	if deps.RealtimeHandler != nil {
+		rh := deps.RealtimeHandler
+		p.GET("/realtime", rh.Subscribe, require(auth.DatabaseRead))
+		p.POST("/realtime/subscriptions", rh.UpdateSubscription, require(auth.DatabaseRead))
 	}
 
 	// Key-Value 数据服务（key-value-ducklake-plan §3）：项目级单端点，
@@ -447,11 +524,14 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	// S3 用户文件存储路由。deps.S3FileStore 为 nil 时不挂载。
 	if deps.S3FileStore != nil {
-		sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: &deps.Config.Instance.Writable}
+		sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: &deps.Config.Instance.Writable, tokenSecret: deps.Config.Files.TokenSecret, allowedMIME: deps.Config.Files.AllowedMIME, events: deps.TriggerEvents}
 		p.GET("/s3/objects", sh.ListObjects, delegable(auth.DatabaseRead))
+		p.GET("/s3/objects/content", sh.DownloadObject, delegable(auth.DatabaseRead))
 		p.POST("/s3/objects", sh.UploadObject, delegable(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(s3UploadBodyLimit)))
 		p.DELETE("/s3/objects", sh.DeleteObject, delegable(auth.DatabaseWrite), writeGate)
 		p.GET("/s3/presign", sh.PresignObject, delegable(auth.DatabaseRead))
+		p.POST("/s3/link", sh.CreateLink, delegable(auth.DatabaseRead))
+		e.GET("/files/:token", sh.DownloadLinkedObject)
 	}
 
 	if deps.System != nil {
@@ -462,6 +542,8 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		lh := &logsHTTPHandler{store: deps.System}
 		// planv6.0 §3.1：logs 只读可委托；retention 管理（GET/PUT）不可委托。
 		p.GET("/logs", lh.List, delegable(auth.DatabaseRead))
+		p.GET("/logs/stats", lh.Stats, delegable(auth.DatabaseRead))
+		p.GET("/logs/export", lh.Export, delegable(auth.DatabaseRead))
 		p.GET("/logs/retention", lh.GetRetention, require(auth.DatabaseRead))
 		p.PUT("/logs/retention", lh.PutRetention, require(auth.ProjectAdmin), writeGate)
 
@@ -478,6 +560,10 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		// 云 Agent 路由块（B3 提取；含定时执行路由，见 mountAgentRoutes）。
 		mountAgentRoutes(p, deps, require, writeGate)
 
+		migrationH := NewMigrationHandler(deps.System)
+		p.GET("/migrations/status", migrationH.Status, require(auth.ProjectAdmin))
+		p.GET("/migrations/plan", migrationH.Plan, require(auth.ProjectAdmin))
+
 		// 云函数 + 定时任务管理面（B3 提取，见 mountGoFunctionAndCronRoutes）。
 		mountGoFunctionAndCronRoutes(p, deps, delegable, writeGate)
 	}
@@ -489,7 +575,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 // 调用方保证 deps.System != nil。
 func mountGoFunctionAndCronRoutes(p *echo.Group, deps Dependencies, delegable func(auth.Permission) echo.MiddlewareFunc, writeGate echo.MiddlewareFunc) {
 	// 云函数管理面（ui-gofunction-plan §7.1）。writable=false 时写操作返回 503。
-	gh := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns)
+	gh := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns).WithRunner(deps.FunctionRunner)
 	p.GET("/gofunctions", gh.List, delegable(auth.DatabaseRead))
 	p.POST("/gofunctions", gh.Create, delegable(auth.DatabaseWrite), writeGate)
 	p.GET("/gofunctions/:name", gh.Get, delegable(auth.DatabaseRead))
@@ -510,6 +596,15 @@ func mountGoFunctionAndCronRoutes(p *echo.Group, deps Dependencies, delegable fu
 	p.DELETE("/cron-jobs/:jobID", cj.Delete, delegable(auth.DatabaseWrite), writeGate)
 	p.GET("/cron-jobs/:jobID/runs", cj.ListRuns, delegable(auth.DatabaseRead))
 	p.POST("/cron-jobs/:jobID/trigger", cj.Trigger, delegable(auth.DatabaseWrite), writeGate)
+	if deps.FunctionTriggerHandler != nil {
+		th := deps.FunctionTriggerHandler
+		p.GET("/function-triggers", th.List, auth.Require(auth.ProjectAdmin, PrincipalFromContext))
+		p.POST("/function-triggers", th.Create, auth.Require(auth.ProjectAdmin, PrincipalFromContext), writeGate)
+		p.GET("/function-triggers/:id", th.Get, auth.Require(auth.ProjectAdmin, PrincipalFromContext))
+		p.PATCH("/function-triggers/:id", th.Update, auth.Require(auth.ProjectAdmin, PrincipalFromContext), writeGate)
+		p.DELETE("/function-triggers/:id", th.Delete, auth.Require(auth.ProjectAdmin, PrincipalFromContext), writeGate)
+		p.POST("/function-triggers/:id/invoke", th.Invoke, auth.Require(auth.DatabaseWrite, PrincipalFromContext), writeGate)
+	}
 }
 
 // mountAgentRoutes 挂载云 Agent + 定时执行路由块（原 mountV1Routes 内
@@ -659,7 +754,7 @@ func mountGoRoutes(e *echo.Echo, deps Dependencies) {
 	delegable := func(perm auth.Permission) echo.MiddlewareFunc {
 		return auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())
 	}
-	h := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns)
+	h := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns).WithRunner(deps.FunctionRunner)
 	goGrp := e.Group("/go/:projectID", authMW, projectContextMiddlewareEcho(deps))
 	goGrp.POST("/:name/:functionName", h.Invoke, delegable(auth.DatabaseRead))
 	// 405 JSON：防止浏览器 GET 掉进 SPA index.html（验收 G11）；GET 不可委托。
@@ -693,11 +788,14 @@ func skipLargeUploadBodyLimit(s3Enabled, sandboxEnabled bool) middleware.Skipper
 		if s3(c) {
 			return true
 		}
-		if !sandboxEnabled || c.Request().URL == nil || c.Request().Method != http.MethodPost {
+		if c.Request().URL == nil || c.Request().Method != http.MethodPost {
 			return false
 		}
 		p := c.Request().URL.Path
-		return p == "/files" || p == e2bEnvdPrefix+"/files"
+		if strings.HasSuffix(p, "/import") {
+			return true
+		}
+		return sandboxEnabled && (p == "/files" || p == e2bEnvdPrefix+"/files")
 	}
 }
 
@@ -715,9 +813,7 @@ func bodyLimit(bytes int64) string {
 	if bytes%k == 0 {
 		return strconv.Itoa(int(bytes/k)) + "K"
 	}
-	// 向上取整到 KB，确保不超出限制语义。
-	kb := (bytes + k - 1) / k
-	return strconv.Itoa(int(kb)) + "K"
+	return strconv.FormatInt(bytes, 10)
 }
 
 func requestIDMiddleware() echo.MiddlewareFunc {
