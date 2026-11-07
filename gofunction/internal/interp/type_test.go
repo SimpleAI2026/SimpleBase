@@ -36,7 +36,7 @@ func TestTypeChangeKindsAndConvNil(t *testing.T) {
 		t.Fatal("struct fields")
 	}
 
-	z := conv(nil, types.Typ[types.Int])
+	z := convSlow(nil, types.Typ[types.Int])
 	if z.Int() != 0 {
 		t.Fatalf("nil conv %v", z.Interface())
 	}

@@ -81,10 +81,158 @@ func Validate(sql string, intent Intent) error {
 		if !isReadOnlyKeyword(kw) {
 			return ErrWriteInReadOnly
 		}
+		if err := validateReadOnlyBody(sql, kw); err != nil {
+			return err
+		}
 	case WriteAllowed:
 		// DML/DDL 允许；但仍拒绝 isAlwaysDenied
 	}
 	return nil
+}
+
+// validateReadOnlyBody 对首关键字放行的语句做纵深检查：
+// WITH … 的主语句、EXPLAIN … 的被解释语句仍必须是只读的。
+// 只用词法扫描（复用 firstTokenEnd 的停字符），不做子串匹配。
+func validateReadOnlyBody(sql, kw string) error {
+	s := stripLeadingNoise(sql)
+	switch kw {
+	case "WITH":
+		if err := checkCTEMainStatement(s); err != nil {
+			return err
+		}
+	case "EXPLAIN":
+		if err := checkExplainSubject(s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkCTEMainStatement 在跳过全部 CTE 定义后定位主语句关键字。
+// 词法规则：正确跳过字符串、注释、引号标识符；括号外的结构是
+// WITH [RECURSIVE] name [(cols)] AS [NOT] [MATERIALIZED] (subquery)
+//   [, name [(cols)] AS …]*
+// <主语句>
+// 每个 CTE 定义从「读到 AS」开始、到「其后括号配对结束」为止；
+// 括号配对结束后的下一个标识符，若非上下文关键字即主语句开头。
+func checkCTEMainStatement(s string) error {
+	i, n := 0, len(s)
+	depth := 0
+	sawAS := false // 已读到当前 CTE 的 AS，其后的 '(' 即定义体
+	for i < n {
+		c := s[i]
+		switch {
+		case c == '\'':
+			i = skipString(s, i)
+		case c == '-' && i+1 < n && s[i+1] == '-':
+			i = skipLineComment(s, i)
+		case c == '/' && i+1 < n && s[i+1] == '*':
+			i = skipBlockComment(s, i)
+		case c == '"':
+			i = skipQuotedIdent(s, i)
+		case c == '(':
+			depth++
+			i++
+		case c == ')':
+			depth--
+			i++
+		case c == ',' && depth == 0:
+			sawAS = false // 下一个 CTE 名开始
+			i++
+		case c == ';' && depth == 0:
+			return nil // 多语句场景由 basicCheck 拦截，这里防御性放行
+		case isSpace(c):
+			i++
+		case isIdentStart(c):
+			end := identEnd(s, i)
+			kw := strings.ToUpper(s[i:end])
+			if depth > 0 {
+				i = end
+				continue
+			}
+			switch kw {
+			case "WITH", "RECURSIVE":
+				i = end
+			case "AS", "NOT", "MATERIALIZED":
+				sawAS = true
+				i = end
+			default:
+				if !sawAS {
+					// 尚未读到 AS：这是 CTE 名（或列名表前的名字），跳过
+					i = end
+					continue
+				}
+				if !isReadOnlyKeyword(kw) || isAlwaysDenied(kw) {
+					return ErrWriteInReadOnly
+				}
+				return nil
+			}
+		default:
+			i++
+		}
+	}
+	return nil
+}
+
+// checkExplainSubject 拒绝 EXPLAIN ANALYZE（会真实执行被解释语句）。
+// 仅 EXPLAIN（不带 ANALYZE）才是纯只读；EXPLAIN (ANALYZE …) 的
+// 括号选项形式同样拒绝（防御）。
+func checkExplainSubject(s string) error {
+	i, n := 0, len(s)
+	// 跳过 EXPLAIN
+	for i < n && !isIdentStart(s[i]) {
+		i++
+	}
+	i = skipIdent(s, i)
+	// 逐 token 检查 EXPLAIN 选项；遇到 '(' 时逐标识符扫描其内部
+	for {
+		j := i
+		for j < n && isSpace(s[j]) {
+			j++
+		}
+		if j >= n {
+			return nil
+		}
+		if s[j] == '(' {
+			k := j + 1
+			for k < n && s[k] != ')' {
+				if isIdentStart(s[k]) {
+					end := identEnd(s, k)
+					if strings.ToUpper(s[k:end]) == "ANALYZE" {
+						return ErrWriteInReadOnly
+					}
+					k = end
+					continue
+				}
+				k++
+			}
+			i = k + 1
+			continue
+		}
+		if !isIdentStart(s[j]) {
+			return nil
+		}
+		end := identEnd(s, j)
+		kw := strings.ToUpper(s[j:end])
+		switch kw {
+		case "ANALYZE":
+			return ErrWriteInReadOnly
+		case "FORMAT", "PLAIN", "OPTIMIZE", "VERBOSE", "COSTS", "PLAN", "ESTIMATED":
+			i = end
+			// FORMAT 之后跟类型名，跳过一个 token
+			if kw == "FORMAT" {
+				k := end
+				for k < n && isSpace(s[k]) {
+					k++
+				}
+				if k < n && isIdentStart(s[k]) {
+					i = identEnd(s, k)
+				}
+			}
+		default:
+			return nil
+		}
+	}
 }
 
 // reservedIdentifierPrefixes 是用户 SQL 不得引用的标识符前缀：
@@ -326,6 +474,78 @@ func isReadOnlyKeyword(kw string) bool {
 		return true
 	}
 	return false
+}
+
+// —— 只读纵深检查的词法辅助（与 hasDuckLakeMetadataIdentifier 的扫描规则一致）——
+
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+func isIdentStart(c byte) bool {
+	return sqlx.IsIdentByte(c)
+}
+
+func identEnd(s string, i int) int {
+	for i < len(s) && sqlx.IsIdentByte(s[i]) {
+		i++
+	}
+	return i
+}
+
+func skipIdent(s string, i int) int {
+	return identEnd(s, i)
+}
+
+func skipString(s string, i int) int {
+	// s[i] == '\''；支持 '' 转义
+	i++
+	for i < len(s) {
+		if s[i] == '\'' {
+			i++
+			if i < len(s) && s[i] == '\'' {
+				i++
+				continue
+			}
+			return i
+		}
+		i++
+	}
+	return len(s)
+}
+
+func skipLineComment(s string, i int) int {
+	for i < len(s) && s[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+func skipBlockComment(s string, i int) int {
+	i += 2
+	for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+		i++
+	}
+	if i+1 < len(s) {
+		i += 2
+	}
+	return i
+}
+
+func skipQuotedIdent(s string, i int) int {
+	i++
+	for i < len(s) {
+		if s[i] == '"' {
+			i++
+			if i < len(s) && s[i] == '"' {
+				i++
+				continue
+			}
+			return i
+		}
+		i++
+	}
+	return len(s)
 }
 
 // isAlwaysDenied 判断关键字是否永久拒绝（不论意图）。

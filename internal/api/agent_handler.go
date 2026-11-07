@@ -183,7 +183,7 @@ func (h *cloudAgentHandler) ListModules(c echo.Context) error {
 func (h *cloudAgentHandler) ListAgents(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.writable == nil || *h.writable {
 		if err := h.ensureAgents(c.Request().Context(), pc.ID); err != nil {
@@ -226,7 +226,7 @@ func (h *cloudAgentHandler) CreateAgent(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	var body upsertAgentBody
 	if err := c.Bind(&body); err != nil {
@@ -247,7 +247,7 @@ func (h *cloudAgentHandler) CreateAgent(c echo.Context) error {
 func (h *cloudAgentHandler) GetAgent(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	a, err := h.store.GetCloudAgent(c.Request().Context(), pc.ID, c.Param("agentID"))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -265,7 +265,7 @@ func (h *cloudAgentHandler) PatchAgent(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	cur, err := h.store.GetCloudAgent(c.Request().Context(), pc.ID, c.Param("agentID"))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -300,7 +300,7 @@ func (h *cloudAgentHandler) DeleteAgent(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if err := h.store.ArchiveCloudAgent(c.Request().Context(), pc.ID, c.Param("agentID")); errors.Is(err, sql.ErrNoRows) {
 		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "agent not found"))
@@ -390,7 +390,7 @@ func normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAg
 func (h *cloudAgentHandler) ListThreads(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	limit := 50
 	if raw := c.QueryParam("limit"); raw != "" {
@@ -424,7 +424,7 @@ func (h *cloudAgentHandler) ListThreads(c echo.Context) error {
 func (h *cloudAgentHandler) PatchThread(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.writable != nil && !*h.writable {
 		return WriteError(c, godatabase.ErrWriterUnavailable)
@@ -452,7 +452,7 @@ func (h *cloudAgentHandler) PatchThread(c echo.Context) error {
 func (h *cloudAgentHandler) ListThreadRuns(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	threadID := c.Param("threadID")
 	if _, err := h.store.GetAgentThread(c.Request().Context(), pc.ID, threadID); errors.Is(err, sql.ErrNoRows) {
@@ -492,7 +492,7 @@ type activeRunDTO struct {
 func (h *cloudAgentHandler) ListActiveRuns(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	out := make([]activeRunDTO, 0)
 	if h.runtime == nil {
@@ -522,7 +522,7 @@ func (h *cloudAgentHandler) CreateThread(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	var body struct {
 		Title   string `json:"title"`
@@ -555,7 +555,7 @@ func (h *cloudAgentHandler) CreateThread(c echo.Context) error {
 func (h *cloudAgentHandler) GetThread(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	th, err := h.store.GetAgentThread(c.Request().Context(), pc.ID, c.Param("threadID"))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -573,7 +573,7 @@ func (h *cloudAgentHandler) DeleteThread(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	threadID := c.Param("threadID")
 	if err := h.store.ArchiveAgentThread(c.Request().Context(), pc.ID, threadID); errors.Is(err, sql.ErrNoRows) {
@@ -593,7 +593,7 @@ func (h *cloudAgentHandler) DeleteThread(c echo.Context) error {
 func (h *cloudAgentHandler) ListMessages(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if _, err := h.store.GetAgentThread(c.Request().Context(), pc.ID, c.Param("threadID")); errors.Is(err, sql.ErrNoRows) {
 		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "thread not found"))
@@ -626,7 +626,7 @@ type createRunBody struct {
 func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	principal, _ := PrincipalFromContext(c.Request().Context())
 	threadID := c.Param("threadID")
@@ -1004,7 +1004,7 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 func (h *cloudAgentHandler) CancelRun(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	// SEC-04：取消终止的是他人的运行，属于破坏性操作；只读主体（登录态
 	// 只读角色或仅持 DatabaseRead 的 Key）拒绝，写主体允许。
@@ -1107,7 +1107,7 @@ type agentModelDTO struct {
 func (h *cloudAgentHandler) ListAgentModels(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	out := struct {
 		DefaultModel string          `json:"default_model"`

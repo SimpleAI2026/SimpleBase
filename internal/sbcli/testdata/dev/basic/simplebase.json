@@ -1,0 +1,18 @@
+{
+  "project": { "id": "fixtur01", "name": "Fixture" },
+  "databases": [
+    { "name": "main", "data_model": "sql", "migrations": "migrations", "seed": "seed/dev.sql" },
+    { "name": "docs", "data_model": "collection" }
+  ],
+  "collections": [{ "database": "docs", "name": "posts", "seed": [{ "id": "demo", "title": "hi" }] }],
+  "functions": [
+    { "name": "hello", "file": "functions/hello.go", "description": "示例函数",
+      "test": { "function_name": "Hello", "body": { "name": "sb" } } }
+  ],
+  "cron_jobs": [
+    { "name": "daily", "schedule_kind": "cron", "cron_expr": "0 3 * * *", "func_file": "hello",
+      "func_export": "Hello", "input_json": "{}", "enabled": true, "trigger_once": true }
+  ],
+  "kv": "seed/kv.json",
+  "api_keys": [{ "label": "service", "permissions": ["database:read"] }]
+}

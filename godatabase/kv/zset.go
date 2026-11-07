@@ -54,7 +54,7 @@ func (r *ZSetRepo) Add(ctx context.Context, key string, items ...ZSetItem) (int,
 		return 0, ErrArgument
 	}
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeZSet)
+	exists, _, err := kr.guardWrite(ctx, key, TypeZSet)
 	if err != nil {
 		return 0, err
 	}
@@ -234,7 +234,7 @@ func (r *ZSetRepo) RangeByScore(ctx context.Context, key string, min, max float6
 // Incr 成员分数自增（ZINCRBY），返回新分数。成员不存在按 0 起始。
 func (r *ZSetRepo) Incr(ctx context.Context, key string, elem []byte, delta float64) (float64, error) {
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeZSet)
+	exists, _, err := kr.guardWrite(ctx, key, TypeZSet)
 	if err != nil {
 		return 0, err
 	}

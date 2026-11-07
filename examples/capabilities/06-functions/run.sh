@@ -27,4 +27,8 @@ done_step
 step "invoke-v2" function invoke --name "$NAME" --export Greet --input '{"name":"simplebase"}'
 expect '.data.message == "hello v2 simplebase"'
 
+# 清理本次创建的函数，避免每轮 run_all 在项目里留下 greet<RUN_ID>。
+step "delete" function delete --name "$NAME"
+done_step
+
 finish_case

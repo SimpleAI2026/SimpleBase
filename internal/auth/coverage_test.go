@@ -198,3 +198,23 @@ func TestExtractBearerToken_Whitespace(t *testing.T) {
 		t.Fatalf("token=%q err=%v", token, err)
 	}
 }
+
+// database:admin 隐含 database:write 与 database:read；write 不隐含 read，其他权限不受影响。
+func TestPermissionHierarchy(t *testing.T) {
+	admin := Principal{Permissions: map[Permission]struct{}{DatabaseAdmin: {}}}
+	for _, perm := range []Permission{DatabaseAdmin, DatabaseWrite, DatabaseRead} {
+		if !admin.HasPermission(perm) {
+			t.Fatalf("database:admin should imply %s", perm)
+		}
+	}
+	if admin.HasPermission(ProjectAdmin) || admin.HasPermission(LLMInvoke) {
+		t.Fatal("database:admin must not imply project:admin / llm:invoke")
+	}
+	write := Principal{Permissions: map[Permission]struct{}{DatabaseWrite: {}}}
+	if write.HasPermission(DatabaseRead) || write.HasPermission(DatabaseAdmin) {
+		t.Fatal("database:write must not imply read/admin")
+	}
+	if PermissionImplied(nil, DatabaseRead) {
+		t.Fatal("nil set has no permission")
+	}
+}

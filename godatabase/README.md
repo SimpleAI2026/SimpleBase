@@ -19,6 +19,7 @@ lease/                   项目文件写租约与写门
 sqlguard/                SQL 执行边界：拒绝清单、只读检测、多语句拦截
 sqlx/                    SQL 字面量 / 标识符转义
 internal/                库私有：atomicfile / hashx / singleflight / limit
+bench/                   系统库读路径基准（读放大：存活文件数 → 查询耗时），见 bench/README.md
 ```
 
 依赖方向（库内禁止成环）：

@@ -85,6 +85,10 @@ var readOnlyCommands = map[string]bool{
 	"migrate status":        true,
 	"migrate plan":          true,
 	"settings get":          true,
+	// dev plan/validate/status 只读，但读取宿主工作区文件；助手模式下命令自身拒绝（file_not_allowed）。
+	"dev plan":     true,
+	"dev validate": true,
+	"dev status":   true,
 }
 
 // CommandReadOnly 报告命令是否只读（planv6.0 v2 §3.4）。
@@ -274,6 +278,14 @@ func dispatch(resource, action string) commandFunc {
 		return cmdQuotaGet
 	case "audit list":
 		return cmdAuditList
+	case "dev plan":
+		return cmdDevPlan
+	case "dev apply":
+		return cmdDevApply
+	case "dev validate":
+		return cmdDevValidate
+	case "dev status":
+		return cmdDevStatus
 	default:
 		return dispatchNested(resource, action)
 	}
@@ -978,7 +990,7 @@ func cmdFunctionGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args [
 }
 
 func cmdFunctionCreate(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "name", "file", "description", "source-b64")
+	f, _, err := mustFlags(args, "name", "file", "description", "source-b64", "activate")
 	if err != nil {
 		return nil, err
 	}
@@ -990,11 +1002,18 @@ func cmdFunctionCreate(ctx context.Context, c *gosdk.Client, cfg loadedConfig, a
 	if err != nil {
 		return nil, err
 	}
+	activate := true
+	if s := strings.TrimSpace(*f["activate"]); s != "" {
+		activate, err = strconv.ParseBool(s)
+		if err != nil {
+			return nil, usagef("--activate must be true or false")
+		}
+	}
 	src, err := readSource(path, *f["source-b64"], stdin, cfg.Agent)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := c.CreateFunction(ctx, name, string(src), *f["description"])
+	raw, err := c.CreateFunctionWith(ctx, name, string(src), *f["description"], activate)
 	return decodeRaw(raw), err
 }
 
@@ -1396,7 +1415,7 @@ func cmdProjectList(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []st
 }
 
 func cmdProjectCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "name", "engine")
+	f, _, err := mustFlags(args, "name", "engine", "id")
 	if err != nil {
 		return nil, err
 	}
@@ -1404,7 +1423,7 @@ func cmdProjectCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args
 	if err != nil {
 		return nil, err
 	}
-	raw, err := c.CreateProject(ctx, name, strings.TrimSpace(*f["engine"]))
+	raw, err := c.CreateProjectWithID(ctx, strings.TrimSpace(*f["id"]), name, strings.TrimSpace(*f["engine"]))
 	return decodeRaw(raw), err
 }
 

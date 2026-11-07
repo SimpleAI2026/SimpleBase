@@ -323,3 +323,40 @@ C 类除 P0/S1–S6 外，还必须提交“锁/状态/事件轨迹表 + 失败�
 ### 10.4 可直接交给下一模型的任务指令
 
 > 阅读本计划 §6 执行协议和任务卡 `<ID>`，本次只执行 `<子任务>`。先核对当前源码、既有差异和测试隔离；在旧实现上补并运行表征测试，通过后才执行卡片允许的单次等价变换。不得改变公开 API、权限、错误、锁/资源/持久化时序，不安装依赖、不改配置、不访问运行数据库。证据不足按停点暂缓，不猜测实现；完成后按 §10.1 报告真实验证结果并停止，不自动继续其他任务。
+
+## 11. 第二轮候选（R2，2026-11-06 重新扫描）
+
+> 基线：`main` @ `b6e9936` + 工作区 25 个未提交 internal 文件（api/app/sbcli/objectstore 等），实施时不覆盖他人差异。
+> 扫描方法：`staticcheck -checks U1000`、`deadcode ./cmd/...`（生产可达性）与 `deadcode -test`、AST 统计 ≥100 行函数、`grep` 统计重复样板。第一轮全部候选的产物仍在（`publishSnapshot` 随 DuckLake 迁至 `godatabase/`，不在 `internal/` 范围）。
+> 执行协议沿用 §6（P0 + S1–S6）；§1 保持不变清单、§2「本轮不强行统一」结论继续有效。
+
+### 11.1 候选清单
+
+| ID · 风险 | 位置 | 动作 | 锁定行为 / 停点 |
+| --- | --- | --- | --- |
+| R2-A1 · 低 | `sbcli/run.go` `parseArgs`；`utils/hashx/hashx.go` `Short`（执行时复核：`godatabase/blob` 在用，已剔除）；测试辅助 `api/agent_writable_test.go` `writableFlag`、`api/sse_test_helpers_test.go` `timedSSE`、`config/sandbox_test.go` `marshalTestJSON`、`sbcli/dev_test.go` `containsAny` | 删除生产与测试均零引用的函数及其文件头注释条目。 | 删除前 `grep` 全仓（含 `godatabase/`、`gocloudagent/`、`cmd/`）零引用；`go build`/`go vet`/包测试通过。`InProcessCLI`、`APIKeyMiddleware` 属导出能力且在 `internal/AGENTS.md` 有职责描述，**本轮不删**，仅记录。 |
+| R2-A2 · 低 | `api/` 32 处 `echo.NewHTTPError(http.StatusBadRequest, "project context missing")`；`api/gofunction_handler.go` 4 处 `system_project_protected` 构造 | 前者统一为 `WriteError(c, ErrProjectMissing)` 写法；后者在同文件提取私有错误构造。 | 两种写法经 `Error()` 映射后 status=400、code=`invalid_request`、message=`project context missing` 完全一致——先补表征测试比对两种错误的 `Error()` 输出；仅替换 `return WriteError(c, echo.NewHTTPError(...))` 形态，非 `WriteError` 包裹（直接 return HTTPError 交给 echo 全局处理器）的位置不动。trigger/sandbox 文案不同，不合并。 |
+| R2-B1 · 中 | `config/yaml.go` `applyYAML`（192 行）、`config/env.go` `applyEnv`（170 行） | 每次提取一个连续域：YAML 侧 HTTP/CORS、Instance/Lease、Limits/RateLimit；env 侧按现有分段。 | 同 §8 B1：默认值 → YAML → env → 密钥拒绝 → Validate 顺序；nil 切片不变空切片、`append([]string(nil), ...)` 拷贝语义保留；域间有共享局部变量（如 `secrets`）须原样传指针。 |
+| R2-B2 · 中 | `app/app.go` `NewWithRegistry`（256 行） | 按 §8 B4 末尾「NewWithRegistry 整理为独立后续子任务」，提取不含生命周期的连续段（如 `api.Dependencies` 之前的 handler 构造块）。 | closer 注册顺序、nil 依赖不装配、失败清理入口不变；不得在 helper 内新增 defer/Close；带 sandbox/backup/scheduler 启动的段若需重排则暂缓。 |
+| R2-B3 · 中 | `api/error.go` `Error`（214 行，约 48 个 `errors.Is → NewAPIError` 分支） | 将无额外副作用的连续纯映射段（auth/catalog/sqlguard/kv 等）改为与既有 sandbox 段同风格的有序表。 | **匹配顺序 = 优先级**，表内顺序必须与原分支逐条一致；含 `errors.As`、Header（Retry-After）或动态文案的分支保留为代码；先补全映射表征测试（每个哨兵错误 → status/code/message）。 |
+
+**仅记录、本轮不实施**：
+- 仅测试使用的 `config.envBool/envInt/envInt64/envDuration/envFloat64/loadLLMProviders/loadFromEnv`、`objectstore.NewMemory*`、`systemdb.NewStoreForTest`、`isDuplicate` 等：属测试支撑或导出 API，删除需要搬迁测试，收益低。
+- `agentbridge.InProcessCLI`（生产已改用 `gocloudagent.SubprocessCLI`）、`auth.APIKeyMiddleware`（生产未挂载）：需产品确认后另立任务，并同步 `internal/AGENTS.md`。
+- `api` 与 `objectstore` 的同名 `joinKey`：语义不同、包私有，不合并；改名属于纯命名调整，收益低于 diff 成本，不做。
+- `cloudAgentHandler.CreateRun/streamRun`（C1 范围）、`sbcli.dispatch`、`perfbench` case 表（数据表式长函数）：不拆。
+- `assembleDeps` 剩余 factory/Bootstrap/lease 段：带生命周期，维持第一轮结论。
+
+### 11.2 执行状态
+
+**基线说明**：`internal/api` 在本轮开始前已有 2 个失败用例 `TestQuotaHandler/missing_project`、`TestAuditHandler/missing_project`，根因是工作区并行未提交改动 `quota_audit_handler.go` 把 `errors.New("project context missing")`（未映射→500）改为 `ErrProjectMissing`（→400），测试仍断言 500。不属本轮范围，未修改；需由该改动作者同步测试期望。以下 api 包「通过」均指除这两个既有失败外全绿。
+
+- **R2-A1 · 已验证**。删除 `sbcli/run.go` `parseArgs`（仅转发 `parseArgsOpts`）与测试辅助 `writableFlag`、`timedSSE`（连同仅其使用的 `timedEvent`）、`marshalTestJSON`、`containsAny`（sbcli 版；objectstore 同名函数在用，保留），并清理随之未用的导入。删除后 `staticcheck U1000` 新暴露的 `stubTimedLease`（stage_timing_test）与 `stubCatalog.closedID`（adapters_test）一并删除。**修正扫描结论**：`hashx.Short` 在嵌套模块 `godatabase/blob/blob.go:144` 有使用，**不是死代码，保留**。验证：`staticcheck -checks U1000 ./internal/...` 零报告；`go vet`、`go test -short ./internal/sbcli ./internal/config ./internal/api`。
+- **R2-A2 · 部分完成**。新增 `r2_project_missing_test.go`：证明 `echo.NewHTTPError(400,"project context missing")` 与 `ErrProjectMissing` 经 `Error()`/`WriteError` 输出的 status、body、header 逐字节一致。替换 32 处 `return WriteError(c, echo.NewHTTPError(...))` 为 `WriteError(c, ErrProjectMissing)`（agent_handler 16、system_handlers 11、agent_schedule_handler 3、run_events 2）。未改：`sandbox_handler.go:121`、`e2b_envd_handler.go:106` 直接返回 HTTPError 给上层（非 WriteError 包裹）；`llm_handler.go`/`oai_responses.go` 走 OAI 错误形状。gofunction 的 4 处 `system_project_protected` **暂缓**：`gofunction_handler.go` 有并行未提交差异（同类 ErrProjectMissing 替换），按 §6.2 第 3 条不叠加修改。
+- **R2-B1 · 已验证**。YAML 侧提取 `applyYAMLHTTP`、`applyYAMLLimits`、`applyYAMLSandbox`（原序移动，调用留在原位）；env 侧提取 `applyEnvDuckLake`、`applyEnvS3`。新增 `r2_yaml_domains_test.go`、`r2_env_domains_test.go`；期间修正一处错误断言——非 nil 空切片经 `append([]string(nil), ...)` 得到 **nil**（清空默认值），并非空的非 nil 切片。`applyYAML` 192→约 100 行，`applyEnv` 170→约 110 行。验证：`go test -race -short -count=1 ./internal/config`。
+- **R2-B2 · 已验证**。`NewWithRegistry` 中「可写实例 SQL/Data/Schema/CollectionMeta/KV handler + `dbHandler.InitSQL` 注入」连续块提取为 `assembleWriteHandlers`，返回 `writeHandlers` 结构；`Writable && registry != nil` 判断留在调用点，不含 goroutine/closer。sandbox、cron、backup、kvSweeper 段带 `schedulerBaseCtx` 懒创建与启动，本轮不动。新增 `r2_write_handlers_test.go`（可写挂载 7 条写路由，只读全部不挂）。验证：`go test -race -short -count=1 ./internal/app`。
+- **R2-B3 · 已验证**。先用 `r2_error_mapping_test.go` 从旧实现快照全部 59 条哨兵映射（含 `%w` 包裹形式），并对任意两条用 `errors.Join` 断言「源码靠前者胜出」，加上 context、ErrProjectMissing 前置分支的相对优先级。之后把 sandbox 表与其后 48 个 `errors.Is` 分支原序合并为包级 `sentinelErrorMappings` 有序表，分组注释保留。`errors.As`（APIError、RunError）、echo 映射、context 分支仍保留在代码中；Retry-After 本就在 `WriteError` 中按 code 附加，未变。`Error` 214→约 50 行。验证：`go vet`、`go test -short ./internal/api`（除基线 2 个失败外全绿）。
+
+**阶段验收**：`go build ./internal/... ./cmd/...`、`go vet ./internal/...`、`staticcheck -checks U1000 ./internal/...`（零）、`git diff --check -- internal`（无输出）均通过。race：config、app 已跑；api 本轮只改错误映射与 handler 返回值，不涉及并发，未额外跑 race。
+
+**下一步建议**（不自动执行）：等 `gofunction_handler.go` 的并行差异合入后，再做 R2-A2 剩余的 gofunction 错误构造提取；修复 quota/audit 测试期望属于行为修复，应另立任务。

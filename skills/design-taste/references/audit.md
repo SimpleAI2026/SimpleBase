@@ -2,6 +2,8 @@
 
 Goal: find what most hurts usability and perceived quality, ranked, with evidence. Review first; change code only if asked.
 
+**Dual assessment (lightweight):** (A) design judgment against direction + craft floor; (B) measurable/browser evidence (`§1`, screenshots, contrast). Synthesize only after both exist. Do not treat a detector/grep result as proof of quality without looking at the rendered experience.
+
 ## 1. Measurable checks (run these, report numbers)
 Adjust globs to the project.
 ```bash
@@ -40,6 +42,7 @@ Also check: contrast of real text/background pairs (WCAG AA 4.5:1 / 3:1), tab th
 - Copy clichés, placeholder names, emoji icons.
 - Optical alignment, icon sizes vs text, `text-wrap: balance` on headings, tabular numerals.
 - Micro-interactions on hover/press; consistent image treatment.
+- Unthemed browser surfaces (selection, scrollbar, focus ring, tabular nums); kickers/eyebrows; decorative section numbers.
 
 ## 3. Report format
 ```
@@ -48,3 +51,6 @@ Also check: contrast of real text/background pairs (WCAG AA 4.5:1 / 3:1), tab th
 ## P0 / P1 / P2  — each item: what, where (file:line or screen area), why it matters, concrete fix
 ## Suggested next step  (e.g. "consolidate tokens, then redesign hero")
 ```
+
+End the chat reply with **one** concrete question about what to improve next (scope a polish pass, redesign one region, or fix P0s). If you must skip: `Questions skipped: <reason>`. Nothing follows that question.
+

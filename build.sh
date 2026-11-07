@@ -354,10 +354,10 @@ cmd_build() {
     echo "    产物: $agent_bin"
     # 本机 shell 隔离的沙盒内 helper（planv6.2）：Linux 上 CLI 在同目录找它；
     # 纯 Go、CGO_ENABLED=0，不链接 DuckDB。macOS 走 sandbox-exec，不需要 helper。
-    if [[ "$(uname -s)" == "Linux" && -d "$ROOT_DIR/gosandbox/cmd/gosandbox-inner" ]]; then
+    if [[ "$(uname -s)" == "Linux" && -f "$ROOT_DIR/gosandbox/cmd/main_linux.go" ]]; then
       local inner_bin="$CLI_BIN_DIR/gosandbox-inner"
       echo "==> 编译 gosandbox-inner (go build)"
-      (cd "$ROOT_DIR/gosandbox" && CGO_ENABLED=0 go build -o "$inner_bin" ./cmd/gosandbox-inner)
+      (cd "$ROOT_DIR/gosandbox" && CGO_ENABLED=0 go build -o "$inner_bin" ./cmd)
       echo "    产物: $inner_bin"
     fi
   fi

@@ -47,6 +47,7 @@ func SnapshotFile(ctx context.Context, db *sql.DB, source, engine, dst string) (
 	if _, err := os.Stat(dst); err == nil {
 		return info, fmt.Errorf("filedb: snapshot destination exists")
 	}
+	var digest string
 	switch engine {
 	case godatabase.EngineSQLite:
 		if _, err := db.ExecContext(ctx, "VACUUM INTO "+sqlx.Literal(dst)); err != nil {
@@ -56,9 +57,11 @@ func SnapshotFile(ctx context.Context, db *sql.DB, source, engine, dst string) (
 		if _, err := db.ExecContext(ctx, "CHECKPOINT"); err != nil {
 			return info, fmt.Errorf("filedb: duckdb checkpoint: %w", err)
 		}
-		if err := copyFile(source, dst); err != nil {
+		d, err := copyFileHashed(source, dst)
+		if err != nil {
 			return info, err
 		}
+		digest = d
 	default:
 		return info, fmt.Errorf("filedb: unsupported snapshot engine")
 	}
@@ -70,9 +73,11 @@ func SnapshotFile(ctx context.Context, db *sql.DB, source, engine, dst string) (
 	if err != nil {
 		return info, fmt.Errorf("filedb: stat snapshot: %w", err)
 	}
-	digest, err := fileSHA256(dst)
-	if err != nil {
-		return info, fmt.Errorf("filedb: hash snapshot: %w", err)
+	if digest == "" {
+		digest, err = fileSHA256(dst)
+		if err != nil {
+			return info, fmt.Errorf("filedb: hash snapshot: %w", err)
+		}
 	}
 	info.SizeBytes, info.SHA256, info.CompletedAt = stat.Size(), digest, time.Now().UTC()
 	return info, nil

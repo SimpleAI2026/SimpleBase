@@ -137,7 +137,7 @@ func TestCloseIdleSkipsNotReadyAndRecent(t *testing.T) {
 }
 
 func TestEvictorDefaultInterval(t *testing.T) {
-	e := NewEvictor(New(&fakeFactory{}, nil, Options{Writable: true}, nil, nil), 0)
+	e := NewEvictor(New(&fakeFactory{}, nil, Options{Writable: true}, nil, nil), 0, nil)
 	if e.interval != time.Minute {
 		t.Fatal(e.interval)
 	}

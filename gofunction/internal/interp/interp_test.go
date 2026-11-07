@@ -45,13 +45,14 @@ func test() int { return 1 }`)
 	}
 }
 
-func TestRuntimeNilUserData(t *testing.T) {
-	r := NewRuntime()
-	r.userData = nil
-	if _, ok := r.GetUserData("x"); ok {
-		t.Fatal("expected missing")
+func TestRuntimeZeroValueUsable(t *testing.T) {
+	r := &Runtime{}
+	r.Initialize("")
+	if r.SequenceID == "" {
+		t.Fatal("expected generated sequence id")
 	}
-	r.SetUserData("x", 1)
+	r.Reset()
+	r.Cleanup()
 }
 
 // TestExecutorTimeoutInterruptsExecution 端到端验证超时真正中断执行（P2-4）：

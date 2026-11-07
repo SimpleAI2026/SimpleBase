@@ -100,8 +100,14 @@ func applyEnv(cfg loadedConfig, env []string) loadedConfig {
 	if v, ok := envGet(env, "SIMPLEBASE_URL"); ok {
 		cfg.Endpoint = v
 	}
-	if v, ok := envGet(env, "SIMPLEBASE_TOKEN"); ok {
+	// SDK 读 SIMPLEBASE_API_KEY，CLI 历史上读 SIMPLEBASE_TOKEN：两者都认，TOKEN 优先。
+	if v, ok := envGet(env, "SIMPLEBASE_API_KEY"); ok && strings.TrimSpace(v) != "" {
 		cfg.Token = v
+	}
+	if v, ok := envGet(env, "SIMPLEBASE_TOKEN"); ok {
+		if strings.TrimSpace(v) != "" || strings.TrimSpace(cfg.Token) == "" {
+			cfg.Token = v
+		}
 	}
 	if v, ok := envGet(env, "SIMPLEBASE_PROJECT_ID"); ok {
 		cfg.ProjectID = v

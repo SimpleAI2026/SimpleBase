@@ -66,8 +66,14 @@ func (c *Client) GetFunction(ctx context.Context, name string) (json.RawMessage,
 
 // CreateFunction creates a function and its first version.
 func (c *Client) CreateFunction(ctx context.Context, name, source, description string) (json.RawMessage, error) {
+	return c.CreateFunctionWith(ctx, name, source, description, true)
+}
+
+// CreateFunctionWith creates a function and its first version; activate=false leaves
+// the version unpublished so callers can test it before calling ActivateFunctionVersion.
+func (c *Client) CreateFunctionWith(ctx context.Context, name, source, description string, activate bool) (json.RawMessage, error) {
 	return c.Raw(ctx, http.MethodPost, c.projectPath("/gofunctions"), nil, map[string]any{
-		"name": name, "source": source, "description": description, "activate": true,
+		"name": name, "source": source, "description": description, "activate": activate,
 	})
 }
 
@@ -252,7 +258,17 @@ func (c *Client) ListProjects(ctx context.Context) (json.RawMessage, error) {
 // CreateProject creates a project. engine selects the single-file database
 // engine ("duckdb" or "sqlite"); empty lets the server use its default.
 func (c *Client) CreateProject(ctx context.Context, name, engine string) (json.RawMessage, error) {
+	return c.CreateProjectWithID(ctx, "", name, engine)
+}
+
+// CreateProjectWithID is CreateProject with an explicit 8-char project ID, so
+// the same workspace can be replayed to several instances under one ID. Empty
+// id lets the server generate one.
+func (c *Client) CreateProjectWithID(ctx context.Context, id, name, engine string) (json.RawMessage, error) {
 	body := map[string]string{"name": name}
+	if id != "" {
+		body["id"] = id
+	}
 	if engine != "" {
 		body["engine"] = engine
 	}

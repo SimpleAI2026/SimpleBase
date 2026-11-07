@@ -1,1 +1,236 @@
-<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SimpleBase 电商</title><h1>示例·电商</h1><button id="refresh">刷新商品</button><div id="products"></div><script>async function refresh(){const data=await(await fetch('/api/products')).json();document.querySelector('#products').replaceChildren(...data.map(p=>{const article=document.createElement('article');const title=document.createElement('h2');title.textContent=p.name;const img=document.createElement('img');img.src=p.image_url||'';img.width=64;img.alt=p.name;const info=document.createElement('p');info.textContent=`¥${(p.price_minor/100).toFixed(2)} · 库存 ${p.stock}`;article.append(title,img,info);return article}))}document.querySelector('#refresh').onclick=refresh;refresh()</script></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SimpleBase 电商</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e1251b'/%3E%3Ctext x='16' y='23' font-size='17' font-family='Helvetica,Arial' fill='%23fff' text-anchor='middle'%3E店%3C/text%3E%3C/svg%3E">
+<style>
+  :root { --ink: #1b1b1f; --ink2: #55565c; --ink3: #8e8f96; --line: #e8e8ec; --red: #e1251b; --bg: #f6f7f9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", Helvetica, Arial, sans-serif; }
+  header { background: #fff; border-bottom: 1px solid var(--line); }
+  header .inner { max-width: 1120px; margin: 0 auto; padding: 16px; display: flex; align-items: center; gap: 14px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 0; font-size: 12px; color: var(--ink3); }
+  header .spacer { flex: 1; }
+  main { max-width: 1120px; margin: 0 auto; padding: 16px; }
+  .panel { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .panel h2 .more { margin-left: auto; font-size: 12px; color: var(--ink3); font-weight: 400; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 7px; padding: 12px; }
+  .card img { width: 100%; border-radius: 5px; background: #fafafa; }
+  .card h3 { margin: 8px 0 2px; font-size: 13px; font-weight: 500; }
+  .card .price { color: var(--red); font-weight: 600; }
+  .card .meta { font-size: 12px; color: var(--ink3); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed #f0f0f3; }
+  .row:last-child { border-bottom: none; }
+  .row .value { color: var(--ink3); max-width: 58%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--ink3); font-weight: 500; }
+  code { background: #f3f4f7; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: #fff; border-radius: 5px; padding: 7px 14px; color: var(--ink2); }
+  button.primary { background: var(--red); border-color: var(--red); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .empty { color: var(--ink3); text-align: center; padding: 16px 0; }
+  .toast { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); background: rgba(0,0,0,.82); color: #fff; padding: 9px 16px; border-radius: 5px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.on { opacity: 1; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header><div class="inner">
+  <div>
+    <h1>示例·电商</h1>
+    <p>商品 / KV 购物车 / 对象图片 / 事务下单 / 云函数算价 / 定时任务 / 事件触发器</p>
+  </div>
+  <span class="spacer"></span>
+  <button id="refresh">刷新</button>
+</div></header>
+<main id="app"></main>
+<div class="toast" id="toast"></div>
+<script>
+const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+const yuan = minor => `¥${(Number(minor || 0) / 100).toFixed(2)}`
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    method: options.method || 'GET',
+    headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body)
+  })
+  const text = await res.text()
+  let data
+  try { data = text ? JSON.parse(text) : null } catch { data = text }
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+  return data
+}
+
+let toastTimer
+function toast(message) {
+  const el = document.getElementById('toast')
+  el.textContent = message
+  el.classList.add('on')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => el.classList.remove('on'), 2200)
+}
+
+async function render() {
+  const [products, platform, stats] = await Promise.all([api('/api/products'), api('/api/platform'), api('/api/stats')])
+
+  const productCards = products.map(item => `<div class="card">
+    ${item.image_url ? `<img src="${esc(item.image_url)}" alt="${esc(item.name)}" loading="lazy">` : ''}
+    <h3>${esc(item.name)}</h3>
+    <div class="price">${yuan(item.price_minor)}</div>
+    <div class="meta">库存 ${item.stock} · ${esc(item.sku)}</div>
+  </div>`).join('')
+
+  const kvRows = platform.kv.map(item => `<div class="row">
+    <span><code>${esc(item.key)}</code> <span style="color:#8e8f96;font-size:12px">${esc(item.type)}${Number(item.ttl) > 0 ? ` · TTL ${item.ttl}s` : ''}</span></span>
+    <span class="value">${esc(item.value || '')}</span>
+  </div>`).join('')
+
+  const objectRows = platform.objects.slice(0, 8).map(item => `<div class="row">
+    <span><code>${esc(item.key)}</code></span>
+    <span class="value">${item.size ? `${(item.size / 1024).toFixed(1)} KB` : '—'}</span>
+  </div>`).join('')
+
+  const functionRows = platform.functions.map(fn => `<div class="row">
+    <span><code>${esc(fn.name)}</code> <span style="color:#8e8f96;font-size:12px">v${fn.latest_version}</span></span>
+    <span class="value">${esc((fn.exports || []).join(', '))}</span>
+  </div>`).join('')
+
+  const cronRows = platform.cron_jobs.map(job => `<div class="row">
+    <span><code>${esc(job.name)}</code> <span style="color:#8e8f96;font-size:12px">${esc(job.cron_expr || job.schedule_kind)}</span></span>
+    <span class="value">${esc(job.func_file)}.${esc(job.func_export)} · ${esc(job.last_run_status || '未运行')}</span>
+  </div>`).join('')
+
+  const triggerRows = platform.triggers.map(item => `<div class="row">
+    <span><code>${esc(item.kind)}</code> <span style="color:#8e8f96;font-size:12px">${esc(item.target || '(invoke)')}</span></span>
+    <span class="value">${esc(item.func_file)}.${esc(item.func_export)} · ${item.enabled ? '启用' : '停用'} · 调用 ${item.calls || 0}</span>
+  </div>`).join('')
+
+  const auditRows = platform.audit.items.map(item => `<tr>
+    <td><code>${esc(item.source)}</code></td>
+    <td>${esc(item.action)}</td>
+    <td>${esc(item.detail)}</td>
+    <td>${esc(String(item.created_at).replace('T', ' ').slice(0, 19))}</td>
+  </tr>`).join('')
+
+  const statsRows = stats.map(row => `<div class="row">
+    <span>${esc(row.day)}</span>
+    <span class="value">${row.orders} 单 · ${yuan(row.gmv_minor)}</span>
+  </div>`).join('')
+
+  document.getElementById('app').innerHTML = `
+    <div class="panel">
+      <h2>商品 <span class="more">${products.length} 件 · 图片走对象存储 products/</span></h2>
+      <div class="grid">${productCards || '<div class="empty">暂无商品</div>'}</div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>Key-Value <span class="more">${platform.kv.length} 个键</span></h2>
+        ${kvRows || '<div class="empty">暂无键</div>'}
+      </div>
+      <div class="panel">
+        <h2>对象存储 <span class="more">${platform.objects.length} 个 · products/</span></h2>
+        ${objectRows || '<div class="empty">暂无对象</div>'}
+        <div class="actions"><button id="uploadObject">上传示例对象</button></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>云函数 <span class="more">${platform.functions.length} 个</span></h2>
+        ${functionRows || '<div class="empty">暂无函数</div>'}
+        <div class="actions"><button id="invokePricing">调用 pricing.Quote</button></div>
+      </div>
+      <div class="panel">
+        <h2>定时任务 <span class="more">${platform.cron_jobs.length} 个</span></h2>
+        ${cronRows || '<div class="empty">暂无任务</div>'}
+        <div class="actions"><button id="runCron">立即触发 shop_daily</button></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>事件触发器 <span class="more">${platform.triggers.length} 个 · 丢弃 ${platform.dropped || 0}</span></h2>
+      ${triggerRows || '<div class="empty">暂无触发器</div>'}
+      <div class="actions">
+        <button class="primary" id="emitEvent">写一条订单事件</button>
+        <button id="invokeHttp">invoke HTTP 触发器</button>
+        <button id="runOrder">下单一次（事务 + 幂等）</button>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>触发器审计 <span class="more">${platform.audit.total} 条</span></h2>
+        ${auditRows ? `<table><thead><tr><th>来源</th><th>动作</th><th>详情</th><th>时间</th></tr></thead><tbody>${auditRows}</tbody></table>` : '<div class="empty">暂无记录</div>'}
+      </div>
+      <div class="panel">
+        <h2>每日统计 <span class="more">daily_stats</span></h2>
+        ${statsRows || '<div class="empty">暂无统计</div>'}
+        <div id="quoteResult" style="margin-top:10px;font-size:12px;color:#8e8f96"></div>
+      </div>
+    </div>`
+}
+
+document.addEventListener('click', async event => {
+  const id = event.target.id
+  if (!id || id === 'refresh') return
+  const button = event.target
+  const run = async (message, action) => {
+    button.disabled = true
+    try {
+      const result = await action()
+      toast(message)
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      await render()
+      return result
+    } catch (error) {
+      toast(error.message)
+      button.disabled = false
+    }
+  }
+
+  if (id === 'uploadObject') { await run('对象已上传', () => api('/api/platform/upload', { method: 'POST', body: {} })); return }
+  if (id === 'emitEvent') { await run('订单事件已写入', () => api('/api/platform/emit-event', { method: 'POST', body: { detail: '来自电商页的演示事件' } })); return }
+  if (id === 'invokeHttp') { await run('HTTP 触发器已入队', () => api('/api/platform/invoke-trigger', { method: 'POST', body: {} })); return }
+  if (id === 'runCron') { await run('定时任务已触发', () => api('/api/platform/run-cron', { method: 'POST', body: {} })); return }
+  if (id === 'invokePricing') {
+    button.disabled = true
+    try {
+      const data = await api('/api/quote', { method: 'POST', body: { items: [{ price_minor: 1090, qty: 3 }], coupon: 'DEMO10' } })
+      document.getElementById('quoteResult').textContent = `pricing.Quote → total_minor=${data.total_minor} discount_minor=${data.discount_minor}`
+      toast('云函数已返回算价结果')
+    } catch (error) { toast(error.message) }
+    button.disabled = false
+    return
+  }
+  if (id === 'runOrder') {
+    button.disabled = true
+    try {
+      const body = { productId: 'sku-01', qty: 1 }
+      const order = await api('/api/orders', { method: 'POST', body, headers: { 'idempotency-key': crypto.randomUUID() } })
+      toast(`下单成功 ${order.id.slice(0, 8)}… ${yuan(order.total_minor)}`)
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      await render()
+    } catch (error) { toast(error.message) }
+    button.disabled = false
+    return
+  }
+})
+
+document.getElementById('refresh').onclick = () => render().catch(error => toast(error.message))
+
+render().catch(error => {
+  document.getElementById('app').innerHTML = `<div class="panel"><div class="empty">加载失败：${esc(error.message)}</div></div>`
+})
+</script>
+</body>
+</html>

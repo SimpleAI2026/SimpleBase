@@ -56,7 +56,6 @@ type Executor struct {
 
 	createTime       time.Time
 	executionTimeout int64 // 毫秒，-1 表示不限制
-	waitEventLoop    bool
 	costTime         int64 // 最近一次执行的耗时（微秒）
 	interruptTimer   *time.Timer
 	interrupted      int32  // 原子标志：1 表示已被中断
@@ -71,7 +70,6 @@ func NewExecutor(pool *ExecutorPool) *Executor {
 		vm:               &Runtime{},
 		createTime:       time.Now(),
 		executionTimeout: -1,
-		waitEventLoop:    false,
 	}
 }
 
@@ -236,22 +234,9 @@ func (e *Executor) SetExecutionTimeout(timeout int64) {
 	e.executionTimeout = timeout
 }
 
-// SetWaitEventLoop 设置是否等待事件循环
-func (e *Executor) SetWaitEventLoop(wait bool) {
-	e.waitEventLoop = wait
-}
-
 // GetCostTime 获取最近一次执行的耗时（微秒）
 func (e *Executor) GetCostTime() int64 {
 	return e.costTime
-}
-
-// SetProfile 设置性能分析（预留接口）
-func (e *Executor) SetProfile(enabled bool) {}
-
-// GetProfile 获取性能分析结果（预留接口）
-func (e *Executor) GetProfile() []string {
-	return nil
 }
 
 // ExecutorPoolConfig 执行器池配置

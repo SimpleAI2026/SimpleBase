@@ -1,0 +1,8 @@
+{
+  "project": { "id": "short", "name": "Invalid" },
+  "databases": [{ "name": "main", "data_model": "sql", "migrations": "migrations" }],
+  "functions": [{ "name": "leaky", "file": "functions/leaky.go" }],
+  "cron_jobs": [
+    { "name": "bad", "schedule_kind": "cron", "cron_expr": "0 3 * * *", "func_file": "leaky", "func_export": "Missing" }
+  ]
+}

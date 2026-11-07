@@ -299,7 +299,7 @@ HumanEval 若改成「单次补全、不进 agent 循环」，费用会降一个
 
 ## 4. SimpleBase 自定义任务集
 
-题目放在未来的 `eval/gocloudagent-bench/tasks/simplebase/`，每题一个目录：`task.yaml`、`prompt.txt`、`setup.sh`、`verify.sh`。verifier 只看文件系统和 CLI 的 JSON，不看模型措辞。
+题目放在未来的 `gocloudagent/bench/tasks/simplebase/`，每题一个目录：`task.yaml`、`prompt.txt`、`setup.sh`、`verify.sh`。verifier 只看文件系统和 CLI 的 JSON，不看模型措辞。
 
 数据来自 `examples/capabilities/` 与 `examples-automation-report.md`，但**不调用** `examples/run_all.sh` 当作 agent 分数。那条脚本测的是 CLI 本身，应当作为环境自检：自检失败就中止评测。
 
@@ -359,7 +359,7 @@ L3 用来确认 `--yolo` 没有变成「无边界」。`IsDangerousShell` 能拦
 
 ## 5. 适配设计
 
-harness 是仓库外的 Python 程序，将来放在 `eval/gocloudagent-bench/`，用自己的 `requirements.txt`。不进 `go.mod`，不进 `ui/package.json`。
+harness 是仓库外的 Python 程序，将来放在 `gocloudagent/bench/`，用自己的 `requirements.txt`。不进 `go.mod`，不进 `ui/package.json`。
 
 ### 5.1 驱动本地 gocloudagent
 
@@ -655,7 +655,7 @@ go build -o "$PWD/bin/gocloudagent" ./cmd/gocloudagent
 实施时新增的目录如下。本 PR 不创建它们。
 
 ```text
-eval/gocloudagent-bench/
+gocloudagent/bench/
   README.md                      如何跑、如何读 summary
   requirements.txt               harbor==0.24.0 仅 extended/core 的 tb；
                                  swebench==5.0.2 仅 core 的 swe；
@@ -741,7 +741,7 @@ def run_one(task, server):
 | --- | --- | --- |
 | M0 | 本文 | 评审通过。没有产品代码差异 |
 | M1 | `end` 事件带上 token、耗时、工具次数、模型名；`cli` 包单测用假 HTTP | `go test ./internal/gocloudagent/cli/` 通过。JSON 缺字段时旧调用仍能编译。日志不打印正文 |
-| M2 | `eval/gocloudagent-bench` 冒烟：driver、L0–L3、HumanEval 10、summary | 在一次云 VM 上实际跑通。summary 里编译、探测为通过；自定义题 ≥3/4；HumanEval ≥1/10；jsonl 无密钥；`.env` 无差异 |
+| M2 | `gocloudagent/bench` 冒烟：driver、L0–L3、HumanEval 10、summary | 在一次云 VM 上实际跑通。summary 里编译、探测为通过；自定义题 ≥3/4；HumanEval ≥1/10；jsonl 无密钥；`.env` 无差异 |
 | M3 | 核心：L4–L7、轨道 S、Terminal-Bench 8、SWE-bench Lite 20、HumanEval 164 | oracle/gold 先绿。gocloudagent 跑完并写出分母正确的 summary。Docker 缺失时非 0 退出。费用未超过 ¥150 或被预算截断且退出码 3 |
 | M4 | `workflow_dispatch` 工作流 | 手动触发冒烟成功。普通 PR 的 `Go1.25` 工作流不跑模型。artifact 只有 summary 和 jsonl |
 | M5 | 扩展子集，按次批准 | 每次报告写明 pin 的 SHA、跳过原因、费用。不宣称官方榜名次 |

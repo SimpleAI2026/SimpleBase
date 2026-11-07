@@ -33,6 +33,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -80,6 +81,13 @@ func ProjectFromContext(ctx context.Context) (ProjectContext, bool) {
 	}
 	return ProjectContext{}, false
 }
+
+// ErrProjectMissing 表示 handler 拿不到中间件注入的 project 边界。
+//
+// 所有 /projects/:projectID（以及 /go/:projectID）路由都经 projectContextMiddlewareEcho
+// 注入，正常不可达，因此这是防御性分支。它必须是领域错误：裸 errors.New 会落进
+// Error() 的未知分支返回 500 internal_error，与同语义的 400 invalid_request 并存。
+var ErrProjectMissing = errors.New("project context missing")
 
 // WithPrincipal 把已认证的 Principal 注入 context。
 func WithPrincipal(ctx context.Context, p auth.Principal) context.Context {

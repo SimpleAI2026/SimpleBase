@@ -69,13 +69,22 @@ func Query(ctx context.Context, db *sql.DB, stmt Statement, maxRows int) (QueryR
 		return QueryResult{}, err
 	}
 
-	out := make([][]any, 0, 16)
+	// P4：ptrs 每行复用；vals 每行新建（结果持有 vals）。
+	// 行切片按 maxRows 预估容量（上限 1024）。
+	capHint := 16
+	if maxRows > 0 {
+		capHint = maxRows
+		if capHint > 1024 {
+			capHint = 1024
+		}
+	}
+	out := make([][]any, 0, capHint)
+	ptrs := make([]any, len(cols))
 	for rows.Next() {
 		if maxRows > 0 && len(out) >= maxRows {
 			return QueryResult{}, ErrRowLimitExceeded
 		}
 		vals := make([]any, len(cols))
-		ptrs := make([]any, len(cols))
 		for i := range vals {
 			ptrs[i] = &vals[i]
 		}
@@ -98,20 +107,7 @@ func Query(ctx context.Context, db *sql.DB, stmt Statement, maxRows int) (QueryR
 // Execute 在给定 *sql.DB 上执行单条写语句。不接受多语句字符串；
 // 调用方需要执行多条语句时必须使用 Batch。
 func Execute(ctx context.Context, db *sql.DB, stmt Statement) (QueryResult, error) {
-	start := time.Now()
-	res, err := db.ExecContext(ctx, stmt.SQL, stmt.Args...)
-	if err != nil {
-		return QueryResult{}, err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		// 部分驱动/语句不支持 RowsAffected；不视为致命错误。
-		affected = 0
-	}
-	return QueryResult{
-		RowsAffected: affected,
-		Duration:     time.Since(start),
-	}, nil
+	return executeOn(ctx, db, stmt)
 }
 
 // execer 抽象 *sql.DB 和 *sql.Tx 共有的 ExecContext 方法，便于 Batch 复用 Execute 逻辑。

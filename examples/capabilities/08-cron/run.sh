@@ -53,4 +53,8 @@ fi
 step "delete" cron delete --id "$JOB"
 done_step
 
+# 清理本次创建的定时任务目标函数，避免每轮 run_all 在项目里留下 tick<RUN_ID>。
+step "function-delete" function delete --name "$FN"
+done_step
+
 finish_case

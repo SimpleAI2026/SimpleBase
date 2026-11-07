@@ -289,10 +289,6 @@ func TestTimedAuthMiddlewareFailureStillRecords(t *testing.T) {
 
 // —— timedLease ——
 
-type stubTimedLease struct {
-	inner SQLLease
-}
-
 func TestWrapTimedLeaseNoopWithoutTimer(t *testing.T) {
 	lease := newFakeLease(t)
 	if got := WrapTimedLease(context.Background(), lease); got != SQLLease(lease) {

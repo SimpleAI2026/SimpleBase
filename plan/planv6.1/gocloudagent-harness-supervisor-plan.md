@@ -262,7 +262,7 @@
 | **P2 干预触发（T2–T5、T7）** | `triggerMonitor` 中间件 + 注入队列 + 摘要器 | runner.go, supervisor.go | 构造的“卡住”测试用例（重复读同一文件 / 只读不写）能触发并注入 guidance。预算超限会降级。触发次数写进 end 事件 |
 | **P3 Advisor 工具 + Cascade（T8/T9）** | `consult_supervisor` 工具；S2 escalate | tools/, supervisor.go | 工具调用计入共享预算；cascade 只在 verdict=fail 时发生；评测中 consult 率可统计 |
 | **P4 Gateway 跨 provider 路由（可选）** | `model→provider` 映射 | internal/llmgateway/service.go 等 | 单测覆盖：未映射模型走默认 provider；allowlist 仍生效；key 不出现在任何响应或日志中 |
-| **P5 评测与默认值决策** | §5 A/B | eval/gocloudagent-bench/* | 产出报告；满足 §5.5 的判定标准才考虑默认开启（即便开启也只在 `--profile` 级别） |
+| **P5 评测与默认值决策** | §5 A/B | gocloudagent/bench/* | 产出报告；满足 §5.5 的判定标准才考虑默认开启（即便开启也只在 `--profile` 级别） |
 
 ---
 
@@ -282,7 +282,7 @@
 
 ### 5.2 数据集
 
-使用现有 `eval/gocloudagent-bench/`：
+使用现有 `gocloudagent/bench/`：
 - HumanEval 164（run_core.py）
 - MBPP sanitized 427（run_mbpp.py）
 - Terminal-Bench 8 题（run_terminal_bench.py / harbor_agent.py），资源允许时扩到更多题

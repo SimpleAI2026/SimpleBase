@@ -46,7 +46,7 @@ type metricsHandler struct{ store *systemdb.Store }
 func (h *metricsHandler) Summary(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	sum, err := h.store.MetricsSummaryCached(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -58,7 +58,7 @@ func (h *metricsHandler) Summary(c echo.Context) error {
 func (h *metricsHandler) Trend(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	days := 7
 	if s := c.QueryParam("days"); s != "" {
@@ -78,7 +78,7 @@ type logsHTTPHandler struct{ store *systemdb.Store }
 func (h *logsHTTPHandler) List(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	q := systemdb.LogQuery{ProjectID: pc.ID, Level: c.QueryParam("level"), Q: c.QueryParam("q")}
 	if s := c.QueryParam("limit"); s != "" {
@@ -106,7 +106,7 @@ func (h *logsHTTPHandler) List(c echo.Context) error {
 func (h *logsHTTPHandler) Stats(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	from, to, err := logTimeWindow(c)
 	if err != nil {
@@ -122,7 +122,7 @@ func (h *logsHTTPHandler) Stats(c echo.Context) error {
 func (h *logsHTTPHandler) Export(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	from, to, err := logTimeWindow(c)
 	if err != nil {
@@ -163,7 +163,7 @@ func logTimeWindow(c echo.Context) (time.Time, time.Time, error) {
 func (h *logsHTTPHandler) GetRetention(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	r, err := h.store.GetRetention(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -175,7 +175,7 @@ func (h *logsHTTPHandler) GetRetention(c echo.Context) error {
 func (h *logsHTTPHandler) PutRetention(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	var body struct {
 		KeepDays int `json:"keep_days"`
@@ -194,7 +194,7 @@ type settingsHandler struct{ store *systemdb.Store }
 func (h *settingsHandler) GetProject(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	rows, err := h.store.ListProjectSettings(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -206,7 +206,7 @@ func (h *settingsHandler) GetProject(c echo.Context) error {
 func (h *settingsHandler) PutProject(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	var body struct {
 		Key       string `json:"key"`
@@ -258,7 +258,7 @@ type llmSessionHandler struct{ store *systemdb.Store }
 func (h *llmSessionHandler) GetSettings(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	st, err := h.store.GetLLMSettings(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -278,7 +278,7 @@ func (h *llmSessionHandler) GetSettings(c echo.Context) error {
 func (h *llmSessionHandler) PutSettings(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	var body struct {
 		DefaultProvider string   `json:"default_provider"`

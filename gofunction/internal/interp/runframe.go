@@ -47,7 +47,10 @@ const (
 	stepJump               // 跳转到另一个block
 )
 
-// runFrame 在栈帧上执行程序
+// runFrame 在栈帧上执行程序（遗留通用主循环）。
+// C3 标注：生产路径唯一入口是 runFrameCompiled（预编译模式，call.go）；
+// 本函数仅测试直接引用（runframe_test.go 等构造裸 frame 验证
+// panic/恢复/跳转语义），不在生产调用链上，勿在新增代码中使用。
 func runFrame(fr *frame) {
 	var instr ssa.Instruction
 	defer func() {

@@ -42,6 +42,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 )
 
@@ -180,10 +181,9 @@ func (m *Manager) ScopeKey(projectID, databaseID string) string {
 	return databaseID
 }
 
-// Logger 是租约包的最小日志接口（避免依赖具体实现）。
-type Logger interface {
-	Printf(format string, args ...any)
-}
+// Logger 是租约包的日志接口（C7：与 godatabase.Logger 统一，
+// *zap.Logger 及宿主 observability.Logger 均可直接适配注入）。
+type Logger = godatabase.Logger
 
 // NewManager 构造租约管理器。
 func NewManager(store blob.Store, keys blob.KeyBuilder, cfg Config) *Manager {
@@ -209,7 +209,7 @@ func (m *Manager) SetLogger(l Logger) {
 
 func (m *Manager) logf(format string, args ...any) {
 	if m != nil && m.logger != nil {
-		m.logger.Printf(format, args...)
+		m.logger.Info(fmt.Sprintf(format, args...))
 	}
 }
 

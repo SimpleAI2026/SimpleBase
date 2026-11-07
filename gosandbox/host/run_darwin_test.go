@@ -4,9 +4,11 @@ package host
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -272,15 +274,163 @@ func TestDarwinTimeoutKillsTree(t *testing.T) {
 	}
 }
 
-// 限额在 macOS 上恒为未生效，并如实报告。
-func TestDarwinLimitsUnenforced(t *testing.T) {
+// 配置了限额时由采样监控执行，并如实报告。
+func TestDarwinLimitsEnforcedByMonitor(t *testing.T) {
 	p, _ := darwinPolicy(t, ModeWorkspaceWrite)
 	p.MemoryMaxBytes = 1 << 28
 	res, err := Run(context.Background(), p, sh("true"))
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if !res.Limits.Configured || !res.Limits.Enforced || res.Limits.Backend != limitsMonitor || res.LimitExceeded != "" {
+		t.Fatalf("limits = %+v exceeded=%q", res.Limits, res.LimitExceeded)
+	}
+	// 未配置限额：不启动监控，Configured=false。
+	p.MemoryMaxBytes = 0
+	res, err = Run(context.Background(), p, sh("true"))
+	if err != nil || res.Limits.Configured || res.Limits.Enforced {
+		t.Fatalf("limits = %+v err=%v", res.Limits, err)
+	}
+}
+
+// 常驻内存超限：整棵进程树被 SIGKILL，LimitExceeded=memory。
+func TestDarwinMemoryLimitKills(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not installed")
+	}
+	p, _ := darwinPolicy(t, ModeWorkspaceWrite)
+	p.MemoryMaxBytes = 64 << 20
+	start := time.Now()
+	res, err := Run(context.Background(), p, sh(`python3 -c 'import time; b=bytearray(256<<20); time.sleep(20)'`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Limits.Configured || res.Limits.Enforced {
-		t.Fatalf("limits = %+v", res.Limits)
+	if res.LimitExceeded != "memory" || res.ExitCode != 128+9 {
+		t.Fatalf("want memory kill: res=%+v out=%s", res, res.Output)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatalf("kill took too long: %s", time.Since(start))
+	}
+	if !strings.Contains(strings.Join(res.Warnings, "\n"), "memory limit exceeded") {
+		t.Fatalf("warnings must report the kill: %v", res.Warnings)
+	}
+}
+
+// 进程数超限：fork 炸弹式的并发子进程被整体终止。
+func TestDarwinPidsLimitKills(t *testing.T) {
+	p, _ := darwinPolicy(t, ModeWorkspaceWrite)
+	p.PidsMax = 8
+	res, err := Run(context.Background(), p, sh("for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do sleep 20 & done; wait"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.LimitExceeded != "pids" {
+		t.Fatalf("want pids kill: res=%+v out=%s", res, res.Output)
+	}
+	// 正常命令不受影响。
+	res, err = Run(context.Background(), p, sh("echo a | cat | cat"))
+	if err != nil || res.ExitCode != 0 || res.LimitExceeded != "" {
+		t.Fatalf("small pipeline must pass: res=%+v err=%v", res, err)
+	}
+}
+
+// CPU 配额：0.2 核时，同样 2 秒墙钟内忙循环完成的迭代数明显少于不限额时（被 SIGSTOP 节流）。
+// 用进程内忙循环：采样监控统计不到采样间隔内就退出的短命子进程（见 limits_darwin.go）。
+func TestDarwinCPULimitThrottles(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not installed")
+	}
+	p, _ := darwinPolicy(t, ModeWorkspaceWrite)
+	script := `python3 -c 'import time
+n=0; end=time.time()+2
+while time.time()<end: n+=1
+print(n)'`
+	iterations := func(pol Policy) int {
+		t.Helper()
+		res, err := Run(context.Background(), pol, sh(script))
+		if err != nil || res.ExitCode != 0 || res.LimitExceeded != "" {
+			t.Fatalf("run must finish normally: res=%+v err=%v out=%s", res, err, res.Output)
+		}
+		n, _ := strconv.Atoi(strings.TrimSpace(string(res.Output)))
+		return n
+	}
+	free := iterations(p)
+	p.CPUMax = "20000 100000"
+	limited := iterations(p)
+	if free == 0 || float64(limited) > 0.6*float64(free) {
+		t.Fatalf("cpu quota must throttle: free=%d limited=%d", free, limited)
+	}
+}
+
+func TestCPUShare(t *testing.T) {
+	for in, want := range map[string]float64{"": 0, "max": 0, "max 100000": 0, "50000 100000": 0.5, "200000": 2, "bad": 0} {
+		if got := cpuShare(in); got != want {
+			t.Errorf("cpuShare(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+// Start 路径同样受监控：内存超限时进程被杀。
+func TestDarwinStartMemoryLimit(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not installed")
+	}
+	p, _ := darwinPolicy(t, ModeWorkspaceWrite)
+	p.MemoryMaxBytes = 64 << 20
+	proc, err := Start(context.Background(), p, StartSpec{Command: sh(`python3 -c 'import time; b=bytearray(256<<20); time.sleep(20)'`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+	go io.Copy(io.Discard, proc.Output())
+	if !WaitTimeout(proc, 10*time.Second) {
+		t.Fatal("process must be killed by the memory limit")
+	}
+	if info := proc.Wait(); !info.Signaled {
+		t.Fatalf("exit = %+v", info)
+	}
+}
+
+// mach-lookup 白名单：剪贴板（pasteboard）等未列入的服务不可达。
+func TestDarwinMachLookupAllowlist(t *testing.T) {
+	p, _ := darwinPolicy(t, ModeWorkspaceWrite)
+	res, err := Run(context.Background(), p, sh("echo leak | /usr/bin/pbcopy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode == 0 {
+		t.Fatalf("pasteboard must be unreachable: out=%s", res.Output)
+	}
+	res, err = Run(context.Background(), p, sh("/usr/bin/id -un"))
+	if err != nil || res.ExitCode != 0 || len(strings.TrimSpace(string(res.Output))) == 0 {
+		t.Fatalf("user lookup must still work: res=%+v err=%v out=%s", res, err, res.Output)
+	}
+}
+
+// 默认凭据禁读表：HOME 下的 .ssh 等不可读，且对尚不存在的路径同样生效。
+func TestDarwinDefaultDenyReadHome(t *testing.T) {
+	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
+	home := filepath.Join(ws, "home")
+	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".ssh", "id_rsa"), []byte("SSHKEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	res, err := Run(context.Background(), p, sh("cat "+filepath.Join(home, ".ssh", "id_rsa")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode == 0 || strings.Contains(string(res.Output), "SSHKEY") {
+		t.Fatalf("~/.ssh must be unreadable: out=%s", res.Output)
+	}
+	if !DeniesRead(p, filepath.Join(home, ".aws", "credentials")) {
+		t.Fatal("DeniesRead must match the default table for file tools")
+	}
+	p.DisableDefaultDenyRead = true
+	res, err = Run(context.Background(), p, sh("cat "+filepath.Join(home, ".ssh", "id_rsa")))
+	if err != nil || !strings.Contains(string(res.Output), "SSHKEY") {
+		t.Fatalf("DisableDefaultDenyRead must lift the table: res=%+v err=%v", res, err)
 	}
 }

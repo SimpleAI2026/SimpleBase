@@ -36,7 +36,8 @@ import (
 	"syscall"
 )
 
-// Start 在 Seatbelt 沙盒里启动一个进程并保持句柄。语义与 Linux 实现一致。
+// Start 在 Seatbelt 沙盒里启动一个进程并保持句柄。语义与 Linux 实现一致；
+// 配置了限额时同样由采样监控执行，进程结束后监控随之停止。
 func Start(ctx context.Context, p Policy, spec StartSpec) (Proc, error) {
 	if !p.Isolates() {
 		return nil, ErrNotIsolated
@@ -100,6 +101,9 @@ func Start(ctx context.Context, p Policy, spec StartSpec) (Proc, error) {
 			f()
 		}
 		return nil, unavailable("start sandbox-exec: %v", err)
+	}
+	if mon := startLimitMonitor(c.Process.Pid, p); mon != nil {
+		closers = append(closers, func() { mon.stop() })
 	}
 	proc := newProcess(c, stdin, output, ptmx, releasers, closers...)
 	go func() {

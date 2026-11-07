@@ -88,6 +88,10 @@ var commandReadOnlyExpectation = map[string]bool{
 	"backup delete":         false,
 	"migrate status":        true,
 	"migrate plan":          true,
+	"dev plan":              true,
+	"dev validate":          true,
+	"dev apply":             false,
+	"dev status":            true,
 }
 
 func TestCommandReadOnlyReconcilesDispatch(t *testing.T) {

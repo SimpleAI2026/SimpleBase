@@ -23,9 +23,6 @@ func readonlyPrincipal() auth.Principal {
 	}
 }
 
-// writableFlag 返回 writable 开关用的指针。
-func writableFlag(v bool) *bool { return &v }
-
 func TestNormalizeAgentRejectsPrivilegeEscalation(t *testing.T) {
 	store := openAgentStore(t)
 	writable := true

@@ -29,7 +29,9 @@
 package interp
 
 import (
+	"container/list"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +39,7 @@ import (
 	"go/types"
 	"reflect"
 	"strings"
+	"sync"
 
 	"golang.org/x/tools/go/ssa"
 )
@@ -131,16 +134,126 @@ func ValidateHTTPFuncs(source string) ([]FuncInfo, error) {
 	return infos, nil
 }
 
+// programCache RunJSON 编译缓存（B2）：key = sha256(source+"\x00"+fname)。
+// 值为 compileOnly 产物（不可变：SSA/布局/块缓存/importer）。
+// 每次 RunJSON 命中后 fork + replayInit，得到与全量 BuildProgram
+// 语义一致的独立实例（globals 每 fork 一份，init 每次重放），
+// 并发请求互不共享可变状态。
+// 淘汰：简化 LRU——map + 双向链表，容量默认 128（SetProgramCacheLimit 可调）。
+// 不缓存错误；源码变化即新 key，天然失效。
+type programCache struct {
+	mu    sync.Mutex
+	m     map[[32]byte]*list.Element
+	lru   *list.List // front = 最近使用；Element.Value = *cacheEntry
+	limit int
+	hits, misses int64
+}
+
+type cacheEntry struct {
+	key  [32]byte
+	prog *Program
+}
+
+var runJSONCache = newProgramCache(128)
+
+// SetProgramCacheLimit 调整 RunJSON 编译缓存容量（<=0 关闭缓存）。
+// 导出为门面 gofunction.SetProgramCacheLimit 供宿主按内存预算调节。
+func SetProgramCacheLimit(n int) { runJSONCache.setLimit(n) }
+
+func newProgramCache(limit int) *programCache {
+	return &programCache{
+		m:     make(map[[32]byte]*list.Element),
+		lru:   list.New(),
+		limit: limit,
+	}
+}
+
+func (c *programCache) setLimit(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.limit = n
+	for c.limit <= 0 && c.lru.Len() > 0 {
+		c.removeOldestLocked()
+	}
+	for c.limit > 0 && c.lru.Len() > c.limit {
+		c.removeOldestLocked()
+	}
+}
+
+func (c *programCache) removeOldestLocked() {
+	oldest := c.lru.Back()
+	if oldest == nil {
+		return
+	}
+	c.lru.Remove(oldest)
+	delete(c.m, oldest.Value.(*cacheEntry).key)
+}
+
+func (c *programCache) get(key [32]byte) *Program {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.m[key]; ok {
+		c.lru.MoveToFront(el)
+		c.hits++
+		return el.Value.(*cacheEntry).prog
+	}
+	c.misses++
+	return nil
+}
+
+func (c *programCache) put(key [32]byte, prog *Program) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.limit <= 0 {
+		return
+	}
+	if el, ok := c.m[key]; ok {
+		c.lru.MoveToFront(el)
+		return
+	}
+	el := c.lru.PushFront(&cacheEntry{key: key, prog: prog})
+	c.m[key] = el
+	for c.lru.Len() > c.limit {
+		c.removeOldestLocked()
+	}
+}
+
+// cachedProgram 取（或编译并缓存）源码的编译产物。
+// 缓存关闭（limit<=0）或首次未命中时全量编译；命中路径 fork 出
+// 每请求实例，等价于 BuildProgram 的产物。
+func cachedProgram(seqid, fname, source string) (*Program, error) {
+	key := sha256Sum(fname + "\x00" + source)
+	if prog := runJSONCache.get(key); prog != nil {
+		clone := prog.fork()
+		clone.replayInit(seqid)
+		return clone, nil
+	}
+	prog, err := compileOnly(seqid, fname, source)
+	if err != nil {
+		return nil, err
+	}
+	runJSONCache.put(key, prog)
+	clone := prog.fork()
+	clone.replayInit(seqid)
+	return clone, nil
+}
+
+// sha256Sum 编码缓存键（独立小函数便于测试断言键一致性）。
+func sha256Sum(s string) [32]byte {
+	return sha256.Sum256([]byte(s))
+}
 // RunJSON 编译并执行 funcName，body 解到唯一形参，返回值 JSON 编码。
 // body 为空视为 {}。函数不存在或未导出返回 ErrFunctionNotFound。
 // 解释器超时返回 ErrTimeout（%w 包裹 context.DeadlineExceeded 语义）。
+// B2：编译产物按 (fname, source) LRU 缓存（默认 128，SetProgramCacheLimit
+// 可调/关闭）；命中时 fork + 重放 init，语义与全量编译一致。
 func RunJSON(ctx context.Context, seqid, fname, source, funcName string, body []byte) ([]byte, error) {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 	}
-	program, err := BuildProgram(seqid, fname, source)
+	program, err := cachedProgram(seqid, fname, source)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCompile, err)
 	}

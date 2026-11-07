@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>物联网遥测 · 示例</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f9b8e'/%3E%3Ctext x='16' y='23' font-size='17' font-family='Helvetica,Arial' fill='%23fff' text-anchor='middle'%3E物%3C/text%3E%3C/svg%3E">
+<style>
+  :root { --ink: #16232b; --ink2: #526570; --ink3: #8b9aa3; --line: #e3e9ec; --teal: #0f9b8e; --bg: #f4f7f8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", Helvetica, Arial, sans-serif; }
+  header { background: linear-gradient(120deg, #0b6f66, #0f9b8e 70%, #35c2ae); color: #fff; padding: 22px 0; }
+  header .inner { max-width: 1160px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 2px 0 0; opacity: .86; font-size: 12px; }
+  header .spacer { flex: 1; }
+  header .pill { background: rgba(255,255,255,.18); border-radius: 14px; padding: 4px 12px; font-size: 12px; }
+  main { max-width: 1160px; margin: 0 auto; padding: 16px; }
+  .panel { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .panel h2 .more { margin-left: auto; font-size: 12px; color: var(--ink3); font-weight: 400; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .devices { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .device { border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .device .name { font-weight: 600; }
+  .device .meta { font-size: 12px; color: var(--ink3); margin-top: 4px; }
+  .device .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #35c2ae; margin-right: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--ink3); font-weight: 500; font-size: 12px; }
+  code { background: #eef4f5; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; border-bottom: 1px dashed #eef2f4; }
+  .row:last-child { border-bottom: none; }
+  .row .key { color: var(--ink2); }
+  .row .value { color: var(--ink3); max-width: 58%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button { font: inherit; cursor: pointer; border-radius: 5px; border: 1px solid var(--line); background: #fff; padding: 7px 14px; color: var(--ink2); }
+  button.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  input, select { font: inherit; border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .empty { color: var(--ink3); padding: 18px 0; text-align: center; }
+  .toast { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); background: rgba(0,0,0,.82); color: #fff; padding: 9px 16px; border-radius: 5px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.on { opacity: 1; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header><div class="inner">
+  <div>
+    <h1>物联网遥测</h1>
+    <p>设备 → 读数 → 5 分钟聚合 → 导出对象，全链路跑在本地 SimpleBase</p>
+  </div>
+  <span class="spacer"></span>
+  <span class="pill">项目 ex-iot01</span>
+</div></header>
+<main id="app"></main>
+<div class="toast" id="toast"></div>
+<script>
+const money = n => Number(n || 0).toFixed(2)
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    method: options.method || 'GET',
+    headers: { 'content-type': 'application/json' },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body)
+  })
+  const text = await res.text()
+  let data
+  try { data = text ? JSON.parse(text) : null } catch { data = text }
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+  return data
+}
+
+let timer
+function toast(message) {
+  const el = document.getElementById('toast')
+  el.textContent = message
+  el.classList.add('on')
+  clearTimeout(timer)
+  timer = setTimeout(() => el.classList.remove('on'), 2200)
+}
+
+const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+
+async function render() {
+  const [devices, readings, platform] = await Promise.all([
+    api('/api/devices'),
+    api('/api/readings'),
+    api('/api/platform')
+  ])
+
+  const deviceCards = devices.map(device => `<div class="device">
+    <div class="name"><span class="dot"></span>${esc(device.name)}</div>
+    <div class="meta"><code>${esc(device.id)}</code> · ${esc(device.model)}</div>
+    <div class="meta">${device.readings} 条读数</div>
+  </div>`).join('')
+
+  const readingRows = readings.map(row => `<tr>
+    <td><code>${esc(row.device_id)}</code></td>
+    <td>${esc(String(row.ts).replace('T', ' ').slice(0, 19))}</td>
+    <td>${esc(row.metric)}</td>
+    <td>${esc(row.value)}</td>
+  </tr>`).join('')
+
+  const rollupRows = platform.rollups.map(row => `<tr>
+    <td>${esc(String(row.bucket).replace('T', ' ').slice(0, 19))}</td>
+    <td><code>${esc(row.device_id)}</code></td>
+    <td>${esc(row.metric)}</td>
+    <td>${Number(row.avg).toFixed(2)}</td>
+    <td>${Number(row.max).toFixed(2)}</td>
+    <td>${row.count}</td>
+  </tr>`).join('')
+
+  const kvRows = platform.kv.map(item => `<div class="row">
+    <span class="key"><code>${esc(item.key)}</code> <span style="color:#8b9aa3;font-size:12px">${esc(item.type)}${Number(item.ttl) > 0 ? ` · TTL ${item.ttl}s` : ''}</span></span>
+    <span class="value">${esc(item.value || '')}</span>
+  </div>`).join('')
+
+  const objectRows = platform.objects.map(item => `<div class="row">
+    <span class="key"><code>${esc(item.key)}</code></span>
+    <span class="value">${item.size ? `${(item.size / 1024).toFixed(1)} KB` : '—'}</span>
+  </div>`).join('')
+
+  const cronRows = platform.cron_jobs.map(job => `<div class="row">
+    <span class="key"><code>${esc(job.name)}</code> <span style="color:#8b9aa3;font-size:12px">${esc(job.schedule_kind === 'cron' ? job.cron_expr : job.schedule_kind === 'interval' ? `每 ${job.interval_seconds}s` : job.run_at || '')}</span></span>
+    <span class="value">${esc(job.func_file)}.${esc(job.func_export)}</span>
+  </div>`).join('')
+
+  const triggerRows = platform.triggers.map(item => `<div class="row">
+    <span class="key"><code>${esc(item.kind)}</code> <span style="color:#8b9aa3;font-size:12px">${esc(item.target || '(invoke)')}</span></span>
+    <span class="value">${esc(item.func_file)}.${esc(item.func_export)} · ${item.enabled ? '启用' : '停用'}</span>
+  </div>`).join('')
+
+  const auditCalls = (platform.audit_calls || []).map(item => `<span class="pill" style="background:#eef4f5;color:#0f6f66;border-radius:12px;padding:2px 10px;font-size:12px"><code>${esc(item.source)}</code> ${item.c}</span>`).join(' ')
+
+  const auditRows = (platform.audit || []).map(item => `<tr>
+    <td><code>${esc(item.source)}</code></td>
+    <td>${esc(item.action)}</td>
+    <td>${esc(item.detail)}</td>
+    <td>${esc(String(item.created_at).replace('T', ' ').slice(0, 19))}</td>
+  </tr>`).join('')
+
+  document.getElementById('app').innerHTML = `
+    <div class="panel">
+      <h2>设备 <span class="more">${devices.length} 台</span></h2>
+      <div class="devices">${deviceCards || '<div class="empty">暂无设备</div>'}</div>
+      <div class="actions">
+        <input id="metric" value="temperature" style="width:120px">
+        <input id="value" value="23.5" style="width:90px">
+        <button class="primary" id="writeReading">写一条读数</button>
+        <button id="rollup">按 5 分钟窗口聚合</button>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>最近读数 <span class="more">${readings.length} 条</span></h2>
+        ${readingRows ? `<table><thead><tr><th>设备</th><th>时间</th><th>指标</th><th>值</th></tr></thead><tbody>${readingRows}</tbody></table>` : '<div class="empty">还没有读数</div>'}
+      </div>
+      <div class="panel">
+        <h2>5 分钟聚合 <span class="more">rollup_5m</span></h2>
+        ${rollupRows ? `<table><thead><tr><th>窗口</th><th>设备</th><th>指标</th><th>均值</th><th>峰值</th><th>样本</th></tr></thead><tbody>${rollupRows}</tbody></table>` : '<div class="empty">点「按 5 分钟窗口聚合」生成</div>'}
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>Key-Value <span class="more">${platform.kv.length} 个键</span></h2>
+        ${kvRows || '<div class="empty">暂无键</div>'}
+      </div>
+      <div class="panel">
+        <h2>导出对象 <span class="more">${platform.objects.length} 个 · exports/</span></h2>
+        ${objectRows || '<div class="empty">暂无对象</div>'}
+        <div class="actions"><button id="uploadCsv">上传一份 CSV</button></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>定时任务 <span class="more">${platform.cron_jobs.length} 个</span></h2>
+        ${cronRows || '<div class="empty">暂无任务</div>'}
+        <div class="actions"><button id="runCron">立即触发 iot_rollup</button></div>
+      </div>
+      <div class="panel">
+        <h2>事件触发器 <span class="more">${platform.triggers.length} 个 · 丢弃 ${platform.dropped || 0}</span></h2>
+        ${triggerRows || '<div class="empty">暂无触发器</div>'}
+        <div class="actions">
+          <button class="primary" id="emitEvent">写一条设备事件</button>
+          <button id="invokeHttp">invoke HTTP 触发器</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>触发器审计 <span class="more">${platform.audit_total || 0} 条 ${auditCalls}</span></h2>
+      ${auditRows ? `<table><thead><tr><th>来源</th><th>动作</th><th>详情</th><th>时间</th></tr></thead><tbody>${auditRows}</tbody></table>` : '<div class="empty">暂无记录，先写读数或上传对象</div>'}
+    </div>`
+}
+
+document.addEventListener('click', async event => {
+  const id = event.target.id
+  if (!id) return
+  const button = event.target
+  const run = async (message, action) => {
+    button.disabled = true
+    try {
+      await action()
+      toast(message)
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      await render()
+    } catch (error) {
+      toast(error.message)
+    }
+    button.disabled = false
+  }
+
+  if (id === 'writeReading') {
+    const metric = document.getElementById('metric').value.trim() || 'temperature'
+    const value = Number(document.getElementById('value').value) || 0
+    await run('读数已写入，触发器会回调审计', () => api('/api/readings', { method: 'POST', body: { device_id: 'device-01', metric, value } }))
+    return
+  }
+  if (id === 'rollup') { await run('聚合完成', () => api('/api/platform/rollup', { method: 'POST', body: {} })); return }
+  if (id === 'uploadCsv') { await run('CSV 已上传到 exports/', () => api('/api/platform/upload', { method: 'POST', body: { key: `exports/readings-${Date.now()}.csv` } })); return }
+  if (id === 'runCron') { await run('定时任务已触发', () => api('/api/platform/run-cron', { method: 'POST', body: {} })); return }
+  if (id === 'emitEvent') { await run('设备事件已写入', () => api('/api/platform/emit-event', { method: 'POST', body: { detail: '来自平台页的演示事件' } })); return }
+  if (id === 'invokeHttp') { await run('HTTP 触发器已入队', () => api('/api/platform/invoke-trigger', { method: 'POST', body: {} })); return }
+})
+
+render().catch(error => {
+  document.getElementById('app').innerHTML = `<div class="panel"><div class="empty">加载失败：${esc(error.message)}</div></div>`
+})
+</script>
+</body>
+</html>

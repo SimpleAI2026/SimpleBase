@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,11 +172,6 @@ func TestSandboxRedactedView(t *testing.T) {
 	if _, ok := sb["has_api_key"]; ok {
 		t.Fatal("api key no longer exists")
 	}
-}
-
-func marshalTestJSON(v any) (string, error) {
-	b, err := json.Marshal(v)
-	return string(b), err
 }
 
 func validEnabledSandbox() SandboxConfig {

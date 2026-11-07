@@ -47,7 +47,7 @@ func (r *SetRepo) Add(ctx context.Context, key string, elems ...[]byte) (int, er
 		return 0, ErrArgument
 	}
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeSet)
+	exists, _, err := kr.guardWrite(ctx, key, TypeSet)
 	if err != nil {
 		return 0, err
 	}

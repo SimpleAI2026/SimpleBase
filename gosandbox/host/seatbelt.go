@@ -37,16 +37,37 @@ import (
 // sandbox-exec 的 man page 标注为 deprecated，但 Codex 与 sandbox-runtime 仍在使用。
 const SeatbeltExecutable = "/usr/bin/sandbox-exec"
 
+// SeatbeltMachServices 是沙盒内允许 mach-lookup 的系统服务白名单。
+//
+// 不在名单里的服务一律拒绝，包括 pasteboard（pbcopy / pbpaste）、LaunchServices（open 启动 App）、
+// launchd 管理接口（launchctl）、securityd（钥匙串）、cfprefsd 之外的各类用户代理。
+// 名单按「git / clang / go / python / node 能正常工作」在 macOS 真机上实测得出。
+var SeatbeltMachServices = []string{
+	"com.apple.system.opendirectoryd.libinfo",    // getpwuid / whoami
+	"com.apple.system.opendirectoryd.membership", // 组成员查询
+	"com.apple.system.logger",                    // syslog
+	"com.apple.logd",                             // os_log
+	"com.apple.diagnosticd",                      // os_log
+	"com.apple.system.notification_center",       // notify_*（时区、语言变化）
+	"com.apple.cfprefsd.daemon",                  // 偏好读取（CFPreferences）
+	"com.apple.cfprefsd.agent",                   // 同上
+	"com.apple.bsd.dirhelper",                    // confstr(_CS_DARWIN_USER_TEMP_DIR)
+	"com.apple.trustd.agent",                     // 证书校验（Security.framework）
+	"com.apple.FSEvents",                         // 文件监听（node fs.watch、构建工具的 watch 模式）
+}
+
 // seatbeltBase 以 (deny default) 开头，只放行执行命令所需的最小集合。
+// mach-lookup 白名单由 seatbeltProfile 按 SeatbeltMachServices 追加。
 const seatbeltBase = `(version 1)
 (deny default)
 (allow process-exec)
 (allow process-fork)
 (allow signal (target same-sandbox))
 (allow sysctl-read)
-(allow mach-lookup)
 (allow ipc-posix-shm)
+(allow ipc-posix-sem)
 (allow pseudo-tty)
+(allow user-preference-read)
 (allow file-read*)
 (allow file-write* (literal "/dev/null") (literal "/dev/tty") (literal "/dev/dtracehelper"))
 (allow file-ioctl (literal "/dev/null") (literal "/dev/tty"))
@@ -76,6 +97,12 @@ func seatbeltProfile(p Policy, home string, exists func(string) bool) (profile s
 	}
 	var b strings.Builder
 	b.WriteString(seatbeltBase)
+	// 服务名是编译期常量，直接写进策略；用户输入（路径）仍只经 -D 传入。
+	b.WriteString("(allow mach-lookup")
+	for _, name := range SeatbeltMachServices {
+		fmt.Fprintf(&b, "\n  (global-name %q)", name)
+	}
+	b.WriteString(")\n")
 
 	var writable []string
 	if p.EffectiveMode() == ModeWorkspaceWrite {
@@ -99,7 +126,7 @@ func seatbeltProfile(p Policy, home string, exists func(string) bool) (profile s
 			params = append(params, fmt.Sprintf("R%d=%s", n, canonical(abs)))
 		}
 	}
-	for i, d := range p.DenyRead {
+	for i, d := range effectiveDenyRead(p, home) {
 		if isGlobEntry(d) {
 			path, _ := splitDenyEntry(d)
 			expr, err := denyGlobRegex(path, canonical)

@@ -903,7 +903,7 @@ fixture 顺序的前 100 题复用同日初步运行的 JSONL，没有重跑。�
 ## SWE-bench Verified 10
 
 > 日期：2026-10-16。main `e6994c6a9d89b2aed8950cfb6af75d2801384b72`。本次分支 git `06d9945`。模型 `zai-org/GLM-5.3-Flash`，网关 host `api.siliconflow.cn`。
-> **初步结果。** 数据集 `SWE-bench/SWE-bench_Verified` test split，`len(split)=500`。抽样：Python 3.12 `random.Random(20261016).sample(sorted(instance_id), 50)`，再取清单 `eval/gocloudagent-bench/tasks/core/swebench_verified_50.txt` 里按 instance_id 排序后的前 10 题。不是 Verified 全量。
+> **初步结果。** 数据集 `SWE-bench/SWE-bench_Verified` test split，`len(split)=500`。抽样：Python 3.12 `random.Random(20261016).sample(sorted(instance_id), 50)`，再取清单 `gocloudagent/bench/tasks/core/swebench_verified_50.txt` 里按 instance_id 排序后的前 10 题。不是 Verified 全量。
 > 推理在宿主机检出的 base commit 上，`gocloudagent` 不进评测镜像。评分是 `swebench==5.0.2` 的 `swebench eval verified`，Docker，每批 2 题、`-j 2`，单题评测超时 1800 秒。单题镜像约数 GB，批结束后删除该题镜像。agent 超时 900 秒。pass@1。不是官方榜提交。
 
 通过 **5/10**（50.0%），通过指 swebench `resolved`。题目推理耗时合计 1843 秒（各题 agent 耗时相加）。评测墙钟 155 秒（第一次 Docker 评测；之后只重读了已有的 report.json）。token 合计 prompt 605679、completion 50185。估算费用 ¥0.63（输入 ¥0.80/百万 token，输出 ¥2.80/百万 token，按计划 2026-10-15 硅基流动公开价，不是账单）。

@@ -5,8 +5,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 URL="${SIMPLEBASE_URL:-http://127.0.0.1:8080}"
 START=0
 BUILD=0
+SKIP_BUILD=0
 SKIP_AGENT=0
+FRESH=0
 ONLY=""
+API_PORT=""
 ADMIN_USER="${SIMPLEBASE_ADMIN_USER:-simplebase2026}"
 ADMIN_PASSWORD="${SIMPLEBASE_ADMIN_PASSWORD:-simplebase2026}"
 RUN_ID="${RUN_ID:-$(python3 -c 'import secrets; print(secrets.token_hex(3))')}"
@@ -14,14 +17,17 @@ RESULT_FILE="${RESULT_FILE:-/tmp/simplebase-examples/results.jsonl}"
 STARTED_PID=""
 
 usage() {
-  echo "usage: $0 [--start] [--build] [--skip-agent] [--only a,b] [--url http://127.0.0.1:8080]" >&2
+  echo "usage: $0 [--start] [--build] [--skip-build] [--api-port N] [--skip-agent] [--fresh] [--only a,b] [--url http://127.0.0.1:8080]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --start) START=1; BUILD=1 ;;
+    --start) START=1 ;;
     --build) BUILD=1 ;;
+    --skip-build) SKIP_BUILD=1 ;;
+    --api-port) API_PORT="${2:-}"; shift ;;
     --skip-agent) SKIP_AGENT=1 ;;
+    --fresh) FRESH=1 ;;
     --only) ONLY="${2:-}"; shift ;;
     --url) URL="${2:-}"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -30,7 +36,25 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-export PATH="/home/ubuntu/.nvm/versions/node/v22.23.3/bin:${PATH}"
+if [[ -n "$API_PORT" ]]; then
+  case "$API_PORT" in
+    *[!0-9]*) echo "--api-port must be a number, got: $API_PORT" >&2; exit 2 ;;
+  esac
+  URL="http://127.0.0.1:${API_PORT}"
+fi
+# --start 沿用旧行为：先 ./build.sh；显式 --skip-build 时跳过。
+if [[ "$START" -eq 1 && "$SKIP_BUILD" -eq 0 ]]; then
+  BUILD=1
+fi
+RUN_AGENT=0
+if [[ "$SKIP_AGENT" -eq 0 && ( -z "$ONLY" || "$ONLY" == *agent* ) ]]; then
+  RUN_AGENT=1
+fi
+if [[ "$RUN_AGENT" -eq 1 ]] && ! command -v node >/dev/null 2>&1; then
+  echo "run_all.sh: 云助手用例需要 node；请安装 Node.js 18+ 并加入 PATH，或加 --skip-agent" >&2
+  exit 1
+fi
+
 export CGO_ENABLED=1
 mkdir -p "$(dirname "$RESULT_FILE")" /tmp/simplebase-examples
 : >"$RESULT_FILE"
@@ -47,20 +71,29 @@ if [[ "$BUILD" -eq 1 ]]; then
   ) || { echo "build failed" >&2; exit 1; }
 fi
 
-health() { curl -sf --max-time 2 "$URL/health/live" >/dev/null 2>&1; }
+# 返回 /health/live 的 HTTP 状态码；连不上时 curl 会输出 000。
+health_status() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$URL/health/live" 2>/dev/null)" || true
+  echo "${code:-000}"
+}
+health() { [[ "$(health_status)" == "200" ]]; }
 
 if [[ "$START" -eq 1 && ! -f "$ROOT/config.yaml" && -f "$ROOT/config.example.yaml" ]]; then
   cp "$ROOT/config.example.yaml" "$ROOT/config.yaml"
 fi
 
 if [[ "$START" -eq 1 ]] && ! health; then
-  echo "==> start simplebase"
+  echo "==> start simplebase at $URL"
   (
     cd "$ROOT"
     set -a
     # shellcheck disable=SC1091
     [[ -f .env ]] && source .env
     set +a
+    if [[ -n "$API_PORT" ]]; then
+      export SIMPLEBASE_HTTP_ADDRESS="127.0.0.1:$API_PORT"
+    fi
     export SIMPLEBASE_LLM_AGENT_RUN_TIMEOUT="${SIMPLEBASE_LLM_AGENT_RUN_TIMEOUT:-8m}"
     export SIMPLEBASE_LLM_AGENT_MAX_ITERATIONS="${SIMPLEBASE_LLM_AGENT_MAX_ITERATIONS:-12}"
     if [[ -n "${SIMPLEBASE_LLM_PROVIDER_API_KEY:-}" ]]; then
@@ -79,13 +112,13 @@ if [[ "$START" -eq 1 ]] && ! health; then
     sleep 1
   done
   if ! health; then
-    echo "server did not become ready; see /tmp/simplebase-server.log" >&2
+    echo "server did not become ready at $URL (health/live -> $(health_status)); see /tmp/simplebase-server.log" >&2
     exit 1
   fi
 fi
 
 if ! health; then
-  echo "simplebase is not reachable at $URL (use --start)" >&2
+  echo "simplebase is not reachable at $URL (health/live -> $(health_status); use --start or --url)" >&2
   exit 1
 fi
 
@@ -115,9 +148,14 @@ export SIMPLEBASE_URL="$URL"
 export SIMPLEBASE_TOKEN="$TOKEN"
 export RUN_ID RESULT_FILE
 export PROJECT_ID_FILE="/tmp/simplebase-examples/project_id"
+# --fresh：丢掉上次 run_all 的项目 ID，让 01-project 新建项目（默认复用仍可访问的项目）。
+if [[ "$FRESH" -eq 1 ]]; then rm -f "$PROJECT_ID_FILE"; fi
+export FRESH
 export SIMPLEBASE_PROJECT_ID="${SIMPLEBASE_PROJECT_ID:-sb-admin}"
 
-cases=(01-project 02-auth 03-sql 04-documents 05-kv 06-functions 07-storage 08-cron)
+# 顺序按 capability 依赖：11-backup 放在 03/04 之前（03/04 结尾 delete 用户数据库会清空项目单文件，
+# 备份/ KV 都在同一个文件里）；14/15 是可选用例，前置不满足时打印 SKIP 并退出 0，不计 FAIL。
+cases=(01-project 02-auth 11-backup 03-sql 04-documents 05-kv 06-functions 07-storage 08-cron 09-triggers 10-realtime 12-documents-advanced 13-dev-replay 14-sandbox 15-llm)
 if [[ -n "$ONLY" ]]; then
   IFS=',' read -r -a cases <<<"$ONLY"
 fi
@@ -141,7 +179,7 @@ for name in "${cases[@]}"; do
 done
 
 agent_fail=0
-if [[ "$SKIP_AGENT" -eq 0 && ( -z "$ONLY" || "$ONLY" == *agent* ) ]]; then
+if [[ "$RUN_AGENT" -eq 1 ]]; then
   if [[ -f "$PROJECT_ID_FILE" ]]; then
     SIMPLEBASE_PROJECT_ID="$(cat "$PROJECT_ID_FILE")"
     export SIMPLEBASE_PROJECT_ID

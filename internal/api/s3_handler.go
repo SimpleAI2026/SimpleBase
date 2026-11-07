@@ -30,7 +30,6 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -88,7 +87,7 @@ func stripProject(projectID, key string) string {
 func (h *S3Handler) ListObjects(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	prefix := c.QueryParam("prefix")
 	if prefix != "" {
@@ -142,7 +141,7 @@ func (h *S3Handler) UploadObject(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	key := c.FormValue("key")
 	if key == "" {
@@ -184,7 +183,7 @@ func (h *S3Handler) DeleteObject(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	key := c.QueryParam("key")
 	if key == "" {
@@ -209,7 +208,7 @@ func (h *S3Handler) DeleteObject(c echo.Context) error {
 func (h *S3Handler) PresignObject(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	key := c.QueryParam("key")
 	if key == "" {

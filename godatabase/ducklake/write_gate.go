@@ -33,6 +33,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 )
 
 // conflictRetryAttempts 是首次失败之后的额外重试次数。
@@ -110,9 +113,9 @@ func holdWriteGate(ctx context.Context, db *sql.DB) (context.Context, func()) {
 }
 
 // IsTransactionConflict 判断错误是否为 DuckLake 乐观并发冲突。
-// 提交失败，语句没有生效。
+// 提交失败，语句没有生效。C5：文本匹配收敛到 godatabase 根包（驱动版本说明见 errmatch.go）。
 func IsTransactionConflict(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "Transaction conflict")
+	return godatabase.IsTransactionConflict(err)
 }
 
 // RetryOnConflict 在 DuckLake Transaction conflict 上有限次重放 fn。
@@ -141,26 +144,14 @@ func RetryOnConflict(ctx context.Context, fn func() error) error {
 
 // isMutatingSQL 判断语句是否会开启 DuckLake 写事务。
 // 纯读不占写锁，保留多连接下的并发查询。
+// C4：复用 sqlguard 的词法判定（ReadOnly 通过 = 纯读），
+// 消除子串匹配误判（'...INSERT...' 字符串字面量不再是写）。
+// sqlguard 额外拒绝的语句（保留字前缀等）会被保守地当作写——
+// 只影响写锁占用，不影响正确性（fail closed 方向）。
 func isMutatingSQL(query string) bool {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return false
 	}
-	upper := strings.ToUpper(q)
-	switch {
-	case strings.HasPrefix(upper, "SELECT"),
-		strings.HasPrefix(upper, "EXPLAIN"),
-		strings.HasPrefix(upper, "SHOW"),
-		strings.HasPrefix(upper, "DESCRIBE"):
-		return false
-	case strings.HasPrefix(upper, "WITH"):
-		return strings.Contains(upper, "INSERT") ||
-			strings.Contains(upper, "UPDATE") ||
-			strings.Contains(upper, "DELETE") ||
-			strings.Contains(upper, "CREATE") ||
-			strings.Contains(upper, "DROP") ||
-			strings.Contains(upper, "ALTER")
-	default:
-		return true
-	}
+	return sqlguard.Validate(q, sqlguard.ReadOnly) != nil
 }

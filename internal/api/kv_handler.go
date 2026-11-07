@@ -88,7 +88,7 @@ func (h *KVHandler) acquireStore(c echo.Context, mode godatabase.AccessMode) (*k
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return nil, errors.New("project context missing")
+		return nil, ErrProjectMissing
 	}
 	if catalog.IsSystemProject(project.ID) {
 		return nil, NewAPIError(http.StatusNotFound, "kv_store_not_found", "project has no key-value store", RequestIDFromContext(c.Request().Context()))

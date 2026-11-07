@@ -2,14 +2,19 @@ package filedb
 
 import (
 	"context"
+	"database/sql"
 	"errors"
-	"github.com/linkxzhou/SimpleBase/godatabase/blob"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/blob"
+	_ "github.com/duckdb/duckdb-go/v2"
 )
 
 func remoteMeta(t *testing.T, engine string) godatabase.Spec {
@@ -302,5 +307,208 @@ func TestFileSyncerLocalAheadIsNotOverwrittenByRemote(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("local-ahead row lost: the remote snapshot overwrote newer local data (n=%d)", n)
+	}
+}
+
+// —— R2：Flush 期间的写入不得丢失 dirty 标记（planv6.4 §2）——
+
+// gatedPutBlobs 第一次 PutBytes 阻塞直到放行；其余直接放行。
+// 用计数而不是无缓冲通道，避免测试时序死锁。
+type gatedPutBlobs struct {
+	blob.Store
+	gate    chan struct{} // 关闭后放行第一次上传
+	firstMu sync.Mutex
+	first   bool
+	calls   chan string // 每次上传的 key（带缓冲）
+}
+
+func (b *gatedPutBlobs) PutBytes(ctx context.Context, key string, data []byte, contentType string) error {
+	b.firstMu.Lock()
+	first := b.first
+	b.first = false
+	b.firstMu.Unlock()
+	// 先通知（带缓冲），再按需阻塞：测试侧能观察到「已进入上传」。
+	select {
+	case b.calls <- key:
+	default:
+	}
+	if first && b.gate != nil {
+		select {
+		case <-b.gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return b.Store.PutBytes(ctx, key, data, contentType)
+}
+
+func TestFileSyncerFlushKeepsDirtyForWritesDuringUpload(t *testing.T) {
+	ctx := context.Background()
+	blobs := &gatedPutBlobs{
+		Store:  blob.NewMemory(),
+		gate:   make(chan struct{}),
+		first:  true,
+		calls:  make(chan string, 16),
+	}
+	meta := remoteMeta(t, godatabase.EngineSQLite)
+	factory, syncer := newRemoteFactory(t, blobs, t.TempDir())
+	syncer.SetWriterEpoch(meta.ProjectID, 1)
+	db, err := factory.Open(ctx, meta, godatabase.ReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, "CREATE TABLE t (id INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	_ = factory.AfterWrite(ctx, meta, db) // MarkDirty -> gen=1
+
+	// 后台 Flush：卡在第一条 PutBytes（快照上传）里。
+	done := make(chan error, 1)
+	go func() { done <- syncer.Flush(ctx, meta.ProjectID) }()
+	// 等待 Flush 真正进入上传（第一条 key 到达）。
+	select {
+	case <-blobs.calls:
+	case <-time.After(10 * time.Second):
+		t.Fatal("flush never reached PutBytes")
+	}
+	// Flush 窗口内的新写入：gen=2。
+	// SQLite 单连接：VACUUM 已结束（snapshot 在上传前完成），
+	// 此时 INSERT 只需等数据库锁，不会等上传。
+	if _, err := db.ExecContext(ctx, "INSERT INTO t VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	_ = factory.AfterWrite(ctx, meta, db)
+
+	// 放行本轮上传。
+	close(blobs.gate)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("flush did not finish")
+	}
+	// 关键断言：窗口内的写入必须仍被视为未同步（gen 领先 flushedGen）。
+	if lag := syncer.SyncLag(meta.ProjectID); lag != 1 {
+		t.Fatalf("write during flush lost: lag=%d, want 1", lag)
+	}
+	// 下一轮必须上传新的 seq。
+	blobs.gate = nil
+	if err := syncer.Flush(ctx, meta.ProjectID); err != nil {
+		t.Fatal(err)
+	}
+	if lag := syncer.SyncLag(meta.ProjectID); lag != 0 {
+		t.Fatalf("second flush must clear lag: lag=%d", lag)
+	}
+	if last := syncer.LastSynced(meta.ProjectID); last != 2 {
+		t.Fatalf("second flush must publish seq 2, got %d", last)
+	}
+}
+
+// R3 复现：DuckDB 快照「CHECKPOINT 后裸拷贝」无写互斥。
+// 后台持续 INSERT 的同时循环 Flush，下载每个发布的快照并打开校验，
+// 撕裂文件会在此暴露（打开失败 / 行数异常 / integrity 报错）。
+// 不能复现则降级记录（见 plan §R3），修复互斥后再跑此用例作回归。
+func TestFileSyncerDuckDBSnapshotConsistencyUnderConcurrentWrites(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skip concurrency stress in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	blobs := blob.NewMemory()
+	meta := remoteMeta(t, godatabase.EngineDuckDB)
+	factory, syncer := newRemoteFactory(t, blobs, t.TempDir())
+	syncer.SetWriterEpoch(meta.ProjectID, 1)
+	db, err := factory.Open(ctx, meta, godatabase.ReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, "CREATE TABLE t (id INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 后台持续写入（每轮 INSERT 后 MarkDirty，让 Flush 一直在有事可做）。
+	stopWrites := make(chan struct{})
+	var writes atomic.Int64
+	writeErr := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stopWrites:
+				writeErr <- nil
+				return
+			default:
+			}
+			// 批量写入：让 WAL 快速增长，提高拷贝窗口内自动 checkpoint 概率。
+			batch := writes.Add(500)
+			if _, err := db.ExecContext(ctx,
+				"INSERT INTO t SELECT range FROM range(?, ?)", batch-500, batch); err != nil {
+				writeErr <- err
+				return
+			}
+			syncer.MarkDirty(meta.ProjectID)
+		}
+	}()
+
+	// 并发循环 Flush：每一轮都会 CHECKPOINT + 拷贝主文件。
+	last := int64(0)
+	for i := 0; i < 60 && ctx.Err() == nil; i++ {
+		syncer.MarkDirty(meta.ProjectID)
+		if err := syncer.Flush(ctx, meta.ProjectID); err != nil {
+			close(stopWrites)
+			t.Fatalf("flush %d: %v", i, err)
+		}
+		published := syncer.LastSynced(meta.ProjectID)
+		if published == last {
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
+		last = published
+		// 下载本轮快照并打开校验完整性。
+		keys := blob.KeyBuilder{RootPrefix: "sb"}
+		snapKey, err := keys.ProjectDatabaseSnapshotKey(meta.ProjectID, published, 1, ".duckdb")
+		if err != nil {
+			close(stopWrites)
+			t.Fatal(err)
+		}
+		data, _, err := blobs.GetBytes(ctx, snapKey)
+		if err != nil {
+			close(stopWrites)
+			t.Fatalf("get snapshot seq=%d: %v", published, err)
+		}
+		snapPath := filepath.Join(t.TempDir(), fmt.Sprintf("snap-%020d.duckdb", published))
+		if err := os.WriteFile(snapPath, data, 0o644); err != nil {
+			close(stopWrites)
+			t.Fatal(err)
+		}
+		verify, err := sql.Open("duckdb", snapPath)
+		if err != nil {
+			close(stopWrites)
+			t.Fatalf("open snapshot seq=%d: %v (torn file)", published, err)
+		}
+		var rows int64
+		if err := verify.QueryRowContext(ctx, "SELECT count(*) FROM t").Scan(&rows); err != nil {
+			_ = verify.Close()
+			close(stopWrites)
+			t.Fatalf("query snapshot seq=%d: %v (torn file)", published, err)
+		}
+		_ = verify.Close()
+	}
+	close(stopWrites)
+	if err := <-writeErr; err != nil {
+		t.Fatalf("background writes failed: %v", err)
+	}
+
+	// 结束后本地库必须完好。
+	var total int64
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM t").Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if total != writes.Load() {
+		t.Fatalf("local rows = %d, writes = %d", total, writes.Load())
 	}
 }

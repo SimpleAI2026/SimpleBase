@@ -309,7 +309,7 @@ func TestAcquire_ReadOnlyAllowedWhenNotWritable(t *testing.T) {
 
 func TestEvictor_StopsGracefully(t *testing.T) {
 	reg := New(&fakeFactory{}, nil, Options{Writable: true, IdleTimeout: time.Millisecond}, nil, nil)
-	evictor := NewEvictor(reg, 10*time.Millisecond)
+	evictor := NewEvictor(reg, 10*time.Millisecond, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -328,6 +328,38 @@ func TestEvictor_StopsGracefully(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("evictor did not stop within 1s")
 	}
+}
+
+// TestEvictor_CapacityEnsurerWired 验证 R1 第 3 条接线：
+// 注入 CapacityEnsurer 时每个周期都会调用 EnsureCapacity。
+func TestEvictor_CapacityEnsurerWired(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true, IdleTimeout: time.Hour}, nil, nil)
+	fc := &fakeCapacity{}
+	evictor := NewEvictor(reg, 5*time.Millisecond, fc)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go evictor.Run(ctx)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if fc.calls.Load() >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("EnsureCapacity was not called within 2s")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	evictor.Stop()
+	cancel()
+}
+
+// fakeCapacity 记录 EnsureCapacity 调用次数。
+type fakeCapacity struct{ calls atomic.Int64 }
+
+func (f *fakeCapacity) EnsureCapacity(context.Context, int64) error {
+	f.calls.Add(1)
+	return nil
 }
 
 func TestAcquire_ReopenAfterCloseIdle(t *testing.T) {
@@ -351,4 +383,95 @@ func TestAcquire_ReopenAfterCloseIdle(t *testing.T) {
 		t.Fatalf("acquire2 after CloseIdle: %v", err)
 	}
 	l2.Release()
+}
+
+// R1：maxOpen 达上限时，Acquire 应先 LRU 挤出空闲句柄腾出容量，
+// 第 maxOpen+1 个项目仍可打开；全部忙时才报错。
+func TestAcquire_MaxOpenEvictsIdleHandle(t *testing.T) {
+	factory := &fakeFactory{}
+	reg := New(factory, nil, Options{Writable: true, MaxOpen: 2}, nil, nil)
+	db1 := readyDatabase("aaaaaaaa-0000-0000-0000-000000000001")
+	db2 := readyDatabase("aaaaaaaa-0000-0000-0000-000000000002")
+	db3 := readyDatabase("aaaaaaaa-0000-0000-0000-000000000003")
+
+	l1, err := reg.Acquire(context.Background(), db1, godatabase.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire1: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	l2, err := reg.Acquire(context.Background(), db2, godatabase.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire2: %v", err)
+	}
+	l1.Release()
+	l2.Release()
+
+	// db1、db2 均空闲；db3 触发 LRU 挤出（db1 最久未用）。
+	l3, err := reg.Acquire(context.Background(), db3, godatabase.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire3 should evict idle handle, got: %v", err)
+	}
+	defer l3.Release()
+
+	reg.mu.Lock()
+	_, has1 := reg.entries[db1.ID]
+	_, has3 := reg.entries[db3.ID]
+	reg.mu.Unlock()
+	if has1 {
+		t.Fatal("expected LRU victim db1 to be evicted")
+	}
+	if !has3 {
+		t.Fatal("expected db3 to be open")
+	}
+	if got := factory.openCount.Load(); got != 3 {
+		t.Fatalf("open count = %d, want 3", got)
+	}
+}
+
+// R1：maxOpen 达上限且所有句柄都有活跃引用时，Acquire 必须失败（不得强行关闭）。
+func TestAcquire_MaxOpenAllBusyReturnsError(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true, MaxOpen: 1}, nil, nil)
+	db1 := readyDatabase("bbbbbbbb-0000-0000-0000-000000000001")
+	db2 := readyDatabase("bbbbbbbb-0000-0000-0000-000000000002")
+
+	l1, err := reg.Acquire(context.Background(), db1, godatabase.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire1: %v", err)
+	}
+	defer l1.Release()
+
+	if _, err := reg.Acquire(context.Background(), db2, godatabase.ReadWrite); err == nil {
+		t.Fatal("expected error when max_open reached and all handles busy")
+	}
+}
+
+// K2：AcquireBackground 不得刷新 lastUsed——后台周期任务取租约后，
+// 句柄仍应能被 CloseIdle 按 idleTimeout 回收；前台 Acquire 则会刷新。
+func TestAcquireBackground_DoesNotTouchLastUsed(t *testing.T) {
+	reg := New(&fakeFactory{}, nil, Options{Writable: true, IdleTimeout: time.Millisecond}, nil, nil)
+	db := readyDatabase("cccccccc-0000-0000-0000-000000000001")
+
+	fg, err := reg.Acquire(context.Background(), db, godatabase.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire fg: %v", err)
+	}
+	fg.Release()
+	time.Sleep(2 * time.Millisecond)
+
+	// 后台租约：不刷新 lastUsed，此时句柄已超过 idleTimeout。
+	bg, err := reg.AcquireBackground(context.Background(), db, godatabase.ReadWrite)
+	if err != nil {
+		t.Fatalf("acquire bg: %v", err)
+	}
+	bg.Release()
+
+	if err := reg.CloseIdle(context.Background(), time.Now()); err != nil {
+		t.Fatalf("CloseIdle: %v", err)
+	}
+	reg.mu.Lock()
+	_, exists := reg.entries[db.ID]
+	reg.mu.Unlock()
+	if exists {
+		t.Fatal("handle should be idle-reclaimable after background lease cycle")
+	}
 }

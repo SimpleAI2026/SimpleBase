@@ -47,3 +47,17 @@
 - Specific verbs and nouns. Ban: "Elevate", "Seamless", "Unleash", "Next-gen", "Revolutionize".
 - Buttons say what happens ("Create invoice", not "Submit").
 - Error messages: what happened + how to fix.
+
+
+## Browser surfaces
+Theme the parts you did not draw: `::selection`, caret color, scrollbar, `:focus-visible` rings, underline offset, `font-variant-numeric: tabular-nums` on data. Unthemed browser chrome is the cheapest “assembled” tell.
+
+## Polish classification
+When refining an existing surface, classify each drift before fixing: missing token · one-off that should use a shared pattern · conceptual mismatch with neighboring flows · local defect. Fix at the narrowest correct level. Polish is refinement, never concealed redesign.
+
+## Extra refuse (see also `craft-floor.md`)
+- No kicker/eyebrow above headings.
+- No decorative section numbers.
+- No thick colored side borders as a “feature” accent.
+- No hard-offset neo-brutalist shadows outside a committed neo-brutalist world.
+- No geometric masks faking organic photo cutouts.

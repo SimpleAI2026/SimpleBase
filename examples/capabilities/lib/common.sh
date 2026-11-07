@@ -17,6 +17,11 @@ STEP_MS=0
 STEP_OK=0
 STEP_WHY=""
 
+# macOS 自带的 date 不支持 GNU 的 +%s%3N（BSD 版会输出字面量 3N），统一用 python3 取毫秒。
+now_ms() {
+  python3 -c 'import time; print(int(time.time() * 1000))'
+}
+
 redact() {
   python3 -c '
 import sys, re
@@ -58,7 +63,7 @@ sb_raw() {
   errf="$(mktemp)"
   outf="$(mktemp)"
   local start end
-  start=$(date +%s%3N)
+  start=$(now_ms)
   set +e
   SIMPLEBASE_URL="$SIMPLEBASE_URL" \
     SIMPLEBASE_TOKEN="$SIMPLEBASE_TOKEN" \
@@ -67,7 +72,7 @@ sb_raw() {
     "$SIMPLEBASE_BIN" "$@" >"$outf" 2>"$errf"
   SB_CODE=$?
   set -e
-  end=$(date +%s%3N)
+  end=$(now_ms)
   STEP_MS=$((end - start))
   SB_OUT="$(cat "$outf")"
   SB_ERR="$(cat "$errf")"

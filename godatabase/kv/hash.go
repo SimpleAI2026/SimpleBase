@@ -113,7 +113,7 @@ func (r *HashRepo) Set(ctx context.Context, key string, fields map[string][]byte
 		return 0, ErrArgument
 	}
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeHash)
+	exists, _, err := kr.guardWrite(ctx, key, TypeHash)
 	if err != nil {
 		return 0, err
 	}
@@ -235,7 +235,7 @@ func (r *HashRepo) Items(ctx context.Context, key string) (map[string][]byte, er
 // 值非整数或溢出返回 ErrValueType。
 func (r *HashRepo) Incr(ctx context.Context, key, field string, delta int64) (int64, error) {
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeHash)
+	exists, _, err := kr.guardWrite(ctx, key, TypeHash)
 	if err != nil {
 		return 0, err
 	}

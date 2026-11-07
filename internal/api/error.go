@@ -124,177 +124,91 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return NewAPIError(http.StatusGatewayTimeout, "request_timeout", "request timed out", requestID)
 	}
-	// 云沙盒领域错误（planv4.0 cloud-sandbox-plan §7.3）；不透传 SDK 内部路径。
-	for _, mapping := range []struct {
-		target        error
-		status        int
-		code, message string
-	}{
-		{vm.ErrUnavailable, http.StatusServiceUnavailable, "sandbox_unavailable", "sandbox is unavailable"},
-		{sandbox.ErrNotFound, http.StatusNotFound, "sandbox_not_found", "sandbox not found"},
-		{vm.ErrFileNotFound, http.StatusNotFound, "sandbox_file_not_found", "file not found"},
-		{sandbox.ErrNameConflict, http.StatusConflict, "sandbox_name_conflict", "sandbox name already exists"},
-		{sandbox.ErrLimitExceeded, http.StatusTooManyRequests, "sandbox_limit_exceeded", "sandbox limit exceeded"},
-		{sandbox.ErrInvalidSpec, http.StatusBadRequest, "sandbox_invalid_spec", "invalid sandbox specification"},
-		{sandbox.ErrInvalidPath, http.StatusBadRequest, "sandbox_invalid_path", "invalid sandbox path"},
-		{sandbox.ErrFileTooLarge, http.StatusRequestEntityTooLarge, "sandbox_file_too_large", "sandbox file too large"},
-		{sandbox.ErrBusy, http.StatusConflict, "sandbox_busy", "sandbox is busy"},
-		{sandbox.ErrGone, http.StatusGone, "sandbox_gone", "sandbox has expired"},
-		{vm.ErrBackend, http.StatusBadGateway, "sandbox_backend_error", "sandbox backend error"},
-	} {
-		if errors.Is(err, mapping.target) {
-			return NewAPIError(mapping.status, mapping.code, mapping.message, requestID)
+	// 哨兵错误按 sentinelErrorMappings 的顺序匹配（顺序即优先级）。
+	for _, m := range sentinelErrorMappings {
+		if errors.Is(err, m.target) {
+			return NewAPIError(m.status, m.code, m.message, requestID)
 		}
 	}
-	// auth 错误
-	if errors.Is(err, auth.ErrMissingCredentials) {
-		return NewAPIError(http.StatusUnauthorized, "unauthenticated", "missing or malformed authorization header", requestID)
-	}
-	if errors.Is(err, auth.ErrInvalidCredentials) {
-		return NewAPIError(http.StatusUnauthorized, "invalid_api_key", "invalid api key", requestID)
-	}
-	if errors.Is(err, auth.ErrKeyRevoked) {
-		return NewAPIError(http.StatusUnauthorized, "api_key_revoked", "api key revoked", requestID)
-	}
-	if errors.Is(err, auth.ErrForbidden) {
-		return NewAPIError(http.StatusForbidden, "forbidden", "permission denied", requestID)
-	}
-	if errors.Is(err, auth.ErrUserNotFound) {
-		return NewAPIError(http.StatusNotFound, "user_not_found", "user not found", requestID)
-	}
-	if errors.Is(err, auth.ErrUsernameTaken) {
-		return NewAPIError(http.StatusConflict, "username_taken", "username already exists", requestID)
-	}
-	if errors.Is(err, auth.ErrUserDisabled) {
-		return NewAPIError(http.StatusForbidden, "user_disabled", "user disabled", requestID)
-	}
-	if errors.Is(err, auth.ErrUserProtected) {
-		return NewAPIError(http.StatusBadRequest, "user_protected", "user is protected", requestID)
-	}
-	if errors.Is(err, auth.ErrInvalidRole) {
-		return NewAPIError(http.StatusBadRequest, "invalid_role", "invalid role", requestID)
-	}
-	if errors.Is(err, auth.ErrWeakPassword) {
-		return NewAPIError(http.StatusBadRequest, "weak_password", "password too weak", requestID)
-	}
-	if errors.Is(err, auth.ErrMustChangePasswd) {
-		return NewAPIError(http.StatusLocked, "must_change_password", "password change required", requestID)
-	}
-	if errors.Is(err, auth.ErrInvalidRefreshToken) {
-		return NewAPIError(http.StatusUnauthorized, "invalid_refresh_token", "invalid refresh token", requestID)
-	}
-	if errors.Is(err, auth.ErrSessionRevoked) {
-		return NewAPIError(http.StatusUnauthorized, "session_revoked", "session revoked", requestID)
-	}
-	if errors.Is(err, auth.ErrInvalidToken) {
-		return NewAPIError(http.StatusUnauthorized, "invalid_or_expired_token", "invalid or expired token", requestID)
-	}
-	if errors.Is(err, auth.ErrExpiredToken) {
-		return NewAPIError(http.StatusUnauthorized, "invalid_or_expired_token", "invalid or expired token", requestID)
-	}
-	// catalog 错误
-	if errors.Is(err, catalog.ErrNotFound) {
-		return NewAPIError(http.StatusNotFound, "database_not_found", "database not found", requestID)
-	}
-	if errors.Is(err, catalog.ErrAlreadyExists) {
-		return NewAPIError(http.StatusConflict, "database_already_exists", "database already exists", requestID)
-	}
-	if errors.Is(err, catalog.ErrInvalidName) {
-		return NewAPIError(http.StatusBadRequest, "invalid_database_name", "invalid database name", requestID)
-	}
-	if errors.Is(err, catalog.ErrInvalidDatabasePath) {
-		return NewAPIError(http.StatusInternalServerError, "invalid_database_path", "project database storage is invalid", requestID)
-	}
-	if errors.Is(err, catalog.ErrInvalidCursor) {
-		return NewAPIError(http.StatusBadRequest, "invalid_cursor", "invalid database list cursor", requestID)
-	}
-	if errors.Is(err, catalog.ErrInvalidState) {
-		return NewAPIError(http.StatusConflict, "invalid_state", "invalid database state transition", requestID)
-	}
-	if errors.Is(err, catalog.ErrCrossProject) {
-		return NewAPIError(http.StatusForbidden, "cross_project_denied", "cross project access denied", requestID)
-	}
-	if errors.Is(err, catalog.ErrDescriptorWrite) {
-		return NewAPIError(http.StatusServiceUnavailable, "descriptor_write_failed", "failed to persist database descriptor", requestID)
-	}
-	if errors.Is(err, catalog.ErrMigrationFailed) {
-		return NewAPIError(http.StatusServiceUnavailable, "migration_failed", "catalog migration failed", requestID)
-	}
-	if errors.Is(err, catalog.ErrSystemProtected) {
-		return NewAPIError(http.StatusForbidden, "system_database_protected", "system database cannot be modified or deleted", requestID)
-	}
-	if errors.Is(err, catalog.ErrInvalidDataModel) {
-		return NewAPIError(http.StatusBadRequest, "data_model_invalid", "data_model must be collection or sql", requestID)
-	}
-	if errors.Is(err, systemdb.ErrUnavailable) {
-		return NewAPIError(http.StatusServiceUnavailable, "system_store_unavailable", "system database unavailable", requestID)
-	}
-	// database 运行时错误
-	if errors.Is(err, godatabase.ErrDatabaseDeleting) {
-		return NewAPIError(http.StatusConflict, "database_deleting", "database is being deleted", requestID)
-	}
-	if errors.Is(err, godatabase.ErrDatabaseNotReady) {
-		return NewAPIError(http.StatusConflict, "database_not_ready", "database is not ready", requestID)
-	}
-	if errors.Is(err, godatabase.ErrWriterUnavailable) {
-		return NewAPIError(http.StatusServiceUnavailable, "writer_unavailable", "this instance is not writable", requestID)
-	}
-	// 写租约获取在途（perf §1.5）：503 + Retry-After，客户端应稍后重试。
-	if errors.Is(err, lease.ErrAcquiring) {
-		return NewAPIError(http.StatusServiceUnavailable, "lease_acquiring", "write lease acquisition in progress; retry shortly", requestID)
-	}
-	if errors.Is(err, lease.ErrLeaseHeld) {
-		return NewAPIError(http.StatusServiceUnavailable, "lease_held", "write lease held by another instance; retry shortly", requestID)
-	}
-	if errors.Is(err, godatabase.ErrRowLimitExceeded) {
-		return NewAPIError(422, "row_limit_exceeded", "query row limit exceeded", requestID)
-	}
-	if errors.Is(err, godatabase.ErrRegistryClosed) {
-		return NewAPIError(http.StatusServiceUnavailable, "registry_closed", "database registry is closed", requestID)
-	}
-	if errors.Is(err, godatabase.ErrUnsupportedValue) {
-		return NewAPIError(http.StatusInternalServerError, "unsupported_value_type", "unsupported column value type", requestID)
-	}
-	if errors.Is(err, godatabase.ErrQueryConcurrency) {
-		return NewAPIError(http.StatusTooManyRequests, "query_concurrency_exceeded", "query concurrency limit exceeded", requestID)
-	}
-	// sqlguard 错误
-	if errors.Is(err, sqlguard.ErrEmptySQL) {
-		return NewAPIError(http.StatusBadRequest, "empty_sql", "sql statement is empty", requestID)
-	}
-	// objectstore 文件 key 校验错误
-	if errors.Is(err, objectstore.ErrInvalidKey) {
-		return NewAPIError(http.StatusBadRequest, "invalid_file_key", "invalid file key", requestID)
-	}
-	if errors.Is(err, sqlguard.ErrMultipleStatements) {
-		return NewAPIError(http.StatusBadRequest, "multiple_statements", "multiple statements are not allowed", requestID)
-	}
-	if errors.Is(err, sqlguard.ErrNulChar) {
-		return NewAPIError(http.StatusBadRequest, "invalid_sql", "nul character not allowed in sql", requestID)
-	}
-	if errors.Is(err, sqlguard.ErrSQLNotAllowed) {
-		return NewAPIError(http.StatusBadRequest, "sql_not_allowed", "sql statement not allowed", requestID)
-	}
-	if errors.Is(err, sqlguard.ErrWriteInReadOnly) {
-		return NewAPIError(http.StatusBadRequest, "write_in_read_only", "write statement not allowed in read-only intent", requestID)
-	}
-	// kv 错误（key-value-ducklake-plan §5）
-	if errors.Is(err, kv.ErrNotFound) {
-		return NewAPIError(http.StatusNotFound, "kv_not_found", "key not found", requestID)
-	}
-	if errors.Is(err, kv.ErrKeyType) {
-		return NewAPIError(http.StatusConflict, "kv_type_mismatch", "key holds a different type", requestID)
-	}
-	if errors.Is(err, kv.ErrKeyExists) {
-		return NewAPIError(http.StatusConflict, "kv_key_exists", "key already exists", requestID)
-	}
-	if errors.Is(err, kv.ErrValueType) {
-		return NewAPIError(http.StatusBadRequest, "kv_invalid_value", "value is not a valid number", requestID)
-	}
-	if errors.Is(err, kv.ErrArgument) {
-		return NewAPIError(http.StatusBadRequest, "kv_invalid_argument", "invalid argument", requestID)
-	}
 	return nil
+}
+
+// sentinelErrorMappings 是 Error 的哨兵错误映射表；表内顺序即匹配优先级，
+// 新增条目须插在语义正确的位置，不得随意重排。
+var sentinelErrorMappings = []struct {
+	target        error
+	status        int
+	code, message string
+}{
+	// 云沙盒领域错误（planv4.0 cloud-sandbox-plan §7.3）；不透传 SDK 内部路径。
+	{vm.ErrUnavailable, http.StatusServiceUnavailable, "sandbox_unavailable", "sandbox is unavailable"},
+	{sandbox.ErrNotFound, http.StatusNotFound, "sandbox_not_found", "sandbox not found"},
+	{vm.ErrFileNotFound, http.StatusNotFound, "sandbox_file_not_found", "file not found"},
+	{sandbox.ErrNameConflict, http.StatusConflict, "sandbox_name_conflict", "sandbox name already exists"},
+	{sandbox.ErrLimitExceeded, http.StatusTooManyRequests, "sandbox_limit_exceeded", "sandbox limit exceeded"},
+	{sandbox.ErrInvalidSpec, http.StatusBadRequest, "sandbox_invalid_spec", "invalid sandbox specification"},
+	{sandbox.ErrInvalidPath, http.StatusBadRequest, "sandbox_invalid_path", "invalid sandbox path"},
+	{sandbox.ErrFileTooLarge, http.StatusRequestEntityTooLarge, "sandbox_file_too_large", "sandbox file too large"},
+	{sandbox.ErrBusy, http.StatusConflict, "sandbox_busy", "sandbox is busy"},
+	{sandbox.ErrGone, http.StatusGone, "sandbox_gone", "sandbox has expired"},
+	{vm.ErrBackend, http.StatusBadGateway, "sandbox_backend_error", "sandbox backend error"},
+	// handler 前置：拿不到中间件注入的 project 边界（正常不可达，见 context.go）。
+	{ErrProjectMissing, http.StatusBadRequest, "invalid_request", ErrProjectMissing.Error()},
+	// auth 错误
+	{auth.ErrMissingCredentials, http.StatusUnauthorized, "unauthenticated", "missing or malformed authorization header"},
+	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_api_key", "invalid api key"},
+	{auth.ErrKeyRevoked, http.StatusUnauthorized, "api_key_revoked", "api key revoked"},
+	{auth.ErrForbidden, http.StatusForbidden, "forbidden", "permission denied"},
+	{auth.ErrUserNotFound, http.StatusNotFound, "user_not_found", "user not found"},
+	{auth.ErrUsernameTaken, http.StatusConflict, "username_taken", "username already exists"},
+	{auth.ErrUserDisabled, http.StatusForbidden, "user_disabled", "user disabled"},
+	{auth.ErrUserProtected, http.StatusBadRequest, "user_protected", "user is protected"},
+	{auth.ErrInvalidRole, http.StatusBadRequest, "invalid_role", "invalid role"},
+	{auth.ErrWeakPassword, http.StatusBadRequest, "weak_password", "password too weak"},
+	{auth.ErrMustChangePasswd, http.StatusLocked, "must_change_password", "password change required"},
+	{auth.ErrInvalidRefreshToken, http.StatusUnauthorized, "invalid_refresh_token", "invalid refresh token"},
+	{auth.ErrSessionRevoked, http.StatusUnauthorized, "session_revoked", "session revoked"},
+	{auth.ErrInvalidToken, http.StatusUnauthorized, "invalid_or_expired_token", "invalid or expired token"},
+	{auth.ErrExpiredToken, http.StatusUnauthorized, "invalid_or_expired_token", "invalid or expired token"},
+	// catalog 错误
+	{catalog.ErrNotFound, http.StatusNotFound, "database_not_found", "database not found"},
+	{catalog.ErrAlreadyExists, http.StatusConflict, "database_already_exists", "database already exists"},
+	{catalog.ErrInvalidName, http.StatusBadRequest, "invalid_database_name", "invalid database name"},
+	{catalog.ErrInvalidDatabasePath, http.StatusInternalServerError, "invalid_database_path", "project database storage is invalid"},
+	{catalog.ErrInvalidCursor, http.StatusBadRequest, "invalid_cursor", "invalid database list cursor"},
+	{catalog.ErrInvalidState, http.StatusConflict, "invalid_state", "invalid database state transition"},
+	{catalog.ErrCrossProject, http.StatusForbidden, "cross_project_denied", "cross project access denied"},
+	{catalog.ErrDescriptorWrite, http.StatusServiceUnavailable, "descriptor_write_failed", "failed to persist database descriptor"},
+	{catalog.ErrMigrationFailed, http.StatusServiceUnavailable, "migration_failed", "catalog migration failed"},
+	{catalog.ErrSystemProtected, http.StatusForbidden, "system_database_protected", "system database cannot be modified or deleted"},
+	{catalog.ErrInvalidDataModel, http.StatusBadRequest, "data_model_invalid", "data_model must be collection or sql"},
+	{systemdb.ErrUnavailable, http.StatusServiceUnavailable, "system_store_unavailable", "system database unavailable"},
+	// database 运行时错误
+	{godatabase.ErrDatabaseDeleting, http.StatusConflict, "database_deleting", "database is being deleted"},
+	{godatabase.ErrDatabaseNotReady, http.StatusConflict, "database_not_ready", "database is not ready"},
+	{godatabase.ErrWriterUnavailable, http.StatusServiceUnavailable, "writer_unavailable", "this instance is not writable"},
+	// 写租约获取在途（perf §1.5）：503 + Retry-After（WriteError 按 code 附加），客户端应稍后重试。
+	{lease.ErrAcquiring, http.StatusServiceUnavailable, "lease_acquiring", "write lease acquisition in progress; retry shortly"},
+	{lease.ErrLeaseHeld, http.StatusServiceUnavailable, "lease_held", "write lease held by another instance; retry shortly"},
+	{godatabase.ErrRowLimitExceeded, 422, "row_limit_exceeded", "query row limit exceeded"},
+	{godatabase.ErrRegistryClosed, http.StatusServiceUnavailable, "registry_closed", "database registry is closed"},
+	{godatabase.ErrUnsupportedValue, http.StatusInternalServerError, "unsupported_value_type", "unsupported column value type"},
+	{godatabase.ErrQueryConcurrency, http.StatusTooManyRequests, "query_concurrency_exceeded", "query concurrency limit exceeded"},
+	// sqlguard 错误
+	{sqlguard.ErrEmptySQL, http.StatusBadRequest, "empty_sql", "sql statement is empty"},
+	// objectstore 文件 key 校验错误
+	{objectstore.ErrInvalidKey, http.StatusBadRequest, "invalid_file_key", "invalid file key"},
+	// sqlguard 错误（续）
+	{sqlguard.ErrMultipleStatements, http.StatusBadRequest, "multiple_statements", "multiple statements are not allowed"},
+	{sqlguard.ErrNulChar, http.StatusBadRequest, "invalid_sql", "nul character not allowed in sql"},
+	{sqlguard.ErrSQLNotAllowed, http.StatusBadRequest, "sql_not_allowed", "sql statement not allowed"},
+	{sqlguard.ErrWriteInReadOnly, http.StatusBadRequest, "write_in_read_only", "write statement not allowed in read-only intent"},
+	// kv 错误（key-value-ducklake-plan §5）
+	{kv.ErrNotFound, http.StatusNotFound, "kv_not_found", "key not found"},
+	{kv.ErrKeyType, http.StatusConflict, "kv_type_mismatch", "key holds a different type"},
+	{kv.ErrKeyExists, http.StatusConflict, "kv_key_exists", "key already exists"},
+	{kv.ErrValueType, http.StatusBadRequest, "kv_invalid_value", "value is not a valid number"},
+	{kv.ErrArgument, http.StatusBadRequest, "kv_invalid_argument", "invalid argument"},
 }
 
 // WriteError 是 handler 把任意 err 写成统一错误协议的入口。

@@ -60,6 +60,13 @@ func ValidateHTTPFuncs(source string) ([]FuncInfo, error) {
 // RunJSON 编译并执行 funcName，body 解到唯一形参，返回值 JSON 编码。
 // body 为空视为 {}。函数不存在或未导出返回 ErrFunctionNotFound。
 // 解释器超时返回 ErrTimeout（%w 包裹 context.DeadlineExceeded 语义）。
+// v6.5 B2：编译产物按 (fname, source) LRU 缓存（默认 128 项），
+// 命中时 fork + 重放 init，语义与全量编译一致；详见 interp.RunJSON。
 func RunJSON(ctx context.Context, seqid, fname, source, funcName string, body []byte) ([]byte, error) {
 	return interp.RunJSON(ctx, seqid, fname, source, funcName, body)
 }
+
+// SetProgramCacheLimit 调整 RunJSON 编译缓存容量（<=0 关闭缓存）。
+// 供宿主按内存预算调节：每项缓存持有 SSA + 块缓存闭包，
+// 128 项约占数十 MB 量级，内存紧张可下调或关闭。
+func SetProgramCacheLimit(n int) { interp.SetProgramCacheLimit(n) }

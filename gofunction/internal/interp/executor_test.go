@@ -23,11 +23,6 @@ func TestExecutorPoolGetPutClose(t *testing.T) {
 		ex.SetSequenceID("seq-test")
 	}
 	ex.SetExecutionTimeout(-1)
-	ex.SetWaitEventLoop(false)
-	ex.SetProfile(true)
-	if ex.GetProfile() != nil && len(ex.GetProfile()) != 0 {
-		t.Fatalf("unexpected profile: %v", ex.GetProfile())
-	}
 	_ = ex.Compile("n", "script", false)
 
 	result, err := ex.Execute("add", `package main
@@ -125,7 +120,6 @@ func TestExecutorInterrupt(t *testing.T) {
 
 func TestExecutorExecutePanicRecover(t *testing.T) {
 	ex := NewExecutor(nil)
-	ex.SetProfile(true)
 	_, err := ex.Execute("test", `package main
 func test() {
 	panic("exec")

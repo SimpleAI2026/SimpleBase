@@ -666,7 +666,7 @@ func (h *DataHandler) acquireDatabase(c echo.Context, mode godatabase.AccessMode
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return catalog.Database{}, nil, errors.New("project context missing")
+		return catalog.Database{}, nil, ErrProjectMissing
 	}
 	databaseID := c.Param("databaseID")
 	if databaseID == "" {
@@ -699,7 +699,7 @@ func (h *DataHandler) systemGuard(c echo.Context) error {
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return errors.New("project context missing")
+		return ErrProjectMissing
 	}
 	db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, c.Param("databaseID"))
 	if err != nil {

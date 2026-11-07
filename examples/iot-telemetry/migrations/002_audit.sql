@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS audit_log (id VARCHAR, source VARCHAR, kind VARCHAR, target VARCHAR, action VARCHAR, detail VARCHAR, created_at VARCHAR);

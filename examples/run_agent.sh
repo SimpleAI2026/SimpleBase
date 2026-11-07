@@ -2,7 +2,11 @@
 # 云助手 SSE 用例，以及一次本地 gocloudagent 二进制探测。
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PATH="/home/ubuntu/.nvm/versions/node/v22.23.3/bin:${PATH}"
+command -v node >/dev/null 2>&1 || { echo "run_agent.sh: 需要 node（云助手用例）；请安装 Node.js 18+ 并加入 PATH" >&2; exit 1; }
+# macOS 自带的 date 不支持 GNU 的 +%s%3N，统一用 python3 取毫秒。
+now_ms() {
+  python3 -c 'import time; print(int(time.time() * 1000))'
+}
 : "${SIMPLEBASE_URL:?}"
 : "${SIMPLEBASE_TOKEN:?}"
 : "${SIMPLEBASE_PROJECT_ID:?}"
@@ -10,6 +14,38 @@ export PATH="/home/ubuntu/.nvm/versions/node/v22.23.3/bin:${PATH}"
 RESULT_FILE="${RESULT_FILE:-/tmp/simplebase-examples/results.jsonl}"
 export RESULT_FILE
 export SIMPLEBASE_BIN="${SIMPLEBASE_BIN:-$ROOT/simplebase}"
+
+# 云助手与 CLI 技能是服务端可选项（agent.skills_cli）：/agents 缺少用例需要的内置助手时，
+# agent 与 local-gocloudagent 整体 skip 并打印原因，不记 FAIL。
+agents_json="$(curl -sS --max-time 10 -H "Authorization: Bearer $SIMPLEBASE_TOKEN" \
+  "$SIMPLEBASE_URL/v1/projects/$SIMPLEBASE_PROJECT_ID/agents" 2>/dev/null || true)"
+skip_reason="$(AGENTS_JSON="$agents_json" CASES_FILE="$ROOT/examples/capabilities/agent/cases.json" python3 - <<'PY'
+import json, os, sys
+try:
+    data = json.loads(os.environ.get("AGENTS_JSON") or "null")
+    cases = json.load(open(os.environ["CASES_FILE"], encoding="utf-8"))
+except Exception:
+    print("无法读取 /agents（服务端未启用云助手）")
+    sys.exit(0)
+modules = {a.get("builtin_key") for a in (data or {}).get("agents") or [] if a.get("builtin_key")}
+need = sorted({c.get("module") for c in cases if c.get("module")})
+missing = [m for m in need if m not in modules]
+if missing:
+    print("服务端缺少内置助手 " + ",".join(missing) + "（需启用 agent.skills_cli / CLI 技能）")
+PY
+)"
+if [[ -n "$skip_reason" ]]; then
+  echo "==> SKIP agent: $skip_reason"
+  python3 - "$RESULT_FILE" "$skip_reason" <<'PY'
+import json, sys
+path, reason = sys.argv[1], sys.argv[2]
+for suite in ("agent", "local-gocloudagent"):
+    row = {"suite": suite, "case": suite, "step": "skip", "command": "GET /agents",
+           "ok": True, "skip": True, "ms": 0, "detail": "skipped: " + reason}
+    open(path, "a", encoding="utf-8").write(json.dumps(row, ensure_ascii=False) + "\n")
+PY
+  exit 0
+fi
 
 node_fail=0
 if [[ "${SKIP_SSE:-0}" != "1" ]]; then
@@ -43,7 +79,7 @@ with open(path, "w", encoding="utf-8") as f:
 os.chmod(path, 0o600)
 PY
   out="$(mktemp)"
-  start=$(date +%s%3N)
+  start=$(now_ms)
   set +e
   GOCLOUDAGENT_HOME="$home" \
     GOCLOUDAGENT_MODEL="${GOCLOUDAGENT_MODEL:-${SIMPLEBASE_LLM_PROVIDER_DEFAULT_MODEL:-zai-org/GLM-5.3-Flash}}" \
@@ -55,7 +91,7 @@ PY
     >"$out" 2>"$out.err"
   code=$?
   set -e
-  end=$(date +%s%3N)
+  end=$(now_ms)
   set +e
 python3 - "$RESULT_FILE" "$out" "$out.err" "$code" "$((end - start))" <<'PY'
 import json, re, sys

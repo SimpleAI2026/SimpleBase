@@ -11,7 +11,7 @@ This skill is an original synthesis. Ideas were summarized and rewritten in our 
 | design-taste-frontend (taste-skill) | https://github.com/Leonxlnx/taste-skill | MIT (GitHub API, verified 2026-10-13) | anti-slop list, pre-flight checks |
 | redesign-existing-projects (taste-redesign) | https://github.com/Leonxlnx/taste-skill | Not stated in local copy — verify upstream | audit-first redesign workflow |
 | minimalist-ui (taste-minimalist) | https://github.com/Leonxlnx/taste-skill | Not stated in local copy — verify upstream | warm monochrome editorial style (paraphrased) |
-| impeccable | https://github.com/pbakaus/impeccable | Apache-2.0 per upstream (no LICENSE in local copy; verify) | audit/critique/polish/bolder/quieter/distill vocabulary, motion & typography guidance |
+| impeccable | https://github.com/pbakaus/impeccable (also local aibox-app/scripts/skills/impeccable) | Apache-2.0 per upstream | **1.2.0:** craft floor (verify + refuse), Persuade/Operate/Read/Experience surface modes, direction questions per mode, polish-as-refinement + drift classification, dual assessment critique close, browser-surface theming, batched render checks. Earlier: audit/critique/polish vocabulary, motion & type guidance |
 | design-system (ui-ux-design-system) | ClaudeKit skills (author: claudekit), e.g. https://github.com/mrgoonie/claudekit-skills | MIT (frontmatter) | 3-tier tokens, component specs |
 | oil-ui | https://github.com/oil-oil/oil-ui | MIT (LICENSE bundled) | exploring/comparing directions, screenshot-based review |
 

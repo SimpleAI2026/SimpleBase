@@ -31,6 +31,7 @@ package host
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -166,4 +167,54 @@ func Warnings(p Policy) []string {
 		return []string{"force-deny table disabled: .git/hooks, .git/config, .vscode and similar paths are writable"}
 	}
 	return nil
+}
+
+// DefaultDenyReadHomePaths 是 macOS 上默认对沙盒不可读的 HOME 子路径（凭据、令牌、钥匙串、Cookie）。
+//
+// macOS 的 Seatbelt 是「根可读」模型，没有 Linux 那样的挂载命名空间，宿主 HOME 下的凭据默认对命令可见；
+// 这张表把最常见的凭据位置盖掉。不存在的路径同样生效（覆盖之后新建的文件）。
+// Policy.DisableDefaultDenyRead=true 可关闭。Linux 不使用这张表（行为不变）。
+var DefaultDenyReadHomePaths = []string{
+	".ssh",
+	".aws",
+	".azure",
+	".gnupg",
+	".kube",
+	".netrc",
+	".git-credentials",
+	".docker/config.json",
+	".config/gh",
+	".config/gcloud",
+	"Library/Keychains",
+	"Library/Cookies",
+}
+
+// defaultDenyReadOS 为真表示当前平台启用 DefaultDenyReadHomePaths（仅 macOS），测试可替换。
+var defaultDenyReadOS = runtime.GOOS == "darwin"
+
+// defaultDenyRead 返回 DefaultDenyReadHomePaths 展开后的条目（带 literal: 前缀，HOME 里的 * ? [ 不被当作 glob）。
+// 工作区或可写根落在某个条目之内时跳过该条目，否则命令连自己的工作区都读不了。
+func defaultDenyRead(p Policy, home string) []string {
+	if p.DisableDefaultDenyRead || !p.Isolates() || home == "" || !filepath.IsAbs(home) {
+		return nil
+	}
+	roots := append([]string{p.Workspace}, p.WritableRoots...)
+	var out []string
+next:
+	for _, sub := range DefaultDenyReadHomePaths {
+		abs := filepath.Join(home, sub)
+		for _, r := range roots {
+			if r != "" && covers(abs, r) {
+				continue next
+			}
+		}
+		out = append(out, literalPrefix+abs)
+	}
+	return out
+}
+
+// effectiveDenyRead 合并用户的 DenyRead 与平台默认表；用户条目在前，序号稳定。
+func effectiveDenyRead(p Policy, home string) []string {
+	out := append([]string{}, p.DenyRead...)
+	return append(out, defaultDenyRead(p, home)...)
 }

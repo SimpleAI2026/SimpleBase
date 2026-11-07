@@ -41,7 +41,9 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// callExternal 调用宿主函数（通过反射）
+// callExternal 调用宿主函数（通过反射）。
+// B3：参数类型恰好可赋值（绝大多数调用——脚本与宿主签名一致）时
+// 跳过逐参 Convert 反射拷贝，直接传 RValue；仅不匹配时走 Convert。
 func callExternal(fn reflect.Value, args []value.Value) value.Value {
 	if !fn.IsValid() || fn.Kind() != reflect.Func {
 		panic(fmt.Sprintf("callExternal: not a function: %s", fn.String()))
@@ -54,6 +56,26 @@ func callExternal(fn reflect.Value, args []value.Value) value.Value {
 	}
 	if len(args) < numIn {
 		panic(fmt.Sprintf("callExternal %s: got %d args, want %d", fnType, len(args), fnType.NumIn()))
+	}
+	// B3 快路径：定参全可赋值且非变参时免去逐参类型检查
+	if !isVariadic && len(args) == numIn {
+		fast := true
+		for i := 0; i < numIn; i++ {
+			if !args[i].RValue().Type().AssignableTo(fnType.In(i)) {
+				fast = false
+				break
+			}
+		}
+		if fast {
+			if numIn == 0 {
+				return value.Package(fn.Call(nil))
+			}
+			in := make([]reflect.Value, numIn)
+			for i := 0; i < numIn; i++ {
+				in[i] = args[i].RValue()
+			}
+			return value.Package(fn.Call(in))
+		}
 	}
 	in := make([]reflect.Value, numIn)
 	for i := 0; i < numIn; i++ {

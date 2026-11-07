@@ -111,62 +111,9 @@ func applyEnv(cfg *Config) {
 	setEnvDuration(&cfg.Database.IdleTimeout, "SIMPLEBASE_DB_IDLE_TIMEOUT")
 	setEnvInt(&cfg.Database.MaxOpen, "SIMPLEBASE_DB_MAX_OPEN")
 
-	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_CATALOG_ENGINE"); ok {
-		cfg.Database.DuckLake.CatalogEngine = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT"); ok {
-		cfg.Database.DuckLake.MemoryLimit = v
-	}
-	setEnvInt(&cfg.Database.DuckLake.Threads, "SIMPLEBASE_DUCKLAKE_THREADS")
-	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_EXTENSION_DIR"); ok {
-		cfg.Database.DuckLake.ExtensionDir = v
-	}
-	setEnvInt(&cfg.Database.DuckLake.DataInliningRowLimit, "SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT")
-	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION"); ok {
-		cfg.Database.DuckLake.ParquetCompression = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE"); ok {
-		cfg.Database.DuckLake.TargetFileSize = v
-	}
-	setEnvBool(&cfg.Database.DuckLake.RequireCommitMessage, "SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE")
-	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_SYNC_MODE"); ok {
-		cfg.Database.DuckLake.CatalogSync.Mode = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS"); ok {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Database.DuckLake.CatalogSync.Debounce = time.Duration(n) * time.Millisecond
-		}
-	}
-	setEnvDuration(&cfg.Database.DuckLake.CatalogSync.Interval, "SIMPLEBASE_DUCKLAKE_SYNC_INTERVAL")
-	setEnvDuration(&cfg.Database.DuckLake.CatalogSync.MaxLag, "SIMPLEBASE_DUCKLAKE_SYNC_MAX_LAG")
-	setEnvInt(&cfg.Database.DuckLake.CatalogSync.KeepVersions, "SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS")
-	setEnvDuration(&cfg.Database.DuckLake.Maintenance.CheckpointInterval, "SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL")
-	setEnvDuration(&cfg.Database.DuckLake.Maintenance.ExpireOlderThan, "SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN")
-	setEnvDuration(&cfg.Database.DuckLake.Maintenance.DeleteOlderThan, "SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN")
-	setEnvFloat64(&cfg.Database.DuckLake.Maintenance.RewriteDeleteThreshold, "SIMPLEBASE_DUCKLAKE_MAINT_REWRITE_DELETE_THRESHOLD")
+	applyEnvDuckLake(&cfg.Database.DuckLake)
 
-	if v, ok := os.LookupEnv("SIMPLEBASE_S3_ENDPOINT"); ok {
-		cfg.S3.Endpoint = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_S3_REGION"); ok {
-		cfg.S3.Region = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_S3_BUCKET"); ok {
-		cfg.S3.Bucket = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_S3_PREFIX"); ok {
-		cfg.S3.Prefix = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_S3_ACCESS_KEY"); ok {
-		cfg.S3.AccessKey = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_S3_SECRET_KEY"); ok {
-		cfg.S3.SecretKey = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_S3_KMS_KEY_ID"); ok {
-		cfg.S3.KMSKeyID = v
-	}
-	setEnvBool(&cfg.S3.ForcePathStyle, "SIMPLEBASE_S3_FORCE_PATH_STYLE")
+	applyEnvS3(&cfg.S3)
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_APIKEY_SECRET"); ok {
 		cfg.Auth.APIKeyHashSecret = v
@@ -208,6 +155,69 @@ func applyEnv(cfg *Config) {
 
 	applyEnvLLM(cfg)
 	applyEnvAgent(cfg)
+}
+
+// applyEnvDuckLake 应用 SIMPLEBASE_DUCKLAKE_* 环境变量（LookupEnv 语义：设置即覆盖，含空串）。
+func applyEnvDuckLake(dst *DuckLakeConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_CATALOG_ENGINE"); ok {
+		dst.CatalogEngine = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_MEMORY_LIMIT"); ok {
+		dst.MemoryLimit = v
+	}
+	setEnvInt(&dst.Threads, "SIMPLEBASE_DUCKLAKE_THREADS")
+	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_EXTENSION_DIR"); ok {
+		dst.ExtensionDir = v
+	}
+	setEnvInt(&dst.DataInliningRowLimit, "SIMPLEBASE_DUCKLAKE_DATA_INLINING_ROW_LIMIT")
+	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_PARQUET_COMPRESSION"); ok {
+		dst.ParquetCompression = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_TARGET_FILE_SIZE"); ok {
+		dst.TargetFileSize = v
+	}
+	setEnvBool(&dst.RequireCommitMessage, "SIMPLEBASE_DUCKLAKE_REQUIRE_COMMIT_MESSAGE")
+	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_SYNC_MODE"); ok {
+		dst.CatalogSync.Mode = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_DUCKLAKE_SYNC_DEBOUNCE_MS"); ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			dst.CatalogSync.Debounce = time.Duration(n) * time.Millisecond
+		}
+	}
+	setEnvDuration(&dst.CatalogSync.Interval, "SIMPLEBASE_DUCKLAKE_SYNC_INTERVAL")
+	setEnvDuration(&dst.CatalogSync.MaxLag, "SIMPLEBASE_DUCKLAKE_SYNC_MAX_LAG")
+	setEnvInt(&dst.CatalogSync.KeepVersions, "SIMPLEBASE_DUCKLAKE_SYNC_KEEP_VERSIONS")
+	setEnvDuration(&dst.Maintenance.CheckpointInterval, "SIMPLEBASE_DUCKLAKE_MAINT_CHECKPOINT_INTERVAL")
+	setEnvDuration(&dst.Maintenance.ExpireOlderThan, "SIMPLEBASE_DUCKLAKE_MAINT_EXPIRE_OLDER_THAN")
+	setEnvDuration(&dst.Maintenance.DeleteOlderThan, "SIMPLEBASE_DUCKLAKE_MAINT_DELETE_OLDER_THAN")
+	setEnvFloat64(&dst.Maintenance.RewriteDeleteThreshold, "SIMPLEBASE_DUCKLAKE_MAINT_REWRITE_DELETE_THRESHOLD")
+}
+
+// applyEnvS3 应用 SIMPLEBASE_S3_* 环境变量（含密钥；LookupEnv 语义）。
+func applyEnvS3(dst *S3Config) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_S3_ENDPOINT"); ok {
+		dst.Endpoint = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_S3_REGION"); ok {
+		dst.Region = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_S3_BUCKET"); ok {
+		dst.Bucket = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_S3_PREFIX"); ok {
+		dst.Prefix = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_S3_ACCESS_KEY"); ok {
+		dst.AccessKey = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_S3_SECRET_KEY"); ok {
+		dst.SecretKey = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_S3_KMS_KEY_ID"); ok {
+		dst.KMSKeyID = v
+	}
+	setEnvBool(&dst.ForcePathStyle, "SIMPLEBASE_S3_FORCE_PATH_STYLE")
 }
 
 func applyEnvAgent(cfg *Config) {

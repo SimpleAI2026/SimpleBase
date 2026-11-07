@@ -1,9 +1,9 @@
 ---
 name: design-taste
-description: Design-taste guide for making visual output look intentional, not templated "AI slop". Use to design, build, restyle, redesign, polish, critique or audit a UI (web page, landing page, dashboard, app screen, component), set up design tokens, pick colors/fonts/spacing, theme slides/docs, make a minimalist look, review/benchmark a live website URL, review or restyle images (photo, product, poster, banner, illustration, scientific figure, AI image — composition, palette, AI-artifact critique), review game art (screenshot, key art, Steam capsule, icon, HUD, concept, sprite/pixel; genre readability), or create a poster/cover. Chinese triggers include 设计界面, 美化页面, 界面评审, UI 审查, 重新设计, 改版, 设计规范, 配色, 字体搭配, 极简风格, 主题, 海报, 网站评审, 官网改版, 对标, 图片审美, 图片评审, 海报评审, 配色提取, 构图, 科研配图, AI 图片评价, 游戏美术, 游戏审美, 游戏 UI, RPG, MOBA, 二次元, 像素, 游戏截图评审. Not for backend logic or code cleanup with no visible change.
+description: Design-taste guide for making visual output look intentional, not templated "AI slop". Use to design, build, restyle, redesign, polish, harden, shape, critique or audit a UI (web page, landing page, dashboard, app screen, component), set up design tokens, pick colors/fonts/spacing, theme slides/docs, make a minimalist look, review/benchmark a live website URL, review or restyle images (photo, product, poster, banner, illustration, scientific figure, AI image — composition, palette, AI-artifact critique), review game art (screenshot, key art, Steam capsule, icon, HUD, concept, sprite/pixel; genre readability), or create a poster/cover. Chinese triggers include 设计界面, 美化页面, 界面评审, UI 审查, 重新设计, 改版, 设计规范, 配色, 字体搭配, 极简风格, 主题, 海报, 网站评审, 官网改版, 对标, 图片审美, 图片评审, 海报评审, 配色提取, 构图, 科研配图, AI 图片评价, 游戏美术, 游戏审美, 游戏 UI, RPG, MOBA, 二次元, 像素, 游戏截图评审. Not for backend logic or code cleanup with no visible change.
 license: MIT
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 > This file is longer than one read (~4,000 characters). Keep reading in chunks to the end (review path, Constraints, build path, report, reference map) before you start.
@@ -29,6 +29,17 @@ Taste here means **one clear direction, few well-chosen tokens, strong hierarchy
 | Artifact (poster/cover PNG/PDF) | Build | `artifacts.md` |
 | Image Restyle / palette / figures | Build | `image-workflows.md` |
 | Minimalist (overlay) | Same | `minimalist.md` |
+
+### Surface mode (overlay — how the visitor succeeds)
+Pick one from the **requested surface**, not the product brand. It steers Step 2 and B3–B5; details in `references/direction.md` §1b and `references/modes.md`.
+| Surface | Visitor success | Ambition shows as |
+|---|---|---|
+| **Persuade** | decides and acts (landing, pricing, campaign) | bold POV, proof, a working primary action |
+| **Operate** | completes a task (app, dashboard, admin) | density, consistency, native patterns; brand in precise details |
+| **Read** | understands (docs, article, changelog) | calm measure, wayfinding; world owns the frame, not the column |
+| **Experience** | is inside the work (portfolio, gallery) | the artifact leads; UI recedes |
+
+A tool's marketing page is still Persuade; a fashion house's docs are still Read.
 
 ## Step 1 — Gather context
 - **Do:** find stack, CSS approach, existing tokens/design system, brand, constraints. Get baseline numbers: `review_site.py` for URLs, `review_image.py --type … [--genre …]` for images (`--lang zh` for Chinese users). If OCR (`tesseract`) is available, read the text in images with it.
@@ -62,6 +73,7 @@ Taste here means **one clear direction, few well-chosen tokens, strong hierarchy
 ## Constraints (checked in B6 and in reviews)
 
 ### Core rules (always on)
+- **Craft floor.** Before UI edits and again in B6, apply `references/craft-floor.md` (verify + refuse). A pinned brief overrides it; habit does not.
 - **Commit.** A bold minimal design and a maximal one are both fine; a timid average of everything is not.
 - **Tokens, not literals.** Every color, size, radius, shadow, and duration comes from a small named scale (see `references/tokens.md`).
 - **Restraint in counts:** ~1 accent color, 1–2 typefaces, ≤ 6–8 font sizes, one radius family, ≤ 3 shadow levels, one easing curve family.
@@ -80,8 +92,12 @@ Taste here means **one clear direction, few well-chosen tokens, strong hierarchy
 - Uniform `rounded-2xl` + `shadow-lg` on everything; inconsistent radii.
 - Fake metrics ("10x faster", "99.9%") and stock testimonials.
 - Bouncy/elastic animation on everything; animating layout properties.
+- Kicker/eyebrow above every heading; section numbers (01/02/03) as decoration.
+- Hard offset neo-brutalist shadows, thick colored side borders, geometric masks faking organic cutouts.
+- System display faces or monospace used as costume; emoji/Unicode as the icon system.
+- Unthemed browser chrome (selection, scrollbar, focus ring, tabular nums left on defaults).
 
-Details and alternatives: `references/principles.md`.
+Details: `references/principles.md`, `references/craft-floor.md`.
 
 ## Build path (Create, Redesign, Theme, Artifact, Image Restyle)
 
@@ -100,22 +116,23 @@ Details and alternatives: `references/principles.md`.
 - **Done when:** the whole scope exists and renders (HTML ends with `</html>`, the PDF opens). Then B6 — no polishing before this.
 
 ### B6 — Hard checks
-- **Do:** walk the Constraints line by line, then measure: hex/font-size/radius counts; distinct font families (≤ 2, monospace included); contrast; screenshot at ~375/1280px. **Posters/artifacts:** list every text string on the canvas and count its words (letter-spaced or outlined text still counts; `pdftotext` misses outlined text, so count from your source file) — must be ≤ 25 unless the brief supplies more copy; over → delete lines, don't shrink them; count dominant colors in the render (≥ 2% of pixels, after quantizing) — must be ≤ 4 plus neutrals; fonts embedded or outlined; nothing clipped. Run existing tests/build; Redesign and Image Restyle re-run the Step 1 script and compare before/after numbers.
+- **Do:** walk the Constraints and `craft-floor.md` Verify/Refuse line by line, then measure: hex/font-size/radius counts; distinct font families (≤ 2, monospace included); contrast; **one batched** screenshot pass at ~375/1280px (fix what that pass shows before looking again). Theme browser surfaces (selection, focus, scrollbar, tabular nums). **Posters/artifacts:** list every text string on the canvas and count its words (letter-spaced or outlined text still counts; `pdftotext` misses outlined text, so count from your source file) — must be ≤ 25 unless the brief supplies more copy; over → delete lines, don't shrink them; count dominant colors in the render (≥ 2% of pixels, after quantizing) — must be ≤ 4 plus neutrals; fonts embedded or outlined; nothing clipped. Run existing tests/build; Redesign and Image Restyle re-run the Step 1 script and compare before/after numbers.
 - **Output:** check results with numbers.
 - **Decision:** any failure → fix in B5 and re-check; all pass → B7.
 
 ### B7 — Polish (only with budget left)
-- **Do:** refine spacing, type, details; re-run B6 after changes. **Output:** improved files. **Done when:** budget is spent or nothing reads generic; never leave the file worse than the last passing version.
+- **Do:** refinement, never concealed redesign. Classify each drift before fixing: **missing token** / **one-off that should use a shared pattern** / **conceptual mismatch with neighboring flows** / **local defect**. Fix at the narrowest correct level. Refine spacing, type, browser surfaces, details; re-run B6 after a batch of changes (not after every tweak). If the concept itself is wrong, say so and recommend Redesign instead of smuggling a replacement. **Output:** improved files. **Done when:** budget is spent or nothing reads generic; never leave the file worse than the last passing version.
 
 ## Final step — Report
 - **Do:** write in the user's language (`--lang zh` gives a Chinese report skeleton; replace every TODO). Build: the direction and trade-offs in 2–4 lines, what was made (file paths), B6 numbers. Review: the mode's template (`audit.md` §3, `site-review.md` §4, `image-aesthetics.md` §7, `game-workflows.md` §2), leading with a direct answer to the user's question.
 - **Output:** the deliverable message (plus report files/screenshots).
-- **Done when:** every claim is backed by a number or observation from R3/R4 or B6; nothing unverified is presented as checked.
+- **Done when:** every claim is backed by a number or observation from R3/R4 or B6; nothing unverified is presented as checked. On review paths, end with one concrete question about what to improve next (or `Questions skipped: <reason>`).
 
 ## Reference map
 
-- `references/modes.md` — full mode table with mode-specific steps per reference file.
+- `references/modes.md` — full mode table with mode-specific steps per reference file; surface modes (Persuade/Operate/Read/Experience).
 
+- `references/craft-floor.md` — post-direction quality floor: verify checks + refuse list (adapted from impeccable craft floor).
 - `references/direction.md` — direction prompts, tone catalog, how to pick fonts/palettes per tone.
 - `references/principles.md` — color, typography, spacing, radius, shadow, motion, layout rules + anti-patterns.
 - `references/tokens.md` — 3-tier token system (primitive → semantic → component) with example.

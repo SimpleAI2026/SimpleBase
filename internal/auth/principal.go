@@ -68,13 +68,38 @@ type Principal struct {
 	Delegated bool
 }
 
-// HasPermission 判断 principal 是否拥有给定权限。
+// HasPermission 判断 principal 是否拥有给定权限（含层级继承，见 PermissionImplied）。
 func (p Principal) HasPermission(perm Permission) bool {
-	if p.Permissions == nil {
+	return PermissionImplied(p.Permissions, perm)
+}
+
+// permissionImplies 是权限层级：拥有键即视为拥有值里的权限。
+// database:admin（建库、删库）隐含 database:write 与 database:read，
+// 发布 Key 只勾 admin 也能跑迁移、写函数与定时任务。write 不隐含 read，保持原语义。
+var permissionImplies = map[Permission][]Permission{
+	DatabaseAdmin: {DatabaseWrite, DatabaseRead},
+}
+
+// PermissionImplied 判断权限集合 set 是否直接或经层级继承拥有 perm（nil 集合视为无权限）。
+// 鉴权与签发子集校验共用它，保证「能用」与「能签」口径一致。
+func PermissionImplied(set map[Permission]struct{}, perm Permission) bool {
+	if set == nil {
 		return false
 	}
-	_, ok := p.Permissions[perm]
-	return ok
+	if _, ok := set[perm]; ok {
+		return true
+	}
+	for holder, implied := range permissionImplies {
+		if _, ok := set[holder]; !ok {
+			continue
+		}
+		for _, p := range implied {
+			if p == perm {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // CanAccessProject 判断 principal 是否可访问指定 project。

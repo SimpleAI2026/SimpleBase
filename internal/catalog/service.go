@@ -524,7 +524,14 @@ type ProjectFilePurger interface {
 	PurgeProject(ctx context.Context, projectID string) error
 }
 
-// DeleteDatabaseSync 软删并同步清理存储：deleting → 关闭连接 → 清理项目数据库文件 → deleted。
+// ProjectDataClearer 是删库的首选平面：只清空用户数据库的表、视图与集合元数据，
+// 保留同一项目文件里的 KV（__sb_kv_*）等内部表，项目文件与备份也保持可用。
+// 实现了它的 purger 优先走这里，不再整体删除项目文件。
+type ProjectDataClearer interface {
+	ClearProjectData(ctx context.Context, db Database) error
+}
+
+// DeleteDatabaseSync 软删并同步清理存储：deleting → 关闭连接 → 清空用户数据（或清理项目文件）→ deleted。
 // purger / closer 可为 nil（本地模式无 S3 时只更新 catalog）。
 // 产品决策：不走 jobs 异步队列完成本轮清理。
 func (s *Service) DeleteDatabaseSync(
@@ -545,7 +552,11 @@ func (s *Service) DeleteDatabaseSync(
 		}
 	}
 	if purger != nil {
-		if p, ok := purger.(ProjectFilePurger); ok {
+		if c, ok := purger.(ProjectDataClearer); ok {
+			if err := c.ClearProjectData(ctx, db); err != nil {
+				return db, fmt.Errorf("catalog: clear project database: %w", err)
+			}
+		} else if p, ok := purger.(ProjectFilePurger); ok {
 			if err := p.PurgeProject(ctx, db.ProjectID); err != nil {
 				return db, fmt.Errorf("catalog: purge project database: %w", err)
 			}

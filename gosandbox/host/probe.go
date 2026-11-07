@@ -50,7 +50,7 @@ type Caps struct {
 	UserNS      bool
 	LandlockABI int // 0 = 不可用
 	Seccomp     bool
-	// Cgroup 是 cgroup v2 限额的可用方式："delegated" | "systemd" | "none"。
+	// Cgroup 是资源限额的执行方式："delegated" | "systemd" | "none"（Linux）；macOS 为 "monitor"。
 	Cgroup string
 	// SandboxExec 是 macOS 上 sandbox-exec 的路径。
 	SandboxExec string

@@ -65,6 +65,11 @@ type Context struct {
 	outBufferCap int // GF-RUN-03：输出缓冲上限（字节），0 表示不限制
 	goroutines   int32
 	cancelFunc   context.CancelFunc
+	// funcCache *ssa.Function -> value.Value 包装缓存（P1-4）。
+	// v6.5 自 Program 下移：闭包值捕获创建期 context，缓存必须随
+	// Context 生命周期（每次 Run 一个），跨 Run 复用会拿到绑定已
+	// 取消 context 的闭包（探针 TestProbeStaleContext 复现）。
+	funcCache sync.Map
 }
 
 // defaultOutputLimit 单次执行的 print 输出上限，防止恶意脚本刷爆内存。
@@ -208,9 +213,12 @@ func (fr *frame) makeFunc(f *ssa.Function, bindings []ssa.Value) value.Value {
 	return value.RValue{Value: reflect.MakeFunc(funcType, fn)}
 }
 
-// get 通用取值入口（走槽位映射，一次切片索引）。
-// 预编译闭包内已把热路径槽位号直接编译进指令闭包，
-// 此方法仅供 runframe 兜底、callOp 动态调用目标等低频路径使用。
+// get 通用取值入口（慢路径）。
+// A1 槽位固化后，compilefast.go 生成的指令闭包在编译期已解析槽位号，
+// 操作数读取直达 fr.env[s]；常量经 constGetter 烤入闭包。本方法仅供
+// 兜底：runframe 遗留主循环、callOp 动态调用目标、操作数编译期不可
+// 固化的指令（Global/Function/外部 FreeVar）回落到这里。
+// *ssa.Function 结果缓存挂在 fr.context（每次 Run 一份，见 Context.funcCache）。
 func (fr *frame) get(key ssa.Value) value.Value {
 	switch key := key.(type) {
 	case nil:
@@ -218,7 +226,10 @@ func (fr *frame) get(key ssa.Value) value.Value {
 	case *ssa.Const:
 		return fr.constValueCached(key)
 	case *ssa.Global:
-		if r, ok := fr.program.globals[key]; ok && r != nil {
+		fr.program.globalsMu.RLock()
+		r, ok := fr.program.globals[key]
+		fr.program.globalsMu.RUnlock()
+		if ok && r != nil {
 			return *r
 		}
 		// 外部包全局变量走注册表
@@ -226,11 +237,11 @@ func (fr *frame) get(key ssa.Value) value.Value {
 			return fr.program.externalValue(key)
 		}
 	case *ssa.Function:
-		if v, ok := fr.program.funcCache.Load(key); ok {
+		if v, ok := fr.context.funcCache.Load(key); ok {
 			return v.(value.Value)
 		}
 		v := fr.makeFunc(key, nil)
-		fr.program.funcCache.Store(key, v)
+		fr.context.funcCache.Store(key, v)
 		return v
 	}
 	if slot, ok := fr.layout.slotOf(key); ok {

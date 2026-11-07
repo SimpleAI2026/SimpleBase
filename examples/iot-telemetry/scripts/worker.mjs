@@ -1,4 +1,6 @@
 import { createClient } from '../../../packages/js-sdk/dist/index.js'
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const { SIMPLEBASE_URL: url, SIMPLEBASE_API_KEY: apiKey, SIMPLEBASE_PROJECT_ID: projectId, SIMPLEBASE_DATABASE_ID: databaseId } = process.env
 if (![url, apiKey, projectId, databaseId].every(Boolean)) throw new Error('Source examples/iot-telemetry/.env first')
@@ -35,4 +37,7 @@ export async function consume() {
     console.log(`run ${run.id}: ${statements.length - 1} groups`)
   }
 }
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) consume().catch(error => { console.error(error.message); process.exitCode = 1 })
+
+// 直接用 node 运行本文件时才启动；相对路径、符号链接（如 macOS /tmp → /private/tmp）都按真实路径比较。
+const isMain = (url) => { try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(url)) } catch { return false } }
+if (isMain(import.meta.url)) consume().catch(error => { console.error(error.message); process.exitCode = 1 })

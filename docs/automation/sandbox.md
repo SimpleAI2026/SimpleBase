@@ -40,7 +40,8 @@ sandbox:
 - 工作区可写，其余文件系统只读；`storage.data_dir`、`database.cache_dir`、`config.yaml`、`.env` 和其他沙盒的工作区对命令不可见。
 - 命令的环境变量不继承服务进程，只有最小集合加请求里传入的 `env`（拒绝 `SIMPLEBASE_`、`AWS_` 前缀）。
 - 网络恒为关闭，请求 `network: public` 会被拒绝。
-- `cpus` / `memory_mib` / `pids_max` 仅在 cgroup v2 已委派给服务进程时才生效，否则**不限制**（启动日志会提示）；macOS 恒不限制。
+- `cpus` / `memory_mib` / `pids_max`：Linux 仅在 cgroup v2 已委派给服务进程时才生效，否则**不限制**（启动日志会提示）；macOS 由服务进程采样监控执行（内存、进程数超限时终止命令，CPU 超额时暂停），精度限制见 `gosandbox/README.md`。
+- macOS 上 HOME 下的常见凭据（`~/.ssh`、`~/.aws`、`~/Library/Keychains` 等）默认不可读，系统服务只放行白名单（剪贴板、`open`、`launchctl` 不可用）。
 - 工作区内 `.gocloudagent` 目录只读；`.git/hooks`、`.git/config`、`.git/info/attributes`、`.gitmodules`、`.mcp.json`、`.vscode`、`.idea` 在**已存在**时也只读（它们会被宿主侧的 git、MCP 客户端、IDE 执行或读取）。`.git` 的其余部分可写，所以沙盒内 `git init` / `add` / `commit` 可用。工作区里暂无 `.git` 时不做保护（否则 `git init` 会失败），`git init` 之后的下一条命令起 `.git/hooks` 即受保护；同一条命令里「`git init` 后写入 hook」的窗口无法关闭。`HEAD`、`refs`、`objects` 可写，沙盒内命令能改写分支指向。
 - 镜像字段只是展示标签，不会拉取或运行任何镜像；命令使用的是宿主机上的工具链（如宿主有 `python3` 才能跑 `python3`）。
 

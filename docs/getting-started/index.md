@@ -14,6 +14,7 @@ SimpleBase 以**项目**为隔离单位，集中管理项目数据库（DuckDB �
 2. [核心概念](/docs/getting-started/concepts)：了解项目、数据库、系统项目、用户和 API Key 的权限边界。
 3. [SQL 与集合](/docs/data/sql)：查询数据、管理集合与文档。
 4. [SDK](/docs/sdk)：在服务端应用中使用 JavaScript 或 Go SDK。
+5. [本地开发、云端重放](/docs/getting-started/local-cloud-collab)：把本地工作区幂等重放到云端，业务只换 URL 和 Key。
 
 ## 按场景查找
 

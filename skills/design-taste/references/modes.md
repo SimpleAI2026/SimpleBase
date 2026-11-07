@@ -16,3 +16,15 @@ Step 0 of SKILL.md (build steps: B3 budget, B4 tokens, B5 execute, B6 hard check
 | "Make this photo a magazine page / product hero / poster", extract a palette, image-model prompts, scientific figures (配色提取, 科研配图) | **Image Restyle** | Build | `references/image-workflows.md` (+ `image-aesthetics.md` to score before/after) | `image-workflows.md` §1 4-step pipeline = B4–B5; §3 restyle loop = B6–B7 |
 
 Modes combine (e.g. Redesign + Minimalist). Read only the files you need.
+
+## Surface modes (overlay)
+
+Pick from the **requested surface**, not the product. Steers Step 2 direction and build ambition (see `direction.md` §1b, `craft-floor.md`).
+
+| Surface | When | Ambition |
+|---|---|---|
+| Persuade | Landing, pricing, campaign | Bold POV, proof, working primary action |
+| Operate | App UI, dashboard, admin | Density, consistency, native patterns; one signature move |
+| Read | Docs, article, changelog | Calm measure; world owns the frame |
+| Experience | Portfolio, gallery, showcase | Artifact leads; UI recedes |
+

@@ -1,0 +1,18 @@
+{
+  "errors": [],
+  "warnings": [
+    "忽略 `api_keys`：签发 Key 会产出密钥，请在控制台操作",
+    "忽略 `kv`：kv 属于数据，P1 再纳入 --seed",
+    "databases: 声明了 2 个库，但每个项目只能有一个用户数据库，多出的库建库时会返回 database_already_exists",
+    "cron_jobs[0]: 忽略 trigger_once（触发有副作用，不进入自动重放）"
+  ],
+  "counts": { "databases": 2, "migrations": 1, "collections": 1, "functions": 1, "cron_jobs": 1 },
+  "plan": [
+    "create database main",
+    "create database docs",
+    "apply migration main/001_init.sql",
+    "create collection docs/posts",
+    "create function hello",
+    "create cron daily"
+  ]
+}

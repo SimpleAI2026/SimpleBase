@@ -1,0 +1,49 @@
+{
+  "project": {
+    "id": "__PROJECT_ID__",
+    "name": "capability-dev-replay"
+  },
+  "databases": [
+    {
+      "name": "devmain-__SUFFIX__",
+      "data_model": "collection",
+      "migrations": "migrations"
+    }
+  ],
+  "collections": [
+    {
+      "database": "devmain-__SUFFIX__",
+      "name": "notes",
+      "seed": [
+        {
+          "id": "welcome",
+          "title": "hello"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "devfn__SUFFIX__",
+      "file": "functions/hello.go",
+      "description": "dev replay example",
+      "test": {
+        "function_name": "Hello",
+        "body": {
+          "name": "simplebase"
+        }
+      }
+    }
+  ],
+  "cron_jobs": [
+    {
+      "name": "devcron-__SUFFIX__",
+      "schedule_kind": "interval",
+      "interval_seconds": 3600,
+      "func_file": "devfn__SUFFIX__",
+      "func_export": "Hello",
+      "input_json": "{\"name\":\"tick\"}",
+      "enabled": false
+    }
+  ]
+}

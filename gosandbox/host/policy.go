@@ -89,8 +89,12 @@ type Policy struct {
 	// Linux 在生成命令时展开为当下存在的路径（快照语义，之后新建的匹配文件不受掩蔽，
 	// 单个 glob 最多 MaxGlobMatches 条）；macOS 转成 SBPL 正则，覆盖未来新建的文件。
 	DenyRead []string
+	// DisableDefaultDenyRead 为真时关闭 macOS 的默认凭据禁读表（DefaultDenyReadHomePaths）。
+	// 零值即开启；Linux 不使用该表。
+	DisableDefaultDenyRead bool
 	// MemoryMaxBytes / CPUMax / PidsMax 对应 cgroup v2 的 memory.max / cpu.max / pids.max。
-	// 零值表示不限；cgroup 不可用时不会生效，Result.Limits 会如实标注。
+	// 零值表示不限。Linux 仅在 cgroup 已委派时生效；macOS 由父进程采样监控执行
+	// （内存、进程数超限即杀整个进程组，CPU 超额即暂停），Result.Limits 会如实标注。
 	MemoryMaxBytes int64
 	CPUMax         string
 	PidsMax        int64
@@ -192,11 +196,18 @@ func validateCPUMax(s string) error {
 // DeniesRead 报告 absPath 是否落在 DenyRead 之内。
 // 文件工具（read_file 等）在父进程里运行，必须与 shell 里被盖住的路径保持一致。
 func DeniesRead(p Policy, absPath string) bool {
-	if !p.Isolates() || len(p.DenyRead) == 0 {
+	if !p.Isolates() {
+		return false
+	}
+	entries := p.DenyRead
+	if defaultDenyReadOS {
+		entries = effectiveDenyRead(p, userHome())
+	}
+	if len(entries) == 0 {
 		return false
 	}
 	target := filepath.Clean(absPath)
-	for _, d := range p.DenyRead {
+	for _, d := range entries {
 		if isGlobEntry(d) {
 			if globMatchesPath(d, target) {
 				return true

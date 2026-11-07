@@ -31,7 +31,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -65,7 +64,7 @@ type quotaCall struct {
 func (h *QuotaHandler) GetQuota(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	llmOK, dbOK := h.quotaFor(c.Request().Context(), pc.ID)
 	return c.JSON(http.StatusOK, map[string]bool{
@@ -115,7 +114,7 @@ type AuditHandler struct {
 func (h *AuditHandler) ListOperations(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	limit := queryLimit(c, 50, 0)
 	ops, err := h.svc.ListOperations(c.Request().Context(), pc.ID, c.QueryParam("database_id"), limit)

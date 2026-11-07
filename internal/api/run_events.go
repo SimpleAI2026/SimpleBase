@@ -358,7 +358,7 @@ func (h *confirmHub) Resolve(runID, callID string, approve bool, caller string) 
 func (h *cloudAgentHandler) ConfirmRun(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	// SEC-04：确认放行的是工具执行（可能写库），属于破坏性操作；
 	// 只读主体拒绝，与 CancelRun 同一判定。
@@ -392,7 +392,7 @@ func (h *cloudAgentHandler) ConfirmRun(c echo.Context) error {
 func (h *cloudAgentHandler) ReplayEvents(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	runID := c.Param("runID")
 	if _, err := h.store.GetAgentRun(c.Request().Context(), pc.ID, runID); err != nil {

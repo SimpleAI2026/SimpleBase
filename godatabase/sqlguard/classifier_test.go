@@ -275,3 +275,97 @@ func TestValidate_MixedCaseKeywords(t *testing.T) {
 		}
 	}
 }
+
+// —— S1 纵深检查：WITH 主语句与 EXPLAIN ANALYZE（planv6.4 §1）——
+
+func TestValidate_ReadOnlyCTEGuard(t *testing.T) {
+	allowed := []string{
+		"WITH x AS (SELECT 1) SELECT * FROM x",
+		"WITH x AS (SELECT 1), y AS (SELECT 2) SELECT * FROM x, y",
+		"WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM t WHERE n<5) SELECT * FROM t",
+		"with x as (select 1) select * from x",
+		"WITH x AS (SELECT 1) /* c */ SELECT * FROM x",
+		"WITH x AS (SELECT 'a,b(c' AS v) SELECT * FROM x",
+		"WITH x AS (SELECT 1 AS \"weird,name\") SELECT \"weird,name\" FROM x",
+		"WITH x AS MATERIALIZED (SELECT 1) SELECT * FROM x",
+		"WITH x AS NOT MATERIALIZED (SELECT 1) SELECT * FROM x",
+		"WITH x AS (SELECT 1) VALUES (1), (2)",
+		"WITH x AS (SELECT 1) FROM x SELECT *",
+		"-- lead\nWITH x AS (SELECT 1) SELECT 1",
+		// 混淆：注释/字符串/引号标识符里的写关键字不触发误判
+		"WITH x AS (SELECT 1) SELECT * FROM x -- DELETE FROM t",
+		"WITH x AS (SELECT 'INSERT INTO') SELECT * FROM x",
+		"WITH x AS (SELECT 1) SELECT * FROM \"INSERT\"",
+	}
+	for _, sql := range allowed {
+		if err := Validate(sql, ReadOnly); err != nil {
+			t.Errorf("ReadOnly allow %q: got %v, want nil", sql, err)
+		}
+	}
+
+	denied := []string{
+		// 主语句是 DML
+		"WITH x AS (SELECT 1) DELETE FROM t",
+		"WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+		"WITH x AS (SELECT 1) UPDATE t SET a=1",
+		"WITH x AS (SELECT 1) TRUNCATE t",
+		"WITH x AS (SELECT 1) CREATE TABLE y AS SELECT * FROM x",
+		"WITH x AS (SELECT 1) DROP TABLE t",
+		"WITH x AS (SELECT 1) ALTER TABLE t ADD COLUMN b INT",
+		"WITH x AS (SELECT 1) MERGE INTO t USING x ON t.id = x.id WHEN MATCHED THEN UPDATE SET a = x.a",
+		// 多 CTE，写语句在第二个之后
+		"WITH x AS (SELECT 1), y AS (SELECT 2) DELETE FROM t",
+		// RECURSIVE + 写主语句
+		"WITH RECURSIVE t(n) AS (SELECT 1) DELETE FROM t",
+		// 小写
+		"with x as (select 1) delete from t",
+	}
+	for _, sql := range denied {
+		err := Validate(sql, ReadOnly)
+		if err != ErrWriteInReadOnly {
+			t.Errorf("ReadOnly deny %q: got %v, want ErrWriteInReadOnly", sql, err)
+		}
+	}
+}
+
+func TestValidate_ReadOnlyExplainGuard(t *testing.T) {
+	allowed := []string{
+		"EXPLAIN SELECT 1",
+		"EXPLAIN SELECT * FROM t",
+		"explain analyze_renamed_table", // ANALYZE 前缀的标识符不算关键字
+		"EXPLAIN FORMAT JSON SELECT 1",
+	}
+	for _, sql := range allowed {
+		if err := Validate(sql, ReadOnly); err != nil {
+			t.Errorf("ReadOnly allow %q: got %v, want nil", sql, err)
+		}
+	}
+
+	denied := []string{
+		"EXPLAIN ANALYZE DELETE FROM t",
+		"EXPLAIN ANALYZE INSERT INTO t VALUES(1)",
+		"EXPLAIN ANALYZE SELECT * FROM t", // ANALYZE 本身即执行，统一拒绝
+		"EXPLAIN (ANALYZE) DELETE FROM t", // 括号选项形式（防御）
+		"explain analyze UPDATE t SET x=1",
+	}
+	for _, sql := range denied {
+		err := Validate(sql, ReadOnly)
+		if err != ErrWriteInReadOnly {
+			t.Errorf("ReadOnly deny %q: got %v, want ErrWriteInReadOnly", sql, err)
+		}
+	}
+}
+
+func TestValidate_WriteAllowedCTEWrite(t *testing.T) {
+	// WriteAllowed 下 CTE 写语句照常放行（回归保障）
+	allowed := []string{
+		"WITH x AS (SELECT 1) DELETE FROM t",
+		"WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+		"EXPLAIN ANALYZE DELETE FROM t",
+	}
+	for _, sql := range allowed {
+		if err := Validate(sql, WriteAllowed); err != nil {
+			t.Errorf("WriteAllowed allow %q: got %v", sql, err)
+		}
+	}
+}

@@ -34,7 +34,6 @@ package api
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -157,7 +156,7 @@ func (h *SQLHandler) Query(c echo.Context) error {
 	defer cancel()
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -236,7 +235,7 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 	defer cancel()
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -299,7 +298,7 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 	defer cancel()
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {

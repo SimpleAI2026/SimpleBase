@@ -89,7 +89,7 @@ func (r *StringRepo) Set(ctx context.Context, key string, value []byte) error {
 // SetWith 带选项写入。NX/XX 条件不满足时返回 Set=false、err=nil。
 func (r *StringRepo) SetWith(ctx context.Context, key string, value []byte, opts SetOptions) (SetResult, error) {
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeString)
+	exists, meta, err := kr.guardWrite(ctx, key, TypeString)
 	if err != nil {
 		return SetResult{}, err
 	}
@@ -114,11 +114,8 @@ func (r *StringRepo) SetWith(ctx context.Context, key string, value []byte, opts
 	var etime *int64
 	switch {
 	case opts.KeepTTL && exists:
-		m, err := kr.getMeta(ctx, key)
-		if err != nil {
-			return SetResult{}, err
-		}
-		etime = m.Etime
+		// K3：复用 guardWrite 读到的 meta，省一次 getMeta 往返。
+		etime = meta.Etime
 	case opts.TTLms != nil:
 		if *opts.TTLms <= 0 {
 			return SetResult{}, ErrArgument
@@ -206,7 +203,7 @@ func (r *StringRepo) SetMany(ctx context.Context, items map[string][]byte) error
 // 结果溢出 int64 返回 ErrValueType（对齐 Redis）。保留原 TTL。
 func (r *StringRepo) Incr(ctx context.Context, key string, delta int64) (int64, error) {
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeString)
+	exists, _, err := kr.guardWrite(ctx, key, TypeString)
 	if err != nil {
 		return 0, err
 	}
@@ -231,7 +228,7 @@ func (r *StringRepo) Incr(ctx context.Context, key string, delta int64) (int64, 
 // IncrFloat 原子自增浮点 delta。值必须是浮点数，否则 ErrValueType。保留原 TTL。
 func (r *StringRepo) IncrFloat(ctx context.Context, key string, delta float64) (float64, error) {
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeString)
+	exists, _, err := kr.guardWrite(ctx, key, TypeString)
 	if err != nil {
 		return 0, err
 	}

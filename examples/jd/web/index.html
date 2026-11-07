@@ -1,0 +1,1033 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>京东 · 示例商城</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e1251b'/%3E%3Ctext x='16' y='23' font-size='18' font-family='Helvetica,Arial' fill='%23fff' text-anchor='middle'%3E京%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --jd-red: #e1251b;
+    --jd-red-dark: #c81623;
+    --ink: #1a1a1a;
+    --ink-2: #4a4a4a;
+    --ink-3: #8c8c8c;
+    --line: #e8e8e8;
+    --bg: #f5f5f5;
+    --card: #fff;
+    --gold: #ffb400;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, select, textarea { font: inherit; }
+  img { display: block; }
+
+  /* ── 顶部 ── */
+  .topbar { background: #f1f1f1; border-bottom: 1px solid #e6e6e6; color: var(--ink-2); font-size: 12px; }
+  .topbar .inner { max-width: 1200px; margin: 0 auto; padding: 6px 16px; display: flex; gap: 18px; align-items: center; }
+  .topbar .spacer { flex: 1; }
+  .topbar a:hover { color: var(--jd-red); }
+
+  header.search { background: #fff; }
+  header.search .inner { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; align-items: center; gap: 24px; }
+  .logo { font-size: 26px; font-weight: 700; color: var(--jd-red); letter-spacing: 1px; }
+  .logo small { display: block; font-size: 10px; font-weight: 400; color: var(--ink-3); letter-spacing: 2px; }
+  .searchbox { flex: 1; display: flex; max-width: 620px; border: 2px solid var(--jd-red); border-radius: 2px; overflow: hidden; }
+  .searchbox input { flex: 1; border: none; outline: none; padding: 9px 12px; }
+  .searchbox button { background: var(--jd-red); color: #fff; padding: 0 26px; font-size: 15px; }
+  .searchbox button:hover { background: var(--jd-red-dark); }
+  .cartbtn { position: relative; border: 1px solid var(--line); padding: 8px 16px; border-radius: 2px; color: var(--jd-red); background: #fff; }
+  .cartbtn .badge { position: absolute; top: -8px; right: -8px; min-width: 18px; height: 18px; padding: 0 4px; background: var(--jd-red); color: #fff; border-radius: 9px; font-size: 11px; line-height: 18px; text-align: center; }
+  .nav { background: #fff; border-top: 1px solid var(--line); }
+  .nav .inner { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
+  .nav button { padding: 10px 14px; color: var(--ink-2); white-space: nowrap; border-bottom: 2px solid transparent; }
+  .nav button:hover, .nav button.active { color: var(--jd-red); border-bottom-color: var(--jd-red); }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; min-height: 60vh; }
+  .panel { background: var(--card); border-radius: var(--radius); padding: 16px; }
+  .panel + .panel { margin-top: 16px; }
+  .panel h2 { margin: 0 0 12px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .panel h2 .more { margin-left: auto; font-size: 12px; color: var(--ink-3); font-weight: 400; }
+  .panel h2 .more:hover { color: var(--jd-red); }
+
+  /* ── 首页 ── */
+  .hero { display: grid; grid-template-columns: 200px 1fr 220px; gap: 12px; }
+  .catlist { background: #fff; border-radius: var(--radius); padding: 8px 0; }
+  .catlist button { display: block; width: 100%; text-align: left; padding: 8px 16px; color: var(--ink-2); }
+  .catlist button:hover { background: #fff5f5; color: var(--jd-red); }
+  .banner { background: linear-gradient(120deg, #e1251b, #ff6a3d 60%, #ffb400); border-radius: var(--radius); color: #fff; padding: 28px; display: flex; flex-direction: column; justify-content: center; min-height: 210px; }
+  .banner h1 { margin: 0 0 6px; font-size: 30px; }
+  .banner p { margin: 0 0 16px; opacity: .92; }
+  .banner .cta { align-self: flex-start; background: #fff; color: var(--jd-red); padding: 8px 20px; border-radius: 20px; font-weight: 600; }
+  .hotwords { background: #fff; border-radius: var(--radius); padding: 16px; }
+  .hotwords h3 { margin: 0 0 10px; font-size: 13px; color: var(--ink-3); font-weight: 500; }
+  .hotwords .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .hotwords .chips button { background: #fff2f0; color: var(--jd-red); padding: 5px 12px; border-radius: 14px; font-size: 12px; }
+  .hotwords .notice { margin-top: 14px; font-size: 12px; color: var(--ink-3); line-height: 1.8; }
+
+  .flashbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .flashbar .title { color: var(--jd-red); font-weight: 700; font-size: 18px; }
+  .flashbar .clock { background: var(--ink); color: #fff; padding: 2px 8px; border-radius: 4px; font-variant-numeric: tabular-nums; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .card { background: #fff; border-radius: var(--radius); overflow: hidden; transition: transform .15s, box-shadow .15s; display: flex; flex-direction: column; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.09); }
+  .card .thumb { position: relative; aspect-ratio: 1; background: #fafafa; }
+  .card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .card .badge-flash { position: absolute; top: 8px; left: 8px; background: var(--jd-red); color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 3px; }
+  .card .body { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .card .name { font-size: 13px; line-height: 1.45; height: 38px; overflow: hidden; }
+  .card .subtitle { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .price { color: var(--jd-red); font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .price .yuan { font-size: 12px; font-weight: 400; }
+  .price del { color: var(--ink-3); font-weight: 400; font-size: 12px; margin-left: 6px; }
+  .meta { font-size: 12px; color: var(--ink-3); display: flex; gap: 8px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tags span { font-size: 11px; color: var(--jd-red); border: 1px solid #ffd6d3; border-radius: 2px; padding: 0 4px; }
+  .actions { display: flex; gap: 8px; margin-top: auto; }
+  .btn { border-radius: 4px; padding: 7px 14px; font-size: 13px; }
+  .btn-primary { background: var(--jd-red); color: #fff; }
+  .btn-primary:hover { background: var(--jd-red-dark); }
+  .btn-ghost { border: 1px solid var(--line); color: var(--ink-2); }
+  .btn-ghost:hover { border-color: var(--jd-red); color: var(--jd-red); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── 商品详情 ── */
+  .detail { display: grid; grid-template-columns: 380px 1fr; gap: 24px; }
+  .detail .gallery img { width: 100%; border-radius: var(--radius); }
+  .detail h1 { margin: 0 0 8px; font-size: 22px; }
+  .detail .sub { color: var(--jd-red); font-size: 13px; margin-bottom: 14px; }
+  .priceline { background: linear-gradient(90deg, #fff5f4, #fff); border-radius: 6px; padding: 14px 16px; margin-bottom: 16px; }
+  .priceline .rows { display: grid; gap: 6px; font-size: 12px; color: var(--ink-3); }
+  .specrow { display: flex; gap: 10px; align-items: center; margin: 10px 0; font-size: 13px; }
+  .specrow .label { width: 60px; color: var(--ink-3); flex: none; }
+  .specrow .opt { border: 1px solid var(--line); padding: 5px 12px; border-radius: 3px; }
+  .specrow .opt.on { border-color: var(--jd-red); color: var(--jd-red); }
+  .qtybox { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .qtybox button { width: 30px; height: 30px; background: #fafafa; }
+  .qtybox input { width: 48px; border: none; text-align: center; outline: none; }
+  .buyrow { display: flex; gap: 12px; margin-top: 18px; }
+  .buyrow .btn { padding: 12px 34px; font-size: 15px; }
+  .btn-cart { background: #ffe4d9; color: var(--jd-red); border: 1px solid #ffb08a; }
+
+  .reviews { margin-top: 16px; }
+  .review { border-top: 1px solid var(--line); padding: 12px 0; }
+  .review .head { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-3); margin-bottom: 4px; }
+  .review .head strong { color: var(--ink-2); font-weight: 500; }
+  .stars { color: var(--gold); letter-spacing: 1px; }
+
+  /* ── 购物车 ── */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 12px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-weight: 500; color: var(--ink-3); font-size: 12px; }
+  td .cell { display: flex; align-items: center; gap: 12px; }
+  td .cell img { width: 64px; height: 64px; border-radius: 4px; object-fit: cover; background: #fafafa; }
+  .cartfoot { display: flex; align-items: center; gap: 20px; padding: 16px 8px 4px; flex-wrap: wrap; }
+  .cartfoot .total { margin-left: auto; font-size: 14px; color: var(--ink-2); }
+  .cartfoot .total b { color: var(--jd-red); font-size: 24px; font-variant-numeric: tabular-nums; }
+  .empty { padding: 48px 0; text-align: center; color: var(--ink-3); }
+
+  /* ── 订单 ── */
+  .tabbar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .tabbar button { padding: 6px 16px; border-radius: 16px; background: #f4f4f4; color: var(--ink-2); font-size: 13px; }
+  .tabbar button.on { background: var(--jd-red); color: #fff; }
+  .order { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+  .order .head { background: #fafafa; padding: 10px 14px; display: flex; gap: 16px; font-size: 12px; color: var(--ink-3); flex-wrap: wrap; }
+  .order .head .status { margin-left: auto; color: var(--jd-red); font-weight: 600; font-size: 13px; }
+  .order .items { padding: 12px 14px; display: grid; gap: 10px; }
+  .order .item { display: flex; gap: 12px; align-items: center; }
+  .order .item img { width: 56px; height: 56px; border-radius: 4px; object-fit: cover; background: #fafafa; }
+  .order .item .grow { flex: 1; }
+  .order .foot { padding: 10px 14px; border-top: 1px dashed var(--line); display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+
+  /* ── 优惠券 ── */
+  .coupons { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .coupon { border: 1px solid #ffd6d3; background: linear-gradient(120deg, #fff8f7, #fff); border-radius: var(--radius); padding: 14px; display: flex; gap: 14px; align-items: center; }
+  .coupon .amt { color: var(--jd-red); font-size: 22px; font-weight: 700; min-width: 84px; text-align: center; }
+  .coupon .amt small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); }
+  .coupon .info { flex: 1; font-size: 12px; color: var(--ink-3); }
+  .coupon .info strong { display: block; font-size: 13px; color: var(--ink); margin-bottom: 2px; }
+
+  /* ── 地址 / 表单 ── */
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-3); }
+  .field input, .field select, .field textarea { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; color: var(--ink); outline: none; }
+  .field input:focus, .field textarea:focus { border-color: var(--jd-red); }
+  .addr { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
+  .addr.on { border-color: var(--jd-red); background: #fffafa; }
+  .addr .row1 { font-weight: 600; margin-bottom: 4px; }
+  .addr .row2 { font-size: 12px; color: var(--ink-3); }
+  .addr .row2 span + span { margin-left: 12px; }
+  .pill { display: inline-block; font-size: 11px; color: var(--jd-red); border: 1px solid #ffd6d3; border-radius: 2px; padding: 0 4px; margin-left: 6px; }
+
+  /* ── 结算抽屉 ── */
+  .drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; justify-content: flex-end; z-index: 50; }
+  .drawer { width: min(440px, 100%); background: #fff; height: 100%; display: flex; flex-direction: column; }
+  .drawer .head { padding: 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+  .drawer .head button { margin-left: auto; color: var(--ink-3); font-size: 20px; line-height: 1; }
+  .drawer .body { padding: 16px; overflow-y: auto; flex: 1; }
+  .drawer .foot { padding: 16px; border-top: 1px solid var(--line); }
+  .sumrow { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; color: var(--ink-2); }
+  .sumrow.total { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 10px; font-size: 15px; }
+  .sumrow.total b { color: var(--jd-red); font-size: 20px; }
+
+  .toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); background: rgba(0,0,0,.82); color: #fff; padding: 10px 18px; border-radius: 4px; font-size: 13px; z-index: 100; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+
+  footer.page { max-width: 1200px; margin: 24px auto 0; padding: 20px 16px 40px; color: var(--ink-3); font-size: 12px; text-align: center; line-height: 2; }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; }
+    .catlist { display: none; }
+    .detail { grid-template-columns: 1fr; }
+    header.search .inner { flex-wrap: wrap; gap: 12px; }
+    .searchbox { order: 3; max-width: none; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="inner">
+    <span>📍 北京</span>
+    <span class="spacer"></span>
+    <a href="#/orders">我的订单</a>
+    <a href="#/favorites">我的关注</a>
+    <a href="#/coupons">优惠券</a>
+    <a href="#/addresses">收货地址</a>
+    <a href="#/stats">经营看板</a>
+    <a href="#/platform">平台能力</a>
+    <span style="color:#e1251b">本地示例 · 数据来自 SimpleBase</span>
+  </div>
+</div>
+
+<header class="search">
+  <div class="inner">
+    <a href="#/" class="logo">京东<small>JD.COM</small></a>
+    <form class="searchbox" id="searchForm">
+      <input id="searchInput" placeholder="搜索商品名称、副标题或标签，如：耳机" autocomplete="off">
+      <button type="submit">搜索</button>
+    </form>
+    <button class="cartbtn" id="cartBtn">🛒 我的购物车<span class="badge" id="cartBadge">0</span></button>
+  </div>
+</header>
+
+<nav class="nav"><div class="inner" id="catNav"></div></nav>
+
+<main id="app"></main>
+
+<footer class="page">
+  本页面是 SimpleBase 示例：前端不携带任何 Key，所有读写都经本地 BFF（<code>examples/jd/server/main.mjs</code>）。<br>
+  下单走事务 + 幂等键，算价由云函数 <code>pricing.Quote</code> 完成，首页推荐由 <code>recommend.Rank</code> 排序。
+</footer>
+
+<div id="drawerRoot"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API = ''
+const money = minor => (Number(minor || 0) / 100).toFixed(2)
+const amount = minor => { const value = Number(minor || 0) / 100; return Number.isInteger(value) ? String(value) : value.toFixed(2) }
+const yuan = minor => `<span class="yuan">¥</span>${money(minor)}`
+const stars = rating => '★★★★★'.slice(0, Math.max(0, Math.min(5, Math.round(rating || 0)))).padEnd(5, '☆')
+const esc = text => String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+
+const state = { categories: [], cartCount: 0, view: 'home' }
+
+async function api(path, options = {}) {
+  const res = await fetch(API + path, {
+    method: options.method || 'GET',
+    headers: { ...(options.raw ? {} : { 'content-type': 'application/json' }), ...(options.headers || {}) },
+    body: options.raw ? options.raw : options.body === undefined ? undefined : JSON.stringify(options.body)
+  })
+  const text = await res.text()
+  let data
+  try { data = text ? JSON.parse(text) : null } catch { data = text }
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+  return data
+}
+
+let toastTimer
+function toast(message) {
+  const el = document.getElementById('toast')
+  el.textContent = message
+  el.classList.add('on')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => el.classList.remove('on'), 2200)
+}
+
+const STATUS_TEXT = { pending: '待付款', paid: '待收货', completed: '已完成', canceled: '已取消' }
+const ORDER_TABS = [
+  ['all', '全部'], ['pending', '待付款'], ['paid', '待收货'], ['completed', '已完成'], ['canceled', '已取消']
+]
+
+/* ── 商品卡片 ─────────────────────────────────────── */
+function productCard(p) {
+  return `<a class="card" href="#/product/${encodeURIComponent(p.sku)}">
+    <div class="thumb">${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">` : ''}${p.flash ? '<span class="badge-flash">京东秒杀</span>' : ''}</div>
+    <div class="body">
+      <div class="name">${esc(p.name)}</div>
+      <div class="subtitle">${esc(p.subtitle || '')}</div>
+      <div class="price">${yuan(p.price_minor)}${p.orig_price_minor > p.price_minor ? `<del>¥${money(p.orig_price_minor)}</del>` : ''}</div>
+      <div class="meta"><span>${Number(p.review_count).toLocaleString('zh-CN')} 条评价</span><span>好评 ${Number(p.rating).toFixed(1)}</span></div>
+      ${(p.tags || []).length ? `<div class="tags">${p.tags.slice(0, 3).map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}
+    </div>
+  </a>`
+}
+
+/* ── 首页 ─────────────────────────────────────────── */
+function flashClock(endAt) {
+  if (!endAt) return ''
+  const left = Math.max(0, new Date(endAt).getTime() - Date.now())
+  const days = Math.floor(left / 86400000)
+  const hh = String(Math.floor(left % 86400000 / 3600000)).padStart(2, '0')
+  const mm = String(Math.floor(left % 3600000 / 60000)).padStart(2, '0')
+  const ss = String(Math.floor(left % 60000 / 1000)).padStart(2, '0')
+  return days ? `${days} 天 ${hh}:${mm}:${ss}` : `${hh}:${mm}:${ss}`
+}
+
+async function viewHome() {
+  const data = await api('/api/home')
+  state.categories = data.categories
+  window.__flashEnd = data.flash_end_at
+  renderCategoryNav()
+  return `
+    <div class="hero">
+      <div class="catlist">
+        ${data.categories.map(cat => `<button data-cat="${esc(cat.id)}">${esc(cat.icon)} ${esc(cat.name)}</button>`).join('')}
+      </div>
+      <div class="banner">
+        <h1>11.11 全球热爱季</h1>
+        <p>满 1000 减 100 · 满 5000 减 600 · 新人 9 折，自营商品次日达</p>
+        <a class="cta" href="#/products?sort=sales">去逛爆款 →</a>
+      </div>
+      <div class="hotwords">
+        <h3>热门搜索</h3>
+        <div class="chips">${data.hot_search.map(word => `<button data-keyword="${esc(word)}">${esc(word)}</button>`).join('')}</div>
+        <div class="notice">今日 ${data.flash.length} 个秒杀位 · ${data.recommend.length} 款推荐<br>数据全部来自本地 SimpleBase 实例</div>
+      </div>
+    </div>
+
+    ${data.flash.length ? `<div class="panel" style="margin-top:16px">
+      <h2>⚡ 京东秒杀 <span class="more" id="flashClock">${flashClock(data.flash_end_at) ? `距结束 ${flashClock(data.flash_end_at)}` : ''}</span></h2>
+      <div class="grid">${data.flash.map(productCard).join('')}</div>
+    </div>` : ''}
+
+    <div class="panel" style="margin-top:16px">
+      <h2>为你推荐 <span class="more">云函数 recommend.Rank 实时排序</span></h2>
+      <div class="grid">${data.recommend.map(productCard).join('')}</div>
+    </div>`
+}
+
+function renderCategoryNav() {
+  const nav = document.getElementById('catNav')
+  nav.innerHTML = `<button data-route="#/" class="${state.view === 'home' ? 'active' : ''}">首页</button>
+    ${state.categories.map(cat => `<button data-route="#/products?category=${encodeURIComponent(cat.id)}">${esc(cat.name)}</button>`).join('')}
+    <button data-route="#/orders">我的订单</button>`
+}
+
+/* ── 商品列表 ─────────────────────────────────────── */
+const SORT_OPTIONS = [['default', '综合'], ['sales', '销量'], ['price_asc', '价格从低到高'], ['price_desc', '价格从高到低'], ['rating', '好评优先'], ['newest', '新品']]
+
+async function viewProducts(params) {
+  const query = new URLSearchParams(params)
+  const data = await api(`/api/products?${query.toString()}`)
+  const category = data.items[0]?.category_id || params.get('category') || ''
+  const keyword = params.get('keyword') || ''
+  const sort = params.get('sort') || 'default'
+  const pages = Math.max(1, Math.ceil(data.total / data.size))
+  const page = data.page
+  const keywordPart = keyword ? `keyword=${encodeURIComponent(keyword)}&` : ''
+  return `
+    <div class="panel">
+      <h2>${keyword ? `搜索“${esc(keyword)}”` : '全部商品'} <span class="more">共 ${data.total} 件</span></h2>
+      <div class="tabbar">
+        ${SORT_OPTIONS.map(([value, label]) => `<button class="${sort === value ? 'on' : ''}" data-route="#/products?${keywordPart}${category ? `category=${encodeURIComponent(category)}&` : ''}sort=${value}">${label}</button>`).join('')}
+      </div>
+      ${data.items.length ? `<div class="grid">${data.items.map(productCard).join('')}</div>` : '<div class="empty">没有符合条件的商品</div>'}
+      ${pages > 1 ? `<div class="tabbar" style="margin-top:16px">
+        ${Array.from({ length: pages }, (_, index) => index + 1).map(index => `<button class="${index === page ? 'on' : ''}" data-route="#/products?${keywordPart}${category ? `category=${encodeURIComponent(category)}&` : ''}${sort ? `sort=${sort}&` : ''}page=${index}">${index}</button>`).join('')}
+      </div>` : ''}
+    </div>`
+}
+
+/* ── 商品详情 ─────────────────────────────────────── */
+async function viewProduct(sku) {
+  const p = await api(`/api/products/${encodeURIComponent(sku)}`)
+  window.__product = p
+  return `
+    <div class="panel detail">
+      <div class="gallery">
+        ${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}">` : ''}
+      </div>
+      <div>
+        <h1>${esc(p.name)}</h1>
+        <div class="sub">${esc(p.subtitle || '')}</div>
+        <div class="priceline">
+          <div class="price" style="font-size:30px">${yuan(p.price_minor)}${p.orig_price_minor > p.price_minor ? `<del>¥${money(p.orig_price_minor)}</del>` : ''}</div>
+          <div class="rows" style="margin-top:8px">
+            <span>累计销量 ${Number(p.sales).toLocaleString('zh-CN')} 件 · 库存 ${p.stock}</span>
+            <span>${Number(p.review_count).toLocaleString('zh-CN')} 条评价 · 好评度 ${(Number(p.rating) / 5 * 100).toFixed(0)}%</span>
+            ${p.flash ? `<span style="color:#e1251b">⚡ 秒杀中，距结束 ${flashClock(p.flash_end_at)}</span>` : ''}
+          </div>
+        </div>
+        ${(p.specs || []).length ? p.specs.map(spec => `<div class="specrow"><span class="label">${esc(spec.label)}</span><span class="opt on">${esc(spec.value)}</span></div>`).join('') : ''}
+        <div class="specrow"><span class="label">数量</span>
+          <span class="qtybox">
+            <button data-qty="-1">－</button>
+            <input id="detailQty" value="1" inputmode="numeric">
+            <button data-qty="1">＋</button>
+          </span>
+          <span style="color:#8c8c8c;font-size:12px">最多 ${Math.min(99, p.stock)} 件</span>
+        </div>
+        <div class="buyrow">
+          <button class="btn btn-cart" id="addCart">加入购物车</button>
+          <button class="btn btn-primary" id="buyNow">立即购买</button>
+          <button class="btn btn-ghost" id="favBtn">☆ 关注</button>
+        </div>
+        <div class="tags" style="margin-top:14px">${(p.tags || []).map(tag => `<span>${esc(tag)}</span>`).join('')}</div>
+      </div>
+    </div>
+
+    <div class="panel reviews">
+      <h2>商品评价 <span class="more">${Number(p.review_count).toLocaleString('zh-CN')} 条</span></h2>
+      ${p.reviews.length ? p.reviews.map(review => `<div class="review">
+        <div class="head"><strong>${esc(review.nickname)}</strong><span class="stars">${stars(review.rating)}</span><span>${esc(String(review.created_at).slice(0, 10))}</span></div>
+        <div>${esc(review.content)}</div>
+        ${review.image_url ? `<img src="${esc(review.image_url)}" alt="晒图" style="margin-top:8px;width:96px;height:96px;object-fit:cover;border-radius:6px;border:1px solid #e8e8e8">` : ''}
+      </div>`).join('') : '<div class="empty">还没有评价</div>'}
+      <div style="margin-top:16px;border-top:1px solid #e8e8e8;padding-top:16px">
+        <h2>写评价</h2>
+        <div class="form-grid">
+          <label class="field">评分<select id="reviewRating"><option value="5">5 星</option><option value="4">4 星</option><option value="3">3 星</option><option value="2">2 星</option><option value="1">1 星</option></select></label>
+          <label class="field">晒图（选填，SVG/PNG/JPG，≤512KB）<input type="file" id="reviewImage" accept=".svg,image/svg+xml,.png,.jpg,.jpeg"></label>
+          <label class="field" style="grid-column:1/-1">评价内容<textarea id="reviewContent" rows="3" placeholder="说说使用感受（2-300 字）"></textarea></label>
+        </div>
+        <div style="margin-top:10px"><button class="btn btn-primary" id="reviewSubmit">提交评价</button></div>
+      </div>
+    </div>
+
+    ${p.similar.length ? `<div class="panel">
+      <h2>同类推荐</h2>
+      <div class="grid">${p.similar.map(productCard).join('')}</div>
+    </div>` : ''}`
+}
+
+/* ── 购物车 ───────────────────────────────────────── */
+async function viewCart() {
+  const cart = await api('/api/cart')
+  state.cartCount = cart.total_qty
+  updateCartBadge()
+  if (!cart.items.length) return `<div class="panel"><div class="empty">购物车还是空的<br><br><a class="btn btn-primary" href="#/products">去逛逛</a></div></div>`
+  const allChecked = cart.items.every(item => item.checked)
+  return `<div class="panel">
+    <h2>我的购物车 <span class="more">共 ${cart.total_qty} 件</span></h2>
+    <table>
+      <thead><tr>
+        <th style="width:40px"><input type="checkbox" id="checkAll" ${allChecked ? 'checked' : ''}></th>
+        <th>商品</th><th style="width:110px">单价</th><th style="width:140px">数量</th><th style="width:110px">小计</th><th style="width:60px"></th>
+      </tr></thead>
+      <tbody>
+      ${cart.items.map(item => `<tr data-cart="${esc(item.id)}">
+        <td><input type="checkbox" data-act="check" ${item.checked ? 'checked' : ''}></td>
+        <td><div class="cell">
+          ${item.product.image_url ? `<img src="${esc(item.product.image_url)}" alt="">` : ''}
+          <div>
+            <a href="#/product/${encodeURIComponent(item.product.sku)}">${esc(item.product.name)}</a>
+            <div style="font-size:12px;color:#8c8c8c">${esc(item.product.subtitle || '')}</div>
+            ${item.product.flash ? '<div class="tags" style="margin-top:4px"><span>秒杀价</span></div>' : ''}
+            ${item.available ? '' : '<div style="font-size:12px;color:#e1251b">已售罄</div>'}
+          </div>
+        </div></td>
+        <td>${yuan(item.product.price_minor)}</td>
+        <td><span class="qtybox"><button data-act="minus">－</button><input value="${item.qty}" data-act="qty" inputmode="numeric"><button data-act="plus">＋</button></span></td>
+        <td class="price">${yuan(item.product.price_minor * item.qty)}</td>
+        <td><button class="btn btn-sm btn-ghost" data-act="remove">删除</button></td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="cartfoot">
+      <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="checkAllFoot" ${allChecked ? 'checked' : ''}>全选</label>
+      <span class="total">已选商品合计（不含运费与优惠）：<b>¥${money(cart.subtotal_minor)}</b></span>
+      <button class="btn btn-primary" id="checkoutBtn" style="padding:10px 32px">去结算</button>
+    </div>
+  </div>`
+}
+
+/* ── 优惠券 ───────────────────────────────────────── */
+function couponCard(coupon, mode) {
+  const value = coupon.kind === 'percent' ? `<span style="font-size:16px">${coupon.value}%</span><small>折扣</small>` : `¥${amount(coupon.value)}<small>${coupon.min_minor ? `满 ${amount(coupon.min_minor)} 可用` : '无门槛'}</small>`
+  return `<div class="coupon">
+    <div class="amt">${value}</div>
+    <div class="info"><strong>${esc(coupon.title)}</strong>
+      有效期至 ${esc(String(coupon.end_at).slice(0, 10))}
+      ${mode === 'center' ? (coupon.claimed ? '<div style="margin-top:6px;color:#8c8c8c">已领取</div>' : coupon.remain > 0 ? `<div style="margin-top:6px"><button class="btn btn-sm btn-primary" data-claim="${esc(coupon.code)}">立即领取</button></div>` : '<div style="margin-top:6px">已抢光</div>') : ''}
+      ${mode === 'mine' ? `<div style="margin-top:6px">${coupon.status === 'unused' ? '可使用' : coupon.status === 'locked' ? '已锁定' : '已使用'}</div>` : ''}
+    </div>
+  </div>`
+}
+
+async function viewCoupons() {
+  const data = await api('/api/coupons')
+  return `<div class="panel">
+    <h2>我的优惠券 <span class="more">${data.mine.length} 张</span></h2>
+    ${data.mine.length ? `<div class="coupons">${data.mine.map(coupon => couponCard(coupon, 'mine')).join('')}</div>` : '<div class="empty">还没有优惠券，去领券中心看看</div>'}
+  </div>
+  <div class="panel">
+    <h2>领券中心</h2>
+    <div class="coupons">${data.center.map(coupon => couponCard(coupon, 'center')).join('')}</div>
+  </div>`
+}
+
+/* ── 地址 ─────────────────────────────────────────── */
+async function viewAddresses() {
+  const list = await api('/api/addresses')
+  return `<div class="panel">
+    <h2>收货地址 <span class="more">${list.length} 个</span></h2>
+    ${list.length ? list.map(addr => `<div class="addr ${addr.is_default ? 'on' : ''}">
+      <div class="row1">${esc(addr.receiver)}${addr.is_default ? '<span class="pill">默认</span>' : ''}</div>
+      <div class="row2"><span>${esc(addr.text)}</span><span>${esc(addr.phone)}</span></div>
+      ${addr.is_default ? '' : `<div style="margin-top:8px"><button class="btn btn-sm btn-ghost" data-default="${esc(addr.id)}">设为默认</button></div>`}
+    </div>`).join('') : '<div class="empty">还没有收货地址</div>'}
+  </div>
+  <div class="panel">
+    <h2>新增收货地址</h2>
+    <div class="form-grid">
+      <label class="field">收货人<input id="addrReceiver" placeholder="张三"></label>
+      <label class="field">手机号<input id="addrPhone" placeholder="13800000001"></label>
+      <label class="field">省<input id="addrProvince" placeholder="北京市"></label>
+      <label class="field">市<input id="addrCity" placeholder="北京市"></label>
+      <label class="field">区<input id="addrDistrict" placeholder="大兴区"></label>
+      <label class="field" style="grid-column:1/-1">详细地址<input id="addrDetail" placeholder="街道、门牌号"></label>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:13px"><input type="checkbox" id="addrDefault">设为默认地址</label>
+    <div style="margin-top:12px"><button class="btn btn-primary" id="addrSubmit">保存地址</button></div>
+  </div>`
+}
+
+/* ── 结算抽屉 ─────────────────────────────────────── */
+async function openCheckout() {
+  const [cart, addresses, coupons] = await Promise.all([api('/api/cart'), api('/api/addresses'), api('/api/coupons')])
+  const selected = cart.items.filter(item => item.checked && item.available)
+  if (!selected.length) return toast('请先勾选要结算的商品')
+  const defaultAddress = addresses.find(addr => addr.is_default) || addresses[0]
+  const usable = coupons.mine.filter(coupon => coupon.status === 'unused')
+
+  const root = document.getElementById('drawerRoot')
+  root.innerHTML = `<div class="drawer-mask" id="drawerMask">
+    <div class="drawer">
+      <div class="head"><strong>确认订单</strong><button id="drawerClose">×</button></div>
+      <div class="body">
+        <h2 style="font-size:14px;margin:0 0 10px">收货地址</h2>
+        ${addresses.length ? addresses.map(addr => `<label class="addr ${defaultAddress?.id === addr.id ? 'on' : ''}" style="display:block;cursor:pointer">
+          <input type="radio" name="addr" value="${esc(addr.id)}" ${defaultAddress?.id === addr.id ? 'checked' : ''} style="margin-right:8px">
+          ${esc(addr.receiver)} ${esc(addr.phone)}
+          <span style="font-size:12px;color:#8c8c8c">${esc(addr.text)}</span>
+        </label>`).join('') : '<div class="empty" style="padding:16px 0">还没有地址，<a href="#/addresses" style="color:#e1251b">去添加</a></div>'}
+
+        <h2 style="font-size:14px;margin:18px 0 10px">商品清单</h2>
+        ${selected.map(item => `<div style="display:flex;gap:10px;align-items:center;padding:6px 0">
+          ${item.product.image_url ? `<img src="${esc(item.product.image_url)}" style="width:44px;height:44px;border-radius:4px;object-fit:cover">` : ''}
+          <div style="flex:1;font-size:13px">${esc(item.product.name)}<div style="font-size:12px;color:#8c8c8c">x${item.qty}</div></div>
+          <div class="price" style="font-size:14px">${yuan(item.product.price_minor * item.qty)}</div>
+        </div>`).join('')}
+
+        <h2 style="font-size:14px;margin:18px 0 10px">优惠券</h2>
+        <select id="drawerCoupon" style="width:100%;border:1px solid #e8e8e8;border-radius:4px;padding:8px 10px">
+          <option value="">不使用优惠券</option>
+          ${usable.map(coupon => `<option value="${esc(coupon.user_coupon_id)}">${esc(coupon.title)}（${coupon.kind === 'percent' ? `${coupon.value}% 折扣` : `减 ¥${amount(coupon.value)}`}）</option>`).join('')}
+        </select>
+
+        <label class="field" style="margin-top:14px">订单备注<textarea id="drawerRemark" rows="2" placeholder="选填，最多 100 字"></textarea></label>
+
+        <div id="drawerSummary" style="margin-top:18px"></div>
+      </div>
+      <div class="foot">
+        <div class="sumrow total"><span>应付金额</span><b id="drawerPay">¥0.00</b></div>
+        <button class="btn btn-primary" id="drawerSubmit" style="width:100%;margin-top:10px;padding:12px">提交订单</button>
+      </div>
+    </div>
+  </div>`
+
+  const payload = () => ({
+    cart_ids: selected.map(item => item.id),
+    address_id: document.querySelector('input[name=addr]:checked')?.value,
+    user_coupon_id: document.getElementById('drawerCoupon').value,
+    remark: document.getElementById('drawerRemark').value
+  })
+
+  async function refresh() {
+    const summary = document.getElementById('drawerSummary')
+    const pay = document.getElementById('drawerPay')
+    const body = payload()
+    if (!body.address_id) { summary.innerHTML = '<div style="color:#8c8c8c;font-size:13px">请先选择收货地址</div>'; return }
+    try {
+      const data = await api('/api/price', { method: 'POST', body })
+      summary.innerHTML = `
+        <div class="sumrow"><span>商品总额</span><span>¥${money(data.subtotal_minor)}</span></div>
+        <div class="sumrow"><span>优惠${data.coupon_label ? `（${esc(data.coupon_label)}）` : ''}</span><span style="color:#e1251b">-¥${money(data.discount_minor)}</span></div>
+        <div class="sumrow"><span>运费</span><span>${data.freight_minor ? `¥${money(data.freight_minor)}` : '免运费'}</span></div>`
+      pay.textContent = `¥${money(data.pay_minor)}`
+      window.__checkoutPay = data.pay_minor
+    } catch (error) {
+      summary.innerHTML = `<div style="color:#e1251b;font-size:13px">${esc(error.message)}</div>`
+      pay.textContent = '¥0.00'
+      window.__checkoutPay = 0
+    }
+  }
+
+  document.getElementById('drawerClose').onclick = closeDrawer
+  document.getElementById('drawerMask').onclick = event => { if (event.target.id === 'drawerMask') closeDrawer() }
+  document.getElementById('drawerCoupon').onchange = refresh
+  document.querySelectorAll('input[name=addr]').forEach(radio => { radio.onchange = refresh })
+  document.getElementById('drawerSubmit').onclick = async () => {
+    const body = payload()
+    if (!body.address_id) return toast('请选择收货地址')
+    const button = document.getElementById('drawerSubmit')
+    button.disabled = true
+    button.textContent = '提交中…'
+    try {
+      const order = await api('/api/orders', { method: 'POST', body, headers: { 'idempotency-key': crypto.randomUUID() } })
+      closeDrawer()
+      toast(`订单已创建，应付 ¥${money(order.pay_minor)}`)
+      await refreshCartBadge()
+      location.hash = `#/order/${order.id}`
+    } catch (error) {
+      toast(error.message)
+      button.disabled = false
+      button.textContent = '提交订单'
+    }
+  }
+  await refresh()
+}
+
+function closeDrawer() {
+  document.getElementById('drawerRoot').innerHTML = ''
+}
+
+/* ── 订单 ─────────────────────────────────────────── */
+async function viewOrders(params) {
+  const status = params.get('status') || 'all'
+  const orders = await api(`/api/orders?status=${encodeURIComponent(status)}`)
+  return `<div class="panel">
+    <h2>我的订单 <span class="more">${orders.length} 笔</span></h2>
+    <div class="tabbar">
+      ${ORDER_TABS.map(([value, label]) => `<button class="${status === value ? 'on' : ''}" data-route="#/orders?status=${value}">${label}</button>`).join('')}
+    </div>
+    ${orders.length ? orders.map(order => `<div class="order">
+      <div class="head">
+        <span>订单号 ${esc(order.id.slice(0, 18))}…</span>
+        <span>${esc(String(order.created_at).replace('T', ' ').slice(0, 19))}</span>
+        <span class="status">${STATUS_TEXT[order.status] || order.status}</span>
+      </div>
+      <div class="items">
+        ${order.items.map(item => `<div class="item">
+          ${item.image_url ? `<img src="${esc(item.image_url)}" alt="">` : ''}
+          <div class="grow">
+            <a href="#/product/${encodeURIComponent(item.sku)}">${esc(item.name)}</a>
+            <div style="font-size:12px;color:#8c8c8c">${esc(item.sku)} · x${item.qty}</div>
+          </div>
+          <div class="price" style="font-size:14px">${yuan(item.price_minor)}</div>
+        </div>`).join('')}
+      </div>
+      <div class="foot">
+        <span style="font-size:13px;color:#4a4a4a">实付 <b class="price" style="font-size:16px">${yuan(order.pay_minor)}</b></span>
+        ${order.status === 'pending' ? `<button class="btn btn-sm btn-primary" data-pay="${esc(order.id)}">立即付款</button><button class="btn btn-sm btn-ghost" data-cancel="${esc(order.id)}">取消订单</button>` : ''}
+        ${order.status === 'paid' ? `<button class="btn btn-sm btn-primary" data-complete="${esc(order.id)}">确认收货</button><button class="btn btn-sm btn-ghost" data-cancel="${esc(order.id)}">取消订单</button>` : ''}
+        <a class="btn btn-sm btn-ghost" href="#/order/${esc(order.id)}">订单详情</a>
+      </div>
+    </div>`).join('') : '<div class="empty">没有相关订单</div>'}
+  </div>`
+}
+
+async function viewOrder(id) {
+  const order = await api(`/api/orders/${encodeURIComponent(id)}`)
+  return `<div class="panel">
+    <h2>订单详情 <span class="more">${STATUS_TEXT[order.status] || order.status}</span></h2>
+    <div class="sumrow"><span>订单号</span><span>${esc(order.id)}</span></div>
+    <div class="sumrow"><span>下单时间</span><span>${esc(String(order.created_at).replace('T', ' ').slice(0, 19))}</span></div>
+    ${order.paid_at ? `<div class="sumrow"><span>付款时间</span><span>${esc(String(order.paid_at).replace('T', ' ').slice(0, 19))}</span></div>` : ''}
+    ${order.canceled_at ? `<div class="sumrow"><span>取消时间</span><span>${esc(String(order.canceled_at).replace('T', ' ').slice(0, 19))}</span></div>` : ''}
+    <div class="sumrow"><span>收货信息</span><span>${esc(order.address_text)}</span></div>
+    ${order.remark ? `<div class="sumrow"><span>订单备注</span><span>${esc(order.remark)}</span></div>` : ''}
+
+    <table style="margin-top:16px">
+      <thead><tr><th>商品</th><th style="width:110px">单价</th><th style="width:80px">数量</th><th style="width:110px">小计</th></tr></thead>
+      <tbody>${order.items.map(item => `<tr>
+        <td><div class="cell">${item.image_url ? `<img src="${esc(item.image_url)}" alt="">` : ''}<div><a href="#/product/${encodeURIComponent(item.sku)}">${esc(item.name)}</a><div style="font-size:12px;color:#8c8c8c">${esc(item.sku)}</div></div></div></td>
+        <td>${yuan(item.price_minor)}</td><td>x${item.qty}</td><td class="price">${yuan(item.price_minor * item.qty)}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+
+    <div style="margin-top:16px">
+      <div class="sumrow"><span>商品总额</span><span>¥${money(order.subtotal_minor)}</span></div>
+      <div class="sumrow"><span>优惠</span><span style="color:#e1251b">-¥${money(order.discount_minor)}</span></div>
+      <div class="sumrow"><span>运费</span><span>${order.freight_minor ? `¥${money(order.freight_minor)}` : '免运费'}</span></div>
+      <div class="sumrow total"><span>实付</span><b>¥${money(order.pay_minor)}</b></div>
+    </div>
+
+    <div class="cartfoot">
+      ${order.status === 'pending' ? `<button class="btn btn-primary" data-pay="${esc(order.id)}">立即付款</button><button class="btn btn-ghost" data-cancel="${esc(order.id)}">取消订单</button>` : ''}
+      ${order.status === 'paid' ? `<button class="btn btn-primary" data-complete="${esc(order.id)}">确认收货</button><button class="btn btn-ghost" data-cancel="${esc(order.id)}">取消订单</button>` : ''}
+      <a class="btn btn-ghost" href="#/orders">返回订单列表</a>
+    </div>
+  </div>`
+}
+
+/* ── 关注 ─────────────────────────────────────────── */
+async function viewFavorites() {
+  const list = await api('/api/favorites')
+  return `<div class="panel">
+    <h2>我的关注 <span class="more">${list.length} 件</span></h2>
+    ${list.length ? `<div class="grid">${list.map(item => `<div style="position:relative">
+      ${productCard(item)}
+      <button class="btn btn-sm btn-ghost" style="position:absolute;top:8px;right:8px;background:#fff" data-unfav="${esc(item.sku)}">取消关注</button>
+    </div>`).join('')}</div>` : '<div class="empty">还没有关注的商品</div>'}
+  </div>`
+}
+
+/* ── 经营看板 ─────────────────────────────────────── */
+async function viewStats() {
+  const data = await api('/api/stats')
+  const max = Math.max(1, ...data.daily.map(row => row.gmv_minor))
+  const bars = data.daily.slice().reverse().map(row => `<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px" title="${row.day} ¥${money(row.gmv_minor)}">
+    <div style="width:100%;max-width:42px;height:${Math.round(row.gmv_minor / max * 180)}px;background:linear-gradient(180deg,#ff6a3d,#e1251b);border-radius:4px 4px 0 0"></div>
+    <span style="font-size:11px;color:#8c8c8c">${esc(String(row.day).slice(5))}</span>
+  </div>`).join('')
+  return `<div class="panel">
+    <h2>经营看板 <span class="more">定时任务 jd_daily 写入 daily_stats</span></h2>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px">
+      <div><div style="font-size:12px;color:#8c8c8c">累计成交订单</div><div style="font-size:26px;font-weight:700">${data.summary.orders}</div></div>
+      <div><div style="font-size:12px;color:#8c8c8c">累计 GMV</div><div style="font-size:26px;font-weight:700;color:#e1251b">¥${money(data.summary.gmv_minor)}</div></div>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:10px;height:220px;padding-top:10px;border-top:1px solid #e8e8e8">${bars || '<div class="empty" style="flex:1">暂无统计数据</div>'}</div>
+  </div>`
+}
+
+/* ── 平台能力 ─────────────────────────────────────── */
+async function viewPlatform() {
+  const data = await api('/api/platform')
+  const section = (title, hint, body) => `<div class="panel">
+    <h2>${title} <span class="more">${hint}</span></h2>${body}
+  </div>`
+
+  const kvRows = data.kv.map(item => `<div class="sumrow">
+    <span><code>${esc(item.key)}</code> <span style="color:#8c8c8c;font-size:12px">${esc(item.type)}${item.ttl ? ` · TTL ${item.ttl}s` : ''}</span></span>
+    <span style="max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.value)}</span>
+  </div>`).join('')
+
+  const objRows = data.objects.slice(0, 8).map(item => `<div class="sumrow">
+    <span><code>${esc(item.key)}</code></span>
+    <span style="color:#8c8c8c">${item.size ? `${(item.size / 1024).toFixed(1)} KB` : '—'}</span>
+  </div>`).join('')
+
+  const fnRows = data.functions.map(fn => `<div class="sumrow">
+    <span><code>${esc(fn.name)}</code> <span style="color:#8c8c8c;font-size:12px">v${fn.latest_version}${fn.published ? '' : ' · 未生效'}</span></span>
+    <span style="font-size:12px;color:#8c8c8c">${esc((fn.exports || []).join(', '))}</span>
+  </div>`).join('')
+
+  const cronRows = data.cron_jobs.map(job => `<div class="sumrow">
+    <span><code>${esc(job.name)}</code> <span style="color:#8c8c8c;font-size:12px">${esc(job.schedule_kind === 'cron' ? job.cron_expr : job.schedule_kind === 'interval' ? `每 ${job.interval_seconds}s` : job.run_at || '')}</span></span>
+    <span style="font-size:12px;color:#8c8c8c">${esc(job.func_file)}.${esc(job.func_export)} · ${job.last_run_status ? esc(job.last_run_status) : '未运行'}</span>
+  </div>`).join('')
+
+  const triggerRows = data.triggers.map(item => `<div class="sumrow">
+    <span><code>${esc(item.kind)}</code> <span style="color:#8c8c8c;font-size:12px">${esc(item.target || '(invoke)')}</span></span>
+    <span style="font-size:12px;color:#8c8c8c">${esc(item.func_file)}.${esc(item.func_export)} · ${item.enabled ? '启用' : '停用'}</span>
+  </div>`).join('')
+
+  const auditRows = data.audit.items.map(item => `<div class="sumrow">
+    <span><code>${esc(item.source)}</code> <span style="color:#8c8c8c;font-size:12px">${esc(item.action)}</span></span>
+    <span style="font-size:12px;color:#8c8c8c;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.detail)}</span>
+  </div>`).join('')
+
+  return section('Key-Value', `${data.kv.length} 个键`, kvRows || '<div class="empty">暂无键</div>') +
+    section('对象存储', `${data.objects.length} 个对象 · 前缀 jd/（只显示前 8 个）`, (objRows || '<div class="empty">暂无对象</div>') + `
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="objKey" placeholder="jd/demo/note.txt" style="border:1px solid #e8e8e8;border-radius:4px;padding:8px 10px;min-width:240px">
+        <button class="btn btn-primary btn-sm" id="objUpload">上传示例文本</button>
+        <button class="btn btn-ghost btn-sm" id="objList">刷新列表</button>
+      </div>`) +
+    section('云函数', `${data.functions.length} 个`, fnRows || '<div class="empty">暂无函数</div>') +
+    section('定时任务', `${data.cron_jobs.length} 个`, (cronRows || '<div class="empty">暂无任务</div>') + `
+      <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" id="cronTrigger">立即触发 jd_daily</button></div>`) +
+    section('事件触发器', `${data.triggers.length} 个 · 丢弃 ${data.dropped}`, (triggerRows || '<div class="empty">暂无触发器</div>') + `
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" id="emitEvent">写一条文档事件</button>
+        <button class="btn btn-ghost btn-sm" id="invokeHttp">invoke HTTP 触发器</button>
+      </div>`) +
+    section('触发器审计轨迹', `${data.audit.total} 条（audit_log 表）`, auditRows || '<div class="empty">暂无记录，先写一条事件或上传对象</div>')
+}
+
+/* ── 路由 ─────────────────────────────────────────── */
+function parseHash() {
+  const raw = location.hash.replace(/^#/, '') || '/'
+  const [path, search] = raw.split('?')
+  return { path, params: new URLSearchParams(search || '') }
+}
+
+async function refreshCartBadge() {
+  try {
+    const cart = await api('/api/cart')
+    state.cartCount = cart.total_qty
+  } catch { state.cartCount = 0 }
+  updateCartBadge()
+}
+
+function updateCartBadge() {
+  document.getElementById('cartBadge').textContent = String(state.cartCount)
+}
+
+function renderShell(title) {
+  document.getElementById('app').innerHTML = `<div class="panel"><div class="empty">${title || '加载中…'}</div></div>`
+}
+
+async function router() {
+  const { path, params } = parseHash()
+  const app = document.getElementById('app')
+  renderShell()
+  document.querySelectorAll('#catNav button').forEach(button => button.classList.remove('active'))
+  try {
+    if (path === '/' || path === '') {
+      state.view = 'home'
+      app.innerHTML = await viewHome()
+      renderCategoryNav()
+      window.__tick = setInterval(() => {
+        const clock = document.getElementById('flashClock')
+        if (clock) clock.textContent = `距结束 ${flashClock(window.__flashEnd)}`
+      }, 1000)
+      return
+    }
+    clearInterval(window.__tick)
+    if (path === '/products') { app.innerHTML = await viewProducts(params); return }
+    if (path.startsWith('/product/')) { app.innerHTML = await viewProduct(decodeURIComponent(path.slice('/product/'.length))); return }
+    if (path === '/cart') { app.innerHTML = await viewCart(); return }
+    if (path === '/coupons') { app.innerHTML = await viewCoupons(); return }
+    if (path === '/addresses') { app.innerHTML = await viewAddresses(); return }
+    if (path === '/favorites') { app.innerHTML = await viewFavorites(); return }
+    if (path === '/stats') { app.innerHTML = await viewStats(); return }
+    if (path === '/platform') { app.innerHTML = await viewPlatform(); return }
+    if (path === '/orders') { app.innerHTML = await viewOrders(params); return }
+    if (path.startsWith('/order/')) { app.innerHTML = await viewOrder(decodeURIComponent(path.slice('/order/'.length))); return }
+    app.innerHTML = `<div class="panel"><div class="empty">页面不存在</div></div>`
+  } catch (error) {
+    app.innerHTML = `<div class="panel"><div class="empty">加载失败：${esc(error.message)}</div></div>`
+  }
+}
+
+/* ── 全局事件 ─────────────────────────────────────── */
+document.addEventListener('click', async event => {
+  const route = event.target.closest('[data-route]')
+  if (route) { location.hash = route.dataset.route; return }
+
+  const cat = event.target.closest('[data-cat]')
+  if (cat) { location.hash = `#/products?category=${encodeURIComponent(cat.dataset.cat)}`; return }
+
+  const keyword = event.target.closest('[data-keyword]')
+  if (keyword) {
+    document.getElementById('searchInput').value = keyword.dataset.keyword
+    location.hash = `#/products?keyword=${encodeURIComponent(keyword.dataset.keyword)}`
+    return
+  }
+
+  const claim = event.target.closest('[data-claim]')
+  if (claim) {
+    claim.disabled = true
+    try { await api(`/api/coupons/${encodeURIComponent(claim.dataset.claim)}`, { method: 'POST', body: {} }); toast('领取成功'); router() }
+    catch (error) { toast(error.message); claim.disabled = false }
+    return
+  }
+
+  const defaultBtn = event.target.closest('[data-default]')
+  if (defaultBtn) {
+    try { await api(`/api/addresses/${encodeURIComponent(defaultBtn.dataset.default)}/default`, { method: 'POST', body: {} }); toast('已设为默认'); router() }
+    catch (error) { toast(error.message) }
+    return
+  }
+
+  const unfav = event.target.closest('[data-unfav]')
+  if (unfav) {
+    try { await api('/api/favorites', { method: 'POST', body: { sku: unfav.dataset.unfav } }); toast('已取消关注'); router() }
+    catch (error) { toast(error.message) }
+    return
+  }
+
+  const payBtn = event.target.closest('[data-pay]')
+  if (payBtn) {
+    payBtn.disabled = true
+    try { await api(`/api/orders/${encodeURIComponent(payBtn.dataset.pay)}/pay`, { method: 'POST', body: {} }); toast('支付成功'); router() }
+    catch (error) { toast(error.message); payBtn.disabled = false }
+    return
+  }
+
+  const cancelBtn = event.target.closest('[data-cancel]')
+  if (cancelBtn) {
+    try { await api(`/api/orders/${encodeURIComponent(cancelBtn.dataset.cancel)}/cancel`, { method: 'POST', body: {} }); toast('订单已取消'); refreshCartBadge(); router() }
+    catch (error) { toast(error.message) }
+    return
+  }
+
+  const completeBtn = event.target.closest('[data-complete]')
+  if (completeBtn) {
+    try { await api(`/api/orders/${encodeURIComponent(completeBtn.dataset.complete)}/complete`, { method: 'POST', body: {} }); toast('已确认收货'); router() }
+    catch (error) { toast(error.message) }
+    return
+  }
+
+  const reviewBtn = event.target.closest('#reviewSubmit')
+  if (reviewBtn) {
+    const product = window.__product
+    if (!product) return
+    reviewBtn.disabled = true
+    try {
+      let imageKey = ''
+      const file = document.getElementById('reviewImage')?.files?.[0]
+      if (file) {
+        const uploaded = await api('/api/reviews/image', { method: 'POST', body: undefined, raw: file })
+        imageKey = uploaded.key
+      }
+      await api('/api/reviews', { method: 'POST', body: { sku: product.sku, rating: Number(document.getElementById('reviewRating').value), content: document.getElementById('reviewContent').value, image_key: imageKey } })
+      toast('评价已提交')
+      router()
+    } catch (error) { toast(error.message) }
+    reviewBtn.disabled = false
+    return
+  }
+
+  const qtyBtn = event.target.closest('[data-qty]')
+  if (qtyBtn) {
+    const field = document.getElementById('detailQty')
+    const max = Math.min(99, window.__product?.stock || 99)
+    field.value = String(Math.max(1, Math.min(max, (Number(field.value) || 1) + Number(qtyBtn.dataset.qty))))
+    return
+  }
+
+  const addCart = event.target.closest('#addCart')
+  if (addCart) {
+    const product = window.__product
+    const qty = Number(document.getElementById('detailQty').value) || 1
+    addCart.disabled = true
+    try { await api('/api/cart', { method: 'POST', body: { sku: product.sku, qty } }); toast('已加入购物车'); await refreshCartBadge() }
+    catch (error) { toast(error.message) }
+    addCart.disabled = false
+    return
+  }
+
+  const buyNow = event.target.closest('#buyNow')
+  if (buyNow) {
+    const product = window.__product
+    const qty = Number(document.getElementById('detailQty').value) || 1
+    buyNow.disabled = true
+    try {
+      const item = await api('/api/cart', { method: 'POST', body: { sku: product.sku, qty } })
+      await api('/api/cart/check-all', { method: 'POST', body: { checked: false } })
+      await api('/api/cart', { method: 'PATCH', body: { id: item.id, checked: true } })
+      await refreshCartBadge()
+      location.hash = '#/cart'
+    } catch (error) { toast(error.message) }
+    buyNow.disabled = false
+    return
+  }
+
+  const favBtn = event.target.closest('#favBtn')
+  if (favBtn) {
+    try {
+      const result = await api('/api/favorites', { method: 'POST', body: { sku: window.__product.sku } })
+      toast(result.favorited ? '已关注' : '已取消关注')
+      favBtn.textContent = result.favorited ? '★ 已关注' : '☆ 关注'
+    } catch (error) { toast(error.message) }
+    return
+  }
+
+  const cartRow = event.target.closest('[data-act]')
+  if (cartRow) {
+    const row = cartRow.closest('[data-cart]')
+    const id = row?.dataset.cart
+    const act = cartRow.dataset.act
+    if (!id) return
+    try {
+      if (act === 'check') await api('/api/cart', { method: 'PATCH', body: { id, checked: cartRow.checked } })
+      else if (act === 'plus') await api('/api/cart', { method: 'PATCH', body: { id, qty: Math.min(99, Number(row.querySelector('input[data-act=qty]').value) + 1) } })
+      else if (act === 'minus') await api('/api/cart', { method: 'PATCH', body: { id, qty: Math.max(1, Number(row.querySelector('input[data-act=qty]').value) - 1) } })
+      else if (act === 'remove') await api(`/api/cart?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      else if (act === 'qty') { await api('/api/cart', { method: 'PATCH', body: { id, qty: Number(cartRow.value) } }); return }
+      router()
+    } catch (error) { toast(error.message); router() }
+    return
+  }
+
+  const checkout = event.target.closest('#checkoutBtn')
+  if (checkout) { await openCheckout(); return }
+
+  const checkAll = event.target.closest('#checkAll, #checkAllFoot')
+  if (checkAll) {
+    try { await api('/api/cart/check-all', { method: 'POST', body: { checked: checkAll.checked } }); router() }
+    catch (error) { toast(error.message) }
+    return
+  }
+
+  const platformBtn = event.target.closest('#emitEvent, #invokeHttp, #cronTrigger, #objUpload')
+  if (platformBtn) {
+    const id = platformBtn.id
+    platformBtn.disabled = true
+    try {
+      if (id === 'emitEvent') await api('/api/platform/emit-event', { method: 'POST', body: { detail: '来自平台页的演示文档事件' } })
+      else if (id === 'invokeHttp') await api('/api/platform/invoke-trigger', { method: 'POST', body: {} })
+      else if (id === 'cronTrigger') await api('/api/platform/run-cron', { method: 'POST', body: {} })
+      else if (id === 'objUpload') {
+        const key = document.getElementById('objKey').value.trim() || `jd/demo/note-${Date.now()}.txt`
+        await api('/api/platform/upload', { method: 'POST', body: { key, content: `SimpleBase 示例对象 ${new Date().toISOString()}` } })
+      }
+      toast('已提交，触发器会在几秒内回调')
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      router()
+    } catch (error) { toast(error.message) }
+    platformBtn.disabled = false
+    return
+  }
+
+  const addrSubmit = event.target.closest('#addrSubmit')
+  if (addrSubmit) {
+    const body = {
+      receiver: document.getElementById('addrReceiver').value,
+      phone: document.getElementById('addrPhone').value,
+      province: document.getElementById('addrProvince').value,
+      city: document.getElementById('addrCity').value,
+      district: document.getElementById('addrDistrict').value,
+      detail: document.getElementById('addrDetail').value,
+      is_default: document.getElementById('addrDefault').checked
+    }
+    try { await api('/api/addresses', { method: 'POST', body }); toast('地址已保存'); router() }
+    catch (error) { toast(error.message) }
+    return
+  }
+})
+
+document.addEventListener('change', async event => {
+  if (event.target.id === 'detailQty') {
+    const max = Math.min(99, window.__product?.stock || 99)
+    event.target.value = String(Math.max(1, Math.min(max, Number(event.target.value) || 1)))
+  }
+})
+
+document.getElementById('searchForm').addEventListener('submit', event => {
+  event.preventDefault()
+  const keyword = document.getElementById('searchInput').value.trim()
+  location.hash = keyword ? `#/products?keyword=${encodeURIComponent(keyword)}` : '#/products'
+})
+
+document.getElementById('cartBtn').onclick = () => { location.hash = '#/cart' }
+window.addEventListener('hashchange', router)
+
+router()
+refreshCartBadge()
+</script>
+</body>
+</html>

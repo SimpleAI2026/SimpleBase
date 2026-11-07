@@ -1,13 +1,24 @@
 # Design Direction
 
 ## Contents
-1. Brief questions  2. Tone catalog  3. Choosing type  4. Choosing palette  5. Writing the direction
+1. Brief questions  1b. Surface-mode questions  2. Tone catalog  3. Choosing type  4. Choosing palette  5. Writing the direction
 
 ## 1. Brief questions
 - What is the single primary action on this screen?
 - Who uses it, how often, on what device? (daily tool → density and speed; one-time visit → impression and clarity)
 - What must feel *true* about the brand (trustworthy, fast, crafted, fun)?
 - What exists already (logo, colors, fonts, component library)? Reuse before inventing.
+
+
+## 1b. Surface-mode questions (after picking Persuade / Operate / Read / Experience)
+Ask only what will change the work; skip settled facts. Two or three related questions beat a long form.
+
+- **Persuade:** who must act, what they should believe, which real proof/content/assets earn that belief, what the working primary action is (not a decorative link to it).
+- **Operate:** the task, information density, important states, frequency, constraints; brand may lend only type, palette, density, and **one signature move** — never a new navigation model.
+- **Read:** the reader's question, source material, structure, wayfinding; the world owns the frame (masthead, rail, ground), the column stays calm at ~60–75ch.
+- **Experience:** what leads from the first viewport, how exploration unfolds, which interaction or transition matters; the artifact leads, the UI recedes.
+
+Across modes: what success looks like, what must remain untouched, and which real content/assets you have (not placeholders).
 
 ## 2. Tone catalog (pick one, then commit)
 | Tone | Feels like | Typical moves |

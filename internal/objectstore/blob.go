@@ -179,6 +179,35 @@ func (c *s3Client) PutBytes(ctx context.Context, key string, data []byte, conten
 	return nil
 }
 
+// PutFile 流式上传本地文件（godatabase/blob.PutFiler，P1）：
+// 直接把文件句柄交给 S3 SDK，避免大快照整读进内存。
+func (c *s3Client) PutFile(ctx context.Context, key, path, contentType string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("objectstore: open upload source: %w", err)
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("objectstore: stat upload source: %w", err)
+	}
+	in := &s3.PutObjectInput{
+		Bucket:      aws.String(c.bucket),
+		Key:         aws.String(key),
+		Body:        f,
+		ContentLength: aws.Int64(st.Size()),
+	}
+	if contentType != "" {
+		in.ContentType = aws.String(contentType)
+	}
+	if _, err := c.api.PutObject(ctx, in); err != nil {
+		c.recordOp("put_file", "error")
+		return c.sanitizeErr(err)
+	}
+	c.recordOp("put_file", "ok")
+	return nil
+}
+
 // PutIfAbsent 仅当 key 不存在时写入；已存在返回 ErrPreconditionFailed。
 func (c *s3Client) PutIfAbsent(ctx context.Context, key string, data []byte, contentType string) (ObjectInfo, error) {
 	in := c.putIfAbsentInput(key, data, contentType)

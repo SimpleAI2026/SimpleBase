@@ -20,6 +20,8 @@ export CASE=01-project
 ```
 
 脚本成功后把新建项目 ID 写到 `PROJECT_ID_FILE`（默认 `/tmp/simplebase-examples/project_id`）。
+从第二次运行起，如果文件里的项目仍可访问，脚本复用该项目并跳过 `project create`（`run_all.sh` 会把该 ID
+传给后续示例）；传 `--fresh`（或 `FRESH=1`）才强制新建。文件里的项目来自另一个实例时自动清掉文件、回退为新建。
 
 ## 命令
 

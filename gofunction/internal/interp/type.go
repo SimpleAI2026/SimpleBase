@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	同包调用：typeChange() → call.go, frame.go 等；typeChangeCached() → eval.go, jsonrun.go；conv() → eval.go, instruction.go
+//	同包调用：typeChange() → call.go, frame.go 等；typeChangeCached() → eval.go, jsonrun.go；convSlow() → eval.go, instruction.go
 //
 // 调用架构
 //
@@ -160,7 +160,7 @@ func typeChange(typ types.Type) reflect.Type {
 }
 
 // conv 将变量v的类型转换为typ（走缓存查询 reflect 类型）
-func conv(v interface{}, typ types.Type) value.Value {
+func convSlow(v interface{}, typ types.Type) value.Value {
 	rtype := typeChangeCached(typ)
 	if v == nil {
 		return value.RValue{Value: reflect.Zero(rtype)}

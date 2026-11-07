@@ -110,6 +110,16 @@ func New(factory godatabase.Factory, resolver godatabase.PathResolver, opts Opti
 //  3. 否则由唯一的创建者调用 factory.Open；其他并发调用者等待结果，不重复打开、
 //     不在锁内做网络 I/O。
 func (r *Registry) Acquire(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode) (*Lease, error) {
+	return r.acquire(ctx, db, mode, false)
+}
+
+// AcquireBackground 后台任务专用租约：与 Acquire 相同，但不刷新 lastUsed，
+// 避免周期性后台扫描（如 KV TTL Sweeper）让句柄永远不被判为空闲（K2）。
+func (r *Registry) AcquireBackground(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode) (*Lease, error) {
+	return r.acquire(ctx, db, mode, true)
+}
+
+func (r *Registry) acquire(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode, background bool) (*Lease, error) {
 	if !db.IsSystem() && db.DatabasePath == "" && db.ProjectID != "" && r.resolver != nil {
 		path, err := r.resolver.ResolveDatabasePath(ctx, db.TenantID, db.ProjectID)
 		if err != nil {
@@ -131,20 +141,32 @@ func (r *Registry) Acquire(ctx context.Context, db godatabase.Spec, mode godatab
 		e, ok := r.entries[key]
 		if !ok {
 			if r.maxOpen > 0 && len(r.entries) >= r.maxOpen {
+				// R1：达到 maxOpen 时先同步关闭一个空闲（active==0）
+				// 且最久未用的 ready 句柄腾出容量；全部忙时才报错。
+				victim := r.evictIdleLocked()
 				r.mu.Unlock()
-				return nil, fmt.Errorf("registry: maximum open project databases reached")
+				if victim == nil {
+					return nil, fmt.Errorf("registry: maximum open project databases reached")
+				}
+				if err := r.closeHandle(victim, true); err != nil && r.logger != nil {
+					r.logger.Warn("registry: evict idle handle on overflow failed",
+						zap.String("database_id", victim.Database.ID), zap.String("err", err.Error()))
+				}
+				continue
 			}
 			e = &entry{opening: make(chan struct{})}
 			r.entries[key] = e
 			r.mu.Unlock()
-			return r.openAndAcquire(ctx, db, mode, e)
+			return r.openAndAcquire(ctx, db, mode, e, background)
 		}
 		if e.handle != nil && e.handle.isReady() {
 			e.handle.active.Add(1)
-			e.handle.touch()
+			if !background {
+				e.handle.touch()
+			}
 			r.mu.Unlock()
 			r.observeAcquire("hot", 0, nil)
-			return r.newLease(e.handle), nil
+			return r.newLease(e.handle, background), nil
 		}
 		if e.opening != nil {
 			// 有其他 goroutine 正在打开：等待其完成，不持锁等待。
@@ -165,13 +187,13 @@ func (r *Registry) Acquire(ctx context.Context, db godatabase.Spec, mode godatab
 		// 视为可重新尝试打开。
 		e.opening = make(chan struct{})
 		r.mu.Unlock()
-		return r.openAndAcquire(ctx, db, mode, e)
+		return r.openAndAcquire(ctx, db, mode, e, background)
 	}
 }
 
 // openAndAcquire 由创建者 goroutine 调用：执行 factory.Open，
 // 成功后把结果写回 entry 并唤醒等待者；失败则清理 entry 使下次可重试。
-func (r *Registry) openAndAcquire(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode, e *entry) (*Lease, error) {
+func (r *Registry) openAndAcquire(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode, e *entry, background bool) (*Lease, error) {
 	start := time.Now()
 	conn, err := r.factory.Open(ctx, db, mode)
 	r.observeAcquire("factory_open", time.Since(start), err)
@@ -190,7 +212,7 @@ func (r *Registry) openAndAcquire(ctx context.Context, db godatabase.Spec, mode 
 		return nil, fmt.Errorf("registry: open database %s: %w", db.ID, err)
 	}
 
-	handle := newHandle(db, conn, mode)
+	handle := newHandle(db, conn)
 	if hook, ok := r.factory.(godatabase.WriteHookFactory); ok {
 		hookFactory := hook
 		handle.onWrite = func(ctx context.Context, h *Handle) error {
@@ -209,7 +231,7 @@ func (r *Registry) openAndAcquire(ctx context.Context, db godatabase.Spec, mode 
 	if r.observer != nil {
 		r.observer.OpenHandleDelta(1)
 	}
-	return r.newLease(handle), nil
+	return r.newLease(handle, background), nil
 }
 
 func (r *Registry) observeAcquire(stage string, duration time.Duration, err error) {
@@ -223,12 +245,17 @@ func (r *Registry) observeAcquire(stage string, duration time.Duration, err erro
 	r.logger.Debug("registry acquire stage", fields...)
 }
 
-func (r *Registry) newLease(h *Handle) *Lease {
+func (r *Registry) newLease(h *Handle, background bool) *Lease {
 	return &Lease{
 		Handle: h,
 		release: func() {
-			h.active.Add(-1)
-			h.touch()
+			if h.active.Add(-1) == 0 {
+				// P6：归零即发布空闲通知，唤醒 Remove/Shutdown 等待方。
+				h.notifyIdleLocked()
+			}
+			if !background {
+				h.touch()
+			}
 		},
 	}
 }
@@ -238,6 +265,49 @@ func registryKey(db godatabase.Spec) string {
 		return db.ProjectID
 	}
 	return db.ID
+}
+
+// evictIdleLocked 返回一个可挤出的空闲（active==0、ready）且最久未用的句柄，
+// 并从 entries 摘除；无可挤出者返回 nil。调用方必须持有 r.mu。
+// R1：用于 Acquire 达到 maxOpen 时腾出容量。
+func (r *Registry) evictIdleLocked() *Handle {
+	var victim *Handle
+	var victimKey string
+	var victimUsed time.Time
+	for key, e := range r.entries {
+		if e.handle == nil || !e.handle.isReady() {
+			continue
+		}
+		if e.handle.active.Load() != 0 {
+			continue
+		}
+		used := e.handle.LastUsed()
+		if victim == nil || used.Before(victimUsed) {
+			victim = e.handle
+			victimKey = key
+			victimUsed = used
+		}
+	}
+	if victim != nil {
+		delete(r.entries, victimKey)
+	}
+	return victim
+}
+
+// closeHandle 关闭句柄并上报观测计数（C2：唯一关闭出口）。
+// flush=true 走 closeLocked（含 beforeClose/Flush），保证挤出前未同步写入不丢；
+// flush=false 走 closeNoFlushLocked（失租路径，multi-instance-consistency-plan §4.6）。
+func (r *Registry) closeHandle(h *Handle, flush bool) error {
+	var err error
+	if flush {
+		err = h.closeLocked()
+	} else {
+		err = h.closeNoFlushLocked()
+	}
+	if r.observer != nil {
+		r.observer.OpenHandleDelta(-1)
+	}
+	return err
 }
 
 // findEntryLocked 同时接受项目 ID 和默认 databaseID，物理条目始终按项目存储。
@@ -291,10 +361,7 @@ func (r *Registry) CloseDatabase(ctx context.Context, databaseID string) error {
 	handle := e.handle
 	r.mu.Unlock()
 
-	err := handle.closeLocked()
-	if r.observer != nil {
-		r.observer.OpenHandleDelta(-1)
-	}
+	err := r.closeHandle(handle, true)
 	return err
 }
 
@@ -315,14 +382,15 @@ func (r *Registry) Remove(databaseID string) {
 	r.mu.Unlock()
 
 	go func() {
-		// 等活跃引用清零后真正关闭（上限 30s，超时强制）。
-		deadline := time.Now().Add(30 * time.Second)
-		for handle.active.Load() > 0 && time.Now().Before(deadline) {
-			time.Sleep(50 * time.Millisecond)
-		}
-		_ = handle.closeNoFlushLocked() // 失租：跳过 beforeClose（Flush）
-		if r.observer != nil {
-			r.observer.OpenHandleDelta(-1)
+		// 等活跃引用清零后真正关闭（上限 30s，超时强制；P6：事件通知替代轮询）。
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		h := handle
+		_ = h.waitIdle(ctx)
+		// C2：统一走 closeHandle（flush=false），关闭失败记日志（此前被吞）。
+		if err := r.closeHandle(h, false); err != nil && r.logger != nil {
+			r.logger.Warn("registry: close handle after remove failed",
+				zap.String("database_id", h.Database.ID), zap.Error(err))
 		}
 	}()
 }
@@ -380,6 +448,18 @@ func (r *Registry) OpenedProjects() []string {
 	return out
 }
 
+// LastUsedOf 返回指定库句柄的最后使用时间（P5：缓存淘汰 LRU 依据）；
+// 未打开返回 false。不做网络 I/O。
+func (r *Registry) LastUsedOf(databaseID string) (time.Time, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, e, ok := r.findEntryLocked(databaseID)
+	if !ok || e.handle == nil || !e.handle.isReady() {
+		return time.Time{}, false
+	}
+	return e.handle.LastUsed(), true
+}
+
 // CloseIdle 关闭所有 active==0 且超过 idleTimeout 未使用的 ready handle。
 // 应由定时任务周期调用（建议每分钟一次）。
 func (r *Registry) CloseIdle(ctx context.Context, now time.Time) error {
@@ -403,11 +483,8 @@ func (r *Registry) CloseIdle(ctx context.Context, now time.Time) error {
 
 	var firstErr error
 	for _, h := range toClose {
-		if err := h.closeLocked(); err != nil && firstErr == nil {
+		if err := r.closeHandle(h, true); err != nil && firstErr == nil {
 			firstErr = err
-		}
-		if r.observer != nil {
-			r.observer.OpenHandleDelta(-1)
 		}
 	}
 	return firstErr
@@ -430,20 +507,14 @@ func (r *Registry) Shutdown(ctx context.Context) error {
 	var firstErr error
 	for _, e := range entries {
 		h := e.handle
-		// 等待活跃引用清零，受 ctx 超时控制。
-		for h.active.Load() > 0 {
-			select {
-			case <-ctx.Done():
-				if r.logger != nil {
-					r.logger.Warn("registry: shutdown timeout with active references, forcing close",
-						zap.String("database_id", h.Database.ID))
-				}
-				goto forceClose
-			case <-time.After(50 * time.Millisecond):
+		// 等待活跃引用清零，受 ctx 超时控制（P6：事件通知替代轮询）。
+		if !h.waitIdle(ctx) {
+			if r.logger != nil {
+				r.logger.Warn("registry: shutdown timeout with active references, forcing close",
+					zap.String("database_id", h.Database.ID))
 			}
 		}
-	forceClose:
-		if err := h.closeLocked(); err != nil {
+		if err := r.closeHandle(h, true); err != nil {
 			if r.logger != nil {
 				r.logger.Error("registry: close handle on shutdown failed",
 					zap.String("database_id", h.Database.ID), zap.String("err", err.Error()))
@@ -451,9 +522,6 @@ func (r *Registry) Shutdown(ctx context.Context) error {
 			if firstErr == nil {
 				firstErr = err
 			}
-		}
-		if r.observer != nil {
-			r.observer.OpenHandleDelta(-1)
 		}
 	}
 	return firstErr

@@ -1,9 +1,21 @@
 {
   "project": { "id": "ex-ops01", "name": "示例·运维助理" },
-  "databases": [{ "name": "ops", "migrations": "migrations", "seed": "seed/ops.sql" }],
-  "collections": [{ "database": "ops", "name": "ticket_meta", "seed": [{ "id": "ticket-demo", "owner": "demo-user", "notes": "初始化种子" }] }],
+  "databases": [{ "name": "ops", "data_model": "collection", "migrations": "migrations", "seed": "seed/ops.sql" }],
+  "collections": [
+    { "database": "ops", "name": "ticket_meta", "seed": [{ "id": "ticket-demo", "owner": "demo-user", "notes": "初始化种子" }] },
+    { "database": "ops", "name": "ops_events", "seed": [{ "id": "evt-demo-0001", "kind": "ticket", "action": "create", "detail": "种子事件：record_change 触发器演示", "at": "2026-11-01T00:00:00Z" }] }
+  ],
   "kv": "seed/kv.json",
-  "functions": [{ "name": "sla", "file": "functions/sla.go", "test": { "function_name": "Evaluate", "body": { "tickets": [] } } }],
+  "objects": [{ "dir": "seed/attachments", "prefix": "ops/attachments/" }],
+  "functions": [
+    { "name": "sla", "file": "functions/sla.go", "description": "SLA 判定与概览文案（Evaluate / Summary）", "test": { "function_name": "Evaluate", "body": { "tickets": [] } } },
+    { "name": "audit", "file": "functions/audit.go", "description": "事件触发器回调：工单变更、附件对象事件、HTTP invoke 转发给 BFF", "test": { "function_name": "OnRecord", "body": { "kind": "record_change", "target": "ticket_meta", "action": "create", "record_id": "selftest", "data": { "owner": "demo" } } } }
+  ],
+  "function_triggers": [
+    { "kind": "record_change", "target": "ops_events", "events": ["create"], "func_file": "audit", "func_export": "OnRecord", "export_source": "record_change", "enabled": true },
+    { "kind": "object_event", "target": "ops/attachments/", "events": ["upload", "delete"], "func_file": "audit", "func_export": "OnObject", "export_source": "object_event", "enabled": true },
+    { "kind": "http", "func_file": "audit", "func_export": "OnHttp", "export_source": "http", "enabled": true }
+  ],
   "cron_jobs": [{ "name": "ops_sla_scan", "schedule_kind": "cron", "cron_expr": "0 * * * *", "func_file": "sla", "func_export": "Evaluate", "input_json": "{\"tickets\":[]}", "trigger_once": true }],
   "api_keys": [
     { "label": "service", "permissions": ["database:read", "database:write"] },

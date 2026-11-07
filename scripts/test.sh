@@ -25,6 +25,14 @@ fi
 echo "==> go test ${RACE_FLAG} ${PACKAGES[*]}"
 go test ${RACE_FLAG} -timeout 300s -count=1 "${PACKAGES[@]}"
 
+# examples 快速门禁（planv6.4 examples-skill-verification §9.2）：四个站点清单必须被两种入口离线校验通过。
+if command -v python3 >/dev/null 2>&1; then
+  echo "==> examples: sbdev.py validate"
+  for c in shop community iot-telemetry ops-assistant; do
+    python3 skills/simplebase/scripts/sbdev.py validate -C "examples/$c" >/dev/null
+  done
+fi
+
 # gocloudagent / gosandbox / godatabase 是嵌套独立模块，根目录的 ./... 与上面的包列表都不含它们（planv6.2）。
 echo "==> (cd gocloudagent) go build + go vet + go test ${RACE_FLAG}"
 (cd gocloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./... && \

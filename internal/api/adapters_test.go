@@ -38,7 +38,6 @@ type stubCatalog struct {
 	createPrjEr error
 	lastPurger  catalog.StoragePurger
 	lastCloser  func(context.Context, string) error
-	closedID    string
 }
 
 func (s *stubCatalog) CreateDatabase(_ context.Context, in catalog.CreateDatabaseInput) (catalog.Database, error) {

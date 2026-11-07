@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestRuntimeUserDataAndInit(t *testing.T) {
+func TestRuntimeInitAndReset(t *testing.T) {
 	r := NewRuntime()
 	r.Initialize("")
 	if r.SequenceID == "" {
@@ -17,17 +17,9 @@ func TestRuntimeUserDataAndInit(t *testing.T) {
 	if r.SequenceID != "fixed" {
 		t.Fatalf("got %s", r.SequenceID)
 	}
-	if _, ok := r.GetUserData("k"); ok {
-		t.Fatal("missing key should be absent")
-	}
-	r.SetUserData("k", 1)
-	v, ok := r.GetUserData("k")
-	if !ok || v != 1 {
-		t.Fatalf("got %v %v", v, ok)
-	}
 	r.Reset()
-	if _, ok := r.GetUserData("k"); ok {
-		t.Fatal("reset should clear user data")
+	if r.Program != nil {
+		t.Fatal("reset should clear program")
 	}
 	r.Cleanup()
 }

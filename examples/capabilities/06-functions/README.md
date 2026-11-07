@@ -21,6 +21,7 @@ simplebase function versions create --name "greet$RUN_ID" --file greet_v2.go --n
 simplebase function test --name "greet$RUN_ID" --version 2 --export Greet --input '{"name":"simplebase"}'
 simplebase function activate --name "greet$RUN_ID" --version 2
 simplebase function invoke --name "greet$RUN_ID" --export Greet --input '{"name":"simplebase"}'
+simplebase function delete --name "greet$RUN_ID"   # 用例结束时清理
 ```
 
 助手模式不能读宿主机路径，要改成 `--file -` 并把源码放进 stdin。人类 CLI 可以直接传文件。

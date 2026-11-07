@@ -1,4 +1,4 @@
-// 文件说明：spec.go — 父进程（host）与沙盒内 helper（cmd/gosandbox-inner）之间的协议
+// 文件说明：spec.go — 父进程（host）与沙盒内 helper（cmd，产物名 gosandbox-inner）之间的协议
 //
 // 用法
 //

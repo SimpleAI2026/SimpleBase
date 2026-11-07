@@ -122,7 +122,7 @@ func unop(instr *ssa.UnOp, x value.Value) value.Value {
 		}
 		return value.NewRValueOf(v)
 	}
-	return conv(result, instr.Type())
+	return convSlow(result, instr.Type())
 }
 
 // binop 二元表达式求值
@@ -280,7 +280,7 @@ func binop(instr *ssa.BinOp, x, y value.Value) value.Value {
 			result = x.Uint() >= y.Uint()
 		}
 	}
-	return conv(result, instr.Type())
+	return convSlow(result, instr.Type())
 }
 
 // binopFast 数值运算免装箱快路径。
@@ -554,7 +554,7 @@ func constValue(c *ssa.Const) value.Value {
 	default:
 		panic(fmt.Sprintf("constValue: %s", c))
 	}
-	return conv(val, c.Type())
+	return convSlow(val, c.Type())
 }
 
 // callOp 函数调用语句执行

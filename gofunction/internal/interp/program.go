@@ -56,18 +56,35 @@ type Program struct {
 	globals   map[ssa.Value]*value.Value // 全局变量地址（不可变映射）
 	importPkg []string                   // 导入的包信息
 	importer  *importer.Importer         // 包导入器（解析外部对象）
+	// globalsMu 保护 globals 的并发读写（B1）：
+	// 同一 Program 可被并发 Run，脚本对包级变量的 Store 直接写此表。
+	globalsMu sync.RWMutex
 	// constCache *ssa.Const -> value.Value 求值缓存（SSA 常量为稳定单例，值恒定）。
 	// 仅缓存基础类型；复合零值保持每次新建，避免共享可变结构。
 	// 并发 Run 同一 Program 时懒填充，须并发安全。
-	constCache sync.Map
-	// funcCache *ssa.Function -> value.Value 包装缓存（makeFunc 反射包装昂贵且幂等）
-	funcCache sync.Map
+	// B2：指针字段——fork 共享同一实例（只增不改），避免 sync.Map 值复制。
+	constCache *sync.Map
 	// blockCache *ssa.BasicBlock -> *compiledBlock 预编译指令分发表（P2-1）。
 	// BuildProgram 后预热，运行期只读；漏网块由 getCompiledBlock 惰性编译。
-	blockCache sync.Map
+	// B2：指针字段，fork 共享（同 constCache）。
+	blockCache *sync.Map
 	// layoutCache *ssa.Function -> *funcLayout 槽位布局（P3-1）。
 	// SSA 构建后函数结构不变，布局不可变，并发 Run 只读共享。
-	layoutCache sync.Map
+	// B2：指针字段，fork 共享（同 constCache）。
+	layoutCache *sync.Map
+}
+
+// initCaches 惰性初始化指针缓存（零值 Program 兼容手工构造场景）。
+func (p *Program) initCaches() {
+	if p.constCache == nil {
+		p.constCache = &sync.Map{}
+	}
+	if p.blockCache == nil {
+		p.blockCache = &sync.Map{}
+	}
+	if p.layoutCache == nil {
+		p.layoutCache = &sync.Map{}
+	}
 }
 
 // autoImport 自动添加import语句
@@ -115,13 +132,21 @@ func BuildProgram(seqid, fname, sourceCode string, packages ...*ssa.Package) (*P
 	if err != nil {
 		return nil, err
 	}
-	context := newCallContext()
+	// B1 修复：init 阶段 frame 用不可取消的裸 Context。
+	// 此前用 newCallContext() 且 BuildProgram 结束即 cancelFunc()——
+	// 包级初始化中构造的函数值/全局闭包捕获该 context，随后的任意
+	// Run 调用它们必然 panic "context canceled"（探针 TestProbeStaleContext
+	// 复现，属既有 bug）。裸 Context 无截止时间，闭包语义随 Program 存续。
+	// 注意：经此 Context 执行的代码不受超时/中断约束——init 阶段本就预期
+	// 短小且可信；运行期超时由每次 Run 的 callContext 负责。
+	context := &Context{Context: context.Background()}
 	program := &Program{
 		mainPkg:   mainPkg,
 		globals:   make(map[ssa.Value]*value.Value),
 		importPkg: importPkg,
 		importer:  packageImporter,
 	}
+	program.initCaches()
 	value.ExternalValueWrap(packageImporter, mainPkg)
 	program.initGlobal()
 	fr := &frame{
@@ -140,8 +165,72 @@ func BuildProgram(seqid, fname, sourceCode string, packages ...*ssa.Package) (*P
 	}
 	// 预编译全部基本块（P2-1）：消除运行期类型 switch 分发开销
 	compileProgram(program)
-	context.cancelFunc()
 	return program, nil
+}
+
+// compileOnly 编译源码但不执行 init、不初始化 globals（B2 两阶段编译）。
+// 产物不可变部分（SSA、布局、块缓存）可被复用 Program 共享；
+// 每次 Run 前由 replayInit 重建可变状态，语义与 BuildProgram 一致。
+func compileOnly(seqid, fname, sourceCode string, packages ...*ssa.Package) (*Program, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, fname+".go", sourceCode, parser.AllErrors)
+	if err != nil {
+		return nil, err
+	}
+	files := []*ast.File{f}
+
+	importPkg := autoImport(f)
+	pkg := types.NewPackage(f.Name.Name, f.Name.Name)
+
+	packageImporter := importer.NewImporter(packages...)
+	mode := ssa.SanityCheckFunctions | ssa.BareInits
+	mainPkg, _, err := ssautil.BuildPackage(
+		&types.Config{Importer: packageImporter}, fset, pkg, files, mode)
+	if err != nil {
+		return nil, err
+	}
+	program := &Program{
+		mainPkg:   mainPkg,
+		globals:   make(map[ssa.Value]*value.Value),
+		importPkg: importPkg,
+		importer:  packageImporter,
+	}
+	program.initCaches()
+	value.ExternalValueWrap(packageImporter, mainPkg)
+	compileProgram(program)
+	return program, nil
+}
+
+// fork 从缓存的编译产物派生一个可独立运行的 Program 实例（B2）。
+// 共享不可变部分（SSA、importer、布局/块/常量缓存——均只读或
+// sync.Map 并发安全），复制可变的 globals 容器；随后由调用方执行
+// replayInit 重建全局状态。每次 RunJSON 命中缓存 fork 一个，
+// 并发请求之间互不干扰，语义与全量 BuildProgram 一致。
+func (p *Program) fork() *Program {
+	return &Program{
+		mainPkg:     p.mainPkg,
+		globals:     make(map[ssa.Value]*value.Value),
+		importPkg:   p.importPkg,
+		importer:    p.importer,
+		constCache:  p.constCache,  // *sync.Map：共享同一实例（只增不改）
+		blockCache:  p.blockCache,  // 同上
+		layoutCache: p.layoutCache, // 同上
+	}
+}
+
+// replayInit 为派生实例重放包级初始化（与 BuildProgram 执行序一致）。
+// 依赖包 init 参数仅 BuildProgram 显式传入 packages 时有意义；RunJSON
+// 缓存路径恒为 nil（宿主不传预编译包）。
+func (p *Program) replayInit(seqid string) {
+	p.initGlobal()
+	fr := &frame{
+		program: p,
+		context: &Context{Context: context.Background()},
+		seqid:   seqid,
+	}
+	if init := p.mainPkg.Func("init"); init != nil {
+		callSSA(fr, init, nil, nil)
+	}
 }
 
 // Run 执行函数
@@ -215,6 +304,8 @@ func deadlineOf(ctx *Context) time.Time {
 }
 
 func (p *Program) initGlobal() {
+	p.globalsMu.Lock()
+	defer p.globalsMu.Unlock()
 	for _, v := range p.mainPkg.Members {
 		if g, ok := v.(*ssa.Global); ok {
 			// 与 SSA 一致：全局符号类型为 *T，存储指向单元的指针
@@ -232,6 +323,8 @@ func (p *Program) SetGlobalValue(name string, val interface{}) error {
 		return fmt.Errorf("global Value %s not found", name)
 	}
 	src := reflect.ValueOf(val)
+	p.globalsMu.Lock()
+	defer p.globalsMu.Unlock()
 	if cell, exists := p.globals[g]; exists && cell != nil {
 		rv := (*cell).RValue()
 		if rv.Kind() == reflect.Ptr && rv.Elem().IsValid() {
@@ -258,7 +351,10 @@ func (p *Program) GetGlobalValue(name string) (interface{}, error) {
 	if !ok {
 		return nil, fmt.Errorf("global Value %s not found", name)
 	}
-	if gv, ok := p.globals[g]; ok && gv != nil && *gv != nil {
+	p.globalsMu.RLock()
+	gv, ok := p.globals[g]
+	p.globalsMu.RUnlock()
+	if ok && gv != nil && *gv != nil {
 		rv := (*gv).RValue()
 		if rv.Kind() == reflect.Ptr {
 			if rv.IsNil() {

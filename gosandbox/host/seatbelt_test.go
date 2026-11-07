@@ -165,6 +165,53 @@ func TestSeatbeltArgsShape(t *testing.T) {
 	}
 }
 
+// mach-lookup 只放行白名单；不再有无条件的 (allow mach-lookup)。
+func TestSeatbeltMachLookupAllowlist(t *testing.T) {
+	profile, _, err := seatbeltProfile(seatbeltPolicy(), "/home/u", fakeExists())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(profile, "(allow mach-lookup)") {
+		t.Fatalf("unrestricted mach-lookup must be gone:\n%s", profile)
+	}
+	for _, name := range SeatbeltMachServices {
+		if !strings.Contains(profile, `(global-name "`+name+`")`) {
+			t.Fatalf("missing %s:\n%s", name, profile)
+		}
+	}
+	if strings.Contains(profile, "pasteboard") || strings.Contains(profile, "launchservicesd") {
+		t.Fatalf("pasteboard / LaunchServices must not be allowed:\n%s", profile)
+	}
+}
+
+// macOS 默认凭据禁读表：作为 literal 条目追加在用户 DenyRead 之后；覆盖工作区的条目被跳过；可关闭。
+func TestSeatbeltDefaultDenyRead(t *testing.T) {
+	p := seatbeltPolicy()
+	_, params, err := seatbeltProfile(p, "/home/u", fakeExists())
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(params, "\n") + "\n"
+	for _, want := range []string{"D0=/home/u/.ssh\n", "=/home/u/.aws\n", "=/home/u/Library/Keychains\n"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q: %v", want, params)
+		}
+	}
+	// 工作区就在 ~/.aws 里：该条目跳过，否则命令读不了自己的工作区。
+	inside := p
+	inside.Workspace = "/home/u/.aws/proj"
+	_, params, _ = seatbeltProfile(inside, "/home/u", fakeExists())
+	if strings.Contains(strings.Join(params, "\n")+"\n", "=/home/u/.aws\n") {
+		t.Fatalf("entry covering the workspace must be skipped: %v", params)
+	}
+	off := p
+	off.DisableDefaultDenyRead = true
+	_, params, _ = seatbeltProfile(off, "/home/u", fakeExists())
+	if strings.Contains(strings.Join(params, "\n"), "/home/u/.aws") {
+		t.Fatalf("DisableDefaultDenyRead must drop the table: %v", params)
+	}
+}
+
 func TestSeatbeltProfileNotIsolated(t *testing.T) {
 	for name, p := range map[string]Policy{
 		"disabled": {Workspace: "/work/ws"},

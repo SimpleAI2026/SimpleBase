@@ -200,7 +200,7 @@ type upsertCronJobBody struct {
 func (h *CronJobHandler) List(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -244,7 +244,7 @@ func (h *CronJobHandler) List(c echo.Context) error {
 func (h *CronJobHandler) Get(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -273,7 +273,7 @@ func (h *CronJobHandler) Get(c echo.Context) error {
 func (h *CronJobHandler) Create(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -323,7 +323,7 @@ func (h *CronJobHandler) Create(c echo.Context) error {
 func (h *CronJobHandler) Update(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -409,7 +409,7 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 func (h *CronJobHandler) Delete(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -436,7 +436,7 @@ func (h *CronJobHandler) Delete(c echo.Context) error {
 func (h *CronJobHandler) ListRuns(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -457,7 +457,7 @@ func (h *CronJobHandler) ListRuns(c echo.Context) error {
 func (h *CronJobHandler) Trigger(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)

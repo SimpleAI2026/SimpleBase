@@ -138,7 +138,9 @@ func runStore(fr *frame, instr *ssa.Store) step {
 			elem.Set(src.Convert(elem.Type()))
 		}
 	case *ssa.Global:
+		fr.program.globalsMu.RLock()
 		cell, ok := fr.program.globals[addr]
+		fr.program.globalsMu.RUnlock()
 		if !ok || cell == nil {
 			panic(fmt.Sprintf("store: global %s not initialized", addr.Name()))
 		}
@@ -151,7 +153,9 @@ func runStore(fr *frame, instr *ssa.Store) step {
 				dst.Elem().Set(src.Convert(dst.Elem().Type()))
 			}
 		} else {
+			fr.program.globalsMu.Lock()
 			fr.program.globals[addr] = &val
+			fr.program.globalsMu.Unlock()
 		}
 	case *ssa.IndexAddr:
 		index := int(fr.get(addr.Index).Int())
@@ -278,7 +282,7 @@ func runPhi(fr *frame, instr *ssa.Phi) step {
 }
 
 func runConvert(fr *frame, instr *ssa.Convert) step {
-	fr.set(instr, conv(fr.get(instr.X).Interface(), instr.Type()))
+	fr.set(instr, convSlow(fr.get(instr.X).Interface(), instr.Type()))
 	return stepNext
 }
 

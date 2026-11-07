@@ -1,9 +1,20 @@
 {
   "project": { "id": "ex-shop1", "name": "示例·电商" },
-  "databases": [{ "name": "shop", "migrations": "migrations", "seed": "seed/shop.sql" }],
+  "databases": [{ "name": "shop", "data_model": "collection", "migrations": "migrations", "seed": "seed/shop.sql" }],
+  "collections": [
+    { "database": "shop", "name": "shop_events", "seed": [{ "id": "evt-demo-0001", "kind": "order", "action": "create", "detail": "种子事件：record_change 触发器演示", "at": "2026-11-01T00:00:00Z" }] }
+  ],
   "kv": "seed/kv.json",
   "objects": [{ "dir": "seed/images", "prefix": "products/" }],
-  "functions": [{ "name": "pricing", "file": "functions/pricing.go", "test": { "function_name": "Quote", "body": { "items": [] } } }],
+  "functions": [
+    { "name": "pricing", "file": "functions/pricing.go", "description": "下单算价与每日窗口（Quote / Tick）", "test": { "function_name": "Quote", "body": { "items": [] } } },
+    { "name": "audit", "file": "functions/audit.go", "description": "事件触发器回调：订单事件、商品图片对象事件、HTTP invoke 转发给 BFF", "test": { "function_name": "OnRecord", "body": { "kind": "record_change", "target": "shop_events", "action": "create", "record_id": "selftest", "data": { "kind": "order" } } } }
+  ],
+  "function_triggers": [
+    { "kind": "record_change", "target": "shop_events", "events": ["create"], "func_file": "audit", "func_export": "OnRecord", "export_source": "record_change", "enabled": true },
+    { "kind": "object_event", "target": "products/", "events": ["upload", "delete"], "func_file": "audit", "func_export": "OnObject", "export_source": "object_event", "enabled": true },
+    { "kind": "http", "func_file": "audit", "func_export": "OnHttp", "export_source": "http", "enabled": true }
+  ],
   "cron_jobs": [{ "name": "shop_daily", "schedule_kind": "cron", "cron_expr": "0 1 * * *", "func_file": "pricing", "func_export": "Tick", "input_json": "{}", "trigger_once": true }],
   "api_keys": [{ "label": "service", "permissions": ["database:read", "database:write"] }]
 }

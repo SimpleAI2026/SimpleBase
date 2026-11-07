@@ -10,6 +10,14 @@ config.yaml
 **/node_modules/
 .cache
 **/.vite/
+# Python 缓存与虚拟环境（skills/ 下的脚本会生成 __pycache__）
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # ─── 本地运行时数据（DuckLake / S3 本地盘）───────────
 /data/
@@ -33,11 +41,23 @@ config.yaml
 /fakellm-server
 /build/
 /main
+/main_linux
+/main_other
 *.test
 *.log
 *.tsbuildinfo
 cov.out
 /output/
+/server
+# 子模块里 `go build` 不带 -o 时会落在包目录，产物名与包名一致
+/godatabase/godb
+/godatabase/godb-cli
+/godatabase/main
+/gosandbox/main
+/gosandbox/main_other
+/gosandbox/main_linux
+/gocloudagent/gocloudagent
+/gofunction/gofunction
 
 # ─── 前端构建产物（build.sh：ui/dist → internal/web/dist → go:embed）───
 # .keep 必须入库：目录为空时 //go:embed all:dist 编译失败。

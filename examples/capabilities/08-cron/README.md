@@ -21,6 +21,7 @@ simplebase cron get --id "$JOB"
 simplebase cron trigger --id "$JOB"
 simplebase cron runs --id "$JOB"
 simplebase cron delete --id "$JOB"
+simplebase function delete --name "tick$RUN_ID"   # 用例结束时清理目标函数
 ```
 
 `cron trigger` 和 `cron delete` 在云助手里需要确认。调度器没启动时触发返回 `cron_scheduler_unavailable`。

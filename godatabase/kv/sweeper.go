@@ -133,7 +133,23 @@ func (s *Sweeper) sweepProject(ctx context.Context, projectID string) (int64, er
 	if !ok || db.IsSystem() {
 		return 0, nil
 	}
-	lease, err := s.reg.Acquire(ctx, db, godatabase.ReadWrite)
+	// K2：先用后台只读租约探测（不刷新 lastUsed）：无 KV 表或无过期 key
+	// 时直接返回，不取写租约；有过期 key 时才升级为写租约清扫。
+	probe, err := s.reg.AcquireBackground(ctx, db, godatabase.ReadOnly)
+	if err != nil {
+		return 0, err
+	}
+	ro := New(probe.Handle.Conn())
+	has, err := ro.HasSchema(ctx)
+	if err == nil && has {
+		has, err = ro.HasExpired(ctx)
+	}
+	probe.Release()
+	if err != nil || !has {
+		return 0, err
+	}
+
+	lease, err := s.reg.AcquireBackground(ctx, db, godatabase.ReadWrite)
 	if err != nil {
 		return 0, err
 	}
@@ -145,10 +161,6 @@ func (s *Sweeper) sweepProject(ctx context.Context, projectID string) (int64, er
 			lease.Handle.NotifyWrite(ctx)
 		}
 	}))
-	has, err := store.HasSchema(ctx)
-	if err != nil || !has {
-		return 0, err
-	}
 	err = store.Update(ctx, func(tx *Tx) error {
 		var derr error
 		n, derr = tx.DeleteExpired(ctx)

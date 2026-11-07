@@ -69,7 +69,7 @@ func TestQuotaHandler(t *testing.T) {
 	t.Run("missing_project", func(t *testing.T) {
 		e := setupPlan79Router(t, &fakeUsage{}, nil, false)
 		rec := doRequest(e, http.MethodGet, "/quota", nil)
-		if rec.Code != http.StatusInternalServerError {
+		if rec.Code != http.StatusBadRequest || !contains(rec.Body.String(), `"invalid_request"`) {
 			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 		}
 	})
@@ -99,7 +99,7 @@ func TestAuditHandler(t *testing.T) {
 	t.Run("missing_project", func(t *testing.T) {
 		e := setupPlan79Router(t, nil, &fakeAudit{}, false)
 		rec := doRequest(e, http.MethodGet, "/audit", nil)
-		if rec.Code != http.StatusInternalServerError {
+		if rec.Code != http.StatusBadRequest || !contains(rec.Body.String(), `"invalid_request"`) {
 			t.Fatalf("status=%d", rec.Code)
 		}
 	})

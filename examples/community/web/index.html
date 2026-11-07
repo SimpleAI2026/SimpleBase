@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>社区 · 示例</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%236741d9'/%3E%3Ctext x='16' y='23' font-size='17' font-family='Helvetica,Arial' fill='%23fff' text-anchor='middle'%3E社%3C/text%3E%3C/svg%3E">
+<style>
+  :root { --ink: #191b23; --ink2: #4f5462; --ink3: #8b90a0; --line: #e6e8ef; --purple: #6741d9; --bg: #f6f6fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", Helvetica, Arial, sans-serif; }
+  header { background: #fff; border-bottom: 1px solid var(--line); }
+  header .inner { max-width: 1120px; margin: 0 auto; padding: 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 0; font-size: 12px; color: var(--ink3); }
+  header .spacer { flex: 1; }
+  main { max-width: 1120px; margin: 0 auto; padding: 16px; }
+  .panel { background: #fff; border-radius: 9px; padding: 16px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 12px; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+  .panel h2 .more { margin-left: auto; font-size: 12px; color: var(--ink3); font-weight: 400; }
+  .posts { display: grid; gap: 10px; }
+  .post { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .post h3 { margin: 0 0 4px; font-size: 14px; }
+  .post p { margin: 0; font-size: 13px; color: var(--ink2); }
+  .post .meta { margin-top: 8px; font-size: 12px; color: var(--ink3); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed #f0f1f6; }
+  .row:last-child { border-bottom: none; }
+  .row .value { color: var(--ink3); max-width: 58%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--ink3); font-weight: 500; }
+  code { background: #f1f0f9; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 9px; background: #f1f0f9; color: var(--purple); }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: #fff; border-radius: 5px; padding: 7px 14px; color: var(--ink2); }
+  button.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  input, textarea { font: inherit; border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; }
+  .empty { color: var(--ink3); text-align: center; padding: 16px 0; }
+  .toast { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); background: rgba(0,0,0,.82); color: #fff; padding: 9px 16px; border-radius: 5px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.on { opacity: 1; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header><div class="inner">
+  <div>
+    <h1>示例·社区</h1>
+    <p>文档与 SQL 同库、附件对象、热榜 KV、发帖校验云函数、触发器审计</p>
+  </div>
+  <span class="spacer"></span>
+  <span class="tag">项目 ex-cmty1</span>
+</div></header>
+<main id="app"></main>
+<div class="toast" id="toast"></div>
+<script>
+const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    method: options.method || 'GET',
+    headers: { 'content-type': 'application/json' },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body)
+  })
+  const text = await res.text()
+  let data
+  try { data = text ? JSON.parse(text) : null } catch { data = text }
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
+  return data
+}
+
+let toastTimer
+function toast(message) {
+  const el = document.getElementById('toast')
+  el.textContent = message
+  el.classList.add('on')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => el.classList.remove('on'), 2200)
+}
+
+async function render() {
+  const [posts, platform, hot] = await Promise.all([api('/api/posts'), api('/api/platform'), api('/api/hot')])
+
+  const postCards = posts.map(post => `<div class="post">
+    <h3>${esc(post.title)}</h3>
+    <p>${esc(post.body)}</p>
+    <div class="meta">
+      <span>${esc(post.author || '匿名')}</span>
+      ${post.attachment_key ? `<span><code>${esc(post.attachment_key)}</code></span>` : ''}
+      ${post.summary ? `<span class="tag">AI 摘要：${esc(String(post.summary).slice(0, 40))}</span>` : ''}
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <button data-like="${esc(post.id)}">点赞</button>
+        <button data-summary="${esc(post.id)}">LLM 摘要</button>
+        <button data-delete="${esc(post.id)}">删除</button>
+      </span>
+    </div>
+  </div>`).join('')
+
+  const hotRows = (hot || []).map(item => `<div class="row">
+    <span><code>${esc(item.id)}</code></span>
+    <span class="value">热度 ${esc(item.score)}</span>
+  </div>`).join('')
+
+  const kvRows = (platform.kv || []).map(item => `<div class="row">
+    <span><code>${esc(item.key)}</code> <span style="color:#8b90a0;font-size:12px">${esc(item.type)}${Number(item.ttl) > 0 ? ` · TTL ${item.ttl}s` : ''}</span></span>
+    <span class="value">${esc(item.value || '')}</span>
+  </div>`).join('')
+
+  const objectRows = (platform.objects || []).map(item => `<div class="row">
+    <span><code>${esc(item.key)}</code></span>
+    <span class="value">${item.size ? `${(item.size / 1024).toFixed(1)} KB` : '—'}</span>
+  </div>`).join('')
+
+  const functionRows = (platform.functions || []).map(fn => `<div class="row">
+    <span><code>${esc(fn.name)}</code> <span style="color:#8b90a0;font-size:12px">v${fn.latest_version}</span></span>
+    <span class="value">${esc((fn.exports || []).join(', '))}</span>
+  </div>`).join('')
+
+  const cronRows = (platform.cron_jobs || []).map(job => `<div class="row">
+    <span><code>${esc(job.name)}</code> <span style="color:#8b90a0;font-size:12px">${esc(job.schedule_kind === 'interval' ? `每 ${job.interval_seconds}s` : job.cron_expr)}</span></span>
+    <span class="value">${esc(job.func_file)}.${esc(job.func_export)}</span>
+  </div>`).join('')
+
+  const triggerRows = (platform.triggers || []).map(item => `<div class="row">
+    <span><code>${esc(item.kind)}</code> <span style="color:#8b90a0;font-size:12px">${esc(item.target || '(invoke)')}</span></span>
+    <span class="value">${esc(item.func_file)}.${esc(item.func_export)} · ${item.enabled ? '启用' : '停用'}</span>
+  </div>`).join('')
+
+  const auditCalls = (platform.audit_calls || []).map(item => `<span class="tag">${esc(item.source)} ${item.c}</span>`).join(' ')
+  const auditRows = (platform.audit || []).map(item => `<tr>
+    <td><code>${esc(item.source)}</code></td>
+    <td>${esc(item.action)}</td>
+    <td>${esc(item.detail)}</td>
+    <td>${esc(String(item.created_at).replace('T', ' ').slice(0, 19))}</td>
+  </tr>`).join('')
+
+  document.getElementById('app').innerHTML = `
+    <div class="panel">
+      <h2>帖子 <span class="more">${posts.length} 篇</span></h2>
+      ${postCards || '<div class="empty">还没有帖子</div>'}
+      <div class="actions">
+        <input id="postTitle" placeholder="标题" style="min-width:160px">
+        <input id="postBody" placeholder="正文（含 spam 会被函数拒绝）" style="min-width:260px">
+        <button class="primary" id="createPost">发帖</button>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>热榜 <span class="more">KV zset rank:hot</span></h2>
+        ${hotRows || '<div class="empty">还没有热度</div>'}
+      </div>
+      <div class="panel">
+        <h2>Key-Value <span class="more">${(platform.kv || []).length} 个键</span></h2>
+        ${kvRows || '<div class="empty">暂无键</div>'}
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>附件对象 <span class="more">${(platform.objects || []).length} 个 · posts/</span></h2>
+        ${objectRows || '<div class="empty">暂无对象</div>'}
+        <div class="actions"><button id="uploadAttachment">上传附件</button></div>
+      </div>
+      <div class="panel">
+        <h2>云函数 <span class="more">${(platform.functions || []).length} 个</span></h2>
+        ${functionRows || '<div class="empty">暂无函数</div>'}
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>定时任务 <span class="more">${(platform.cron_jobs || []).length} 个</span></h2>
+        ${cronRows || '<div class="empty">暂无任务</div>'}
+        <div class="actions"><button id="runCron">立即触发 community_hot</button></div>
+      </div>
+      <div class="panel">
+        <h2>事件触发器 <span class="more">${(platform.triggers || []).length} 个 · 丢弃 ${platform.dropped || 0}</span></h2>
+        ${triggerRows || '<div class="empty">暂无触发器</div>'}
+        <div class="actions">
+          <button class="primary" id="emitEvent">写一条平台事件</button>
+          <button id="invokeHttp">invoke HTTP 触发器</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>触发器审计 <span class="more">${platform.audit_total || 0} 条 ${auditCalls}</span></h2>
+      ${auditRows ? `<table><thead><tr><th>来源</th><th>动作</th><th>详情</th><th>时间</th></tr></thead><tbody>${auditRows}</tbody></table>` : '<div class="empty">暂无记录，先发帖或上传附件</div>'}
+    </div>`
+}
+
+document.addEventListener('click', async event => {
+  const like = event.target.dataset?.like
+  if (like) {
+    try { await api(`/api/posts/${encodeURIComponent(like)}/likes`, { method: 'POST', body: {} }); toast('已点赞'); await render() }
+    catch (error) { toast(error.message) }
+    return
+  }
+  const summary = event.target.dataset?.summary
+  if (summary) {
+    try { const data = await api(`/api/posts/${encodeURIComponent(summary)}/summary`, { method: 'POST', body: {} }); toast(`摘要：${data.summary.slice(0, 30)}`); await render() }
+    catch (error) { toast(error.message) }
+    return
+  }
+  const remove = event.target.dataset?.delete
+  if (remove) {
+    try { await api(`/api/posts/${encodeURIComponent(remove)}`, { method: 'DELETE' }); toast('已删除'); await render() }
+    catch (error) { toast(error.message) }
+    return
+  }
+
+  const id = event.target.id
+  if (!id) return
+  const button = event.target
+  const run = async (message, action) => {
+    button.disabled = true
+    try {
+      await action()
+      toast(message)
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      await render()
+    } catch (error) { toast(error.message) }
+    button.disabled = false
+  }
+
+  if (id === 'createPost') {
+    const title = document.getElementById('postTitle').value.trim()
+    const body = document.getElementById('postBody').value.trim()
+    await run('已发帖', () => api('/api/posts', { method: 'POST', body: { title: title || '示例标题', body: body || '示例正文' } }))
+    return
+  }
+  if (id === 'uploadAttachment') { await run('附件已上传', () => api('/api/platform/upload', { method: 'POST', body: { key: `posts/demo/note-${Date.now()}.txt` } })); return }
+  if (id === 'emitEvent') { await run('平台事件已写入', () => api('/api/platform/emit-event', { method: 'POST', body: { detail: '来自社区页的演示事件' } })); return }
+  if (id === 'invokeHttp') { await run('HTTP 触发器已入队', () => api('/api/platform/invoke-trigger', { method: 'POST', body: {} })); return }
+  if (id === 'runCron') { await run('定时任务已触发', () => api('/api/platform/run-cron', { method: 'POST', body: {} })); return }
+})
+
+render().catch(error => {
+  document.getElementById('app').innerHTML = `<div class="panel"><div class="empty">加载失败：${esc(error.message)}</div></div>`
+})
+</script>
+</body>
+</html>

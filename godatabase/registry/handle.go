@@ -55,11 +55,14 @@ type Handle struct {
 
 	conn *sql.DB
 
-	mode      godatabase.AccessMode
 	state     atomic.Uint32
 	active    atomic.Int64
 	lastUsed  atomic.Int64 // UnixNano
 	closeOnce sync.Once
+
+	// P6：active 归零时关闭 idleDone 通知等待方，
+	// 替代 Remove/Shutdown 的 50ms 轮询。首次归零前为 nil。
+	idleDone atomic.Pointer[chan struct{}]
 
 	// onWrite 在写成功后回调（CatalogSyncer.MarkDirty 等）；只读 Query 不触发。
 	onWrite func(ctx context.Context, h *Handle) error
@@ -67,15 +70,45 @@ type Handle struct {
 	beforeClose func(ctx context.Context, h *Handle) error
 }
 
-func newHandle(db godatabase.Spec, conn *sql.DB, mode godatabase.AccessMode) *Handle {
+func newHandle(db godatabase.Spec, conn *sql.DB) *Handle {
 	h := &Handle{
 		Database: db,
 		conn:     conn,
-		mode:     mode,
 	}
 	h.state.Store(uint32(stateReady))
 	h.touch()
 	return h
+}
+
+// notifyIdleLocked 在 active 变为 0 时（且仅一次）发布空闲通知。
+func (h *Handle) notifyIdleLocked() {
+	if ch := h.idleDone.Load(); ch != nil {
+		close(*ch)
+		h.idleDone.Store(nil)
+	}
+}
+
+// waitIdle 等待活跃引用清零（P6：事件通知，替代轮询）；受 ctx 控制。
+func (h *Handle) waitIdle(ctx context.Context) bool {
+	for {
+		if h.active.Load() == 0 {
+			return true
+		}
+		ch := make(chan struct{})
+		h.idleDone.Store(&ch)
+		// 存储后再检查一次，防止 Release 在 Store 前完成导致永久阻塞。
+		if h.active.Load() == 0 {
+			h.idleDone.Store(nil)
+			return true
+		}
+		select {
+		case <-*h.idleDone.Load():
+			continue
+		case <-ctx.Done():
+			h.idleDone.Store(nil)
+			return false
+		}
+	}
 }
 
 func (h *Handle) touch() {

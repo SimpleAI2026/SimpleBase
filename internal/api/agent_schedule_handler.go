@@ -111,7 +111,7 @@ func toAgentScheduleRunDTO(r systemdb.AgentScheduleRun) agentScheduleRunDTO {
 func (h *agentScheduleHandler) ListSchedules(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	list, err := h.store.ListAgentSchedules(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -132,7 +132,7 @@ func (h *agentScheduleHandler) ListSchedules(c echo.Context) error {
 func (h *agentScheduleHandler) GetSchedule(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	sc, err := h.store.GetAgentSchedule(c.Request().Context(), pc.ID, c.Param("scheduleID"))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -147,7 +147,7 @@ func (h *agentScheduleHandler) GetSchedule(c echo.Context) error {
 func (h *agentScheduleHandler) ListScheduleRuns(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if _, err := h.store.GetAgentSchedule(c.Request().Context(), pc.ID, c.Param("scheduleID")); errors.Is(err, sql.ErrNoRows) {
 		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "schedule not found"))

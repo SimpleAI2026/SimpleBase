@@ -51,6 +51,9 @@ type Result struct {
 	TimedOut        bool
 	// Limits 如实报告资源限额是否生效。
 	Limits Limits
+	// LimitExceeded 非空表示命令因超出限额被终止（"memory" | "pids"），目前仅 macOS 的监控后端填写；
+	// 此时 ExitCode 为 128+9。
+	LimitExceeded string
 	// Warnings 是安全相关的提示（如强制 deny 表被关闭），调用方应原样上报，不要吞掉。
 	Warnings []string
 	// Duration 是从启动 bwrap 到结束的耗时。

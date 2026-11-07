@@ -31,8 +31,9 @@ func (s *FileSyncer) PrepareRestore(projectID string) error {
 		return err
 	}
 	s.mu.Lock()
-	s.restored[projectID] = true
-	s.dirty[projectID] = true
+	st := s.stateOfLocked(projectID)
+	st.restored = true
+	st.gen++
 	s.mu.Unlock()
 	return nil
 }

@@ -1,13 +1,22 @@
 {
   "project": { "id": "ex-cmty1", "name": "示例·社区" },
-  "databases": [
-    { "name": "community", "migrations": "migrations", "seed": "seed/community.sql" },
-    { "name": "media", "migrations": "media-migrations" }
+  "databases": [{ "name": "community", "data_model": "collection", "migrations": "migrations", "seed": "seed/community.sql" }],
+  "collections": [
+    { "database": "community", "name": "posts", "seed": [{ "id": "demo", "title": "欢迎", "body": "欢迎来到示例社区", "author": "demo-user", "attachment_key": "posts/demo/welcome.txt" }] },
+    { "database": "community", "name": "platform_events", "seed": [{ "id": "evt-demo-0001", "title": "种子事件", "body": "平台页写事件会触发 record_change", "author": "seed", "at": "2026-11-01T00:00:00Z" }] }
   ],
-  "collections": [{ "database": "community", "name": "posts", "seed": [{ "id": "demo", "title": "欢迎", "body": "欢迎来到示例社区", "author": "demo-user", "attachment_key": "posts/demo/welcome.txt" }] }],
   "kv": "seed/kv.json",
   "objects": [{ "dir": "seed/attachments", "prefix": "posts/demo/" }],
-  "functions": [{ "name": "moderation", "file": "functions/moderation.go", "test": { "function_name": "Check", "body": { "title": "示例", "body": "欢迎" } } }],
+  "functions": [
+    { "name": "moderation", "file": "functions/moderation.go", "test": { "function_name": "Check", "body": { "title": "示例", "body": "欢迎" } } },
+    { "name": "audit", "file": "functions/audit.go", "description": "事件触发器回调：文档变更、附件对象事件、HTTP invoke 统一转发给 BFF 落库", "test": { "function_name": "OnRecord", "body": { "kind": "record_change", "target": "posts", "action": "create", "record_id": "selftest", "data": { "title": "示例" } } } }
+  ],
+  "function_triggers": [
+    { "kind": "record_change", "target": "posts", "events": ["create", "update", "delete"], "func_file": "audit", "func_export": "OnRecord", "export_source": "record_change", "enabled": true },
+    { "kind": "record_change", "target": "platform_events", "events": ["create"], "func_file": "audit", "func_export": "OnRecord", "export_source": "record_change", "enabled": true },
+    { "kind": "object_event", "target": "posts/", "events": ["upload", "delete"], "func_file": "audit", "func_export": "OnObject", "export_source": "object_event", "enabled": true },
+    { "kind": "http", "func_file": "audit", "func_export": "OnHttp", "export_source": "http", "enabled": true }
+  ],
   "cron_jobs": [{ "name": "community_hot", "schedule_kind": "interval", "interval_seconds": 600, "func_file": "moderation", "func_export": "Score", "input_json": "{\"items\":[]}", "trigger_once": true }],
   "api_keys": [{ "label": "service", "permissions": ["database:read", "database:write"] }],
   "requires": { "llm": true }

@@ -122,7 +122,7 @@ func New(ctx context.Context, opts Options) (*Driver, error) {
 	}
 	d.logf("info", "sandbox local driver initialized", "root", d.opts.Root, "os", caps.OS,
 		"landlock_abi", caps.LandlockABI, "cgroup", caps.Cgroup)
-	if caps.Cgroup != "delegated" {
+	if caps.Cgroup != "delegated" && caps.Cgroup != "monitor" {
 		d.logf("warn", "sandbox cpu/memory/pids limits are not enforced on this host", "cgroup", caps.Cgroup)
 	}
 	return d, nil

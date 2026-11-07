@@ -203,7 +203,7 @@ func (h *GoFunctionHandler) toDTO(f systemdb.GoFunc, vers []systemdb.GoFuncVersi
 func (h *GoFunctionHandler) List(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -242,7 +242,7 @@ type goFuncCreateRequest struct {
 func (h *GoFunctionHandler) Create(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
@@ -317,7 +317,7 @@ func (h *GoFunctionHandler) Create(c echo.Context) error {
 func (h *GoFunctionHandler) Get(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -348,7 +348,7 @@ type goFuncPatchRequest struct {
 func (h *GoFunctionHandler) Patch(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if !h.writable {
 		return WriteError(c, godatabase.ErrWriterUnavailable)
@@ -387,7 +387,7 @@ func (h *GoFunctionHandler) Patch(c echo.Context) error {
 func (h *GoFunctionHandler) Delete(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if !h.writable {
 		return WriteError(c, godatabase.ErrWriterUnavailable)
@@ -419,7 +419,7 @@ type goFuncVersionCreateRequest struct {
 func (h *GoFunctionHandler) ListVersions(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -450,7 +450,7 @@ func (h *GoFunctionHandler) ListVersions(c echo.Context) error {
 func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
@@ -523,7 +523,7 @@ func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
 func (h *GoFunctionHandler) GetVersion(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
@@ -549,7 +549,7 @@ func (h *GoFunctionHandler) GetVersion(c echo.Context) error {
 func (h *GoFunctionHandler) ActivateVersion(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
@@ -592,7 +592,7 @@ type goFuncTestResponse struct {
 func (h *GoFunctionHandler) TestVersion(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	if !h.writable {
@@ -670,7 +670,7 @@ func (h *GoFunctionHandler) TestVersion(c echo.Context) error {
 func (h *GoFunctionHandler) Invoke(c echo.Context) error {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)

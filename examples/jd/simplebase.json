@@ -1,0 +1,60 @@
+{
+  "project": { "id": "ex-jd001", "name": "示例·京东商城" },
+  "databases": [{ "name": "jd", "data_model": "collection", "migrations": "migrations", "seed": "seed/jd.sql" }],
+  "collections": [
+    {
+      "database": "jd",
+      "name": "jd_events",
+      "seed": [{ "id": "evt-demo-0001", "kind": "order", "action": "create", "detail": "种子事件：记录变更触发器演示", "at": "2026-11-01T00:00:00Z" }]
+    }
+  ],
+  "kv": "seed/kv.json",
+  "objects": [{ "dir": "seed/images", "prefix": "jd/" }],
+  "functions": [
+    {
+      "name": "pricing",
+      "file": "functions/pricing.go",
+      "description": "购物车算价：满减券、折扣券、包邮门槛与 PLUS 免运费",
+      "test": {
+        "function_name": "Quote",
+        "body": { "items": [{ "price_minor": 399900, "qty": 1 }], "coupon_kind": "amount", "coupon_value": 2000, "min_minor": 100000 }
+      }
+    },
+    {
+      "name": "recommend",
+      "file": "functions/recommend.go",
+      "description": "首页推荐排序：销量、评分、价格与闪购加权",
+      "test": {
+        "function_name": "Rank",
+        "body": { "seed": "demo", "items": [{ "id": "p1", "name": "测试商品", "sales": 100, "rating": 4.8, "price_minor": 199900 }] }
+      }
+    },
+    {
+      "name": "audit",
+      "file": "functions/audit.go",
+      "description": "事件触发器回调：记录变更、对象事件、HTTP invoke 统一转发给 BFF 落库",
+      "test": {
+        "function_name": "OnRecord",
+        "body": { "kind": "record_change", "target": "orders", "action": "create", "record_id": "selftest", "data": { "status": "pending" } }
+      }
+    }
+  ],
+  "function_triggers": [
+    { "kind": "record_change", "target": "jd_events", "events": ["create", "delete"], "func_file": "audit", "func_export": "OnRecord", "export_source": "record_change", "enabled": true },
+    { "kind": "object_event", "target": "jd/reviews/", "events": ["upload", "delete"], "func_file": "audit", "func_export": "OnObject", "export_source": "object_event", "enabled": true },
+    { "kind": "http", "func_file": "audit", "func_export": "OnHttp", "export_source": "http", "enabled": true }
+  ],
+  "cron_jobs": [
+    {
+      "name": "jd_daily",
+      "schedule_kind": "cron",
+      "cron_expr": "0 2 * * *",
+      "func_file": "pricing",
+      "func_export": "Tick",
+      "input_json": "{}",
+      "description": "每天 02:00 生成前一日订单与 GMV 统计窗口",
+      "trigger_once": true
+    }
+  ],
+  "api_keys": [{ "label": "service", "permissions": ["database:read", "database:write"] }]
+}

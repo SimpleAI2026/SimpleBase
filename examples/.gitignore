@@ -1,0 +1,5 @@
+# 案例的运行时产物：dev apply 写的 lock/env 快照、触发器快照、初始化签发的密钥。
+# 都可以由 `./examples/init.sh` 重新生成，不入库。
+.simplebase/
+.env
+.env.cloud

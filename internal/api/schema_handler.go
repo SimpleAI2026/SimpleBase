@@ -206,7 +206,7 @@ func (h *SchemaHandler) ensureSQL(c echo.Context, write bool) (catalog.Database,
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return catalog.Database{}, fmt.Errorf("project context missing")
+		return catalog.Database{}, ErrProjectMissing
 	}
 	databaseID := c.Param("databaseID")
 	db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID)

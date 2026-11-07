@@ -47,13 +47,23 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
+// plainTextSubtypes 是内容嗅探只能识别为 text/plain 的文本格式：声明这些类型、嗅探结果为
+// text/plain 时视为一致（例如 CSV 声明 text/csv）。不含 text/html 等可执行类型，
+// 落盘的 Content-Type 仍取嗅探结果。
+var plainTextSubtypes = map[string]bool{
+	"text/csv": true, "text/tab-separated-values": true, "text/markdown": true,
+	"text/yaml": true, "application/yaml": true, "application/x-yaml": true,
+	"application/json": true, "application/x-ndjson": true,
+}
+
 func sniffUploadMIME(src io.Reader, key, declared string, allowed []string) (io.Reader, string, error) {
 	reader := bufio.NewReader(src)
 	head, _ := reader.Peek(512)
 	detected := http.DetectContentType(head)
 	detectedBase, _, _ := mime.ParseMediaType(detected)
 	declaredBase, _, _ := mime.ParseMediaType(declared)
-	if declaredBase != "" && declaredBase != "application/octet-stream" && declaredBase != detectedBase {
+	if declaredBase != "" && declaredBase != "application/octet-stream" && declaredBase != detectedBase &&
+		!(detectedBase == "text/plain" && plainTextSubtypes[declaredBase]) {
 		return nil, "", fmt.Errorf("declared MIME mismatch")
 	}
 	if extension := mime.TypeByExtension(filepath.Ext(key)); extension != "" {
@@ -103,7 +113,7 @@ func s3ListResponse(c echo.Context, prefix string, objects []s3ObjectDTO) error 
 func (h *S3Handler) DownloadObject(c echo.Context) error {
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, fmt.Errorf("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	return h.streamObject(c, project.ID, c.QueryParam("key"))
 }
@@ -111,7 +121,7 @@ func (h *S3Handler) DownloadObject(c echo.Context) error {
 func (h *S3Handler) CreateLink(c echo.Context) error {
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, fmt.Errorf("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if h.tokenSecret == "" {
 		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "file_token_unavailable", "file token is not configured", RequestIDFromContext(c.Request().Context())))

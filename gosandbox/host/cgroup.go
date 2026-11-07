@@ -35,10 +35,10 @@ const (
 type Limits struct {
 	// Configured 为真表示策略里设置了至少一项限额。
 	Configured bool
-	// Enforced 为真表示这些限额已经由 cgroup 或 systemd 生效。
+	// Enforced 为真表示这些限额已经由 cgroup、systemd 或 macOS 的采样监控生效。
 	// Configured && !Enforced 时调用方必须向模型/日志回显「未限制」。
 	Enforced bool
-	// Backend 是 "cgroup" | "systemd" | "none"。
+	// Backend 是 "cgroup" | "systemd" | "monitor"（macOS）| "none"。
 	Backend string
 }
 

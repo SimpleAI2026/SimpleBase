@@ -94,7 +94,7 @@ func (h *APIKeysHandler) Create(c echo.Context) error {
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, NewAPIError(http.StatusInternalServerError, "internal", "project context missing", rid))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if !p.CanAccessProject(project.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "cross_project_denied", "cross project access denied", rid))
@@ -164,7 +164,7 @@ func (h *APIKeysHandler) List(c echo.Context) error {
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, NewAPIError(http.StatusInternalServerError, "internal", "project context missing", rid))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if !p.CanAccessProject(project.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "cross_project_denied", "cross project access denied", rid))
@@ -213,7 +213,7 @@ func (h *APIKeysHandler) Delete(c echo.Context) error {
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, NewAPIError(http.StatusInternalServerError, "internal", "project context missing", rid))
+		return WriteError(c, ErrProjectMissing)
 	}
 	if !p.CanAccessProject(project.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "cross_project_denied", "cross project access denied", rid))
@@ -293,7 +293,7 @@ func limitIssuedPermissions(caller auth.Principal, requested []auth.Permission) 
 		return out, nil
 	}
 	for _, perm := range requested {
-		if _, ok := callerPerms[perm]; !ok {
+		if !auth.PermissionImplied(callerPerms, perm) {
 			return nil, auth.ErrForbidden
 		}
 	}

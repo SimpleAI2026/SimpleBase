@@ -191,11 +191,22 @@ func (f *Factory) open(ctx context.Context, meta godatabase.Spec, mode godatabas
 				"SET memory_limit = " + sqlx.Literal(opts.MemoryLimit),
 				"SET threads = " + strconv.Itoa(opts.Threads),
 				"SET temp_directory = " + sqlx.Literal(filepath.Join(f.CacheDir, "projects", meta.ProjectID, "tmp")),
+				// S2：用户库禁止外部文件访问；temp_directory 已提前设置，
+				// 溢写不受影响。项目 tmp 目录是唯一允许的路径。
+				"SET allowed_directories = [" + sqlx.Literal(filepath.ToSlash(filepath.Join(f.CacheDir, "projects", meta.ProjectID, "tmp"))) + "]",
+				"SET enable_external_access = false",
+				"SET autoload_known_extensions = false",
+				"SET autoinstall_known_extensions = false",
 				"SET lock_configuration = true",
 			}
 		}
 	case godatabase.EngineSQLite:
-		base = &sqliteConnector{filePath: filePath}
+		if mode == godatabase.ReadOnly {
+			// S1 纵深防御：只读租约使用强制 query_only 的连接器。
+			base = &sqliteReadOnlyConnector{filePath: filePath}
+		} else {
+			base = &sqliteConnector{filePath: filePath}
+		}
 		initSQL = []string{
 			"PRAGMA busy_timeout = 5000",
 			"PRAGMA journal_mode = WAL",
@@ -207,7 +218,7 @@ func (f *Factory) open(ctx context.Context, meta godatabase.Spec, mode godatabas
 		release()
 		return nil, fmt.Errorf("filedb: create connector: %w", err)
 	}
-	connector := &trackedConnector{base: base, initSQL: initSQL, release: release}
+	connector := &trackedConnector{base: base, initSQL: initSQL, release: release, singleInit: engine == godatabase.EngineDuckDB}
 	sqlDB := sql.OpenDB(connector)
 	connector.db = sqlDB
 	if engine == godatabase.EngineSQLite {
@@ -222,8 +233,10 @@ func (f *Factory) open(ctx context.Context, meta godatabase.Spec, mode godatabas
 		return nil, fmt.Errorf("filedb: open %s database: %w", engine, err)
 	}
 	if engine == godatabase.EngineSQLite {
+		// P3：常规打开跑 quick_check（O(索引页)）；完整 integrity_check
+		// 依赖下载路径的 sha256 校验兜底，不在每次冷打开时执行。
 		var result string
-		if err := sqlDB.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&result); err != nil || result != "ok" {
+		if err := sqlDB.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&result); err != nil || result != "ok" {
 			_ = sqlDB.Close()
 			if err != nil {
 				return nil, fmt.Errorf("filedb: sqlite integrity check: %w", err)
@@ -308,12 +321,34 @@ func (c *sqliteConnector) Connect(context.Context) (driver.Conn, error) {
 }
 func (c *sqliteConnector) Driver() driver.Driver { return &sqlite3.SQLiteDriver{} }
 
+// sqliteReadOnlyConnector 打开的每条连接都强制 PRAGMA query_only
+// （S1 纵深防御：即使只读守卫被绕过，SQL 也无法真正写入）。
+// 命名返回值上的 DSN 参数由 go-sqlite3 在连接建立时执行。
+type sqliteReadOnlyConnector struct{ filePath string }
+
+func (c *sqliteReadOnlyConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	sep := "?"
+	if strings.Contains(c.filePath, "?") {
+		sep = "&"
+	}
+	return (&sqlite3.SQLiteDriver{}).Open(c.filePath + sep + "_query_only=true")
+}
+
+func (c *sqliteReadOnlyConnector) Driver() driver.Driver { return &sqlite3.SQLiteDriver{} }
+
 type trackedConnector struct {
 	base    driver.Connector
 	initSQL []string
 	release func()
 	once    sync.Once
 	db      *sql.DB
+	// singleInit 为 true 时 initSQL 仅在首个成功连接执行一次（DuckDB）：
+	// 同一路径的连接共享数据库实例，配置为数据库级；lock_configuration
+	// 置位后，后续连接重复 SET 会报 "configuration has been locked"。
+	singleInit bool
+
+	initMu   sync.Mutex
+	initDone bool
 }
 
 func (c *trackedConnector) Connect(ctx context.Context) (driver.Conn, error) {
@@ -321,12 +356,21 @@ func (c *trackedConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.initMu.Lock()
+	skip := c.singleInit && c.initDone
+	c.initMu.Unlock()
+	if skip {
+		return conn, nil
+	}
 	for _, query := range c.initSQL {
 		if _, err := conn.(driver.ExecerContext).ExecContext(ctx, query, nil); err != nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("filedb: initialize connection: %w", err)
 		}
 	}
+	c.initMu.Lock()
+	c.initDone = true
+	c.initMu.Unlock()
 	return conn, nil
 }
 

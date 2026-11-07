@@ -9,5 +9,6 @@
 | test v2 | 试跑响应再包一层，`data.data.message` 为 `hello v2 simplebase`（未激活也可试跑） |
 | activate 2 | `ok=true` |
 | invoke 生效版本 | `data.message` 为 `hello v2 simplebase` |
+| delete（清理） | `ok=true`，本用例创建的函数被删除，不残留 `greet<RUN_ID>` |
 
 `invoke` 的 HTTP 响应体就是返回值 JSON，CLI 放在 `data` 里。

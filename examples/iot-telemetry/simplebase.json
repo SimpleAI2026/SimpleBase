@@ -1,12 +1,23 @@
 {
   "project": { "id": "ex-iot01", "name": "示例·物联网" },
-  "databases": [{ "name": "telemetry", "migrations": "migrations", "seed": "seed/telemetry.sql" }],
+  "databases": [{ "name": "telemetry", "data_model": "collection", "migrations": "migrations", "seed": "seed/telemetry.sql" }],
+  "collections": [
+    { "database": "telemetry", "name": "device_events", "seed": [{ "id": "evt-demo-0001", "device_id": "device-01", "kind": "boot", "detail": "种子事件：record_change 触发器演示", "at": "2026-11-01T00:00:00Z" }] }
+  ],
   "kv": "seed/kv.json",
   "objects": [{ "dir": "seed/exports", "prefix": "exports/" }],
-  "functions": [{ "name": "rollup", "file": "functions/rollup.go", "test": { "function_name": "Window", "body": {} } }],
+  "functions": [
+    { "name": "rollup", "file": "functions/rollup.go", "description": "5 分钟窗口与区间聚合（Window / Aggregate）", "test": { "function_name": "Window", "body": {} } },
+    { "name": "audit", "file": "functions/audit.go", "description": "事件触发器回调：设备事件、导出对象、HTTP invoke 转发给 BFF", "test": { "function_name": "OnRecord", "body": { "kind": "record_change", "target": "device_events", "action": "create", "record_id": "selftest", "data": { "device_id": "device-01" } } } }
+  ],
+  "function_triggers": [
+    { "kind": "record_change", "target": "device_events", "events": ["create"], "func_file": "audit", "func_export": "OnRecord", "export_source": "record_change", "enabled": true },
+    { "kind": "object_event", "target": "exports/", "events": ["upload", "delete"], "func_file": "audit", "func_export": "OnObject", "export_source": "object_event", "enabled": true },
+    { "kind": "http", "func_file": "audit", "func_export": "OnHttp", "export_source": "http", "enabled": true }
+  ],
   "cron_jobs": [
     { "name": "iot_rollup", "schedule_kind": "interval", "interval_seconds": 300, "func_file": "rollup", "func_export": "Window", "input_json": "{}", "trigger_once": true },
-    { "name": "iot_export_once", "schedule_kind": "once", "func_file": "rollup", "func_export": "Window", "input_json": "{}", "trigger_once": true }
+    { "name": "iot_export_once", "schedule_kind": "once", "run_at": "2099-01-01T00:00:00Z", "func_file": "rollup", "func_export": "Window", "input_json": "{}", "trigger_once": true }
   ],
   "api_keys": [{ "label": "service", "permissions": ["database:read", "database:write"] }]
 }

@@ -34,6 +34,7 @@ go test ./...                               # 后端全量
 (cd gofunction && go run ./cmd/gofunction help)   # 解释器命令行：run / check / list / packages
 (cd gofunction && go test -run='^$' -bench=. -benchmem ./bench)   # 性能基准（原 benchmarks/gofunction）
 (cd godatabase && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./... -timeout 900s)   # 数据库运行时库（独立模块；ducklake 与 lease 用例较慢，需放宽超时）
+(cd godatabase && GOWORK=off go test -run='^$' -bench=. -benchtime=20x -timeout 20m ./bench)   # 系统库读放大基准（原 benchmarks/dbread）
 (cd gosandbox && go build ./... && go vet ./... && go test ./...)   # 沙盒执行层（独立模块；真 bwrap 用例无 bwrap 时自动 Skip）
 (cd gocloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...)   # 云 Agent 模块（独立模块，根目录 ./... 不含它；两侧 go.mod 各自声明 gosandbox 的 replace，replace 不传递）
 

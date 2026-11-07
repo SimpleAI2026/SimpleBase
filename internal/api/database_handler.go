@@ -33,7 +33,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -130,7 +129,7 @@ func (h *DatabaseHandler) CreateDatabase(c echo.Context) error {
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -209,7 +208,7 @@ func (h *DatabaseHandler) ListDatabases(c echo.Context) error {
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 
 	page, err := parseListParams(c)
@@ -303,7 +302,7 @@ func (h *DatabaseHandler) GetDatabase(c echo.Context) error {
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	databaseID := c.Param("databaseID")
 	if databaseID == "" {
@@ -332,7 +331,7 @@ func (h *DatabaseHandler) DeleteDatabase(c echo.Context) error {
 	}
 	project, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, errors.New("project context missing"))
+		return WriteError(c, ErrProjectMissing)
 	}
 	databaseID := c.Param("databaseID")
 	if databaseID == "" {

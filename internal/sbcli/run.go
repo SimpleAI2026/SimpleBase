@@ -42,7 +42,9 @@ func RunIO(ctx context.Context, args, environ []string, stdout, stderr io.Writer
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	cfg, rest, code, err := parseArgs(args, environ)
+	// dev validate / dev status 只读工作区，不需要连接配置。
+	localOnly := devLocalOnlyCommand(args)
+	cfg, rest, code, err := parseArgsOpts(args, environ, !localOnly)
 	if err != nil {
 		if code == exitUsage {
 			writeFail(stderr, "usage", err.Error(), 0, "")
@@ -62,10 +64,13 @@ func RunIO(ctx context.Context, args, environ []string, stdout, stderr io.Writer
 		writeFail(stderr, "usage", "usage: simplebase <resource> <action> [--flags]", 0, "")
 		return exitUsage
 	}
-	client, err := gosdk.NewClient(gosdk.Options{URL: cfg.Endpoint, Token: cfg.Token, ProjectID: cfg.ProjectID})
-	if err != nil {
-		writeFail(stderr, "config_missing", err.Error(), 0, "")
-		return exitConfig
+	var client *gosdk.Client
+	if !localOnly {
+		client, err = gosdk.NewClient(gosdk.Options{URL: cfg.Endpoint, Token: cfg.Token, ProjectID: cfg.ProjectID})
+		if err != nil {
+			writeFail(stderr, "config_missing", err.Error(), 0, "")
+			return exitConfig
+		}
 	}
 	fn := dispatch(rest[0], rest[1])
 	if fn == nil {
@@ -74,6 +79,15 @@ func RunIO(ctx context.Context, args, environ []string, stdout, stderr io.Writer
 	}
 	data, err := fn(ctx, client, cfg, rest[2:], stdin)
 	if err != nil {
+		var de *devError
+		if errors.As(err, &de) {
+			// 需要确认（退出码 3）时，计划写到 stdout 供人阅读，错误信封照常写 stderr。
+			if de.exit == exitConfirm && de.data != nil {
+				writeOK(stdout, de.data)
+			}
+			writeFail(stderr, de.code, de.msg, 0, "")
+			return de.exit
+		}
 		var api *gosdk.APIError
 		if errors.As(err, &api) {
 			writeFail(stderr, api.Code, api.Message, api.Status, api.RequestID)
@@ -117,11 +131,41 @@ func DispatchKnown(resource, action string) bool {
 	return dispatch(resource, action) != nil
 }
 
+// devLocalOnlyCommand 报告 argv 是否指向只读工作区、不需要连接配置的命令
+// （dev validate / dev status）。全局 flag（`--x v` 或 `--x=v`）在前时跳过。
+func devLocalOnlyCommand(args []string) bool {
+	var positional []string
+	for i := 0; i < len(args) && len(positional) < 2; i++ {
+		a := args[i]
+		if a == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(a, "--") {
+			if !strings.Contains(a, "=") {
+				i++ // 跳过 flag 的值
+			}
+			continue
+		}
+		positional = append(positional, a)
+	}
+	if len(positional) < 2 {
+		return false
+	}
+	switch positional[0] + " " + positional[1] {
+	case "dev validate", "dev status":
+		return true
+	}
+	return false
+}
+
 func usagef(format string, args ...any) error {
 	return &usageError{msg: fmt.Sprintf(format, args...)}
 }
 
-func parseArgs(args, environ []string) (loadedConfig, []string, int, error) {
+// parseArgsOpts 解析全局 flag。requireCreds 为 false 时允许只给工作区路径
+// （dev validate / dev status 不访问远端）。
+func parseArgsOpts(args, environ []string, requireCreds bool) (loadedConfig, []string, int, error) {
 	fileCfg, err := loadFileConfig(environ)
 	if err != nil {
 		return loadedConfig{}, nil, exitConfig, err
@@ -161,10 +205,16 @@ func parseArgs(args, environ []string) (loadedConfig, []string, int, error) {
 			return loadedConfig{}, nil, exitUsage, usagef("unknown flag %s", name)
 		}
 	}
-	if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Token) == "" || strings.TrimSpace(cfg.ProjectID) == "" {
+	if requireCreds && (strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Token) == "" || strings.TrimSpace(cfg.ProjectID) == "") {
 		return loadedConfig{}, nil, exitConfig, errors.New("endpoint, token, and project are required " +
-			"(set SIMPLEBASE_URL / SIMPLEBASE_TOKEN / SIMPLEBASE_PROJECT_ID or the simplebase config file; " +
+			"(set SIMPLEBASE_URL / SIMPLEBASE_TOKEN (or SIMPLEBASE_API_KEY) / SIMPLEBASE_PROJECT_ID or the simplebase config file; " +
 			"shells started by the local gocloudagent do not inherit SIMPLEBASE_* variables, use the config file there)")
+	}
+	if !requireCreds && strings.TrimSpace(cfg.Endpoint) == "" {
+		if cfg.Output == "" {
+			cfg.Output = "json"
+		}
+		return cfg, rest, 0, nil
 	}
 	u, err := url.Parse(cfg.Endpoint)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {

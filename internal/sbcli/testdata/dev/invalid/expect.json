@@ -1,0 +1,13 @@
+{
+  "errors": [
+    "project.id 必须是 8 位字母、数字或 -（当前 \"short\"）",
+    "migrations/001_bad.sql 第 1 条: ATTACH 被 sqlguard 拒绝",
+    "functions/leaky.go: 疑似包含OpenAI 风格 key，密钥不能进入工作区产物",
+    "functions/leaky.go: 疑似包含SimpleBase API Key，密钥不能进入工作区产物",
+    "cron_jobs[0]: Missing 不是 leaky 的导出函数"
+  ],
+  "warnings": [
+    "migrations/001_bad.sql 第 2 条: PRIMARY KEY/UNIQUE/INDEX/SEQUENCE 在 DuckLake 上不受支持，examples 约定不用",
+    "functions[0]: 没有配置 test，apply 会不经试跑直接生效"
+  ]
+}

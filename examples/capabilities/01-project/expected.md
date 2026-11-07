@@ -3,7 +3,8 @@
 | 步骤 | 通过条件 |
 |---|---|
 | `project list` | `ok=true`，`data.projects` 是数组 |
-| `project create --name cap-$RUN_ID` | `ok=true`，`data.id` 为 8 位，`data.name` 等于所给名称 |
+| `reuse`（可选） | `PROJECT_ID_FILE` 指向的项目仍可访问时走 `settings get`，`ok=true`，跳过创建 |
+| `project create --name cap-$RUN_ID` | 首次运行或 `--fresh`：`ok=true`，`data.id` 为 8 位，`data.name` 等于所给名称 |
 | `settings set` | `ok=true` |
 | `settings get` | `data.settings` 中有 `key=examples.note` |
 | `quota get` | `ok=true` |

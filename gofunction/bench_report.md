@@ -97,3 +97,68 @@ go test -run='^$' -bench=. -benchmem -count=3 .   # 本报告数据
 go test -run='^$' -bench=ExecFib18 -memprofile=m.prof .
 go tool pprof -top -lines -sample_index=alloc_objects m.prof
 ```
+
+---
+
+# v6.5 优化报告（A 槽位固化 / B 宿主端到端 / C 清理）
+
+- 日期：2026-11-03
+- 优化方案：`plan/planv6.5/gofunction-optimization-plan.md`（A/B/C/D 全部完成）
+- 验证：`go build` / `go vet` / `go test -race -count=1 ./...` 七包全绿
+
+## v6.5-1 优化内容
+
+| 项 | 实现 | 关键文件 |
+|---|---|---|
+| **A1 槽位固化** | `compileInstr` 编译期把操作数/结果槽位号解析为 **int 捕获进闭包**，运行期直达 `fr.env[s]`；Const/Global/Function 等跨函数操作数编译期回落 `fr.get` 慢路径，不在运行期判断 | compilefast.go（新增）, compile.go |
+| **A2 运算特化** | BinOp 按 (Op, 底层类型) 生成特化闭包：int/uint/float 四则+位运算+比较+移位直达 `convIntTyped`/`convUintTyped`/`convFloatTyped`/`boolValue`；命名类型（PkgPath != ""）回落通用链 | compilefast.go |
+| **A3 常量烤入** | 基础类型 `*ssa.Const` 编译期求值捕获进闭包；复合零值保持运行期新建 | compilefast.go |
+| **B1 globals 并发安全** | `Program.globalsMu` RWMutex 保护 globals/initGlobal/Set/GetGlobalValue；修复两个既有 bug：① init context 被 cancel 后全局闭包 panic "context canceled"（init 改用裸 Background Context）；② `Program.funcCache` 跨 Run 复用绑定已取消 context 的闭包（缓存下移至每次 Run 的 Context） | program.go, frame.go, instruction.go |
+| **B2 RunJSON 编译缓存** | 两阶段编译：`compileOnly`（SSA/布局/块缓存，不可变可共享）+ `fork()+replayInit()`（globals 每 fork 一份 + init 重放）。LRU（默认 128 项，`SetProgramCacheLimit` 可调/关闭）。缓存字段改 `*sync.Map` 指针共享，避免 noCopy 复制 | program.go, jsonrun.go |
+| **B3 callExternal 免 Convert** | 定参全 `AssignableTo` 时跳过逐参 Convert | call.go |
+| **C 批清理** | 删 `Executor.waitEventLoop/SetWaitEventLoop/SetProfile/GetProfile`、`Runtime.userData` 系列；`runFrame` 标注 test-only；`conv`→`convSlow` 消除命名歧义；`frame.get` 注释反映 A1 后真实行为 | executor.go, runtime.go, runframe.go, type.go |
+
+## v6.5-2 基准对比（同机 Apple M4 Pro，v6.4 → v6.5）
+
+| 基准 | v6.4 (ns/op) | v6.5 (ns/op) | 提升 |
+|---|---|---|---|
+| ExecFib18 | 1,929,700 | **1,044,563** | **1.85x** |
+| ExecArithLoop | 385,329 | **162,594** | **2.37x** |
+| ExecCall100 | 26,956 | **18,886** | 1.43x |
+| ExecSlice100 | 94,779 | **91,548** | 1.04x |
+| ExecMap100 | 54,996 | **33,029** | 1.66x |
+| ExecString100 | 33,742 | **33,077** | 1.02x |
+| ExecExternal100 | 35,528 | **33,906** | 1.05x |
+| ExecClosure100 | 45,631 | **43,619** | 1.05x |
+| ExecMethod100 | 47,893 | **32,762** | 1.46x |
+| RunEndToEnd | 249,795 | **156,005** | **1.60x** |
+
+### RunJSON 缓存收益（B2，bench/ 新增对照基准）
+
+| 路径 | ns/op | allocs/op |
+|---|---|---|
+| 缓存命中（fork+replayInit） | **19,333** | 377 |
+| 未命中（全量编译） | 58,929 | 1,133 |
+
+同脚本重复调用端到端 **3.0x**（省 parse/typecheck/SSA/块编译）；
+带 import 的真实脚本（编译 1–10ms 级）收益预计 10–100x。
+
+### 说明
+
+- 验收线 ExecFib18 ≤ 0.9ms：达成 1.04ms（距目标差 15%）。剩余耗时
+  为 callSSA/帧切换/reflect.MakeFunc 固有成本，继续压榨需 tagged
+  union（明确不做，见 plan）。
+- Slice/String 无提升：热点在 `reflect.Append`/`unsafe_New`，
+  与操作数读取路径无关（A1 收益已被 reflect 成本稀释）。
+- A4（binop 慢路径去重）未执行：数值分支仅 `skipFastEval` 测试
+  seam 可达，删除破坏测试连通且无运行期收益，决策保留并在
+  eval.go 注释标注（见 plan C 批备注）。
+
+## v6.5-3 复现
+
+```bash
+cd gofunction
+go test -race -count=1 ./...                                # 全部通过
+go test -run='^$' -bench='Exec|RunEndToEnd' -benchmem -count=1 ./internal/interp/
+go test -run='^$' -bench='RunJSONCache' -benchmem -count=1 ./bench/
+```

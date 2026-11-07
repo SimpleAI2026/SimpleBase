@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/godatabase/blob"
+	"go.uber.org/zap"
 )
 
 func newTestManager(t *testing.T, cfg Config) (*Manager, blob.Store) {
@@ -26,7 +28,8 @@ func newTestManager(t *testing.T, cfg Config) (*Manager, blob.Store) {
 	return NewManager(store, keys, cfg), store
 }
 
-// testLogger 收集 Printf 输出（perf §1.5 同 PID 重启提示用）。
+// testLogger 收集 Info 输出（perf §1.5 同 PID 重启提示用）。
+// C7：与 godatabase.Logger 接口对齐（Debug/Info/Warn/Error）。
 type testLogger struct {
 	mu    sync.Mutex
 	lines []string
@@ -37,6 +40,11 @@ func (l *testLogger) Printf(format string, args ...any) {
 	defer l.mu.Unlock()
 	l.lines = append(l.lines, fmt.Sprintf(format, args...))
 }
+
+func (l *testLogger) Debug(msg string, _ ...zap.Field) { l.Printf("%s", msg) }
+func (l *testLogger) Info(msg string, _ ...zap.Field)  { l.Printf("%s", msg) }
+func (l *testLogger) Warn(msg string, _ ...zap.Field)  { l.Printf("%s", msg) }
+func (l *testLogger) Error(msg string, _ ...zap.Field) { l.Printf("%s", msg) }
 
 func (l *testLogger) all() []string {
 	l.mu.Lock()

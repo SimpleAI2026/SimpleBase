@@ -214,6 +214,69 @@ func TestCLIConfigAndEnvelope(t *testing.T) {
 	}
 }
 
+func TestCLIAPIKeyEnvCompat(t *testing.T) {
+	stub := &cliStub{}
+	srv := httptest.NewServer(stub)
+	defer srv.Close()
+	base := []string{"HOME=" + t.TempDir(), "SIMPLEBASE_URL=" + srv.URL, "SIMPLEBASE_PROJECT_ID=p1"}
+	cases := []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{"api key only", []string{"SIMPLEBASE_API_KEY=key-a"}, "key-a"},
+		{"token wins", []string{"SIMPLEBASE_API_KEY=key-a", "SIMPLEBASE_TOKEN=tok-b"}, "tok-b"},
+		{"empty token falls back", []string{"SIMPLEBASE_API_KEY=key-a", "SIMPLEBASE_TOKEN="}, "key-a"},
+	}
+	for _, tc := range cases {
+		stub.reset()
+		code, out, errb := runCLI(t, append(append([]string{}, base...), tc.env...), []string{"database", "list"}, "")
+		if code != 0 {
+			t.Fatalf("%s: %d %s %s", tc.name, code, out, errb)
+		}
+		hits := stub.all()
+		if len(hits) != 1 || hits[0].Token != tc.want {
+			t.Fatalf("%s: hits %+v", tc.name, hits)
+		}
+	}
+	code, _, errb := runCLI(t, append(append([]string{}, base...), "SIMPLEBASE_API_KEY="), []string{"database", "list"}, "")
+	if code != 4 || !strings.Contains(errb, "SIMPLEBASE_API_KEY") {
+		t.Fatalf("empty key must be config_missing: %d %s", code, errb)
+	}
+}
+
+func TestCLIFunctionCreateActivateFlag(t *testing.T) {
+	stub := &cliStub{}
+	srv := httptest.NewServer(stub)
+	defer srv.Close()
+	env := []string{"HOME=" + t.TempDir(), "SIMPLEBASE_URL=" + srv.URL, "SIMPLEBASE_TOKEN=user-token", "SIMPLEBASE_PROJECT_ID=p1"}
+	src := filepath.Join(t.TempDir(), "hello.go")
+	if err := os.WriteFile(src, []byte("package main\nfunc Hello() string { return \"hi\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		flag []string
+		want string
+	}{
+		{nil, `"activate":true`},
+		{[]string{"--activate", "false"}, `"activate":false`},
+	} {
+		stub.reset()
+		code, _, errb := runCLI(t, env, append([]string{"function", "create", "--name", "hello", "--file", src}, tc.flag...), "")
+		if code != 0 {
+			t.Fatalf("create %v: %d %s", tc.flag, code, errb)
+		}
+		hits := stub.all()
+		if len(hits) != 1 || !strings.Contains(hits[0].Body, tc.want) {
+			t.Fatalf("create %v: hits %+v", tc.flag, hits)
+		}
+	}
+	code, _, errb := runCLI(t, env, []string{"function", "create", "--name", "hello", "--file", src, "--activate", "maybe"}, "")
+	if code != 1 || !strings.Contains(errb, "--activate") {
+		t.Fatalf("bad activate: %d %s", code, errb)
+	}
+}
+
 func TestCLIResources(t *testing.T) {
 	stub := &cliStub{}
 	srv := httptest.NewServer(stub)

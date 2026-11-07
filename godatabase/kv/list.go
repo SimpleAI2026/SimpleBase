@@ -35,6 +35,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ListRepo 是 list 类型仓库（事务版，由 Tx.List() 返回）。
@@ -82,7 +83,7 @@ func (r *ListRepo) push(ctx context.Context, key string, front bool, elems ...[]
 		return 0, ErrArgument
 	}
 	kr := r.t.Key()
-	exists, err := kr.guardWrite(ctx, key, TypeList)
+	exists, meta, err := kr.guardWrite(ctx, key, TypeList)
 	if err != nil {
 		return 0, err
 	}
@@ -98,29 +99,35 @@ func (r *ListRepo) push(ctx context.Context, key string, front bool, elems ...[]
 			return 0, fmt.Errorf("kv: list push boundary: %w", err)
 		}
 	}
-	for i, e := range elems {
-		var pos float64
-		if !exists && i == 0 {
-			pos = 0
-		} else if front {
+	// K3：多行 VALUES 一次插入全部元素。
+	positions := make([]float64, len(elems))
+	for i := range elems {
+		switch {
+		case !exists && i == 0:
+			positions[i] = 0
+		case front:
 			base--
-			pos = base
-		} else {
+			positions[i] = base
+		default:
 			base++
-			pos = base
+			positions[i] = base
 		}
-		if _, err := r.t.tx.ExecContext(ctx,
-			`INSERT INTO __sb_kv_lists ("key", pos, elem) VALUES (?, ?, ?)`, key, pos, e); err != nil {
-			return 0, fmt.Errorf("kv: list push: %w", err)
-		}
+	}
+	values := make([]string, len(elems))
+	args := make([]any, 0, len(elems)*3)
+	for i, e := range elems {
+		values[i] = "(?, ?, ?)"
+		args = append(args, key, positions[i], e)
+	}
+	if _, err := r.t.tx.ExecContext(ctx,
+		fmt.Sprintf(`INSERT INTO __sb_kv_lists ("key", pos, elem) VALUES %s`, strings.Join(values, ",")),
+		args...); err != nil {
+		return 0, fmt.Errorf("kv: list push: %w", err)
 	}
 	var newLen int64
 	if exists {
-		m, err := kr.getMetaOf(ctx, key, TypeList)
-		if err != nil {
-			return 0, err
-		}
-		newLen = *m.Len + int64(len(elems))
+		// K3：复用 guardWrite 读到的 meta，省一次 getMetaOf 往返。
+		newLen = *meta.Len + int64(len(elems))
 		if err := kr.touchAfterWrite(ctx, key, int64(len(elems))); err != nil {
 			return 0, err
 		}

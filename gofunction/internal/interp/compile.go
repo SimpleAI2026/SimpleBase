@@ -32,6 +32,7 @@ package interp
 
 import (
 	"fmt"
+	"sync"
 
 	"golang.org/x/tools/go/ssa"
 )
@@ -76,60 +77,64 @@ func compileBlock(b *ssa.BasicBlock) *compiledBlock {
 		cb.steps[i] = compileInstr(ins)
 	}
 	return cb
-}
-
-// compileInstr 把单条 SSA 指令编译为绑定具体类型的执行闭包。
+}// compileInstr 把单条 SSA 指令编译为绑定具体类型的执行闭包。
 // 未知指令类型回落到 visitInstr（由其 panic 报错，保持原有语义）。
+//
+// A1（槽位固化）：两三操作数指令在编译期解析槽位号并捕获进闭包，
+// 运行期直接 env 切片索引，消除 fr.get/fr.set 的 map[ssa.Value]int
+// 哈希查找（此前每次执行 2–3 次）。操作数不是本函数 SSA 值
+// （Const/Global/Function/外部 FreeVar）时编译期回落 fr.get 慢路径，
+// 不在运行期做类型判断。
 func compileInstr(instr ssa.Instruction) instrStep {
 	switch instr := instr.(type) {
 	case *ssa.DebugRef:
 		return func(fr *frame) step { return stepNext }
 	case *ssa.Alloc:
-		return func(fr *frame) step { return runAlloc(fr, instr) }
+		return compileAlloc(instr)
 	case *ssa.UnOp:
-		return func(fr *frame) step { return runUnOp(fr, instr) }
+		return compileUnOp(instr)
 	case *ssa.BinOp:
-		return func(fr *frame) step { return runBinOp(fr, instr) }
+		return compileBinOp(instr)
 	case *ssa.MakeInterface:
-		return func(fr *frame) step { return runMakeInterface(fr, instr) }
+		return compileMakeInterface(instr)
 	case *ssa.Return:
-		return func(fr *frame) step { return runReturn(fr, instr) }
+		return compileReturn(instr)
 	case *ssa.IndexAddr:
-		return func(fr *frame) step { return runIndexAddr(fr, instr) }
+		return compileIndexAddr(instr)
 	case *ssa.Index:
-		return func(fr *frame) step { return runIndex(fr, instr) }
+		return compileIndex(instr)
 	case *ssa.Field:
-		return func(fr *frame) step { return runField(fr, instr) }
+		return compileField(instr)
 	case *ssa.FieldAddr:
-		return func(fr *frame) step { return runFieldAddr(fr, instr) }
+		return compileFieldAddr(instr)
 	case *ssa.Store:
-		return func(fr *frame) step { return runStore(fr, instr) }
+		return compileStore(instr)
 	case *ssa.Slice:
 		return func(fr *frame) step { return runSlice(fr, instr) }
 	case *ssa.Call:
 		return func(fr *frame) step { return runCall(fr, instr) }
 	case *ssa.MakeSlice:
-		return func(fr *frame) step { return runMakeSlice(fr, instr) }
+		return compileMakeSlice(instr)
 	case *ssa.MakeMap:
-		return func(fr *frame) step { return runMakeMap(fr, instr) }
+		return compileMakeMap(instr)
 	case *ssa.MapUpdate:
-		return func(fr *frame) step { return runMapUpdate(fr, instr) }
+		return compileMapUpdate(instr)
 	case *ssa.Lookup:
 		return func(fr *frame) step { return runLookup(fr, instr) }
 	case *ssa.Extract:
-		return func(fr *frame) step { return runExtract(fr, instr) }
+		return compileExtract(instr)
 	case *ssa.Phi:
 		return compilePhi(instr)
 	case *ssa.Convert:
-		return func(fr *frame) step { return runConvert(fr, instr) }
+		return compileConvert(instr)
 	case *ssa.Range:
 		return func(fr *frame) step { return runRange(fr, instr) }
 	case *ssa.Next:
-		return func(fr *frame) step { return runNext(fr, instr) }
+		return compileNext(instr)
 	case *ssa.ChangeType:
-		return func(fr *frame) step { return runChangeType(fr, instr) }
+		return compileChangeType(instr)
 	case *ssa.ChangeInterface:
-		return func(fr *frame) step { return runChangeInterface(fr, instr) }
+		return compileChangeInterface(instr)
 	case *ssa.MakeClosure:
 		return func(fr *frame) step { return runMakeClosure(fr, instr) }
 	case *ssa.Defer:
@@ -137,15 +142,15 @@ func compileInstr(instr ssa.Instruction) instrStep {
 	case *ssa.RunDefers:
 		return func(fr *frame) step { return runRunDefers(fr, instr) }
 	case *ssa.MakeChan:
-		return func(fr *frame) step { return runMakeChan(fr, instr) }
+		return compileMakeChan(instr)
 	case *ssa.Send:
-		return func(fr *frame) step { return runSend(fr, instr) }
+		return compileSend(instr)
 	case *ssa.TypeAssert:
 		return func(fr *frame) step { return runTypeAssert(fr, instr) }
 	case *ssa.Go:
 		return func(fr *frame) step { return runGo(fr, instr) }
 	case *ssa.Panic:
-		return func(fr *frame) step { return runPanic(fr, instr) }
+		return compilePanic(instr)
 	case *ssa.Select:
 		return func(fr *frame) step { return runSelect(fr, instr) }
 	default:
@@ -214,6 +219,7 @@ func compileProgram(p *Program) {
 	if p == nil || p.mainPkg == nil {
 		return
 	}
+	registerProgram(p)
 	var walk func(fn *ssa.Function)
 	walk = func(fn *ssa.Function) {
 		if fn == nil {
@@ -233,6 +239,38 @@ func compileProgram(p *Program) {
 			walk(fn)
 		}
 	}
+}
+
+// programRegistry Program ↔ ssa.Package 的进程级注册表。
+// A1 槽位固化需要在编译期从 ssa.Function 反查所属 Program 的布局；
+// mainPkg 之外的导入包函数由 Importer 构建，同样注册（BuildProgram 时）。
+// map 只增不删（Program 由调用方持有引用期间有效；SSA 对象生命周期
+// 与 Program 一致，进程内常驻的脚本 Program 数量有限）。
+var programRegistry = map[*ssa.Package]*Program{}
+
+var programRegistryMu sync.Mutex
+
+func registerProgram(p *Program) {
+	programRegistryMu.Lock()
+	defer programRegistryMu.Unlock()
+	if p.mainPkg != nil {
+		programRegistry[p.mainPkg] = p
+	}
+	if p.importer != nil {
+		for _, pkg := range p.importer.LoadedSSAPackages() {
+			programRegistry[pkg] = p
+		}
+	}
+}
+
+func lookupProgram(fn *ssa.Function) *Program {
+	if fn == nil || fn.Pkg == nil {
+		return nil
+	}
+	programRegistryMu.Lock()
+	p := programRegistry[fn.Pkg]
+	programRegistryMu.Unlock()
+	return p
 }
 
 // getCompiledBlock 取预编译块；miss 时惰性编译并写回 Program 缓存。

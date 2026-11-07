@@ -211,7 +211,7 @@ func resolveHelper(configured string) (string, error) {
 	}
 	st, err := os.Stat(path)
 	if err != nil {
-		return "", unavailable("helper %s not found (build cmd/gosandbox-inner)", path)
+		return "", unavailable("helper %s not found (build ./cmd: go build -o gosandbox-inner ./cmd)", path)
 	}
 	if st.IsDir() || st.Mode()&0o111 == 0 {
 		return "", unavailable("helper %s is not executable", path)

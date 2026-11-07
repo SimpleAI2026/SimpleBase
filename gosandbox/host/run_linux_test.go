@@ -17,7 +17,7 @@ import (
 func buildHelper(t *testing.T) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), HelperName)
-	cmd := exec.Command("go", "build", "-o", out, "github.com/linkxzhou/SimpleBase/gosandbox/cmd/gosandbox-inner")
+	cmd := exec.Command("go", "build", "-o", out, "github.com/linkxzhou/SimpleBase/gosandbox/cmd")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Skipf("cannot build helper: %v\n%s", err, b)

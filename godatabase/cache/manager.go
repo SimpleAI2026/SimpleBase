@@ -35,6 +35,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"os"
 	"path/filepath"
@@ -47,9 +49,15 @@ import (
 
 // ActiveChecker 抽象 registry 查询能力：判断某库是否可安全淘汰。
 // registry.Registry 自动满足此接口（IsActive 方法）。
+// P5：实现方可选提供 LastUsedOf（LRU 依据）；未提供时退回目录 mtime。
 type ActiveChecker interface {
 	// IsActive 返回 true 表示该库仍有活跃引用，不可淘汰。
 	IsActive(databaseID string) bool
+}
+
+// lastUsedChecker 是 ActiveChecker 的可选扩展（P5）。
+type lastUsedChecker interface {
+	LastUsedOf(databaseID string) (time.Time, bool)
 }
 
 // Closer 抽象 registry.CloseDatabase：淘汰前先关闭 registry 句柄。

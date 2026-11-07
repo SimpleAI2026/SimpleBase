@@ -160,9 +160,8 @@ func Hello(m map[string]interface{}) string { return "ok" }
 	_ = reflect.TypeOf(out)
 }
 
-func TestDebugAndWaitEventLoop(t *testing.T) {
+func TestDebugAndCompile(t *testing.T) {
 	e := NewExecutor(nil)
-	e.SetWaitEventLoop(false)
 	e.SetExecutionTimeout(-1)
 	src := `package main
 func F() int { return 42 }

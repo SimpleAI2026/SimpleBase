@@ -1,0 +1,2 @@
+这是示例 runbook 附件：触发器会在上传后写一条审计记录。
+对象键：ops/attachments/runbook.txt

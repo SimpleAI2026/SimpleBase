@@ -53,6 +53,12 @@ func TestS3ContentMIMERangeLinkAndFolders(t *testing.T) {
 	if rec := upload("docs/b.txt", "image/png", "hello"); rec.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("MIME mismatch: %d %s", rec.Code, rec.Body.String())
 	}
+	if rec := upload("docs/c.csv", "text/csv", "a,b\n1,2\n"); rec.Code != http.StatusOK {
+		t.Fatalf("CSV 声明 text/csv 应被接受: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := upload("docs/d.txt", "text/html", "hello"); rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("text/html 声明与嗅探不一致仍应拒绝: %d %s", rec.Code, rec.Body.String())
+	}
 	if rec := upload("image.png", "image/png", "not really png"); rec.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("MIME whitelist: %d %s", rec.Code, rec.Body.String())
 	}

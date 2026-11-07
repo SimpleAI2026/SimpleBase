@@ -324,6 +324,20 @@ func (p *Importer) SsaPackage(name string) *ssa.Package {
 	return p.ssaPackages[name]
 }
 
+// LoadedSSAPackages 返回已加载的全部 SSA 包（含按名与按路径两种键的
+// 去重结果）。供 interp 编译期建立 ssa.Package → Program 反查表。
+func (p *Importer) LoadedSSAPackages() []*ssa.Package {
+	seen := make(map[*ssa.Package]bool, len(p.ssaPackages))
+	out := make([]*ssa.Package, 0, len(p.ssaPackages))
+	for _, pkg := range p.ssaPackages {
+		if pkg != nil && !seen[pkg] {
+			seen[pkg] = true
+			out = append(out, pkg)
+		}
+	}
+	return out
+}
+
 // ExternalObjects 返回已加载的外部对象映射（key 为 "pkgPath.ObjectName"）
 func (p *Importer) ExternalObjects() map[string]*Object {
 	return p.externalObjects

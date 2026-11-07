@@ -254,6 +254,16 @@ async function verify(kind, ctx) {
 const cases = JSON.parse(await readFile(join(here, 'cases.json'), 'utf8'))
 const only = (process.env.AGENT_ONLY || '').split(',').map((s) => s.trim()).filter(Boolean)
 const agents = await api('GET', `/v1/projects/${project}/agents`)
+
+// cron 用例的 func-file 必须是已存在的云函数：服务端 validateTarget 会以 gofunction_not_found 拒绝。
+// 在用例前用 CLI 显式建好 atick<RUN_ID>（复用 08-cron/tick.go），不让模型自行补建导致结果不可预期。
+async function ensureCronFunction(name) {
+  const existing = await sb(['function', 'get', '--name', name])
+  if (existing.code === 0 && existing.data?.ok === true) return { ok: true, detail: 'already exists' }
+  const created = await sb(['function', 'create', '--name', name, '--file', join(here, '..', '08-cron', 'tick.go'), '--description', 'cron target'])
+  const ok = created.code === 0 && created.data?.ok === true
+  return { ok, detail: ok ? 'created' : `exit=${created.code} ${redact(created.err || JSON.stringify(created.data))}` }
+}
 // 技能由助手 module 决定：每个用例挑自己 module 的内置助手，`@` 不再选技能。
 const agentByModule = new Map()
 for (const agent of agents.agents || []) {
@@ -272,6 +282,18 @@ for (const spec of cases) {
       ok: false, ms: 0, detail: `agent for module ${spec.module} missing（需在服务端启用 CLI 技能）`
     })
     continue
+  }
+  if (spec.verify === 'cron') {
+    const tick = await ensureCronFunction(`atick${runID}`)
+    if (!tick.ok) {
+      failed += 1
+      await record({
+        suite: 'agent', case: 'agent', step: `${spec.id}-setup`, command: `function create --name atick${runID}`,
+        ok: false, ms: 0, detail: `函数 atick${runID} 创建失败: ${tick.detail}`
+      })
+      continue
+    }
+    console.log(`==> agent/cron: function atick${runID} ${tick.detail}`)
   }
   await api('PATCH', `/v1/projects/${project}/agents/${agent.id}`, { writable: Boolean(spec.needsWritable) })
   try {

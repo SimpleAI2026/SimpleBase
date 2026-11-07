@@ -61,6 +61,13 @@ type ObjectInfo struct {
 	LastModified time.Time
 }
 
+// PutFiler 是 Store 的可选流式上传扩展（P1）：支持直接从本地文件上传，
+// 避免大快照整读进内存。宿主 S3 实现可提供分片上传；未实现时调用方
+// 退回 PutBytes（读入内存）。
+type PutFiler interface {
+	PutFile(ctx context.Context, key, path, contentType string) error
+}
+
 // Store 读写二进制对象（catalog 快照、manifest、租约等）。
 //
 // PutIfAbsent 是唯一支持条件写的原语（multi-instance-consistency-plan §4.5）：

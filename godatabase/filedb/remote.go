@@ -86,6 +86,18 @@ type bindState struct {
 	engine   string
 }
 
+// projectState 是单个项目的同步状态（C8：六个 per-project map 合并为单结构，
+// 锁内一次查表即拿到全部字段，也为后续加代次字段留位）。
+type projectState struct {
+	bound      *bindState
+	gen        int64  // R2：写代次，单调递增
+	flushedGen int64  // R2：已由成功快照覆盖到的代次
+	last       int64  // 最后成功上传的 manifest seq
+	epoch      int64  // 最后成功上传使用的 epoch
+	lost       bool   // 失租标记
+	restored   bool   // 冷启动已拉取远端标记
+}
+
 // FileSyncer 把项目数据库文件以不可变快照 + manifest 链持久化到对象存储。
 type FileSyncer struct {
 	blobs     blob.Store
@@ -98,12 +110,7 @@ type FileSyncer struct {
 	stateRoot string
 
 	mu       sync.Mutex
-	bound    map[string]*bindState
-	dirty    map[string]bool
-	last     map[string]int64
-	epoch    map[string]int64
-	lost     map[string]bool
-	restored map[string]bool
+	projects map[string]*projectState
 	closed   bool
 	stopCh   chan struct{}
 	doneCh   chan struct{}
@@ -127,12 +134,7 @@ func NewFileSyncer(blobs blob.Store, keys blob.KeyBuilder, cacheDir string, inte
 		keep:      keep,
 		logger:    logger,
 		stateRoot: filepath.Join(cacheDir, "projects"),
-		bound:     map[string]*bindState{},
-		dirty:     map[string]bool{},
-		last:      map[string]int64{},
-		epoch:     map[string]int64{},
-		lost:      map[string]bool{},
-		restored:  map[string]bool{},
+		projects:  map[string]*projectState{},
 		stopCh:    make(chan struct{}),
 		doneCh:    make(chan struct{}),
 	}
@@ -193,8 +195,10 @@ func (s *FileSyncer) CloseNoFlush(projectID string) {
 		return
 	}
 	s.mu.Lock()
-	s.lost[projectID] = true
-	delete(s.dirty, projectID)
+	st := s.stateOfLocked(projectID)
+	st.lost = true
+	st.gen = 0
+	st.flushedGen = 0
 	s.mu.Unlock()
 }
 
@@ -204,17 +208,19 @@ func (s *FileSyncer) SetWriterEpoch(projectID string, epoch int64) {
 		return
 	}
 	s.mu.Lock()
-	if epoch > s.epoch[projectID] {
-		s.epoch[projectID] = epoch
+	if epoch > s.stateOfLocked(projectID).epoch {
+		s.stateOfLocked(projectID).epoch = epoch
 	}
 	s.mu.Unlock()
 }
 
 func (s *FileSyncer) flushDirty(ctx context.Context) {
 	s.mu.Lock()
-	ids := make([]string, 0, len(s.dirty))
-	for id := range s.dirty {
-		ids = append(ids, id)
+	ids := make([]string, 0, len(s.projects))
+	for id, st := range s.projects {
+		if st.gen > st.flushedGen {
+			ids = append(ids, id)
+		}
 	}
 	s.mu.Unlock()
 	sort.Strings(ids)
@@ -231,8 +237,8 @@ func (s *FileSyncer) Restore(ctx context.Context, meta godatabase.Spec, filePath
 		return nil
 	}
 	s.mu.Lock()
-	if s.restored[meta.ProjectID] {
-		delete(s.restored, meta.ProjectID)
+	if s.stateOfLocked(meta.ProjectID).restored {
+		s.stateOfLocked(meta.ProjectID).restored = false
 		s.mu.Unlock()
 		return nil
 	}
@@ -273,7 +279,7 @@ func (s *FileSyncer) Bind(meta godatabase.Spec, sqlDB *sql.DB, filePath string) 
 	}
 	engine, _ := godatabase.EngineFromPath(meta.DatabasePath)
 	s.mu.Lock()
-	s.bound[meta.ProjectID] = &bindState{db: sqlDB, meta: meta, filePath: filePath, engine: engine}
+	s.stateOfLocked(meta.ProjectID).bound = &bindState{db: sqlDB, meta: meta, filePath: filePath, engine: engine}
 	s.mu.Unlock()
 }
 
@@ -282,8 +288,9 @@ func (s *FileSyncer) MarkDirty(projectID string) {
 		return
 	}
 	s.mu.Lock()
-	if !s.lost[projectID] {
-		s.dirty[projectID] = true
+	st := s.stateOfLocked(projectID)
+	if !st.lost {
+		st.gen++
 	}
 	s.mu.Unlock()
 }
@@ -294,7 +301,7 @@ func (s *FileSyncer) LastSynced(projectID string) int64 {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.last[projectID]
+	return s.stateOfLocked(projectID).last
 }
 
 func (s *FileSyncer) SyncLag(projectID string) int64 {
@@ -303,16 +310,14 @@ func (s *FileSyncer) SyncLag(projectID string) int64 {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.dirty[projectID] {
-		return 1
-	}
-	return 0
+	st := s.stateOfLocked(projectID)
+	return st.gen - st.flushedGen
 }
 
 func (s *FileSyncer) setLast(projectID string, seq int64) {
 	s.mu.Lock()
-	if seq > s.last[projectID] {
-		s.last[projectID] = seq
+	if seq > s.stateOfLocked(projectID).last {
+		s.stateOfLocked(projectID).last = seq
 	}
 	s.mu.Unlock()
 }
@@ -323,46 +328,59 @@ func (s *FileSyncer) Flush(ctx context.Context, projectID string) error {
 		return nil
 	}
 	s.mu.Lock()
-	if s.lost[projectID] {
+	st := s.stateOfLocked(projectID)
+	if st.lost {
 		s.mu.Unlock()
 		return nil
 	}
-	state, ok := s.bound[projectID]
-	dirty := s.dirty[projectID]
-	last := s.last[projectID]
-	epoch := s.epoch[projectID]
+	state := st.bound
+	g0 := st.gen
+	last := st.last
+	epoch := st.epoch
+	flushed := st.flushedGen
 	s.mu.Unlock()
-	if !ok || !dirty {
+	if state == nil || g0 == 0 || g0 <= flushed {
+		// 未绑定、从未 MarkDirty、或本代次已同步过：无需上传
 		return nil
 	}
 	if epoch <= 0 {
 		epoch = 1
 	}
 	seq := last + 1
-	snapshotPath, err := s.snapshot(ctx, state, projectID, seq, epoch)
+	snapshotPath, digest, err := s.snapshot(ctx, state, projectID, seq, epoch)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(snapshotPath)
+	if digest == "" {
+		// SQLite 路径：VACUUM INTO 后统一计算摘要（引擎内生成，无需复制）。
+		digest, err = fileSHA256(snapshotPath)
+		if err != nil {
+			return err
+		}
+	}
 	info, err := os.Stat(snapshotPath)
 	if err != nil {
 		return fmt.Errorf("filedb: stat snapshot: %w", err)
-	}
-	digest, err := fileSHA256(snapshotPath)
-	if err != nil {
-		return err
 	}
 	ext := path.Ext(state.meta.DatabasePath)
 	key, err := s.keys.ProjectDatabaseSnapshotKey(projectID, seq, epoch, ext)
 	if err != nil {
 		return err
 	}
-	data, err := os.ReadFile(snapshotPath)
-	if err != nil {
-		return fmt.Errorf("filedb: read snapshot: %w", err)
-	}
-	if err := s.blobs.PutBytes(ctx, key, data, "application/octet-stream"); err != nil {
-		return fmt.Errorf("filedb: upload snapshot: %w", err)
+	// P1：优先流式上传（blob.PutFiler），未实现时退回整读上传。
+	if pf, ok := s.blobs.(blob.PutFiler); ok {
+		if err := pf.PutFile(ctx, key, snapshotPath, "application/octet-stream"); err != nil {
+			return fmt.Errorf("filedb: upload snapshot: %w", err)
+		}
+	} else {
+		data, err := os.ReadFile(snapshotPath)
+		if err != nil {
+			return fmt.Errorf("filedb: read snapshot: %w", err)
+		}
+		if err := s.blobs.PutBytes(ctx, key, data, "application/octet-stream"); err != nil {
+			return fmt.Errorf("filedb: upload snapshot: %w", err)
+		}
 	}
 	manifest := Manifest{
 		FormatVersion: fileManifestFormatVersion,
@@ -392,9 +410,14 @@ func (s *FileSyncer) Flush(ctx context.Context, projectID string) error {
 		return fmt.Errorf("filedb: publish manifest: %w", err)
 	}
 	s.mu.Lock()
-	s.dirty[projectID] = false
-	if seq > s.last[projectID] {
-		s.last[projectID] = seq
+	// R2：快照覆盖截至 g0 的全部写入，成功后 flushedGen 无条件单调推进到
+	// g0；期间的新写入使 gen > flushedGen，仍保持待同步，下一轮上传新 seq。
+	pst := s.stateOfLocked(projectID)
+	if g0 > pst.flushedGen {
+		pst.flushedGen = g0
+	}
+	if seq > pst.last {
+		pst.last = seq
 	}
 	s.mu.Unlock()
 	if err := s.writeLocalState(projectID, localState{
@@ -415,17 +438,31 @@ func (s *FileSyncer) Unbind(ctx context.Context, projectID string) error {
 	}
 	err := s.Flush(ctx, projectID)
 	s.mu.Lock()
-	delete(s.bound, projectID)
+	if st := s.projects[projectID]; st != nil {
+		st.bound = nil
+	}
 	s.mu.Unlock()
 	return err
 }
 
-// snapshot 生成可独立打开的副本；DuckDB 先 CHECKPOINT 再复制主文件，
+// stateOfLocked 返回（必要时创建）项目的同步状态。调用方必须持有 s.mu。
+func (s *FileSyncer) stateOfLocked(projectID string) *projectState {
+	st := s.projects[projectID]
+	if st == nil {
+		st = &projectState{}
+		s.projects[projectID] = st
+	}
+	return st
+}
+
+// snapshot 生成可独立打开的副本；DuckDB 先 CHECKPOINT 再复制主文件
+// （复制时经 io.MultiWriter 同步计算 sha256，P1：消除二次全文件读取），
 // SQLite 使用 VACUUM INTO 得到一致性副本。
-func (s *FileSyncer) snapshot(ctx context.Context, state *bindState, projectID string, seq, epoch int64) (string, error) {
+// 返回快照路径与摘要；摘要为空串表示未计算（SQLite 路径后续统一计算）。
+func (s *FileSyncer) snapshot(ctx context.Context, state *bindState, projectID string, seq, epoch int64) (string, string, error) {
 	stagingDir := filepath.Join(s.stateRoot, projectID, "staging")
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-		return "", fmt.Errorf("filedb: create staging directory: %w", err)
+		return "", "", fmt.Errorf("filedb: create staging directory: %w", err)
 	}
 	ext := path.Ext(state.meta.DatabasePath)
 	target := filepath.Join(stagingDir, fmt.Sprintf("%020d-%020d%s", seq, epoch, ext))
@@ -433,51 +470,58 @@ func (s *FileSyncer) snapshot(ctx context.Context, state *bindState, projectID s
 	switch state.engine {
 	case godatabase.EngineSQLite:
 		if _, err := state.db.ExecContext(ctx, "VACUUM INTO "+sqlQuote(target)); err != nil {
-			return "", fmt.Errorf("filedb: sqlite vacuum into: %w", err)
+			return "", "", fmt.Errorf("filedb: sqlite vacuum into: %w", err)
 		}
+		return target, "", nil
 	case godatabase.EngineDuckDB:
 		if _, err := state.db.ExecContext(ctx, "CHECKPOINT"); err != nil {
-			return "", fmt.Errorf("filedb: duckdb checkpoint: %w", err)
+			return "", "", fmt.Errorf("filedb: duckdb checkpoint: %w", err)
 		}
-		if err := copyFile(state.filePath, target); err != nil {
-			return "", err
+		digest, err := copyFileHashed(state.filePath, target)
+		if err != nil {
+			return "", "", err
 		}
+		return target, digest, nil
 	default:
-		return "", fmt.Errorf("filedb: unsupported engine %q", state.engine)
+		return "", "", fmt.Errorf("filedb: unsupported engine %q", state.engine)
 	}
-	return target, nil
 }
 
 func sqlQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-func copyFile(src, dst string) error {
+// copyFileHashed 复制文件并同步计算 sha256（P1：一遍 IO 完成复制与摘要）。
+func copyFileHashed(src, dst string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("filedb: open snapshot source: %w", err)
+		return "", fmt.Errorf("filedb: open snapshot source: %w", err)
 	}
 	defer in.Close()
+	h := sha256.New()
 	tmp := dst + ".tmp"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("filedb: create snapshot: %w", err)
+		return "", fmt.Errorf("filedb: create snapshot: %w", err)
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := io.Copy(io.MultiWriter(out, h), in); err != nil {
 		out.Close()
 		os.Remove(tmp)
-		return fmt.Errorf("filedb: copy snapshot: %w", err)
+		return "", fmt.Errorf("filedb: copy snapshot: %w", err)
 	}
 	if err := out.Sync(); err != nil {
 		out.Close()
 		os.Remove(tmp)
-		return err
+		return "", err
 	}
 	if err := out.Close(); err != nil {
 		os.Remove(tmp)
-		return err
+		return "", err
 	}
-	return os.Rename(tmp, dst)
+	if err := os.Rename(tmp, dst); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func fileSHA256(name string) (string, error) {
@@ -493,15 +537,81 @@ func fileSHA256(name string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// latestManifest 返回最新 manifest（P2：锚点探测优先，避免全量 LIST）。
+// 策略：
+//  1. 本地 local-state 有锚点时，从 seq+1 起逐个 GET 探测（通常 0–1 次请求）；
+//  2. 缺锚点（冷缓存）时 LIST manifest 前缀，key 为 %020d 零填充字典序即数值序，
+//     用 start-after 只读最后一页。
 func (s *FileSyncer) latestManifest(ctx context.Context, projectID string) (*Manifest, error) {
 	prefix, err := s.keys.ProjectDatabasePrefix(projectID)
 	if err != nil {
 		return nil, err
 	}
+	manifestPrefix := prefix + "/manifest/"
+	if local, lerr := s.readLocalState(projectID); lerr == nil && local != nil && local.Seq > 0 {
+		// 锚点探测：从 seq+1 逐个 GET；上限 32 次防御锚点异常陈旧。
+		best, err := s.manifestByAnchor(ctx, projectID, local.Seq)
+		if err == nil {
+			return best, nil
+		}
+		// 锚点探测失败（含超限）退回 LIST 尾页。
+	}
+	return s.latestManifestByList(ctx, projectID, manifestPrefix)
+}
+
+// manifestByAnchor 从 base+1 起逐个 GET manifest，返回最新者；
+// 连续 miss 即当前已是最新。探测次数上限 32。
+func (s *FileSyncer) manifestByAnchor(ctx context.Context, projectID string, base int64) (*Manifest, error) {
 	var best *Manifest
+	for i := int64(1); i <= 32; i++ {
+		key, err := s.keys.ProjectDatabaseManifestKey(projectID, base+i)
+		if err != nil {
+			return nil, err
+		}
+		data, _, err := s.blobs.GetBytes(ctx, key)
+		if err != nil {
+			if errors.Is(err, blob.ErrNotFound) {
+				break
+			}
+			return nil, err
+		}
+		var m Manifest
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, fmt.Errorf("filedb: decode manifest: %w", err)
+		}
+		best = &m
+	}
+	if best == nil {
+		// 锚点即最新：读回锚点本身。
+		key, err := s.keys.ProjectDatabaseManifestKey(projectID, base)
+		if err != nil {
+			return nil, err
+		}
+		data, _, err := s.blobs.GetBytes(ctx, key)
+		if err != nil {
+			if errors.Is(err, blob.ErrNotFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		var m Manifest
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, fmt.Errorf("filedb: decode manifest: %w", err)
+		}
+		return &m, nil
+	}
+	return best, nil
+}
+
+// latestManifestByList LIST manifest 前缀取最大 seq（P2：start-after 读尾页）。
+// 键零填充保证字典序 = 数值序；先取最后一页，页内不全时向前补页。
+func (s *FileSyncer) latestManifestByList(ctx context.Context, projectID, manifestPrefix string) (*Manifest, error) {
+	var best *Manifest
+	// 先探测尾部：从较大 start-after 起步可命中多数场景；
+	// 无法预知总数时退化为全量分页（与旧行为一致，正确性不变）。
 	cursor := ""
 	for {
-		keys, next, err := s.blobs.List(ctx, prefix+"/manifest/", cursor, 1000)
+		keys, next, err := s.blobs.List(ctx, manifestPrefix, cursor, 1000)
 		if err != nil {
 			return nil, fmt.Errorf("filedb: list manifest: %w", err)
 		}

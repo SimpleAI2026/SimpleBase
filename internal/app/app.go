@@ -124,6 +124,7 @@ type App struct {
 	cronScheduler     *cronjob.Scheduler
 	triggerDispatcher *trigger.Dispatcher
 	kvSweeper         *kv.Sweeper
+	handleEvictor     *registry.Evictor // R1：周期回收空闲句柄
 	schedulerCancel   context.CancelFunc
 	schedulerBaseCtx  context.Context
 
@@ -203,8 +204,13 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	}
 	a.health = &healthService{app: a}
 
+	// 删库清空用户数据（保留 KV / 项目文件 / 备份），并同步清理集合元数据。
+	var purgerSchemas collectionCleaner
+	if a.systemStore != nil {
+		purgerSchemas = collection.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
+	}
 	dbHandler := api.NewDatabaseHandler(
-		api.NewDatabaseServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), newProjectPurger(a.fileFactory, a.fileSyncer)),
+		api.NewDatabaseServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), newProjectPurger(a.fileFactory, a.fileSyncer, a.registry, purgerSchemas)),
 		cfg.Instance.Writable,
 	)
 	// 项目 KV 初始化器（key-value-ducklake-plan §2）：建项目后立即建 kv schema。
@@ -256,31 +262,10 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	var kvHandler *api.KVHandler
 	var kvService api.KVService
 	if cfg.Instance.Writable && a.registry != nil {
-		sqlLimits := api.SQLLimits{
-			QueryTimeout:       int64(cfg.Limits.QueryTimeout),
-			MaxQueryRows:       cfg.Limits.MaxQueryRows,
-			MaxConcurrent:      cfg.Limits.MaxConcurrentQueries,
-			MaxBatchStatements: cfg.Limits.MaxBatchStatements,
-			MaxSQLBytes:        cfg.Limits.MaxSQLBytes,
-			MaxRequestBytes:    cfg.Limits.MaxRequestBytes,
-		}
-		sqlService := api.NewSQLServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), a.systemStore)
-		sqlHandler = api.NewSQLHandler(sqlService, sqlLimits, cfg.Instance.Writable)
-		if a.fileFactory != nil {
-			f := a.fileFactory
-			sqlHandler.DurabilityFor = f.DurabilityFor
-		}
-		dataHandler = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable).WithEvents(recordEvents).WithImportLimit(cfg.Limits.MaxImportBytes)
-		if a.systemStore != nil {
-			schemas := collection.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
-			dataHandler.WithCollections(schemas, cfg.Limits.MaxFilterScanRows)
-			collectionMetaHandler = api.NewCollectionMetaHandler(sqlService.(api.DataService), schemas, cfg.Instance.Writable, cfg.Limits.MaxFilterScanRows)
-		}
-		schemaHandler = api.NewSchemaHandler(sqlService.(api.DataService), cfg.Instance.Writable, sqlLimits)
-		dbHandler.InitSQL = sqlService
-		// 项目级 KV（key-value-ducklake-plan §2/§3）：catalog + registry 桥接。
-		kvService = api.NewKVServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry))
-		kvHandler = api.NewKVHandler(kvService, cfg.Instance.Writable)
+		w := a.assembleWriteHandlers(cfg, dbHandler, recordEvents)
+		sqlHandler, dataHandler = w.sql, w.data
+		collectionMetaHandler, schemaHandler = w.collectionMeta, w.schema
+		kvService, kvHandler = w.kvService, w.kv
 	}
 
 	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
@@ -436,6 +421,48 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	return a, nil
 }
 
+// writeHandlers 是可写实例的 SQL/数据/Schema/KV handler 组（只读实例全部为 nil）。
+type writeHandlers struct {
+	sql            *api.SQLHandler
+	data           *api.DataHandler
+	collectionMeta *api.CollectionMetaHandler
+	schema         *api.SchemaHandler
+	kvService      api.KVService
+	kv             *api.KVHandler
+}
+
+// assembleWriteHandlers 构造可写实例的 handler 组，并为 dbHandler 注入 InitSQL。
+// 调用方负责 Writable && registry != nil 判断；本方法不启动 goroutine、不注册 closer。
+func (a *App) assembleWriteHandlers(cfg config.Config, dbHandler *api.DatabaseHandler, recordEvents *api.RecordEventFanout) writeHandlers {
+	var w writeHandlers
+	sqlLimits := api.SQLLimits{
+		QueryTimeout:       int64(cfg.Limits.QueryTimeout),
+		MaxQueryRows:       cfg.Limits.MaxQueryRows,
+		MaxConcurrent:      cfg.Limits.MaxConcurrentQueries,
+		MaxBatchStatements: cfg.Limits.MaxBatchStatements,
+		MaxSQLBytes:        cfg.Limits.MaxSQLBytes,
+		MaxRequestBytes:    cfg.Limits.MaxRequestBytes,
+	}
+	sqlService := api.NewSQLServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), a.systemStore)
+	w.sql = api.NewSQLHandler(sqlService, sqlLimits, cfg.Instance.Writable)
+	if a.fileFactory != nil {
+		f := a.fileFactory
+		w.sql.DurabilityFor = f.DurabilityFor
+	}
+	w.data = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable).WithEvents(recordEvents).WithImportLimit(cfg.Limits.MaxImportBytes)
+	if a.systemStore != nil {
+		schemas := collection.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
+		w.data.WithCollections(schemas, cfg.Limits.MaxFilterScanRows)
+		w.collectionMeta = api.NewCollectionMetaHandler(sqlService.(api.DataService), schemas, cfg.Instance.Writable, cfg.Limits.MaxFilterScanRows)
+	}
+	w.schema = api.NewSchemaHandler(sqlService.(api.DataService), cfg.Instance.Writable, sqlLimits)
+	dbHandler.InitSQL = sqlService
+	// 项目级 KV（key-value-ducklake-plan §2/§3）：catalog + registry 桥接。
+	w.kvService = api.NewKVServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry))
+	w.kv = api.NewKVHandler(w.kvService, cfg.Instance.Writable)
+	return w
+}
+
 // metricsGatherer 把 Registerer 适配为 Gatherer；仅 *prometheus.Registry
 // 两者兼备，其余实现回退 DefaultGatherer（保持旧装配行为）。
 func metricsGatherer(reg prometheus.Registerer) prometheus.Gatherer {
@@ -583,11 +610,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 
 	a.registry = registry.New(userFactory, dbbridge.ResolverFrom(a.catalog), regOpts, dbbridge.LoggerFrom(a.logger), dbbridge.ObserverFrom(a.metrics))
 
-	a.assembleAuthServices(store, cfg)
-	if err := a.seedAndStartMaintenance(ctx, store, cfg); err != nil {
-		return err
-	}
-
+	// cache.Manager 只依赖 registry，先于 Evictor 创建以便接入容量淘汰。
 	a.cacheMgr, err = cache.NewManager(cache.Options{
 		Root:         cfg.Database.CacheDir,
 		DataRoot:     cfg.Storage.DataDir,
@@ -600,6 +623,21 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("create cache manager: %w", err)
+	}
+
+	// R1：周期回收空闲句柄，防止 max_open 打满后其他项目永久不可用。
+	// Shutdown 时先 Stop（停止新回收），再由 Close → registry.Shutdown 收尾。
+	// R1 第 3 条：cacheMgr 接入同一周期，缓存字节/数量超限按 LRU 淘汰
+	// （cache_max_bytes / cache_max_databases 配置自此生效）。
+	a.handleEvictor = registry.NewEvictor(a.registry, time.Minute, a.cacheMgr)
+	if a.schedulerBaseCtx == nil {
+		a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
+	}
+	go a.handleEvictor.Run(a.schedulerBaseCtx)
+
+	a.assembleAuthServices(store, cfg)
+	if err := a.seedAndStartMaintenance(ctx, store, cfg); err != nil {
+		return err
 	}
 
 	catRepo := a.catalog.Repository()
@@ -688,7 +726,8 @@ func (a *App) assembleWriteLease(ctx context.Context, cfg config.Config, regOpts
 				RenewInterval: cfg.Instance.Lease.RenewInterval,
 				Grace:         cfg.Instance.Lease.Grace,
 			})
-			lm.SetLogger(zapAdapter{a.logger})
+			// C7：observability.Logger 与 godatabase.Logger 形状一致，直接注入。
+			lm.SetLogger(a.logger)
 			lm.EnableProjectScope()
 			a.leaseMgr = lm
 			a.leaseKeys = keys
@@ -934,6 +973,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 		if err := a.kvSweeper.Close(); err != nil {
 			a.logger.Warn("kv sweeper close error", zap.String("err", err.Error()))
 		}
+	}
+
+	// R1：先停句柄回收器，避免与 registry.Shutdown 竞争关闭同一句柄。
+	if a.handleEvictor != nil {
+		a.handleEvictor.Stop()
 	}
 
 	// 关闭 registry + 所有已注册资源（catalog DB 等）
@@ -1302,15 +1346,6 @@ func sandboxDriverLog(l observability.Logger) vm.LogFunc {
 		default:
 			l.Info(msg, fields...)
 		}
-	}
-}
-
-// zapAdapter 把 observability.Logger 适配为 lease.Logger。
-type zapAdapter struct{ l observability.Logger }
-
-func (a zapAdapter) Printf(format string, args ...any) {
-	if a.l != nil {
-		a.l.Info(fmt.Sprintf(format, args...))
 	}
 }
 

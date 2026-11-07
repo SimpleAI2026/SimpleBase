@@ -87,8 +87,15 @@ Run / Executor.Execute
        ssautil.BuildPackage（Importer = importer.NewImporter）
        运行包级 init
   └─ Program.Run / RunWithContext
-       callSSA → runFrame → visitInstr（SSA 指令）
+       callSSA → runFrameCompiled（预编译指令闭包，操作数槽位号编译期固化）
        外部函数走 callExternal（reflect.Call 已注册的宿主实现）
+
+RunJSON（生产路径）
+  └─ 编译缓存（LRU，默认 128 项，SetProgramCacheLimit 可调/关闭）
+       命中：fork 共享不可变产物（SSA/槽位布局/块缓存）
+            + replayInit（globals 每 fork 一份 + 包级 init 重放）
+       未命中：compileOnly 全量编译后入缓存
+  └─ RunInParentContext → 解释执行 → 结果 JSON 编码
 ```
 
 `seqid` 只是调用方传入的序列号（请求 ID 等），解释器本身不强制格式；空字符串也可以。`BuildProgram` 在 `Executor` 内部若未设置则会生成 `seq-` + 随机 hex。
@@ -107,6 +114,8 @@ Run / Executor.Execute
 | `(*Program).RunWithContext(...) (result interface{}, ctx *Context, err error)` | 同上，并返回执行上下文。`print`/`println` 的输出在 `ctx.Output()`。内部 panic 会被 recover 成 `error`。 |
 | `(*Program).Package() *ssa.Package` | 取出 SSA 包，可再传给另一次 `BuildProgram(..., pkg)`。 |
 | `ParseFuncList(sourceCode string, exportedAll bool) ([]string, error)` | 只做 `go/parser` 扫描，**不编译、不执行**。`exportedAll==false`：仅包级导出函数（跳过方法、`init`、未导出函数）。`exportedAll==true`：所有 `func` 声明（含方法与未导出函数）。 |
+| `RunJSON(ctx, seqid, fname, source, funcName string, body []byte) ([]byte, error)` | 生产路径：编译并执行 `funcName`，`body` JSON 解到唯一形参，返回值 JSON 编码。同源码命中内部 LRU 编译缓存（fork + init 重放，语义与全量编译一致）。 |
+| `SetProgramCacheLimit(n int)` | 调整 RunJSON 编译缓存容量；`n <= 0` 关闭缓存。默认 128。 |
 
 源码必须是合法 Go 文件（含 `package` 子句）。入口函数名必须在编译后的包成员中存在，否则 `Run` 返回 `"function not found"`。未导出函数只要你知道名字也可以 `Run`。
 

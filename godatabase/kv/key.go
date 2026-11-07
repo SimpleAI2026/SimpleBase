@@ -35,6 +35,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // KeyRepo 是 key 元数据仓库（事务版，由 Tx.Key() 返回）。
@@ -80,28 +81,30 @@ func (r *KeyRepo) getMetaAny(ctx context.Context, key string) (KeyMeta, error) {
 }
 
 // guardWrite 写前类型守卫（所有写路径第一步）：
-//   - 不存在 → 返回 (false, nil)，调用方可按新 key 插入
-//   - 存在且类型匹配 → (true, nil)
+//   - 不存在 → 返回 (false, nil, nil)，调用方可按新 key 插入
+//   - 存在且类型匹配 → (true, meta, nil)
 //   - 存在但类型不符 → ErrKeyType
-//   - 已过期 → 级联删除后视为不存在 (false, nil)（Redis 惰性过期语义）
-func (r *KeyRepo) guardWrite(ctx context.Context, key string, want TypeID) (bool, error) {
+//   - 已过期 → 级联删除后视为不存在 (false, nil, nil)（Redis 惰性过期语义）
+//
+// meta 与 exists 同时返回，调用方无需再读一次（K3：减少写路径往返）。
+func (r *KeyRepo) guardWrite(ctx context.Context, key string, want TypeID) (bool, KeyMeta, error) {
 	m, err := r.getMetaAny(ctx, key)
 	if errors.Is(err, ErrNotFound) {
-		return false, nil
+		return false, KeyMeta{}, nil
 	}
 	if err != nil {
-		return false, err
+		return false, KeyMeta{}, err
 	}
 	if m.Etime != nil && *m.Etime <= r.t.nowMs() {
 		if err := r.deleteCascade(ctx, key, m.Type); err != nil {
-			return false, err
+			return false, KeyMeta{}, err
 		}
-		return false, nil
+		return false, KeyMeta{}, nil
 	}
 	if m.Type != want {
-		return false, ErrKeyType
+		return false, KeyMeta{}, ErrKeyType
 	}
-	return true, nil
+	return true, m, nil
 }
 
 // getMetaOf 读取 key 元数据并校验类型；类型不符返回 ErrKeyType（Redis WRONGTYPE），
@@ -198,46 +201,102 @@ func (r *KeyRepo) Count(ctx context.Context, pattern string) (int64, error) {
 }
 
 // Exists 返回给出的 key 中实际存在（且未过期）的个数，最多为 len(keys)。
-// Redis EXISTS 语义：重复的 key 各计一次。
+// Redis EXISTS 语义：重复的 key 各计一次（重复入参保留在列表中逐一比对）。
 func (r *KeyRepo) Exists(ctx context.Context, keys ...string) (int64, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	// K3：单条 IN 查询取回存在集合（去重后比对），替代逐 key 探测。
+	uniq := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		uniq[k] = struct{}{}
+	}
+	ph := make([]string, 0, len(uniq))
+	args := make([]any, 0, len(uniq)+1)
+	for k := range uniq {
+		ph = append(ph, "?")
+		args = append(args, k)
+	}
+	args = append(args, r.t.nowMs())
+	rows, err := r.t.tx.QueryContext(ctx,
+		fmt.Sprintf(`SELECT "key" FROM __sb_kv_keys
+		 WHERE "key" IN (%s) AND (etime IS NULL OR etime > ?)`, strings.Join(ph, ",")),
+		args...)
+	if err != nil {
+		return 0, fmt.Errorf("kv: exists key: %w", err)
+	}
+	defer rows.Close()
+	found := make(map[string]struct{}, len(uniq))
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return 0, fmt.Errorf("kv: exists key row: %w", err)
+		}
+		found[k] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
 	var n int64
-	now := r.t.nowMs()
-	for _, key := range keys {
-		var one int64
-		err := r.t.tx.QueryRowContext(ctx,
-			`SELECT 1 FROM __sb_kv_keys WHERE "key" = ? AND (etime IS NULL OR etime > ?) LIMIT 1`,
-			key, now).Scan(&one)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
+	for _, k := range keys {
+		if _, ok := found[k]; ok {
+			n++
 		}
-		if err != nil {
-			return n, fmt.Errorf("kv: exists key: %w", err)
-		}
-		n++
 	}
 	return n, nil
 }
 
 // Delete 删除多个 key，返回实际删除数（不存在/已过期的 key 不计）。
 func (r *KeyRepo) Delete(ctx context.Context, keys ...string) (int64, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	// K3：一条 IN 查询取回全部候选 meta（含已过期），替代逐 key getMetaAny。
+	ph := make([]string, len(keys))
+	args := make([]any, 0, len(keys))
+	for i, k := range keys {
+		ph[i] = "?"
+		args = append(args, k)
+	}
+	rows, err := r.t.tx.QueryContext(ctx,
+		fmt.Sprintf(`SELECT "key", "type", etime FROM __sb_kv_keys WHERE "key" IN (%s)`,
+			strings.Join(ph, ",")), args...)
+	if err != nil {
+		return 0, fmt.Errorf("kv: delete key scan: %w", err)
+	}
+	type victim struct {
+		key     string
+		typ     TypeID
+		expired bool
+	}
+	now := r.t.nowMs()
+	var victims []victim
+	for rows.Next() {
+		var v victim
+		var typ int16
+		var etime *int64
+		if err := rows.Scan(&v.key, &typ, &etime); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("kv: delete key row: %w", err)
+		}
+		v.typ = TypeID(typ)
+		v.expired = etime != nil && *etime <= now
+		victims = append(victims, v)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
 	var n int64
-	for _, key := range keys {
-		m, err := r.getMetaAny(ctx, key)
-		if errors.Is(err, ErrNotFound) {
-			continue
-		}
-		if err != nil {
+	for _, v := range victims {
+		if err := r.deleteCascade(ctx, v.key, v.typ); err != nil {
 			return n, err
 		}
-		if m.Etime != nil && *m.Etime <= r.t.nowMs() {
-			// 已过期：物理清除但按 Redis 语义不计入删除数。
-			if err := r.deleteCascade(ctx, key, m.Type); err != nil {
-				return n, err
-			}
+		// 已过期的物理清除但不计入删除数（Redis 语义）。
+		if v.expired {
 			continue
-		}
-		if err := r.deleteCascade(ctx, key, m.Type); err != nil {
-			return n, err
 		}
 		n++
 	}

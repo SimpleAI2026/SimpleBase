@@ -344,30 +344,7 @@ func unmarshalYAML(data []byte) (yamlConfig, error) {
 
 func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	var secrets yamlSecretPresence
-	setStr(&cfg.HTTP.Address, yc.HTTP.Address)
-	setDur(&cfg.HTTP.ReadTimeout, yc.HTTP.ReadTimeout)
-	setDur(&cfg.HTTP.WriteTimeout, yc.HTTP.WriteTimeout)
-	setDur(&cfg.HTTP.IdleTimeout, yc.HTTP.IdleTimeout)
-	setDur(&cfg.HTTP.ShutdownTimeout, yc.HTTP.ShutdownTimeout)
-	setBool(&cfg.HTTP.Gzip, yc.HTTP.Gzip)
-	setBool(&cfg.HTTP.CORS.Enabled, yc.HTTP.CORS.Enabled)
-	setBool(&cfg.HTTP.CORS.AllowCredentials, yc.HTTP.CORS.AllowCredentials)
-	setInt(&cfg.HTTP.CORS.MaxAge, yc.HTTP.CORS.MaxAge)
-	if yc.HTTP.TrustedProxies != nil {
-		cfg.HTTP.TrustedProxies = append([]string(nil), yc.HTTP.TrustedProxies...)
-	}
-	if yc.HTTP.CORS.AllowedOrigins != nil {
-		cfg.HTTP.CORS.AllowedOrigins = append([]string(nil), yc.HTTP.CORS.AllowedOrigins...)
-	}
-	if yc.HTTP.CORS.AllowedMethods != nil {
-		cfg.HTTP.CORS.AllowedMethods = append([]string(nil), yc.HTTP.CORS.AllowedMethods...)
-	}
-	if yc.HTTP.CORS.AllowedHeaders != nil {
-		cfg.HTTP.CORS.AllowedHeaders = append([]string(nil), yc.HTTP.CORS.AllowedHeaders...)
-	}
-	if yc.HTTP.CORS.ExposedHeaders != nil {
-		cfg.HTTP.CORS.ExposedHeaders = append([]string(nil), yc.HTTP.CORS.ExposedHeaders...)
-	}
+	applyYAMLHTTP(&cfg.HTTP, yc.HTTP)
 
 	setStr(&cfg.Instance.ID, yc.Instance.ID)
 	setBool(&cfg.Instance.Writable, yc.Instance.Writable)
@@ -461,59 +438,9 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 		}
 	}
 
-	setInt64(&cfg.Limits.MaxRequestBytes, yc.Limits.MaxRequestBytes)
-	setInt(&cfg.Limits.MaxQueryRows, yc.Limits.MaxQueryRows)
-	setDur(&cfg.Limits.QueryTimeout, yc.Limits.QueryTimeout)
-	setInt(&cfg.Limits.MaxConcurrentQueries, yc.Limits.MaxConcurrentQueries)
-	setInt(&cfg.Limits.MaxBatchStatements, yc.Limits.MaxBatchStatements)
-	setInt(&cfg.Limits.MaxSQLBytes, yc.Limits.MaxSQLBytes)
-	setInt(&cfg.Limits.MaxConcurrentGoRuns, yc.Limits.MaxConcurrentGoRuns)
-	setInt(&cfg.Limits.MaxFilterScanRows, yc.Limits.MaxFilterScanRows)
-	setInt64(&cfg.Limits.MaxImportBytes, yc.Limits.MaxImportBytes)
-	setInt(&cfg.Limits.RealtimeMaxConns, yc.Limits.RealtimeMaxConns)
-	setBool(&cfg.Limits.RateLimit.Enabled, yc.Limits.RateLimit.Enabled)
-	setInt(&cfg.Limits.RateLimit.Burst, yc.Limits.RateLimit.Burst)
-	setBool(&cfg.Limits.RateLimit.ExemptSSE, yc.Limits.RateLimit.ExemptSSE)
-	if yc.Limits.RateLimit.Rules != nil {
-		cfg.Limits.RateLimit.Rules = make([]RateLimitRule, 0, len(yc.Limits.RateLimit.Rules))
-		for _, rule := range yc.Limits.RateLimit.Rules {
-			item := RateLimitRule{Max: 0, Window: 0}
-			setStr(&item.Match, rule.Match)
-			setInt(&item.Max, rule.Max)
-			setDur(&item.Window, rule.Window)
-			cfg.Limits.RateLimit.Rules = append(cfg.Limits.RateLimit.Rules, item)
-		}
-	}
+	applyYAMLLimits(&cfg.Limits, yc.Limits)
 
-	setBool(&cfg.Sandbox.Enabled, yc.Sandbox.Enabled)
-	setStr(&cfg.Sandbox.Image, yc.Sandbox.Image)
-	setInt(&cfg.Sandbox.CPUs, yc.Sandbox.CPUs)
-	setInt(&cfg.Sandbox.MemoryMiB, yc.Sandbox.MemoryMiB)
-	setDur(&cfg.Sandbox.MaxDuration, yc.Sandbox.MaxDuration)
-	setDur(&cfg.Sandbox.IdleTimeout, yc.Sandbox.IdleTimeout)
-	setDur(&cfg.Sandbox.ExecTimeout, yc.Sandbox.ExecTimeout)
-	setInt(&cfg.Sandbox.MaxOutputBytes, yc.Sandbox.MaxOutputBytes)
-	setInt(&cfg.Sandbox.MaxFileBytes, yc.Sandbox.MaxFileBytes)
-	setStr(&cfg.Sandbox.Network, yc.Sandbox.Network)
-	setStr(&cfg.Sandbox.Workdir, yc.Sandbox.Workdir)
-	setStr(&cfg.Sandbox.Backend, yc.Sandbox.Backend)
-	if yc.Sandbox.Images != nil {
-		cfg.Sandbox.Images = append([]string(nil), yc.Sandbox.Images...)
-	}
-	setDur(&cfg.Sandbox.ExecTimeoutMax, yc.Sandbox.ExecTimeoutMax)
-	setInt(&cfg.Sandbox.MaxPerProject, yc.Sandbox.MaxPerProject)
-	setDur(&cfg.Sandbox.ReapInterval, yc.Sandbox.ReapInterval)
-	setStr(&cfg.Sandbox.Root, yc.Sandbox.Root)
-	setInt64(&cfg.Sandbox.PidsMax, yc.Sandbox.PidsMax)
-	setStr(&cfg.Sandbox.BwrapPath, yc.Sandbox.BwrapPath)
-	setStr(&cfg.Sandbox.HelperPath, yc.Sandbox.HelperPath)
-	setBool(&cfg.Sandbox.Terminal.Enabled, yc.Sandbox.Terminal.Enabled)
-	setInt(&cfg.Sandbox.Terminal.MaxSessionsPerSandbox, yc.Sandbox.Terminal.MaxSessionsPerSandbox)
-	setDur(&cfg.Sandbox.Terminal.IdleTimeout, yc.Sandbox.Terminal.IdleTimeout)
-	setStr(&cfg.Sandbox.SSH.Listen, yc.Sandbox.SSH.Listen)
-	setStr(&cfg.Sandbox.SSH.HostKeyPath, yc.Sandbox.SSH.HostKeyPath)
-	setStr(&cfg.Sandbox.E2B.DefaultTemplate, yc.Sandbox.E2B.DefaultTemplate)
-	setStr(&cfg.Sandbox.E2B.EnvdVersion, yc.Sandbox.E2B.EnvdVersion)
+	applyYAMLSandbox(&cfg.Sandbox, yc.Sandbox)
 
 	applyYAMLObservability(&cfg.Observability, yc.Observability)
 
@@ -534,6 +461,94 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	}
 
 	return secrets, nil
+}
+
+// applyYAMLHTTP 把 YAML 的 HTTP/CORS 域应用到 cfg；切片按值拷贝。
+func applyYAMLHTTP(dst *HTTPConfig, y yamlHTTP) {
+	setStr(&dst.Address, y.Address)
+	setDur(&dst.ReadTimeout, y.ReadTimeout)
+	setDur(&dst.WriteTimeout, y.WriteTimeout)
+	setDur(&dst.IdleTimeout, y.IdleTimeout)
+	setDur(&dst.ShutdownTimeout, y.ShutdownTimeout)
+	setBool(&dst.Gzip, y.Gzip)
+	setBool(&dst.CORS.Enabled, y.CORS.Enabled)
+	setBool(&dst.CORS.AllowCredentials, y.CORS.AllowCredentials)
+	setInt(&dst.CORS.MaxAge, y.CORS.MaxAge)
+	if y.TrustedProxies != nil {
+		dst.TrustedProxies = append([]string(nil), y.TrustedProxies...)
+	}
+	if y.CORS.AllowedOrigins != nil {
+		dst.CORS.AllowedOrigins = append([]string(nil), y.CORS.AllowedOrigins...)
+	}
+	if y.CORS.AllowedMethods != nil {
+		dst.CORS.AllowedMethods = append([]string(nil), y.CORS.AllowedMethods...)
+	}
+	if y.CORS.AllowedHeaders != nil {
+		dst.CORS.AllowedHeaders = append([]string(nil), y.CORS.AllowedHeaders...)
+	}
+	if y.CORS.ExposedHeaders != nil {
+		dst.CORS.ExposedHeaders = append([]string(nil), y.CORS.ExposedHeaders...)
+	}
+}
+
+// applyYAMLLimits 把 YAML 的 Limits/RateLimit 域应用到 cfg；规则列表整体替换。
+func applyYAMLLimits(dst *LimitsConfig, y yamlLimits) {
+	setInt64(&dst.MaxRequestBytes, y.MaxRequestBytes)
+	setInt(&dst.MaxQueryRows, y.MaxQueryRows)
+	setDur(&dst.QueryTimeout, y.QueryTimeout)
+	setInt(&dst.MaxConcurrentQueries, y.MaxConcurrentQueries)
+	setInt(&dst.MaxBatchStatements, y.MaxBatchStatements)
+	setInt(&dst.MaxSQLBytes, y.MaxSQLBytes)
+	setInt(&dst.MaxConcurrentGoRuns, y.MaxConcurrentGoRuns)
+	setInt(&dst.MaxFilterScanRows, y.MaxFilterScanRows)
+	setInt64(&dst.MaxImportBytes, y.MaxImportBytes)
+	setInt(&dst.RealtimeMaxConns, y.RealtimeMaxConns)
+	setBool(&dst.RateLimit.Enabled, y.RateLimit.Enabled)
+	setInt(&dst.RateLimit.Burst, y.RateLimit.Burst)
+	setBool(&dst.RateLimit.ExemptSSE, y.RateLimit.ExemptSSE)
+	if y.RateLimit.Rules != nil {
+		dst.RateLimit.Rules = make([]RateLimitRule, 0, len(y.RateLimit.Rules))
+		for _, rule := range y.RateLimit.Rules {
+			item := RateLimitRule{Max: 0, Window: 0}
+			setStr(&item.Match, rule.Match)
+			setInt(&item.Max, rule.Max)
+			setDur(&item.Window, rule.Window)
+			dst.RateLimit.Rules = append(dst.RateLimit.Rules, item)
+		}
+	}
+}
+
+// applyYAMLSandbox 把 YAML 的 Sandbox 域应用到 cfg；镜像列表按值拷贝。
+func applyYAMLSandbox(dst *SandboxConfig, y yamlSandbox) {
+	setBool(&dst.Enabled, y.Enabled)
+	setStr(&dst.Image, y.Image)
+	setInt(&dst.CPUs, y.CPUs)
+	setInt(&dst.MemoryMiB, y.MemoryMiB)
+	setDur(&dst.MaxDuration, y.MaxDuration)
+	setDur(&dst.IdleTimeout, y.IdleTimeout)
+	setDur(&dst.ExecTimeout, y.ExecTimeout)
+	setInt(&dst.MaxOutputBytes, y.MaxOutputBytes)
+	setInt(&dst.MaxFileBytes, y.MaxFileBytes)
+	setStr(&dst.Network, y.Network)
+	setStr(&dst.Workdir, y.Workdir)
+	setStr(&dst.Backend, y.Backend)
+	if y.Images != nil {
+		dst.Images = append([]string(nil), y.Images...)
+	}
+	setDur(&dst.ExecTimeoutMax, y.ExecTimeoutMax)
+	setInt(&dst.MaxPerProject, y.MaxPerProject)
+	setDur(&dst.ReapInterval, y.ReapInterval)
+	setStr(&dst.Root, y.Root)
+	setInt64(&dst.PidsMax, y.PidsMax)
+	setStr(&dst.BwrapPath, y.BwrapPath)
+	setStr(&dst.HelperPath, y.HelperPath)
+	setBool(&dst.Terminal.Enabled, y.Terminal.Enabled)
+	setInt(&dst.Terminal.MaxSessionsPerSandbox, y.Terminal.MaxSessionsPerSandbox)
+	setDur(&dst.Terminal.IdleTimeout, y.Terminal.IdleTimeout)
+	setStr(&dst.SSH.Listen, y.SSH.Listen)
+	setStr(&dst.SSH.HostKeyPath, y.SSH.HostKeyPath)
+	setStr(&dst.E2B.DefaultTemplate, y.E2B.DefaultTemplate)
+	setStr(&dst.E2B.EnvdVersion, y.E2B.EnvdVersion)
 }
 
 // applyYAMLObservability 把 YAML 的 Observability 域应用到 cfg。

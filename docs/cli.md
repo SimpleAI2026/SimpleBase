@@ -27,6 +27,8 @@ simplebase --endpoint http://127.0.0.1:8080 --token "$SIMPLEBASE_TOKEN" --projec
 
 也可以把 `endpoint`、`token`、`project_id` 写进 `$XDG_CONFIG_HOME/simplebase/config.json`（权限必须是 `0600`）。优先级是命令行 flag、环境变量、配置文件。
 
+环境变量里的 token 读 `SIMPLEBASE_TOKEN`，也认 SDK 使用的 `SIMPLEBASE_API_KEY`；两者都设置时 `SIMPLEBASE_TOKEN` 优先，空值视为未设置。这样同一份 `.env` 既能给 SDK 用，也能给 CLI 用。
+
 成功时 stdout 一行 `{"ok":true,"data":...}`。失败时 stderr 一行 `{"ok":false,"error":{"code":...}}`，退出码 2。用法错误退出码 1，配置错误退出码 4。
 
 几个容易踩的返回形状：
@@ -48,6 +50,29 @@ simplebase migrate plan
 ```
 
 导入失败整体回滚；`--dry-run` 只校验。未指定导出 `--file` 时 stdout 是原始 CSV/NDJSON，不是 CLI JSON 信封。迁移命令只读，不执行 DDL。
+
+## 工作区重放：`dev validate|plan|apply|status`
+
+把本地工作区（`simplebase.json`、迁移、云函数、定时任务、集合声明）幂等地重放到任意一套 SimpleBase，教程见[本地开发、云端重放](/docs/getting-started/local-cloud-collab)。
+
+```bash
+simplebase dev validate [--dir DIR] [--manifest FILE]   # 纯离线校验，不连远端
+simplebase dev plan     [--dir DIR] [--manifest FILE] [--seed]
+simplebase dev apply    [--dir DIR] [--manifest FILE] [--seed] [--yes]
+simplebase dev status   [--dir DIR]                     # 只读 .simplebase/lock.json
+```
+
+- `validate`、`status` 只读工作区文件，**不需要** `SIMPLEBASE_URL` / token / project，适合只有二进制、没有凭据的 CI；`validate` 失败返回 `workspace_invalid` 与 `data.errors`。
+- `plan` 只读远端；`apply` 对本地地址（`127.0.0.1` / `localhost` / `::1` / `0.0.0.0`）直接执行，对其它地址必须带 `--yes`，否则只输出计划并以**退出码 3** 退出，不做任何写入。
+- `--seed` 时集合种子文档按 `_migrations` 里的 `seed-doc:<集合>/<id>` 记账去重（服务端建文档会忽略清单里的 `id`），重复执行不会重复建文档。
+- 每个项目只能有一个用户数据库；清单声明多个库时 `validate` 给出警告。
+- 管理员可用 `simplebase project create --id <8位ID> --name <名称>` 在多个实例上建同 ID 项目，供同一工作区重放。
+- 输出 `data.actions[]`（`verb` 为 `create` / `update` / `apply` / `skip`）、`changes`、`skips`、`warnings`；`apply` 另有 `env_hint`（`.simplebase/env.<label>`，不含密钥）。
+- lock 按目标分区：远端是 `<URL>#<project>`，本地统一为 `local#<project>`（不带端口，多人共用一个分区；库 ID 失效时回退按名称匹配）。
+- `plan` / `apply` 会读一次 `project list` 记录项目引擎，与 lock 里其它环境的记录不一致时给出警告（迁移只按一种方言写）。
+- 退出码：`0` 成功，`1` 校验或用法错误（含 `migration_modified`），`2` 远端错误（含 `project_not_found`），`3` 需要 `--yes`，`4` 配置缺失。
+- 命令读取宿主机上的工作区文件，所以助手模式（`SIMPLEBASE_AGENT_RUN=1`）下返回 `file_not_allowed`，不属于云助手 skill。
+- 另有 `function create --activate false`：只创建未生效的首个版本，试跑后再 `function activate`。
 
 ## 助手模式（SIMPLEBASE_AGENT_RUN=1）
 

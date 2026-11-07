@@ -80,9 +80,8 @@ func TestFacadeTypeAliases(t *testing.T) {
 
 	rt := NewRuntime()
 	rt.Initialize("seq-rt")
-	rt.SetUserData("k", "v")
-	if v, ok := rt.GetUserData("k"); !ok || v != "v" {
-		t.Fatalf("GetUserData = %v, %v", v, ok)
+	if rt.SequenceID != "seq-rt" {
+		t.Fatalf("SequenceID = %q", rt.SequenceID)
 	}
 	rt.Reset()
 	rt.Cleanup()

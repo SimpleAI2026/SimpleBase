@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // sseEvent 是一帧解析后的 SSE 事件。
@@ -59,27 +58,4 @@ func parseSSE(body string) ([]sseEvent, error) {
 		return nil, errors.New("no sse events parsed")
 	}
 	return out, nil
-}
-
-// timedSSE 按到达时间解析流式响应（测首帧延迟）。read 持续读取直到 EOF 或时长超限。
-func timedSSE(lines <-chan string) ([]timedEvent, error) {
-	out := make([]timedEvent, 0, 32)
-	start := time.Now()
-	for line := range lines {
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		var ev sseEvent
-		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			return nil, err
-		}
-		out = append(out, timedEvent{Event: ev, At: time.Since(start)})
-	}
-	return out, nil
-}
-
-type timedEvent struct {
-	Event sseEvent
-	At    time.Duration
 }

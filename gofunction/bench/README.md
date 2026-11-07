@@ -64,6 +64,10 @@ go test -run='^$' -bench=. -benchmem ./bench
 - **RunJSON 全链路**仅比预编译直调慢 ~5%（13.4ms vs 12.8ms），
   每请求 BuildProgram 成本 ~0.15ms 可忽略；
   但每请求编译产生 ~6.5k 分配，生产应复用 Program（如 inproc 路径）。
+  **v6.5 更新**：RunJSON 已内置 LRU 编译缓存（同源码命中后 fork +
+  init 重放，分配 1133 → 377，短脚本场景命中 19μs vs 未命中 59μs），
+  `/bench/*` 与 `/inproc/*` 的编译开销差距大幅缩小；内存敏感场景用
+  `gofunction.SetProgramCacheLimit(n)` 调节或关闭（默认 128 项）。
 
 ### 2. HTTP 压测（HTTP 全链路）
 
@@ -101,6 +105,8 @@ ab -t 15 -c 8 -q -p /tmp/order.json http://127.0.0.1:8091/{native,inproc,bench}/
 - 生产建议：**高频调用必须复用编译产物**（`/inproc/*` 形态），
   `/bench/*` 的每请求编译在 fib22 场景无感，但在短脚本场景
   （text/json）是 2~3x 吞吐损失的主要来源。
+  **v6.5 后**：`/bench/*`（RunJSON 路径）已自动命中编译缓存，
+  该差距预期收窄；如需复测对照，直接重跑本节 ab 命令即可。
 
 ## 顺带发现并修复的引擎缺陷
 
