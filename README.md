@@ -1,178 +1,135 @@
 # SimpleBase
 
-基于 DuckLake、S3 在线持久层与 Go 构建的云端数据库服务，并集成 LLM Gateway 与云 Agent。
+一个二进制起一套后端：数据库（SQL / 集合 / KV）、对象存储、Go 云函数、定时任务、事件触发器、实时订阅、备份恢复、LLM 网关和云助手，自带 Vue 控制台与 CLI。本地用本地盘跑，生产切到 S3 做在线持久层，业务代码只换 URL 和 Key。
+
+## 亮点
+
+| 亮点 | 说明 |
+| --- | --- |
+| **单二进制、零外部依赖起步** | `./build.sh dev` 一条命令拉起后端与控制台；本地默认本地盘，不需要 Postgres / Redis / S3。前端经 `go:embed` 打进同一个二进制 |
+| **每项目一个单文件库** | 项目数据落在一个 DuckDB 或 SQLite 文件里，SQL 表、集合文档、KV 共用；S3 模式以「不可变快照 + manifest」同步，节点丢盘可只凭 S3 恢复 |
+| **SQL + 文档 + KV 三种模型同库** | 参数化 SQL / 批量事务；JSON 集合支持 filter、投影、patch、导入导出、字段 schema；KV 支持 String / Hash / List / Set / ZSet / TTL |
+| **进程内 Go 云函数** | 自研 `gofunction` 解释器，单文件 `package main` 即可部署；版本、试跑、激活分离，试跑不过不上线；`/go/:project/:fn/:export` 直接 HTTP 调用 |
+| **自动化全家桶** | cron / interval / once 定时任务、记录与对象事件触发器、SSE 实时订阅（支持 `Last-Event-ID` 回放）、项目级备份与恢复 |
+| **本地开发、云端幂等重放** | `simplebase.json` 声明库、迁移、集合、函数、定时任务；`simplebase dev plan/apply` 先查后写，重复执行全部 skip，迁移只追加、改动已应用迁移会被拒绝；远端写入必须 `--yes` |
+| **LLM 网关 + 云助手** | OpenAI 兼容 `chat/completions`、`responses`、`models`；云助手经 CLI 技能操作项目资源，破坏性命令需发起人确认，只读助手 fail-closed |
+| **安全默认值** | API Key HMAC 存储、权限位 + Scoped Key（资源 / 动作 / 字段级）、跨项目 403、系统库只读、SQL 守卫（拒绝清单 / 多语句 / 行数与超时）、密钥不得进 YAML、审计与日志脱敏 |
+| **可验证的样例** | `examples/` 4 个业务站点 + 15 个能力用例，`scripts/examples-verify/verify.sh` 双实例模拟「本地 → 云端」逐站验证 |
 
 ## 架构概览
 
 ```text
- Clients / SDK / CLI
+ Console (Vue, go:embed) / SDK (JS·Go) / CLI (simplebase <resource> <action>)
           │
           ▼
-┌─────────────────────────────────────────────────────┐
-│ SimpleBase Server（首期唯一可写实例）              │
-│                                                     │
-│ API Gateway                                         │
-│ ├─ Auth / Project / Quota / Audit                   │
-│ ├─ Data Management API                          │
-│ ├─ SQL Query API                                    │
-│ └─ LLM Gateway API                                  │
-│                                                     │
-│ Database Runtime                 LLM / Agent Runtime │
-│ ├─ DB Registry（每库唯一 writer）├─ litellm Router   │
-│ ├─ DuckLake / DuckDB             ├─ 云 Agent         │
-│ ├─ Local Cache Manager           ├─ Streaming        │
-│ └─ System DuckLake catalog       └─ Usage Metering   │
-└───────────────┬──────────────────────────┬──────────┘
-                │                          │
-                ▼                          ▼
-       S3 Compatible Storage        LLM Providers
-       在线持久数据与元数据          OpenAI/Anthropic/...
+┌──────────────────────────────────────────────────────────────┐
+│ SimpleBase Server（单写实例）                                 │
+│                                                              │
+│ API：Auth · Project · API Key/Scope · Quota · Audit · Logs    │
+│      SQL · Collections · KV · Storage · Realtime(SSE)         │
+│      Go Functions · Cron · Triggers · Backups · Sandbox(E2B)  │
+│      LLM Gateway (OpenAI 兼容) · Cloud Agent                  │
+│                                                              │
+│ Runtime                                                      │
+│ ├─ godatabase：项目单文件库（DuckDB/SQLite）· Registry · KV · 租约 │
+│ ├─ 系统库：DuckLake（用户、Key、函数、任务、审计、日志）         │
+│ ├─ gofunction：Go 解释器（云函数 / cron / 触发器共享并发上限）   │
+│ └─ gocloudagent：云助手运行时（技能、确认、委托令牌）            │
+└──────────────┬──────────────────────────────┬────────────────┘
+               ▼                              ▼
+     本地盘 或 S3 兼容存储                 LLM Providers
+     快照 + manifest / 对象文件            OpenAI / Anthropic / ...
 ```
 
-### 核心设计
+### 核心约束
 
-- **S3 是在线持久层**：本地磁盘仅作缓存与工作集；节点丢失本地数据后可仅凭 S3 恢复。
-- **单写实例**：首期固定副本数为 1，所有写请求经同一进程的 Registry 路由，保证单库唯一 writer。
-- **DuckLake-only**：用户库与系统库都走 DuckLake（DuckDB catalog + Parquet DATA_PATH）；历史 Turso/libSQL 引擎已退役。
-- **项目隔离**：每个 tenant/project 拥有独立 logical database 与 S3 对象前缀，认证、配额、审计按 project 划分。
-- **LLM Gateway**：复用 litellm 多供应商客户端，服务端封装鉴权、配额、流式转发与用量计量。
-- **云 Agent**：项目级只读工具代理（`/agents`），复用 LLM Gateway 与系统库会话。
+- **单写实例**：副本数固定为 1；多实例需显式开启写租约（`instance.lease.enabled`），条件写探针失败时拒绝启动。
+- **每项目一个用户数据库**：建第二个库返回 `database_already_exists`。删库只清空该库的表、视图与集合，同项目的 KV、对象文件与备份保留。
+- **系统库保护**：只允许 SELECT，禁止写入与删除。
+- **权限层级**：`database:admin` 隐含 `database:write` 与 `database:read`；`write` 不隐含 `read`。
+- **配置来源唯一**：代码默认值 → `config.yaml` → `SIMPLEBASE_*` 环境变量；YAML 中出现非空密钥直接拒绝启动。
 
 ## 快速开始
 
-### 构建
-
 ```bash
-go build -o simplebase ./cmd/simplebase
+./build.sh dev --no-open      # 后端 :8080 + 控制台 :5173；缺 config.yaml 时自动从示例生成
 ```
 
-### 配置
-
-复制 `config.example.yaml` 为 `config.yaml` 并按环境调整。加载顺序为 **代码默认值 → YAML → `SIMPLEBASE_*` 环境变量覆盖**。YAML 是非密钥配置的权威来源；生产凭据（S3 密钥、API key hash secret、LLM API key）必须从环境变量或 IAM 角色注入；YAML 中的非空密钥会被拒绝。
-`SIMPLEBASE_CATALOG_DATABASE_ID` 已退役（breaking）：系统库由 `SIMPLEBASE_SYSTEM_DB_NAME` / `system_database.name` 决定。
-
-### 运行
+首次用引导账号 `simplebase2026` / `simplebase2026` 登录（首次登录必须改密），右上角创建项目，在「设置 → 连接」签发 API Key。完整步骤见 [5 分钟上手](docs/getting-started/quickstart.md)。
 
 ```bash
-./simplebase
+./build.sh                    # 前端构建 + go build -o simplebase
+./simplebase                  # 默认 :8080；/health/live、/health/ready
+docker build -t simplebase . && docker run -p 8080:8080 --env-file .env simplebase
 ```
 
-默认监听 `:8080`。健康检查：
-
-- `GET /health/live` — 进程存活
-- `GET /health/ready` — Catalog 可用 + S3 可达
-
-### Docker
+### 本地开发、云端重放
 
 ```bash
-docker build -t simplebase .
-docker run -p 8080:8080 --env-file .env simplebase
+simplebase project create --id myapp001 --name "My App"   # 管理员在本地与云端各建一次同 ID 项目
+simplebase dev validate --dir .                           # 离线校验，不需要凭据
+simplebase dev plan     --dir .                           # 只读列出 create/update/apply/skip
+simplebase dev apply    --dir . --seed                    # 本地直接执行
+SIMPLEBASE_URL=https://cloud.example.com simplebase dev apply --dir . --yes   # 远端必须 --yes
 ```
 
-## API
+教程见 [本地开发、云端重放](docs/getting-started/local-cloud-collab.md)；AI 编码代理使用 [`skills/simplebase`](skills/simplebase/SKILL.md)。
 
-所有业务路由位于 `/v1/projects/:projectID/...`，需 `Authorization: Bearer <api-key>` 认证并按 project 上下文校验权限。
+### 样例与验证
 
-### 数据管理
+```bash
+./examples/init.sh                                         # 初始化 4 个业务站点
+./examples/run_all.sh --start --skip-agent --api-port 18087 # 能力用例 01–15
+scripts/examples-verify/verify.sh --ports 18090,18091      # 双实例逐站验证（本地 → 模拟云端）
+```
 
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| POST | `/v1/projects/:p/databases` | `database:admin` | 创建 logical database（成功即为 ready，无需打开） |
-| GET | `/v1/projects/:p/databases` | `database:read` | 列出 project 下数据库 |
-| GET | `/v1/projects/:p/databases/:id` | `database:read` | 查询状态与容量 |
-| DELETE | `/v1/projects/:p/databases/:id` | `database:admin` | 软删除并同步清理 S3 |
+## API 速览
 
-### SQL 执行
+业务路由位于 `/v1/projects/:projectID/...`，`Authorization: Bearer <api-key>`，按 project 上下文鉴权。
 
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| POST | `/v1/projects/:p/databases/:id/query` | `database:read` | 参数化查询 |
-| POST | `/v1/projects/:p/databases/:id/execute` | `database:write` | 单条写语句 |
-| POST | `/v1/projects/:p/databases/:id/batch` | `database:write` | 批量事务 |
+| 能力 | 主要路径 | 权限 |
+| --- | --- | --- |
+| 数据库 | `POST/GET/DELETE /databases` | 建删 `database:admin`，读 `database:read` |
+| SQL | `/databases/:id/query`、`/execute`、`/batch` | 读 / 写 |
+| 集合 | `/databases/:id/data/collections/:c/documents`（含 batch / export / import） | 读 / 写 |
+| KV | `POST /kv` | 读 / 写 |
+| 对象存储 | `/s3/objects`、`/s3/presign`、`/s3/link` | 读 / 写 |
+| 云函数 | `/gofunctions`、`POST /go/:projectID/:name/:export` | 写 / 读 |
+| 定时任务 / 触发器 | `/cron-jobs`、`/function-triggers` | 写 / `project:admin` |
+| 实时订阅 | `GET /realtime`（SSE） | 读 |
+| 备份 | `/backups`（需 `backup.enabled`） | `project:admin` |
+| LLM | `/v1/chat/completions`、`/v1/responses`、`/v1/models` | `llm:invoke` |
+| 云助手 | `/agents`、`/agent-threads/:id/runs` | 读 / 写 |
+| 配额与审计 | `/quota`、`/audit`、`/logs` | 读 |
 
-约束：参数化 SQL、强制 context deadline、最大返回行数、请求体大小与并发数限制。DDL/恢复/删除单独授权并写入审计日志。
-
-### LLM Gateway
-
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| POST | `/v1/projects/:p/v1/chat/completions` | `llm:invoke` | OpenAI 兼容 Chat（`stream:true` 为 SSE，支持 `tools`） |
-| POST | `/v1/projects/:p/v1/responses` | `llm:invoke` | OpenAI Responses API（无状态子集，支持 `function` 工具与流式事件） |
-| GET | `/v1/projects/:p/v1/models` | `llm:invoke` | OpenAI 列表形状的可用模型 |
-
-### 云 Agent
-
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| GET | `/v1/projects/:p/agents` | `database:read` | 列出项目 Agent |
-| POST | `/v1/projects/:p/agent-threads/:id/runs` | `database:read` | 发起只读工具运行 |
-
-控制台 `/llm` 已重定向到 `/agents`。
-
-### 配额与审计
-
-| 方法 | 路径 | 权限 | 说明 |
-| --- | --- | --- | --- |
-| GET | `/v1/projects/:p/quota` | `database:read` | 当前配额使用 |
-| GET | `/v1/projects/:p/audit` | `database:read` | 操作审计记录 |
+完整说明见 [`docs/`](docs/README.md) 与 [`docs/cli.md`](docs/cli.md)。
 
 ## 部署
 
-详见 [docs/ops/deployment.md](docs/ops/deployment.md)。关键约束：
-
-- **副本数固定为 1**：滚动升级必须先停旧实例、再启新实例。
-- **S3 bucket 私有**：启用 TLS、SSE-KMS、最小权限 IAM、版本控制。
-- **系统库独立**：实例级 DuckLake 系统库（`system_database.name`）与用户库使用不同前缀。
-- **LLM 密钥**：来自 KMS 或加密配置，日志仅输出 provider/key ID 摘要。
-
-## 迁移
-
-从旧版本（LessDB/ha-sqlite）迁移到新链路的工作流详见 [docs/ops/migration.md](docs/ops/migration.md)。
-
-## 文档
-
-- [内部模块说明](internal/README.md)
-- [部署文档与 runbook](docs/ops/deployment.md)
-- [迁移指南](docs/ops/migration.md)
-- [v4.0 精简合并计划](plan/planv4.0/simplify-merge-plan.md)
+详见 [docs/ops/deployment.md](docs/ops/deployment.md)。要点：副本数为 1（滚动升级先停旧再起新）；S3 bucket 私有并开启 TLS、SSE-KMS、版本控制；`auth.api_key_hash_secret` 只从环境变量注入，更换会使全部 Key 失效；浏览器直连需显式开启 CORS，且前端生产包不得包含写权限 Key。
 
 ## 目录结构
 
 ```text
-cmd/simplebase/         服务与资源 CLI 统一入口
+cmd/simplebase/         服务与资源 CLI 统一入口（含 simplebase dev）
 internal/api/           HTTP 路由、请求校验、错误协议、流式响应
-internal/app/           依赖装配与生命周期
-internal/auth/          API Key、项目身份、权限与上下文
-internal/audit/         不可变审计事件与脱敏
-internal/catalog/       元数据：tenant/project/database/LLM 配置/usage
-internal/config/        配置加载
-godatabase/            数据库运行时库（独立模块）：单文件库 / DuckLake / 注册表 / KV / 租约 / SQL 守卫
-  ├─ registry/          进程内每库唯一 writer、引用计数、空闲卸载
-  ├─ cache/             本地缓存目录、配额、LRU 淘汰
-  ├─ ducklake/          用户库 / 系统库工厂与 catalog 同步
-  ├─ sqlguard/          SQL 执行边界（超时、行数、批量）
-  ├─ kv/                键值数据操作
-  ├─ lease/             数据库租约与写入门控
-  └─ serialize.go       行序列化
-gocloudagent/           云 Agent 运行时与只读工具（嵌套独立模块；宿主适配在 internal/agentbridge）
-internal/sandbox/       云沙盒 Driver、Manager 与路径校验
-internal/llmgateway/    LLM 服务端封装、流式转发、用量计量
-internal/objectstore/   S3 client、KeyBuilder、descriptor、health
-internal/observability/ 日志、指标、健康检查
-internal/systemdb/      系统库迁移、会话与日志存储
-internal/usage/         配额检查与用量聚合
+internal/app/           依赖装配与生命周期（唯一装配点）
+internal/auth/          用户、会话、API Key、权限层级与 Scope
+internal/catalog/       tenant / project / database 元数据
+internal/sbcli/         资源 CLI 与 dev 重放
+internal/agentbridge/   云助手宿主适配
+godatabase/             数据库运行时（独立模块）：单文件库 / DuckLake / Registry / KV / 租约 / SQL 守卫
+gofunction/             Go 解释器（独立模块）
+gocloudagent/           云助手运行时（独立模块）
+gosandbox/              沙盒执行层（独立模块）
 ui/                     Vue 控制台与文档站
 packages/               Go 与 JavaScript SDK
-examples/               示例应用
-docs/                   用户文档
+skills/simplebase/      本地开发与云端重放 skill（sbdev.py）
+examples/               业务站点与能力用例
+scripts/                测试、冒烟与 examples-verify
+docs/  plan/            用户文档 / 设计计划
 ```
 
 ## 技术栈
 
-- Go 1.25+
-- DuckDB / DuckLake
-- S3 兼容存储（AWS SDK v2）
-- Echo v4 HTTP 框架
-- litellm + CloudWeGo Eino（LLM / Agent）
-- Zap 结构化日志
-- Prometheus 指标
+Go 1.25+（CGO）· DuckDB / SQLite / DuckLake · Echo v4 · AWS SDK v2（S3 兼容）· litellm + CloudWeGo Eino · Zap · Prometheus · Vue 3 + Vite + Tailwind

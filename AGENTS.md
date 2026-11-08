@@ -41,9 +41,15 @@ go test ./...                               # 后端全量
 cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.24% 未达标，见 planv5.0 §7.2
 cd ui && yarn build                         # 前端构建必须通过
 cd ui && yarn typecheck                     # tsc --noEmit；当前因 *.vue 缺 shim 报 241 处 TS2307，见 planv5.0 §7.1
-./scripts/test.sh [包...] [-race]           # 云 Agent 相关包一键后端测试（planv4.1 §5.5）
+./scripts/test.sh [包...] [-race]           # 云 Agent 相关包一键后端测试（planv4.1 §5.5）+ examples 四站清单离线校验
 ./scripts/smoke.sh                          # 构建 + vet + 云 Agent 全链路 + 前端构建
 cd packages/js-sdk && npm run typecheck && npm test   # SDK
+(cd skills/simplebase && python3 -m unittest discover -s scripts -p 'test_sbdev.py')   # sbdev.py（假 CLI，不连服务）
+
+# ── 样例与端到端验证（planv6.4 examples-skill-verification）──
+./examples/run_all.sh --start --skip-build --skip-agent --api-port 18087 [--only 01-project,13-dev-replay] [--fresh]
+SIMPLEBASE_BACKUP_ENABLED=true ./examples/run_all.sh ...   # 11-backup 需要开备份，否则 SKIP
+scripts/examples-verify/verify.sh --ports 18090,18091 [--only shop] [--skip-cloud] [--with-changes]   # 双实例逐站验证
 
 # ── 运维 / 压测 ───────────────────────────────────────
 ./build.sh reset [-y]                       # 删本地 cache_dir（不动远程 S3）
@@ -90,10 +96,14 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 4. **依赖管理**：不新增第三方依赖、不升级版本、不改 `go.mod` / `package.json` / `tsconfig.json` / `vite.config.ts`，除非用户明确要求。
 5. **SQL 边界在 `database/sqlguard`**：拒绝清单、只读检测、多语句与 NUL 拦截不得散落到 handler。
 6. **写操作 handler 必须检查 `writable`**（实例只读时返回 `ErrWriterUnavailable`）。
+7. **权限判定只走 `auth.Principal.HasPermission` / `auth.PermissionImplied`**：层级是 `database:admin ⊃ database:write, database:read`（`write` 不含 `read`）。不得直接读 `Principal.Permissions[...]` 做判定，签发子集校验（`limitIssuedPermissions`）与鉴权必须同口径。`gocloudagent` 的只读降级要同时剥离 `write` 与 `admin`，否则会经继承拿回写权限。
+8. **单项目单库与删库语义**：每个项目只有一个用户数据库（`catalog` 的 `HasDefaultDatabase`）。删库走 `catalog.ProjectDataClearer`：只 DROP 用户表 / 视图 / 序列并清理集合元数据，`__` 前缀内部表（KV）、项目文件、备份必须保留；整体删文件（`ProjectFilePurger`）只是无 registry 时的退路，不得作为默认路径。
+9. **领域错误不要用裸 `errors.New` 返回给 `WriteError`**：会落进未知分支变成 500。新增哨兵加到 `api/error.go` 的 `sentinelErrorMappings`（表内顺序即优先级），如 `ErrProjectMissing → 400 invalid_request`。
+10. **`simplebase dev` 与 `skills/simplebase/scripts/sbdev.py` 是同一份语义的两种实现**：校验文案、动作序列、记账名（迁移 `<文件名>`、SQL 种子 `seed:<路径>`、集合种子 `seed-doc:<集合>/<id>`）必须一致；`internal/sbcli/testdata/dev/*/expect.json` 被两端测试逐字比对，改提示要两边一起改。服务端建文档会忽略客户端 `id`，任何「按 id 去重」都要改用 `_migrations` 记账。
 
 ## 代码风格
 
-**Go**：遵循 Go 官方风格；错误统一走 `WriteError` + 领域错误（`catalog/errors.go` 风格），不得裸返回字符串；每个模块带单元测试。当前 `internal/` 有 37 个文件未过 `gofmt`（见 planv5.0 §8.1），改动这些文件时顺手格式化，不要一次性全仓重排。
+**Go**：遵循 Go 官方风格；错误统一走 `WriteError` + 领域错误（`catalog/errors.go` 风格），不得裸返回字符串；每个模块带单元测试。`internal/` 仍有少量文件未过 `gofmt`，改动这些文件时顺手格式化，不要一次性全仓重排。
 
 **TypeScript / Vue**（`ui/` 与 `packages/js-sdk`）：
 
@@ -109,7 +119,15 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 
 **gofunction**：公共 API 与限制以 `gofunction/README.md` 为准；`Executor.Compile` / `SetProfile` / `Runtime.Cleanup` 等是预留空实现，不要当已实现功能使用或宣传。**解释器实现全部在 `gofunction/internal/interp`**（`internal` 包，禁止外部 import）；模块根的 `gofunction.go` / `jsonrun.go` 只是类型别名与薄转发门面，新增对外 API 要在那里加转发，不要在 `internal/interp` 里直接暴露。实现文件按职责分：`compile.go` 编译期预编译、`eval.go` 运算、`call.go` 调用分发、`layout.go` 槽位布局、`executor.go` 池化。
 
-**设计计划文档的工作目录**：`plan/` 按版本切目录（`planv1.0` … `planv5.0`）。`planv4.1` 不是独立目录——v4.1 云 Agent 优化计划全文放在 `plan/planv4.0/cloud-agent-optimization-plan.md`，代码注释里的 `planv4.1 §X` / `BUG-0X` 均指向该文件，改动前请到那里查。
+**设计计划文档的工作目录**：`plan/` 按版本切目录（`planv1.0` … `planv6.4`）。`planv4.1` 不是独立目录——v4.1 云 Agent 优化计划全文放在 `plan/planv4.0/cloud-agent-optimization-plan.md`，代码注释里的 `planv4.1 §X` / `BUG-0X` 均指向该文件，改动前请到那里查。`planv6.4` 的 `examples-skill-verification-{plan,report}.md` 是 examples 与 skill 验证的事实来源（E1–E16、BUG-0~5 编号）；`production-readiness-plan.md` 是下一迭代「小白直接上线」的规划。
+
+**examples 与脚本**：
+
+- 脚本必须同时兼容 macOS（BSD 工具）与 Linux：毫秒计时用 `python3`/`perl`，不要用 `date +%s%3N`；不要硬编码个人机器路径（如 nvm 目录）；端口参数化，避开被占用的 8080。
+- 对仓库内样例跑 `dev apply` / `sbdev.py apply` 会写 `.simplebase/`，验证一律复制到临时目录。
+- 四个站点清单必须显式写 `data_model`、只声明一个库、`once` 任务写死 `run_at`，否则两种入口推断不一致或校验失败。
+- Node ESM 入口守卫用 `realpathSync` 比较 `process.argv[1]` 与 `import.meta.url`，避免相对路径或 `/tmp → /private/tmp` 时静默不执行。
+- 对象上传：声明的 Content-Type 与嗅探不一致返回 415；纯文本子类型（CSV / JSON / YAML / Markdown）允许声明原类型，嗅探为 `text/plain` 视为一致，`text/html` 等仍拒绝。
 
 ## 测试要求
 
@@ -123,9 +141,10 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 1. 相关命令全部通过（见「常用命令」）。
 2. 未引入新依赖、未改配置文件结构。
 3. 新增路由已挂权限（`auth.Require`）与 project context 中间件；带 `:projectID` 的路由必须经 `projectContextMiddlewareEcho`。
-4. **写路径必须同时检查 `writable`**：实例只读（`Config.Instance.Writable=false`）时返回 `ErrWriterUnavailable`/503。当前 `agent_handler`（CreateAgent/PatchAgent/DeleteAgent/CreateThread/PatchThread/DeleteThread）、`agent_schedule_handler`、`s3_handler` 写接口尚未检查，见 planv5.0 §8.2。
+4. **写路径必须同时检查 `writable`**：实例只读（`Config.Instance.Writable=false`）时返回 `ErrWriterUnavailable`/503。agent / agent-thread / s3 写路由已挂 `writeGate`；旧 `/agent-schedules` 写入口统一返回 410（迁移到 `/cron-jobs`）。
 5. 日志/审计无密钥、无 SQL 参数、无 LLM 正文。
 6. 前端改动未违反 `ui/AGENTS.md` 的样式定稿与组件约定，且新写的状态类用的是 reka 真实属性（`data-[state=…]`）。
+7. 动了 `internal/sbcli/dev*`、`sbdev.py`、`examples/*/simplebase.json` 或删库 / 权限逻辑时，额外跑：`go test ./internal/sbcli/ ./internal/app/ ./internal/auth/`、`test_sbdev.py`，以及 `scripts/examples-verify/verify.sh`（0 FAIL；无 LLM provider 时 S8-llm 为 SKIP 属预期）。
 
 ## Cursor Cloud specific instructions
 
@@ -140,4 +159,4 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 - `plan/` 存放设计计划文档（路由注释中的 `planX §Y` 指向这些文件），改动行为前先查对应 plan。
 - `internal/web/dist` 是前端构建产物的 embed 目录，**不要手工编辑**；由 `./build.sh` 同步生成。
 - `output/perf/` 为压测原始数据，`examples/`、`docs/` 为文档与示例资源。
-- 仓库卫生（待处理，见 planv5.0 §9.3）：`fakellm-server`（8.5MB 构建产物）未被 `.gitignore` 覆盖；`scripts/`、`internal/testutil/`、`ui/src/components/agent/`、`ui/src/composables/useAgentConversation.ts` 及 v4.1 的 e2e 测试仍为未跟踪状态。
+- 仓库卫生：`fakellm-server` 已被 `.gitignore` 覆盖；`internal/` 仍有少量文件未过 `gofmt`，改动时顺手格式化。
