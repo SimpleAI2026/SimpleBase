@@ -194,11 +194,19 @@ func TestRefreshObserverSessionLoad(t *testing.T) {
 		AccessTTL: time.Hour, RefreshTTL: 24 * time.Hour,
 	}).WithAuthObserver(obs)
 
-	_, _, err := users.EnsureBootstrapUser(ctx)
+	_, _, err := users.EnsureBootstrapUser(ctx, DefaultBootstrapPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, pair, err := sessions.Login(ctx, BootstrapUsername, BootstrapPassword, "ua", "ip")
+	// §8.2.2：bootstrap 用户强制改密；先走改密闭环再登录。
+	boot, err := users.VerifyCredentials(ctx, BootstrapUsername, DefaultBootstrapPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.ChangePassword(ctx, boot.ID, DefaultBootstrapPassword, "fresh-pass-8888"); err != nil {
+		t.Fatal(err)
+	}
+	_, pair, err := sessions.Login(ctx, BootstrapUsername, "fresh-pass-8888", "ua", "ip")
 	if err != nil {
 		t.Fatal(err)
 	}

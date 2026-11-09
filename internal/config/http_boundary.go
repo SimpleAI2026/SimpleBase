@@ -49,16 +49,31 @@ type CORSConfig struct {
 }
 
 type RateLimitConfig struct {
-	Enabled   bool            `yaml:"enabled"`
-	Rules     []RateLimitRule `yaml:"rules"`
-	Burst     int             `yaml:"burst"`
-	ExemptSSE bool            `yaml:"exempt_sse"`
+	Enabled    bool            `yaml:"enabled"`
+	Rules      []RateLimitRule `yaml:"rules"`
+	Burst      int             `yaml:"burst"`
+	ExemptSSE  bool            `yaml:"exempt_sse"`
+	MaxBuckets int             `yaml:"max_buckets"`
 }
+
+// RateLimitKey 取值：规则计数的维度。
+const (
+	// RateLimitKeyIP 按客户端 IP 计数（pre_auth 阶段可用）。
+	RateLimitKeyIP = "ip"
+	// RateLimitKeyPrincipal 按登录身份（APIKeyID/UserID/EndUserID）计数。
+	RateLimitKeyPrincipal = "principal"
+	// RateLimitKeyProject 按项目计数。
+	RateLimitKeyProject = "project"
+	// RateLimitKeyIPPrincipal 按 IP+身份联合计数（向后兼容的默认值）。
+	RateLimitKeyIPPrincipal = "ip+principal"
+)
 
 type RateLimitRule struct {
 	Match  string        `yaml:"match"`
 	Max    int           `yaml:"max"`
 	Window time.Duration `yaml:"window"`
+	// Key 计数维度：ip | principal | project | ip+principal；空 = ip+principal（现状兼容）。
+	Key string `yaml:"key"`
 }
 
 type FilesConfig struct {
@@ -99,6 +114,22 @@ func validateHTTPBoundary(c Config) []error {
 		}
 		if rule.Max <= 0 || rule.Window <= 0 {
 			errs = append(errs, fmt.Errorf("rate limit %q requires positive max and window", rule.Match))
+		}
+		switch rule.Key {
+		case "", RateLimitKeyIP, RateLimitKeyPrincipal, RateLimitKeyProject, RateLimitKeyIPPrincipal:
+		default:
+			errs = append(errs, fmt.Errorf("rate limit %q has invalid key %q (want ip|principal|project|ip+principal)", rule.Match, rule.Key))
+		}
+	}
+	if c.Limits.RateLimit.MaxBuckets < 0 {
+		errs = append(errs, errors.New("limits.rate_limit.max_buckets must not be negative"))
+	}
+	// production 下 trusted_proxies 含全网段等于信任任意来源的 X-Forwarded-For。
+	if c.IsProduction() {
+		for _, cidr := range c.HTTP.TrustedProxies {
+			if cidr == "0.0.0.0/0" || cidr == "::/0" {
+				errs = append(errs, errors.New("http.trusted_proxies must not contain 0.0.0.0/0 or ::/0 in production"))
+			}
 		}
 	}
 	return errs

@@ -40,6 +40,38 @@ import (
 // DuckLake 不使用 PRIMARY KEY / AUTOINCREMENT；唯一性由应用层保证。
 // DuckLake 不支持 ADD COLUMN 带 NOT NULL，也就不会再有补列语句——新增列直接写进对应建表语句。
 var systemTables = []systemTable{
+	// production-readiness-plan §8.2.6：终端用户（应用自己的用户体系，与管理员/平台会话隔离）。
+	{name: "sys_end_users", ddl: `CREATE TABLE IF NOT EXISTS sys_end_users (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			external_id VARCHAR NOT NULL DEFAULT '',
+			password_hash VARCHAR NOT NULL DEFAULT '',
+			display_name VARCHAR NOT NULL DEFAULT '',
+			email VARCHAR NOT NULL DEFAULT '',
+			status VARCHAR NOT NULL DEFAULT 'active',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		)`},
+	// production-readiness-plan §8.3.3：系统级审计事件（与项目级 sys_operations 分离；
+	// actor 域分隔 user:<id> | key:<id> | enduser:<id> | system）。
+	{name: "sys_audit_events", ddl: `CREATE TABLE IF NOT EXISTS sys_audit_events (
+			id VARCHAR NOT NULL,
+			occurred_at TIMESTAMP NOT NULL,
+			actor VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL DEFAULT '',
+			kind VARCHAR NOT NULL,
+			detail VARCHAR NOT NULL DEFAULT ''
+		)`},
+	// production-readiness-plan §8.3.5：告警去重状态（同 kind+project 60s 窗口聚合）。
+	{name: "sys_alert_state", ddl: `CREATE TABLE IF NOT EXISTS sys_alert_state (
+			kind VARCHAR NOT NULL,
+			project VARCHAR NOT NULL DEFAULT '',
+			first_at TIMESTAMP NOT NULL,
+			last_at TIMESTAMP NOT NULL,
+			count BIGINT NOT NULL DEFAULT 0,
+			severity VARCHAR NOT NULL DEFAULT 'warning',
+			detail VARCHAR NOT NULL DEFAULT ''
+		)`},
 	{name: "sys_tenants", ddl: `CREATE TABLE IF NOT EXISTS sys_tenants (
 			id VARCHAR NOT NULL,
 			name VARCHAR NOT NULL,

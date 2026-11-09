@@ -89,6 +89,9 @@ func applyEnv(cfg *Config) {
 	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_LEASE_ON_LOST"); ok {
 		cfg.Instance.Lease.OnLost = v
 	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_PROFILE"); ok {
+		cfg.Instance.Profile = v
+	}
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_STORAGE_DATABASE"); ok {
 		cfg.Storage.Database = v
@@ -118,6 +121,15 @@ func applyEnv(cfg *Config) {
 	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_APIKEY_SECRET"); ok {
 		cfg.Auth.APIKeyHashSecret = v
 	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_SESSION_SECRET"); ok {
+		cfg.Auth.SessionSecret = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_APIKEY_SECRETS"); ok {
+		cfg.Auth.APIKeyHashSecrets = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_BOOTSTRAP_PASSWORD"); ok {
+		cfg.Auth.BootstrapPassword = v
+	}
 
 	applyEnvSandbox(cfg)
 
@@ -145,6 +157,25 @@ func applyEnv(cfg *Config) {
 		cfg.Observability.MetricsPath = v
 	}
 	setEnvBool(&cfg.Observability.PerfStageTiming, "SIMPLEBASE_PERF_STAGE_TIMING")
+	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_ADDRESS"); ok {
+		cfg.Observability.MetricsAddress = v
+	}
+	setEnvBool(&cfg.Observability.PProf, "SIMPLEBASE_PPROF")
+	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_TOKEN"); ok {
+		cfg.Observability.MetricsToken = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_PUBLIC_URL"); ok {
+		cfg.HTTP.PublicURL = v
+	}
+	setEnvInt(&cfg.HTTP.SecurityHeaders.HSTSMaxAge, "SIMPLEBASE_HTTP_HSTS_MAX_AGE")
+	setEnvBool(&cfg.HTTP.SecurityHeaders.HSTSIncludeSubdomains, "SIMPLEBASE_HTTP_HSTS_INCLUDE_SUBDOMAINS")
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_SECURITY_HEADERS_CSP"); ok {
+		cfg.HTTP.SecurityHeaders.CSP = v
+	}
+	setEnvInt(&cfg.Limits.RateLimit.MaxBuckets, "SIMPLEBASE_RATE_LIMIT_MAX_BUCKETS")
+	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_MISSED_POLICY"); ok {
+		cfg.Backup.MissedPolicy = v
+	}
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_SYSTEM_DB_NAME"); ok {
 		cfg.SystemDatabase.Name = v

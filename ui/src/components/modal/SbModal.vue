@@ -3,7 +3,9 @@
     <DialogContent :class="contentClass" :style="contentStyle" :show-close-button="true">
       <DialogHeader class="shrink-0 pr-8">
         <DialogTitle>{{ title }}</DialogTitle>
-        <DialogDescription v-if="description">{{ description }}</DialogDescription>
+        <!-- 始终渲染 Description：reka-ui 在缺失时会打 a11y 警告。
+             没有描述时用标题兜底并视觉隐藏（仍为屏幕阅读器提供 aria-describedby）。 -->
+        <DialogDescription :class="description ? undefined : 'sr-only'">{{ description || title }}</DialogDescription>
       </DialogHeader>
       <!-- 标题和底栏留在视口内，长内容只在 body 里滚动；px-1 -mx-1 给 overflow 裁切下的焦点环让出空间 -->
       <div data-slot="sb-modal-body" class="-mx-1 min-h-0 min-w-0 max-w-full overflow-x-hidden overflow-y-auto px-1">

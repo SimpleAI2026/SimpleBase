@@ -59,6 +59,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm/local"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/alerts"
 	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
@@ -91,8 +92,9 @@ type App struct {
 	logger  observability.Logger
 	metrics *observability.Metrics
 
-	httpServer *http.Server
-	echo       *echo.Echo
+	httpServer    *http.Server
+	metricsServer *http.Server // §8.1.7 独立观测监听（nil = 未启用）
+	echo          *echo.Echo
 
 	objectStore   objectstore.Client
 	fileStore     objectstore.FileStore
@@ -105,6 +107,8 @@ type App struct {
 	auth          *auth.Service
 	users         *auth.UserService
 	sessions      *auth.SessionService
+	// endUsers 是终端用户服务（§8.2.6；独立密钥域 aud=enduser）。
+	endUsers      *auth.EndUserService
 	cacheMgr      *cache.Manager
 	usageSvc      *usage.Service
 	auditSvc      *audit.Service
@@ -127,6 +131,12 @@ type App struct {
 	handleEvictor     *registry.Evictor // R1：周期回收空闲句柄
 	schedulerCancel   context.CancelFunc
 	schedulerBaseCtx  context.Context
+	// alertBus 是进程内告警总线（§8.3.5）；nil = 未装配（测试路径）。
+	alertBus *alerts.Bus
+	// backupStoreReader 提供最近备份时刻（§8.3.6 readiness「48h 内有成功备份」）；nil = 不检查。
+	backupStoreReader interface {
+		LastBackupAt(ctx context.Context) (time.Time, error)
+	}
 
 	kvInitOnce sync.Once
 	kvInit     api.KVInitializer // 惰性单例：路由装配与 systemdb 种子共用
@@ -164,6 +174,21 @@ func (h *healthService) Ready(ctx context.Context) error {
 		if h.app.objectStore != nil {
 			if err := h.app.objectStore.Check(ctx); err != nil {
 				return fmt.Errorf("s3 check failed: %w", err)
+			}
+		}
+	}
+	// §8.3.6：data_dir 磁盘水位低于 5% 时 readiness 置 503（强制 LB 摘除）。
+	if cfg.Storage.DataDir != "" {
+		ratio, err := alerts.DiskFreeRatio(cfg.Storage.DataDir)
+		if err == nil && ratio < 0.05 {
+			return fmt.Errorf("disk almost full: %.1f%% free on %s", ratio*100, cfg.Storage.DataDir)
+		}
+	}
+	// §8.3.6：production 且启用备份的 writable 实例，检查「上次成功备份 < 48h」。
+	if cfg.IsProduction() && cfg.Backup.Enabled && cfg.Instance.Writable && h.app.systemStore != nil {
+		if h.app.backupStoreReader != nil {
+			if last, err := h.app.backupStoreReader.LastBackupAt(ctx); err == nil && !last.IsZero() && time.Since(last) > 48*time.Hour {
+				return fmt.Errorf("last successful backup older than 48h (%s)", last.Format(time.RFC3339))
 			}
 		}
 	}
@@ -335,8 +360,16 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		}
 		service := backup.NewService(cfg.Backup, cfg.Instance.ID, a.catalog, a.registry, a.fileFactory, repo, blobs, objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix})
 		backupHandler = api.NewBackupHandler(service, api.NewAuditService(a.auditSvc), cfg.Instance.Writable)
+		// §8.3.6：readiness「48h 内有成功备份」检查的数据源。
+		a.backupStoreReader = repo
 		if cfg.Backup.Schedule != "" {
-			scheduler, err := backup.NewScheduler(service, repo, cfg.Backup.Schedule)
+			// §8.3.2：catchup + 错误上报（告警总线在 seedAndStartMaintenance 装配，
+			// 此处仅当已存在时接线；nil Reporter 退化为无上报）。
+			reporter := a.backupReporter()
+			scheduler, err := backup.NewScheduler(service, repo, cfg.Backup.Schedule, backup.SchedulerOptions{
+				MissedPolicy: cfg.Backup.EffectiveMissedPolicy(),
+				Reporter:     reporter,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("backup schedule: %w", err)
 			}
@@ -366,6 +399,8 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		Health:                 a.health,
 		Auth:                   a.auth,
 		Sessions:               a.sessions,
+		// §8.2.6：终端用户服务（nil 时不挂 end-users 路由）。
+		EndUsers:               a.endUsers,
 		Users:                  a.users,
 		Catalog:                a.catalog,
 		Registry:               dbbridge.RegistryFrom(a.registry),
@@ -416,6 +451,14 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: writeTimeout,
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
+	}
+
+	// §8.1.7：独立观测监听（observability.metrics_address 非空时）。
+	if cfg.Observability.MetricsAddress != "" {
+		a.metricsServer = &http.Server{
+			Addr:    cfg.Observability.MetricsAddress,
+			Handler: api.NewObservabilityHandler(deps),
+		}
 	}
 
 	return a, nil
@@ -658,10 +701,25 @@ func (a *App) assembleAuthServices(store *systemdb.Store, cfg config.Config) {
 	a.auth = auth.NewService(store.AuthRepo(), cfg.Auth.APIKeyHashSecret).WithPolicyLoader(func(ctx context.Context, keyID, projectID string) (*auth.KeyPolicy, error) {
 		return auth.LoadKeyPolicy(ctx, store.DB(), keyID, projectID)
 	})
+	// §8.2.4：版本化密钥环（SIMPLEBASE_AUTH_APIKEY_SECRETS=v2:<new>,v1:<old>）；
+	// 未配置时为零值环，维持单盐行为。
+	if strings.TrimSpace(cfg.Auth.APIKeyHashSecrets) != "" {
+		ring, err := auth.ParseKeyring(cfg.Auth.APIKeyHashSecrets)
+		if err != nil {
+			a.logger.Error("invalid api key keyring, fallback to single secret", zap.String("err", err.Error()))
+		} else {
+			a.auth.WithKeyring(ring)
+		}
+	}
 	a.users = auth.NewUserService(auth.NewSQLUserRepository(store.DB()), catalog.ReservedTenantID)
 	a.users.OnWrite(store.NotifyWrite)
+	// §8.3.5：登录软锁定回调（审计 + 告警信号）。
+	// §8.2.6：终端用户服务（独立密钥域：aud=enduser）。
+	a.endUsers = auth.NewEndUserService(systemdb.NewSQLEndUserRepository(store.DB(), store.NotifyWrite), cfg.Auth.SessionSecret)
+	// §8.2.3 密钥域拆分：会话 JWT 用独立 session secret（SIMPLEBASE_AUTH_SESSION_SECRET；
+	// 未配置时 Load 阶段已从 Key 盐派生），轮换 Key 盐不再杀掉登录态。
 	a.sessions = auth.NewSessionService(a.users, auth.NewSQLSessionRepository(store.DB()),
-		cfg.Auth.APIKeyHashSecret, auth.SessionConfig{
+		cfg.Auth.SessionSecret, auth.SessionConfig{
 			AccessTTL:  2 * time.Hour,
 			RefreshTTL: 7 * 24 * time.Hour,
 		})
@@ -673,11 +731,13 @@ func (a *App) assembleAuthServices(store *systemdb.Store, cfg config.Config) {
 // 错误包装与 closer 注册顺序保持原样。
 func (a *App) seedAndStartMaintenance(ctx context.Context, store *systemdb.Store, cfg config.Config) error {
 	if err := systemdb.Seed(ctx, systemdb.SeedInput{
-		Store:   store,
-		Auth:    a.auth,
-		Catalog: a.catalog,
-		Logger:  a.logger,
-		InitKV:  a.initKVFunc(),
+		// §8.2.2：引导口令注入（SIMPLEBASE_BOOTSTRAP_PASSWORD）。
+		BootstrapPassword: cfg.Auth.BootstrapPassword,
+		Store:             store,
+		Auth:              a.auth,
+		Catalog:           a.catalog,
+		Logger:            a.logger,
+		InitKV:            a.initKVFunc(),
 	}); err != nil {
 		return fmt.Errorf("seed system database: %w", err)
 	}
@@ -686,6 +746,9 @@ func (a *App) seedAndStartMaintenance(ctx context.Context, store *systemdb.Store
 		return fmt.Errorf("seed log retention: %w", err)
 	}
 	store.StartPeriodicFlush(cfg.SystemDatabase.LogFlushInterval, cfg.SystemDatabase.MetricsFlushInterval)
+
+	// §8.3.5：告警总线装配（audit 记录 + metrics 计数两个订阅方）。
+	a.assembleAlertBus(cfg, store)
 
 	// perf §1 P1-C：系统库周期维护（merge/expire/cleanup；cleanup 首轮 dry-run）。
 	// 仅 writer 执行；启用租约时必须持有系统库写租约（惰性 Acquire，他人持租则跳过）。
@@ -710,6 +773,121 @@ func (a *App) seedAndStartMaintenance(ctx context.Context, store *systemdb.Store
 	maint.Start()
 	a.registerCloser(maint)
 	return nil
+}
+
+// assembleAlertBus 装配进程内告警总线（§8.3.5）与磁盘水位巡检（§8.3.4）。
+// 订阅方：审计记录（sys_audit_events，kind=alert.*）+ metrics 计数；
+// 巡检：启动时 + 每 5min 检查 data_dir 所在卷，<10% 发 critical、<20% 发 warning（状态翻转去重）。
+func (a *App) assembleAlertBus(cfg config.Config, store *systemdb.Store) {
+	bus := alerts.NewBus(a.logger)
+	a.alertBus = bus
+
+	// 订阅方 1：审计记录。
+	bus.Subscribe(func(sig alerts.Signal) {
+		store.RecordAudit(systemdb.AuditEvent{
+			Actor: "system",
+			Kind:  "alert." + sig.Kind,
+			Detail: strings.TrimSpace("severity=" + sig.Severity +
+				" project=" + sig.Project + " " + sig.Detail),
+		})
+	})
+	// 订阅方 2：metrics 计数。
+	if a.metrics != nil {
+		bus.Subscribe(func(sig alerts.Signal) {
+			a.metrics.AlertsTotal.WithLabelValues(sig.Kind, sig.Severity).Inc()
+		})
+	}
+
+	// 磁盘水位巡检（§8.3.4）：启动即查一次，其后每 5min。
+	if a.schedulerBaseCtx != nil {
+		go a.watchDiskFreeRatio(a.schedulerBaseCtx, cfg, bus)
+	}
+}
+
+// watchDiskFreeRatio 周期采样磁盘可用比例；越限发告警信号（状态翻转时才发，避免刷屏）。
+func (a *App) watchDiskFreeRatio(ctx context.Context, cfg config.Config, bus *alerts.Bus) {
+	dataDir := cfg.Storage.DataDir
+	if dataDir == "" {
+		return
+	}
+	const (
+		checkEvery = 5 * time.Minute
+		warnBelow  = 0.20
+		critBelow  = 0.10
+	)
+	var lastState int // 0=ok 1=warn 2=crit
+	tick := time.NewTicker(checkEvery)
+	defer tick.Stop()
+	check := func() {
+		ratio, err := alerts.DiskFreeRatio(dataDir)
+		if err != nil {
+			a.logger.Error("disk stat unavailable", zap.String("err", err.Error()))
+			return
+		}
+		if a.metrics != nil {
+			a.metrics.DiskFreeRatio.Set(ratio)
+		}
+		switch {
+		case ratio < critBelow:
+			if lastState != 2 {
+				bus.Emit(alerts.Signal{Kind: "disk.critical", Severity: alerts.SeverityCritical,
+					Detail: fmt.Sprintf("free %.1f%% below %.0f%%", ratio*100, critBelow*100)})
+			}
+			lastState = 2
+		case ratio < warnBelow:
+			if lastState != 1 {
+				bus.Emit(alerts.Signal{Kind: "disk.warning", Severity: alerts.SeverityWarning,
+					Detail: fmt.Sprintf("free %.1f%% below %.0f%%", ratio*100, warnBelow*100)})
+			}
+			lastState = 1
+		default:
+			lastState = 0
+		}
+	}
+	check()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			check()
+		}
+	}
+}
+
+// backupReporter 返回备份结果上报器（§8.3.2）：
+// 成功 → 记录时刻（readiness「上次成功 < 48h」用）+ 审计 backup.succeeded；
+// 失败 → 告警信号 backup.failed + 审计 backup.failed + 错误日志。
+func (a *App) backupReporter() backup.Reporter {
+	return backupReporter{app: a}
+}
+
+type backupReporter struct{ app *App }
+
+func (r backupReporter) BackupSucceeded(at time.Time, projects int) {
+	if r.app.systemStore != nil {
+		r.app.systemStore.RecordAudit(systemdb.AuditEvent{
+			Actor: "system", Kind: "backup.succeeded",
+			Detail: fmt.Sprintf("projects=%d at=%s", projects, at.Format(time.RFC3339)),
+		})
+	}
+	r.app.logger.Info("backup round succeeded", zap.Int("projects", projects))
+}
+
+func (r backupReporter) BackupFailed(at time.Time, err error) {
+	if r.app.alertBus != nil {
+		r.app.alertBus.Emit(alerts.Signal{
+			Kind: "backup.failed", Severity: alerts.SeverityCritical,
+			Detail: err.Error(),
+		})
+	}
+	if r.app.systemStore != nil {
+		r.app.systemStore.RecordAudit(systemdb.AuditEvent{
+			Actor: "system", Kind: "backup.failed",
+			Detail: err.Error(),
+		})
+	}
+	r.app.logger.Error("backup round failed", zap.String("err", err.Error()))
 }
 
 // assembleWriteLease 装配 per-database 写租约（原 assembleDeps「lease manager
@@ -900,8 +1078,36 @@ func (a *App) Close(ctx context.Context) error {
 }
 
 // Start 启动 HTTP server。阻塞调用者直到 Shutdown。
-// Start 启动 HTTP server（阻塞直到关闭）。
+// Start 启动 HTTP server（阻塞直到关闭）；配置了独立观测监听时并行启动，
+// 监听失败视为启动失败（§8.1.7）。
 func (a *App) Start() error {
+	if a.metricsServer != nil {
+		metricsErr := make(chan error, 1)
+		go func() {
+			a.logger.Info("metrics server listening", zap.String("address", a.cfg.Observability.MetricsAddress))
+			if err := a.metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				metricsErr <- err
+				return
+			}
+			metricsErr <- nil
+		}()
+		// 等待首个结果：独立监听绑定失败必须让主服务启动失败。
+		select {
+		case err := <-metricsErr:
+			if err != nil {
+				_ = a.httpServer.Close()
+				return fmt.Errorf("metrics server listen %s: %w", a.cfg.Observability.MetricsAddress, err)
+			}
+		default:
+		}
+		// 异步失败（运行期掉线）也透传给阻塞调用方。
+		go func() {
+			if err := <-metricsErr; err != nil {
+				a.logger.Error("metrics server failed", zap.String("err", err.Error()))
+				_ = a.httpServer.Close()
+			}
+		}()
+	}
 	a.logger.Info("http server listening", zap.String("address", a.cfg.HTTP.Address))
 	err := a.httpServer.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -935,6 +1141,15 @@ func (a *App) Shutdown(ctx context.Context) error {
 		a.logger.Error("http shutdown error", zap.String("err", err.Error()))
 		if firstErr == nil {
 			firstErr = err
+		}
+	}
+	// §8.1.7：关闭独立观测监听。
+	if a.metricsServer != nil {
+		if err := a.metricsServer.Shutdown(ctx); err != nil {
+			a.logger.Error("metrics shutdown error", zap.String("err", err.Error()))
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 

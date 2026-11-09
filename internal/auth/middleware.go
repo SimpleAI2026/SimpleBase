@@ -122,6 +122,13 @@ func AuthMiddlewareWithDelegation(sessions SessionAuthenticator, keys *Service, 
 				return echo.NewHTTPError(http.StatusUnauthorized, "missing or malformed authorization header")
 			}
 			if LooksLikeJWT(raw) {
+				// §8.2.6 密钥域隔离：aud=enduser 的 token 属于终端用户域，
+				// 在平台会话/委托/API Key 链上一律拒绝（防白名单漂移越权）。
+				if secret != "" {
+					if endUserClaims, err := VerifyJWT(secret, raw, time.Now()); err == nil && endUserClaims.Audience == endUserAudience {
+						return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+					}
+				}
 				if secret != "" {
 					claims, err := VerifyJWT(secret, raw, time.Now())
 					if err == nil && claims.Type == DelegationType {

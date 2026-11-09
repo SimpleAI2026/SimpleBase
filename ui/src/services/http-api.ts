@@ -1090,7 +1090,20 @@ export const httpApi: Api = {
     changePassword: (oldPassword, newPassword) =>
       http
         .put('/v1/auth/password', { old_password: oldPassword, new_password: newPassword })
-        .then(() => undefined)
+        .then(() => undefined),
+    initialPassword: (req) =>
+      http
+        .post('/v1/auth/password/initial', {
+          username: req.username,
+          old_password: req.oldPassword,
+          new_password: req.newPassword
+        })
+        .then((r) => {
+          // 端点直接返回正式 TokenPair（§8.2.2），与 login 同样落盘。
+          const pair = toTokenPair(r.data)
+          if (pair.accessToken) setTokens(pair.accessToken, pair.refreshToken)
+          return pair
+        })
   },
   users: {
     list: (limit, cursor) =>

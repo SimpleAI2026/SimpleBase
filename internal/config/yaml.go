@@ -41,10 +41,14 @@ import (
 // yamlSecretPresence records whether the YAML file contained non-empty secret values.
 // Secrets must come from environment variables or .env, never from YAML.
 type yamlSecretPresence struct {
-	s3Access bool
-	s3Secret bool
-	auth     bool
-	llmKeys  bool
+	s3Access         bool
+	s3Secret         bool
+	auth             bool
+	llmKeys          bool
+	sessionSecret    bool
+	metricsToken     bool
+	bootstrapPWD     bool
+	apiKeySecretRing bool
 }
 
 func rejectYAMLSecrets(s yamlSecretPresence) error {
@@ -60,6 +64,18 @@ func rejectYAMLSecrets(s yamlSecretPresence) error {
 	}
 	if s.llmKeys {
 		which = append(which, "llm.providers.*.api_key")
+	}
+	if s.sessionSecret {
+		which = append(which, "auth.session_secret")
+	}
+	if s.metricsToken {
+		which = append(which, "observability.metrics_token")
+	}
+	if s.bootstrapPWD {
+		which = append(which, "auth.bootstrap_password")
+	}
+	if s.apiKeySecretRing {
+		which = append(which, "auth.api_key_hash_secrets")
 	}
 	if len(which) == 0 {
 		return nil
@@ -95,6 +111,7 @@ type yamlBackup struct {
 	KeepDays        *int    `yaml:"keep_days"`
 	MaxPerProject   *int    `yaml:"max_per_project"`
 	SnapshotTimeout yamlDur `yaml:"snapshot_timeout"`
+	MissedPolicy    *string `yaml:"missed_policy"`
 }
 
 type yamlStorage struct {
@@ -112,6 +129,12 @@ type yamlHTTP struct {
 	Gzip            *bool    `yaml:"gzip"`
 	TrustedProxies  []string `yaml:"trusted_proxies"`
 	CORS            yamlCORS `yaml:"cors"`
+	PublicURL       *string  `yaml:"public_url"`
+	SecurityHeaders struct {
+		HSTSMaxAge         *int    `yaml:"hsts_max_age"`
+		HSTSIncludeSubdoms *bool   `yaml:"hsts_include_subdomains"`
+		CSP                *string `yaml:"csp"`
+	} `yaml:"security_headers"`
 }
 
 type yamlCORS struct {
@@ -130,15 +153,18 @@ type yamlRateLimit struct {
 		Match  *string `yaml:"match"`
 		Max    *int    `yaml:"max"`
 		Window yamlDur `yaml:"window"`
+		Key    *string `yaml:"key"`
 	} `yaml:"rules"`
-	Burst     *int  `yaml:"burst"`
-	ExemptSSE *bool `yaml:"exempt_sse"`
+	Burst      *int  `yaml:"burst"`
+	ExemptSSE  *bool `yaml:"exempt_sse"`
+	MaxBuckets *int  `yaml:"max_buckets"`
 }
 
 type yamlInstance struct {
 	ID       *string           `yaml:"id"`
 	Writable *bool             `yaml:"writable"`
 	Lease    yamlInstanceLease `yaml:"lease"`
+	Profile  *string           `yaml:"profile"`
 }
 
 type yamlInstanceLease struct {
@@ -200,7 +226,10 @@ type yamlS3 struct {
 }
 
 type yamlAuth struct {
-	APIKeyHashSecret *string `yaml:"api_key_hash_secret"`
+	APIKeyHashSecret  *string `yaml:"api_key_hash_secret"`
+	SessionSecret     *string `yaml:"session_secret"`
+	APIKeyHashSecrets *string `yaml:"api_key_hash_secrets"`
+	BootstrapPassword *string `yaml:"bootstrap_password"`
 }
 
 type yamlLLM struct {
@@ -300,6 +329,9 @@ type yamlObservability struct {
 	LogOutput       *string `yaml:"log_output"`
 	MetricsPath     *string `yaml:"metrics_path"`
 	PerfStageTiming *bool   `yaml:"perf_stage_timing"`
+	MetricsAddress  *string `yaml:"metrics_address"`
+	PProf           *bool   `yaml:"pprof"`
+	MetricsToken    *string `yaml:"metrics_token"`
 }
 
 type yamlSystemDatabase struct {
@@ -348,6 +380,7 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 
 	setStr(&cfg.Instance.ID, yc.Instance.ID)
 	setBool(&cfg.Instance.Writable, yc.Instance.Writable)
+	setStr(&cfg.Instance.Profile, yc.Instance.Profile)
 	if yc.Instance.Lease.Enabled != nil {
 		cfg.Instance.Lease.Enabled = *yc.Instance.Lease.Enabled
 	}
@@ -380,6 +413,24 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 		cfg.Auth.APIKeyHashSecret = *yc.Auth.APIKeyHashSecret
 		if *yc.Auth.APIKeyHashSecret != "" {
 			secrets.auth = true
+		}
+	}
+	if yc.Auth.SessionSecret != nil {
+		cfg.Auth.SessionSecret = *yc.Auth.SessionSecret
+		if *yc.Auth.SessionSecret != "" {
+			secrets.sessionSecret = true
+		}
+	}
+	if yc.Auth.APIKeyHashSecrets != nil {
+		cfg.Auth.APIKeyHashSecrets = *yc.Auth.APIKeyHashSecrets
+		if *yc.Auth.APIKeyHashSecrets != "" {
+			secrets.apiKeySecretRing = true
+		}
+	}
+	if yc.Auth.BootstrapPassword != nil {
+		cfg.Auth.BootstrapPassword = *yc.Auth.BootstrapPassword
+		if *yc.Auth.BootstrapPassword != "" {
+			secrets.bootstrapPWD = true
 		}
 	}
 
@@ -442,7 +493,7 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 
 	applyYAMLSandbox(&cfg.Sandbox, yc.Sandbox)
 
-	applyYAMLObservability(&cfg.Observability, yc.Observability)
+	applyYAMLObservability(&cfg.Observability, yc.Observability, &secrets)
 
 	setStr(&cfg.SystemDatabase.Name, yc.SystemDatabase.Name)
 	setDur(&cfg.SystemDatabase.MetricsFlushInterval, yc.SystemDatabase.MetricsFlushInterval)
@@ -456,6 +507,7 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Backup.KeepDays, yc.Backup.KeepDays)
 	setInt(&cfg.Backup.MaxPerProject, yc.Backup.MaxPerProject)
 	setDur(&cfg.Backup.SnapshotTimeout, yc.Backup.SnapshotTimeout)
+	setStr(&cfg.Backup.MissedPolicy, yc.Backup.MissedPolicy)
 	if yc.Files.AllowedMIME != nil {
 		cfg.Files.AllowedMIME = append([]string(nil), yc.Files.AllowedMIME...)
 	}
@@ -471,6 +523,10 @@ func applyYAMLHTTP(dst *HTTPConfig, y yamlHTTP) {
 	setDur(&dst.IdleTimeout, y.IdleTimeout)
 	setDur(&dst.ShutdownTimeout, y.ShutdownTimeout)
 	setBool(&dst.Gzip, y.Gzip)
+	setStr(&dst.PublicURL, y.PublicURL)
+	setStr(&dst.SecurityHeaders.CSP, y.SecurityHeaders.CSP)
+	setInt(&dst.SecurityHeaders.HSTSMaxAge, y.SecurityHeaders.HSTSMaxAge)
+	setBool(&dst.SecurityHeaders.HSTSIncludeSubdomains, y.SecurityHeaders.HSTSIncludeSubdoms)
 	setBool(&dst.CORS.Enabled, y.CORS.Enabled)
 	setBool(&dst.CORS.AllowCredentials, y.CORS.AllowCredentials)
 	setInt(&dst.CORS.MaxAge, y.CORS.MaxAge)
@@ -506,6 +562,7 @@ func applyYAMLLimits(dst *LimitsConfig, y yamlLimits) {
 	setBool(&dst.RateLimit.Enabled, y.RateLimit.Enabled)
 	setInt(&dst.RateLimit.Burst, y.RateLimit.Burst)
 	setBool(&dst.RateLimit.ExemptSSE, y.RateLimit.ExemptSSE)
+	setInt(&dst.RateLimit.MaxBuckets, y.RateLimit.MaxBuckets)
 	if y.RateLimit.Rules != nil {
 		dst.RateLimit.Rules = make([]RateLimitRule, 0, len(y.RateLimit.Rules))
 		for _, rule := range y.RateLimit.Rules {
@@ -513,6 +570,7 @@ func applyYAMLLimits(dst *LimitsConfig, y yamlLimits) {
 			setStr(&item.Match, rule.Match)
 			setInt(&item.Max, rule.Max)
 			setDur(&item.Window, rule.Window)
+			setStr(&item.Key, rule.Key)
 			dst.RateLimit.Rules = append(dst.RateLimit.Rules, item)
 		}
 	}
@@ -552,12 +610,20 @@ func applyYAMLSandbox(dst *SandboxConfig, y yamlSandbox) {
 }
 
 // applyYAMLObservability 把 YAML 的 Observability 域应用到 cfg。
-func applyYAMLObservability(dst *ObservabilityConfig, y yamlObservability) {
+func applyYAMLObservability(dst *ObservabilityConfig, y yamlObservability, secrets *yamlSecretPresence) {
 	setStr(&dst.LogLevel, y.LogLevel)
 	setStr(&dst.LogFormat, y.LogFormat)
 	setStr(&dst.LogOutput, y.LogOutput)
 	setStr(&dst.MetricsPath, y.MetricsPath)
 	setBool(&dst.PerfStageTiming, y.PerfStageTiming)
+	setStr(&dst.MetricsAddress, y.MetricsAddress)
+	setBool(&dst.PProf, y.PProf)
+	if y.MetricsToken != nil {
+		dst.MetricsToken = *y.MetricsToken
+		if *y.MetricsToken != "" {
+			secrets.metricsToken = true
+		}
+	}
 }
 
 // applyYAMLS3 把 YAML 的 S3 域应用到 cfg；非空密钥同时标记 secrets presence，

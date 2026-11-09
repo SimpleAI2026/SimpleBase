@@ -33,10 +33,7 @@ package auth
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -71,8 +68,10 @@ type Repository interface {
 
 // Service 是认证与授权服务。
 type Service struct {
-	repo         Repository
-	secret       string
+	repo   Repository
+	secret string
+	// keyring 版本化盐环（§8.2.4）；零值时退化到单盐模式（secret）。
+	keyring      Keyring
 	policyLoader PolicyLoader
 	cache        *apiKeyCache // §7.2 P1.2：keyHash → Principal 缓存
 
@@ -86,6 +85,13 @@ func NewService(repo Repository, secret string) *Service {
 	return &Service{repo: repo, secret: secret, cache: newAPIKeyCache()}
 }
 
+// WithKeyring 启用版本化密钥环（§8.2.4）。ring 为零值时维持单盐模式。
+// 环的主版本优先于单盐用于签发；认证时对全版本摘要逐一比对。
+func (s *Service) WithKeyring(ring Keyring) *Service {
+	s.keyring = ring
+	return s
+}
+
 // WithAuthObserver 注入 API Key 通道的认证阶段观察者（P0 诊断；
 // 传 nil 恢复 no-op）。观察者只收到低基数标签与时长，不含 key/hash。
 func (s *Service) WithAuthObserver(o AuthObserver) *Service {
@@ -95,10 +101,21 @@ func (s *Service) WithAuthObserver(o AuthObserver) *Service {
 
 // HashKey 计算 API key 的 HMAC-SHA256 摘要，用于存储与比对。
 // 调用方（创建 key 的管理流程）与 Authenticate 共用此函数，确保摘要一致。
+// §8.2.4：启用密钥环时用主版本（最新）计算——新签发的 Key 总是最新盐。
 func (s *Service) HashKey(rawKey string) string {
-	mac := hmac.New(sha256.New, []byte(s.secret))
-	mac.Write([]byte(rawKey))
-	return hex.EncodeToString(mac.Sum(nil))
+	if len(s.keyring.versions) > 0 {
+		return s.keyring.Hash(rawKey)
+	}
+	return hmacHex(s.secret, rawKey)
+}
+
+// candidateHashes 返回认证时应比对的全部摘要（§8.2.4）：
+// 密钥环启用时返回全版本摘要（新→旧），否则只有单盐摘要。
+func (s *Service) candidateHashes(rawKey string) []string {
+	if len(s.keyring.versions) > 0 {
+		return s.keyring.Hashes(rawKey)
+	}
+	return []string{hmacHex(s.secret, rawKey)}
 }
 
 // InvalidateKeyHash 主动失效指定 keyHash 的缓存（吊销/删除 Key 时调用；

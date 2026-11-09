@@ -275,18 +275,20 @@ func (s *Store) drainMetricAggregates() []MetricSample {
 	return out
 }
 
-// flushAllAsync 后台 flusher 的统一入口：日志批 + 指标批 + 聚合批。
-// perf §1 P1-B：三类数据合入同一事务提交，末尾仅 notifyWrite 一次，
+// flushAllAsync 后台 flusher 的统一入口：日志批 + 指标批 + 聚合批 + 审计批（§8.3.3）。
+// perf §1 P1-B：多类数据合入同一事务提交，末尾仅 notifyWrite 一次，
 // 避免一轮刷写产生多个 DuckLake snapshot / 多次 catalog 同步触发。
 func (s *Store) flushAllAsync(ctx context.Context) error {
 	logs := s.drainLogs()
 	metrics := append(s.drainMetrics(), s.drainMetricAggregates()...)
-	if len(logs) == 0 && len(metrics) == 0 {
+	audits := s.drainAudits()
+	if len(logs) == 0 && len(metrics) == 0 && len(audits) == 0 {
 		return nil
 	}
 	if s == nil || s.db == nil {
 		// 连接不可用：退回缓冲等待下轮。
 		s.requeue(logs, metrics)
+		s.requeueAudits(audits)
 		return nil
 	}
 	// 整批未提交即可重放。冲突时不要先退回缓冲，否则重试会再插一遍已入队的行。
@@ -307,10 +309,17 @@ func (s *Store) flushAllAsync(ctx context.Context) error {
 				return err
 			}
 		}
+		if len(audits) > 0 {
+			if err := insertAudits(ctx, tx, audits); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
 		return tx.Commit()
 	})
 	if err != nil {
 		s.requeue(logs, metrics)
+		s.requeueAudits(audits)
 		return err
 	}
 	s.notifyWrite(ctx)

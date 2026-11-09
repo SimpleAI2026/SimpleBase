@@ -50,6 +50,9 @@ type SeedInput struct {
 	Auth    *auth.Service
 	Catalog *catalog.Service
 	Logger  observability.Logger
+	// BootstrapPassword 引导超管口令（§8.2.2）；来自 SIMPLEBASE_BOOTSTRAP_PASSWORD。
+	// 空串退化为 auth.DefaultBootstrapPassword（仅 development 档位可达）。
+	BootstrapPassword string
 	// InitKV 可选：项目 KV catalog 创建后初始化 kv schema
 	// （key-value-ducklake-plan §2）。失败只记日志，不阻断种子。
 	InitKV func(ctx context.Context, db catalog.Database) error
@@ -100,11 +103,12 @@ func seedOnce(ctx context.Context, in SeedInput) error {
 	}
 	done()
 
-	// login-auth-plan §3.5：幂等种子超管 simplebase2026 / simplebase2026。
+	// login-auth-plan §3.5 / production-readiness-plan §8.2.2：幂等种子超管；
+	// 口令注入（production 必须非空且非默认，config 层已校验）。
 	done = stage("seed_bootstrap_user")
 	userRepo := auth.NewSQLUserRepository(in.Store.DB())
 	users := auth.NewUserService(userRepo, catalog.ReservedTenantID)
-	boot, created, err := users.EnsureBootstrapUser(ctx)
+	boot, created, err := users.EnsureBootstrapUser(ctx, in.BootstrapPassword)
 	if err != nil {
 		return fmt.Errorf("systemdb: seed bootstrap user: %w", err)
 	}

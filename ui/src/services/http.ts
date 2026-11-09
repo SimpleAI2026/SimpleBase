@@ -104,7 +104,12 @@ async function tryRefresh(): Promise<string | null> {
 // 收到 401 说明「本次凭据不对」，而不是「已登录会话失效」。
 // 若走 markUnauthorized 会清空 token 并弹出登录框+设置框，用户输错一次密码
 // 就会被告知去配 API Key（planv5.0 §2.2）。
-const ANONYMOUS_AUTH_PATHS = ['/v1/auth/login', '/v1/auth/refresh']
+const ANONYMOUS_AUTH_PATHS = [
+  '/v1/auth/login',
+  '/v1/auth/refresh',
+  // 免认证强制改密（§8.2.2）：401 表示旧口令错误，不是会话失效。
+  '/v1/auth/password/initial'
+]
 
 function isAnonymousAuthRequest(url: string | undefined): boolean {
   const path = (url || '').split('?')[0]

@@ -9,7 +9,7 @@ import {
   setApiKey,
   setTokens
 } from '../services/http'
-import type { AuthUser, UserRole } from '../services/types'
+import type { ApiError, AuthUser, UserRole } from '../services/types'
 
 export type SettingsTab = 'connection' | 'models' | 'storage' | 'backups'
 
@@ -27,6 +27,11 @@ export const useAuthStore = defineStore('auth', {
     loginReason: '' as string,
     /** 强制改密（must_change_password） */
     mustChangePassword: false,
+    /**
+     * 登录返回 423 时的用户名：此时还没有 token，改密要走免认证的
+     * `/v1/auth/password/initial`（§8.2.2），需要把账号带到改密表单。
+     */
+    pendingUsername: '',
     /** 全局设置 SbModal 开关 */
     settingsOpen: false,
     settingsTab: 'connection' as SettingsTab
@@ -79,6 +84,7 @@ export const useAuthStore = defineStore('auth', {
       clearTokens()
       this.accessToken = ''
       this.refreshToken = ''
+      this.pendingUsername = ''
       // 会话失效只弹登录框；设置弹窗由用户从顶栏齿轮自行打开
       // （planv5.0 §2.2：此前同时开两个弹窗，输错密码就会被告知去配 API Key）。
       // 文案走 i18n：这里没有组件上下文，用 i18n.global.t。
@@ -102,13 +108,28 @@ export const useAuthStore = defineStore('auth', {
       this.refreshToken = pair.refreshToken
       this.user = pair.user
       this.mustChangePassword = Boolean(pair.user?.mustChangePassword)
+      this.pendingUsername = ''
       this.lastUnauthorizedAt = 0
       this.closeLogin()
     },
-    async login(username: string, password: string) {
-      const pair = await api.auth.login({ username, password })
-      this.applyTokens(pair)
-      return pair.user
+    /**
+     * 登录。423 = 账号处于 must_change_password（后端不发 token），
+     * 此时记住用户名并切到改密视图，不算登录失败（§8.2.2）。
+     */
+    async login(username: string, password: string): Promise<AuthUser | null> {
+      try {
+        const pair = await api.auth.login({ username, password })
+        this.applyTokens(pair)
+        return pair.user
+      } catch (e) {
+        if ((e as ApiError).status === 423) {
+          this.pendingUsername = username
+          this.mustChangePassword = true
+          this.loginReason = ''
+          return null
+        }
+        throw e
+      }
     },
     async logout() {
       try {
@@ -121,6 +142,7 @@ export const useAuthStore = defineStore('auth', {
       this.refreshToken = ''
       clearTokens()
       this.mustChangePassword = false
+      this.pendingUsername = ''
       this.openLogin()
     },
     async bootstrap() {
@@ -156,6 +178,18 @@ export const useAuthStore = defineStore('auth', {
     async changePassword(oldPassword: string, newPassword: string) {
       await api.auth.changePassword(oldPassword, newPassword)
       this.mustChangePassword = false
+    },
+    /**
+     * 未登录的强制改密（登录返回 423 后）：走免认证端点，
+     * 成功后服务端直接返回正式 TokenPair，无需再登录一次。
+     */
+    async initialPassword(oldPassword: string, newPassword: string) {
+      const username = this.pendingUsername || this.user?.username || ''
+      if (!username) throw new Error(t('components.login.changeFailed'))
+      const pair = await api.auth.initialPassword({ username, oldPassword, newPassword })
+      this.applyTokens(pair)
+      this.mustChangePassword = false
+      return pair.user
     },
     openSettings(opts?: { tab?: SettingsTab }) {
       if (opts?.tab) this.settingsTab = opts.tab

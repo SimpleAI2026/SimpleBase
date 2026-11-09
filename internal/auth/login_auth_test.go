@@ -278,20 +278,23 @@ func TestUserServiceLoginAndPrincipal(t *testing.T) {
 	users := NewUserService(repo, "tenant-1")
 	ctx := context.Background()
 
-	boot, created, err := users.EnsureBootstrapUser(ctx)
+	boot, created, err := users.EnsureBootstrapUser(ctx, "bootstrap-pass-1234")
 	if err != nil || !created {
 		t.Fatalf("bootstrap: created=%v err=%v", created, err)
 	}
 	if boot.Username != BootstrapUsername || boot.Role != RoleSuperAdmin {
 		t.Fatalf("bootstrap user %+v", boot)
 	}
+	if !boot.MustChangePassword {
+		t.Fatal("bootstrap user must require first-login password change")
+	}
 	// 幂等
-	_, created2, err := users.EnsureBootstrapUser(ctx)
+	_, created2, err := users.EnsureBootstrapUser(ctx, "bootstrap-pass-1234")
 	if err != nil || created2 {
 		t.Fatalf("bootstrap twice: created=%v err=%v", created2, err)
 	}
 
-	u, err := users.VerifyCredentials(ctx, BootstrapUsername, BootstrapPassword)
+	u, err := users.VerifyCredentials(ctx, BootstrapUsername, "bootstrap-pass-1234")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,11 +355,22 @@ func TestSessionLoginRefreshRevoke(t *testing.T) {
 		AccessTTL: time.Hour, RefreshTTL: 24 * time.Hour,
 	})
 	ctx := context.Background()
-	_, _, _ = users.EnsureBootstrapUser(ctx)
+	_, _, _ = users.EnsureBootstrapUser(ctx, DefaultBootstrapPassword)
 
-	u, pair, err := sessions.Login(ctx, BootstrapUsername, BootstrapPassword, "ua", "1.1.1.1")
+	// §8.2.2：bootstrap 用户 must_change_password=true，Login 返回 ErrMustChangePasswd。
+	u, pair, err := sessions.Login(ctx, BootstrapUsername, DefaultBootstrapPassword, "ua", "1.1.1.1")
 	if err != nil {
-		t.Fatal(err)
+		if !errors.Is(err, ErrMustChangePasswd) {
+			t.Fatalf("bootstrap login should require password change, got %v", err)
+		}
+		// 走 /password/initial 闭环：改密后正式登录。
+		if err := users.ChangePassword(ctx, u.ID, DefaultBootstrapPassword, "fresh-pass-9999"); err != nil {
+			t.Fatal(err)
+		}
+		u, pair, err = sessions.Login(ctx, BootstrapUsername, "fresh-pass-9999", "ua", "1.1.1.1")
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	if pair.AccessToken == "" || pair.RefreshToken == "" {
 		t.Fatal("empty tokens")
@@ -454,7 +468,7 @@ func TestBootstrapUserProtected(t *testing.T) {
 	repo := newMemUserRepo()
 	users := NewUserService(repo, "t")
 	ctx := context.Background()
-	boot, _, err := users.EnsureBootstrapUser(ctx)
+	boot, _, err := users.EnsureBootstrapUser(ctx, DefaultBootstrapPassword)
 	if err != nil {
 		t.Fatal(err)
 	}

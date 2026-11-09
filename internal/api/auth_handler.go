@@ -48,6 +48,9 @@ type AuthHandler struct {
 	sessions *auth.SessionService
 	users    *auth.UserService
 	limiter  *loginLimiter
+	guard    *loginGuard
+	// audit 认证事件审计（§8.2.5：auth.login_failed / auth.login_locked / auth.password_initial）。可为 nil。
+	audit AuditService
 }
 
 // NewAuthHandler 构造 AuthHandler。
@@ -56,7 +59,32 @@ func NewAuthHandler(sessions *auth.SessionService, users *auth.UserService) *Aut
 		sessions: sessions,
 		users:    users,
 		limiter:  newLoginLimiter(10, time.Minute),
+		guard:    newLoginGuard(defaultLoginGuardOpts()),
 	}
+}
+
+// WithLoginGuardAudit 注入审计服务与软锁定回调（§8.2.5 / §8.3.5）；audit 可为 nil。
+func (h *AuthHandler) WithLoginGuardAudit(audit AuditService, onLock func(username string)) *AuthHandler {
+	h.audit = audit
+	if h.guard != nil {
+		h.guard.WithLockHook(onLock)
+	}
+	return h
+}
+
+func (h *AuthHandler) guardAllow(c echo.Context, username string) error {
+	rid := RequestIDFromContext(c.Request().Context())
+	ip := c.RealIP()
+	switch h.guard.allow(ip, username) {
+	case loginSoftLocked:
+		if h.audit != nil {
+			_ = h.audit.Record(c.Request().Context(), AuditEvent{Kind: "auth.login_locked", Detail: "username:" + normalizeLoginUsername(username)})
+		}
+		return WriteError(c, NewAPIError(http.StatusTooManyRequests, "login_locked", "account temporarily locked due to repeated failures", rid))
+	case loginRateLimited:
+		return WriteError(c, NewAPIError(http.StatusTooManyRequests, "rate_limited", "too many login attempts", rid))
+	}
+	return nil
 }
 
 type loginRequest struct {
@@ -120,8 +148,8 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if req.Username == "" || req.Password == "" {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "username and password required", rid))
 	}
-	if !h.limiter.allow(c.RealIP() + "/" + strings.ToLower(req.Username)) {
-		return WriteError(c, NewAPIError(http.StatusTooManyRequests, "rate_limited", "too many login attempts", rid))
+	if err := h.guardAllow(c, req.Username); err != nil {
+		return err
 	}
 
 	u, pair, err := h.sessions.Login(c.Request().Context(), req.Username, req.Password, c.Request().UserAgent(), c.RealIP())
@@ -133,10 +161,15 @@ func (h *AuthHandler) Login(c echo.Context) error {
 			return WriteError(c, NewAPIError(http.StatusForbidden, "user_disabled", "user disabled", rid))
 		}
 		if errors.Is(err, auth.ErrInvalidCredentials) {
+			h.guard.recordFailure(c.RealIP(), req.Username)
+			if h.audit != nil {
+				_ = h.audit.Record(c.Request().Context(), AuditEvent{Kind: "auth.login_failed", Detail: "username:" + normalizeLoginUsername(req.Username)})
+			}
 			return WriteError(c, NewAPIError(http.StatusUnauthorized, "invalid_credentials", "invalid username or password", rid))
 		}
 		return WriteError(c, err)
 	}
+	h.guard.recordSuccess(c.RealIP(), req.Username)
 	return c.JSON(http.StatusOK, toTokenResponse(pair, u))
 }
 
@@ -157,6 +190,75 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 		default:
 			return WriteError(c, NewAPIError(http.StatusUnauthorized, "invalid_refresh_token", "invalid refresh token", rid))
 		}
+	}
+	return c.JSON(http.StatusOK, toTokenResponse(pair, u))
+}
+
+type initialPasswordRequest struct {
+	Username    string `json:"username"`
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
+// InitialPassword: POST /v1/auth/password/initial（免认证，§8.2.2）。
+// 流程：验旧密 → 要求 MustChangePassword=true（否则 409）→ 更新并清 flag
+// → 吊销该用户全部会话 → 直接签发正式 TokenPair 返回。
+// 复用 loginGuard 的 ip / ip+username 两维度（不经 /v1 组 authMW）。
+func (h *AuthHandler) InitialPassword(c echo.Context) error {
+	rid := RequestIDFromContext(c.Request().Context())
+	var req initialPasswordRequest
+	if err := c.Bind(&req); err != nil {
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || req.OldPassword == "" || req.NewPassword == "" {
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "username, old_password and new_password required", rid))
+	}
+	if err := h.guardAllow(c, req.Username); err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+	// 先验旧密（不签发 token）；Login 对 must_change_password 用户返回 ErrMustChangePasswd + User。
+	u, _, err := h.sessions.Login(ctx, req.Username, req.OldPassword, c.Request().UserAgent(), c.RealIP())
+	if err != nil && !errors.Is(err, auth.ErrMustChangePasswd) {
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			h.guard.recordFailure(c.RealIP(), req.Username)
+			if h.audit != nil {
+				_ = h.audit.Record(ctx, AuditEvent{Kind: "auth.login_failed", Detail: "username:" + normalizeLoginUsername(req.Username)})
+			}
+			return WriteError(c, NewAPIError(http.StatusUnauthorized, "invalid_credentials", "invalid username or password", rid))
+		}
+		return WriteError(c, err)
+	}
+	if !u.MustChangePassword {
+		// 非 must_change_password 用户调此端点：拒绝，避免变成免登录改密后门。
+		return WriteError(c, NewAPIError(http.StatusConflict, "password_change_not_required", "password change is not required", rid))
+	}
+	if err := h.users.ChangePassword(ctx, u.ID, req.OldPassword, req.NewPassword); err != nil {
+		if errors.Is(err, auth.ErrWeakPassword) {
+			return WriteError(c, NewAPIError(http.StatusBadRequest, "weak_password", err.Error(), rid))
+		}
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			return WriteError(c, NewAPIError(http.StatusUnauthorized, "invalid_credentials", "invalid username or password", rid))
+		}
+		return WriteError(c, err)
+	}
+	// 吊销该用户全部会话（旧凭据全部失效），再签发新的正式 TokenPair。
+	if err := h.sessions.RevokeAllForUser(ctx, u.ID); err != nil {
+		return WriteError(c, err)
+	}
+	u, err = h.users.GetByID(ctx, u.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	pair, err := h.sessions.IssueAfterPasswordChange(ctx, u, c.Request().UserAgent(), c.RealIP())
+	if err != nil {
+		return WriteError(c, err)
+	}
+	h.guard.recordSuccess(c.RealIP(), req.Username)
+	if h.audit != nil {
+		_ = h.audit.Record(ctx, AuditEvent{Kind: "auth.password_initial", Detail: "user:" + u.ID})
 	}
 	return c.JSON(http.StatusOK, toTokenResponse(pair, u))
 }
@@ -280,16 +382,17 @@ type loginLimiter struct {
 	max    int
 	window time.Duration
 	hits   map[string][]time.Time
+	now    func() time.Time
 }
 
 func newLoginLimiter(max int, window time.Duration) *loginLimiter {
-	return &loginLimiter{max: max, window: window, hits: map[string][]time.Time{}}
+	return &loginLimiter{max: max, window: window, hits: map[string][]time.Time{}, now: time.Now}
 }
 
 func (l *loginLimiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	now := time.Now()
+	now := l.now()
 	cutoff := now.Add(-l.window)
 	arr := l.hits[key]
 	kept := arr[:0]

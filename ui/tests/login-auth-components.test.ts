@@ -70,6 +70,55 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     expect(reload).not.toHaveBeenCalled()
   })
 
+  it('LoginModal 423 switches to password mode and uses initialPassword', async () => {
+    const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
+    mockApi.api.auth.login = vi.fn(async () => {
+      throw Object.assign(new Error('password change required'), { status: 423 })
+    })
+    mockApi.api.auth.initialPassword = vi.fn(async () => ({
+      tokenType: 'Bearer',
+      accessToken: 'at',
+      expiresIn: 1,
+      refreshToken: 'rt',
+      user: {
+        id: 'u',
+        username: 'alice',
+        role: 'user' as const,
+        displayName: '',
+        email: '',
+        status: 'active' as const,
+        mustChangePassword: false
+      }
+    }))
+    // 生产里 DefaultLayout 不传 mode；423 由 store.mustChangePassword 切视图
+    const { wrapper } = await mountWithApp(LoginModal, { path: '/', props: { open: true } })
+    let inputs = wrapper.findAll('input')
+    await inputs[0].setValue('alice')
+    await inputs[1].setValue('old12345')
+    const loginBtn = wrapper.findAll('button').find((b) => b.text().includes('登录'))
+    await loginBtn!.trigger('submit')
+    await flushPromises()
+    expect(reload).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('当前密码')
+    expect(wrapper.text()).toContain('alice')
+
+    inputs = wrapper.findAll('input')
+    expect(inputs.length).toBe(3)
+    await inputs[0].setValue('old12345')
+    await inputs[1].setValue('new12345')
+    await inputs[2].setValue('new12345')
+    const changeBtn = wrapper.findAll('button').find((b) => b.text().includes('确认修改'))
+    await changeBtn!.trigger('submit')
+    await flushPromises()
+    expect(mockApi.api.auth.initialPassword).toHaveBeenCalledWith({
+      username: 'alice',
+      oldPassword: 'old12345',
+      newPassword: 'new12345'
+    })
+    expect(reload).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('LoginModal password mode shows mismatch hint', async () => {
     const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
     const { wrapper } = await mountWithApp(LoginModal, {

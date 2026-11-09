@@ -72,6 +72,9 @@ type Store struct {
 
 	metricsBuf []MetricSample
 	logBuf     []LogEvent
+	// auditBuf 是 sys_audit_events 的写缓冲（§8.3.3，与 logBuf 同款）。
+	auditBuf     []AuditEvent
+	droppedAudit int64
 	// metricAgg 是热指标的内存预聚合桶（§7.2 P3.3）。
 	metricAgg map[string]metricAggregate
 	// latencyHist 是按项目的接口耗时直方图（P50/P90/P99），每次 flush 每项目落一行。
@@ -189,6 +192,8 @@ func (s *Store) Close() error {
 	}
 	_ = s.FlushMetrics(ctx)
 	_ = s.FlushLogs(ctx)
+	// §8.3.1/§8.3.3：停机前排空审计缓冲（与日志同等待遇）。
+	_ = s.FlushAudits(ctx)
 	if s.factory != nil {
 		_ = s.factory.BeforeClose(ctx, s.meta.ID, s.db)
 	}

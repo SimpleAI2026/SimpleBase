@@ -84,11 +84,13 @@ func TestR2_YAMLLimitsDomain(t *testing.T) {
 			Match  *string `yaml:"match"`
 			Max    *int    `yaml:"max"`
 			Window yamlDur `yaml:"window"`
+			Key    *string `yaml:"key"`
 		}{Match: &m, Max: &mx, Window: yamlDur{d: time.Minute, set: true}},
 		struct {
 			Match  *string `yaml:"match"`
 			Max    *int    `yaml:"max"`
 			Window yamlDur `yaml:"window"`
+			Key    *string `yaml:"key"`
 		}{},
 	)
 	cfg = loadFromEnv()

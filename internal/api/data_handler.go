@@ -151,18 +151,34 @@ func (h *DataHandler) ListCollections(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	result, err := lease.Query(c.Request().Context(), godatabase.Statement{SQL: "SELECT DISTINCT table_name FROM (" + dialect.TableColumnsSQL("") + ") AS sb_tables ORDER BY table_name"}, 200)
+	// 只把「文档形」表当集合：id / data / created_at / updated_at 缺一不可。
+	// 这条规则同时挡住两类会被文档接口立刻拒绝的表：
+	//   - dev apply 的记账表 _migrations（下划线开头，collectionNamePattern 会 400）；
+	//   - 迁移里用原生 SQL 建的业务表（没有 data 列，文档查询固定 SELECT 四列会 500）。
+	// 名字复用与文档接口同一份 collectionNamePattern，避免列表与读写口径漂移。
+	tablesSQL := `SELECT table_name,
+		MAX(CASE WHEN LOWER(column_name) = 'id' THEN 1 ELSE 0 END) AS has_id,
+		MAX(CASE WHEN LOWER(column_name) = 'data' THEN 1 ELSE 0 END) AS has_data,
+		MAX(CASE WHEN LOWER(column_name) = 'created_at' THEN 1 ELSE 0 END) AS has_created_at,
+		MAX(CASE WHEN LOWER(column_name) = 'updated_at' THEN 1 ELSE 0 END) AS has_updated_at
+		FROM (` + dialect.TableColumnsSQL("") + `) AS sb_tables
+		GROUP BY table_name
+		ORDER BY table_name`
+	result, err := lease.Query(c.Request().Context(), godatabase.Statement{SQL: tablesSQL}, 1000)
 	if err != nil {
 		return WriteError(c, err)
 	}
 	response := collectionResponse{Collections: []string{}, Items: []collectionInfo{}}
 	seen := map[string]struct{}{}
 	for _, row := range result.Rows {
-		if len(row) == 0 {
+		if len(row) < 5 {
 			continue
 		}
 		name, ok := row[0].(string)
-		if !ok || godatabase.IsInternalTableName(name) {
+		if !ok || godatabase.IsInternalTableName(name) || !collectionNamePattern.MatchString(name) {
+			continue
+		}
+		if anyInt64(row[1]) == 0 || anyInt64(row[2]) == 0 || anyInt64(row[3]) == 0 || anyInt64(row[4]) == 0 {
 			continue
 		}
 		seen[name] = struct{}{}
@@ -185,6 +201,10 @@ func (h *DataHandler) ListCollections(c echo.Context) error {
 		}
 		for _, schema := range registered {
 			if schema.SchemaMode != "view" {
+				continue
+			}
+			// 与物理表同一口径：名字不合法时文档接口必然 400，不要放进列表。
+			if !collectionNamePattern.MatchString(schema.Name) {
 				continue
 			}
 			if _, exists := seen[schema.Name]; exists {

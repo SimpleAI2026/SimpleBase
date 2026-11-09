@@ -9,7 +9,8 @@ export const api = {
     login: vi.fn(),
     logout: vi.fn(),
     me: vi.fn(),
-    changePassword: vi.fn()
+    changePassword: vi.fn(),
+    initialPassword: vi.fn()
   },
   users: {
     list: vi.fn(),
@@ -204,6 +205,21 @@ export function applyApiDefaults() {
     projects: []
   })
   api.auth.changePassword.mockResolvedValue(undefined)
+  api.auth.initialPassword.mockResolvedValue({
+    tokenType: 'Bearer',
+    accessToken: 'at',
+    expiresIn: 7200,
+    refreshToken: 'rt',
+    user: {
+      id: 'u1',
+      username: 'simplebase2026',
+      role: 'superadminl1',
+      displayName: 'Super',
+      email: '',
+      status: 'active',
+      mustChangePassword: false
+    }
+  })
   api.users.list.mockResolvedValue({ users: [], nextCursor: '' })
   api.users.create.mockResolvedValue({
     id: 'u-new',

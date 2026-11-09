@@ -93,7 +93,7 @@ func newEnv(ctx context.Context, cacheRoot string) (*benchEnv, error) {
 
 // bootstrapProject 登录超管 → 建项目 → 签发全权限 Key。
 func (e *benchEnv) bootstrapProject(ctx context.Context) error {
-	token, err := e.login(auth.BootstrapUsername, auth.BootstrapPassword)
+	token, err := e.login(auth.BootstrapUsername, auth.DefaultBootstrapPassword)
 	if err != nil {
 		return fmt.Errorf("perfbench: login: %w", err)
 	}

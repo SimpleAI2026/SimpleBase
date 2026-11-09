@@ -100,12 +100,56 @@ type HTTPConfig struct {
 	Gzip            bool          `yaml:"gzip"`
 	TrustedProxies  []string      `yaml:"trusted_proxies"`
 	CORS            CORSConfig    `yaml:"cors"`
+	// PublicURL 对外访问地址（如 https://api.example.com）。
+	// 用于 HSTS 判定兜底、readiness 检查与告警消息里的控制台链接。
+	PublicURL       string              `yaml:"public_url"`
+	SecurityHeaders HTTPSecurityHeaders `yaml:"security_headers"`
+}
+
+// HTTPSecurityHeaders 控制安全响应头（production-readiness-plan §8.1.3）。
+type HTTPSecurityHeaders struct {
+	// HSTSMaxAge 秒；0 = 不发 Strict-Transport-Security。
+	HSTSMaxAge int `yaml:"hsts_max_age"`
+	// HSTSIncludeSubdomains 是否在 HSTS 里带 includeSubDomains。
+	HSTSIncludeSubdomains bool `yaml:"hsts_include_subdomains"`
+	// CSP enforce | report-only | off；空 = enforce（development 默认 report-only）。
+	CSP string `yaml:"csp"`
+}
+
+// CSP 模式取值。
+const (
+	CSPEnforce    = "enforce"
+	CSPReportOnly = "report-only"
+	CSPOff        = "off"
+)
+
+// EffectiveCSP 归一化 CSP 模式；空视为 enforce。
+func (h HTTPSecurityHeaders) EffectiveCSP() string {
+	m := strings.ToLower(strings.TrimSpace(h.CSP))
+	if m == "" {
+		return CSPEnforce
+	}
+	return m
 }
 
 type InstanceConfig struct {
 	ID       string              `yaml:"id"`
 	Writable bool                `yaml:"writable"`
 	Lease    InstanceLeaseConfig `yaml:"lease"`
+	// Profile 运行档位：development（默认）| production。
+	// production 启用安全默认值（见 profile.go 的 applyProfileDefaults）。
+	Profile string `yaml:"profile"`
+}
+
+// Profile 取值（instance.profile）。
+const (
+	ProfileDevelopment = "development"
+	ProfileProduction  = "production"
+)
+
+// IsProduction 返回当前实例是否以 production 档位运行。
+func (c Config) IsProduction() bool {
+	return strings.EqualFold(strings.TrimSpace(c.Instance.Profile), ProfileProduction)
 }
 
 // InstanceLeaseConfig 控制 per-database 写租约（multi-instance-consistency-plan §4.8）。
@@ -194,6 +238,19 @@ type SystemDatabaseConfig struct {
 
 type AuthConfig struct {
 	APIKeyHashSecret string `yaml:"api_key_hash_secret"`
+	// SessionSecret 登录态 / 委托 JWT 的独立密钥（production-readiness-plan §8.2.3）。
+	// 未设置时由 APIKeyHashSecret 派生（HMAC(apikey_secret, "simplebase-session-v1")）。
+	// 只能来自环境变量，写 YAML 拒绝启动。
+	SessionSecret string `yaml:"session_secret"`
+	// APIKeyHashSecrets 版本化密钥环（SIMPLEBASE_AUTH_APIKEY_SECRETS=v2:<new>,v1:<old>）。
+	// 空时退化为单值 APIKeyHashSecret。只能来自环境变量。
+	APIKeyHashSecrets string `yaml:"api_key_hash_secrets"`
+	// BootstrapPassword 引导超管的初始口令；只在首次种子时读取。
+	// 只能来自 SIMPLEBASE_BOOTSTRAP_PASSWORD，写 YAML 拒绝启动。
+	BootstrapPassword string `yaml:"bootstrap_password"`
+	// SessionSecretExplicit 由 Load 阶段填充：true = 用户显式配置；
+	// false = 由 API Key 盐派生（doctor 提示轮换影响）。
+	SessionSecretExplicit bool `yaml:"-"`
 }
 
 type LLMConfig struct {
@@ -493,6 +550,13 @@ type ObservabilityConfig struct {
 	// PerfStageTiming 开启请求分段计时（api-db-perf-validation-plan §2.1）。
 	// 输出 simplebase_api_stage_seconds 与 debug 日志行；默认关闭。
 	PerfStageTiming bool `yaml:"perf_stage_timing"`
+	// MetricsAddress 非空时 /metrics 与 pprof 改挂独立监听（如 127.0.0.1:9090），
+	// 业务端口上的对应路径返回 404（production-readiness-plan §8.1.7）。
+	MetricsAddress string `yaml:"metrics_address"`
+	// PProf 是否挂 /debug/pprof；只会挂在独立监听或带 token 的业务路由上。
+	PProf bool `yaml:"pprof"`
+	// MetricsToken /metrics 的 Bearer token；只能来自环境变量，写 YAML 拒绝启动。
+	MetricsToken string `yaml:"metrics_token"`
 }
 
 // Load 加载配置：代码默认值 → YAML → SIMPLEBASE_ 环境变量覆盖，然后 Validate。
@@ -504,6 +568,7 @@ type ObservabilityConfig struct {
 func Load() (Config, error) {
 	cfg := defaults()
 
+	ycExplicit := yamlConfig{}
 	path, required := configFilePath()
 	var yamlSecrets yamlSecretPresence
 	if path != "" {
@@ -521,12 +586,19 @@ func Load() (Config, error) {
 			if err != nil {
 				return Config{}, fmt.Errorf("apply config file %s: %w", path, err)
 			}
+			ycExplicit = yc
 		}
 	}
 
 	applyEnv(&cfg)
 
+	// production 档位：注入安全默认值（只填用户未显式设置的字段），再做校验。
+	applyProfileDefaults(&cfg, collectExplicitFields(ycExplicit))
+
 	if err := rejectYAMLSecrets(yamlSecrets); err != nil {
+		return Config{}, err
+	}
+	if err := validateProduction(cfg); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {
@@ -733,6 +805,11 @@ func (c Config) Validate() error {
 	}
 	if c.Instance.ID == "" {
 		errs = append(errs, errors.New("instance.id is required"))
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Instance.Profile)) {
+	case "", ProfileDevelopment, ProfileProduction:
+	default:
+		errs = append(errs, fmt.Errorf("instance.profile must be development or production (got %q)", c.Instance.Profile))
 	}
 	switch strings.ToLower(c.Instance.Lease.OnLost) {
 	case "", "release_db", "exit":

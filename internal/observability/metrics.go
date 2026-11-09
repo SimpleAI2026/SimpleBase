@@ -70,6 +70,12 @@ type Metrics struct {
 	// 分段计时（api-db-perf-validation-plan §2.1）。route/stage 均为低基数。
 	APIStageSeconds *prometheus.HistogramVec
 	APIRateLimited  *prometheus.CounterVec
+
+	// production-readiness-plan §8.3.4/§8.3.5 运维观测。
+	DiskFreeRatio     prometheus.Gauge   // data_dir 所在卷可用比例
+	AlertsTotal       *prometheus.CounterVec // 告警信号计数 {kind,severity}
+	QuotaExceeded     *prometheus.CounterVec // 配额拒绝计数 {kind}
+	RateLimitOverflow prometheus.Counter     // max_buckets 触顶 fail-open 计数
 }
 
 // ObserveCacheBytes 更新当前缓存字节用量。
@@ -218,5 +224,21 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "simplebase_api_rate_limited_total",
 			Help: "Number of requests rejected by API rate limits.",
 		}, []string{"rule"}),
+		DiskFreeRatio: f.NewGauge(prometheus.GaugeOpts{
+			Name: "simplebase_disk_free_ratio",
+			Help: "Free space ratio of the data_dir volume (§8.3.4).",
+		}),
+		AlertsTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_alerts_total",
+			Help: "Alert signals emitted via the in-process bus (§8.3.5).",
+		}, []string{"kind", "severity"}),
+		QuotaExceeded: f.NewCounterVec(prometheus.CounterOpts{
+			Name: "simplebase_quota_exceeded_total",
+			Help: "Quota rejections from usage.CheckQuota (§8.3.4).",
+		}, []string{"kind"}),
+		RateLimitOverflow: f.NewCounter(prometheus.CounterOpts{
+			Name: "simplebase_rate_limit_overflow_total",
+			Help: "Rate limit buckets fail-opened after max_buckets cap (§8.1.6).",
+		}),
 	}
 }

@@ -116,6 +116,7 @@ type ProjectTarget struct {
 	ProjectID string
 }
 
+// ListProjects 列出需要备份的项目（tenant + project 对）。
 func (r *Repository) ListProjects(ctx context.Context) ([]ProjectTarget, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrUnavailable
@@ -134,6 +135,23 @@ func (r *Repository) ListProjects(ctx context.Context) ([]ProjectTarget, error) 
 		out = append(out, target)
 	}
 	return out, rows.Err()
+}
+
+// LastBackupAt 返回全部项目最近一次备份的最大时刻（§8.3.2 catchup 判定锚点）；
+// 无任何备份返回零值。
+func (r *Repository) LastBackupAt(ctx context.Context) (time.Time, error) {
+	if r == nil || r.db == nil {
+		return time.Time{}, ErrUnavailable
+	}
+	var last sql.NullTime
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT MAX(created_at) FROM sys_backups`).Scan(&last); err != nil {
+		return time.Time{}, repositoryError(err)
+	}
+	if !last.Valid {
+		return time.Time{}, nil
+	}
+	return last.Time, nil
 }
 
 func repositoryError(err error) error {

@@ -54,9 +54,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/web"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	// pprof 仅在 PerfStageTiming 诊断模式挂载（planv5.0 §4 P0.1）。
-	"net/http/pprof"
 )
 
 // Dependencies 是 NewRouter 注入的全部运行期依赖。各字段可由后续 plan 逐步填充。
@@ -94,6 +91,8 @@ type Dependencies struct {
 	Cache CacheService
 	Usage UsageService
 	Audit AuditService
+	// EndUsers 是终端用户服务（§8.2.6；nil = 不挂终端用户路由）。
+	EndUsers *auth.EndUserService
 	LLM   LLMService
 	// S3FileStore：用户文件存储（objectstore.FileStore）。
 	S3FileStore objectstore.FileStore
@@ -256,9 +255,10 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	if deps.Config.HTTP.CORS.Enabled {
 		e.Use(corsMiddleware(deps.Config.HTTP.CORS))
 	}
-	e.Use(securityHeadersMiddleware())
+	e.Use(securityHeadersMiddleware(deps.Config))
 	// 分段计时（api-db-perf-validation-plan §2.1）：默认关闭，开启后输出
 	// simplebase_api_stage_seconds 与 debug 日志行。必须在 requestID 之后。
+	// planv5.0 §4 P0.1：pprof 挂载已与 perf_stage_timing 解耦（§8.1.7），见 mountObservabilityRoutes。
 	if deps.Config.Observability.PerfStageTiming {
 		var recorder stageTimingRecorder
 		if deps.Metrics != nil {
@@ -277,21 +277,14 @@ func NewRouter(deps Dependencies) *echo.Echo {
 		// 取证 principalMu 锁 convoy；1/1000 采样率足够诊断且开销可忽略。
 		runtime.SetMutexProfileFraction(1000)
 		runtime.SetBlockProfileRate(1000)
-		pprofRoute := func(path string, h http.Handler) {
-			e.GET(path, echo.WrapHandler(h))
-		}
-		pprofRoute("/debug/pprof/", http.HandlerFunc(pprof.Index))
-		pprofRoute("/debug/pprof/heap", pprof.Handler("heap"))
-		pprofRoute("/debug/pprof/goroutine", pprof.Handler("goroutine"))
-		pprofRoute("/debug/pprof/mutex", pprof.Handler("mutex"))
-		pprofRoute("/debug/pprof/block", pprof.Handler("block"))
 	}
 	e.Use(middleware.Recover())
 	e.Use(accessLogMiddleware(deps))
 	if deps.Config.HTTP.Gzip {
 		e.Use(gzipMiddleware())
 	}
-	e.Use(newRateLimiter(deps.Config.Limits.RateLimit, deps.Metrics).middleware())
+	// §8.1.6：pre_auth 限流只跑 key=ip 的规则（全局挂载，认证前）。
+	e.Use(newRateLimiter(deps.Config.Limits.RateLimit, deps.Metrics).middleware(preAuthStage))
 	e.Use(middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
 		// S3 上传单独放宽，见 s3UploadBodyLimit。全局 1MB 会让控制台允许的文件先 413，
 		// 开发代理再把未读完的请求体报成 500。
@@ -304,19 +297,25 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	e.GET("/health/live", health.Live)
 	e.GET("/health/ready", health.Ready)
 
-	if deps.Metrics != nil {
-		reg := deps.MetricsRegistry
-		if reg == nil {
-			reg = prometheus.DefaultGatherer
-		}
-		e.GET(deps.Config.Observability.MetricsPath, echo.WrapHandler(promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
-	}
+	// §8.1.7：观测端点收口（独立监听 / token / 404）。
+	mountObservabilityRoutes(e, deps)
 
 	// login-auth-plan：免认证登录/刷新端点。
 	if deps.Sessions != nil && deps.Users != nil {
 		ah := NewAuthHandler(deps.Sessions, deps.Users)
 		e.POST("/v1/auth/login", ah.Login)
 		e.POST("/v1/auth/refresh", ah.Refresh)
+		// §8.2.2：强制改密闭环（免认证；复用 loginGuard）。
+		e.POST("/v1/auth/password/initial", ah.InitialPassword)
+	}
+
+	// §8.2.6：终端用户路由（独立密钥域 + 独立守卫；signup/login 免认证，
+	// me 走 endUserAuth；pre_auth 限流已覆盖 key=ip 规则）。
+	if deps.EndUsers != nil {
+		eh := NewEndUsersHandler(deps.EndUsers).WithAudit(deps.Audit)
+		e.POST("/v1/projects/:projectID/end-users/signup", eh.Signup)
+		e.POST("/v1/projects/:projectID/end-users/login", eh.Login)
+		e.GET("/v1/projects/:projectID/end-users/me", eh.Me, endUserAuth(deps.Config.Auth.SessionSecret))
 	}
 
 	// v1 业务路由组：认证 → project context → 各 handler
@@ -381,7 +380,8 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		}
 	}
 
-	v1 := e.Group("/v1", authMW)
+	// §8.1.6：post_auth 限流（authMW 之后才能拿到 principal）。
+	v1 := e.Group("/v1", authMW, newRateLimiter(deps.Config.Limits.RateLimit, deps.Metrics).middleware(postAuthStage))
 
 	// 登录态自身路由（需认证）。
 	if deps.Sessions != nil && deps.Users != nil {
@@ -755,7 +755,7 @@ func mountGoRoutes(e *echo.Echo, deps Dependencies) {
 		return auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())
 	}
 	h := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns).WithRunner(deps.FunctionRunner)
-	goGrp := e.Group("/go/:projectID", authMW, projectContextMiddlewareEcho(deps))
+	goGrp := e.Group("/go/:projectID", authMW, newRateLimiter(deps.Config.Limits.RateLimit, deps.Metrics).middleware(postAuthStage), projectContextMiddlewareEcho(deps))
 	goGrp.POST("/:name/:functionName", h.Invoke, delegable(auth.DatabaseRead))
 	// 405 JSON：防止浏览器 GET 掉进 SPA index.html（验收 G11）；GET 不可委托。
 	goGrp.GET("/:name/:functionName", h.MethodNotAllowed, auth.Require(auth.DatabaseRead, PrincipalFromContext))

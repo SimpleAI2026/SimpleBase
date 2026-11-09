@@ -26,7 +26,17 @@ package config
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
+)
+
+// MissedPolicy 取值（backup.missed_policy）：停机错过 cron 窗口后的处理方式。
+const (
+	// MissedPolicySkip 错过即跳过，等下一个 cron 窗口。
+	MissedPolicySkip = "miss"
+	// MissedPolicyCatchup 错过后启动时立即补跑一次（默认）。
+	MissedPolicyCatchup = "catchup"
 )
 
 type BackupConfig struct {
@@ -38,6 +48,18 @@ type BackupConfig struct {
 	KeepDays        int           `yaml:"keep_days"`
 	MaxPerProject   int           `yaml:"max_per_project"`
 	SnapshotTimeout time.Duration `yaml:"snapshot_timeout"`
+	// MissedPolicy miss | catchup；空 = catchup（production-readiness-plan §8.3.2）。
+	MissedPolicy string `yaml:"missed_policy"`
+}
+
+// EffectiveMissedPolicy 归一化补跑策略；空视为 catchup。
+func (c BackupConfig) EffectiveMissedPolicy() string {
+	switch strings.ToLower(strings.TrimSpace(c.MissedPolicy)) {
+	case MissedPolicySkip:
+		return MissedPolicySkip
+	default:
+		return MissedPolicyCatchup
+	}
 }
 
 func validateBackup(c BackupConfig) error {
@@ -52,6 +74,11 @@ func validateBackup(c BackupConfig) error {
 	}
 	if c.KeepDays < 0 || c.SnapshotTimeout <= 0 {
 		return errors.New("backup retention and snapshot_timeout are invalid")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.MissedPolicy)) {
+	case "", MissedPolicySkip, MissedPolicyCatchup:
+	default:
+		return fmt.Errorf("backup.missed_policy must be miss or catchup (got %q)", c.MissedPolicy)
 	}
 	return nil
 }

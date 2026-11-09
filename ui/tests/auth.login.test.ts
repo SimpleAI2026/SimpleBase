@@ -163,6 +163,61 @@ describe('useAuthStore roles and login', () => {
     expect(store.loginOpen).toBe(true)
   })
 
+  it('login 423 switches to must-change-password and keeps the username', async () => {
+    const store = useAuthStore()
+    mockApi.api.auth.login = vi.fn(async () => {
+      throw Object.assign(new Error('password change required'), {
+        status: 423,
+        code: 'must_change_password'
+      })
+    })
+    const user = await store.login('alice', 'old12345')
+    expect(user).toBeNull()
+    expect(store.mustChangePassword).toBe(true)
+    expect(store.pendingUsername).toBe('alice')
+    expect(getAccessToken()).toBe('')
+  })
+
+  it('login failure other than 423 is rethrown', async () => {
+    const store = useAuthStore()
+    mockApi.api.auth.login = vi.fn(async () => {
+      throw Object.assign(new Error('bad credentials'), { status: 401 })
+    })
+    await expect(store.login('alice', 'bad')).rejects.toThrow('bad credentials')
+    expect(store.mustChangePassword).toBe(false)
+  })
+
+  it('initialPassword applies the returned tokens and clears pending state', async () => {
+    const store = useAuthStore()
+    store.pendingUsername = 'alice'
+    store.mustChangePassword = true
+    mockApi.api.auth.initialPassword = vi.fn(async () => ({
+      tokenType: 'Bearer',
+      accessToken: 'at-2',
+      expiresIn: 7200,
+      refreshToken: 'rt-2',
+      user: {
+        id: 'u9',
+        username: 'alice',
+        role: 'user' as const,
+        displayName: '',
+        email: '',
+        status: 'active' as const,
+        mustChangePassword: false
+      }
+    }))
+    const user = await store.initialPassword('old12345', 'new12345')
+    expect(user.username).toBe('alice')
+    expect(getAccessToken()).toBe('at-2')
+    expect(store.mustChangePassword).toBe(false)
+    expect(store.pendingUsername).toBe('')
+  })
+
+  it('initialPassword without a username fails fast', async () => {
+    const store = useAuthStore()
+    await expect(store.initialPassword('old12345', 'new12345')).rejects.toThrow()
+  })
+
   it('changePassword clears mustChangePassword', async () => {
     const store = useAuthStore()
     mockApi.api.auth.changePassword = vi.fn(async () => undefined)

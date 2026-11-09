@@ -15,7 +15,7 @@ import (
 
 func TestSecurityHeadersAndGzipSkip(t *testing.T) {
 	e := echo.New()
-	e.Use(securityHeadersMiddleware())
+	e.Use(securityHeadersMiddleware(config.Config{}))
 	e.Use(gzipMiddleware())
 	e.GET("/v1/projects/p/realtime", func(c echo.Context) error {
 		c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
@@ -35,7 +35,7 @@ func TestRateLimiter429AndExpiry(t *testing.T) {
 	limiter := newRateLimiter(config.RateLimitConfig{Enabled: true, Rules: []config.RateLimitRule{{Match: "/v1/auth/login", Max: 1, Window: time.Minute}}}, nil)
 	limiter.now = func() time.Time { return now }
 	e := echo.New()
-	e.Use(limiter.middleware())
+	e.Use(limiter.middleware(preAuthStage))
 	e.POST("/v1/auth/login", func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
 	for i, want := range []int{http.StatusNoContent, http.StatusNoContent, http.StatusTooManyRequests} {
 		req := httptest.NewRequest(http.MethodPost, "/v1/auth/login", nil)

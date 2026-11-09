@@ -91,6 +91,21 @@ func (c CronSpec) NextAfter(t time.Time) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("cron expression has no next occurrence within %d minutes", cronSearchLimit)
 }
 
+// PrevBefore 返回 t 之前（严格小于 t）的最近一个触发时刻（production-readiness-plan §8.3.2：
+// 备份 catchup 判定停机期间是否错过窗口）。找不到返回错误。
+func (c CronSpec) PrevBefore(t time.Time) (time.Time, error) {
+	utc := t.UTC().Truncate(time.Minute)
+	cursor := utc.Add(-time.Minute)
+	limit := utc.Add(-time.Duration(cronSearchLimit) * time.Minute)
+	for cursor.After(limit) {
+		if c.matches(cursor) {
+			return cursor, nil
+		}
+		cursor = cursor.Add(-time.Minute)
+	}
+	return time.Time{}, fmt.Errorf("cron expression has no previous occurrence within %d minutes", cronSearchLimit)
+}
+
 func (c CronSpec) matches(t time.Time) bool {
 	if _, ok := c.minutes[t.Minute()]; !ok {
 		return false

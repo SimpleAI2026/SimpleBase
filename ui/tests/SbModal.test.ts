@@ -47,6 +47,20 @@ describe('SbModal', () => {
     w2.unmount()
   })
 
+  it('always renders a description so reka-ui has aria-describedby', () => {
+    const withDesc = mount(SbModal, {
+      props: { open: true, title: 'T', description: 'D' },
+      global: { stubs }
+    })
+    expect(withDesc.get('.pr-8').text()).toBe('TD')
+    withDesc.unmount()
+
+    const withoutDesc = mount(SbModal, { props: { open: true, title: 'T' }, global: { stubs } })
+    // 没有 description 时用标题兜底并视觉隐藏，避免 Missing Description 警告
+    expect(withoutDesc.get('.pr-8').text()).toBe('TT')
+    withoutDesc.unmount()
+  })
+
   it('hides the default footer when hideFooter is set', () => {
     const w = mount(SbModal, {
       props: { open: true, title: 'No footer', hideFooter: true },

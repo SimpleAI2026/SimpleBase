@@ -188,6 +188,18 @@ func (h *S3Handler) DownloadLinkedObject(c echo.Context) error {
 	return h.streamObject(c, token.ProjectID, token.Key)
 }
 
+// inlineSafeMIME 判定 MIME 是否允许 inline 渲染（§8.1.4 白名单）。
+// image/svg+xml 与 text/html 等一律不在白名单内（可执行脚本）。
+func inlineSafeMIME(contentType string) bool {
+	mt := strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	switch mt {
+	case "image/png", "image/jpeg", "image/gif", "image/webp",
+		"application/pdf", "text/plain":
+		return true
+	}
+	return false
+}
+
 func (h *S3Handler) streamObject(c echo.Context, projectID, key string) error {
 	if err := objectstore.ValidateFileKey(key); err != nil {
 		return WriteError(c, err)
@@ -210,7 +222,13 @@ func (h *S3Handler) streamObject(c echo.Context, projectID, key string) error {
 		header.Set(echo.HeaderContentType, content.ContentType)
 	}
 	header.Set("Accept-Ranges", "bytes")
-	header.Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": filepath.Base(key)}))
+	// §8.1.4：inline 白名单——只有这些类型浏览器内联渲染是安全的；
+	// 其余（含 image/svg+xml）一律 attachment，防止上传文件在控制台源下执行脚本。
+	disposition := "attachment"
+	if inlineSafeMIME(content.ContentType) {
+		disposition = "inline"
+	}
+	header.Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filepath.Base(key)}))
 	if content.ETag != "" {
 		header.Set("ETag", content.ETag)
 		if c.Request().Header.Get("If-None-Match") == content.ETag {

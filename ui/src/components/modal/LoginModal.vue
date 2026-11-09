@@ -60,6 +60,7 @@
         <Field>
           <FieldLabel for="pw-old">{{ t('components.login.oldPassword') }}</FieldLabel>
           <Input id="pw-old" v-model="oldPassword" type="password" autocomplete="current-password" />
+          <FieldDescription v-if="accountName">{{ accountName }}</FieldDescription>
         </Field>
         <Field :data-invalid="pwError ? true : undefined">
           <FieldLabel for="pw-new">{{ t('components.login.newPassword') }}</FieldLabel>
@@ -126,6 +127,8 @@ const submitting = ref(false)
 
 const canSubmit = computed(() => username.value.trim().length > 0 && password.value.length > 0)
 const canSubmitPassword = computed(() => oldPassword.value.length > 0 && newPassword.value.length >= 8)
+/** 改密表单对应哪个账号：已登录用当前用户，423 场景用登录时记住的用户名。 */
+const accountName = computed(() => auth.user?.username || auth.pendingUsername)
 
 const pwMismatch = computed(() => {
   if (!confirmPassword.value) return false
@@ -146,6 +149,7 @@ watch(
 function onOpenChange(open: boolean) {
   if (open || mode.value !== 'password' || auth.user?.mustChangePassword) return
   auth.mustChangePassword = false
+  auth.pendingUsername = ''
   auth.closeLogin()
   error.value = ''
   pwError.value = ''
@@ -159,7 +163,9 @@ async function submitLogin() {
   submitting.value = true
   error.value = ''
   try {
-    await auth.login(username.value.trim(), password.value)
+    const user = await auth.login(username.value.trim(), password.value)
+    // null = 423 must_change_password：store 已切到改密视图，不刷新页面
+    if (!user) return
     window.location.reload()
   } catch (e) {
     error.value = errorMessage(e, t('components.login.badCredentials'))
@@ -181,9 +187,16 @@ async function submitPassword() {
   submitting.value = true
   error.value = ''
   try {
-    await auth.changePassword(oldPassword.value, newPassword.value)
-    // 改密后服务端吊销会话，重新登录
-    auth.markUnauthorized()
+    if (!auth.user && auth.pendingUsername) {
+      // 登录返回 423：还没有 token，走免认证端点，成功后直接拿到 TokenPair
+      await auth.initialPassword(oldPassword.value, newPassword.value)
+      window.location.reload()
+    } else {
+      // 已登录（UserMenu 主动改密 / me 返回 must_change_password）
+      await auth.changePassword(oldPassword.value, newPassword.value)
+      // 改密后服务端吊销会话，重新登录
+      auth.markUnauthorized()
+    }
   } catch (e) {
     error.value = errorMessage(e, t('components.login.changeFailed'))
   } finally {

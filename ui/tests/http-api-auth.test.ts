@@ -109,6 +109,31 @@ describe('httpApi auth/users mapping', () => {
     expect(httpMock.put).toHaveBeenCalled()
   })
 
+  it('initialPassword posts snake_case and stores the returned tokens', async () => {
+    httpMock.post.mockResolvedValue({
+      data: {
+        token_type: 'Bearer',
+        access_token: 'AT2',
+        expires_in: 100,
+        refresh_token: 'RT2',
+        user: { id: 'u1', username: 'alice', role: 'user', status: 'active' }
+      }
+    })
+    const pair = await httpApi.auth.initialPassword({
+      username: 'alice',
+      oldPassword: 'old12345',
+      newPassword: 'new12345'
+    })
+    expect(httpMock.post.mock.calls[0][0]).toBe('/v1/auth/password/initial')
+    expect(httpMock.post.mock.calls[0][1]).toEqual({
+      username: 'alice',
+      old_password: 'old12345',
+      new_password: 'new12345'
+    })
+    expect(pair.accessToken).toBe('AT2')
+    expect(getAccessToken()).toBe('AT2')
+  })
+
   it('users list/create/update/remove', async () => {
     httpMock.get.mockResolvedValue({
       data: {

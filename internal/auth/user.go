@@ -52,8 +52,45 @@ var (
 	ErrMustChangePasswd = errors.New("auth: must change password")
 )
 
-// MinPasswordLength 是口令最小长度。
+// MinPasswordLength 是口令最小长度（development）。production 档位为 ProdPasswordLength。
 const MinPasswordLength = 8
+
+// ProdPasswordLength 是 production 档位的口令最小长度（§8.2.2）。
+const ProdPasswordLength = 12
+
+// weakPasswords 是常见弱口令表（§8.2.2，20 条；小写比较）。
+var weakPasswords = map[string]struct{}{
+	"123456": {}, "12345678": {}, "123456789": {}, "1234567890": {},
+	"password": {}, "password1": {}, "password123": {}, "qwerty": {},
+	"qwertyuiop": {}, "abc123": {}, "111111": {}, "000000": {},
+	"admin": {}, "admin123": {}, "letmein": {}, "welcome": {},
+	"monkey": {}, "dragon": {}, "iloveyou": {}, "simplebase2026": {},
+}
+
+// ValidatePassword 检查口令强度（development 口径，§8.2.2）：长度 ≥ 8。
+// 保持宽松以兼容现有测试；弱口令表与用户名相等检查见 ValidatePasswordStrict。
+func ValidatePassword(p string) error {
+	if len(p) < MinPasswordLength {
+		return ErrWeakPassword
+	}
+	return nil
+}
+
+// ValidatePasswordStrict 是 production 档位口径的口令强度校验（§8.2.2）：
+// 长度 ≥ 12、不得等于用户名、不得命中常见弱口令表。
+func ValidatePasswordStrict(p, username string) error {
+	if len(p) < ProdPasswordLength {
+		return ErrWeakPassword
+	}
+	lower := strings.ToLower(p)
+	if username != "" && lower == strings.ToLower(strings.TrimSpace(username)) {
+		return ErrWeakPassword
+	}
+	if _, hit := weakPasswords[lower]; hit {
+		return ErrWeakPassword
+	}
+	return nil
+}
 
 // UserStatus 账号状态。
 const (
@@ -172,14 +209,6 @@ func (s *UserService) changed(userID string) {
 }
 
 func normalizeUsername(u string) string { return strings.ToLower(strings.TrimSpace(u)) }
-
-// ValidatePassword 检查口令强度。
-func ValidatePassword(p string) error {
-	if len(p) < MinPasswordLength {
-		return ErrWeakPassword
-	}
-	return nil
-}
 
 // Create 创建账号。role 仅允许 admin|user（禁止建第二个 superadminl1）。
 func (s *UserService) Create(ctx context.Context, in CreateUserInput) (User, error) {
@@ -420,13 +449,52 @@ func (s *UserService) ProjectIDsFor(ctx context.Context, u User) (map[string]str
 // AdminProjectID 与 catalog.ReservedSystemProjectID 保持一致（避免 auth→catalog 依赖）。
 const AdminProjectID = "sb-admin"
 
-// BootstrapUsername / BootstrapPassword 是首启种子超管（planv3.0 §3.5）。
-const (
-	BootstrapUsername = "simplebase2026"
-	BootstrapPassword = "simplebase2026"
-)
+// BootstrapUsername 是首启种子超管的用户名（production-readiness-plan §8.2.2：
+// 口令不再硬编码，由调用方注入；development 未注入时用 DefaultBootstrapPassword 保持零配置）。
+const BootstrapUsername = "simplebase2026"
 
-// PrincipalFromUser 把登录用户展开为 Principal（权限位 + 项目集）。
+// DefaultBootstrapPassword 仅在 development 档位未注入 SIMPLEBASE_BOOTSTRAP_PASSWORD
+// 时使用；production 档位在 config.validateProduction 拒绝启动。
+const DefaultBootstrapPassword = "simplebase2026"
+
+// EnsureBootstrapUser 幂等种子超管；不存在则创建，存在则不动。
+// 超管只能由此处创建（Create API 显式拒绝 superadminl1）。
+// password 为注入的引导口令（§8.2.2）；空串退化为 DefaultBootstrapPassword。
+func (s *UserService) EnsureBootstrapUser(ctx context.Context, password string) (User, bool, error) {
+	if password == "" {
+		password = DefaultBootstrapPassword
+	}
+	existing, err := s.repo.GetByUsername(ctx, BootstrapUsername)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, ErrUserNotFound) {
+		return User{}, false, err
+	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return User{}, false, err
+	}
+	now := s.now().UTC()
+	u := User{
+		ID:                 newID(),
+		Username:           BootstrapUsername,
+		PasswordHash:       hash,
+		Role:               RoleSuperAdmin,
+		Status:             UserStatusActive,
+		MustChangePassword: true,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := s.repo.Create(ctx, u); err != nil {
+		if errors.Is(err, ErrUsernameTaken) {
+			existing, err2 := s.repo.GetByUsername(ctx, BootstrapUsername)
+			return existing, false, err2
+		}
+		return User{}, false, err
+	}
+	return u, true, nil
+}
 func (s *UserService) PrincipalFromUser(ctx context.Context, u User, sessionID string) (Principal, error) {
 	pids, err := s.ProjectIDsFor(ctx, u)
 	if err != nil {
@@ -441,38 +509,4 @@ func (s *UserService) PrincipalFromUser(ctx context.Context, u User, sessionID s
 		ProjectIDs:  pids,
 		Permissions: PermissionsForRole(u.Role),
 	}, nil
-}
-
-// EnsureBootstrapUser 幂等种子超管；不存在则创建，存在则不动。
-// 超管只能由此处创建（Create API 显式拒绝 superadminl1）。
-func (s *UserService) EnsureBootstrapUser(ctx context.Context) (User, bool, error) {
-	existing, err := s.repo.GetByUsername(ctx, BootstrapUsername)
-	if err == nil {
-		return existing, false, nil
-	}
-	if !errors.Is(err, ErrUserNotFound) {
-		return User{}, false, err
-	}
-	hash, err := HashPassword(BootstrapPassword)
-	if err != nil {
-		return User{}, false, err
-	}
-	now := s.now().UTC()
-	u := User{
-		ID:           newID(),
-		Username:     BootstrapUsername,
-		PasswordHash: hash,
-		Role:         RoleSuperAdmin,
-		Status:       UserStatusActive,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-	if err := s.repo.Create(ctx, u); err != nil {
-		if errors.Is(err, ErrUsernameTaken) {
-			existing, err2 := s.repo.GetByUsername(ctx, BootstrapUsername)
-			return existing, false, err2
-		}
-		return User{}, false, err
-	}
-	return u, true, nil
 }

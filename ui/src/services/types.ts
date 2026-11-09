@@ -401,6 +401,13 @@ export interface LoginRequest {
   password: string
 }
 
+/** 强制改密（must_change_password）的免认证改密请求（production-readiness-plan §8.2.2）。 */
+export interface InitialPasswordRequest {
+  username: string
+  oldPassword: string
+  newPassword: string
+}
+
 export interface TokenPair {
   tokenType: string
   accessToken: string
@@ -1064,6 +1071,8 @@ export interface Api {
     logout: (refreshToken?: string) => Promise<void>
     me: () => Promise<AuthUser & { projects: { id: string; name?: string; owner: boolean }[] }>
     changePassword: (oldPassword: string, newPassword: string) => Promise<void>
+    /** 未登录的强制改密：验旧密 → 改密 → 直接返回正式 TokenPair。 */
+    initialPassword: (req: InitialPasswordRequest) => Promise<TokenPair>
   }
   users: {
     list: (limit?: number, cursor?: string) => Promise<UserListResult>

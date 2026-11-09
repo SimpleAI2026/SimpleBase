@@ -97,9 +97,17 @@ func TestDataListCollections_UsesPathDatabaseID(t *testing.T) {
 			{ID: "db-target", Name: "target", ProjectID: "proj-1"},
 		},
 		lease: &fakeSQLLease{
-			queryResult: godatabase.QueryResult{
-				Columns: []string{"table_name"},
-				Rows:    [][]any{{"users"}, {"orders"}},
+			// 第一次查询返回「表 + 四列是否存在」，之后每张表各一次 COUNT(*)。
+			queryQueue: []godatabase.QueryResult{
+				{
+					Columns: []string{"table_name", "has_id", "has_data", "has_created_at", "has_updated_at"},
+					Rows: [][]any{
+						{"users", int64(1), int64(1), int64(1), int64(1)},
+						{"orders", int64(1), int64(1), int64(1), int64(1)},
+					},
+				},
+				{Rows: [][]any{{int64(0)}}},
+				{Rows: [][]any{{int64(0)}}},
 			},
 		},
 	}
@@ -122,6 +130,60 @@ func TestDataListCollections_UsesPathDatabaseID(t *testing.T) {
 	}
 	if len(body.Collections) != 2 || body.Collections[0] != "users" {
 		t.Fatalf("collections = %#v", body.Collections)
+	}
+}
+
+func TestDataListCollections_HidesInternalAndNonDocumentTables(t *testing.T) {
+	svc := &fakeDataService{
+		dbs: []catalog.Database{{ID: "db-1", ProjectID: "proj-1", DataModel: catalog.DataModelCollection}},
+		lease: &fakeSQLLease{queryQueue: []godatabase.QueryResult{
+			{
+				Columns: []string{"table_name", "has_id", "has_data", "has_created_at", "has_updated_at"},
+				Rows: [][]any{
+					// dev apply 的记账表：名字不合法且不是文档形，两条规则都应挡住。
+					{"_migrations", int64(0), int64(0), int64(0), int64(0)},
+					// __ 前缀内部表（KV）不向用户暴露。
+					{"__sb_kv_strings", int64(1), int64(1), int64(1), int64(1)},
+					// 原生 SQL 迁移建的业务表：缺 data 列，文档查询会 500。
+					{"audit_log", int64(1), int64(0), int64(1), int64(1)},
+					// 缺 updated_at 同样会让固定四列查询失败。
+					{"legacy", int64(1), int64(1), int64(1), int64(0)},
+					// 合法文档形表：保留。
+					{"todos", int64(1), int64(1), int64(1), int64(1)},
+				},
+			},
+			{Rows: [][]any{{int64(7)}}},
+		}},
+	}
+	e := setupDataTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-1/data/collections", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body collectionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Collections) != 1 || body.Collections[0] != "todos" {
+		t.Fatalf("collections = %#v, want [todos]", body.Collections)
+	}
+	if len(body.Items) != 1 || body.Items[0].DocumentCount != 7 {
+		t.Fatalf("items = %#v", body.Items)
+	}
+}
+
+func TestDataListDocuments_InternalTableNameRejected(t *testing.T) {
+	svc := &fakeDataService{
+		dbs:   []catalog.Database{{ID: "db-1", ProjectID: "proj-1", DataModel: catalog.DataModelCollection}},
+		lease: &fakeSQLLease{},
+	}
+	e := setupDataTestRouter(t, svc, true)
+	rec := doRequest(e, http.MethodGet, "/v1/projects/proj-1/databases/db-1/data/collections/_migrations", nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_request") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(svc.lease.queryStmts) != 0 {
+		t.Fatalf("invalid collection name must not reach the engine: %#v", svc.lease.queryStmts)
 	}
 }
 

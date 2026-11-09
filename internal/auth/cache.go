@@ -28,6 +28,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -160,6 +161,8 @@ func (c *apiKeyCache) InvalidateAll() {
 // CachedAuthenticate 是带缓存的认证入口（Service 内部使用）。
 // 返回值与 Authenticate 完全一致；缓存只影响查询次数，不改判定逻辑。
 // P0 诊断（planv5.0 §4 P0.1）：记录缓存命中状态与未命中时的仓储查询耗时。
+// §8.2.4：密钥环启用时对全版本摘要逐一比对——任一命中即认证通过，
+// 缓存只按主版本摘要（rawKey 相同 ⇒ 主版本摘要相同，天然收敛）。
 func (s *Service) CachedAuthenticate(ctx context.Context, rawKey string) (Principal, error) {
 	if rawKey == "" {
 		return Principal{}, ErrMissingCredentials
@@ -167,34 +170,53 @@ func (s *Service) CachedAuthenticate(ctx context.Context, rawKey string) (Princi
 	if s.repo == nil {
 		return Principal{}, &notConfiguredError{}
 	}
-	hash := s.HashKey(rawKey)
-	if p, ok := s.cache.get(hash); ok {
+	hashes := s.candidateHashes(rawKey)
+	primary := hashes[0]
+	if p, ok := s.cache.get(primary); ok {
 		if s.authObs != nil {
 			s.authObs.ObserveAuthCache(ctx, AuthCacheHit)
 		}
 		return p, nil
 	}
-	if s.cache.isNegative(hash) {
-		if s.authObs != nil {
-			s.authObs.ObserveAuthCache(ctx, AuthCacheHit) // 负缓存命中：同样免除仓储查询
+	for _, h := range hashes {
+		if s.cache.isNegative(h) {
+			if s.authObs != nil {
+				s.authObs.ObserveAuthCache(ctx, AuthCacheHit) // 负缓存命中：同样免除仓储查询
+			}
+			return Principal{}, ErrInvalidCredentials
 		}
-		return Principal{}, ErrInvalidCredentials
 	}
 	if s.authObs != nil {
 		s.authObs.ObserveAuthCache(ctx, AuthCacheMiss)
 	}
 	start := time.Now()
-	p, err := s.authenticateUncached(ctx, hash)
+	var p Principal
+	var err error
+	for i, h := range hashes {
+		p, err = s.authenticateUncached(ctx, h)
+		if err == nil {
+			break
+		}
+		// 仅「摘要不存在」继续试旧版本；已吊销 / 系统库故障立即上抛。
+		if !errors.Is(err, ErrInvalidCredentials) {
+			break
+		}
+		if i == len(hashes)-1 {
+			err = ErrInvalidCredentials
+		}
+	}
 	if s.authObs != nil {
 		s.authObs.ObserveAuthStage(ctx, AuthStageKeyLoad, time.Since(start))
 	}
 	if err != nil {
 		if isInvalidCredentialsErr(err) {
-			s.cache.putNegative(hash)
+			for _, h := range hashes {
+				s.cache.putNegative(h)
+			}
 		}
 		return Principal{}, err
 	}
-	s.cache.put(hash, p)
+	s.cache.put(primary, p)
 	return p, nil
 }
 

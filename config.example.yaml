@@ -30,6 +30,19 @@ http:
   shutdown_timeout: 30s       # SIGTERM 优雅退出预算。SIMPLEBASE_HTTP_SHUTDOWN_TIMEOUT
   gzip: false                 # 响应压缩；SSE、文件下载与重定向自动跳过。SIMPLEBASE_HTTP_GZIP
   trusted_proxies: []         # 可信反向代理 CIDR；为空时忽略 X-Forwarded-For
+                              # 注意：不再隐式信任回环/私网段；本机反代需显式写 127.0.0.1/32
+                              # production 档位禁止 0.0.0.0/0 与 ::/0
+  # 对外访问地址（production-readiness-plan §8.1.3）：HSTS 自动启用的判定条件之一。
+  # 例：https://api.example.com。SIMPLEBASE_HTTP_PUBLIC_URL
+  public_url: ""
+  security_headers:           # production-readiness-plan §8.1.3
+    # HSTS 仅在「确认 HTTPS」（TLS 直连或可信代理 X-Forwarded-Proto: https）时发送。
+    # production + public_url 为 https 时默认 31536000。SIMPLEBASE_HTTP_HSTS_MAX_AGE
+    hsts_max_age: 0           # 0 = 不发；秒
+    hsts_include_subdomains: false # SIMPLEBASE_HTTP_HSTS_INCLUDE_SUBDOMAINS
+    # CSP：enforce（默认）| report-only | off；按路由类别发（api/console/file）。
+    # SIMPLEBASE_HTTP_SECURITY_HEADERS_CSP
+    csp: ""
   cors:
     enabled: false            # 浏览器直连时显式开启
     allowed_origins: []       # 精确 origin，例如 https://app.example.com；禁止无条件使用 *
@@ -46,6 +59,11 @@ instance:
                               # 不再参与存储路径（路径按项目 ID 组织）
   writable: true              # false = 只读实例，不挂载写路由。SIMPLEBASE_INSTANCE_WRITABLE
                               # 生效条件：storage.database=s3 且 writable=false 时不启动同步器
+  # 运行档位（production-readiness-plan §8.0）。SIMPLEBASE_INSTANCE_PROFILE
+  # production：注入安全默认值（限流开启+内置规则、HSTS、备份每日 04:00、
+  # 会话密钥独立域）；并强制 bootstrap 口令与观测收口，缺项拒绝启动。
+  # development：现状行为，仅派生会话密钥（§8.2.3）。
+  profile: ""                 # 空 = development | production
   lease:                      # per-database 写租约；仅 writable + storage.database=s3 时生效
                               # 代码：godatabase/lease、internal/app/app.go
     enabled: false            # 单实例默认关闭；多实例必须显式开启。SIMPLEBASE_INSTANCE_LEASE_ENABLED
@@ -84,6 +102,10 @@ backup:
   keep_days: 30               # 同时按创建时间清理
   max_per_project: 14         # 硬上限；keep_last 不得超过此值
   snapshot_timeout: 10m       # 大库快照会阻塞该项目写入，需按库大小调整
+  # 停机错过 cron 窗口后的处理（production-readiness-plan §8.3.2）。SIMPLEBASE_BACKUP_MISSED_POLICY
+  # catchup：最近一次备份早于上一窗口 → 启动即补跑（默认）
+  # miss：错过即跳过，等下一窗口
+  missed_policy: ""
 
 # ── Database / 缓存 / DuckLake ────────────────────────
 # 代码：godatabase/cache（淘汰）、godatabase/registry（句柄生命周期）、
@@ -278,10 +300,14 @@ limits:
   max_import_bytes: 134217728       # 集合导入请求体上限（128MiB）
   realtime_max_conns: 200           # 每项目 realtime SSE 连接上限
   rate_limit:
-    enabled: false                  # SIMPLEBASE_RATE_LIMIT_ENABLED
+    enabled: false                  # SIMPLEBASE_RATE_LIMIT_ENABLED；production 档位默认 true
     burst: 2                        # 桶容量为 max 的倍数；SIMPLEBASE_RATE_LIMIT_BURST
     exempt_sse: true                # SSE 长连接不计入常规限流
-    rules: []                       # 例：{match: "/v1/auth/login", max: 10, window: 1m}
+    max_buckets: 100000             # 内存上限；触顶 fail-open + 指标。SIMPLEBASE_RATE_LIMIT_MAX_BUCKETS
+    rules: []                       # 例：{match: "/v1/auth/login", max: 10, window: 1m, key: ip}
+                                    # key: ip | principal | project | ip+principal（空 = ip+principal）
+                                    # match 支持 /** 前缀匹配（如 "/go/**"）
+                                    # production 未写规则时注入内置规则表（production-readiness-plan §8.1.6）
 
 # ── Observability ─────────────────────────────────────
 # 代码：internal/observability（zap 日志、Prometheus 指标）
@@ -291,3 +317,10 @@ observability:
   log_format: json            # json | console。SIMPLEBASE_LOG_FORMAT
   log_output: stderr          # stderr | stdout | <文件路径>。SIMPLEBASE_LOG_OUTPUT
   metrics_path: /metrics      # Prometheus 抓取路径。SIMPLEBASE_METRICS_PATH
+  # 生产收口（production-readiness-plan §8.1.7）三选一：
+  #   metrics_address: 127.0.0.1:9090   # 独立监听（业务端口 /metrics 404）；SIMPLEBASE_METRICS_ADDRESS
+  #   metrics_token（环境变量 SIMPLEBASE_METRICS_TOKEN）# Bearer 保护
+  #   都不配：development 开放（production 拒绝启动）
+  metrics_address: ""         # SIMPLEBASE_METRICS_ADDRESS
+  pprof: false                # 挂 /debug/pprof（仅独立监听或 token 保护下）。SIMPLEBASE_PPROF
+  perf_stage_timing: false    # 请求分段计时（api-db-perf-validation-plan §2.1）。SIMPLEBASE_PERF_STAGE_TIMING
