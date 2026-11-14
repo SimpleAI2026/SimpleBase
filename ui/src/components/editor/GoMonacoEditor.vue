@@ -59,10 +59,10 @@ function bootstrap() {
     ],
     colors: {
       'editor.background': '#ffffff',
-      'editor.foreground': '#0f172a',
-      'editorLineNumber.foreground': '#94a3b8',
+      'editor.foreground': '#171717',
+      'editorLineNumber.foreground': '#9a9aa0',
       'editor.selectionBackground': '#dbeafe',
-      'editor.lineHighlightBackground': '#f1f5f9'
+      'editor.lineHighlightBackground': '#f4f4f5'
     }
   })
   // sb-dark：与 style.css `.dark` 的卡片、正文和蓝色强调保持一致
@@ -79,11 +79,11 @@ function bootstrap() {
       { token: 'operator', foreground: 'cbd5e1' }
     ],
     colors: {
-      'editor.background': '#111c2e',
-      'editor.foreground': '#e2e8f0',
-      'editorLineNumber.foreground': '#94a3b8',
-      'editor.selectionBackground': '#1d3556',
-      'editor.lineHighlightBackground': '#1b2940'
+      'editor.background': '#19191b',
+      'editor.foreground': '#ededed',
+      'editorLineNumber.foreground': '#8e8e94',
+      'editor.selectionBackground': '#27364d',
+      'editor.lineHighlightBackground': '#232325'
     }
   })
 }

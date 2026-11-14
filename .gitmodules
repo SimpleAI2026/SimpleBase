@@ -10,3 +10,6 @@
 [submodule "skills/ambition-loop"]
 	path = skills/ambition-loop
 	url = https://github.com/linkxzhou/ambition-loop.git
+[submodule "skills/unslop"]
+	path = skills/unslop
+	url = https://github.com/heydamir/unslop.git

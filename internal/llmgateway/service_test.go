@@ -28,7 +28,7 @@ func TestListProviders(t *testing.T) {
 			{Name: "anthropic", APIKey: "k2"},
 		},
 	}}
-	svc := NewService(r, nil, nil)
+	svc := NewService(r, nil, nil, nil)
 	names, err := svc.ListProviders(context.Background(), "proj-1")
 	if err != nil {
 		t.Fatalf("ListProviders: %v", err)
@@ -46,7 +46,7 @@ func TestProviderModelsIncludesDefaultWithoutAllowedModels(t *testing.T) {
 		{Name: "openai", Model: "zai-org/GLM-5.3-Flash"},
 		{Name: "anthropic", Model: "claude", AllowedModels: []string{"claude", "other"}},
 		{Name: "restricted", Model: "unlisted", AllowedModels: []string{"allowed"}},
-	}}}, nil, nil)
+	}}}, nil, nil, nil)
 	models, err := svc.ProviderModels(context.Background(), "proj-1")
 	if err != nil || len(models["openai"]) != 1 || models["openai"][0] != "zai-org/GLM-5.3-Flash" {
 		t.Fatalf("fallback model: %+v, err=%v", models, err)
@@ -61,7 +61,7 @@ func TestProviderModelsIncludesDefaultWithoutAllowedModels(t *testing.T) {
 
 func TestListProvidersEmpty(t *testing.T) {
 	r := &fakeResolver{providers: ProjectProviders{}}
-	svc := NewService(r, nil, nil)
+	svc := NewService(r, nil, nil, nil)
 	names, err := svc.ListProviders(context.Background(), "proj-1")
 	if err != nil {
 		t.Fatalf("ListProviders: %v", err)
@@ -73,7 +73,7 @@ func TestListProvidersEmpty(t *testing.T) {
 
 func TestListProvidersResolveError(t *testing.T) {
 	r := &fakeResolver{err: errors.New("catalog down")}
-	svc := NewService(r, nil, nil)
+	svc := NewService(r, nil, nil, nil)
 	_, err := svc.ListProviders(context.Background(), "proj-1")
 	if err == nil {
 		t.Fatal("expected error from resolver")
@@ -86,7 +86,7 @@ func TestRecordLLMUsageRecorder(t *testing.T) {
 		Providers: []ProviderConfig{{Name: "openai"}},
 	}}
 	rec := &fakeRecorder{}
-	svc := NewService(r, rec, nil)
+	svc := NewService(r, rec, nil, nil)
 	// 仅验证 recorder 可被注入；Chat 实际调用需 litellm client。
 	_ = svc
 	if rec.called {

@@ -46,7 +46,7 @@ func integrationRuntime(t *testing.T, protocol string) (*gocloudagent.Runtime, *
 	}})
 	db := &integrationDB{}
 	return &gocloudagent.Runtime{
-		LLM: NewCloudAgentLLM(NewLLMService(llmgateway.NewService(resolver, nil, nil))), DB: db,
+		LLM: NewCloudAgentLLM(NewLLMService(llmgateway.NewService(resolver, nil, nil, nil))), DB: db,
 		ToolProtocol: protocol, RunTimeout: 90 * time.Second,
 	}, db
 }

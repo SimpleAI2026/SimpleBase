@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, resetApiMocks } from '@/test/api-mock'
 import { useAgentConversation } from '@/composables/useAgentConversation'
-import type { ChatMsg } from '@/composables/useAiChat'
+import type { ChatMsg } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')

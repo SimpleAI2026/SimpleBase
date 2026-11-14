@@ -93,11 +93,14 @@ type Dependencies struct {
 	Audit AuditService
 	// EndUsers 是终端用户服务（§8.2.6；nil = 不挂终端用户路由）。
 	EndUsers *auth.EndUserService
-	LLM   LLMService
+	LLM      LLMService
 	// S3FileStore：用户文件存储（objectstore.FileStore）。
 	S3FileStore objectstore.FileStore
 	// System 是实例系统 DuckLake（元数据 / 指标 / 日志 / S3 索引 / LLM 会话 / Cloud Agent）。
 	System *systemdb.Store
+	// Sites 是对象存储发布网站的站点开关 / 公开路径存储（planv6.5）。
+	// nil 且 System 非 nil 时由 NewRouter 基于 System 自动构造（带 sites.cache_ttl 缓存）。
+	Sites SiteStore
 	// CloudAgent 是 Phase 1 单 agent + 只读工具运行时。
 	CloudAgent *gocloudagent.Runtime
 	// CronScheduler 是统一定时任务调度器（云函数 + Agent）；nil 时 trigger 返回 503。
@@ -251,6 +254,15 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	requestLogger = deps.Logger
 	e.IPExtractor = trustedIPExtractor(deps.Config.HTTP.TrustedProxies)
 
+	// planv6.5 §5.1：对象存储发布网站。<pid>.<base_domain> 的请求在路由前改写到 /__site/*。
+	if deps.Sites == nil && deps.System != nil {
+		deps.Sites = NewSiteStore(deps.System, deps.Config.Sites.EffectiveCacheTTL())
+	}
+	sitesOn := deps.Config.Sites.Enabled && deps.Sites != nil && deps.S3FileStore != nil
+	if sitesOn {
+		e.Pre(siteHostMiddleware(deps.Config.Sites))
+	}
+
 	e.Use(requestIDMiddleware())
 	if deps.Config.HTTP.CORS.Enabled {
 		e.Use(corsMiddleware(deps.Config.HTTP.CORS))
@@ -328,6 +340,12 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	e.GET("/v1/openapi.json", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, buildOpenAPI(e.Routes()))
 	})
+
+	// planv6.5 §5.2：站点面（匿名只读）。handler 内再校验分流标记，控制台域直接访问 /__site 返回 404。
+	if sitesOn {
+		site := &SiteHandler{store: deps.S3FileStore, sites: deps.Sites, cfg: deps.Config.Sites}
+		e.Any(sitePathPrefix+"/*", site.Serve)
+	}
 
 	// 管理端静态资源：所有未匹配 API 路由的 GET 请求回退到前端 SPA。
 	// 必须在 /v1、/health、/metrics 等路由注册后调用，以免拦截 API 请求。
@@ -524,13 +542,18 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	// S3 用户文件存储路由。deps.S3FileStore 为 nil 时不挂载。
 	if deps.S3FileStore != nil {
-		sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: &deps.Config.Instance.Writable, tokenSecret: deps.Config.Files.TokenSecret, allowedMIME: deps.Config.Files.AllowedMIME, events: deps.TriggerEvents}
+		sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: &deps.Config.Instance.Writable, tokenSecret: deps.Config.Files.TokenSecret, allowedMIME: deps.Config.Files.AllowedMIME, events: deps.TriggerEvents, sites: deps.Sites, sitesCfg: deps.Config.Sites}
 		p.GET("/s3/objects", sh.ListObjects, delegable(auth.DatabaseRead))
 		p.GET("/s3/objects/content", sh.DownloadObject, delegable(auth.DatabaseRead))
 		p.POST("/s3/objects", sh.UploadObject, delegable(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(s3UploadBodyLimit)))
 		p.DELETE("/s3/objects", sh.DeleteObject, delegable(auth.DatabaseWrite), writeGate)
 		p.GET("/s3/presign", sh.PresignObject, delegable(auth.DatabaseRead))
 		p.POST("/s3/link", sh.CreateLink, delegable(auth.DatabaseRead))
+		// planv6.5 §5.4：发布网站 / 外部访问。写入要求 database:admin 且不可委托。
+		p.GET("/s3/site", sh.GetSite, require(auth.DatabaseRead))
+		p.PUT("/s3/site", sh.PutSite, require(auth.DatabaseAdmin), writeGate)
+		p.GET("/s3/public", sh.ListPublic, require(auth.DatabaseRead))
+		p.PUT("/s3/public", sh.PutPublic, require(auth.DatabaseAdmin), writeGate)
 		e.GET("/files/:token", sh.DownloadLinkedObject)
 	}
 
@@ -556,6 +579,13 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		sess := &llmSessionHandler{store: deps.System}
 		p.GET("/llm/settings", sess.GetSettings, require(auth.DatabaseRead))
 		p.PUT("/llm/settings", sess.PutSettings, require(auth.ProjectAdmin), writeGate)
+
+		// 模型调用 trace 查询（planv6.5）：只读、可委托，与 /logs 同权限级。
+		// 二期（§9.3）：分组列表 + 详情 span 时间线。
+		lth := &llmTracesHandler{store: deps.System}
+		p.GET("/llm/traces", lth.List, delegable(auth.DatabaseRead))
+		p.GET("/llm/trace-groups", lth.Groups, delegable(auth.DatabaseRead))
+		p.GET("/llm/trace-groups/:traceId", lth.Detail, delegable(auth.DatabaseRead))
 
 		// 云 Agent 路由块（B3 提取；含定时执行路由，见 mountAgentRoutes）。
 		mountAgentRoutes(p, deps, require, writeGate)

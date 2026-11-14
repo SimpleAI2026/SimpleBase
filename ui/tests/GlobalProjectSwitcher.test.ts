@@ -76,7 +76,7 @@ describe('GlobalProjectSwitcher', () => {
       mustChangePassword: false
     }
     await flushPromises()
-    expect(wrapper.text()).toContain('★')
+    expect(wrapper.text()).not.toContain('★')
     expect(wrapper.text()).toContain('（只读）')
     expect(wrapper.text()).not.toContain('admin 管理数据库')
     expect(wrapper.text()).not.toContain('全部项目')

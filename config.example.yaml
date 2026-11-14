@@ -92,6 +92,21 @@ files:
                               # SIMPLEBASE_FILES_ALLOWED_MIME（逗号分隔）
   # SIMPLEBASE_FILES_TOKEN_SECRET：私有下载 HMAC 密钥，只能来自环境变量，禁止写入 YAML。
 
+# ── Sites（对象存储发布网站，planv6.5）──────────────────
+# 发布后 <项目ID>.<base_domain> 可匿名访问「已开启外部访问」的文件 / 文件夹。
+# 需要泛解析 *.<base_domain> 与泛域名证书；反向代理必须透传原始 Host。
+# 本地开发：base_domain=localhost、url_scheme=http、url_port=8080 → http://<pid>.localhost:8080/
+# 建议控制台使用独立域名（不要与 base_domain 同注册域），且禁止下发父域 Cookie。
+sites:
+  enabled: false              # SIMPLEBASE_SITES_ENABLED
+  base_domain: ""             # 例：simplebase.top；SIMPLEBASE_SITES_BASE_DOMAIN
+  url_scheme: https           # 生成访问 URL 用；SIMPLEBASE_SITES_URL_SCHEME
+  url_port: 0                 # 非 0 时拼进访问 URL；SIMPLEBASE_SITES_URL_PORT
+  index_document: index.html  # 目录默认文档；SIMPLEBASE_SITES_INDEX_DOCUMENT
+  not_found_document: ""      # 例 404.html（需同样公开）；SIMPLEBASE_SITES_NOT_FOUND_DOCUMENT
+  cache_ttl: 30s              # 站点 / 公开路径进程内缓存；SIMPLEBASE_SITES_CACHE_TTL
+  csp: ""                     # 空 = 内置默认；off = 不发；SIMPLEBASE_SITES_CSP
+
 # ── Backup（用户项目单文件；不含系统库）────────────────
 backup:
   enabled: false              # 是否开放备份 API 与定时任务；SIMPLEBASE_BACKUP_ENABLED

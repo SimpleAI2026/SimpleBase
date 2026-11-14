@@ -2,7 +2,7 @@
   <Popover v-model:open="open">
     <PopoverTrigger as-child>
       <Button variant="ghost" size="sm" class="gap-2" :aria-label="t('components.userMenu.aria')">
-        <span class="flex size-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+        <span class="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-medium text-foreground">
           {{ avatarChar }}
         </span>
         <span class="hidden max-w-24 truncate text-sm sm:inline">{{ auth.displayName }}</span>

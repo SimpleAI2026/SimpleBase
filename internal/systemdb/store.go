@@ -72,6 +72,9 @@ type Store struct {
 
 	metricsBuf []MetricSample
 	logBuf     []LogEvent
+	// traceBuf 是 sys_llm_traces 的写缓冲（planv6.5，与 logBuf 同款）。
+	traceBuf     []LLMTrace
+	droppedTrace int64
 	// auditBuf 是 sys_audit_events 的写缓冲（§8.3.3，与 logBuf 同款）。
 	auditBuf     []AuditEvent
 	droppedAudit int64
@@ -192,6 +195,7 @@ func (s *Store) Close() error {
 	}
 	_ = s.FlushMetrics(ctx)
 	_ = s.FlushLogs(ctx)
+	_ = s.FlushTraces(ctx)
 	// §8.3.1/§8.3.3：停机前排空审计缓冲（与日志同等待遇）。
 	_ = s.FlushAudits(ctx)
 	if s.factory != nil {

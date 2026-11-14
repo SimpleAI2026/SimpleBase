@@ -353,14 +353,14 @@ func TestRuntimeBuildSnapshotAndHistory(t *testing.T) {
 }
 
 func TestConsumeVariantAndAssistant(t *testing.T) {
-	if c, n := consumeVariant(nil); c != "" || n != "" {
+	if c, n := agentcore.ConsumeVariant(nil); c != "" || n != "" {
 		t.Fatal("nil variant")
 	}
-	c, n := consumeVariant(&adk.MessageVariant{Message: &schema.Message{Content: "body", ToolName: "tn"}})
+	c, n := agentcore.ConsumeVariant(&adk.MessageVariant{Message: &schema.Message{Content: "body", ToolName: "tn"}})
 	if c != "body" || n != "tn" {
 		t.Fatalf("non-stream %s %s", c, n)
 	}
-	if c, n = consumeVariant(&adk.MessageVariant{ToolName: "only"}); c != "" || n != "only" {
+	if c, n = agentcore.ConsumeVariant(&adk.MessageVariant{ToolName: "only"}); c != "" || n != "only" {
 		t.Fatalf("empty message %s %s", c, n)
 	}
 
@@ -369,7 +369,7 @@ func TestConsumeVariantAndAssistant(t *testing.T) {
 	sw.Send(nil, nil)
 	sw.Send(&schema.Message{Content: "p2"}, nil)
 	sw.Close()
-	c, n = consumeVariant(&adk.MessageVariant{IsStreaming: true, MessageStream: sr})
+	c, n = agentcore.ConsumeVariant(&adk.MessageVariant{IsStreaming: true, MessageStream: sr})
 	if c != "p1p2" || n != "tool-a" {
 		t.Fatalf("stream variant %q %q", c, n)
 	}

@@ -1,31 +1,3 @@
-// 文件说明：gocloudagent_access.go — internal/api 中 NewCloudAgentDB、NewCloudAgentObj 等符号的实现
-//
-// 用法
-//
-//	NewCloudAgentDB(cat CatalogService, reg RegistryService) gocloudagent.DatabaseAccess
-//	type cloudAgentDB（包内使用）
-//	type cloudAgentObj（包内使用）
-//	同包调用：Close() → adapter.go, api_keys_handler.go 等；Stream() → adapter.go, agent_handler.go 等；Next() → adapter.go, api_keys_handler.go 等
-//
-// 调用架构
-//
-//	[上游] internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] internal/api/gocloudagent_access.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gocloudagent, internal/agentbridge, internal/catalog, godatabase 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] Close() ← adapter.go, api_keys_handler.go, backup_handler.go
-//
-// 主要符号
-//
-//	NewCloudAgentDB(cat CatalogService, reg RegistryService) gocloudagent.DatabaseAccess
-//	NewCloudAgentObj(files objectstore.FileStore, index *systemdb.Store) ...
-//	NewCloudAgentLLM(svc LLMService) gocloudagent.ChatClient
-//	... 另有 19 个顶层符号
-
 package api
 
 import (
@@ -36,10 +8,10 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent"
-	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
-	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -50,22 +22,24 @@ type cloudAgentDB struct {
 }
 
 func NewCloudAgentDB(cat CatalogService, reg RegistryService) gocloudagent.DatabaseAccess {
-	return newCloudAgentDB(cat, reg)
-}
-
-func NewCloudAgentObj(files objectstore.FileStore, index *systemdb.Store) gocloudagent.ObjectAccess {
-	return newCloudAgentObj(files, index)
-}
-
-func NewCloudAgentLLM(svc LLMService) gocloudagent.ChatClient {
-	return newLLMChatClient(svc)
-}
-
-func newCloudAgentDB(cat CatalogService, reg RegistryService) gocloudagent.DatabaseAccess {
 	if cat == nil || reg == nil {
 		return nil
 	}
 	return &cloudAgentDB{catalog: cat, registry: reg}
+}
+
+func NewCloudAgentObj(files objectstore.FileStore, index *systemdb.Store) gocloudagent.ObjectAccess {
+	if files == nil && index == nil {
+		return nil
+	}
+	return &cloudAgentObj{files: files, index: index}
+}
+
+func NewCloudAgentLLM(svc LLMService) gocloudagent.ChatClient {
+	if svc == nil {
+		return nil
+	}
+	return &llmChatClient{svc: svc}
 }
 
 func (a *cloudAgentDB) ListDatabases(ctx context.Context, principal gocloudagent.Principal, projectID string) ([]gocloudagent.DatabaseInfo, error) {
@@ -150,13 +124,6 @@ type cloudAgentObj struct {
 	index *systemdb.Store
 }
 
-func newCloudAgentObj(files objectstore.FileStore, index *systemdb.Store) gocloudagent.ObjectAccess {
-	if files == nil && index == nil {
-		return nil
-	}
-	return &cloudAgentObj{files: files, index: index}
-}
-
 func (a *cloudAgentObj) ListObjects(ctx context.Context, projectID, prefix string, limit int) ([]gocloudagent.ObjectInfo, error) {
 	if a.index != nil {
 		rows, err := a.index.ListS3Objects(ctx, projectID, prefix, limit)
@@ -235,13 +202,6 @@ func toAgentObjectInfo(o systemdb.S3Object) gocloudagent.ObjectInfo {
 }
 
 type llmChatClient struct{ svc LLMService }
-
-func newLLMChatClient(svc LLMService) gocloudagent.ChatClient {
-	if svc == nil {
-		return nil
-	}
-	return &llmChatClient{svc: svc}
-}
 
 func toLLMRequest(req gocloudagent.ChatRequest) LLMRequest {
 	out := LLMRequest{Model: req.Model, MaxTokens: req.MaxTokens, Temperature: req.Temperature}

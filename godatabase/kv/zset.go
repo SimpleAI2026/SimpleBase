@@ -1,33 +1,3 @@
-// 文件说明：zset.go — godatabase/kv 中 ZSetItem、ZSetRepo 等符号的实现
-//
-// 用法
-//
-//	(r *ZSetRepo) Add(ctx context.Context, key string, items ...ZSetItem) (int, error)  // Add 添加/更新成员（ZADD），返回新增成员数（分数变更不计）
-//	(r *ZSetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int, error)  // Delete 移除成员（ZREM），返回实际删除数
-//	同包调用：Delete() → hash.go, key.go 等；Incr() → hash.go, string.go；ZSetRepo → executor.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/zset.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] core.go, executor.go, hash.go, key.go, list.go 等 10 个
-//	[关键引用] Delete() ← hash.go, key.go, set.go
-//
-// 主要符号
-//
-//	type ZSetItem struct {…}
-//	type ZSetRepo struct {…}
-//	(r *ZSetRepo) Add(ctx context.Context, key string, items ...ZSetItem) (int, error)
-//	(r *ZSetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int, error)
-//	(r *ZSetRepo) Score(ctx context.Context, key string, elem []byte) (float64, error)
-//	(r *ZSetRepo) Rank(ctx context.Context, key string, elem []byte) (int64, float64 ...
-//	... 另有 5 个顶层符号
-
 package kv
 
 import (
@@ -35,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // ZSetItem 是 zset 的成员+分值。
@@ -110,15 +79,13 @@ func (r *ZSetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int
 	} else if err != nil {
 		return 0, err
 	}
-	ph := make([]string, len(elems))
 	args := make([]any, 0, len(elems)+1)
 	args = append(args, key)
-	for i, e := range elems {
-		ph[i] = "?"
+	for _, e := range elems {
 		args = append(args, e)
 	}
 	res, err := r.t.tx.ExecContext(ctx,
-		fmt.Sprintf(`DELETE FROM __sb_kv_zsets WHERE "key" = ? AND elem IN (%s)`, strings.Join(ph, ",")),
+		fmt.Sprintf(`DELETE FROM __sb_kv_zsets WHERE "key" = ? AND elem IN (%s)`, placeholders(len(elems))),
 		args...)
 	if err != nil {
 		return 0, fmt.Errorf("kv: zset delete: %w", err)

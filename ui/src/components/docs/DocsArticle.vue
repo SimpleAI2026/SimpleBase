@@ -192,14 +192,16 @@ function linkFor(slug: string) {
 .docs-md :deep(h3),
 .docs-md :deep(h4) {
   font-family: var(--font-sans);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.3;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
   color: var(--foreground);
   scroll-margin-top: calc(var(--header-height) + var(--docs-tabs-h, 3.5rem) + 1rem);
 }
 .docs-md :deep(h1) {
   font-size: clamp(1.85rem, 4vw, 2.35rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
   margin: 0 0 1.75rem;
   padding-bottom: 1.25rem;
   border-bottom: 1px solid var(--border);
@@ -213,12 +215,10 @@ function linkFor(slug: string) {
 .docs-md :deep(h3) {
   font-size: 1.16rem;
   margin: 2rem 0 0.75rem;
-  letter-spacing: -0.015em;
 }
 .docs-md :deep(h4) {
   font-size: 1rem;
   margin: 1.5rem 0 0.5rem;
-  letter-spacing: -0.01em;
 }
 .docs-md :deep(.docs-anchor) {
   margin-left: 0.45em;
@@ -290,10 +290,9 @@ function linkFor(slug: string) {
   padding: 0.35rem 0.65rem 0.35rem 1rem;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--muted) 55%, transparent);
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
   color: var(--muted-foreground);
 }
 .docs-md :deep([data-copy]) {

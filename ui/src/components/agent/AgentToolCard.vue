@@ -23,11 +23,11 @@
     <template v-if="!collapsible || expanded">
       <CardHeader :class="collapsible && 'pt-0'">
         <CardTitle class="flex items-center gap-1.5 text-xs">
-          <span :class="isError ? 'text-destructive' : 'text-primary'">{{ tool.name || 'tool' }}</span>
-          <Badge v-if="isError" variant="destructive" class="text-[10px]">{{ t('components.agentToolCard.error') }}</Badge>
-          <Badge v-else-if="tool.truncated" variant="secondary" class="text-[10px]">{{ t('components.agentToolCard.truncated') }}</Badge>
-          <span v-if="tool.duration_ms !== undefined" class="text-muted-foreground">{{ tool.duration_ms }}ms</span>
-          <span v-else-if="running" class="animate-pulse text-muted-foreground">{{ t('components.agentToolCard.running', { n: progressSecs }) }}</span>
+          <span class="sb-mono" :class="isError ? 'text-destructive' : 'text-foreground'">{{ tool.name || 'tool' }}</span>
+          <Badge v-if="isError" variant="destructive" class="text-xs">{{ t('components.agentToolCard.error') }}</Badge>
+          <Badge v-else-if="tool.truncated" variant="secondary" class="text-xs">{{ t('components.agentToolCard.truncated') }}</Badge>
+          <span v-if="tool.duration_ms !== undefined" class="tabular-nums text-muted-foreground">{{ tool.duration_ms }}ms</span>
+          <span v-else-if="running" class="tabular-nums text-muted-foreground">{{ t('components.agentToolCard.running', { n: progressSecs }) }}</span>
         </CardTitle>
       </CardHeader>
       <CardContent class="space-y-2 px-3 text-xs">

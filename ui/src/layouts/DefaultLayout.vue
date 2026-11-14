@@ -1,14 +1,11 @@
 <template>
   <SidebarProvider>
     <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <div class="flex h-12 items-center gap-2.5 overflow-hidden px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <div class="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary font-serif text-base font-semibold text-primary-foreground">
-            S
-          </div>
-          <span class="truncate font-serif text-base font-bold tracking-tight group-data-[collapsible=icon]:hidden">
-            SimpleBase
-          </span>
+      <!-- 折叠后侧栏只有 48px（含 1px 右边框），p-2 会把内容区压到 31px，32px 的 Logo 两侧被 overflow-hidden 裁掉；折叠态去掉水平内边距 -->
+      <SidebarHeader class="group-data-[collapsible=icon]:px-0">
+        <!-- h-10 + SidebarHeader 的 p-2 = 56px，与右侧顶栏 --header-height 对齐 -->
+        <div class="flex h-10 items-center gap-2.5 overflow-hidden px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          <BrandLogo wordmark-class="group-data-[collapsible=icon]:hidden" />
           <SidebarTrigger class="ml-auto shrink-0 group-data-[collapsible=icon]:hidden" />
         </div>
       </SidebarHeader>
@@ -44,7 +41,7 @@
 
     <SidebarInset>
       <header
-        class="sticky top-0 z-20 flex min-h-[var(--header-height)] shrink-0 items-center gap-2 border-b border-border/70 bg-background/80 px-3 py-1 backdrop-blur-xl sm:gap-4 sm:px-5 sm:py-0 lg:px-6"
+        class="sticky top-0 z-20 flex min-h-[var(--header-height)] shrink-0 items-center gap-2 border-b border-border bg-background px-3 py-1 sm:gap-4 sm:px-5 sm:py-0 lg:px-6"
       >
         <div class="flex min-w-0 flex-1 items-center gap-2">
           <SidebarTrigger class="shrink-0 md:hidden" :aria-label="t('layout.openNavigation')" />
@@ -62,7 +59,7 @@
         <div class="flex min-w-0 items-center gap-1 sm:gap-2">
           <Tooltip>
             <TooltipTrigger as-child>
-              <Button variant="outline" size="sm" class="hidden h-8 gap-1.5 rounded-lg px-2.5 sm:inline-flex sm:px-3" as-child>
+              <Button variant="ghost" size="sm" class="hidden h-8 gap-1.5 rounded-lg px-2.5 text-muted-foreground hover:text-foreground sm:inline-flex sm:px-3" as-child>
                 <router-link to="/docs" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5">
                   <BookOpenIcon data-icon="inline-start" class="size-3.5" />
                   <span class="hidden text-xs md:inline">{{ t('layout.docs') }}</span>
@@ -72,16 +69,17 @@
             <TooltipContent>{{ t('layout.docs') }}</TooltipContent>
           </Tooltip>
 
-          <div class="mx-0.5 hidden h-5 w-px bg-border/80 sm:block" />
+          <div class="mx-1 hidden h-4 w-px bg-border sm:block" />
 
           <GlobalProjectSwitcher v-if="authStore.isAuthenticated" />
 
-          <div class="mx-0.5 hidden h-5 w-px bg-border/80 sm:block" />
+          <div class="mx-1 hidden h-4 w-px bg-border sm:block" />
 
-          <div class="hidden items-center gap-0.5 rounded-lg border border-border/60 bg-muted/30 p-0.5 sm:flex">
+          <!-- 工具按钮统一 32px 方块、同一间距；不再套一层带底色的胶囊容器 -->
+          <div class="hidden items-center gap-1 sm:flex">
             <Tooltip>
               <TooltipTrigger as-child>
-                <Button variant="ghost" size="icon" class="size-7 rounded-md" :aria-label="themeToggleLabel" @click="toggleTheme">
+                <Button variant="ghost" size="icon" class="size-8 rounded-lg text-muted-foreground hover:text-foreground" :aria-label="themeToggleLabel" @click="toggleTheme">
                   <SunIcon v-if="settingsStore.effectiveTheme === 'light'" class="size-4" />
                   <MoonIcon v-else class="size-4" />
                 </Button>
@@ -90,7 +88,7 @@
             </Tooltip>
             <Tooltip>
               <TooltipTrigger as-child>
-                <Button variant="ghost" size="icon" class="size-7 rounded-md" :aria-label="settingsLabel" @click="authStore.openSettings()">
+                <Button variant="ghost" size="icon" class="size-8 rounded-lg text-muted-foreground hover:text-foreground" :aria-label="settingsLabel" @click="authStore.openSettings()">
                   <span class="relative inline-flex">
                     <SettingsIcon class="size-4" />
                     <span
@@ -104,10 +102,10 @@
                 {{ settingsLabel }}
               </TooltipContent>
             </Tooltip>
-            <LocaleSelect class="border-0 bg-transparent shadow-none hover:bg-muted/60 focus-visible:ring-0 dark:bg-transparent" />
+            <LocaleSelect class="h-8 rounded-lg border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground dark:bg-transparent dark:hover:bg-muted/50" />
             <Tooltip>
               <TooltipTrigger as-child>
-                <Button variant="ghost" size="icon" class="size-7 rounded-md" :aria-label="t('layout.refreshPage')" @click="reload">
+                <Button variant="ghost" size="icon" class="size-8 rounded-lg text-muted-foreground hover:text-foreground" :aria-label="t('layout.refreshPage')" @click="reload">
                   <RefreshCwIcon class="size-4" />
                 </Button>
               </TooltipTrigger>
@@ -152,6 +150,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuthStore, type SettingsTab } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
+import BrandLogo from '../components/BrandLogo.vue'
 import NavMenu from '../components/NavMenu.vue'
 import LocaleSelect from '../components/LocaleSelect.vue'
 import SettingsModal from '../components/SettingsModal.vue'
@@ -160,7 +159,8 @@ import UserMenu from '../components/UserMenu.vue'
 import GlobalProjectSwitcher from '../components/GlobalProjectSwitcher.vue'
 import router from '../router'
 
-const SETTINGS_TABS: SettingsTab[] = ['connection', 'models', 'storage', 'backups']
+/** 设置弹窗页签白名单（「模型」已迁至 /console/models，planv6.5）。 */
+const SETTINGS_TABS: SettingsTab[] = ['connection', 'storage', 'backups']
 
 const route = useRoute()
 const vueRouter = useRouter()

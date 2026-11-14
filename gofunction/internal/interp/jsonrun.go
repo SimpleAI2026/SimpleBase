@@ -1,34 +1,7 @@
-// 文件说明：jsonrun.go — HTTP+JSON 调用云函数所需的公共 API：
-//
-// 用法
-//
-//	ValidateHTTPFuncs(source string) ([]FuncInfo, error)  // ValidateHTTPFuncs 编译源码并校验全部包级导出函数符合 HTTP 约定：
-//	RunJSON(ctx context.Context, seqid, fname, source, funcName string, body []byte) ...  // RunJSON 编译并执行 funcName，body 解到唯一形参，返回值 JSON 编码
-//
-// 调用架构
-//
-//	[上游] gofunction
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gofunction/internal/interp/jsonrun.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] call.go, compile.go, eval.go, executor.go, frame.go 等 13 个
-//
-// 主要符号
-//
-//	var ErrFunctionNotFound
-//	var ErrTimeout
-//	var ErrBind
-//	var ErrCompile
-//	type FuncInfo struct {…}
-//	ValidateHTTPFuncs(source string) ([]FuncInfo, error)
-//	... 另有 3 个顶层符号
-
 package interp
 
 import (
+	"cmp"
 	"container/list"
 	"context"
 	"crypto/sha256"
@@ -38,6 +11,7 @@ import (
 	"go/ast"
 	"go/types"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 
@@ -126,11 +100,9 @@ func ValidateHTTPFuncs(source string) ([]FuncInfo, error) {
 		return nil, errors.New("以下导出函数不符合约定：\n" + strings.Join(problems, "\n"))
 	}
 	// 按名字排序保证 exports_json 稳定
-	for i := 1; i < len(infos); i++ {
-		for j := i; j > 0 && infos[j-1].Name > infos[j].Name; j-- {
-			infos[j-1], infos[j] = infos[j], infos[j-1]
-		}
-	}
+	slices.SortFunc(infos, func(a, b FuncInfo) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
 	return infos, nil
 }
 
@@ -142,10 +114,10 @@ func ValidateHTTPFuncs(source string) ([]FuncInfo, error) {
 // 淘汰：简化 LRU——map + 双向链表，容量默认 128（SetProgramCacheLimit 可调）。
 // 不缓存错误；源码变化即新 key，天然失效。
 type programCache struct {
-	mu    sync.Mutex
-	m     map[[32]byte]*list.Element
-	lru   *list.List // front = 最近使用；Element.Value = *cacheEntry
-	limit int
+	mu           sync.Mutex
+	m            map[[32]byte]*list.Element
+	lru          *list.List // front = 最近使用；Element.Value = *cacheEntry
+	limit        int
 	hits, misses int64
 }
 
@@ -242,6 +214,7 @@ func cachedProgram(seqid, fname, source string) (*Program, error) {
 func sha256Sum(s string) [32]byte {
 	return sha256.Sum256([]byte(s))
 }
+
 // RunJSON 编译并执行 funcName，body 解到唯一形参，返回值 JSON 编码。
 // body 为空视为 {}。函数不存在或未导出返回 ErrFunctionNotFound。
 // 解释器超时返回 ErrTimeout（%w 包裹 context.DeadlineExceeded 语义）。

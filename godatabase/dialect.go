@@ -1,34 +1,10 @@
-// 文件说明：dialect.go — godatabase 中 Dialect、IsInternalTableName 等符号的实现
-//
-// 用法
-//
-//	IsInternalTableName(name string) bool  // IsInternalTableName 是内部保留命名空间的唯一判定：所有以 "__" 开头的表
-//	DialectFor(engine string) (Dialect, error)  // DialectFor 按目录中的引擎选择方言
-//
-// 调用架构
-//
-//	[上游] godatabase/cache, godatabase/ducklake, godatabase/filedb 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/dialect.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] query.go, runtime.go, serialize.go, snapshot.go, spec.go 等 6 个
-//
-// 主要符号
-//
-//	type Dialect interface {…}
-//	IsInternalTableName(name string) bool
-//	const InternalTablePrefix
-//	DialectFor(engine string) (Dialect, error)
-//	... 另有 8 个顶层符号
-
 package godatabase
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 )
 
 // Dialect 描述用户库引擎之间必须差异化的元数据查询。
@@ -79,7 +55,7 @@ type duckDBDialect struct{}
 func (duckDBDialect) Engine() string { return EngineDuckDB }
 
 func (duckDBDialect) QuoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	return sqlx.Ident(name)
 }
 
 func (d duckDBDialect) TableColumnsSQL(table string) string {
@@ -93,7 +69,7 @@ func (d duckDBDialect) TableColumnsSQL(table string) string {
 		  AND t.table_schema = current_schema()
 		  AND t.table_type = 'BASE TABLE'`
 	if table != "" {
-		base += " AND c.table_name = " + sqlLiteral(table)
+		base += " AND c.table_name = " + sqlx.Literal(table)
 	}
 	return base + " ORDER BY c.table_name, c.ordinal_position"
 }
@@ -125,7 +101,7 @@ type sqliteDialect struct{}
 func (sqliteDialect) Engine() string { return EngineSQLite }
 
 func (sqliteDialect) QuoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	return sqlx.Ident(name)
 }
 
 func (d sqliteDialect) TableColumnsSQL(table string) string {
@@ -137,7 +113,7 @@ func (d sqliteDialect) TableColumnsSQL(table string) string {
 		  AND m.name NOT LIKE 'sqlite\_%' ESCAPE '\'
 		  AND m.name NOT LIKE '__sb\_%' ESCAPE '\'`
 	if table != "" {
-		base += " AND m.name = " + sqlLiteral(table)
+		base += " AND m.name = " + sqlx.Literal(table)
 	}
 	return base + " ORDER BY m.name, p.cid"
 }
@@ -163,8 +139,4 @@ func (sqliteDialect) NullsFirst(expr string, descending bool) string {
 		return expr + " DESC"
 	}
 	return expr + " ASC"
-}
-
-func sqlLiteral(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

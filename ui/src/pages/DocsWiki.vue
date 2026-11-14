@@ -10,7 +10,7 @@
     <template v-else>
       <div
         data-docs-tabs
-        class="sticky top-[var(--header-height)] z-20 border-b border-border/70 bg-background/85 backdrop-blur-xl"
+        class="sticky top-[var(--header-height)] z-20 border-b border-border bg-background"
       >
         <Tabs :model-value="moduleId" class="gap-0" @update:model-value="onModuleTab">
           <div class="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-8">
@@ -39,7 +39,7 @@
           :active-slug="slug"
         />
         <div v-if="currentModule" class="w-full md:hidden">
-          <p id="docs-page-label" class="mb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">{{ t('pages.docsWiki.selectPage') }}</p>
+          <p id="docs-page-label" class="mb-2 text-xs font-medium text-muted-foreground">{{ t('pages.docsWiki.selectPage') }}</p>
           <Select :model-value="slug" @update:model-value="onMobilePage">
             <SelectTrigger class="h-10 w-full rounded-lg border-border/80 bg-card shadow-none" aria-labelledby="docs-page-label">
               <SelectValue />

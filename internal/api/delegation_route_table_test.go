@@ -84,6 +84,10 @@ var expectedDelegableRoutes = map[string]bool{
 	"GET /v1/projects/:projectID/logs":        true,
 	"GET /v1/projects/:projectID/logs/stats":  true,
 	"GET /v1/projects/:projectID/logs/export": true,
+	// llm trace 查询（只读可委托，planv6.5）
+	"GET /v1/projects/:projectID/llm/traces":                true,
+	"GET /v1/projects/:projectID/llm/trace-groups":          true,
+	"GET /v1/projects/:projectID/llm/trace-groups/:traceId": true,
 	// project skill（只保留 quota/audit）
 	"GET /v1/projects/:projectID/quota": true,
 	"GET /v1/projects/:projectID/audit": true,

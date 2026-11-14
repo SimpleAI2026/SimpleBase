@@ -4,7 +4,7 @@
   <button
     type="button"
     class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors"
-    :class="active ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'"
+    :class="active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'"
     :aria-label="running ? `${t('components.agentCard.selectAria', { name: agent.name })}（${t('components.agentCard.running')}）` : t('components.agentCard.selectAria', { name: agent.name })"
     :aria-pressed="active"
     :aria-busy="running || undefined"
@@ -33,7 +33,11 @@
           stroke-dasharray="30 70"
         />
       </svg>
-      <span class="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary" :data-agent-icon="navKey">
+      <span
+        class="flex size-7 items-center justify-center rounded-full border border-border bg-card"
+        :class="active ? 'text-foreground' : 'text-muted-foreground'"
+        :data-agent-icon="navKey"
+      >
         <component :is="logo" class="size-4" aria-hidden="true" />
       </span>
     </span>
@@ -42,13 +46,13 @@
         <strong class="min-w-0 flex-1 truncate text-sm font-medium">{{ agent.name }}</strong>
         <span
           v-if="agent.builtin_key"
-          class="size-1.5 shrink-0 rounded-full bg-primary"
+          class="size-1.5 shrink-0 rounded-full bg-muted-foreground/50"
           :title="t('components.agentCard.builtin')"
           :aria-label="t('components.agentCard.builtin')"
         />
         <span
           v-if="agent.writable === false"
-          class="shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground"
+          class="shrink-0 rounded border border-border px-1 text-xs leading-4 text-muted-foreground"
           data-agent-readonly
           :title="t('components.agentCard.readonlyHint')"
         >{{ t('components.agentCard.readonly') }}</span>

@@ -34,7 +34,7 @@ func TestAgentNativeToolAndUsage(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"1","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"list_databases","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":4,"total_tokens":7}}`)
 	}))
 	defer srv.Close()
-	svc := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil)
+	svc := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil, nil)
 	req := Request{Model: "m", Messages: []providers.Message{{Role: "user", Content: "list"}}, Tools: []providers.Tool{{Type: "function", Function: providers.FunctionDef{Name: "list_databases", Parameters: map[string]any{"type": "object"}}}}}
 	resp, err := svc.Chat(context.Background(), "p", req)
 	if err != nil {

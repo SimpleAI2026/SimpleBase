@@ -1,5 +1,6 @@
 import type { Component } from 'vue'
 import {
+  ActivityIcon,
   BotIcon,
   BoxIcon,
   BracesIcon,
@@ -8,8 +9,11 @@ import {
   DatabaseIcon,
   FileTextIcon,
   LayoutDashboardIcon,
+  SparklesIcon,
+  Table2Icon,
   TimerIcon,
-  UsersIcon
+  UsersIcon,
+  ZapIcon
 } from '@lucide/vue'
 
 /**
@@ -20,14 +24,16 @@ export const sidebarIcons: Record<string, Component> = {
   dashboard: LayoutDashboardIcon,
   databases: DatabaseIcon,
   'api-preview': CodeIcon,
-  'data-browser': DatabaseIcon,
+  'data-browser': Table2Icon,
   'key-value': BracesIcon,
   s3: CloudUploadIcon,
   gofunctions: CodeIcon,
-  'function-triggers': TimerIcon,
+  'function-triggers': ZapIcon,
   'cron-jobs': TimerIcon,
   sandboxes: BoxIcon,
   agents: BotIcon,
+  models: SparklesIcon,
+  traces: ActivityIcon,
   logs: FileTextIcon,
   users: UsersIcon
 }

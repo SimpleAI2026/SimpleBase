@@ -136,10 +136,12 @@ describe('router-backed chrome', () => {
     expect(w.text()).toContain('自动化')
     expect(w.text()).toContain('运维')
     const names = (w.vm as unknown as { menuItems: { name: string }[] }).menuItems.map((i) => i.name)
-    expect(names).toEqual(['agents', 'dashboard', 'databases', 'data-browser', 'key-value', 's3', 'gofunctions', 'function-triggers', 'cron-jobs', 'sandboxes', 'api-preview', 'logs'])
+    // 二期（planv6.5 §11.1）：traces 并入 models，侧栏不再单独展示
+    expect(names).toEqual(['agents', 'models', 'dashboard', 'databases', 'data-browser', 'key-value', 's3', 'gofunctions', 'function-triggers', 'cron-jobs', 'sandboxes', 'api-preview', 'logs'])
     const groups = (w.vm as unknown as { menuGroups: { key: string; items: { name: string; title: string }[] }[] }).menuGroups
     expect(groups[0].key).toBe('workspace')
     expect(groups[0].items[0]).toMatchObject({ name: 'agents', title: '云助手' })
+    expect(groups[0].items.map((item) => item.name)).toEqual(['agents', 'models', 'dashboard'])
     expect(groups.find((group) => group.key === 'data')?.items.map((item) => item.name)).toEqual([
       'databases',
       'data-browser',

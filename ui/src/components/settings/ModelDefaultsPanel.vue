@@ -65,7 +65,6 @@
         :to="OPENAI_DOC_PATH"
         class="inline-flex w-fit items-center gap-1 text-xs font-medium text-success underline-offset-4 hover:underline"
         data-testid="free-model-docs"
-        @click="auth.closeSettings()"
       >
         <BookOpenIcon class="size-3.5 shrink-0" aria-hidden="true" />
         {{ t('components.settingsPanel.freeDocs') }}
@@ -325,8 +324,6 @@ async function saveConnection() {
     saving.value = false
   }
 }
-
-defineExpose({ loadServerDefaults, saveConnection })
 
 watch(
   () => project.id,

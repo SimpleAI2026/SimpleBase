@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""sbdev — SimpleBase 工作区重放器（planv6.4 P0a）。
+"""sbdev — SimpleBase 工作区重放与静态站点发布工具（planv6.4 P0a / planv6.5）。
 
 把工作区（simplebase.json + 迁移 + 云函数 + 定时任务）幂等地重放到任意一套
-SimpleBase 实例。只用 Python 3 标准库；所有远端操作都通过 `simplebase` CLI，
-凭据经子进程环境变量传入，不出现在 argv、日志或 lock 中。
+SimpleBase 实例，并支持将前端编译产物上传到对象存储、开启子域名站点访问。
+只用 Python 3 标准库；所有远端 CLI 操作都通过 `simplebase`，凭据经子进程
+环境变量或内存请求头传入，不出现在 argv、日志或 lock 中。
 
-子命令：init / doctor / validate / plan / apply / status。退出码：
-0 成功；1 校验或用法错误；2 远端错误；3 需要确认（远端 apply 未带 --yes）。
+子命令：init / doctor / validate / plan / apply / status / site。退出码：
+0 成功；1 校验或用法错误；2 远端错误；3 需要确认（远端写操作未带 --yes）。
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 FUNC_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,62}$")
 CRON_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,62}$")
 PROJECT_ID = re.compile(r"^[A-Za-z0-9-]{8}$")
+SITE_PROJECT_ID = re.compile(r"^[a-z0-9][a-z0-9-]{6}[a-z0-9]$")
 EXPORT_FUNC = re.compile(r"^func\s+([A-Z][A-Za-z0-9_]*)\s*\(", re.M)
 ALLOWED_IMPORTS = {
     "fmt", "strings", "math", "time", "regexp", "strconv", "errors", "bytes", "io",
@@ -69,6 +71,13 @@ IGNORED_KEYS = {
     "api_keys": "签发 Key 会产出密钥，请在控制台操作",
     "agents": "助手不在重放范围",
     "requires": "仅 examples 使用",
+    "function_triggers": "事件触发器只存在于系统库，由 examples 初始化脚本幂等同步",
+}
+
+MAX_SITE_FILE_BYTES = 50 * 1024 * 1024
+SITE_TEXT_EXTS = {
+    ".html", ".htm", ".js", ".mjs", ".cjs", ".css", ".json",
+    ".svg", ".txt", ".md", ".xml", ".map", ".webmanifest",
 }
 
 
@@ -521,11 +530,14 @@ class Target:
         # 库 ID 命中失败会回退到按名称匹配，共用一份本地分区是安全的。
         self.key = f"local#{self.project}" if self.is_local else f"{self.url}#{self.project}"
 
-    def require(self) -> None:
+    def require_http(self) -> None:
         missing = [n for n, v in (("SIMPLEBASE_URL", self.url), ("SIMPLEBASE_API_KEY", self.token),
                                   ("SIMPLEBASE_PROJECT_ID", self.project)) if not v]
         if missing:
             raise Fail("缺少 " + " / ".join(missing) + "：写进工作区 .env 或用 --env-file 指定")
+
+    def require(self) -> None:
+        self.require_http()
         if not self.bin or not os.access(self.bin, os.X_OK):
             raise Fail("找不到 simplebase 二进制：放进 PATH，或用 --bin / SIMPLEBASE_BIN 指定")
 
@@ -1105,6 +1117,8 @@ def cmd_init(args) -> int:
     pid = args.project_id or ""
     if pid and not PROJECT_ID.match(pid):
         raise Fail("--project-id 必须是 8 位字母、数字或 -")
+    if pid and (not SITE_PROJECT_ID.match(pid) or pid == "sb-admin"):
+        warn(f"project.id {quote(pid)} 含大写字母、首尾为 - 或为保留名，后续无法发布为子域名站点（需 8 位 [a-z0-9-] 且首尾不为 -）")
     if not pid:
         pid = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(8))
         warn(f"未指定 --project-id，生成了 {pid}；云端与本地请用同一个 ID 建项目")
@@ -1143,6 +1157,242 @@ def cmd_init(args) -> int:
     return EXIT_OK
 
 
+# ── 对象存储静态站点发布（planv6.5）──────────────────────
+
+
+def _workspace_for_target(dir_arg: str) -> Workspace:
+    ws = Workspace(Path(dir_arg))
+    mpath = ws.root / MANIFEST
+    if mpath.is_file():
+        try:
+            m = json.loads(mpath.read_text(encoding="utf-8"))
+            if isinstance(m, dict) and isinstance(m.get("project"), dict):
+                ws.project_id = str(m["project"].get("id") or "")
+        except (OSError, json.JSONDecodeError):
+            pass
+    return ws
+
+
+def site_api(t: Target, method: str, suffix: str, body: dict = None) -> dict:
+    url = f"{t.url}/v1/projects/{urllib.parse.quote(t.project, safe='')}{suffix}"
+    headers = {"Authorization": f"Bearer {t.token}", "Accept": "application/json"}
+    payload = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        payload = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            raw = r.read().decode("utf-8", errors="replace")
+            return json.loads(raw) if raw.strip() else {}
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace") if e.fp else ""
+        code, msg = f"http_{e.code}", raw.strip()[:240]
+        try:
+            err = (json.loads(raw) or {}).get("error") or {}
+            code = err.get("code") or code
+            msg = err.get("message") or msg
+        except json.JSONDecodeError:
+            pass
+        raise Fail(f"{method} {suffix} 失败：{code}: {msg}", EXIT_REMOTE)
+    except (urllib.error.URLError, OSError) as e:
+        raise Fail(f"{method} {suffix} 连不上 {t.url}：{getattr(e, 'reason', e)}", EXIT_REMOTE)
+
+
+def _site_reason_hint(project_id: str, reason: str) -> str:
+    if reason == "sites_disabled":
+        return ("目标实例未开启站点托管（需配置 sites.enabled=true 与 sites.base_domain；"
+                "本地可用 SIMPLEBASE_SITES_ENABLED=true SIMPLEBASE_SITES_BASE_DOMAIN=localhost "
+                "SIMPLEBASE_SITES_URL_SCHEME=http SIMPLEBASE_SITES_URL_PORT=8080）。仅上传文件可加 --no-publish")
+    if reason == "project_id_not_dns_safe":
+        return f"项目 ID {quote(project_id)} 不能作为子域名标签（需 8 位 [a-z0-9-] 小写字符且首尾不为 -）"
+    if reason == "system_project":
+        return "系统项目 sb-admin 不允许发布网站"
+    return reason or "未知原因"
+
+
+def normalize_site_prefix(raw: str) -> str:
+    p = (raw or "").strip().lstrip("/")
+    if not p:
+        return ""
+    if not p.endswith("/"):
+        p += "/"
+    if "\\" in p or "\x00" in p:
+        raise Fail("--prefix 不能包含反斜杠或空字节")
+    for seg in p[:-1].split("/"):
+        if not seg or seg in (".", ".."):
+            raise Fail(f"--prefix 含非法路径段：{quote(raw)}")
+    return p
+
+
+def collect_site_files(root: Path, dist_arg: str, prefix_arg: str):
+    p = Path(dist_arg)
+    dist = (p if p.is_absolute() else (root / p)).resolve()
+    if not dist.is_dir():
+        raise Fail(f"--dist 目录不存在：{dist_arg}（请先编译前端/JS 产物）")
+    if (dist / MANIFEST).is_file() or (dist / ".env").is_file():
+        raise Fail(f"--dist 不能直接指向含 {MANIFEST} 或 .env 的工作区目录，请指定构建输出目录（如 dist 或 web/dist）")
+    prefix = normalize_site_prefix(prefix_arg)
+    files = []
+    errs: list = []
+    for cur, dirnames, filenames in os.walk(dist):
+        cur_p = Path(cur)
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d != "node_modules")
+        for fn in sorted(filenames):
+            if fn in (".DS_Store", "Thumbs.db"):
+                continue
+            if fn == ".env" or fn.startswith(".env."):
+                errs.append(f"{(cur_p / fn).relative_to(dist).as_posix()}: 构建产物目录中不能包含 .env 文件")
+                continue
+            if fn.startswith("."):
+                continue
+            fp = cur_p / fn
+            resolved = fp.resolve()
+            try:
+                resolved.relative_to(dist)
+            except ValueError:
+                errs.append(f"{fp.relative_to(dist).as_posix()}: 符号链接越出构建目录")
+                continue
+            if not resolved.is_file():
+                continue
+            rel = fp.relative_to(dist).as_posix()
+            key = prefix + rel
+            if len(key.encode("utf-8")) > 1024:
+                errs.append(f"{rel}: 对象 key 超过 1024 字节上限")
+                continue
+            size = resolved.stat().st_size
+            if size > MAX_SITE_FILE_BYTES:
+                errs.append(f"{rel}: 文件大小 {size} 超过单文件 50MiB 上限")
+                continue
+            ext = fp.suffix.lower()
+            if ext in SITE_TEXT_EXTS:
+                text = resolved.read_text(encoding="utf-8", errors="replace")
+                scan_secrets(rel, text, errs)
+                if ext == ".svg" and text.lstrip().lower().startswith("<?xml"):
+                    warn(f"{rel}: 以 <?xml 开头会被服务端嗅探为 text/xml 并报 415 mime_mismatch，建议直接以 <svg 开头")
+            files.append((key, resolved))
+    if errs:
+        for e in errs:
+            print(f"error: {e}", file=sys.stderr)
+        raise Fail(f"构建产物检查未通过（{len(errs)} 个错误），已中止上传")
+    if not files:
+        raise Fail(f"--dist 目录没有可上传的静态文件：{dist}")
+    if not (dist / "index.html").is_file():
+        warn("构建目录根下没有 index.html，访问子域名根路径或目录路径时可能返回 404")
+    return files, prefix
+
+
+def probe_site_url(t: Target, visit_url: str):
+    if not visit_url:
+        return None
+    u = urllib.parse.urlparse(visit_url)
+    host = u.hostname or ""
+    # 本机 *.localhost 在部分系统 libc 中不走 DNS 解析，改为连 t.url 并显式传 Host 头验证站点分流。
+    if t.is_local and host.endswith(".localhost"):
+        target_url = f"{t.url}{u.path or '/'}"
+        req = urllib.request.Request(target_url, headers={"Host": u.netloc}, method="GET")
+    else:
+        req = urllib.request.Request(visit_url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, OSError):
+        return None
+
+
+def cmd_site_status(args) -> int:
+    ws = _workspace_for_target(args.dir)
+    t = Target(args, ws)
+    t.require_http()
+    pub = site_api(t, "GET", "/s3/public")
+    info = pub.get("site") or site_api(t, "GET", "/s3/site")
+    paths = pub.get("paths") or []
+    say(f"project: {t.project}")
+    say(f"  publishable: {bool(info.get('publishable'))}" +
+        (f"（{_site_reason_hint(t.project, info.get('reason', ''))}）" if not info.get("publishable") else ""))
+    say(f"  enabled:     {bool(info.get('enabled'))}")
+    if info.get("baseUrl"):
+        say(f"  base_url:    {info['baseUrl']}")
+    if not paths:
+        say("  public_paths: (无)")
+    else:
+        for p in paths:
+            url_part = f" -> {p['publicUrl']}" if p.get("publicUrl") else ""
+            say(f"  public {p.get('kind', 'file'):6s} {p.get('path') or '/'}{url_part}")
+    return EXIT_OK
+
+
+def cmd_site_deploy(args) -> int:
+    ws = _workspace_for_target(args.dir)
+    files, prefix = collect_site_files(ws.root, args.dist, args.prefix)
+    t = Target(args, ws)
+    t.require_http()
+    if not t.is_local and not args.yes:
+        say(f"目标是远端 {t.label}（{t.key}），先看站点发布计划：")
+        for key, _ in files[:20]:
+            say(f"  upload  object     {key}")
+        if len(files) > 20:
+            say(f"  ... 其余 {len(files) - 20} 个文件（共 {len(files)} 个）")
+        if not args.no_publish:
+            say("  enable  site       开启项目子域名访问")
+            say(f"  public  folder     {prefix or '/'}（对外匿名可读）")
+        say("确认将构建产物上传并发布后，加 --yes 重跑 site deploy。")
+        return EXIT_CONFIRM
+    t.require()
+    if not args.no_publish:
+        info = site_api(t, "GET", "/s3/site")
+        if not info.get("publishable"):
+            reason = info.get("reason") or "not_publishable"
+            raise Fail(f"当前项目不可发布站点（{reason}）：{_site_reason_hint(t.project, reason)}", EXIT_REMOTE)
+    cli = CLI(t)
+    say(f"上传静态产物 → {t.label}（{t.key}），共 {len(files)} 个文件")
+    try:
+        for key, fp in files:
+            cli("object", "upload", "--key", key, "--file", str(fp))
+            say(f"  upload  object     {key}")
+    except CLIError as e:
+        raise Fail(f"`simplebase {' '.join(e.argv[:2])}` 失败：{e.err_code}: {e.message}", EXIT_REMOTE)
+    if args.no_publish:
+        say(f"完成：已上传 {len(files)} 个文件（--no-publish，未改动站点与公开路径开关）。")
+        return EXIT_OK
+    site_info = site_api(t, "PUT", "/s3/site", {"enabled": True})
+    pub_info = site_api(t, "PUT", "/s3/public", {"key": prefix, "kind": "folder", "public": True})
+    base_url = (site_info.get("baseUrl") or "").rstrip("/")
+    visit_url = pub_info.get("publicUrl") or (f"{base_url}/{prefix}" if base_url else "")
+    subdomain = urllib.parse.urlparse(base_url).hostname or ""
+    say(f"  enable  site       {base_url or t.project}")
+    say(f"  public  folder     {prefix or '/'} -> {visit_url}")
+    status = probe_site_url(t, visit_url)
+    if status == 200:
+        say(f"站点已就绪：{visit_url}（HTTP 200）")
+    elif status is not None:
+        warn(f"站点已开启（{visit_url}），探活返回 HTTP {status}（请检查入口文件如 index.html 是否在 {prefix or '/'} 下）")
+    else:
+        u = urllib.parse.urlparse(visit_url)
+        hint = f"curl -i -H 'Host: {u.netloc}' {t.url}{u.path or '/'}" if u.netloc else visit_url
+        warn(f"站点已开启（{visit_url}），本机未能直连子域名，可用 `{hint}` 或浏览器验证")
+    say(f"subdomain: {subdomain}")
+    say(f"url:       {visit_url}")
+    if args.json:
+        say(json.dumps({"project": t.project, "subdomain": subdomain, "base_url": base_url, "url": visit_url,
+                        "prefix": prefix, "files": len(files), "http_status": status}, ensure_ascii=False))
+    return EXIT_OK
+
+
+def cmd_site_unpublish(args) -> int:
+    ws = _workspace_for_target(args.dir)
+    t = Target(args, ws)
+    t.require_http()
+    if not t.is_local and not args.yes:
+        say(f"目标是远端 {t.label}（{t.key}）：将下线项目子域名站点（关闭 /s3/site，保留路径规则）。确认后加 --yes 重跑。")
+        return EXIT_CONFIRM
+    site_api(t, "PUT", "/s3/site", {"enabled": False})
+    say(f"已下线站点：{t.project}（子域名所有路径现返回 404，路径级公开配置保留）")
+    return EXIT_OK
+
+
 def main(argv=None) -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("-C", "--dir", default=".", help="工作区目录（默认当前目录）")
@@ -1170,6 +1420,20 @@ def main(argv=None) -> int:
             p.set_defaults(yes=False)
         p.set_defaults(fn=fn)
     sub.add_parser("status", parents=[common], help="查看 lock 中各环境的状态").set_defaults(fn=cmd_status)
+
+    site_p = sub.add_parser("site", help="上传编译后的前端站点到对象存储并通过子域名发布")
+    site_sub = site_p.add_subparsers(dest="site_cmd", required=True)
+    site_sub.add_parser("status", parents=[common, remote], help="查看站点开关、子域名与已公开路径").set_defaults(fn=cmd_site_status)
+    sd = site_sub.add_parser("deploy", parents=[common, remote], help="扫描密钥、上传构建目录并开启子域名访问")
+    sd.add_argument("--dist", required=True, help="前端编译输出目录（如 dist 或 web/dist）")
+    sd.add_argument("--prefix", default="", help="对象存储目标目录前缀（缺省发布到站点根 /，例 app/）")
+    sd.add_argument("--no-publish", action="store_true", help="只上传静态文件，不开启站点与外部访问开关")
+    sd.add_argument("--yes", action="store_true", help="远端目标的确认开关")
+    sd.add_argument("--json", action="store_true", help="最后一行额外输出 JSON：subdomain / base_url / url")
+    sd.set_defaults(fn=cmd_site_deploy)
+    su = site_sub.add_parser("unpublish", parents=[common, remote], help="下线项目站点（关闭总开关，保留路径规则）")
+    su.add_argument("--yes", action="store_true", help="远端目标的确认开关")
+    su.set_defaults(fn=cmd_site_unpublish)
 
     args = ap.parse_args(argv)
     try:

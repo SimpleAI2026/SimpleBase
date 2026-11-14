@@ -59,7 +59,7 @@ func TestEmptyModelFallsBackToProviderDefault(t *testing.T) {
 		Providers: []ProviderConfig{
 			{Name: "openai", APIKey: "sk-test", BaseURL: srv.URL, Model: "zai-org/GLM-5.3-Flash"},
 		},
-	}}, nil, nil)
+	}}, nil, nil, nil)
 	ctx := context.Background()
 
 	// 非流式：req.Model 为空 → 回填 default_model。
@@ -96,7 +96,7 @@ func TestMissingModelIsExplicitError(t *testing.T) {
 	svc := NewService(&fakeResolver{providers: ProjectProviders{
 		Default:   "openai",
 		Providers: []ProviderConfig{{Name: "openai", APIKey: "sk-test", BaseURL: "http://127.0.0.1:9/v1"}},
-	}}, nil, nil)
+	}}, nil, nil, nil)
 	ctx := context.Background()
 	if _, err := svc.Chat(ctx, "p1", Request{}); !errors.Is(err, ErrModelNotConfigured) {
 		t.Fatalf("chat err=%v want ErrModelNotConfigured", err)
@@ -124,7 +124,7 @@ func TestResolvedModelIsLogged(t *testing.T) {
 		Providers: []ProviderConfig{
 			{Name: "openai", APIKey: "sk-test", BaseURL: srv.URL, Model: "resolved-model"},
 		},
-	}}, nil, logger)
+	}}, nil, nil, logger)
 
 	if _, err := svc.Chat(context.Background(), "p1", Request{Messages: []providers.Message{{Role: "user", Content: "hi"}}}); err != nil {
 		t.Fatalf("chat: %v", err)

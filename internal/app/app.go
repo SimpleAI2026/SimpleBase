@@ -108,12 +108,12 @@ type App struct {
 	users         *auth.UserService
 	sessions      *auth.SessionService
 	// endUsers 是终端用户服务（§8.2.6；独立密钥域 aud=enduser）。
-	endUsers      *auth.EndUserService
-	cacheMgr      *cache.Manager
-	usageSvc      *usage.Service
-	auditSvc      *audit.Service
-	llmSvc        llmgateway.Service
-	sandboxMgr    *sandbox.Manager
+	endUsers   *auth.EndUserService
+	cacheMgr   *cache.Manager
+	usageSvc   *usage.Service
+	auditSvc   *audit.Service
+	llmSvc     llmgateway.Service
+	sandboxMgr *sandbox.Manager
 	// sshHostKey 是沙盒终端的 SSH 主机密钥（setupSandboxTerminal 装配）。
 	sshHostKey ssh.Signer
 
@@ -212,6 +212,10 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	)
 	redacted := cfg.Redacted()
 	logger.Info("config", zap.Any("config", redacted))
+	// planv6.5 §9：控制台与用户站点同注册域时提示同站风险。
+	if w := config.SitesSameSiteWarning(cfg); w != "" {
+		logger.Warn("sites same-site risk", zap.String("detail", w))
+	}
 
 	metrics := observability.NewMetrics(reg)
 
@@ -294,41 +298,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	}
 
 	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
-	if cfg.Sandbox.Enabled && a.systemStore != nil {
-		var driver vm.Driver
-		driverLog := sandboxDriverLog(logger)
-		switch cfg.Sandbox.EffectiveBackend() {
-		case config.SandboxBackendFake:
-			driver = fake.New()
-		case config.SandboxBackendLocal:
-			localDrv, err := local.New(ctx, sandboxLocalOptions(cfg, driverLog))
-			if err == nil {
-				driver = localDrv
-			} else if logger != nil {
-				// 隔离不可用时不退回裸执行：云沙盒功能整体不可用，其余服务照常启动。
-				logger.Warn("sandbox disabled: local isolation unavailable (no unisolated fallback)", zap.Error(err))
-			}
-		}
-		if driver != nil {
-			driver = vm.WithLogging(driver, driverLog)
-			a.sandboxMgr = sandbox.NewManager(cfg.Sandbox, sandboxStoreAdapter{s: a.systemStore}, driver)
-			if logger != nil {
-				a.sandboxMgr.SetLogger(logger)
-				logger.Info("sandbox manager ready", zap.String("backend", cfg.Sandbox.EffectiveBackend()),
-					zap.String("image", cfg.Sandbox.Image), zap.Int("max_per_project", cfg.Sandbox.MaxPerProject),
-					zap.Duration("idle_timeout", cfg.Sandbox.IdleTimeout), zap.Duration("reap_interval", cfg.Sandbox.ReapInterval))
-			}
-			a.registerCloser(a.sandboxMgr)
-			if a.schedulerCancel == nil {
-				a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
-			}
-			a.sandboxMgr.StartReaper(a.schedulerBaseCtx)
-		}
-	}
-	var terminal *api.TerminalBridge
-	if a.sandboxMgr != nil && a.sandboxMgr.Available() && a.sandboxMgr.Interactive() {
-		terminal = a.setupSandboxTerminal(cfg, logger)
-	}
+	terminal := a.assembleSandbox(ctx, cfg, logger)
 
 	// 统一定时任务调度器（ui-cronjob-plan §5.4 + planv6.0 gocloudagent-cli-and-cronjob-unification-plan §2）：
 	// 同时承载云函数与 Agent 两类目标，仅在系统库齐备时创建。Agent 执行器仅在
@@ -345,49 +315,21 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 			cronScheduler.WithAgentRunner(agentbridge.NewCronAgentExecutor(a.systemStore, runtime, quota))
 		}
 		a.cronScheduler = cronScheduler
-		if a.schedulerCancel == nil {
-			a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
-		}
-		cronScheduler.Start(a.schedulerBaseCtx)
+		cronScheduler.Start(a.ensureSchedulerCtx())
 	}
 
-	var backupHandler *api.BackupHandler
-	if cfg.Backup.Enabled && a.systemStore != nil && a.registry != nil && a.fileFactory != nil {
-		repo := backup.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
-		var blobs objectstore.BlobStore
-		if a.objectStore != nil {
-			blobs, _ = a.objectStore.(objectstore.BlobStore)
-		}
-		service := backup.NewService(cfg.Backup, cfg.Instance.ID, a.catalog, a.registry, a.fileFactory, repo, blobs, objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix})
-		backupHandler = api.NewBackupHandler(service, api.NewAuditService(a.auditSvc), cfg.Instance.Writable)
-		// §8.3.6：readiness「48h 内有成功备份」检查的数据源。
-		a.backupStoreReader = repo
-		if cfg.Backup.Schedule != "" {
-			// §8.3.2：catchup + 错误上报（告警总线在 seedAndStartMaintenance 装配，
-			// 此处仅当已存在时接线；nil Reporter 退化为无上报）。
-			reporter := a.backupReporter()
-			scheduler, err := backup.NewScheduler(service, repo, cfg.Backup.Schedule, backup.SchedulerOptions{
-				MissedPolicy: cfg.Backup.EffectiveMissedPolicy(),
-				Reporter:     reporter,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("backup schedule: %w", err)
-			}
-			if a.schedulerCancel == nil {
-				a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
-			}
-			scheduler.Start(a.schedulerBaseCtx)
-		}
+	backupHandler, err := a.assembleBackup(cfg)
+	if err != nil {
+		// 此前已打开系统库/registry 并启动 reaper、cron 等协程，失败时同样反向关闭。
+		_ = a.Close(context.Background())
+		return nil, err
 	}
 
 	// KV TTL 后台清扫（key-value-ducklake-plan §4.5）：仅可写实例 + registry 齐备时创建。
 	if cfg.Instance.Writable && a.registry != nil {
 		kvSweeper := kv.NewSweeper(a.registry, 60*time.Second, dbbridge.LoggerFrom(logger))
 		a.kvSweeper = kvSweeper
-		if a.schedulerCancel == nil {
-			a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
-		}
-		kvSweeper.Start(a.schedulerBaseCtx)
+		kvSweeper.Start(a.ensureSchedulerCtx())
 	}
 
 	deps := api.Dependencies{
@@ -395,10 +337,10 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		Logger:  logger,
 		Metrics: metrics,
 		// /metrics 输出源与 Metrics 同 registry（perfbench 抓 stage 指标依赖）。
-		MetricsRegistry:        metricsGatherer(reg),
-		Health:                 a.health,
-		Auth:                   a.auth,
-		Sessions:               a.sessions,
+		MetricsRegistry: metricsGatherer(reg),
+		Health:          a.health,
+		Auth:            a.auth,
+		Sessions:        a.sessions,
 		// §8.2.6：终端用户服务（nil 时不挂 end-users 路由）。
 		EndUsers:               a.endUsers,
 		Users:                  a.users,
@@ -504,6 +446,77 @@ func (a *App) assembleWriteHandlers(cfg config.Config, dbHandler *api.DatabaseHa
 	w.kvService = api.NewKVServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry))
 	w.kv = api.NewKVHandler(w.kvService, cfg.Instance.Writable)
 	return w
+}
+
+func (a *App) ensureSchedulerCtx() context.Context {
+	if a.schedulerCancel == nil {
+		a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
+	}
+	return a.schedulerBaseCtx
+}
+
+func (a *App) assembleSandbox(ctx context.Context, cfg config.Config, logger observability.Logger) *api.TerminalBridge {
+	if cfg.Sandbox.Enabled && a.systemStore != nil {
+		var driver vm.Driver
+		driverLog := sandboxDriverLog(logger)
+		switch cfg.Sandbox.EffectiveBackend() {
+		case config.SandboxBackendFake:
+			driver = fake.New()
+		case config.SandboxBackendLocal:
+			localDrv, err := local.New(ctx, sandboxLocalOptions(cfg, driverLog))
+			if err == nil {
+				driver = localDrv
+			} else if logger != nil {
+				// 隔离不可用时不退回裸执行：云沙盒功能整体不可用，其余服务照常启动。
+				logger.Warn("sandbox disabled: local isolation unavailable (no unisolated fallback)", zap.Error(err))
+			}
+		}
+		if driver != nil {
+			driver = vm.WithLogging(driver, driverLog)
+			a.sandboxMgr = sandbox.NewManager(cfg.Sandbox, sandboxStoreAdapter{s: a.systemStore}, driver)
+			if logger != nil {
+				a.sandboxMgr.SetLogger(logger)
+				logger.Info("sandbox manager ready", zap.String("backend", cfg.Sandbox.EffectiveBackend()),
+					zap.String("image", cfg.Sandbox.Image), zap.Int("max_per_project", cfg.Sandbox.MaxPerProject),
+					zap.Duration("idle_timeout", cfg.Sandbox.IdleTimeout), zap.Duration("reap_interval", cfg.Sandbox.ReapInterval))
+			}
+			a.registerCloser(a.sandboxMgr)
+			a.sandboxMgr.StartReaper(a.ensureSchedulerCtx())
+		}
+	}
+	if a.sandboxMgr != nil && a.sandboxMgr.Available() && a.sandboxMgr.Interactive() {
+		return a.setupSandboxTerminal(cfg, logger)
+	}
+	return nil
+}
+
+func (a *App) assembleBackup(cfg config.Config) (*api.BackupHandler, error) {
+	if !cfg.Backup.Enabled || a.systemStore == nil || a.registry == nil || a.fileFactory == nil {
+		return nil, nil
+	}
+	repo := backup.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
+	var blobs objectstore.BlobStore
+	if a.objectStore != nil {
+		blobs, _ = a.objectStore.(objectstore.BlobStore)
+	}
+	service := backup.NewService(cfg.Backup, cfg.Instance.ID, a.catalog, a.registry, a.fileFactory, repo, blobs, objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix})
+	backupHandler := api.NewBackupHandler(service, api.NewAuditService(a.auditSvc), cfg.Instance.Writable)
+	// §8.3.6：readiness「48h 内有成功备份」检查的数据源。
+	a.backupStoreReader = repo
+	if cfg.Backup.Schedule != "" {
+		// §8.3.2：catchup + 错误上报（告警总线在 seedAndStartMaintenance 装配，
+		// 此处仅当已存在时接线；nil Reporter 退化为无上报）。
+		reporter := a.backupReporter()
+		scheduler, err := backup.NewScheduler(service, repo, cfg.Backup.Schedule, backup.SchedulerOptions{
+			MissedPolicy: cfg.Backup.EffectiveMissedPolicy(),
+			Reporter:     reporter,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("backup schedule: %w", err)
+		}
+		scheduler.Start(a.ensureSchedulerCtx())
+	}
+	return backupHandler, nil
 }
 
 // metricsGatherer 把 Registerer 适配为 Gatherer；仅 *prometheus.Registry
@@ -673,10 +686,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	// R1 第 3 条：cacheMgr 接入同一周期，缓存字节/数量超限按 LRU 淘汰
 	// （cache_max_bytes / cache_max_databases 配置自此生效）。
 	a.handleEvictor = registry.NewEvictor(a.registry, time.Minute, a.cacheMgr)
-	if a.schedulerBaseCtx == nil {
-		a.schedulerBaseCtx, a.schedulerCancel = context.WithCancel(context.Background())
-	}
-	go a.handleEvictor.Run(a.schedulerBaseCtx)
+	go a.handleEvictor.Run(a.ensureSchedulerCtx())
 
 	a.assembleAuthServices(store, cfg)
 	if err := a.seedAndStartMaintenance(ctx, store, cfg); err != nil {
@@ -1051,7 +1061,8 @@ func (a *App) assembleLLMService(cfg config.Config) llmgateway.Service {
 	if inst := instanceLLMProviders(cfg.LLM.Providers); len(inst) > 0 {
 		resolver = llmgateway.NewFallbackResolver(resolver, inst)
 	}
-	return llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), a.logger)
+	// trace recorder 从 ctx 解 request_id 后缓冲进 sys_llm_traces（planv6.5）。
+	return llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), api.NewLLMTraceRecorder(a.systemStore), a.logger)
 }
 
 // Close 反向关闭所有已注册资源。供 New 失败路径和测试 cleanup 调用。

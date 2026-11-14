@@ -1,33 +1,3 @@
-// 文件说明：set.go — godatabase/kv 中 SetRepo、Add 等符号的实现
-//
-// 用法
-//
-//	(r *SetRepo) Add(ctx context.Context, key string, elems ...[]byte) (int, error)  // Add 添加成员（SADD），返回实际新增数（去重）
-//	(r *SetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int, error)  // Delete 移除成员（SREM），返回实际删除数
-//	同包调用：Delete() → hash.go, key.go 等；SetRepo → executor.go；Add() → zset.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/set.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] core.go, executor.go, hash.go, key.go, list.go 等 10 个
-//	[关键引用] Delete() ← hash.go, key.go, zset.go
-//
-// 主要符号
-//
-//	type SetRepo struct {…}
-//	(r *SetRepo) Add(ctx context.Context, key string, elems ...[]byte) (int, error)
-//	(r *SetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int, error)
-//	(r *SetRepo) IsMember(ctx context.Context, key string, elem []byte) (bool, error)
-//	(r *SetRepo) Members(ctx context.Context, key string) ([][]byte, error)
-//	(r *SetRepo) Pop(ctx context.Context, key string) ([]byte, error)
-//	... 另有 12 个顶层符号
-
 package kv
 
 import (
@@ -105,15 +75,13 @@ func (r *SetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int,
 	} else if err != nil {
 		return 0, err
 	}
-	ph := make([]string, len(elems))
 	args := make([]any, 0, len(elems)+1)
 	args = append(args, key)
-	for i, e := range elems {
-		ph[i] = "?"
+	for _, e := range elems {
 		args = append(args, e)
 	}
 	res, err := r.t.tx.ExecContext(ctx,
-		fmt.Sprintf(`DELETE FROM __sb_kv_sets WHERE "key" = ? AND elem IN (%s)`, strings.Join(ph, ",")),
+		fmt.Sprintf(`DELETE FROM __sb_kv_sets WHERE "key" = ? AND elem IN (%s)`, placeholders(len(elems))),
 		args...)
 	if err != nil {
 		return 0, fmt.Errorf("kv: set delete: %w", err)
@@ -229,11 +197,13 @@ func (r *SetRepo) validSetKeys(ctx context.Context, keys []string) ([]string, er
 }
 
 func placeholders(n int) string {
-	ph := make([]string, n)
-	for i := range ph {
-		ph[i] = "?"
+	if n <= 0 {
+		return ""
 	}
-	return strings.Join(ph, ",")
+	if n == 1 {
+		return "?"
+	}
+	return strings.Repeat("?,", n-1) + "?"
 }
 
 // Union 并集（SUNION）。

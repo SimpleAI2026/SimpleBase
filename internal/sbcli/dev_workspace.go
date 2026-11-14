@@ -19,6 +19,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
 )
 
 const (
@@ -69,11 +71,11 @@ var (
 	}
 	// 不进入重放的清单字段：值是忽略原因。
 	devIgnoredKeys = map[string]string{
-		"kv":       "kv 属于数据，P1 再纳入 --seed",
-		"objects":  "对象属于数据，P1 再纳入 --seed",
-		"api_keys": "签发 Key 会产出密钥，请在控制台操作",
-		"agents":   "助手不在重放范围",
-		"requires": "仅 examples 使用",
+		"kv":                "kv 属于数据，P1 再纳入 --seed",
+		"objects":           "对象属于数据，P1 再纳入 --seed",
+		"api_keys":          "签发 Key 会产出密钥，请在控制台操作",
+		"agents":            "助手不在重放范围",
+		"requires":          "仅 examples 使用",
 		"function_triggers": "事件触发器只存在于系统库，由 examples 初始化脚本幂等同步",
 	}
 )
@@ -453,7 +455,7 @@ func (w *devWorkspace) sqlFile(rel, what string, isMigration bool) *devSQLFile {
 	if isMigration {
 		marker = filepath.Base(path)
 	}
-	return &devSQLFile{marker: marker, path: path, stmts: stmts, sha: devSHA256(text)}
+	return &devSQLFile{marker: marker, path: path, stmts: stmts, sha: hashx.SumString(text)}
 }
 
 func (w *devWorkspace) checkDatabases(items []devDBDecl, withCollections map[string]bool) {
@@ -606,7 +608,7 @@ func (w *devWorkspace) checkFunctions(items []devFuncDecl) {
 			}
 		}
 		w.scanSecrets(f.File, src)
-		fn := devFunction{name: f.Name, source: src, sha: devSHA256(src), description: f.Description, exports: exports}
+		fn := devFunction{name: f.Name, source: src, sha: hashx.SumString(src), description: f.Description, exports: exports}
 		if f.Test == nil {
 			w.warnf("%s: 没有配置 test，apply 会不经试跑直接生效", what)
 		}

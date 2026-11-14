@@ -7,7 +7,7 @@
           class="h-9 w-full min-w-0 max-w-full justify-start gap-1 rounded-lg px-2 shadow-xs sm:w-56 sm:gap-2.5 sm:px-3"
           :aria-label="t('components.projectSwitcher.aria', { label: triggerLabel })"
         >
-          <FolderIcon class="size-4 shrink-0 text-primary/80" />
+          <FolderIcon class="size-4 shrink-0 text-muted-foreground" />
           <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ triggerLabel }}</span>
           <ChevronDownIcon class="ml-auto size-3.5 shrink-0 text-muted-foreground/60" />
         </Button>
@@ -49,18 +49,11 @@
                       class="ml-1 text-xs font-normal text-muted-foreground"
                     >{{ t('components.projectSwitcher.readonlySuffix') }}</span>
                   </span>
-                  <span class="sb-mono truncate text-[11px] tracking-wide text-muted-foreground/70">{{ p.id }}</span>
-                </span>
-                <span
-                  v-if="isAdminProject(p)"
-                  class="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-                >
-                  ★
+                  <span class="sb-mono truncate text-xs text-muted-foreground">{{ p.id }}</span>
                 </span>
                 <CheckIcon
                   v-if="p.id === store.id"
                   class="size-4 shrink-0 text-primary"
-                  :stroke-width="2.5"
                 />
               </CommandItem>
             </CommandGroup>

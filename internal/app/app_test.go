@@ -120,3 +120,33 @@ func TestNewLocalStorageAppUsesSystemDatabase(t *testing.T) {
 		t.Fatal("catalog must not live in cache_dir")
 	}
 }
+
+// BUG-APP-01：备份调度表达式非法时 New 失败，且必须释放已打开的系统库与后台协程；
+// 同一 data_dir 随后能再次成功启动（否则 DuckDB 文件锁仍被泄漏的实例持有）。
+func TestNewInvalidBackupScheduleClosesResources(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(true)
+	cfg.Storage = config.StorageConfig{
+		Database: config.StorageModeLocal,
+		Files:    config.StorageModeLocal,
+		DataDir:  filepath.Join(dir, "data"),
+	}
+	cfg.S3 = config.S3Config{}
+	cfg.Database.CacheDir = filepath.Join(dir, "cache")
+	cfg.Backup = config.BackupConfig{
+		Enabled: true, Dir: filepath.Join(dir, "backups"), Schedule: "not a cron",
+		KeepLast: 1, MaxPerProject: 1, SnapshotTimeout: time.Minute,
+	}
+	if _, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry()); err == nil {
+		t.Fatal("expected invalid backup schedule to fail")
+	}
+
+	cfg.Backup.Schedule = ""
+	a, err := NewWithRegistry(context.Background(), cfg, prometheus.NewRegistry())
+	if err != nil {
+		t.Fatalf("restart on same data_dir after failed start: %v", err)
+	}
+	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = a.Shutdown(sctx)
+}

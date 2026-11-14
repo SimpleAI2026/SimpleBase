@@ -35,6 +35,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -56,8 +57,8 @@ type ProviderConfig struct {
 	BaseURL string `json:"base_url"`
 	Model   string `json:"model"`
 	// AllowedModels 非空时，请求的 model 必须在列表内（planv4.0 cloud-agent-optimization-plan §4.7）。
-	AllowedModels []string          `json:"allowed_models,omitempty"`
-	Timeout       time.Duration     `json:"timeout,omitempty"` // 整体请求超时；0=不限（planv6.1 O2）
+	AllowedModels []string      `json:"allowed_models,omitempty"`
+	Timeout       time.Duration `json:"timeout,omitempty"` // 整体请求超时；0=不限（planv6.1 O2）
 }
 
 // ProjectProviders 描述一个 project 可用的供应商集合。
@@ -109,6 +110,58 @@ type UsageRecorder interface {
 	RecordLLM(ctx context.Context, projectID, provider, model string, u Usage) error
 }
 
+// LLMTrace 是一次模型调用的观测记录（planv6.5 model-settings-and-trace-plan §3.2、二期 §9.1）。
+type LLMTrace struct {
+	ProjectID    string
+	Provider     string
+	Model        string
+	Status       string // "ok" | "error"
+	Stream       bool
+	DurationMs   int64
+	InputTokens  int
+	OutputTokens int
+	ErrorCode    string
+	ErrorMessage string
+	// 二期内容观测（§10.1）：trace_id/caller 来自 ctx 元数据（recorder 侧回退 request_id/api），
+	// input/output/tools 为序列化后的 JSON 快照（截断由存储层兜底）。
+	TraceID    string
+	Caller     string
+	Name       string
+	InputJSON  string
+	OutputJSON string
+	ToolsJSON  string
+}
+
+// TraceRecorder 由 api 层的 recorder 适配器实现（从 ctx 解 request_id 后落 sys_llm_traces）。
+// 与 UsageRecorder 双写：usage 只管配额口径，trace 只管观测；二者互不替代。
+type TraceRecorder interface {
+	RecordTrace(ctx context.Context, t LLMTrace) error
+}
+
+// traceMetaKey 是 ctx 元数据的私有键类型（trace_id + caller，二期 §10.1）。
+// 调用方（agent_handler / cron_agent）在进入运行时前注入，
+// llmgateway → recorder 链路读取；llmgateway 自身不写库，避免反向依赖 api。
+type traceMetaKey struct{}
+
+// TraceMeta 携带顶层 trace 标识与调用来源。
+type TraceMeta struct {
+	TraceID string // agent/cron 场景 = run_id
+	Caller  string // "api" | "agent" | "cron"
+}
+
+// WithTraceMeta 注入 trace 元数据（幂等：后写覆盖）。
+func WithTraceMeta(ctx context.Context, traceID, caller string) context.Context {
+	return context.WithValue(ctx, traceMetaKey{}, TraceMeta{TraceID: traceID, Caller: caller})
+}
+
+// TraceMetaFrom 读取 ctx 中的 trace 元数据；未注入返回零值。
+func TraceMetaFrom(ctx context.Context) TraceMeta {
+	if m, ok := ctx.Value(traceMetaKey{}).(TraceMeta); ok {
+		return m
+	}
+	return TraceMeta{}
+}
+
 // Service 是 LLM Gateway 的核心接口。handler 仅依赖此接口。
 type Service interface {
 	Chat(ctx context.Context, projectID string, req Request) (Response, error)
@@ -128,6 +181,7 @@ type ProviderResolver interface {
 type service struct {
 	resolver ProviderResolver
 	recorder UsageRecorder
+	tracer   TraceRecorder
 	logger   observability.Logger
 
 	mu      sync.Mutex
@@ -140,13 +194,116 @@ type cachedClient struct {
 	fp     string
 }
 
-// NewService 构造 Service。
-func NewService(resolver ProviderResolver, recorder UsageRecorder, logger observability.Logger) Service {
+// NewService 构造 Service。tracer 可为 nil（不启用 trace 落库）。
+func NewService(resolver ProviderResolver, recorder UsageRecorder, tracer TraceRecorder, logger observability.Logger) Service {
 	return &service{
 		resolver: resolver,
 		recorder: recorder,
+		tracer:   tracer,
 		logger:   logger,
 		clients:  make(map[string]cachedClient),
+	}
+}
+
+// recordTrace 是埋点统一出口：tracer 为 nil 或记录失败都不影响主流程。
+func (s *service) recordTrace(ctx context.Context, t LLMTrace) {
+	if s == nil || s.tracer == nil {
+		return
+	}
+	if err := s.tracer.RecordTrace(ctx, t); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("llmgateway: record trace failed",
+				zap.String("project", t.ProjectID),
+				zap.String("err", err.Error()))
+		}
+	}
+}
+
+// traceError 提取错误码与消息（截断由存储层兜底）。
+func traceError(err error) (code, message string) {
+	if err == nil {
+		return "", ""
+	}
+	message = err.Error()
+	return "upstream_error", message
+}
+
+// traceSpanInputJSON 序列化 llm span 的输入消息快照（二期 §10.1）。
+// 每条消息取 role/content/tool_calls；序列化失败返回空串（观测不阻塞主流程）。
+func traceSpanInputJSON(req *providers.Request) string {
+	if req == nil || len(req.Messages) == 0 {
+		return ""
+	}
+	type msg struct {
+		Role       string               `json:"role"`
+		Content    string               `json:"content"`
+		ToolCalls  []providers.ToolCall `json:"tool_calls,omitempty"`
+		ToolCallID string               `json:"tool_call_id,omitempty"`
+	}
+	msgs := make([]msg, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		msgs = append(msgs, msg{Role: m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID})
+	}
+	b, err := json.Marshal(msgs)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// traceSpanOutputJSON 序列化 llm span 的输出（正文 + 工具调用请求）。
+// 错误路径传 err 非 nil：输出记 {"error":...}。
+func traceSpanOutputJSON(content string, toolCalls []providers.ToolCall, err error) string {
+	type toolCall struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Args string `json:"arguments"`
+	}
+	out := struct {
+		Content   string     `json:"content,omitempty"`
+		ToolCalls []toolCall `json:"tool_calls,omitempty"`
+		Error     string     `json:"error,omitempty"`
+	}{Content: content}
+	if err != nil {
+		out.Error = err.Error()
+	}
+	for _, tc := range toolCalls {
+		out.ToolCalls = append(out.ToolCalls, toolCall{ID: tc.ID, Name: tc.Function.Name, Args: tc.Function.Arguments})
+	}
+	b, merr := json.Marshal(out)
+	if merr != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// traceSpanToolsJSON 序列化本次声明的工具（仅 name + description，不含 parameters 全文）。
+func traceSpanToolsJSON(tools []providers.Tool) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	type tool struct {
+		Name        string `json:"name"`
+		Description string `json:"description,omitempty"`
+	}
+	out := make([]tool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, tool{Name: t.Function.Name, Description: t.Function.Description})
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// fillTraceMeta 从 ctx 补 trace_id/caller/name（recorder 侧不再重复解析）。
+func fillTraceMeta(ctx context.Context, t *LLMTrace) {
+	meta := TraceMetaFrom(ctx)
+	t.TraceID = meta.TraceID
+	t.Caller = meta.Caller
+	if t.Name == "" {
+		t.Name = t.Model
 	}
 }
 
@@ -319,13 +476,25 @@ func (s *service) prepareRequest(ctx context.Context, projectID string, req Requ
 
 // Chat 执行非流式对话。
 func (s *service) Chat(ctx context.Context, projectID string, req Request) (Response, error) {
+	start := time.Now()
 	c, _, lreq, err := s.prepareRequest(ctx, projectID, req)
 	if err != nil {
 		return Response{}, err
 	}
 	resp, err := c.Chat(ctx, lreq)
 	if err != nil {
-		return Response{}, fmt.Errorf("llmgateway: chat: %w", err)
+		werr := fmt.Errorf("llmgateway: chat: %w", err)
+		code, msg := traceError(err)
+		t := LLMTrace{
+			ProjectID: projectID, Provider: lreq.Model, Model: lreq.Model,
+			Status: "error", DurationMs: time.Since(start).Milliseconds(),
+			ErrorCode: code, ErrorMessage: msg,
+			InputJSON: traceSpanInputJSON(lreq), OutputJSON: traceSpanOutputJSON("", nil, err),
+			ToolsJSON: traceSpanToolsJSON(lreq.Tools),
+		}
+		fillTraceMeta(ctx, &t)
+		s.recordTrace(ctx, t)
+		return Response{}, werr
 	}
 	out := Response{
 		Content:      resp.Content,
@@ -349,27 +518,57 @@ func (s *service) Chat(ctx context.Context, projectID string, req Request) (Resp
 			}
 		}
 	}
+	s.recordTrace(ctx, func() LLMTrace {
+		t := LLMTrace{
+			ProjectID: projectID, Provider: resp.Provider, Model: resp.Model,
+			Status: "ok", DurationMs: time.Since(start).Milliseconds(),
+			InputTokens:  out.Usage.PromptTokens,
+			OutputTokens: out.Usage.CompletionTokens,
+			InputJSON:    traceSpanInputJSON(lreq),
+			OutputJSON:   traceSpanOutputJSON(resp.Content, resp.ToolCalls, nil),
+			ToolsJSON:    traceSpanToolsJSON(lreq.Tools),
+		}
+		fillTraceMeta(ctx, &t)
+		return t
+	}())
 	return out, nil
 }
 
 // Stream 执行流式对话。
 func (s *service) Stream(ctx context.Context, projectID string, req Request) (StreamReader, error) {
+	start := time.Now()
 	c, cfg, lreq, err := s.prepareRequest(ctx, projectID, req)
 	if err != nil {
 		return nil, err
 	}
 	reader, err := c.Stream(ctx, lreq)
 	if err != nil {
-		return nil, fmt.Errorf("llmgateway: stream: %w", err)
+		werr := fmt.Errorf("llmgateway: stream: %w", err)
+		code, msg := traceError(err)
+		t := LLMTrace{
+			ProjectID: projectID, Provider: cfg.Name, Model: lreq.Model,
+			Status: "error", Stream: true, DurationMs: time.Since(start).Milliseconds(),
+			ErrorCode: code, ErrorMessage: msg,
+			InputJSON: traceSpanInputJSON(lreq), OutputJSON: traceSpanOutputJSON("", nil, err),
+			ToolsJSON: traceSpanToolsJSON(lreq.Tools),
+		}
+		fillTraceMeta(ctx, &t)
+		s.recordTrace(ctx, t)
+		return nil, werr
 	}
-	if s.recorder != nil {
+	if s.recorder != nil || s.tracer != nil {
 		return &usageRecordingReader{
-			inner:    reader,
-			recorder: s.recorder,
-			project:  projectID,
-			provider: cfg.Name,
-			model:    lreq.Model,
-			logger:   s.logger,
+			inner:     reader,
+			recorder:  s.recorder,
+			tracer:    s.tracer,
+			traceCtx:  ctx,
+			project:   projectID,
+			provider:  cfg.Name,
+			model:     lreq.Model,
+			logger:    s.logger,
+			start:     start,
+			inputJSON: traceSpanInputJSON(lreq),
+			toolsJSON: traceSpanToolsJSON(lreq.Tools),
 		}, nil
 	}
 	return reader, nil

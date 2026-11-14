@@ -31,7 +31,6 @@ import S3Manager from '@/pages/S3Manager.vue'
 import GoFuncVersionsModal from '@/components/modal/GoFuncVersionsModal.vue'
 import GoFuncTestModal from '@/components/modal/GoFuncTestModal.vue'
 import CronJobModal from '@/components/modal/CronJobModal.vue'
-import AgentScheduleModal from '@/components/ai/AgentScheduleModal.vue'
 import SandboxDrawer from '@/components/sandbox/SandboxDrawer.vue'
 import DocsArticle from '@/components/docs/DocsArticle.vue'
 import ModelDefaultsPanel from '@/components/settings/ModelDefaultsPanel.vue'
@@ -148,7 +147,7 @@ describe('loading surfaces', () => {
     api.agentThreads.create.mockResolvedValue({ id: 'th-1', title: '云助手', updated_at: 't' })
     api.agentThreads.messages.mockResolvedValue([])
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ConversationView: true, AgentComposer: true, AgentScheduleModal: true }
+      stubs: { ConversationView: true, AgentComposer: true }
     })
     expect(wrapper.text()).not.toContain('暂无 Agent')
     expect(wrapper.html()).toContain('aria-busy="true"')
@@ -220,34 +219,6 @@ describe('loading surfaces', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('Hello')
     wrapper.unmount()
-  })
-
-  it('shows schedule history only after runs return', async () => {
-    const runs = hold<unknown[]>()
-    api.agentSchedules.runs.mockReturnValue(runs.promise)
-    const scheduleModal = mount(AgentScheduleModal, {
-      props: { open: false, agent: sampleAgent, schedule, projectId: 'p1' },
-      global: { stubs: uiStubs }
-    })
-    await scheduleModal.setProps({ open: true })
-    await flushPromises()
-    expect(scheduleModal.text()).not.toContain('暂无执行记录')
-    expect(scheduleModal.text()).toContain('正在加载')
-    runs.resolve([])
-    await flushPromises()
-    expect(scheduleModal.text()).toContain('暂无执行记录')
-    const kept = hold<unknown[]>()
-    api.agentSchedules.runs.mockResolvedValueOnce([{ id: 'r1', status: 'success', started_at: 't', finished_at: 't' }])
-    const vm = scheduleModal.vm as unknown as { loadRuns: () => Promise<void> }
-    await vm.loadRuns()
-    await flushPromises()
-    api.agentSchedules.runs.mockReturnValue(kept.promise)
-    const refreshing = vm.loadRuns()
-    await flushPromises()
-    kept.reject(new Error('runs down'))
-    await refreshing
-    expect(scheduleModal.text()).not.toContain('暂无执行记录')
-    scheduleModal.unmount()
   })
 
   it('shows an empty sandbox directory only after the file list returns', async () => {

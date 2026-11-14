@@ -86,8 +86,6 @@ type devError struct {
 
 func (e *devError) Error() string { return e.msg }
 
-func devSHA256(text string) string { return hashx.SumString(text) }
-
 var devLocalHosts = map[string]bool{"127.0.0.1": true, "localhost": true, "::1": true, "0.0.0.0": true}
 
 var devLabelStrip = regexp.MustCompile(`[^a-z0-9]+`)
@@ -674,7 +672,7 @@ func (r *devReplayer) functions(ctx context.Context) error {
 			r.entry.Functions[f.name] = devLockFunc{SHA: f.sha, Version: ver}
 			continue
 		}
-		if remote.ActiveVersion > 0 && devSHA256(remote.Source) == f.sha {
+		if remote.ActiveVersion > 0 && hashx.SumString(remote.Source) == f.sha {
 			r.act("skip", "function", f.name, fmt.Sprintf("v%d", remote.ActiveVersion))
 			if r.apply {
 				r.entry.Functions[f.name] = devLockFunc{SHA: f.sha, Version: remote.ActiveVersion}
@@ -689,7 +687,7 @@ func (r *devReplayer) functions(ctx context.Context) error {
 				var v struct {
 					Source string `json:"source"`
 				}
-				if json.Unmarshal(vraw, &v) == nil && devSHA256(v.Source) == f.sha {
+				if json.Unmarshal(vraw, &v) == nil && hashx.SumString(v.Source) == f.sha {
 					reuse = remote.LatestVersion
 				}
 			}

@@ -69,7 +69,10 @@ export const api = {
     download: vi.fn(),
     createLink: vi.fn(),
     remove: vi.fn(),
-    upload: vi.fn()
+    upload: vi.fn(),
+    getSite: vi.fn(),
+    setSite: vi.fn(),
+    setPublic: vi.fn()
   },
   backups: {
     list: vi.fn(),
@@ -95,6 +98,11 @@ export const api = {
   llmSettings: {
     get: vi.fn(),
     put: vi.fn()
+  },
+  llmTraces: {
+    list: vi.fn(),
+    groups: vi.fn(),
+    detail: vi.fn()
   },
   agents: {
     modules: vi.fn(),
@@ -313,12 +321,15 @@ export function applyApiDefaults() {
   api.db.putCollectionSchema.mockResolvedValue({ name: 'users', fields: [] })
   api.db.deleteCollectionSchema.mockResolvedValue(undefined)
   api.s3.list.mockResolvedValue([])
-  api.s3.listDetailed.mockResolvedValue({ folders: [], objects: [] })
+  api.s3.listDetailed.mockResolvedValue({ folders: [], objects: [], folderMeta: [] })
   api.s3.presign.mockResolvedValue({ url: 'https://example.test/obj' })
   api.s3.download.mockResolvedValue(new Blob(['x']))
   api.s3.createLink.mockResolvedValue({ url: '/files/token', expiresAt: '2026-01-01T00:00:00Z' })
   api.s3.remove.mockResolvedValue(undefined)
   api.s3.upload.mockResolvedValue({ key: 'a.txt', size: 1 })
+  api.s3.getSite.mockResolvedValue({ enabled: false, publishable: false, reason: 'sites_disabled' })
+  api.s3.setSite.mockResolvedValue({ enabled: true, publishable: true, baseUrl: 'https://proj0001.simplebase.top' })
+  api.s3.setPublic.mockResolvedValue({ public: true, publicUrl: 'https://proj0001.simplebase.top/a.html' })
   api.backups.list.mockResolvedValue([])
   api.backups.create.mockResolvedValue({ id: 'b1', projectId: 'p', sizeBytes: 1, sha256: 'x', engine: 'duckdb', formatVersion: 1, status: 'ready', createdAt: '2026-01-01T00:00:00Z' })
   api.backups.remove.mockResolvedValue(undefined)

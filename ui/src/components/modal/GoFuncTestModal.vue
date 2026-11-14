@@ -11,7 +11,7 @@
       <!-- 左栏：版本 + 导出函数 -->
       <aside class="flex w-full shrink-0 flex-col gap-4 border-b bg-card p-4 lg:w-60 lg:border-r lg:border-b-0">
         <div class="flex flex-col gap-2">
-          <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">{{ t('components.goFuncTest.versions') }}</div>
+          <div class="text-xs font-medium text-muted-foreground">{{ t('components.goFuncTest.versions') }}</div>
           <SbBlockSkeleton v-if="versionsLoading" variant="lines" :count="3" />
           <div v-else class="flex max-h-40 flex-col gap-1 overflow-y-auto">
             <button
@@ -27,13 +27,13 @@
                 :class="v.active ? 'bg-success' : 'bg-border'"
               />
               <span class="font-mono">v{{ v.version }}</span>
-              <span v-if="v.active" class="ml-auto text-[10px] font-medium text-success">{{ t('components.goFuncTest.active') }}</span>
+              <span v-if="v.active" class="ml-auto text-xs text-success">{{ t('components.goFuncTest.active') }}</span>
             </button>
           </div>
         </div>
 
         <div class="flex flex-col gap-2">
-          <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">
+          <div class="text-xs font-medium text-muted-foreground">
             {{ t('components.goFuncTest.exports', { version: selectedVersion }) }}
           </div>
           <div class="flex flex-col gap-1">
@@ -51,7 +51,7 @@
           </div>
         </div>
 
-        <p class="mt-auto text-[11px] leading-relaxed text-muted-foreground/80">
+        <p class="mt-auto text-xs leading-relaxed text-muted-foreground">
           {{ t('components.goFuncTest.protocolHint') }}
         </p>
       </aside>
@@ -59,7 +59,7 @@
       <!-- 右栏：请求 / 响应 -->
       <section class="flex min-w-0 flex-1 flex-col gap-5 p-4 lg:p-5">
         <div class="flex flex-col gap-2">
-          <div class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">{{ t('components.goFuncTest.request') }}</div>
+          <div class="text-xs font-medium text-muted-foreground">{{ t('components.goFuncTest.request') }}</div>
           <div class="flex items-center gap-2">
             <Badge variant="secondary" class="shrink-0">POST</Badge>
             <code class="sb-mono min-w-0 flex-1 truncate rounded-lg border bg-card px-2.5 py-1.5 text-xs">
@@ -67,14 +67,14 @@
             </code>
             <Button variant="outline" size="sm" class="shrink-0" @click="copyUrl">{{ t('common.copy') }}</Button>
           </div>
-          <p class="text-[11px] text-muted-foreground">
+          <p class="text-xs text-muted-foreground">
             {{ t('components.goFuncTest.externalUrl') }}
           </p>
         </div>
 
         <div class="flex min-h-0 flex-1 flex-col gap-2">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">Body (JSON)</span>
+            <span class="text-xs font-medium text-muted-foreground">Body (JSON)</span>
             <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="validateBody">{{ t('components.goFuncTest.validate') }}</Button>
           </div>
           <textarea
@@ -97,9 +97,9 @@
 
         <div class="flex min-h-0 flex-col gap-2">
           <div class="flex items-center gap-2">
-            <span class="text-xs font-semibold tracking-wider text-muted-foreground/70 uppercase">{{ t('components.goFuncTest.response') }}</span>
+            <span class="text-xs font-medium text-muted-foreground">{{ t('components.goFuncTest.response') }}</span>
             <template v-if="result">
-              <Badge :variant="statusVariant" class="px-1.5 text-[11px]">{{ result.statusCode }}</Badge>
+              <Badge :variant="statusVariant" class="px-1.5 text-xs">{{ result.statusCode }}</Badge>
               <span class="text-xs text-muted-foreground">application/json</span>
             </template>
           </div>

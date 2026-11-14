@@ -59,11 +59,11 @@ describe('GoMonacoEditor', () => {
     const light = vi.mocked(monaco.editor.defineTheme).mock.calls.find((c) => c[0] === 'sb-light')
     const lightColors = (light?.[1] as { colors: Record<string, string> }).colors
     expect(lightColors['editor.background']).toBe('#ffffff')
-    expect(lightColors['editor.foreground']).toBe('#0f172a')
+    expect(lightColors['editor.foreground']).toBe('#171717')
     const dark = vi.mocked(monaco.editor.defineTheme).mock.calls.find((c) => c[0] === 'sb-dark')
     const colors = (dark?.[1] as { colors: Record<string, string> }).colors
-    expect(colors['editor.background']).toBe('#111c2e')
-    expect(colors['editor.foreground']).toBe('#e2e8f0')
+    expect(colors['editor.background']).toBe('#19191b')
+    expect(colors['editor.foreground']).toBe('#ededed')
 
     document.documentElement.classList.add('dark')
     const w3 = mount(GoMonacoEditor, { props: { modelValue: 'dark' } })

@@ -72,12 +72,6 @@ describe('modal input layout', () => {
     }
   })
 
-  it('AgentScheduleModal frequency row wraps without a dead min-w-50 on Select', () => {
-    const src = read('ai/AgentScheduleModal.vue')
-    expect(src).toContain('flex flex-wrap items-center justify-between')
-    expect(src).not.toContain('class="min-w-50"')
-  })
-
   it('FunctionTriggerModal uses responsive fields without nested horizontal scrolling', () => {
     const src = read('modal/FunctionTriggerModal.vue')
     expect(src).toContain('grid gap-5 md:grid-cols-2')

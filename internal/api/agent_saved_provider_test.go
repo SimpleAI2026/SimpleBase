@@ -56,7 +56,7 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 		llmgateway.NewProjectCredResolver(llmgateway.NewSystemCredSource(store)),
 		llmgateway.NewCatalogResolver(cat, nil),
 	)
-	gw := llmgateway.NewService(resolver, nil, nil)
+	gw := llmgateway.NewService(resolver, nil, nil, nil)
 	rt := &gocloudagent.Runtime{
 		LLM:          NewCloudAgentLLM(NewLLMService(gw)),
 		Settings:     agentbridge.NewSettingsAccess(store),

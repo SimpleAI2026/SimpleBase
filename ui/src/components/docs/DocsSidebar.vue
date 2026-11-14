@@ -5,7 +5,7 @@
     <ScrollArea class="h-full">
       <nav class="flex flex-col gap-1 py-1 pr-1">
         <template v-for="p in pages" :key="p.slug">
-          <p v-if="p.group && p.group !== previousGroup(p)" class="px-3 pb-1.5 pt-5 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground/80 first:pt-2">{{ p.group }}</p>
+          <p v-if="p.group && p.group !== previousGroup(p)" class="px-3 pb-1.5 pt-5 text-xs font-medium text-muted-foreground first:pt-2">{{ p.group }}</p>
           <router-link
             class="relative rounded-lg px-3 py-2 text-sm leading-5 text-muted-foreground no-underline transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
             :class="p.slug === activeSlug ? 'bg-accent/80 font-medium text-accent-foreground before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary hover:bg-accent/80 hover:text-accent-foreground' : ''"

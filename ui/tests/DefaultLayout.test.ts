@@ -102,13 +102,8 @@ describe('DefaultLayout', () => {
     const generic = await mountWithApp(DefaultLayout, { path: '/?settings=1' })
     expect(useAuthStore(generic.pinia).settingsOpen).toBe(true)
     generic.wrapper.unmount()
-
-    const listed = await mountWithApp(DefaultLayout, { path: '/' })
-    await listed.router.push({ path: '/', query: { settings: ['models'] } })
-    await flushPromises()
-    expect(useAuthStore(listed.pinia).settingsOpen).toBe(true)
-    expect(useAuthStore(listed.pinia).settingsTab).toBe('models')
-    listed.wrapper.unmount()
+    // 「模型」deep-link 落到 /console/models 的跳转语义由 router.test 覆盖
+    // （真实路由表带 beforeEnter；本测试的 defaultRoutes 无重定向逻辑）。
   })
 
   it('falls back to SimpleBase when the route has no name', async () => {

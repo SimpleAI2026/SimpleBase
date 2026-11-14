@@ -1350,7 +1350,7 @@ func hashFlatReply(items map[string][]byte) any {
 	for f := range items {
 		fields = append(fields, f)
 	}
-	sortStrings(fields)
+	sort.Strings(fields)
 	out := make([]any, 0, len(fields)*2)
 	for _, f := range fields {
 		out = append(out, f, string(items[f]))
@@ -1360,20 +1360,11 @@ func hashFlatReply(items map[string][]byte) any {
 
 // hashScanReply 把 HSCAN 结果编码为 [cursor, [field, value, ...]]。
 func hashScanReply(items map[string][]byte, next string) any {
-	fields := make([]string, 0, len(items))
-	for f := range items {
-		fields = append(fields, f)
-	}
-	sortStrings(fields)
-	flat := make([]any, 0, len(fields)*2)
-	for _, f := range fields {
-		flat = append(flat, f, string(items[f]))
-	}
 	cursor := next
 	if cursor == "" {
 		cursor = "0"
 	}
-	return []any{cursor, flat}
+	return []any{cursor, hashFlatReply(items)}
 }
 
 // zRangeReply 编码 ZRANGE 系列回复；withScores 时 member/score 交替。
@@ -1418,8 +1409,3 @@ func kvBoolInt(b bool) int {
 
 // nowMs 统一毫秒时钟（与 kv 包一致）。
 func nowMs() int64 { return time.Now().UnixMilli() }
-
-// sortStrings 原地按字典序排序（map 遍历乱序，输出需确定性）。
-func sortStrings(s []string) {
-	sort.Strings(s)
-}

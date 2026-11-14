@@ -8,8 +8,8 @@
     <div v-for="(m, i) in messages" :key="i" :class="cn('flex items-start gap-2', m.role === 'user' && 'flex-row-reverse')">
       <div
         :class="cn(
-          'flex size-7 shrink-0 items-center justify-center rounded-full border bg-primary/10 text-primary',
-          m.role === 'user' && 'border-primary text-primary',
+          'flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground',
+          m.role === 'user' && 'bg-muted text-foreground',
         )"
       >
         <span v-if="m.role === 'user'" data-user-avatar class="flex size-4 items-center justify-center">
@@ -23,7 +23,7 @@
         <div
           :class="cn(
             'rounded-lg border px-3 py-2',
-            m.role === 'user' ? 'bg-primary/12 border-transparent' : 'bg-muted border-border',
+            m.role === 'user' ? 'bg-muted border-transparent' : 'bg-card border-border',
           )"
         >
           <div v-if="m.toolCalls?.length" class="mb-1.5 flex flex-col gap-1.5">
@@ -37,17 +37,17 @@
           <p v-else-if="m.role !== 'assistant' && m.content" class="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{{ m.content }}</p>
           <!-- planv6.0 v2 §1.2：忙碌态用三点跳动（头像保持模块图标）。
                role/aria-label 由容器承担（§1.3 选项 a）：Spinner 已移除，不能没有
-               加载语义；prefers-reduced-motion 下三点静止但仍可见。 -->
+               加载语义；prefers-reduced-motion 下三点静止但仍可见（sb-dot-pulse 单独兜底）。 -->
           <span
             v-if="sending && !confirmation && i === messages.length - 1 && m.role === 'assistant'"
             data-typing-dots
             role="status"
             :aria-label="t('common.loading')"
-            class="mt-1 flex h-4 items-center gap-1 text-primary"
+            class="mt-1 flex h-4 items-center gap-1 text-muted-foreground"
           >
-            <span class="size-1.5 animate-bounce rounded-full bg-current" aria-hidden="true" />
-            <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" aria-hidden="true" />
-            <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" aria-hidden="true" />
+            <span class="sb-dot-pulse size-1.5 rounded-full bg-current" aria-hidden="true" />
+            <span class="sb-dot-pulse size-1.5 rounded-full bg-current [animation-delay:150ms]" aria-hidden="true" />
+            <span class="sb-dot-pulse size-1.5 rounded-full bg-current [animation-delay:300ms]" aria-hidden="true" />
           </span>
           <p v-if="m.error" class="mt-2 flex items-center gap-2 text-sm text-destructive">
             {{ m.error }}
@@ -79,7 +79,7 @@ import MessageScroller from '../chat/MessageScroller.vue'
 import AgentMarkdown from './AgentMarkdown.vue'
 import AgentToolCard from './AgentToolCard.vue'
 import AgentConfirmCard from './AgentConfirmCard.vue'
-import type { ChatMsg } from '@/composables/useAiChat'
+import type { ChatMsg } from '@/services/types'
 
 interface ConfirmationPrompt {
   message: string

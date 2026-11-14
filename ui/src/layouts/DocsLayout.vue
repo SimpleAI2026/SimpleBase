@@ -1,14 +1,13 @@
 <template>
   <div class="flex min-h-svh flex-col bg-background">
-    <header class="sticky top-0 z-30 border-b border-border/70 bg-background/85 backdrop-blur-xl">
+    <header class="sticky top-0 z-30 border-b border-border bg-background">
       <div class="mx-auto flex h-[var(--header-height)] w-full max-w-[1440px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <div class="flex min-w-0 items-center gap-3">
-          <router-link to="/" class="inline-flex items-center gap-2.5 text-foreground no-underline transition-colors hover:text-primary" :title="t('layout.backToHome')">
-            <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary font-serif text-base font-semibold text-primary-foreground shadow-sm">S</span>
-            <span class="hidden font-serif text-base font-bold tracking-tight sm:inline">SimpleBase</span>
+          <router-link to="/" class="inline-flex items-center no-underline" :title="t('layout.backToHome')">
+            <BrandLogo wordmark-class="hidden sm:inline" />
           </router-link>
           <span class="text-border" aria-hidden="true">/</span>
-          <router-link to="/docs" class="truncate text-sm font-semibold text-foreground no-underline transition-colors hover:text-primary">{{ t('layout.docs') }}</router-link>
+          <router-link to="/docs" class="truncate text-sm font-medium text-foreground no-underline transition-colors hover:text-primary">{{ t('layout.docs') }}</router-link>
         </div>
         <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
           <DocsSearch />
@@ -39,6 +38,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
+import BrandLogo from '@/components/BrandLogo.vue'
 import DocsSearch from '@/components/docs/DocsSearch.vue'
 
 const { t } = useI18n()

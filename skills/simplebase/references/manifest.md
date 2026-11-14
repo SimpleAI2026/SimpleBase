@@ -26,7 +26,7 @@
 
 | 字段 | 规则 |
 | --- | --- |
-| `project.id` | 8 位，字母、数字或 `-`。本地和云端用同一个 ID 建项目；脚本不负责建项目（需要超管，可用 `simplebase project create --id <ID> --name <名称>` 或控制台） |
+| `project.id` | 8 位，字母、数字或 `-`。本地和云端用同一个 ID 建项目；**若需通过 `<id>.<base_domain>` 发布静态站点，只能用小写 `[a-z0-9-]` 且首尾不能是 `-`**。脚本不负责建项目（需要超管，可用 `simplebase project create --id <ID> --name <名称>` 或控制台） |
 | `databases[]` | **每个项目只能有一个用户数据库**（单文件模型）。声明多个时 validate 给出警告，建第二个库会返回 `database_already_exists`；需要文档又需要 SQL 时用一个 `collection` 库，迁移照样能跑 |
 | `databases[].data_model` | `sql` 或 `collection`。**建议显式写**：不写时有 `migrations`/`seed` 且没有 `collections[]` 引用它就推断为 `sql`，否则 `collection`；已经用另一种类型建过库的环境会报 `data_model_mismatch`。examples 四个站点都显式写 `collection` |
 | `databases[].migrations` | 目录，按文件名排序执行 `*.sql`；每个文件是一个事务 batch，最多 99 条语句 |
@@ -35,7 +35,7 @@
 | `functions[]` | `name` 须字母开头、仅字母数字下划线、最长 63；`file` 是工作区内的相对路径；`test.function_name` 必须是导出函数；`description` 不写时保留远端值，写空串会把远端描述清空（与 cron 同语义） |
 | `cron_jobs[]` | `schedule_kind` 取 `cron`（5 段 `cron_expr`）、`interval`（`interval_seconds` 60–2592000）或 `once`（RFC3339 `run_at`，过期则跳过）；`func_export` 必须是目标函数的导出函数；`input_json` 是 JSON 字符串，最大 8KB；`description` 不写时保留远端值，写空串会把远端描述清空 |
 
-会被忽略并给出警告的字段：`kv`、`objects`（数据）、`api_keys`（会产出密钥）、`agents`、`requires`、`trigger_once`（有副作用）。
+会被忽略并给出警告的字段：`kv`、`objects`（数据；前端构建产物改走 `sbdev.py site deploy`，见 `sites.md`）、`api_keys`（会产出密钥）、`agents`、`requires`、`function_triggers`（只存在于系统库，由初始化脚本同步）、`trigger_once`（有副作用）。
 
 路径必须在工作区内，且不能引用 `.env*`。validate 会扫描被引用的文件，发现疑似密钥（私钥头、`sk-`、`AKID`、`AKIA`、`ghp_`、SimpleBase 自身的 `sb_live_`）就判为失败。函数没配 `test` 时给出警告。
 
@@ -73,7 +73,7 @@
 
 | 入口 | 适用 | 凭据来源 |
 | --- | --- | --- |
-| `scripts/sbdev.py` | 没有新版 `simplebase` 二进制，或需要 `init` / `doctor` / 自动读取工作区 `.env` | `--env-file`、进程环境、工作区 `.env` |
+| `scripts/sbdev.py` | 没有新版 `simplebase` 二进制，或需要 `init` / `doctor` / `site`（静态站点上传与子域名发布）/ 自动读取工作区 `.env` | `--env-file`、进程环境、工作区 `.env` |
 | `simplebase dev validate\|plan\|apply\|status` | 二进制已带 `dev` 子命令（planv6.4 P0b）；CI 与 examples 初始化使用 | flag、`SIMPLEBASE_*` 环境变量、`config.json`（不读 `.env`）；`validate` 与 `status` 不需要连接配置 |
 
 两者共用同一份清单、lock 格式和重放语义，并用同一组 fixture（`internal/sbcli/testdata/dev`）对账。`simplebase dev` 额外支持 `--manifest <文件>`：清单取自该文件，其中引用的迁移与函数仍相对 `--dir`。它读取宿主机文件，所以助手模式（`SIMPLEBASE_AGENT_RUN=1`）下一律返回 `file_not_allowed`。

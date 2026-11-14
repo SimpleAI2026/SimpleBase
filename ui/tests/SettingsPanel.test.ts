@@ -192,12 +192,13 @@ describe('ModelDefaultsPanel', () => {
       wrapper.unmount()
     })
 
-    it('点击文档链接会关闭设置弹窗，避免遮住文档页', async () => {
+    it('文档链接是纯导航：面板已迁至独立页面，不再操作设置弹窗', async () => {
       const { wrapper, pinia } = await mountWithApp(ModelDefaultsPanel)
       const auth = useAuthStore(pinia)
-      auth.openSettings({ tab: 'models' })
+      const before = auth.settingsOpen
       await wrapper.get('[data-testid="free-model-docs"]').trigger('click')
-      expect(auth.settingsOpen).toBe(false)
+      // planv6.5：模型页迁出弹窗后，链接不再携带 closeSettings 副作用。
+      expect(auth.settingsOpen).toBe(before)
       wrapper.unmount()
     })
 

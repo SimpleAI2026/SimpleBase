@@ -38,6 +38,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/gocloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
+	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
@@ -76,6 +77,12 @@ type CronAgentStore interface {
 // cronAgentMetricsWriter 是 CronAgentStore 的可选扩展：真实 Store 支持时同步记录 run 指标。
 type cronAgentMetricsWriter interface {
 	UpdateAgentRunMetrics(ctx context.Context, projectID, runID string, m systemdb.AgentRun) error
+}
+
+// AgentToolSpanWriter 是 CronAgentStore 的可选扩展（二期 trace §10.3）：
+// 真实 Store 支持时把 run 的工具卡片补写为 tool span。
+type AgentToolSpanWriter interface {
+	RecordAgentToolSpans(projectID, traceID, toolCardsJSON string) error
 }
 
 // CronAgentQuota 抽象配额检查；*usage.Service 满足。
@@ -164,12 +171,24 @@ func (e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, tr
 		hist = hist[:len(hist)-1]
 	}
 
-	res, runErr := e.Runner.StartRun(ctx, gocloudagent.RunRequest{
+	// 二期 trace（planv6.5 §10.2）：cron run 的 trace_id=agentRun.ID、caller=cron。
+	runCtx := llmgateway.WithTraceMeta(ctx, agentRun.ID, "cron")
+	res, runErr := e.Runner.StartRun(runCtx, gocloudagent.RunRequest{
 		ProjectID: j.ProjectID, Principal: ToModulePrincipal(principal), Agent: Agent(agent), Skills: skills,
 		ThreadID: thread.ID, RunID: agentRun.ID, UserText: j.AgentPrompt,
 		History: Messages(hist), Stream: false, Headless: true,
 	}, nil)
 	fin := time.Now().UTC()
+
+	// 二期 trace（§10.3）：工具卡片补写为 tool span；解析失败静默（不影响 run 收尾）。
+	if toolSpans, ok := e.Store.(AgentToolSpanWriter); ok {
+		_ = toolSpans.RecordAgentToolSpans(j.ProjectID, agentRun.ID, res.ToolCallsJSON)
+	}
+
+	// 二期 trace（§10.3）：工具卡片补写为 tool span；解析失败静默（不影响 run 收尾）。
+	if toolSpans, ok := e.Store.(AgentToolSpanWriter); ok {
+		_ = toolSpans.RecordAgentToolSpans(j.ProjectID, agentRun.ID, res.ToolCallsJSON)
+	}
 
 	// 旧 Store fake 无指标写入方法，真实 Store 支持时同步记录。
 	if mw, ok := e.Store.(cronAgentMetricsWriter); ok {

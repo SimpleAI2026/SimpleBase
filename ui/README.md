@@ -80,7 +80,7 @@ src/
 │                      SbEmptyState、SbCodeBlock、UserMenu 等
 ├─ services/           API 层（见下节）
 ├─ stores/             Pinia（auth 登录态与角色 / project 项目切换 / settings）
-├─ composables/        usePagination / useAsyncAction / useAiChat
+├─ composables/        usePagination / useAgentConversation / useLoadState / useLocale
 ├─ layouts/            DefaultLayout（控制台）/ DocsLayout（文档站）
 ├─ docs/               文档目录、按需加载 / 搜索与 Markdown 渲染（catalog.ts / render.ts）
 ├─ constants/          常量（llmProviders）

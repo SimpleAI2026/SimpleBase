@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import http.server
 import io
 import json
 import os
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -184,6 +186,14 @@ elif key == ("project", "list", ""):
     if os.environ.get("FAKE_SB_NO_PROJECT_LIST") == "1":
         fail("forbidden", "missing permission")
     ok({"projects": [{"id": "myapp001", "engine": st.get("engine", "duckdb")}]})
+elif key == ("object", "upload", ""):
+    # 与真实 CLI 一致：读取 --file 内容并按 key 记账（站点上传测试用）。
+    data = open(f["file"], "rb").read()
+    st.setdefault("objects", {})[f["key"]] = len(data)
+    save(st)
+    ok({"key": f["key"], "size": len(data)})
+elif key == ("object", "list", ""):
+    ok([{"key": k, "size": v} for k, v in sorted(st.setdefault("objects", {}).items())])
 elif key == ("cron", "list", ""):
     ok({"jobs": list(st["cron"].values())})
 elif key in (("cron", "create", ""), ("cron", "update", "")):
@@ -239,7 +249,7 @@ class SbdevCase(unittest.TestCase):
     # 辅助
     def run_cmd(self, *args):
         argv = list(args)
-        if argv[0] in ("plan", "apply", "doctor"):
+        if argv[0] in ("plan", "apply", "doctor", "site"):
             argv += ["--bin", str(self.bin)]
         argv += ["-C", str(self.ws)]
         out, err = io.StringIO(), io.StringIO()
@@ -491,6 +501,76 @@ class BehaviorTests(SbdevCase):
 
 
 FIXTURES = Path(__file__).resolve().parents[3] / "internal" / "sbcli" / "testdata" / "dev"
+
+
+class SiteDeployTests(SbdevCase):
+    """site deploy：上传编译产物到对象存储 → 开站点 → 公开前缀 → 返回子域名与 URL。"""
+
+    def serve(self):
+        calls = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def reply(self, code, body, ctype="application/json"):
+                data = body.encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self):
+                calls.append(("GET", self.path, self.headers.get("Host")))
+                if self.path.endswith("/s3/site"):
+                    return self.reply(200, json.dumps({"enabled": False, "publishable": True}))
+                if self.headers.get("Host", "").startswith("myapp001.localhost"):
+                    return self.reply(200, "<html></html>", "text/html")
+                self.reply(404, "{}")
+
+            def do_PUT(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n) or b"{}")
+                calls.append(("PUT", self.path, body))
+                if self.path.endswith("/s3/site"):
+                    return self.reply(200, json.dumps({"enabled": True, "publishable": True,
+                                                       "baseUrl": f"http://myapp001.localhost:{port}"}))
+                self.reply(200, json.dumps({"public": True, "publicUrl": f"http://myapp001.localhost:{port}/{body['key']}"}))
+
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        port = srv.server_address[1]
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        (self.ws / ".env").write_text(
+            f"SIMPLEBASE_URL=http://127.0.0.1:{port}\nSIMPLEBASE_API_KEY=local-secret-key\nSIMPLEBASE_PROJECT_ID=myapp001\n",
+            encoding="utf-8")
+        return port, calls
+
+    def test_deploy_uploads_build_and_returns_subdomain_url(self):
+        port, calls = self.serve()
+        self.write("dist/index.html", "<!doctype html><script src=\"./assets/app.js\"></script>")
+        self.write("dist/assets/app.js", "console.log('hi')")
+        code, out, err = self.run_cmd("site", "deploy", "--dist", "dist", "--json")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(self.st()["objects"]), ["assets/app.js", "index.html"])
+        self.assertIn(("PUT", "/v1/projects/myapp001/s3/public", {"key": "", "kind": "folder", "public": True}), calls)
+        self.assertIn("subdomain: myapp001.localhost", out)
+        self.assertIn(f"url:       http://myapp001.localhost:{port}/", out)
+        result = json.loads(out.strip().splitlines()[-1])
+        self.assertEqual(result["subdomain"], "myapp001.localhost")
+        self.assertEqual(result["url"], f"http://myapp001.localhost:{port}/")
+        self.assertEqual(result["http_status"], 200)
+        self.assertNotIn("local-secret-key", out + err)
+
+    def test_deploy_rejects_secret_in_bundle(self):
+        self.serve()
+        self.write("dist/index.html", "<html></html>")
+        self.write("dist/app.js", "const k = 'sb_live_0123456789abcdef0123456789abcdef'")
+        code, _, err = self.run_cmd("site", "deploy", "--dist", "dist")
+        self.assertEqual(code, sbdev.EXIT_INVALID)
+        self.assertFalse(self.state.exists() and self.st().get("objects"))
 
 
 @unittest.skipUnless(FIXTURES.is_dir(), "共享 fixture 不在（仅 skill 被单独拷贝时跳过）")

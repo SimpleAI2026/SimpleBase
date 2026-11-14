@@ -69,8 +69,12 @@ describe('router', () => {
     expect(router.currentRoute.value.fullPath).toBe('/console/dashboard?from=bookmark')
     await router.push('/settings?settings=appearance&from=bookmark')
     expect(router.currentRoute.value.fullPath).toBe('/console/agents?settings=appearance&from=bookmark')
+    // 「模型」页签已迁至 /console/models（planv6.5）：settings=models 落到模型页。
     await router.push('/?settings=models&from=bookmark')
-    expect(router.currentRoute.value.fullPath).toBe('/console/agents?settings=models&from=bookmark')
+    expect(router.currentRoute.value.name).toBe('models')
+    expect(router.currentRoute.value.fullPath).toBe('/console/models')
+    await router.push('/settings?settings=models')
+    expect(router.currentRoute.value.name).toBe('models')
     await router.push('/')
     expect(router.currentRoute.value.name).toBe('home')
   })

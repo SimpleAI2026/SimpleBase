@@ -11,7 +11,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 | `src/components/` | 业务组件：`databases/` `modal/` `ai/` `agent/` `chat/` `cronjob/` `sandbox/` `editor/` `settings/` `docs/` 分域，加顶层通用件（ConfirmAction / NavMenu / PageContainer / TablePager / SettingsModal / GlobalProjectSwitcher / TrendChart / SbAsyncRegion / SbEmptyState / SbErrorState / SbTabsPanel / SbCodeBlock / UserMenu 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖 |
 | `src/services/` | API 层：`api.ts`（固定导出 `httpApi`）→ `http-api.ts`（实现）→ `http.ts`（axios 实例、token 存取、401 处理）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
 | `src/stores/` | Pinia store（auth 登录态与角色 / project 项目切换 / settings） | 跨页面状态才进 store；组件内状态用 `ref` |
-| `src/composables/` | 组合函数（usePagination / useAsyncAction / useAiChat / useAgentConversation / useLoadState / useLocale） | 在组件外取文案用 `@/locales` 导出的 `t()`，不要在 composable 里调 `useI18n()` |
+| `src/composables/` | 组合函数（usePagination / useAgentConversation / useLoadState / useLocale） | 在组件外取文案用 `@/locales` 导出的 `t()`，不要在 composable 里调 `useI18n()` |
 | `src/locales/` | i18n 文案源（`zh-CN.ts` 权威树、`en-US.ts` 同构、`index.ts` 实例与 `setI18nLocale`） | 唯一文案来源；不得在别处新建语言包 |
 | `src/layouts/` | DefaultLayout（`/console` 控制台）/ DocsLayout（`/docs` 文档站）；Home 页独立于两布局 | — |
 | `src/docs/` | 文档目录、按需加载 / 搜索、Markdown 安全渲染 | 文档正文来自仓库根 `docs/`；新增文档遵循 `docs/README.md` 并通过 `ui/tests/docs-content.test.ts` 的链接、锚点与 frontmatter 校验；大型上游镜像不要进首页 chunk |
@@ -79,7 +79,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - `SbEmptyState` 的操作按钮图标由 `actionIcon` 决定（默认 `PlusIcon` 仅适合「新建」语义；「重试/刷新/查看」必须显式传图标）。
 - **页面内边距只走 `--page-pad`**（`style.css` 定义，`DefaultLayout` 施加在 `router-view` 容器上，带窄屏/大屏断点）。需要按视口算高度的页面（如云助手的对话区 `h-[calc(100svh-var(--header-height)-var(--page-pad)-var(--page-pad))]`）必须引用这个变量，**不要写 `6rem` 之类的字面量**——那等于把布局的内边距复制到页面里，改一处就会让另一处对不上。
 - **确认交互**：删除、覆盖一类破坏性操作统一用 `ConfirmAction`（`AlertDialog`）。唯一的例外是**云助手对话中的运行确认**——它用 `components/agent/AgentConfirmCard.vue` 行内卡片，因为模态会遮住上下文，而用户需要一边看工具调用一边决定是否放行（planv6.0 §3.6 #1）。删除助手/会话仍用 `ConfirmAction`。行内卡片出现时聚焦「确认执行」，`Esc` 等于取消，**不绑定 Enter 确认**（避免与输入框的 Enter 发送冲突）。
-- 全局设置：右上角齿轮打开 `SettingsModal`（`SbModal` + `:max-width="720"` + `hide-footer`），不是全页、不是 Sheet。页签为 `connection` / `models` / `storage` / `backups`，由 `SbTabsPanel`（`variant="line"`）承载；`SettingsTab` 类型在 `stores/auth.ts`，`DefaultLayout.vue` 的 `SETTINGS_TABS` 白名单必须同步。模型连接（API Key / Base URL）与默认参数同属「模型」页，写同一个 `sys_llm_settings` 行。界面语言切换在顶栏（设置按钮旁的 `Select`），窄屏（<sm）顶栏整组隐藏时回落到侧栏底部那组入口，与文档/主题/设置一致。侧栏常规菜单不放「设置」。`/settings` 仅作 deep-link redirect。
+- 全局设置：右上角齿轮打开 `SettingsModal`（`SbModal` + `:max-width="720"` + `hide-footer`），不是全页、不是 Sheet。页签为 `connection` / `storage` / `backups`（「模型」已迁至 `/console/models` 独立页，planv6.5），由 `SbTabsPanel`（`variant="line"`）承载；`SettingsTab` 类型在 `stores/auth.ts`，`DefaultLayout.vue` 的 `SETTINGS_TABS` 白名单必须同步。模型连接（API Key / Base URL）与默认参数在 `pages/ModelSettings.vue` 复用 `ModelDefaultsPanel`，写同一个 `sys_llm_settings` 行；调用观测与模型合并为同一页的双页签（二期 planv6.5 §11.1）：`?tab=traces` 深链直达 Trace 页签（`components/models/ModelTraceList.vue` 分组列表 + `TraceDetailModal.vue` 详情弹窗（`SbModal` 居中弹窗，非 Sheet），读 `sys_llm_traces` 分组 API），`/console/traces` 仅作 redirect。`?settings=models` deep-link 由路由层落到 `/console/models`。界面语言切换在顶栏（设置按钮旁的 `Select`），窄屏（<sm）顶栏整组隐藏时回落到侧栏底部那组入口，与文档/主题/设置一致。侧栏常规菜单不放「设置」。`/settings` 仅作 deep-link redirect。
 
 ## 拆分后的目录约定
 

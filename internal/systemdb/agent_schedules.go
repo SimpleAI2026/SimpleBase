@@ -1,30 +1,7 @@
-// 文件说明：agent_schedules.go — internal/systemdb 中 AgentSchedule、AgentScheduleRun 等符号的实现
+// agent_schedules.go — sys_agent_schedules / sys_agent_schedule_runs 的只读访问。
 //
-// 用法
-//
-//	(s *Store) CreateAgentSchedule(ctx context.Context, sc AgentSchedule) ...  // CreateAgentSchedule 写入一条 schedule
-//	(s *Store) GetAgentSchedule(ctx context.Context, projectID, id string) ...  // GetAgentSchedule 按 ID 取未归档 schedule
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] internal/systemdb/agent_schedules.go
-//	         │ 依赖
-//	         ▼
-//	[下游] internal/utils/limit
-//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go, function_triggers.go 等 22 个
-//
-// 主要符号
-//
-//	type AgentSchedule struct {…}
-//	type AgentScheduleRun struct {…}
-//	(s *Store) CreateAgentSchedule(ctx context.Context, sc AgentSchedule) ...
-//	(s *Store) GetAgentSchedule(ctx context.Context, projectID, id string) ...
-//	(s *Store) GetAgentScheduleByAgent(ctx context.Context, projectID, agentID string) ...
-//	(s *Store) ListAgentSchedules(ctx context.Context, projectID string) ...
-//	... 另有 11 个顶层符号
+// Agent 定时执行已合并到 /cron-jobs（planv6.0），旧表只保留历史归档数据的读取，
+// 不再提供写入接口。
 
 package systemdb
 
@@ -33,8 +10,6 @@ import (
 	"database/sql"
 	"errors"
 	"time"
-
-	"github.com/google/uuid"
 
 	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
@@ -79,40 +54,6 @@ const (
 	agentScheduleRunColumns = `id, schedule_id, project_id, agent_id, thread_id, run_id, trigger, status, error, started_at, finished_at, created_at`
 )
 
-// CreateAgentSchedule 写入一条 schedule。每 agent 唯一性由调用方（handler 409）保证。
-func (s *Store) CreateAgentSchedule(ctx context.Context, sc AgentSchedule) (AgentSchedule, error) {
-	if s == nil || s.db == nil {
-		return AgentSchedule{}, ErrUnavailable
-	}
-	now := time.Now().UTC()
-	if sc.ID == "" {
-		sc.ID = uuid.NewString()
-	}
-	sc.CreatedAt = now
-	sc.UpdatedAt = now
-	enabled := int64(0)
-	if sc.Enabled {
-		enabled = 1
-	}
-	var lastRun any
-	if !sc.LastRunAt.IsZero() {
-		lastRun = sc.LastRunAt.UTC()
-	}
-	var nextRun any
-	if !sc.NextRunAt.IsZero() {
-		nextRun = sc.NextRunAt.UTC()
-	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sys_agent_schedules(id, project_id, agent_id, thread_id, prompt, cron_expr, enabled, last_run_at, next_run_at, created_by, created_at, updated_at, archived_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-		sc.ID, sc.ProjectID, sc.AgentID, sc.ThreadID, sc.Prompt, sc.CronExpr, enabled, lastRun, nextRun, sc.CreatedBy, now, now)
-	if err != nil {
-		return AgentSchedule{}, err
-	}
-	s.notifyWrite(ctx)
-	return sc, nil
-}
-
 // GetAgentSchedule 按 ID 取未归档 schedule。
 func (s *Store) GetAgentSchedule(ctx context.Context, projectID, id string) (AgentSchedule, error) {
 	if s == nil || s.db == nil {
@@ -122,22 +63,6 @@ func (s *Store) GetAgentSchedule(ctx context.Context, projectID, id string) (Age
 		`SELECT `+agentScheduleColumns+`
 		 FROM sys_agent_schedules WHERE id = ? AND project_id = ? AND archived_at IS NULL`,
 		id, projectID)
-	sc, err := scanAgentSchedule(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return AgentSchedule{}, sql.ErrNoRows
-	}
-	return sc, err
-}
-
-// GetAgentScheduleByAgent 取该 agent 的未归档 schedule；无则返回 sql.ErrNoRows。
-func (s *Store) GetAgentScheduleByAgent(ctx context.Context, projectID, agentID string) (AgentSchedule, error) {
-	if s == nil || s.db == nil {
-		return AgentSchedule{}, ErrUnavailable
-	}
-	row := s.db.QueryRowContext(ctx,
-		`SELECT `+agentScheduleColumns+`
-		 FROM sys_agent_schedules WHERE project_id = ? AND agent_id = ? AND archived_at IS NULL
-		 ORDER BY created_at ASC LIMIT 1`, projectID, agentID)
 	sc, err := scanAgentSchedule(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentSchedule{}, sql.ErrNoRows
@@ -167,169 +92,6 @@ func (s *Store) ListAgentSchedules(ctx context.Context, projectID string) ([]Age
 		out = append(out, sc)
 	}
 	return out, rows.Err()
-}
-
-// UpdateAgentSchedule 更新可变字段（prompt / cron / enabled / thread_id / 排期时间）。
-func (s *Store) UpdateAgentSchedule(ctx context.Context, sc AgentSchedule) (AgentSchedule, error) {
-	if s == nil || s.db == nil {
-		return AgentSchedule{}, ErrUnavailable
-	}
-	now := time.Now().UTC()
-	sc.UpdatedAt = now
-	enabled := int64(0)
-	if sc.Enabled {
-		enabled = 1
-	}
-	var lastRun any
-	if !sc.LastRunAt.IsZero() {
-		lastRun = sc.LastRunAt.UTC()
-	}
-	var nextRun any
-	if !sc.NextRunAt.IsZero() {
-		nextRun = sc.NextRunAt.UTC()
-	}
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE sys_agent_schedules SET agent_id=?, thread_id=?, prompt=?, cron_expr=?, enabled=?, last_run_at=?, next_run_at=?, updated_at=?
-		 WHERE id=? AND project_id=? AND archived_at IS NULL`,
-		sc.AgentID, sc.ThreadID, sc.Prompt, sc.CronExpr, enabled, lastRun, nextRun, now, sc.ID, sc.ProjectID)
-	if err != nil {
-		return AgentSchedule{}, err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return AgentSchedule{}, sql.ErrNoRows
-	}
-	s.notifyWrite(ctx)
-	return sc, nil
-}
-
-// ArchiveAgentSchedule 软删。
-func (s *Store) ArchiveAgentSchedule(ctx context.Context, projectID, id string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE sys_agent_schedules SET archived_at=?, updated_at=? WHERE id=? AND project_id=? AND archived_at IS NULL`,
-		now, now, id, projectID)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	s.notifyWrite(ctx)
-	return nil
-}
-
-// ListDueAgentSchedules 取启用且 next_run_at 到期（<= now）的 schedule，最多 limit 条。
-func (s *Store) ListDueAgentSchedules(ctx context.Context, now time.Time, limit int) ([]AgentSchedule, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
-	limit = pagelimit.Normalize(limit, 100, 500)
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+agentScheduleColumns+`
-		 FROM sys_agent_schedules
-		 WHERE archived_at IS NULL AND enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
-		 ORDER BY next_run_at ASC LIMIT ?`, now.UTC(), int64(limit))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]AgentSchedule, 0)
-	for rows.Next() {
-		sc, err := scanAgentSchedule(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sc)
-	}
-	return out, rows.Err()
-}
-
-// ClaimAgentSchedule CAS 认领：仅当 next_run_at 仍等于 expectNext 时推进到 newNext 并写 lastRun。
-// RowsAffected==0 返回 false（已被其他执行路径认领或修改）。
-func (s *Store) ClaimAgentSchedule(ctx context.Context, id string, expectNext, newNext, lastRun time.Time) (bool, error) {
-	if s == nil || s.db == nil {
-		return false, ErrUnavailable
-	}
-	now := time.Now().UTC()
-	var expectAny any
-	if !expectNext.IsZero() {
-		expectAny = expectNext.UTC()
-	}
-	var nextAny, lastAny any
-	if !newNext.IsZero() {
-		nextAny = newNext.UTC()
-	}
-	if !lastRun.IsZero() {
-		lastAny = lastRun.UTC()
-	}
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE sys_agent_schedules
-		 SET next_run_at = ?, last_run_at = CASE WHEN ? IS NOT NULL THEN ? ELSE last_run_at END, updated_at = ?
-		 WHERE id = ? AND archived_at IS NULL AND enabled = 1 AND
-		       ((? IS NULL AND next_run_at IS NULL) OR next_run_at = ?)`,
-		nextAny, lastAny, lastAny, now, id, expectAny, expectAny)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return false, nil
-	}
-	s.notifyWrite(ctx)
-	return true, nil
-}
-
-// InsertAgentScheduleRun 写入一次触发记录。
-func (s *Store) InsertAgentScheduleRun(ctx context.Context, r AgentScheduleRun) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	now := time.Now().UTC()
-	if r.ID == "" {
-		r.ID = uuid.NewString()
-	}
-	var started, finished any
-	if !r.StartedAt.IsZero() {
-		started = r.StartedAt.UTC()
-	}
-	if !r.FinishedAt.IsZero() {
-		finished = r.FinishedAt.UTC()
-	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sys_agent_schedule_runs(id, schedule_id, project_id, agent_id, thread_id, run_id, trigger, status, error, started_at, finished_at, created_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.ScheduleID, r.ProjectID, r.AgentID, r.ThreadID, r.RunID, r.Trigger, r.Status, r.Error, started, finished, now)
-	if err != nil {
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
-}
-
-// UpdateAgentScheduleRunStatus 更新触发记录状态（供手动触发后轮询刷新）。
-func (s *Store) UpdateAgentScheduleRunStatus(ctx context.Context, projectID, id, status, errMsg string, finished *time.Time) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	var finAny any
-	if finished != nil && !finished.IsZero() {
-		finAny = finished.UTC()
-	}
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE sys_agent_schedule_runs SET status=?, error=?,
-		 finished_at = CASE WHEN ? IS NOT NULL THEN ? ELSE finished_at END
-		 WHERE id=? AND project_id=?`,
-		status, errMsg, finAny, finAny, id, projectID)
-	if err != nil {
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
 }
 
 // ListAgentScheduleRuns 按 schedule 列出触发记录（新→旧），最多 limit 条。

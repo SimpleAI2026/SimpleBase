@@ -1,33 +1,3 @@
-// 文件说明：key.go — godatabase/kv 中 KeyRepo、Get 等符号的实现
-//
-// 用法
-//
-//	(r *KeyRepo) Get(ctx context.Context, key string) (KeyMeta, error)  // Get 返回 key 元数据
-//	(r *KeyRepo) Count(ctx context.Context, pattern string) (int64, error)  // Count 返回未过期 key 总数（可选 glob pattern 过滤）
-//	同包调用：Scan() → core.go, executor.go 等；guardWrite() → hash.go, list.go 等；insertKey() → hash.go, list.go 等
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/key.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] core.go, executor.go, hash.go, list.go, schema.go 等 10 个
-//	[关键引用] Scan() ← core.go, executor.go, hash.go
-//
-// 主要符号
-//
-//	type KeyRepo struct {…}
-//	(r *KeyRepo) Get(ctx context.Context, key string) (KeyMeta, error)
-//	(r *KeyRepo) Count(ctx context.Context, pattern string) (int64, error)
-//	(r *KeyRepo) Exists(ctx context.Context, keys ...string) (int64, error)
-//	(r *KeyRepo) Delete(ctx context.Context, keys ...string) (int64, error)
-//	(r *KeyRepo) Expire(ctx context.Context, key string, ttlMs int64) (bool, error)
-//	... 另有 15 个顶层符号
-
 package kv
 
 import (
@@ -35,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // KeyRepo 是 key 元数据仓库（事务版，由 Tx.Key() 返回）。
@@ -43,15 +12,10 @@ type KeyRepo struct{ t *Tx }
 
 // —— 内部辅助（供各类型仓库复用，DuckLake 无触发器/外键的应用层补偿）——
 
-// getMeta 读取 key 元数据；过期或不存在返回 ErrNotFound。
-func (r *KeyRepo) getMeta(ctx context.Context, key string) (KeyMeta, error) {
+func scanKeyMeta(row *sql.Row) (KeyMeta, error) {
 	var m KeyMeta
 	var typ int16
-	err := r.t.tx.QueryRowContext(ctx,
-		`SELECT "key", "type", version, etime, mtime, len FROM __sb_kv_keys
-		 WHERE "key" = ? AND (etime IS NULL OR etime > ?)`,
-		key, r.t.nowMs(),
-	).Scan(&m.Key, &typ, &m.Version, &m.Etime, &m.Mtime, &m.Len)
+	err := row.Scan(&m.Key, &typ, &m.Version, &m.Etime, &m.Mtime, &m.Len)
 	if errors.Is(err, sql.ErrNoRows) {
 		return KeyMeta{}, ErrNotFound
 	}
@@ -62,22 +26,21 @@ func (r *KeyRepo) getMeta(ctx context.Context, key string) (KeyMeta, error) {
 	return m, nil
 }
 
+// getMeta 读取 key 元数据；过期或不存在返回 ErrNotFound。
+func (r *KeyRepo) getMeta(ctx context.Context, key string) (KeyMeta, error) {
+	return scanKeyMeta(r.t.tx.QueryRowContext(ctx,
+		`SELECT "key", "type", version, etime, mtime, len FROM __sb_kv_keys
+		 WHERE "key" = ? AND (etime IS NULL OR etime > ?)`,
+		key, r.t.nowMs(),
+	))
+}
+
 // getMetaAny 读取 key 元数据（含已过期的）；不存在返回 ErrNotFound。
 func (r *KeyRepo) getMetaAny(ctx context.Context, key string) (KeyMeta, error) {
-	var m KeyMeta
-	var typ int16
-	err := r.t.tx.QueryRowContext(ctx,
+	return scanKeyMeta(r.t.tx.QueryRowContext(ctx,
 		`SELECT "key", "type", version, etime, mtime, len FROM __sb_kv_keys WHERE "key" = ?`,
 		key,
-	).Scan(&m.Key, &typ, &m.Version, &m.Etime, &m.Mtime, &m.Len)
-	if errors.Is(err, sql.ErrNoRows) {
-		return KeyMeta{}, ErrNotFound
-	}
-	if err != nil {
-		return KeyMeta{}, fmt.Errorf("kv: get key meta: %w", err)
-	}
-	m.Type = TypeID(typ)
-	return m, nil
+	))
 }
 
 // guardWrite 写前类型守卫（所有写路径第一步）：
@@ -211,16 +174,14 @@ func (r *KeyRepo) Exists(ctx context.Context, keys ...string) (int64, error) {
 	for _, k := range keys {
 		uniq[k] = struct{}{}
 	}
-	ph := make([]string, 0, len(uniq))
 	args := make([]any, 0, len(uniq)+1)
 	for k := range uniq {
-		ph = append(ph, "?")
 		args = append(args, k)
 	}
 	args = append(args, r.t.nowMs())
 	rows, err := r.t.tx.QueryContext(ctx,
 		fmt.Sprintf(`SELECT "key" FROM __sb_kv_keys
-		 WHERE "key" IN (%s) AND (etime IS NULL OR etime > ?)`, strings.Join(ph, ",")),
+		 WHERE "key" IN (%s) AND (etime IS NULL OR etime > ?)`, placeholders(len(uniq))),
 		args...)
 	if err != nil {
 		return 0, fmt.Errorf("kv: exists key: %w", err)
@@ -252,15 +213,13 @@ func (r *KeyRepo) Delete(ctx context.Context, keys ...string) (int64, error) {
 		return 0, nil
 	}
 	// K3：一条 IN 查询取回全部候选 meta（含已过期），替代逐 key getMetaAny。
-	ph := make([]string, len(keys))
-	args := make([]any, 0, len(keys))
+	args := make([]any, len(keys))
 	for i, k := range keys {
-		ph[i] = "?"
-		args = append(args, k)
+		args[i] = k
 	}
 	rows, err := r.t.tx.QueryContext(ctx,
 		fmt.Sprintf(`SELECT "key", "type", etime FROM __sb_kv_keys WHERE "key" IN (%s)`,
-			strings.Join(ph, ",")), args...)
+			placeholders(len(keys))), args...)
 	if err != nil {
 		return 0, fmt.Errorf("kv: delete key scan: %w", err)
 	}

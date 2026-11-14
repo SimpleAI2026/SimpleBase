@@ -20,7 +20,7 @@ export interface DocModule {
   pages: DocPage[]
 }
 
-type MetaFile = {
+interface MetaFile {
   modules?: { id: string; title: string; order?: number }[]
 }
 

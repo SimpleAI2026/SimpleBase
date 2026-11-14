@@ -2,7 +2,7 @@
   <div class="flex flex-col gap-4 py-1">
     <SidebarGroup v-for="group in menuGroups" :key="group.key" class="gap-1.5 group-data-[collapsible=icon]:px-0">
       <SidebarGroupLabel
-        class="h-6 px-2 text-[11px] font-medium tracking-[0.08em] text-muted-foreground/70 uppercase group-data-[collapsible=icon]:hidden"
+        class="h-6 px-2 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden"
       >
         {{ group.label }}
       </SidebarGroupLabel>
@@ -13,7 +13,7 @@
               as-child
               :is-active="selectedKey === item.name"
               :tooltip="item.title"
-              class="h-11 rounded-lg px-2.5 data-[active=true]:bg-accent/80 data-[active=true]:text-accent-foreground data-[active=true]:shadow-sm group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:data-[active=true]:size-9! sm:h-9"
+              class="h-11 rounded-lg px-2.5 data-[active=true]:bg-accent data-[active=true]:font-medium data-[active=true]:text-accent-foreground group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:data-[active=true]:size-9! sm:h-9"
             >
               <router-link
                 :to="{ name: item.name }"
@@ -25,7 +25,7 @@
                 <span class="truncate group-data-[collapsible=icon]:hidden">{{ item.title }}</span>
                 <span
                   v-if="item.badge"
-                  class="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary group-data-[collapsible=icon]:hidden"
+                  class="sb-mono ml-auto text-xs text-muted-foreground tabular-nums group-data-[collapsible=icon]:hidden"
                 >
                   {{ item.badge }}
                 </span>
@@ -74,9 +74,10 @@ interface MenuItem {
   badge?: string
 }
 
-/** 分类定义（planv3.0 侧栏美化）：工作台 / 数据 / 自动化 / 运维。label 是 i18n key。 */
+/** 分类定义（planv3.0 侧栏美化）：工作台 / 数据 / 自动化 / 运维。label 是 i18n key。
+ *  二期（planv6.5 §11.1）：traces 并入 models 单一入口，侧栏不再单独展示。 */
 const GROUP_DEFS: { key: string; labelKey: string; names: string[] }[] = [
-  { key: 'workspace', labelKey: 'nav.groupWorkspace', names: ['agents', 'dashboard'] },
+  { key: 'workspace', labelKey: 'nav.groupWorkspace', names: ['agents', 'models', 'dashboard'] },
   { key: 'data', labelKey: 'nav.groupData', names: ['databases', 'data-browser', 'key-value', 's3'] },
   { key: 'automation', labelKey: 'nav.groupAutomation', names: ['gofunctions', 'function-triggers', 'cron-jobs', 'sandboxes'] },
   { key: 'ops', labelKey: 'nav.groupOps', names: ['api-preview', 'logs', 'users'] }
@@ -94,13 +95,11 @@ function toItem(name: string): MenuItem {
   const r = router.getRoutes().find((rr) => rr.name === name)
   const key = r?.meta?.titleKey as string | undefined
   const fallback = r?.meta?.title as string | undefined
-  const item: MenuItem = {
+  return {
     name,
     title: key ? t(key) : fallback || name,
     icon: iconMap[name]
   }
-  if (name === 'users' && auth.isSuper) item.badge = '★'
-  return item
 }
 
 /** 扁平列表（兼容既有测试与引用）。 */

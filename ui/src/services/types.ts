@@ -241,6 +241,36 @@ export interface S3Object {
   size: number
   /** 注意：S3 域是后端 snake_case 命名的例外（proto-http.md §3.4） */
   lastModified?: string
+  /** planv6.5：是否允许外部访问（含继承自文件夹） */
+  public?: boolean
+  /** 站点已发布且路径公开时的访问 URL */
+  publicUrl?: string
+  /** 继承来源文件夹（"/" 表示整个存储桶）；空表示自身开关 */
+  publicInherited?: string
+}
+
+/** planv6.5：文件夹的外部访问状态 */
+export interface S3FolderMeta {
+  key: string
+  public: boolean
+  publicUrl?: string
+  publicInherited?: string
+}
+
+/** planv6.5：项目站点（发布网站）状态 */
+export interface S3SiteInfo {
+  enabled: boolean
+  baseUrl?: string
+  publishable: boolean
+  /** 不可发布原因：sites_disabled / system_project / project_id_not_dns_safe */
+  reason?: string
+}
+
+/** PUT /s3/public 的结果 */
+export interface S3PublicResult {
+  public: boolean
+  publicUrl?: string
+  publicInherited?: string
 }
 
 export interface BackupItem {
@@ -333,6 +363,90 @@ export interface LlmSettings {
   maxTokens?: number
 }
 
+/** 一次模型调用或工具执行的 span 观测记录（服务端 sys_llm_traces，planv6.5 二期 §9.1）。 */
+export interface LLMTrace {
+  id: string
+  projectId: string
+  requestId: string
+  source: string
+  provider: string
+  model: string
+  status: 'ok' | 'error' | string
+  stream: boolean
+  durationMs: number
+  inputTokens: number
+  outputTokens: number
+  errorCode?: string
+  errorMessage?: string
+  /** 二期：顶层 trace 标识（agent=run_id；API 直调=request_id） */
+  traceId: string
+  /** 来源："api" | "agent" | "cron" */
+  caller: string
+  /** span 类型："llm" | "tool" */
+  spanKind: string
+  /** llm: 模型名；tool: 工具名 */
+  name: string
+  /** llm: 请求消息快照 JSON；tool: arguments JSON */
+  inputJson?: string
+  /** llm: {content, tool_calls[]}；tool: 结果文本 */
+  outputJson?: string
+  /** 仅 llm span：声明的工具 [{name, description}] */
+  toolsJson?: string
+  createdAt: string
+}
+
+/** trace 查询条件（与服务端 query 参数一一对应）。 */
+export interface LlmTraceQuery {
+  status?: 'ok' | 'error'
+  model?: string
+  requestId?: string
+  from?: string
+  to?: string
+  limit?: number
+  offset?: number
+}
+
+export interface LLMTraceListResult {
+  traces: LLMTrace[]
+  total: number
+}
+
+/** 顶层调用聚合视图（列表行，planv6.5 二期 §9.3）。 */
+export interface LLMTraceGroup {
+  traceId: string
+  caller: string
+  model: string
+  provider: string
+  status: 'ok' | 'error' | string
+  stream: boolean
+  startedAt: string
+  finishedAt: string
+  spanCount: number
+  toolCount: number
+  llmCount: number
+  inputTokens: number
+  outputTokens: number
+  durationMs: number
+  errorCode?: string
+  requestId: string
+}
+
+/** 分组列表查询条件。 */
+export interface LlmTraceGroupQuery {
+  caller?: 'api' | 'agent' | 'cron'
+  status?: 'ok' | 'error'
+  model?: string
+  from?: string
+  to?: string
+  limit?: number
+  offset?: number
+}
+
+export interface LLMTraceGroupListResult {
+  groups: LLMTraceGroup[]
+  total: number
+}
+
 /* ---------- Projects ---------- */
 
 export interface ProjectItem {
@@ -367,6 +481,10 @@ export interface ApiKeyItem {
 export interface S3ListResult {
   folders: string[]
   objects: S3Object[]
+  /** planv6.5：与 folders 一一对应的外部访问状态；站点功能未开启时为空 */
+  folderMeta: S3FolderMeta[]
+  /** planv6.5：站点状态；站点功能未开启时为 undefined */
+  site?: S3SiteInfo
 }
 
 export interface S3Link {
@@ -670,6 +788,17 @@ export interface AgentToolCallCard {
   /** 卡片阶段：generating / pending / awaiting_confirm / running / success / error。 */
   status?: string
   argv?: string[]
+}
+
+export interface ChatMsg {
+  role: 'user' | 'assistant' | 'tool'
+  content: string
+  toolCalls?: AgentToolCallCard[]
+  error?: string
+  canceled?: boolean
+  thinking?: string
+  /** 发出该条助手消息的 Agent module，用于头像与侧栏图标对齐。 */
+  module?: string
 }
 
 export interface AgentMessage {
@@ -1253,6 +1382,11 @@ export interface Api {
       file: File,
       onProgress?: (percent: number) => void
     ) => Promise<S3Object>
+    /** planv6.5：站点（发布网站）状态 */
+    getSite: (projectId: string) => Promise<S3SiteInfo>
+    setSite: (projectId: string, enabled: boolean) => Promise<S3SiteInfo>
+    /** planv6.5：设置文件 / 文件夹外部访问；folder 的 key 以 "/" 结尾 */
+    setPublic: (projectId: string, key: string, kind: 'file' | 'folder', isPublic: boolean) => Promise<S3PublicResult>
   }
   backups: {
     list: (projectId: string) => Promise<BackupItem[]>
@@ -1279,6 +1413,14 @@ export interface Api {
     get: (projectId: string) => Promise<LlmSettings>
     /** apiKey 留空表示沿用服务端既有值 */
     put: (projectId: string, settings: LlmSettings, apiKey?: string) => Promise<LlmSettings>
+  }
+  llmTraces: {
+    /** planv6.5：模型调用 trace 查询（默认窗口 24h） */
+    list: (projectId: string, q?: LlmTraceQuery) => Promise<LLMTraceListResult>
+    /** 二期 §9.3：按 trace_id 聚合的顶层调用列表 */
+    groups: (projectId: string, q?: LlmTraceGroupQuery) => Promise<LLMTraceGroupListResult>
+    /** 二期 §9.3：一个 trace 的全部 span（时间升序） */
+    detail: (projectId: string, traceId: string) => Promise<LLMTrace[]>
   }
   agents: {
     modules: (projectId: string) => Promise<AgentModuleInfo[]>

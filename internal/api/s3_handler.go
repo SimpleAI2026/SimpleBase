@@ -36,6 +36,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -48,6 +49,9 @@ type S3Handler struct {
 	tokenSecret string
 	allowedMIME []string
 	events      objectEventPublisher
+	// planv6.5：发布网站。sites 为 nil 时站点相关字段与接口降级（publishable=false）。
+	sites    SiteStore
+	sitesCfg config.SitesConfig
 }
 
 // s3ObjectDTO 是列表/上传返回的对象元数据。
@@ -55,6 +59,10 @@ type s3ObjectDTO struct {
 	Key          string `json:"key"`
 	Size         int64  `json:"size"`
 	LastModified string `json:"lastModified,omitempty"`
+	// planv6.5：外部访问状态（只在站点可用时返回）。
+	Public          bool   `json:"public,omitempty"`
+	PublicURL       string `json:"publicUrl,omitempty"`
+	PublicInherited string `json:"publicInherited,omitempty"`
 }
 
 // presignDTO 是预签名 URL 响应。
@@ -121,7 +129,7 @@ func (h *S3Handler) ListObjects(c echo.Context) error {
 			}
 			dtos = append(dtos, dto)
 		}
-		return s3ListResponse(c, prefix, dtos)
+		return h.listResponse(c, pc.ID, prefix, dtos)
 	}
 	objects, err := h.store.List(c.Request().Context(), joinKey(pc.ID, prefix), 1000)
 	if err != nil {
@@ -131,7 +139,7 @@ func (h *S3Handler) ListObjects(c echo.Context) error {
 	for _, obj := range objects {
 		dtos = append(dtos, toDTO(obj, pc.ID))
 	}
-	return s3ListResponse(c, prefix, dtos)
+	return h.listResponse(c, pc.ID, prefix, dtos)
 }
 
 // UploadObject 上传一个文件。使用 multipart/form-data，字段：key + file。
@@ -197,6 +205,10 @@ func (h *S3Handler) DeleteObject(c echo.Context) error {
 	}
 	if h.index != nil {
 		_ = h.index.SoftDeleteS3Object(c.Request().Context(), pc.ID, key)
+	}
+	// planv6.5 §5.6：删除对象时清理 file 精确公开行（folder 行保留）。
+	if h.sites != nil {
+		_ = h.sites.DeletePublicFile(c.Request().Context(), pc.ID, key)
 	}
 	if h.events != nil {
 		h.events.PublishObject(ObjectEvent{ProjectID: pc.ID, Key: key, Action: "delete"})

@@ -153,17 +153,15 @@ func (r *StringRepo) GetMany(ctx context.Context, keys ...string) ([][]byte, []b
 	if len(keys) == 0 {
 		return values, found, nil
 	}
-	ph := make([]string, len(keys))
 	args := make([]any, 0, len(keys)+1)
-	for i, k := range keys {
-		ph[i] = "?"
+	for _, k := range keys {
 		args = append(args, k)
 	}
 	args = append(args, r.t.nowMs())
 	rows, err := r.t.tx.QueryContext(ctx,
 		fmt.Sprintf(`SELECT s."key", s.value FROM __sb_kv_strings s
 		 JOIN __sb_kv_keys k ON k."key" = s."key"
-		 WHERE s."key" IN (%s) AND (k.etime IS NULL OR k.etime > ?)`, strings.Join(ph, ",")),
+		 WHERE s."key" IN (%s) AND (k.etime IS NULL OR k.etime > ?)`, placeholders(len(keys))),
 		args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("kv: string get many: %w", err)

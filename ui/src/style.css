@@ -1,15 +1,19 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
+/* 全站统一一条缓动曲线与默认时长：hover / 开关 150ms，进出场另行指定。 */
+@theme {
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 @theme inline {
-  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
-  --font-serif: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  /* 界面只用一个字族（系统字体栈，离线可用）+ 一个等宽字族；不再在线加载字体。 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
-  --font-heading: var(--font-serif);
+  --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -30,6 +34,8 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  --color-control-border: var(--control-border);
+  --color-text-secondary: var(--text-secondary);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -38,7 +44,6 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
-  --color-brand: var(--brand);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -55,43 +60,47 @@
   color-scheme: light;
   --radius: 0.75rem;
 
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  /* 中性石墨色阶：背景 / 凸起面 / 发丝线 / 三档文字（主、次、弱）都来自同一条灰阶，
+     只有 --primary 一个强调色。选中、悬停是「一级表面台阶」，不是蓝色底。 */
+  --background: #fafafa;
+  --foreground: #171717;
   --card: #ffffff;
-  --card-foreground: #0f172a;
+  --card-foreground: #171717;
   --popover: #ffffff;
-  --popover-foreground: #0f172a;
-  --brand: #3b82f6;
+  --popover-foreground: #171717;
   --primary: #2563eb;
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #0f172a;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  --accent: #eff6ff;
-  --accent-foreground: #1d4ed8;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #171717;
+  --muted: #f4f4f5;
+  --muted-foreground: #66666b;
+  --accent: #f4f4f5;
+  --accent-foreground: #171717;
   --destructive: #dc2626;
-  --success: #10b981;
+  --success: #15803d;
   --warning: #8d5b15;
   --info: #386582;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
+  --border: #e6e6e9;
+  --input: #e6e6e9;
   --ring: #2563eb;
-  --chart-1: #3b82f6;
+  --chart-1: #2563eb;
   --chart-2: #dc2626;
   --chart-3: #386582;
   --chart-4: #8d5b15;
-  --chart-5: #10b981;
+  --chart-5: #15803d;
   --sidebar: #ffffff;
-  --sidebar-foreground: #0f172a;
+  --sidebar-foreground: #171717;
   --sidebar-primary: #2563eb;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eff6ff;
-  --sidebar-accent-foreground: #1d4ed8;
-  --sidebar-border: #e2e8f0;
+  --sidebar-accent: #f4f4f5;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #e6e6e9;
   --sidebar-ring: #2563eb;
+  /* 控件边界（输入框、未选中开关）：≥ 3:1；--border 只做分隔线 */
+  --control-border: #8a8a8e;
 
-  --composer-bg: #f1f5f9;
+  --composer-bg: #f4f4f5;
+  --text-secondary: #525252;
   --composer-radius: 24px;
   --header-height: 56px;
   /* 控制台页面内边距（DefaultLayout 里 router-view 的容器）。
@@ -110,42 +119,43 @@
 
 .dark {
   color-scheme: dark;
-  --background: #0b1220;
-  --foreground: #e2e8f0;
-  --card: #111c2e;
-  --card-foreground: #e2e8f0;
-  --popover: #111c2e;
-  --popover-foreground: #e2e8f0;
-  --brand: #60a5fa;
+  --background: #141415;
+  --foreground: #ededed;
+  --card: #19191b;
+  --card-foreground: #ededed;
+  --popover: #1e1e20;
+  --popover-foreground: #ededed;
   --primary: #60a5fa;
-  --primary-foreground: #0b1220;
-  --secondary: #1b2940;
-  --secondary-foreground: #e2e8f0;
-  --muted: #1b2940;
-  --muted-foreground: #94a3b8;
-  --accent: #1d3556;
-  --accent-foreground: #bfdbfe;
+  --primary-foreground: #0f0f10;
+  --secondary: #232325;
+  --secondary-foreground: #ededed;
+  --muted: #232325;
+  --muted-foreground: #8e8e94;
+  --accent: #232325;
+  --accent-foreground: #ededed;
   --destructive: #f87171;
-  --success: #34d399;
+  --success: #4cc38a;
   --warning: #d4b04a;
   --info: #6a9bb8;
-  --border: #29374b;
-  --input: #29374b;
+  --border: #2a2a2d;
+  --input: #2f2f32;
   --ring: #60a5fa;
   --chart-1: #60a5fa;
   --chart-2: #f87171;
   --chart-3: #6a9bb8;
   --chart-4: #d4b04a;
-  --chart-5: #34d399;
-  --sidebar: #111c2e;
-  --sidebar-foreground: #e2e8f0;
+  --chart-5: #4cc38a;
+  --sidebar: #0f0f10;
+  --sidebar-foreground: #ededed;
   --sidebar-primary: #60a5fa;
-  --sidebar-primary-foreground: #0b1220;
-  --sidebar-accent: #1d3556;
-  --sidebar-accent-foreground: #bfdbfe;
-  --sidebar-border: #29374b;
+  --sidebar-primary-foreground: #0f0f10;
+  --sidebar-accent: #232325;
+  --sidebar-accent-foreground: #ededed;
+  --sidebar-border: #2a2a2d;
   --sidebar-ring: #60a5fa;
-  --composer-bg: #1b2940;
+  --control-border: #6b6b70;
+  --composer-bg: #232325;
+  --text-secondary: #a1a1a6;
 }
 
 @layer base {
@@ -182,6 +192,10 @@
   .sb-spin {
     animation-duration: 1.6s !important;
     animation-iteration-count: infinite !important;
+  }
+  .sb-dot-pulse {
+    animation: none !important;
+    opacity: 1;
   }
 }
 
@@ -327,7 +341,7 @@
 
 .sb-fade-enter-active,
 .sb-fade-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .sb-fade-enter-from {
   opacity: 0;
@@ -336,5 +350,20 @@
 .sb-fade-leave-to {
   opacity: 0;
   transform: translateY(-4px);
+}
+
+/* 「输入中」三点：只改透明度，错开 150ms；不弹跳。减少动态时静止但仍可见。 */
+.sb-dot-pulse {
+  animation: sb-dot-pulse 1.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+@keyframes sb-dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
 }
 

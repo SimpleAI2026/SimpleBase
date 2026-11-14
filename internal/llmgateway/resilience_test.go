@@ -33,7 +33,7 @@ func TestServiceAppliesResilienceConfig(t *testing.T) {
 		Default:   "openai",
 		Providers: []ProviderConfig{{Name: "openai", APIKey: "k", BaseURL: srv.URL, Model: "m"}},
 	}}
-	s := NewService(cat, cat, nil)
+	s := NewService(cat, cat, nil, nil)
 
 	resp, err := s.Chat(context.Background(), "p1", Request{Model: "m", Messages: []providers.Message{{Role: "user", Content: "hi"}}})
 	if err != nil {
@@ -64,7 +64,7 @@ func TestServiceEnforcesConnectTimeout(t *testing.T) {
 		Default:   "openai",
 		Providers: []ProviderConfig{{Name: "openai", APIKey: "k", BaseURL: badURL, Model: "m"}},
 	}}
-	s := NewService(cat, cat, nil)
+	s := NewService(cat, cat, nil, nil)
 
 	start := time.Now()
 	_, err := s.Chat(context.Background(), "p1", Request{Model: "m", Messages: []providers.Message{{Role: "user", Content: "hi"}}})

@@ -9,19 +9,12 @@
     />
     <div v-else-if="!showError" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <Card v-for="card in cards" :key="card.label">
-        <CardContent class="p-5">
-          <div class="flex items-start gap-4">
-            <div
-              class="flex size-12 shrink-0 items-center justify-center rounded-lg"
-              :class="card.tone"
-            >
-              <component :is="card.icon" class="size-5" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="text-xs tracking-wide text-muted-foreground uppercase font-medium">{{ card.label }}</div>
-              <div class="mt-1 text-2xl leading-tight font-semibold text-foreground">{{ card.value }}</div>
-            </div>
+        <CardContent class="flex flex-col gap-3 p-5">
+          <div class="flex items-center gap-2 text-sm text-muted-foreground">
+            <span v-if="card.dot" aria-hidden="true" class="size-1.5 shrink-0 rounded-full" :class="card.dot" />
+            <span class="truncate">{{ card.label }}</span>
           </div>
+          <div class="text-3xl leading-none font-medium text-foreground tabular-nums">{{ card.value }}</div>
         </CardContent>
       </Card>
     </div>
@@ -67,8 +60,8 @@
               :key="item.label"
               class="rounded-lg border border-border px-4 py-3"
             >
-              <div class="text-xs font-medium text-muted-foreground">{{ item.label }}</div>
-              <div class="mt-1 text-xl font-semibold tabular-nums text-foreground">{{ item.value }}</div>
+              <div class="sb-mono text-xs text-muted-foreground">{{ item.label }}</div>
+              <div class="mt-1 text-xl font-medium tabular-nums text-foreground">{{ item.value }}</div>
             </div>
           </div>
           <div v-else-if="!showError" class="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
@@ -118,11 +111,11 @@
               <TableRow v-for="row in resourceRows" :key="row.key">
                 <TableCell class="font-medium">
                   <span class="inline-flex items-center gap-2">
-                    <component :is="row.icon" class="size-4 shrink-0 text-primary opacity-80" />
+                    <component :is="row.icon" class="size-4 shrink-0 text-muted-foreground" />
                     {{ row.label }}
                   </span>
                 </TableCell>
-                <TableCell class="w-28 text-base font-semibold tabular-nums">
+                <TableCell class="w-28 sb-mono tabular-nums">
                   {{ row.count }}
                 </TableCell>
                 <TableCell class="max-w-md text-xs text-muted-foreground">{{ row.hint }}</TableCell>
@@ -142,13 +135,11 @@ import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import {
   BotIcon,
-  CircleCheckIcon,
   CloudUploadIcon,
   CodeIcon,
   DatabaseIcon,
   RefreshCwIcon,
-  TimerIcon,
-  TriangleAlertIcon
+  TimerIcon
 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import {
@@ -224,20 +215,17 @@ const cards = computed(() => [
   {
     label: t('pages.dashboard.statDbTotal'),
     value: resourcesLoaded.value ? counts.value.databases : '-',
-    icon: DatabaseIcon,
-    tone: 'bg-primary/12 text-primary',
+    dot: '',
   },
   {
     label: t('pages.dashboard.statDbReady'),
     value: resourcesLoaded.value ? dbStatus.value.ready : '-',
-    icon: CircleCheckIcon,
-    tone: 'bg-success/12 text-success',
+    dot: '',
   },
   {
     label: t('pages.dashboard.statDbAbnormal'),
     value: resourcesLoaded.value ? dbStatus.value.abnormal : '-',
-    icon: TriangleAlertIcon,
-    tone: 'bg-destructive/10 text-destructive',
+    dot: dbStatus.value.abnormal > 0 ? 'bg-destructive' : '',
   },
   {
     label: t('pages.dashboard.statQuota'),
@@ -246,9 +234,7 @@ const cards = computed(() => [
         ? t('pages.dashboard.quotaNormal')
         : t('pages.dashboard.quotaLimited')
       : '-',
-    icon: quota.value && !(quota.value.llmAllowed && quota.value.databaseAllowed) ? TriangleAlertIcon : CircleCheckIcon,
-    tone:
-      quota.value?.llmAllowed === false ? 'bg-warning/12 text-warning' : 'bg-info/12 text-info',
+    dot: quota.value && !(quota.value.llmAllowed && quota.value.databaseAllowed) ? 'bg-warning' : '',
   },
 ])
 

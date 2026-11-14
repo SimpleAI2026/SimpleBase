@@ -142,7 +142,7 @@ func newAgentHarness(t *testing.T, scripts []fakellm.Script, def fakellm.Script)
 	resolver := llmgateway.NewFallbackResolver(nil, map[string]llmgateway.InstanceProvider{"openai": {
 		APIKey: "test-key", BaseURL: fake.URL + "/v1", DefaultModel: "fake-model", AllowedModels: []string{"fake-model"},
 	}})
-	gw := llmgateway.NewService(resolver, nil, nil)
+	gw := llmgateway.NewService(resolver, nil, nil, nil)
 
 	hdb := &harnessDB{}
 	hlogs := &harnessLogs{}

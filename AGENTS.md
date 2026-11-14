@@ -119,7 +119,7 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 
 **gofunction**：公共 API 与限制以 `gofunction/README.md` 为准；`Executor.Compile` / `SetProfile` / `Runtime.Cleanup` 等是预留空实现，不要当已实现功能使用或宣传。**解释器实现全部在 `gofunction/internal/interp`**（`internal` 包，禁止外部 import）；模块根的 `gofunction.go` / `jsonrun.go` 只是类型别名与薄转发门面，新增对外 API 要在那里加转发，不要在 `internal/interp` 里直接暴露。实现文件按职责分：`compile.go` 编译期预编译、`eval.go` 运算、`call.go` 调用分发、`layout.go` 槽位布局、`executor.go` 池化。
 
-**设计计划文档的工作目录**：`plan/` 按版本切目录（`planv1.0` … `planv6.4`）。`planv4.1` 不是独立目录——v4.1 云 Agent 优化计划全文放在 `plan/planv4.0/cloud-agent-optimization-plan.md`，代码注释里的 `planv4.1 §X` / `BUG-0X` 均指向该文件，改动前请到那里查。`planv6.4` 的 `examples-skill-verification-{plan,report}.md` 是 examples 与 skill 验证的事实来源（E1–E16、BUG-0~5 编号）；`production-readiness-plan.md` 是下一迭代「小白直接上线」的规划。
+**设计计划文档的工作目录**：`plan/` 按版本切目录（`planv1.0` … `planv6.4`）。`planv4.1` 不是独立目录——v4.1 云 Agent 优化计划全文放在 `plan/planv4.0/cloud-agent-optimization-plan.md`，代码注释里的 `planv4.1 §X` / `BUG-0X` 均指向该文件，改动前请到那里查。`planv6.4` 的 `examples-skill-verification-{plan,report}.md` 是 examples 与 skill 验证的事实来源（E1–E16、BUG-0~5 编号）；`production-readiness-plan.md` 是下一迭代「小白直接上线」的规划。`planv6.5/object-storage-sites-plan.md` 是对象存储「发布网站」（`<项目ID>.<sites.base_domain>` 泛域名 + 路径级外部访问）的事实来源：站点面在 `e.Pre` 按 Host 改写到 `/__site/*`，控制台源上的 `/s3/objects/content` 与 `/files/:token` 仍强制 HTML `attachment`；**禁止下发 `Domain=<父域>` 的 Cookie**（站点子域与控制台同站时会被共享）。
 
 **examples 与脚本**：
 

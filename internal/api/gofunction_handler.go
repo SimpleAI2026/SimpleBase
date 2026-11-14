@@ -1,34 +1,3 @@
-// 文件说明：gofunction_handler.go — 云函数管理 + 版本 + 调试台 + /go 调用
-//
-// 用法
-//
-//	NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService ...
-//	(h *GoFunctionHandler) WithRunner(runner *functionrun.Runner) *GoFunctionHandler
-//	(h *GoFunctionHandler) List(c echo.Context) error  // List: GET /gofunctions
-//	同包调用：Get() → collection_meta_handler.go, collection_transfer.go 等；List() → api_keys_handler.go, backup_handler.go 等；Delete() → api_keys_handler.go, backup_handler.go 等
-//
-// 调用架构
-//
-//	[上游] internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] internal/api/gofunction_handler.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase, gofunction, internal/functionrun, internal/systemdb 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] Get() ← collection_meta_handler.go, collection_transfer.go, cronjob_handler.go
-//
-// 主要符号
-//
-//	type GoFunctionHandler struct {…}
-//	NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService ...
-//	(h *GoFunctionHandler) WithRunner(runner *functionrun.Runner) *GoFunctionHandler
-//	(h *GoFunctionHandler) List(c echo.Context) error
-//	(h *GoFunctionHandler) Create(c echo.Context) error
-//	(h *GoFunctionHandler) Get(c echo.Context) error
-//	... 另有 36 个顶层符号
-
 package api
 
 import (
@@ -199,14 +168,63 @@ func (h *GoFunctionHandler) toDTO(f systemdb.GoFunc, vers []systemdb.GoFuncVersi
 
 // ---------- 管理面 ----------
 
-// List: GET /gofunctions
-func (h *GoFunctionHandler) List(c echo.Context) error {
+func (h *GoFunctionHandler) requireReadStore(c echo.Context) (ProjectContext, error) {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, ErrProjectMissing)
+		return ProjectContext{}, ErrProjectMissing
 	}
 	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+		return ProjectContext{}, systemdb.ErrUnavailable
+	}
+	return pc, nil
+}
+
+func (h *GoFunctionHandler) requireWriteStore(c echo.Context, forbidAdmin bool) (ProjectContext, string, error) {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return ProjectContext{}, "", ErrProjectMissing
+	}
+	rid := RequestIDFromContext(c.Request().Context())
+	if !h.writable {
+		return ProjectContext{}, "", godatabase.ErrWriterUnavailable
+	}
+	if forbidAdmin && systemdb.IsAdminProject(pc.ID) {
+		return ProjectContext{}, "", NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid)
+	}
+	if h.store == nil {
+		return ProjectContext{}, "", systemdb.ErrUnavailable
+	}
+	return pc, rid, nil
+}
+
+func (h *GoFunctionHandler) compileExports(c echo.Context, source, rid string) ([]string, error) {
+	if err := validateGoFunctionSource(source); err != nil {
+		return nil, err
+	}
+	infos, err := h.validateSource(c, source)
+	if err != nil {
+		return nil, mapGoFunctionValidationError(err, rid)
+	}
+	return funcNames(infos), nil
+}
+
+func shouldActivate(flag *bool) bool {
+	return flag == nil || *flag
+}
+
+func parseVersionParam(c echo.Context, rid string) (int64, error) {
+	ver, err := strconv.ParseInt(c.Param("ver"), 10, 64)
+	if err != nil || ver <= 0 {
+		return 0, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid version", rid)
+	}
+	return ver, nil
+}
+
+// List: GET /gofunctions
+func (h *GoFunctionHandler) List(c echo.Context) error {
+	pc, err := h.requireReadStore(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if systemdb.IsAdminProject(pc.ID) {
 		return c.JSON(http.StatusOK, map[string]any{"functions": []goFuncDTO{}})
@@ -240,19 +258,9 @@ type goFuncCreateRequest struct {
 
 // Create: POST /gofunctions —— 实体 + v1。
 func (h *GoFunctionHandler) Create(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	rid := RequestIDFromContext(c.Request().Context())
-	if !h.writable {
-		return WriteError(c, godatabase.ErrWriterUnavailable)
-	}
-	if systemdb.IsAdminProject(pc.ID) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, rid, err := h.requireWriteStore(c, true)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	var req goFuncCreateRequest
 	if err := bindGoFunctionBody(c, &req); err != nil {
@@ -261,12 +269,9 @@ func (h *GoFunctionHandler) Create(c echo.Context) error {
 	if !gofunctionNameRe.MatchString(req.Name) {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_gofunction_name", "name must match ^[A-Za-z][A-Za-z0-9_]{0,62}$", rid))
 	}
-	if err := validateGoFunctionSource(req.Source); err != nil {
-		return WriteError(c, err)
-	}
-	infos, err := h.validateSource(c, req.Source)
+	exports, err := h.compileExports(c, req.Source, rid)
 	if err != nil {
-		return WriteError(c, mapGoFunctionValidationError(err, rid))
+		return WriteError(c, err)
 	}
 	if existing, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, req.Name); err == nil && existing.ID != "" {
 		return WriteError(c, NewAPIError(http.StatusConflict, "gofunction_already_exists", "go function already exists", rid))
@@ -278,7 +283,6 @@ func (h *GoFunctionHandler) Create(c echo.Context) error {
 	} else if n >= gofunctionMaxPerProject {
 		return WriteError(c, NewAPIError(422, "gofunction_limit_exceeded", "go function limit exceeded (100 per project)", rid))
 	}
-	exports := funcNames(infos)
 
 	f, err := h.store.CreateGoFunc(c.Request().Context(), systemdb.GoFunc{
 		ProjectID: pc.ID, Name: req.Name, Description: req.Description,
@@ -294,11 +298,7 @@ func (h *GoFunctionHandler) Create(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	activate := true
-	if req.Activate != nil {
-		activate = *req.Activate
-	}
-	if activate {
+	if shouldActivate(req.Activate) {
 		if err := h.store.ActivateGoFuncVersion(c.Request().Context(), pc.ID, req.Name, v.Version); err != nil {
 			return WriteError(c, err)
 		}
@@ -315,12 +315,9 @@ func (h *GoFunctionHandler) Create(c echo.Context) error {
 
 // Get: GET /gofunctions/:name
 func (h *GoFunctionHandler) Get(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, err := h.requireReadStore(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
 	f, vers, err := h.loadFunc(c, pc.ID, name)
@@ -346,20 +343,14 @@ type goFuncPatchRequest struct {
 
 // Patch: PATCH /gofunctions/:name —— 仅 description。
 func (h *GoFunctionHandler) Patch(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	if !h.writable {
-		return WriteError(c, godatabase.ErrWriterUnavailable)
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, rid, err := h.requireWriteStore(c, false)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
 	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
 	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", rid))
 	}
 	if err != nil {
 		return WriteError(c, err)
@@ -385,23 +376,14 @@ func (h *GoFunctionHandler) Patch(c echo.Context) error {
 
 // Delete: DELETE /gofunctions/:name
 func (h *GoFunctionHandler) Delete(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	if !h.writable {
-		return WriteError(c, godatabase.ErrWriterUnavailable)
-	}
-	if systemdb.IsAdminProject(pc.ID) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", RequestIDFromContext(c.Request().Context())))
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, rid, err := h.requireWriteStore(c, true)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
 	if err := h.store.ArchiveGoFunc(c.Request().Context(), pc.ID, name); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context())))
+			return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", rid))
 		}
 		return WriteError(c, err)
 	}
@@ -417,12 +399,9 @@ type goFuncVersionCreateRequest struct {
 
 // ListVersions: GET /gofunctions/:name/versions
 func (h *GoFunctionHandler) ListVersions(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, err := h.requireReadStore(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
 	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
@@ -448,19 +427,9 @@ func (h *GoFunctionHandler) ListVersions(c echo.Context) error {
 
 // CreateVersion: POST /gofunctions/:name/versions
 func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	rid := RequestIDFromContext(c.Request().Context())
-	if !h.writable {
-		return WriteError(c, godatabase.ErrWriterUnavailable)
-	}
-	if systemdb.IsAdminProject(pc.ID) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, rid, err := h.requireWriteStore(c, true)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
 	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
@@ -474,16 +443,13 @@ func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
 	if err := bindGoFunctionBody(c, &req); err != nil {
 		return WriteError(c, err)
 	}
-	if err := validateGoFunctionSource(req.Source); err != nil {
-		return WriteError(c, err)
-	}
-	infos, err := h.validateSource(c, req.Source)
+	exports, err := h.compileExports(c, req.Source, rid)
 	if err != nil {
-		return WriteError(c, mapGoFunctionValidationError(err, rid))
+		return WriteError(c, err)
 	}
 	v, err := h.store.AppendGoFuncVersion(c.Request().Context(), systemdb.GoFuncVersion{
 		FuncID: f.ID, ProjectID: pc.ID, Name: name,
-		Source: req.Source, Exports: funcNames(infos), Note: req.Note, CreatedBy: actorID(c),
+		Source: req.Source, Exports: exports, Note: req.Note, CreatedBy: actorID(c),
 	})
 	if err != nil {
 		if errors.Is(err, systemdb.ErrVersionLimit) {
@@ -491,11 +457,7 @@ func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
 		}
 		return WriteError(c, err)
 	}
-	activate := true
-	if req.Activate != nil {
-		activate = *req.Activate
-	}
-	if activate {
+	if shouldActivate(req.Activate) {
 		if err := h.store.ActivateGoFuncVersion(c.Request().Context(), pc.ID, name, v.Version); err != nil {
 			return WriteError(c, err)
 		}
@@ -521,17 +483,14 @@ func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
 
 // GetVersion: GET /gofunctions/:name/versions/:ver
 func (h *GoFunctionHandler) GetVersion(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, err := h.requireReadStore(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
-	ver, err := strconv.ParseInt(c.Param("ver"), 10, 64)
-	if err != nil || ver <= 0 {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid version", RequestIDFromContext(c.Request().Context())))
+	ver, err := parseVersionParam(c, RequestIDFromContext(c.Request().Context()))
+	if err != nil {
+		return WriteError(c, err)
 	}
 	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
 	if err != nil {
@@ -547,21 +506,14 @@ func (h *GoFunctionHandler) GetVersion(c echo.Context) error {
 
 // ActivateVersion: POST /gofunctions/:name/versions/:ver/activate
 func (h *GoFunctionHandler) ActivateVersion(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	rid := RequestIDFromContext(c.Request().Context())
-	if !h.writable {
-		return WriteError(c, godatabase.ErrWriterUnavailable)
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, rid, err := h.requireWriteStore(c, false)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
-	ver, err := strconv.ParseInt(c.Param("ver"), 10, 64)
-	if err != nil || ver <= 0 {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid version", rid))
+	ver, err := parseVersionParam(c, rid)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if err := h.store.ActivateGoFuncVersion(c.Request().Context(), pc.ID, name, ver); err != nil {
 		return WriteError(c, mapNotFound(err))
@@ -590,24 +542,14 @@ type goFuncTestResponse struct {
 
 // TestVersion: POST /gofunctions/:name/versions/:ver/test（plan §5.3）
 func (h *GoFunctionHandler) TestVersion(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	rid := RequestIDFromContext(c.Request().Context())
-	if !h.writable {
-		return WriteError(c, godatabase.ErrWriterUnavailable)
-	}
-	if systemdb.IsAdminProject(pc.ID) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support go functions", rid))
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
+	pc, rid, err := h.requireWriteStore(c, true)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
-	ver, err := strconv.ParseInt(c.Param("ver"), 10, 64)
-	if err != nil || ver <= 0 {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid version", rid))
+	ver, err := parseVersionParam(c, rid)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	var req goFuncTestRequest
 	if err := bindGoFunctionBody(c, &req); err != nil {

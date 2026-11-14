@@ -5,7 +5,7 @@ import { api, resetApiMocks } from '@/test/api-mock'
 import { toast } from 'vue-sonner'
 import { useAgentConversation } from '@/composables/useAgentConversation'
 import ConversationView from '@/components/agent/ConversationView.vue'
-import type { ChatMsg } from '@/composables/useAiChat'
+import type { ChatMsg } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')

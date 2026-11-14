@@ -44,6 +44,8 @@ func TestWriteGate_AllWriteRoutesBlockedOnReadOnly(t *testing.T) {
 		{http.MethodDelete, "/v1/projects/proj-1/databases/db1/data/collections/c/meta"},
 		{http.MethodPost, "/v1/projects/proj-1/s3/objects"},
 		{http.MethodDelete, "/v1/projects/proj-1/s3/objects"},
+		{http.MethodPut, "/v1/projects/proj-1/s3/site"},
+		{http.MethodPut, "/v1/projects/proj-1/s3/public"},
 		{http.MethodPut, "/v1/projects/proj-1/logs/retention"},
 		{http.MethodPut, "/v1/projects/proj-1/settings"},
 		{http.MethodPut, "/v1/settings"},

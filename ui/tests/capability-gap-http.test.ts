@@ -65,7 +65,31 @@ describe('capability gap HTTP mappings', () => {
     await httpApi.backups.remove('p', 'b')
 
     http.get.mockResolvedValueOnce(ok({ folders: ['docs/'], objects: [{ key: 'a', size: 1 }] }))
-    expect(await httpApi.s3.listDetailed('p', 'docs/')).toEqual({ folders: ['docs/'], objects: [{ key: 'a', size: 1 }] })
+    expect(await httpApi.s3.listDetailed('p', 'docs/')).toEqual({ folders: ['docs/'], objects: [{ key: 'a', size: 1 }], folderMeta: [] })
+    // planv6.5：站点字段映射
+    http.get.mockResolvedValueOnce(ok({
+      folders: ['blog/'], objects: [],
+      folderMeta: [{ key: 'blog/', public: true, publicUrl: 'https://p.x/blog/' }, {}],
+      site: { enabled: true, baseUrl: 'https://p.x', publishable: true }
+    }))
+    expect(await httpApi.s3.listDetailed('p')).toEqual({
+      folders: ['blog/'], objects: [],
+      folderMeta: [
+        { key: 'blog/', public: true, publicUrl: 'https://p.x/blog/', publicInherited: undefined },
+        { key: '', public: false, publicUrl: undefined, publicInherited: undefined }
+      ],
+      site: { enabled: true, baseUrl: 'https://p.x', publishable: true, reason: undefined }
+    })
+    http.get.mockResolvedValueOnce(ok({ publishable: false, reason: 'sites_disabled' }))
+    expect(await httpApi.s3.getSite('p')).toEqual({ enabled: false, baseUrl: undefined, publishable: false, reason: 'sites_disabled' })
+    http.put.mockResolvedValueOnce(ok(undefined))
+    expect(await httpApi.s3.setSite('p', true)).toEqual({ enabled: false, baseUrl: undefined, publishable: false, reason: undefined })
+    expect(http.put.mock.calls.at(-1)).toEqual(['/v1/projects/p/s3/site', { enabled: true }])
+    http.put.mockResolvedValueOnce(ok({ public: true, publicUrl: 'https://p.x/a', publicInherited: '' }))
+    expect(await httpApi.s3.setPublic('p', 'a', 'file', true)).toEqual({ public: true, publicUrl: 'https://p.x/a', publicInherited: undefined })
+    expect(http.put.mock.calls.at(-1)).toEqual(['/v1/projects/p/s3/public', { key: 'a', kind: 'file', public: true }])
+    http.put.mockResolvedValueOnce(ok(null))
+    expect(await httpApi.s3.setPublic('p', 'f/', 'folder', false)).toEqual({ public: false, publicUrl: undefined, publicInherited: undefined })
     http.get.mockResolvedValueOnce(ok(new Blob(['x'])))
     await httpApi.s3.download('p', 'a')
     http.post.mockResolvedValueOnce(ok({ url: '/files/t', expires_at: 'e' }))
@@ -90,7 +114,7 @@ describe('capability gap HTTP mappings', () => {
     http.get.mockResolvedValueOnce(ok({ invalid: [] }))
     expect(await httpApi.backups.list('p')).toEqual([])
     http.get.mockResolvedValueOnce(ok({}))
-    expect(await httpApi.s3.listDetailed('p')).toEqual({ folders: [], objects: [] })
+    expect(await httpApi.s3.listDetailed('p')).toEqual({ folders: [], objects: [], folderMeta: [] })
     http.get.mockResolvedValueOnce(ok({}))
     expect(await httpApi.logs.stats('p')).toEqual([])
     http.put.mockResolvedValueOnce(ok({}))

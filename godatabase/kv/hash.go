@@ -1,33 +1,3 @@
-// 文件说明：hash.go — godatabase/kv 中 HashRepo、Get 等符号的实现
-//
-// 用法
-//
-//	(r *HashRepo) Get(ctx context.Context, key, field string) ([]byte, error)  // Get 读取单个 field
-//	(r *HashRepo) GetMany(ctx context.Context, key string, fields ...string) ([][]byte ...  // GetMany 批量读取 fields
-//	同包调用：Scan() → core.go, executor.go 等；Set() → executor.go, list.go 等；Delete() → key.go, set.go 等
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/hash.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] core.go, executor.go, key.go, list.go, schema.go 等 10 个
-//	[关键引用] Scan() ← core.go, executor.go, key.go
-//
-// 主要符号
-//
-//	type HashRepo struct {…}
-//	(r *HashRepo) Get(ctx context.Context, key, field string) ([]byte, error)
-//	(r *HashRepo) GetMany(ctx context.Context, key string, fields ...string) ([][]byte ...
-//	(r *HashRepo) Set(ctx context.Context, key string, fields map[string][]byte) (int ...
-//	(r *HashRepo) Delete(ctx context.Context, key string, fields ...string) (int, error)
-//	(r *HashRepo) Items(ctx context.Context, key string) (map[string][]byte, error)
-//	... 另有 2 个顶层符号
-
 package kv
 
 import (
@@ -73,16 +43,14 @@ func (r *HashRepo) GetMany(ctx context.Context, key string, fields ...string) ([
 	} else if err != nil {
 		return nil, nil, err
 	}
-	ph := make([]string, len(fields))
 	args := make([]any, 0, len(fields)+1)
 	args = append(args, key)
-	for i, f := range fields {
-		ph[i] = "?"
+	for _, f := range fields {
 		args = append(args, f)
 	}
 	rows, err := r.t.tx.QueryContext(ctx,
 		fmt.Sprintf(`SELECT field, value FROM __sb_kv_hashes WHERE "key" = ? AND field IN (%s)`,
-			strings.Join(ph, ",")), args...)
+			placeholders(len(fields))), args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("kv: hash get many: %w", err)
 	}
@@ -181,15 +149,13 @@ func (r *HashRepo) Delete(ctx context.Context, key string, fields ...string) (in
 	} else if err != nil {
 		return 0, err
 	}
-	ph := make([]string, len(fields))
 	args := make([]any, 0, len(fields)+1)
 	args = append(args, key)
-	for i, f := range fields {
-		ph[i] = "?"
+	for _, f := range fields {
 		args = append(args, f)
 	}
 	res, err := r.t.tx.ExecContext(ctx,
-		fmt.Sprintf(`DELETE FROM __sb_kv_hashes WHERE "key" = ? AND field IN (%s)`, strings.Join(ph, ",")),
+		fmt.Sprintf(`DELETE FROM __sb_kv_hashes WHERE "key" = ? AND field IN (%s)`, placeholders(len(fields))),
 		args...)
 	if err != nil {
 		return 0, fmt.Errorf("kv: hash delete: %w", err)

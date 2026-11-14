@@ -49,6 +49,43 @@ describe('TrendChart (echarts)', () => {
     expect(opt.xAxis.data).toEqual(['01-01', '01-02', '01-03'])
   })
 
+  it('uses a taller canvas, capped bar width and a fading area under the request line', async () => {
+    const w = mount(TrendChart, { props: { points, mode: 'bar' }, global: { stubs } })
+    await flushPromises()
+    expect(w.get('[role="img"]').classes()).toContain('h-72')
+    const bar = lastChart().setOption.mock.calls[0][0] as { series: { barMaxWidth: number }[] }
+    expect(bar.series.map((s) => s.barMaxWidth)).toEqual([28, 28])
+    await w.setProps({ mode: 'line' })
+    const calls = lastChart().setOption.mock.calls
+    const line = calls[calls.length - 1][0] as { series: { yAxisIndex?: number; areaStyle?: { color: { type: string } } }[]; yAxis: { axisLabel: { formatter: (v: number) => string } }[] }
+    expect(line.series[1].yAxisIndex).toBe(1)
+    expect(line.series[0].areaStyle?.color.type).toBe('linear')
+    expect(line.series[1].areaStyle).toBeUndefined()
+    expect(line.yAxis[0].axisLabel.formatter(1200)).toBe('1.2k')
+    expect(line.yAxis[0].axisLabel.formatter(2500000)).toBe('2.5M')
+    expect(line.yAxis[0].axisLabel.formatter(42)).toBe('42')
+  })
+
+  it('hides the bar/line switch for read-only previews but keeps the legend', async () => {
+    const w = mount(TrendChart, {
+      props: { points, hideControls: true },
+      global: { stubs: { ToggleGroup: { template: '<div class="trend-mode-switch" />' } } }
+    })
+    await flushPromises()
+    expect(w.find('.trend-mode-switch').exists()).toBe(false)
+    expect(w.find('.trend-legend').exists()).toBe(true)
+  })
+
+  it('draws both series as solid lines with the same marker and no area noise', async () => {
+    mount(TrendChart, { props: { points, mode: 'line' }, global: { stubs } })
+    await flushPromises()
+    const opt = lastChart().setOption.mock.calls[0][0] as {
+      series: { symbol: string; lineStyle: { type?: string } }[]
+    }
+    expect(opt.series.map((s) => s.symbol)).toEqual(['circle', 'circle'])
+    expect(opt.series.every((s) => s.lineStyle.type === undefined)).toBe(true)
+  })
+
   it('defaults to line mode when mode is not provided', async () => {
     mount(TrendChart, { props: { points }, global: { stubs } })
     await flushPromises()

@@ -15,7 +15,6 @@
       @update:model-value="onTab"
     >
       <template #connection><ConnectionPanel /></template>
-      <template #models><ModelDefaultsPanel /></template>
       <template #storage><StoragePanel /></template>
       <template #backups><BackupPanel /></template>
     </SbTabsPanel>
@@ -28,16 +27,15 @@ import { useI18n } from 'vue-i18n'
 import SbModal from './modal/SbModal.vue'
 import SbTabsPanel, { type SbTabsPanelItem } from './SbTabsPanel.vue'
 import ConnectionPanel from './settings/ConnectionPanel.vue'
-import ModelDefaultsPanel from './settings/ModelDefaultsPanel.vue'
 import StoragePanel from './settings/StoragePanel.vue'
 import BackupPanel from './settings/BackupPanel.vue'
 import { useAuthStore, type SettingsTab } from '../stores/auth'
 
 const auth = useAuthStore()
 const { t } = useI18n()
+/** 「模型」页已迁至 /console/models（planv6.5）；弹窗只留三页签。 */
 const TAB_KEYS: { value: SettingsTab; labelKey: string }[] = [
   { value: 'connection', labelKey: 'components.settingsModal.tabConnection' },
-  { value: 'models', labelKey: 'components.settingsModal.tabModels' },
   { value: 'storage', labelKey: 'components.settingsModal.tabStorage' },
   { value: 'backups', labelKey: 'components.settingsModal.tabBackups' }
 ]

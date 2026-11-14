@@ -199,6 +199,7 @@ const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = 
 })
 
 function load() {
+  if (!projectId.value) return Promise.resolve()
   return run(async () => {
     const data = await api.gofunctions.list(projectId.value)
     records.value = data

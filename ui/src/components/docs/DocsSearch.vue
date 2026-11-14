@@ -8,7 +8,7 @@
     >
       <SearchIcon class="size-4 shrink-0" />
       <span class="hidden truncate sm:inline">{{ t('components.docsSearch.open') }}</span>
-      <kbd class="ml-auto hidden rounded border border-border/80 bg-background px-1.5 py-0.5 font-sans text-[10px] leading-3 text-muted-foreground/80 lg:inline">⌘ K</kbd>
+      <kbd class="ml-auto hidden rounded border border-border/80 bg-background px-1.5 py-0.5 font-sans text-xs leading-3 text-muted-foreground lg:inline">⌘ K</kbd>
     </button>
     <DialogContent :show-close-button="false" class="top-[10vh] translate-y-0! gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-2xl">
       <DialogTitle class="sr-only">{{ t('components.docsSearch.dialogTitle') }}</DialogTitle>
@@ -28,7 +28,7 @@
           :aria-activedescendant="activeDescendant"
           @keydown="onInputKeydown"
         />
-        <kbd class="hidden rounded-md border border-border bg-muted px-1.5 py-0.5 font-sans text-[10px] text-muted-foreground sm:inline">ESC</kbd>
+        <kbd class="hidden rounded-md border border-border bg-muted px-1.5 py-0.5 font-sans text-xs text-muted-foreground sm:inline">ESC</kbd>
       </div>
       <div id="docs-search-results" class="min-h-40 overflow-y-auto p-2" role="listbox" :aria-label="t('components.docsSearch.resultsAria')">
         <div v-if="!query.trim()" class="flex min-h-36 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -50,7 +50,7 @@
             @mouseenter="activeIndex = index"
             @click="navigate(item)"
           >
-            <span class="mb-1 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+            <span class="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <span>{{ moduleTitle(item) }}</span>
               <span aria-hidden="true">/</span>
               <span class="truncate">{{ item.page.title }}</span>
@@ -61,7 +61,7 @@
           <div v-if="!displayResults.length" class="flex min-h-36 items-center justify-center text-sm text-muted-foreground">{{ t('components.docsSearch.noMatch') }}</div>
         </template>
       </div>
-      <div class="flex h-9 shrink-0 items-center gap-4 border-t border-border/70 bg-muted/25 px-4 text-[11px] text-muted-foreground">
+      <div class="flex h-9 shrink-0 items-center gap-4 border-t border-border/70 bg-muted/25 px-4 text-xs text-muted-foreground">
         <span><kbd class="mr-1 font-sans">↑↓</kbd>{{ t('components.docsSearch.footerNavigate') }}</span>
         <span><kbd class="mr-1 font-sans">↵</kbd>{{ t('components.docsSearch.footerSelect') }}</span>
         <span class="ml-auto hidden sm:inline"><kbd class="mr-1 font-sans">esc</kbd>{{ t('components.docsSearch.footerClose') }}</span>

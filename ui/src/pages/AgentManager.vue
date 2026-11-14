@@ -30,7 +30,7 @@
               <Badge
                 v-if="activeAgent && activeAgent.writable === false"
                 variant="outline"
-                class="shrink-0 cursor-pointer text-[11px]"
+                class="shrink-0 cursor-pointer text-xs"
                 data-agent-readonly-header
                 role="button"
                 tabindex="0"
@@ -60,7 +60,7 @@
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" class="w-52 p-1">
-                  <p class="px-2 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground">{{ t('pages.agents.menuAgentGroup') }}</p>
+                  <p class="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{{ t('pages.agents.menuAgentGroup') }}</p>
                   <button
                     type="button"
                     class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
@@ -74,7 +74,7 @@
                     @click="onMenu('schedule')"
                   >
                     {{ t('pages.agents.menuSchedule') }}
-                    <span v-if="activeScheduleSummary" class="ml-auto truncate text-[11px] text-muted-foreground">{{ activeScheduleSummary }}</span>
+                    <span v-if="activeScheduleSummary" class="ml-auto truncate text-xs text-muted-foreground">{{ activeScheduleSummary }}</span>
                   </button>
                   <ConfirmAction
                     v-if="activeAgent && !activeAgent.builtin_key"
@@ -85,7 +85,7 @@
                   </ConfirmAction>
 
                   <div class="my-1 h-px bg-border" />
-                  <p class="px-2 pt-1 pb-0.5 text-[11px] font-medium text-muted-foreground">{{ t('pages.agents.menuThreadGroup') }}</p>
+                  <p class="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{{ t('pages.agents.menuThreadGroup') }}</p>
                   <button
                     type="button"
                     class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
@@ -176,17 +176,6 @@
         @update:writable="(v: boolean) => (form.writable = v)"
       />
 
-      <AgentScheduleModal
-        :open="scheduleModalOpen"
-        :agent="scheduleAgent"
-        :schedule="scheduleAgent ? (scheduleByAgent[scheduleAgent.id] || null) : null"
-        :project-id="project.id"
-        @update:open="(v: boolean) => (scheduleModalOpen = v)"
-        @saved="onScheduleSaved"
-        @removed="onScheduleRemoved"
-        @view-thread="onViewScheduleThread"
-      />
-
       <!-- 会话重命名（planv6.0 §3.6 #7：会话操作收进「⋯」菜单）。 -->
       <SbModal
         :open="renameOpen"
@@ -251,13 +240,10 @@ import AgentListPanel from '../components/agent/AgentListPanel.vue'
 import ThreadSwitcher from '../components/agent/ThreadSwitcher.vue'
 import ConversationView from '../components/agent/ConversationView.vue'
 import AgentComposer from '../components/agent/AgentComposer.vue'
-import AgentScheduleModal from '../components/ai/AgentScheduleModal.vue'
 import { useAgentConversation } from '../composables/useAgentConversation'
 import { useLoadState } from '@/composables/useLoadState'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
-import type { ActiveAgentRun, AgentMessage } from '../services/types'
-import type { ChatMsg } from '../composables/useAiChat'
-import type { AgentSchedule } from '../services/types'
+import type { ActiveAgentRun, AgentMessage, AgentSchedule, ChatMsg } from '../services/types'
 
 const project = useProjectStore()
 const route = useRoute()
@@ -300,8 +286,6 @@ const draft = ref('')
 const switchTargetId = ref('')
 
 const scheduleByAgent = ref<Record<string, AgentSchedule>>({})
-const scheduleModalOpen = ref(false)
-const scheduleAgent = ref<CloudAgent | null>(null)
 /** 头部「⋯」菜单开合（planv6.0 §3.8）。 */
 const menuOpen = ref(false)
 const composer = ref<{ focus?: () => void } | null>(null)
@@ -492,6 +476,9 @@ async function loadModelOptions() {
 }
 
 async function bootstrap() {
+  // 首次进入且尚未选定项目时 project.id 为空：此时请求会打到 /v1/projects//… 并弹出多条 404 提示；
+  // 等 loadProjects 选中项目后由上面的 watch 再触发。
+  if (!project.id) return
   // loadThreads 依赖 activeId（由 loadAgents 决定），所以两者必须串行；
   // 调度与模型候选与它们无关，可以和 loadAgents 并行。
   await Promise.all([loadSchedules(), loadModelOptions(), refreshActiveRuns(), (async () => {
@@ -596,23 +583,6 @@ function pickPrompt(text: string) {
 /** 定时任务已统一到「定时任务」页：跳转并预选该助手（旧 /agent-schedules 写接口已返回 410）。 */
 function openSchedule(a: CloudAgent) {
   void router.push({ name: 'cron-jobs', query: { agent: a.id } })
-}
-
-function onScheduleSaved(s: AgentSchedule) {
-  scheduleByAgent.value = { ...scheduleByAgent.value, [s.agent_id]: s }
-}
-
-function onScheduleRemoved(scheduleId: string) {
-  const map = { ...scheduleByAgent.value }
-  for (const [agentId, s] of Object.entries(map)) {
-    if (s.id === scheduleId) delete map[agentId]
-  }
-  scheduleByAgent.value = map
-}
-
-async function onViewScheduleThread(threadIdToView: string) {
-  scheduleModalOpen.value = false
-  await selectThread(threadIdToView)
 }
 
 /** BUG-06：持久化消息 → 聊天气泡。run 状态还原失败/取消态；assistant 按其归属助手补 module。 */

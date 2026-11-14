@@ -1,32 +1,4 @@
-// 文件说明：local.go — vm.Driver 的本机实现：每个「VM」是 Root 下的一个工作区目录，
-//
-// 用法
-//
-//	New(ctx context.Context, opts Options) (*Driver, error)
-//	(d *Driver) Ensure(_ context.Context, t vm.Target) error  // Ensure 创建工作区（幂等）
-//	(d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecResult ...  // Exec 在隔离中执行一条命令
-//
-// 调用架构
-//
-//	[上游] internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/vm/local/local.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gosandbox/host, gosandbox/vm
-//	[同包] open_unix.go
-//
-// 主要符号
-//
-//	type Options struct {…}
-//	type Driver struct {…}
-//	New(ctx context.Context, opts Options) (*Driver, error)
-//	(d *Driver) Ensure(_ context.Context, t vm.Target) error
-//	(d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecResult ...
-//	(d *Driver) ReadFile(_ context.Context, t vm.Target, p string) ([]byte, error)
-//	... 另有 38 个顶层符号
-
+// Package local 提供 vm.Driver 的本机目录隔离实现（每个 VM 对应 Root 下的工作区，经 host 沙盒执行）。
 package local
 
 import (
@@ -298,6 +270,30 @@ func (d *Driver) baseEnv(ws string) []string {
 	}
 }
 
+func (d *Driver) commandEnv(ws string, extra map[string]string) []string {
+	env := d.baseEnv(ws)
+	for k, v := range extra {
+		env = append(env, k+"="+v)
+	}
+	return env
+}
+
+// resolveCommandArgv 解析 Shell 或 Cmd+Args；裸命令未在 PATH 中找到时返回 ok=false。
+func resolveCommandArgv(shell, cmd string, args []string) ([]string, bool) {
+	if shell != "" {
+		return []string{"/bin/sh", "-c", shell}, true
+	}
+	bin := cmd
+	if !strings.Contains(bin, "/") {
+		found, err := exec.LookPath(bin)
+		if err != nil {
+			return nil, false
+		}
+		bin = found
+	}
+	return append([]string{bin}, args...), true
+}
+
 // ---- vm.Driver ----
 
 // Ensure 创建工作区（幂等）。
@@ -318,24 +314,11 @@ func (d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecR
 	if errRes != nil {
 		return *errRes, nil
 	}
-	var argv []string
-	if r.Shell != "" {
-		argv = []string{"/bin/sh", "-c", r.Shell}
-	} else {
-		bin := r.Cmd
-		if !strings.Contains(bin, "/") {
-			found, lerr := exec.LookPath(bin)
-			if lerr != nil {
-				return vm.ExecResult{Stderr: []byte(bin + ": command not found\n"), ExitCode: 127}, nil
-			}
-			bin = found
-		}
-		argv = append([]string{bin}, r.Args...)
+	argv, ok := resolveCommandArgv(r.Shell, r.Cmd, r.Args)
+	if !ok {
+		return vm.ExecResult{Stderr: []byte(r.Cmd + ": command not found\n"), ExitCode: 127}, nil
 	}
-	env := d.baseEnv(ws)
-	for k, v := range r.Env {
-		env = append(env, k+"="+v)
-	}
+	env := d.commandEnv(ws, r.Env)
 	policy := d.policy(ws, t.Spec)
 	policy.Timeout = r.Timeout
 	res, err := d.run(ctx, policy, host.Command{Argv: argv, Dir: dir, Env: env})
@@ -588,26 +571,16 @@ func (d *Driver) Start(ctx context.Context, t vm.Target, r vm.StartSpec) (vm.Pro
 		return nil, d.fail("start", t.Name, errors.New(strings.TrimSpace(string(errRes.Stderr))))
 	}
 	var argv []string
-	switch {
-	case r.Shell != "":
-		argv = []string{"/bin/sh", "-c", r.Shell}
-	case r.Cmd != "":
-		bin := r.Cmd
-		if !strings.Contains(bin, "/") {
-			found, lerr := exec.LookPath(bin)
-			if lerr != nil {
-				return nil, d.fail("start", t.Name, fmt.Errorf("%s: command not found", bin))
-			}
-			bin = found
-		}
-		argv = append([]string{bin}, r.Args...)
-	default:
+	if r.Shell == "" && r.Cmd == "" {
 		argv = []string{"/bin/sh", "-i"}
+	} else {
+		var ok bool
+		argv, ok = resolveCommandArgv(r.Shell, r.Cmd, r.Args)
+		if !ok {
+			return nil, d.fail("start", t.Name, fmt.Errorf("%s: command not found", r.Cmd))
+		}
 	}
-	env := d.baseEnv(ws)
-	for k, v := range r.Env {
-		env = append(env, k+"="+v)
-	}
+	env := d.commandEnv(ws, r.Env)
 	if r.PTY != nil && !hasEnv(env, "TERM") {
 		env = append(env, "TERM=xterm-256color")
 	}

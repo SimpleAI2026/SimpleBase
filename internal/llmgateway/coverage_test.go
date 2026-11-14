@@ -59,7 +59,7 @@ func TestClientKeyAndGetClientBranches(t *testing.T) {
 	if clientKey("p", "openai") != "p|openai" {
 		t.Fatal(clientKey("p", "openai"))
 	}
-	svc := NewService(&fakeResolver{err: errors.New("catalog down")}, nil, nil).(*service)
+	svc := NewService(&fakeResolver{err: errors.New("catalog down")}, nil, nil, nil).(*service)
 	if _, _, err := svc.getClient(context.Background(), "p", ""); err == nil {
 		t.Fatal("resolve error")
 	}
@@ -73,21 +73,21 @@ func TestClientKeyAndGetClientBranches(t *testing.T) {
 	svc = NewService(&fakeResolver{providers: ProjectProviders{
 		Default:   "missing",
 		Providers: []ProviderConfig{{Name: "openai", APIKey: "k"}},
-	}}, nil, nil).(*service)
+	}}, nil, nil, nil).(*service)
 	if _, _, err := svc.getClient(context.Background(), "p", ""); !errors.Is(err, ErrProviderNotFound) {
 		t.Fatalf("not found: %v", err)
 	}
 
 	svc = NewService(&fakeResolver{providers: ProjectProviders{
 		Providers: []ProviderConfig{{Name: "openai", APIKey: ""}},
-	}}, nil, nil).(*service)
+	}}, nil, nil, nil).(*service)
 	if _, _, err := svc.getClient(context.Background(), "p", ""); err == nil {
 		t.Fatal("empty api key should fail create")
 	}
 
 	svc = NewService(&fakeResolver{providers: ProjectProviders{
 		Providers: []ProviderConfig{{Name: "not-a-real-provider", APIKey: "k"}},
-	}}, nil, nil).(*service)
+	}}, nil, nil, nil).(*service)
 	if _, _, err := svc.getClient(context.Background(), "p", "not-a-real-provider"); err == nil {
 		t.Fatal("unknown provider")
 	}
@@ -103,7 +103,7 @@ func TestChatAndStreamWithLocalProvider(t *testing.T) {
 	rec := &countingRecorder{}
 	var logBuf bytes.Buffer
 	logger := observability.NewLogger("warn", "json", &logBuf)
-	svc := NewService(&fakeResolver{providers: testProviders(srv.URL)}, rec, logger)
+	svc := NewService(&fakeResolver{providers: testProviders(srv.URL)}, rec, nil, logger)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	maxTok := 16
@@ -147,7 +147,7 @@ func TestChatAndStreamWithLocalProvider(t *testing.T) {
 	}
 
 	// recorder error without logger
-	svcNoLog := NewService(&fakeResolver{providers: testProviders(srv.URL)}, &countingRecorder{err: errors.New("x")}, nil)
+	svcNoLog := NewService(&fakeResolver{providers: testProviders(srv.URL)}, &countingRecorder{err: errors.New("x")}, nil, nil)
 	if _, err := svcNoLog.Chat(ctx, "proj-b", Request{
 		Messages: []providers.Message{{Role: "user", Content: "x"}},
 	}); err != nil {
@@ -172,7 +172,7 @@ func TestChatAndStreamWithLocalProvider(t *testing.T) {
 	}
 
 	// stream without recorder
-	raw, err := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil).Stream(ctx, "proj-c", Request{
+	raw, err := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil, nil).Stream(ctx, "proj-c", Request{
 		Model:    "gpt-4",
 		Messages: []providers.Message{{Role: "user", Content: "s"}},
 	})
@@ -193,7 +193,7 @@ func TestChatAndStreamProviderErrors(t *testing.T) {
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	svc := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil)
+	svc := NewService(&fakeResolver{providers: testProviders(srv.URL)}, nil, nil, nil)
 	if _, err := svc.Chat(ctx, "p", Request{
 		Messages: []providers.Message{{Role: "user", Content: "x"}},
 	}); err == nil {

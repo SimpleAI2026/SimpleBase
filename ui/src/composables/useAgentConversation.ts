@@ -4,8 +4,7 @@ import { t } from '@/locales'
 import { toast } from 'vue-sonner'
 import { errorMessage } from '@/utils/format'
 import { agentErrorText } from '@/utils/agent-errors'
-import type { AgentRunMetrics, AgentStreamHandlers, AgentToolCallCard, LlmStreamConnection } from '@/services/types'
-import type { ChatMsg } from './useAiChat'
+import type { AgentRunMetrics, AgentStreamHandlers, AgentToolCallCard, ChatMsg, LlmStreamConnection } from '@/services/types'
 
 /** 运行阶段（BUG-01：前端必须追踪流式回调，工具期间不回落）。 */
 export type AgentPhase = 'idle' | 'thinking' | 'streaming' | 'tool' | 'awaiting_confirm' | 'done' | 'error' | 'canceled'

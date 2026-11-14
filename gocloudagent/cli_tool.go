@@ -1,30 +1,3 @@
-// 文件说明：cli_tool.go — gocloudagent 中 DelegationIssuer、ConfirmationWaiter 等符号的实现
-//
-// 用法
-//
-//	type DelegationIssuer（导出类型，同包与上层均可使用）
-//	type ConfirmationWaiter（导出类型，同包与上层均可使用）
-//	同包调用：DelegationIssuer → runtime.go；ConfirmationWaiter → runtime.go；callGate → runtime.go
-//
-// 调用架构
-//
-//	[上游] gocloudagent/cmd/gocloudagent, internal/agentbridge, internal/api 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gocloudagent/cli_tool.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] access.go, cli_entry.go, cli_runner.go, errors.go, identity.go 等 11 个
-//	[关键引用] DelegationIssuer ← runtime.go
-//
-// 主要符号
-//
-//	type DelegationIssuer interface {…}
-//	type ConfirmationWaiter interface {…}
-//	type ConfirmationPreparer interface {…}
-//	... 另有 23 个顶层符号
-
 package gocloudagent
 
 import (
@@ -82,13 +55,9 @@ type callGate struct {
 	ch map[string]chan struct{}
 }
 
-// wait 阻塞到该 call_id 的 tool_call 收束或超时（planv6.0 §3.4）。
-// 无论 release 还是超时，结束后删除登记，防止残留累积。
-func (g *callGate) wait(id string, d time.Duration) {
-	if g == nil || id == "" {
-		return
-	}
+func (g *callGate) slot(id string) chan struct{} {
 	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.ch == nil {
 		g.ch = map[string]chan struct{}{}
 	}
@@ -97,7 +66,16 @@ func (g *callGate) wait(id string, d time.Duration) {
 		ch = make(chan struct{})
 		g.ch[id] = ch
 	}
-	g.mu.Unlock()
+	return ch
+}
+
+// wait 阻塞到该 call_id 的 tool_call 收束或超时（planv6.0 §3.4）。
+// 无论 release 还是超时，结束后删除登记，防止残留累积。
+func (g *callGate) wait(id string, d time.Duration) {
+	if g == nil || id == "" {
+		return
+	}
+	ch := g.slot(id)
 	defer func() {
 		g.mu.Lock()
 		delete(g.ch, id)
@@ -115,16 +93,7 @@ func (g *callGate) release(id string) {
 	if g == nil || id == "" {
 		return
 	}
-	g.mu.Lock()
-	if g.ch == nil {
-		g.ch = map[string]chan struct{}{}
-	}
-	ch, ok := g.ch[id]
-	if !ok {
-		ch = make(chan struct{})
-		g.ch[id] = ch
-	}
-	g.mu.Unlock()
+	ch := g.slot(id)
 	select {
 	case <-ch:
 	default:

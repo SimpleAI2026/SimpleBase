@@ -3,6 +3,8 @@ package sandbox
 import (
 	"errors"
 	"testing"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 func TestCleanPath(t *testing.T) {
@@ -50,7 +52,7 @@ func TestTruncateUTF8(t *testing.T) {
 		{name: "invalid utf8", input: "\xff", max: 3, want: "�"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, truncated := truncateUTF8([]byte(tc.input), tc.max)
+			got, truncated := strutil.TruncateValidUTF8([]byte(tc.input), tc.max)
 			if got != tc.want || truncated != tc.truncated {
 				t.Fatalf("truncateUTF8(%q, %d) = %q, %t; want %q, %t", tc.input, tc.max, got, truncated, tc.want, tc.truncated)
 			}

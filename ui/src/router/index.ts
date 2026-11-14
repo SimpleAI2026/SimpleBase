@@ -15,7 +15,8 @@ import DocsLayout from '../layouts/DocsLayout.vue'
  * 控制台子路由走 DefaultLayout（侧栏 + 项目切换），文档子路由走 DocsLayout。
  */
 const legacyConsolePaths = [
-  'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'sandboxes', 'agents', 'logs', 'users'
+  'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'sandboxes', 'agents', 'logs', 'users',
+  'models', 'traces'
 ]
 
 const routes: RouteRecordRaw[] = [
@@ -24,11 +25,16 @@ const routes: RouteRecordRaw[] = [
     name: 'home',
     component: () => import('../pages/Home.vue'),
     meta: { titleKey: 'nav.home', hidden: true },
-    beforeEnter: (to) => to.query.settings == null ? true : ({
-      name: 'agents',
-      query: to.query,
-      hash: to.hash
-    })
+    beforeEnter: (to) => {
+      // 「模型」页签已迁出弹窗（planv6.5）：settings=models 落到 /console/models。
+      if (to.query.settings == null) {
+        return true
+      }
+      if (to.query.settings === 'models') {
+        return { name: 'models' }
+      }
+      return { name: 'agents', query: to.query, hash: to.hash }
+    }
   },
   {
     path: '/console',
@@ -105,15 +111,33 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../pages/AgentManager.vue'),
         meta: { titleKey: 'nav.agents' }
       },
+      {
+        path: 'models',
+        name: 'models',
+        component: () => import('../pages/ModelSettings.vue'),
+        meta: { titleKey: 'nav.models' }
+      },
+      {
+        // 二期（§11.1）：模型与 Trace 合并为单一入口，/console/traces 重定向到 models 页的 trace 页签。
+        path: 'traces',
+        redirect: (to) => ({ name: 'models', query: { ...to.query, tab: 'traces' }, hash: to.hash })
+      },
       { path: 'llm', redirect: (to) => ({ name: 'agents', query: to.query, hash: to.hash }) },
       {
         path: 'settings',
         name: 'settings',
-        redirect: (to) => ({
-          name: 'agents',
-          query: { ...to.query, settings: typeof to.query.settings === 'string' ? to.query.settings : '1' },
-          hash: to.hash
-        })
+        redirect: (to) => {
+          // 「模型」页已迁出弹窗（planv6.5）：settings=models 落到 /console/models。
+          const raw = typeof to.query.settings === 'string' ? to.query.settings : ''
+          if (raw === 'models') {
+            return { name: 'models' }
+          }
+          return {
+            name: 'agents',
+            query: { ...to.query, settings: raw || '1' },
+            hash: to.hash
+          }
+        }
       },
       {
         path: 'logs',

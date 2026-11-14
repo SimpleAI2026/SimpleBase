@@ -1,34 +1,3 @@
-// 文件说明：remote.go — godatabase/filedb 中 Manifest、FileSyncer 等符号的实现
-//
-// 用法
-//
-//	NewFileSyncer(blobs blob.Store, keys blob.KeyBuilder, cacheDir string, interval ...
-//	(s *FileSyncer) Start(ctx context.Context)  // Start 启动后台周期性 Flush（幂等）
-//	(s *FileSyncer) Close() error  // Close 停止后台循环
-//	同包调用：snapshot() → factory.go, path.go 等；Close() → factory.go, snapshot.go；Restore() → factory.go, syncer.go
-//
-// 调用架构
-//
-//	[上游] internal/app, internal/backup
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/filedb/remote.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase, godatabase/blob, godatabase/internal/atomicfile
-//	[同包] factory.go, path.go, restore.go, restore_remote.go, snapshot.go 等 6 个
-//	[关键引用] snapshot() ← factory.go, path.go, snapshot.go
-//
-// 主要符号
-//
-//	type Manifest struct {…}
-//	type FileSyncer struct {…}
-//	NewFileSyncer(blobs blob.Store, keys blob.KeyBuilder, cacheDir string, interval ...
-//	(s *FileSyncer) Start(ctx context.Context)
-//	(s *FileSyncer) Close() error
-//	(s *FileSyncer) CloseNoFlush(projectID string)
-//	... 另有 26 个顶层符号
-
 package filedb
 
 import (
@@ -39,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/linkxzhou/SimpleBase/godatabase"
 	"io"
 	"os"
 	"path"
@@ -52,8 +20,10 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 	"github.com/linkxzhou/SimpleBase/godatabase/internal/atomicfile"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 )
 
 const fileManifestFormatVersion = 1
@@ -90,12 +60,12 @@ type bindState struct {
 // 锁内一次查表即拿到全部字段，也为后续加代次字段留位）。
 type projectState struct {
 	bound      *bindState
-	gen        int64  // R2：写代次，单调递增
-	flushedGen int64  // R2：已由成功快照覆盖到的代次
-	last       int64  // 最后成功上传的 manifest seq
-	epoch      int64  // 最后成功上传使用的 epoch
-	lost       bool   // 失租标记
-	restored   bool   // 冷启动已拉取远端标记
+	gen        int64 // R2：写代次，单调递增
+	flushedGen int64 // R2：已由成功快照覆盖到的代次
+	last       int64 // 最后成功上传的 manifest seq
+	epoch      int64 // 最后成功上传使用的 epoch
+	lost       bool  // 失租标记
+	restored   bool  // 冷启动已拉取远端标记
 }
 
 // FileSyncer 把项目数据库文件以不可变快照 + manifest 链持久化到对象存储。
@@ -469,7 +439,7 @@ func (s *FileSyncer) snapshot(ctx context.Context, state *bindState, projectID s
 	_ = os.Remove(target)
 	switch state.engine {
 	case godatabase.EngineSQLite:
-		if _, err := state.db.ExecContext(ctx, "VACUUM INTO "+sqlQuote(target)); err != nil {
+		if _, err := state.db.ExecContext(ctx, "VACUUM INTO "+sqlx.Literal(target)); err != nil {
 			return "", "", fmt.Errorf("filedb: sqlite vacuum into: %w", err)
 		}
 		return target, "", nil
@@ -485,10 +455,6 @@ func (s *FileSyncer) snapshot(ctx context.Context, state *bindState, projectID s
 	default:
 		return "", "", fmt.Errorf("filedb: unsupported engine %q", state.engine)
 	}
-}
-
-func sqlQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // copyFileHashed 复制文件并同步计算 sha256（P1：一遍 IO 完成复制与摘要）。

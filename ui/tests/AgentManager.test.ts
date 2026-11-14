@@ -29,18 +29,6 @@ const interactionAgentStubs = {
     emits: ['create', 'select', 'remove'],
     template:
       '<div class="ts"><button type="button" class="ts-create" @click="$emit(\'create\')">新会话</button></div>'
-  },
-  AgentScheduleModal: {
-    props: ['open', 'agent', 'schedule'],
-    emits: ['update:open', 'saved', 'removed', 'view-thread'],
-    template: `
-      <div v-if="open" class="sch-m">
-        <button type="button" class="sch-close" @click="$emit('update:open', false)">x</button>
-        <button type="button" class="sch-saved" @click="$emit('saved', { id: 's1', agent_id: 'ag-1' })">save</button>
-        <button type="button" class="sch-removed" @click="$emit('removed', 'sch-1')">rm</button>
-        <button type="button" class="sch-thread" @click="$emit('view-thread', 'th-1')">th</button>
-      </div>
-    `
   }
 }
 
@@ -71,19 +59,6 @@ const agentStubs = {
         <button type="button" class="ts-select" @click="$emit('select', threads[0] && threads[0].id)">pick</button>
       </div>
     `
-  },
-  AgentScheduleModal: {
-    props: ['open', 'agent', 'schedule'],
-    emits: ['update:open', 'saved', 'removed', 'view-thread'],
-    template: `
-      <div v-if="open" class="sch-m">
-        {{ agent && agent.name }}
-        <button type="button" class="sch-saved" @click="$emit('saved', { id: 's1', agent_id: 'ag-1', cron_expr: '0 8 * * *', enabled: true })">save</button>
-        <button type="button" class="sch-removed" @click="$emit('removed', 'sch-1')">rm</button>
-        <button type="button" class="sch-thread" @click="$emit('view-thread', 'th-1')">th</button>
-        <button type="button" class="sch-close" @click="$emit('update:open', false)">x</button>
-      </div>
-    `
   }
 }
 
@@ -103,11 +78,6 @@ const composerOnlyStubs = {
     emits: ['send', 'stop', 'update:modelValue'],
     template: '<div class="ai"><button type="button" class="ai-send" @click="$emit(\'send\', \'hi\', [], [])">send</button></div>',
     methods: { focus: () => undefined }
-  },
-  AgentScheduleModal: {
-    props: ['open', 'agent', 'schedule'],
-    emits: ['update:open', 'saved', 'removed', 'view-thread'],
-    template: '<div />'
   }
 }
 
@@ -567,7 +537,7 @@ describe('AgentManager (云助手)', () => {
       next_cursor: ''
     })
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher }
     })
     await wrapper.get('textarea').setValue('@数据库 查询统计表')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
@@ -593,7 +563,7 @@ describe('AgentManager (云助手)', () => {
       next_cursor: ''
     })
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher }
     })
     await wrapper.get('textarea').setValue('@数据库助手 查询统计表')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
@@ -614,7 +584,7 @@ describe('AgentManager (云助手)', () => {
       next_cursor: ''
     })
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher }
     })
     await wrapper.get('textarea').setValue('@Database 查询统计表')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
@@ -631,7 +601,7 @@ describe('AgentManager (云助手)', () => {
     ])
     api.agentThreads.page.mockResolvedValue({ threads: [{ id: 'general-thread', title: '通用会话', agent_id: 'general', created_at: 't', updated_at: 't' }], next_cursor: '' })
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher }
     })
     await wrapper.get('textarea').setValue('@数据库助手 查询统计表')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
@@ -653,7 +623,7 @@ describe('AgentManager (云助手)', () => {
     api.agentThreads.page.mockResolvedValue({ threads: [{ id: 'general-thread', title: '通用会话', agent_id: 'general', created_at: 't', updated_at: 't' }], next_cursor: '' })
     api.agents.modules.mockResolvedValue([{ id: 'kv', name: 'KV', description: '', default_tools: [], team_supported: false }])
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher }
     })
     await wrapper.get('textarea').setValue('@KV助手 查询缓存')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
@@ -673,7 +643,7 @@ describe('AgentManager (云助手)', () => {
       next_cursor: ''
     })
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher }
     })
     await wrapper.get('textarea').setValue('@通用助手 @数据库助手 分析统计表')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
@@ -741,7 +711,7 @@ describe('AgentManager (云助手)', () => {
       next_cursor: ''
     }))
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher, AgentScheduleModal: agentStubs.AgentScheduleModal }
+      stubs: { ConversationView: agentStubs.ConversationView, ThreadSwitcher: agentStubs.ThreadSwitcher }
     })
     await wrapper.get('textarea').setValue('@KV助手 查询缓存')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter', shiftKey: false })
@@ -998,7 +968,7 @@ describe('AgentManager script helpers', () => {
 
   it('covers schedule helpers, CRUD edge cases, and stream send/stop', async () => {
     const { wrapper } = await mountWithApp(AgentManager, {
-      stubs: { ...agentStubs, AgentScheduleModal: true, AiChat: true }
+      stubs: { ...agentStubs }
     })
     await flushPromises()
     const vm = wrapper.vm as Record<string, any>
@@ -1008,17 +978,15 @@ describe('AgentManager script helpers', () => {
     expect(vm.scheduleSummary({ cron_expr: '0 8 * * 1', enabled: true })).toContain('每周一')
     expect(vm.scheduleSummary({ cron_expr: '1 2 3 4 5', enabled: true })).toContain('1 2 3 4 5')
 
-    vm.onScheduleSaved({ id: 's', agent_id: 'ag-1' })
-    vm.onScheduleRemoved('sch-1')
     vm.openSchedule(sampleAgent)
-    await vm.onViewScheduleThread('th-view')
+    await vm.selectThread('th-view')
     api.agentThreads.messages.mockRejectedValueOnce(new Error('th'))
-    await vm.onViewScheduleThread('th-view')
+    await vm.selectThread('th-view')
     api.agentThreads.messages.mockResolvedValueOnce([
       { id: 'm1', role: 'assistant', content: 'a', tool_calls: [{ name: 't' }], created_at: 't' },
       { id: 'm2', role: 'user', content: 'u', created_at: 't' }
     ])
-    await vm.onViewScheduleThread('th-msgs')
+    await vm.selectThread('th-msgs')
 
     vm.openCreate()
     vm.onModuleChange('s3')
@@ -1166,7 +1134,7 @@ describe('AgentManager script helpers', () => {
     api.agentThreads.list.mockRejectedValueOnce('threads')
     await vm.loadThreads()
     api.agentThreads.messages.mockRejectedValueOnce('msgs')
-    await vm.onViewScheduleThread('th-x')
+    await vm.selectThread('th-x')
     api.agents.patch.mockRejectedValueOnce('save')
     vm.editing = sampleAgent
     vm.form = { ...sampleAgent, name: 'n' }
@@ -1194,9 +1162,7 @@ describe('AgentManager script helpers', () => {
     api.agentSchedules.list.mockRejectedValueOnce(new Error('x'))
     await avm.loadSchedules?.()
     expect(avm.scheduleSummary?.({ cron_expr: '* * * * *', enabled: true, next_run_at: 't' })).toBeTruthy()
-    avm.onScheduleSaved?.({ id: 's', agent_id: 'a' })
-    avm.onScheduleRemoved?.('s')
-    await avm.onViewScheduleThread?.('th')
+    await avm.selectThread?.('th')
     await avm.loadModules?.()
     await avm.loadAgents?.()
     api.agents.list.mockRejectedValueOnce(new Error('x'))

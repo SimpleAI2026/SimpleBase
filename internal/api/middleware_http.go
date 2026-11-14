@@ -37,6 +37,14 @@ import (
 
 // routeClass 判定路由类别（§8.1.3）：api / file / console。
 // 纯函数，供安全头中间件与测试使用。
+// routeClassFor 在 routeClass 之上叠加 Host 判定：站点子域（planv6.5）优先归为 "site"。
+func routeClassFor(c echo.Context) string {
+	if isSiteRequest(c) {
+		return "site"
+	}
+	return routeClass(c.Request().URL.Path)
+}
+
 func routeClass(path string) string {
 	// 文件下载路径优先于通用 /v1 前缀判定。
 	if strings.HasPrefix(path, "/files/") ||
@@ -61,6 +69,23 @@ const apiCSP = "default-src 'none'; frame-ancestors 'none'"
 
 const fileCSP = "sandbox; default-src 'none'"
 
+// defaultSiteCSP 是用户站点（<pid>.<base_domain>）的默认 CSP（planv6.5 §5.3）。
+// 站点需要执行用户自己的脚本，因此放开 inline/eval 与 https 外链；禁止被跨源嵌入。
+const defaultSiteCSP = "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; " +
+	"frame-ancestors 'self'; base-uri 'self'; form-action 'self' https:"
+
+// siteCSPFor 返回站点 CSP；sites.csp=off 返回空串（不发）。
+func siteCSPFor(cfg config.Config) string {
+	v := strings.TrimSpace(cfg.Sites.CSP)
+	switch strings.ToLower(v) {
+	case "":
+		return defaultSiteCSP
+	case config.CSPOff:
+		return ""
+	}
+	return v
+}
+
 // securityHeadersMiddleware 按路由类别发送安全响应头（§8.1.3）。
 // 四个公共头（nosniff / X-Frame-Options / Referrer-Policy / Permissions-Policy）全类别发送。
 // HSTS 只在「确认是 HTTPS」时发：请求本身 TLS，或直连对端在 trusted_proxies 内且 X-Forwarded-Proto: https。
@@ -73,10 +98,14 @@ func securityHeadersMiddleware(cfg config.Config) echo.MiddlewareFunc {
 			h.Set("Referrer-Policy", "no-referrer")
 			h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 
-			class := routeClass(c.Request().URL.Path)
+			class := routeClassFor(c)
 			cspMode := cfg.HTTP.SecurityHeaders.EffectiveCSP()
 			csp := ""
 			switch class {
+			case "site":
+				// planv6.5 §5.3：用户站点允许同源嵌入，不发 COOP/CORP。
+				csp = siteCSPFor(cfg)
+				h.Set("X-Frame-Options", "SAMEORIGIN")
 			case "file":
 				csp = fileCSP
 				h.Set("Cross-Origin-Resource-Policy", "same-site")

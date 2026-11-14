@@ -89,6 +89,42 @@ func mimeAllowed(value string, allowed []string) bool {
 }
 
 func s3ListResponse(c echo.Context, prefix string, objects []s3ObjectDTO) error {
+	return s3ListResponseWith(c, prefix, objects, nil)
+}
+
+// s3FolderMetaDTO 是文件夹的外部访问状态（planv6.5 §5.5；folders 本身保持 string[] 不变）。
+type s3FolderMetaDTO struct {
+	Key             string `json:"key"`
+	Public          bool   `json:"public"`
+	PublicURL       string `json:"publicUrl,omitempty"`
+	PublicInherited string `json:"publicInherited,omitempty"`
+}
+
+// s3ListDecor 为列表响应追加站点字段；nil 时输出与旧版完全一致。
+type s3ListDecor struct {
+	site   siteInfoDTO
+	folder func(key string) s3FolderMetaDTO
+}
+
+// listResponse 为对象补充外部访问字段后输出（站点不可用时与旧版一致，仅追加 site 段）。
+func (h *S3Handler) listResponse(c echo.Context, projectID, prefix string, objects []s3ObjectDTO) error {
+	if h.sites == nil || !h.sitesCfg.Enabled {
+		return s3ListResponse(c, prefix, objects)
+	}
+	state, info := h.loadSite(c.Request().Context(), projectID)
+	for i := range objects {
+		objects[i].Public, objects[i].PublicURL, objects[i].PublicInherited = h.decoratePublic(projectID, state, info.Enabled, objects[i].Key, false)
+	}
+	return s3ListResponseWith(c, prefix, objects, &s3ListDecor{
+		site: info,
+		folder: func(key string) s3FolderMetaDTO {
+			public, u, inherited := h.decoratePublic(projectID, state, info.Enabled, key, true)
+			return s3FolderMetaDTO{Key: key, Public: public, PublicURL: u, PublicInherited: inherited}
+		},
+	})
+}
+
+func s3ListResponseWith(c echo.Context, prefix string, objects []s3ObjectDTO, decor *s3ListDecor) error {
 	if c.QueryParam("delimiter") == "" {
 		return c.JSON(http.StatusOK, objects)
 	}
@@ -107,7 +143,16 @@ func s3ListResponse(c echo.Context, prefix string, objects []s3ObjectDTO) error 
 		folders = append(folders, folder)
 	}
 	sort.Strings(folders)
-	return c.JSON(http.StatusOK, map[string]any{"folders": folders, "objects": items})
+	out := map[string]any{"folders": folders, "objects": items}
+	if decor != nil {
+		meta := make([]s3FolderMetaDTO, 0, len(folders))
+		for _, f := range folders {
+			meta = append(meta, decor.folder(f))
+		}
+		out["folderMeta"] = meta
+		out["site"] = decor.site
+	}
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *S3Handler) DownloadObject(c echo.Context) error {

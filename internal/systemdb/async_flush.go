@@ -282,13 +282,15 @@ func (s *Store) flushAllAsync(ctx context.Context) error {
 	logs := s.drainLogs()
 	metrics := append(s.drainMetrics(), s.drainMetricAggregates()...)
 	audits := s.drainAudits()
-	if len(logs) == 0 && len(metrics) == 0 && len(audits) == 0 {
+	traces := s.drainTraces()
+	if len(logs) == 0 && len(metrics) == 0 && len(audits) == 0 && len(traces) == 0 {
 		return nil
 	}
 	if s == nil || s.db == nil {
 		// 连接不可用：退回缓冲等待下轮。
 		s.requeue(logs, metrics)
 		s.requeueAudits(audits)
+		s.requeueTraces(traces)
 		return nil
 	}
 	// 整批未提交即可重放。冲突时不要先退回缓冲，否则重试会再插一遍已入队的行。
@@ -315,11 +317,18 @@ func (s *Store) flushAllAsync(ctx context.Context) error {
 				return err
 			}
 		}
+		if len(traces) > 0 {
+			if err := insertLLMTraces(ctx, tx, traces); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
 		return tx.Commit()
 	})
 	if err != nil {
 		s.requeue(logs, metrics)
 		s.requeueAudits(audits)
+		s.requeueTraces(traces)
 		return err
 	}
 	s.notifyWrite(ctx)
@@ -335,5 +344,15 @@ func (s *Store) requeue(logs []LogEvent, metrics []MetricSample) {
 	if len(metrics) > 0 {
 		s.metricsBuf = append(metrics, s.metricsBuf...)
 	}
+	s.mu.Unlock()
+}
+
+// requeueTraces 把未落盘的 trace 批次退回缓冲头部（下轮重试）。
+func (s *Store) requeueTraces(traces []LLMTrace) {
+	if len(traces) == 0 {
+		return
+	}
+	s.mu.Lock()
+	s.traceBuf = append(traces, s.traceBuf...)
 	s.mu.Unlock()
 }

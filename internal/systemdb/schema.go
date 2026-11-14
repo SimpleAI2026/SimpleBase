@@ -30,6 +30,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 )
@@ -192,6 +193,24 @@ var systemTables = []systemTable{
 			created_at TIMESTAMP NOT NULL,
 			deleted_at TIMESTAMP
 		)`},
+	// planv6.5：对象存储发布网站——项目级站点开关（每项目至多一行，应用层保证唯一）。
+	{name: "sys_project_sites", ddl: `CREATE TABLE IF NOT EXISTS sys_project_sites (
+			project_id VARCHAR NOT NULL,
+			enabled BIGINT NOT NULL DEFAULT 0,
+			spa_fallback BIGINT NOT NULL DEFAULT 0,
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		)`},
+	// planv6.5：路径级外部访问开关。kind=file 精确匹配；kind=folder 为以 "/" 结尾的前缀，"" 表示整个桶。
+	{name: "sys_s3_public_paths", ddl: `CREATE TABLE IF NOT EXISTS sys_s3_public_paths (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			path VARCHAR NOT NULL,
+			kind VARCHAR NOT NULL,
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL
+		)`},
 	{name: "sys_s3_sync_runs", ddl: `CREATE TABLE IF NOT EXISTS sys_s3_sync_runs (
 			id VARCHAR NOT NULL,
 			project_id VARCHAR NOT NULL,
@@ -234,6 +253,33 @@ var systemTables = []systemTable{
 			updated_at TIMESTAMP NOT NULL,
 			api_key VARCHAR DEFAULT '',
 			base_url VARCHAR DEFAULT ''
+		)`},
+	// planv6.5 model-settings-and-trace-plan §3.1：每次模型调用一条 trace。
+	// request_id 与 sys_log_events / sys_audit_events 互查；二期（§9）扩列为 span 模型：
+	// trace_id 聚合一次顶层调用（agent 场景 = run_id，API 直调 = request_id），
+	// span_kind 区分 llm / tool 行，input/output/tools_json 承载内容观测。
+	{name: "sys_llm_traces", ddl: `CREATE TABLE IF NOT EXISTS sys_llm_traces (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			request_id VARCHAR NOT NULL,
+			source VARCHAR NOT NULL,
+			provider VARCHAR NOT NULL,
+			model VARCHAR NOT NULL,
+			status VARCHAR NOT NULL,
+			stream BIGINT NOT NULL,
+			duration_ms BIGINT DEFAULT 0,
+			input_tokens BIGINT DEFAULT 0,
+			output_tokens BIGINT DEFAULT 0,
+			error_code VARCHAR DEFAULT '',
+			error_message VARCHAR DEFAULT '',
+			trace_id VARCHAR NOT NULL DEFAULT '',
+			caller VARCHAR NOT NULL DEFAULT '',
+			span_kind VARCHAR NOT NULL DEFAULT 'llm',
+			name VARCHAR NOT NULL DEFAULT '',
+			input_json VARCHAR NOT NULL DEFAULT '',
+			output_json VARCHAR NOT NULL DEFAULT '',
+			tools_json VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL
 		)`},
 	{name: "sys_settings_global", ddl: `CREATE TABLE IF NOT EXISTS sys_settings_global (
 			key VARCHAR NOT NULL,
@@ -573,7 +619,45 @@ func EnsureSystemSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("%w: create %s: %v", catalog.ErrMigrationFailed, t.name, err)
 		}
 	}
+	if err := ensureTraceColumns(ctx, db); err != nil {
+		return fmt.Errorf("%w: upgrade sys_llm_traces: %v", catalog.ErrMigrationFailed, err)
+	}
 	return nil
+}
+
+// traceColumnUpgrades 是 sys_llm_traces 二期扩列（planv6.5 §9.1）的升级兜底：
+// 表未随任何版本发布，正常路径是 reset 重建；这里防止他人 dev 库漏 reset 时
+// 缺列导致写入失败。列名 → DEFAULT 值（均为可空语义的空串）。
+var traceColumnUpgrades = []struct{ name, ddlDefault string }{
+	{"trace_id", "''"},
+	{"caller", "''"},
+	{"span_kind", "'llm'"},
+	{"name", "''"},
+	{"input_json", "''"},
+	{"output_json", "''"},
+	{"tools_json", "''"},
+}
+
+// ensureTraceColumns 对已存在但缺二期列的 sys_llm_traces 补列（幂等）。
+// 探测用 SELECT <col> FROM sys_llm_traces LIMIT 0：列缺失报错，存在则 no-op；
+// 报错文本不含 "no such column"/"not found" 等缺失关键词时原样返回。
+func ensureTraceColumns(ctx context.Context, db *sql.DB) error {
+	for _, col := range traceColumnUpgrades {
+		if _, err := db.ExecContext(ctx, "SELECT "+col.name+" FROM sys_llm_traces LIMIT 0"); err == nil {
+			continue
+		} else if !missingTraceColumn(err) {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "ALTER TABLE sys_llm_traces ADD COLUMN "+col.name+" VARCHAR NOT NULL DEFAULT "+col.ddlDefault); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func missingTraceColumn(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "not found") || strings.Contains(msg, "referenced column")
 }
 
 // SystemTableCount 返回系统表数量。

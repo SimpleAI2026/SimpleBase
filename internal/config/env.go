@@ -77,6 +77,25 @@ func applyEnv(cfg *Config) {
 	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_SCHEDULE"); ok {
 		cfg.Backup.Schedule = v
 	}
+	// planv6.5：对象存储发布网站。
+	setEnvBool(&cfg.Sites.Enabled, "SIMPLEBASE_SITES_ENABLED")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_BASE_DOMAIN"); ok {
+		cfg.Sites.BaseDomain = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_URL_SCHEME"); ok {
+		cfg.Sites.URLScheme = v
+	}
+	setEnvInt(&cfg.Sites.URLPort, "SIMPLEBASE_SITES_URL_PORT")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_INDEX_DOCUMENT"); ok {
+		cfg.Sites.IndexDocument = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_NOT_FOUND_DOCUMENT"); ok {
+		cfg.Sites.NotFoundDocument = v
+	}
+	setEnvDuration(&cfg.Sites.CacheTTL, "SIMPLEBASE_SITES_CACHE_TTL")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_CSP"); ok {
+		cfg.Sites.CSP = v
+	}
 
 	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_ID"); ok {
 		cfg.Instance.ID = v

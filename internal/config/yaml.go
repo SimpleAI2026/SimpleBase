@@ -97,9 +97,21 @@ type yamlConfig struct {
 	Observability  yamlObservability  `yaml:"observability"`
 	SystemDatabase yamlSystemDatabase `yaml:"system_database"`
 	Backup         yamlBackup         `yaml:"backup"`
+	Sites          yamlSites          `yaml:"sites"`
 	Files          struct {
 		AllowedMIME []string `yaml:"allowed_mime"`
 	} `yaml:"files"`
+}
+
+type yamlSites struct {
+	Enabled          *bool   `yaml:"enabled"`
+	BaseDomain       *string `yaml:"base_domain"`
+	URLScheme        *string `yaml:"url_scheme"`
+	URLPort          *int    `yaml:"url_port"`
+	IndexDocument    *string `yaml:"index_document"`
+	NotFoundDocument *string `yaml:"not_found_document"`
+	CacheTTL         yamlDur `yaml:"cache_ttl"`
+	CSP              *string `yaml:"csp"`
 }
 
 type yamlBackup struct {
@@ -508,6 +520,14 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Backup.MaxPerProject, yc.Backup.MaxPerProject)
 	setDur(&cfg.Backup.SnapshotTimeout, yc.Backup.SnapshotTimeout)
 	setStr(&cfg.Backup.MissedPolicy, yc.Backup.MissedPolicy)
+	setBool(&cfg.Sites.Enabled, yc.Sites.Enabled)
+	setStr(&cfg.Sites.BaseDomain, yc.Sites.BaseDomain)
+	setStr(&cfg.Sites.URLScheme, yc.Sites.URLScheme)
+	setInt(&cfg.Sites.URLPort, yc.Sites.URLPort)
+	setStr(&cfg.Sites.IndexDocument, yc.Sites.IndexDocument)
+	setStr(&cfg.Sites.NotFoundDocument, yc.Sites.NotFoundDocument)
+	setDur(&cfg.Sites.CacheTTL, yc.Sites.CacheTTL)
+	setStr(&cfg.Sites.CSP, yc.Sites.CSP)
 	if yc.Files.AllowedMIME != nil {
 		cfg.Files.AllowedMIME = append([]string(nil), yc.Files.AllowedMIME...)
 	}

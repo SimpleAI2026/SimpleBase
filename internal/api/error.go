@@ -154,6 +154,8 @@ var sentinelErrorMappings = []struct {
 	{vm.ErrBackend, http.StatusBadGateway, "sandbox_backend_error", "sandbox backend error"},
 	// handler 前置：拿不到中间件注入的 project 边界（正常不可达，见 context.go）。
 	{ErrProjectMissing, http.StatusBadRequest, "invalid_request", ErrProjectMissing.Error()},
+	// planv6.5：项目不可发布网站（sites 未开启 / 系统项目 / ID 不可作 DNS 标签）。
+	{ErrSiteNotPublishable, http.StatusBadRequest, "site_not_publishable", ErrSiteNotPublishable.Error()},
 	// auth 错误
 	{auth.ErrMissingCredentials, http.StatusUnauthorized, "unauthenticated", "missing or malformed authorization header"},
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_api_key", "invalid api key"},

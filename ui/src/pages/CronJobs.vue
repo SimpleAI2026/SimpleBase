@@ -240,6 +240,7 @@ async function loadAgentNames() {
 }
 
 function load() {
+  if (!projectId.value) return Promise.resolve()
   void loadAgentNames()
   return run(async () => {
     const data = await api.cronjobs.list(projectId.value)

@@ -53,7 +53,7 @@ func TestChatStreamUpstreamRequestFields(t *testing.T) {
 		Providers: []ProviderConfig{
 			{Name: "openai", APIKey: "sk-test", BaseURL: srv.URL, Model: "default-model"},
 		},
-	}}, nil, nil)
+	}}, nil, nil, nil)
 	ctx := context.Background()
 	maxTok := 16
 	temp := 0.5
@@ -107,7 +107,7 @@ func TestChatStreamToolsPassedThrough(t *testing.T) {
 		Providers: []ProviderConfig{
 			{Name: "openai", APIKey: "sk-test", BaseURL: srv.URL, Model: "default-model"},
 		},
-	}}, nil, nil)
+	}}, nil, nil, nil)
 
 	tools := []providers.Tool{{
 		Type: "function",
@@ -175,7 +175,7 @@ func TestToolChoiceForwardedUpstream(t *testing.T) {
 		Providers: []ProviderConfig{
 			{Name: "openai", APIKey: "sk-test", BaseURL: srv.URL, Model: "default-model"},
 		},
-	}}, nil, nil)
+	}}, nil, nil, nil)
 	tools := []providers.Tool{{Type: "function", Function: providers.FunctionDef{
 		Name: "echo", Parameters: map[string]any{"type": "object", "properties": map[string]any{}},
 	}}}

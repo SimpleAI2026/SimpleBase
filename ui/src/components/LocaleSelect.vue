@@ -39,7 +39,7 @@ const BADGES: Record<LocaleCode, string> = {
 }
 
 const BADGE_CLASS =
-  'inline-flex h-5 min-w-5 items-center justify-center rounded border border-current/30 px-1 text-[11px] font-semibold leading-none'
+  'inline-flex h-5 min-w-5 items-center justify-center rounded border border-current/30 px-1 text-xs font-medium leading-none'
 
 const { current, options, setLocale, t } = useLocale()
 

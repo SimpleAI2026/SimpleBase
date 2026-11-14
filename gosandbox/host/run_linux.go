@@ -1,30 +1,5 @@
 //go:build linux
 
-// 文件说明：run_linux.go — gosandbox/host 中 HelperName、Run 等符号的实现
-//
-// 用法
-//
-//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)  // Run 在沙盒里执行 cmd
-//	同包调用：Run() → run_darwin.go, run_other.go 等；innerSpec() → start_linux.go；resolveHelper() → start_linux.go
-//
-// 调用架构
-//
-//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/run_linux.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gosandbox/host/internal/spec
-//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 14 个
-//	[关键引用] Run() ← run_darwin.go, run_other.go, start_linux.go
-//
-// 主要符号
-//
-//	const HelperName
-//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)
-//	... 另有 3 个顶层符号
-
 package host
 
 import (
@@ -45,49 +20,77 @@ import (
 // HelperName 是沙盒内 helper 的二进制名。
 const HelperName = "gosandbox-inner"
 
-// Run 在沙盒里执行 cmd。
-//
-// Enabled=false 或 danger-full-access 返回 ErrNotIsolated（调用方走裸执行）；
-// 其他任何无法建立隔离的情况返回包装了 ErrIsolationUnavailable 的错误，命令不会被执行。
-func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
+func prepareBwrapCmd(ctx context.Context, p Policy, cmd Command, ctty bool) (*exec.Cmd, *os.File, Caps, error) {
 	if !p.Isolates() {
-		return Result{}, ErrNotIsolated
+		return nil, nil, Caps{}, ErrNotIsolated
 	}
 	caps, err := Probe(ctx, p)
 	if err != nil {
-		return Result{}, err
+		return nil, nil, Caps{}, err
 	}
 	helper, err := resolveHelper(p.HelperPath)
 	if err != nil {
-		return Result{}, err
+		return nil, nil, Caps{}, err
 	}
-	argv := cmd.Argv
-	if len(argv) == 0 {
-		return Result{}, errors.New("host: empty argv")
+	if len(cmd.Argv) == 0 {
+		return nil, nil, Caps{}, errors.New("host: empty argv")
 	}
 	dir := cmd.Dir
 	if dir == "" {
 		dir = p.Workspace
 	}
-
-	args, err := BwrapArgs(BwrapInput{Policy: p, Dir: dir, Helper: helper, Argv: argv,
-		PolicyFD: 3, DisableUserNS: caps.DisableUserNS})
+	args, err := BwrapArgs(BwrapInput{
+		Policy: p, Dir: dir, Helper: helper, Argv: cmd.Argv,
+		PolicyFD: 3, DisableUserNS: caps.DisableUserNS, CTTY: ctty,
+	})
 	if err != nil {
-		return Result{}, err
+		return nil, nil, Caps{}, err
 	}
-
 	pr, pw, err := os.Pipe()
 	if err != nil {
-		return Result{}, unavailable("pipe: %v", err)
+		return nil, nil, Caps{}, unavailable("pipe: %v", err)
 	}
-	defer pr.Close()
 	body, _ := json.Marshal(innerSpec(p))
 	// 管道容量足够容纳策略 JSON，先写后关，bwrap 读到 EOF 即可。
 	if _, err := pw.Write(body); err != nil {
 		pw.Close()
-		return Result{}, unavailable("write policy: %v", err)
+		pr.Close()
+		return nil, nil, Caps{}, unavailable("write policy: %v", err)
 	}
 	pw.Close()
+
+	c := exec.Command(caps.BwrapPath, args...)
+	c.Env = cmd.Env
+	c.ExtraFiles = []*os.File{pr}
+	// 独立进程组：超时或取消时向整组发 SIGKILL，不依赖 CommandContext 只杀直接子进程。
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return c, pr, caps, nil
+}
+
+func prepareCgroup(p Policy, caps Caps) (*cgroupGroup, bool, error) {
+	configured := limitsConfigured(p)
+	if configured && caps.Cgroup == cgroupDelegated {
+		if g, gerr := newCgroupGroup(); gerr == nil {
+			if aerr := g.apply(p); aerr != nil {
+				g.remove()
+				return nil, configured, unavailable("apply cgroup limits: %v", aerr)
+			}
+			return g, configured, nil
+		}
+	}
+	return nil, configured, nil
+}
+
+// Run 在沙盒里执行 cmd。
+//
+// Enabled=false 或 danger-full-access 返回 ErrNotIsolated（调用方走裸执行）；
+// 其他任何无法建立隔离的情况返回包装了 ErrIsolationUnavailable 的错误，命令不会被执行。
+func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
+	c, pr, caps, err := prepareBwrapCmd(ctx, p, cmd, false)
+	if err != nil {
+		return Result{}, err
+	}
+	defer pr.Close()
 
 	runCtx := ctx
 	if p.Timeout > 0 {
@@ -96,25 +99,14 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 		defer cancel()
 	}
 
-	c := exec.Command(caps.BwrapPath, args...)
-	c.Env = cmd.Env
-	c.ExtraFiles = []*os.File{pr}
-	// 独立进程组：超时时向整组发 SIGKILL，不依赖 CommandContext 只杀直接子进程。
-	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out := &cappedBuffer{max: p.MaxOutputBytes}
 	c.Stdout, c.Stderr = out, out
 
-	limits := Limits{Configured: limitsConfigured(p), Backend: cgroupNone}
-	var grp *cgroupGroup
-	if limits.Configured && caps.Cgroup == cgroupDelegated {
-		if g, gerr := newCgroupGroup(); gerr == nil {
-			if aerr := g.apply(p); aerr != nil {
-				g.remove()
-				return Result{}, unavailable("apply cgroup limits: %v", aerr)
-			}
-			grp = g
-		}
+	grp, configured, err := prepareCgroup(p, caps)
+	if err != nil {
+		return Result{}, err
 	}
+	limits := Limits{Configured: configured, Backend: cgroupNone}
 
 	start := time.Now()
 	if err := c.Start(); err != nil {

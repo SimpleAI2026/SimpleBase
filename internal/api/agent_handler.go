@@ -48,6 +48,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
 )
@@ -714,7 +715,7 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 			return WriteError(c, &gocloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
 		}
 		// SSE 消费端仍收到规范的 error → end 帧；不持久化用户正文。
-		return h.streamRun(c, pc.ID, systemdb.AgentRun{ID: uuid.NewString()}, agent, gocloudagent.RunRequest{})
+		return h.streamRun(c, c.Request().Context(), pc.ID, systemdb.AgentRun{ID: uuid.NewString()}, agent, gocloudagent.RunRequest{})
 	}
 	if h.usage != nil {
 		if err := h.usage.CheckQuota(c.Request().Context(), pc.ID, "llm"); err != nil {
@@ -784,10 +785,14 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 		Skills: skills,
 	}
 
+	// 二期 trace（planv6.5 §10.2）：run 级 ctx 注入 run_id 作为 trace_id；
+	// completeRun / streamRun 内部继承此 ctx，llmgateway 落 llm span 时携带。
+	runCtx := llmgateway.WithTraceMeta(c.Request().Context(), run.ID, "agent")
+
 	if body.Stream {
-		return h.streamRun(c, pc.ID, run, agent, req)
+		return h.streamRun(c, runCtx, pc.ID, run, agent, req)
 	}
-	return h.completeRun(c, pc.ID, run, agent, req)
+	return h.completeRun(c, runCtx, pc.ID, run, agent, req)
 }
 
 func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, res gocloudagent.RunResult, runErr error) error {
@@ -799,6 +804,11 @@ func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string
 		} else {
 			code = agentbridge.ClassifyError(runErr).Code
 		}
+	}
+	// 二期 trace（§10.3）：run 收尾时把工具卡片补写为 tool span（trace_id=run.ID）。
+	// 解析失败静默丢弃：工具卡片格式由 gocloudagent 保证，坏数据不应影响 run 收尾。
+	if h.store != nil {
+		_ = h.store.RecordAgentToolSpans(projectID, run.ID, res.ToolCallsJSON)
 	}
 	if res.Content != "" || len(res.ToolCallsJSON) > 2 {
 		if _, err := h.store.AppendAgentMessage(ctx, systemdb.AgentMessage{
@@ -828,12 +838,12 @@ func (h *cloudAgentHandler) finishAgentRun(ctx context.Context, projectID string
 	return nil
 }
 
-func (h *cloudAgentHandler) completeRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req gocloudagent.RunRequest) error {
+func (h *cloudAgentHandler) completeRun(c echo.Context, runCtx context.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req gocloudagent.RunRequest) error {
 	if h.runtime == nil {
 		_ = h.failRun(c.Request().Context(), projectID, run.ID, "llm_not_configured")
 		return WriteError(c, &gocloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
 	}
-	res, runErr := h.runtime.StartRun(c.Request().Context(), req, nil)
+	res, runErr := h.runtime.StartRun(runCtx, req, nil)
 	if err := h.finishAgentRun(context.Background(), projectID, run, agent, res, runErr); err != nil {
 		return WriteError(c, err)
 	}
@@ -858,7 +868,7 @@ func (h *cloudAgentHandler) completeRun(c echo.Context, projectID string, run sy
 	return c.JSON(http.StatusOK, map[string]any{"run": toRunDTO(row), "message": asst, "agent_id": agent.ID})
 }
 
-func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req gocloudagent.RunRequest) error {
+func (h *cloudAgentHandler) streamRun(c echo.Context, runCtx context.Context, projectID string, run systemdb.AgentRun, agent systemdb.CloudAgent, req gocloudagent.RunRequest) error {
 	// planv6.0 v2 §11：先解除 WriteTimeout，否则 run 会在 write_timeout
 	// （默认 30s）到点时被服务端切断，context 取消 → reason=canceled、无输出。
 	beginSSE(c)
@@ -965,8 +975,8 @@ func (h *cloudAgentHandler) streamRun(c echo.Context, projectID string, run syst
 	}()
 	// 运行与 HTTP 连接解耦：前端切换界面 / 刷新只会断开 SSE，run 继续执行，
 	// 事件照常写入 h.events 供 ReplayEvents 续接；真正取消只走 CancelRun
-	// （runtime 内部登记的 cancel）或 RunTimeout。保留 context 中的身份等值。
-	runBase := context.WithoutCancel(c.Request().Context())
+	// （runtime 内部登记的 cancel）或 RunTimeout。保留 context 中的身份与 trace 元数据。
+	runBase := llmgateway.WithTraceMeta(context.WithoutCancel(runCtx), run.ID, "agent")
 	res, runErr := h.runtime.StartRun(runBase, req, func(ev gocloudagent.Event) {
 		switch ev.Type {
 		case "token", "tool_call", "tool_call_delta", "tool_start", "tool_result", "confirmation_required", "confirmation_resolved":

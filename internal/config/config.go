@@ -65,6 +65,7 @@ type Config struct {
 	SystemDatabase SystemDatabaseConfig `yaml:"system_database"`
 	Files          FilesConfig          `yaml:"files"`
 	Backup         BackupConfig         `yaml:"backup"`
+	Sites          SitesConfig          `yaml:"sites"`
 }
 
 // 存储模式取值（storage.database / storage.files）。
@@ -754,6 +755,9 @@ func defaults() Config {
 		Backup: BackupConfig{
 			Dir: "./backups", KeepLast: 7, KeepDays: 30, MaxPerProject: 14, SnapshotTimeout: 10 * time.Minute,
 		},
+		Sites: SitesConfig{
+			URLScheme: "https", IndexDocument: DefaultSiteIndexDocument, CacheTTL: DefaultSiteCacheTTL,
+		},
 	}
 }
 
@@ -883,6 +887,7 @@ func (c Config) Validate() error {
 	if err := validateBackup(c.Backup); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, validateSites(c.Sites)...)
 
 	if err := validateStorage(c.Storage, c.Database.CacheDir); err != nil {
 		errs = append(errs, err)
@@ -1163,6 +1168,12 @@ func (c Config) Redacted() map[string]any {
 			"data_dir":           c.Storage.DataDir,
 			"database_is_remote": c.IsDBRemote(),
 			"files_is_remote":    c.IsFilesRemote(),
+		},
+		"sites": map[string]any{
+			"enabled":     c.Sites.Enabled,
+			"base_domain": c.Sites.BaseDomain,
+			"url_scheme":  c.Sites.URLScheme,
+			"url_port":    c.Sites.URLPort,
 		},
 		"observability": map[string]any{
 			"log_level":    c.Observability.LogLevel,

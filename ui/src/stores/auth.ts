@@ -11,7 +11,8 @@ import {
 } from '../services/http'
 import type { ApiError, AuthUser, UserRole } from '../services/types'
 
-export type SettingsTab = 'connection' | 'models' | 'storage' | 'backups'
+/** 「模型」页已迁至 /console/models（planv6.5 model-settings-and-trace-plan §3.5）。 */
+export type SettingsTab = 'connection' | 'storage' | 'backups'
 
 /** 登录态 + 角色（login-auth-plan）。API Key 设置仍保留在 SettingsModal。 */
 export const useAuthStore = defineStore('auth', {

@@ -1,33 +1,3 @@
-// 文件说明：runtime.go — gocloudagent 中 Event、RunRequest 等符号的实现
-//
-// 用法
-//
-//	(r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)) ...  // StartRun executes the agent. emit is optional (streaming).
-//	(r *Runtime) ClaimThread(threadID, runID string) error  // ClaimThread 在持久化用户消息之前锁定会话，避免并发交错
-//	同包调用：Runtime → access.go, cli_tool.go 等；Event → cli_entry.go, cli_tool.go 等；RunRequest → cli_tool.go, trace.go
-//
-// 调用架构
-//
-//	[上游] gocloudagent/cmd/gocloudagent, internal/agentbridge, internal/api 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gocloudagent/runtime.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gocloudagent/agentcore
-//	[同包] access.go, cli_entry.go, cli_runner.go, cli_tool.go, errors.go 等 11 个
-//	[关键引用] Runtime ← access.go, cli_tool.go, trace.go
-//
-// 主要符号
-//
-//	type Event struct {…}
-//	type RunRequest struct {…}
-//	type RunResult struct {…}
-//	type Runtime struct {…}
-//	(r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)) ...
-//	(r *Runtime) ClaimThread(threadID, runID string) error
-//	... 另有 13 个顶层符号
-
 package gocloudagent
 
 import (
@@ -295,7 +265,7 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 		}
 		mv := event.Output.MessageOutput
 		if mv.Role == schema.Tool {
-			content, name := consumeVariant(mv)
+			content, name := agentcore.ConsumeVariant(mv)
 			name = cmp.Or(mv.ToolName, name)
 			id := ""
 			if mv.Message != nil {
@@ -627,10 +597,6 @@ func toolHistorySummary(raw string) string {
 // 事件消费与增量合并委托 agentcore（与本地 CLI 共用）：见 agentcore.ConsumeVariant /
 // ConsumeAssistant / IsToolDelta / MergeStreamToolCall。gocloudagent 只负责把 ConsumeEvent
 // 映射成带 run_id 的 SSE Event。
-func consumeVariant(mv *adk.MessageVariant) (content, name string) {
-	return agentcore.ConsumeVariant(mv)
-}
-
 func consumeAssistant(mv *adk.MessageVariant, emit func(Event), acc *strings.Builder) (*schema.Message, error) {
 	return agentcore.ConsumeAssistant(mv, func(ce agentcore.ConsumeEvent) {
 		if emit == nil {

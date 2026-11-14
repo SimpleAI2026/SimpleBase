@@ -49,6 +49,12 @@ import type {
   LlmSettings,
   LlmStreamHandlers,
   LlmStreamConnection,
+  LLMTrace,
+  LLMTraceGroup,
+  LLMTraceGroupListResult,
+  LLMTraceListResult,
+  LlmTraceGroupQuery,
+  LlmTraceQuery,
   LogEvent,
   LogEventWire,
   LogRetentionWire,
@@ -70,10 +76,39 @@ import type {
   ViewDryRunResult,
   CollectionImportResult,
   FunctionTrigger,
-  FunctionTriggerInput
+  FunctionTriggerInput,
+  S3FolderMeta,
+  S3PublicResult,
+  S3SiteInfo
 } from './types'
 
 /* ---------- 命名转换：UI camelCase ↔ 后端 snake_case（集中在此） ---------- */
+
+/** planv6.5：站点状态（S3 域后端已是 camelCase，这里只做类型收敛与兜底）。 */
+function toS3SiteInfo(raw: unknown): S3SiteInfo {
+  const r = (raw ?? {}) as Partial<S3SiteInfo>
+  return {
+    enabled: r.enabled === true,
+    baseUrl: typeof r.baseUrl === 'string' && r.baseUrl ? r.baseUrl : undefined,
+    publishable: r.publishable === true,
+    reason: typeof r.reason === 'string' && r.reason ? r.reason : undefined
+  }
+}
+
+function toS3FolderMeta(raw: unknown): S3FolderMeta {
+  const r = (raw ?? {}) as Partial<S3FolderMeta>
+  return {
+    key: String(r.key ?? ''),
+    public: r.public === true,
+    publicUrl: r.publicUrl || undefined,
+    publicInherited: r.publicInherited || undefined
+  }
+}
+
+function toS3PublicResult(raw: unknown): S3PublicResult {
+  const r = (raw ?? {}) as Partial<S3PublicResult>
+  return { public: r.public === true, publicUrl: r.publicUrl || undefined, publicInherited: r.publicInherited || undefined }
+}
 
 function toLlmPayload(req: LlmChatRequest) {
   return {
@@ -596,6 +631,215 @@ function toLlmSettings(raw: Record<string, any> | undefined): LlmSettings {
     hasApiKey: Boolean(d.has_api_key ?? d.hasApiKey),
     temperature: d.temperature ?? undefined,
     maxTokens: d.max_tokens ?? d.maxTokens ?? undefined
+  }
+}
+
+/** trace 查询参数序列化：undefined 字段不进 query（服务端给默认窗口 24h）。 */
+function llmTraceParams(q?: LlmTraceQuery): Record<string, string> {
+  if (!q) return {}
+  const out: Record<string, string> = {}
+  if (q.status) out.status = q.status
+  if (q.model) out.model = q.model
+  if (q.requestId) out.request_id = q.requestId
+  if (q.from) out.from = q.from
+  if (q.to) out.to = q.to
+  if (q.limit != null) out.limit = String(q.limit)
+  if (q.offset != null) out.offset = String(q.offset)
+  return out
+}
+
+interface LLMTraceWire {
+  id?: unknown
+  ID?: unknown
+  project_id?: unknown
+  projectId?: unknown
+  ProjectID?: unknown
+  request_id?: unknown
+  requestId?: unknown
+  RequestID?: unknown
+  source?: unknown
+  Source?: unknown
+  provider?: unknown
+  Provider?: unknown
+  model?: unknown
+  Model?: unknown
+  status?: unknown
+  Status?: unknown
+  stream?: unknown
+  Stream?: unknown
+  duration_ms?: unknown
+  durationMs?: unknown
+  DurationMs?: unknown
+  input_tokens?: unknown
+  inputTokens?: unknown
+  InputTokens?: unknown
+  output_tokens?: unknown
+  outputTokens?: unknown
+  OutputTokens?: unknown
+  error_code?: string
+  errorCode?: string
+  ErrorCode?: string
+  error_message?: string
+  errorMessage?: string
+  ErrorMessage?: string
+  trace_id?: unknown
+  traceId?: unknown
+  TraceID?: unknown
+  caller?: unknown
+  Caller?: unknown
+  span_kind?: unknown
+  spanKind?: unknown
+  SpanKind?: unknown
+  name?: unknown
+  Name?: unknown
+  input_json?: string
+  inputJson?: string
+  InputJSON?: string
+  output_json?: string
+  outputJson?: string
+  OutputJSON?: string
+  tools_json?: string
+  toolsJson?: string
+  ToolsJSON?: string
+  created_at?: unknown
+  createdAt?: unknown
+  CreatedAt?: unknown
+}
+
+interface LLMTraceListWire {
+  traces?: LLMTraceWire[]
+  total?: unknown
+}
+
+interface LLMTraceGroupWire {
+  trace_id?: unknown
+  traceId?: unknown
+  TraceID?: unknown
+  caller?: unknown
+  Caller?: unknown
+  model?: unknown
+  Model?: unknown
+  provider?: unknown
+  Provider?: unknown
+  status?: unknown
+  Status?: unknown
+  stream?: unknown
+  Stream?: unknown
+  started_at?: unknown
+  startedAt?: unknown
+  StartedAt?: unknown
+  finished_at?: unknown
+  finishedAt?: unknown
+  FinishedAt?: unknown
+  span_count?: unknown
+  spanCount?: unknown
+  SpanCount?: unknown
+  tool_count?: unknown
+  toolCount?: unknown
+  ToolCount?: unknown
+  llm_count?: unknown
+  llmCount?: unknown
+  LLMCount?: unknown
+  input_tokens?: unknown
+  inputTokens?: unknown
+  InputTokens?: unknown
+  output_tokens?: unknown
+  outputTokens?: unknown
+  OutputTokens?: unknown
+  duration_ms?: unknown
+  durationMs?: unknown
+  DurationMs?: unknown
+  error_code?: string
+  errorCode?: string
+  ErrorCode?: string
+  request_id?: unknown
+  requestId?: unknown
+  RequestID?: unknown
+}
+
+interface LLMTraceGroupListWire {
+  groups?: LLMTraceGroupWire[]
+  total?: unknown
+}
+
+function toLLMTrace(raw: LLMTraceWire | null | undefined): LLMTrace {
+  const d: LLMTraceWire = raw && typeof raw === 'object' ? raw : {}
+  return {
+    id: String(d.id ?? d.ID ?? ''),
+    projectId: String(d.project_id ?? d.projectId ?? d.ProjectID ?? ''),
+    requestId: String(d.request_id ?? d.requestId ?? d.RequestID ?? ''),
+    source: String(d.source ?? d.Source ?? ''),
+    provider: String(d.provider ?? d.Provider ?? ''),
+    model: String(d.model ?? d.Model ?? ''),
+    status: String(d.status ?? d.Status ?? ''),
+    stream: Boolean(d.stream ?? d.Stream),
+    durationMs: Number(d.duration_ms ?? d.durationMs ?? d.DurationMs ?? 0),
+    inputTokens: Number(d.input_tokens ?? d.inputTokens ?? d.InputTokens ?? 0),
+    outputTokens: Number(d.output_tokens ?? d.outputTokens ?? d.OutputTokens ?? 0),
+    errorCode: d.error_code || d.errorCode || d.ErrorCode || undefined,
+    errorMessage: d.error_message || d.errorMessage || d.ErrorMessage || undefined,
+    traceId: String(d.trace_id ?? d.traceId ?? d.TraceID ?? ''),
+    caller: String(d.caller ?? d.Caller ?? ''),
+    spanKind: String(d.span_kind ?? d.spanKind ?? d.SpanKind ?? ''),
+    name: String(d.name ?? d.Name ?? ''),
+    inputJson: d.input_json || d.inputJson || d.InputJSON || undefined,
+    outputJson: d.output_json || d.outputJson || d.OutputJSON || undefined,
+    toolsJson: d.tools_json || d.toolsJson || d.ToolsJSON || undefined,
+    createdAt: String(d.created_at ?? d.createdAt ?? d.CreatedAt ?? '')
+  }
+}
+
+function toLLMTraceListResult(raw: LLMTraceListWire | undefined): LLMTraceListResult {
+  const d: LLMTraceListWire = raw && typeof raw === 'object' ? raw : {}
+  const list = Array.isArray(d.traces) ? d.traces : []
+  return {
+    traces: list.map((r) => toLLMTrace(r)),
+    total: Number(d.total ?? 0)
+  }
+}
+
+/** 分组列表查询参数序列化：与服务端 Groups handler 一一对应。 */
+function llmTraceGroupParams(q?: LlmTraceGroupQuery): Record<string, string> {
+  if (!q) return {}
+  const out: Record<string, string> = {}
+  if (q.caller) out.caller = q.caller
+  if (q.status) out.status = q.status
+  if (q.model) out.model = q.model
+  if (q.from) out.from = q.from
+  if (q.to) out.to = q.to
+  if (q.limit != null) out.limit = String(q.limit)
+  if (q.offset != null) out.offset = String(q.offset)
+  return out
+}
+
+function toLLMTraceGroup(raw: LLMTraceGroupWire | null | undefined): LLMTraceGroup {
+  const d: LLMTraceGroupWire = raw && typeof raw === 'object' ? raw : {}
+  return {
+    traceId: String(d.trace_id ?? d.traceId ?? d.TraceID ?? ''),
+    caller: String(d.caller ?? d.Caller ?? ''),
+    model: String(d.model ?? d.Model ?? ''),
+    provider: String(d.provider ?? d.Provider ?? ''),
+    status: String(d.status ?? d.Status ?? ''),
+    stream: Boolean(d.stream ?? d.Stream),
+    startedAt: String(d.started_at ?? d.startedAt ?? d.StartedAt ?? ''),
+    finishedAt: String(d.finished_at ?? d.finishedAt ?? d.FinishedAt ?? ''),
+    spanCount: Number(d.span_count ?? d.spanCount ?? d.SpanCount ?? 0),
+    toolCount: Number(d.tool_count ?? d.toolCount ?? d.ToolCount ?? 0),
+    llmCount: Number(d.llm_count ?? d.llmCount ?? d.LLMCount ?? 0),
+    inputTokens: Number(d.input_tokens ?? d.inputTokens ?? d.InputTokens ?? 0),
+    outputTokens: Number(d.output_tokens ?? d.outputTokens ?? d.OutputTokens ?? 0),
+    durationMs: Number(d.duration_ms ?? d.durationMs ?? d.DurationMs ?? 0),
+    errorCode: d.error_code || d.errorCode || d.ErrorCode || undefined,
+    requestId: String(d.request_id ?? d.requestId ?? d.RequestID ?? '')
+  }
+}
+
+function toLLMTraceGroupListResult(raw: LLMTraceGroupListWire | undefined): LLMTraceGroupListResult {
+  const d: LLMTraceGroupListWire = raw && typeof raw === 'object' ? raw : {}
+  const list = Array.isArray(d.groups) ? d.groups : []
+  return {
+    groups: list.map((r) => toLLMTraceGroup(r)),
+    total: Number(d.total ?? 0)
   }
 }
 
@@ -1602,7 +1846,20 @@ export const httpApi: Api = {
     listDetailed: (projectId, prefix) =>
       http
         .get('/v1/projects/' + encodeURIComponent(projectId) + '/s3/objects', { params: { prefix, delimiter: '/' } })
-        .then((r) => ({ folders: Array.isArray(r.data?.folders) ? r.data.folders : [], objects: Array.isArray(r.data?.objects) ? r.data.objects : [] })),
+        .then((r) => ({
+          folders: Array.isArray(r.data?.folders) ? r.data.folders : [],
+          objects: Array.isArray(r.data?.objects) ? r.data.objects : [],
+          folderMeta: Array.isArray(r.data?.folderMeta) ? r.data.folderMeta.map(toS3FolderMeta) : [],
+          ...(r.data?.site ? { site: toS3SiteInfo(r.data.site) } : {})
+        })),
+    getSite: (projectId) =>
+      http.get('/v1/projects/' + encodeURIComponent(projectId) + '/s3/site').then((r) => toS3SiteInfo(r.data)),
+    setSite: (projectId, enabled) =>
+      http.put('/v1/projects/' + encodeURIComponent(projectId) + '/s3/site', { enabled }).then((r) => toS3SiteInfo(r.data)),
+    setPublic: (projectId, key, kind, isPublic) =>
+      http
+        .put('/v1/projects/' + encodeURIComponent(projectId) + '/s3/public', { key, kind, public: isPublic })
+        .then((r) => toS3PublicResult(r.data)),
     presign: (projectId, key) =>
       http
         .get('/v1/projects/' + encodeURIComponent(projectId) + '/s3/presign', { params: { key } })
@@ -1720,6 +1977,31 @@ export const httpApi: Api = {
           max_tokens: settings.maxTokens
         })
         .then((r) => toLlmSettings(r.data))
+  },
+
+  llmTraces: {
+    list: (projectId, q) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/traces', { params: llmTraceParams(q) })
+        .then((r) => toLLMTraceListResult(r.data)),
+    groups: (projectId, q) =>
+      http
+        .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/trace-groups', {
+          params: llmTraceGroupParams(q)
+        })
+        .then((r) => toLLMTraceGroupListResult(r.data)),
+    detail: (projectId, traceId) =>
+      http
+        .get(
+          '/v1/projects/' +
+            encodeURIComponent(projectId) +
+            '/llm/trace-groups/' +
+            encodeURIComponent(traceId)
+        )
+        .then((r) => {
+          const list: LLMTraceWire[] = Array.isArray(r.data?.spans) ? r.data.spans : []
+          return list.map((row) => toLLMTrace(row))
+        })
   },
 
   agents: {
