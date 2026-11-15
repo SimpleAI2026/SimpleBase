@@ -13,3 +13,9 @@
 [submodule "skills/unslop"]
 	path = skills/unslop
 	url = https://github.com/heydamir/unslop.git
+[submodule "skills/tester-skill"]
+	path = skills/tester-skill
+	url = https://github.com/linkxzhou/tester-skill.git
+[submodule "skills/design-taste"]
+	path = skills/design-taste
+	url = https://github.com/linkxzhou/design-taste.git
