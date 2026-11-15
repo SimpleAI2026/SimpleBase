@@ -78,8 +78,8 @@ func TestB1_YAMLS3DomainValues(t *testing.T) {
 // nil 指针不覆盖默认；显式空串覆盖为零值（setStr 非 nil 即赋值）。
 func TestB1_YAMLObservabilityDomain(t *testing.T) {
 	cfg := loadFromEnv()
-	if cfg.Observability.LogLevel != "info" {
-		t.Fatalf("test precondition: default LogLevel must be info, got %q", cfg.Observability.LogLevel)
+	if cfg.Observability.LogLevel != DefaultLogLevel {
+		t.Fatalf("test precondition: default LogLevel must be %q, got %q", DefaultLogLevel, cfg.Observability.LogLevel)
 	}
 
 	// 显式空串：非 nil 指针覆盖默认值为空串。

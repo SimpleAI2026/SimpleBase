@@ -63,12 +63,12 @@ func NewLogger(level, format string, w io.Writer) Logger {
 }
 
 func parseLevel(s string) zapcore.Level {
-	switch s {
+	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "debug":
 		return zapcore.DebugLevel
 	case "info":
 		return zapcore.InfoLevel
-	case "warn":
+	case "warn", "warning":
 		return zapcore.WarnLevel
 	case "error":
 		return zapcore.ErrorLevel

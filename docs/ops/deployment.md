@@ -86,11 +86,23 @@ auth:
 
 ```yaml
 observability:
-  log_level: info      # debug | info | warn | error
+  log_level: debug     # debug | info | warn | error（默认 debug；排查完可收敛为 info）
   log_format: json     # json | console
   log_output: stderr   # stderr | stdout
   metrics_path: /metrics
 ```
+
+日志级别默认 **debug**：部署（尤其是容器）里默认就能看到启动全过程与请求细节，排查问题时不必改配置重启；日志量敏感时用 `SIMPLEBASE_LOG_LEVEL=info` 或 YAML 显式收敛。空值/未知值会回落到 debug，并在启动日志里给出提示。
+
+启动日志固定包含以下内容（均为非密钥信息），可据此判断卡在哪一步：
+
+| 日志行 | 含义 |
+| --- | --- |
+| `simplebase starting` | 版本/commit/PID/Go 版本/生效 profile/日志级别/配置文件路径 |
+| `config` | 脱敏后的全量生效配置（密钥只输出布尔） |
+| `startup step: <name>` | 每个装配阶段一行，带该阶段 `elapsed_ms` 与累计 `total_ms` |
+| `simplebase initialized` | 装配完成，含 `startup_ms` 总耗时与监听地址 |
+| `http server listening` | 端口已绑定；失败时另有 `http server stopped with error`（含 address + error） |
 
 HTTP 优雅退出超时：`http.shutdown_timeout`（默认 30s）。
 
@@ -125,7 +137,7 @@ limits:
 
 ## Docker 部署
 
-`Dockerfile` 已配置 distroless 非根镜像：
+`Dockerfile` 已配置非根镜像（`ubuntu:24.04`，CGO 动态依赖 libstdc++/glibc 要求运行时与构建镜像一致）。日志级别在代码里默认就是 `debug`，镜像不固化 `SIMPLEBASE_LOG_LEVEL`，以免盖住 `config.yaml`：
 
 ```bash
 docker build -t simplebase .
@@ -135,7 +147,13 @@ docker run -d \
   --env-file .env \
   -v /var/lib/simplebase/cache:/var/lib/simplebase/cache \
   simplebase
+
+docker logs -f simplebase        # 首行是 simplebase starting（版本/commit/PID/配置路径）
 ```
+
+日志量敏感时加 `-e SIMPLEBASE_LOG_LEVEL=info` 收敛（环境变量优先于 YAML）。
+
+配置加载阶段失败时没有结构化 logger（级别/出口都来自配置），入口会先向 stderr 打一行 `simplebase startup: ...` 纯文本再报错，保证「一行日志都没有」不会发生。
 
 环境变量（密钥与可选覆盖；非密钥优先写 ConfigMap 中的 `config.yaml`）：
 
@@ -145,6 +163,8 @@ SIMPLEBASE_S3_ACCESS_KEY=...
 SIMPLEBASE_S3_SECRET_KEY=...
 SIMPLEBASE_AUTH_APIKEY_SECRET=...
 ```
+
+> `config.yaml` 是相对**工作目录**解析的。镜像 `ENTRYPOINT ["/simplebase"]` 的 cwd 通常是 `/`，容器里务必用 `SIMPLEBASE_CONFIG_PATH` 显式指定，否则会走「代码默认值 + 环境变量」。启动首行的 `cwd` / `config_path` / `env_overrides`（只有变量名，不含值）就是用来确认这件事的。
 
 ## Kubernetes 部署
 

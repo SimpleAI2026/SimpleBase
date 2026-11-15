@@ -63,7 +63,7 @@ usage() {
   - 仅 dev 子命令在缺少 config.yaml 时从 config.example.yaml 生成本地副本（gitignore）；
     生产构建 / 直接运行 ./simplebase 不会生成，请先 cp config.example.yaml config.yaml
   - 存储模式由 config.yaml storage.database/files 决定（默认 local，数据落 storage.data_dir）
-  - SIMPLEBASE_LOG_LEVEL 仅在 yaml/.env 都未设置时默认 debug（生产仍为 info）
+  - 日志级别默认 debug（代码默认值；yaml/环境变量均可覆盖，收敛用 SIMPLEBASE_LOG_LEVEL=info）
   - --api-port 会导出 SIMPLEBASE_HTTP_ADDRESS；未传则尊重 yaml http.address
   - 后端日志输出到终端 stdout/stderr（同时写入临时文件，供启动失败排查）
   - API Key 请在控制台「设置 → 连接」中重置签发（首次使用请先登录控制台）

@@ -327,10 +327,10 @@ limits:
 # ── Observability ─────────────────────────────────────
 # 代码：internal/observability（zap 日志、Prometheus 指标）
 observability:
-  log_level: info             # debug | info | warn | error。SIMPLEBASE_LOG_LEVEL
-                              # ./build.sh dev 仅在 YAML/.env 都未设置时默认 debug
-  log_format: json            # json | console。SIMPLEBASE_LOG_FORMAT
-  log_output: stderr          # stderr | stdout | <文件路径>。SIMPLEBASE_LOG_OUTPUT
+  log_level: debug            # debug | info | warn | error（默认 debug，排查完可收敛为 info）。SIMPLEBASE_LOG_LEVEL
+                              # 空值/未知值回落 debug；容器部署建议先保持 debug
+  log_format: json            # json | console（容器按行采集用 json，本地看终端用 console）。SIMPLEBASE_LOG_FORMAT
+  log_output: stderr          # stderr | stdout（容器日志默认采 stderr）。SIMPLEBASE_LOG_OUTPUT
   metrics_path: /metrics      # Prometheus 抓取路径。SIMPLEBASE_METRICS_PATH
   # 生产收口（production-readiness-plan §8.1.7）三选一：
   #   metrics_address: 127.0.0.1:9090   # 独立监听（业务端口 /metrics 404）；SIMPLEBASE_METRICS_ADDRESS

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/app"
@@ -28,6 +29,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	cfg, err := config.Load()
 	if err != nil {
+		// 配置阶段失败时结构化 logger 还不存在（级别/出口都来自配置），
+		// 这里用纯文本兜底，才能解释「容器里一行日志都没有」。
+		logBootEvent(stderr, "config load failed", "config_path", config.ConfigFilePath(), "err", err.Error())
 		fmt.Fprintf(stderr, "simplebase: %v\n", err)
 		return 1
 	}
@@ -35,8 +39,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runReset(cfg, args[1:], stdout, stderr)
 	}
 
+	logBootEvent(stderr, "bootstrapping",
+		"config_path", config.ConfigFilePath(),
+		"instance_id", cfg.Instance.ID,
+		"profile", cfg.ProfileName(),
+		"log_level", cfg.Observability.LogLevel,
+		"http_address", cfg.HTTP.Address,
+	)
+
 	a, err := app.New(context.Background(), cfg)
 	if err != nil {
+		logBootEvent(stderr, "app assembly failed", "err", err.Error())
 		fmt.Fprintf(stderr, "simplebase: %v\n", err)
 		return 1
 	}
@@ -46,10 +59,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		timeout = 30 * time.Second
 	}
 	if err := a.RunWithSignal(timeout); err != nil {
+		logBootEvent(stderr, "service exited with error", "err", err.Error())
 		fmt.Fprintf(stderr, "simplebase: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+// logBootEvent 在 logger 可用之前向 stderr 输出一行 key=value。
+// 只输出非密钥字段：这是启动早期唯一的观测手段（配置加载失败时尤其重要）。
+func logBootEvent(w io.Writer, msg string, kv ...string) {
+	var b strings.Builder
+	b.WriteString("simplebase startup: ")
+	b.WriteString(msg)
+	for i := 0; i+1 < len(kv); i += 2 {
+		b.WriteString(" ")
+		b.WriteString(kv[i])
+		b.WriteString("=")
+		b.WriteString(kv[i+1])
+	}
+	fmt.Fprintln(w, b.String())
 }
 
 // runReset 实现 `simplebase reset --confirm=<instance_id> [--local-only] [--dry-run]`。

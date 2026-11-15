@@ -95,6 +95,22 @@ class CLIError(Exception):
         self.message = message
 
 
+# 已知密钥样式（sb_live_…/sk-…/Bearer/长 hex+base64 混排），统一掩码后再上抛。
+REDACT_PATTERNS = [
+    re.compile(r"\bsb_live_[0-9a-fA-F]{4,}"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{8,}"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]{8,}"),
+    re.compile(r"(?i)(api[_-]?key|token|secret)[\"']?\s*[=:]\s*[\"']?([A-Za-z0-9._~+/=-]{8,})"),
+]
+
+
+def redact(text: str, limit: int = 300) -> str:
+    """错误消息出口统一脱敏：已知密钥样式替换为 ***，并限制长度。"""
+    for pat in REDACT_PATTERNS:
+        text = pat.sub("***", text)
+    return text[:limit]
+
+
 # ── 工具函数 ─────────────────────────────────────────────
 
 
@@ -514,10 +530,18 @@ class Target:
         for src in reversed(sources):
             env.update({k: v for k, v in src.items() if v})
         self.url = (args.url or env.get("SIMPLEBASE_URL") or "").rstrip("/")
-        # Key 取自优先级最高、且设置了 Key 的那一个来源，避免 --env-file 的云端 URL 配上进程环境里残留的本地 Key；
-        # 同一来源内与 CLI 一致，SIMPLEBASE_TOKEN 优先于 SIMPLEBASE_API_KEY。
-        self.token = next((s.get("SIMPLEBASE_TOKEN") or s.get("SIMPLEBASE_API_KEY") for s in sources
-                           if s.get("SIMPLEBASE_TOKEN") or s.get("SIMPLEBASE_API_KEY")), "")
+        # Key 与 URL 必须来自同一来源，避免 --env-file 的云端 URL 配上进程环境里残留的本地 Key。
+        # --env-file 指定时 Key 只能来自该文件（SIMPLEBASE_TOKEN 优先于 SIMPLEBASE_API_KEY）；
+        # 缺 Key 直接失败，不再回退低优先级来源。同来源内与 CLI 一致。
+        if args.env_file:
+            src = sources[0]
+            self.token = src.get("SIMPLEBASE_TOKEN") or src.get("SIMPLEBASE_API_KEY") or ""
+            if not self.token:
+                raise Fail(f"--env-file {args.env_file} 缺少 SIMPLEBASE_API_KEY/SIMPLEBASE_TOKEN："
+                           "Key 必须与目标环境来自同一文件，不回退进程环境或工作区 .env")
+        else:
+            self.token = next((s.get("SIMPLEBASE_TOKEN") or s.get("SIMPLEBASE_API_KEY") for s in sources
+                               if s.get("SIMPLEBASE_TOKEN") or s.get("SIMPLEBASE_API_KEY")), "")
         self.project = args.project or env.get("SIMPLEBASE_PROJECT_ID") or ws.project_id
         if ws.project_id and self.project and self.project != ws.project_id:
             warn(f"目标 project {self.project} 与清单 project.id {ws.project_id} 不同：业务侧将不能只换 URL")
@@ -571,7 +595,7 @@ class CLI:
                 code, msg = e.get("code") or code, e.get("message") or msg
             except json.JSONDecodeError:
                 pass
-        raise CLIError(argv, code, msg)
+        raise CLIError(argv, code, redact(msg))
 
 
 # ── lock ─────────────────────────────────────────────────

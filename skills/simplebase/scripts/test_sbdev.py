@@ -492,6 +492,50 @@ class BehaviorTests(SbdevCase):
         self.assertEqual(code, sbdev.EXIT_INVALID)
         self.assertIn("SIMPLEBASE_URL", err)
 
+    def test_env_file_missing_key_fails_closed(self):
+        # --env-file 缺 Key 时不得回退进程环境里的 Key（凭据混配回归，M2-SB01）
+        env_file = self.ws / ".env.nokey"
+        env_file.write_text("SIMPLEBASE_URL=https://cloud.example.com\nSIMPLEBASE_PROJECT_ID=myapp001\n",
+                            encoding="utf-8")
+        with mock.patch.dict(os.environ, {"SIMPLEBASE_API_KEY": "stale-process-key",
+                                          "SIMPLEBASE_TOKEN": "stale-process-token"}):
+            args = argparse.Namespace(env_file=str(env_file), url=None, project=None, bin=str(self.bin))
+            with self.assertRaises(sbdev.Fail) as cm:
+                sbdev.Target(args, sbdev.Workspace(self.ws).check())
+        self.assertIn("SIMPLEBASE_API_KEY", str(cm.exception))
+        self.assertNotIn("stale-process", str(cm.exception))
+
+    def test_cli_error_message_is_redacted(self):
+        # CLI 回显疑似密钥时，上抛消息必须已脱敏（M2-SB03）
+        raw = "connect failed: bearer sb_live_0123456789abcdef0123456789abcdef rejected"
+        red = sbdev.redact(raw)
+        self.assertNotIn("sb_live_", red)
+        self.assertNotIn("0123456789", red)
+        self.assertIn("***", red)
+        # 出口路径：CLI.__call__ 的错误分支同样走 redact（用假 CLI 断言）
+        t = sbdev.Target(argparse.Namespace(env_file=None, url=None, project=None, bin=str(self.bin)),
+                         sbdev.Workspace(self.ws).check())
+        self.assertEqual(t.token, "local-secret-key")
+        cli = sbdev.CLI(t)
+        cli.bin = self.bin
+        # 用 sh 包装的假二进制输出带密钥的错误信封
+        leak = self.tmp.name + "/leak-cli"
+        Path(leak).write_text(
+            "#!/bin/sh\necho '{\"ok\":false,\"error\":{\"code\":\"x\",\"message\":\"bearer "
+            "sb_live_deadbeefdeadbeefdeadbeefdeadbeef rejected\"}}' >&2\nexit 2\n", encoding="utf-8")
+        os.chmod(leak, 0o755)
+        cli.bin = leak
+        with self.assertRaises(sbdev.CLIError) as cm:
+            cli("database", "list")
+        self.assertNotIn("sb_live_", str(cm.exception))
+        self.assertNotIn("deadbeef", str(cm.exception))
+
+    def test_redact_masks_known_secret_styles(self):
+        msg = sbdev.redact("token=abcdefgh12345678 key: sk-abcdefghijklmnopqrstuvwxyz123456 done")
+        self.assertNotIn("abcdefgh12345678", msg)
+        self.assertNotIn("sk-abcdefghijklmnop", msg)
+        self.assertEqual(sbdev.redact(""), "")
+
     def test_plan_does_not_write(self):
         code, out, err = self.run_cmd("plan")
         self.assertEqual(code, 0, err)
@@ -606,10 +650,6 @@ class FixtureParityTests(SbdevCase):
         self.assertEqual(got, exp)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class EngineCheckTests(SbdevCase):
     """引擎一致性检查：能读到就比对，读不到要明确提示「没校验」。"""
 
@@ -680,3 +720,7 @@ class SQLSplitterTests(unittest.TestCase):
             ws = sbdev.Workspace(root).check()
             self.assertEqual(ws.errors, [])
             self.assertEqual(ws.warnings, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

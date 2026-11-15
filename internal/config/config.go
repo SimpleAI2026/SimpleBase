@@ -153,6 +153,15 @@ func (c Config) IsProduction() bool {
 	return strings.EqualFold(strings.TrimSpace(c.Instance.Profile), ProfileProduction)
 }
 
+// ProfileName 返回归一化后的档位名（空值视为 development），用于启动日志。
+func (c Config) ProfileName() string {
+	p := strings.ToLower(strings.TrimSpace(c.Instance.Profile))
+	if p == "" {
+		return ProfileDevelopment
+	}
+	return p
+}
+
 // InstanceLeaseConfig 控制 per-database 写租约（multi-instance-consistency-plan §4.8）。
 // 仅 writable=true 且 storage.database=s3 时生效；本地模式自动跳过。
 type InstanceLeaseConfig struct {
@@ -543,6 +552,38 @@ type LimitsConfig struct {
 	RateLimit           RateLimitConfig `yaml:"rate_limit"`
 }
 
+// 日志级别取值（observability.log_level）。默认 debug：部署/容器环境下默认
+// 输出足够上下文，排查问题时不用改配置重启；用 SIMPLEBASE_LOG_LEVEL=info 收敛。
+const (
+	LogLevelDebug = "debug"
+	LogLevelInfo  = "info"
+	LogLevelWarn  = "warn"
+	LogLevelError = "error"
+
+	// DefaultLogLevel 是未显式配置时的日志级别。
+	DefaultLogLevel = LogLevelDebug
+)
+
+// ValidLogLevel 判断 level 是否为受支持的日志级别（大小写不敏感）。
+func ValidLogLevel(level string) bool {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeLogLevel 归一化日志级别：去空白、转小写；空值回落到默认级别。
+// 未知取值保持原样（observability.parseLevel 会退化为 info），由启动日志提示。
+func normalizeLogLevel(level string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(level))
+	if trimmed == "" {
+		return DefaultLogLevel
+	}
+	return trimmed
+}
+
 type ObservabilityConfig struct {
 	LogLevel    string `yaml:"log_level"`
 	LogFormat   string `yaml:"log_format"`
@@ -592,6 +633,10 @@ func Load() (Config, error) {
 	}
 
 	applyEnv(&cfg)
+
+	// 日志级别归一化：空值（YAML 显式写空 / env 覆盖成空）回落到默认 debug，
+	// 避免 observability.parseLevel 静默退化成 info 而丢掉排查信息。
+	cfg.Observability.LogLevel = normalizeLogLevel(cfg.Observability.LogLevel)
 
 	// production 档位：注入安全默认值（只填用户未显式设置的字段），再做校验。
 	applyProfileDefaults(&cfg, collectExplicitFields(ycExplicit))
@@ -741,7 +786,7 @@ func defaults() Config {
 			RateLimit:            RateLimitConfig{Burst: 2, ExemptSSE: true},
 		},
 		Observability: ObservabilityConfig{
-			LogLevel:    "info",
+			LogLevel:    DefaultLogLevel,
 			LogFormat:   "json",
 			LogOutput:   "stderr",
 			MetricsPath: "/metrics",
@@ -1176,10 +1221,13 @@ func (c Config) Redacted() map[string]any {
 			"url_port":    c.Sites.URLPort,
 		},
 		"observability": map[string]any{
-			"log_level":    c.Observability.LogLevel,
-			"log_format":   c.Observability.LogFormat,
-			"log_output":   c.Observability.LogOutput,
-			"metrics_path": c.Observability.MetricsPath,
+			"log_level":         c.Observability.LogLevel,
+			"log_format":        c.Observability.LogFormat,
+			"log_output":        c.Observability.LogOutput,
+			"metrics_path":      c.Observability.MetricsPath,
+			"metrics_address":   c.Observability.MetricsAddress,
+			"pprof":             c.Observability.PProf,
+			"perf_stage_timing": c.Observability.PerfStageTiming,
 		},
 	}
 }

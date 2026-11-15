@@ -91,6 +91,8 @@ type App struct {
 	cfg     config.Config
 	logger  observability.Logger
 	metrics *observability.Metrics
+	// clock 记录启动阶段耗时（startup.go）；nil 时 step 为空操作。
+	clock *startupClock
 
 	httpServer    *http.Server
 	metricsServer *http.Server // §8.1.7 独立观测监听（nil = 未启用）
@@ -206,10 +208,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 // reg 为 nil 时使用 prometheus.DefaultRegisterer。
 func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Registerer) (*App, error) {
 	logger := observability.NewLogger(cfg.Observability.LogLevel, cfg.Observability.LogFormat, observability.WriterFor(cfg.Observability.LogOutput))
-	logger.Info("starting simplebase",
-		zap.String("instance_id", cfg.Instance.ID),
-		zap.Bool("writable", cfg.Instance.Writable),
-	)
+	logStartupBanner(logger, cfg)
 	redacted := cfg.Redacted()
 	logger.Info("config", zap.Any("config", redacted))
 	// planv6.5 §9：控制台与用户站点同注册域时提示同站风险。
@@ -223,14 +222,24 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		cfg:     cfg,
 		logger:  logger,
 		metrics: metrics,
+		clock:   newStartupClock(logger),
 		health:  nil,
 	}
 
 	// 装配依赖（顺序见文件头注释）。任一失败时反向关闭已创建资源。
 	if err := a.assembleDeps(ctx); err != nil {
+		// 启动失败必须留下明确一行：容器里只看得到最后一条错误时才知道断在哪一步。
+		logger.Error("startup failed during dependency assembly", zap.Error(err))
 		_ = a.Close(context.Background())
 		return nil, err
 	}
+	a.step("deps assembled",
+		zap.Bool("object_store", a.objectStore != nil),
+		zap.Bool("file_store", a.fileStore != nil),
+		zap.Bool("system_store", a.systemStore != nil),
+		zap.Bool("registry", a.registry != nil),
+		zap.Bool("cron_scheduler", a.cronScheduler != nil),
+	)
 	a.health = &healthService{app: a}
 
 	// 删库清空用户数据（保留 KV / 项目文件 / 备份），并同步清理集合元数据。
@@ -299,6 +308,11 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 
 	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
 	terminal := a.assembleSandbox(ctx, cfg, logger)
+	a.step("sandbox assembled",
+		zap.Bool("sandbox_enabled", cfg.Sandbox.Enabled),
+		zap.Bool("sandbox_available", a.sandboxMgr != nil && a.sandboxMgr.Available()),
+		zap.Bool("terminal", terminal != nil),
+	)
 
 	// 统一定时任务调度器（ui-cronjob-plan §5.4 + planv6.0 gocloudagent-cli-and-cronjob-unification-plan §2）：
 	// 同时承载云函数与 Agent 两类目标，仅在系统库齐备时创建。Agent 执行器仅在
@@ -317,13 +331,23 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		a.cronScheduler = cronScheduler
 		cronScheduler.Start(a.ensureSchedulerCtx())
 	}
+	a.step("cron scheduler started",
+		zap.Bool("enabled", cronScheduler != nil),
+		zap.Bool("cloud_agent_runtime", runtime != nil),
+	)
 
 	backupHandler, err := a.assembleBackup(cfg)
 	if err != nil {
 		// 此前已打开系统库/registry 并启动 reaper、cron 等协程，失败时同样反向关闭。
+		logger.Error("startup failed during backup assembly", zap.Error(err))
 		_ = a.Close(context.Background())
 		return nil, err
 	}
+	a.step("backup assembled",
+		zap.Bool("backup_enabled", cfg.Backup.Enabled),
+		zap.Bool("handler", backupHandler != nil),
+		zap.String("schedule", cfg.Backup.Schedule),
+	)
 
 	// KV TTL 后台清扫（key-value-ducklake-plan §4.5）：仅可写实例 + registry 齐备时创建。
 	if cfg.Instance.Writable && a.registry != nil {
@@ -378,6 +402,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		// 所以认证器在这里挂上：用同一份 deps 构造一个只做认证的轻量 handler。
 		terminal.Server = a.bindSandboxSSHAuth(terminal, deps)
 	}
+	a.step("router assembled", zap.Int("routes", len(a.echo.Routes())))
 
 	writeTimeout := cfg.HTTP.WriteTimeout
 	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
@@ -403,7 +428,21 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		}
 	}
 
+	logger.Info("simplebase initialized",
+		zap.String("http_address", cfg.HTTP.Address),
+		zap.String("metrics_address", cfg.Observability.MetricsAddress),
+		zap.Int64("startup_ms", a.elapsedMs()),
+	)
+	observability.Sync(logger)
 	return a, nil
+}
+
+// elapsedMs 返回自启动计时器创建以来的毫秒数；未初始化计时器时返回 0。
+func (a *App) elapsedMs() int64 {
+	if a == nil || a.clock == nil {
+		return 0
+	}
+	return time.Since(a.clock.start).Milliseconds()
 }
 
 // writeHandlers 是可写实例的 SQL/数据/Schema/KV handler 组（只读实例全部为 nil）。
@@ -492,6 +531,14 @@ func (a *App) assembleSandbox(ctx context.Context, cfg config.Config, logger obs
 
 func (a *App) assembleBackup(cfg config.Config) (*api.BackupHandler, error) {
 	if !cfg.Backup.Enabled || a.systemStore == nil || a.registry == nil || a.fileFactory == nil {
+		if a.logger != nil {
+			a.logger.Info("backup disabled",
+				zap.Bool("backup_enabled", cfg.Backup.Enabled),
+				zap.Bool("system_store", a.systemStore != nil),
+				zap.Bool("registry", a.registry != nil),
+				zap.Bool("file_factory", a.fileFactory != nil),
+			)
+		}
 		return nil, nil
 	}
 	repo := backup.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
@@ -515,6 +562,11 @@ func (a *App) assembleBackup(cfg config.Config) (*api.BackupHandler, error) {
 			return nil, fmt.Errorf("backup schedule: %w", err)
 		}
 		scheduler.Start(a.ensureSchedulerCtx())
+		a.logger.Info("backup scheduler started",
+			zap.String("schedule", cfg.Backup.Schedule),
+			zap.String("dir", cfg.Backup.Dir),
+			zap.String("missed_policy", cfg.Backup.EffectiveMissedPolicy()),
+		)
 	}
 	return backupHandler, nil
 }
@@ -536,6 +588,20 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	dbRemote := cfg.IsDBRemote()
 	filesRemote := cfg.IsFilesRemote()
 
+	// 启动第一段：把「数据落在哪」写成一行，容器里最常见的问题就是路径/桶不对。
+	a.logger.Info("resolving persistence",
+		zap.String("storage_database", cfg.Storage.Database),
+		zap.String("storage_files", cfg.Storage.Files),
+		zap.String("data_dir", cfg.Storage.DataDir),
+		zap.String("cache_dir", cfg.Database.CacheDir),
+		zap.Bool("database_remote", dbRemote),
+		zap.Bool("files_remote", filesRemote),
+		zap.String("s3_endpoint", cfg.S3.Endpoint),
+		zap.String("s3_region", cfg.S3.Region),
+		zap.String("s3_bucket", cfg.S3.Bucket),
+		zap.String("s3_prefix", cfg.S3.Prefix),
+	)
+
 	s3cfg := objectstore.Config{
 		Endpoint:       cfg.S3.Endpoint,
 		Region:         cfg.S3.Region,
@@ -552,13 +618,16 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	if err := checkStorageIdentity(cfg); err != nil {
 		return err
 	}
+	a.step("storage identity checked")
 
 	if cfg.Instance.Writable && (dbRemote || filesRemote) && s3cfg.Bucket != "" {
+		a.logger.Info("connecting object storage", zap.String("endpoint", s3cfg.Endpoint), zap.String("bucket", s3cfg.Bucket))
 		store, err := objectstore.NewClient(ctx, s3cfg, a.logger, a.metrics)
 		if err != nil {
 			return fmt.Errorf("create objectstore client: %w", err)
 		}
 		a.objectStore = store
+		a.step("object storage client ready")
 
 		// P0-3 启动探针：create-if-absent 条件写可用性验证（§4.5）。
 		// 探针失败 → 记 Fatal + 指标归零 → 禁用一切依赖互斥的能力，
@@ -592,14 +661,18 @@ func (a *App) assembleDeps(ctx context.Context) error {
 				}
 			}
 		}
+		a.step("object storage probe done", zap.Bool("cas_supported", a.casSupported))
 	}
 
 	if err := a.assembleFileStore(ctx, cfg, s3cfg, filesRemote); err != nil {
 		return err
 	}
+	a.step("file store ready", zap.Bool("files_remote", filesRemote))
 
 	keys := objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}
 	if !cfg.Instance.Writable {
+		// 只读实例到此为止：写路径（系统库/registry/调度器）全部不装配。
+		a.logger.Info("readonly instance: skipping system database, registry and schedulers")
 		return nil
 	}
 
@@ -617,11 +690,16 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}
 	userFactory := a.newUserDatabaseFactory(userCacheDir)
 	sysFactory := a.newSystemDatabaseFactory()
+	a.step("database factories ready", zap.String("engine", cfg.Database.Engine))
 
 	sysName := cfg.SystemDatabase.Name
 	if sysName == "" {
 		sysName = systemdb.DefaultName
 	}
+	a.logger.Info("booting system database",
+		zap.String("name", sysName),
+		zap.String("locator_dir", filepath.Join(cfg.Storage.DataDir, "_system")),
+	)
 	store, err := systemdb.Bootstrap(ctx, systemdb.BootstrapInput{
 		// locator 记录系统库 UUID，必须与 data_dir 同寿命：
 		// 放进 cache_dir 会在清缓存后重新生成一个空系统库。
@@ -636,6 +714,10 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}
 	a.systemStore = store
 	a.registerCloser(store)
+	a.step("system database bootstrapped",
+		zap.String("database_id", store.Meta().ID),
+		zap.String("project_id", store.Meta().ProjectID),
+	)
 
 	repo := store.CatalogRepo()
 	var descWriter catalog.DescriptorWriter
@@ -654,6 +736,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	if err := a.catalog.RepairDatabasesOnStartup(ctx); err != nil {
 		return fmt.Errorf("repair database availability: %w", err)
 	}
+	a.step("catalog service ready", zap.String("default_engine", cfg.Database.Engine))
 
 	// P1-1：per-database 写租约（multi-instance-consistency-plan §4.6）。
 	// 仅 writable + storage.database=s3 + 探针通过时启用；失租 → 释放该库句柄。
@@ -665,6 +748,11 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	a.assembleWriteLease(ctx, cfg, regOpts)
 
 	a.registry = registry.New(userFactory, dbbridge.ResolverFrom(a.catalog), regOpts, dbbridge.LoggerFrom(a.logger), dbbridge.ObserverFrom(a.metrics))
+	a.step("registry ready",
+		zap.Int("max_open", cfg.Database.MaxOpen),
+		zap.String("idle_timeout", cfg.Database.IdleTimeout.String()),
+		zap.Bool("write_lease", a.leaseMgr != nil),
+	)
 
 	// cache.Manager 只依赖 registry，先于 Evictor 创建以便接入容量淘汰。
 	a.cacheMgr, err = cache.NewManager(cache.Options{
@@ -680,6 +768,11 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create cache manager: %w", err)
 	}
+	a.step("cache manager ready",
+		zap.String("root", cfg.Database.CacheDir),
+		zap.Int64("max_bytes", cfg.Database.CacheMaxBytes),
+		zap.Int("max_databases", cfg.Database.CacheMaxDatabases),
+	)
 
 	// R1：周期回收空闲句柄，防止 max_open 打满后其他项目永久不可用。
 	// Shutdown 时先 Stop（停止新回收），再由 Close → registry.Shutdown 收尾。
@@ -689,9 +782,11 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	go a.handleEvictor.Run(a.ensureSchedulerCtx())
 
 	a.assembleAuthServices(store, cfg)
+	a.step("auth services ready")
 	if err := a.seedAndStartMaintenance(ctx, store, cfg); err != nil {
 		return err
 	}
+	a.step("system seed + maintenance started")
 
 	catRepo := a.catalog.Repository()
 	a.usageSvc = usage.NewService(catRepo, a.logger)
@@ -700,6 +795,10 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	if cfg.LLM.Enabled {
 		a.llmSvc = a.assembleLLMService(cfg)
 	}
+	a.step("usage/audit/llm ready",
+		zap.Bool("llm_enabled", cfg.LLM.Enabled),
+		zap.Int("llm_providers", len(cfg.LLM.Providers)),
+	)
 
 	return nil
 }
@@ -1092,6 +1191,11 @@ func (a *App) Close(ctx context.Context) error {
 // Start 启动 HTTP server（阻塞直到关闭）；配置了独立观测监听时并行启动，
 // 监听失败视为启动失败（§8.1.7）。
 func (a *App) Start() error {
+	a.logger.Info("starting http server",
+		zap.String("address", a.cfg.HTTP.Address),
+		zap.String("profile", a.cfg.ProfileName()),
+		zap.Int64("startup_ms", a.elapsedMs()),
+	)
 	if a.metricsServer != nil {
 		metricsErr := make(chan error, 1)
 		go func() {
@@ -1107,6 +1211,8 @@ func (a *App) Start() error {
 		case err := <-metricsErr:
 			if err != nil {
 				_ = a.httpServer.Close()
+				a.logger.Error("metrics server listen failed",
+					zap.String("address", a.cfg.Observability.MetricsAddress), zap.Error(err))
 				return fmt.Errorf("metrics server listen %s: %w", a.cfg.Observability.MetricsAddress, err)
 			}
 		default:
@@ -1122,8 +1228,12 @@ func (a *App) Start() error {
 	a.logger.Info("http server listening", zap.String("address", a.cfg.HTTP.Address))
 	err := a.httpServer.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		// 端口被占用 / 无权限绑定是最常见的容器启动失败原因，单独记一行。
+		a.logger.Error("http server stopped with error",
+			zap.String("address", a.cfg.HTTP.Address), zap.Error(err))
 		return err
 	}
+	a.logger.Info("http server stopped")
 	return nil
 }
 
@@ -1219,6 +1329,12 @@ func (a *App) Shutdown(ctx context.Context) error {
 			firstErr = err
 		}
 	}
+	if firstErr != nil {
+		a.logger.Warn("shutdown finished with errors", zap.Error(firstErr))
+	} else {
+		a.logger.Info("shutdown complete")
+	}
+	observability.Sync(a.logger)
 	return firstErr
 }
 
@@ -1332,6 +1448,8 @@ func (a *App) cloudAgentRuntime() *gocloudagent.Runtime {
 	if a.cfg.Agent.SkillsCLI && a.logger != nil {
 		if failure := gocloudagent.ValidateCLIPath(cliPath); failure != "" {
 			a.logger.Warn("cloud agent CLI unavailable", zap.String("reason", failure))
+		} else {
+			a.logger.Info("cloud agent CLI ready", zap.String("path", cliPath))
 		}
 	}
 	reg := auth.NewDelegationRegistry()
@@ -1495,7 +1613,12 @@ func (a *App) RunWithSignal(shutdownTimeout time.Duration) error {
 	select {
 	case err := <-errCh:
 		return err
-	case <-sigCh:
+	case sig := <-sigCh:
+		// 容器里 SIGTERM 是常态（docker stop / 滚动重启），记一行便于对齐时间线。
+		a.logger.Info("signal received, shutting down",
+			zap.String("signal", sig.String()),
+			zap.String("timeout", shutdownTimeout.String()),
+		)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)

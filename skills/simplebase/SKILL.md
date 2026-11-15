@@ -21,7 +21,7 @@ description: 在本地用 SimpleBase 开发全栈应用（Go 云函数、SQL 迁
    - 静态站点：先执行 `site deploy -C <dir> --dist <构建目录> --env-file .env.cloud` 预览上传清单与公开范围（退出码 3），经用户明确同意后再加 `--yes` 上传并开启 `https://<project_id>.<base_domain>/` 子域名访问。
 6. **切换环境**：apply 会写 `.simplebase/env.<label>`，里面有 URL、project ID、库 ID（不含密钥）。业务侧改 `SIMPLEBASE_URL` 和 `SIMPLEBASE_API_KEY`；按库名解析库 ID，或使用 env 文件里的 ID。
 
-脚本路径相对于本 skill 目录。命令都接受 `-C <工作区>`，远端相关命令还接受 `--env-file`、`--url`、`--project`、`--bin`。凭据优先级：`--env-file` > 进程环境 > 工作区 `.env`，Key 只取自优先级最高的那个来源。
+脚本路径相对于本 skill 目录。命令都接受 `-C <工作区>`，远端相关命令还接受 `--env-file`、`--url`、`--project`、`--bin`。凭据优先级：`--env-file` > 进程环境 > 工作区 `.env`。指定 `--env-file` 时 Key 必须来自该文件（`SIMPLEBASE_TOKEN` 优先于 `SIMPLEBASE_API_KEY`），文件缺 Key 直接报错，不回退其他来源——避免云端 URL 配上本地 Key。CLI 原始错误消息上抛前会做密钥样式脱敏。
 
 二进制自带 `simplebase dev validate|plan|apply|status` 时，行为与 `sbdev.py` 一致，CI 里优先用它；`init`、`doctor` 与 `site`（`status|deploy|unpublish`）只有 `sbdev.py` 才有。`simplebase dev` 不读 `.env`（凭据要来自环境变量、flag 或 `config.json`），`validate` 与 `status` 不需要任何连接配置，可以直接 `simplebase dev validate --dir .`。若退出码 1 且报 `unknown command dev validate`，说明二进制太旧，改用 `sbdev.py`。两者的区别见 `references/manifest.md`。验证脚本自身：`python3 -m unittest discover -s scripts -p 'test_sbdev.py'`（在本 skill 目录下，用假 CLI，不连真实服务）。
 

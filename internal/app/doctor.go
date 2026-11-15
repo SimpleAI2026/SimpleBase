@@ -130,6 +130,19 @@ func RunDoctor(cfg config.Config) DoctorReport {
 		add("observability", DoctorWarn, "/metrics 在业务端口开放（development 默认）")
 	}
 
+	// 4.1 日志级别：部署排查的第一现场，单独一行给出实际生效值。
+	// 空值等价于默认 debug（Load 阶段已归一化；直接构造 Config 的路径按默认处理）。
+	switch level := strings.ToLower(strings.TrimSpace(cfg.Observability.LogLevel)); {
+	case !config.ValidLogLevel(level) && level != "":
+		add("log-level", DoctorFail, fmt.Sprintf("observability.log_level=%q 非法（debug|info|warn|error），运行时退化为 info", cfg.Observability.LogLevel))
+	case level == "" || level == config.LogLevelDebug:
+		add("log-level", DoctorOK, fmt.Sprintf("level=debug（默认） format=%s output=%s",
+			cfg.Observability.LogFormat, cfg.Observability.LogOutput))
+	default:
+		add("log-level", DoctorWarn, fmt.Sprintf("level=%s（排查问题可临时改 debug） format=%s output=%s",
+			level, cfg.Observability.LogFormat, cfg.Observability.LogOutput))
+	}
+
 	// 5. trusted_proxies。
 	if len(cfg.HTTP.TrustedProxies) == 0 {
 		add("trusted-proxies", DoctorWarn, "未配置：X-Forwarded-For 不被信任（直连场景正确；有反代需配置）")
