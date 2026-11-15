@@ -84,3 +84,18 @@ skills/**/.original/
 
 # 本地技能备份
 .skill-backups/
+
+# ─── 技能运行时产物（不入库）─────────────────────────
+# 会话临时目录与交付输出：每次运行都不同，只保留 plan/ 与 tools/ 这类成果
+skills/output/
+# 文档预览缩略图（Box/IDE 生成）
+skills/**/.thumbs/
+# andrew-translate 长文分块草稿（含 manifest/glossary/chunk-*）
+skills/**/.translate-work/
+# design-taste 脚本默认输出目录（review-<host>/、image-review-<name>/）
+# 注意：必须限定在 skills/ 下，否则会误伤 tester-skill/subskills/review-tests
+skills/review-*/
+skills/image-review-*/
+# 技能脚本运行产生的 Python 缓存（子模块内另有各自的 .gitignore）
+skills/**/__pycache__/
+skills/**/*.py[cod]
