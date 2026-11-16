@@ -16,7 +16,7 @@ import DocsLayout from '../layouts/DocsLayout.vue'
  */
 const legacyConsolePaths = [
   'databases', 'key-value', 's3', 'gofunctions', 'cron-jobs', 'sandboxes', 'agents', 'logs', 'users',
-  'models', 'traces'
+  'models', 'traces', 'approvals'
 ]
 
 const routes: RouteRecordRaw[] = [
@@ -116,6 +116,11 @@ const routes: RouteRecordRaw[] = [
         name: 'models',
         component: () => import('../pages/ModelSettings.vue'),
         meta: { titleKey: 'nav.models' }
+      },
+      {
+        // 审批队列已并入「模型」页签（planv6.6）：保留路径做深链重定向。
+        path: 'approvals',
+        redirect: (to) => ({ name: 'models', query: { ...to.query, tab: 'approvals' }, hash: to.hash })
       },
       {
         // 二期（§11.1）：模型与 Trace 合并为单一入口，/console/traces 重定向到 models 页的 trace 页签。

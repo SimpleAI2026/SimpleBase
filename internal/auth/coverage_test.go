@@ -176,7 +176,7 @@ func TestSQLAPIKeyRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	empty, err := svc.repo.FindByHash(ctx, svc.HashKey("empty"))
-	if err != nil || empty.Permissions != nil && len(empty.Permissions) != 0 {
+	if err != nil || len(empty.Permissions) != 0 {
 		t.Fatalf("empty perms %+v err=%v", empty, err)
 	}
 

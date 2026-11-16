@@ -20,7 +20,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
 )
 
 // gate 在 wait 超时后必须自清理（§3.4：结束 delete，防残留累积）。
@@ -217,4 +216,3 @@ func TestSubprocessCLI_DatabaseListReadOnly(t *testing.T) {
 		t.Fatalf("CLI list: out=%s err=%v", out, err)
 	}
 }
-

@@ -38,6 +38,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrInsecureConfig 表示配置文件权限过宽（含 group/other 位）。
@@ -73,7 +74,62 @@ type Config struct {
 	// ShellIsolation 是本机 shell 的隔离策略（planv6.2）。缺省 enabled=false，行为与旧版一致。
 	// Yolo 只跳过确认，不会关闭隔离。
 	ShellIsolation ShellIsolation `json:"shell_isolation,omitempty"`
+	// MCPServers 是外部 MCP Server 配置（planv6.2 §5.1），key 即 Server 名称。
+	// stdio（command/args）与 Streamable HTTP（url/headers）二选一。
+	MCPServers map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
 }
+
+// MCPServerConfig 是一个 MCP Server 的本地配置。
+//
+// stdio 与 HTTP 二选一：填了 Command 走 stdio，填了 URL 走 Streamable HTTP。
+// Headers / Env 支持 ${VAR} 从进程环境展开。
+type MCPServerConfig struct {
+	// Command/Args/Env 是 stdio 传输（仅 CLI；不继承父进程环境）。
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	// URL/Headers 是 Streamable HTTP 传输。
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	// Disabled 为真时跳过该 Server。
+	Disabled bool `json:"disabled,omitempty"`
+	// TimeoutSeconds 是单次 tools/call 的默认超时；0 用 60s。
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+	// ReadOnlyTools 是免确认的工具名白名单。其余工具首次调用需确认。
+	ReadOnlyTools []string `json:"read_only_tools,omitempty"`
+}
+
+// IsStdio 报告该配置是否走 stdio 传输。
+func (c MCPServerConfig) IsStdio() bool { return strings.TrimSpace(c.Command) != "" }
+
+// Validate 校验单个 Server 配置：两种传输必须恰好选一个。
+func (c MCPServerConfig) Validate() error {
+	hasCmd := strings.TrimSpace(c.Command) != ""
+	hasURL := strings.TrimSpace(c.URL) != ""
+	switch {
+	case hasCmd && hasURL:
+		return errors.New("mcp: command and url are mutually exclusive")
+	case !hasCmd && !hasURL:
+		return errors.New("mcp: either command (stdio) or url (http) is required")
+	}
+	if c.TimeoutSeconds < 0 || c.TimeoutSeconds > int(mcpMaxCallTimeout.Seconds()) {
+		return fmt.Errorf("mcp: timeout_seconds must be within 0..%d", int(mcpMaxCallTimeout.Seconds()))
+	}
+	return nil
+}
+
+// ReadOnly 报告工具是否在免确认白名单内。
+func (c MCPServerConfig) ReadOnly(tool string) bool {
+	for _, t := range c.ReadOnlyTools {
+		if t == tool {
+			return true
+		}
+	}
+	return false
+}
+
+// mcpMaxCallTimeout 是单次 MCP 工具调用的超时上限（与 mcp 包一致）。
+const mcpMaxCallTimeout = 300 * time.Second
 
 // HomeDir 返回 ~/.gocloudagent（尊重 GOCLOUDAGENT_HOME 覆盖，便于测试隔离）。
 func HomeDir(env []string) string {
@@ -176,6 +232,15 @@ func overlayConfig(base, override Config) Config {
 		base.Yolo = true
 	}
 	base.ShellIsolation = overlayShellIsolation(base.ShellIsolation, override.ShellIsolation)
+	if len(override.MCPServers) > 0 {
+		// map 按 key 合并：命令行给出的 Server 覆盖同名项，其余保留。
+		if base.MCPServers == nil {
+			base.MCPServers = make(map[string]MCPServerConfig, len(override.MCPServers))
+		}
+		for k, v := range override.MCPServers {
+			base.MCPServers[k] = v
+		}
+	}
 	return base
 }
 
@@ -253,6 +318,12 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.ProjectID) == "" {
 		return errors.New("project_id is not configured: run `gocloudagent config set project_id <id>`")
+	}
+	// MCP 配置非法时不静默跳过该 Server：配置错误必须在启动阶段暴露。
+	for name, srv := range c.MCPServers {
+		if err := srv.Validate(); err != nil {
+			return fmt.Errorf("mcp_servers.%s: %w", name, err)
+		}
 	}
 	return nil
 }

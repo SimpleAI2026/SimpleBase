@@ -125,6 +125,7 @@ func TestTypeOfUnexportedAndBuiltin(t *testing.T) {
 		A int
 		b int
 	}
+	_ = mixed{b: 0}
 	imp := NewImporter()
 	pkg := types.NewPackage("example.com/m", "m")
 	_ = imp.typeOf(reflect.TypeOf(mixed{}), pkg)

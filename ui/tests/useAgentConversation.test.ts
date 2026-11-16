@@ -82,7 +82,7 @@ describe('useAgentConversation', () => {
     expect(wrapper.get('[data-status="pending"]').text()).toContain('list_databases')
     handlers!.onToolResult?.('list_databases', '[]', 'c1', 1)
     await nextTick()
-    expect(wrapper.get('[data-tool-summary="list_databases"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tool-summary="list_databases"]').exists()).toBe(true)
     handlers!.onEnd?.('stop')
     await nextTick()
     expect(wrapper.find('[data-typing-dots]').exists()).toBe(false)

@@ -461,10 +461,6 @@ type Layout struct {
 	TempDir     string
 }
 
-func layoutFor(cacheDir, databaseID string) Layout {
-	return layoutAt("", cacheDir, "", databaseID, EngineDuckDB, false)
-}
-
 // layoutForEngine 按引擎生成布局（catalog 工作副本在 cacheDir）；engine 必须先经 NormalizeCatalogEngine。
 func layoutForEngine(cacheDir, databaseID, engine string) Layout {
 	return layoutAt("", cacheDir, "", databaseID, engine, false)

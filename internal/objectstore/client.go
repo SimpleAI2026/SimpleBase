@@ -126,7 +126,17 @@ func NewClient(ctx context.Context, cfg Config, logger observability.Logger, met
 	if err != nil {
 		return nil, fmt.Errorf("objectstore: load aws config: %w", err)
 	}
+	// 自定义 endpoint 通过 BaseEndpoint 注入（endpoint resolution v2）：
+	// SDK 按 UsePathStyle 决定寻址——true=path（MinIO），false=vhost（COS/S3/R2/GCS）。
+	// AWS 自有域名（amazonaws.com）不设置，走 SDK 默认解析。
+	baseEndpoint := ""
+	if cfg.Endpoint != "" && !isAWSHost(cfg.Endpoint) {
+		baseEndpoint = cfg.Endpoint
+	}
 	api := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		if baseEndpoint != "" {
+			o.BaseEndpoint = aws.String(baseEndpoint)
+		}
 		o.UsePathStyle = cfg.ForcePathStyle
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
@@ -153,27 +163,6 @@ func loadAWSConfig(ctx context.Context, cfg Config) (aws.Config, error) {
 	if cfg.AccessKey != "" && cfg.SecretKey != "" {
 		loadOpts = append(loadOpts, config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, "")))
-	}
-	if cfg.Endpoint != "" && !isAWSHost(cfg.Endpoint) {
-		loadOpts = append(loadOpts, config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, options ...any) (aws.Endpoint, error) {
-				if service == s3.ServiceID {
-					// HostnameImmutable 必须为 false：设 true 时 SDK 无条件把 bucket 拼进
-					// path（serializeImmutableHostnameBucket），force_path_style=false 形同
-					// 虚设，所有自定义 endpoint 恒为 path-style 寻址。对要求虚拟主机寻址的
-					// 服务（COS 存储桶强制 virtual-styled domain，区域级域名 path-style 返回
-					// PathStyleDomainForbidden；bucket 级域名下 List 请求被路由为 GetObject，
-					// 误报 404 NoSuchKey）会完全不可用。false 时 SDK 按 UsePathStyle 正常
-					// 寻址：true=path（MinIO），false=vhost（COS/S3/R2/GCS）。
-					return aws.Endpoint{
-						URL:               cfg.Endpoint,
-						SigningRegion:     cfg.Region,
-						HostnameImmutable: false,
-					}, nil
-				}
-				return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-			},
-		)))
 	}
 	return config.LoadDefaultConfig(ctx, loadOpts...)
 }

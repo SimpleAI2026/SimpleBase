@@ -403,12 +403,3 @@ func (r *KeyRepo) Scan(ctx context.Context, cursor, pattern string, typeFilter T
 	}
 	return out, next, nil
 }
-
-// —— 测试/调试辅助 ——
-
-// rawCount 返回 __sb_kv_keys 物理行数（含已过期；仅供测试断言惰性删除）。
-func (r *KeyRepo) rawCount(ctx context.Context) (int64, error) {
-	var n int64
-	err := r.t.tx.QueryRowContext(ctx, `SELECT count(*) FROM __sb_kv_keys`).Scan(&n)
-	return n, err
-}

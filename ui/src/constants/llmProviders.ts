@@ -48,6 +48,26 @@ export const LLM_PROVIDER_PRESETS: LlmProviderPreset[] = [
     suggestedModels: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5']
   },
   {
+    id: 'claude',
+    name: 'Claude Code',
+    protocol: 'anthropic_messages',
+    fields: [
+      { key: 'api_key', label: 'API Key', secret: true, required: true, placeholder: 'sk-ant-...' },
+      { key: 'base_url', label: 'Base URL', placeholder: 'https://api.anthropic.com' }
+    ],
+    suggestedModels: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5']
+  },
+  {
+    id: 'codex',
+    name: 'Codex CLI',
+    protocol: 'openai_chat',
+    fields: [
+      { key: 'api_key', label: 'API Key', secret: true, required: true, placeholder: 'sk-...' },
+      { key: 'base_url', label: 'Base URL', placeholder: 'https://api.openai.com/v1' }
+    ],
+    suggestedModels: ['gpt-5-codex', 'gpt-5', 'o4-mini']
+  },
+  {
     id: 'azure_openai',
     name: 'Azure OpenAI',
     protocol: 'azure_openai',

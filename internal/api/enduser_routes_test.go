@@ -42,8 +42,10 @@ func (m *testEndUserRepo) GetByExternalID(_ context.Context, projectID, external
 	return u, nil
 }
 
-func (m *testEndUserRepo) UpdatePassword(_ context.Context, id string, hash string, at time.Time) error { return nil }
-func (m *testEndUserRepo) Count(_ context.Context, projectID string) (int64, error)                     { return 0, nil }
+func (m *testEndUserRepo) UpdatePassword(_ context.Context, id string, hash string, at time.Time) error {
+	return nil
+}
+func (m *testEndUserRepo) Count(_ context.Context, projectID string) (int64, error) { return 0, nil }
 
 func newEndUserRouter(t *testing.T) *echo.Echo {
 	t.Helper()

@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	同包调用：ErrEmptySQL → classifier-desens.go；ErrMultipleStatements → classifier-desens.go；ErrNulChar → classifier-desens.go
+//	同包调用：ErrEmptySQL → classifier.go；ErrMultipleStatements → classifier.go；ErrNulChar → classifier.go
 //
 // 调用架构
 //
@@ -13,8 +13,8 @@
 //	         │
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] classifier-desens.go
-//	[关键引用] ErrEmptySQL ← classifier-desens.go
+//	[同包] classifier.go
+//	[关键引用] ErrEmptySQL ← classifier.go
 //
 // 主要符号
 //

@@ -74,9 +74,6 @@ func (r *Runtime) KV(ctx context.Context, argv ...string) (any, error) {
 	err := r.Request(ctx, http.MethodPost, r.ProjectPath("/kv"), map[string]any{"type": "cmd", "argvs": argv}, &out)
 	return out, err
 }
-func (r *Runtime) Compute(ctx context.Context, name string, input any, output any) error {
-	return r.Request(ctx, http.MethodPost, "/go/"+url.PathEscape(r.Project)+"/"+url.PathEscape(name)+"/Compute", input, output)
-}
 func Rows(result *gosdk.QueryResult) ([]map[string]any, error) {
 	if result == nil {
 		return nil, errors.New("nil query result")
@@ -93,18 +90,6 @@ func Rows(result *gosdk.QueryResult) ([]map[string]any, error) {
 		output = append(output, item)
 	}
 	return output, nil
-}
-func Int(v any) int64 {
-	switch x := v.(type) {
-	case float64:
-		return int64(x)
-	case int64:
-		return x
-	case int:
-		return int64(x)
-	default:
-		return 0
-	}
 }
 func Text(v any) string { s, _ := v.(string); return s }
 func CheckBatch(batch *gosdk.BatchResult, err error) error {

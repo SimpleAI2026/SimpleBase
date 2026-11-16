@@ -4,6 +4,8 @@ import type {
   Api,
   APIPreviewResult,
   OpenAPIDocument,
+  AgentApproval,
+  AgentApprovalStatus,
   AgentMessage,
   AgentModuleInfo,
   AgentRun,
@@ -11,7 +13,6 @@ import type {
   AgentRunMetrics,
   AgentRunRequest,
   AgentSchedule,
-  AgentScheduleRun,
   AgentStreamHandlers,
   AgentUsageEventWire,
   AgentThread,
@@ -44,20 +45,17 @@ import type {
   GoFunctionItem,
   GoFuncVersionCreate,
   GoFuncVersionSummary,
-  LlmChatRequest,
-  LlmChatResponse,
   LlmSettings,
-  LlmStreamHandlers,
   LlmStreamConnection,
   LLMTrace,
   LLMTraceGroup,
   LLMTraceGroupListResult,
-  LLMTraceListResult,
   LlmTraceGroupQuery,
-  LlmTraceQuery,
   LogEvent,
   LogEventWire,
   LogRetentionWire,
+  McpServer,
+  McpToolPolicy,
   MetricsSummaryWire,
   TrendPointWire,
   LogQuery,
@@ -84,1217 +82,84 @@ import type {
 
 /* ---------- 命名转换：UI camelCase ↔ 后端 snake_case（集中在此） ---------- */
 
-/** planv6.5：站点状态（S3 域后端已是 camelCase，这里只做类型收敛与兜底）。 */
-function toS3SiteInfo(raw: unknown): S3SiteInfo {
-  const r = (raw ?? {}) as Partial<S3SiteInfo>
-  return {
-    enabled: r.enabled === true,
-    baseUrl: typeof r.baseUrl === 'string' && r.baseUrl ? r.baseUrl : undefined,
-    publishable: r.publishable === true,
-    reason: typeof r.reason === 'string' && r.reason ? r.reason : undefined
-  }
-}
+/* 转换函数与 wire 接口已拆到 http-api-converters.ts（planv6.6 OPT-6）。 */
+import {
+  agentScheduleFromCronJob,
+  agentPath,
+  cronJobBody,
+  cronJobsPath,
+  dataCollectionsPath,
+  databaseResourcePath,
+  E2B_BASE,
+  ENVD_BASE,
+  e2bHeaders,
+  envdRpc,
+  gofunctionsPath,
+  kvPath,
+  llmTraceGroupParams,
+  logQueryParams,
+  num,
+  optionalNumber,
+  readSse,
+  SB_META_NAME,
+  sandboxPath,
+  schemaText,
+  attachAgentRun,
+  collectionWire,
+  streamAgentRun,
+  toApiKeyItem,
+  toAgentApproval,
+  toAgentMessage,
+  toAgentThread,
+  toAuthUser,
+  toBackupItem,
+  toCloudAgent,
+  toCollectionInfo,
+  toCollectionSchema,
+  toCronJobItem,
+  toCronJobRunItem,
+  toCronScheduleKind,
+  toDatabaseItem,
+  toDatabaseSchema,
+  toDocumentItem,
+  toDocumentPage,
+  toExecuteResult,
+  toFunctionTrigger,
+  toGoFunctionItem,
+  toGoFuncVersion,
+  toLlmSettings,
+  toLLMTrace,
+  toLLMTraceGroup,
+  toLLMTraceGroupListResult,
+  LLMTraceWire,
+  LLMTraceGroupWire,
+  toLogEvent,
+  toLogRetention,
+  toMcpServer,
+  toMetricsSummary,
+  toProjectItem,
+  toQueryResult,
+  toS3FolderMeta,
+  toS3PublicResult,
+  toS3SiteInfo,
+  toSandboxFileEntry,
+  toSandboxItem,
+  toSchemaColumn,
+  toSchemaDryRun,
+  toSchemaTable,
+  toSchemaTableRows,
+  toTokenPair,
+  toTrendPoints,
+  toTriggerWire,
+  toUserItem,
+  toBatchResult,
+  toSqlPayload,
+  trendPointList
+} from './http-api-converters'
+
+// 助手定时摘要的映射函数对外可用（AgentManager 直接消费；planv6.6 DC-5）。
+export { agentScheduleFromCronJob }
 
-function toS3FolderMeta(raw: unknown): S3FolderMeta {
-  const r = (raw ?? {}) as Partial<S3FolderMeta>
-  return {
-    key: String(r.key ?? ''),
-    public: r.public === true,
-    publicUrl: r.publicUrl || undefined,
-    publicInherited: r.publicInherited || undefined
-  }
-}
-
-function toS3PublicResult(raw: unknown): S3PublicResult {
-  const r = (raw ?? {}) as Partial<S3PublicResult>
-  return { public: r.public === true, publicUrl: r.publicUrl || undefined, publicInherited: r.publicInherited || undefined }
-}
-
-function toLlmPayload(req: LlmChatRequest) {
-  return {
-    model: req.model,
-    messages: req.messages,
-    max_tokens: req.maxTokens,
-    temperature: req.temperature
-  }
-}
-
-/**
- * OpenAI chat.completion → UI 的 LlmChatResponse。
- *
- * 仓库约定「跨层契约集中在 types.ts，不透传原始结构」（ui/AGENTS.md），因此把
- * choices[0] 展平成界面已有的扁平类型，useAiChat 与测试桩都无需感知嵌套。
- */
-function toLlmChatResponse(raw: Record<string, any>): LlmChatResponse {
-  const choice = raw?.choices?.[0]
-  const usage = raw?.usage
-  return {
-    content: choice?.message?.content ?? '',
-    usage: usage
-      ? {
-          prompt_tokens: usage.prompt_tokens,
-          completion_tokens: usage.completion_tokens,
-          total_tokens: usage.total_tokens
-        }
-      : undefined,
-    model: raw?.model ?? '',
-    provider: raw?.provider ?? '',
-    finish_reason: choice?.finish_reason
-  }
-}
-
-/** DatabaseItem：后端 snake_case → UI camelCase */
-function toDatabaseItem(d: Record<string, any>): DatabaseItem {
-  return {
-    id: d.id,
-    name: d.name,
-    status: d.status,
-    createdAt: d.created_at,
-    updatedAt: d.updated_at,
-    snapshot: d.snapshot
-      ? { lastSyncedSnapshot: d.snapshot.last_synced_snapshot, syncLag: d.snapshot.sync_lag }
-      : undefined,
-    documentCount: typeof d.document_count === 'number' ? d.document_count : undefined,
-    dataModel: d.data_model === 'sql' ? 'sql' : 'collection'
-  }
-}
-
-function schemaText(value: unknown): string {
-  return typeof value === 'string' ? value : ''
-}
-
-function toSchemaColumn(raw: unknown): SchemaColumn {
-  const column = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
-  const mapped: SchemaColumn = {
-    name: schemaText(column?.name),
-    type: schemaText(column?.type),
-    nullable: column?.nullable !== false
-  }
-  if (column?.sensitive === true) mapped.sensitive = true
-  return mapped
-}
-
-function toSchemaTableRows(raw: unknown): SchemaTableRows {
-  const body = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
-  const columns = Array.isArray(body?.columns) ? body.columns.map(toSchemaColumn) : []
-  const rows: unknown[][] = []
-  if (Array.isArray(body?.rows)) {
-    for (const row of body.rows) {
-      rows.push(Array.isArray(row) ? Array.from(row) : [])
-    }
-  }
-  return {
-    table: schemaText(body?.table),
-    columns,
-    rows,
-    limit: typeof body?.limit === 'number' ? body.limit : 0,
-    offset: typeof body?.offset === 'number' ? body.offset : 0,
-    total: typeof body?.total === 'number' ? body.total : 0
-  }
-}
-
-function toSchemaTable(raw: unknown): SchemaTable {
-  const table = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
-  const columns = Array.isArray(table?.columns) ? table.columns.map(toSchemaColumn) : []
-  return { name: schemaText(table?.name), columns }
-}
-
-function toDatabaseSchema(raw: unknown): DatabaseSchema {
-  const body = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
-  const tables = Array.isArray(body?.tables) ? body.tables.map(toSchemaTable) : []
-  return { tables }
-}
-
-function databaseResourcePath(projectId: string, databaseId: string, suffix: string) {
-  return (
-    '/v1/projects/' +
-    encodeURIComponent(projectId) +
-    '/databases/' +
-    encodeURIComponent(databaseId) +
-    suffix
-  )
-}
-
-/** SQL 请求：UI camelCase → 后端 snake_case */
-function toSqlPayload(req: SqlRequest) {
-  return { sql: req.sql, args: req.args, max_rows: req.maxRows }
-}
-
-/** SQL query 响应：后端 → UI（rows 保持二维数组，由页面按 columns zip） */
-function toQueryResult(r: Record<string, any>): SqlQueryResult {
-  return {
-    columns: r.columns ?? [],
-    rows: r.rows ?? [],
-    rowCount: r.row_count ?? 0,
-    durationMs: r.duration_ms ?? 0,
-    requestId: r.request_id ?? ''
-  }
-}
-
-function toExecuteResult(r: Record<string, any>): SqlExecuteResult {
-  return {
-    rowsAffected: r.rows_affected ?? 0,
-    durability: r.durability ?? '',
-    durationMs: r.duration_ms ?? 0,
-    requestId: r.request_id ?? ''
-  }
-}
-
-function toBatchResult(r: Record<string, any>): SqlBatchResult {
-  const items = (r.results ?? []).map((it: Record<string, any>) => ({
-    index: it.index ?? 0,
-    rowsAffected: it.rows_affected,
-    durationMs: it.duration_ms,
-    errorCode: it.error_code,
-    errorMessage: it.error_message
-  }))
-  const err = r.error
-    ? { failedIndex: r.error.failed_index, code: r.error.code, message: r.error.message }
-    : undefined
-  return {
-    results: items,
-    durability: r.durability ?? '',
-    durationMs: r.duration_ms ?? 0,
-    requestId: r.request_id ?? '',
-    error: err
-  }
-}
-
-/**
- * 逐帧解析 SSE 的 `data:` 行并回调 JSON 对象。
- *
- * `onDone` 仅供 OpenAI 兼容流使用：它的结束哨兵是字面量 `[DONE]`（不是 JSON），
- * 解析会抛错并被静默忽略，调用方因此永远等不到结束信号、界面一直转圈。
- * 云助手 run 流仍以 `{"type":"end"}` 收尾，不传 onDone，行为与之前完全一致。
- */
-async function readSse(
-  resp: Response,
-  onEvent: (event: Record<string, any>) => void,
-  onDone?: () => void
-): Promise<void> {
-  const reader = resp.body!.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    let idx: number
-    while ((idx = buf.indexOf('\n\n')) >= 0) {
-      const raw = buf.slice(0, idx)
-      buf = buf.slice(idx + 2)
-      let eventId = ''
-      for (const line of raw.split('\n')) {
-        if (line.startsWith(':')) continue
-        if (line.startsWith('id:')) {
-          eventId = line.slice(3).trim()
-          continue
-        }
-        if (!line.startsWith('data:')) continue
-        const data = line.slice(5).trim()
-        if (!data) continue
-        if (onDone && data === '[DONE]') {
-          onDone()
-          continue
-        }
-        try {
-          const parsed = JSON.parse(data) as Record<string, any>
-          if (eventId) parsed._sse_id = eventId
-          onEvent(parsed)
-        } catch {
-          /* 忽略非 JSON 帧 */
-        }
-      }
-    }
-  }
-}
-
-/** SSE 流式对话：fetch + ReadableStream 逐行解析 `data: {...}` 帧 */
-function llmStream(
-  projectId: string,
-  req: LlmChatRequest,
-  handlers: LlmStreamHandlers
-): LlmStreamConnection {
-  const controller = new AbortController()
-  let ended = false
-  const fireEnd = () => {
-    if (!ended) {
-      ended = true
-      handlers.onEnd?.()
-    }
-  }
-  ;(async () => {
-    try {
-      const resp = await fetch(
-        `${baseURL}/v1/projects/${encodeURIComponent(projectId)}/v1/chat/completions`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${getApiKey()}`
-          },
-          body: JSON.stringify({ ...toLlmPayload(req), stream: true }),
-          signal: controller.signal
-        }
-      )
-      if (!resp.ok || !resp.body) {
-        // 非 JSON 响应（如 SPA fallback HTML）时 json() 会抛错，需 catch 兜底
-        const data = await resp.json().catch(() => null)
-        throw new Error(
-          (data as any)?.error?.message || (data as any)?.message || `请求失败 (${resp.status})`
-        )
-      }
-      await readSse(
-        resp,
-        (obj) => {
-          // OpenAI 分块：正文在 choices[0].delta.content。
-          const text = obj?.choices?.[0]?.delta?.content ?? ''
-          if (text) handlers.onChunk?.(text)
-        },
-        // 结束哨兵 `[DONE]` 是字面量而非 JSON，必须显式识别，否则 onEnd 永不触发。
-        fireEnd
-      )
-      fireEnd()
-    } catch (e) {
-      if (!controller.signal.aborted) handlers.onError?.(e)
-    }
-  })()
-  return { close: () => controller.abort() }
-}
-
-function agentPath(projectId: string, rest = '') {
-  return '/v1/projects/' + encodeURIComponent(projectId) + rest
-}
-
-/** 云函数路径 */
-function gofunctionsPath(projectId: string, name?: string, ver?: number | string, suffix?: string) {
-  let path = '/v1/projects/' + encodeURIComponent(projectId) + '/gofunctions'
-  if (name) path += '/' + encodeURIComponent(name)
-  if (ver !== undefined) path += '/versions/' + encodeURIComponent(String(ver))
-  if (suffix) path += '/' + suffix
-  return path
-}
-
-/* v8 ignore start -- 防御性字段映射：空/满 payload 双向已有 sparse 测试 */
-function toGoFuncVersion(raw: Record<string, any>) {
-  return {
-    version: Number(raw?.version ?? 0),
-    exports: Array.isArray(raw?.exports) ? raw.exports.map(String) : [],
-    note: String(raw?.note ?? ''),
-    createdAt: String(raw?.created_at ?? ''),
-    active: Boolean(raw?.active),
-    source: raw?.source || undefined
-  }
-}
-
-/** GoFunctionItem：后端 snake_case → UI camelCase */
-function toGoFunctionItem(raw: Record<string, any>): GoFunctionItem {
-  return {
-    id: String(raw?.id ?? ''),
-    name: String(raw?.name ?? ''),
-    file: String(raw?.file ?? ''),
-    description: String(raw?.description ?? ''),
-    activeVersion: Number(raw?.active_version ?? 0),
-    latestVersion: Number(raw?.latest_version ?? 0),
-    published: Boolean(raw?.published),
-    exports: Array.isArray(raw?.exports) ? raw.exports.map(String) : [],
-    versions: Array.isArray(raw?.versions) ? raw.versions.map(toGoFuncVersion) : undefined,
-    source: raw?.source || undefined,
-    createdAt: String(raw?.created_at ?? ''),
-    updatedAt: String(raw?.updated_at ?? '')
-  }
-}
-/* v8 ignore stop */
-
-/* ---------- 云沙盒：E2B 兼容 API（planv6.2）。控制面 /e2b/**，envd 面 /e2b/envd/**，扩展 /e2b/ext/** ---------- */
-const E2B_BASE = '/e2b'
-const ENVD_BASE = '/e2b/envd'
-const SB_META_NAME = 'name'
-const SB_META_SOURCE = 'simplebase.source'
-
-function e2bHeaders(projectId: string): Record<string, string> {
-  return { 'X-SimpleBase-Project': projectId }
-}
-
-function sandboxPath(id: string, suffix = ''): string {
-  return E2B_BASE + '/sandboxes/' + encodeURIComponent(id) + suffix
-}
-
-function num(v: unknown): number {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
-}
-
-function toSandboxItem(raw: Record<string, unknown>): SandboxItem {
-  const ext = (raw.x_simplebase || {}) as Record<string, unknown>
-  const metadata = (raw.metadata || {}) as Record<string, string>
-  return {
-    id: String(raw.sandboxID ?? ''),
-    name: String(metadata[SB_META_NAME] ?? ''),
-    templateId: String(raw.alias || raw.templateID || ''),
-    state: raw.state === 'running' ? 'running' : 'paused',
-    status: String(ext.status ?? ''),
-    source: String(ext.source ?? metadata[SB_META_SOURCE] ?? ''),
-    cpuCount: num(raw.cpuCount),
-    memoryMB: num(raw.memoryMB),
-    startedAt: raw.startedAt ? String(raw.startedAt) : undefined,
-    endAt: raw.endAt ? String(raw.endAt) : undefined,
-    lastActiveAt: ext.lastActiveAt ? String(ext.lastActiveAt) : undefined,
-    lastError: ext.lastError ? String(ext.lastError) : undefined,
-    idleTimeoutS: num(ext.idleTimeoutS),
-    metadata
-  }
-}
-
-/** envd 的 EntryInfo：type 是枚举字符串，size 是字符串形式的 int64。 */
-function toSandboxFileEntry(raw: Record<string, unknown>): SandboxFileEntry {
-  return {
-    name: String(raw.name ?? ''),
-    path: String(raw.path ?? ''),
-    kind: raw.type === 'FILE_TYPE_DIRECTORY' ? 'directory' : 'file',
-    size: num(raw.size),
-    permissions: String(raw.permissions ?? ''),
-    modifiedTime: raw.modifiedTime ? String(raw.modifiedTime) : undefined
-  }
-}
-
-/** envd 的一元 Connect-JSON 调用。 */
-function envdRpc(projectId: string, id: string, method: string, body: Record<string, unknown>) {
-  return http.post(ENVD_BASE + method, body, {
-    headers: { ...e2bHeaders(projectId), 'Connect-Protocol-Version': '1', 'E2b-Sandbox-Id': id }
-  })
-}
-
-/** 定时任务路径：/v1/projects/:pid/cron-jobs[/:jobId[/runs|/trigger]] */
-function cronJobsPath(projectId: string, jobId?: string, suffix?: 'runs' | 'trigger') {
-  let path = '/v1/projects/' + encodeURIComponent(projectId) + '/cron-jobs'
-  if (jobId) {
-    path += '/' + encodeURIComponent(jobId)
-    if (suffix) path += '/' + suffix
-  }
-  return path
-}
-
-/** 未识别的调度类型回退 cron（旧数据兼容）。 */
-function toCronScheduleKind(raw: unknown): CronJobItem['scheduleKind'] {
-  if (raw === 'interval') return 'interval'
-  if (raw === 'once') return 'once'
-  return 'cron'
-}
-
-/** CronJobItem：后端 snake_case → UI camelCase（§3.13）。raw 可能缺失（响应体为空）。 */
-function toCronJobItem(raw: CronJobWire | null | undefined): CronJobItem {
-  return {
-    id: String(raw?.id ?? ''),
-    name: String(raw?.name ?? ''),
-    description: String(raw?.description ?? ''),
-    targetKind: raw?.target_kind === 'agent' ? 'agent' : 'function',
-    agentId: raw?.agent_id ? String(raw.agent_id) : undefined,
-    agentThreadId: raw?.agent_thread_id ? String(raw.agent_thread_id) : undefined,
-    agentPrompt: raw?.agent_prompt ? String(raw.agent_prompt) : undefined,
-    scheduleKind: toCronScheduleKind(raw?.schedule_kind),
-    cronExpr: String(raw?.cron_expr ?? ''),
-    intervalSeconds: raw?.interval_seconds != null ? Number(raw.interval_seconds) : undefined,
-    runAt: raw?.run_at || undefined,
-    funcFile: String(raw?.func_file ?? ''),
-    funcExport: String(raw?.func_export ?? ''),
-    inputJson: String(raw?.input_json ?? '{}'),
-    enabled: Boolean(raw?.enabled),
-    lastRunAt: raw?.last_run_at || undefined,
-    nextRunAt: raw?.next_run_at || undefined,
-    lastStatus: String(raw?.last_status ?? ''),
-    lastError: String(raw?.last_error ?? ''),
-    runCount: Number(raw?.run_count ?? 0),
-    targetMissing: Boolean(raw?.target_missing),
-    createdAt: String(raw?.created_at ?? ''),
-    updatedAt: String(raw?.updated_at ?? '')
-  }
-}
-
-function toCronJobRunItem(raw: CronJobRunWire | null | undefined): CronJobRunItem {
-  return {
-    id: String(raw?.id ?? ''),
-    jobId: String(raw?.job_id ?? ''),
-    trigger: raw?.trigger === 'manual' ? 'manual' : 'scheduled',
-    status: String(raw?.status ?? '') as CronJobRunItem['status'],
-    error: String(raw?.error ?? ''),
-    durationMs: Number(raw?.duration_ms ?? 0),
-    responseJson: String(raw?.response_json ?? ''),
-    startedAt: raw?.started_at || undefined,
-    finishedAt: raw?.finished_at || undefined,
-    createdAt: String(raw?.created_at ?? '')
-  }
-}
-
-/** CronJobCreate → 后端 snake_case body */
-function cronJobBody(body: Partial<CronJobCreate>) {
-  const out: Record<string, unknown> = {
-    description: body.description ?? '',
-    schedule_kind: body.scheduleKind,
-    target_kind: body.targetKind ?? 'function'
-  }
-  if (body.targetKind === 'agent') {
-    out.agent_id = body.agentId ?? ''
-    out.agent_prompt = body.agentPrompt ?? ''
-  } else {
-    out.func_file = body.funcFile
-    out.func_export = body.funcExport
-    out.input_json = body.inputJson ?? '{}'
-  }
-  if (body.name != null) out.name = body.name
-  if (body.cronExpr != null) out.cron_expr = body.cronExpr
-  if (body.intervalSeconds != null) out.interval_seconds = body.intervalSeconds
-  if (body.runAt != null) out.run_at = body.runAt
-  if (body.enabled != null) out.enabled = body.enabled
-  return out
-}
-
-function optionalNumber(v: unknown): number | null {
-  if (v === null || v === undefined || v === '') return null
-  const n = Number(v)
-  return Number.isFinite(n) ? n : null
-}
-
-function toMetricsSummary(d: unknown): MetricsSummary {
-  const raw: MetricsSummaryWire = d && typeof d === 'object' ? d : {}
-  return {
-    totalRequests: Number(raw.total_requests ?? raw.totalRequests ?? 0),
-    errorRate: Number(raw.error_rate ?? raw.errorRate ?? 0),
-    avgLatencyMs: Number(raw.avg_latency_ms ?? raw.avgLatencyMs ?? 0),
-    activeDatabases: Number(raw.active_databases ?? raw.activeDatabases ?? 0),
-    latencyP50Ms: optionalNumber(raw.latency_p50_ms ?? raw.latencyP50Ms),
-    latencyP90Ms: optionalNumber(raw.latency_p90_ms ?? raw.latencyP90Ms),
-    latencyP99Ms: optionalNumber(raw.latency_p99_ms ?? raw.latencyP99Ms),
-    latencySampleCount: Number(raw.latency_sample_count ?? raw.latencySampleCount ?? 0),
-    latencyOverflowMs: Number(raw.latency_overflow_ms ?? raw.latencyOverflowMs ?? 30000)
-  }
-}
-
-/** 趋势接口兼容两种形状：裸数组，或 `{ points: [...] }`；其余视为空。 */
-function trendPointList(d: unknown): unknown[] {
-  if (Array.isArray(d)) return d
-  const points = (d as { points?: unknown } | null | undefined)?.points
-  return Array.isArray(points) ? points : []
-}
-
-function toTrendPoints(d: unknown): TrendPoint[] {
-  return trendPointList(d).map((item) => {
-    const p = item as TrendPointWire | null | undefined
-    return {
-      date: String(p?.date ?? ''),
-      requests: Number(p?.requests ?? 0),
-      errors: Number(p?.errors ?? 0)
-    }
-  })
-}
-
-function logQueryParams(q?: LogQuery) {
-  if (!q) return undefined
-  const params: Record<string, string | number> = {}
-  if (q.level) params.level = q.level
-  if (q.q) params.q = q.q
-  if (q.from) params.from = q.from
-  if (q.to) params.to = q.to
-  if (q.limit) params.limit = q.limit
-  return params
-}
-
-function toLogEvent(raw: LogEventWire | null | undefined): LogEvent {
-  return {
-    id: String(raw?.id ?? raw?.ID ?? ''),
-    projectId: String(raw?.project_id ?? raw?.projectId ?? raw?.ProjectID ?? ''),
-    level: String(raw?.level ?? raw?.Level ?? ''),
-    logger: String(raw?.logger ?? raw?.Logger ?? ''),
-    message: String(raw?.message ?? raw?.Message ?? ''),
-    fieldsJson: raw?.fields_json ?? raw?.fieldsJson ?? raw?.FieldsJSON ?? undefined,
-    requestId: raw?.request_id ?? raw?.requestId ?? raw?.RequestID ?? undefined,
-    occurredAt: String(raw?.occurred_at ?? raw?.occurredAt ?? raw?.OccurredAt ?? '')
-  }
-}
-
-function toLogRetention(raw: unknown): LogRetention {
-  const d: LogRetentionWire = raw && typeof raw === 'object' ? raw : {}
-  return {
-    scope: String(d.scope ?? d.Scope ?? ''),
-    keepDays: Number(d.keep_days ?? d.keepDays ?? d.KeepDays ?? 14),
-    updatedAt: String(d.updated_at ?? d.updatedAt ?? d.UpdatedAt ?? '')
-  }
-}
-
-function toLlmSettings(raw: Record<string, any> | undefined): LlmSettings {
-  const d = raw && typeof raw === 'object' ? raw : {}
-  return {
-    defaultProvider: d.default_provider || d.defaultProvider || undefined,
-    defaultModel: d.default_model || d.defaultModel || undefined,
-    baseUrl: d.base_url || d.baseUrl || undefined,
-    apiKeyMasked: d.api_key_masked || d.apiKeyMasked || undefined,
-    hasApiKey: Boolean(d.has_api_key ?? d.hasApiKey),
-    temperature: d.temperature ?? undefined,
-    maxTokens: d.max_tokens ?? d.maxTokens ?? undefined
-  }
-}
-
-/** trace 查询参数序列化：undefined 字段不进 query（服务端给默认窗口 24h）。 */
-function llmTraceParams(q?: LlmTraceQuery): Record<string, string> {
-  if (!q) return {}
-  const out: Record<string, string> = {}
-  if (q.status) out.status = q.status
-  if (q.model) out.model = q.model
-  if (q.requestId) out.request_id = q.requestId
-  if (q.from) out.from = q.from
-  if (q.to) out.to = q.to
-  if (q.limit != null) out.limit = String(q.limit)
-  if (q.offset != null) out.offset = String(q.offset)
-  return out
-}
-
-interface LLMTraceWire {
-  id?: unknown
-  ID?: unknown
-  project_id?: unknown
-  projectId?: unknown
-  ProjectID?: unknown
-  request_id?: unknown
-  requestId?: unknown
-  RequestID?: unknown
-  source?: unknown
-  Source?: unknown
-  provider?: unknown
-  Provider?: unknown
-  model?: unknown
-  Model?: unknown
-  status?: unknown
-  Status?: unknown
-  stream?: unknown
-  Stream?: unknown
-  duration_ms?: unknown
-  durationMs?: unknown
-  DurationMs?: unknown
-  input_tokens?: unknown
-  inputTokens?: unknown
-  InputTokens?: unknown
-  output_tokens?: unknown
-  outputTokens?: unknown
-  OutputTokens?: unknown
-  error_code?: string
-  errorCode?: string
-  ErrorCode?: string
-  error_message?: string
-  errorMessage?: string
-  ErrorMessage?: string
-  trace_id?: unknown
-  traceId?: unknown
-  TraceID?: unknown
-  caller?: unknown
-  Caller?: unknown
-  span_kind?: unknown
-  spanKind?: unknown
-  SpanKind?: unknown
-  name?: unknown
-  Name?: unknown
-  input_json?: string
-  inputJson?: string
-  InputJSON?: string
-  output_json?: string
-  outputJson?: string
-  OutputJSON?: string
-  tools_json?: string
-  toolsJson?: string
-  ToolsJSON?: string
-  created_at?: unknown
-  createdAt?: unknown
-  CreatedAt?: unknown
-}
-
-interface LLMTraceListWire {
-  traces?: LLMTraceWire[]
-  total?: unknown
-}
-
-interface LLMTraceGroupWire {
-  trace_id?: unknown
-  traceId?: unknown
-  TraceID?: unknown
-  caller?: unknown
-  Caller?: unknown
-  model?: unknown
-  Model?: unknown
-  provider?: unknown
-  Provider?: unknown
-  status?: unknown
-  Status?: unknown
-  stream?: unknown
-  Stream?: unknown
-  started_at?: unknown
-  startedAt?: unknown
-  StartedAt?: unknown
-  finished_at?: unknown
-  finishedAt?: unknown
-  FinishedAt?: unknown
-  span_count?: unknown
-  spanCount?: unknown
-  SpanCount?: unknown
-  tool_count?: unknown
-  toolCount?: unknown
-  ToolCount?: unknown
-  llm_count?: unknown
-  llmCount?: unknown
-  LLMCount?: unknown
-  input_tokens?: unknown
-  inputTokens?: unknown
-  InputTokens?: unknown
-  output_tokens?: unknown
-  outputTokens?: unknown
-  OutputTokens?: unknown
-  duration_ms?: unknown
-  durationMs?: unknown
-  DurationMs?: unknown
-  error_code?: string
-  errorCode?: string
-  ErrorCode?: string
-  request_id?: unknown
-  requestId?: unknown
-  RequestID?: unknown
-}
-
-interface LLMTraceGroupListWire {
-  groups?: LLMTraceGroupWire[]
-  total?: unknown
-}
-
-function toLLMTrace(raw: LLMTraceWire | null | undefined): LLMTrace {
-  const d: LLMTraceWire = raw && typeof raw === 'object' ? raw : {}
-  return {
-    id: String(d.id ?? d.ID ?? ''),
-    projectId: String(d.project_id ?? d.projectId ?? d.ProjectID ?? ''),
-    requestId: String(d.request_id ?? d.requestId ?? d.RequestID ?? ''),
-    source: String(d.source ?? d.Source ?? ''),
-    provider: String(d.provider ?? d.Provider ?? ''),
-    model: String(d.model ?? d.Model ?? ''),
-    status: String(d.status ?? d.Status ?? ''),
-    stream: Boolean(d.stream ?? d.Stream),
-    durationMs: Number(d.duration_ms ?? d.durationMs ?? d.DurationMs ?? 0),
-    inputTokens: Number(d.input_tokens ?? d.inputTokens ?? d.InputTokens ?? 0),
-    outputTokens: Number(d.output_tokens ?? d.outputTokens ?? d.OutputTokens ?? 0),
-    errorCode: d.error_code || d.errorCode || d.ErrorCode || undefined,
-    errorMessage: d.error_message || d.errorMessage || d.ErrorMessage || undefined,
-    traceId: String(d.trace_id ?? d.traceId ?? d.TraceID ?? ''),
-    caller: String(d.caller ?? d.Caller ?? ''),
-    spanKind: String(d.span_kind ?? d.spanKind ?? d.SpanKind ?? ''),
-    name: String(d.name ?? d.Name ?? ''),
-    inputJson: d.input_json || d.inputJson || d.InputJSON || undefined,
-    outputJson: d.output_json || d.outputJson || d.OutputJSON || undefined,
-    toolsJson: d.tools_json || d.toolsJson || d.ToolsJSON || undefined,
-    createdAt: String(d.created_at ?? d.createdAt ?? d.CreatedAt ?? '')
-  }
-}
-
-function toLLMTraceListResult(raw: LLMTraceListWire | undefined): LLMTraceListResult {
-  const d: LLMTraceListWire = raw && typeof raw === 'object' ? raw : {}
-  const list = Array.isArray(d.traces) ? d.traces : []
-  return {
-    traces: list.map((r) => toLLMTrace(r)),
-    total: Number(d.total ?? 0)
-  }
-}
-
-/** 分组列表查询参数序列化：与服务端 Groups handler 一一对应。 */
-function llmTraceGroupParams(q?: LlmTraceGroupQuery): Record<string, string> {
-  if (!q) return {}
-  const out: Record<string, string> = {}
-  if (q.caller) out.caller = q.caller
-  if (q.status) out.status = q.status
-  if (q.model) out.model = q.model
-  if (q.from) out.from = q.from
-  if (q.to) out.to = q.to
-  if (q.limit != null) out.limit = String(q.limit)
-  if (q.offset != null) out.offset = String(q.offset)
-  return out
-}
-
-function toLLMTraceGroup(raw: LLMTraceGroupWire | null | undefined): LLMTraceGroup {
-  const d: LLMTraceGroupWire = raw && typeof raw === 'object' ? raw : {}
-  return {
-    traceId: String(d.trace_id ?? d.traceId ?? d.TraceID ?? ''),
-    caller: String(d.caller ?? d.Caller ?? ''),
-    model: String(d.model ?? d.Model ?? ''),
-    provider: String(d.provider ?? d.Provider ?? ''),
-    status: String(d.status ?? d.Status ?? ''),
-    stream: Boolean(d.stream ?? d.Stream),
-    startedAt: String(d.started_at ?? d.startedAt ?? d.StartedAt ?? ''),
-    finishedAt: String(d.finished_at ?? d.finishedAt ?? d.FinishedAt ?? ''),
-    spanCount: Number(d.span_count ?? d.spanCount ?? d.SpanCount ?? 0),
-    toolCount: Number(d.tool_count ?? d.toolCount ?? d.ToolCount ?? 0),
-    llmCount: Number(d.llm_count ?? d.llmCount ?? d.LLMCount ?? 0),
-    inputTokens: Number(d.input_tokens ?? d.inputTokens ?? d.InputTokens ?? 0),
-    outputTokens: Number(d.output_tokens ?? d.outputTokens ?? d.OutputTokens ?? 0),
-    durationMs: Number(d.duration_ms ?? d.durationMs ?? d.DurationMs ?? 0),
-    errorCode: d.error_code || d.errorCode || d.ErrorCode || undefined,
-    requestId: String(d.request_id ?? d.requestId ?? d.RequestID ?? '')
-  }
-}
-
-function toLLMTraceGroupListResult(raw: LLMTraceGroupListWire | undefined): LLMTraceGroupListResult {
-  const d: LLMTraceGroupListWire = raw && typeof raw === 'object' ? raw : {}
-  const list = Array.isArray(d.groups) ? d.groups : []
-  return {
-    groups: list.map((r) => toLLMTraceGroup(r)),
-    total: Number(d.total ?? 0)
-  }
-}
-
-function toCloudAgent(raw: Record<string, any>): CloudAgent {
-  return {
-    id: String(raw?.id ?? ''),
-    name: String(raw?.name ?? ''),
-    module: String(raw?.module ?? ''),
-    description: String(raw?.description ?? ''),
-    system_prompt: String(raw?.system_prompt ?? ''),
-    tool_ids: Array.isArray(raw?.tool_ids) ? raw.tool_ids.map(String) : [],
-    model_override: raw?.model_override || undefined,
-    builtin_key: raw?.builtin_key || undefined,
-    team_enabled: !!raw?.team_enabled,
-    writable: !!raw?.writable,
-    created_at: String(raw?.created_at ?? ''),
-    updated_at: String(raw?.updated_at ?? '')
-  }
-}
-
-function toAgentThread(raw: Record<string, any>): AgentThread {
-  return {
-    id: String(raw?.id ?? ''),
-    title: String(raw?.title ?? ''),
-    agent_id: raw?.agent_id ? String(raw.agent_id) : undefined,
-    created_at: String(raw?.created_at ?? ''),
-    updated_at: String(raw?.updated_at ?? ''),
-    last_message_preview: raw?.last_message_preview ? String(raw.last_message_preview) : undefined
-  }
-}
-
-function toAgentMessage(raw: Record<string, any>): AgentMessage {
-  return {
-    id: String(raw?.id ?? ''),
-    role: String(raw?.role ?? ''),
-    content: String(raw?.content ?? ''),
-    agent_id: raw?.agent_id || undefined,
-    mentions: Array.isArray(raw?.mentions) ? raw.mentions : [],
-    tool_calls: Array.isArray(raw?.tool_calls) ? raw.tool_calls : [],
-    run_id: raw?.run_id || undefined,
-    run_status: raw?.run_status || undefined,
-    error_code: raw?.error_code || undefined,
-    created_at: String(raw?.created_at ?? '')
-  }
-}
-
-function toAgentSchedule(raw: Record<string, any>): AgentSchedule {
-  return {
-    id: String(raw?.id ?? ''),
-    agent_id: String(raw?.agent_id ?? ''),
-    agent_name: raw?.agent_name || undefined,
-    thread_id: String(raw?.thread_id ?? ''),
-    prompt: String(raw?.prompt ?? ''),
-    cron_expr: String(raw?.cron_expr ?? ''),
-    enabled: !!raw?.enabled,
-    last_run_at: raw?.last_run_at || undefined,
-    next_run_at: raw?.next_run_at || undefined,
-    created_by: raw?.created_by || undefined,
-    created_at: String(raw?.created_at ?? ''),
-    updated_at: String(raw?.updated_at ?? '')
-  }
-}
-
-function toAgentScheduleRun(raw: Record<string, any>): AgentScheduleRun {
-  return {
-    id: String(raw?.id ?? ''),
-    schedule_id: String(raw?.schedule_id ?? ''),
-    run_id: String(raw?.run_id ?? ''),
-    trigger: String(raw?.trigger ?? ''),
-    status: String(raw?.status ?? ''),
-    error: raw?.error || undefined,
-    started_at: raw?.started_at || undefined,
-    finished_at: raw?.finished_at || undefined,
-    created_at: String(raw?.created_at ?? '')
-  }
-}
-
-/** usage 帧 → 运行指标。`||` 兜底仅覆盖 falsy；非数字字符串仍得 NaN（保持现状）。 */
-function toAgentRunMetrics(obj: AgentUsageEventWire): AgentRunMetrics {
-  return {
-    duration_ms: Number(obj.duration_ms || 0),
-    prompt_tokens: Number(obj.prompt_tokens || 0),
-    completion_tokens: Number(obj.completion_tokens || 0),
-    reasoning_tokens: Number(obj.reasoning_tokens || 0),
-    tool_calls: Number(obj.tool_calls || 0)
-  }
-}
-
-function streamAgentRun(
-  projectId: string,
-  threadId: string,
-  req: AgentRunRequest,
-  handlers: AgentStreamHandlers
-): LlmStreamConnection {
-  return openAgentRunStream(projectId, handlers, '', (signal) =>
-    fetch(`${baseURL}${agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/runs')}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${getAccessToken() || getApiKey()}`
-      },
-      body: JSON.stringify({
-        content: req.content,
-        mentions: req.mentions,
-        stream: true,
-        ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {})
-      }),
-      signal
-    })
-  )
-}
-
-/** 续接进行中的 run：从头回放事件缓存（after=0）并跟随直到 end（切换界面后回到会话时使用）。 */
-function attachAgentRun(projectId: string, runId: string, handlers: AgentStreamHandlers): LlmStreamConnection {
-  return openAgentRunStream(projectId, handlers, runId, (signal) => fetchAgentRunEvents(projectId, runId, '', signal))
-}
-
-function fetchAgentRunEvents(projectId: string, runId: string, after: string, signal: AbortSignal) {
-  return fetch(
-    `${baseURL}${agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/events')}?after=${encodeURIComponent(after)}`,
-    {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${getAccessToken() || getApiKey()}` },
-      signal
-    }
-  )
-}
-
-function openAgentRunStream(
-  projectId: string,
-  handlers: AgentStreamHandlers,
-  initialRunId: string,
-  open: (signal: AbortSignal) => Promise<Response>
-): LlmStreamConnection {
-  const controller = new AbortController()
-  let ended = false
-  let failed = false
-  let lastId = ''
-  let runId = initialRunId
-  const fireEnd = (reason?: string) => {
-    if (!ended) {
-      ended = true
-      if (!failed) handlers.onEnd?.(reason)
-    }
-  }
-  const onEvent = (obj: Record<string, any>) => {
-    if (obj?._sse_id != null && String(obj._sse_id) !== '') lastId = String(obj._sse_id)
-    if (obj?.type === 'end') {
-      fireEnd(typeof obj.reason === 'string' ? obj.reason : undefined)
-      return
-    }
-    if (obj?.type === 'run' && obj.run_id) {
-      runId = String(obj.run_id)
-      handlers.onRun?.(runId)
-      return
-    }
-    if (obj?.type === 'error') {
-      failed = true
-      const error = new Error(String(obj.message || '运行失败')) as Error & { code?: string }
-      error.code = typeof obj.code === 'string' ? obj.code : undefined
-      handlers.onError?.(error)
-      return
-    }
-    if (obj?.type === 'thinking') {
-      handlers.onThinking?.(Number(obj.elapsed_ms || 0), obj.content ? String(obj.content) : undefined)
-      return
-    }
-    if (obj?.type === 'usage') {
-      handlers.onUsage?.(toAgentRunMetrics(obj))
-      return
-    }
-    if (obj?.type === 'token' || obj?.type === 'chunk') {
-      const text = obj.content || obj.delta || ''
-      if (text) handlers.onToken?.(text)
-      return
-    }
-    if (obj?.type === 'tool_call_delta') {
-      handlers.onToolCallDelta?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
-      return
-    }
-    if (obj?.type === 'tool_start') {
-      handlers.onToolStart?.(obj.name || '', obj.call_id || undefined)
-      return
-    }
-    if (obj?.type === 'confirmation_required') {
-      const argv = Array.isArray(obj.argv) ? obj.argv.map((part: unknown) => String(part)) : []
-      handlers.onConfirmationRequired?.(String(obj.call_id || ''), argv, String(obj.message || ''))
-      return
-    }
-    if (obj?.type === 'confirmation_resolved') {
-      handlers.onConfirmationResolved?.(String(obj.call_id || ''), obj.approve === true)
-      return
-    }
-    if (obj?.type === 'tool_call') {
-      handlers.onToolCall?.(obj.name || '', obj.arguments || '', obj.call_id || undefined)
-      return
-    }
-    if (obj?.type === 'tool_progress') {
-      handlers.onToolProgress?.(obj.name || '', Number(obj.elapsed_ms || 0), obj.call_id || undefined)
-      return
-    }
-    if (obj?.type === 'tool_result') {
-      handlers.onToolResult?.(obj.name || '', obj.content || '', obj.call_id || undefined, Number(obj.duration_ms || 0), obj.is_error === true, obj.truncated === true)
-    }
-  }
-  ;(async () => {
-    try {
-      const resp = await open(controller.signal)
-      const ct = resp.headers.get('content-type') || ''
-      if (ct.includes('text/html')) {
-        throw new Error('接口不存在或返回了 HTML 页面')
-      }
-      if (!resp.ok || !resp.body) {
-        const data = await resp.json().catch(() => null)
-        const detail = (data as { error?: { code?: string; message?: string }; message?: string } | null)
-        const error = new Error(detail?.error?.message || detail?.message || `请求失败 (${resp.status})`) as Error & { code?: string }
-        error.code = detail?.error?.code
-        throw error
-      }
-      // BUG-B5（planv6.0 v2 §2.2）：runID 此前只由首个 SSE 帧下发，连接在 run 帧
-      // 到达前断开时无法续传。响应头先给一份，后续 run 事件仍会覆盖同一值。
-      const headerRunId = resp.headers.get('x-run-id')
-      if (headerRunId) {
-        runId = headerRunId
-        handlers.onRun?.(runId)
-      }
-      await readSse(resp, onEvent)
-      if (!ended && !failed) throw new Error(t('error.streamFailed'))
-    } catch (e) {
-      if (controller.signal.aborted || failed) return
-      let delay = 1000
-      let err: unknown = e
-      for (let attempt = 0; attempt < 3 && runId && !ended; attempt++) {
-        try {
-          await new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(resolve, delay)
-            controller.signal.addEventListener('abort', () => {
-              clearTimeout(timer)
-              reject(e)
-            }, { once: true })
-          })
-          if (controller.signal.aborted) return
-          const resp = await fetchAgentRunEvents(projectId, runId, lastId, controller.signal)
-          if (!resp.ok || !resp.body) throw new Error(`请求失败 (${resp.status})`)
-          await readSse(resp, onEvent)
-          if (!ended && !failed) throw new Error(t('error.streamFailed'))
-          return
-        } catch (next) {
-          if (controller.signal.aborted) return
-          err = next
-          delay *= 2
-        }
-      }
-      if (!controller.signal.aborted && !failed) handlers.onError?.(err)
-    }
-  })()
-  return { close: () => controller.abort() }
-}
-
-function collectionWire(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
-}
-
-function toBackupItem(value: unknown): BackupItem {
-  const raw = collectionWire(value)
-  return {
-    id: String(raw.id ?? ''),
-    projectId: String(raw.project_id ?? ''),
-    sizeBytes: Number(raw.size_bytes ?? 0),
-    sha256: String(raw.sha256 ?? ''),
-    engine: String(raw.engine ?? ''),
-    formatVersion: Number(raw.format_version ?? 0),
-    status: String(raw.status ?? ''),
-    createdAt: String(raw.created_at ?? ''),
-    expiresAt: raw.expires_at ? String(raw.expires_at) : undefined
-  }
-}
-
-function toCollectionInfo(value: unknown): CollectionInfo {
-  const raw = collectionWire(value)
-  return {
-    name: String(raw.name ?? ''),
-    schemaMode: raw.schema_mode === 'view' ? 'view' : 'json',
-    fieldCount: Number(raw.field_count ?? 0),
-    documentCount: Number(raw.document_count ?? 0),
-    registered: raw.registered === true
-  }
-}
-
-function toCollectionSchema(value: unknown): CollectionSchema {
-  const raw = collectionWire(value)
-  const fields = Array.isArray(raw.fields) ? raw.fields : []
-  return {
-    id: raw.id ? String(raw.id) : undefined,
-    projectId: raw.project_id ? String(raw.project_id) : undefined,
-    name: String(raw.name ?? ''),
-    schemaMode: raw.schema_mode === 'view' ? 'view' : 'json',
-    viewQuery: raw.view_query ? String(raw.view_query) : undefined,
-    fields: fields.map((entry) => {
-      const field = collectionWire(entry)
-      const options = collectionWire(field.options)
-      const type = String(field.type ?? 'text') as CollectionSchema['fields'][number]['type']
-      return {
-        name: String(field.name ?? ''),
-        type,
-        required: field.required === true,
-        unique: field.unique === true,
-        default: field.default,
-        hidden: field.hidden === true,
-        readonly: field.readonly === true,
-        options: {
-          min: typeof options.min === 'number' || typeof options.min === 'string' ? options.min : undefined,
-          max: typeof options.max === 'number' || typeof options.max === 'string' ? options.max : undefined,
-          pattern: options.pattern ? String(options.pattern) : undefined,
-          values: Array.isArray(options.values) ? options.values.map(String) : undefined,
-          maxSelect: options.max_select ? Number(options.max_select) : undefined,
-          maxSize: options.max_size ? Number(options.max_size) : undefined,
-          onlyInt: options.only_int === true,
-          exceptDomains: Array.isArray(options.except_domains) ? options.except_domains.map(String) : undefined,
-          onlyDomains: Array.isArray(options.only_domains) ? options.only_domains.map(String) : undefined
-        }
-      }
-    })
-  }
-}
-
-function toFunctionTrigger(value: unknown): FunctionTrigger {
-  const raw = collectionWire(value)
-  return {
-    id: String(raw.id ?? ''),
-    projectId: String(raw.project_id ?? ''),
-    kind: raw.kind === 'http' || raw.kind === 'object_event' ? raw.kind : 'record_change',
-    target: String(raw.target ?? ''),
-    events: Array.isArray(raw.events) ? raw.events.map(String) : [],
-    funcFile: String(raw.func_file ?? ''),
-    funcExport: String(raw.func_export ?? ''),
-    filter: raw.filter ? String(raw.filter) : undefined,
-    enabled: raw.enabled === true,
-    createdAt: String(raw.created_at ?? ''),
-    updatedAt: String(raw.updated_at ?? '')
-  }
-}
-
-function toTriggerWire(input: Partial<FunctionTriggerInput>) {
-  return {
-    kind: input.kind,
-    target: input.target,
-    events: input.events,
-    func_file: input.funcFile,
-    func_export: input.funcExport,
-    filter: input.filter,
-    enabled: input.enabled
-  }
-}
-
-function toDocumentItem(value: unknown): DocumentItem {
-  const raw = collectionWire(value)
-  return {
-    id: String(raw.id ?? ''),
-    createdAt: String(raw.created_at ?? ''),
-    updatedAt: String(raw.updated_at ?? raw.created_at ?? ''),
-    data: collectionWire(raw.data)
-  }
-}
-
-function toDocumentPage(value: unknown): DocumentPage {
-  const raw = collectionWire(value)
-  return {
-    rows: Array.isArray(raw.rows) ? (raw.rows as DocumentPage['rows']) : [],
-    items: Array.isArray(raw.items) ? raw.items.map(toDocumentItem) : [],
-    nextCursor: raw.next_cursor ? String(raw.next_cursor) : undefined,
-    total: typeof raw.total === 'number' ? raw.total : undefined
-  }
-}
-
-function toSchemaDryRun(value: unknown): SchemaDryRunResult {
-  const raw = collectionWire(value)
-  const invalid = Array.isArray(raw.invalid) ? raw.invalid : []
-  return {
-    invalid: invalid.map((entry) => {
-      const item = collectionWire(entry)
-      return { id: String(item.id ?? ''), field: String(item.field ?? ''), reason: String(item.reason ?? '') }
-    }),
-    scanned: Number(raw.scanned ?? 0),
-    truncated: raw.truncated === true
-  }
-}
-
-function dataCollectionsPath(projectId: string, databaseId: string, collection?: string) {
-  let path =
-    '/v1/projects/' +
-    encodeURIComponent(projectId) +
-    '/databases/' +
-    encodeURIComponent(databaseId) +
-    '/data/collections'
-  if (collection) path += '/' + encodeURIComponent(collection)
-  return path
-}
-
-/** KV 单端点路径（key-value-ducklake-plan §3：项目级，无 databaseId） */
-function kvPath(projectId: string) {
-  return '/v1/projects/' + encodeURIComponent(projectId) + '/kv'
-}
-
-function toProjectItem(raw: any): import('./types').ProjectItem {
-  return {
-    id: String(raw?.id ?? ''),
-    name: String(raw?.name ?? ''),
-    engine: raw?.engine === 'sqlite' ? 'sqlite' : raw?.engine === 'duckdb' ? 'duckdb' : undefined,
-    createdAt: String(raw?.created_at ?? raw?.createdAt ?? '')
-  }
-}
-
-/** ApiKeyItem：后端 snake_case → UI camelCase */
-function toApiKeyItem(raw: any): ApiKeyItem {
-  return {
-    id: String(raw?.id ?? ''),
-    projectId: String(raw?.project_id ?? ''),
-    permissions: Array.isArray(raw?.permissions) ? raw.permissions.map(String) : [],
-    createdAt: String(raw?.created_at ?? ''),
-    revokedAt: raw?.revoked_at || undefined
-  }
-}
-
-/** AuthUser：后端 snake_case → UI camelCase */
-function toAuthUser(d: Record<string, any>): AuthUser {
-  return {
-    id: d.id,
-    username: d.username,
-    role: d.role,
-    displayName: d.display_name || '',
-    email: d.email || '',
-    status: d.status,
-    mustChangePassword: Boolean(d.must_change_password),
-    createdBy: d.created_by || '',
-    createdAt: d.created_at || '',
-    lastLoginAt: d.last_login_at || ''
-  }
-}
-
-function toTokenPair(d: Record<string, any>): TokenPair {
-  return {
-    tokenType: d.token_type || 'Bearer',
-    accessToken: d.access_token || '',
-    expiresIn: d.expires_in || 0,
-    refreshToken: d.refresh_token || '',
-    user: toAuthUser(d.user || {})
-  }
-}
-
-function toUserItem(d: Record<string, any>): UserItem {
-  return { ...toAuthUser(d), projectCount: d.project_count ?? 0 }
-}
-
-/** 真实后端实现（路径契约见 plan/planv2.0/proto-http.md） */
 export const httpApi: Api = {
   preview: {
     document: () => http.get<OpenAPIDocument>('/v1/openapi.json').then((r) => r.data),
@@ -1950,17 +815,7 @@ export const httpApi: Api = {
         }))
   },
 
-  llm: {
-    chat: (projectId, req) =>
-      http
-        .post(
-          '/v1/projects/' + encodeURIComponent(projectId) + '/v1/chat/completions',
-          toLlmPayload(req)
-        )
-        .then((r) => toLlmChatResponse(r.data)),
-    stream: llmStream
-  },
-
+  /** planv6.6 DC-5：llm.chat/llm.stream 已删除（零生产引用）。 */
   llmSettings: {
     get: (projectId) =>
       http
@@ -1980,10 +835,7 @@ export const httpApi: Api = {
   },
 
   llmTraces: {
-    list: (projectId, q) =>
-      http
-        .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/traces', { params: llmTraceParams(q) })
-        .then((r) => toLLMTraceListResult(r.data)),
+    /** llmTraces.list 已随 planv6.6 DC-5 删除（零生产引用）。 */
     groups: (projectId, q) =>
       http
         .get('/v1/projects/' + encodeURIComponent(projectId) + '/llm/trace-groups', {
@@ -2078,34 +930,54 @@ export const httpApi: Api = {
         .then(() => undefined)
   },
 
-  agentSchedules: {
-    list: (projectId) =>
-      http.get(agentPath(projectId, '/agent-schedules')).then((r) => {
-        const list = Array.isArray(r.data?.schedules) ? r.data.schedules : []
-        return list.map((s: Record<string, any>) => toAgentSchedule(s))
-      }),
-    create: (projectId, body) =>
-      http.post(agentPath(projectId, '/agent-schedules'), body).then((r) => toAgentSchedule(r.data)),
-    patch: (projectId, scheduleId, body) =>
+  agentApprovals: {
+    list: (projectId, status = '', limit = 50) =>
       http
-        .patch(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId)), body)
-        .then((r) => toAgentSchedule(r.data)),
-    remove: (projectId, scheduleId) =>
+        .get(agentPath(projectId, '/agent-approvals'), {
+          params: { ...(status ? { status } : {}), limit }
+        })
+        .then((r) => ({
+          approvals: (Array.isArray(r.data?.approvals) ? r.data.approvals : []).map(toAgentApproval),
+          pending: Number(r.data?.pending || 0)
+        })),
+    resolve: (projectId, runId, callId, approve) =>
       http
-        .delete(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId)))
-        .then(() => undefined),
-    runs: (projectId, scheduleId) =>
-      http
-        .get(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId) + '/runs'))
-        .then((r) => {
-          const list = Array.isArray(r.data?.runs) ? r.data.runs : []
-          return list.map((x: Record<string, any>) => toAgentScheduleRun(x))
-        }),
-    trigger: (projectId, scheduleId) =>
-      http
-        .post(agentPath(projectId, '/agent-schedules/' + encodeURIComponent(scheduleId) + '/run'))
+        .post(
+          agentPath(
+            projectId,
+            '/agent-runs/' + encodeURIComponent(runId) + '/confirmations/' + encodeURIComponent(callId)
+          ),
+          { approve }
+        )
         .then(() => undefined)
   },
+
+  mcpServers: {
+    list: (projectId) =>
+      http.get(agentPath(projectId, '/mcp/servers')).then((r) => {
+        const list = Array.isArray(r.data?.servers) ? r.data.servers : []
+        return list.map(toMcpServer)
+      }),
+    create: (projectId, body) =>
+      http.post(agentPath(projectId, '/mcp/servers'), body).then((r) => toMcpServer(r.data)),
+    update: (projectId, serverId, body) =>
+      http
+        .patch(agentPath(projectId, '/mcp/servers/' + encodeURIComponent(serverId)), body)
+        .then((r) => toMcpServer(r.data)),
+    remove: (projectId, serverId) =>
+      http.delete(agentPath(projectId, '/mcp/servers/' + encodeURIComponent(serverId))).then(() => undefined),
+    test: (projectId, serverId) =>
+      http
+        .post(agentPath(projectId, '/mcp/servers/' + encodeURIComponent(serverId) + '/test'))
+        .then((r) => ({
+          ok: Boolean(r.data?.ok),
+          tools: (Array.isArray(r.data?.tools) ? r.data.tools : []).map(String),
+          error: r.data?.error ? String(r.data.error) : undefined
+        }))
+  },
+
+  /** planv6.6 DC-5：agentSchedules 整组 API 已删除（旧 /agent-schedules 路由下线）。
+   *  助手卡片的定时摘要改由 AgentManager 从 cronjobs.list（targetKind=agent）映射。 */
   storage: {
     get: () => http.get('/v1/system/storage').then((r) => r.data as StorageSettings),
     put: (body) => http.put('/v1/system/storage', body).then((r) => r.data as StorageUpdateResult)

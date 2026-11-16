@@ -131,7 +131,7 @@ describe('ConversationView', () => {
     // 待确认时由确认卡承担状态，不再显示三点。
     await wrapper.setProps({ sending: true, confirmation: { callId: 'c1', argv: [], message: '确认' } })
     expect(wrapper.find('[data-typing-dots]').exists()).toBe(false)
-    expect(wrapper.get('[data-agent-icon="databases"] svg').exists()).toBe(true)
+    expect(wrapper.find('[data-agent-icon="databases"] svg').exists()).toBe(true)
   })
 
   it('renders assistant markdown safely while preserving user text', () => {

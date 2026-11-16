@@ -21,11 +21,11 @@ import (
 
 // 终端用户领域错误。
 var (
-	ErrEndUserExists       = errors.New("auth: end user already exists")
-	ErrEndUserNotFound     = errors.New("auth: end user not found")
-	ErrEndUserDisabled     = errors.New("auth: end user disabled")
+	ErrEndUserExists         = errors.New("auth: end user already exists")
+	ErrEndUserNotFound       = errors.New("auth: end user not found")
+	ErrEndUserDisabled       = errors.New("auth: end user disabled")
 	ErrEndUserBadCredentials = errors.New("auth: invalid end user credentials")
-	ErrEndUserTokenInvalid = errors.New("auth: invalid end user token")
+	ErrEndUserTokenInvalid   = errors.New("auth: invalid end user token")
 )
 
 // EndUser 是 sys_end_users 一行。

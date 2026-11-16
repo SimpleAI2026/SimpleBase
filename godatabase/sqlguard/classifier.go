@@ -1,4 +1,4 @@
-// 文件说明：classifier-desens.go — 低成本的 SQL 意图分类与策略校验
+// 文件说明：classifier.go — 低成本的 SQL 意图分类与策略校验
 //
 // 用法
 //
@@ -10,7 +10,7 @@
 //	[上游] internal/agentbridge, internal/api
 //	         │ 调用本包导出 API
 //	         ▼
-//	[本文件] godatabase/sqlguard/classifier-desens.go
+//	[本文件] godatabase/sqlguard/classifier.go
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase/sqlx
@@ -111,7 +111,9 @@ func validateReadOnlyBody(sql, kw string) error {
 // checkCTEMainStatement 在跳过全部 CTE 定义后定位主语句关键字。
 // 词法规则：正确跳过字符串、注释、引号标识符；括号外的结构是
 // WITH [RECURSIVE] name [(cols)] AS [NOT] [MATERIALIZED] (subquery)
-//   [, name [(cols)] AS …]*
+//
+//	[, name [(cols)] AS …]*
+//
 // <主语句>
 // 每个 CTE 定义从「读到 AS」开始、到「其后括号配对结束」为止；
 // 括号配对结束后的下一个标识符，若非上下文关键字即主语句开头。

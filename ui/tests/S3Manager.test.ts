@@ -11,6 +11,15 @@ vi.mock('@/services/api', async () => {
 })
 import S3Manager from '@/pages/S3Manager.vue'
 
+/** S3Manager 在 <script setup> 内的内部方法（测试直接驱动错误分支）。 */
+interface S3ManagerVM {
+  load: () => Promise<void>
+  remove: (key: string) => Promise<void>
+  download: (o: Pick<S3Object, 'key' | 'size'>) => Promise<void>
+  copyPrivateLink: (o: Pick<S3Object, 'key' | 'size'>) => Promise<void>
+}
+const s3vm = (w: { vm: unknown }) => w.vm as S3ManagerVM
+
 function fileNamed(name: string, size = 4) {
   const f = new File(['abcd'], name, { type: 'text/plain' })
   Object.defineProperty(f, 'size', { value: size })
@@ -138,9 +147,9 @@ describe('S3Manager (对象存储)', () => {
   it('handles non-Error responses and upload errors', async () => {
     const { wrapper } = await mountWithApp(S3Manager)
     api.s3.listDetailed.mockRejectedValueOnce('list')
-    await wrapper.vm.load()
+    await s3vm(wrapper).load()
     api.s3.remove.mockRejectedValueOnce('rm')
-    await wrapper.vm.remove('k')
+    await s3vm(wrapper).remove('k')
     api.s3.upload.mockRejectedValueOnce(new Error('up'))
     await changeFile(wrapper, fileNamed('m2.txt'))
     expect(toast.error).toHaveBeenCalledWith('up')
@@ -149,13 +158,13 @@ describe('S3Manager (对象存储)', () => {
   it('downloads blobs and reports download/link failures', async () => {
     Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() })
     const { wrapper } = await mountWithApp(S3Manager)
-    await wrapper.vm.download({ key: 'docs/a.txt', size: 1 })
+    await s3vm(wrapper).download({ key: 'docs/a.txt', size: 1 })
     expect(api.s3.download).toHaveBeenCalled()
     expect(URL.revokeObjectURL).toHaveBeenCalled()
     api.s3.download.mockRejectedValueOnce(new Error('download'))
-    await wrapper.vm.download({ key: 'a', size: 1 })
+    await s3vm(wrapper).download({ key: 'a', size: 1 })
     api.s3.createLink.mockRejectedValueOnce(new Error('link'))
-    await wrapper.vm.copyPrivateLink({ key: 'a', size: 1 })
+    await s3vm(wrapper).copyPrivateLink({ key: 'a', size: 1 })
     expect(toast.error).toHaveBeenCalledWith('download')
     expect(toast.error).toHaveBeenCalledWith('link')
   })

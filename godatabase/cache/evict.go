@@ -51,8 +51,8 @@ type EvictionResult struct {
 
 // 缓存目录布局（P5）：识别 database 维度与项目维度两种目录形态。
 const (
-	layoutLegacyUUID  = 1 // {uuid}/
-	layoutProjectDir  = 2 // projects/{projectID}/（内部子目录为各库）
+	layoutLegacyUUID = 1 // {uuid}/
+	layoutProjectDir = 2 // projects/{projectID}/（内部子目录为各库）
 )
 
 // dbDir 是一个待淘汰候选目录。

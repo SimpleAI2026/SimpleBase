@@ -29,7 +29,7 @@ func TestFactoryRejectsEmptyCacheDir(t *testing.T) {
 
 func TestLayoutEnsureCreatesDirs(t *testing.T) {
 	root := t.TempDir()
-	l := layoutFor(root, uuid.NewString())
+	l := layoutForEngine(root, uuid.NewString(), EngineDuckDB)
 	if err := l.ensure(); err != nil {
 		t.Fatal(err)
 	}

@@ -6,13 +6,14 @@ import { api, resetApiMocks } from '@/test/api-mock'
 import { uiStubs } from '@/test/helpers'
 import { useAuthStore } from '@/stores/auth'
 import UserFormModal from '@/components/modal/UserFormModal.vue'
+import type { AuthUser } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
   return { api: m.api }
 })
 
-const adminUser = {
+const adminUser: AuthUser = {
   id: 'u-self', username: 'root', role: 'superadminl1', displayName: 'Root',
   email: '', status: 'active', mustChangePassword: false
 }

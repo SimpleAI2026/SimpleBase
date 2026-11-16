@@ -21,7 +21,7 @@ const caps: SandboxCapabilities = {
 }
 const item: SandboxItem = {
   id: 'sbx-1', name: 'test', templateId: 'python:3.12-slim', state: 'running', status: 'running', source: 'api',
-  cpuCount: 1, memoryMB: 256, idleTimeoutS: 300, metadata: {}, createdAt: '2026-10-04T00:00:00Z'
+  cpuCount: 1, memoryMB: 256, idleTimeoutS: 300, metadata: {}
 }
 
 /** 页签用真实 Tabs（uiStubs 里的桩不承载真实交互语义），其余沿用 mountWithApp 默认桩。 */
@@ -66,7 +66,7 @@ describe('SandboxDrawer', () => {
     await openTab(wrapper, '终端')
     await flushPromises()
     // 终端组件在状态非 running 时显示不可用提示。由于终端是懒加载动态 import，我们只能桩掉整个组件。
-    expect(wrapper.get('[data-terminal]').exists()).toBe(true)
+    expect(wrapper.find('[data-terminal]').exists()).toBe(true)
     wrapper.unmount()
   })
 

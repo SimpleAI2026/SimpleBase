@@ -70,26 +70,25 @@ func TestBuildToolsAllAndErrorPaths(t *testing.T) {
 	}
 
 	db.dbs = nil // unused
-	got, err = invokeTool(t, tools, 2, ctx, `{"database_id":"d1","sql":"SELECT 1"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, err = invokeTool(t, tools, 3, ctx, `{"prefix":"a/"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = invokeTool(t, tools, 4, ctx, `{"key":"k"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = invokeTool(t, tools, 5, ctx, `{"level":"info","q":"he","limit":0}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = invokeTool(t, tools, 6, ctx, `{}`)
-	if err != nil {
-		t.Fatal(err)
+	// 以下工具的成功输出：合法 JSON、非 is_error、且包含桩数据中的关键字段。
+	for _, tc := range []struct {
+		idx  int
+		args string
+		want string
+	}{
+		{2, `{"database_id":"d1","sql":"SELECT 1"}`, ""},
+		{3, `{"prefix":"a/"}`, `"k"`},
+		{4, `{"key":"k"}`, `"k"`},
+		{5, `{"level":"info","q":"he","limit":0}`, "hello"},
+		{6, `{}`, "info"},
+	} {
+		got, err = invokeTool(t, tools, tc.idx, ctx, tc.args)
+		if err != nil {
+			t.Fatalf("tool %d: %v", tc.idx, err)
+		}
+		if !json.Valid([]byte(got)) || strings.Contains(got, `"is_error":true`) || !strings.Contains(got, tc.want) {
+			t.Fatalf("tool %d output=%s want=%q", tc.idx, got, tc.want)
+		}
 	}
 
 	// missing run context（错误转文本）

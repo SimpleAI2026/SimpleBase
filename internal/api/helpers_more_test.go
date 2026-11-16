@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -65,19 +64,6 @@ func TestGoFunctionErrorHelpers(t *testing.T) {
 
 func TestScheduleAndCronDTOs(t *testing.T) {
 	now := time.Now().UTC()
-	sd := toAgentScheduleDTO(systemdb.AgentSchedule{
-		ID: "s", AgentID: "a", Prompt: "p", CronExpr: "* * * * *", Enabled: true,
-		LastRunAt: now, NextRunAt: now, CreatedAt: now, UpdatedAt: now,
-	}, "Agent")
-	if sd.LastRunAt == nil || sd.NextRunAt == nil || sd.AgentName != "Agent" {
-		t.Fatalf("%+v", sd)
-	}
-	rd := toAgentScheduleRunDTO(systemdb.AgentScheduleRun{
-		ID: "r", StartedAt: now, FinishedAt: now, CreatedAt: now,
-	})
-	if rd.StartedAt == nil || rd.FinishedAt == nil {
-		t.Fatalf("%+v", rd)
-	}
 	cd := toCronJobDTO(systemdb.CronJob{
 		ID: "j", Name: "n", IntervalSeconds: 5, LastRunAt: now, NextRunAt: now,
 	}, true)
@@ -88,5 +74,4 @@ func TestScheduleAndCronDTOs(t *testing.T) {
 	if crd.StartedAt == nil || crd.FinishedAt == nil {
 		t.Fatalf("%+v", crd)
 	}
-	_ = fmt.Sprintf("%s", sd.ID)
 }

@@ -53,6 +53,8 @@ func RunCommand(env []string, args []string, stdout, stderr *os.File) int {
 		return cmdSessions(env, args[1:], stdout, stderr)
 	case "config":
 		return cmdConfig(env, args[1:], stdout, stderr)
+	case "mcp":
+		return cmdMCP(env, args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return exitOK
@@ -379,6 +381,7 @@ Usage:
   gocloudagent resume <id> [prompt]   continue an existing session
   gocloudagent sessions [list|show|rm]  manage local sessions
   gocloudagent config [show|get|set|path|test|json]  manage ~/.gocloudagent/config.json
+  gocloudagent mcp [list|tools]       manage and inspect MCP servers
   gocloudagent --version | --help
 
 Flags:

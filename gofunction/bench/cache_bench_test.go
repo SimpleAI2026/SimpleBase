@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	_ "github.com/linkxzhou/SimpleBase/gofunction/packages"
 	"github.com/linkxzhou/SimpleBase/gofunction"
+	_ "github.com/linkxzhou/SimpleBase/gofunction/packages"
 )
 
 // BenchmarkRunJSONCacheHit 对比缓存命中（fork+replayInit）与

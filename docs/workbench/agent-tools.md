@@ -18,7 +18,7 @@ group: 云助手
 
 ## 会话与调度
 
-会话通过 `POST /v1/projects/:projectID/agent-threads` 创建，run 通过 `POST /agent-threads/:threadID/runs` 启动；已运行的任务可调用 `/agent-runs/:runID/cancel`。定时运行 Agent 使用 `/agent-schedules`，而[定时任务](/docs/automation/cronjob)直接调用云函数。具体响应字段可通过控制台 Network 与服务端接口查看；流式输出不适合按普通 JSON 响应解析。
+会话通过 `POST /v1/projects/:projectID/agent-threads` 创建，run 通过 `POST /agent-threads/:threadID/runs` 启动；已运行的任务可调用 `/agent-runs/:runID/cancel`。定时运行 Agent 统一使用[定时任务](/docs/automation/cronjob)（`target_kind=agent`），定时任务也可直接调用云函数。具体响应字段可通过控制台 Network 与服务端接口查看；流式输出不适合按普通 JSON 响应解析。
 
 ## 写权限与本地 gocloudagent
 

@@ -493,11 +493,6 @@ func (r *devReplayer) migrations(ctx context.Context, d devDatabase) error {
 	return nil
 }
 
-func devIsNotFound(err error) bool {
-	var api *gosdk.APIError
-	return errors.As(err, &api) && (api.Status == 404 || strings.Contains(api.Code, "not_found"))
-}
-
 func (r *devReplayer) collections(ctx context.Context) error {
 	for _, c := range r.w.colls {
 		dbID := r.dbIDs[c.database]

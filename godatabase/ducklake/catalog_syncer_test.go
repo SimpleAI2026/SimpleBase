@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 	"os"
 	"path/filepath"
@@ -295,7 +296,7 @@ func TestEnsureLocalCatalogDownload(t *testing.T) {
 	}
 
 	// 配置为 sqlite 时拒绝下载 duckdb manifest。
-	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), meta, EngineSQLite); !IsCatalogEngineMismatch(err) {
+	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), meta, EngineSQLite); !errors.Is(err, ErrCatalogEngineMismatch) {
 		t.Fatalf("want engine mismatch, got %v", err)
 	}
 }
@@ -340,7 +341,7 @@ func TestEnsureLocalCatalogLegacyManifestRejected(t *testing.T) {
 	remote := RemoteStorage{Enabled: true, Region: "us-east-1", Bucket: "b", RootPrefix: "simplebase"}
 	mk, _ := remote.keyBuilder().DuckLakeManifestKey(tenant, id, 1)
 	_ = blobs.PutBytes(ctx, mk, []byte(`{"seq":1,"snapshot_id":3,"snapshot_key":"x.sqlite","writer_epoch":1}`), "")
-	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), godatabase.Spec{ID: id, TenantID: tenant, ProjectID: "prj12345"}, EngineDuckDB); !IsCatalogEngineUnknown(err) {
+	if _, err := EnsureLocalCatalog(ctx, blobs, remote, t.TempDir(), godatabase.Spec{ID: id, TenantID: tenant, ProjectID: "prj12345"}, EngineDuckDB); !errors.Is(err, ErrCatalogEngineUnknown) {
 		t.Fatalf("legacy manifest without engine must be rejected, got %v", err)
 	}
 }

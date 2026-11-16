@@ -20,6 +20,13 @@ import (
 
 func openAgentStore(t *testing.T) *systemdb.Store {
 	t.Helper()
+	store, _ := openAgentStoreDB(t)
+	return store
+}
+
+// openAgentStoreDB 额外返回底层 *sql.DB，供需要直接写入归档表的用例使用。
+func openAgentStoreDB(t *testing.T) (*systemdb.Store, *sql.DB) {
+	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +35,7 @@ func openAgentStore(t *testing.T) *systemdb.Store {
 	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	return systemdb.NewStoreForTest(db)
+	return systemdb.NewStoreForTest(db), db
 }
 
 func agentEcho(store *systemdb.Store) *echo.Echo {
@@ -334,40 +341,5 @@ func TestCreateRunGeneralThreadDatabaseSkillContract(t *testing.T) {
 	rec = agentReq(e, http.MethodPost, "/agent-threads/"+specialized.ID+"/runs", body)
 	if rec.Code != http.StatusServiceUnavailable || !bytes.Contains(rec.Body.Bytes(), []byte("llm_not_configured")) {
 		t.Fatalf("no mention in specialist thread must use its owner: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestGoFunctionDTOAndScheduleGet(t *testing.T) {
-	store := openAgentStore(t)
-	e := echo.New()
-	h := &agentScheduleHandler{store: store}
-	e.GET("/s/:scheduleID", h.GetSchedule)
-	e.GET("/s/:scheduleID/runs", h.ListScheduleRuns)
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			ctx := WithProject(c.Request().Context(), ProjectContext{ID: "testprj1"})
-			c.SetRequest(c.Request().WithContext(ctx))
-			return next(c)
-		}
-	})
-	// re-register after middleware? echo Use is global; routes already registered.
-	// Serve with injected context via wrapper
-	wrap := echo.New()
-	wrap.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			ctx := WithProject(c.Request().Context(), ProjectContext{ID: "testprj1"})
-			c.SetRequest(c.Request().WithContext(ctx))
-			return next(c)
-		}
-	})
-	wrap.GET("/s/:scheduleID", h.GetSchedule)
-	wrap.GET("/s/:scheduleID/runs", h.ListScheduleRuns)
-	rec := doRequest(wrap, http.MethodGet, "/s/missing", nil)
-	if rec.Code == http.StatusOK {
-		t.Fatal("missing schedule")
-	}
-	rec = doRequest(wrap, http.MethodGet, "/s/missing/runs", nil)
-	if rec.Code == http.StatusOK {
-		t.Fatal("missing schedule runs")
 	}
 }

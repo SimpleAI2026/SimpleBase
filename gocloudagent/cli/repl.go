@@ -118,6 +118,10 @@ func Run(opts Options) int {
 	if err != nil {
 		return fail(opts, exitUsage, "setup_failed", err.Error())
 	}
+	// MCP 连接与 stdio 子进程必须在所有退出路径上回收（含信号中断）。
+	if runtime.Close != nil {
+		defer runtime.Close()
+	}
 
 	// 交互模式：有 TTY 且未给 prompt。预算按「单轮」计，已合并的配置值经 opts 带进去。
 	if !opts.Headless && strings.TrimSpace(opts.Prompt) == "" && isTTY(opts.Stdin) {
@@ -227,6 +231,21 @@ func buildRunner(opts Options, cfg Config, session *Session) (*SessionRunner, er
 		localTools = append(localTools, st)
 	}
 	client := &HTTPClient{Endpoint: cfg.Endpoint, Token: cfg.Token, ProjectID: cfg.ProjectID}
+	// MCP：连接在 runner 构建时建立，会话结束时关闭（planv6.2 §5.2）。
+	// 单个 Server 失败只 warn，不阻止 CLI 启动。
+	mcpTools, closeMCP, err := connectMCPServers(context.Background(), cfg, mcpServerEnv{
+		Workspace: ws,
+		Env:       opts.Env,
+		Cwd:       opts.Cwd,
+		Warn:      func(msg string, fields ...zap.Field) { fmt.Fprintln(opts.Stderr, "warn:", msg) },
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(mcpTools) > 0 {
+		localTools = append(localTools, mcpTools...)
+		fmt.Fprintf(opts.Stderr, "mcp: %d tools from %d servers\n", len(mcpTools), len(cfg.MCPServers))
+	}
 	runner := &SessionRunner{
 		Session:              session,
 		Client:               client,
@@ -236,6 +255,7 @@ func buildRunner(opts Options, cfg Config, session *Session) (*SessionRunner, er
 		CompactTriggerTokens: cfg.CompactTriggerTokens,
 		CompactKeepTokens:    cfg.CompactKeepTokens,
 		Warn:                 func(msg string, fields ...zap.Field) { fmt.Fprintln(opts.Stderr, "warn:", msg) },
+		Close:                closeMCP,
 	}
 	return runner, nil
 }
@@ -294,6 +314,18 @@ func runREPL(opts Options, runtime *SessionRunner, session *Session) int {
 				fmt.Fprintln(opts.Stdout, "无需压缩：当前历史不足以切出一个完整回合。")
 			}
 			continue
+		case "/mcp":
+			// 显示已装配的 MCP 工具（planv6.2 §5.2）。
+			names := mcpToolNames(runtime.Tools)
+			if len(names) == 0 {
+				fmt.Fprintln(opts.Stdout, "未连接任何 MCP Server（在 ~/.gocloudagent/config.json 的 mcp_servers 里配置）")
+			} else {
+				fmt.Fprintf(opts.Stdout, "已连接 %d 个 MCP 工具:\n", len(names))
+				for _, n := range names {
+					fmt.Fprintf(opts.Stdout, "  %s\n", mcpDisplay(n))
+				}
+			}
+			continue
 		}
 		// `/name args` 展开成模板文本（只做文本替换，不授予任何权限）。
 		if expanded, ok := ExpandSlashCommand(templates, text); ok {
@@ -340,6 +372,7 @@ func replHelp(templates map[string]PromptTemplate) string {
 	b.WriteString("  /help            显示本帮助\n")
 	b.WriteString("  /session         显示当前会话信息\n")
 	b.WriteString("  /compact         压缩上下文（早期对话摘要化，原文仍保留）\n")
+	b.WriteString("  /mcp             显示已连接的 MCP 工具\n")
 	b.WriteString("  /exit, /quit     退出\n")
 	if h := promptTemplateHelp(templates); h != "" {
 		b.WriteString("\n提示词模板（~/.gocloudagent/prompts/*.md）:\n")

@@ -5,6 +5,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+echo "==> gofmt -l（planv6.6 OPT-5；examples/ 云函数源码不在门禁内）"
+unformatted="$(git ls-files '*.go' | grep -v '^examples/' | xargs gofmt -l)"
+if [[ -n "$unformatted" ]]; then
+  echo "以下文件未通过 gofmt：" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
 echo "==> go build ./..."
 go build ./...
 echo "==> (cd gocloudagent) go build + go vet（独立模块）"

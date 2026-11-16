@@ -400,7 +400,9 @@ func TestAgentSkillsRouterE2E_17_DelegationCannotCallAgentRoutes(t *testing.T) {
 	paths := []string{
 		"/v1/projects/proj-1/agent-threads/" + thread + "/runs",
 		"/v1/projects/proj-1/agents",
-		"/v1/projects/proj-1/agent-schedules",
+		// 旧 /agent-schedules 已整体下线（planv6.6 DC-5）；改用同为 POST 挂载的
+		// 会话创建路由验证「助手路由一律 require，不接受委托令牌」。
+		"/v1/projects/proj-1/agent-threads",
 	}
 	for _, path := range paths {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body)))

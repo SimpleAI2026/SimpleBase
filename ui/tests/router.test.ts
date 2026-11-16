@@ -75,6 +75,13 @@ describe('router', () => {
     expect(router.currentRoute.value.fullPath).toBe('/console/models')
     await router.push('/settings?settings=models')
     expect(router.currentRoute.value.name).toBe('models')
+    // 审批队列已并入「模型」页签（planv6.6）：旧路径重定向到 ?tab=approvals。
+    await router.push('/console/approvals')
+    expect(router.currentRoute.value.name).toBe('models')
+    expect(router.currentRoute.value.query.tab).toBe('approvals')
+    await router.push('/approvals')
+    expect(router.currentRoute.value.name).toBe('models')
+    expect(router.currentRoute.value.query.tab).toBe('approvals')
     await router.push('/')
     expect(router.currentRoute.value.name).toBe('home')
   })

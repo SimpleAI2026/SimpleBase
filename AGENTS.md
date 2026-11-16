@@ -38,9 +38,9 @@ go test ./...                               # 后端全量
 (cd gosandbox && go build ./... && go vet ./... && go test ./...)   # 沙盒执行层（独立模块；真 bwrap 用例无 bwrap 时自动 Skip）
 (cd gocloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...)   # 云 Agent 模块（独立模块，根目录 ./... 不含它；两侧 go.mod 各自声明 gosandbox 的 replace，replace 不传递）
 
-cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.24% 未达标，见 planv5.0 §7.2
+cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.1% / branches 94.92% 未达标，见 planv5.0 §7.2
 cd ui && yarn build                         # 前端构建必须通过
-cd ui && yarn typecheck                     # tsc --noEmit；当前因 *.vue 缺 shim 报 241 处 TS2307，见 planv5.0 §7.1
+cd ui && yarn typecheck                     # tsc --noEmit；planv6.6 OPT-4 后已清零（含 tests/），须保持 0 错误
 ./scripts/test.sh [包...] [-race]           # 云 Agent 相关包一键后端测试（planv4.1 §5.5）+ examples 四站清单离线校验
 ./scripts/smoke.sh                          # 构建 + vet + 云 Agent 全链路 + 前端构建
 cd packages/js-sdk && npm run typecheck && npm test   # SDK
@@ -103,12 +103,12 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 
 ## 代码风格
 
-**Go**：遵循 Go 官方风格；错误统一走 `WriteError` + 领域错误（`catalog/errors.go` 风格），不得裸返回字符串；每个模块带单元测试。`internal/` 仍有少量文件未过 `gofmt`，改动这些文件时顺手格式化，不要一次性全仓重排。
+**Go**：遵循 Go 官方风格；错误统一走 `WriteError` + 领域错误（`catalog/errors.go` 风格），不得裸返回字符串；每个模块带单元测试。全仓（`examples/` 云函数源码除外）已过 `gofmt`，`scripts/smoke.sh` 有 `gofmt -l` 门禁。
 
 **TypeScript / Vue**（`ui/` 与 `packages/js-sdk`）：
 
 - 对象形状一律用 `interface` 定义，**不用 `type`**。
-- 不写 `any` 落盘新代码；跨层契约集中在 `ui/src/services/types.ts`，后端 snake_case 经映射函数（`toProjectItem` 风格）转 camelCase，不透传 raw。`services/http-api.ts` 现存 35 处 `any`/`Record<string, any>`，只减不增。
+- 不写 `any` 落盘新代码；跨层契约集中在 `ui/src/services/types.ts`，后端 snake_case 经映射函数（`toProjectItem` 风格）转 camelCase，不透传 raw。`services/http-api.ts` 现存 30 处 `any`/`Record<string, any>`，只减不增。
 - 样式写 template 的 Tailwind class，不写自定义 CSS 文件；提示用 `vue-sonner`，确认用 `ConfirmAction`，弹窗用 `SbModal`，空态用 `SbEmptyState`，分页用 `TablePager`；加载/空/错误三态经 `SbAsyncRegion`（错误态只有 `SbErrorState` 一个实现，`variant='inline'` 给表格 `tbody`、`'block'` 给普通区域），多页签面板用 `SbTabsPanel`。
 - **样式钩子必须匹配 reka-ui 真实属性**：本仓库锁定 reka-ui 2.10.5，它输出 `data-state`（`checked`/`unchecked`、`active`/`inactive`、`open`/`closed`）与 `data-disabled`/`data-highlighted`/`data-selected` 等，**不输出裸 `data-checked` / `data-unchecked` / `data-open` / `data-closed`**。写状态样式一律用 `data-[state=checked]:…` 形式。唯一的例外是 `data-active`：reka 的 `RovingFocusItem` 会给选中项渲染空属性 `data-active`，`TabsTrigger` 上写 `data-active:` 本来就能命中（`ui/tests/ui-state-attributes.test.ts` 已断言），新代码仍统一写 `data-[state=active]:` 保持一致性（见 planv5.0 §4.1）。
 - **多语言**：文案唯一来源是 `ui/src/locales/`（`zh-CN.ts` 权威树 + `en-US.ts` 同构）；组件内用 `useI18n()`，**组件外**（`services/` / `utils/` / `composables/` / store getter）用 `i18n.global.t`。新增文案必须同时补两棵树，key 集合必须完全一致（`ui/tests/i18n.test.ts` 会卡）。**注意 vue-i18n 把 `@` 当 linked message 起始符**，文案里的裸 `@` 必须写成 `{'@'}`，否则渲染时才抛 `Invalid linked format`。默认中文，不做浏览器语言探测，设置内切换并持久化。
@@ -119,7 +119,7 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 
 **gofunction**：公共 API 与限制以 `gofunction/README.md` 为准；`Executor.Compile` / `SetProfile` / `Runtime.Cleanup` 等是预留空实现，不要当已实现功能使用或宣传。**解释器实现全部在 `gofunction/internal/interp`**（`internal` 包，禁止外部 import）；模块根的 `gofunction.go` / `jsonrun.go` 只是类型别名与薄转发门面，新增对外 API 要在那里加转发，不要在 `internal/interp` 里直接暴露。实现文件按职责分：`compile.go` 编译期预编译、`eval.go` 运算、`call.go` 调用分发、`layout.go` 槽位布局、`executor.go` 池化。
 
-**设计计划文档的工作目录**：`plan/` 按版本切目录（`planv1.0` … `planv6.4`）。`planv4.1` 不是独立目录——v4.1 云 Agent 优化计划全文放在 `plan/planv4.0/cloud-agent-optimization-plan.md`，代码注释里的 `planv4.1 §X` / `BUG-0X` 均指向该文件，改动前请到那里查。`planv6.4` 的 `examples-skill-verification-{plan,report}.md` 是 examples 与 skill 验证的事实来源（E1–E16、BUG-0~5 编号）；`production-readiness-plan.md` 是下一迭代「小白直接上线」的规划。`planv6.5/object-storage-sites-plan.md` 是对象存储「发布网站」（`<项目ID>.<sites.base_domain>` 泛域名 + 路径级外部访问）的事实来源：站点面在 `e.Pre` 按 Host 改写到 `/__site/*`，控制台源上的 `/s3/objects/content` 与 `/files/:token` 仍强制 HTML `attachment`；**禁止下发 `Domain=<父域>` 的 Cookie**（站点子域与控制台同站时会被共享）。
+**设计计划文档的工作目录**：`plan/` 按版本切目录（`planv1.0` … `planv6.6`）。`planv4.1` 不是独立目录——v4.1 云 Agent 优化计划全文放在 `plan/planv4.0/cloud-agent-optimization-plan.md`，代码注释里的 `planv4.1 §X` / `BUG-0X` 均指向该文件，改动前请到那里查。`planv6.4` 的 `examples-skill-verification-{plan,report}.md` 是 examples 与 skill 验证的事实来源（E1–E16、BUG-0~5 编号）；`production-readiness-plan.md` 是下一迭代「小白直接上线」的规划。`planv6.5/object-storage-sites-plan.md` 是对象存储「发布网站」（`<项目ID>.<sites.base_domain>` 泛域名 + 路径级外部访问）的事实来源：站点面在 `e.Pre` 按 Host 改写到 `/__site/*`，控制台源上的 `/s3/objects/content` 与 `/files/:token` 仍强制 HTML `attachment`；**禁止下发 `Domain=<父域>` 的 Cookie**（站点子域与控制台同站时会被共享）。`planv6.6/dead-code-and-optimization-plan.md` 是死代码清理与代码质量（DC-* / OPT-*）的事实来源。
 
 **examples 与脚本**：
 
@@ -132,7 +132,7 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 ## 测试要求
 
 - 后端：改动必须保持 `go build ./internal/... ./cmd/...` 与 `go test ./...` 通过；handler 测试用 fake service，不依赖真实 DuckDB/S3；**新增写路径必须补「系统库拒绝」用例**。新增/修改 `LLMService` 等跨层接口时，所有 fake 实现（`internal/api/*_test.go` 的 `fakeGW`、`fakeLLMSvc`）要同步补齐方法，否则整包编译失败。
-- 前端：`yarn build` 与 `yarn test` 必须通过（coverage 语句/分支/functions 均 95% 阈值）；`src/components/ui/`、`*.d.ts`、`main.ts`、`types.ts`、`src/test/` 不计入覆盖。当前基线：statements 99.24% / branches 95.07% / functions **94.24%（未达标）**。
+- 前端：`yarn build` 与 `yarn test` 必须通过（coverage 语句/分支/functions 均 95% 阈值）；`src/components/ui/`、`*.d.ts`、`main.ts`、`types.ts`、`src/test/` 不计入覆盖。当前基线（planv6.6 B2 后）：statements 98.43% / branches **94.92%** / functions **94.1%**（后两项未达标）。
 - **数据层组件不要用测试桩替换**：`Switch`、`Tabs` 之类承载真实交互语义的 `ui/` 组件被桩掉后，失效的状态类会假通过（见 §7.3）；测试断言应打在真实 DOM 属性/事件上，而不是桩的 emit 上。
 - gofunction：独立模块，须在 `gofunction/` 目录下 `go test ./... -short`（外网 HTTP 用例仅在非 -short 下跑）。**`gofunction` 不得 import 根模块任何包**（含 `internal/...`），其依赖只允许 `golang.org/x/tools` 与 `json-iterator`；新增依赖要在 `gofunction/go.mod` 里加。
 
@@ -141,7 +141,7 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 1. 相关命令全部通过（见「常用命令」）。
 2. 未引入新依赖、未改配置文件结构。
 3. 新增路由已挂权限（`auth.Require`）与 project context 中间件；带 `:projectID` 的路由必须经 `projectContextMiddlewareEcho`。
-4. **写路径必须同时检查 `writable`**：实例只读（`Config.Instance.Writable=false`）时返回 `ErrWriterUnavailable`/503。agent / agent-thread / s3 写路由已挂 `writeGate`；旧 `/agent-schedules` 写入口统一返回 410（迁移到 `/cron-jobs`）。
+4. **写路径必须同时检查 `writable`**：实例只读（`Config.Instance.Writable=false`）时返回 `ErrWriterUnavailable`/503。agent / agent-thread / s3 / cron-jobs 写路由已挂 `writeGate`；旧 `/agent-schedules` 路由已整体下线（planv6.6 DC-5，返回 404），助手定时摘要统一走 `/cron-jobs`。
 5. 日志/审计无密钥、无 SQL 参数、无 LLM 正文。
 6. 前端改动未违反 `ui/AGENTS.md` 的样式定稿与组件约定，且新写的状态类用的是 reka 真实属性（`data-[state=…]`）。
 7. 动了 `internal/sbcli/dev*`、`sbdev.py`、`examples/*/simplebase.json` 或删库 / 权限逻辑时，额外跑：`go test ./internal/sbcli/ ./internal/app/ ./internal/auth/`、`test_sbdev.py`，以及 `scripts/examples-verify/verify.sh`（0 FAIL；无 LLM provider 时 S8-llm 为 SKIP 属预期）。
@@ -159,4 +159,4 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 - `plan/` 存放设计计划文档（路由注释中的 `planX §Y` 指向这些文件），改动行为前先查对应 plan。
 - `internal/web/dist` 是前端构建产物的 embed 目录，**不要手工编辑**；由 `./build.sh` 同步生成。
 - `output/perf/` 为压测原始数据，`examples/`、`docs/` 为文档与示例资源。
-- 仓库卫生：`fakellm-server` 已被 `.gitignore` 覆盖；`internal/` 仍有少量文件未过 `gofmt`，改动时顺手格式化。
+- 仓库卫生：`fakellm-server` 已被 `.gitignore` 覆盖；Go 源码 gofmt 由 `scripts/smoke.sh` 卡门禁。

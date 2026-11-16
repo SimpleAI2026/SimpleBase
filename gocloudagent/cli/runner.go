@@ -92,6 +92,9 @@ type SessionRunner struct {
 	Warn func(msg string, fields ...zap.Field)
 	// Redact 在落盘前脱敏；nil 时用 agentcore.RedactSecrets。
 	Redact func(string) string
+	// Close 在会话结束时回收外部资源（MCP 连接与 stdio 子进程，planv6.2 §5.2）。
+	// nil 表示没有需要释放的资源。
+	Close func()
 }
 
 // RunResult 是一轮的结果。

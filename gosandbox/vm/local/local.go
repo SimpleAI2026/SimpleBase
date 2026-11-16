@@ -120,14 +120,6 @@ func (d *Driver) vmDir(name string) (string, error) {
 	return filepath.Join(d.opts.Root, name), nil
 }
 
-func (d *Driver) wsDir(name string) (string, error) {
-	dir, err := d.vmDir(name)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, wsDirName), nil
-}
-
 // ensure 懒创建工作区并清除 stopped 标记，返回真实工作区路径。
 func (d *Driver) ensure(t vm.Target) (string, error) {
 	if t.Spec.Network == "public" {

@@ -273,7 +273,7 @@ describe('DataBrowser', () => {
 
     await wrapper.get('[role="combobox"]').trigger('keydown', { key: 'Enter' })
     await flushPromises()
-    const option = [...document.body.querySelectorAll('[role="option"]')].find((item) => item.textContent?.includes('Orders'))
+    const option = Array.from(document.body.querySelectorAll('[role="option"]')).find((item) => item.textContent?.includes('Orders'))
     expect(option).toBeDefined()
     option!.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
     await flushPromises()

@@ -24,7 +24,7 @@
 //	NewModel(client ChatClient, projectID, modelName string) *Model
 //	(m *Model) Generate(ctx context.Context, input []*schema.Message, opts ...
 //	(m *Model) Stream(ctx context.Context, input []*schema.Message, opts ...
-//	(m *Model) BindTools(tools []*schema.ToolInfo) error
+//	(m *Model) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error)
 //	... 另有 17 个顶层符号
 
 package agentcore
@@ -268,11 +268,8 @@ func (m *Model) Stream(ctx context.Context, input []*schema.Message, opts ...mod
 	return sr, nil
 }
 
-func (m *Model) BindTools(tools []*schema.ToolInfo) error {
-	m.bound = tools
-	return nil
-}
-
+// WithTools 返回绑定了 tools 的新实例（不改接收者，可安全跨 goroutine 共享基实例）。
+// eino agent 通过 model.WithTools 选项下发工具，见 adk.ChatModelAgentConfig.Model。
 func (m *Model) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
 	cp := *m
 	cp.bound = tools
@@ -492,4 +489,3 @@ func singleMessageStream(msg *schema.Message) *schema.StreamReader[*schema.Messa
 }
 
 var _ model.ToolCallingChatModel = (*Model)(nil)
-var _ model.ChatModel = (*Model)(nil)

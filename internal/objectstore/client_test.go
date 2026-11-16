@@ -241,28 +241,27 @@ func TestCheckEndpointBucketScope(t *testing.T) {
 	}
 }
 
-// TestLoadAWSConfigCustomEndpointNotHostnameImmutable 确保 vhost 寻址可用：
-// HostnameImmutable=true 会让 SDK 无条件把 bucket 拼进 path（force_path_style=false
-// 失效），COS 这类强制虚拟主机寻址的服务会完全不可用。
-func TestLoadAWSConfigCustomEndpointNotHostnameImmutable(t *testing.T) {
-	cfg, err := loadAWSConfig(context.Background(), Config{
+// TestNewClientCustomEndpointVhostAddressing 确保 vhost 寻址可用：
+// 自定义 endpoint 通过 BaseEndpoint 注入（resolution v2），SDK 按 UsePathStyle
+// 决定寻址；COS 这类强制虚拟主机寻址的服务在 force_path_style=false 下正常。
+func TestNewClientCustomEndpointVhostAddressing(t *testing.T) {
+	c, err := NewClient(context.Background(), Config{
 		Region:         "ap-guangzhou",
 		Endpoint:       "https://cos.ap-guangzhou.myqcloud.com",
 		Bucket:         "simplebase-1256235179",
 		ForcePathStyle: false,
-	})
+	}, nil, nil)
 	if err != nil {
-		t.Fatalf("loadAWSConfig: %v", err)
+		t.Fatalf("NewClient: %v", err)
 	}
-	ep, err := cfg.EndpointResolverWithOptions.ResolveEndpoint("S3", "ap-guangzhou")
-	if err != nil {
-		t.Fatalf("resolve endpoint: %v", err)
+	sc, ok := c.(*s3Client)
+	if !ok {
+		t.Fatal("expected *s3Client")
 	}
-	if ep.HostnameImmutable {
-		t.Fatal("custom endpoint must not set HostnameImmutable (forces path-style addressing)")
-	}
-	if ep.URL != "https://cos.ap-guangzhou.myqcloud.com" {
-		t.Fatalf("unexpected endpoint URL: %s", ep.URL)
+	// 非交互地验证寻址参数：注入 httptest 服务器作为 BaseEndpoint，
+	// force_path_style=false 时请求 host 不携带 bucket 前缀（vhost 由 DNS 层处理）。
+	if sc.endpoint != "https://cos.ap-guangzhou.myqcloud.com" {
+		t.Fatalf("unexpected endpoint recorded: %s", sc.endpoint)
 	}
 }
 

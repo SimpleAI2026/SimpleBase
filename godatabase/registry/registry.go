@@ -408,21 +408,6 @@ func (r *Registry) IsActive(databaseID string) bool {
 	return e.handle.active.Load() > 0
 }
 
-// OpenedIDs 返回当前已打开且就绪（stateReady）的数据库 ID 列表。
-// 供后台任务（如 KV TTL Sweeper）枚举已打开的库；不会打开新连接。
-// 不做网络 I/O。
-func (r *Registry) OpenedIDs() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	ids := make([]string, 0, len(r.entries))
-	for id, e := range r.entries {
-		if e.handle != nil && e.handle.isReady() {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
 // Snapshot 返回指定 databaseID 已打开 handle 的只读快照（Database 元数据）。
 // 未打开返回 false。不做网络 I/O。
 func (r *Registry) Snapshot(databaseID string) (godatabase.Spec, bool) {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { agentErrorText, isRetryableError } from '@/utils/agent-errors'
+import { agentErrorText } from '@/utils/agent-errors'
 
 describe('agent-errors', () => {
   it('maps known codes to labels', () => {
@@ -13,12 +13,5 @@ describe('agent-errors', () => {
     expect(agentErrorText({ code: 'unknown_x' }, 'fb')).toBe('fb')
     expect(agentErrorText(null, 'fb')).toBe('fb')
     expect(agentErrorText('llm_timeout')).toContain('超时')
-  })
-
-  it('classifies retryable errors', () => {
-    expect(isRetryableError({ code: 'llm_timeout' })).toBe(true)
-    expect(isRetryableError({ code: 'llm_upstream_error' })).toBe(true)
-    expect(isRetryableError({ code: 'llm_auth_failed' })).toBe(false)
-    expect(isRetryableError(null)).toBe(false)
   })
 })

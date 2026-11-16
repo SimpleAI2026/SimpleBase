@@ -91,10 +91,7 @@ export const api = {
   quota: {
     status: vi.fn()
   },
-  llm: {
-    chat: vi.fn(),
-    stream: vi.fn()
-  },
+  /** planv6.6 DC-5：llm.chat/llm.stream 与 agentSchedules 已删除（零生产引用）。 */
   llmSettings: {
     get: vi.fn(),
     put: vi.fn()
@@ -128,13 +125,16 @@ export const api = {
     active: vi.fn(),
     confirm: vi.fn()
   },
-  agentSchedules: {
+  agentApprovals: {
+    list: vi.fn(),
+    resolve: vi.fn()
+  },
+  mcpServers: {
     list: vi.fn(),
     create: vi.fn(),
-    patch: vi.fn(),
+    update: vi.fn(),
     remove: vi.fn(),
-    runs: vi.fn(),
-    trigger: vi.fn()
+    test: vi.fn()
   },
   storage: {
     get: vi.fn(),
@@ -341,8 +341,6 @@ export function applyApiDefaults() {
   api.logs.getRetention.mockResolvedValue({ scope: 'project', keepDays: 14, updatedAt: '2024-01-01T00:00:00Z' })
   api.logs.putRetention.mockResolvedValue(undefined)
   api.quota.status.mockResolvedValue({ llmAllowed: true, databaseAllowed: true })
-  api.llm.chat.mockResolvedValue({ content: 'hi', model: 'm', provider: 'p' })
-  api.llm.stream.mockReturnValue({ close: vi.fn() })
   api.llmSettings.get.mockResolvedValue({
     defaultProvider: 'openai',
     defaultModel: 'gpt-4o-mini',
@@ -403,29 +401,37 @@ export function applyApiDefaults() {
   api.agentThreads.active.mockResolvedValue([])
   api.agentThreads.cancel.mockResolvedValue({ id: 'run-1', thread_id: 'th-1', agent_id: 'ag-1', status: 'canceled' })
   api.agentThreads.confirm.mockResolvedValue(undefined)
-  api.agentSchedules.list.mockResolvedValue([])
-  api.agentSchedules.create.mockResolvedValue({
-    id: 'sch-1',
-    agent_id: 'ag-1',
-    thread_id: 'th-1',
-    prompt: 'p',
-    cron_expr: '0 8 * * *',
+  api.agentApprovals.list.mockResolvedValue({ approvals: [], pending: 0 })
+  api.agentApprovals.resolve.mockResolvedValue(undefined)
+  api.mcpServers.list.mockResolvedValue([])
+  api.mcpServers.create.mockResolvedValue({
+    id: 'mcp-1',
+    name: 'github',
+    transport: 'http',
+    url: 'https://example.com/mcp',
+    timeout_s: 60,
     enabled: true,
+    tools_policy: {},
+    header_names: [],
+    has_credential: false,
     created_at: 't',
     updated_at: 't'
   })
-  api.agentSchedules.patch.mockResolvedValue({
-    id: 'sch-1',
-    agent_id: 'ag-1',
-    thread_id: 'th-1',
-    prompt: 'p',
-    cron_expr: '0 8 * * *',
-    enabled: true,
+  api.mcpServers.update.mockResolvedValue({
+    id: 'mcp-1',
+    name: 'github',
+    transport: 'http',
+    url: 'https://example.com/mcp',
+    timeout_s: 60,
+    enabled: false,
+    tools_policy: {},
+    header_names: [],
+    has_credential: false,
     created_at: 't',
     updated_at: 't'
   })
-  api.agentSchedules.remove.mockResolvedValue(undefined)
-  api.agentSchedules.runs.mockResolvedValue([])
+  api.mcpServers.remove.mockResolvedValue(undefined)
+  api.mcpServers.test.mockResolvedValue({ ok: true, tools: ['read'] })
   api.storage.get.mockResolvedValue({
     database: 'local',
     files: 'local',
@@ -444,7 +450,6 @@ export function applyApiDefaults() {
     reset_required: true,
     commands: ['./build.sh reset', './build.sh dev']
   })
-  api.agentSchedules.trigger.mockResolvedValue(undefined)
   api.gofunctions.list.mockResolvedValue([])
   api.gofunctions.create.mockResolvedValue({
     id: 'gf-1',

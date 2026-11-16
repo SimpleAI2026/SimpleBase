@@ -192,9 +192,9 @@ func (c *s3Client) PutFile(ctx context.Context, key, path, contentType string) e
 		return fmt.Errorf("objectstore: stat upload source: %w", err)
 	}
 	in := &s3.PutObjectInput{
-		Bucket:      aws.String(c.bucket),
-		Key:         aws.String(key),
-		Body:        f,
+		Bucket:        aws.String(c.bucket),
+		Key:           aws.String(key),
+		Body:          f,
 		ContentLength: aws.Int64(st.Size()),
 	}
 	if contentType != "" {

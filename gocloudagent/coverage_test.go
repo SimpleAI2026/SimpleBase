@@ -87,8 +87,8 @@ func TestPromptRedactAndTruncate(t *testing.T) {
 
 func TestGatewayChatModelGenerateAndOptions(t *testing.T) {
 	llm := &scriptedChat{content: "plain answer"}
-	m := agentcore.NewModel(llm, "p1", "base-model")
-	if err := m.BindTools([]*schema.ToolInfo{{Name: "bound", Desc: "d"}}); err != nil {
+	m, err := agentcore.NewModel(llm, "p1", "base-model").WithTools([]*schema.ToolInfo{{Name: "bound", Desc: "d"}})
+	if err != nil {
 		t.Fatal(err)
 	}
 	cloned, err := m.WithTools([]*schema.ToolInfo{{Name: "opt", Desc: "other"}})

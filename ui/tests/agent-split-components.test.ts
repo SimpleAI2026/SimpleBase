@@ -196,7 +196,7 @@ describe('AgentFormModal', () => {
     // planv6.0 v2 §3.2：助手级写开关。Switch 桩用 reka 真实的 modelValue 契约，
     // 点击后 emit 取反值。
     const off = mountForm()
-    expect(off.get('[data-agent-writable]').exists()).toBe(true)
+    expect(off.find('[data-agent-writable]').exists()).toBe(true)
     await off.get('[data-agent-writable]').trigger('click')
     expect(off.emitted('update:writable')).toEqual([[true]])
     off.unmount()

@@ -416,9 +416,9 @@ func TestEnsureTraceColumnsUpgrade(t *testing.T) {
 		error_code VARCHAR DEFAULT '', error_message VARCHAR DEFAULT '', created_at TIMESTAMP NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	// 预置一行一期数据
+	// 预置一行一期数据（时间取相对值，避免查询窗口随时间推移失效）
 	if _, err := db.Exec(`INSERT INTO sys_llm_traces(id, project_id, request_id, source, provider, model, status, stream, created_at)
-		VALUES('old1','p1','r1','llm','openai','gpt','ok',0,'2026-11-12T00:00:00Z')`); err != nil {
+		VALUES('old1','p1','r1','llm','openai','gpt','ok',0,?)`, time.Now().UTC().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if err := EnsureSystemSchema(context.Background(), db); err != nil {

@@ -36,8 +36,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
@@ -60,20 +58,6 @@ type Manifest struct {
 	Size          int64  `json:"size,omitempty"`
 	SHA256        string `json:"sha256,omitempty"`
 	UpdatedAt     string `json:"updated_at"`
-}
-
-// manifestSeqFromKey 从 manifest/{seq}.json key 解析 seq；非数字段返回 0。
-func manifestSeqFromKey(key string) int64 {
-	seg := key
-	if i := strings.LastIndexByte(key, '/'); i >= 0 {
-		seg = key[i+1:]
-	}
-	seg = strings.TrimSuffix(seg, ".json")
-	n, err := strconv.ParseInt(seg, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return n
 }
 
 // ErrManifestChainBroken 表示 manifest 连续链不变量被破坏

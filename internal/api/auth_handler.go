@@ -63,12 +63,9 @@ func NewAuthHandler(sessions *auth.SessionService, users *auth.UserService) *Aut
 	}
 }
 
-// WithLoginGuardAudit 注入审计服务与软锁定回调（§8.2.5 / §8.3.5）；audit 可为 nil。
-func (h *AuthHandler) WithLoginGuardAudit(audit AuditService, onLock func(username string)) *AuthHandler {
+// WithAudit 注入审计服务（§8.2.5）；audit 可为 nil。
+func (h *AuthHandler) WithAudit(audit AuditService) *AuthHandler {
 	h.audit = audit
-	if h.guard != nil {
-		h.guard.WithLockHook(onLock)
-	}
 	return h
 }
 

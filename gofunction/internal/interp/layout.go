@@ -139,16 +139,3 @@ func (fr *frame) prepareEnv(n int) {
 	fr.env = fr.env[:n]
 	clear(fr.env) // 仅清实际长度；接口清零即释放引用
 }
-
-// testLayout 为测试手工构造 frame 提供最小布局：注册传入的值到连续槽位。
-// 生产路径布局由 Program.layoutOf 编译期构建，此函数仅供测试使用。
-func testLayout(vals ...ssa.Value) *funcLayout {
-	l := &funcLayout{slots: make(map[ssa.Value]int, len(vals))}
-	for _, v := range vals {
-		if _, ok := l.slots[v]; !ok {
-			l.slots[v] = l.nSlots
-			l.nSlots++
-		}
-	}
-	return l
-}

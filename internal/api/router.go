@@ -314,7 +314,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 
 	// login-auth-plan：免认证登录/刷新端点。
 	if deps.Sessions != nil && deps.Users != nil {
-		ah := NewAuthHandler(deps.Sessions, deps.Users)
+		ah := NewAuthHandler(deps.Sessions, deps.Users).WithAudit(deps.Audit)
 		e.POST("/v1/auth/login", ah.Login)
 		e.POST("/v1/auth/refresh", ah.Refresh)
 		// §8.2.2：强制改密闭环（免认证；复用 loginGuard）。
@@ -403,7 +403,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	// 登录态自身路由（需认证）。
 	if deps.Sessions != nil && deps.Users != nil {
-		ah := NewAuthHandler(deps.Sessions, deps.Users)
+		ah := NewAuthHandler(deps.Sessions, deps.Users).WithAudit(deps.Audit)
 		v1.POST("/auth/logout", ah.Logout)
 		v1.GET("/auth/me", ah.Me)
 		v1.PUT("/auth/password", ah.ChangePassword, writeGate)
@@ -673,19 +673,22 @@ func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permis
 	// SEC-04：取消/确认是破坏性操作（终止他人 run / 放行工具执行），
 	// 权限从 DatabaseRead 收紧为 DatabaseWrite；handler 内再校验主体。
 	p.GET("/agent-runs/active", ah.ListActiveRuns, require(auth.DatabaseRead))
+	// 审批队列：跨 run 的待办列表（侧栏角标 + 审批页）。
+	p.GET("/agent-approvals", ah.ListApprovals, require(auth.DatabaseRead))
+
+	// MCP Server 配置（planv6.2 §6-2）：凭据只单向写，响应只回 has_credential。
+	mh := &mcpServerHandler{store: deps.System, limit: deps.Config.Agent.MCP.EffectiveMaxServersPerProject()}
+	if deps.Config.Agent.MCP.Enabled {
+		mh.testConnect = newMCPTestConnect(deps)
+	}
+	p.GET("/mcp/servers", mh.List, require(auth.DatabaseRead))
+	p.POST("/mcp/servers", mh.Create, require(auth.DatabaseWrite), writeGate)
+	p.PATCH("/mcp/servers/:serverID", mh.Update, require(auth.DatabaseWrite), writeGate)
+	p.DELETE("/mcp/servers/:serverID", mh.Delete, require(auth.DatabaseWrite), writeGate)
+	p.POST("/mcp/servers/:serverID/test", mh.Test, require(auth.DatabaseWrite))
 	p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseWrite), writeGate)
 	p.POST("/agent-runs/:runID/confirmations/:callID", ah.ConfirmRun, require(auth.DatabaseWrite), writeGate)
 	p.GET("/agent-runs/:runID/events", ah.ReplayEvents, require(auth.DatabaseRead))
-
-	// 旧 Agent 定时执行路由：迁移期只读兼容层，写入与触发返回 410（统一到 /cron-jobs）。
-	sch := &agentScheduleHandler{store: deps.System}
-	p.GET("/agent-schedules", sch.ListSchedules, require(auth.DatabaseRead))
-	p.POST("/agent-schedules", sch.Gone, require(auth.DatabaseWrite), writeGate)
-	p.GET("/agent-schedules/:scheduleID", sch.GetSchedule, require(auth.DatabaseRead))
-	p.PATCH("/agent-schedules/:scheduleID", sch.Gone, require(auth.DatabaseWrite), writeGate)
-	p.DELETE("/agent-schedules/:scheduleID", sch.Gone, require(auth.DatabaseWrite), writeGate)
-	p.GET("/agent-schedules/:scheduleID/runs", sch.ListScheduleRuns, require(auth.DatabaseRead))
-	p.POST("/agent-schedules/:scheduleID/run", sch.Gone, require(auth.DatabaseWrite), writeGate)
 }
 
 // mountE2BRoutes 挂载云沙盒的 E2B 兼容 API。这是沙盒唯一的 HTTP 面，旧的

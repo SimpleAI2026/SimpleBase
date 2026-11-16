@@ -68,9 +68,7 @@ describe('http helpers and interceptors', () => {
     vi.doMock('@/stores/auth', () => ({
       useAuthStore: () => ({ markUnauthorized: mark })
     }))
-    const httpMod = await import('@/services/http')
-    const extra = vi.fn()
-    httpMod.setUnauthorizedHandler(extra)
+    await import('@/services/http')
     const errFn = responseUse.mock.calls[1][1]
     await expect(
       errFn({
@@ -78,7 +76,7 @@ describe('http helpers and interceptors', () => {
         message: 'x'
       })
     ).rejects.toThrow('bad key')
-    expect(extra).toHaveBeenCalled()
+    await vi.waitFor(() => expect(mark).toHaveBeenCalled())
     await expect(errFn({ message: 'network down' })).rejects.toThrow('network down')
     await expect(errFn({ response: { status: 500, data: { message: 'oops' } } })).rejects.toThrow(
       'oops'
@@ -122,20 +120,18 @@ describe('http helpers and interceptors', () => {
       useAuthStore: () => ({ markUnauthorized: mark })
     }))
     const httpMod = await import('@/services/http')
-    const extra = vi.fn()
-    httpMod.setUnauthorizedHandler(extra)
     const errFn = responseUse.mock.calls[1][1]
 
     httpMod.setTokens('a1', 'r1')
     axiosPost.mockRejectedValueOnce(new Error('refresh down'))
     await expect(errFn({ response: { status: 401, data: { message: 'expired' } } })).rejects.toThrow('expired')
     expect(httpMod.getAccessToken()).toBe('')
-    expect(extra).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(mark).toHaveBeenCalledTimes(1))
 
     httpMod.setTokens('a2', 'r2')
     axiosPost.mockResolvedValueOnce({ data: {} })
     await expect(errFn({ response: { status: 401 }, config: {} })).rejects.toThrow('网络请求失败')
-    expect(extra).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(mark).toHaveBeenCalledTimes(2))
 
     localStorage.setItem('sb_access_token', 'only-access')
     localStorage.removeItem('sb_refresh_token')

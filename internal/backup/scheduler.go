@@ -3,8 +3,8 @@
 // 用法
 //
 //	NewScheduler(service, repo, expression, opts) (*Scheduler, error)
-//	(s *Scheduler) Start(ctx)   // 首轮按 missed_policy 补跑，其后按 cron 窗口
-//	(s *Scheduler) RunOnce(ctx) // 手动触发（与 cron 共用单飞）
+//	(s *Scheduler) Start(ctx)          // 首轮按 missed_policy 补跑，其后按 cron 窗口
+//	(s *Scheduler) RunOnceDetailed(ctx) // 手动触发（与 cron 共用单飞），返回成功项目数
 package backup
 
 import (
@@ -154,11 +154,6 @@ func (s *Scheduler) Skipped() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.skipped
-}
-
-func (s *Scheduler) RunOnce(ctx context.Context) error {
-	_, err := s.RunOnceDetailed(ctx)
-	return err
 }
 
 // RunOnceDetailed 执行一轮全项目备份，返回成功的项目数。

@@ -72,7 +72,7 @@ type Metrics struct {
 	APIRateLimited  *prometheus.CounterVec
 
 	// production-readiness-plan §8.3.4/§8.3.5 运维观测。
-	DiskFreeRatio     prometheus.Gauge   // data_dir 所在卷可用比例
+	DiskFreeRatio     prometheus.Gauge       // data_dir 所在卷可用比例
 	AlertsTotal       *prometheus.CounterVec // 告警信号计数 {kind,severity}
 	QuotaExceeded     *prometheus.CounterVec // 配额拒绝计数 {kind}
 	RateLimitOverflow prometheus.Counter     // max_buckets 触顶 fail-open 计数

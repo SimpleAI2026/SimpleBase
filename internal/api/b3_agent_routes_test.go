@@ -1,16 +1,16 @@
 package api
 
-// b3_agent_routes_test.go：planv6.0 B3 agent/schedule 路由块表征测试。
+// b3_agent_routes_test.go：planv6.0 B3 agent 路由块表征测试。
 // 在提取挂载函数前锁定旧实现行为：
-//   1. agent + schedule 路由集合恰好等于清单；
+//   1. agent 路由集合恰好等于清单；
 //   2. deps.System == nil 时整块不挂载（404）；
 //   3. 只读权限（DatabaseRead）下写路由 403，读路由可达；
 //   4. agent 块全部 require（不带 delegable），委托令牌一律 403；
 //   5. writable=false 时写路由被 writeGate 拦截 503；
 //   6. POST /agent-threads/:threadID/runs 保持 DatabaseRead + writeGate
 //      （创建 run 只需读权限 + 写门禁，B3 不得改成 DatabaseWrite）；
-//   7. 旧 /agent-schedules 写路由（含 /run）已合并到 /cron-jobs，
-//      统一挂载为 DatabaseWrite + writeGate 并返回 410（兼容层）。
+//   7. 旧 /agent-schedules 已整体下线（planv6.6 DC-5）：路由不再挂载，
+//      定时执行统一到 /cron-jobs（target_kind=agent）。
 // status 断言取自当前实现。
 
 import (
@@ -23,7 +23,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
-// agentBlockRoutes 是 agent 块 + schedule 块的完整路由清单。
+// agentBlockRoutes 是 agent 块的完整路由清单（含审批队列与 MCP Server 配置）。
 var agentBlockRoutes = []struct{ method, path string }{
 	{http.MethodGet, "/v1/projects/:projectID/agents/modules"},
 	{http.MethodGet, "/v1/projects/:projectID/agents"},
@@ -44,16 +44,15 @@ var agentBlockRoutes = []struct{ method, path string }{
 	{http.MethodPost, "/v1/projects/:projectID/agent-runs/:runID/cancel"},
 	{http.MethodPost, "/v1/projects/:projectID/agent-runs/:runID/confirmations/:callID"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-runs/:runID/events"},
-	{http.MethodGet, "/v1/projects/:projectID/agent-schedules"},
-	{http.MethodPost, "/v1/projects/:projectID/agent-schedules"},
-	{http.MethodGet, "/v1/projects/:projectID/agent-schedules/:scheduleID"},
-	{http.MethodPatch, "/v1/projects/:projectID/agent-schedules/:scheduleID"},
-	{http.MethodDelete, "/v1/projects/:projectID/agent-schedules/:scheduleID"},
-	{http.MethodGet, "/v1/projects/:projectID/agent-schedules/:scheduleID/runs"},
-	{http.MethodPost, "/v1/projects/:projectID/agent-schedules/:scheduleID/run"},
+	{http.MethodGet, "/v1/projects/:projectID/agent-approvals"},
+	{http.MethodGet, "/v1/projects/:projectID/mcp/servers"},
+	{http.MethodPost, "/v1/projects/:projectID/mcp/servers"},
+	{http.MethodPatch, "/v1/projects/:projectID/mcp/servers/:serverID"},
+	{http.MethodDelete, "/v1/projects/:projectID/mcp/servers/:serverID"},
+	{http.MethodPost, "/v1/projects/:projectID/mcp/servers/:serverID/test"},
 }
 
-// agentWriteOps 是 agent/schedule 块中标 DatabaseWrite 的路由。
+// agentWriteOps 是 agent 块中标 DatabaseWrite 的路由。
 var agentWriteOps = []struct{ method, path string }{
 	{http.MethodPost, "/v1/projects/proj-1/agents"},
 	{http.MethodPatch, "/v1/projects/proj-1/agents/a1"},
@@ -63,10 +62,6 @@ var agentWriteOps = []struct{ method, path string }{
 	{http.MethodDelete, "/v1/projects/proj-1/agent-threads/t1"},
 	{http.MethodPost, "/v1/projects/proj-1/agent-runs/r1/cancel"},
 	{http.MethodPost, "/v1/projects/proj-1/agent-runs/r1/confirmations/c1"},
-	{http.MethodPost, "/v1/projects/proj-1/agent-schedules"},
-	{http.MethodPatch, "/v1/projects/proj-1/agent-schedules/s1"},
-	{http.MethodDelete, "/v1/projects/proj-1/agent-schedules/s1"},
-	{http.MethodPost, "/v1/projects/proj-1/agent-schedules/s1/run"},
 }
 
 // agentReadOps 是块内 DatabaseRead 只读路由（无 handler 外副作用）。
@@ -81,13 +76,10 @@ var agentReadOps = []struct{ method, path string }{
 	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/runs"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-runs/active"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-runs/r1/events"},
-	{http.MethodGet, "/v1/projects/proj-1/agent-schedules"},
-	{http.MethodGet, "/v1/projects/proj-1/agent-schedules/s1"},
-	{http.MethodGet, "/v1/projects/proj-1/agent-schedules/s1/runs"},
 }
 
-// TestB3AgentRouteSetLocked：真实 Routes() 中 agent/schedule 路由集合
-// 恰好等于清单，无多无少（/run 作为兼容层写路由始终挂载）。
+// TestB3AgentRouteSetLocked：真实 Routes() 中 agent 路由集合
+// 恰好等于清单，无多无少。
 func TestB3AgentRouteSetLocked(t *testing.T) {
 	deps, _ := fullRouterDeps(t)
 	e := NewRouter(deps)
@@ -99,7 +91,8 @@ func TestB3AgentRouteSetLocked(t *testing.T) {
 	got := map[string]bool{}
 	for _, r := range e.Routes() {
 		if !strings.Contains(r.Path, "/agents") && !strings.Contains(r.Path, "/agent-threads") &&
-			!strings.Contains(r.Path, "/agent-runs") && !strings.Contains(r.Path, "/agent-schedules") {
+			!strings.Contains(r.Path, "/agent-runs") && !strings.Contains(r.Path, "/agent-approvals") &&
+			!strings.Contains(r.Path, "/mcp/servers") {
 			continue
 		}
 		got[r.Method+" "+r.Path] = true
@@ -135,25 +128,14 @@ func TestB3AgentRoutesAbsentWithoutSystem(t *testing.T) {
 	}
 }
 
-// TestB3AgentScheduleWriteRoutesGone：旧 /agent-schedules 写路由（含 /run）
-// 在有写权限的实例上统一返回 410 agent_schedules_merged。
-func TestB3AgentScheduleWriteRoutesGone(t *testing.T) {
-	deps, key := fullRouterDeps(t)
+// TestB3AgentScheduleRoutesRemoved：旧 /agent-schedules 已整体下线
+// （planv6.6 DC-5）：任何方法都不得再挂载该路由前缀。
+func TestB3AgentScheduleRoutesRemoved(t *testing.T) {
+	deps, _ := fullRouterDeps(t)
 	e := NewRouter(deps)
-
-	for _, op := range []struct{ method, path string }{
-		{http.MethodPost, "/v1/projects/proj-1/agent-schedules"},
-		{http.MethodPatch, "/v1/projects/proj-1/agent-schedules/s1"},
-		{http.MethodDelete, "/v1/projects/proj-1/agent-schedules/s1"},
-		{http.MethodPost, "/v1/projects/proj-1/agent-schedules/s1/run"},
-	} {
-		req := httptest.NewRequest(op.method, op.path, strings.NewReader("{}"))
-		req.Header.Set(echo.HeaderAuthorization, "Bearer "+key)
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
-		if rec.Code != http.StatusGone || !strings.Contains(rec.Body.String(), "agent_schedules_merged") {
-			t.Fatalf("%s %s: want 410 agent_schedules_merged, got %d %s", op.method, op.path, rec.Code, rec.Body.String())
+	for _, r := range e.Routes() {
+		if strings.Contains(r.Path, "/agent-schedules") {
+			t.Fatalf("stale route mounted: %s %s", r.Method, r.Path)
 		}
 	}
 }
@@ -214,7 +196,7 @@ func TestB3AgentCreateRunKeepsReadPermission(t *testing.T) {
 	}
 }
 
-// TestB3AgentRoutesRejectDelegatedTokens：agent/schedule 块全部 require
+// TestB3AgentRoutesRejectDelegatedTokens：agent 块全部 require
 // （无 delegable），委托令牌一律 403（读路由也不放行）。
 func TestB3AgentRoutesRejectDelegatedTokens(t *testing.T) {
 	env := newSkillRouterEnv(t)

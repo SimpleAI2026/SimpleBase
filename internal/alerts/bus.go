@@ -60,7 +60,6 @@ type Bus struct {
 	count     int // 环内条数（≤256）
 	subs      []subscriber
 	nextSubID uint64
-	dropped   int64 // Emit 在锁竞争下不丢弃；计数器仅为防御性观测
 	logger    observability.Logger
 }
 

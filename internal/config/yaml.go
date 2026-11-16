@@ -260,6 +260,14 @@ type yamlAgent struct {
 	TraceLog       *bool   `yaml:"trace_log"`
 
 	ShellIsolation yamlShellIsolation `yaml:"shell_isolation"`
+
+	MCP yamlMCP `yaml:"mcp"`
+}
+
+type yamlMCP struct {
+	Enabled              *bool `yaml:"enabled"`
+	AllowHTTP            *bool `yaml:"allow_http"`
+	MaxServersPerProject *int  `yaml:"max_servers_per_project"`
 }
 
 type yamlShellIsolation struct {
@@ -454,6 +462,11 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setDur(&cfg.Agent.DelegationTTL, yc.Agent.DelegationTTL)
 	setDur(&cfg.Agent.ConfirmTimeout, yc.Agent.ConfirmTimeout)
 	setBool(&cfg.Agent.TraceLog, yc.Agent.TraceLog)
+	setBool(&cfg.Agent.MCP.Enabled, yc.Agent.MCP.Enabled)
+	setBool(&cfg.Agent.MCP.AllowHTTP, yc.Agent.MCP.AllowHTTP)
+	if yc.Agent.MCP.MaxServersPerProject != nil {
+		cfg.Agent.MCP.MaxServersPerProject = *yc.Agent.MCP.MaxServersPerProject
+	}
 	si := yc.Agent.ShellIsolation
 	setBool(&cfg.Agent.ShellIsolation.Enabled, si.Enabled)
 	setStr(&cfg.Agent.ShellIsolation.Mode, si.Mode)

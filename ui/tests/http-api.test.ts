@@ -522,28 +522,7 @@ describe('httpApi', () => {
     http.get.mockResolvedValueOnce({ data: { llm_allowed: true, database_allowed: false } })
     expect((await httpApi.quota.status(pid)).llmAllowed).toBe(true)
 
-    http.post.mockResolvedValueOnce({
-      data: {
-        id: 'chatcmpl-1',
-        object: 'chat.completion',
-        model: 'm',
-        provider: 'openai',
-        choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }
-      }
-    })
-    // OpenAI 形状经服务层展平回界面已有的扁平类型（不透传嵌套结构）。
-    expect(await httpApi.llm.chat(pid, { messages: [{ role: 'user', content: 'hi' }], maxTokens: 1, temperature: 0 })).toEqual({
-      content: 'hi',
-      model: 'm',
-      provider: 'openai',
-      finish_reason: 'stop',
-      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }
-    })
-    expect(http.post).toHaveBeenLastCalledWith(
-      expect.stringContaining('/v1/chat/completions'),
-      expect.objectContaining({ messages: [{ role: 'user', content: 'hi' }] })
-    )
+    // planv6.6 DC-5：llm.chat 已删除（聊天统一走 agentThreads.streamRun）。
     http.get.mockResolvedValueOnce({
       data: { default_provider: 'openai', default_model: 'm', base_url: 'http://x/v1', api_key_masked: 'sk-...7890', has_api_key: true, max_tokens: 8 }
     })
@@ -610,7 +589,7 @@ describe('httpApi', () => {
     http.get.mockResolvedValueOnce({ data: {} })
     expect(await httpApi.agentThreads.list(pid)).toEqual([])
     http.get.mockResolvedValueOnce({ data: { threads: [{ id: 't', title: 'x', last_message_preview: '预览' }], next_cursor: 't' } })
-    expect((await httpApi.agentThreads.page(pid, 1)).threads[0].last_message_preview).toBe('预览')
+    expect((await httpApi.agentThreads.page(pid, 'a1', 1)).threads[0].last_message_preview).toBe('预览')
     http.get.mockResolvedValueOnce({ data: {} })
     expect((await httpApi.agentThreads.page(pid)).next_cursor).toBe('')
     http.post.mockResolvedValueOnce({ data: { id: 't' } })
@@ -632,24 +611,90 @@ describe('httpApi', () => {
     http.post.mockResolvedValueOnce({ data: { id: 'r', status: 'canceled' } })
     expect((await httpApi.agentThreads.cancel(pid, 'r')).status).toBe('canceled')
 
+    // planv6.6 DC-5：agentSchedules 整组 API 已删除，审批队列接续其后。
     http.get.mockResolvedValueOnce({
-      data: { schedules: [{ id: 's', agent_id: 'a', thread_id: 't', prompt: 'p', cron_expr: '* * * * *', enabled: true }] }
+      data: { approvals: [
+          {
+            id: 'ap',
+            run_id: 'r',
+            call_id: 'c',
+            tool_name: 'simplebase',
+            argv: ['database', 'delete'],
+            status: 'pending',
+            created_at: 't'
+          }
+        ],
+        pending: 1
+      }
     })
-    expect((await httpApi.agentSchedules.list(pid))[0].id).toBe('s')
+    const approvals = await httpApi.agentApprovals.list(pid, 'pending')
+    expect(approvals.pending).toBe(1)
+    expect(approvals.approvals[0].argv).toEqual(['database', 'delete'])
+    expect(http.get).toHaveBeenLastCalledWith(
+      expect.stringContaining('/agent-approvals'),
+      { params: { status: 'pending', limit: 50 } }
+    )
     http.get.mockResolvedValueOnce({ data: {} })
-    expect(await httpApi.agentSchedules.list(pid)).toEqual([])
-    http.post.mockResolvedValueOnce({ data: { id: 's' } })
-    await httpApi.agentSchedules.create(pid, { agent_id: 'a', prompt: 'p', cron_expr: '* * * * *' })
-    http.patch.mockResolvedValueOnce({ data: { id: 's' } })
-    await httpApi.agentSchedules.patch(pid, 's', { enabled: false })
-    http.delete.mockResolvedValueOnce({ data: {} })
-    await httpApi.agentSchedules.remove(pid, 's')
-    http.get.mockResolvedValueOnce({ data: { runs: [{ id: 'r', schedule_id: 's', run_id: 'x', trigger: 'manual', status: 'ok' }] } })
-    expect((await httpApi.agentSchedules.runs(pid, 's'))[0].trigger).toBe('manual')
-    http.get.mockResolvedValueOnce({ data: {} })
-    expect(await httpApi.agentSchedules.runs(pid, 's')).toEqual([])
+    expect(await httpApi.agentApprovals.list(pid)).toEqual({ approvals: [], pending: 0 })
+    expect(http.get).toHaveBeenLastCalledWith(
+      expect.stringContaining('/agent-approvals'),
+      { params: { limit: 50 } }
+    )
     http.post.mockResolvedValueOnce({ data: {} })
-    await httpApi.agentSchedules.trigger(pid, 's')
+    await httpApi.agentApprovals.resolve(pid, 'r', 'c', true)
+    expect(http.post).toHaveBeenLastCalledWith(
+      expect.stringContaining('/agent-runs/r/confirmations/c'),
+      { approve: true }
+    )
+
+    // MCP Server 配置：列表 / 新增 / 更新 / 删除 / 连通性测试。
+    http.get.mockResolvedValueOnce({
+      data: {
+        servers: [
+          {
+            id: 'm1',
+            name: 'github',
+            transport: 'http',
+            url: 'https://x/mcp',
+            timeout_s: 30,
+            enabled: true,
+            tools_policy: { search: { read_only: true } },
+            header_names: ['Authorization'],
+            has_credential: true,
+            created_at: 't',
+            updated_at: 't'
+          }
+        ]
+      }
+    })
+    const servers = await httpApi.mcpServers.list(pid)
+    expect(servers[0].name).toBe('github')
+    expect(servers[0].tools_policy.search?.read_only).toBe(true)
+    expect(servers[0].header_names).toEqual(['Authorization'])
+
+    http.get.mockResolvedValueOnce({ data: {} })
+    expect(await httpApi.mcpServers.list(pid)).toEqual([])
+
+    http.post.mockResolvedValueOnce({ data: { id: 'm2', name: 'fs' } })
+    expect((await httpApi.mcpServers.create(pid, { name: 'fs', url: 'https://x/mcp' })).id).toBe('m2')
+    http.patch.mockResolvedValueOnce({ data: { id: 'm2', enabled: false } })
+    expect((await httpApi.mcpServers.update(pid, 'm2', { enabled: false })).enabled).toBe(false)
+    http.delete.mockResolvedValueOnce({ data: {} })
+    await httpApi.mcpServers.remove(pid, 'm2')
+    http.post.mockResolvedValueOnce({ data: { ok: true, tools: ['read'] } })
+    expect((await httpApi.mcpServers.test(pid, 'm2')).tools).toEqual(['read'])
+    http.post.mockResolvedValueOnce({ data: { ok: false, error: 'connect_failed' } })
+    const failed = await httpApi.mcpServers.test(pid, 'm2')
+    expect(failed.ok).toBe(false)
+    expect(failed.error).toBe('connect_failed')
+
+    // 缺省字段全部走兜底（DTO 转换的分支）。
+    http.get.mockResolvedValueOnce({ data: { servers: [{}] } })
+    const blank = (await httpApi.mcpServers.list(pid))[0]
+    expect(blank.transport).toBe('http')
+    expect(blank.timeout_s).toBe(60)
+    expect(blank.tools_policy).toEqual({})
+    expect(blank.header_names).toEqual([])
     http.post.mockResolvedValueOnce({ data: {} })
     expect((await httpApi.sql.execute(pid, db, { sql: 'update x' })).rowsAffected).toBe(0)
     http.post.mockResolvedValueOnce({ data: { results: [{}] } })
@@ -687,10 +732,7 @@ describe('httpApi', () => {
     expect((await httpApi.agentThreads.list(pid))[0].id).toBe('')
     http.get.mockResolvedValueOnce({ data: { messages: [{}] } })
     expect((await httpApi.agentThreads.messages(pid, 't'))[0].role).toBe('')
-    http.get.mockResolvedValueOnce({ data: { schedules: [{}] } })
-    expect((await httpApi.agentSchedules.list(pid))[0].id).toBe('')
-    http.get.mockResolvedValueOnce({ data: { runs: [{}] } })
-    expect((await httpApi.agentSchedules.runs(pid, 's'))[0].id).toBe('')
+    // planv6.6 DC-5：agentSchedules 空 payload 分支已随 API 一并删除。
     http.get.mockResolvedValueOnce({ data: { totalRequests: 3 } })
     expect((await httpApi.metrics.summary(pid)).totalRequests).toBe(3)
     http.get.mockResolvedValueOnce({ data: { points: [{}] } })
@@ -701,7 +743,7 @@ describe('httpApi', () => {
     await httpApi.cronjobs.update(pid, 'j', { scheduleKind: 'interval', intervalSeconds: 60, enabled: false })
   })
 
-  it('parses LLM and agent SSE streams including error and abort paths', async () => {
+  it('parses agent SSE streams including error and abort paths', async () => {
     async function* chunks(parts: string[]) {
       for (const p of parts) {
         yield new TextEncoder().encode(p)
@@ -717,41 +759,7 @@ describe('httpApi', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      body: {
-        getReader: () =>
-          makeReader([
-            'ignore\n\n',
-            'data: not-json\n\n',
-            'data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}\n\n',
-            'data: {"choices":[{"delta":{"content":"A"},"finish_reason":null}]}\n\n',
-            'data: {"choices":[{"delta":{"content":"B"},"finish_reason":null}]}\n\n',
-            // 工具增量分片不属于正文，不应混进 onChunk。
-            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"shell","arguments":""}}]}}]}\n\n',
-            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]}}]}\n\n',
-            'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
-            'data: [DONE]\n\n'
-          ])
-      }
-    })
-    const chunksSeen: string[] = []
-    const ended = vi.fn()
-    const conn = httpApi.llm.stream(pid, { messages: [{ role: 'user', content: 'hi' }] }, {
-      onChunk: (t) => chunksSeen.push(t),
-      onEnd: ended
-    })
-    await vi.waitFor(() => expect(ended).toHaveBeenCalled())
-    expect(chunksSeen.join('')).toBe('AB')
-    conn.close()
-
-    // 路径与请求体：OpenAI 兼容端点，必须带 stream:true。
-    const firstCall = fetchMock.mock.calls[0]
-    expect(String(firstCall[0])).toContain('/v1/chat/completions')
-    expect(JSON.parse(firstCall[1].body)).toEqual(
-      expect.objectContaining({ stream: true, messages: [{ role: 'user', content: 'hi' }] })
-    )
-
+    // planv6.6 DC-5：llm.stream 已删除，SSE 解析统一由 agentThreads.streamRun 覆盖。
     fetchMock.mockResolvedValueOnce({
       ok: false,
       status: 500,
@@ -759,7 +767,7 @@ describe('httpApi', () => {
       json: async () => ({ error: { message: 'nope' } })
     })
     const onError = vi.fn()
-    httpApi.llm.stream(pid, { messages: [] }, { onError })
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError })
     await vi.waitFor(() => expect(onError).toHaveBeenCalled())
 
     fetchMock.mockResolvedValueOnce({
@@ -771,7 +779,7 @@ describe('httpApi', () => {
       }
     })
     const onError2 = vi.fn()
-    httpApi.llm.stream(pid, { messages: [] }, { onError: onError2 })
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: onError2 })
     await vi.waitFor(() => expect(onError2).toHaveBeenCalled())
 
     fetchMock.mockResolvedValueOnce({
@@ -832,12 +840,15 @@ describe('httpApi', () => {
         })
       }
     })
-    const hung = httpApi.llm.stream(pid, { messages: [] }, { onError: vi.fn(), onEnd: vi.fn() })
+    const hung = httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, {
+      onError: vi.fn(),
+      onEnd: vi.fn()
+    })
     hung.close()
 
     fetchMock.mockRejectedValueOnce(new Error('network'))
     const netErr = vi.fn()
-    httpApi.llm.stream(pid, { messages: [] }, { onError: netErr })
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: netErr })
     await vi.waitFor(() => expect(netErr).toHaveBeenCalled())
 
     fetchMock.mockResolvedValueOnce({
@@ -847,7 +858,7 @@ describe('httpApi', () => {
       json: async () => ({ message: 'svc' })
     })
     const llmMsg = vi.fn()
-    httpApi.llm.stream(pid, { messages: [] }, { onError: llmMsg })
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: llmMsg })
     await vi.waitFor(() => expect(llmMsg).toHaveBeenCalled())
 
     fetchMock.mockResolvedValueOnce({
@@ -857,18 +868,19 @@ describe('httpApi', () => {
       json: async () => ({})
     })
     const llmStatus = vi.fn()
-    httpApi.llm.stream(pid, { messages: [] }, { onError: llmStatus })
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: llmStatus })
     await vi.waitFor(() => expect(llmStatus).toHaveBeenCalled())
 
     fetchMock.mockResolvedValueOnce({
       ok: true,
+      headers: { get: () => 'text/event-stream' },
       body: {
         getReader: () =>
           makeReader(['data: \n\n', 'data: {"type":"other"}\n\n', 'data: {"type":"end"}\n\n'])
       }
     })
     const emptyEnded = vi.fn()
-    httpApi.llm.stream(pid, { messages: [] }, { onEnd: emptyEnded })
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onEnd: emptyEnded })
     await vi.waitFor(() => expect(emptyEnded).toHaveBeenCalled())
 
     fetchMock.mockResolvedValueOnce({

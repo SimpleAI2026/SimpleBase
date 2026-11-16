@@ -36,9 +36,13 @@ func litellmDriver(name string) (string, bool) {
 		return "qwen", true
 	case "zhipu":
 		return "glm", true
-	case "azure_openai", "custom_openai", "moonshot":
+	case "azure_openai", "custom_openai", "moonshot", "codex":
 		// 这些预设走 OpenAI Chat Completions，靠 base_url 指向兼容端点。
+		// codex 是 Codex CLI 的订阅端点，协议与 OpenAI 一致。
 		return "openai", true
+	case "claude":
+		// claude 是 Claude Code 的订阅端点，消息协议与 anthropic 一致。
+		return "anthropic", true
 	default:
 		return "", false
 	}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { errorMessage, formatBytes, formatCount, formatErrorRate, formatJson, formatTime, shortTime } from '@/utils/format'
+import { errorMessage, formatBytes, formatCount, formatErrorRate, formatJson, formatTime } from '@/utils/format'
 
 describe('formatErrorRate', () => {
   it('converts ratio to percent with 4 decimals', () => {
@@ -54,14 +54,6 @@ describe('formatTime', () => {
     const out = formatTime('2026-01-02T03:04:05.000Z')
     expect(out).not.toBe('-')
     expect(out).not.toBe('2026-01-02T03:04:05.000Z')
-  })
-})
-
-describe('shortTime', () => {
-  it('handles missing and invalid timestamps', () => {
-    expect(shortTime('')).toBe('—')
-    expect(shortTime('bad')).toBe('—')
-    expect(shortTime('2024-01-15T08:05:00Z')).toMatch(/\d{2}-\d{2} \d{2}:\d{2}/)
   })
 })
 

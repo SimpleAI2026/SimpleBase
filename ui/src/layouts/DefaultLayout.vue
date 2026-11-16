@@ -5,7 +5,10 @@
       <SidebarHeader class="group-data-[collapsible=icon]:px-0">
         <!-- h-10 + SidebarHeader 的 p-2 = 56px，与右侧顶栏 --header-height 对齐 -->
         <div class="flex h-10 items-center gap-2.5 overflow-hidden px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <BrandLogo wordmark-class="group-data-[collapsible=icon]:hidden" />
+          <!-- 左上角 Logo 点击回到 Homepage；折叠态下仅剩 32px 图标同样可点 -->
+          <router-link to="/" class="no-underline" :aria-label="t('layout.backToHome')">
+            <BrandLogo wordmark-class="group-data-[collapsible=icon]:hidden" />
+          </router-link>
           <SidebarTrigger class="ml-auto shrink-0 group-data-[collapsible=icon]:hidden" />
         </div>
       </SidebarHeader>

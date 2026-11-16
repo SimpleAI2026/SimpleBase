@@ -175,7 +175,7 @@ func TestSummarizeSQLAndBootSQL(t *testing.T) {
 	if !strings.HasSuffix(summarizeSQL(long), "...") {
 		t.Fatal(summarizeSQL(long))
 	}
-	layout := layoutFor(t.TempDir(), uuid.NewString())
+	layout := layoutForEngine(t.TempDir(), uuid.NewString(), EngineDuckDB)
 	_ = layout.ensure()
 	opts := DefaultOptions()
 	opts.RequireCommitMessage = true
@@ -476,7 +476,7 @@ func TestValidateRemoteDataPath(t *testing.T) {
 }
 
 func TestFactoryDataPathFor(t *testing.T) {
-	layout := layoutFor(t.TempDir(), uuid.NewString())
+	layout := layoutForEngine(t.TempDir(), uuid.NewString(), EngineDuckDB)
 	f := &Factory{}
 	p, err := f.dataPathFor(godatabase.Spec{}, layout)
 	if err != nil || p == "" {

@@ -11,14 +11,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/utils/crontab"
 )
 
-// fakeSchedRepo / fakeSchedService 桩：无需真实存储。
-type fakeSchedRepo struct {
-	mu     sync.Mutex
-	listed int
-}
-
-func (f *fakeSchedRepo) ListProjectsCalls() int { f.mu.Lock(); defer f.mu.Unlock(); return f.listed }
-
+// recordingReporter 桩：无需真实存储。
 type recordingReporter struct {
 	mu        sync.Mutex
 	succeeded []time.Time

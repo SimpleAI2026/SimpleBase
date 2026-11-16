@@ -338,6 +338,27 @@ type AgentConfig struct {
 	// 目前只有 gocloudagent CLI 会启动本机 shell，而 CLI 读的是 ~/.gocloudagent/config.json，
 	// 这一段在服务端只做解析与校验，供操作者对照抄写。
 	ShellIsolation ShellIsolationConfig `yaml:"shell_isolation"`
+	// MCP 是外部 MCP Server 接入开关（planv6.2 §6-4）。默认关闭：
+	// 关闭时 Agent 保存 mcp: 引用会被拒绝，run 也不会装配 MCP 工具。
+	MCP MCPConfig `yaml:"mcp"`
+}
+
+// MCPConfig 是 agent.mcp 段。
+type MCPConfig struct {
+	// Enabled 是总开关。默认 false。
+	Enabled bool `yaml:"enabled"`
+	// AllowHTTP 允许 http:// 端点（默认只允许 https）。
+	AllowHTTP bool `yaml:"allow_http"`
+	// MaxServersPerProject 是单项目可配置的 Server 上限。
+	MaxServersPerProject int `yaml:"max_servers_per_project"`
+}
+
+// EffectiveMaxServersPerProject 返回生效上限；未配置取 10。
+func (m MCPConfig) EffectiveMaxServersPerProject() int {
+	if m.MaxServersPerProject <= 0 {
+		return 10
+	}
+	return m.MaxServersPerProject
 }
 
 // ShellIsolationConfig 是 agent.shell_isolation 段。字段含义见 gosandbox/host.Policy。

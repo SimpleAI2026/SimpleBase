@@ -113,7 +113,7 @@ func TestImporter_ParseNameType_Scope(t *testing.T) {
 	// 验证类型对象
 	obj := named.Obj()
 	if obj == nil {
-		t.Error("named type should have an object")
+		t.Fatal("named type should have an object")
 	}
 
 	// 验证对象类型 - 移除错误的类型断言

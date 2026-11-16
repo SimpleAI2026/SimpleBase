@@ -3,7 +3,6 @@
 // 用法
 //
 //	New(db *sql.DB, opts ...Option) *Store
-//	WithNowFunc(fn func() time.Time) Option  // WithNowFunc 注入时钟（测试用固定时钟验证 TTL）
 //	WithOnWrite(fn func(ctx context.Context)) Option  // WithOnWrite 注入写提交回调（handler 侧接 registry.Handle.NotifyWrite，
 //	同包调用：Key() → core.go, hash.go 等；Tx → hash.go, key.go 等；nowMs() → core.go, key.go 等
 //
@@ -23,7 +22,6 @@
 //
 //	type Store struct {…}
 //	type Option func(*Store)
-//	WithNowFunc(fn func() time.Time) Option
 //	WithOnWrite(fn func(ctx context.Context)) Option
 //	New(db *sql.DB, opts ...Option) *Store
 //	(s *Store) HasSchema(ctx context.Context) (bool, error)
@@ -102,11 +100,6 @@ func connKnown(db *sql.DB) *connSchemaState {
 
 // Option 配置 Store。
 type Option func(*Store)
-
-// WithNowFunc 注入时钟（测试用固定时钟验证 TTL）。默认 time.Now。
-func WithNowFunc(fn func() time.Time) Option {
-	return func(s *Store) { s.now = fn }
-}
 
 // WithOnWrite 注入写提交回调（handler 侧接 registry.Handle.NotifyWrite，
 // 保证 catalog debounce 同步链路与现有写路径一致）。

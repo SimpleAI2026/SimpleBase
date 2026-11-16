@@ -98,6 +98,10 @@ func TestDatabaseHandler_MissingContextAndValidation(t *testing.T) {
 		t.Fatalf("snapshot get %d %s", rec.Code, rec.Body.String())
 	}
 	rec = doRequest(eOK, http.MethodGet, "/databases/", nil)
+	// 尾斜杠不命中 :databaseID 路由（Echo 不自动去斜杠）→ 404。
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("trailing slash get %d %s", rec.Code, rec.Body.String())
+	}
 	// empty databaseID
 	req := httptest.NewRequest(http.MethodGet, "/databases/", nil)
 	rec = httptest.NewRecorder()
@@ -534,6 +538,9 @@ func TestDataHandler_Branches(t *testing.T) {
 
 func TestProjectsHandler_MoreBranches(t *testing.T) {
 	e := setupProjectsRouter(t, &fakeProjectCatalog{})
+	if rec := doRequest(e, http.MethodGet, "/v1/projects", nil); rec.Code != http.StatusOK {
+		t.Fatalf("list empty catalog %d %s", rec.Code, rec.Body.String())
+	}
 	// missing principal
 	e2 := echo.New()
 	h := NewProjectsHandler(&fakeProjectCatalog{}, nil)

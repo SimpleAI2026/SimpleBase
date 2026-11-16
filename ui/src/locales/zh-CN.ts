@@ -130,6 +130,7 @@ const zhCN: MessageTree = {
     loadFailed: '加载失败',
     runFailed: '运行失败',
     requestFailed: '请求失败',
+    requestFailedWithStatus: '请求失败 ({status})',
     networkFailed: '网络请求失败',
     htmlResponse: '接口不存在或返回了 HTML 页面',
     streamFailed: '流式请求失败',
@@ -183,6 +184,7 @@ const zhCN: MessageTree = {
     openNavigation: '打开导航',
     toggleTheme: '切换主题',
     language: '界面语言',
+    backToHome: '回到首页',
     themeToLight: '切换为浅色主题',
     themeToDark: '切换为深色主题',
     backToHome: '返回首页',
@@ -200,6 +202,8 @@ const zhCN: MessageTree = {
     models: {
       subtitle: '模型配置与调用观测',
       tabModels: '模型',
+      tabMcp: 'MCP',
+      tabApprovals: '审批队列',
       tabTraces: 'Trace'
     },
     traces: {
@@ -702,6 +706,37 @@ const zhCN: MessageTree = {
       pickFromSidebar: '请从左侧选择一篇文档',
       documentTitle: '{page} · {module} · SimpleBase 文档',
       documentFallbackModule: '文档'
+    },
+
+    approvals: {
+      subtitle: '云助手破坏性工具调用的待办审批，跨会话可查',
+      cardTitle: '审批队列',
+      cardDesc: '共 {n} 条 · {pending} 条待处理',
+      filterStatus: '状态',
+      filterStatusAria: '按状态过滤',
+      colStatus: '状态',
+      colCommand: '工具与参数',
+      colMessage: '说明',
+      colInitiator: '发起人',
+      colCreated: '创建时间',
+      colExpires: '过期时间',
+      approve: '放行',
+      deny: '拒绝',
+      approvedToast: '已放行',
+      deniedToast: '已拒绝',
+      resolveFailed: '处理审批失败',
+      emptyTitle: '暂无审批记录',
+      emptyDesc: '云助手执行破坏性命令时会在这里留下待办',
+      emptyAdminTitle: '系统项目不支持审批队列',
+      emptyAdminDesc: '请切换到普通项目查看',
+      loadFailed: '加载审批队列失败',
+      status: {
+        pending: '待处理',
+        approved: '已放行',
+        denied: '已拒绝',
+        expired: '已过期',
+        canceled: '已作废'
+      }
     },
 
     agents: {
@@ -1899,6 +1934,45 @@ const zhCN: MessageTree = {
       freeCopyKey: '复制 API Key',
       freeCopied: '{label}已复制',
       freeCopyFailed: '无法复制到剪贴板'
+    },
+
+    mcpServers: {
+      cardTitle: 'MCP Server',
+      cardDesc: '项目级外部 MCP 工具源 · 共 {n} 个',
+      create: '新增 Server',
+      colName: '名称',
+      colUrl: '端点',
+      colCredential: '凭据',
+      colTools: '工具数',
+      test: '测试',
+      testOk: '连接成功，发现 {n} 个工具',
+      testFailed: '连接失败',
+      deleteConfirm: '删除 MCP Server {name}？',
+      saved: 'MCP Server 已保存',
+      saveFailed: '保存失败',
+      deleted: 'MCP Server 已删除',
+      deleteFailed: '删除失败',
+      loadFailed: '加载 MCP Server 失败',
+      emptyTitle: '暂无 MCP Server',
+      emptyDesc: '新增后可在助手的工具选择里通过 mcp:<名称> 启用'
+    },
+
+    mcpServerModal: {
+      createTitle: '新增 MCP Server',
+      editTitle: '编辑 MCP Server',
+      description: '通过 Streamable HTTP 接入外部 MCP Server 的 tools',
+      name: '名称',
+      nameHint: '仅 [A-Za-z0-9_-]，会用于生成 mcp__<名称>__<工具> 的工具名',
+      url: '端点 URL',
+      urlHint: '仅允许 https；http 需在 config.yaml 显式开启 agent.mcp.allow_http',
+      credential: '凭据',
+      credentialHint: '写入 Authorization: Bearer <值>。留空保存则沿用已保存的凭据。',
+      credentialPlaceholder: '粘贴访问令牌',
+      credentialSaved: '已保存凭据，留空则不修改',
+      timeout: '超时（秒）',
+      required: '名称与端点 URL 必填',
+      saved: 'MCP Server 已保存',
+      saveFailed: '保存失败'
     }
   }
 }

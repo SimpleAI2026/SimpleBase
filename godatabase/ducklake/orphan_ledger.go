@@ -4,6 +4,8 @@
 //
 //	(l *OrphanLedger) Record(ctx context.Context, tenantID, databaseID, fileKey, reason ...  // Record 写一条 pending 账目（PutIfAbsent + uuid key，天然幂等）
 //	(g *MaintenanceGate) Check(dbID string) error  // Check 对指定库执行门禁检查
+//	接线：CatalogSyncer.pruneVersions 删除快照前先 Record（expire_snapshots），
+//	并在清理入口用 maintenanceGate 派生门禁（multi-instance-consistency-plan §4.7）。
 //
 // 调用架构
 //
@@ -62,16 +64,18 @@ type OrphanLedger struct {
 }
 
 // Record 写一条 pending 账目（PutIfAbsent + uuid key，天然幂等）。
-func (l *OrphanLedger) Record(ctx context.Context, tenantID, databaseID, fileKey, reason string) error {
+// projectID 是 key 布局的项目维度（DatabasePrefix）；tenantID 记入账目载荷，
+// 供恢复流程按租户过滤。
+func (l *OrphanLedger) Record(ctx context.Context, projectID, databaseID, fileKey, reason string) error {
 	rec := OrphanRecord{
 		FileKey:    fileKey,
 		DatabaseID: databaseID,
-		TenantID:   tenantID,
+		TenantID:   projectID,
 		Reason:     reason,
 		Status:     "pending",
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	key, err := l.Keys.DuckLakeOrphanLedgerKey(tenantID, databaseID, time.Now().UTC().Format("2006-01-02"), uuid.NewString())
+	key, err := l.Keys.DuckLakeOrphanLedgerKey(projectID, databaseID, time.Now().UTC().Format("2006-01-02"), uuid.NewString())
 	if err != nil {
 		return err
 	}

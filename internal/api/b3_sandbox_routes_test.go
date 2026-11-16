@@ -88,7 +88,7 @@ func (f *fakeRouterSandbox) GetByID(_ contextT, id string) (sandbox.Sandbox, err
 	return sandbox.Sandbox{}, sandbox.ErrNotFound
 }
 func (f *fakeRouterSandbox) Start(_ contextT, projectID, id string) (sandbox.Sandbox, error) {
-	r, err := f.Get(nil, projectID, id, false)
+	r, err := f.Get(context.Background(), projectID, id, false)
 	if err != nil {
 		return r, err
 	}
@@ -97,7 +97,7 @@ func (f *fakeRouterSandbox) Start(_ contextT, projectID, id string) (sandbox.San
 	return r, nil
 }
 func (f *fakeRouterSandbox) Stop(_ contextT, projectID, id string) (sandbox.Sandbox, error) {
-	r, err := f.Get(nil, projectID, id, false)
+	r, err := f.Get(context.Background(), projectID, id, false)
 	if err != nil {
 		return r, err
 	}
@@ -106,14 +106,14 @@ func (f *fakeRouterSandbox) Stop(_ contextT, projectID, id string) (sandbox.Sand
 	return r, nil
 }
 func (f *fakeRouterSandbox) Delete(_ contextT, projectID, id string) error {
-	if _, err := f.Get(nil, projectID, id, false); err != nil {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
 		return err
 	}
 	delete(f.rows, id)
 	return nil
 }
 func (f *fakeRouterSandbox) SetExpiry(_ contextT, projectID, id string, s int64) (sandbox.Sandbox, error) {
-	r, err := f.Get(nil, projectID, id, false)
+	r, err := f.Get(context.Background(), projectID, id, false)
 	if err != nil {
 		return r, err
 	}
@@ -126,7 +126,7 @@ func (f *fakeRouterSandbox) ExtendExpiry(ctx contextT, projectID, id string, s i
 	return f.SetExpiry(ctx, projectID, id, s)
 }
 func (f *fakeRouterSandbox) ReadFile(_ contextT, projectID, id, path string) (sandbox.FileContent, error) {
-	if _, err := f.Get(nil, projectID, id, false); err != nil {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
 		return sandbox.FileContent{}, err
 	}
 	b, ok := f.files[id+path]
@@ -136,21 +136,21 @@ func (f *fakeRouterSandbox) ReadFile(_ contextT, projectID, id, path string) (sa
 	return sandbox.FileContent{Content: b}, nil
 }
 func (f *fakeRouterSandbox) WriteFile(_ contextT, projectID, id, path string, data []byte) error {
-	if _, err := f.Get(nil, projectID, id, false); err != nil {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
 		return err
 	}
 	f.files[id+path] = data
 	return nil
 }
 func (f *fakeRouterSandbox) RemoveFile(_ contextT, projectID, id, path string) error {
-	if _, err := f.Get(nil, projectID, id, false); err != nil {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
 		return err
 	}
 	delete(f.files, id+path)
 	return nil
 }
 func (f *fakeRouterSandbox) ListDir(_ contextT, projectID, id, dir string) ([]vm.FileEntry, error) {
-	if _, err := f.Get(nil, projectID, id, false); err != nil {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
 		return nil, err
 	}
 	var out []vm.FileEntry
@@ -455,7 +455,7 @@ func TestReadOnlyKeyCannotWriteAndGetsNoEnvdToken(t *testing.T) {
 	deps.Auth = auth.NewService(&memAuthRepo{rec: auth.APIKeyRecord{ID: "ro", KeyHash: deps.Auth.HashKey(key), TenantID: "tenant-1",
 		ProjectIDs: []string{"proj-1"}, Permissions: []auth.Permission{auth.DatabaseRead}}}, "secret")
 	e := NewRouter(deps)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "ro-box"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "ro-box"}, "u")
 
 	if rec := call(e, "GET", "/e2b/sandboxes", key, "", nil); rec.Code != 200 {
 		t.Fatalf("read: %d", rec.Code)
@@ -489,7 +489,7 @@ func TestReadOnlyKeyCannotWriteAndGetsNoEnvdToken(t *testing.T) {
 func TestWriterTokenAppearsInGetOnlyForWriters(t *testing.T) {
 	sb := newFakeRouterSandbox(true)
 	e, key, _ := routerWith(t, sb)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "rw-box"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "rw-box"}, "u")
 	rec := call(e, "GET", "/e2b/sandboxes/"+row.ID, key, "", nil)
 	if !strings.Contains(rec.Body.String(), "envdAccessToken") {
 		t.Fatalf("a writer should get a token: %s", rec.Body.String())
@@ -502,7 +502,7 @@ func TestReadOnlyInstanceRejectsWrites(t *testing.T) {
 	deps.Sandbox = sb
 	deps.Config.Instance.Writable = false
 	e := NewRouter(deps)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "ro-inst"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "ro-inst"}, "u")
 	for _, w := range []struct{ m, p, b string }{
 		{"POST", "/e2b/v2/sandboxes", `{"templateID":"base"}`},
 		{"DELETE", "/e2b/sandboxes/" + row.ID, ""},
@@ -540,7 +540,7 @@ func TestSystemProjectWritesRejected(t *testing.T) {
 func TestCrossProjectSandboxLooksMissing(t *testing.T) {
 	sb := newFakeRouterSandbox(true)
 	e, key, _ := routerWith(t, sb)
-	other, _ := sb.Create(nil, "proj-2", sandbox.CreateInput{Name: "theirs"}, "u")
+	other, _ := sb.Create(context.Background(), "proj-2", sandbox.CreateInput{Name: "theirs"}, "u")
 	rec := call(e, "GET", "/e2b/sandboxes/"+other.ID, key, "", nil)
 	missing := call(e, "GET", "/e2b/sandboxes/sb-nope", key, "", nil)
 	if rec.Code != 404 || missing.Code != 404 || rec.Body.String() != missing.Body.String() {
@@ -659,8 +659,8 @@ func TestListValidationAndPagination(t *testing.T) {
 func TestEnvdAccessTokenBinding(t *testing.T) {
 	sb := newFakeRouterSandbox(true)
 	e, _, deps := routerWith(t, sb)
-	a, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "boxa"}, "u")
-	b, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "boxb"}, "u")
+	a, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "boxa"}, "u")
+	b, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "boxb"}, "u")
 	signer := newEnvdTokenSigner(deps.Config.Auth.APIKeyHashSecret)
 	tokA := signer.Issue("proj-1", a.ID, time.Now().Add(time.Minute))
 
@@ -696,7 +696,7 @@ func TestEnvdAccessTokenBinding(t *testing.T) {
 		t.Fatalf("envd token on the control plane: %d", rec.Code)
 	}
 	// 令牌也不能用于另一个项目的沙盒：项目取自令牌，而不是请求头。
-	other, _ := sb.Create(nil, "proj-2", sandbox.CreateInput{Name: "other"}, "u")
+	other, _ := sb.Create(context.Background(), "proj-2", sandbox.CreateInput{Name: "other"}, "u")
 	if rec = call(e, "GET", "/health", "", "", map[string]string{"X-Access-Token": tokA, "E2b-Sandbox-Id": other.ID}); rec.Code != 401 {
 		t.Fatalf("token reused on another project's sandbox: %d", rec.Code)
 	}

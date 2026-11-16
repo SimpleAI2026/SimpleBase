@@ -61,10 +61,10 @@ func TestDoctorReportProductionGaps(t *testing.T) {
 
 func TestDoctorReportTrustedProxyWildcard(t *testing.T) {
 	cfg := config.Config{
-		Instance: config.InstanceConfig{Profile: config.ProfileProduction},
-		Auth:     config.AuthConfig{APIKeyHashSecret: "k", BootstrapPassword: "a-strong-enough-bootstrap-password", SessionSecret: "s"},
+		Instance:      config.InstanceConfig{Profile: config.ProfileProduction},
+		Auth:          config.AuthConfig{APIKeyHashSecret: "k", BootstrapPassword: "a-strong-enough-bootstrap-password", SessionSecret: "s"},
 		Observability: config.ObservabilityConfig{MetricsToken: "tok"},
-		HTTP:     config.HTTPConfig{TrustedProxies: []string{"0.0.0.0/0"}},
+		HTTP:          config.HTTPConfig{TrustedProxies: []string{"0.0.0.0/0"}},
 	}
 	r := RunDoctor(cfg)
 	if r.OK() {

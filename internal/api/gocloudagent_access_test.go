@@ -4,17 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/godatabase"
-	"github.com/linkxzhou/SimpleBase/godatabase/registry"
+	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 
@@ -235,7 +236,7 @@ func TestCloudAgentObj(t *testing.T) {
 
 func TestLLMChatClient(t *testing.T) {
 	ctx := context.Background()
-	c := NewCloudAgentLLM(&fakeLLMSvc{names: []string{"x"}}).(gocloudagent.ChatClient)
+	var c gocloudagent.ChatClient = NewCloudAgentLLM(&fakeLLMSvc{names: []string{"x"}})
 	resp, err := c.Chat(ctx, "p", gocloudagent.ChatRequest{
 		Model: "m", Messages: []gocloudagent.ChatMessage{{Role: "user", Content: "hi"}},
 	})
@@ -266,13 +267,13 @@ func TestLLMChatClient(t *testing.T) {
 		t.Fatal("stream err")
 	}
 
-	// token stream edge cases
+	// token stream edge cases：空 seqStream 返回 EOF，finish 必须为 true。
 	ts := &llmTokenStream{r: &seqStream{}}
-	if _, finish, err := ts.Next(); err == nil && !finish {
-		// empty seqStream returns EOF → finish true
+	if _, finish, err := ts.Next(); err != io.EOF || !finish {
+		t.Fatalf("empty stream: finish=%v err=%v", finish, err)
 	}
-	if _, _, err := ts.Next(); err == nil {
-		// EOF
+	if _, finish, err := ts.Next(); err != io.EOF || !finish {
+		t.Fatalf("empty stream again: finish=%v err=%v", finish, err)
 	}
 	nilChunk := &llmTokenStream{r: &oneNilStream{}}
 	tok, finish, err := nilChunk.Next()

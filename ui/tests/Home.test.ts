@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Home from '@/pages/Home.vue'
@@ -15,7 +16,7 @@ async function mountHome() {
   })
   await router.push('/')
   await router.isReady()
-  const wrapper = mount(Home, { global: { plugins: [router], stubs: { RouterLink: false } } })
+  const wrapper = mount(Home, { global: { plugins: [router, createPinia()], stubs: { RouterLink: false } } })
   return { wrapper, router }
 }
 

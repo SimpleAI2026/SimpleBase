@@ -8,6 +8,17 @@ describe('llm provider catalog', () => {
     expect(LLM_PROVIDER_PRESETS.length).toBeGreaterThanOrEqual(8)
   })
 
+  it('exposes claude and codex presets with matching protocols', () => {
+    expect(getProviderPreset('claude')?.protocol).toBe('anthropic_messages')
+    expect(getProviderPreset('codex')?.protocol).toBe('openai_chat')
+    // 两者都必须有 api_key 字段，否则设置页无法保存连接。
+    for (const id of ['claude', 'codex']) {
+      const preset = getProviderPreset(id)
+      expect(preset?.fields.some((f) => f.key === 'api_key' && f.required)).toBe(true)
+      expect(preset?.suggestedModels.length).toBeGreaterThan(0)
+    }
+  })
+
   it('masks secrets without leaking the full value', () => {
     expect(maskSecret(undefined)).toBe('')
     expect(maskSecret('')).toBe('')

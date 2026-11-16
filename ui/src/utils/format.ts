@@ -28,14 +28,6 @@ export function formatTime(iso?: string, empty = '-'): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(currentBcp47(), { hour12: false })
 }
 
-export function shortTime(iso?: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 /** 错误率展示：后端为 0~1 比值，转为百分数并固定 4 位小数（不含 % 符号）。 */
 export function formatErrorRate(ratio: number | null | undefined): string {
   if (ratio == null || !Number.isFinite(ratio)) return (0).toFixed(4)

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
-	_ "github.com/duckdb/duckdb-go/v2"
 )
 
 func remoteMeta(t *testing.T, engine string) godatabase.Spec {
@@ -345,10 +345,10 @@ func (b *gatedPutBlobs) PutBytes(ctx context.Context, key string, data []byte, c
 func TestFileSyncerFlushKeepsDirtyForWritesDuringUpload(t *testing.T) {
 	ctx := context.Background()
 	blobs := &gatedPutBlobs{
-		Store:  blob.NewMemory(),
-		gate:   make(chan struct{}),
-		first:  true,
-		calls:  make(chan string, 16),
+		Store: blob.NewMemory(),
+		gate:  make(chan struct{}),
+		first: true,
+		calls: make(chan string, 16),
 	}
 	meta := remoteMeta(t, godatabase.EngineSQLite)
 	factory, syncer := newRemoteFactory(t, blobs, t.TempDir())

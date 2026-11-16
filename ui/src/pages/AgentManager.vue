@@ -227,7 +227,8 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '../services/api'
-import type { AgentModuleInfo, AgentThread, CloudAgent } from '../services/api'
+import { agentScheduleFromCronJob } from '../services/http-api'
+import type { AgentModuleInfo, AgentThread, CloudAgent, McpServer } from '../services/api'
 import { useProjectStore } from '../stores/project'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
@@ -272,6 +273,8 @@ const {
 const saving = ref(false)
 const agents = ref<CloudAgent[]>([])
 const modules = ref<AgentModuleInfo[]>([])
+/** 项目已配置的 MCP Server：作为 mcp:<name> 工具选项注入弹窗（planv6.2 §6-7）。 */
+const mcpServers = ref<McpServer[]>([])
 const activeId = ref('')
 const modalOpen = ref(false)
 const editing = ref<CloudAgent | null>(null)
@@ -435,7 +438,15 @@ const toolsHint = computed(() => {
 const toolOptions = computed(() => {
   const m = modules.value.find((x) => x.id === form.value.module)
   const ids = m ? m.default_tools : ['list_databases', 'list_collections', 'readonly_sql', 'list_objects', 'head_object', 'search_logs', 'log_level_stats']
-  return ids.map((id) => ({ label: id, value: id }))
+  const out = ids.map((id) => ({ label: id, value: id }))
+  // MCP Server 以 mcp:<name> 的形式并列展示（planv6.2 §3.2）。
+  // 已停用的 Server 不提供，但已选中的仍保留在 form.tool_ids 里，
+  // 由保存时的后端校验决定是否放行。
+  for (const srv of mcpServers.value) {
+    if (!srv.enabled) continue
+    out.push({ label: `mcp:${srv.name}`, value: `mcp:${srv.name}` })
+  }
+  return out
 })
 
 /** 最后一条消息失败且记录了失败 run id 时可重试（BUG-03：走后端 retry_of_run_id）。 */
@@ -487,11 +498,20 @@ async function bootstrap() {
   })()])
 }
 
+/**
+ * planv6.6 DC-5：旧 /agent-schedules 只读兼容层已下线，定时摘要改从
+ * /cron-jobs（targetKind=agent）映射；每个助手只展示一条（最新创建的）。
+ */
 async function loadSchedules() {
   try {
-    const list = await api.agentSchedules.list(project.id)
+    const jobs = await api.cronjobs.list(project.id)
     const map: Record<string, AgentSchedule> = {}
-    for (const s of list) map[s.agent_id] = s
+    for (const job of jobs) {
+      if (job.targetKind !== 'agent' || !job.agentId) continue
+      const s = agentScheduleFromCronJob(job)
+      const prev = map[s.agent_id]
+      if (!prev || s.created_at > prev.created_at) map[s.agent_id] = s
+    }
     scheduleByAgent.value = map
   } catch (e) {
     toast.error(errorMessage(e, t('pages.agents.loadSchedulesFailed')))
@@ -717,6 +737,12 @@ async function loadModules() {
     modules.value = await api.agents.modules(project.id)
   } catch (e) {
     toast.error(errorMessage(e, t('pages.agents.loadModulesFailed')))
+  }
+  // MCP Server 列表失败不阻断助手页：没有它只是少一个工具选项。
+  try {
+    mcpServers.value = await api.mcpServers.list(project.id)
+  } catch {
+    mcpServers.value = []
   }
 }
 

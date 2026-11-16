@@ -22,10 +22,6 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// slotGetter 是运行期取值的最小抽象：成功固化为切片索引读取，
-// 失败（Const/Global/Function 等）整体走慢路径。
-type slotGetter func(fr *frame) value.Value
-
 // trySlot 返回 v 的槽位号；未注册（ok=false）时调用方回落慢路径。
 func trySlot(l *funcLayout, v ssa.Value) (int, bool) {
 	if l == nil || v == nil {

@@ -64,6 +64,7 @@ func KnownSkill(id string) bool {
 }
 
 // SkillPrefixes 返回某个 skill 允许的 argv[0]。未知 id 返回 nil。
+// 对账测试专用（internal/agentbridge/skills_test.go）：生产判定走 AllowArgv。
 func SkillPrefixes(id string) []string {
 	src := skillPrefixes[id]
 	if src == nil {
@@ -112,6 +113,8 @@ func skillDocPath(id string) string {
 }
 
 // KnownSkillIDs 返回全部已登记子技能的 id（排序后），供宿主做文档对账。
+// 对账测试专用（internal/agentbridge/skills_test.go）：生产运行时按需加载
+// 单个 skill，不枚举全表。
 //
 // 只暴露 id 列表，不暴露内部前缀表结构：允许的命令前缀仍由 SkillPrefixes
 // 按 id 单独查询。
@@ -125,6 +128,8 @@ func KnownSkillIDs() []string {
 }
 
 // SkillBody 返回某个子技能的正文（已剥离 frontmatter）。未知 id 返回空串。
+// 对账测试专用（internal/agentbridge/skills_test.go）：生产 prompt 组装走
+// SkillPrompt 批量拼接。
 func SkillBody(id string) string {
 	return readSkill(skillDocPath(id))
 }
@@ -209,6 +214,8 @@ func EmbeddedSkillAllows() (map[string][]string, error) {
 // EmbeddedSkillReadOnly 解析各模块文档的 `<!-- readonly: a,b -->` 标注
 // （planv6.0 v2 §4.2）：供测试与 sbcli.CommandReadOnly 对账，让「文档」与
 // 「宿主判定」两个事实来源自动对齐。未标注的 skill 不出现在结果里。
+// 对账测试专用（internal/agentbridge/skills_test.go）：生产只读判定走
+// sbcli.CommandReadOnly。
 func EmbeddedSkillReadOnly() (map[string][]string, error) {
 	out := map[string][]string{}
 	err := walkSkillDocs(func(id, body string) {

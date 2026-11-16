@@ -25,7 +25,7 @@ func openTestLake(t *testing.T) (*sql.DB, Layout) {
 		t.Fatalf("open ducklake (need CGO + extension download): %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return db, layoutFor(dir, id)
+	return db, layoutForEngine(dir, id, EngineDuckDB)
 }
 
 func TestPhase1_DuckDBVersionAndExtensions(t *testing.T) {

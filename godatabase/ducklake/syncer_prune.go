@@ -41,6 +41,8 @@ func (s *CatalogSyncer) schedulePrune(meta godatabase.Spec, snap, seq int64) {
 //   - manifest 索引连续且不可变，永不删除（发现链依赖它定位最新 seq）；
 //   - 只删除保留窗口（最近 KeepVersions 个 manifest）之外、且未被窗口内
 //     任何 manifest 引用的快照对象；
+//   - §4.7：清理入口过 MaintenanceGate（失租/同步滞后时跳过），
+//     每次删除前先写孤儿账本（先记账后删除，删除失败账目仍在）；
 //   - 限速：单轮最多处理 KeepVersions 个 seq，进度持久化到 local-state
 //     （PrunedSeq）与内存，不再每次从 seq 1 重扫。
 func (s *CatalogSyncer) pruneVersions(ctx context.Context, meta godatabase.Spec, currentSnap, currentSeq int64) error {
@@ -56,6 +58,18 @@ func (s *CatalogSyncer) pruneVersions(ctx context.Context, meta godatabase.Spec,
 	if progress >= oldestKeep-1 {
 		return nil
 	}
+
+	// §4.7 维护门禁：失租或同步未追平时跳过破坏性清理（记 Warn，下轮重试）。
+	if err := s.maintenanceGate(meta.ID).Check(meta.ID); err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("ducklake snapshot prune skipped by maintenance gate",
+				zap.String("database_id", meta.ID),
+				zap.String("reason", BlockedReason(err)),
+				zap.Error(err))
+		}
+		return nil
+	}
+
 	start := progress + 1
 	if start < 1 {
 		start = 1
@@ -85,6 +99,11 @@ func (s *CatalogSyncer) pruneVersions(ctx context.Context, meta godatabase.Spec,
 			break // 读失败：停在已连续处理前缀，下轮重试
 		}
 		if m != nil && m.SnapshotKey != "" && !referenced[m.SnapshotKey] {
+			// §4.7 孤儿账本：先记账后删除。删除失败也不丢账——
+			// 恢复流程按账本重扫，账本外的对象永不被删。
+			if err := s.orphanLedger().Record(ctx, meta.ProjectID, meta.ID, m.SnapshotKey, "expire_snapshots"); err != nil {
+				break // 记账失败：不删，下轮重试
+			}
 			if err := s.Store.Delete(ctx, m.SnapshotKey); err != nil {
 				break // 删除失败：不推进进度，下轮重试
 			}
@@ -126,4 +145,22 @@ func (s *CatalogSyncer) setPruneProgress(dbID, cacheDir string, seq int64) {
 		s.Logger.Warn("ducklake prune progress save failed",
 			zap.String("database_id", dbID), zap.Error(err))
 	}
+}
+
+// maintenanceGate 派生本同步器的维护门禁（§4.7）：
+//   - LeaseValid：失租（CloseNoFlush 置位）→ 拦截；未启用租约部署时
+//     lostLease 恒为空 → 通过（单实例语义）。
+//   - SyncLag：直接复用同步水位差；MaxLag=0 要求完全追平。
+func (s *CatalogSyncer) maintenanceGate(dbID string) *MaintenanceGate {
+	return &MaintenanceGate{
+		LeaseValid: func(id string) bool { return !s.HasLostLease(id) },
+		SyncLag:    s.SyncLag,
+		MaxLag:     0,
+	}
+}
+
+// orphanLedger 派生本同步器的孤儿账本（§4.7）：账本与 catalog 对象
+// 同桶同前缀，按日分目录，生命周期规则可与快照对齐。
+func (s *CatalogSyncer) orphanLedger() *OrphanLedger {
+	return &OrphanLedger{Store: s.Store, Keys: s.Remote.keyBuilder()}
 }

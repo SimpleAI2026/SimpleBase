@@ -68,25 +68,8 @@ var weakPasswords = map[string]struct{}{
 }
 
 // ValidatePassword 检查口令强度（development 口径，§8.2.2）：长度 ≥ 8。
-// 保持宽松以兼容现有测试；弱口令表与用户名相等检查见 ValidatePasswordStrict。
 func ValidatePassword(p string) error {
 	if len(p) < MinPasswordLength {
-		return ErrWeakPassword
-	}
-	return nil
-}
-
-// ValidatePasswordStrict 是 production 档位口径的口令强度校验（§8.2.2）：
-// 长度 ≥ 12、不得等于用户名、不得命中常见弱口令表。
-func ValidatePasswordStrict(p, username string) error {
-	if len(p) < ProdPasswordLength {
-		return ErrWeakPassword
-	}
-	lower := strings.ToLower(p)
-	if username != "" && lower == strings.ToLower(strings.TrimSpace(username)) {
-		return ErrWeakPassword
-	}
-	if _, hit := weakPasswords[lower]; hit {
 		return ErrWeakPassword
 	}
 	return nil

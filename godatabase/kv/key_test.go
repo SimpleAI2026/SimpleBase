@@ -105,7 +105,7 @@ func TestKeyExpirePersist(t *testing.T) {
 		if m.Etime == nil {
 			t.Fatal("etime should be set")
 		}
-		if ttl := m.TTLms(*cur); ttl == nil || *ttl != 5000 {
+		if ttl := *m.Etime - *cur; ttl != 5000 {
 			t.Errorf("ttl = %v, want 5000", ttl)
 		}
 		return nil

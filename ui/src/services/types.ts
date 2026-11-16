@@ -851,6 +851,12 @@ export interface ActiveAgentRun {
 
 /* ---------- Agent Schedule（定时执行） ---------- */
 
+/**
+ * planv6.6 DC-5：旧 /agent-schedules 只读兼容层已整体下线。
+ * 这里保留 AgentSchedule 形状仅供助手卡片摘要展示使用——数据来自
+ * cronjobs.list 的 targetKind=agent 条目（由 AgentManager 侧映射），
+ * 不再对应独立的后端资源。
+ */
 export interface AgentSchedule {
   id: string
   agent_id: string
@@ -866,24 +872,74 @@ export interface AgentSchedule {
   updated_at: string
 }
 
-export interface AgentScheduleBody {
-  agent_id: string
-  prompt: string
-  cron_expr: string
-  enabled?: boolean
+/* ---------- Agent 审批队列（sys_agent_approvals） ---------- */
+
+/** 审批状态机：pending → approved | denied | expired | canceled，终态不可回退。 */
+export type AgentApprovalStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'canceled'
+
+/** 一条破坏性工具调用的审批记录（跨 run 的待办）。 */
+export interface AgentApproval {
+  id: string
+  run_id: string
+  call_id: string
   thread_id?: string
+  agent_id?: string
+  tool_name?: string
+  /** 脱敏后的参数摘要，后端已做 RedactArgv。 */
+  argv: string[]
+  message?: string
+  status: AgentApprovalStatus
+  initiator_id?: string
+  resolved_by?: string
+  created_at: string
+  expires_at?: string
+  resolved_at?: string
 }
 
-export interface AgentScheduleRun {
+export interface AgentApprovalList {
+  approvals: AgentApproval[]
+  /** 项目内 pending 总数（不受 status 过滤影响，用于角标）。 */
+  pending: number
+}
+
+/* ---------- MCP Server 配置（sys_mcp_servers，planv6.2） ---------- */
+
+/** 单个 MCP 工具的权限标记（事实来源，Server 自报的 annotations 只作建议）。 */
+export interface McpToolPolicy {
+  read_only?: boolean
+  destructive?: boolean
+}
+
+/** 项目级 MCP Server 配置。凭据只单向写，读回来的只有 header 名字。 */
+export interface McpServer {
   id: string
-  schedule_id: string
-  run_id: string
-  trigger: string
-  status: string
-  error?: string
-  started_at?: string
-  finished_at?: string
+  name: string
+  transport: string
+  url: string
+  timeout_s: number
+  enabled: boolean
+  tools_policy: Record<string, McpToolPolicy>
+  /** Header 名（不含值）：有名字就说明配了凭据。 */
+  header_names: string[]
+  has_credential: boolean
   created_at: string
+  updated_at: string
+}
+
+export interface McpServerBody {
+  name?: string
+  url?: string
+  /** 省略表示沿用既有值；传 {} 表示清空。 */
+  headers?: Record<string, string>
+  timeout_s?: number
+  enabled?: boolean
+  tools_policy?: Record<string, McpToolPolicy>
+}
+
+export interface McpTestResult {
+  ok: boolean
+  tools: string[]
+  error?: string
 }
 
 export interface AgentRunRequest {
@@ -1405,10 +1461,8 @@ export interface Api {
   quota: {
     status: (projectId: string) => Promise<QuotaStatus>
   }
-  llm: {
-    chat: (projectId: string, req: LlmChatRequest) => Promise<LlmChatResponse>
-    stream: (projectId: string, req: LlmChatRequest, handlers: LlmStreamHandlers) => LlmStreamConnection
-  }
+  /** planv6.6 DC-5：api.llm.chat/stream 与 api.agentSchedules 已删除（零生产引用）。
+   *  LLM 对话走 agentThreads.streamRun；定时摘要走 cronjobs.list。 */
   llmSettings: {
     get: (projectId: string) => Promise<LlmSettings>
     /** apiKey 留空表示沿用服务端既有值 */
@@ -1416,7 +1470,6 @@ export interface Api {
   }
   llmTraces: {
     /** planv6.5：模型调用 trace 查询（默认窗口 24h） */
-    list: (projectId: string, q?: LlmTraceQuery) => Promise<LLMTraceListResult>
     /** 二期 §9.3：按 trace_id 聚合的顶层调用列表 */
     groups: (projectId: string, q?: LlmTraceGroupQuery) => Promise<LLMTraceGroupListResult>
     /** 二期 §9.3：一个 trace 的全部 span（时间升序） */
@@ -1452,13 +1505,20 @@ export interface Api {
     active: (projectId: string) => Promise<ActiveAgentRun[]>
     confirm: (projectId: string, runId: string, callId: string, approve: boolean) => Promise<void>
   }
-  agentSchedules: {
-    list: (projectId: string) => Promise<AgentSchedule[]>
-    create: (projectId: string, body: AgentScheduleBody) => Promise<AgentSchedule>
-    patch: (projectId: string, scheduleId: string, body: Partial<AgentScheduleBody>) => Promise<AgentSchedule>
-    remove: (projectId: string, scheduleId: string) => Promise<void>
-    runs: (projectId: string, scheduleId: string) => Promise<AgentScheduleRun[]>
-    trigger: (projectId: string, scheduleId: string) => Promise<void>
+  /** 审批队列：跨 run 的破坏性工具调用待办。 */
+  agentApprovals: {
+    list: (projectId: string, status?: string, limit?: number) => Promise<AgentApprovalList>
+    /** 复用 run 的确认端点，放行/拒绝后队列同步收敛。 */
+    resolve: (projectId: string, runId: string, callId: string, approve: boolean) => Promise<void>
+  }
+  /** 项目级 MCP Server 配置（planv6.2 §6-2）。 */
+  mcpServers: {
+    list: (projectId: string) => Promise<McpServer[]>
+    create: (projectId: string, body: McpServerBody) => Promise<McpServer>
+    update: (projectId: string, serverId: string, body: McpServerBody) => Promise<McpServer>
+    remove: (projectId: string, serverId: string) => Promise<void>
+    /** 连通性测试：只回工具名，不回凭据。 */
+    test: (projectId: string, serverId: string) => Promise<McpTestResult>
   }
   /** 系统级存储设置（planv6.0 storage-local-first 阶段 E）。 */
   storage: {

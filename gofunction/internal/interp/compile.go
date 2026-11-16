@@ -77,7 +77,7 @@ func compileBlock(b *ssa.BasicBlock) *compiledBlock {
 		cb.steps[i] = compileInstr(ins)
 	}
 	return cb
-}// compileInstr 把单条 SSA 指令编译为绑定具体类型的执行闭包。
+} // compileInstr 把单条 SSA 指令编译为绑定具体类型的执行闭包。
 // 未知指令类型回落到 visitInstr（由其 panic 报错，保持原有语义）。
 //
 // A1（槽位固化）：两三操作数指令在编译期解析槽位号并捕获进闭包，

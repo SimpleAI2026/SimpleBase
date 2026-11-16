@@ -92,16 +92,27 @@ describe('AgentManager (云助手)', () => {
     ])
     api.agentThreads.list.mockResolvedValue([{ id: 'th-1', title: 'T', created_at: 't', updated_at: 't' }])
     api.agentThreads.messages.mockResolvedValue([])
-    api.agentSchedules.list.mockResolvedValue([
+    // planv6.6 DC-5：定时摘要改来自 cronjobs（targetKind=agent）。
+    api.cronjobs.list.mockResolvedValue([
       {
         id: 'sch-1',
-        agent_id: 'ag-1',
-        thread_id: 'th-1',
-        prompt: 'p',
-        cron_expr: '0 * * * *',
+        name: 'sch-1',
+        description: '',
+        targetKind: 'agent',
+        agentId: 'ag-1',
+        agentPrompt: 'p',
+        scheduleKind: 'cron',
+        cronExpr: '0 * * * *',
+        funcFile: '',
+        funcExport: '',
+        inputJson: '{}',
         enabled: true,
-        created_at: 't',
-        updated_at: 't'
+        lastStatus: '',
+        lastError: '',
+        runCount: 0,
+        targetMissing: false,
+        createdAt: 't',
+        updatedAt: 't'
       }
     ])
   })
@@ -668,6 +679,50 @@ describe('AgentManager (云助手)', () => {
     wrapper.unmount()
   })
 
+  it('offers enabled MCP servers as mcp:<name> tool options', async () => {
+    api.agents.list.mockResolvedValue([{ ...sampleAgent, id: 'general', module: 'general', builtin_key: 'general' }])
+    api.agents.modules.mockResolvedValue([
+      { id: 'general', name: 'General', description: '', default_tools: ['list_databases'], team_supported: false }
+    ])
+    api.mcpServers.list.mockResolvedValue([
+      {
+        id: 'm1', name: 'github', transport: 'http', url: 'https://x/mcp', timeout_s: 60,
+        enabled: true, tools_policy: {}, header_names: [], has_credential: false,
+        created_at: 't', updated_at: 't'
+      },
+      {
+        id: 'm2', name: 'off', transport: 'http', url: 'https://y/mcp', timeout_s: 60,
+        enabled: false, tools_policy: {}, header_names: [], has_credential: false,
+        created_at: 't', updated_at: 't'
+      }
+    ])
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as {
+      toolOptions: { value: string }[]
+      mcpServers: { name: string }[]
+      openEdit: (agent: typeof sampleAgent) => void
+    }
+    expect(api.mcpServers.list).toHaveBeenCalledWith('testprj1')
+    expect(vm.mcpServers.length).toBe(2)
+    vm.openEdit({ ...sampleAgent, id: 'general', module: 'general', tool_ids: [] })
+    const values = vm.toolOptions.map((o) => o.value)
+    // 启用的 Server 出现在工具选项里；停用的不出现。
+    expect(values).toContain('list_databases')
+    expect(values).toContain('mcp:github')
+    expect(values).not.toContain('mcp:off')
+    wrapper.unmount()
+  })
+
+  it('still loads agents when the MCP server list fails', async () => {
+    api.agents.list.mockResolvedValue([{ ...sampleAgent, id: 'general', module: 'general', builtin_key: 'general' }])
+    api.mcpServers.list.mockRejectedValue(new Error('mcp disabled'))
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: agentStubs })
+    const vm = wrapper.vm as unknown as { mcpServers: unknown[]; agents: unknown[] }
+    expect(vm.mcpServers).toEqual([])
+    expect(vm.agents.length).toBeGreaterThan(0)
+    wrapper.unmount()
+  })
+
   it('explains why a previously seeded CLI assistant or sandbox assistant cannot run after capability shutdown', async () => {
     api.agents.list.mockResolvedValue([
       { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
@@ -770,7 +825,7 @@ describe('AgentManager (云助手)', () => {
 
   it('handles list / schedule / thread load errors', async () => {
     api.agents.list.mockRejectedValueOnce(new Error('agents'))
-    api.agentSchedules.list.mockRejectedValueOnce(new Error('sched'))
+    api.cronjobs.list.mockRejectedValueOnce(new Error('sched'))
     await mountWithApp(AgentManager, { stubs: agentStubs })
     expect(toast.error).toHaveBeenCalledWith('agents')
     expect(toast.error).toHaveBeenCalledWith('sched')
@@ -961,8 +1016,8 @@ describe('AgentManager script helpers', () => {
     api.agents.list.mockResolvedValue([sampleAgent])
     api.agentThreads.list.mockResolvedValue([{ id: 'th-1', title: 'T', created_at: 't', updated_at: 't' }])
     api.agentThreads.messages.mockResolvedValue([])
-    api.agentSchedules.list.mockResolvedValue([
-      { id: 'sch-1', agent_id: 'ag-1', thread_id: 'th-1', prompt: 'p', cron_expr: '0 * * * *', enabled: false, created_at: 't', updated_at: 't' }
+    api.cronjobs.list.mockResolvedValue([
+      { id: 'sch-1', name: 'sch-1', description: '', targetKind: 'agent', agentId: 'ag-1', agentPrompt: 'p', scheduleKind: 'cron', cronExpr: '0 * * * *', funcFile: '', funcExport: '', inputJson: '{}', enabled: false, lastStatus: '', lastError: '', runCount: 0, targetMissing: false, createdAt: 't', updatedAt: 't' }
     ])
   })
 
@@ -1061,7 +1116,7 @@ describe('AgentManager script helpers', () => {
     await vm.loadThreads()
     api.agentThreads.list.mockRejectedValueOnce(new Error('t'))
     await vm.loadThreads()
-    api.agentSchedules.list.mockRejectedValueOnce(new Error('s'))
+    api.cronjobs.list.mockRejectedValueOnce(new Error('s'))
     await vm.loadSchedules()
     wrapper.unmount()
   })
@@ -1125,7 +1180,7 @@ describe('AgentManager script helpers', () => {
     await flushPromises()
 
     const vm = wrapper.vm as Record<string, any>
-    api.agentSchedules.list.mockRejectedValueOnce('sched')
+    api.cronjobs.list.mockRejectedValueOnce('sched')
     await vm.loadSchedules()
     api.agents.modules.mockRejectedValueOnce('mods')
     await vm.loadModules()
@@ -1159,7 +1214,7 @@ describe('AgentManager script helpers', () => {
     const avm = agents.vm as any
     await avm.bootstrap?.()
     await avm.loadSchedules?.()
-    api.agentSchedules.list.mockRejectedValueOnce(new Error('x'))
+    api.cronjobs.list.mockRejectedValueOnce(new Error('x'))
     await avm.loadSchedules?.()
     expect(avm.scheduleSummary?.({ cron_expr: '* * * * *', enabled: true, next_run_at: 't' })).toBeTruthy()
     await avm.selectThread?.('th')

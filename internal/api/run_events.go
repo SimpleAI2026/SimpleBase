@@ -42,6 +42,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
 const runEventCap = 2000
@@ -385,6 +386,15 @@ func (h *cloudAgentHandler) ConfirmRun(c echo.Context) error {
 	}
 	if h.confirms == nil || !h.confirms.Resolve(runID, callID, body.Approve, principalIdentity(p)) {
 		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "confirmation not found"))
+	}
+	// 审批队列同步收敛：内存 hub 放行成功后，把持久记录也标成终态，
+	// 否则列表页会一直显示这条待办（confirmation_resolved 事件也会再兜一次）。
+	if pending, err := h.store.GetPendingAgentApproval(c.Request().Context(), pc.ID, runID, callID); err == nil {
+		status := systemdb.AgentApprovalDenied
+		if body.Approve {
+			status = systemdb.AgentApprovalApproved
+		}
+		_ = h.store.ResolveAgentApproval(c.Request().Context(), pc.ID, pending.ID, status, principalIdentity(p))
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true, "approve": body.Approve})
 }

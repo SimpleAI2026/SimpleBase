@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -96,7 +97,7 @@ func upload(e interface {
 func TestEnvdFilesRoundTrip(t *testing.T) {
 	sb := newFakeRouterSandbox(true)
 	e, key, _ := routerWith(t, sb)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "fbox"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "fbox"}, "u")
 	hdr := map[string]string{"E2b-Sandbox-Id": row.ID}
 
 	rec := upload(e, key, row.ID, "notes/a.txt", "hello")
@@ -149,7 +150,7 @@ func TestEnvdFilesEnforceSizeLimit(t *testing.T) {
 	deps.Sandbox = sb
 	deps.Config.Sandbox.MaxFileBytes = 8
 	e := NewRouter(deps)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "big"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "big"}, "u")
 	if rec := upload(e, key, row.ID, "ok.txt", "12345678"); rec.Code != 200 {
 		t.Fatalf("exactly at the limit: %d %s", rec.Code, rec.Body.String())
 	}
@@ -172,7 +173,7 @@ func (truncatingSandbox) ReadFile(contextT, string, string, string) (sandbox.Fil
 func TestEnvdDownloadOfTruncatedFileIs413(t *testing.T) {
 	base := newFakeRouterSandbox(true)
 	e, key, _ := routerWith(t, truncatingSandbox{base})
-	row, _ := base.Create(nil, "proj-1", sandbox.CreateInput{Name: "trunc"}, "u")
+	row, _ := base.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "trunc"}, "u")
 	rec := call(e, "GET", "/files?path=x", key, "", map[string]string{"E2b-Sandbox-Id": row.ID})
 	if rec.Code != 413 || strings.Contains(rec.Body.String(), "partial") {
 		t.Fatalf("truncated file: %d %s", rec.Code, rec.Body.String())
@@ -197,7 +198,7 @@ func rpc(e interface {
 func TestFilesystemRPC(t *testing.T) {
 	sb := newFakeRouterSandbox(true)
 	e, key, _ := routerWith(t, sb)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "fs1"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "fs1"}, "u")
 	sb.files[row.ID+"/workspace/a.txt"] = []byte("AAA")
 	sb.files[row.ID+"/workspace/b.txt"] = []byte("B")
 
@@ -251,7 +252,7 @@ func TestFilesystemRPC(t *testing.T) {
 func TestFilesystemRPCRejectsBinaryProtoAndWatchers(t *testing.T) {
 	sb := newFakeRouterSandbox(true)
 	e, key, _ := routerWith(t, sb)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "fs2"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "fs2"}, "u")
 	req := httptest.NewRequest("POST", "/filesystem.Filesystem/ListDir", strings.NewReader("\x0a\x01/"))
 	req.Header.Set("Content-Type", "application/proto")
 	req.Header.Set("X-API-Key", key)
@@ -274,7 +275,7 @@ func TestFilesystemRPCRejectsBinaryProtoAndWatchers(t *testing.T) {
 func TestEnvsAndHealth(t *testing.T) {
 	sb := newFakeRouterSandbox(true)
 	e, key, _ := routerWith(t, sb)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "h1"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "h1"}, "u")
 	sb.envs[row.ID] = map[string]string{"A": "1"}
 	hdr := map[string]string{"E2b-Sandbox-Id": row.ID}
 	if rec := call(e, "GET", "/health", key, "", hdr); rec.Code != 204 {
@@ -284,7 +285,7 @@ func TestEnvsAndHealth(t *testing.T) {
 	if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != `{"A":"1"}` {
 		t.Fatalf("envs: %d %s", rec.Code, rec.Body.String())
 	}
-	sb.Stop(nil, "proj-1", row.ID)
+	sb.Stop(context.Background(), "proj-1", row.ID)
 	if rec := call(e, "GET", "/health", key, "", hdr); rec.Code != 502 {
 		t.Fatalf("a paused sandbox is not running: want 502, got %d", rec.Code)
 	}
@@ -298,7 +299,7 @@ func TestEnvsAndHealth(t *testing.T) {
 func TestProcessStartRequiresInteractiveBackend(t *testing.T) {
 	sb := newFakeRouterSandbox(true) // interactive=false
 	e, key, _ := routerWith(t, sb)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "p1"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "p1"}, "u")
 	req := httptest.NewRequest("POST", "/process.Process/Start", strings.NewReader(`{"process":{"cmd":"/bin/sh"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Key", key)
@@ -317,7 +318,7 @@ func TestProcessValidationAndNotFound(t *testing.T) {
 	sb := newFakeRouterSandbox(true)
 	sb.interactive = true
 	e, key, _ := routerWith(t, sb)
-	row, _ := sb.Create(nil, "proj-1", sandbox.CreateInput{Name: "p2"}, "u")
+	row, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "p2"}, "u")
 	post := func(method, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest("POST", "/process.Process/"+method, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

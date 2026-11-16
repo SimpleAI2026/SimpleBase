@@ -21,9 +21,9 @@ import (
 
 // EndUsersHandler 处理 /v1/projects/:projectID/end-users/*。
 type EndUsersHandler struct {
-	users   *auth.EndUserService
-	guard   *loginGuard
-	audit   AuditService
+	users *auth.EndUserService
+	guard *loginGuard
+	audit AuditService
 }
 
 // NewEndUsersHandler 构造。

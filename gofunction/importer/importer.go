@@ -202,7 +202,7 @@ func (p *Importer) funcSignature(fun reflect.Type, recv *types.Var, pkg *types.P
 		param := fun.Out(i)
 		out[i] = types.NewParam(token.NoPos, p.Package(param.PkgPath()), param.Name(), p.typeOf(param, pkg))
 	}
-	sig := types.NewSignature(recv, types.NewTuple(in...), types.NewTuple(out...), fun.IsVariadic())
+	sig := types.NewSignatureType(recv, nil, nil, types.NewTuple(in...), types.NewTuple(out...), fun.IsVariadic())
 	return sig
 }
 
@@ -260,7 +260,7 @@ func (p *Importer) typeOf(t reflect.Type, _ *types.Package) (ttype types.Type) {
 		for i := range methods {
 			methods[i] = types.NewFunc(token.NoPos, pkg, t.Method(i).Name, p.funcSignature(t.Method(i).Type, nil, pkg))
 		}
-		ttype = types.NewInterface(methods, nil).Complete()
+		ttype = types.NewInterfaceType(methods, nil).Complete()
 	case reflect.Map:
 		ttype = types.NewMap(p.typeOf(t.Key(), pkg), p.typeOf(t.Elem(), pkg))
 	case reflect.Ptr:
@@ -307,7 +307,7 @@ func (p *Importer) addMethod(t reflect.Type, namedType *types.Named, pkg *types.
 			namedType.AddMethod(fun)
 		}
 	}
-	t = reflect.PtrTo(t)
+	t = reflect.PointerTo(t)
 	if t.NumMethod() > 0 {
 		recv := types.NewParam(token.NoPos, pkg, "t", types.NewPointer(namedType))
 		for i := 0; i < t.NumMethod(); i++ {

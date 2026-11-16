@@ -111,18 +111,6 @@ type KeyMeta struct {
 	Len *int64
 }
 
-// TTLms 返回剩余 TTL（毫秒）；永久返回 nil，已过期返回 0 指针。
-func (m KeyMeta) TTLms(nowMs int64) *int64 {
-	if m.Etime == nil {
-		return nil
-	}
-	rem := *m.Etime - nowMs
-	if rem < 0 {
-		rem = 0
-	}
-	return &rem
-}
-
 // dataTableFor 返回类型对应的数据表名（用于级联删除）。
 func dataTableFor(t TypeID) (string, error) {
 	switch t {

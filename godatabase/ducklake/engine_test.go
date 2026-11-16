@@ -3,6 +3,7 @@ package ducklake
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 	"os"
 	"path/filepath"
@@ -79,7 +80,7 @@ func TestOpenRejectsForeignEngineFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := &Factory{CacheDir: dir, Options: DefaultOptions()}
-	if _, err := f.Open(context.Background(), godatabase.Spec{ID: id}, godatabase.ReadWrite); !IsCatalogEngineMismatch(err) {
+	if _, err := f.Open(context.Background(), godatabase.Spec{ID: id}, godatabase.ReadWrite); !errors.Is(err, ErrCatalogEngineMismatch) {
 		t.Fatalf("want engine mismatch, got %v", err)
 	}
 }

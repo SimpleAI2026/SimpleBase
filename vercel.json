@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "",
+  "buildCommand": "cd ui && corepack enable && corepack prepare yarn@4.17.0 --activate && yarn install --immutable && yarn build",
+  "outputDirectory": "ui/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

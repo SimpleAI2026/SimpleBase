@@ -21,7 +21,7 @@ group: 云助手
 
 ## API 概览
 
-`GET /v1/projects/:projectID/agents/modules` 列出可选模块。管理 Agent 使用 `/agents`；会话和消息使用 `/agent-threads`；`PATCH /agent-threads/:threadID` 可重命名，`GET /agent-threads/:threadID/runs` 查询耗时、token 和工具调用次数；调度用 `/agent-schedules`。创建 run 使用 `POST /agent-threads/:threadID/runs`，实际回答以流式结果返回。完整工具规则见[工具与模块](/docs/workbench/agent-tools)，模型与端到端验证见[联调与验收](/docs/workbench/agent-e2e)。
+`GET /v1/projects/:projectID/agents/modules` 列出可选模块。管理 Agent 使用 `/agents`；会话和消息使用 `/agent-threads`；`PATCH /agent-threads/:threadID` 可重命名，`GET /agent-threads/:threadID/runs` 查询耗时、token 和工具调用次数；定时执行统一到[定时任务](/docs/automation/cronjob)（`target_kind=agent`）。创建 run 使用 `POST /agent-threads/:threadID/runs`，实际回答以流式结果返回。完整工具规则见[工具与模块](/docs/workbench/agent-tools)，模型与端到端验证见[联调与验收](/docs/workbench/agent-e2e)。
 
 ## 权限与边界
 
@@ -55,7 +55,7 @@ group: 云助手
 
 背景：每周一早上需要一份项目运行概览。
 
-在 Agent 的调度设置里新建定时任务，填写周期与提示词，例如 `汇总最近 7 天的请求量、错误日志与新增对象数量`。对应接口是 `/agent-schedules`。固定入参地调用云函数请改用[定时任务](/docs/automation/cronjob)。
+在「定时任务」页新建任务并选择目标助手，填写周期与提示词，例如 `汇总最近 7 天的请求量、错误日志与新增对象数量`（即 `/cron-jobs`，`target_kind=agent`）。固定入参地调用云函数同样使用[定时任务](/docs/automation/cronjob)。
 
 ### 场景五：多个 Agent 协作
 

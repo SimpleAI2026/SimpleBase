@@ -147,8 +147,9 @@ describe('capability gap HTTP mappings', () => {
     expect(await httpApi.s3.createLink('p', 'a')).toEqual({ url: '', expiresAt: '' })
     http.get.mockResolvedValueOnce(ok({ items: [{}] }))
     expect(await httpApi.logs.stats('p')).toEqual([{ key: '', count: 0 }])
-    http.post.mockResolvedValueOnce(ok({}))
-    expect(await httpApi.llm.chat('p', { messages: [] })).toEqual({ content: '', usage: undefined, model: '', provider: '', finish_reason: undefined })
+    // planv6.6 DC-5：llm.chat 已删除，改用仍在的 llmSettings.put 做空 payload 兜底断言。
+    http.put.mockResolvedValueOnce(ok(null))
+    expect(await httpApi.llmSettings.put('p', { defaultProvider: 'x' }, 'k')).toEqual({ hasApiKey: false })
   })
 
   it('loads OpenAPI and preserves preview response status', async () => {

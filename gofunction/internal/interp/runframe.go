@@ -47,52 +47,6 @@ const (
 	stepJump               // 跳转到另一个block
 )
 
-// runFrame 在栈帧上执行程序（遗留通用主循环）。
-// C3 标注：生产路径唯一入口是 runFrameCompiled（预编译模式，call.go）；
-// 本函数仅测试直接引用（runframe_test.go 等构造裸 frame 验证
-// panic/恢复/跳转语义），不在生产调用链上，勿在新增代码中使用。
-func runFrame(fr *frame) {
-	var instr ssa.Instruction
-	defer func() {
-		if fr.block == nil {
-			return // 正常返回
-		}
-		fr.panicking = true
-		re := recover()
-		pos := "-"
-		if instr != nil && fr.program != nil && fr.program.mainPkg != nil {
-			pos = fr.program.mainPkg.Prog.Fset.Position(instr.Pos()).String()
-		}
-		fr.panic = fmt.Errorf("panic: %s: %v", pos, re)
-		fr.runDefers()
-		if fr.fn != nil {
-			fr.block = fr.fn.Recover
-		} else {
-			fr.block = nil
-		}
-	}()
-
-	// stepJump 必须继续外层循环以执行目标 block，而不能 break 出整个 runFrame
-BlockLoop:
-	for fr.block != nil {
-		if !debugging {
-			// 进入块前检查取消/超时；空 Instrs 块（如纯跳转目标）也不会漏检导致死循环
-			if err := fr.context.Err(); err != nil {
-				panic(err)
-			}
-		}
-		for _, instr = range fr.block.Instrs {
-			c := visitInstr(fr, instr)
-			switch c {
-			case stepReturn:
-				return
-			case stepJump:
-				continue BlockLoop
-			}
-		}
-	}
-}
-
 // visitInstr 执行一条ssa.Instruction语句，返回值step用于指示下一条语句的位置
 func visitInstr(fr *frame, instr ssa.Instruction) step {
 	c := stepNext

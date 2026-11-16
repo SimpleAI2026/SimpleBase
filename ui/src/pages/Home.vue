@@ -5,6 +5,9 @@
         <router-link to="/" class="no-underline">
           <BrandLogo size="lg" />
         </router-link>
+        <div class="ml-auto flex items-center gap-1 sm:gap-2">
+          <LocaleSelect class="h-8 rounded-lg border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground dark:bg-transparent dark:hover:bg-muted/50" />
+        </div>
       </nav>
     </header>
 
@@ -116,6 +119,7 @@ import { useI18n } from 'vue-i18n'
 import { ArrowRightIcon, ArrowUpRightIcon, CheckIcon } from '@lucide/vue'
 import BrandLogo from '@/components/BrandLogo.vue'
 import HomeDemo from '@/components/home/HomeDemo.vue'
+import LocaleSelect from '@/components/LocaleSelect.vue'
 
 const { t } = useI18n()
 

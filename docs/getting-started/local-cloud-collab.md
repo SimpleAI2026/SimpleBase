@@ -108,6 +108,6 @@ SIMPLEBASE_API_KEY=...               # 云端控制台签发的运行时 Key
 
 ## 参考
 
-- [CLI](/docs/cli)：`dev` 子命令参数与输出。
+- [CLI](https://github.com/linkxzhou/SimpleBase/blob/main/docs/cli.md)：`dev` 子命令参数与输出。
 - [云函数](/docs/automation/gofunction)、[定时任务](/docs/automation/cronjob)：函数约束与调度规则。
 - [数据库引擎与约束](/docs/data/ducklake-notes)：迁移里不能用的语法。

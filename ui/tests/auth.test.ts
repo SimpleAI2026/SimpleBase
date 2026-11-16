@@ -29,11 +29,11 @@ describe('useAuthStore', () => {
 
   it('opens and closes the settings modal and can target a tab', () => {
     const store = useAuthStore()
-    store.openSettings({ tab: 'models' })
+    store.openSettings({ tab: 'storage' })
     expect(store.settingsOpen).toBe(true)
-    expect(store.settingsTab).toBe('models')
+    expect(store.settingsTab).toBe('storage')
     store.openSettings()
-    expect(store.settingsTab).toBe('models')
+    expect(store.settingsTab).toBe('storage')
     store.closeSettings()
     expect(store.settingsOpen).toBe(false)
   })

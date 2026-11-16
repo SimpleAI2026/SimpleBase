@@ -46,9 +46,3 @@ export function agentErrorText(
   if (err.message) return err.message
   return t(fallback)
 }
-
-/** 是否为可重试的错误（失败/超时/上游错误）。 */
-export function isRetryableError(e: AgentError | unknown): boolean {
-  const err = e as AgentError
-  return !!err?.code && ['llm_timeout', 'llm_upstream_error', 'llm_rate_limited', 'internal_error'].includes(err.code)
-}

@@ -124,7 +124,6 @@ func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
 	e := echo.New()
 	gh := NewGoFunctionHandler(nil, true, nil, 0)
 	cj := NewCronJobHandler(nil, true, nil, nil)
-	sch := &agentScheduleHandler{}
 
 	mount := func(injectProject bool) *echo.Echo {
 		ee := echo.New()
@@ -147,9 +146,6 @@ func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
 		ee.GET("/cj/:jobID", cj.Get)
 		ee.GET("/cj/:jobID/runs", cj.ListRuns)
 		ee.DELETE("/cj/:jobID", cj.Delete)
-		ee.GET("/as", sch.ListSchedules)
-		ee.GET("/as/:scheduleID", sch.GetSchedule)
-		ee.GET("/as/:scheduleID/runs", sch.ListScheduleRuns)
 		return ee
 	}
 
@@ -163,9 +159,6 @@ func TestNilStoreAndMissingProjectHandlers(t *testing.T) {
 		{http.MethodGet, "/cj/j"},
 		{http.MethodGet, "/cj/j/runs"},
 		{http.MethodDelete, "/cj/j"},
-		{http.MethodGet, "/as"},
-		{http.MethodGet, "/as/s"},
-		{http.MethodGet, "/as/s/runs"},
 	} {
 		rec := doRequest(eNo, tc.method, tc.path, map[string]any{"name": "X", "source": "package main"})
 		if rec.Code == http.StatusOK || rec.Code == http.StatusCreated || rec.Code == http.StatusNoContent {

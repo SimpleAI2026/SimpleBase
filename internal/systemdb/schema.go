@@ -365,6 +365,46 @@ var systemTables = []systemTable{
 			retry_of_run_id VARCHAR DEFAULT '',
 			initiator_id VARCHAR
 		)`},
+	// sys_agent_approvals 是破坏性工具调用的审批队列（planv6.6）。
+	// 与 sys_agent_runs 分离：run 是执行记录，审批是「待办」，
+	// 需要跨请求查询（列表页）与超时收敛，不能只活在内存 confirmHub 里。
+	// 唯一性由应用层保证：(project_id, run_id, call_id) 至多一条 pending。
+	{name: "sys_agent_approvals", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_approvals (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			run_id VARCHAR NOT NULL,
+			call_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL DEFAULT '',
+			agent_id VARCHAR NOT NULL DEFAULT '',
+			tool_name VARCHAR NOT NULL DEFAULT '',
+			argv_json VARCHAR NOT NULL DEFAULT '[]',
+			message VARCHAR NOT NULL DEFAULT '',
+			status VARCHAR NOT NULL,
+			initiator_id VARCHAR NOT NULL DEFAULT '',
+			resolved_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			expires_at TIMESTAMP,
+			resolved_at TIMESTAMP
+		)`},
+	// sys_mcp_servers 是项目级外部 MCP Server 配置（planv6.2 §6-1）。
+	// headers_json 存静态 Header（含凭据），与 sys_llm_settings.api_key 同口径：
+	// 只服务端内部使用，对外只回 has_credential，禁止记日志。
+	// tools_policy_json 存每工具的 read_only / destructive 标记——这是权限判定的
+	// 唯一事实来源，Server 自报的 annotations 只作配置向导建议。
+	{name: "sys_mcp_servers", ddl: `CREATE TABLE IF NOT EXISTS sys_mcp_servers (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			name VARCHAR NOT NULL,
+			transport VARCHAR NOT NULL,
+			url VARCHAR NOT NULL DEFAULT '',
+			headers_json VARCHAR NOT NULL DEFAULT '{}',
+			timeout_s BIGINT NOT NULL DEFAULT 60,
+			enabled BIGINT NOT NULL DEFAULT 1,
+			tools_policy_json VARCHAR NOT NULL DEFAULT '{}',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`},
 	{name: "sys_agent_schedules", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_schedules (
 			id VARCHAR NOT NULL,
 			project_id VARCHAR NOT NULL,

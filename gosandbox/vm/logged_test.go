@@ -74,9 +74,6 @@ func TestWithLoggingKeepsInteractive(t *testing.T) {
 	if err != nil || p == nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if _, ok := p.(Proc); !ok {
-		t.Fatal("Start must return a Proc")
-	}
 	mu.Lock()
 	n := len(lines)
 	mu.Unlock()

@@ -70,13 +70,7 @@ http.interceptors.response.use((r) => {
 })
 
 // 统一错误信息 + 401 自动 refresh 一次
-let onUnauthorized: (() => void) | null = null
 let refreshing: Promise<string | null> | null = null
-
-/** 注册 401 回调（auth store 注入，避免 http ↔ store 循环依赖） */
-export function setUnauthorizedHandler(handler: () => void) {
-  onUnauthorized = handler
-}
 
 async function tryRefresh(): Promise<string | null> {
   const rt = getRefreshToken()
@@ -150,5 +144,4 @@ function notifyUnauthorized() {
   import('../stores/auth').then(({ useAuthStore }) => {
     useAuthStore().markUnauthorized()
   })
-  onUnauthorized?.()
 }

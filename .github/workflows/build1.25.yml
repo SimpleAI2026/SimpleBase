@@ -20,6 +20,10 @@ jobs:
       - name: Set up UI toolchain
         uses: ./.github/actions/setup-ui
 
+      - name: Typecheck
+        working-directory: ui
+        run: yarn typecheck
+
       - name: Test with coverage
         working-directory: ui
         run: yarn test

@@ -71,9 +71,7 @@ type loginGuard struct {
 	failures map[string]*loginFailure
 	// successIPs 按用户名记录最近成功登录的 IP（豁免软锁定）。
 	successIPs map[string][]string
-	// onLock 触发软锁定时的回调（写审计 + 告警信号，§8.1.6/§8.3.5）。
-	onLock func(username string)
-	now    func() time.Time
+	now        func() time.Time
 }
 
 func newLoginGuard(opts loginGuardOpts) *loginGuard {
@@ -89,14 +87,6 @@ func newLoginGuard(opts loginGuardOpts) *loginGuard {
 		successIPs: map[string][]string{},
 		now:        time.Now,
 	}
-}
-
-// WithLockHook 注入软锁定回调（审计 + 告警）；多次调用以最后一个为准。
-func (g *loginGuard) WithLockHook(fn func(username string)) *loginGuard {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.onLock = fn
-	return g
 }
 
 func (g *loginGuard) WithClock(now func() time.Time) *loginGuard {
@@ -164,9 +154,6 @@ func (g *loginGuard) recordFailure(ip, username string) {
 	f.lastFail = now
 	if f.count >= g.opts.FailThreshold && f.lockedAt.IsZero() {
 		f.lockedAt = now
-		if g.onLock != nil {
-			g.onLock(uname)
-		}
 	}
 }
 

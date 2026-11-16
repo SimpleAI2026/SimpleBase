@@ -54,12 +54,16 @@ func (s *nativeDeltaStream) Close() error { return nil }
 
 func TestAgentNativeToolsAndUsage(t *testing.T) {
 	client := &nativeChat{}
-	m := agentcore.NewModel(client, "p", "native-test")
-	m.Protocol = "native"
 	tools := []*schema.ToolInfo{{Name: "list_databases", Desc: "list"}}
-	if err := m.BindTools(tools); err != nil {
+	bound, err := agentcore.NewModel(client, "p", "native-test").WithTools(tools)
+	if err != nil {
 		t.Fatal(err)
 	}
+	m, ok := bound.(*agentcore.Model)
+	if !ok {
+		t.Fatal("expected *agentcore.Model")
+	}
+	m.Protocol = "native"
 	msgs := []*schema.Message{schema.UserMessage("list")}
 	got, err := m.Generate(context.Background(), msgs)
 	if err != nil || len(got.ToolCalls) != 1 {
@@ -109,9 +113,9 @@ func TestAgentAutoFallbackOnToolsUnsupported(t *testing.T) {
 	t.Cleanup(agentcore.ResetUnsupportedNativeTools)
 
 	client := &nativeChat{failOnce: true}
-	m := agentcore.NewModel(client, "p", "fallback-test")
+	bound, _ := agentcore.NewModel(client, "p", "fallback-test").WithTools([]*schema.ToolInfo{{Name: "list_databases"}})
+	m := bound.(*agentcore.Model)
 	m.Protocol = "auto"
-	_ = m.BindTools([]*schema.ToolInfo{{Name: "list_databases"}})
 	if _, err := m.Generate(context.Background(), []*schema.Message{schema.UserMessage("list")}); err != nil {
 		t.Fatal(err)
 	}

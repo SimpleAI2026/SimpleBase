@@ -34,6 +34,13 @@ func TestLitellmDriverMapsCompatiblePresets(t *testing.T) {
 	if !ok || driver != "gemini" {
 		t.Fatalf("google driver=%q ok=%v", driver, ok)
 	}
+	// claude / codex 是 CLI 订阅端点，协议分别对齐 anthropic / openai。
+	if driver, ok = litellmDriver("claude"); !ok || driver != "anthropic" {
+		t.Fatalf("claude driver=%q ok=%v", driver, ok)
+	}
+	if driver, ok = litellmDriver(" Codex "); !ok || driver != "openai" {
+		t.Fatalf("codex driver=%q ok=%v", driver, ok)
+	}
 	if _, ok := litellmDriver("not-a-real-provider"); ok {
 		t.Fatal("unknown provider should stay unmapped")
 	}

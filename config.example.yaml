@@ -236,6 +236,12 @@ agent:
                               # 始终可用；开启后额外输出内容层（提示词、用户输入、工具参数与正文），
                               # 输出前 RedactSecrets + 截断 2000 字符。默认关闭，属脱敏约定的显式例外。
                               # SIMPLEBASE_AGENT_TRACE_LOG=true 覆盖
+  # 外部 MCP Server 接入（planv6.2）。默认关闭：关闭时 Agent 保存 mcp: 引用会被拒绝，
+  # run 也不会装配 MCP 工具。凭据由宿主解析，不落 YAML、不出现在 API 响应里。
+  mcp:
+    enabled: false              # SIMPLEBASE_AGENT_MCP_ENABLED
+    allow_http: false           # 仅允许 https；显式开启才放行 http:// 端点。SIMPLEBASE_AGENT_MCP_ALLOW_HTTP
+    max_servers_per_project: 10 # 单项目可配置的 Server 上限。SIMPLEBASE_AGENT_MCP_MAX_SERVERS_PER_PROJECT
   # 本机 shell 隔离（planv6.2，代码：gosandbox/host）。默认关闭。
   # 注意：服务端云助手的 sandbox_shell 走云沙盒（见下方 sandbox 段），不经过这里；目前只有 gocloudagent CLI 会启动本机 shell，
   # 而 CLI 读的是 ~/.gocloudagent/config.json 的同名 shell_isolation 段，不读本文件——这一段在服务端只做解析与校验，

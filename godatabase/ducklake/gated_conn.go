@@ -213,9 +213,12 @@ func newGatedStmt(conn *gatedConn, query string, stmt driver.Stmt) driver.Stmt {
 	return g
 }
 
+// Exec 是驱动未实现 StmtExecContext 时的兜底（database/sql 会先尝试
+// ExecContext，仅在驱动不支持时回落到这里）；不能删除，否则旧驱动
+// prepared statement 不可用。deprecated 调用是兜底路径的固有形态。
 func (s *gatedStmt) Exec(args []driver.Value) (driver.Result, error) {
 	if !isMutatingSQL(s.query) {
-		return s.Stmt.Exec(args)
+		return deprecatedStmtExec(s.Stmt, args)
 	}
 	release, err := s.conn.acquire(context.Background())
 	if err != nil {
@@ -225,10 +228,18 @@ func (s *gatedStmt) Exec(args []driver.Value) (driver.Result, error) {
 	var res driver.Result
 	err = s.conn.retry(context.Background(), func() error {
 		var execErr error
-		res, execErr = s.Stmt.Exec(args)
+		res, execErr = deprecatedStmtExec(s.Stmt, args)
 		return execErr
 	})
 	return res, err
+}
+
+// deprecatedStmtExec 收敛非 Context 版 Stmt.Exec 的兜底调用（驱动未实现
+// StmtExecContext 时 database/sql 回落至此）。deprecated 调用是兜底路径
+// 的固有形态。
+func deprecatedStmtExec(stmt driver.Stmt, args []driver.Value) (driver.Result, error) {
+	//lint:ignore SA1019 driver.Stmt.Exec 兜底必需
+	return stmt.Exec(args)
 }
 
 func (s *gatedStmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
@@ -252,9 +263,10 @@ func (s *gatedStmt) ExecContext(ctx context.Context, args []driver.NamedValue) (
 	return res, err
 }
 
+// Query 是驱动未实现 StmtQueryContext 时的兜底（同 Exec）。
 func (s *gatedStmt) Query(args []driver.Value) (driver.Rows, error) {
 	if !isMutatingSQL(s.query) {
-		return s.Stmt.Query(args)
+		return deprecatedStmtQuery(s.Stmt, args)
 	}
 	release, err := s.conn.acquire(context.Background())
 	if err != nil {
@@ -264,10 +276,17 @@ func (s *gatedStmt) Query(args []driver.Value) (driver.Rows, error) {
 	var rows driver.Rows
 	err = s.conn.retry(context.Background(), func() error {
 		var qerr error
-		rows, qerr = s.Stmt.Query(args)
+		rows, qerr = deprecatedStmtQuery(s.Stmt, args)
 		return qerr
 	})
 	return rows, err
+}
+
+// deprecatedStmtQuery 收敛非 Context 版 Stmt.Query 的兜底调用（同 Exec）。
+// deprecated 调用是兜底路径的固有形态。
+func deprecatedStmtQuery(stmt driver.Stmt, args []driver.Value) (driver.Rows, error) {
+	//lint:ignore SA1019 driver.Stmt.Query 兜底必需
+	return stmt.Query(args)
 }
 
 func (s *gatedStmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {

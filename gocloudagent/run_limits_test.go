@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 )
 
 type repeatingToolLLM struct{}

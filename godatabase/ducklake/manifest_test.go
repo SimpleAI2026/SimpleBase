@@ -92,15 +92,6 @@ func TestManifestConflictIsSplitBrain(t *testing.T) {
 	}
 }
 
-func TestManifestSeqFromKey(t *testing.T) {
-	if got := manifestSeqFromKey("simplebase/e/db/tenant/3333.../catalog/manifest/00000000000000000042.json"); got != 42 {
-		t.Fatalf("got %d", got)
-	}
-	if got := manifestSeqFromKey("garbage"); got != 0 {
-		t.Fatalf("got %d", got)
-	}
-}
-
 func TestSnapshotKeyStructure(t *testing.T) {
 	kb := blob.KeyBuilder{RootPrefix: "sb"}
 	k1, err := kb.DuckLakeSnapshotKey("prj12345", "33333333-3333-3333-3333-333333333333", 7, 100, "")
@@ -132,7 +123,7 @@ func TestLocalStateRoundTrip(t *testing.T) {
 	}
 
 	// 损坏文件：读取视为缺失（ok=false），写入可覆盖。
-	layout := layoutFor(dir, dbID)
+	layout := layoutForEngine(dir, dbID, EngineDuckDB)
 	if err := writeFileBytes(localStatePath(layout), []byte("{bad json")); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +153,7 @@ func TestEnsureLocalCatalogLocalAheadNotOverwritten(t *testing.T) {
 	}
 
 	// 本地 catalog 存在且水位 20（领先远端）。
-	layout := layoutFor(dir, meta.ID)
+	layout := layoutForEngine(dir, meta.ID, EngineDuckDB)
 	if err := layout.ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +198,7 @@ func TestEnsureLocalCatalogDownloadsLatestManifest(t *testing.T) {
 	if err != nil || !downloaded {
 		t.Fatalf("downloaded=%v err=%v", downloaded, err)
 	}
-	layout := layoutFor(dir, meta.ID)
+	layout := layoutForEngine(dir, meta.ID, EngineDuckDB)
 	body, err := readFileBytes(layout.CatalogFile)
 	if err != nil || len(body) != 1 || body[0] != '2' {
 		t.Fatalf("want latest snapshot body, got %q %v", body, err)

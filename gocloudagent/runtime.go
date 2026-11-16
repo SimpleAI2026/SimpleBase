@@ -99,6 +99,11 @@ type Runtime struct {
 	// Policy 是命令安全分类的唯一入口（宿主注入 sbcli + sqlguard 规则）。
 	// 为 nil 时 CLI 工具一律拒绝执行（fail-closed），不做「确认后放行」兜底。
 	Policy CommandPolicy
+	// MCP 是外部 MCP Server 的连接器（planv6.2 §4.1）。为 nil 时 MCP 工具不装配；
+	// Agent 已选 mcp: id 时明确报错，不静默忽略。
+	MCP MCPConnector
+	// MCPPolicy 给出每个 MCP 工具的只读/破坏性判定。为 nil 时 MCP 工具一律拒绝执行。
+	MCPPolicy MCPPolicy
 	// TraceLog 开启内容层日志（提示词/正文，脱敏+截断）。默认关闭。
 	TraceLog bool
 
@@ -192,6 +197,30 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	}
 	if err != nil {
 		return RunResult{}, err
+	}
+	// MCP 工具：两条分支都要追加，否则 SkillsCLI 模式下 MCP 静默失效（§2）。
+	mcpTools, mcpSet, mcpNotes, err := buildMCPTools(ctx, mcpBuildParams{
+		Req:            req,
+		RC:             RunContext{ProjectID: req.ProjectID, Principal: req.Principal, ThreadID: req.ThreadID, RunID: req.RunID, Skills: req.Skills, Headless: req.Headless, Writable: req.Agent.Writable},
+		Connector:      r.MCP,
+		Policy:         r.MCPPolicy,
+		Confirm:        r.Confirm,
+		ConfirmTimeout: r.confirmTimeout(),
+		Trace:          tr,
+	})
+	if err != nil {
+		return RunResult{}, err
+	}
+	if mcpSet != nil {
+		// per-run 连接：与 Issuer.RevokeRun / gate.dropRun 同风格，失败路径也回收。
+		defer mcpSet.Close()
+	}
+	if len(mcpTools) > 0 {
+		tools = append(tools, mcpTools...)
+	}
+	if len(mcpNotes) > 0 {
+		// 连接失败的 Server 如实告知模型，由它向用户说明（§4.3）。
+		instruction += "\n\nMCP status:\n- " + strings.Join(mcpNotes, "\n- ")
 	}
 
 	chatModel := agentcore.NewModel(r.LLM, req.ProjectID, modelName)

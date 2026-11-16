@@ -51,8 +51,9 @@ func TestStageTimerNilSafe(t *testing.T) {
 		t.Fatal("nil timer scope should be nil")
 	}
 	var scope *StageScope
-	scope.Done() // nil-safe
-	if StageTimerFrom(nil) != nil {
+	scope.Done()               // nil-safe
+	var nilCtx context.Context // 覆盖 ctx == nil 防御分支
+	if StageTimerFrom(nilCtx) != nil {
 		t.Fatal("nil ctx should return nil timer")
 	}
 	if StageTimerFrom(context.Background()) != nil {

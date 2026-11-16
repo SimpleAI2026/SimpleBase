@@ -5,12 +5,10 @@ package interp
 
 import (
 	"go/token"
-	"go/types"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
-	"unsafe"
 
 	_ "github.com/linkxzhou/SimpleBase/gofunction/packages"
 	"github.com/linkxzhou/SimpleBase/gofunction/value"
@@ -218,12 +216,6 @@ func mustPanic(t *testing.T, name string, fn func()) {
 		}
 	}()
 	fn()
-}
-
-func setSSAType(v ssa.Value, typ types.Type) {
-	rv := reflect.ValueOf(v).Elem()
-	f := rv.FieldByName("typ")
-	reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem().Set(reflect.ValueOf(typ))
 }
 
 func TestBuiltinsAppendCopyLenCapDeletePrint(t *testing.T) {

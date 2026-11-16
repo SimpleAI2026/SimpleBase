@@ -508,133 +508,31 @@ func TestAgentThreadsFilteredByAgent(t *testing.T) {
 	}
 }
 
-func TestAgentSchedulesAndRuns(t *testing.T) {
-	ctx := context.Background()
-	var nilStore *Store
-	if _, err := nilStore.CreateAgentSchedule(ctx, AgentSchedule{}); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	if _, err := nilStore.GetAgentSchedule(ctx, "p", "id"); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	if _, err := nilStore.GetAgentScheduleByAgent(ctx, "p", "a"); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	if _, err := nilStore.ListAgentSchedules(ctx, "p"); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	if _, err := nilStore.UpdateAgentSchedule(ctx, AgentSchedule{}); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	assertUnavailable(t, nilStore.ArchiveAgentSchedule(ctx, "p", "id"))
-	if _, err := nilStore.ListDueAgentSchedules(ctx, time.Now(), 0); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	if _, err := nilStore.ClaimAgentSchedule(ctx, "id", time.Time{}, time.Time{}, time.Time{}); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-	assertUnavailable(t, nilStore.InsertAgentScheduleRun(ctx, AgentScheduleRun{}))
-	assertUnavailable(t, nilStore.UpdateAgentScheduleRunStatus(ctx, "p", "id", AgentRunFailed, "", nil))
-	if _, err := nilStore.ListAgentScheduleRuns(ctx, "p", "s", 0); !errors.Is(err, ErrUnavailable) {
-		t.Fatal(err)
-	}
-
+// TestAgentSchedulesTablesArchived：sys_agent_schedules / sys_agent_schedule_runs
+// 已随 planv6.6 DC-5 整体下线读取接口，但建表 DDL 仍保留（存量库不迁移删除），
+// 这里只断言旧表在新建库中仍可 SQL 访问，避免误删 DDL 造成旧库启动失败。
+func TestAgentSchedulesTablesArchived(t *testing.T) {
 	s := newTestStore(t)
-	pid := "proj-s"
-	now := time.Now().UTC().Truncate(time.Second)
-	due := now.Add(-time.Minute)
-	sc, err := s.CreateAgentSchedule(ctx, AgentSchedule{
-		ProjectID: pid, AgentID: "ag1", ThreadID: "th1", Prompt: "run", CronExpr: "* * * * *",
-		Enabled: true, NextRunAt: due, LastRunAt: now.Add(-time.Hour), CreatedBy: "u",
-	})
-	if err != nil || sc.ID == "" {
-		t.Fatalf("create: %+v err=%v", sc, err)
-	}
-	if _, err := s.CreateAgentSchedule(ctx, AgentSchedule{ID: uuid.NewString(), ProjectID: pid, AgentID: "ag2", CronExpr: "0 * * * *"}); err != nil {
+	if _, err := s.db.ExecContext(context.Background(),
+		`INSERT INTO sys_agent_schedules(id, project_id, agent_id, thread_id, prompt, cron_expr, enabled, created_by, created_at, updated_at)
+		 VALUES('s1', 'p', 'a', 't', 'prompt', '* * * * *', 1, 'u', ?, ?)`,
+		time.Now().UTC(), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.GetAgentSchedule(ctx, pid, sc.ID)
-	if err != nil || !got.Enabled || got.LastRunAt.IsZero() || got.NextRunAt.IsZero() {
-		t.Fatalf("get: %+v err=%v", got, err)
-	}
-	if _, err := s.GetAgentSchedule(ctx, pid, uuid.NewString()); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := s.db.ExecContext(context.Background(),
+		`INSERT INTO sys_agent_schedule_runs(id, schedule_id, project_id, agent_id, thread_id, run_id, trigger, status, error, created_at)
+		 VALUES('r1', 's1', 'p', 'a', 't', 'rn', 'scheduled', 'ok', '', ?)`,
+		time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	byAgent, err := s.GetAgentScheduleByAgent(ctx, pid, "ag1")
-	if err != nil || byAgent.ID != sc.ID {
-		t.Fatalf("by agent: %+v err=%v", byAgent, err)
+	var n int
+	if err := s.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM sys_agent_schedules WHERE id = 's1'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("schedules row: n=%d err=%v", n, err)
 	}
-	if _, err := s.GetAgentScheduleByAgent(ctx, pid, "none"); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatal(err)
-	}
-	all, err := s.ListAgentSchedules(ctx, pid)
-	if err != nil || len(all) != 2 {
-		t.Fatalf("list: n=%d err=%v", len(all), err)
-	}
-
-	got.Prompt = "updated"
-	got.Enabled = true
-	upd, err := s.UpdateAgentSchedule(ctx, got)
-	if err != nil || upd.Prompt != "updated" {
-		t.Fatalf("update: %+v err=%v", upd, err)
-	}
-	if _, err := s.UpdateAgentSchedule(ctx, AgentSchedule{ID: uuid.NewString(), ProjectID: pid}); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatal(err)
-	}
-
-	dueList, err := s.ListDueAgentSchedules(ctx, now, 0)
-	if err != nil || len(dueList) != 1 || dueList[0].ID != sc.ID {
-		t.Fatalf("due: %+v err=%v", dueList, err)
-	}
-	dueList, err = s.ListDueAgentSchedules(ctx, now, 900)
-	if err != nil || len(dueList) != 1 {
-		t.Fatalf("clamped due: n=%d err=%v", len(dueList), err)
-	}
-
-	newNext := now.Add(10 * time.Minute)
-	ok, err := s.ClaimAgentSchedule(ctx, sc.ID, sc.NextRunAt, newNext, now)
-	if err != nil || !ok {
-		t.Fatalf("claim: ok=%v err=%v", ok, err)
-	}
-	ok, err = s.ClaimAgentSchedule(ctx, sc.ID, sc.NextRunAt, newNext, now)
-	if err != nil || ok {
-		t.Fatalf("stale claim: ok=%v err=%v", ok, err)
-	}
-	ok, err = s.ClaimAgentSchedule(ctx, uuid.NewString(), time.Time{}, time.Time{}, time.Time{})
-	if err != nil || ok {
-		t.Fatalf("missing claim: ok=%v err=%v", ok, err)
-	}
-
-	if err := s.InsertAgentScheduleRun(ctx, AgentScheduleRun{
-		ScheduleID: sc.ID, ProjectID: pid, AgentID: "ag1", ThreadID: "th1",
-		Trigger: "scheduled", Status: AgentRunRunning, StartedAt: now, FinishedAt: now.Add(time.Second),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.InsertAgentScheduleRun(ctx, AgentScheduleRun{ID: uuid.NewString(), ScheduleID: sc.ID, ProjectID: pid, Trigger: "manual", Status: AgentRunQueued}); err != nil {
-		t.Fatal(err)
-	}
-	runs, err := s.ListAgentScheduleRuns(ctx, pid, sc.ID, 0)
-	if err != nil || len(runs) != 2 {
-		t.Fatalf("runs: n=%d err=%v", len(runs), err)
-	}
-	fin := now.Add(2 * time.Second)
-	if err := s.UpdateAgentScheduleRunStatus(ctx, pid, runs[0].ID, AgentRunCompleted, "", &fin); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.UpdateAgentScheduleRunStatus(ctx, pid, runs[1].ID, AgentRunFailed, "x", nil); err != nil {
-		t.Fatal(err)
-	}
-	runs, err = s.ListAgentScheduleRuns(ctx, pid, sc.ID, 200)
-	if err != nil || len(runs) != 2 {
-		t.Fatalf("updated runs: n=%d err=%v", len(runs), err)
-	}
-
-	if err := s.ArchiveAgentSchedule(ctx, pid, sc.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.ArchiveAgentSchedule(ctx, pid, sc.ID); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatal(err)
+	if err := s.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM sys_agent_schedule_runs WHERE schedule_id = 's1'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("schedule_runs row: n=%d err=%v", n, err)
 	}
 }
 
