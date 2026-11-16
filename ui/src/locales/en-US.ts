@@ -311,6 +311,7 @@ const enUS: MessageTree = {
     },
     home: {
       mainNav: 'Main navigation',
+      openSource: 'Open source on GitHub',
       docs: 'Documentation',
       console: 'Open workbench',
       heroTitlePre: 'Build SaaS with an ',

@@ -7,6 +7,17 @@
         </router-link>
         <div class="ml-auto flex items-center gap-1 sm:gap-2">
           <LocaleSelect class="h-8 rounded-lg border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground dark:bg-transparent dark:hover:bg-muted/50" />
+          <a
+            href="https://github.com/SimpleAI2026/SimpleBase"
+            target="_blank"
+            rel="noopener noreferrer"
+            :aria-label="t('pages.home.openSource')"
+            class="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <GithubIcon class="size-3.5" />
+            {{ t('pages.home.openSource') }}
+            <ArrowUpRightIcon aria-hidden="true" class="size-3" />
+          </a>
         </div>
       </nav>
     </header>
@@ -106,7 +117,7 @@
         <span class="font-medium text-foreground">SimpleBase</span>
         <div class="flex items-center gap-6">
           <router-link to="/docs" class="inline-flex h-11 items-center transition-colors hover:text-foreground">{{ t('pages.home.docs') }}</router-link>
-          <a href="https://github.com/linkxzhou/SimpleBase" target="_blank" rel="noopener noreferrer" class="inline-flex h-11 items-center transition-colors hover:text-foreground">GitHub</a>
+          <a href="https://github.com/SimpleAI2026/SimpleBase" target="_blank" rel="noopener noreferrer" class="inline-flex h-11 items-center transition-colors hover:text-foreground">GitHub</a>
         </div>
       </div>
     </footer>
@@ -118,6 +129,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowRightIcon, ArrowUpRightIcon, CheckIcon } from '@lucide/vue'
 import BrandLogo from '@/components/BrandLogo.vue'
+import GithubIcon from '@/components/GithubIcon.vue'
 import HomeDemo from '@/components/home/HomeDemo.vue'
 import LocaleSelect from '@/components/LocaleSelect.vue'
 

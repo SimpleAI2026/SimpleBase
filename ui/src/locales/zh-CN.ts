@@ -320,6 +320,7 @@ const zhCN: MessageTree = {
     },
     home: {
       mainNav: '主导航',
+      openSource: '开源地址',
       docs: '使用文档',
       console: '进入工作台',
       heroTitlePre: '为 SaaS 构建的 ',
