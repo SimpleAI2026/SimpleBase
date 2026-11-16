@@ -175,7 +175,6 @@ const enUS: MessageTree = {
     openNavigation: 'Open navigation',
     toggleTheme: 'Toggle theme',
     language: 'Interface language',
-    backToHome: 'Back to homepage',
     themeToLight: 'Switch to light theme',
     themeToDark: 'Switch to dark theme',
     backToHome: 'Back to home',

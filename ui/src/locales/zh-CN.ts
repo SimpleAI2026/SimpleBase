@@ -184,7 +184,6 @@ const zhCN: MessageTree = {
     openNavigation: '打开导航',
     toggleTheme: '切换主题',
     language: '界面语言',
-    backToHome: '回到首页',
     themeToLight: '切换为浅色主题',
     themeToDark: '切换为深色主题',
     backToHome: '返回首页',
