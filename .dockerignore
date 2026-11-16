@@ -3,8 +3,32 @@
 /fakellm-server
 # 版本化产物目录
 /output/
-# 前端本地产物（CI 由 setup-ui 单独构建）
+# 前端本地产物（CI 由 setup-ui 单独构建并同步到 internal/web/dist）
 /ui/node_modules
 /ui/coverage
 # 会话临时目录
 .session_tmps
+
+# ── 构建/推送提速：以下是运行时数据或参考仓库，Go 编译完全不需要 ──
+# 实测 git 跟踪内容仅 ~22M；排除后上下文从 ~1GB 降到 ~30M。
+/.git/
+# 运行时数据与密钥状态，绝不进镜像
+/data/
+# 参考仓库（go.mod 无引用）
+/thirdparty/
+# 技能工作区（含数百 MB node_modules）
+/skills/
+# 文档与规划
+/plan/
+/docs/
+/examples/
+# 前端源码：镜像构建只需要 setup-ui 同步出的 internal/web/dist
+/ui/
+/.github/
+# 本地工具会话数据与二进制（编译只需 go.mod 中 replace 指向的四个子模块）
+/.box-desens/
+/.session_tmps/
+/godatabase/godb
+/godatabase/godb-cli
+/godatabase/main
+*.md

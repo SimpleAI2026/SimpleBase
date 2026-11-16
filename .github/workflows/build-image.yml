@@ -13,9 +13,12 @@ jobs:
 
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v4
 
+    # 缓存键 = hashFiles('go.sum')，与手动 actions/cache 等价但无需维护路径
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
@@ -34,15 +37,12 @@ jobs:
         echo "time=$(date +'%Y%m%d%H')" >> "$GITHUB_OUTPUT"
         echo "tag=${GITHUB_REF#refs/*/}" >> "$GITHUB_OUTPUT"
 
+    # 编译检查：快速失败（Docker 构建有独立缓存，此处依赖 setup-go 缓存，增量很快）
     - name: Build
       run: go build ./...
 
-    - name: Test
-      run: go test -p 1 -timeout 45m ./...
-
-    - name: Test gofunction module
-      working-directory: gofunction
-      run: go test -short -timeout 10m ./...
+    # 全量测试已由 build1.25.yml 在 main push 时覆盖（go test -p 1 -timeout 45m），
+    # tag 为发版动作不再重复执行；gofunction 模块同理。
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -60,6 +60,10 @@ jobs:
         context: .
         file: ./Dockerfile
         push: true
+        # 不加 arm64：CGO + DuckDB 动态链接 glibc/libstdc++，QEMU 交叉编译需数小时
         platforms: linux/amd64
         tags: |
           ${{ env.IMAGE }}:${{ steps.vars.outputs.tag }}-${{ steps.vars.outputs.time }}
+        # GHA 层缓存：go mod download / go build 层在 go.sum 未变时直接命中
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
