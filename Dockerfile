@@ -16,6 +16,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libstdc++6 tzdata \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/simplebase /simplebase
+RUN mkdir -p /var/lib/simplebase/data /var/lib/simplebase/cache \
+    && chown -R ubuntu:ubuntu /var/lib/simplebase
+ENV SIMPLEBASE_DATA_DIR=/var/lib/simplebase/data \
+    SIMPLEBASE_DB_CACHE_DIR=/var/lib/simplebase/cache
 USER ubuntu:ubuntu
 EXPOSE 8080
 ENTRYPOINT ["/simplebase"]
