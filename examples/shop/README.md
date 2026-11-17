@@ -39,4 +39,14 @@ node examples/shop/server/main.mjs
 
 BFF 在下单时同步调用云函数 `pricing.Quote` 算价，同一幂等键只生成一单。
 
+## 发布到子域名站点
+
+`web/` 是纯静态目录，但页面调的 `/api/*` 在 `server/main.mjs`（BFF）里，**站点面只读、没有后端接口**，BFF 必须另起：
+
+1. 启动 BFF：`node examples/shop/server/main.mjs`（默认 `EXAMPLE_PORT=8092`）。
+2. 把 `web/config.js` 改成 `window.__SB_CONFIG__ = { apiBase: 'http://127.0.0.1:8092' }`（只放 BFF 地址，不放 Key；默认空串 = 同源）。
+3. 复制到临时目录后发布：`python3 skills/simplebase/scripts/sbdev.py site deploy -C <临时目录> --dist web --prefix web/`，访问 `http://ex-shop1.localhost:8080/web/`。不带 `--prefix` 会公开整个对象根（含 `products/` 商品图）。
+
+BFF 的 CORS 为 `Access-Control-Allow-Origin: *`，方法与请求头全部允许，且没有登录与 Origin 校验：**只适合本地与演示，不要绑定到公网地址。**
+
 限制：G1、G2、G6、G10、G13（详见 `plan/planv4.0/examples-business-cases-plan.md` §6）。

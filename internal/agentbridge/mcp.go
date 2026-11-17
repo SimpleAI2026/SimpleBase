@@ -24,7 +24,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -52,7 +52,7 @@ func NewMCPConnector(store *systemdb.Store, opts MCPOptions) *MCPConnector {
 //
 // 单个 Server 失败不终止 run：跳过它并继续，由调用方把提示交给模型。
 // 全部失败时返回空集合（不是错误），只有配置读取失败才返回 error。
-func (c *MCPConnector) Connect(ctx context.Context, _ gocloudagent.Principal, projectID string, serverIDs []string) (mcp.SessionSet, error) {
+func (c *MCPConnector) Connect(ctx context.Context, _ cloudagent.Principal, projectID string, serverIDs []string) (mcp.SessionSet, error) {
 	if c == nil || c.store == nil || len(serverIDs) == 0 {
 		return mcp.NewSessionSet(nil), nil
 	}
@@ -251,24 +251,24 @@ func NewMCPPolicy(store *systemdb.Store) *MCPPolicy {
 	return &MCPPolicy{store: store}
 }
 
-// Classify 实现 gocloudagent.MCPPolicy。
+// Classify 实现 cloudagent.MCPPolicy。
 //
 // 事实来源是 sys_mcp_servers.tools_policy_json：Server 自报的
 // annotations 只作配置向导的默认建议。未标记的工具一律按「写」处理。
-func (p *MCPPolicy) Classify(ctx context.Context, projectID, serverID, tool string) (gocloudagent.CommandDecision, error) {
+func (p *MCPPolicy) Classify(ctx context.Context, projectID, serverID, tool string) (cloudagent.CommandDecision, error) {
 	if p == nil || p.store == nil {
-		return gocloudagent.CommandDecision{}, errors.New("mcp: policy store is not configured")
+		return cloudagent.CommandDecision{}, errors.New("mcp: policy store is not configured")
 	}
 	srv, err := p.store.GetMCPServerByName(ctx, projectID, serverID)
 	if err != nil {
 		// Server 未登记 = 策略缺失，调用方必须拒绝执行（fail-closed）。
-		return gocloudagent.CommandDecision{}, fmt.Errorf("mcp: server %q is not configured", serverID)
+		return cloudagent.CommandDecision{}, fmt.Errorf("mcp: server %q is not configured", serverID)
 	}
 	policies := systemdb.ParseMCPToolPolicies(srv.ToolsPolicyJSON)
 	pol, ok := policies[tool]
 	if !ok {
 		// 未标记：按写处理，且不认定为「破坏性」（走普通写权限校验即可）。
-		return gocloudagent.CommandDecision{ReadOnly: false, Destructive: false}, nil
+		return cloudagent.CommandDecision{ReadOnly: false, Destructive: false}, nil
 	}
-	return gocloudagent.CommandDecision{ReadOnly: pol.ReadOnly, Destructive: pol.Destructive}, nil
+	return cloudagent.CommandDecision{ReadOnly: pol.ReadOnly, Destructive: pol.Destructive}, nil
 }

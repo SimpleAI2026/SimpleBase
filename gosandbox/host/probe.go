@@ -46,6 +46,8 @@ type Caps struct {
 	BwrapVersion string // `bwrap --version` 原文
 	// DisableUserNS 为真表示 bwrap 的 --help 含 --disable-userns（>= 0.8.0）。
 	DisableUserNS bool
+	// BwrapSize 为真表示 bwrap 的 --help 含 --size（>= 0.9），可给 tmpfs 设上限。
+	BwrapSize bool
 	// UserNS 为真表示 `bwrap --unshare-user …` 烟雾测试成功。
 	UserNS      bool
 	LandlockABI int // 0 = 不可用
@@ -143,6 +145,8 @@ func probeLinux(ctx context.Context, p Policy) (Caps, error) {
 	}
 	if out, err := runProbe(ctx, bw, "--help"); err == nil || out != "" {
 		caps.DisableUserNS = strings.Contains(out, "--disable-userns")
+		// --size 从 0.9 起有；没有它就只能挂不限大小的 tmpfs。
+		caps.BwrapSize = strings.Contains(out, "--size")
 	}
 	if !caps.DisableUserNS {
 		return caps, unavailable("bwrap lacks --disable-userns (need bubblewrap >= 0.8.0)")

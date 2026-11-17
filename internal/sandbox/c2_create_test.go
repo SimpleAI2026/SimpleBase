@@ -85,6 +85,9 @@ func (s *c2Store) UpdateSandbox(_ context.Context, sb Sandbox) error { return ni
 func (s *c2Store) SoftDeleteSandbox(_ context.Context, projectID, id, actor string) error {
 	return nil
 }
+func (s *c2Store) ListIdleRunningSandboxes(context.Context, time.Time, int) ([]Sandbox, error) {
+	return nil, nil
+}
 func (s *c2Store) ListExpiredSandboxes(_ context.Context, t time.Time, limit int) ([]Sandbox, error) {
 	return nil, nil
 }

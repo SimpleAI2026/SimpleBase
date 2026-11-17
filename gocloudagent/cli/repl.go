@@ -38,14 +38,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cloudwego/eino/components/tool"
 	"go.uber.org/zap"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/tools"
 )
 
-// Options 是一次 CLI 调用的完整配置（由 cmd/gocloudagent 组装）。
+// Options 是一次 CLI 调用的完整配置（由 cmd 组装）。
 type Options struct {
 	Config    Config
 	Env       []string
@@ -459,7 +457,7 @@ func isTTY(r io.Reader) bool {
 	return st.Mode()&os.ModeCharDevice != 0
 }
 
-// version 由 cmd/gocloudagent 通过 -ldflags 覆盖。
+// version 由 cmd 通过 -ldflags 覆盖。
 var version = "dev"
 
 // SetVersion 允许入口设置版本号。
@@ -468,6 +466,3 @@ func SetVersion(v string) {
 		version = v
 	}
 }
-
-var _ = tool.BaseTool(nil)
-var _ = agentcore.RedactSecrets

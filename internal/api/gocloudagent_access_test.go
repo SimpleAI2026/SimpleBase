@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
@@ -236,14 +236,14 @@ func TestCloudAgentObj(t *testing.T) {
 
 func TestLLMChatClient(t *testing.T) {
 	ctx := context.Background()
-	var c gocloudagent.ChatClient = NewCloudAgentLLM(&fakeLLMSvc{names: []string{"x"}})
-	resp, err := c.Chat(ctx, "p", gocloudagent.ChatRequest{
-		Model: "m", Messages: []gocloudagent.ChatMessage{{Role: "user", Content: "hi"}},
+	var c cloudagent.ChatClient = NewCloudAgentLLM(&fakeLLMSvc{names: []string{"x"}})
+	resp, err := c.Chat(ctx, "p", cloudagent.ChatRequest{
+		Model: "m", Messages: []cloudagent.ChatMessage{{Role: "user", Content: "hi"}},
 	})
 	if err != nil || resp.Content != "ok" {
 		t.Fatalf("chat=%+v err=%v", resp, err)
 	}
-	stream, err := c.Stream(ctx, "p", gocloudagent.ChatRequest{Messages: []gocloudagent.ChatMessage{{Role: "u", Content: "q"}}})
+	stream, err := c.Stream(ctx, "p", cloudagent.ChatRequest{Messages: []cloudagent.ChatMessage{{Role: "u", Content: "q"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,10 +260,10 @@ func TestLLMChatClient(t *testing.T) {
 	}
 
 	bad := NewCloudAgentLLM(&fakeLLMSvc{chatErr: errors.New("x"), streamErr: errors.New("y")})
-	if _, err := bad.Chat(ctx, "p", gocloudagent.ChatRequest{}); err == nil {
+	if _, err := bad.Chat(ctx, "p", cloudagent.ChatRequest{}); err == nil {
 		t.Fatal("chat err")
 	}
-	if _, err := bad.Stream(ctx, "p", gocloudagent.ChatRequest{}); err == nil {
+	if _, err := bad.Stream(ctx, "p", cloudagent.ChatRequest{}); err == nil {
 		t.Fatal("stream err")
 	}
 

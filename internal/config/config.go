@@ -469,25 +469,52 @@ type ProviderConfig struct {
 // local 与宿主共享内核，不是 VM，只适合自托管 / 受信任用户。
 type SandboxConfig struct {
 	Enabled bool `yaml:"enabled"`
-	// Image 在 local 后端下只是展示用的标签（不拉取任何镜像），默认 "host"。
-	Image          string        `yaml:"image"`
-	CPUs           int           `yaml:"cpus"`       // 1–4；cgroup 不可用时不会生效
-	MemoryMiB      int           `yaml:"memory_mib"` // 128–4096；cgroup 不可用时不会生效
-	MaxDuration    time.Duration `yaml:"max_duration"`
-	IdleTimeout    time.Duration `yaml:"idle_timeout"`
+	// Image 在 local 后端下只是展示用的标签（不拉取任何镜像），默认 "host"；
+	// 在 box 后端下是沙盒根来源：目前仍只支持 "host"（宿主根只读），
+	// 镜像根随 M2（gosandbox/image）落地。
+	Image       string        `yaml:"image"`
+	CPUs        int           `yaml:"cpus"`       // 1–4；cgroup 不可用时不会生效
+	MemoryMiB   int           `yaml:"memory_mib"` // 128–4096；cgroup 不可用时不会生效
+	MaxDuration time.Duration `yaml:"max_duration"`
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+	// FreezeAfter 是空闲多久后把沙盒冻结（cgroup.freeze）：进程与内存保留，
+	// 恢复是毫秒级。0 = 不冻结。只在驱动支持 vm.Pauser 时生效。
+	FreezeAfter    time.Duration `yaml:"freeze_after"`
 	ExecTimeout    time.Duration `yaml:"exec_timeout"`
 	MaxOutputBytes int           `yaml:"max_output_bytes"`
 	MaxFileBytes   int           `yaml:"max_file_bytes"`
-	Network        string        `yaml:"network"` // 仅 none：local 后端不提供网络
-	Workdir        string        `yaml:"workdir"`
+	// Network 是出网档位：none（默认）/ egress / egress-allowlist。
+	// none 时沙盒 netns 里只有 lo，入站仍可经 agent 中继访问。
+	Network string `yaml:"network"`
+	// NetworkAllow 是白名单域名（仅 egress-allowlist 生效）。
+	// 支持 "example.com" 与 "*.example.com"。
+	NetworkAllow []string `yaml:"network_allow"`
+	// AllowExperimentalNetwork 显式接受实验室特性的网络档位。
+	//
+	// egress-allowlist 现在是半成品：netx.DNSProxy 已实现，但没有任何代码启动它，
+	// 白名单也没有传给 pasta，实际效果与 egress 相同（并不会按域名限制出站）。
+	// 要求显式打开这个开关，是为了让「我确实知道它不完整」这件事留在配置里。
+	AllowExperimentalNetwork bool `yaml:"allow_experimental_network"`
+	// Supervise 为真时把沙盒交给独立的 supervisor 进程托管：
+	// 服务进程重启（升级、崩溃）后能重新接管，沙盒与其进程不丢。
+	//
+	// 代价：断开的那一刻，agent 正在发但还没被读走的帧会丢，调用方需要能重试。
+	Supervise bool `yaml:"supervise"`
+	// DiskLimitMiB 是每个沙盒可写部分（upper + ws）的上限；0 = 不限。
+	// rootless 下没有文件系统配额，超限时冻结沙盒而不是杀掉。
+	DiskLimitMiB int64  `yaml:"disk_limit_mib"`
+	Workdir      string `yaml:"workdir"`
 
-	Backend        string        `yaml:"backend"`          // local | fake（fake 仅测试环境，须 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）
+	Backend        string        `yaml:"backend"`          // local | box | fake（fake 仅测试环境，须 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）
 	Images         []string      `yaml:"images"`           // 展示用标签白名单；空 = 仅 Image
 	ExecTimeoutMax time.Duration `yaml:"exec_timeout_max"` // API 可自定 timeout 的上限
 	MaxPerProject  int           `yaml:"max_per_project"`  // 项目内未删除沙盒上限
 	ReapInterval   time.Duration `yaml:"reap_interval"`    // 过期清理周期；0 = 关闭
 	// Root 是沙盒工作区的父目录；空 = <storage.data_dir>/sandboxes。
 	Root string `yaml:"root"`
+	// ImagesDir 是镜像 store 的目录；空表示不分发镜像，只支持 image=host。
+	// 配置后按引用从该 store 取镜像并解包成沙盒根（需先拉取或导入）。
+	ImagesDir string `yaml:"images_dir"`
 	// PidsMax 是 cgroup pids.max；0 = 不限。cgroup 不可用时不会生效。
 	PidsMax int64 `yaml:"pids_max"`
 	// BwrapPath / HelperPath 见 gosandbox/host.Policy；macOS 忽略。
@@ -543,6 +570,9 @@ type SandboxE2BConfig struct {
 const (
 	SandboxBackendLocal = "local"
 	SandboxBackendFake  = "fake"
+	// SandboxBackendBox 是常驻 agent 后端：每个沙盒一个 bwrap + 一个 PID 1 agent，
+	// 后台进程跨请求存活、热 exec 只是一帧往返、暂停能保留进程。
+	SandboxBackendBox = "box"
 	// SandboxDefaultImage 是 local 后端的镜像标签。
 	SandboxDefaultImage = "host"
 )
@@ -778,6 +808,7 @@ func defaults() Config {
 			MemoryMiB:      256,
 			MaxDuration:    30 * time.Minute,
 			IdleTimeout:    5 * time.Minute,
+			FreezeAfter:    2 * time.Minute,
 			ExecTimeout:    30 * time.Second,
 			ExecTimeoutMax: 300 * time.Second,
 			MaxOutputBytes: 65536,
@@ -1044,7 +1075,7 @@ func validateSandbox(s SandboxConfig) error {
 	}
 	var errs []error
 	switch s.EffectiveBackend() {
-	case SandboxBackendLocal:
+	case SandboxBackendLocal, SandboxBackendBox:
 		if s.BwrapPath != "" && !filepath.IsAbs(s.BwrapPath) {
 			errs = append(errs, errors.New("sandbox.bwrap_path must be an absolute path"))
 		}
@@ -1086,9 +1117,28 @@ func validateSandbox(s SandboxConfig) error {
 		errs = append(errs, errors.New("sandbox.reap_interval must not be negative"))
 	}
 	switch strings.ToLower(strings.TrimSpace(s.Network)) {
-	case "", "none":
+	case "", "none", "egress", "egress-allowlist", "allowlist":
 	default:
-		errs = append(errs, fmt.Errorf("sandbox.network must be none (got %q)", s.Network))
+		errs = append(errs, fmt.Errorf("sandbox.network must be none, egress or egress-allowlist (got %q)", s.Network))
+	}
+	// 白名单模式必须有规则：空白名单等于「全部拒绝」，配了也跑不通，
+	// 与其让用户对着超时排查，不如启动就报错。
+	if strings.EqualFold(strings.TrimSpace(s.Network), "egress-allowlist") ||
+		strings.EqualFold(strings.TrimSpace(s.Network), "allowlist") {
+		if len(s.NetworkAllow) == 0 {
+			errs = append(errs, errors.New("sandbox.network=egress-allowlist needs sandbox.network_allow"))
+		}
+		// 实验室特性：不报错，但要让配置作者知道它现在不完整。
+		// 错误信息会出现在启动日志里，这比埋在文档里更可能被看到。
+		if !s.AllowExperimentalNetwork {
+			errs = append(errs, errors.New(
+				"sandbox.network=egress-allowlist is experimental: the DNS allowlist proxy is implemented but not started, "+
+					"so network_allow is NOT enforced and outbound access behaves like sandbox.network=egress. "+
+					"Set sandbox.allow_experimental_network=true to accept this"))
+		}
+	}
+	if s.DiskLimitMiB < 0 {
+		errs = append(errs, fmt.Errorf("sandbox.disk_limit_mib must not be negative (got %d)", s.DiskLimitMiB))
 	}
 	if s.CPUs < 1 || s.CPUs > 4 {
 		errs = append(errs, fmt.Errorf("sandbox.cpus must be 1-4 (got %d)", s.CPUs))

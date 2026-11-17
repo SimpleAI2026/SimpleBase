@@ -76,9 +76,21 @@ set -a; . examples/jd/.env; set +a
   --statement "SELECT status, COUNT(*) FROM orders GROUP BY status"
 ```
 
+## 发布到子域名站点
+
+`web/` 是纯静态目录（不需要构建），但页面调的 `/api/*` 在 `server/main.mjs`（BFF）里，**站点面只读、没有后端接口**，所以 BFF 必须另起：
+
+1. 启动 BFF：`JD_PORT=8093 node examples/jd/server/main.mjs`（平台页写入类动作需额外 `JD_PLATFORM_WRITE=1`，默认返回 403）。
+2. 把 `web/config.js` 改成 `window.__SB_CONFIG__ = { apiBase: 'http://127.0.0.1:8093' }`（只放 BFF 地址，不放 Key；默认空串 = 同源，本地直接 `node` 运行不需要改）。
+3. 复制到临时目录后发布：`python3 skills/simplebase/scripts/sbdev.py site deploy -C <临时目录> --dist web --prefix web/`，访问 `http://ex-jd001.localhost:8080/web/`。
+4. 不带 `--prefix` 会公开整个对象根（含 `jd/` 商品图与 `jd/reviews/*` 晒图），`site deploy` 会先列出这些非产物对象。
+
+BFF 的 CORS 为 `Access-Control-Allow-Origin: *`，方法与请求头全部允许，且没有登录：**只适合本地与演示，不要绑定到公网地址。**改 `config.js` 后站点最多 5 分钟生效（JS 缓存 `max-age=300`）。
+
 ## 限制
 
 - 单用户演示（`user-demo-0001`），没有登录与鉴权；Key 只在服务端 `.env`。
+- BFF 无 Origin 校验、CORS 全放开，生产需改为白名单并加终端用户登录。
 - 不接真实支付，付款是直接把 `pending` 改成 `paid`。
 - 库存扣减靠条件更新，不加行锁；高并发下超卖由 `stock >= qty` 与事务失败重试兜住。
 - 平台限制编号 G1、G2、G6、G10、G13（详见 `plan/planv4.0/examples-business-cases-plan.md` §6）。

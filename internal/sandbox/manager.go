@@ -58,7 +58,10 @@ type Store interface {
 	CountSandboxes(context.Context, string) (int, error)
 	UpdateSandbox(context.Context, Sandbox) error
 	SoftDeleteSandbox(context.Context, string, string, string) error
+	// ListExpiredSandboxes 取已过期的行（reaper 用）。
 	ListExpiredSandboxes(context.Context, time.Time, int) ([]Sandbox, error)
+	// ListIdleRunningSandboxes 取运行中且最后活动早于给定时刻的行（空闲冻结用）。
+	ListIdleRunningSandboxes(context.Context, time.Time, int) ([]Sandbox, error)
 	ListStaleRunSandboxes(context.Context, time.Time, int) ([]Sandbox, error)
 	ListFailedSandboxRemovals(context.Context, int) ([]Sandbox, error)
 	PurgeDeletedSandboxes(context.Context, time.Time) (int64, error)
@@ -121,6 +124,22 @@ type Capabilities struct {
 	MaxPerProject   int      `json:"max_per_project"`
 	// Terminal 为真表示后端能提供交互进程（PTY / 后台进程）。
 	Terminal bool `json:"terminal"`
+	// Pause 为真表示 pause 是真冻结（进程与内存保留），而不是退回 stop。
+	Pause bool `json:"pause"`
+	// Metrics 为真表示能读沙盒的资源用量。
+	Metrics bool `json:"metrics"`
+	// Network 是出网档位："none" / "egress" / "egress-allowlist"。
+	Network string `json:"network"`
+	// NetworkAllow 是白名单（仅 egress-allowlist 有值）。
+	NetworkAllow []string `json:"network_allow,omitempty"`
+	// NetworkExperimental 为真表示当前档位是实验室特性：功能不完整，
+	// 调用方不该把它当稳定能力用。
+	//
+	// 现在只有 egress-allowlist 会置为真：DNS 代理已实现，但「解析出的地址
+	// 写进 nft set」这条链路还没接，实际效果是「能解析但连不通」。
+	NetworkExperimental bool `json:"network_experimental"`
+	// DiskLimitMiB 是每沙盒可写部分的上限；0 = 不限。超限冻结而不是杀。
+	DiskLimitMiB int64 `json:"disk_limit_mib"`
 }
 
 // Manager 管理沙盒的元数据、串行访问、懒启动及清理；执行交给 vm.Driver（local / fake）。
@@ -191,11 +210,35 @@ func (m *Manager) Capabilities() Capabilities {
 		TimeoutDefaultS: int64(m.cfg.IdleTimeout.Seconds()), TimeoutMaxS: int64(m.cfg.MaxDuration.Seconds()),
 		ExecTimeoutMaxS: int64(m.cfg.ExecTimeoutMax.Seconds()),
 		MaxFileBytes:    m.cfg.MaxFileBytes, MaxOutputBytes: m.cfg.MaxOutputBytes, MaxPerProject: m.cfg.MaxPerProject,
-		Images: append([]string(nil), m.cfg.Images...), Terminal: m.Interactive()}
+		Images: append([]string(nil), m.cfg.Images...), Terminal: m.Interactive(),
+		Pause: m.CanPause(), Metrics: m.CanMetrics(),
+		Network: m.networkMode(), NetworkAllow: append([]string(nil), m.cfg.NetworkAllow...),
+		NetworkExperimental: IsExperimentalNetwork(m.cfg.Network),
+		DiskLimitMiB:        m.cfg.DiskLimitMiB}
 	if len(c.Images) == 0 {
 		c.Images = []string{m.cfg.Image}
 	}
 	return c
+}
+
+// networkMode 返回生效的出网档位（空按 none）。
+func (m *Manager) networkMode() string {
+	if strings.EqualFold(strings.TrimSpace(m.cfg.Network), "") {
+		return "none"
+	}
+	return strings.ToLower(strings.TrimSpace(m.cfg.Network))
+}
+
+// IsExperimentalNetwork 报告一个网络档位是否是实验室特性。
+//
+// egress-allowlist 现在是「半成品」：netx.DNSProxy 已实现但没有被启动，白名单没有
+// 生效，出站行为与 egress 相同。把它明说成实验室特性，避免用户误以为已按域名限制出站。
+func IsExperimentalNetwork(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "egress-allowlist", "allowlist":
+		return true
+	}
+	return false
 }
 
 // Interactive 报告后端是否实现了 vm.Interactive，且配置没有关掉终端。
@@ -428,6 +471,11 @@ func (m *Manager) Get(ctx context.Context, projectID, id string, refresh bool) (
 	if !refresh || r.Status == "pending" {
 		return r, nil
 	}
+	// paused 是「冻结」状态：工作区还在，驱动侧看起来仍是 running，
+	// 不能按驱动状态覆盖，否则一次 Get 就把暂停抹掉了。
+	if r.Status == "paused" {
+		return r, nil
+	}
 	kind, err := m.driver.Status(ctx, r.CloudName)
 	if err != nil {
 		m.logger.Warn("sandbox driver status failed", zap.String("sandbox_id", id),
@@ -543,6 +591,12 @@ func (m *Manager) Stop(ctx context.Context, projectID, id string) (r Sandbox, er
 		}
 		// 暂停没有内存快照：进程随之丢失，先关掉会话与进程，避免留下指向已停止工作区的句柄。
 		m.closeSandboxProcs(id)
+		// 冻结中的沙盒要先解冻，否则 Stop 只是写标记，进程仍冻在 cgroup 里。
+		if r.Status == "paused" {
+			if pz, ok := m.driver.(vm.Pauser); ok {
+				_ = pz.Resume(ctx, m.target(r))
+			}
+		}
 		if r.Status != "pending" {
 			if err = m.driver.Stop(ctx, r.CloudName); err != nil {
 				m.logger.Warn("sandbox driver stop failed", zap.String("sandbox_id", id),
@@ -554,6 +608,114 @@ func (m *Manager) Stop(ctx context.Context, projectID, id string) (r Sandbox, er
 		return m.store.UpdateSandbox(ctx, r)
 	})
 	return r, err
+}
+
+// Pause 冻结沙盒：进程与内存保留，恢复是毫秒级。
+//
+// 驱动实现了 vm.Pauser 时用 cgroup.freeze；否则退回 Stop（进程丢失），
+// 并在返回值里如实反映状态，调用方据 Capabilities.Pause 决定是否暴露该能力。
+func (m *Manager) Pause(ctx context.Context, projectID, id string) (r Sandbox, err error) {
+	begin := m.now()
+	defer func() { m.logOp("pause", projectID, id, begin, err, zap.String("status", r.Status)) }()
+	err = m.withLock(ctx, id, func() error {
+		var err error
+		r, err = m.Get(ctx, projectID, id, false)
+		if err != nil {
+			return err
+		}
+		if r.Status == "paused" {
+			return ErrAlreadyPaused
+		}
+		p, ok := m.driver.(vm.Pauser)
+		freezing := ok && m.CanPause()
+		if !freezing {
+			// 没有冻结能力：退回 Stop，语义与旧行为一致。
+			m.closeSandboxProcs(id)
+			if r.Status != "pending" {
+				if err = m.driver.Stop(ctx, r.CloudName); err != nil {
+					return fmt.Errorf("%w: pause", vm.ErrBackend)
+				}
+			}
+			r.Status = "stopped"
+			return m.store.UpdateSandbox(ctx, r)
+		}
+		if err = p.Pause(ctx, r.CloudName); err != nil {
+			m.logger.Warn("sandbox driver pause failed", zap.String("sandbox_id", id),
+				zap.String("vm_name", r.CloudName), zap.Error(err))
+			return fmt.Errorf("%w: pause", vm.ErrBackend)
+		}
+		r.Status = "paused"
+		return m.store.UpdateSandbox(ctx, r)
+	})
+	return r, err
+}
+
+// Resume 解冻沙盒。已停止（或从未启动）时等价于 Start。
+func (m *Manager) Resume(ctx context.Context, projectID, id string) (r Sandbox, err error) {
+	begin := m.now()
+	defer func() { m.logOp("resume", projectID, id, begin, err, zap.String("status", r.Status)) }()
+	err = m.withLock(ctx, id, func() error {
+		var err error
+		r, err = m.Get(ctx, projectID, id, false)
+		if err != nil {
+			return err
+		}
+		if r.Status != "paused" {
+			// 不是冻结状态：按 Start 处理（幂等）。
+			if err = m.driver.Ensure(ctx, m.target(r)); err != nil {
+				return fmt.Errorf("%w: resume", vm.ErrBackend)
+			}
+			return m.markActive(ctx, &r, r.Status == "expired")
+		}
+		if p, ok := m.driver.(vm.Pauser); ok {
+			if err = p.Resume(ctx, m.target(r)); err != nil {
+				m.logger.Warn("sandbox driver resume failed", zap.String("sandbox_id", id),
+					zap.String("vm_name", r.CloudName), zap.Error(err))
+				return fmt.Errorf("%w: resume", vm.ErrBackend)
+			}
+		}
+		return m.markActive(ctx, &r, false)
+	})
+	return r, err
+}
+
+// Metrics 读沙盒的资源用量。驱动不支持时返回 vm.ErrNotSupported。
+func (m *Manager) Metrics(ctx context.Context, projectID, id string) (vm.Metrics, error) {
+	if !m.Available() {
+		return vm.Metrics{}, vm.ErrUnavailable
+	}
+	r, err := m.Get(ctx, projectID, id, false)
+	if err != nil {
+		return vm.Metrics{}, err
+	}
+	meter, ok := m.driver.(vm.Meter)
+	if !ok {
+		return vm.Metrics{}, fmt.Errorf("%w: metrics", vm.ErrNotSupported)
+	}
+	return meter.Metrics(ctx, r.CloudName)
+}
+
+// CanPause 报告驱动是否支持真冻结（而不是退回 Stop）。
+func (m *Manager) CanPause() bool {
+	if !m.Available() {
+		return false
+	}
+	if _, ok := m.driver.(vm.Pauser); !ok {
+		return false
+	}
+	if f, ok := m.driver.(vm.Freezer); ok {
+		return f.CanFreeze()
+	}
+	return true
+}
+
+// CanMetrics 报告驱动是否能提供资源用量。
+func (m *Manager) CanMetrics() bool {
+	if !m.Available() {
+		return false
+	}
+	_, ok := m.driver.(vm.Meter)
+	return ok
 }
 
 func (m *Manager) Delete(ctx context.Context, projectID, id string) (err error) {
@@ -897,6 +1059,39 @@ func (m *Manager) ReleaseThread(ctx context.Context, projectID, threadID string)
 	return m.Delete(ctx, projectID, r.ID)
 }
 
+// freezeIdle 把空闲超过 FreezeAfter 的运行中沙盒冻结（cgroup.freeze）。
+//
+// 冻结保留内存与进程，恢复是毫秒级；这是密度手段，不是回收手段：
+// 真正的回收仍由 ListExpiredSandboxes + 软删负责。驱动不支持 Pauser 时直接返回。
+func (m *Manager) freezeIdle(ctx context.Context, now time.Time) {
+	if m.cfg.FreezeAfter <= 0 {
+		return
+	}
+	if _, ok := m.driver.(vm.Pauser); !ok {
+		return
+	}
+	idle, err := m.store.ListIdleRunningSandboxes(ctx, now.Add(-m.cfg.FreezeAfter), 100)
+	if err != nil {
+		m.logger.Warn("reaper listing idle sandboxes failed", zap.Error(err))
+		return
+	}
+	for _, r := range idle {
+		if ctx.Err() != nil {
+			return
+		}
+		// 有活跃进程（终端 / 后台命令）的沙盒不算空闲：进程自己会刷 activity。
+		if len(m.procs.list(r.ID)) > 0 {
+			continue
+		}
+		if _, err := m.Pause(ctx, r.ProjectID, r.ID); err != nil {
+			m.logger.Warn("sandbox idle freeze failed", zap.String("sandbox_id", r.ID), zap.Error(err))
+			continue
+		}
+		m.logger.Info("sandbox frozen while idle", zap.String("sandbox_id", r.ID),
+			zap.Duration("freeze_after", m.cfg.FreezeAfter))
+	}
+}
+
 // ReapOnce 每轮只处理至多 100 行，先清理遗留 VM，再清过期状态和软删行。
 func (m *Manager) ReapOnce(ctx context.Context) error {
 	if !m.Available() {
@@ -926,6 +1121,7 @@ func (m *Manager) ReapOnce(ctx context.Context) error {
 		m.logger.Info("reaper deleting stale run sandbox", zap.String("sandbox_id", r.ID))
 		_ = m.Delete(ctx, r.ProjectID, r.ID)
 	}
+	m.freezeIdle(ctx, now)
 	expired, err := m.store.ListExpiredSandboxes(ctx, now, 100)
 	if err != nil {
 		return err

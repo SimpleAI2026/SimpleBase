@@ -41,7 +41,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -49,7 +49,7 @@ const runEventCap = 2000
 
 type runFrame struct {
 	id int64
-	ev gocloudagent.Event
+	ev cloudagent.Event
 }
 
 type runBuf struct {
@@ -81,7 +81,7 @@ func newRunEventHub() *runEventHub {
 	return &runEventHub{runs: map[string]*runBuf{}, maxRuns: runEventDefaultCap, idleTTL: runEventIdleTTL}
 }
 
-func (h *runEventHub) append(runID string, ev gocloudagent.Event) int64 {
+func (h *runEventHub) append(runID string, ev cloudagent.Event) int64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	b := h.buf(runID)
@@ -303,7 +303,7 @@ func (h *confirmHub) prepare(runID, callID, initiator string) chan bool {
 	return ch
 }
 
-// Prepare 预登记确认等待项（实现 gocloudagent.ConfirmationPreparer）。
+// Prepare 预登记确认等待项（实现 cloudagent.ConfirmationPreparer）。
 func (h *confirmHub) Prepare(runID, callID, initiator string) {
 	if h == nil {
 		return
@@ -420,7 +420,7 @@ func (h *cloudAgentHandler) ReplayEvents(c echo.Context) error {
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
 	c.Response().WriteHeader(http.StatusOK)
 	flusher, _ := c.Response().Writer.(http.Flusher)
-	write := func(id int64, ev gocloudagent.Event) {
+	write := func(id int64, ev cloudagent.Event) {
 		data, _ := json.Marshal(ev)
 		_, _ = c.Response().Write([]byte(fmt.Sprintf("id: %d\ndata: %s\n\n", id, data)))
 		if flusher != nil {
@@ -428,7 +428,7 @@ func (h *cloudAgentHandler) ReplayEvents(c echo.Context) error {
 		}
 	}
 	if gap {
-		write(0, gocloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})
+		write(0, cloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})
 		return nil
 	}
 	for _, f := range frames {
@@ -452,7 +452,7 @@ func (h *cloudAgentHandler) ReplayEvents(c echo.Context) error {
 			return nil
 		case f := <-sub:
 			if f.id != last+1 {
-				write(f.id, gocloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})
+				write(f.id, cloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})
 				return nil
 			}
 			last = f.id

@@ -15,7 +15,7 @@
 //	[本文件] gosandbox/host/inner/inner_linux.go
 //	         │ 依赖
 //	         ▼
-//	[下游] gosandbox/host/internal/spec
+//	[下游] gosandbox/host/spec
 //
 // 主要符号
 //
@@ -40,7 +40,7 @@ import (
 	"github.com/landlock-lsm/go-landlock/landlock"
 	"golang.org/x/sys/unix"
 
-	"github.com/linkxzhou/SimpleBase/gosandbox/host/internal/spec"
+	"github.com/linkxzhou/SimpleBase/gosandbox/host/spec"
 )
 
 // 可替换点，便于测试 ABI 门槛。
@@ -94,7 +94,7 @@ func LandlockRules(s spec.Spec) []landlock.Rule {
 	return rules
 }
 
-// SeccompFilter 返回默认允许 + 拒绝清单的过滤器。
+// SeccompFilter 返回 host 模式的过滤器：默认允许 + 拒绝清单。
 //
 //   - io_uring_*：可绕过 socket() 创建 AF_VSOCK。
 //   - ptrace / process_vm_*：沙盒内进程之间互相窥探没有必要。
@@ -122,6 +122,67 @@ func SeccompFilter() seccomp.Filter {
 	}
 }
 
+// defaultDenied 是 Docker 默认 profile 的拒绝清单（对齐 kiri 的 seccomp.rs::denied）。
+//
+// Docker 的表是「syscall → 允许它所需的 capability」；沙盒默认丢弃全部 capability
+// （bwrap --cap-drop ALL），所以带 cap 的项在这里同样是无条件拒绝，表里只留 syscall 名。
+// 将来支持 --cap-add 时，需要把 cap 条件加回来。
+var defaultDenied = []string{
+	// 内核 keyring 不做命名空间隔离。
+	"add_key", "keyctl", "request_key",
+	// 内核日志与 KASLR 线索。
+	"syslog",
+	// 模块与 kexec。
+	"init_module", "finit_module", "delete_module",
+	"kexec_load", "kexec_file_load", "reboot",
+	// 时钟与记账。
+	"clock_settime", "clock_adjtime", "settimeofday", "acct",
+	// swap、配额、NUMA 策略。
+	"swapon", "swapoff", "quotactl",
+	"mbind", "set_mempolicy", "migrate_pages", "move_pages",
+	// 挂载与命名空间。
+	"mount", "umount2", "pivot_root",
+	"open_tree", "move_mount", "fsopen", "fsconfig", "fsmount", "fspick",
+	"mount_setattr", "unshare", "setns",
+	"name_to_handle_at", "open_by_handle_at", "lookup_dcookie", "vhangup",
+	// Docker 也关掉的内核攻击面。
+	"bpf", "perf_event_open", "userfaultfd",
+	"io_uring_setup", "io_uring_enter", "io_uring_register",
+}
+
+// SeccompDefaultFilter 返回 Docker 默认 profile 形状的过滤器。
+//
+// 与 SeccompFilter 的差别只有一处：**允许 AF_UNIX**。镜像根下宿主文件系统不可见、
+// 网络在独立 netns 里，拒绝本地 socket 的理由不成立，而 postgres、redis、
+// python multiprocessing.Manager 这类程序全靠它。
+//
+// 仍然无条件拒绝 AF_VSOCK 与 io_uring：前者不做命名空间隔离，是通往宿主的后门；
+// 后者能绕过 socket() 的检查。
+func SeccompDefaultFilter() seccomp.Filter {
+	deny := seccomp.ActionErrno
+	return seccomp.Filter{
+		NoNewPrivs: true,
+		Flag:       seccomp.FilterFlagTSync,
+		Policy: seccomp.Policy{
+			DefaultAction: seccomp.ActionAllow,
+			Syscalls: []seccomp.SyscallGroup{
+				{NamesWithCondtions: []seccomp.NameWithConditions{
+					{Name: "socket", Conditions: eq(0, unix.AF_VSOCK)},
+				}, Action: deny},
+				{Names: defaultDenied, Action: deny},
+			},
+		},
+	}
+}
+
+// filterFor 按档位选过滤器；未知档位按 host 处理（保守）。
+func filterFor(kind string) seccomp.Filter {
+	if kind == spec.SeccompDefault {
+		return SeccompDefaultFilter()
+	}
+	return SeccompFilter()
+}
+
 func eq(arg uint32, v uint64) seccomp.ArgumentConditions {
 	return seccomp.ArgumentConditions{{Argument: arg, Operation: seccomp.Equal, Value: v}}
 }
@@ -139,7 +200,7 @@ func Apply(s spec.Spec) error {
 	if err := restrictPathsFn(landlock.V3, LandlockRules(s)...); err != nil {
 		return fmt.Errorf("landlock: %w", err)
 	}
-	if err := loadSeccompFn(SeccompFilter()); err != nil {
+	if err := loadSeccompFn(filterFor(s.Seccomp)); err != nil {
 		return fmt.Errorf("seccomp: %w", err)
 	}
 	return nil

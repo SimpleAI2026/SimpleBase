@@ -68,6 +68,8 @@ python3 scripts/sbdev.py site deploy    -C . --dist dist [--prefix app/] [--no-p
 python3 scripts/sbdev.py site unpublish -C . [--yes]
 ```
 
+`site deploy` 不带 `--prefix` 会公开整个对象根，公开前会提示前缀下不属于本次产物的已有对象（只提示、不阻断）；已有业务对象时用 `--prefix`。站点面只读，没有后端接口。
+
 `dev validate` 与 `dev status` 不访问远端，所以不要求 URL / token / project；在只有二进制、没有凭据的 CI 里用 `dev validate`（脚本版是 `sbdev.py validate`）。
 
 需要用户同意才能执行的命令：`database delete`、`function delete`、`cron delete`、`cron trigger`、`object delete`、`document delete`、`collection truncate`、包含 DROP/DELETE/TRUNCATE 的 `sql exec`，以及远端的 `site deploy` / `site unpublish`。`database delete` 会清空这个库的全部表、视图与集合（不可恢复，必要时先 `backup create`）；同项目的 KV、对象文件、已发布站点和已有备份保留。

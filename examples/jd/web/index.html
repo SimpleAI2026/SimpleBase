@@ -231,8 +231,9 @@
 <div id="drawerRoot"></div>
 <div class="toast" id="toast"></div>
 
+<script src="./config.js"></script>
 <script>
-const API = ''
+const API = String((window.__SB_CONFIG__ && window.__SB_CONFIG__.apiBase) || '').replace(/\/+$/, '')
 const money = minor => (Number(minor || 0) / 100).toFixed(2)
 const amount = minor => { const value = Number(minor || 0) / 100; return Number.isInteger(value) ? String(value) : value.toFixed(2) }
 const yuan = minor => `<span class="yuan">¥</span>${money(minor)}`

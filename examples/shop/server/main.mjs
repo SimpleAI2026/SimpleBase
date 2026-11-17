@@ -141,12 +141,24 @@ async function order(data, idem) {
     return { id, total_minor: quote.total_minor }
   } catch (error) { await kv('DEL', `order:idem:${idem}`); throw error }
 }
+// 示例级 CORS：Origin 一律放行，方法与请求头全部允许（预检时回显 Access-Control-Request-Headers）。
+// 不设 Allow-Credentials（与 * 互斥，示例也不使用 Cookie）；仅适合本地与演示，生产请收紧为白名单。
+function applyCors(req, res) {
+  res.setHeader('access-control-allow-origin', '*')
+  res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
+  res.setHeader('access-control-allow-headers', req.headers['access-control-request-headers'] || '*')
+  res.setHeader('access-control-expose-headers', '*')
+  res.setHeader('access-control-max-age', '600')
+}
+
 export async function handle(req, res) {
   try {
+    applyCors(req, res)
+    if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
     const path = new URL(req.url, 'http://localhost').pathname
     if (req.method === 'GET' && path === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(await readFile(new URL('../web/index.html', import.meta.url))) }
+    if (req.method === 'GET' && path === '/config.js') { res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' }); return res.end(await readFile(new URL('../web/config.js', import.meta.url))) }
     if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true })
-    if (req.headers.origin && (new URL(req.headers.origin).host !== req.headers.host || req.headers['sec-fetch-site'] === 'cross-site')) throw new Error('Invalid origin')
     if (req.method === 'GET' && path === '/api/products') {
       const products = rows(await sql.query('SELECT sku, name, price_minor, stock, image_key FROM products ORDER BY sku LIMIT 50', [], { maxRows: 50 }))
       for (const product of products) product.image_url = (await sb.raw.request('GET', `${base}/s3/presign?key=${encodeURIComponent(product.image_key)}`).catch(() => null))?.url

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
@@ -135,7 +135,7 @@ func TestClassifyErrorMatchesHostSentinels(t *testing.T) {
 		{llmgateway.ErrModelNotConfigured, "llm_not_configured"},
 		{fmt.Errorf("llmgateway: chat: %w", llmgateway.ErrModelNotConfigured), "llm_not_configured"},
 		{llmgateway.ErrModelNotAllowed, "llm_model_not_allowed"},
-		{gocloudagent.ErrThreadBusy, "agent_thread_busy"},
+		{cloudagent.ErrThreadBusy, "agent_thread_busy"},
 		{context.DeadlineExceeded, "llm_timeout"},
 		{fmt.Errorf("provider failed: %s", secret), "llm_upstream_error"},
 	} {
@@ -164,11 +164,11 @@ func TestPrincipalRoundTrip(t *testing.T) {
 	if _, ok := mid.ProjectIDs["p1"]; !ok {
 		t.Fatal("project ids lost")
 	}
-	if !mid.HasPermission(gocloudagent.DatabaseWrite) {
+	if !mid.HasPermission(cloudagent.DatabaseWrite) {
 		t.Fatal("permissions lost")
 	}
 	// 修改模块侧权限集合不应影响宿主原对象（委托签发依赖这一点）。
-	delete(mid.Permissions, gocloudagent.DatabaseWrite)
+	delete(mid.Permissions, cloudagent.DatabaseWrite)
 	if _, ok := src.Permissions[auth.DatabaseWrite]; !ok {
 		t.Fatal("source principal was mutated")
 	}
@@ -182,7 +182,7 @@ func TestPrincipalRoundTrip(t *testing.T) {
 	}
 
 	// nil 集合保持 nil（不变成空 map），避免授权判定语义漂移。
-	empty := agentbridge.ToHostPrincipal(gocloudagent.Principal{UserID: "u2"})
+	empty := agentbridge.ToHostPrincipal(cloudagent.Principal{UserID: "u2"})
 	if empty.ProjectIDs != nil || empty.Permissions != nil {
 		t.Fatalf("nil maps must stay nil: %+v", empty)
 	}
@@ -271,10 +271,10 @@ func TestStoreAccessWrappers(t *testing.T) {
 func TestDelegationIssuerUsesGivenPermissions(t *testing.T) {
 	reg := auth.NewDelegationRegistry()
 	issuer := agentbridge.NewDelegationIssuer("test-secret", reg)
-	p := gocloudagent.Principal{
+	p := cloudagent.Principal{
 		UserID: "u1", Username: "alice", Role: string(auth.RoleAdmin), TenantID: "t1",
 		ProjectIDs:  map[string]struct{}{"p1": {}},
-		Permissions: map[gocloudagent.Permission]struct{}{gocloudagent.DatabaseRead: {}},
+		Permissions: map[cloudagent.Permission]struct{}{cloudagent.DatabaseRead: {}},
 	}
 	tok, err := issuer.Issue(p, "p1", "run-1", 5*time.Minute)
 	if err != nil {

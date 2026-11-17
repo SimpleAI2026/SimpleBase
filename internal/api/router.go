@@ -43,7 +43,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gosandbox/image"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
@@ -102,7 +103,7 @@ type Dependencies struct {
 	// nil 且 System 非 nil 时由 NewRouter 基于 System 自动构造（带 sites.cache_ttl 缓存）。
 	Sites SiteStore
 	// CloudAgent 是 Phase 1 单 agent + 只读工具运行时。
-	CloudAgent *gocloudagent.Runtime
+	CloudAgent *cloudagent.Runtime
 	// CronScheduler 是统一定时任务调度器（云函数 + Agent）；nil 时 trigger 返回 503。
 	CronScheduler *cronjob.Scheduler
 	// Sandbox 是项目级云沙盒服务；未配置时仅 capabilities 路由可用。
@@ -110,6 +111,8 @@ type Dependencies struct {
 	SandboxUsage interface {
 		RecordSandbox(context.Context, string, string, int64) error
 	}
+	// Images 是镜像 store；nil 表示本实例不分发镜像（ext/images 回答 501）。
+	Images *image.Store
 	// Terminal 是浏览器终端的 SSH 桥；nil 表示终端不可用（capabilities.terminal=false）。
 	Terminal *TerminalBridge
 	// login-auth-plan：登录态与用户管理。
@@ -710,6 +713,10 @@ func mountE2BRoutes(e *echo.Echo, deps Dependencies) {
 	// ext：capabilities 无条件挂载，沙盒不可用时给出原因，控制台据此展示空态。
 	ext := e.Group(e2bPrefix+"/ext", cred, authMW, proj)
 	ext.GET("/capabilities", sh.Capabilities)
+	// 镜像管理：E2B 没有对应物，控制台与 CLI 用。
+	ext.GET("/images", sh.Images)
+	ext.POST("/images/pull", sh.ImagePull)
+	ext.DELETE("/images", sh.ImageRemove)
 	if !available {
 		// 其余 E2B 路径统一返回 503，而不是落进 SPA fallback。
 		for _, prefix := range []string{e2bPrefix + "/*"} {
@@ -731,7 +738,29 @@ func mountE2BRoutes(e *echo.Echo, deps Dependencies) {
 	cp.POST("/sandboxes/:sandboxID/resume", sh.Connect)
 	cp.POST("/sandboxes/:sandboxID/connect", sh.Connect)
 	cp.POST("/v2/sandboxes/:sandboxID/connect", sh.Connect)
-	for _, u := range []string{"fork", "snapshots", "logs", "metrics", "network", "refreshes"} {
+	// 有真实实现的端点：metrics（cgroup）、logs（进程输出落盘）、host（入站中继）。
+	cp.GET("/sandboxes/:sandboxID/metrics", sh.Metrics)
+	cp.GET("/v2/sandboxes/:sandboxID/metrics", sh.Metrics)
+	cp.GET("/sandboxes/:sandboxID/logs", sh.Logs)
+	cp.GET("/v2/sandboxes/:sandboxID/logs", sh.Logs)
+	// 只注册 GET 与 POST：Any 会为每个 HTTP 方法各登记一条路由，
+	// 让路由清单膨胀，也会把 OPTIONS / TRACE 这类方法暴露出去。
+	cp.GET("/sandboxes/:sandboxID/host/:port", sh.HostProxy)
+	cp.POST("/sandboxes/:sandboxID/host/:port", sh.HostProxy)
+	cp.GET("/v2/sandboxes/:sandboxID/host/:port", sh.HostProxy)
+	cp.POST("/v2/sandboxes/:sandboxID/host/:port", sh.HostProxy)
+	// 快照与 fork：文件系统层（响应里 processes=false）。
+	cp.POST("/sandboxes/:sandboxID/snapshots", sh.SnapshotCreate)
+	cp.GET("/sandboxes/:sandboxID/snapshots", sh.SnapshotList)
+	cp.POST("/v2/sandboxes/:sandboxID/snapshots", sh.SnapshotCreate)
+	cp.GET("/v2/sandboxes/:sandboxID/snapshots", sh.SnapshotList)
+	cp.POST("/sandboxes/:sandboxID/fork", sh.Fork)
+	cp.POST("/v2/sandboxes/:sandboxID/fork", sh.Fork)
+	cp.DELETE("/snapshots/:snapshotID", sh.SnapshotRemove)
+	cp.DELETE("/v2/snapshots/:snapshotID", sh.SnapshotRemove)
+	cp.POST("/snapshots/:snapshotID/fork", sh.SnapshotFork)
+	cp.POST("/v2/snapshots/:snapshotID/fork", sh.SnapshotFork)
+	for _, u := range []string{"network", "refreshes"} {
 		cp.Any("/sandboxes/:sandboxID/"+u, sh.Unsupported)
 		cp.Any("/v2/sandboxes/:sandboxID/"+u, sh.Unsupported)
 	}
@@ -757,9 +786,11 @@ func mountE2BRoutes(e *echo.Echo, deps Dependencies) {
 		g.POST(fs+"MakeDir", sh.FsMakeDir)
 		g.POST(fs+"Move", sh.FsMove)
 		g.POST(fs+"Remove", sh.FsRemove)
-		for _, m := range []string{"WatchDir", "CreateWatcher", "GetWatcherEvents", "RemoveWatcher"} {
-			g.POST(fs+m, sh.FsUnimplemented)
-		}
+		// 目录监听：走真实的 inotify（Linux）；其它平台按 501 返回。
+		g.POST(fs+"WatchDir", sh.FsWatchDir)
+		g.POST(fs+"CreateWatcher", sh.FsCreateWatcher)
+		g.POST(fs+"GetWatcherEvents", sh.FsGetWatcherEvents)
+		g.POST(fs+"RemoveWatcher", sh.FsRemoveWatcher)
 		pr := "/process.Process/"
 		g.POST(pr+"Start", sh.ProcStart)
 		g.POST(pr+"Connect", sh.ProcConnect)

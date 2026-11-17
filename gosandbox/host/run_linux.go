@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/gosandbox/host/internal/spec"
+	"github.com/linkxzhou/SimpleBase/gosandbox/host/spec"
 )
 
 // HelperName 是沙盒内 helper 的二进制名。
@@ -41,7 +41,7 @@ func prepareBwrapCmd(ctx context.Context, p Policy, cmd Command, ctty bool) (*ex
 	}
 	args, err := BwrapArgs(BwrapInput{
 		Policy: p, Dir: dir, Helper: helper, Argv: cmd.Argv,
-		PolicyFD: 3, DisableUserNS: caps.DisableUserNS, CTTY: ctty,
+		PolicyFD: 3, DisableUserNS: caps.DisableUserNS, SizesSupported: caps.BwrapSize, CTTY: ctty,
 	})
 	if err != nil {
 		return nil, nil, Caps{}, err
@@ -69,16 +69,47 @@ func prepareBwrapCmd(ctx context.Context, p Policy, cmd Command, ctty bool) (*ex
 
 func prepareCgroup(p Policy, caps Caps) (*cgroupGroup, bool, error) {
 	configured := limitsConfigured(p)
-	if configured && caps.Cgroup == cgroupDelegated {
-		if g, gerr := newCgroupGroup(); gerr == nil {
-			if aerr := g.apply(p); aerr != nil {
-				g.remove()
-				return nil, configured, unavailable("apply cgroup limits: %v", aerr)
-			}
-			return g, configured, nil
-		}
+	if caps.Cgroup != cgroupDelegated {
+		return nil, configured, nil
 	}
-	return nil, configured, nil
+	// 固定子组：即使没有配置限额也要建，因为 Metrics / Freeze 按名字找它。
+	if !configured && p.CgroupName == "" {
+		return nil, configured, nil
+	}
+	g, gerr := newNamedCgroupGroup(p.CgroupName)
+	if gerr != nil {
+		if !configured {
+			// 只要指标 / 冻结时建不出子组不算失败：命令照常跑，只是没有指标。
+			return nil, configured, nil
+		}
+		return nil, configured, unavailable("create cgroup: %v", gerr)
+	}
+	if aerr := g.apply(p); aerr != nil {
+		g.remove()
+		return nil, configured, unavailable("apply cgroup limits: %v", aerr)
+	}
+	return g, configured, nil
+}
+
+// joinCgroup 让子进程在 fork 时原子地进入 cgroup（CLONE_INTO_CGROUP），
+// 而不是启动后再写 cgroup.procs：后者有一个窗口，子进程在窗口内 fork 出的
+// 孙进程会留在父 cgroup 里，限额就漏了。
+//
+// 返回的 *os.File 必须在 c.Start() 之后才能关闭。
+func joinCgroup(c *exec.Cmd, g *cgroupGroup) (*os.File, bool) {
+	if g == nil {
+		return nil, false
+	}
+	f, err := g.open()
+	if err != nil {
+		return nil, false
+	}
+	if c.SysProcAttr == nil {
+		c.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	c.SysProcAttr.UseCgroupFD = true
+	c.SysProcAttr.CgroupFD = int(f.Fd())
+	return f, true
 }
 
 // Run 在沙盒里执行 cmd。
@@ -107,18 +138,27 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 		return Result{}, err
 	}
 	limits := Limits{Configured: configured, Backend: cgroupNone}
+	// 原子入组：CLONE_INTO_CGROUP 让子进程一出生就在子组里，没有逃逸窗口。
+	cgFile, intoCgroup := joinCgroup(c, grp)
 
 	start := time.Now()
 	if err := c.Start(); err != nil {
+		if cgFile != nil {
+			cgFile.Close()
+		}
 		if grp != nil {
 			grp.remove()
 		}
 		return Result{}, unavailable("start bwrap: %v", err)
 	}
+	if cgFile != nil {
+		cgFile.Close()
+	}
 	if grp != nil {
-		// 有一个极短的窗口：进程被加入 cgroup 之前已经 fork。内核 cgroup 无法在 exec 前原子加入，
-		// 这里如实记录为 Enforced，仅当写入成功。
-		if aerr := grp.addPID(c.Process.Pid); aerr == nil {
+		if intoCgroup {
+			limits.Enforced, limits.Backend = true, "cgroup"
+		} else if aerr := grp.addPID(c.Process.Pid); aerr == nil {
+			// 回退路径：内核不支持 CLONE_INTO_CGROUP 时仍有极短窗口，如实记录为 Enforced。
 			limits.Enforced, limits.Backend = true, "cgroup"
 		}
 	}

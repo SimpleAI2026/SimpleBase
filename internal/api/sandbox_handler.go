@@ -64,6 +64,29 @@ type SandboxService interface {
 	GetByID(context.Context, string) (sandbox.Sandbox, error)
 	Start(context.Context, string, string) (sandbox.Sandbox, error)
 	Stop(context.Context, string, string) (sandbox.Sandbox, error)
+	// Pause 冻结沙盒（后端不支持时退回 Stop）；Resume 解冻或启动。
+	Pause(context.Context, string, string) (sandbox.Sandbox, error)
+	Resume(context.Context, string, string) (sandbox.Sandbox, error)
+	// Metrics 读沙盒的资源用量；后端不支持时返回 vm.ErrNotSupported。
+	Metrics(context.Context, string, string) (vm.Metrics, error)
+	// Logs 读沙盒的历史输出；后端不支持时返回 vm.ErrNotSupported。
+	Logs(context.Context, string, string, sandbox.LogOptions) ([]sandbox.LogRecord, error)
+	// DialPort 连到沙盒内 127.0.0.1:port。
+	DialPort(context.Context, string, string, uint16) (io.ReadWriteCloser, error)
+	// Watch 监听沙盒内的目录；后端不支持时返回 vm.ErrNotSupported。
+	Watch(context.Context, string, string, string, bool) (vm.FileWatch, error)
+	// 能力探测：后端不支持时对应端点回答 501，而不是返回空结果。
+	CanLogs() bool
+	CanWatch() bool
+	CanPorts() bool
+	// CanSnapshot 报告后端是否支持文件系统快照与 fork。
+	CanSnapshot() bool
+	// Snapshot 给沙盒拍文件系统快照；Snapshots 列出全部；RemoveSnapshot 删除。
+	Snapshot(context.Context, string, string, string) (sandbox.Snapshot, error)
+	Snapshots(context.Context) ([]sandbox.Snapshot, error)
+	RemoveSnapshot(context.Context, string) error
+	// Fork 从快照建一个新沙盒。
+	Fork(context.Context, string, string, string, sandbox.CreateInput) (sandbox.Sandbox, error)
 	Delete(context.Context, string, string) error
 	SetExpiry(context.Context, string, string, int64) (sandbox.Sandbox, error)
 	ExtendExpiry(context.Context, string, string, int64) (sandbox.Sandbox, error)
@@ -592,13 +615,20 @@ func (h *SandboxHandler) Get(c echo.Context) error {
 	if err != nil {
 		return writeE2BErr(c, err)
 	}
+	return c.JSON(http.StatusOK, h.detail(c, row))
+}
+
+// detail 组装一个沙盒详情响应（含 envd 令牌，仅对可写主体）。
+//
+// 抽出来是因为 fork 也要返回同样的形状：两处各拼一遍迟早会漂移。
+func (h *SandboxHandler) detail(c echo.Context, row sandbox.Sandbox) e2bDetail {
 	d := e2bDetail{e2bListed: h.listed(row), AllowInternetAccess: false,
 		Network:   map[string]any{"allowPublicTraffic": false},
 		Lifecycle: map[string]any{"onTimeout": "kill", "autoResume": false}}
 	if principal, _ := PrincipalFromContext(c.Request().Context()); principal.HasPermission(auth.DatabaseWrite) && h.writable {
-		d.EnvdAccessToken = h.token(p, row)
+		d.EnvdAccessToken = h.token(row.ProjectID, row)
 	}
-	return c.JSON(http.StatusOK, d)
+	return d
 }
 
 // Delete 对应 DELETE /sandboxes/{id}。
@@ -645,7 +675,10 @@ func (h *SandboxHandler) SetTimeout(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// Pause 对应 POST /sandboxes/{id}/pause：保留文件，进程丢失（没有内存快照）。
+// Pause 对应 POST /sandboxes/{id}/pause。
+//
+// 后端支持真冻结（Capabilities.Pause）时用 cgroup.freeze：进程与内存保留，
+// resume 是毫秒级；否则退回 Stop，进程丢失（没有内存快照）。
 func (h *SandboxHandler) Pause(c echo.Context) error {
 	p, err := h.requireWrite(c)
 	if err != nil {
@@ -659,7 +692,7 @@ func (h *SandboxHandler) Pause(c echo.Context) error {
 	if stateOf(cur.Status) == "paused" {
 		return writeE2BErr(c, NewAPIError(http.StatusConflict, "sandbox_already_paused", "sandbox is already paused", ""))
 	}
-	if _, err := h.svc.Stop(c.Request().Context(), p, id); err != nil {
+	if _, err := h.svc.Pause(c.Request().Context(), p, id); err != nil {
 		return writeE2BErr(c, err)
 	}
 	h.record(c, p, id, "pause", "")
@@ -696,7 +729,7 @@ func (h *SandboxHandler) Connect(c echo.Context) error {
 	var row sandbox.Sandbox
 	if stateOf(cur.Status) == "paused" {
 		status = http.StatusCreated
-		if _, err = h.svc.Start(ctx, p, id); err != nil {
+		if _, err = h.svc.Resume(ctx, p, id); err != nil {
 			return writeE2BErr(c, err)
 		}
 		if row, err = h.svc.SetExpiry(ctx, p, id, timeout); err != nil {
@@ -709,6 +742,37 @@ func (h *SandboxHandler) Connect(c echo.Context) error {
 	}
 	h.record(c, p, id, "connect", "")
 	return c.JSON(status, h.created(p, row, true))
+}
+
+// Metrics 对应 GET /sandboxes/{id}/metrics。
+//
+// 后端没有 cgroup 指标时返回 501（unsupported_feature），而不是报 0：
+// 报 0 会让调用方以为沙盒真的没占内存。
+func (h *SandboxHandler) Metrics(c echo.Context) error {
+	p, err := h.requireRead(c)
+	if err != nil {
+		return writeE2BErr(c, err)
+	}
+	m, err := h.svc.Metrics(c.Request().Context(), p, c.Param("sandboxID"))
+	if err != nil {
+		if errors.Is(err, vm.ErrNotSupported) {
+			return h.Unsupported(c)
+		}
+		return writeE2BErr(c, err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"memory_bytes":      m.MemoryBytes,
+		"memory_peak_bytes": m.MemoryPeakBytes,
+		"cpu_usec":          m.CPUUsec,
+		"pids":              m.Pids,
+		"oom_kills":         m.OOMKills,
+		"disk_read_bytes":   m.DiskReadBytes,
+		"disk_write_bytes":  m.DiskWriteBytes,
+		// disk_used_bytes 是「现在占了多少盘」（upper + ws），不是 io 带宽。
+		// 配合 sandbox.disk_limit_mib 可以判断离冻结还有多远。
+		"disk_used_bytes": m.DiskUsedBytes,
+		"backend":         m.Backend,
+	})
 }
 
 // Unsupported 对应 E2B 有而这里没有的控制面端点（fork、snapshots、logs、metrics 等）。
@@ -743,7 +807,17 @@ func (h *SandboxHandler) Capabilities(c echo.Context) error {
 		"timeout_default_s": caps.TimeoutDefaultS, "timeout_max_s": caps.TimeoutMaxS,
 		"max_file_bytes": caps.MaxFileBytes, "max_output_bytes": caps.MaxOutputBytes,
 		"max_per_project": caps.MaxPerProject, "terminal": caps.Terminal && h.deps.Terminal != nil,
+		// pause 为真表示真冻结（cgroup.freeze）；false 时 pause 退回 stop（进程丢失）。
+		"pause": caps.Pause, "pause_freezes": caps.Pause,
+		// metrics 为真表示 GET /sandboxes/{id}/metrics 有真实数据。
+		"metrics":      caps.Metrics,
 		"envd_version": h.envdVer,
+		// 出网档位。network_experimental=true 时控制台应标成「实验室」，
+		// 不要把它当稳定能力展示给用户。
+		"network":              caps.Network,
+		"network_allow":        caps.NetworkAllow,
+		"network_experimental": caps.NetworkExperimental,
+		"disk_limit_mib":       caps.DiskLimitMiB,
 	}
 	if t := h.deps.Terminal; t != nil && t.SSHListen != "" {
 		body["ssh"] = map[string]any{"enabled": true, "listen": t.SSHListen, "host_key_fingerprint": t.Fingerprint}

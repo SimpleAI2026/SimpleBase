@@ -267,6 +267,19 @@ func (s *Store) ListStaleRunSandboxes(ctx context.Context, before time.Time, lim
 		 ORDER BY created_at ASC LIMIT ?`, before.UTC(), limit)
 }
 
+// ListIdleRunningSandboxes 取所有项目里运行中且最后活动早于 before 的沙盒，
+// 供 reaper 做空闲冻结（cgroup.freeze）用。只看 running，paused 的跳过。
+func (s *Store) ListIdleRunningSandboxes(ctx context.Context, before time.Time, limit int) ([]SandboxRow, error) {
+	if s == nil || s.db == nil {
+		return nil, ErrUnavailable
+	}
+	return s.querySandboxes(ctx,
+		`SELECT `+sandboxColumns+` FROM sys_sandboxes
+		 WHERE deleted_at IS NULL AND status = 'running'
+		   AND COALESCE(last_active_at, created_at) < ?
+		 ORDER BY COALESCE(last_active_at, created_at) ASC LIMIT ?`, before.UTC(), limit)
+}
+
 // ListFailedSandboxRemovals 取用户删除 Cloud VM 失败后的待重试资源。
 func (s *Store) ListFailedSandboxRemovals(ctx context.Context, limit int) ([]SandboxRow, error) {
 	if s == nil || s.db == nil {

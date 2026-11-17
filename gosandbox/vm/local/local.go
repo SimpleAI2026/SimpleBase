@@ -12,7 +12,9 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/host"
@@ -31,6 +33,8 @@ type Options struct {
 	MaxOutputBytes int
 	// PidsMax 是 cgroup pids.max；0 = 不限。cgroup 不可用时不会生效。
 	PidsMax int64
+	// ShmBytes 是沙盒内 /dev/shm 的大小；0 取 bwrap 默认。编译类任务需要放大。
+	ShmBytes int64
 	// ProtectDirs / ProtectFiles 是对沙盒内命令隐藏的宿主路径（DataDir、缓存目录、配置与 .env 等）。
 	// 目录若是工作区的祖先，只隐藏其中不通向工作区的部分。
 	ProtectDirs  []string
@@ -49,6 +53,9 @@ type Driver struct {
 	run func(context.Context, host.Policy, host.Command) (host.Result, error)
 	// start 同上，默认 host.Start。
 	start func(context.Context, host.Policy, host.StartSpec) (host.Proc, error)
+	// freezeOnce / freezeOK 缓存 CanFreeze 的探测结果。
+	freezeOnce sync.Once
+	freezeOK   bool
 }
 
 const (
@@ -177,6 +184,7 @@ func (d *Driver) policy(ws string, spec vm.Spec) host.Policy {
 		BwrapPath:      d.opts.BwrapPath,
 		HelperPath:     d.opts.HelperPath,
 		DenyRead:       d.denyRead(ws),
+		ShmBytes:       d.opts.ShmBytes,
 	}
 	if d.opts.MaxOutputBytes > 0 {
 		// 多留 1 字节，让上层能判断「超限被截断」。
@@ -313,6 +321,8 @@ func (d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecR
 	env := d.commandEnv(ws, r.Env)
 	policy := d.policy(ws, t.Spec)
 	policy.Timeout = r.Timeout
+	// 固定子组：命令结束后保留，供 Metrics / Pause 按名字找到它。
+	policy.CgroupName = t.Name
 	res, err := d.run(ctx, policy, host.Command{Argv: argv, Dir: dir, Env: env})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -531,6 +541,9 @@ func (d *Driver) Remove(_ context.Context, name string) error {
 	if err != nil {
 		return d.fail("remove", name, err)
 	}
+	// 固定 cgroup 子组随沙盒一起删；组内仍有进程时删除失败，忽略即可
+	// （进程退出后目录会被内核回收，或下次同名创建时清掉）。
+	_ = host.RemoveCgroup(cgroupName(name))
 	if err := forceRemoveAll(dir); err != nil {
 		return d.fail("remove", name, err)
 	}
@@ -579,6 +592,7 @@ func (d *Driver) Start(ctx context.Context, t vm.Target, r vm.StartSpec) (vm.Pro
 	policy := d.policy(ws, t.Spec)
 	// 长会话不按字节截断输出（走背压）；时长由 ctx 控制。
 	policy.MaxOutputBytes = 0
+	policy.CgroupName = t.Name
 	spec := host.StartSpec{Command: host.Command{Argv: argv, Dir: dir, Env: env}}
 	if r.PTY != nil {
 		spec.PTY = &host.PTYSize{Cols: r.PTY.Cols, Rows: r.PTY.Rows}
@@ -622,4 +636,76 @@ func (a procAdapter) Wait() vm.ProcExit {
 var (
 	_ vm.Driver      = (*Driver)(nil)
 	_ vm.Interactive = (*Driver)(nil)
+	_ vm.Meter       = (*Driver)(nil)
+	_ vm.Pauser      = (*Driver)(nil)
+	_ vm.Freezer     = (*Driver)(nil)
 )
+
+// CanFreeze 报告本机是否真的能冻结：需要 cgroup v2 已委派（cgroup.freeze 在 v2 才有）。
+// 探测结果进程内缓存，失败不影响其它能力。
+func (d *Driver) CanFreeze() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	d.freezeOnce.Do(func() {
+		policy := d.policy(d.opts.Root, vm.Spec{})
+		caps, err := host.Probe(context.Background(), policy)
+		d.freezeOK = err == nil && caps.Cgroup == "delegated"
+	})
+	return d.freezeOK
+}
+
+// cgroupName 是本机驱动给某个沙盒用的固定 cgroup 子组名。
+// 与 host.CgroupNamePrefix 一致，host.MetricsFor 只接受带该前缀的名字。
+func cgroupName(name string) string { return host.CgroupNamePrefix + name }
+
+// Metrics 实现 vm.Meter：读沙盒的 cgroup 用量。
+// cgroup 未委派时返回 vm.ErrNotSupported，上层据此标注「无指标」。
+func (d *Driver) Metrics(_ context.Context, name string) (vm.Metrics, error) {
+	if _, err := d.vmDir(name); err != nil {
+		return vm.Metrics{}, d.fail("metrics", name, err)
+	}
+	m, ok := host.MetricsFor(cgroupName(name))
+	if !ok {
+		return vm.Metrics{}, fmt.Errorf("%w: metrics need a delegated cgroup v2", vm.ErrNotSupported)
+	}
+	return vm.Metrics{
+		MemoryBytes:     m.MemoryBytes,
+		MemoryPeakBytes: m.MemoryPeakBytes,
+		CPUUsec:         m.CPUUsec,
+		Pids:            m.Pids,
+		OOMKills:        m.OOMKills,
+		DiskReadBytes:   m.DiskReadBytes,
+		DiskWriteBytes:  m.DiskWriteBytes,
+		Backend:         m.Backend,
+	}, nil
+}
+
+// Pause 实现 vm.Pauser：冻结沙盒内的全部进程（cgroup.freeze）。
+// 本机驱动没有常驻进程，冻结的是「正在跑的命令」；没有命令在跑时是空操作。
+func (d *Driver) Pause(_ context.Context, name string) error {
+	if _, err := d.vmDir(name); err != nil {
+		return d.fail("pause", name, err)
+	}
+	if err := host.FreezeCgroup(cgroupName(name), true); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return d.fail("pause", name, err)
+	}
+	return nil
+}
+
+// Resume 实现 vm.Pauser：解冻。沙盒不存在时视为成功（下次 Exec 会懒创建）。
+func (d *Driver) Resume(_ context.Context, t vm.Target) error {
+	if _, err := d.vmDir(t.Name); err != nil {
+		return d.fail("resume", t.Name, err)
+	}
+	if err := host.FreezeCgroup(cgroupName(t.Name), false); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return d.fail("resume", t.Name, err)
+	}
+	return nil
+}

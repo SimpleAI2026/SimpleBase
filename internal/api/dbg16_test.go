@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 )
 
 func TestDbg16(t *testing.T) {
 	env := newSkillRouterEnv(t)
-	env.llm.reset([][]gocloudagent.StreamDelta{
+	env.llm.reset([][]cloudagent.StreamDelta{
 		toolDeltas("c1", []string{"function", "list"}),
 		textDeltas("done"),
 	})

@@ -10,6 +10,9 @@
 - 只能 import 已注册包：`fmt strings math time regexp strconv errors bytes io io/ioutil sync/atomic net/http encoding/json encoding/base64 encoding/binary github.com/json-iterator/go`，且只含常用函数（如 `strings` 无 `Builder`，`fmt` 无 `Fprintf`，无 `os`/`sort`/`sync`/`context`）。引用未注册符号会编译失败。
 - 支持常用语言特性（struct、slice/map、闭包、`defer`、`panic/recover`、`go` 与 channel），但无 cgo、无 `go.mod`；单次执行默认 10 秒超时；`print`/`println` 输出不会返回，调试请返回结构化结果。
 - 源码上限 256KiB，一项目最多 100 个函数、每个函数最多 50 个版本。名称须字母开头、字母数字下划线、最长 63。
+- 云函数由服务端解释器执行，不是真正的 `go build`：能在别处编译不代表能跑，以 `function test` 的结果为准。
+- 函数里不访问数据库连接或文件系统；需要持久化时由调用方通过 SDK 读写，或经 `net/http` 调用本项目 API。源码里不要写 Key。
+- 错误放进返回结构体的字段，不要返回第二个 `error` 值：`func Quote(in QuoteInput) (QuoteResult, error)` 会报 `gofunction_signature_invalid`，应写成 `func Quote(in QuoteInput) QuoteResult`，用 `Error string \`json:"error,omitempty"\`` 之类的字段承载失败原因。
 
 ## create / versions（源码走 stdin）
 
@@ -45,5 +48,6 @@ simplebase function invoke --name hello --export Hello --input '{"name":"a"}'
 - `gofunction_compile_error`：语法错误或引用了未注册符号，按 message 修正。
 - `gofunction_runtime_error`/`request_timeout`：运行期 panic 或超时，精简逻辑。
 - `gofunction_not_found`（核对 `--name`）、`function_not_found`（`--export` 不存在或未导出）、`no_active_version`（先 `activate`）。
-- `gofunction_already_exists`、`gofunction_limit_exceeded`、`version_limit_exceeded`、`too_many_go_runs`（并发满，稍后重试一次）、`system_project_protected`（系统项目不支持云函数）。
+- `version_limit_exceeded`：50 个版本已用完，告知用户到控制台清理，不要自行删除函数或版本。
+- `gofunction_already_exists`、`gofunction_limit_exceeded`、`too_many_go_runs`（并发满，稍后重试一次）、`system_project_protected`（系统项目不支持云函数）。
 - `file_not_allowed`：`--file` 传了路径，改用 `--file -`。

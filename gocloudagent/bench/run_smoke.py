@@ -418,7 +418,7 @@ def compile_bins(bindir: Path) -> dict:
     # 服务端仍在根模块，cwd 用仓库根。
     for name, cwd, pkg in (
         ("simplebase", ROOT, "./cmd/simplebase"),
-        ("gocloudagent", ROOT / "gocloudagent", "./cmd/gocloudagent"),
+        ("gocloudagent", ROOT / "gocloudagent", "./cmd"),
     ):
         proc = subprocess.run(
             ["go", "build", "-o", str(bindir / name), pkg],

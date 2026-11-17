@@ -98,6 +98,20 @@ type Policy struct {
 	MemoryMaxBytes int64
 	CPUMax         string
 	PidsMax        int64
+	// ShmBytes 是 /dev/shm 的大小；0 取 bwrap 的默认（与宿主 /dev/shm 一致）。
+	// 编译类任务（Go、Rust、Chromium）默认 64MiB 会炸，需要显式放大。
+	// 仅在 bwrap 支持 --size（>= 0.9）时生效，否则忽略。
+	ShmBytes int64
+	// TmpBytes 是 /tmp tmpfs 的大小；0 表示不限（受内存限额约束）。
+	TmpBytes int64
+	// DisableMaskedPaths 为真时不再遮蔽 Docker 默认的 masked / readonly 路径。
+	// 零值即遮蔽，所以忘记设置也是安全的。
+	DisableMaskedPaths bool
+	// CgroupName 非空时把命令放进固定的 cgroup 子组 gosandbox-<CgroupName>，
+	// 而不是每次命令一个随机子组。固定子组在命令结束后保留，供 MetricsFor /
+	// FreezeCgroup 按名字查询与冻结；调用方负责在沙盒删除时 RemoveCgroup。
+	// 只在 cgroup v2 已委派时生效。
+	CgroupName string
 	// Timeout 是单条命令的超时；0 表示由调用方的 ctx 决定。
 	Timeout time.Duration
 	// MaxOutputBytes 是合并输出的内存上限，超出部分被丢弃并置 Result.OutputTruncated；
@@ -153,7 +167,7 @@ func Validate(p Policy) error {
 			return err
 		}
 	}
-	if p.MemoryMaxBytes < 0 || p.PidsMax < 0 || p.Timeout < 0 || p.MaxOutputBytes < 0 {
+	if p.MemoryMaxBytes < 0 || p.PidsMax < 0 || p.Timeout < 0 || p.MaxOutputBytes < 0 || p.ShmBytes < 0 || p.TmpBytes < 0 {
 		return errors.New("host: limits and timeout must not be negative")
 	}
 	if p.CPUMax != "" {

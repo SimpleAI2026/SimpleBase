@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/uglyer/go-sqlite3"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -26,7 +26,7 @@ func newMCPTestStore(t *testing.T) *systemdb.Store {
 	return systemdb.NewStoreForTest(db)
 }
 
-func principalForTest() gocloudagent.Principal { return gocloudagent.Principal{UserID: "u1"} }
+func principalForTest() cloudagent.Principal { return cloudagent.Principal{UserID: "u1"} }
 
 // SSRF 防护的核心：这些地址一律拒绝（planv6.2 §4.2-5）。
 func TestIsBlockedIP(t *testing.T) {

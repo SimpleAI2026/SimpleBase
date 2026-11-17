@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -163,18 +163,18 @@ func (f *fakeStore) onlyRun(t *testing.T) systemdb.AgentRun {
 // fakeRunner 记录 RunRequest。
 type fakeRunner struct {
 	mu    sync.Mutex
-	calls []gocloudagent.RunRequest
+	calls []cloudagent.RunRequest
 	err   error
 }
 
-func (r *fakeRunner) StartRun(_ context.Context, req gocloudagent.RunRequest, _ func(gocloudagent.Event)) (gocloudagent.RunResult, error) {
+func (r *fakeRunner) StartRun(_ context.Context, req cloudagent.RunRequest, _ func(cloudagent.Event)) (cloudagent.RunResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, req)
 	if r.err != nil {
-		return gocloudagent.RunResult{}, r.err
+		return cloudagent.RunResult{}, r.err
 	}
-	return gocloudagent.RunResult{Content: "ok", ToolCallsJSON: "[]"}, nil
+	return cloudagent.RunResult{Content: "ok", ToolCallsJSON: "[]"}, nil
 }
 
 func (r *fakeRunner) callCount() int {
@@ -230,7 +230,7 @@ func TestRunAgentSuccess(t *testing.T) {
 	if req.Principal.APIKeyID != CronAgentPrincipalID {
 		t.Fatalf("principal = %q", req.Principal.APIKeyID)
 	}
-	if _, ok := req.Principal.Permissions[gocloudagent.DatabaseRead]; !ok || len(req.Principal.Permissions) != 1 {
+	if _, ok := req.Principal.Permissions[cloudagent.DatabaseRead]; !ok || len(req.Principal.Permissions) != 1 {
 		t.Fatalf("principal must be read-only: %+v", req.Principal.Permissions)
 	}
 	if len(req.Skills) != 1 || req.Skills[0] != "database" {

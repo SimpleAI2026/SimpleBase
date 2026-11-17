@@ -20,6 +20,8 @@ import (
 type memStore struct {
 	mu   sync.Mutex
 	rows map[string]Sandbox
+	// idle 是 ListIdleRunningSandboxes 的返回值，测试按需注入（默认空）。
+	idle []Sandbox
 }
 
 func newMemStore() *memStore { return &memStore{rows: map[string]Sandbox{}} }
@@ -94,6 +96,9 @@ func (s *memStore) SoftDeleteSandbox(_ context.Context, p, id, _ string) error {
 	r.DeletedAt = &now
 	s.rows[id] = r
 	return nil
+}
+func (s *memStore) ListIdleRunningSandboxes(context.Context, time.Time, int) ([]Sandbox, error) {
+	return s.idle, nil
 }
 func (s *memStore) ListExpiredSandboxes(_ context.Context, now time.Time, _ int) ([]Sandbox, error) {
 	s.mu.Lock()

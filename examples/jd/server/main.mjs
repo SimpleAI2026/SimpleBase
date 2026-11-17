@@ -696,8 +696,26 @@ async function platformAction(action, body) {
 
 // ── 路由 ────────────────────────────────────────────────
 
-async function handle(req, res) {
+// 示例级 CORS：Origin 一律放行，方法与请求头全部允许（预检时回显 Access-Control-Request-Headers）。
+// 不设 Allow-Credentials（与 * 互斥，示例也不使用 Cookie）；仅适合本地与演示，生产请收紧为白名单。
+function applyCors(req, res) {
+  res.setHeader('access-control-allow-origin', '*')
+  res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
+  res.setHeader('access-control-allow-headers', req.headers['access-control-request-headers'] || '*')
+  res.setHeader('access-control-expose-headers', '*')
+  res.setHeader('access-control-max-age', '600')
+}
+
+// 平台页的写入类动作默认关闭：BFF 无登录，CORS 全放开后不应让任意来源触发写入。
+const platformWriteEnabled = () => process.env.JD_PLATFORM_WRITE === '1'
+
+export async function handle(req, res) {
   try {
+    applyCors(req, res)
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      return res.end()
+    }
     const parsed = new URL(req.url, 'http://localhost')
     const path = parsed.pathname
     const query = parsed.searchParams
@@ -706,8 +724,11 @@ async function handle(req, res) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       return res.end(await readFile(new URL('../web/index.html', import.meta.url)))
     }
+    if (req.method === 'GET' && path === '/config.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' })
+      return res.end(await readFile(new URL('../web/config.js', import.meta.url)))
+    }
     if (req.method === 'GET' && path === '/health') return reply(res, 200, { ok: true })
-    if (req.headers.origin && (new URL(req.headers.origin).host !== req.headers.host || req.headers['sec-fetch-site'] === 'cross-site')) bad('Invalid origin')
 
     if (req.method === 'GET' && path === '/api/home') return reply(res, 200, await home())
     if (req.method === 'GET' && path === '/api/categories') return reply(res, 200, await categories())
@@ -767,6 +788,7 @@ async function handle(req, res) {
     if (req.method === 'GET' && path === '/api/audit') return reply(res, 200, await auditList())
     if (req.method === 'GET' && path === '/api/platform') return reply(res, 200, await platform())
     if (req.method === 'POST' && /^\/api\/platform\/[a-z-]+$/.test(path)) {
+      if (!platformWriteEnabled()) return reply(res, 403, { error: '平台写入动作默认关闭，启动 BFF 时设置 JD_PLATFORM_WRITE=1 才可用' })
       return reply(res, 200, await platformAction(path.slice('/api/platform/'.length), await input(req)))
     }
     // 触发器回调：只接受本机来源，避免外部伪造审计。

@@ -1,7 +1,7 @@
 package api
 
 // agent_e2e_harness_test.go：云 Agent 全链路测试基建（planv4.1 §5.1）。
-// 真实链路：router(handler) → gocloudagent.Runtime → llmgateway.Service → HTTP fake upstream。
+// 真实链路：router(handler) → cloudagent.Runtime → llmgateway.Service → HTTP fake upstream。
 // 不访问外网、无需真实 key；上游为 internal/testutil/fakellm。
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
@@ -28,17 +28,17 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/testutil/fakellm"
 )
 
-// harnessDB 实现 gocloudagent.DatabaseAccess，记录调用。
+// harnessDB 实现 cloudagent.DatabaseAccess，记录调用。
 type harnessDB struct {
 	mu        sync.Mutex
 	listCalls int
 	sqlCalls  int
 	blockFor  time.Duration // list_databases 阻塞时长（测心跳）
-	databases []gocloudagent.DatabaseInfo
+	databases []cloudagent.DatabaseInfo
 	sqlError  string // 非空时 ReadOnlyQuery 返回该错误（sqlguard 拒绝模拟）
 }
 
-func (f *harnessDB) ListDatabases(context.Context, gocloudagent.Principal, string) ([]gocloudagent.DatabaseInfo, error) {
+func (f *harnessDB) ListDatabases(context.Context, cloudagent.Principal, string) ([]cloudagent.DatabaseInfo, error) {
 	f.mu.Lock()
 	f.listCalls++
 	block := f.blockFor
@@ -51,50 +51,50 @@ func (f *harnessDB) ListDatabases(context.Context, gocloudagent.Principal, strin
 	if f.databases != nil {
 		return f.databases, nil
 	}
-	return []gocloudagent.DatabaseInfo{{ID: "d1", Name: "orders", Status: "ready"}, {ID: "d2", Name: "users", Status: "ready"}}, nil
+	return []cloudagent.DatabaseInfo{{ID: "d1", Name: "orders", Status: "ready"}, {ID: "d2", Name: "users", Status: "ready"}}, nil
 }
 
-func (f *harnessDB) ListCollections(context.Context, gocloudagent.Principal, string, string) ([]string, error) {
+func (f *harnessDB) ListCollections(context.Context, cloudagent.Principal, string, string) ([]string, error) {
 	return []string{"t1"}, nil
 }
 
-func (f *harnessDB) ReadOnlyQuery(_ context.Context, _ gocloudagent.Principal, _, _, sqlText string, _ int) (gocloudagent.SQLResult, error) {
+func (f *harnessDB) ReadOnlyQuery(_ context.Context, _ cloudagent.Principal, _, _, sqlText string, _ int) (cloudagent.SQLResult, error) {
 	f.mu.Lock()
 	f.sqlCalls++
 	errText := f.sqlError
 	f.mu.Unlock()
 	if errText != "" {
-		return gocloudagent.SQLResult{}, &sqlguardError{msg: errText}
+		return cloudagent.SQLResult{}, &sqlguardError{msg: errText}
 	}
-	return gocloudagent.SQLResult{Columns: []string{"id"}, Rows: [][]any{{1}}, RowCount: 1}, nil
+	return cloudagent.SQLResult{Columns: []string{"id"}, Rows: [][]any{{1}}, RowCount: 1}, nil
 }
 
 type sqlguardError struct{ msg string }
 
 func (e *sqlguardError) Error() string { return e.msg }
 
-// harnessLogs 实现 gocloudagent.LogAccess。
+// harnessLogs 实现 cloudagent.LogAccess。
 type harnessLogs struct {
 	mu    sync.Mutex
 	calls int
 }
 
-func (f *harnessLogs) SearchLogs(context.Context, string, string, string, int) ([]gocloudagent.LogEvent, error) {
+func (f *harnessLogs) SearchLogs(context.Context, string, string, string, int) ([]cloudagent.LogEvent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
-	return []gocloudagent.LogEvent{{Level: "error", Logger: "app", Message: "boom"}}, nil
+	return []cloudagent.LogEvent{{Level: "error", Logger: "app", Message: "boom"}}, nil
 }
 
-func (f *harnessLogs) LevelStats(context.Context, string) ([]gocloudagent.LogLevelCount, error) {
-	return []gocloudagent.LogLevelCount{{Level: "error", Count: 3}}, nil
+func (f *harnessLogs) LevelStats(context.Context, string) ([]cloudagent.LogLevelCount, error) {
+	return []cloudagent.LogLevelCount{{Level: "error", Count: 3}}, nil
 }
 
 // agentHarness 聚合全链路依赖。
 type agentHarness struct {
 	store   *systemdb.Store
 	echo    *echo.Echo
-	runtime *gocloudagent.Runtime
+	runtime *cloudagent.Runtime
 	fake    *fakellm.Server
 	db      *harnessDB
 	logs    *harnessLogs
@@ -146,7 +146,7 @@ func newAgentHarness(t *testing.T, scripts []fakellm.Script, def fakellm.Script)
 
 	hdb := &harnessDB{}
 	hlogs := &harnessLogs{}
-	rt := &gocloudagent.Runtime{
+	rt := &cloudagent.Runtime{
 		LLM: NewCloudAgentLLM(NewLLMService(gw)),
 		DB:  hdb, Obj: nil, Logs: hlogs,
 		ToolProtocol: "native",

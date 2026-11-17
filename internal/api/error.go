@@ -37,7 +37,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/kv"
 	"github.com/linkxzhou/SimpleBase/godatabase/lease"
@@ -102,8 +102,8 @@ func Error(err error, requestID string) *APIError {
 		return apiErr
 	}
 	// 云 Agent 错误码只使用固定文案，不将上游原文传给前端。
-	var agentError *gocloudagent.RunError
-	if errors.Is(err, gocloudagent.ErrThreadBusy) || errors.As(err, &agentError) {
+	var agentError *cloudagent.RunError
+	if errors.Is(err, cloudagent.ErrThreadBusy) || errors.As(err, &agentError) {
 		re := agentbridge.ClassifyError(err)
 		known := map[string]int{
 			"agent_thread_busy":     http.StatusConflict,

@@ -53,12 +53,14 @@
 </div></header>
 <main id="app"></main>
 <div class="toast" id="toast"></div>
+<script src="./config.js"></script>
 <script>
+const API = String((window.__SB_CONFIG__ && window.__SB_CONFIG__.apiBase) || '').replace(/\/+$/, '')
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
 const yuan = minor => `¥${(Number(minor || 0) / 100).toFixed(2)}`
 
 async function api(path, options = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(API + path, {
     method: options.method || 'GET',
     headers: { 'content-type': 'application/json', ...(options.headers || {}) },
     body: options.body === undefined ? undefined : JSON.stringify(options.body)

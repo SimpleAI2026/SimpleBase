@@ -44,7 +44,7 @@ usage() {
 
 构建产物:
   simplebase        服务端二进制（cmd/simplebase）
-  build/bin/gocloudagent  云 Agent 本地 CLI（gocloudagent/cmd/gocloudagent；会话存
+  build/bin/gocloudagent  云 Agent 本地 CLI（gocloudagent/cmd；会话存
                           ~/.gocloudagent/，模型出口走 simplebase HTTP API，不进服务镜像）
   build/bin/gosandbox-inner  Linux 上的本机 shell 隔离 helper（与 CLI 同目录）
 
@@ -338,7 +338,7 @@ cmd_build() {
 
   # 云 Agent 本地 CLI：独立模块（planv6.2），不进服务镜像（planv6.0 §5.1）。
   # 产物固定到 build/bin：仓库根的 gocloudagent 是模块源码目录。
-  if [[ -d "$ROOT_DIR/gocloudagent/cmd/gocloudagent" ]]; then
+  if [[ -d "$ROOT_DIR/gocloudagent/cmd" ]]; then
     if [[ -d "$CLI_BIN_DIR" && ! -w "$CLI_BIN_DIR" ]]; then
       echo "错误: 产物目录不可写: $CLI_BIN_DIR" >&2
       exit 1
@@ -350,7 +350,7 @@ cmd_build() {
       exit 1
     fi
     echo "==> 编译 gocloudagent CLI (go build)"
-    (cd "$ROOT_DIR/gocloudagent" && go build -o "$agent_bin" ./cmd/gocloudagent)
+    (cd "$ROOT_DIR/gocloudagent" && go build -o "$agent_bin" ./cmd)
     echo "    产物: $agent_bin"
     # 本机 shell 隔离的沙盒内 helper（planv6.2）：Linux 上 CLI 在同目录找它；
     # 纯 Go、CGO_ENABLED=0，不链接 DuckDB。macOS 走 sandbox-exec，不需要 helper。

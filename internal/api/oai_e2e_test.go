@@ -14,9 +14,9 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cli"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -482,4 +482,4 @@ func runCLIOnce(t *testing.T, client *cli.HTTPClient, text string, calls *int) (
 	return res, events, err
 }
 
-var _ = gocloudagent.ClassifyError
+var _ = cloudagent.ClassifyError

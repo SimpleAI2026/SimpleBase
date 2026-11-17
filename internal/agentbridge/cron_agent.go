@@ -35,7 +35,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
@@ -54,9 +54,9 @@ const (
 	CronAgentPromptLimit = 16 * 1024
 )
 
-// CronAgentRunner 抽象一次 Agent run；*gocloudagent.Runtime 天然满足。
+// CronAgentRunner 抽象一次 Agent run；*cloudagent.Runtime 天然满足。
 type CronAgentRunner interface {
-	StartRun(ctx context.Context, req gocloudagent.RunRequest, emit func(gocloudagent.Event)) (gocloudagent.RunResult, error)
+	StartRun(ctx context.Context, req cloudagent.RunRequest, emit func(cloudagent.Event)) (cloudagent.RunResult, error)
 }
 
 // CronAgentStore 是本类型需要的系统库操作；*systemdb.Store 天然满足。
@@ -124,7 +124,7 @@ func (e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, tr
 		return cronjob.AgentResult{}, errors.New("agent not found")
 	}
 	// 定时任务同样按助手 module 加载技能：无人值守运行没有 `@` 点名。
-	skills := gocloudagent.SkillsForModule(agent.Module)
+	skills := cloudagent.SkillsForModule(agent.Module)
 
 	threadID := j.AgentThreadID
 	thread, err := e.Store.GetAgentThread(ctx, j.ProjectID, threadID)
@@ -173,7 +173,7 @@ func (e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, tr
 
 	// 二期 trace（planv6.5 §10.2）：cron run 的 trace_id=agentRun.ID、caller=cron。
 	runCtx := llmgateway.WithTraceMeta(ctx, agentRun.ID, "cron")
-	res, runErr := e.Runner.StartRun(runCtx, gocloudagent.RunRequest{
+	res, runErr := e.Runner.StartRun(runCtx, cloudagent.RunRequest{
 		ProjectID: j.ProjectID, Principal: ToModulePrincipal(principal), Agent: Agent(agent), Skills: skills,
 		ThreadID: thread.ID, RunID: agentRun.ID, UserText: j.AgentPrompt,
 		History: Messages(hist), Stream: false, Headless: true,

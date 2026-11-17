@@ -33,7 +33,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/sbcli"
 	"github.com/linkxzhou/SimpleBase/internal/utils/mask"
@@ -49,11 +49,11 @@ type CommandPolicy struct{}
 func NewCommandPolicy() CommandPolicy { return CommandPolicy{} }
 
 // Classify 给出一条 simplebase 命令的安全分类。
-func (CommandPolicy) Classify(argv []string, stdin string) (gocloudagent.CommandDecision, error) {
+func (CommandPolicy) Classify(argv []string, stdin string) (cloudagent.CommandDecision, error) {
 	if len(argv) == 0 {
-		return gocloudagent.CommandDecision{}, fmt.Errorf("empty argv")
+		return cloudagent.CommandDecision{}, fmt.Errorf("empty argv")
 	}
-	return gocloudagent.CommandDecision{
+	return cloudagent.CommandDecision{
 		ReadOnly:    sbcli.CommandReadOnlyWithArgv(argv),
 		Destructive: DestructiveArgv(argv, stdin),
 	}, nil

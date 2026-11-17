@@ -262,10 +262,18 @@ func TestFilesystemRPCRejectsBinaryProtoAndWatchers(t *testing.T) {
 	if rec.Code != 501 || !strings.Contains(rec.Body.String(), "unimplemented") {
 		t.Fatalf("binary protobuf: %d %s", rec.Code, rec.Body.String())
 	}
-	for _, m := range []string{"WatchDir", "CreateWatcher", "GetWatcherEvents", "RemoveWatcher"} {
-		if rec := rpc(e, key, row.ID, m, `{}`); rec.Code != 501 {
-			t.Errorf("%s: want 501, got %d", m, rec.Code)
+	// 目录监听已实现：没有 path 时 400，不是 501。
+	for _, m := range []string{"WatchDir", "CreateWatcher"} {
+		if rec := rpc(e, key, row.ID, m, `{}`); rec.Code != 400 {
+			t.Errorf("%s without a path: want 400, got %d", m, rec.Code)
 		}
+	}
+	// 未知 watcher：404；移除幂等：200。
+	if rec := rpc(e, key, row.ID, "GetWatcherEvents", `{"watcherID":"nope"}`); rec.Code != 404 {
+		t.Errorf("GetWatcherEvents unknown: want 404, got %d", rec.Code)
+	}
+	if rec := rpc(e, key, row.ID, "RemoveWatcher", `{"watcherID":"nope"}`); rec.Code != 200 {
+		t.Errorf("RemoveWatcher: want 200, got %d", rec.Code)
 	}
 	if rec := rpc(e, key, row.ID, "ListDir", `{broken`); rec.Code != 400 {
 		t.Fatalf("malformed JSON: %d", rec.Code)

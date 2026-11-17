@@ -18,7 +18,7 @@ fi
 if [[ $# -gt 0 ]]; then
   PACKAGES=("$@")
 else
-  # internal/gocloudagent 已迁出为独立模块（planv6.2），这里列根模块仍存在的包。
+  # 云端 Runtime 已迁到 gocloudagent/cloudagent（独立模块，planv6.2 / v6.6），这里列根模块仍存在的包。
   PACKAGES=(./internal/agentbridge ./internal/systemdb ./internal/api ./internal/llmgateway ./internal/agentjob)
 fi
 

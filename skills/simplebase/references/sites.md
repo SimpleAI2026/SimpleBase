@@ -2,11 +2,21 @@
 
 工作区的 `dev apply` 只重放数据库、迁移、集合、云函数与定时任务；前端/JS 需要先在本地完成编译，再把静态构建产物上传到项目对象存储，打开「发布网站」与路径「外部访问」两层开关后，即可通过 `<project_id>.<base_domain>` 子域名直接运行站点。
 
+## 0. 先判断案例能不能直接发布
+
+站点面**只读**（仅 `GET` / `HEAD`，其余方法返回 405），只按对象 key 返回文件，**没有 `/api/*` 等后端接口**。页面里的动态数据只能来自外部 BFF 或终端用户认证接口。
+
+| 案例类型 | 例子 | 能否 `site deploy` |
+| --- | --- | --- |
+| 纯静态页面 | 构建后只含 HTML/JS/CSS/图片，不调后端 | 可以，直接发布 |
+| 前端 + 同源 BFF | `examples/jd`、`examples/shop`（`web/` 里 `fetch('/api/...')`，业务与 Key 在 `server/main.mjs`） | 前端可发布，但**必须另起 BFF** 并在 `web/config.js` 填 BFF 公开地址（见 §1「前端调后端」）；BFF 不能放进对象存储 |
+| 仅服务端 | `iot-telemetry`、`community`、`ops-assistant` | 不适用 |
+
 ## 1. 编译 JS 与静态站点产物
 
 ### 仓库内 `examples` 的编译步骤
 
-`examples` 下的 JS/Node 案例（`shop`、`jd`、`iot-telemetry`）引用 `packages/js-sdk/dist/index.js`，未编译直接运行会报找不到模块：
+`packages/js-sdk/dist` 只服务 `examples/*/server/main.mjs`（Node BFF，`shop`、`jd`、`iot-telemetry`），**与前端静态产物无关**：浏览器里跑的 `web/index.html` 不 import SDK。未编译就运行 BFF 会报找不到模块：
 
 ```bash
 # 1) 编译 JS SDK（tsup 输出 dist/index.js、index.cjs、index.d.ts）
@@ -28,12 +38,29 @@ npm run build   # 确认输出目录（如 dist/）根下生成 index.html 与�
 
 构建时的四条硬性约定：
 
-1. **禁止打入项目密钥**：`SIMPLEBASE_API_KEY`（`sb_live_*`）绝不能写进前端源码、`VITE_*` 环境变量或构建产物（`sbdev.py site deploy` 会在上传前扫描并拦截）。浏览器端需要调接口时：
-   - 指向独立的业务 BFF 地址（如 `examples/<case>/server` 部署地址，并在 BFF 上对 `https://<project_id>.<base_domain>` 放行 CORS）；或
+1. **禁止打入项目密钥**：`SIMPLEBASE_API_KEY`（`sb_live_*`）绝不能写进前端源码、`VITE_*` 环境变量、`config.js` 或构建产物（`sbdev.py site deploy` 会在上传前扫描并拦截）。浏览器端需要调接口时：
+   - 指向独立的业务 BFF 地址（见下「前端调后端」）；或
    - 使用终端用户认证接口 `/v1/projects/<project_id>/end-users/{signup,login,me}`，不要暴露项目级 API Key。
 2. **单页应用使用 Hash 路由**：站点面当前不开启未命中路径回退 `index.html`，History 路由直接访问或刷新 `/orders` 会返回 404；请用 `#/orders`（参见 `examples/jd/web/index.html`）或多页 HTML。
 3. **资源路径与发布前缀对齐**：发布到子域名根 `/` 时可用 `/assets/...` 或 `./assets/...`；发布到子目录（如 `--prefix shop/`）时，构建工具须配置 `base: './'` 或 `base: '/shop/'`。
 4. **SVG 去掉 `<?xml ...?>` 声明**：服务端上传会嗅探前 512 字节并与扩展名比对；以 `<?xml` 开头的 `.svg` 会被嗅探成 `text/xml` 触发 `415 mime_mismatch`，请直接以 `<svg xmlns="...">` 开头（与 `examples/*/seed/images/*.svg` 一致）。
+
+### 前端调后端：`config.js` + 独立 BFF（以 `jd` / `shop` 为例）
+
+`examples/jd/web`、`examples/shop/web` 在主脚本前加载同目录的 `./config.js`，由其中的 `window.__SB_CONFIG__.apiBase` 决定请求发往哪里：
+
+- `apiBase: ''`（默认）：与页面同源，本地 `node examples/<case>/server/main.mjs` 同时托管前端与接口，行为与之前一致。
+- 发布到子域名站点时：把 `config.js` 改成独立运行的 BFF 公开地址（如 `apiBase: 'http://127.0.0.1:8093'`），再 `site deploy`。`config.js` 只放 BFF 地址，不放任何 Key。
+- 示例 BFF 的 CORS 已放开：`Access-Control-Allow-Origin: *`，方法与请求头全部允许（预检回显 `Access-Control-Request-Headers`），不带 `Allow-Credentials`。**这只适合本地与演示**：BFF 无登录，任何网页都能调用它。生产应改为 Origin 白名单并加终端用户登录；不要把示例 BFF 绑到公网地址。
+- jd 平台页的写入类动作（`/api/platform/*`）默认返回 403，需要启动 BFF 时设置 `JD_PLATFORM_WRITE=1`。
+- 校验预检（期望 204，且 `Access-Control-Allow-Origin: *`）：
+  ```bash
+  curl -i -X OPTIONS http://127.0.0.1:8093/api/orders \
+    -H 'Origin: http://ex-jd001.localhost:8080' \
+    -H 'Access-Control-Request-Method: POST' \
+    -H 'Access-Control-Request-Headers: content-type,idempotency-key'
+  ```
+- 缓存：站点对 HTML 是 `no-cache`，对 `config.js` 等 JS 是 `max-age=300`，改完 `config.js` 重新发布后最多 5 分钟生效。
 
 ## 2. 前置条件检查
 
@@ -56,6 +83,8 @@ npm run build   # 确认输出目录（如 dist/）根下生成 index.html 与�
 ### 方式一：用 `sbdev.py site` 一键上传与发布（推荐）
 
 `sbdev.py site deploy` 按顺序执行：校验目录并扫描疑似密钥 → 调用 `simplebase object upload` 逐文件上传 → 开启项目级站点开关 → 开启目标目录前缀外部访问 → 探活子域名 URL → 输出 `subdomain:`（如 `myapp001.localhost`）与 `url:`（可直接在浏览器打开的站点地址）。
+
+**公开范围警告**：不带 `--prefix` 时公开的是**整个项目对象存储根**，已有的业务对象（如 `jd/` 商品图、`jd/reviews/*` 晒图）会一并匿名可读。`site deploy` 在公开前会列出前缀下不属于本次产物的已有对象（按一级目录汇总，最多统计前 1000 个；远端预览阶段同样显示），只提示、不阻断。项目里已有业务对象时，请用 `--prefix web/` 收窄，站点地址随之变为 `/web/`。
 
 ```bash
 # 查看站点可发布状态、baseUrl 与当前已公开路径

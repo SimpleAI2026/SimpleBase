@@ -616,6 +616,49 @@ class SiteDeployTests(SbdevCase):
         self.assertEqual(code, sbdev.EXIT_INVALID)
         self.assertFalse(self.state.exists() and self.st().get("objects"))
 
+    def seed_objects(self, sizes: dict) -> None:
+        st = self.st() if self.state.exists() else {}
+        st.setdefault("objects", {}).update(sizes)
+        self.state.write_text(json.dumps(st), encoding="utf-8")
+
+    def test_deploy_root_warns_about_existing_non_bundle_objects(self):
+        self.serve()
+        self.write("dist/index.html", "<html></html>")
+        self.run_cmd("apply")
+        self.seed_objects({"jd/a.svg": 1, "jd/b.svg": 2, "jd/reviews/r1.png": 3})
+        code, out, err = self.run_cmd("site", "deploy", "--dist", "dist")
+        self.assertEqual(code, 0, err)
+        self.assertIn("3 个非本次产物的对象", err)
+        self.assertIn("jd/", err)
+        self.assertIn("--prefix", err)
+
+    def test_deploy_only_bundle_objects_no_warning(self):
+        self.serve()
+        self.write("dist/index.html", "<html></html>")
+        code, out, err = self.run_cmd("site", "deploy", "--dist", "dist")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("非本次产物", err)
+
+    def test_deploy_prefix_only_counts_objects_under_prefix(self):
+        self.serve()
+        self.write("dist/index.html", "<html></html>")
+        self.run_cmd("apply")
+        self.seed_objects({"jd/a.svg": 1, "web/old.js": 5})
+        code, out, err = self.run_cmd("site", "deploy", "--dist", "dist", "--prefix", "web/")
+        self.assertEqual(code, 0, err)
+        self.assertIn("1 个非本次产物的对象", err)
+        self.assertNotIn("jd/", err)
+
+    def test_remote_preview_lists_non_bundle_objects(self):
+        self.serve()
+        self.write("dist/index.html", "<html></html>")
+        self.run_cmd("apply")
+        self.seed_objects({"private/doc.txt": 1})
+        code, out, err = self.run_cmd("site", "deploy", "--dist", "dist", "--env-file", str(self.ws / ".env.cloud"))
+        self.assertEqual(code, sbdev.EXIT_CONFIRM, err)
+        self.assertIn("对外匿名可读", out)
+        self.assertIn("private/", err)
+
 
 @unittest.skipUnless(FIXTURES.is_dir(), "共享 fixture 不在（仅 skill 被单独拷贝时跳过）")
 class FixtureParityTests(SbdevCase):

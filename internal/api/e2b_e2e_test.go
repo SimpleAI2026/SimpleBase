@@ -98,6 +98,9 @@ func (s *e2eStore) SoftDeleteSandbox(_ context.Context, _, id, _ string) error {
 	s.rows[id] = r
 	return nil
 }
+func (s *e2eStore) ListIdleRunningSandboxes(context.Context, time.Time, int) ([]sandbox.Sandbox, error) {
+	return nil, nil
+}
 func (s *e2eStore) ListExpiredSandboxes(context.Context, time.Time, int) ([]sandbox.Sandbox, error) {
 	return nil, nil
 }

@@ -7,13 +7,14 @@ import (
 	"testing"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cli"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/skills"
 )
 
 // TestPromptTemplateExpansionDoesNotGrantSkillPermission 锁定 §13.7 的硬约束：
 // `/name` 只做文本展开，绝不授予写权限；授权只看 RunRequest.Skills。
 //
-// 断言放在父包（而不是 cli 子包）：需要同时引用 gocloudagent.AllowArgv 与
-// cli.PromptTemplate，而 cli 不能反向 import gocloudagent（父包门面会成环）。
+// 断言放在父包（而不是 cli 子包）：需要同时引用 skills.AllowArgv 与
+// cli.PromptTemplate，而 cli 不应依赖技能授权以外的上层包。
 func TestPromptTemplateExpansionDoesNotGrantSkillPermission(t *testing.T) {
 	dir := t.TempDir()
 	home := filepath.Join(dir, ".gocloudagent")
@@ -37,11 +38,11 @@ func TestPromptTemplateExpansionDoesNotGrantSkillPermission(t *testing.T) {
 	}
 
 	// 关键断言：没有 skill 时该写命令仍被拒。
-	if AllowArgv(nil, []string{"database", "delete", "--id", "x"}) {
+	if skills.AllowArgv(nil, []string{"database", "delete", "--id", "x"}) {
 		t.Fatal("expanding a template must never make a write command allowed")
 	}
 	// 反向对照：带上 skill 才放行（证明拒因是 skills 而非命令本身非法）。
-	if !AllowArgv([]string{"database"}, []string{"database", "delete", "--id", "x"}) {
+	if !skills.AllowArgv([]string{"database"}, []string{"database", "delete", "--id", "x"}) {
 		t.Fatal("the same command should be allowed once the skill is loaded")
 	}
 }

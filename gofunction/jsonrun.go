@@ -8,7 +8,7 @@
 //
 // 调用架构
 //
-//	[上游] gofunction/bench, gofunction/cmd/gofunction, internal/api 等
+//	[上游] gofunction/bench, gofunction/cmd, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] gofunction/jsonrun.go

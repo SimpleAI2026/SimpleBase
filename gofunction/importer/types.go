@@ -9,7 +9,7 @@
 //
 // 调用架构
 //
-//	[上游] gofunction/cmd/gofunction, gofunction/internal/interp, gofunction/packages 等
+//	[上游] gofunction/cmd, gofunction/internal/interp, gofunction/packages 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] gofunction/importer/types.go

@@ -42,7 +42,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
@@ -51,7 +51,7 @@ import (
 
 type cloudAgentHandler struct {
 	store    *systemdb.Store
-	runtime  *gocloudagent.Runtime
+	runtime  *cloudagent.Runtime
 	usage    UsageService
 	audit    AuditService
 	writable *bool
@@ -162,12 +162,12 @@ func (h *cloudAgentHandler) ensureAgents(ctx context.Context, projectID string) 
 }
 
 func (h *cloudAgentHandler) ListModules(c echo.Context) error {
-	modules := gocloudagent.Modules(h.sandboxAvailable())
+	modules := cloudagent.Modules(h.sandboxAvailable())
 	if h.runtime == nil || !h.runtime.SkillsCLI {
 		available := modules[:0]
 		for _, module := range modules {
 			switch module.ID {
-			case gocloudagent.ModuleKV, gocloudagent.ModuleGoFunction, gocloudagent.ModuleCron:
+			case cloudagent.ModuleKV, cloudagent.ModuleGoFunction, cloudagent.ModuleCron:
 				continue
 			}
 			available = append(available, module)
@@ -319,21 +319,21 @@ func (h *cloudAgentHandler) normalizeAgent(projectID string, body upsertAgentBod
 	if body.Writable != nil && *body.Writable && !h.canWritePrincipal(p) {
 		return systemdb.CloudAgent{}, errors.New("write permission required to enable agent writes")
 	}
-	if (a.Module == gocloudagent.ModuleKV || a.Module == gocloudagent.ModuleGoFunction || a.Module == gocloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
+	if (a.Module == cloudagent.ModuleKV || a.Module == cloudagent.ModuleGoFunction || a.Module == cloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
 		return systemdb.CloudAgent{}, errors.New("this module requires CLI skills")
 	}
 	if !h.sandboxAvailable() {
-		if strings.EqualFold(a.Module, gocloudagent.ModuleSandbox) {
+		if strings.EqualFold(a.Module, cloudagent.ModuleSandbox) {
 			return systemdb.CloudAgent{}, errors.New("sandbox is not enabled; sandbox module is unavailable")
 		}
 		for _, id := range a.ToolIDs {
-			if gocloudagent.IsSandboxTool(id) {
+			if cloudagent.IsSandboxTool(id) {
 				return systemdb.CloudAgent{}, errors.New("sandbox is not enabled; sandbox tools are unavailable")
 			}
 		}
 	}
 	// MCP 引用需要宿主装配了连接器，否则保存后 run 会直接报错（planv6.2 §4.1）。
-	if gocloudagent.HasMCPTools(a.ToolIDs) && (h.runtime == nil || h.runtime.MCP == nil) {
+	if cloudagent.HasMCPTools(a.ToolIDs) && (h.runtime == nil || h.runtime.MCP == nil) {
 		return systemdb.CloudAgent{}, errors.New("mcp is not enabled; remove mcp: tool ids from this agent")
 	}
 	return a, nil
@@ -370,23 +370,23 @@ func normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAg
 		return systemdb.CloudAgent{}, errors.New("name is required")
 	}
 	if a.Module == "" {
-		a.Module = gocloudagent.ModuleGeneral
+		a.Module = cloudagent.ModuleGeneral
 	}
-	if !gocloudagent.KnownModule(a.Module) {
+	if !cloudagent.KnownModule(a.Module) {
 		return systemdb.CloudAgent{}, errors.New("unknown module")
 	}
 	if a.ToolIDs == nil {
-		a.ToolIDs = gocloudagent.DefaultToolsForModule(a.Module)
+		a.ToolIDs = cloudagent.DefaultToolsForModule(a.Module)
 	}
 	filtered := make([]string, 0, len(a.ToolIDs))
 	for _, id := range a.ToolIDs {
-		if gocloudagent.KnownTool(id) {
+		if cloudagent.KnownTool(id) {
 			filtered = append(filtered, id)
 			continue
 		}
 		// mcp: 引用（planv6.2 §3.2）：格式非法直接 400，不静默丢弃——
 		// 静默丢弃会让用户以为能力已启用，实际没有。
-		if gocloudagent.HasMCPTools([]string{id}) {
+		if cloudagent.HasMCPTools([]string{id}) {
 			if _, _, ok := mcp.ParseToolID(id); !ok {
 				return systemdb.CloudAgent{}, fmt.Errorf("invalid mcp tool id: %s", id)
 			}
@@ -769,11 +769,11 @@ func (h *cloudAgentHandler) resolveMentionedAgent(ctx context.Context, projectID
 		return systemdb.CloudAgent{}, err
 	}
 	for _, agent := range list {
-		if agent.BuiltinKey == gocloudagent.ModuleGeneral {
+		if agent.BuiltinKey == cloudagent.ModuleGeneral {
 			return agent, nil
 		}
 	}
-	return systemdb.CloudAgent{}, &gocloudagent.RunError{Code: "agent_required", Message: "请先选择一个 Agent"}
+	return systemdb.CloudAgent{}, &cloudagent.RunError{Code: "agent_required", Message: "请先选择一个 Agent"}
 }
 
 // canWritePrincipal 判断主体是否可执行破坏性 run 操作（SEC-04）：

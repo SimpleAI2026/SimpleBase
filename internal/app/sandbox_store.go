@@ -137,6 +137,17 @@ func (a sandboxStoreAdapter) ListExpiredSandboxes(ctx context.Context, now time.
 	}
 	return out, nil
 }
+func (a sandboxStoreAdapter) ListIdleRunningSandboxes(ctx context.Context, before time.Time, limit int) ([]sandbox.Sandbox, error) {
+	rows, err := a.s.ListIdleRunningSandboxes(ctx, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sandbox.Sandbox, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, toSandbox(r))
+	}
+	return out, nil
+}
 func (a sandboxStoreAdapter) ListStaleRunSandboxes(ctx context.Context, before time.Time, limit int) ([]sandbox.Sandbox, error) {
 	rows, err := a.s.ListStaleRunSandboxes(ctx, before, limit)
 	if err != nil {

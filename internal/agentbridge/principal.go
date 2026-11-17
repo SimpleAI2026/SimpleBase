@@ -2,8 +2,8 @@
 //
 // 用法
 //
-//	ToModulePrincipal(p auth.Principal) gocloudagent.Principal  // ToModulePrincipal 把宿主身份转成模块身份
-//	ToHostPrincipal(p gocloudagent.Principal) auth.Principal  // ToHostPrincipal 把模块身份还原成宿主身份
+//	ToModulePrincipal(p auth.Principal) cloudagent.Principal  // ToModulePrincipal 把宿主身份转成模块身份
+//	ToHostPrincipal(p cloudagent.Principal) auth.Principal  // ToHostPrincipal 把模块身份还原成宿主身份
 //	同包调用：Message() → cron_agent.go, errors.go 等；ToModulePrincipal() → cron_agent.go；Agent() → cron_agent.go
 //
 // 调用架构
@@ -20,17 +20,17 @@
 //
 // 主要符号
 //
-//	ToModulePrincipal(p auth.Principal) gocloudagent.Principal
-//	ToHostPrincipal(p gocloudagent.Principal) auth.Principal
-//	Agent(a systemdb.CloudAgent) gocloudagent.Agent
-//	Messages(msgs []systemdb.AgentMessage) []gocloudagent.Message
-//	Message(m systemdb.AgentMessage) gocloudagent.Message
+//	ToModulePrincipal(p auth.Principal) cloudagent.Principal
+//	ToHostPrincipal(p cloudagent.Principal) auth.Principal
+//	Agent(a systemdb.CloudAgent) cloudagent.Agent
+//	Messages(msgs []systemdb.AgentMessage) []cloudagent.Message
+//	Message(m systemdb.AgentMessage) cloudagent.Message
 //	... 另有 1 个顶层符号
 
 package agentbridge
 
 import (
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -52,8 +52,8 @@ func convertSet[F, T ~string](in map[F]struct{}) map[T]struct{} {
 }
 
 // ToModulePrincipal 把宿主身份转成模块身份。
-func ToModulePrincipal(p auth.Principal) gocloudagent.Principal {
-	return gocloudagent.Principal{
+func ToModulePrincipal(p auth.Principal) cloudagent.Principal {
+	return cloudagent.Principal{
 		APIKeyID:    p.APIKeyID,
 		UserID:      p.UserID,
 		Username:    p.Username,
@@ -63,7 +63,7 @@ func ToModulePrincipal(p auth.Principal) gocloudagent.Principal {
 		TenantID:    p.TenantID,
 		Delegated:   p.Delegated,
 		ProjectIDs:  convertSet[string, string](p.ProjectIDs),
-		Permissions: convertSet[auth.Permission, gocloudagent.Permission](p.Permissions),
+		Permissions: convertSet[auth.Permission, cloudagent.Permission](p.Permissions),
 	}
 }
 
@@ -71,7 +71,7 @@ func ToModulePrincipal(p auth.Principal) gocloudagent.Principal {
 //
 // 数据库适配器必须拿到完整 Principal 再走 catalog：角色、租户与项目集合都
 // 参与项目授权判定，不能因为「目标 projectID 已经给出」而省略。
-func ToHostPrincipal(p gocloudagent.Principal) auth.Principal {
+func ToHostPrincipal(p cloudagent.Principal) auth.Principal {
 	return auth.Principal{
 		APIKeyID:    p.APIKeyID,
 		UserID:      p.UserID,
@@ -82,13 +82,13 @@ func ToHostPrincipal(p gocloudagent.Principal) auth.Principal {
 		TenantID:    p.TenantID,
 		Delegated:   p.Delegated,
 		ProjectIDs:  convertSet[string, string](p.ProjectIDs),
-		Permissions: convertSet[gocloudagent.Permission, auth.Permission](p.Permissions),
+		Permissions: convertSet[cloudagent.Permission, auth.Permission](p.Permissions),
 	}
 }
 
 // Agent 把系统库里的助手配置转成模块 DTO。
-func Agent(a systemdb.CloudAgent) gocloudagent.Agent {
-	return gocloudagent.Agent{
+func Agent(a systemdb.CloudAgent) cloudagent.Agent {
+	return cloudagent.Agent{
 		ID:            a.ID,
 		ProjectID:     a.ProjectID,
 		Name:          a.Name,
@@ -102,11 +102,11 @@ func Agent(a systemdb.CloudAgent) gocloudagent.Agent {
 }
 
 // Messages 批量转换历史消息。
-func Messages(msgs []systemdb.AgentMessage) []gocloudagent.Message {
+func Messages(msgs []systemdb.AgentMessage) []cloudagent.Message {
 	if msgs == nil {
 		return nil
 	}
-	out := make([]gocloudagent.Message, 0, len(msgs))
+	out := make([]cloudagent.Message, 0, len(msgs))
 	for _, m := range msgs {
 		out = append(out, Message(m))
 	}
@@ -114,6 +114,6 @@ func Messages(msgs []systemdb.AgentMessage) []gocloudagent.Message {
 }
 
 // Message 转换单条历史消息。
-func Message(m systemdb.AgentMessage) gocloudagent.Message {
-	return gocloudagent.Message{Role: m.Role, Content: m.Content, ToolCallsJSON: m.ToolCallsJSON}
+func Message(m systemdb.AgentMessage) cloudagent.Message {
+	return cloudagent.Message{Role: m.Role, Content: m.Content, ToolCallsJSON: m.ToolCallsJSON}
 }

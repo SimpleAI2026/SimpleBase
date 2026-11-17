@@ -42,7 +42,6 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/cloudwego/eino/schema"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/host"
 )
@@ -510,5 +509,3 @@ func truncateText(s string, max int) string {
 	}
 	return s[:max] + "\n…(truncated)"
 }
-
-var _ = schema.AssistantMessage

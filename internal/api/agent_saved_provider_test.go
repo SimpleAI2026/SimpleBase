@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -57,7 +57,7 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 		llmgateway.NewCatalogResolver(cat, nil),
 	)
 	gw := llmgateway.NewService(resolver, nil, nil, nil)
-	rt := &gocloudagent.Runtime{
+	rt := &cloudagent.Runtime{
 		LLM:          NewCloudAgentLLM(NewLLMService(gw)),
 		Settings:     agentbridge.NewSettingsAccess(store),
 		ToolProtocol: "native",

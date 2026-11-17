@@ -12,7 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -40,7 +40,7 @@ func openAgentStoreDB(t *testing.T) (*systemdb.Store, *sql.DB) {
 
 func agentEcho(store *systemdb.Store) *echo.Echo {
 	e := echo.New()
-	h := &cloudAgentHandler{store: store, runtime: &gocloudagent.Runtime{SkillsCLI: true}}
+	h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{SkillsCLI: true}}
 	e.GET("/agents/modules", h.ListModules)
 	e.GET("/agents", h.ListAgents)
 	e.POST("/agents", h.CreateAgent)
@@ -94,7 +94,7 @@ func TestAgentCRUDAndSeed(t *testing.T) {
 		t.Fatalf("modules status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var directory struct {
-		Modules []gocloudagent.ModuleInfo `json:"modules"`
+		Modules []cloudagent.ModuleInfo `json:"modules"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &directory); err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func TestExistingAgentsRejectRunsWhenRequiredCapabilityDisabled(t *testing.T) {
 		}
 		t.Run(module, func(t *testing.T) {
 			e := agentEcho(store)
-			h := &cloudAgentHandler{store: store, runtime: &gocloudagent.Runtime{}}
+			h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{}}
 			e.POST("/capability/:threadID/runs", h.CreateRun)
 			created := agentReq(e, http.MethodPost, "/agent-threads", map[string]any{"agent_id": agent.ID})
 			if created.Code != http.StatusCreated {

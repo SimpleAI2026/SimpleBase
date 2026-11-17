@@ -5,13 +5,15 @@ package inner
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	seccomp "github.com/elastic/go-seccomp-bpf"
 	"github.com/landlock-lsm/go-landlock/landlock"
+	"golang.org/x/sys/unix"
 
-	"github.com/linkxzhou/SimpleBase/gosandbox/host/internal/spec"
+	"github.com/linkxzhou/SimpleBase/gosandbox/host/spec"
 )
 
 func stub(t *testing.T) (restricted *int, loaded *int) {
@@ -138,4 +140,73 @@ func TestSeccompFilterAssembles(t *testing.T) {
 	if !f.NoNewPrivs {
 		t.Fatal("no_new_privs must be set")
 	}
+}
+
+// default 档对齐 Docker 默认 profile：不含 AF_UNIX 拒绝，但保留 vsock / io_uring。
+func TestSeccompDefaultFilter(t *testing.T) {
+	f := SeccompDefaultFilter()
+	if _, err := f.Policy.Assemble(); err != nil {
+		t.Fatalf("default filter must assemble on this arch: %v", err)
+	}
+	if !f.NoNewPrivs {
+		t.Fatal("no_new_privs must be set")
+	}
+	var names []string
+	var socketConds []uint64
+	for _, g := range f.Policy.Syscalls {
+		names = append(names, g.Names...)
+		for _, c := range g.NamesWithCondtions {
+			if c.Name == "socket" && len(c.Conditions) == 1 {
+				socketConds = append(socketConds, c.Conditions[0].Value)
+			}
+		}
+	}
+	// 只允许本地 socket 的那种「放开」：条件是 AF_VSOCK，不是 AF_UNIX。
+	for _, v := range socketConds {
+		if v == uint64(unix.AF_UNIX) {
+			t.Fatal("default filter must not refuse AF_UNIX")
+		}
+	}
+	if len(socketConds) == 0 || socketConds[0] != uint64(unix.AF_VSOCK) {
+		t.Fatalf("default filter must refuse AF_VSOCK, got %v", socketConds)
+	}
+	for _, want := range []string{
+		"io_uring_setup", "io_uring_enter", "io_uring_register",
+		"add_key", "keyctl", "request_key", "syslog",
+		"bpf", "perf_event_open", "userfaultfd",
+		"mount", "umount2", "pivot_root", "unshare", "setns",
+		"init_module", "kexec_load", "reboot", "swapon", "clock_settime",
+	} {
+		if !slices.Contains(names, want) {
+			t.Errorf("default filter must deny %s", want)
+		}
+	}
+	// 网络调用不在拒绝清单里：网络由 netns 隔离，不是 seccomp 的职责。
+	for _, allowed := range []string{"connect", "accept", "listen", "bind", "sendto"} {
+		if slices.Contains(names, allowed) {
+			t.Errorf("%s is namespaced by the netns, not seccomp", allowed)
+		}
+	}
+}
+
+// 未知档位按 host 处理（保守），且两个档位的拒绝清单不同。
+func TestFilterFor(t *testing.T) {
+	if filterFor(spec.SeccompDefault).Policy.DefaultAction != SeccompDefaultFilter().Policy.DefaultAction {
+		t.Fatal("default kind must select the default filter")
+	}
+	hostNames, defNames := countDenied(SeccompFilter()), countDenied(SeccompDefaultFilter())
+	if hostNames == defNames {
+		t.Fatal("host and default filters must differ")
+	}
+	if countDenied(filterFor("bogus")) != hostNames {
+		t.Fatal("unknown kind must fall back to the host filter")
+	}
+}
+
+func countDenied(f seccomp.Filter) int {
+	n := 0
+	for _, g := range f.Policy.Syscalls {
+		n += len(g.Names) + len(g.NamesWithCondtions)
+	}
+	return n
 }

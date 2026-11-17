@@ -19,7 +19,7 @@ gofunction/
   value/                      # 解释器值抽象（主要内部使用）
   testdata/                   # 对拍集与用法样本，由 go test 加载
   bench/                      # 性能对照：进程内基准 + HTTP 压测服务（net/http，无额外依赖）
-  cmd/gofunction/             # 命令行入口（run / check / list / packages）
+  cmd/                        # 命令行入口（run / check / list / packages）
 ```
 
 分层规则：`internal/interp` 不 import 门面；门面只做别名与转发；`importer` / `packages` / `value`
@@ -65,15 +65,15 @@ func add(a, b int) int { return a + b }
 
 完整可运行样本见 [`testdata/hello.go`](testdata/hello.go)，由 `go test . -run TestTestdataScripts/hello` 加载执行。
 
-## 命令行（cmd/gofunction）
+## 命令行（cmd）
 
 ```bash
 cd gofunction
-go run ./cmd/gofunction run   -f script.go -func Hello -body '{"name":"x"}'   # 不带 -f 时读 stdin
-go run ./cmd/gofunction check -f script.go     # 校验导出函数符合 HTTP+JSON 约定
-go run ./cmd/gofunction list  -f script.go [-all]
-go run ./cmd/gofunction packages               # 已注册的宿主包
-go build -o gofunction ./cmd/gofunction        # 产出二进制
+go run ./cmd run   -f script.go -func Hello -body '{"name":"x"}'   # 不带 -f 时读 stdin
+go run ./cmd check -f script.go     # 校验导出函数符合 HTTP+JSON 约定
+go run ./cmd list  -f script.go [-all]
+go run ./cmd packages               # 已注册的宿主包
+go build -o gofunction ./cmd        # 产出二进制
 ```
 
 `run` 走 `RunJSON`：目标须是包级导出函数，恰好 1 入参 1 返回值；退出码 0 成功、1 执行失败、2 用法错误。

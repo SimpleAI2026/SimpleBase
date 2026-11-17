@@ -30,15 +30,24 @@ func Start(ctx context.Context, p Policy, spec StartSpec) (Proc, error) {
 		closeAll(closers)
 		return nil, err
 	}
+	cgFile, intoCgroup := joinCgroup(c, grp)
 	if err := c.Start(); err != nil {
+		if cgFile != nil {
+			cgFile.Close()
+		}
 		if grp != nil {
 			grp.remove()
 		}
 		closeAll(releasers)
 		return nil, unavailable("start bwrap: %v", err)
 	}
+	if cgFile != nil {
+		cgFile.Close()
+	}
 	if grp != nil {
-		_ = grp.addPID(c.Process.Pid)
+		if !intoCgroup {
+			_ = grp.addPID(c.Process.Pid)
+		}
 		closers = append(closers, grp.remove)
 	}
 	proc := newProcess(c, stdin, output, ptmx, releasers, closers...)

@@ -109,6 +109,5 @@ func TestPromptTemplateDoesNotGrantSkillPermissions(t *testing.T) {
 	if !strings.Contains(expanded, "database delete") {
 		t.Fatalf("expanded = %q", expanded)
 	}
-	// 「展开模板不授予权限」的断言放在父包（需要 gocloudagent.AllowArgv）：
-	// cli 不能 import gocloudagent，否则父包的门面会造成 import 环。
+	// 「展开模板不授予权限」的断言放在模块根包的 cli_entry_test.go（需要 skills.AllowArgv）。
 }

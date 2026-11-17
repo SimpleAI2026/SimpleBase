@@ -47,7 +47,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/cache"
 	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
@@ -55,7 +55,11 @@ import (
 	"github.com/linkxzhou/SimpleBase/godatabase/kv"
 	"github.com/linkxzhou/SimpleBase/godatabase/lease"
 	"github.com/linkxzhou/SimpleBase/godatabase/registry"
+	"github.com/linkxzhou/SimpleBase/gosandbox/image"
+	"github.com/linkxzhou/SimpleBase/gosandbox/netx"
+	"github.com/linkxzhou/SimpleBase/gosandbox/snapshot"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
+	boxvm "github.com/linkxzhou/SimpleBase/gosandbox/vm/box"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm/local"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
@@ -116,6 +120,8 @@ type App struct {
 	auditSvc   *audit.Service
 	llmSvc     llmgateway.Service
 	sandboxMgr *sandbox.Manager
+	// imageStore 是沙盒镜像的 store；未配置 sandbox.images_dir 时为 nil。
+	imageStore *image.Store
 	// sshHostKey 是沙盒终端的 SSH 主机密钥（setupSandboxTerminal 装配）。
 	sshHostKey ssh.Signer
 
@@ -393,6 +399,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		Delegations:            a.delegations,
 		CronScheduler:          cronScheduler,
 		Sandbox:                a.sandboxMgr,
+		Images:                 a.imageStore,
 		SandboxUsage:           a.usageSvc,
 		Terminal:               terminal,
 	}
@@ -508,6 +515,14 @@ func (a *App) assembleSandbox(ctx context.Context, cfg config.Config, logger obs
 			} else if logger != nil {
 				// 隔离不可用时不退回裸执行：云沙盒功能整体不可用，其余服务照常启动。
 				logger.Warn("sandbox disabled: local isolation unavailable (no unisolated fallback)", zap.Error(err))
+			}
+		case config.SandboxBackendBox:
+			boxDrv, store, boxErr := newBoxDriver(ctx, cfg, driverLog)
+			if boxErr == nil {
+				driver = boxDrv
+				a.imageStore = store
+			} else if logger != nil {
+				logger.Warn("sandbox disabled: box backend unavailable (no unisolated fallback)", zap.Error(boxErr))
 			}
 		}
 		if driver != nil {
@@ -1208,7 +1223,7 @@ func (a *App) initKVFunc() func(ctx context.Context, db catalog.Database) error 
 }
 
 // cloudAgentRuntime 装配云 Agent 运行时；沙盒按配置注入（cloud-agent-sandbox-plan §3.1）。
-func (a *App) cloudAgentRuntime() *gocloudagent.Runtime {
+func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 	if a.systemStore == nil {
 		return nil
 	}
@@ -1219,7 +1234,7 @@ func (a *App) cloudAgentRuntime() *gocloudagent.Runtime {
 		}
 	}
 	if a.cfg.Agent.SkillsCLI && a.logger != nil {
-		if failure := gocloudagent.ValidateCLIPath(cliPath); failure != "" {
+		if failure := cloudagent.ValidateCLIPath(cliPath); failure != "" {
 			a.logger.Warn("cloud agent CLI unavailable", zap.String("reason", failure))
 		} else {
 			a.logger.Info("cloud agent CLI ready", zap.String("path", cliPath))
@@ -1227,7 +1242,7 @@ func (a *App) cloudAgentRuntime() *gocloudagent.Runtime {
 	}
 	reg := auth.NewDelegationRegistry()
 	a.delegations = reg
-	rt := &gocloudagent.Runtime{
+	rt := &cloudagent.Runtime{
 		LLM:            api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
 		DB:             api.NewCloudAgentDB(a.catalog, dbbridge.RegistryFrom(a.registry)),
 		Obj:            api.NewCloudAgentObj(a.fileStore, a.systemStore),
@@ -1238,7 +1253,7 @@ func (a *App) cloudAgentRuntime() *gocloudagent.Runtime {
 		ToolProtocol:   a.cfg.LLM.EffectiveAgentToolProtocol(),
 		SkillsCLI:      a.cfg.Agent.SkillsCLI,
 		CLIPath:        cliPath,
-		CLI:            gocloudagent.SubprocessCLI{Path: cliPath},
+		CLI:            cloudagent.SubprocessCLI{Path: cliPath},
 		APIBaseURL:     loopbackBase(a.cfg.HTTP.Address),
 		ConfirmTimeout: a.cfg.Agent.EffectiveConfirmTimeout(),
 		DelegationTTL:  a.cfg.Agent.EffectiveDelegationTTL(),
@@ -1303,13 +1318,13 @@ func splitHostPortLoose(addr string) (string, string, error) {
 }
 
 func (s *sandboxAdapter) Available() bool { return s.m.Available() }
-func (s *sandboxAdapter) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (gocloudagent.SandboxOutput, error) {
+func (s *sandboxAdapter) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (cloudagent.SandboxOutput, error) {
 	out, err := s.m.ExecForThread(ctx, projectID, threadID, sandbox.ExecInput{Cmd: cmd, Args: args})
-	return gocloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
+	return cloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
 }
-func (s *sandboxAdapter) Shell(ctx context.Context, projectID, threadID, command string) (gocloudagent.SandboxOutput, error) {
+func (s *sandboxAdapter) Shell(ctx context.Context, projectID, threadID, command string) (cloudagent.SandboxOutput, error) {
 	out, err := s.m.ExecForThread(ctx, projectID, threadID, sandbox.ExecInput{Command: command})
-	return gocloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
+	return cloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
 }
 func (s *sandboxAdapter) ReadFile(ctx context.Context, projectID, threadID, path string) (string, error) {
 	file, err := s.m.ReadFileForThread(ctx, projectID, threadID, path)
@@ -1449,6 +1464,71 @@ func sandboxLocalOptions(cfg config.Config, log vm.LogFunc) local.Options {
 		cfgPath = "config.yaml"
 	}
 	opts.ProtectFiles = []string{cfgPath, ".env"}
+	return opts
+}
+
+// newBoxDriver 建常驻沙盒驱动；配置了镜像目录时同时接上镜像来源。
+//
+// 镜像来源是可选的：不配 images_dir 时只支持 image=host（宿主根只读），
+// 与 local 后端的行为一致。这样默认部署不需要任何 registry 依赖。
+func newBoxDriver(ctx context.Context, cfg config.Config, log vm.LogFunc) (vm.Driver, *image.Store, error) {
+	opts := sandboxBoxOptions(cfg, log)
+	var store *image.Store
+	if dir := cfg.Sandbox.ImagesDir; dir != "" {
+		st, err := image.Open(dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		store = st
+		opts.Images = boxvm.NewImageSource(image.NewPuller(store))
+	}
+	// 快照与镜像共用一个根：两者都是「沙盒的磁盘状态」，分开放会让
+	// 清理与备份要记住两个目录。
+	if dir := cfg.Sandbox.Root; dir != "" {
+		snaps, err := snapshot.Open(dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		opts.Snapshots = snaps
+	}
+	drv, err := boxvm.New(ctx, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return drv, store, nil
+}
+
+// sandboxBoxOptions 把配置转成常驻沙盒驱动的选项。
+//
+// box 后端在沙盒里跑一个 PID 1 agent，宿主文件系统不可见，所以 seccomp 用
+// Docker 默认档（允许本地 socket），而不是 host 档。
+func sandboxBoxOptions(cfg config.Config, log vm.LogFunc) boxvm.Options {
+	root := cfg.Sandbox.Root
+	if root == "" {
+		root = filepath.Join(cfg.Storage.DataDir, "sandboxes")
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	opts := boxvm.Options{
+		Root: root, Workdir: cfg.Sandbox.Workdir,
+		Helper: cfg.Sandbox.HelperPath, Bwrap: cfg.Sandbox.BwrapPath,
+		MaxFileBytes: cfg.Sandbox.MaxFileBytes, MaxOutputBytes: cfg.Sandbox.MaxOutputBytes,
+		PidsMax: cfg.Sandbox.PidsMax, MemoryMiB: cfg.Sandbox.MemoryMiB,
+		Seccomp: "default",
+		Log:     log,
+	}
+	// 让沙盒活过服务重启（升级、崩溃）。
+	opts.Supervise = cfg.Sandbox.Supervise
+	// 磁盘限额：MiB → 字节。0 表示不限。
+	if cfg.Sandbox.DiskLimitMiB > 0 {
+		opts.DiskLimitBytes = cfg.Sandbox.DiskLimitMiB << 20
+	}
+	// 出网：默认 none。档位字符串非法时退到 none，让沙盒仍能跑但不联网——
+	// 配置校验已挡掉非法值，这里是第二道防线（别让坏配置变成「意外联网」）。
+	if mode, err := netx.ParseMode(cfg.Sandbox.Network); err == nil {
+		opts.Network = netx.Policy{Mode: mode, Allow: cfg.Sandbox.NetworkAllow}
+	}
 	return opts
 }
 

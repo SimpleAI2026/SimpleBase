@@ -6,7 +6,7 @@
 //
 // 调用架构
 //
-//	[上游] gofunction/bench, gofunction/cmd/gofunction, internal/app
+//	[上游] gofunction/bench, gofunction/cmd, internal/app
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] gofunction/packages/std_time.go

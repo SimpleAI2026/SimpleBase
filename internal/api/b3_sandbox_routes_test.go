@@ -14,10 +14,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +45,13 @@ type fakeRouterSandbox struct {
 	envs        map[string]map[string]string
 	createdIn   []sandbox.CreateInput
 	startedProc []sandbox.StartSpec
+	// noLogs / noPorts 让测试覆盖「后端没有该能力」的 501 分支。
+	noLogs     bool
+	noPorts    bool
+	noWatch    bool
+	noSnapshot bool
+	snapMu     sync.Mutex
+	snaps      []sandbox.Snapshot
 }
 
 func newFakeRouterSandbox(avail bool) *fakeRouterSandbox {
@@ -60,8 +72,13 @@ func (f *fakeRouterSandbox) Create(_ contextT, projectID string, in sandbox.Crea
 		name = "sbx-aaaa"
 	}
 	exp := time.Now().Add(5 * time.Minute)
-	sb := sandbox.Sandbox{ID: "sb-" + name, ProjectID: projectID, Name: name, Source: in.Source, Image: "host",
-		CPUs: 1, MemoryMiB: 256, Status: "running", Metadata: in.Metadata, CreatedAt: time.Now(), ExpiresAt: &exp, IdleTimeoutS: 300}
+	// 尊重 in.Start：fork 出来的沙盒是不启动的，状态必须能区分。
+	status := "running"
+	if !in.Start {
+		status = "pending"
+	}
+	sb := sandbox.Sandbox{ID: "sb-" + name, ProjectID: projectID, Name: name, CloudName: "c-" + name, Source: in.Source, Image: "host",
+		CPUs: 1, MemoryMiB: 256, Status: status, Metadata: in.Metadata, CreatedAt: time.Now(), ExpiresAt: &exp, IdleTimeoutS: 300}
 	f.rows[sb.ID] = sb
 	return sb, nil
 }
@@ -105,6 +122,201 @@ func (f *fakeRouterSandbox) Stop(_ contextT, projectID, id string) (sandbox.Sand
 	f.rows[id] = r
 	return r, nil
 }
+
+func (f *fakeRouterSandbox) Pause(_ contextT, projectID, id string) (sandbox.Sandbox, error) {
+	r, err := f.Get(context.Background(), projectID, id, false)
+	if err != nil {
+		return r, err
+	}
+	r.Status = "paused"
+	f.rows[id] = r
+	return r, nil
+}
+
+func (f *fakeRouterSandbox) Resume(_ contextT, projectID, id string) (sandbox.Sandbox, error) {
+	r, err := f.Get(context.Background(), projectID, id, false)
+	if err != nil {
+		return r, err
+	}
+	r.Status = "running"
+	f.rows[id] = r
+	return r, nil
+}
+
+func (f *fakeRouterSandbox) Metrics(_ contextT, projectID, id string) (vm.Metrics, error) {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
+		return vm.Metrics{}, err
+	}
+	return vm.Metrics{MemoryBytes: 1 << 20, Pids: 3, Backend: "cgroup"}, nil
+}
+
+// Logs 返回固定的一段输出：路由与编码测试只关心形状。
+func (f *fakeRouterSandbox) Logs(_ contextT, projectID, id string, _ sandbox.LogOptions) ([]sandbox.LogRecord, error) {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
+		return nil, err
+	}
+	return []sandbox.LogRecord{
+		{Stream: "stdout", Time: time.Unix(1, 0), Data: []byte("hello\n")},
+		{Stream: "stderr", Time: time.Unix(2, 0), Data: []byte("warn\n")},
+	}, nil
+}
+
+// DialPort 返回一个内存连接：只验证路由与状态码。
+func (f *fakeRouterSandbox) DialPort(_ contextT, projectID, id string, port uint16) (io.ReadWriteCloser, error) {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
+		return nil, err
+	}
+	local, remote := net.Pipe()
+	go func() {
+		// 沙盒端：读一次请求，回一个固定响应。
+		buf := make([]byte, 64)
+		_, _ = remote.Read(buf)
+		_, _ = remote.Write([]byte("proxied:" + strconv.Itoa(int(port))))
+		remote.Close()
+	}()
+	return local, nil
+}
+
+// CanLogs / CanWatch / CanPorts 在测试替身里都为真，覆盖有能力的路径。
+func (f *fakeRouterSandbox) CanLogs() bool  { return !f.noLogs }
+func (f *fakeRouterSandbox) CanWatch() bool { return !f.noWatch }
+func (f *fakeRouterSandbox) CanPorts() bool { return !f.noPorts }
+
+// Watch 返回一个可控的事件通道：测试往里推事件。
+func (f *fakeRouterSandbox) Watch(_ contextT, projectID, id, path string, _ bool) (vm.FileWatch, error) {
+	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
+		return nil, err
+	}
+	return newFakeWatch(path), nil
+}
+
+// fakeWatch 是一个内存里的事件通道。
+type fakeWatch struct {
+	events chan vm.FileEvent
+	closed chan struct{}
+	once   sync.Once
+}
+
+// newFakeWatch 建一个 fakeWatch；用包级表让测试能往里推事件。
+func newFakeWatch(path string) *fakeWatch {
+	w := &fakeWatch{events: make(chan vm.FileEvent, 16), closed: make(chan struct{})}
+	fakeWatches.add(path, w)
+	return w
+}
+
+// Events 实现 vm.FileWatch。
+func (w *fakeWatch) Events() <-chan vm.FileEvent { return w.events }
+
+// Err 实现 vm.FileWatch。
+func (w *fakeWatch) Err() error { return nil }
+
+// Close 实现 vm.FileWatch。
+func (w *fakeWatch) Close() error {
+	w.once.Do(func() {
+		close(w.closed)
+		close(w.events)
+	})
+	return nil
+}
+
+// fakeWatchTable 是测试里「按路径找回 fakeWatch」的表。
+type fakeWatchTable struct {
+	mu sync.Mutex
+	by map[string][]*fakeWatch
+}
+
+func (t *fakeWatchTable) add(path string, w *fakeWatch) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.by[path] = append(t.by[path], w)
+}
+
+// push 往某个路径最近一次建的 watch 推一条事件。
+func (t *fakeWatchTable) push(path string, ev vm.FileEvent) bool {
+	t.mu.Lock()
+	list := t.by[path]
+	var w *fakeWatch
+	if len(list) > 0 {
+		w = list[len(list)-1]
+	}
+	t.mu.Unlock()
+	if w == nil {
+		return false
+	}
+	select {
+	case w.events <- ev:
+		return true
+	case <-w.closed:
+		return false
+	}
+}
+
+var fakeWatches = &fakeWatchTable{by: map[string][]*fakeWatch{}}
+
+// CanSnapshot 在测试替身里为真，覆盖 fork / snapshots 的能力路径。
+func (f *fakeRouterSandbox) CanSnapshot() bool { return !f.noSnapshot }
+
+// Snapshot 给一个假快照：只影响内存，不做磁盘操作。
+func (f *fakeRouterSandbox) Snapshot(_ contextT, projectID, id, label string) (sandbox.Snapshot, error) {
+	row, err := f.Get(context.Background(), projectID, id, false)
+	if err != nil {
+		return sandbox.Snapshot{}, err
+	}
+	f.snapMu.Lock()
+	defer f.snapMu.Unlock()
+	snap := sandbox.Snapshot{
+		ID:        "snap-" + strconv.Itoa(len(f.snaps)+1),
+		Name:      row.CloudName,
+		Label:     label,
+		Size:      1024,
+		Digest:    "sha256:" + strings.Repeat("d", 64),
+		Created:   time.Unix(1_700_000_000, 0).UTC(),
+		Processes: false,
+	}
+	f.snaps = append(f.snaps, snap)
+	return snap, nil
+}
+
+// Snapshots 返回已拍的快照。
+func (f *fakeRouterSandbox) Snapshots(contextT) ([]sandbox.Snapshot, error) {
+	f.snapMu.Lock()
+	defer f.snapMu.Unlock()
+	out := make([]sandbox.Snapshot, len(f.snaps))
+	copy(out, f.snaps)
+	return out, nil
+}
+
+// RemoveSnapshot 从内存表里删掉。
+func (f *fakeRouterSandbox) RemoveSnapshot(_ contextT, id string) error {
+	f.snapMu.Lock()
+	defer f.snapMu.Unlock()
+	for i, s := range f.snaps {
+		if s.ID == id {
+			f.snaps = append(f.snaps[:i], f.snaps[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: snapshot %q", sandbox.ErrNotFound, id)
+}
+
+// Fork 建一个新行，并把快照来源记在 metadata 之外（测试只关心行存在）。
+func (f *fakeRouterSandbox) Fork(ctx contextT, projectID, snapshotID, actor string, in sandbox.CreateInput) (sandbox.Sandbox, error) {
+	f.snapMu.Lock()
+	found := false
+	for _, s := range f.snaps {
+		if s.ID == snapshotID {
+			found = true
+			break
+		}
+	}
+	f.snapMu.Unlock()
+	if !found {
+		return sandbox.Sandbox{}, fmt.Errorf("%w: snapshot %q", sandbox.ErrNotFound, snapshotID)
+	}
+	in.Start = false
+	return f.Create(ctx, projectID, in, actor)
+}
+
 func (f *fakeRouterSandbox) Delete(_ contextT, projectID, id string) error {
 	if _, err := f.Get(context.Background(), projectID, id, false); err != nil {
 		return err
@@ -198,6 +410,24 @@ func e2bRouteSet() map[string]bool {
 	add("POST", "/e2b/sandboxes/:sandboxID/resume")
 	add("POST", "/e2b/sandboxes/:sandboxID/connect")
 	add("POST", "/e2b/v2/sandboxes/:sandboxID/connect")
+	add("POST", "/e2b/sandboxes/:sandboxID/snapshots")
+	add("GET", "/e2b/sandboxes/:sandboxID/snapshots")
+	add("POST", "/e2b/v2/sandboxes/:sandboxID/snapshots")
+	add("GET", "/e2b/v2/sandboxes/:sandboxID/snapshots")
+	add("POST", "/e2b/sandboxes/:sandboxID/fork")
+	add("POST", "/e2b/v2/sandboxes/:sandboxID/fork")
+	add("DELETE", "/e2b/snapshots/:snapshotID")
+	add("DELETE", "/e2b/v2/snapshots/:snapshotID")
+	add("POST", "/e2b/snapshots/:snapshotID/fork")
+	add("POST", "/e2b/v2/snapshots/:snapshotID/fork")
+	add("GET", "/e2b/sandboxes/:sandboxID/metrics")
+	add("GET", "/e2b/v2/sandboxes/:sandboxID/metrics")
+	add("GET", "/e2b/sandboxes/:sandboxID/logs")
+	add("GET", "/e2b/v2/sandboxes/:sandboxID/logs")
+	for _, method := range []string{"GET", "POST"} {
+		add(method, "/e2b/sandboxes/:sandboxID/host/:port")
+		add(method, "/e2b/v2/sandboxes/:sandboxID/host/:port")
+	}
 	for _, base := range []string{"", "/e2b/envd"} {
 		add("GET", base+"/health")
 		add("GET", base+"/envs")
@@ -254,6 +484,10 @@ func TestE2BRouteSetLocked(t *testing.T) {
 	// 终端的两条 ext 路由只在终端可用时存在。
 	want["POST /e2b/ext/sandboxes/:sandboxID/terminal-tickets"] = true
 	want["GET /e2b/ext/sandboxes/:sandboxID/terminal"] = true
+	// 镜像管理的三条 ext 路由始终挂载（没有 store 时回答 501）。
+	want["GET /e2b/ext/images"] = true
+	want["POST /e2b/ext/images/pull"] = true
+	want["DELETE /e2b/ext/images"] = true
 	got := map[string]bool{}
 	for _, r := range e.Routes() {
 		// Echo 给每个 Group 自动登记 echo_route_not_found 占位，不是业务路由。
@@ -262,7 +496,7 @@ func TestE2BRouteSetLocked(t *testing.T) {
 		}
 		if strings.HasPrefix(r.Path, "/e2b/sandboxes/:sandboxID/") || strings.HasPrefix(r.Path, "/e2b/v2/sandboxes/:sandboxID/") {
 			switch r.Path[strings.LastIndex(r.Path, "/")+1:] {
-			case "fork", "snapshots", "logs", "metrics", "network", "refreshes":
+			case "network", "refreshes":
 				continue // 明确不支持的端点：统一 501，另测
 			}
 		}
@@ -339,7 +573,8 @@ func TestE2BCredentialsAndErrorShape(t *testing.T) {
 		t.Fatalf("unknown path: %d %s", rec.Code, rec.Body.String())
 	}
 	// 不支持的 E2B 端点：501 + unsupported_feature。
-	rec = call(e, "POST", "/e2b/sandboxes/sb-x/fork", key, "{}", nil)
+	// （fork / snapshots 已实现，这里换成仍然明确不支持的 network。）
+	rec = call(e, "POST", "/e2b/sandboxes/sb-x/network", key, "{}", nil)
 	if rec.Code != 501 || !strings.Contains(rec.Body.String(), "unsupported_feature") {
 		t.Fatalf("fork: %d %s", rec.Code, rec.Body.String())
 	}

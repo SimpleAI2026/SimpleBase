@@ -42,4 +42,6 @@ var (
 	ErrFileTooLarge  = errors.New("sandbox: file too large")
 	ErrBusy          = errors.New("sandbox: busy")
 	ErrGone          = errors.New("sandbox: gone")
+	// ErrAlreadyPaused 表示对已冻结的沙盒再次 pause（E2B 返回 409）。
+	ErrAlreadyPaused = errors.New("sandbox: already paused")
 )

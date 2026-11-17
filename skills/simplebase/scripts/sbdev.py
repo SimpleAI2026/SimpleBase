@@ -1306,6 +1306,49 @@ def collect_site_files(root: Path, dist_arg: str, prefix_arg: str):
     return files, prefix
 
 
+SITE_OBJECT_SCAN_LIMIT = 1000
+
+
+def list_foreign_objects(cli, files, prefix: str):
+    """列出 prefix 下、不在本次上传清单内的现有对象（将随公开规则一并对外）。
+
+    返回 (按一级目录汇总的 [(目录, 数量)], 是否因超过扫描上限而只统计了一部分)。
+    列表失败或结构不认识时返回 ([], False)：这只是提示，不阻断发布。
+    """
+    try:
+        data = cli("object", "list", "--prefix", prefix)
+    except CLIError:
+        return [], False
+    items = data.get("objects") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return [], False
+    uploaded = {key for key, _ in files}
+    truncated = len(items) > SITE_OBJECT_SCAN_LIMIT
+    groups: dict = {}
+    for it in items[:SITE_OBJECT_SCAN_LIMIT]:
+        key = it.get("key") if isinstance(it, dict) else None
+        if not isinstance(key, str) or not key.startswith(prefix) or key in uploaded:
+            continue
+        rest = key[len(prefix):]
+        head = prefix + rest.split("/", 1)[0] + "/" if "/" in rest else prefix or "/"
+        groups[head] = groups.get(head, 0) + 1
+    return sorted(groups.items()), truncated
+
+
+def warn_foreign_objects(groups, truncated: bool, prefix: str) -> None:
+    if not groups:
+        return
+    total = sum(n for _, n in groups)
+    warn(f"发布 {prefix or '/'} 会让该前缀下已有的 {total} 个非本次产物的对象一并匿名公开"
+         + ("（对象很多，仅统计前 %d 个）" % SITE_OBJECT_SCAN_LIMIT if truncated else "") + "：")
+    for head, n in groups[:10]:
+        warn(f"  {head}  {n} 个")
+    if len(groups) > 10:
+        warn(f"  ... 另有 {len(groups) - 10} 个目录")
+    if not prefix:
+        warn("建议改用 --prefix（如 web/）收窄公开范围，或先把业务对象移到未公开的前缀之外。")
+
+
 def probe_site_url(t: Target, visit_url: str):
     if not visit_url:
         return None
@@ -1362,6 +1405,9 @@ def cmd_site_deploy(args) -> int:
         if not args.no_publish:
             say("  enable  site       开启项目子域名访问")
             say(f"  public  folder     {prefix or '/'}（对外匿名可读）")
+            if t.bin and os.access(t.bin, os.X_OK):
+                groups, truncated = list_foreign_objects(CLI(t), files, prefix)
+                warn_foreign_objects(groups, truncated, prefix)
         say("确认将构建产物上传并发布后，加 --yes 重跑 site deploy。")
         return EXIT_CONFIRM
     t.require()
@@ -1371,6 +1417,9 @@ def cmd_site_deploy(args) -> int:
             reason = info.get("reason") or "not_publishable"
             raise Fail(f"当前项目不可发布站点（{reason}）：{_site_reason_hint(t.project, reason)}", EXIT_REMOTE)
     cli = CLI(t)
+    if not args.no_publish:
+        groups, truncated = list_foreign_objects(cli, files, prefix)
+        warn_foreign_objects(groups, truncated, prefix)
     say(f"上传静态产物 → {t.label}（{t.key}），共 {len(files)} 个文件")
     try:
         for key, fp in files:

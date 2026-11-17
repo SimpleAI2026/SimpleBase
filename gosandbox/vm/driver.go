@@ -147,3 +147,154 @@ type Proc interface {
 type Interactive interface {
 	Start(ctx context.Context, t Target, req StartSpec) (Proc, error)
 }
+
+// Metrics 是一个沙盒当前的资源用量快照。
+//
+// 只有 Linux 且 cgroup v2 已委派时才有值；其他后端返回 ErrNotSupported，
+// 上层据此在 capabilities 里标注「无指标」，而不是报 0。
+type Metrics struct {
+	MemoryBytes     int64 `json:"memory_bytes"`
+	MemoryPeakBytes int64 `json:"memory_peak_bytes"`
+	CPUUsec         int64 `json:"cpu_usec"`
+	Pids            int64 `json:"pids"`
+	OOMKills        int64 `json:"oom_kills"`
+	DiskReadBytes   int64 `json:"disk_read_bytes"`
+	DiskWriteBytes  int64 `json:"disk_write_bytes"`
+	// DiskUsedBytes 是沙盒可写部分（upper + ws）的实际占用。
+	//
+	// 与 DiskWriteBytes（io 带宽）不同：这是「现在占了多少盘」。
+	// 后端算不出来时留 0——别用 io 累计值冒充，那只会误导配额判断。
+	DiskUsedBytes int64 `json:"disk_used_bytes"`
+	// Backend 是数据来源："cgroup" | "none"。
+	Backend string `json:"backend"`
+}
+
+// Meter 是 Driver 的可选能力：读沙盒的资源用量。
+type Meter interface {
+	Metrics(ctx context.Context, name string) (Metrics, error)
+}
+
+// Pauser 是 Driver 的可选能力：冻结 / 解冻沙盒内的全部进程。
+//
+// 冻结保留内存与进程状态，恢复是毫秒级；不实现它的后端，上层只能把 pause
+// 降级为 stop（进程丢失），并在 capabilities 里如实标注。
+type Pauser interface {
+	Pause(ctx context.Context, name string) error
+	Resume(ctx context.Context, t Target) error
+}
+
+// LogQuery 是一次日志查询。
+type LogQuery struct {
+	// Lines 是最后多少条记录；0 = 全部。
+	Lines int
+	// Since 是起始时间；零值 = 不限。
+	Since time.Time
+	// Streams 是只保留的流："stdout" / "stderr"；空 = 全部。
+	Streams []string
+}
+
+// LogRecord 是一条日志记录。
+type LogRecord struct {
+	// Stream 是 "stdout" 或 "stderr"。
+	Stream string
+	Time   time.Time
+	Data   []byte
+}
+
+// LogSource 是 Driver 的可选能力：读沙盒的历史输出。
+//
+// 「历史」是相对于「实时流」而言：进程已经退出、或调用方当时没在读，
+// 输出仍然能回放。不实现它的后端，上层必须关掉 logs 能力而不是
+// 返回空列表（空列表会被误解为「没有输出」）。
+type LogSource interface {
+	Logs(ctx context.Context, name string, q LogQuery) ([]LogRecord, error)
+}
+
+// WatchOptions 是目录监听的参数。
+type WatchOptions struct {
+	// Recursive 为真时连子目录一起看。
+	Recursive bool
+}
+
+// FileEvent 是一次文件变化。
+type FileEvent struct {
+	// Path 是沙盒内路径。
+	Path string
+	// Kind 是 "file" / "directory" / "symlink" / "other"。
+	Kind string
+}
+
+// FileWatch 是一个进行中的目录监听。
+//
+// Events 关闭表示监听结束（Close 或沙盒退出）。通道满时实现可以丢事件，
+// 调用方应定期全量重扫；不实现 Watcher 的后端，上层必须关掉 WatchDir。
+type FileWatch interface {
+	Events() <-chan FileEvent
+	// Err 返回监听结束的原因；正常关闭返回 nil。
+	Err() error
+	Close() error
+}
+
+// Watcher 是 Driver 的可选能力：监听沙盒内的目录变化。
+type Watcher interface {
+	Watch(ctx context.Context, t Target, path string, opt WatchOptions) (FileWatch, error)
+}
+
+// SnapshotInfo 是一个文件系统快照。
+type SnapshotInfo struct {
+	// ID 是快照 id。
+	ID string
+	// Name 是拍快照时的沙盒名。
+	Name string
+	// Label 是调用方给的说明。
+	Label string
+	// Parent 是父快照 id（fork 出来的沙盒再拍快照时填）。
+	Parent string
+	// Size 是归档大小。
+	Size int64
+	// Digest 是归档内容的摘要。
+	Digest string
+	// Created 是创建时间。
+	Created time.Time
+}
+
+// Snapshotter 是 Driver 的可选能力：文件系统快照与 fork。
+//
+// 语义边界（必须让上层与用户都知道）：
+//
+//   - 只保存**文件系统**：可写层与工作区。不保存内存与进程；
+//   - 因此 Fork 出来的沙盒**没有**原沙盒里正在跑的进程，需要重新启动；
+//   - 运行中的沙盒拍快照不是原子的：磁盘可能在打包期间变化，
+//     快照是「某个瞬间的近似」，不是一致性快照。
+//
+// 这些都是共享内核的容器做不到内存快照的直接后果。不实现
+// Snapshotter 的后端，上层必须把 fork / snapshots 回答 501。
+type Snapshotter interface {
+	// Snapshot 给一个沙盒拍快照。
+	Snapshot(ctx context.Context, t Target, label string) (SnapshotInfo, error)
+	// Snapshots 列出全部快照（新→旧）。
+	Snapshots(ctx context.Context) ([]SnapshotInfo, error)
+	// RemoveSnapshot 删一个快照。
+	RemoveSnapshot(ctx context.Context, id string) error
+	// Fork 从快照建一个新沙盒（新名字），并返回它的快照来源。
+	//
+	// 新沙盒的磁盘内容等于快照，进程未启动。
+	Fork(ctx context.Context, snapshotID string, t Target) (SnapshotInfo, error)
+}
+
+// PortDialer 是 Driver 的可选能力：连到沙盒内 127.0.0.1 的某个端口。
+//
+// 这是 E2B getHost(port) 的实现方式：沙盒不需要网络栈，平台反向代理
+// 收到请求后经控制通道开一条中继。
+type PortDialer interface {
+	DialPort(ctx context.Context, name string, port uint16) (io.ReadWriteCloser, error)
+}
+
+// Freezer 是 Pauser 的可选补充：报告冻结在当前环境里是否真的可用。
+//
+// 实现了 Pauser 但当前环境冻结不了的后端（例如 cgroup 未委派、或 macOS 没有
+// cgroup）必须实现本接口并返回 false，上层据此把 pause 降级为 stop，
+// 而不是让调用方收到一个 backend error。
+type Freezer interface {
+	CanFreeze() bool
+}

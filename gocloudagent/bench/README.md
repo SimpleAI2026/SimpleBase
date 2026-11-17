@@ -42,7 +42,7 @@ GOCLOUDAGENT_BENCH_RUN_ROOT=/tmp/sbbench python3 gocloudagent/bench/run_smoke.py
 `gocloudagent` 是嵌套模块（`gocloudagent/go.mod`），`simplebase` 在根模块，所以 `compile_bins()` 分别用各自的模块目录作 `cwd`：
 
 - `simplebase`：`cwd=<repo>`，`go build ./cmd/simplebase`
-- `gocloudagent`：`cwd=<repo>/gocloudagent`，`go build ./cmd/gocloudagent`
+- `gocloudagent`：`cwd=<repo>/gocloudagent`，`go build ./cmd`
 
 仓库根用「含 `go.mod` 且模块名为 `github.com/linkxzhou/SimpleBase`，同时有 `config.example.yaml`」的目录定位，不依赖 `parents[N]`，这样目录再移动也不用改索引。
 

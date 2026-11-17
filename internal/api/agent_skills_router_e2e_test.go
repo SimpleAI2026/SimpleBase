@@ -22,7 +22,8 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "github.com/uglyer/go-sqlite3"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	agentskills "github.com/linkxzhou/SimpleBase/gocloudagent/skills"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
@@ -39,7 +40,7 @@ type skillRouterEnv struct {
 	echo     *echo.Echo
 	srv      *httptest.Server
 	store    *systemdb.Store
-	rt       *gocloudagent.Runtime
+	rt       *cloudagent.Runtime
 	llm      *scriptLLM
 	reg      *auth.DelegationRegistry
 	dataHits *skillHitCounter
@@ -147,7 +148,7 @@ func newSkillRouterEnv(t *testing.T) *skillRouterEnv {
 	t.Cleanup(srv.Close)
 
 	llm := &scriptLLM{}
-	rt := &gocloudagent.Runtime{
+	rt := &cloudagent.Runtime{
 		LLM: llm, SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
 		APIBaseURL: srv.URL, Policy: agentbridge.NewCommandPolicy(), Issuer: agentbridge.NewDelegationIssuer("test-secret", delegations),
 		// Confirm 留空：由 NewRouter 注入统一的 confirmHub，
@@ -263,7 +264,7 @@ func (env *skillRouterEnv) req(method, path string, body []byte) *httptest.Respo
 // srRun 对真实 router 发起流式 run，读到 end 返回全部事件。
 // srRun 对真实 router 发起流式 run，读到 end 返回全部事件。
 // 技能由 thread 绑定的助手 module 决定，请求体不再传 skills。
-func (env *skillRouterEnv) run(t *testing.T, content string, module string, steps [][]gocloudagent.StreamDelta) []sseEvent {
+func (env *skillRouterEnv) run(t *testing.T, content string, module string, steps [][]cloudagent.StreamDelta) []sseEvent {
 	t.Helper()
 	env.dataHits.reset()
 	env.llm.reset(steps)
@@ -326,13 +327,13 @@ func (env *skillRouterEnv) createThread(t *testing.T) string {
 }
 
 // toolStdin 构造带 stdin 的 simplebase 工具参数（planv6.0 D3）。
-func toolStdin(id string, argv []string, stdin string) []gocloudagent.StreamDelta {
+func toolStdin(id string, argv []string, stdin string) []cloudagent.StreamDelta {
 	raw, _ := json.Marshal(map[string]any{"argv": argv, "stdin": stdin})
 	s := string(raw)
 	cut := len(s) / 2
-	return []gocloudagent.StreamDelta{
-		{ToolCall: &gocloudagent.ToolCallDelta{Index: 0, ID: id, Name: "simplebase", ArgsDelta: s[:cut]}},
-		{ToolCall: &gocloudagent.ToolCallDelta{Index: 0, ArgsDelta: s[cut:]}},
+	return []cloudagent.StreamDelta{
+		{ToolCall: &cloudagent.ToolCallDelta{Index: 0, ID: id, Name: "simplebase", ArgsDelta: s[:cut]}},
+		{ToolCall: &cloudagent.ToolCallDelta{Index: 0, ArgsDelta: s[cut:]}},
 		{Finish: true},
 	}
 }
@@ -365,7 +366,7 @@ func TestAgentSkillsRouterE2E_16_GoFunctionCreateInvoke(t *testing.T) {
 	env := newSkillRouterEnv(t)
 	src := base64.StdEncoding.EncodeToString([]byte("package main\ntype Req struct{ Name string }\nfunc Hello(req Req) string { return \"hi\" }"))
 	evs := env.run(t, "写一个 Hello 云函数并调用", "gofunction",
-		[][]gocloudagent.StreamDelta{
+		[][]cloudagent.StreamDelta{
 			toolStdin("c1", []string{"function", "create", "--name", "hello", "--file", "-", "--source-b64", src}, ""),
 			toolDeltas("c2", []string{"function", "invoke", "--name", "hello", "--export", "Hello"}),
 			textDeltas("hi"),
@@ -430,7 +431,7 @@ func TestAgentSkillsRouterE2E_17_DelegationCannotCallAgentRoutes(t *testing.T) {
 func TestAgentSkillsRouterE2E_18_HostFileForbiddenInAgentMode(t *testing.T) {
 	env := newSkillRouterEnv(t)
 	evs := env.run(t, "把宿主机文件传上去", "gofunction",
-		[][]gocloudagent.StreamDelta{
+		[][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"function", "create", "--name", "evil", "--file", "/etc/hosts"}),
 			textDeltas("no"),
 		})
@@ -452,7 +453,7 @@ func TestAgentSkillsRouterE2E_19_InitiatorCheck(t *testing.T) {
 	env := newSkillRouterEnv(t)
 	env.dataHits.reset()
 	thread := env.createThreadFor(t, "database")
-	env.llm.reset([][]gocloudagent.StreamDelta{
+	env.llm.reset([][]cloudagent.StreamDelta{
 		toolDeltas("c1", []string{"database", "delete", "--id", "db-1"}),
 		textDeltas("done"),
 	})
@@ -524,14 +525,14 @@ func TestAgentSkillsRouterE2E_19_InitiatorCheck(t *testing.T) {
 // `@` 只点名助手后，没有助手 module 对应 project，该技能不再有运行入口，
 // 因此这里只校验前缀白名单，不再走真实 /quota 与 /audit 调用链。
 func TestAgentSkillsRouterE2E_20_ProjectSkillPrefixes(t *testing.T) {
-	if !gocloudagent.AllowArgv([]string{"project"}, []string{"quota", "get"}) ||
-		!gocloudagent.AllowArgv([]string{"project"}, []string{"audit", "list"}) {
+	if !agentskills.AllowArgv([]string{"project"}, []string{"quota", "get"}) ||
+		!agentskills.AllowArgv([]string{"project"}, []string{"audit", "list"}) {
 		t.Fatal("project skill 应放行 quota / audit")
 	}
-	if gocloudagent.AllowArgv([]string{"project"}, []string{"user", "list"}) {
+	if agentskills.AllowArgv([]string{"project"}, []string{"user", "list"}) {
 		t.Fatal("user 命令不应被 project skill 放行（D4）")
 	}
-	if gocloudagent.AllowArgv([]string{"project"}, []string{"apikey", "create"}) {
+	if agentskills.AllowArgv([]string{"project"}, []string{"apikey", "create"}) {
 		t.Fatal("apikey 命令不应被 project skill 放行（D4）")
 	}
 }

@@ -38,6 +38,28 @@ import (
 // InnerPolicyPath 是 helper 在沙盒内读取策略的位置（父进程经 --file 放入）。
 const InnerPolicyPath = "/run/gosandbox/policy.json"
 
+// MaskedPaths 是 Docker 默认遮蔽的路径：盖成 /dev/null，读不到内容。
+// 这些文件会泄露宿主内核信息（内存布局、密钥、调度器状态、固件）。
+var MaskedPaths = []string{
+	"/proc/kcore",
+	"/proc/keys",
+	"/proc/latency_stats",
+	"/proc/timer_list",
+	"/proc/timer_stats",
+	"/proc/sched_debug",
+	"/proc/scsi",
+	"/sys/firmware",
+}
+
+// ReadonlyPaths 是 Docker 默认再盖成只读的路径：容器内可以读，不能改。
+var ReadonlyPaths = []string{
+	"/proc/bus",
+	"/proc/fs",
+	"/proc/irq",
+	"/proc/sys",
+	"/proc/sysrq-trigger",
+}
+
 // BwrapInput 是生成 bwrap 参数所需的全部输入。
 type BwrapInput struct {
 	Policy Policy
@@ -51,6 +73,9 @@ type BwrapInput struct {
 	PolicyFD int
 	// DisableUserNS 为真时追加 --disable-userns（bwrap >= 0.8.0 且非 setuid）。
 	DisableUserNS bool
+	// SizesSupported 为真表示 bwrap 支持 --size（>= 0.9）。为假时忽略
+	// Policy.ShmBytes / TmpBytes 的大小，退化成不限大小的 tmpfs，避免 bwrap 直接报错。
+	SizesSupported bool
 	// Exists 判断路径是否存在；nil 取 os.Lstat。仅用于只读子路径、强制 deny 表与 deny_read，便于测试。
 	Exists func(string) bool
 	// IsDir 判断路径是否为目录；nil 取 os.Stat。
@@ -101,7 +126,7 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 	// 工作区或可写根可能位于 /tmp 之下（如 /tmp/ws），后挂的 tmpfs 会把它们整个盖掉。
 	// /tmp 本身已被可写根覆盖时不再挂。
 	for _, s := range ScratchDirs(p) {
-		args = append(args, "--tmpfs", s)
+		args = append(args, tmpfsArgs(s, sizeOrZero(in.SizesSupported, p.TmpBytes))...)
 	}
 
 	// 可写绑定。read-only 档不绑工作区。
@@ -157,7 +182,27 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 		}
 	}
 
-	args = append(args, "--dev", "/dev", "--proc", "/proc",
+	args = append(args, "--dev", "/dev", "--proc", "/proc")
+	// /dev/shm 默认与宿主一致；显式给了大小就单独挂一个 tmpfs 盖上去。
+	// 编译类任务（Go、Rust、Chromium）在 64MiB 下会失败。
+	if p.ShmBytes > 0 {
+		args = append(args, tmpfsArgs("/dev/shm", sizeOrZero(in.SizesSupported, p.ShmBytes))...)
+	}
+	// Docker 默认的 masked / readonly 路径：盖成 /dev/null 或再挂一次只读。
+	// 只在路径存在时挂，否则 bwrap 会因目标不存在而启动失败。
+	if !p.DisableMaskedPaths {
+		for _, m := range MaskedPaths {
+			if exists(m) {
+				args = append(args, "--ro-bind", "/dev/null", m)
+			}
+		}
+		for _, m := range ReadonlyPaths {
+			if exists(m) {
+				args = append(args, "--ro-bind", m, m)
+			}
+		}
+	}
+	args = append(args,
 		"--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-net")
 	if in.DisableUserNS {
 		args = append(args, "--disable-userns")
@@ -175,6 +220,24 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 	args = append(args, "--")
 	args = append(args, in.Argv...)
 	return args, nil
+}
+
+// tmpfsArgs 返回挂一个 tmpfs 的参数。size > 0 时带 --size（bwrap >= 0.9）；
+// 老版本 bwrap 不认 --size，所以只在显式配置时使用，由 Probe 的 BwrapSize 决定是否可用。
+// sizeOrZero 在 bwrap 不支持 --size 时返回 0，让 tmpfs 退化为不限大小，
+// 而不是让 bwrap 因为不认识的参数直接失败。
+func sizeOrZero(supported bool, size int64) int64 {
+	if !supported {
+		return 0
+	}
+	return size
+}
+
+func tmpfsArgs(target string, size int64) []string {
+	if size > 0 {
+		return []string{"--size", strconv.FormatInt(size, 10), "--tmpfs", target}
+	}
+	return []string{"--tmpfs", target}
 }
 
 // ScratchDirs 返回沙盒内需要 tmpfs 的目录。工作区或可写根已经覆盖 /tmp 时不重复挂。

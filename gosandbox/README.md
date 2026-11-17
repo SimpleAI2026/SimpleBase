@@ -5,14 +5,199 @@ SimpleBase 的沙盒执行层，独立 Go 模块 `github.com/linkxzhou/SimpleBas
 ```text
 host/                  本机进程隔离（gocloudagent CLI 的本机 shell 用）
   inner/               沙盒内加载 Landlock + seccomp（仅 linux）
-  internal/spec/       父进程与 helper 之间的协议（策略 JSON、失败退出码）
+  spec/                父进程与 helper 之间的协议（策略 JSON、失败退出码）
 cmd/                   沙盒内 helper 二进制（产物名 gosandbox-inner，仅 linux），纯 Go，不链接 DuckDB
-vm/                    云沙盒的执行后端：Driver 接口，以及 local（本机隔离）与 fake（内存假后端，仅测试）
+vm/                    云沙盒的执行后端：Driver 接口，以及 local / box / fake
   local/               Driver 的本机实现：每个沙盒是一个工作区目录，命令经 host 隔离执行
-  fake/
+  box/                 常驻 agent 后端：每沙盒一个 bwrap + 一个 PID 1 agent（后台进程存活、热 exec）
+  fake/                内存假后端（仅测试）
+proto/                 宿主 ↔ 沙盒 agent 的帧协议（len|kind|payload，块数据走裸字节）
+agent/                 沙盒内 PID 1：进程表、PTY、信号、rlimits、文件服务、观测、入站中继
+box/                   宿主侧：拉起 agent、单写者帧通道、进程句柄、日志落盘
+image/                 镜像：引用解析、registry 拉取、blob store、层解包（压平成只读根）
+netx/                  出网：pasta 用户态出网、地址与域名白名单判定
+snapshot/              快照与 fork：文件系统归档（内容寻址）
 ```
 
-依赖方向只有 `vm/local → host`；`host` 不 import `vm`。`vm/local` 在隔离不可用时返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK。
+依赖方向只有 `vm/* → box → {proto, netx, host}`，`vm/box` 另直接用 `image`、`snapshot`；`host` 不 import 其它新包。`vm/local` 与 `vm/box` 在隔离不可用时都返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK；镜像拉取直接实现 registry 协议，不引入 `go-containerregistry`。
+
+## vm/box：常驻 agent 后端
+
+`vm/local` 每条命令新起一个 bwrap，命令结束沙盒就不存在；`vm/box` 里 bwrap 常驻、`gosandbox-inner --agent` 是沙盒的 PID 1：
+
+| | vm/local | vm/box |
+|---|---|---|
+| 沙盒形态 | 每条命令一个 bwrap | 一个常驻 bwrap + 一个 agent |
+| 后台进程 | 随命令结束 | 跨请求存活 |
+| exec 成本 | bwrap 启动 + 挂载（~ms） | 一帧往返（~0.1ms） |
+| 文件操作 | 宿主侧 `os.Root(ws)` | 沙盒内 `os.Root("/")`（视角一致） |
+| 暂停 | 只写标记 | `cgroup.freeze`，进程保留 |
+| 根 | 宿主根只读 | 镜像解包出的 lower（overlay 或拷贝） |
+| 平台 | Linux / macOS（Seatbelt） | 仅 Linux |
+
+```go
+d, err := box.New(ctx, box.Options{
+	Root:   "/var/lib/simplebase/sandboxes",
+	Helper: "/usr/libexec/gosandbox-inner",
+	Bwrap:  "/usr/bin/bwrap",
+	Seccomp: "default",          // 沙盒里宿主根不可见，允许本地 socket
+	Images: box.NewImageSource(image.NewPuller(store)), // 可选
+})
+res, err := d.Exec(ctx, vm.Target{Name: "sb1", Spec: vm.Spec{Image: "python:3.12-slim"}}, vm.ExecSpec{Cmd: "python3", Args: []string{"-V"}})
+```
+
+`image=host`（或空）时不经过镜像，沙盒以宿主根只读运行——与 `vm/local` 的行为一致。
+
+## image：镜像拉取与解包
+
+```go
+store, _ := image.Open("/var/lib/simplebase")
+p := image.NewPuller(store)
+img, err := p.Pull(ctx, "alpine:3.19", image.PullOptions{Arch: "arm64"})
+chainID, err := p.Unpack(ctx, img)   // 压平成只读根
+```
+
+- **引用**：`alpine` → `docker.io/library/alpine:latest`；支持 `@sha256:`、`localhost:5000/x`（端口不会被当成 tag）。
+- **拉取**：匿名 → 401 + `WWW-Authenticate` → 换 token → 重试；token 按 host+scope 缓存；scope 缩成只 `pull`。凭据只发给 HTTPS 或 loopback。
+- **校验**：manifest 与每层都按内容算 sha256，与声明不符直接拒绝（`ErrDigestMismatch`），不留半成品。
+- **并发**：同一引用同一平台的并发拉取合并，后来者跟随。
+- **导入**：`docker save` 的 tar（`manifest.json` + config + 层文件），离线分发用。
+
+### 解包为什么压平
+
+rootless 下建不了 whiteout 需要的 0:0 字符设备，overlayfs 就认不出删除标记。所以按镜像链把各层依次解到**同一个**只读根，解的时候就执行 `.wh.` 与 `.wh..wh..opq` 的语义。代价是不同镜像不共享层；收益是 lower 只有一层、不需要任何特权。
+
+安全约束（每条都有测试）：
+
+- 所有写入走 `os.Root`（底层 `openat2(RESOLVE_IN_ROOT)`）：绝对路径与 `..` 被限制在 lower 内，**中间段是符号链接也不能逃逸**；
+- 解压膨胀上限 8 GiB、条目数 50 万、单文件 4 GiB；
+- 设备节点 / FIFO 跳过（不失败）；setuid / setgid 位清掉；
+- `<chainID>.done` 标记出现才代表完整，没有标记的目录被重建。
+
+## 沙盒根（`box/launch_linux.go` 的 `rootArgs`）
+
+| 方式 | 条件 | 创建成本 |
+|---|---|---|
+| overlay | bwrap 支持 `--overlay` | ~ms |
+| 拷贝 | bwrap 不支持 `--overlay` | 与镜像大小成正比（逐文件 `io.Copy`，没有 reflink） |
+| 宿主根只读 | `image=host`（或空） | 0 |
+
+是否支持 overlay 只看 `bwrap --help` 的输出里有没有 `--overlay`（进程内缓存，每个进程只探一次）。**不会**真起一个 bwrap 验证：版本对但内核没开 overlay、AppArmor 拦了 userns 里的 mount 时，探测会误判为支持。
+
+## 日志与目录监听
+
+进程输出在 `Handle` 转发给调用方的同时落盘（`<root>/<name>/logs/<proc>.log`）：
+进程退出后仍能回放，这是 E2B `logs` 的前提。
+
+```go
+s, _ := box.Start(ctx, box.Config{LogDir: "/var/lib/sb/sb1/logs", …})
+recs, _ := s.Logs(nil, box.TailOptions{Lines: 100})   // 全部进程，最后 100 条
+w, _ := s.Watch(ctx, "/workspace", box.WatchOptions{Recursive: true})
+for ev := range w.Events() { … }
+```
+
+监听走 inotify：200ms 成批合并、按路径去重；递归时运行中新建的子目录也会被登记。
+事件通道满时**丢事件并置 `Overflowed()`**——让 agent 阻塞在写帧上会拖住整个沙盒的事件循环。
+
+## 快照与 fork
+
+快照只保存**文件系统**：镜像的写时复制层（`upper/`）与工作区（`ws/`）。
+归档按内容寻址，同一状态拍两次只占一份空间。
+
+```go
+st, _ := snapshot.Open("/var/lib/sb")
+info, _ := st.Create(ctx, "/var/lib/sb/sb1", "sb1", "before-upgrade")
+st.Restore(ctx, info.ID, "/var/lib/sb/sb2")   // fork 到新名字
+```
+
+**fork 出来的沙盒没有进程**：内存快照需要 CRIU，与 seccomp 冲突，代价不划算。
+API 响应里 `processes=false` 明说这一点。
+
+## 入站端口是隧道，不是一次性转发
+
+`Session.DialPort` 返回的是全双工隧道（`net.Conn`）：
+
+```go
+conn, _ := sess.DialPort(8080)
+go io.Copy(conn, body)
+conn.(interface{ CloseWrite() error }).CloseWrite()  // 请求体发完
+io.Copy(w, conn)                                     // 读响应直到 EOF
+```
+
+半关闭（`CloseWrite`）让沙盒内的 HTTP 服务端知道请求结束——keep-alive、
+流式响应、TLS close_notify 都靠它。旧的「一次请求一次响应」做不到这些。
+
+## 网络：默认没有出网
+
+沙盒的 netns 里默认只有 `lo`（bwrap `--unshare-net`）。入站不受影响：
+`getHost(port)` 走 agent 中继，不在宿主上开任何监听。
+
+三档（`sandbox.network`）：
+
+| 档位 | 出站 | 依赖 |
+|---|---|---|
+| `none`（默认） | 无 | — |
+| `egress` | pasta 用户态出网 | `pasta`（passt） |
+| `egress-allowlist`（实验，**白名单未生效**） | 目前与 `egress` 相同 | `pasta` + `sandbox.network_allow` |
+
+> **现状**：`netx` 里的 `DNSProxy`（域名白名单）与 `CheckAllowed`（拦元数据 `169.254.169.254`、私网 `10/8` `172.16/12` `192.168/16`、CGNAT `100.64/10`、`127/8`、IPv6 ULA 与链路本地；元数据地址有独立开关，不与「允许私网」混用）都已实现并有单测，但**没有任何生产代码调用它们**。因此 `egress` 与 `egress-allowlist` 档目前**没有**地址或域名层面的拦截；只有 `none` 档做了 `--unshare-net` 隔离。需要出网时请自行评估风险。
+
+> 隔离后 `lo` 是 DOWN 的，agent 启动时会把它拉起——否则入站中继失效。
+
+## 磁盘限额
+
+rootless 下没有文件系统配额，靠宿主侧 `du`（`upper` + `ws`，10s 缓存）：
+超限**冻结**沙盒（`cgroup.freeze`）而不是杀，用户还能读日志、导出文件、拍快照。
+
+```yaml
+sandbox:
+  disk_limit_mib: 2048
+```
+
+## 多用户镜像（多段 uid 映射）
+
+镜像里以 999 之类的用户运行的服务，在单段映射下起不来（沙盒内只有 uid 0 是真的）。
+装上 `uidmap` 并把 subuid 配额给当前用户之后自动启用：
+
+```bash
+sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER
+```
+
+沙盒内可用的 id 从 1000 起（避开 1–999 的系统用户段），总量上限 4096。
+缺任意一样（`/etc/subuid`、`newuidmap`）就退回单段映射，并把原因写进日志——不静默降级。
+
+```
+ExecRequest{User: "999:999"}   // 无法映射时退出码 126 + 说明，不会静默按 0 运行
+```
+
+## 服务重启不丢沙盒（supervisor）
+
+```yaml
+sandbox:
+  supervise: true
+```
+
+```
+服务进程 ──unix socket──► supervisor ──socketpair──► bwrap + agent
+```
+
+服务进程升级或崩溃后重新连上同一个 socket 即可接管，沙盒里的进程继续跑。
+**代价**：断开那一刻 agent 正在发但还没被读走的帧会丢，调用方需要能重试。
+
+## proto：宿主 ↔ agent
+
+帧 `len u32 LE | kind u16 LE | payload`，上限 1 MiB。大块数据（文件写入）跟在帧后以裸字节发送，不复制进帧。
+
+| 组 | 帧 |
+|---|---|
+| 会话 | `Hello` `Ping/Pong` `Shutdown` `Error` `Ack` |
+| 进程 | `Start` → `Started` → `Output*` → `Exited`；`Input` `CloseStdin` `Resize` `Signal` `InputConsumed` |
+| 文件 | `FsStat` `FsList` `FsRead` `FsWrite` `FsRemove` `FsMkdir` `FsRename` + 对应回复 |
+| 观测 | `StatsQuery` `TopQuery` `ListenQuery` |
+| 中继 | `Relay` `RelayData` `RelayHalfClose` `RelayClose` |
+| 监听 | `Watch` `Unwatch` `WatchEvent` |
+
+字段与帧长都有上限，超限在编码侧就拒绝；`ReadFrame` 复用调用方的缓冲。**单写者**是硬约束：宿主与 agent 各有一个 writer goroutine，否则帧会交错。
 
 ## 快速开始
 

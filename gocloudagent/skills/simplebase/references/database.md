@@ -34,7 +34,14 @@ simplebase schema create-table --database <库ID> --name orders --columns '[{"na
 simplebase schema add-column --database <库ID> --table orders --column '{"name":"qty","type":"INTEGER"}'
 ```
 
-类型限 BOOLEAN/TINYINT/SMALLINT/INTEGER/BIGINT/FLOAT/DOUBLE/DECIMAL/VARCHAR/DATE/TIME/TIMESTAMP/BLOB/JSON/UUID；标识符须字母开头、仅字母数字下划线；一表最多 32 列。
+类型限 BOOLEAN/TINYINT/SMALLINT/INTEGER/BIGINT/FLOAT/DOUBLE/DECIMAL/VARCHAR/DATE/TIME/TIMESTAMP/BLOB/JSON/UUID；标识符须字母开头、仅字母数字下划线；一表最多 32 列。时间列统一用 TIMESTAMP 或 ISO 字符串，不混用。
+
+## 建表与 DDL 限制
+
+- 自写 DDL 用 `CREATE TABLE IF NOT EXISTS`、`ALTER TABLE ... ADD COLUMN`。不要写 `PRIMARY KEY`、`UNIQUE`、`CREATE INDEX`、`CREATE SEQUENCE`（DuckLake 不支持）；需要唯一性时在写入逻辑里保证（先查后写，或用幂等键列）。
+- 引擎（duckdb / sqlite）是项目级设置，不能在库上单独指定，方言要与当前项目一致。
+- 不能引用保留前缀 `__sb_`、`__ducklake_metadata_`、`sqlite_`，也不要读写 `__` 前缀的内部表。
+- `sql exec` 里的 `DROP`/`DELETE`/`TRUNCATE` 先向用户说明影响，再执行。
 
 ## 集合与文档（collection 库）
 

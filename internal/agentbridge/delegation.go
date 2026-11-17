@@ -3,7 +3,7 @@
 // 用法
 //
 //	NewDelegationIssuer(secret string, reg *auth.DelegationRegistry) DelegationIssuer
-//	(d DelegationIssuer) Issue(p gocloudagent.Principal, projectID, runID string, ttl ...  // Issue 签发本轮委托令牌
+//	(d DelegationIssuer) Issue(p cloudagent.Principal, projectID, runID string, ttl ...  // Issue 签发本轮委托令牌
 //	(d DelegationIssuer) RevokeRun(runID string)  // RevokeRun 撤销一轮的所有委托令牌
 //	同包调用：DelegationIssuer → principal.go
 //
@@ -23,7 +23,7 @@
 //
 //	type DelegationIssuer struct {…}
 //	NewDelegationIssuer(secret string, reg *auth.DelegationRegistry) DelegationIssuer
-//	(d DelegationIssuer) Issue(p gocloudagent.Principal, projectID, runID string, ttl ...
+//	(d DelegationIssuer) Issue(p cloudagent.Principal, projectID, runID string, ttl ...
 //	(d DelegationIssuer) RevokeRun(runID string)
 
 package agentbridge
@@ -31,7 +31,7 @@ package agentbridge
 import (
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
@@ -50,7 +50,7 @@ func NewDelegationIssuer(secret string, reg *auth.DelegationRegistry) Delegation
 }
 
 // Issue 签发本轮委托令牌。
-func (d DelegationIssuer) Issue(p gocloudagent.Principal, projectID, runID string, ttl time.Duration) (string, error) {
+func (d DelegationIssuer) Issue(p cloudagent.Principal, projectID, runID string, ttl time.Duration) (string, error) {
 	return d.inner.Issue(ToHostPrincipal(p), projectID, runID, ttl)
 }
 
