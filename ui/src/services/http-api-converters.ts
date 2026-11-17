@@ -741,6 +741,7 @@ export function toAgentThread(raw: Record<string, any>): AgentThread {
     id: String(raw?.id ?? ''),
     title: String(raw?.title ?? ''),
     agent_id: raw?.agent_id ? String(raw.agent_id) : undefined,
+    starter_template: raw?.starter_template ? String(raw.starter_template) : undefined,
     created_at: String(raw?.created_at ?? ''),
     updated_at: String(raw?.updated_at ?? ''),
     last_message_preview: raw?.last_message_preview ? String(raw.last_message_preview) : undefined
@@ -847,7 +848,8 @@ export function streamAgentRun(
         content: req.content,
         mentions: req.mentions,
         stream: true,
-        ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {})
+        ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {}),
+        ...(req.starter_stage ? { starter_stage: req.starter_stage } : {})
       }),
       signal
     })

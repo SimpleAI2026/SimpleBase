@@ -1,6 +1,6 @@
 # gosandbox 优化与清理计划（v6.6）
 
-> **状态（2026-11-17）：G1 批（GSB-1~6）已在代码中执行，macOS 与 Linux（`go test -race ./...`）门禁均通过；B1 已按方案 A 解决；G2、G3（仅文案）、G4 已执行；B2/B3/B6/GSB-10 与基线提交未动，等待批准。** 本文是用 `skills/simplify-code`（R-branch，只读评估）对 `gosandbox/` 做出的结果，对照 `kiri-go-port-analysis.md`（M0~M5 交付）核对「计划写了什么、代码里实际接上了什么」。
+> **状态（2026-11-17）：G0~G4 全部执行。G0 基线已就绪（`gosandbox/` 的清理与协议修复在 `dae89a9`，plan 记录在 `e2173e4`）；B1 方案 A、B2 修复、B6 改返回错误、GSB-10 整体移除均已改代码（macOS 门禁通过，B2 待 Linux `-v` 确认不再 SKIP）；B3 单独立项（`gosandbox-egress-isolation-plan.md`），未实施。** 本文是用 `skills/simplify-code`（R-branch，只读评估）对 `gosandbox/` 做出的结果，对照 `kiri-go-port-analysis.md`（M0~M5 交付）核对「计划写了什么、代码里实际接上了什么」。
 >
 > 原则（simplify-code Golden rules）：行为与公共 API 不变；每项单独改、单独验证；有差异输入的改动一律走「需批准」。不改 `go.mod` / `go.sum`。承接 `dead-code-and-optimization-plan.md` §0 的误报口径，不重复其已登记项。
 
@@ -253,3 +253,52 @@ go test -count=1 -v ./box 2>&1 | grep -E '^--- (PASS|SKIP|FAIL)' | sort -t'(' -k
 若 `Supervis` 的结果是 `SKIP`：B2 成立，需要决定修复方案（让 `RunSupervisor` 按 argv 里写的 `--ctrl N` / `--file 3` 把控制通道与策略文件放到约定 fd；或在 `launchSupervised` 里改写 argv）。**这是行为变更，未获批准前不动。**
 
 **仍待批准**：B2 修复方案、B3（`egress` 档缺 `--unshare-net`，安全相关）、B6（镜像根失败静默退回宿主根）、GSB-10（DNS 白名单接线或整体移除）；G0 要求的「先提交基线」也尚未做（`gosandbox/` 仍有未跟踪目录，当前没有可回滚的提交）。
+
+### 批准后的执行（2026-11-17）
+
+用户决定：G0 现在提交；B2 确认；B3 单独立项；B6 改成返回错误；GSB-10 整体移除。
+
+| 项 | 实际改动 |
+| --- | --- |
+| G0 | 执行时发现 `gosandbox/` 的清理与协议修复**已经在 `dae89a9` 里**（plan §0 写的「9 个目录未跟踪」是评估时点的状态，之后已被纳入提交）。因此 G0 提交（`e2173e4`）实际只带上了 plan 文档，不是代码基线；回退点以 `dae89a9` 为准。本批改动（B2/B6/GSB-10）尚未提交 |
+| B2 | `RunSupervisor(socket, policy, argv)` 新增 `--policy`：子进程 `ExtraFiles = [策略文件, 控制通道]`，与非托管路径同为 fd 3 / fd 4；`SuperviseArgs` 同步返回 `policy`；`launchSupervised` 先判断「已有 supervisor 可接管」再 `buildArgs`（原先先重写策略文件、再 `RemoveAll(run/)`，会把正在运行沙盒的策略删掉）并把 `policyPath` 传给 supervisor；`cmd/main_linux.go` 接新签名。**顺带修了一个同源缺陷**：原 `pump` 每个服务连接各起一个 `io.Copy(svc, agent)`，服务进程断开后那个 goroutine 仍阻塞在 agent 读上，会吞掉下一个连接的首批帧；且 agent 的 Hello 只在启动时发一次，重连的服务进程永远等不到它（`newSessionOn` 等 30s 超时）。改为**单一 `readAgent` 读循环** + 缓存 Hello 并在每次接管时重放（`proto.ReadFrame` 按帧读写，不会把半帧交给新连接）。新增 `TestSupervisorHandshake` 作「不会静默 SKIP」的守卫 |
+| B6 | `rootArgs` 返回 `([]string, error)`：overlay 的 `upper/work` 建目录失败、`lower` 拷贝失败都返回错误，不再退回 `--ro-bind / /`；`buildArgs` 透传。新增 `box/launch_args_test.go`（Linux）3 个用例 |
+| GSB-10 | 删除 `netx/dns.go`（500 行）；`netx.go` 只剩 `Mode` / `ParseMode` / `Policy{Mode}` / `ErrUnsupported`（删 `CheckAllowed`、`HostAllowed`、`BlockedCIDRs`、`ModeAllowlist`、`ErrBlockedAddress`、`ErrNotAllowed`、`Policy.Allow/AllowPrivate/AllowMetadata`）；`netx_test.go` 重写。宿主侧：`config.SandboxConfig` 删 `NetworkAllow`、`AllowExperimentalNetwork`；`network: egress-allowlist` 现在**启动校验报错并说明已移除**（不会悄悄降级成 `egress`）；`sandbox.Capabilities` 与 `/sandboxes/capabilities` 响应删 `network_allow`、`network_experimental`（全仓 UI / SDK 无消费方）；`internal/sandbox` 删 `IsExperimentalNetwork`；README 与 `config.example.yaml` 如实写明 `egress` 无任何过滤。YAML 非严格解析，旧配置里残留的 `network_allow` 会被忽略 |
+| B3 | 另立项，见 `gosandbox-egress-isolation-plan.md`（先 Linux 复现，再决定方案 A/B/C）。未改代码 |
+
+门禁：`gofmt`（本次改动的文件）、`go build`、`go vet`、`GOOS=linux go vet`、逐包 `GOOS=linux go test -c`、`go test -race ./...`（darwin）、`go mod tidy -diff` 均通过；宿主 `go build ./internal/... ./cmd/...`、`go vet`、`go test ./internal/{config,sandbox,app,api}` 通过。
+
+**待你在 Linux 上执行**（B2 / B6 是 Linux 专属行为）：
+
+```bash
+cd gosandbox
+go test -race -count=1 -timeout 900s ./...
+go test -count=1 -run 'Supervis' -v ./box 2>&1 | grep -E '^(--- |ok|FAIL)'   # 期望 PASS，不再 SKIP
+```
+
+### B2 验证（2026-11-17，node1，bubblewrap 0.12.0）
+
+之前的记录只有「`go test -race ./...` 全 ok」，而 `TestSupervisor*` 在起不来时会 `Skip`，绿灯不能证明 B2 修好。这次装了 bwrap，并用 `GOSANDBOX_HELPER_BIN` 预置 helper 二进制（验收机的 Go 版本不足以编译本模块），`box` 包全量真跑：
+
+```bash
+cd gosandbox && GOOS=linux GOARCH=amd64 go test -c -o /tmp/box.test ./box
+scp /tmp/box.test /var/tmp/gosandbox-inner node1:/var/tmp/
+ssh node1 'cd /var/tmp && GOSANDBOX_HELPER_BIN=/var/tmp/gosandbox-inner ./box.test -test.v -test.timeout 200s'
+```
+
+结果：**`box` 包 exit=0，无 SKIP（vsock 除外）**。supervisor 四项全部 PASS：
+
+| 用例 | 结果 |
+| --- | --- |
+| `TestSupervisorSurvivesDisconnect` | PASS（5.35 s） |
+| `TestSupervisorKeepsWorkspace` | PASS（5.32 s） |
+| `TestSupervisorHandshake` | PASS |
+| `TestSuperviseArgs` | PASS |
+
+**B2 结论：supervisor 的 fd 约定已正确，不再是 SKIP。** 真机跑之前修了三处（都不属于清理项）：
+
+1. `TestSupervisorKeepsWorkspace` 原先写死 `/workspace`，而策略的可写根是 `t.TempDir()/ws`，被 Landlock 拒（`mkdir /workspace: permission denied`）；改为写 `cfg.Workspace`。
+2. `TestSupervisorSurvivesDisconnect` 用 `ps -e`（相对路径）判断长驻进程，PATH 里没有时被误判为"进程死了"；改为 `/usr/bin/ps -ef` 并打印输出。
+3. 重连后 `Exec` 的 id 撞名（`process p1 already exists`）与 `Session.done` 重复关闭（`panic: close of closed channel`），已改随机 id 与 `sync.Once`（详见 `gosandbox-egress-isolation-plan.md` §7）。
+
+`agent` / `netx` 包在 node1 上也全 PASS（交叉编译测试二进制后执行）。macOS 侧门禁（`gofmt` / 两个 GOOS 的 `build`+`vet` / 逐包 `GOOS=linux go test -c` / `go test -count=1 ./...` / `go mod tidy -diff`）全部通过。

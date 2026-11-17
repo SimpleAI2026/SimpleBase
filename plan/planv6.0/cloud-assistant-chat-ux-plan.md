@@ -151,6 +151,8 @@ SbAsyncRegion      → SbErrorState「加载失败 + 重试」
 
 **交互**：选中助手且当前会话为空时展示该助手的提示词；点击 = 写入 `draft` 并聚焦输入框（光标到末尾），**不自动发送**，回车才执行。
 
+> **例外（planv6.6 `home-starter-prompts-plan.md` §2.3）**：仅限首页「一句话建应用」入口（`/console/agents?starter=<id>`）。用户已在确认弹窗里点了「开始搭建」，等价于回车，所以助手页对该入口自动发送一次种子提示词（按阶段发送，带 `starter_stage`）。发送前先写 sessionStorage 去重键 `starter:<projectId>:<templateId>` 并去掉 `starter` query，刷新不会重复发送。助手欢迎页的提示词点击仍然只填不发。
+
 **数据**：`constants/agent-prompts.ts` 登记 key，文案在 `locales` 的 `pages.agents.prompts.<module>.<n>`。按 module 取，未登记回落 `general`。导出 `promptKeysForModule` / `promptSetForModule` / `promptI18nKeys`。
 
 **通用助手（5 条）**：列库与集合 / 最近 1 小时错误按类型汇总 / 最大的 10 个对象 / `@键值` 写入并读回 / `@云函数` 创建并调用。

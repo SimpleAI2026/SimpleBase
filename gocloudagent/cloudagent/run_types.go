@@ -40,6 +40,11 @@ type RunRequest struct {
 	// Skills 是本轮已校验的 skill id。Headless 为定时任务，不能确认破坏性命令。
 	Skills   []string
 	Headless bool
+	// ReadOnlySkills 是 Skills 中只允许只读命令的子集（搭建会话的阶段限权）。
+	// 由宿主按阶段白名单换算，不接受客户端输入。
+	ReadOnlySkills []string
+	// StarterStage 非空表示首页搭建会话的某个阶段（宿主已校验）：追加搭建提示词。
+	StarterStage string
 }
 
 // RunResult is the completed assistant turn.

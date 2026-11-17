@@ -192,3 +192,71 @@ func SkillsForModule(module string) []string {
 		return nil
 	}
 }
+
+// 搭建会话阶段（home-starter-prompts-plan §2.7）。
+const (
+	StarterStagePlan   = "plan"
+	StarterStageData   = "data"
+	StarterStageFunc   = "func"
+	StarterStageCron   = "cron"
+	StarterStageSite   = "site"
+	StarterStageVerify = "verify"
+)
+
+// starterTemplates 是服务端接受的搭建模板白名单。B1 只开放「数据通道为只读快照」
+// 的模板；需要匿名写入的模板（todo / booking / survey）依赖 B3 的公开函数面，
+// 在安全评审通过前不接受。
+var starterTemplates = map[string]struct{}{
+	"dashboard": {},
+	"portfolio": {},
+	"notice":    {},
+}
+
+// IsStarterTemplate 报告 id 是否为服务端允许的搭建模板。
+func IsStarterTemplate(id string) bool {
+	_, ok := starterTemplates[strings.TrimSpace(id)]
+	return ok
+}
+
+// starterStageSkills 是各阶段加载的技能（write）与只读技能（readonly）。
+// readonly 中的技能同样出现在 skills 里（用于放行命令与注入文档），
+// 但执行时只允许只读命令。
+var starterStageSkills = map[string]struct{ skills, readonly []string }{
+	StarterStagePlan:   {},
+	StarterStageData:   {skills: []string{"database"}},
+	StarterStageFunc:   {skills: []string{"gofunction", "database"}, readonly: []string{"database"}},
+	StarterStageCron:   {skills: []string{"cron", "gofunction"}, readonly: []string{"gofunction"}},
+	StarterStageSite:   {skills: []string{"s3", "site"}},
+	StarterStageVerify: {skills: []string{"database", "gofunction", "site"}, readonly: []string{"database", "gofunction", "site"}},
+}
+
+// StarterStage 返回搭建会话某个阶段要加载的技能与其中只读的技能。
+// 技能只由服务端按阶段白名单决定，客户端不能传技能 id；未知阶段 ok=false。
+func StarterStage(stage string) (skills, readonly []string, ok bool) {
+	spec, ok := starterStageSkills[strings.TrimSpace(stage)]
+	if !ok {
+		return nil, nil, false
+	}
+	return append([]string(nil), spec.skills...), append([]string(nil), spec.readonly...), true
+}
+
+// StarterStages 按执行顺序返回全部阶段。
+func StarterStages() []string {
+	return []string{StarterStagePlan, StarterStageData, StarterStageFunc, StarterStageCron, StarterStageSite, StarterStageVerify}
+}
+
+const starterModulePrompt = `Build mode: you are building a small application for the user in this project, one stage per turn. The current stage and the skills loaded this turn are listed in the project env.
+Rules:
+- Do only the current stage. Never run commands that belong to another stage, never trigger a cron job, and never delete any resource.
+- Migrations are append-only: use CREATE TABLE IF NOT EXISTS and never DROP or rewrite existing tables.
+- A cloud function is a single file with package main; run function test and read its result before you claim success.
+- The front end is one web/index.html: inline CSS and JS, hash routing, no build step, no CDN, at most 200KiB, and no key or token of any kind. Upload it with object upload and put the content in stdin. Only the web/ prefix may be published, never the object root.
+- The site surface is read-only and has no data API. To show data, write the result to web/data/*.json and read it with a relative fetch.
+- If site status reports publishable=false, skip publishing and say why.
+- If a command fails, report the error code and stop that step; never invent results.
+- In the verify stage, end the final message with exactly one line: <!-- sb:delivery {"site_url":"","functions":[{"name":"","url":"/go/<project_id>/<function>/<export>"}],"tables":[],"collections":[],"cron":[{"name":"","expr":""}],"next":[]} --> filled in only with facts you confirmed through tools.`
+
+// starterPrompt 返回搭建会话在某阶段追加的模块层提示词。
+func starterPrompt(stage string) string {
+	return starterModulePrompt + "\nCurrent stage: " + strings.TrimSpace(stage) + "."
+}

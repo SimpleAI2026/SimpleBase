@@ -302,7 +302,7 @@ sandbox:
   max_file_bytes: 1048576     # 单文件大小上限
   max_per_project: 5          # 项目内未删除沙盒上限。SIMPLEBASE_SANDBOX_MAX_PER_PROJECT
   reap_interval: 5m           # 过期清理周期；0 = 关闭
-  network: none               # 仅 none
+  network: none               # none（默认）/ egress；egress 隔离 netns 并拦元数据/私网，不做域名白名单
   workdir: /workspace         # API 层使用的逻辑路径；命令的当前目录是真实工作区，命令里请用相对路径
   bwrap_path: ""              # 空 = 在 PATH 上查找；必须解析为绝对路径且非 setuid
   helper_path: ""             # 空 = 与 simplebase 可执行文件同目录的 gosandbox-inner

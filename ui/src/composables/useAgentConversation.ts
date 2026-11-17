@@ -87,7 +87,7 @@ export function useAgentConversation(opts: ConversationOptions) {
   type Handlers = AgentStreamHandlers & { onReply?: (reply: ChatMsg) => void }
 
   function start(
-    body: { content: string; mentions: { agent_id: string }[]; module?: string; retry_of_run_id?: string },
+    body: { content: string; mentions: { agent_id: string }[]; module?: string; retry_of_run_id?: string; starter_stage?: string },
     handlers: Handlers
   ) {
     stop(false)

@@ -70,11 +70,17 @@ type Server struct {
 	watches map[string]*watcher
 }
 
+// 网络档位由宿主通过 --network 传入，与 netx.Mode 的取值一致。
+const (
+	networkNone   = "none"
+	networkEgress = "egress"
+)
+
 // Main 是 agent 的入口：解析 --agent --ctrl N，然后在那个 fd 上服务。
 //
 // 失败返回非零退出码；正常路径只在收到 Shutdown 或控制连接断开时返回。
 func Main(args []string, _ []string) int {
-	ctrl, mapping, err := parseAgentArgs(args)
+	ctrl, mapping, network, err := parseAgentArgs(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gosandbox-inner: %v\n", err)
 		return 2
@@ -86,6 +92,21 @@ func Main(args []string, _ []string) int {
 	if err := bringUpLoopback(); err != nil {
 		fmt.Fprintf(os.Stderr, "gosandbox-inner: cannot bring up loopback: %v\n", err)
 	}
+	// egress 档：出站由 pasta 在宿主侧透明转发，pasta 不做目标地址过滤，
+	// 所以元数据与私网必须由 agent 在自己的 netns 里用黑洞路由挡掉。
+	// 拦不上就不启动（fail-closed）：放它跑等于用户以为隔离了，实际能读云凭据。
+	if network == networkEgress {
+		if err := blockPrivateNetworks(); err != nil {
+			fmt.Fprintf(os.Stderr, "gosandbox-inner: cannot install egress filters: %v\n", err)
+			return 3
+		}
+	}
+	// 网络配置到此为止：把 CAP_NET_ADMIN 丢掉，用户命令不能改沙盒网络
+	// （否则它可以删掉黑洞路由，把私网放回来）。失败只警告——最坏情况是
+	// 沙盒内保留了这份 capability，而它只作用于沙盒自己的 netns。
+	if err := dropNetAdmin(); err != nil {
+		fmt.Fprintf(os.Stderr, "gosandbox-inner: cannot drop CAP_NET_ADMIN: %v\n", err)
+	}
 	if err := Serve(ctrl, ctrl, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "gosandbox-inner: agent: %v\n", err)
 		return 1
@@ -95,37 +116,49 @@ func Main(args []string, _ []string) int {
 
 // parseAgentArgs 解析 agent 模式的参数。控制用的 fd 由宿主通过 ExtraFiles 传入，
 // 不经 argv 传值以外的任何东西。
-func parseAgentArgs(args []string) (*os.File, *UserMapping, error) {
+func parseAgentArgs(args []string) (*os.File, *UserMapping, string, error) {
 	var fd = -1
 	var mapping *UserMapping
+	network := networkNone
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--ctrl":
 			if i+1 >= len(args) {
-				return nil, nil, errors.New("--ctrl needs a file descriptor")
+				return nil, nil, "", errors.New("--ctrl needs a file descriptor")
 			}
 			n := 0
 			if _, err := fmt.Sscanf(args[i+1], "%d", &n); err != nil || n < 3 {
-				return nil, nil, fmt.Errorf("invalid --ctrl %q", args[i+1])
+				return nil, nil, "", fmt.Errorf("invalid --ctrl %q", args[i+1])
 			}
 			fd = n
 			i++
+		case "--network":
+			if i+1 >= len(args) {
+				return nil, nil, "", errors.New("--network needs a mode")
+			}
+			switch args[i+1] {
+			case networkNone, networkEgress:
+				network = args[i+1]
+			default:
+				return nil, nil, "", fmt.Errorf("invalid --network %q", args[i+1])
+			}
+			i++
 		case "--uidmap":
 			if i+1 >= len(args) {
-				return nil, nil, errors.New("--uidmap needs a spec")
+				return nil, nil, "", errors.New("--uidmap needs a spec")
 			}
 			m, perr := parseUserMapping(args[i+1])
 			if perr != nil {
-				return nil, nil, perr
+				return nil, nil, "", perr
 			}
 			mapping = m
 			i++
 		default:
-			return nil, nil, fmt.Errorf("unexpected argument %q", args[i])
+			return nil, nil, "", fmt.Errorf("unexpected argument %q", args[i])
 		}
 	}
 	if fd < 0 {
-		return nil, nil, errors.New("usage: gosandbox-inner --agent --ctrl N [--uidmap SPEC]")
+		return nil, nil, "", errors.New("usage: gosandbox-inner --agent --ctrl N [--network none|egress] [--uidmap SPEC]")
 	}
 	// 控制通道不能让沙盒内的任何进程继承：os.NewFile 不会加 FD_CLOEXEC，
 	// 而 ExtraFiles 传进来的 fd 在 fork 时是可继承的。不设它，用户命令
@@ -133,7 +166,7 @@ func parseAgentArgs(args []string) (*os.File, *UserMapping, error) {
 	// 把协议流带偏。
 	syscall.CloseOnExec(fd)
 	// 接管这个 fd：它由宿主通过 ExtraFiles 传入，已经是打开的。
-	return os.NewFile(uintptr(fd), "ctrl"), mapping, nil
+	return os.NewFile(uintptr(fd), "ctrl"), mapping, network, nil
 }
 
 // Serve 在同一条连接上服务到关闭：in 读、ctrl 写。

@@ -99,14 +99,17 @@ func TestSupervisorSurvivesDisconnect(t *testing.T) {
 	}
 
 	// 之前起的长驻进程仍在（sleep 30 还没结束）。
+	// 用绝对路径的 ps：助手进程的 PATH 里不一定有 /usr/sbin 之类，
+	// 找不到 ps 会被误判成"进程死了"。
 	ps, perr := s2.Exec(context.Background(), ExecRequest{
-		Argv: []string{"/bin/sh", "-c", "ps -e | grep -c '[s]leep 30' || true"},
+		Argv: []string{"/usr/bin/ps", "-ef"},
 	})
-	if perr == nil {
-		pout, _ := io.ReadAll(ps.Output())
-		if strings.TrimSpace(string(pout)) == "0" {
-			t.Fatal("the long-running process died across re-adoption")
-		}
+	if perr != nil {
+		t.Fatalf("ps after re-adopt: %v", perr)
+	}
+	pout, _ := io.ReadAll(ps.Output())
+	if !strings.Contains(string(pout), "sleep 30") {
+		t.Fatalf("the long-running process died across re-adoption; ps output: %q", pout)
 	}
 }
 
@@ -115,7 +118,10 @@ func TestSupervisorKeepsWorkspace(t *testing.T) {
 	s := newSupervisedSession(t)
 	root := s.cfg.Root
 
-	if err := s.WriteFile("/workspace/persisted.txt", []byte("keep me"), 0o644); err != nil {
+	// 写 cfg.Workspace 而不是硬编码 /workspace：策略里的可写根就是这个目录，
+	// 写别处会被 Landlock 拒掉（permission denied），测的就不是"重连后状态还在"。
+	path := filepath.Join(s.cfg.Workspace, "persisted.txt")
+	if err := s.WriteFile(path, []byte("keep me"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	s.conn.Close()
@@ -132,7 +138,7 @@ func TestSupervisorKeepsWorkspace(t *testing.T) {
 	}
 	defer func() { _ = s2.Close() }()
 
-	body, err := s2.ReadFile("/workspace/persisted.txt", 1<<20)
+	body, err := s2.ReadFile(path, 1<<20)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -143,24 +149,55 @@ func TestSupervisorKeepsWorkspace(t *testing.T) {
 
 // SuperviseArgs 的参数解析。
 func TestSuperviseArgs(t *testing.T) {
-	socket, argv, ok := SuperviseArgs([]string{"--supervisor", "--socket", "/tmp/c.sock", "--", "bwrap", "--unshare-net"})
+	socket, policy, argv, ok := SuperviseArgs([]string{
+		"--supervisor", "--socket", "/tmp/c.sock", "--policy", "/tmp/c.json", "--", "bwrap", "--unshare-net"})
 	if !ok {
 		t.Fatal("must be recognized as supervisor mode")
 	}
 	if socket != "/tmp/c.sock" {
 		t.Fatalf("socket = %q", socket)
 	}
+	if policy != "/tmp/c.json" {
+		t.Fatalf("policy = %q", policy)
+	}
 	if len(argv) != 2 || argv[0] != "bwrap" {
 		t.Fatalf("argv = %v", argv)
 	}
 
 	// 非 supervisor 模式。
-	if _, _, ok := SuperviseArgs([]string{"--agent", "--ctrl", "3"}); ok {
+	if _, _, _, ok := SuperviseArgs([]string{"--agent", "--ctrl", "3"}); ok {
 		t.Fatal("agent mode must not be treated as supervisor")
 	}
 	// 缺 -- 时没有子命令（由调用方报错）。
-	if _, argv, ok := SuperviseArgs([]string{"--supervisor", "--socket", "/x"}); !ok || len(argv) != 0 {
+	if _, _, argv, ok := SuperviseArgs([]string{"--supervisor", "--socket", "/x"}); !ok || len(argv) != 0 {
 		t.Fatalf("argv = %v, ok = %v", argv, ok)
+	}
+	// 缺 --policy：RunSupervisor 会拒绝（策略文件必须显式传，不能悄悄省略）。
+	if _, _, _, ok := SuperviseArgs([]string{"--supervisor", "--socket", "/x", "--", "bwrap"}); !ok {
+		t.Fatal("must still parse")
+	}
+}
+
+// supervisor 拉起子进程时必须在 fd 3 放策略、fd 4 放控制通道：
+// argv 里写死的就是这两个号（`--file 3` / `--ctrl 4`），错一个位置两边同时失效。
+//
+// 这里直接读 RunSupervisor 的源码约定太脆，改为端到端断言：
+// supervised 沙盒能完成握手（Hello 读过 ctrl 4）并正常执行命令。
+// 真正的验证靠 TestSupervisorSurvivesDisconnect；这个用例只做「不 SKIP」的守卫。
+func TestSupervisorHandshake(t *testing.T) {
+	s := newSupervisedSession(t)
+	h, err := s.Exec(context.Background(), ExecRequest{
+		Argv: []string{"/bin/sh", "-c", "echo up"},
+	})
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	out, _ := io.ReadAll(h.Output())
+	if ex := h.Wait(); ex.Code != 0 {
+		t.Fatalf("exit = %+v", ex)
+	}
+	if !strings.Contains(string(out), "up") {
+		t.Fatalf("output = %q", out)
 	}
 }
 

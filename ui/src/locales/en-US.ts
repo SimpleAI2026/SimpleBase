@@ -331,6 +331,31 @@ const enUS: MessageTree = {
       evidenceRequest: 'Request',
       evidenceTools: 'Tool calls',
       evidenceResources: 'Resources created',
+      startersTitle: 'Try saying this',
+      startersDesc: 'Pick a card to create a project and hand it to the cloud assistant: tables, functions, scheduled jobs and a published page, then the access links.',
+      starterOutputs: {
+        table: 'Tables',
+        function: 'Functions',
+        cron: 'Scheduled jobs',
+        site: 'Site page'
+      },
+      starters: {
+        dashboard: {
+          title: 'Sales dashboard',
+          desc: 'Create an orders table with sample data, summarize sales daily, and publish a read-only dashboard page.',
+          prompt: 'Goal: build a sales dashboard. Create an orders table with about 30 sample rows; use a scheduled job at 02:00 every day to summarize the previous day\'s sales into web/data/summary.json; build a dashboard page that shows the summary and the 7-day trend.\nConstraints: use only the current project; migrations are append-only with CREATE TABLE IF NOT EXISTS; each cloud function is one package main file with a function test; the front end is a single web/index.html (inline CSS and JS, hash routing, at most 200KiB, no secrets); publish only the web/ prefix; never trigger cron or delete anything.\nContext: project id={projectId}; site base URL={siteBaseUrl}; site publishable={publishable}. If the site is not publishable, skip the site stage and report backend endpoints only.\nDelivery: in the final stage, end the last message with the delivery block in the format given by the system prompt, filled in only with facts you confirmed through tools.'
+        },
+        portfolio: {
+          title: 'Personal portfolio',
+          desc: 'Store works in a table and publish a static home page that shows them.',
+          prompt: 'Goal: build a personal portfolio. Create a table for works (title, summary, link, cover color) with 4 sample rows; export the data to web/data/works.json and build a static home page that shows the works as cards.\nConstraints: use only the current project; migrations are append-only with CREATE TABLE IF NOT EXISTS; each cloud function is one package main file with a function test; the front end is a single web/index.html (inline CSS and JS, hash routing, at most 200KiB, no secrets); publish only the web/ prefix; never trigger cron or delete anything.\nContext: project id={projectId}; site base URL={siteBaseUrl}; site publishable={publishable}. If the site is not publishable, skip the site stage and report backend endpoints only.\nDelivery: in the final stage, end the last message with the delivery block in the format given by the system prompt, filled in only with facts you confirmed through tools.'
+        },
+        notice: {
+          title: 'Team notice board',
+          desc: 'Create a notices table, generate a notices JSON every hour, and publish a notice page.',
+          prompt: 'Goal: build a team notice board. Create a notices table (title, body, published time, pinned) with 3 sample rows; use a scheduled job every hour to write the latest notices to web/data/notices.json; build a page that shows notices ordered by pinned and time.\nConstraints: use only the current project; migrations are append-only with CREATE TABLE IF NOT EXISTS; each cloud function is one package main file with a function test; the front end is a single web/index.html (inline CSS and JS, hash routing, at most 200KiB, no secrets); publish only the web/ prefix; never trigger cron or delete anything.\nContext: project id={projectId}; site base URL={siteBaseUrl}; site publishable={publishable}. If the site is not publishable, skip the site stage and report backend endpoints only.\nDelivery: in the final stage, end the last message with the delivery block in the format given by the system prompt, filled in only with facts you confirmed through tools.'
+        }
+      },
       demo: {
         aria: 'Orders app demo',
         appName: 'Orders app',
@@ -1445,6 +1470,58 @@ const enUS: MessageTree = {
       updated: 'User updated',
       created: 'User created',
       failed: 'Operation failed'
+    },
+
+    starter: {
+      modalTitle: 'Start building',
+      start: 'Start building',
+      previewPrompt: 'View the prompt that will be sent to the assistant',
+      newProjectNotice: 'Every start creates a new project and never touches your existing ones. Publishing the site still needs your confirmation in the conversation.',
+      unknownTemplate: 'Unknown template, refresh the page and try again',
+      noCreatePermission: 'This account is not allowed to create projects',
+      createFailed: 'Failed to create the project',
+      generalMissing: 'The general assistant was deleted. Create a general assistant first',
+      sessionFailed: 'Failed to create the build session',
+      progressAria: 'Build progress',
+      retryStage: 'Retry this stage',
+      skipStage: 'Skip',
+      takeover: 'Take over',
+      stage: {
+        plan: { label: 'Plan', message: 'Start the plan stage: list the data model, cloud functions, scheduled jobs and pages only. Do not run any command.' },
+        data: { label: 'Database', message: 'Start the database stage: create the tables and sample data from the plan, append-only migrations with CREATE TABLE IF NOT EXISTS.' },
+        func: { label: 'Functions', message: 'Start the functions stage: create the cloud functions from the plan and pass function test.' },
+        cron: { label: 'Scheduled jobs', message: 'Start the scheduled jobs stage: create the jobs from the plan and do not trigger them.' },
+        site: { label: 'Site', message: 'Start the site stage: upload web/index.html, then enable the site and publish only the web/ prefix.' },
+        verify: { label: 'Verify', message: 'Start the verify stage: check tables, functions and site status with read-only commands, then output the delivery block.' }
+      },
+      failed: {
+        runError: 'This stage did not finish normally. Retry it, skip it, or take over.',
+        plan: 'The plan stage produced nothing. Retry it or take over.',
+        data: 'No successful table command was seen. Retry it, skip it, or take over.',
+        func: 'No passing function test was seen. Retry it, skip it, or take over.',
+        cron: 'No scheduled job was created. Retry it, skip it, or take over.',
+        site: 'No successful site publish was seen. Retry it, skip it, or take over.',
+        verify: 'The verify stage produced nothing. Retry it, skip it, or take over.'
+      },
+      delivery: {
+        title: 'Build complete',
+        site: 'Site',
+        siteSkipped: 'The site cannot be published, so the site stage was skipped and only backend endpoints are provided.',
+        open: 'Open',
+        copy: 'Copy',
+        copyCurl: 'Copy curl',
+        copied: 'Copied',
+        copyFailed: 'Copy failed, copy it manually',
+        functions: 'Cloud functions',
+        data: 'Data',
+        cron: 'Scheduled jobs',
+        next: 'Next steps',
+        resources: 'Project resources',
+        linkDatabases: 'Databases',
+        linkFunctions: 'Functions',
+        linkCron: 'Scheduled jobs',
+        linkS3: 'Object storage'
+      }
     },
 
     createProject: {

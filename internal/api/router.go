@@ -552,11 +552,14 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.DELETE("/s3/objects", sh.DeleteObject, delegable(auth.DatabaseWrite), writeGate)
 		p.GET("/s3/presign", sh.PresignObject, delegable(auth.DatabaseRead))
 		p.POST("/s3/link", sh.CreateLink, delegable(auth.DatabaseRead))
-		// planv6.5 §5.4：发布网站 / 外部访问。写入要求 database:admin 且不可委托。
-		p.GET("/s3/site", sh.GetSite, require(auth.DatabaseRead))
-		p.PUT("/s3/site", sh.PutSite, require(auth.DatabaseAdmin), writeGate)
+		// planv6.5 §5.4：发布网站 / 外部访问。写入要求 database:admin。
+		// planv6.6 home-starter-prompts §2.5：搭建会话的 site 命令需要经委托令牌调用
+		// 站点状态/开关与 web/ 前缀公开三条路由；委托主体对 PUT /s3/public 只能操作
+		// web/ 文件夹（见 S3Handler.PutPublic），其余路由（含公开路径列表）仍不可委托。
+		p.GET("/s3/site", sh.GetSite, delegable(auth.DatabaseRead))
+		p.PUT("/s3/site", sh.PutSite, delegable(auth.DatabaseAdmin), writeGate)
 		p.GET("/s3/public", sh.ListPublic, require(auth.DatabaseRead))
-		p.PUT("/s3/public", sh.PutPublic, require(auth.DatabaseAdmin), writeGate)
+		p.PUT("/s3/public", sh.PutPublic, delegable(auth.DatabaseAdmin), writeGate)
 		e.GET("/files/:token", sh.DownloadLinkedObject)
 	}
 

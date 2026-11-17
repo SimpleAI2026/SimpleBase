@@ -6,7 +6,7 @@
 //
 //	gosandbox-inner --policy FILE [--ctty] -- CMD...   一次性命令
 //	gosandbox-inner --agent --ctrl N [--uidmap SPEC]   沙盒 PID 1
-//	gosandbox-inner --supervisor --socket P -- CMD...  托管一个沙盒（服务重启不丢）
+//	gosandbox-inner --supervisor --socket P --policy F -- CMD...  托管一个沙盒（服务重启不丢）
 //
 // 三个模式共用一个二进制：supervisor 也需要在宿主侧运行，而它要拉起的
 // 正是同一个 helper，多一个产物会让部署多一处可能装错的地方。
@@ -47,12 +47,12 @@ func main() {
 		case "--supervisor":
 			// 托管一个沙盒：把它的 socketpair 接到一个 unix socket 上，
 			// 服务进程重启后能重新接管。
-			socket, argv, _ := box.SuperviseArgs(os.Args[1:])
+			socket, policy, argv, _ := box.SuperviseArgs(os.Args[1:])
 			if len(argv) == 0 {
 				fmt.Fprintln(os.Stderr, "gosandbox-inner: --supervisor needs a command after --")
 				os.Exit(2)
 			}
-			os.Exit(box.RunSupervisor(socket, argv))
+			os.Exit(box.RunSupervisor(socket, policy, argv))
 		}
 	}
 	os.Exit(inner.Main(os.Args[1:], os.Environ()))

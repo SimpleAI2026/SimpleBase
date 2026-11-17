@@ -64,6 +64,7 @@ var readOnlyCommands = map[string]bool{
 	"document export":       true,
 	"object list":           true,
 	"object presign":        true,
+	"site status":           true,
 	"function list":         true,
 	"function get":          true,
 	"function test":         true,
@@ -197,6 +198,12 @@ func dispatch(resource, action string) commandFunc {
 		return cmdObjectDelete
 	case "object presign":
 		return cmdObjectPresign
+	case "site status":
+		return cmdSiteStatus
+	case "site enable":
+		return cmdSiteEnable
+	case "site publish":
+		return cmdSitePublish
 	case "function list":
 		return cmdFunctionList
 	case "function get":

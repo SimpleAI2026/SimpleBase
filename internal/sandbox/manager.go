@@ -128,16 +128,9 @@ type Capabilities struct {
 	Pause bool `json:"pause"`
 	// Metrics 为真表示能读沙盒的资源用量。
 	Metrics bool `json:"metrics"`
-	// Network 是出网档位："none" / "egress" / "egress-allowlist"。
+	// Network 是出网档位："none" / "egress"。egress 用独立 netns + pasta 出网，
+	// 元数据与私网由沙盒内的黑洞路由拦住；不做域名白名单。
 	Network string `json:"network"`
-	// NetworkAllow 是白名单（仅 egress-allowlist 有值）。
-	NetworkAllow []string `json:"network_allow,omitempty"`
-	// NetworkExperimental 为真表示当前档位是实验室特性：功能不完整，
-	// 调用方不该把它当稳定能力用。
-	//
-	// 现在只有 egress-allowlist 会置为真：DNS 代理已实现，但「解析出的地址
-	// 写进 nft set」这条链路还没接，实际效果是「能解析但连不通」。
-	NetworkExperimental bool `json:"network_experimental"`
 	// DiskLimitMiB 是每沙盒可写部分的上限；0 = 不限。超限冻结而不是杀。
 	DiskLimitMiB int64 `json:"disk_limit_mib"`
 }
@@ -212,9 +205,8 @@ func (m *Manager) Capabilities() Capabilities {
 		MaxFileBytes:    m.cfg.MaxFileBytes, MaxOutputBytes: m.cfg.MaxOutputBytes, MaxPerProject: m.cfg.MaxPerProject,
 		Images: append([]string(nil), m.cfg.Images...), Terminal: m.Interactive(),
 		Pause: m.CanPause(), Metrics: m.CanMetrics(),
-		Network: m.networkMode(), NetworkAllow: append([]string(nil), m.cfg.NetworkAllow...),
-		NetworkExperimental: IsExperimentalNetwork(m.cfg.Network),
-		DiskLimitMiB:        m.cfg.DiskLimitMiB}
+		Network:      m.networkMode(),
+		DiskLimitMiB: m.cfg.DiskLimitMiB}
 	if len(c.Images) == 0 {
 		c.Images = []string{m.cfg.Image}
 	}
@@ -227,18 +219,6 @@ func (m *Manager) networkMode() string {
 		return "none"
 	}
 	return strings.ToLower(strings.TrimSpace(m.cfg.Network))
-}
-
-// IsExperimentalNetwork 报告一个网络档位是否是实验室特性。
-//
-// egress-allowlist 现在是「半成品」：netx.DNSProxy 已实现但没有被启动，白名单没有
-// 生效，出站行为与 egress 相同。把它明说成实验室特性，避免用户误以为已按域名限制出站。
-func IsExperimentalNetwork(mode string) bool {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "egress-allowlist", "allowlist":
-		return true
-	}
-	return false
 }
 
 // Interactive 报告后端是否实现了 vm.Interactive，且配置没有关掉终端。

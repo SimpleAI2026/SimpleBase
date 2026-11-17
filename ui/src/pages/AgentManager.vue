@@ -135,6 +135,21 @@
                 </template>
               </ConversationView>
             </SbAsyncRegion>
+            <StarterProgress
+              v-if="starter.active.value || starter.failure.value || starter.finished.value"
+              :items="starter.progress.value"
+              :failure="starter.failure.value"
+              @retry="starter.retry"
+              @skip="starter.skip"
+              @takeover="starter.abandon"
+            />
+            <StarterDeliveryCard
+              v-if="starterDelivery"
+              :delivery="starterDelivery"
+              :project-id="project.id"
+              :site-base-url="starterSite?.baseUrl"
+              :site-skipped="starterSiteSkipped"
+            />
             <div class="flex min-h-4 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <p v-if="statusText" role="status" class="truncate">{{ statusText }}</p>
               <p v-else class="min-w-0 truncate">{{ toolsHint }}</p>
@@ -241,7 +256,13 @@ import AgentListPanel from '../components/agent/AgentListPanel.vue'
 import ThreadSwitcher from '../components/agent/ThreadSwitcher.vue'
 import ConversationView from '../components/agent/ConversationView.vue'
 import AgentComposer from '../components/agent/AgentComposer.vue'
+import StarterProgress from '../components/agent/StarterProgress.vue'
+import StarterDeliveryCard from '../components/agent/StarterDeliveryCard.vue'
 import { useAgentConversation } from '../composables/useAgentConversation'
+import { useStarterRun, type StageOutcome } from '../composables/useStarterRun'
+import { findStarterTemplate, type StarterStage } from '../constants/starter-prompts'
+import { markStarterSent, starterAlreadySent } from '../utils/starter-storage'
+import { stripDelivery } from '../utils/starter-delivery'
 import { useLoadState } from '@/composables/useLoadState'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import type { ActiveAgentRun, AgentMessage, AgentSchedule, ChatMsg } from '../services/types'
@@ -496,6 +517,116 @@ async function bootstrap() {
     await loadAgents()
     await loadThreads()
   })()])
+  await maybeStartStarter()
+}
+
+/* ---------- 首页「一句话建应用」搭建会话（planv6.6 home-starter-prompts §2.3 / §2.7） ---------- */
+
+const starter = useStarterRun({
+  send: (text, stage, done) => sendStarterStage(text, stage, done)
+})
+/** 站点状态：种子提示词上下文与交付卡片的同源校验都用它。 */
+const starterSite = ref<{ baseUrl?: string; publishable: boolean; reason?: string } | null>(null)
+const starterDelivery = computed(() => starter.delivery.value)
+const starterSiteSkipped = computed(() => starter.active.value || starter.finished.value ? !(starter.stages.value.includes('site')) : false)
+
+/** 阶段 run 结束时由 conv.start 的回调拿到结果。 */
+function sendStarterStage(text: string, stage: StarterStage, done: (o: StageOutcome) => void) {
+  const agent = agents.value.find((a) => a.id === activeId.value)
+  if (!agent || !threadId.value) {
+    done({ ok: false, content: '', cards: [] })
+    return
+  }
+  let reply: ChatMsg | undefined
+  conv.start({ content: text, mentions: [{ agent_id: agent.id }], module: agent.module, starter_stage: stage }, {
+    onReply: (r) => { reply = r },
+    onEnd: (reason) => {
+      refreshThreadsForAgent()
+      const content = reply?.content ?? ''
+      done({ ok: reason !== 'canceled', content, cards: reply?.toolCalls ?? [] })
+      // verify 阶段：交付块是机器读的，从展示正文里去掉（交付卡片负责呈现）。
+      if (stage === 'verify' && reply) reply.content = stripDelivery(reply.content)
+    },
+    onError: (e) => {
+      toast.error(errorMessage(e, t('pages.agents.runFailed')))
+      done({ ok: false, content: reply?.content ?? '', cards: reply?.toolCalls ?? [] })
+    }
+  })
+}
+
+/** 种子提示词 = 模板文案 + 项目上下文（项目 ID、站点基址、可发布）。 */
+function buildStarterSeed(templateId: string): string {
+  const tpl = findStarterTemplate(templateId)
+  if (!tpl) return ''
+  const site = starterSite.value
+  return t(tpl.promptKey, {
+    projectId: project.id,
+    siteBaseUrl: site?.baseUrl || '-',
+    publishable: site?.publishable ? 'true' : `false${site?.reason ? ` (${site.reason})` : ''}`
+  })
+}
+
+/** 合并更新 query（值为 undefined 表示删除该键）；排队串行，始终基于上一次替换后的结果。 */
+let queryChain: Promise<unknown> = Promise.resolve()
+function replaceQuery(patch: Record<string, string | undefined>) {
+  if (!router?.replace) return
+  queryChain = queryChain.then(() => {
+    const q: Record<string, unknown> = { ...router.currentRoute.value.query }
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete q[k]
+      else q[k] = v
+    }
+    return router.replace({ query: q as never })
+  }).catch(() => undefined)
+}
+
+/**
+ * 首页来的 `?starter=<id>`：选中内置通用助手 → 新建一条搭建会话 → 自动发送一次种子提示词。
+ *
+ * 这是对 planv6.0 §3.5「点击只填不发」的显式例外，仅限 starter 入口：用户已经在确认弹窗里点了
+ * 「开始搭建」，等价于回车。发送前先去重（sessionStorage）并立即去掉 query，刷新不会重复发。
+ */
+async function maybeStartStarter() {
+  const raw = route.query.starter
+  const templateId = typeof raw === 'string' ? raw : ''
+  if (!templateId) return
+  // 只去掉 starter：thread 等其它参数由各自的 replace 维护。replace 是异步的，
+  // 所以下面所有写 query 的地方都经 replaceQuery，基于「最新」的 route.query 合并，
+  // 不会把已去掉的 starter 又写回去。
+  const consumeQuery = () => replaceQuery({ starter: undefined })
+  const tpl = findStarterTemplate(templateId)
+  const projectId = project.id
+  if (!tpl || !projectId) { consumeQuery(); return }
+  if (starterAlreadySent(projectId, templateId)) { consumeQuery(); return }
+  const general = agents.value.find((a) => a.builtin_key === 'general')
+  if (!general) {
+    consumeQuery()
+    toast.error(t('components.starter.generalMissing'))
+    return
+  }
+  if (activeId.value !== general.id) {
+    activeId.value = general.id
+    threadId.value = ''
+  }
+  // 先占位再发：即使后面失败，刷新也不会重复建会话 / 重复发送。
+  markStarterSent(projectId, templateId)
+  consumeQuery()
+  try {
+    // 新建搭建会话（标题 = 模板名），不复用已有会话；starter_template 由服务端校验后登记。
+    const th = await api.agentThreads.create(projectId, t(tpl.titleKey), general.id, tpl.id)
+    if (project.id !== projectId) return
+    threads.value.unshift(th)
+    threadId.value = th.id
+    chatMessages.value = []
+    settleThread(false)
+    replaceQuery({ thread: th.id })
+  } catch (e) {
+    toast.error(errorMessage(e, t('components.starter.sessionFailed')))
+    return
+  }
+  starterSite.value = await api.s3.getSite(projectId).catch(() => null)
+  const siteReady = !!starterSite.value?.publishable
+  starter.start(tpl, siteReady)
 }
 
 /**
@@ -655,7 +786,7 @@ async function selectThread(id: string) {
   detachRun()
   switchTargetId.value = ''
   threadId.value = id
-  if (router?.replace) void router.replace({ query: { ...route.query, thread: id } })
+  replaceQuery({ thread: id })
   await runThread(async () => loadThreadMessages(id), { replace: true })
 }
 
@@ -707,7 +838,7 @@ async function loadThreads() {
       threads.value = [th]
       threadId.value = th.id
     }
-    if (router?.replace) void router.replace({ query: { ...route.query, thread: threadId.value } })
+    replaceQuery({ thread: threadId.value })
     return loadThreadMessages(threadId.value)
   }, { replace: true })
 }
@@ -870,7 +1001,7 @@ async function resetThread() {
     threadId.value = th.id
     chatMessages.value = []
     settleThread(false)
-    if (router?.replace) void router.replace({ query: { ...route.query, thread: th.id } })
+    replaceQuery({ thread: th.id })
   } catch (e) {
     toast.error(errorMessage(e, t('pages.agents.createThreadFailed')))
   }
@@ -909,6 +1040,8 @@ async function onSend(text: string, mentions: { agent_id: string }[]) {
     return
   }
   switchTargetId.value = ''
+  // 用户手动发消息即退出自动搭建模式（planv6.6 §2.7）。
+  if (starter.active.value) starter.abandon()
   if (!threadId.value) await loadThreads()
   if (!threadId.value) return
   let used = mentions

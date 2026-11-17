@@ -71,7 +71,9 @@ func DestructiveArgv(argv []string, stdin string) bool {
 	switch argv[0] + " " + argv[1] {
 	case "database delete", "document delete", "object delete", "function delete",
 		"cron delete", "cron trigger", "sandbox delete", "user delete", "user disable",
-		"apikey revoke", "settings set":
+		"apikey revoke", "settings set",
+		// 对外公开站点：home-starter-prompts-plan §2.5，每次都需要用户确认。
+		"site enable", "site publish":
 		return true
 	case "log retention":
 		return len(argv) >= 3 && argv[2] == "set"

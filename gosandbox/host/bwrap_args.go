@@ -36,7 +36,11 @@ import (
 )
 
 // InnerPolicyPath 是 helper 在沙盒内读取策略的位置（父进程经 --file 放入）。
-const InnerPolicyPath = "/run/gosandbox/policy.json"
+//
+// 放在 /tmp 而不是 /run：沙盒根是 `--ro-bind / /`，bwrap 无法在只读根上
+// 新建 /run/gosandbox（报 "Can't create file ...: Read-only file system"）。
+// /tmp 在参数里已被 tmpfs 覆盖，是沙盒里少数可写且必然存在的目录。
+const InnerPolicyPath = "/tmp/gosandbox/policy.json"
 
 // MaskedPaths 是 Docker 默认遮蔽的路径：盖成 /dev/null，读不到内容。
 // 这些文件会泄露宿主内核信息（内存布局、密钥、调度器状态、固件）。
@@ -208,7 +212,7 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 		args = append(args, "--disable-userns")
 	}
 	args = append(args, "--cap-drop", "ALL",
-		"--dir", "/run/gosandbox",
+		"--dir", filepath.Dir(InnerPolicyPath),
 		"--perms", "0400", "--file", strconv.Itoa(fd), InnerPolicyPath)
 	if in.Dir != "" {
 		args = append(args, "--chdir", in.Dir)

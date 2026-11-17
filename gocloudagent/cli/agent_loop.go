@@ -133,42 +133,20 @@ func (r *SessionRunner) Run(ctx context.Context, userText string, emit func(CLIE
 	started := time.Now()
 	// planv6.1 O3-7: 重复动作检测（窗口 12 次，同签名最多重复 4 次）。
 	detector := newRepeatDetector(12, 4)
-	model := agentcore.NewModel(r.Client, "", strings.TrimSpace(r.Model))
-	// 优先走标准 function calling；供应商不支持 tools（400/422）时由 agentcore 自动降级为
-	// 文本协议并缓存结论。此前 CLI 恒为文本协议，是因为旧端点的 HTTP DTO 根本没有 tools
-	// 字段（被迫回退），不是设计选择；文本协议要求模型手写 TOOL_CALL，格式稍有偏差就会
-	// 整轮失败。服务端 OpenAI 兼容出口补齐 tools 后，这里切回标准协议。
-	model.Protocol = "auto"
-	model.Warn = r.Warn
-	var usage agentcore.ChatUsage
-	model.Usage = func(u agentcore.ChatUsage) {
-		usage.PromptTokens += u.PromptTokens
-		usage.CompletionTokens += u.CompletionTokens
-		usage.ReasoningTokens += u.ReasoningTokens
-	}
-	// modelName 记录向上游的实际模型（run 结束后塞回 result）。
-	modelName := strings.TrimSpace(r.Model)
+	model, usage := newCLIModel(r)
 	iterations := r.MaxIterations
 	if iterations <= 0 {
 		iterations = 12
 	}
+	// modelName 记录向上游的实际模型（run 结束后塞回 result）。
+	modelName := strings.TrimSpace(r.Model)
 	instruction := r.SystemPrompt
 	if strings.TrimSpace(instruction) == "" {
 		instruction = defaultInstruction
 	}
-	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "gocloudagent-cli",
-		Description: "Local coding assistant",
-		Instruction: instruction,
-		Model:       model,
-		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{
-			Tools: r.Tools, UnknownToolsHandler: unknownToolHandler,
-			ExecuteSequentially: true,
-		}},
-		MaxIterations: iterations,
-	})
+	agent, err := newCLIAgent(ctx, instruction, model, r.Tools, iterations)
 	if err != nil {
-		return RunResult{}, fmt.Errorf("create agent: %w", err)
+		return RunResult{}, err
 	}
 	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: true})
 	// 压缩在本轮历史投影之前：摘要一旦写入，historyMessages 就会只带上切点之后的消息。
@@ -183,10 +161,71 @@ func (r *SessionRunner) Run(ctx context.Context, userText string, emit func(CLIE
 	}
 	msgs = append(msgs, agentcore.UserSchemaMessage(agentcore.Truncate(userText, maxUserChars)))
 
+	assistant, toolCalls, runErr := r.consumeEvents(ctx, runner.Run(ctx, msgs), emit, detector)
+
+	// 落盘本轮的最终助手回复（工具轮已在检测到调用时落盘）。
+	// 无正文时不写空行——否则 resume 会看到一串空的 assistant 消息。
+	// content 先脱敏：result 与落盘必须同一份文本（CLI 是本地工具，脱敏但不截断）。
+	content := r.redact(assistant)
+	if final := strings.TrimSpace(assistant); final != "" {
+		if _, err := r.Session.AppendMessage("assistant", content); err != nil && runErr == nil {
+			runErr = err
+		}
+	}
+	return finishCLIRun(cliRunOutcome{
+		content:    content,
+		toolCalls:  toolCalls,
+		usage:      *usage,
+		runErr:     runErr,
+		iterations: iterations,
+		modelName:  modelName,
+		started:    started,
+	})
+}
+
+// newCLIModel 建 CLI 侧的模型适配器与 usage 累加器。
+func newCLIModel(r *SessionRunner) (*agentcore.Model, *agentcore.ChatUsage) {
+	model := agentcore.NewModel(r.Client, "", strings.TrimSpace(r.Model))
+	// 优先走标准 function calling；供应商不支持 tools（400/422）时由 agentcore 自动降级为
+	// 文本协议并缓存结论。此前 CLI 恒为文本协议，是因为旧端点的 HTTP DTO 根本没有 tools
+	// 字段（被迫回退），不是设计选择；文本协议要求模型手写 TOOL_CALL，格式稍有偏差就会
+	// 整轮失败。服务端 OpenAI 兼容出口补齐 tools 后，这里切回标准协议。
+	model.Protocol = "auto"
+	model.Warn = r.Warn
+	usage := &agentcore.ChatUsage{}
+	model.Usage = func(u agentcore.ChatUsage) {
+		usage.PromptTokens += u.PromptTokens
+		usage.CompletionTokens += u.CompletionTokens
+		usage.ReasoningTokens += u.ReasoningTokens
+	}
+	return model, usage
+}
+
+// newCLIAgent 把指令、模型与本机工具装成一个可运行的 agent。
+func newCLIAgent(ctx context.Context, instruction string, model *agentcore.Model, tools []tool.BaseTool, iterations int) (adk.Agent, error) {
+	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:        "gocloudagent-cli",
+		Description: "Local coding assistant",
+		Instruction: instruction,
+		Model:       model,
+		ToolsConfig: adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{
+			Tools: tools, UnknownToolsHandler: unknownToolHandler,
+			ExecuteSequentially: true,
+		}},
+		MaxIterations: iterations,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create agent: %w", err)
+	}
+	return agent, nil
+}
+
+// consumeEvents 消费 agent 的事件流：正文累加进 assistant，工具调用与结果
+// 立刻落盘（顺序决定 resume 能否按 user → assistant → tool 还原）。
+func (r *SessionRunner) consumeEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent], emit func(CLIEvent), detector *repeatDetector) (string, int, error) {
 	var assistant strings.Builder
 	var runErr error
 	toolCalls := 0
-	iter := runner.Run(ctx, msgs)
 	for {
 		event, ok := iter.Next()
 		if !ok {
@@ -261,38 +300,47 @@ func (r *SessionRunner) Run(ctx context.Context, userText string, emit func(CLIE
 			}
 		}
 	}
-	// 落盘本轮的最终助手回复（工具轮已在检测到调用时落盘）。
-	// 无正文时不写空行——否则 resume 会看到一串空的 assistant 消息。
-	if final := strings.TrimSpace(assistant.String()); final != "" {
-		if _, err := r.Session.AppendMessage("assistant", r.redact(assistant.String())); err != nil && runErr == nil {
-			runErr = err
-		}
-	}
+	return assistant.String(), toolCalls, runErr
+}
 
+// cliRunOutcome 是事件循环的产出，供 finishCLIRun 组装结果。
+type cliRunOutcome struct {
+	content    string
+	toolCalls  int
+	usage      agentcore.ChatUsage
+	runErr     error
+	iterations int
+	modelName  string
+	started    time.Time
+}
+
+// finishCLIRun 把产出与错误分类成 RunResult。判断顺序与拆分前一致：
+// 取消与真错误要把 error 一并返回，否则上层会把中断当成正常结束。
+func finishCLIRun(out cliRunOutcome) (RunResult, error) {
 	result := RunResult{
-		Content: r.redact(assistant.String()), PromptTokens: usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens, ReasoningTokens: usage.ReasoningTokens,
-		ToolCalls: toolCalls, DurationMS: time.Since(started).Milliseconds(),
-		Reason: "stop", Model: modelName,
+		Content: out.content, PromptTokens: out.usage.PromptTokens,
+		CompletionTokens: out.usage.CompletionTokens, ReasoningTokens: out.usage.ReasoningTokens,
+		ToolCalls: out.toolCalls, DurationMS: time.Since(out.started).Milliseconds(),
+		Reason: "stop", Model: out.modelName,
 	}
-	if errors.Is(runErr, adk.ErrExceedMaxIterations) {
-		result.Content += fmt.Sprintf("\n已达到工具调用上限（%d 轮）", iterations)
+	if errors.Is(out.runErr, adk.ErrExceedMaxIterations) {
+		result.Content += fmt.Sprintf("\n已达到工具调用上限（%d 轮）", out.iterations)
 		result.Reason = "max_iterations"
 		return result, nil
 	}
 	// planv6.1 O2-5: 检测 max_tokens 截断（非流式路径）——输出不完整但非失败。
-	if errors.Is(runErr, agentcore.ErrMaxTokensExceeded) {
+	if errors.Is(out.runErr, agentcore.ErrMaxTokensExceeded) {
 		result.Content += "\n\n⚠️ 输出被 max_tokens 截断，内容可能不完整。可尝试拆分任务或提高 token 限额。"
 		result.Reason = "length"
 		return result, nil
 	}
-	if errors.Is(runErr, context.Canceled) {
+	if errors.Is(out.runErr, context.Canceled) {
 		result.Reason = "canceled"
 		return result, context.Canceled
 	}
-	if runErr != nil {
+	if out.runErr != nil {
 		result.Reason = "error"
-		return result, runErr
+		return result, out.runErr
 	}
 	return result, nil
 }

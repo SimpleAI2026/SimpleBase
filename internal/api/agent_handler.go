@@ -86,6 +86,7 @@ type threadDTO struct {
 	ID                 string    `json:"id"`
 	Title              string    `json:"title"`
 	AgentID            string    `json:"agent_id,omitempty"`
+	StarterTemplate    string    `json:"starter_template,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	LastMessagePreview string    `json:"last_message_preview,omitempty"`
@@ -135,7 +136,7 @@ func toAgentDTO(a systemdb.CloudAgent) agentDTO {
 }
 
 func toThreadDTO(t systemdb.AgentThread) threadDTO {
-	return threadDTO{ID: t.ID, Title: t.Title, AgentID: t.AgentID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
+	return threadDTO{ID: t.ID, Title: t.Title, AgentID: t.AgentID, StarterTemplate: t.StarterTemplate, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
 }
 
 func toMessageDTO(m systemdb.AgentMessage) messageDTO {
@@ -537,24 +538,36 @@ func (h *cloudAgentHandler) CreateThread(c echo.Context) error {
 	var body struct {
 		Title   string `json:"title"`
 		AgentID string `json:"agent_id"`
+		// StarterTemplate 登记首页「一句话建应用」搭建会话（home-starter-prompts-plan §2.4）。
+		StarterTemplate string `json:"starter_template"`
 	}
 	_ = c.Bind(&body)
 	createdBy := ""
-	if p, ok := PrincipalFromContext(c.Request().Context()); ok {
-		createdBy = p.APIKeyID
+	principal, hasPrincipal := PrincipalFromContext(c.Request().Context())
+	if hasPrincipal {
+		createdBy = principal.APIKeyID
 	}
 	// agent_id 可选：带上即把会话归属到该助手，后续列表按它过滤。
 	agentID := strings.TrimSpace(body.AgentID)
+	var agent systemdb.CloudAgent
 	if agentID != "" {
-		if _, err := h.store.GetCloudAgent(c.Request().Context(), pc.ID, agentID); err != nil {
+		got, err := h.store.GetCloudAgent(c.Request().Context(), pc.ID, agentID)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "agent not found"))
 			}
 			return WriteError(c, err)
 		}
+		agent = got
+	}
+	starter := strings.TrimSpace(body.StarterTemplate)
+	if starter != "" {
+		if err := h.checkStarterAllowed(pc.ID, starter, agent, principal, hasPrincipal); err != nil {
+			return WriteError(c, err)
+		}
 	}
 	th, err := h.store.CreateAgentThread(c.Request().Context(), systemdb.AgentThread{
-		ProjectID: pc.ID, Title: body.Title, AgentID: agentID, CreatedBy: createdBy,
+		ProjectID: pc.ID, Title: body.Title, AgentID: agentID, CreatedBy: createdBy, StarterTemplate: starter,
 	})
 	if err != nil {
 		return WriteError(c, err)
@@ -847,4 +860,32 @@ func toRunDTO(r systemdb.AgentRun) runDTO {
 		dto.FinishedAt = &t
 	}
 	return dto
+}
+
+// ErrStarterNotAllowed 表示不能创建搭建会话（助手 / 模板 / 权限 / 实例状态不满足）。
+var ErrStarterNotAllowed = errors.New("starter session is not allowed")
+
+// ErrStarterStageInvalid 表示 starter_stage 不在白名单，或会话不是搭建会话。
+var ErrStarterStageInvalid = errors.New("starter stage is invalid")
+
+// checkStarterAllowed 校验创建搭建会话的全部前置条件（home-starter-prompts-plan §2.4）：
+// 目标必须是内置通用助手、模板在服务端白名单内、调用方具备 database:admin、
+// 实例可写、CLI 技能已开启，且不是系统项目。技能只由服务端按会话登记决定，
+// 不由消息内容决定。
+func (h *cloudAgentHandler) checkStarterAllowed(projectID, template string, agent systemdb.CloudAgent, p auth.Principal, hasPrincipal bool) error {
+	switch {
+	case !cloudagent.IsStarterTemplate(template):
+		return ErrStarterNotAllowed
+	case agent.ID == "" || agent.BuiltinKey != "general" || agent.Module != cloudagent.ModuleGeneral:
+		return ErrStarterNotAllowed
+	case systemdb.IsAdminProject(projectID):
+		return ErrStarterNotAllowed
+	case h.runtime == nil || !h.runtime.SkillsCLI:
+		return ErrStarterNotAllowed
+	case h.writable != nil && !*h.writable:
+		return ErrStarterNotAllowed
+	case !hasPrincipal || p.Delegated || !p.HasPermission(auth.DatabaseAdmin):
+		return ErrStarterNotAllowed
+	}
+	return nil
 }

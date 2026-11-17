@@ -896,8 +896,10 @@ export const httpApi: Api = {
         threads: (Array.isArray(r.data?.threads) ? r.data.threads : []).map(toAgentThread),
         next_cursor: String(r.data?.next_cursor || '')
       })),
-    create: (projectId, title, agentId = '') =>
-      http.post(agentPath(projectId, '/agent-threads'), { title, agent_id: agentId }).then((r) => toAgentThread(r.data)),
+    create: (projectId, title, agentId = '', starterTemplate = '') =>
+      http
+        .post(agentPath(projectId, '/agent-threads'), { title, agent_id: agentId, ...(starterTemplate ? { starter_template: starterTemplate } : {}) })
+        .then((r) => toAgentThread(r.data)),
     rename: (projectId, threadId, title) =>
       http.patch(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)), { title }).then((r) => toAgentThread(r.data)),
     remove: (projectId, threadId) =>

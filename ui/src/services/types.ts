@@ -761,6 +761,8 @@ export interface AgentThread {
   title: string
   /** 会话归属的助手（planv6.0 §3.7 修订：每个助手一份会话）。空串为未绑定。 */
   agent_id?: string
+  /** 首页「一句话建应用」搭建会话的模板 id（planv6.6 home-starter-prompts §2.4）；普通会话为空。 */
+  starter_template?: string
   created_at: string
   updated_at: string
   last_message_preview?: string
@@ -948,6 +950,8 @@ export interface AgentRunRequest {
   stream?: boolean
   /** 重试指定失败 run（planv4.1 BUG-03）：复用原 user 消息，不重复落库。 */
   retry_of_run_id?: string
+  /** 搭建会话的阶段（planv6.6 home-starter-prompts §2.7）：技能由服务端按阶段白名单决定。 */
+  starter_stage?: string
 }
 
 export interface AgentStreamHandlers {
@@ -1487,7 +1491,8 @@ export interface Api {
   agentThreads: {
     list: (projectId: string, agentId?: string) => Promise<AgentThread[]>
     page: (projectId: string, agentId?: string, limit?: number, cursor?: string) => Promise<AgentThreadPage>
-    create: (projectId: string, title?: string, agentId?: string) => Promise<AgentThread>
+    /** starterTemplate 非空时登记搭建会话；仅内置通用助手 + database:admin 被服务端接受。 */
+    create: (projectId: string, title?: string, agentId?: string, starterTemplate?: string) => Promise<AgentThread>
     rename: (projectId: string, threadId: string, title: string) => Promise<AgentThread>
     remove: (projectId: string, threadId: string) => Promise<void>
     runs: (projectId: string, threadId: string, limit?: number) => Promise<AgentRun[]>

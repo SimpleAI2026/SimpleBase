@@ -1,9 +1,9 @@
 package config
 
-// sandbox_network_test.go：M4 新增的两项配置校验。
+// sandbox_network_test.go：沙盒网络与磁盘配置校验。
 //
-//  1. network 只接受 none / egress / egress-allowlist；
-//  2. egress-allowlist 必须有白名单（空白名单等于全拒，配了也跑不通）；
+//  1. network 只接受 none / egress；
+//  2. egress-allowlist（域名白名单）已移除，必须报错而不是悄悄降级成 egress；
 //  3. disk_limit_mib 不能为负。
 
 import (
@@ -29,44 +29,39 @@ func testDuration(seconds int) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// network 档位：合法的三种通过，其他报错。
+// network 档位：none / egress 通过，其他报错。
 func TestSandboxNetworkModes(t *testing.T) {
-	for _, mode := range []string{"", "none", "egress"} {
+	for _, mode := range []string{"", "none", "egress", " EGRESS "} {
 		cfg := baseSandbox()
 		cfg.Network = mode
 		if err := validateSandbox(cfg); err != nil {
 			t.Errorf("network=%q should be valid: %v", mode, err)
 		}
 	}
-	// allowlist 没配白名单：报错。
-	cfg := baseSandbox()
-	cfg.Network = "egress-allowlist"
-	if err := validateSandbox(cfg); err == nil {
-		t.Fatal("egress-allowlist without network_allow must fail")
-	}
-	// 配了白名单但没接受实验室状态：仍然报错，且说清为什么。
-	cfg.NetworkAllow = []string{"pypi.org"}
-	err := validateSandbox(cfg)
-	if err == nil {
-		t.Fatal("experimental mode must be explicitly accepted")
-	}
-	if !strings.Contains(err.Error(), "allow_experimental_network") {
-		t.Errorf("error should tell how to accept it: %v", err)
-	}
-	// 显式接受后通过。
-	cfg.AllowExperimentalNetwork = true
-	if err := validateSandbox(cfg); err != nil {
-		t.Fatalf("should be valid: %v", err)
-	}
 	// 未知档位：报错并说明合法值。
-	cfg = baseSandbox()
+	cfg := baseSandbox()
 	cfg.Network = "bridge"
-	err = validateSandbox(cfg)
+	err := validateSandbox(cfg)
 	if err == nil {
 		t.Fatal("unknown mode must fail")
 	}
-	if !strings.Contains(err.Error(), "egress-allowlist") {
+	if !strings.Contains(err.Error(), "none or egress") {
 		t.Errorf("error should list valid modes: %v", err)
+	}
+}
+
+// 已移除的白名单档：必须报错并说明原因，不能降级成 egress。
+func TestSandboxNetworkAllowlistRemoved(t *testing.T) {
+	for _, mode := range []string{"egress-allowlist", "allowlist"} {
+		cfg := baseSandbox()
+		cfg.Network = mode
+		err := validateSandbox(cfg)
+		if err == nil {
+			t.Fatalf("network=%q must fail: the allowlist was removed", mode)
+		}
+		if !strings.Contains(err.Error(), "removed") {
+			t.Errorf("error should explain the removal: %v", err)
+		}
 	}
 }
 

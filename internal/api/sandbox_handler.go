@@ -812,12 +812,9 @@ func (h *SandboxHandler) Capabilities(c echo.Context) error {
 		// metrics 为真表示 GET /sandboxes/{id}/metrics 有真实数据。
 		"metrics":      caps.Metrics,
 		"envd_version": h.envdVer,
-		// 出网档位。network_experimental=true 时控制台应标成「实验室」，
-		// 不要把它当稳定能力展示给用户。
-		"network":              caps.Network,
-		"network_allow":        caps.NetworkAllow,
-		"network_experimental": caps.NetworkExperimental,
-		"disk_limit_mib":       caps.DiskLimitMiB,
+		// 出网档位："none" / "egress"。egress 不做地址或域名过滤。
+		"network":        caps.Network,
+		"disk_limit_mib": caps.DiskLimitMiB,
 	}
 	if t := h.deps.Terminal; t != nil && t.SSHListen != "" {
 		body["ssh"] = map[string]any{"enabled": true, "listen": t.SSHListen, "host_key_fingerprint": t.Fingerprint}

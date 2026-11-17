@@ -15,7 +15,7 @@ proto/                 宿主 ↔ 沙盒 agent 的帧协议（len|kind|payload�
 agent/                 沙盒内 PID 1：进程表、PTY、信号、rlimits、文件服务、观测、入站中继
 box/                   宿主侧：拉起 agent、单写者帧通道、进程句柄、日志落盘
 image/                 镜像：引用解析、registry 拉取、blob store、层解包（压平成只读根）
-netx/                  出网：pasta 用户态出网、地址与域名白名单判定
+netx/                  出网档位（none / egress）与 pasta 用户态出网
 snapshot/              快照与 fork：文件系统归档（内容寻址）
 ```
 
@@ -132,15 +132,26 @@ io.Copy(w, conn)                                     // 读响应直到 EOF
 沙盒的 netns 里默认只有 `lo`（bwrap `--unshare-net`）。入站不受影响：
 `getHost(port)` 走 agent 中继，不在宿主上开任何监听。
 
-三档（`sandbox.network`）：
+两档（`sandbox.network`）：
 
 | 档位 | 出站 | 依赖 |
 |---|---|---|
 | `none`（默认） | 无 | — |
 | `egress` | pasta 用户态出网 | `pasta`（passt） |
-| `egress-allowlist`（实验，**白名单未生效**） | 目前与 `egress` 相同 | `pasta` + `sandbox.network_allow` |
 
-> **现状**：`netx` 里的 `DNSProxy`（域名白名单）与 `CheckAllowed`（拦元数据 `169.254.169.254`、私网 `10/8` `172.16/12` `192.168/16`、CGNAT `100.64/10`、`127/8`、IPv6 ULA 与链路本地；元数据地址有独立开关，不与「允许私网」混用）都已实现并有单测，但**没有任何生产代码调用它们**。因此 `egress` 与 `egress-allowlist` 档目前**没有**地址或域名层面的拦截；只有 `none` 档做了 `--unshare-net` 隔离。需要出网时请自行评估风险。
+> **两个档位都 `--unshare-net`**：沙盒有自己的 network namespace，看不到宿主网卡。
+>
+> `egress` 档的出站由 pasta 在**沙盒自己的 netns** 里配地址与默认路由（`--config-net`），
+> 再由用户态转发到宿主网络。agent 启动时会在沙盒 netns 里为云元数据
+> （`169.254.0.0/16`）、私网（`10/8`、`172.16/12`、`192.168/16`）、CGNAT（`100.64/10`）
+> 与回环（`127/8`）加**黑洞路由**，需要 `CAP_NET_ADMIN`（只在沙盒 userns 内有效，配完即丢）。
+> 不做域名级白名单：可达的只有公网地址。
+>
+> pasta 不可用、或无法进入沙盒 netns 时，`egress` 档**没有出网**（沙盒没有 default route），
+> 日志里有 `sandbox egress is unavailable` 警告。这是 fail-closed：不会退回共享宿主网络。
+>
+> 曾有的 `egress-allowlist`（域名白名单，`DNSProxy` + `CheckAllowed`）从未接入生产路径，
+> 已于 planv6.6 GSB-10 整体移除；`sandbox.network` 填它会在启动校验时报错。
 
 > 隔离后 `lo` 是 DOWN 的，agent 启动时会把它拉起——否则入站中继失效。
 

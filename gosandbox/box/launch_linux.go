@@ -69,6 +69,17 @@ func socketPair() (net.Conn, *os.File, error) {
 	return hostConn, agentFile, nil
 }
 
+// networkModeOf 把网络策略归一成传给 agent 的档位字符串。
+//
+// 空值按 none 处理（最安全的一档，与 Session 的默认一致）。agent 只在
+// egress 档装黑洞路由：none 档没有 default route，私网本来就不可达。
+func networkModeOf(cfg Config) string {
+	if cfg.Network.Mode == netx.ModeEgress {
+		return "egress"
+	}
+	return "none"
+}
+
 // buildArgs 组装 bwrap 参数并写出策略文件，返回完整 argv 与策略文件路径。
 func buildArgs(cfg Config) ([]string, string, error) {
 	if cfg.Helper == "" || !filepath.IsAbs(cfg.Helper) {
@@ -86,7 +97,7 @@ func buildArgs(cfg Config) ([]string, string, error) {
 		return nil, "", err
 	}
 
-	agentArgv := []string{cfg.Helper, "--agent", "--ctrl", fmt.Sprint(ctrlFD)}
+	agentArgv := []string{cfg.Helper, "--agent", "--ctrl", fmt.Sprint(ctrlFD), "--network", networkModeOf(cfg)}
 	// 把多段映射的可用 id 区间传给 agent：它据此判断「能不能 setuid 到某个
 	// uid」，而不是试一次失败一次。格式：uidmap=1000-1999,2000-2999
 	if spec := subIDSpec(ProbeSubIDs()); spec != "" {
@@ -102,14 +113,16 @@ func buildArgs(cfg Config) ([]string, string, error) {
 		"--new-session", "--die-with-parent",
 		// agent 要当 PID 1 收尸，所以不能交给 bwrap --as-pid-1。
 		"--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
-	}
-	// 网络：只有 none 档才 unshare。egress 档必须共享宿主的 netns 给 pasta
-	// 接出去，否则 pasta 找不到一个可配置的 netns。
-	//
-	// 之前的版本从不 unshare-net，等于沙盒能直接摸到云元数据与私网：
-	// 加这一行是这一节最要紧的改动。
-	if cfg.Network.Mode == "" || cfg.Network.Mode == netx.ModeNone {
-		args = append(args, "--unshare-net")
+		// 网络：**任何档位都 unshare**。
+		//
+		// none 档就是没有网络；egress 档由 pasta 用 `--config-net --netns`
+		// 在**沙盒自己的 netns** 里配地址与默认路由。早先的版本只在 none
+		// 档 unshare、让 egress 共享宿主 netns 给 pasta，那等于沙盒直接拿到
+		// 宿主的网络栈（含云元数据与私网），是本模块最严重的一处越权。
+		//
+		// 只隔离 netns 还不够：pasta 是透明 NAT，会照常转发到私网与元数据。
+		// 地址层拦截由 agent 在自己的 netns 里加黑洞路由（--network egress）。
+		"--unshare-net",
 	}
 	// 多段 uid 映射：让镜像里的服务用户（999、1000 等）在沙盒内真实存在。
 	//
@@ -120,14 +133,26 @@ func buildArgs(cfg Config) ([]string, string, error) {
 	if idArgs := subIDs.IDMapArgs(); len(idArgs) > 0 {
 		args = append(args, idArgs...)
 	}
-	args = append(args, rootArgs(cfg)...)
+	root, err := rootArgs(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	args = append(args, root...)
 	args = append(args,
 		"--bind", ws, cfg.Workspace,
 		"--tmpfs", "/tmp",
 		"--proc", "/proc",
 		"--dev", "/dev",
 		"--cap-drop", "ALL",
-		"--dir", "/run/gosandbox",
+		// agent 要在自己的 netns 里拉起 lo（none 档的入站中继依赖它）并加
+		// 黑洞路由（egress 档）。这两件事都要 CAP_NET_ADMIN；bwrap 的
+		// --cap-drop ALL 连 userns 内的这份也一起摘掉，所以显式加回来。
+		//
+		// 权限只在沙盒 userns 内有效，碰不到宿主。agent 在配完之后会主动
+		// 丢掉它（dropNetAdmin），用户命令拿不到。
+		"--cap-add", "CAP_NET_ADMIN",
+		// 目录必须在可写层：沙盒根是 --ro-bind / /，bwrap 建不了 /run/…
+		"--dir", filepath.Dir(host.InnerPolicyPath),
 		"--perms", "0400", "--file", fmt.Sprint(policyFD), host.InnerPolicyPath,
 		"--",
 	)
@@ -144,31 +169,30 @@ func buildArgs(cfg Config) ([]string, string, error) {
 //
 // 拷贝路径是必要的退路：Ubuntu 24.04 自带的 bwrap 0.9 没有 --overlay，
 // 而镜像沙盒是 M2 的核心能力，不能因为 bwrap 版本就整块不可用。
-func rootArgs(cfg Config) []string {
+//
+// 构造镜像根失败时**返回错误**，而不是退回宿主根：用户请求的是镜像，
+// 悄悄给他宿主文件系统，等于他以为在隔离环境里跑、实际读到的是宿主
+// （与 vm/box 的 resolveLower 同一条原则）。
+func rootArgs(cfg Config) ([]string, error) {
 	if cfg.Lower == "" {
-		return []string{"--ro-bind", "/", "/"}
+		return []string{"--ro-bind", "/", "/"}, nil
 	}
 	if overlaySupported(cfg.Bwrap) {
 		upper := filepath.Join(cfg.Root, "upper")
 		work := filepath.Join(cfg.Root, "work")
 		for _, d := range []string{upper, work} {
 			if err := os.MkdirAll(d, 0o700); err != nil {
-				return []string{"--ro-bind", "/", "/"}
+				return nil, fmt.Errorf("box: prepare overlay dir %s: %w", d, err)
 			}
 		}
-		return []string{"--overlay-src", cfg.Lower, "--overlay", upper, work, "/"}
+		return []string{"--overlay-src", cfg.Lower, "--overlay", upper, work, "/"}, nil
 	}
 	// 拷贝退路：把 lower 复制一份，以 bind 作根。
 	root := filepath.Join(cfg.Root, "rootfs")
 	if err := copyTree(cfg.Lower, root); err != nil {
-		// 拷不动就退到宿主根：沙盒仍能起来，只是根不是镜像。
-		if cfg.Log != nil {
-			cfg.Log("warn", "cannot materialize image root, falling back to host root",
-				"name", cfg.Name, "error", err.Error())
-		}
-		return []string{"--ro-bind", "/", "/"}
+		return nil, fmt.Errorf("box: materialize image root %s: %w", cfg.Lower, err)
 	}
-	return []string{"--bind", root, "/"}
+	return []string{"--bind", root, "/"}, nil
 }
 
 // overlaySupported 报告 bwrap 是否支持 --overlay。
@@ -277,22 +301,24 @@ func (c *controlConn) Pid() int {
 // 这样服务进程重启不影响沙盒。
 func launchSupervised(ctx context.Context, cfg Config) (net.Conn, error) {
 	socket := supervisorSocket(cfg.Root)
+	// 已有 supervisor 在跑（服务重启后的重连）：直接接管。
+	//
+	// 必须在 buildArgs 之前判断：buildArgs 会重写 run/policy.json，
+	// 而正在运行的沙盒不需要（也不该被）重新生成策略。
+	if conn, derr := dialSupervisor(socket); derr == nil {
+		return conn, nil
+	}
 	argv, policyPath, err := buildArgs(cfg)
 	if err != nil {
 		return nil, err
 	}
-	// 已有 supervisor 在跑（服务重启后的重连）：直接接管。
-	if conn, derr := dialSupervisor(socket); derr == nil {
-		return conn, nil
-	}
-	_ = os.RemoveAll(filepath.Join(cfg.Root, "run"))
-	_ = policyPath
 
 	// 用同一个 helper 二进制跑 supervisor：不引入第二个部署产物。
 	//
-	// 形状：--supervisor --socket <path> -- <bwrap argv...>
-	// supervisor 自己再拉起 `--agent --ctrl 3`（它把控制通道作为 fd 3 传下去）。
-	args := append([]string{"--supervisor", "--socket", socket, "--"}, argv...)
+	// 形状：--supervisor --socket <path> --policy <path> -- <bwrap argv...>
+	// supervisor 按与非托管路径相同的 fd 约定拉起子进程：
+	// 3 = 策略文件（bwrap 的 --file 3），4 = 控制通道（agent 的 --ctrl 4）。
+	args := append([]string{"--supervisor", "--socket", socket, "--policy", policyPath, "--"}, argv...)
 	cmd := exec.CommandContext(ctx, cfg.Helper, args...)
 	cmd.Env = cfg.Env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

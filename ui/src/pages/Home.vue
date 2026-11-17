@@ -47,6 +47,17 @@
         </aside>
       </section>
 
+      <!-- 试试这样说（planv6.6 home-starter-prompts §2.1）：点一张卡片 → 确认 → 自动建项目并交给云助手 -->
+      <section class="border-t border-border" aria-labelledby="starters-heading">
+        <div class="mx-auto flex max-w-7xl flex-col gap-6 px-5 py-14 sm:px-8 sm:py-16 lg:px-12">
+          <div class="flex max-w-2xl flex-col gap-2">
+            <h2 id="starters-heading" class="m-0 text-[1.625rem] leading-[1.3] font-medium sm:text-4xl sm:leading-[1.25]">{{ t('pages.home.startersTitle') }}</h2>
+            <p class="m-0 text-sm leading-6 text-text-secondary">{{ t('pages.home.startersDesc') }}</p>
+          </div>
+          <HomeStarterPrompts @pick="onPickStarter" />
+        </div>
+      </section>
+
       <!-- 下半页：非对称、证据优先（§12.7） -->
       <section class="border-t border-border" aria-labelledby="capabilities-heading">
         <div class="mx-auto flex max-w-7xl flex-col gap-6 px-5 py-16 sm:px-8 sm:py-20 lg:px-12 lg:py-24">
@@ -121,19 +132,72 @@
         </div>
       </div>
     </footer>
+
+    <StarterLaunchModal
+      v-model:open="launchOpen"
+      :template-id="pickedId"
+      :launching="launching"
+      :initial-name="initialName"
+      :initial-engine="initialEngine"
+      @confirm="onConfirmStarter"
+    />
+    <LoginModal :open="auth.loginOpen || auth.mustChangePassword" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ArrowRightIcon, ArrowUpRightIcon, CheckIcon } from '@lucide/vue'
 import BrandLogo from '@/components/BrandLogo.vue'
 import GithubIcon from '@/components/GithubIcon.vue'
 import HomeDemo from '@/components/home/HomeDemo.vue'
+import HomeStarterPrompts from '@/components/home/HomeStarterPrompts.vue'
+import StarterLaunchModal from '@/components/home/StarterLaunchModal.vue'
+import LoginModal from '@/components/modal/LoginModal.vue'
 import LocaleSelect from '@/components/LocaleSelect.vue'
+import { useStarterLaunch } from '@/composables/useStarterLaunch'
+import { useAuthStore } from '@/stores/auth'
+import { takePendingStarter } from '@/utils/starter-storage'
 
 const { t } = useI18n()
+const auth = useAuthStore()
+const { launching, launch, loggedIn } = useStarterLaunch()
+
+/* ---------- 一句话建应用（planv6.6 home-starter-prompts §2.1 / §2.2） ---------- */
+const launchOpen = ref(false)
+const pickedId = ref('')
+const initialName = ref('')
+const initialEngine = ref<'duckdb' | 'sqlite'>('duckdb')
+
+function onPickStarter(id: string) {
+  pickedId.value = id
+  initialName.value = ''
+  initialEngine.value = 'duckdb'
+  launchOpen.value = true
+}
+
+async function onConfirmStarter(payload: { name: string; engine: 'duckdb' | 'sqlite' }) {
+  const ok = await launch(pickedId.value, payload)
+  // 成功会路由跳转；未登录时 launch 已记下 pendingStarter 并打开登录框，关闭确认弹窗避免叠层。
+  if (ok || !loggedIn()) launchOpen.value = false
+}
+
+/**
+ * 登录成功后续跑同一张卡片，不丢意图：Home 不在 DefaultLayout 里，没有 auth.bootstrap，
+ * 所以这里自己监听登录态。pending 读取即清除，只续跑一次。
+ */
+function resumePending() {
+  if (!loggedIn()) return
+  const pending = takePendingStarter()
+  if (!pending) return
+  pickedId.value = pending.templateId
+  initialName.value = pending.name
+  initialEngine.value = pending.engine
+  launchOpen.value = true
+}
+watch(() => auth.isAuthenticated, (v) => { if (v) resumePending() })
+onMounted(resumePending)
 
 /** 首屏主按钮：与控制台同一主色。 */
 const primaryBtn =

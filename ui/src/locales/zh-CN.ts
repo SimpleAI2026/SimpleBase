@@ -340,6 +340,31 @@ const zhCN: MessageTree = {
       evidenceRequest: '需求',
       evidenceTools: '工具调用',
       evidenceResources: '建成的资源',
+      startersTitle: '试试这样说',
+      startersDesc: '点一张卡片，自动新建项目并交给云助手：建表、写函数、安排任务、发布页面，最后给出访问入口。',
+      starterOutputs: {
+        table: '数据表',
+        function: '云函数',
+        cron: '定时任务',
+        site: '站点页面'
+      },
+      starters: {
+        dashboard: {
+          title: '销售数据看板',
+          desc: '建订单表并写入示例数据，每天汇总销售额，发布一个只读看板页。',
+          prompt: '目标：做一个销售数据看板。建订单表并写入约 30 行示例数据；每天凌晨 2 点用定时任务汇总前一天的销售额并写入 web/data/summary.json；做一个展示汇总与近 7 天趋势的看板页。\n约束：只用当前项目；迁移只追加，用 CREATE TABLE IF NOT EXISTS；云函数单文件 package main 并配 function test；前端为单个 web/index.html（内联 CSS 与 JS、Hash 路由、不超过 200KiB、不含任何密钥）；只公开 web/ 前缀；不触发 cron、不删除任何资源。\n上下文：项目 ID={projectId}；站点基址={siteBaseUrl}；站点可发布={publishable}。若站点不可发布，跳过站点阶段，只输出后端入口。\n交付：最后一阶段的最后一条消息按系统提示里的格式附一行交付块，字段只填你通过工具确认过的事实。'
+        },
+        portfolio: {
+          title: '个人作品集',
+          desc: '用数据表存放作品条目，发布一个展示作品的静态主页。',
+          prompt: '目标：做一个个人作品集。建一个存放作品（标题、简介、链接、封面色）的数据表并写入 4 条示例；把数据导出为 web/data/works.json，做一个展示作品卡片的静态主页。\n约束：只用当前项目；迁移只追加，用 CREATE TABLE IF NOT EXISTS；云函数单文件 package main 并配 function test；前端为单个 web/index.html（内联 CSS 与 JS、Hash 路由、不超过 200KiB、不含任何密钥）；只公开 web/ 前缀；不触发 cron、不删除任何资源。\n上下文：项目 ID={projectId}；站点基址={siteBaseUrl}；站点可发布={publishable}。若站点不可发布，跳过站点阶段，只输出后端入口。\n交付：最后一阶段的最后一条消息按系统提示里的格式附一行交付块，字段只填你通过工具确认过的事实。'
+        },
+        notice: {
+          title: '团队公告板',
+          desc: '建公告表，每小时生成公告 JSON，发布一个公告展示页。',
+          prompt: '目标：做一个团队公告板。建公告表（标题、正文、发布时间、置顶）并写入 3 条示例；每小时用定时任务把最新公告写入 web/data/notices.json；做一个按置顶与时间排序展示公告的页面。\n约束：只用当前项目；迁移只追加，用 CREATE TABLE IF NOT EXISTS；云函数单文件 package main 并配 function test；前端为单个 web/index.html（内联 CSS 与 JS、Hash 路由、不超过 200KiB、不含任何密钥）；只公开 web/ 前缀；不触发 cron、不删除任何资源。\n上下文：项目 ID={projectId}；站点基址={siteBaseUrl}；站点可发布={publishable}。若站点不可发布，跳过站点阶段，只输出后端入口。\n交付：最后一阶段的最后一条消息按系统提示里的格式附一行交付块，字段只填你通过工具确认过的事实。'
+        }
+      },
       demo: {
         aria: '订单应用演示',
         appName: '订单应用',
@@ -1458,6 +1483,58 @@ const zhCN: MessageTree = {
       updated: '用户已更新',
       created: '用户已创建',
       failed: '操作失败'
+    },
+
+    starter: {
+      modalTitle: '开始搭建',
+      start: '开始搭建',
+      previewPrompt: '查看将发送给助手的提示词',
+      newProjectNotice: '每次开始都会新建一个项目，不会改动你已有的项目。搭建过程中对外公开站点等操作仍需你在对话里确认。',
+      unknownTemplate: '未知的模板，请刷新页面后重试',
+      noCreatePermission: '当前账号没有新建项目的权限',
+      createFailed: '创建项目失败',
+      generalMissing: '通用助手已被删除，请先在云助手里新建一个通用助手',
+      sessionFailed: '创建搭建会话失败',
+      progressAria: '搭建进度',
+      retryStage: '重试本阶段',
+      skipStage: '跳过',
+      takeover: '我来接手',
+      stage: {
+        plan: { label: '规划', message: '开始规划阶段：只输出数据模型、云函数、定时任务和页面的清单，不要执行任何命令。' },
+        data: { label: '数据库', message: '开始数据库阶段：按清单建表与写入示例数据，只追加迁移，用 CREATE TABLE IF NOT EXISTS。' },
+        func: { label: '云函数', message: '开始云函数阶段：按清单创建云函数，并用 function test 试跑通过。' },
+        cron: { label: '定时任务', message: '开始定时任务阶段：按清单创建定时任务，不要触发它。' },
+        site: { label: '前端站点', message: '开始站点阶段：上传 web/index.html，然后开启站点并只公开 web/ 前缀。' },
+        verify: { label: '验证', message: '开始验证阶段：用只读命令核对表、函数与站点状态，最后输出交付块。' }
+      },
+      failed: {
+        runError: '这一阶段没有正常结束，可以重试、跳过，或自己接手。',
+        plan: '规划没有产出内容，可以重试或自己接手。',
+        data: '没有看到成功的建表命令，可以重试、跳过，或自己接手。',
+        func: '没有看到通过的 function test，可以重试、跳过，或自己接手。',
+        cron: '没有看到成功创建的定时任务，可以重试、跳过，或自己接手。',
+        site: '没有看到成功的站点发布，可以重试、跳过，或自己接手。',
+        verify: '验证没有产出内容，可以重试、跳过，或自己接手。'
+      },
+      delivery: {
+        title: '搭建完成',
+        site: '访问入口',
+        siteSkipped: '站点不可发布，已跳过前端站点，只提供后端入口。',
+        open: '打开',
+        copy: '复制',
+        copyCurl: '复制 curl',
+        copied: '已复制',
+        copyFailed: '复制失败，请手动复制',
+        functions: '云函数',
+        data: '数据',
+        cron: '定时任务',
+        next: '下一步',
+        resources: '项目资源',
+        linkDatabases: '数据库',
+        linkFunctions: '云函数',
+        linkCron: '定时任务',
+        linkS3: '对象存储'
+      }
     },
 
     createProject: {

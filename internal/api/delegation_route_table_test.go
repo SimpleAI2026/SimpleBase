@@ -53,6 +53,10 @@ var expectedDelegableRoutes = map[string]bool{
 	"POST /v1/projects/:projectID/s3/objects":        true,
 	"DELETE /v1/projects/:projectID/s3/objects":      true,
 	"GET /v1/projects/:projectID/s3/presign":         true,
+	// 搭建会话的 site 命令（home-starter-prompts §2.5）；GET /s3/public 仍不可委托
+	"GET /v1/projects/:projectID/s3/site":   true,
+	"PUT /v1/projects/:projectID/s3/site":   true,
+	"PUT /v1/projects/:projectID/s3/public": true,
 	// gofunction skill
 	"GET /v1/projects/:projectID/gofunctions":                               true,
 	"POST /v1/projects/:projectID/gofunctions":                              true,

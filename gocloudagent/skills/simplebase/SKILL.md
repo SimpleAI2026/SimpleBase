@@ -36,6 +36,7 @@ description: 通过 `simplebase` CLI 工具操作当前 SimpleBase 项目的资�
 | database | Database | `database` `sql` `schema` `collection` `document` | `references/database.md` |
 | kv | 键值助手 | `kv` | `references/kv.md` |
 | s3 | S3 | `object` | `references/s3.md` |
+| site | 无（仅搭建会话按阶段加载） | `site` | `references/site.md` |
 | gofunction | 云函数助手 | `function` | `references/gofunction.md` |
 | cron | 定时任务助手 | `cron` | `references/cron.md` |
 | sandbox | 沙盒助手 | `sandbox` | `references/sandbox.md` |

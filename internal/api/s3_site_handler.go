@@ -7,7 +7,8 @@
 //	GET  /v1/projects/:pid/s3/public   → {paths:[{path,kind,public_url}]}
 //	PUT  /v1/projects/:pid/s3/public   ← {key, kind:file|folder, public} （database:admin + writeGate）
 //
-// 不可委托：公开即对外暴露数据，云助手的委托令牌不得代为开启。
+// 委托：公开即对外暴露数据。云助手委托令牌只可读站点状态、开关站点、公开 web/ 文件夹
+// （搭建会话的 site 命令，需用户确认）；公开路径列表仍不可委托。
 
 package api
 
@@ -29,6 +30,9 @@ import (
 
 // ErrSiteNotPublishable 表示项目当前不能发布网站（未开启 sites、系统项目、ID 不可作 DNS 标签）。
 var ErrSiteNotPublishable = errors.New("site is not publishable for this project")
+
+// delegatedPublicPrefix 是云助手委托令牌唯一允许公开的对象前缀。
+const delegatedPublicPrefix = "web/"
 
 // 不可发布原因。
 const (
@@ -202,6 +206,13 @@ func (h *S3Handler) PutPublic(c echo.Context) error {
 	rid := RequestIDFromContext(c.Request().Context())
 	if body.Public == nil {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "public is required", rid))
+	}
+	// 委托主体（云助手）只能开启 web/ 文件夹：禁止公开对象根或其它目录，
+	// 即使模型绕过 CLI 的前缀检查，服务端也在这里兜底。
+	if p, ok := PrincipalFromContext(c.Request().Context()); ok && p.Delegated {
+		if body.Kind != systemdb.PublicPathFolder || body.Key != delegatedPublicPrefix {
+			return WriteError(c, NewAPIError(http.StatusForbidden, "delegated_public_prefix_only", "assistant may only publish the "+delegatedPublicPrefix+" folder", rid))
+		}
 	}
 	switch body.Kind {
 	case systemdb.PublicPathFile:

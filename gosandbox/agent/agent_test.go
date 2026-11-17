@@ -394,7 +394,7 @@ func TestParseAgentArgsMarksCtrlCloseOnExec(t *testing.T) {
 	}
 	defer f.Close()
 
-	ctrl, _, perr := parseAgentArgs([]string{"--ctrl", strconv.Itoa(int(f.Fd()))})
+	ctrl, _, _, perr := parseAgentArgs([]string{"--ctrl", strconv.Itoa(int(f.Fd()))})
 	if perr != nil {
 		t.Fatalf("parse: %v", perr)
 	}

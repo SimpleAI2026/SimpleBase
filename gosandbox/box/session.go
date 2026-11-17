@@ -38,6 +38,8 @@ package box
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -138,6 +140,9 @@ type Session struct {
 	stats atomic.Pointer[proto.Stats]
 	// closed 表示已 Close。
 	closed atomic.Bool
+	// doneOnce 保证 done 只关一次：reader / writer / 错误路径都会关它，
+	// 重连（supervisor）时两条路径并存会 panic: close of closed channel。
+	doneOnce sync.Once
 }
 
 // Start 拉起 bwrap + agent 并等 Hello。
@@ -152,39 +157,68 @@ func Start(ctx context.Context, cfg Config) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 出网要在 netns 建好之后接：pasta 需要一个已存在的 netns。
-	// 失败不致命——沙盒仍能跑（只是没有出网），但必须报出来，
-	// 否则用户会以为「网络配好了却连不上」。
-	var egress *netx.Runner
-	if cfg.Network.Mode != "" && cfg.Network.Mode != netx.ModeNone {
-		if pid, ok := conn.(interface{ Pid() int }); ok && pid.Pid() > 0 {
-			r, perr := netx.Start(ctx, netx.StartOptions{
-				NetnsPID: pid.Pid(), Mode: cfg.Network.Mode,
-				Log: func(line string) {
-					if cfg.Log != nil {
-						cfg.Log("warn", "pasta: "+line)
-					}
-				},
-			})
-			if perr != nil {
-				if cfg.Log != nil {
-					cfg.Log("warn", "sandbox egress is unavailable; the sandbox runs without network",
-						"error", perr.Error())
-				}
-			} else {
-				egress = r
-			}
-		}
-	}
 	s, err := newSessionOn(ctx, cfg, conn)
 	if err != nil {
-		if egress != nil {
-			_ = egress.Stop()
-		}
 		return nil, err
 	}
-	s.egress = egress
+	s.egress = s.startEgress(ctx)
 	return s, nil
+}
+
+// startEgress 在 agent 就绪之后把沙盒的 netns 交给 pasta。
+//
+// 必须等 Hello 之后再启动：cmd.Start 返回时 bwrap 可能还没完成 unshare，
+// 此时 /proc/<pid>/ns/net 还指向上一个命名空间（或打不开）。早启动会让
+// pasta 拿着错误的 netns 配置半天，最后表现为「网络配好了却连不上」。
+//
+// 失败不致命——沙盒仍能跑（只是没有出网），但必须报出来。
+func (s *Session) startEgress(ctx context.Context) *netx.Runner {
+	cfg := s.cfg
+	if cfg.Network.Mode == "" || cfg.Network.Mode == netx.ModeNone {
+		return nil
+	}
+	pid, ok := s.conn.(interface{ Pid() int })
+	if !ok || pid.Pid() <= 0 {
+		// supervisor 模式下控制面是 unix socket，拿不到沙盒进程 pid：
+		// egress 与 supervise 目前不能同时开启，如实报出来。
+		if cfg.Log != nil {
+			cfg.Log("warn", "sandbox egress is unavailable: this control channel does not expose the sandbox pid (egress cannot be combined with supervise)")
+		}
+		return nil
+	}
+	r, err := netx.Start(ctx, netx.StartOptions{
+		NetnsPID: pid.Pid(), Mode: cfg.Network.Mode,
+		Log: func(line string) {
+			if cfg.Log != nil {
+				cfg.Log("warn", "pasta: "+line)
+			}
+		},
+	})
+	if err != nil {
+		if cfg.Log != nil {
+			cfg.Log("warn", "sandbox egress is unavailable; the sandbox runs without network",
+				"error", err.Error())
+		}
+		return nil
+	}
+	return r
+}
+
+// closeDone 只关闭一次 done。
+func (s *Session) closeDone() {
+	s.doneOnce.Do(func() { close(s.done) })
+}
+
+// newObjectID 生成宿主侧唯一的对象 id。
+//
+// 不能用自增序号：supervisor 重连后新 Session 的 seq 从头开始，会与 agent
+// 里仍活着的旧进程撞名（agent 返回 "process p1 already exists"）。
+func newObjectID(prefix string) string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%s%d", prefix, time.Now().UnixNano())
+	}
+	return prefix + hex.EncodeToString(b[:])
 }
 
 // newSession 在已建立的控制通道上起一个 Session，等 agent 的 Hello。
@@ -212,23 +246,23 @@ func newSessionOn(ctx context.Context, cfg Config, conn net.Conn) (*Session, err
 	var payload []byte
 	if err := setReadDeadline(conn, 30*time.Second); err != nil {
 		conn.Close()
-		close(s.done)
+		s.closeDone()
 		return nil, err
 	}
 	if err := proto.ReadFrame(conn, &kind, &payload); err != nil {
 		conn.Close()
-		close(s.done)
+		s.closeDone()
 		return nil, fmt.Errorf("box: agent did not say hello: %w", err)
 	}
 	hello, err := proto.Decode(kind, payload)
 	if err != nil || hello.Kind != proto.KindHello {
 		conn.Close()
-		close(s.done)
+		s.closeDone()
 		return nil, fmt.Errorf("box: unexpected first frame")
 	}
 	if hello.Version != proto.Version {
 		conn.Close()
-		close(s.done)
+		s.closeDone()
 		return nil, fmt.Errorf("box: agent speaks protocol %d, want %d", hello.Version, proto.Version)
 	}
 	_ = setReadDeadline(conn, 0)
@@ -248,13 +282,13 @@ func (s *Session) writer(w io.Writer) {
 	for f := range s.out {
 		if err := proto.Send(w, f.msg); err != nil {
 			s.writeErr.Store(err)
-			close(s.done)
+			s.closeDone()
 			return
 		}
 		if len(f.raw) > 0 {
 			if _, err := w.Write(f.raw); err != nil {
 				s.writeErr.Store(err)
-				close(s.done)
+				s.closeDone()
 				return
 			}
 		}
@@ -266,7 +300,7 @@ func (s *Session) writer(w io.Writer) {
 func (s *Session) reader(r io.Reader) {
 	defer func() {
 		if !s.closed.Load() {
-			close(s.done)
+			s.closeDone()
 		}
 	}()
 	var kind proto.Kind

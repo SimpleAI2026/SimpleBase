@@ -190,6 +190,30 @@ C2 额外：`go list -deps ./... | grep -c 'SimpleBase/internal'` 必须为 0（
 
 ### 遗留
 
-- kv / s3 / cron / sandbox / logs / project 六份云助手文档仍是原版，等用户提供新文档（需用户提供内容，未处理）。
+- **六份云助手文档已复核（2026-11-17）**：不再等外部内容，改为按代码逐项对账。方法与结论如下。
+  - 对账口径：CLI 命令与 flag（`internal/sbcli`）、只读判定（`CommandReadOnly`）、后端 handler 的错误码与边界（`internal/api`）、`internal/agentbridge/skills_test.go` 的三条对账测试（readonly ↔ sbcli、示例可分发、allow ↔ 前缀表）。
+  - 结论：kv / s3 / cron / logs / project **无差异**（命令白名单 62 条、SCAN COUNT 1–500、`object list` 上限 1000、cron 名字 63 字符 / interval 60–2592000 / input 8KB、runs 状态枚举、`log search` limit 500 回落 100、`audit list` 默认 50 等全部与代码一致）。
+  - `sandbox.md` 有 3 处与代码不符，已修：
+    1. `create` 漏了 `--timeout`（秒，整数，省略用实例默认）；
+    2. `list` 漏了 `--limit`（1–100，越界报 `invalid_request`）；
+    3. 原文写「`capabilities` 不对助手开放（返回 `forbidden`）」，实际是只读命令、助手可直接执行（`sbcli` 的 `readOnlyCommands` 里为 true，返回能力信息）。已改为可执行，并把 `sandbox capabilities` 补进 `<!-- readonly: -->` 标注（与 sbcli 判定一致，对账测试通过）。
 - **已处理（2026-11-17）**：`internal/agentbridge/cli.go` 的 `limitOut` 原用 `strutil.Truncate`（按字节），改为在截断点回退到 UTF-8 字符边界，与 `cloudagent.limitOut` 口径一致；新增 `internal/agentbridge/cli_limit_test.go`（`TestLimitOutKeepsValidUTF8`）。两处仍各自实现（模块互不 import，见 §1.3），不合并。
-- 超长函数拆分（`StartRun` 等）仍未做，需先补特征测试，属 P1 重构，另立项。
+- **超长函数拆分已完成（2026-11-17）**：原计划标为「P1 重构，另立项」，本次一并做了。原则是纯提取、不改行为与顺序，四个函数各自的检查顺序（取消 → 超时 → 迭代上限 → max_tokens → 其他错误）与 defer 回收顺序保持不变。
+
+| 函数 | 拆分前 | 拆分后 | 提取出的部分 |
+| --- | --- | --- | --- |
+| `cloudagent.StartRun` | 306 行 | 约 55 行 | `resolveModelName` / `buildInstruction` / `assembleTools`（返回逆序 cleanup）/ `newChatModel` / `newChatAgent` / `startRunTimeout` / `consumeEvents` / `finishRun` + `runOutcome` |
+| `cloudagent.buildTools` | 186 行 | 约 30 行 | `builtinTools` 表 + 7 个 `xxxTool(deps)` 构造函数，新增工具只加一行 |
+| `cloudagent.execSimplebase` | 199 行 | 约 110 行 | `validateSkillArgv`（纯参数校验）/ `runSkillCLI`（执行与退出码归一） |
+| `cli.SessionRunner.Run` | 175 行 | 约 60 行 | `newCLIModel` / `newCLIAgent` / `consumeEvents` / `finishCLIRun` + `cliRunOutcome` |
+
+关键约束（拆分时逐条核对）：
+
+- `assembleTools` 的 `cleanup` 按注册逆序执行，等价于原来的 `defer` 栈（mcpSet.Close → dropRun → RevokeRun → forgetToken）；中途失败时已占用的资源也放进 cleanup，由 `StartRun` 的 defer 回收。
+- `startRunTimeout` 返回的 stop 里是「先 cancel 再 clearCancel」，与原 defer 的 LIFO 顺序一致。
+- `finishRun` / `finishCLIRun` 必须把 `context.Canceled` 与真错误原样返回（不能只返回 result），否则中断会被上层当正常结束。
+- `cli` 的最终正文在调用处先 `redact` 再同时用于 result 与落盘（`agent_loop_test.go` 的密钥泄漏用例是这条的守卫）。
+
+顺带清掉 `cloudagent/starter_test.go` 的 `type cell struct{...}` 与 `_ = cell{}`（为让未使用类型不报警而写的占位，正是 GCL-1 那类坏味道）。
+
+验证：`gofmt` 干净；`GOWORK=off go build/vet ./...` 通过；`GOWORK=off go test -race -count=1 ./...` 全绿；`staticcheck ./...` 0 告警；`go mod tidy -diff` 无差异；`go list -deps ./... | grep SimpleBase/internal` 为 0（未引入对根模块的依赖）；宿主 `go build ./internal/... ./cmd/...`、`go vet`、`go test ./internal/{agentbridge,app,api}/` 全绿（api 约 110 s）。

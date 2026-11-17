@@ -635,6 +635,33 @@ func cmdObjectPresign(ctx context.Context, c *gosdk.Client, cfg loadedConfig, ar
 	return out, nil
 }
 
+// sitePublishPrefix 是助手唯一允许公开的对象前缀（home-starter-prompts-plan §2.5）：
+// 禁止公开对象根或其它目录，避免一次确认就把整个项目文件暴露到外网。
+const sitePublishPrefix = "web/"
+
+func cmdSiteStatus(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
+	return c.GetSite(ctx)
+}
+
+func cmdSiteEnable(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
+	return c.SetSite(ctx, true)
+}
+
+func cmdSitePublish(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	f, _, err := mustFlags(args, "prefix")
+	if err != nil {
+		return nil, err
+	}
+	prefix := strings.TrimSpace(*f["prefix"])
+	if prefix == "" || prefix == "/" {
+		return nil, usagef("site_root_publish_forbidden: --prefix %s is required; the object root cannot be published", sitePublishPrefix)
+	}
+	if prefix != sitePublishPrefix {
+		return nil, usagef("site_prefix_not_allowed: only --prefix %s can be published", sitePublishPrefix)
+	}
+	return c.SetPublicFolder(ctx, prefix, true)
+}
+
 func cmdFunctionList(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
 	raw, err := c.ListFunctions(ctx)
 	return decodeRaw(raw), err

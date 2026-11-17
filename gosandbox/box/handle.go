@@ -37,7 +37,6 @@ package box
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 
@@ -112,7 +111,7 @@ func (s *Session) Exec(ctx context.Context, r ExecRequest) (*Handle, error) {
 	}
 	id := r.ID
 	if id == "" {
-		id = fmt.Sprintf("p%d", s.nextSeq())
+		id = newObjectID("p")
 	}
 	h := newHandle(s, id, r.TTY)
 	s.mu.Lock()

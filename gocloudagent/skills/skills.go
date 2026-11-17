@@ -29,6 +29,7 @@ var skillPrefixes = map[string][]string{
 	"database":   {"database", "sql", "schema", "collection", "document"},
 	"kv":         {"kv"},
 	"s3":         {"object"},
+	"site":       {"site"},
 	"gofunction": {"function"},
 	"cron":       {"cron"},
 	"sandbox":    {"sandbox"},
@@ -68,6 +69,29 @@ func AllowArgv(skills []string, argv []string) bool {
 		}
 	}
 	return false
+}
+
+// AllowWriteArgv 报告 argv[0] 是否落在「可写技能」的前缀表内：即已加载技能中
+// 去掉 readonly 子集之后仍包含该前缀。搭建会话的阶段限权用它判定一条写命令
+// 是否属于当前阶段（例如 func 阶段里 database 只读，sql exec 不属于本阶段）。
+func AllowWriteArgv(skills, readonly []string, argv []string) bool {
+	if len(readonly) == 0 {
+		return AllowArgv(skills, argv)
+	}
+	writable := make([]string, 0, len(skills))
+	for _, id := range skills {
+		ro := false
+		for _, r := range readonly {
+			if r == id {
+				ro = true
+				break
+			}
+		}
+		if !ro {
+			writable = append(writable, id)
+		}
+	}
+	return AllowArgv(writable, argv)
 }
 
 // skillIndexPath 是顶层 skill（含 YAML frontmatter）；子模块文档位于 references/<id>.md。

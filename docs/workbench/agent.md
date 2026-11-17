@@ -27,6 +27,25 @@ group: 云助手
 
 读取资源需要 `database:read`；修改 Agent 配置、会话等操作分别要求路由对应权限。Agent 的数据库和 S3 工具只读；沙盒工具只作用于隔离 VM。不可将不可信的上下文视为操作授权。
 
+## 搭建会话（首页「一句话建应用」）
+
+首页卡片创建的会话由服务端登记为**搭建会话**：`POST /agent-threads` 带 `starter_template`，仅当目标是内置通用助手、模板在服务端白名单内（当前为 `dashboard`、`portfolio`、`notice`）、调用方具备 `database:admin`、实例可写、`agent.skills_cli=true`，且不是系统项目时才被接受，否则返回 `400 starter_not_allowed`。普通通用会话不受影响，仍然不加载任何技能。
+
+搭建会话按阶段运行，`POST /agent-threads/:threadID/runs` 可带 `starter_stage`：
+
+| 阶段 | 加载的技能（括号内只允许只读命令） |
+|---|---|
+| `plan` | 无 |
+| `data` | `database` |
+| `func` | `gofunction`（`database`） |
+| `cron` | `cron`（`gofunction`） |
+| `site` | `s3`、`site` |
+| `verify` | `database`、`gofunction`、`site`（全部只读） |
+
+技能只由服务端按阶段白名单决定，请求里没有、也不接受技能字段；非搭建会话传 `starter_stage` 返回 `400 starter_stage_invalid`。搭建会话视为可写，但委托令牌仍按调用者权限签发，破坏性命令和对外公开的命令都需要在对话里确认。
+
+站点相关命令只有三条：`site status`（只读）、`site enable`、`site publish --prefix web/`。助手只能公开 `web/` 文件夹：缺省或空前缀返回 `site_root_publish_forbidden`，其它前缀返回 `site_prefix_not_allowed`，服务端对委托令牌也会再次校验（`delegated_public_prefix_only`）。其余站点路由（含公开路径列表）仍不可委托。
+
 ## 使用场景
 
 ### 场景一：用自然语言查数据

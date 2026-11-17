@@ -85,8 +85,11 @@ type AgentThread struct {
 	// 空串表示未绑定，读取时按「默认助手」处理，兼容 v47 之前的历史数据。
 	AgentID   string
 	CreatedBy string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// StarterTemplate 非空表示这是首页「一句话建应用」的搭建会话（home-starter-prompts-plan §2.4）。
+	// 只由服务端在创建时校验并登记，run 时据此换算技能；不接受消息内容改写。
+	StarterTemplate string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // AgentMessage 是 sys_agent_messages 一行。
@@ -317,9 +320,9 @@ func (s *Store) CreateAgentThread(ctx context.Context, t AgentThread) (AgentThre
 	t.CreatedAt = now
 	t.UpdatedAt = now
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sys_agent_threads(id, project_id, title, agent_id, created_by, created_at, updated_at, archived_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, NULL)`,
-		t.ID, t.ProjectID, t.Title, t.AgentID, t.CreatedBy, now, now)
+		`INSERT INTO sys_agent_threads(id, project_id, title, agent_id, created_by, created_at, updated_at, archived_at, starter_template)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+		t.ID, t.ProjectID, t.Title, t.AgentID, t.CreatedBy, now, now, t.StarterTemplate)
 	if err != nil {
 		return AgentThread{}, err
 	}
@@ -334,7 +337,7 @@ func (s *Store) ListAgentThreads(ctx context.Context, projectID, agentID string,
 		return nil, ErrUnavailable
 	}
 	limit = pagelimit.Normalize(limit, 50, 200)
-	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, created_at, updated_at
+	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, COALESCE(starter_template, ''), created_at, updated_at
 		 FROM sys_agent_threads WHERE project_id = ? AND archived_at IS NULL`
 	args := []any{projectID}
 	if agentID != "" {
@@ -351,7 +354,7 @@ func (s *Store) ListAgentThreads(ctx context.Context, projectID, agentID string,
 	out := make([]AgentThread, 0)
 	for rows.Next() {
 		var t AgentThread
-		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.StarterTemplate, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -366,9 +369,9 @@ func (s *Store) GetAgentThread(ctx context.Context, projectID, id string) (Agent
 	}
 	var t AgentThread
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, created_at, updated_at
+		`SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, COALESCE(starter_template, ''), created_at, updated_at
 		 FROM sys_agent_threads WHERE id = ? AND project_id = ? AND archived_at IS NULL`,
-		id, projectID).Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
+		id, projectID).Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.StarterTemplate, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentThread{}, sql.ErrNoRows
 	}
@@ -401,7 +404,7 @@ func (s *Store) PageAgentThreads(ctx context.Context, projectID, agentID, cursor
 		return nil, "", ErrUnavailable
 	}
 	limit = pagelimit.Normalize(limit, 50, 200)
-	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, created_at, updated_at FROM sys_agent_threads WHERE project_id=? AND archived_at IS NULL`
+	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, COALESCE(starter_template, ''), created_at, updated_at FROM sys_agent_threads WHERE project_id=? AND archived_at IS NULL`
 	args := []any{projectID}
 	if agentID != "" {
 		query += ` AND COALESCE(agent_id, '') = ?`
@@ -429,7 +432,7 @@ func (s *Store) PageAgentThreads(ctx context.Context, projectID, agentID, cursor
 	out := make([]AgentThread, 0)
 	for rows.Next() {
 		var t AgentThread
-		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.StarterTemplate, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, "", err
 		}
 		out = append(out, t)

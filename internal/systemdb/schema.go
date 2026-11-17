@@ -332,7 +332,8 @@ var systemTables = []systemTable{
 			created_at TIMESTAMP NOT NULL,
 			updated_at TIMESTAMP NOT NULL,
 			archived_at TIMESTAMP,
-			agent_id VARCHAR
+			agent_id VARCHAR,
+			starter_template VARCHAR DEFAULT ''
 		)`},
 	{name: "sys_agent_messages", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_messages (
 			id VARCHAR NOT NULL,
@@ -662,7 +663,23 @@ func EnsureSystemSchema(ctx context.Context, db *sql.DB) error {
 	if err := ensureTraceColumns(ctx, db); err != nil {
 		return fmt.Errorf("%w: upgrade sys_llm_traces: %v", catalog.ErrMigrationFailed, err)
 	}
+	if err := ensureThreadStarterColumn(ctx, db); err != nil {
+		return fmt.Errorf("%w: upgrade sys_agent_threads: %v", catalog.ErrMigrationFailed, err)
+	}
 	return nil
+}
+
+// ensureThreadStarterColumn 给已存在但缺 starter_template 的 sys_agent_threads 补列
+// （home-starter-prompts-plan §2.4）。新库由建表语句直接带列；这里只兜底他人 dev 库
+// 漏 reset 的情形，幂等：探测列存在则 no-op。
+func ensureThreadStarterColumn(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, "SELECT starter_template FROM sys_agent_threads LIMIT 0"); err == nil {
+		return nil
+	} else if !missingTraceColumn(err) {
+		return err
+	}
+	_, err := db.ExecContext(ctx, "ALTER TABLE sys_agent_threads ADD COLUMN starter_template VARCHAR DEFAULT ''")
+	return err
 }
 
 // traceColumnUpgrades 是 sys_llm_traces 二期扩列（planv6.5 §9.1）的升级兜底：

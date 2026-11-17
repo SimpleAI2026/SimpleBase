@@ -8,7 +8,7 @@
 //
 // 生命周期：
 //
-//	pasta --config-net --netns <pid>   // 沙盒起来后，把 netns 交给 pasta
+//	pasta --config-net --netns /proc/<pid>/ns/net   // 沙盒起来后把 netns 交给 pasta
 //
 // pasta 自己会 fork 到后台并持有 netns；沙盒退出后 netns 消失，pasta 随之退出。
 // 我们不显式 kill 它：杀掉可能留下半配置的 netns，反而更难清理。
@@ -27,7 +27,7 @@
 //	         │
 //	         ▼
 //	[下游] os/exec、netx.go
-//	[同包] netx.go, dns.go
+//	[同包] netx.go
 //
 // 主要符号
 //
@@ -88,6 +88,19 @@ func PastaPath() string {
 	return pastaPath
 }
 
+// nsenterCandidates 是 nsenter 的常见安装位置（util-linux）。
+var nsenterCandidates = []string{"/usr/bin/nsenter", "/bin/nsenter", "/usr/sbin/nsenter"}
+
+// nsenterPath 返回可用的 nsenter 路径（空表示没有）。
+func nsenterPath() (string, bool) {
+	for _, c := range nsenterCandidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c, true
+		}
+	}
+	return "", false
+}
+
 // StartOptions 是出网配置。
 type StartOptions struct {
 	// NetnsPID 是沙盒 agent 的 pid：pasta 通过 /proc/<pid>/ns/net 找到 netns。
@@ -130,12 +143,30 @@ func Start(ctx context.Context, opt StartOptions) (*Runner, error) {
 	// --config-net：让 pasta 在 netns 里配好地址与默认路由。
 	// --no-map-gw：不要把宿主的 127.0.0.1 映射进沙盒——那等于把宿主的
 	//               本地服务直接暴露给沙盒，是最容易忽略的一处越权。
-	args := []string{
+	// --runas 0：pasta 默认以 root 启动后降权到 nobody，降权后既打不开
+	//               netns 也没有 CAP_NET_ADMIN 建 tap。
+	pastaArgs := []string{
 		"--config-net", "--no-map-gw", "--quiet",
 		"--mtu", fmt.Sprint(mtu),
-		"--netns", fmt.Sprint(opt.NetnsPID),
+		"--runas", "0",
 	}
-	cmd := exec.CommandContext(ctx, bin, args...)
+
+	cmdPath, args := bin, pastaArgs
+	if ns, ok := nsenterPath(); ok && os.Geteuid() == 0 {
+		// 以 root 运行时优先用 nsenter：pasta 从**外部**打开沙盒 userns
+		// 拥有的 netns 会被内核拒绝（"Couldn't open network namespace
+		// /proc/<pid>/ns/net: Permission denied"），而先进入目标 netns
+		// 再让它配 /proc/self/ns/net 一切正常。rootless 下同 userns 的
+		// nsenter 也成立，拿不到 nsenter 时回退到直连。
+		args = append([]string{"-t", fmt.Sprint(opt.NetnsPID), "-n", "--", bin},
+			append(pastaArgs, "--netns", "/proc/self/ns/net")...)
+		cmdPath = ns
+	} else {
+		// --netns 只接受**路径**或 /run/netns 下的名字；传纯数字会被当成
+		// 名字拼成 /run/netns/<pid> 并报 "No such file or directory"。
+		args = append(pastaArgs, "--netns", fmt.Sprintf("/proc/%d/ns/net", opt.NetnsPID))
+	}
+	cmd := exec.CommandContext(ctx, cmdPath, args...)
 	if opt.Log != nil {
 		cmd.Stderr = lineWriter(opt.Log)
 	}

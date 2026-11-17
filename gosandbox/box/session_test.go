@@ -25,6 +25,13 @@ import (
 // helperBin 编译出 gosandbox-inner 供测试用。
 func helperBin(t *testing.T) string {
 	t.Helper()
+	// 交叉编译或预置产物的场景：目标机不需要装 Go 工具链。
+	if p := os.Getenv("GOSANDBOX_HELPER_BIN"); p != "" {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+		t.Fatalf("GOSANDBOX_HELPER_BIN=%q is not a file", p)
+	}
 	dir := t.TempDir()
 	out := filepath.Join(dir, "gosandbox-inner")
 	cmd := exec.Command("go", "build", "-o", out, "../cmd")

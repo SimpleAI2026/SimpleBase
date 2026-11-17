@@ -31,7 +31,6 @@ package box
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/proto"
@@ -80,7 +79,7 @@ func (s *Session) Watch(ctx context.Context, path string, opt WatchOptions) (*Wa
 	if opt.Buffer <= 0 {
 		opt.Buffer = 64
 	}
-	id := fmt.Sprintf("w%d", s.nextSeq())
+	id := newObjectID("w")
 	w := &Watch{sess: s, id: id, events: make(chan FileEvent, opt.Buffer), done: make(chan struct{})}
 	s.mu.Lock()
 	if s.watches == nil {

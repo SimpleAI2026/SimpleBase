@@ -60,6 +60,9 @@ type createRunBody struct {
 	Stream   bool         `json:"stream"`
 	// RetryOfRunID 非空表示重试该 run：复用其 user 消息，不重复落库（BUG-03）。
 	RetryOfRunID string `json:"retry_of_run_id"`
+	// StarterStage 是搭建会话的阶段（home-starter-prompts-plan §2.7）：仅搭建会话接受，
+	// 服务端按阶段白名单换算技能；客户端不能直接传技能 id。
+	StarterStage string `json:"starter_stage"`
 }
 
 func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
@@ -113,6 +116,16 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 	}
 	// 技能由助手所属 module 决定（`@` 只点名助手，不能点名技能）。
 	skills := cloudagent.SkillsForModule(agent.Module)
+	// 搭建会话例外（home-starter-prompts-plan §2.4）：技能只由服务端登记的会话与阶段白名单决定。
+	var readonlySkills []string
+	starterStage := strings.TrimSpace(body.StarterStage)
+	if starterStage != "" || thread.StarterTemplate != "" {
+		stageSkills, stageReadonly, err := h.starterRunSkills(c.Request().Context(), thread, agent, starterStage)
+		if err != nil {
+			return WriteError(c, err)
+		}
+		skills, readonlySkills = stageSkills, stageReadonly
+	}
 	// 重试校验（BUG-03）：目标 run 必须属于本 thread、状态 failed/canceled、且是 thread 最新一次 run。
 	var retryUser systemdb.AgentMessage
 	if body.RetryOfRunID != "" {
@@ -217,10 +230,22 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 
 	// 身份与历史消息在边界转换成模块 DTO：gocloudagent 是独立模块，
 	// 只认识自己的无密钥类型（见 internal/agentbridge）。
+	runAgent := agentbridge.Agent(agent)
+	if thread.StarterTemplate != "" {
+		// 搭建会话视为可写；委托令牌仍按调用者权限签发，破坏性命令照常确认，
+		// 不改通用助手持久化的 writable 字段。
+		runAgent.Writable = true
+	}
 	req := cloudagent.RunRequest{
-		ProjectID: pc.ID, Principal: agentbridge.ToModulePrincipal(principal), Agent: agentbridge.Agent(agent),
+		ProjectID: pc.ID, Principal: agentbridge.ToModulePrincipal(principal), Agent: runAgent,
 		ThreadID: threadID, RunID: run.ID, UserText: body.Content, History: agentbridge.Messages(hist), Stream: body.Stream,
-		Skills: skills,
+		Skills: skills, ReadOnlySkills: readonlySkills,
+	}
+	if thread.StarterTemplate != "" {
+		req.StarterStage = starterStage
+		if req.StarterStage == "" {
+			req.StarterStage = cloudagent.StarterStagePlan
+		}
 	}
 
 	// 二期 trace（planv6.5 §10.2）：run 级 ctx 注入 run_id 作为 trace_id；
@@ -492,4 +517,30 @@ func (h *cloudAgentHandler) recordApprovalEvent(ctx context.Context, projectID s
 		}
 		_ = h.store.ResolveAgentApproval(ctx, projectID, pending.ID, status, "")
 	}
+}
+
+// starterRunSkills 换算搭建会话某阶段的技能（home-starter-prompts-plan §2.7）。
+//
+// 非搭建会话传了 starter_stage、阶段不在白名单、会话与助手不匹配，或运行前提
+// 不再满足（实例变只读、CLI 技能关闭、调用方失去 database:admin）都返回
+// ErrStarterStageInvalid / ErrStarterNotAllowed，且不泄露内部原因。
+func (h *cloudAgentHandler) starterRunSkills(ctx context.Context, thread systemdb.AgentThread, agent systemdb.CloudAgent, stage string) (skills, readonly []string, err error) {
+	if thread.StarterTemplate == "" {
+		return nil, nil, ErrStarterStageInvalid
+	}
+	if stage == "" {
+		stage = cloudagent.StarterStagePlan
+	}
+	stageSkills, stageReadonly, ok := cloudagent.StarterStage(stage)
+	if !ok {
+		return nil, nil, ErrStarterStageInvalid
+	}
+	principal, hasPrincipal := PrincipalFromContext(ctx)
+	if !cloudagent.IsStarterTemplate(thread.StarterTemplate) {
+		return nil, nil, ErrStarterNotAllowed
+	}
+	if err := h.checkStarterAllowed(thread.ProjectID, thread.StarterTemplate, agent, principal, hasPrincipal); err != nil {
+		return nil, nil, err
+	}
+	return stageSkills, stageReadonly, nil
 }

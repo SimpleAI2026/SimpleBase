@@ -77,31 +77,8 @@ func (r *Runtime) execSimplebase(ctx context.Context, req RunRequest, argv []str
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
-	if len(argv) == 0 || len(argv) > 64 {
-		return rejected("usage", "argv 必须是 1 到 64 段")
-	}
-	var total int
-	for _, a := range argv {
-		if len(a) > 32<<10 {
-			return rejected("usage", "单个参数过长")
-		}
-		total += len(a)
-		if strings.Contains(a, "SIMPLEBASE_TOKEN") {
-			return rejected("token_in_argv", "argv 不能携带令牌")
-		}
-	}
-	if total > 256<<10 {
-		return rejected("usage", "参数合计过长")
-	}
-	// planv6.0 D3：stdin 上限 256KiB；文件内容一律内联，宿主机文件不可读。
-	if len(stdin) > stdinMaxBytes {
-		return rejected("usage", "stdin 超过 256KiB 上限")
-	}
-	// --file / --init-sql 的值必须是 "-"（stdin）；其他路径一律拒绝。
-	for _, name := range []string{"file", "init-sql"} {
-		if v, ok := argvFlag(argv, name); ok && v != "-" {
-			return rejected("file_not_allowed", "助手模式不能读取宿主机文件，请用 --file - 并把内容放入 stdin")
-		}
+	if code, msg := validateSkillArgv(argv, stdin); code != "" {
+		return rejected(code, msg)
 	}
 	token := r.tokenFor(req.RunID)
 	if token != "" {
@@ -131,6 +108,15 @@ func (r *Runtime) execSimplebase(ctx context.Context, req RunRequest, argv []str
 	// 必须在确认之前拦截，否则用户会先看到一个对不可写助手弹出的确认框。
 	if !writableFor(req, rc) && !decision.ReadOnly {
 		return rejected("write_not_allowed", "该助手未开启写权限，只能执行只读命令。请在「云助手 → 编辑助手 → 允许写操作」中开启后重试")
+	}
+	// 搭建会话的阶段限权（home-starter-prompts-plan §3.3）：阶段内被标为只读的技能
+	// （如 func 阶段的 database）只允许只读命令，写命令不属于当前阶段，同样在确认前拦截。
+	readonly := req.ReadOnlySkills
+	if len(rc.ReadOnlySkills) > 0 {
+		readonly = rc.ReadOnlySkills
+	}
+	if len(readonly) > 0 && !decision.ReadOnly && !agentskills.AllowWriteArgv(skills, readonly, argv) {
+		return rejected("write_not_allowed", "当前阶段不允许该写命令，请只执行本阶段的操作")
 	}
 	emit := rc.Emit
 	if decision.Destructive {
@@ -174,6 +160,44 @@ func (r *Runtime) execSimplebase(ctx context.Context, req RunRequest, argv []str
 			return skillFail("confirmation_denied", "已取消"), nil
 		}
 	}
+	return r.runSkillCLI(ctx, req, argv, stdin, token, callID, emit, tr, rejected)
+}
+
+// validateSkillArgv 做纯参数校验：长度、令牌字面量、stdin 上限、--file 必须是 -。
+// 返回空 code 表示通过。
+func validateSkillArgv(argv []string, stdin string) (code, msg string) {
+	if len(argv) == 0 || len(argv) > 64 {
+		return "usage", "argv 必须是 1 到 64 段"
+	}
+	var total int
+	for _, a := range argv {
+		if len(a) > 32<<10 {
+			return "usage", "单个参数过长"
+		}
+		total += len(a)
+		if strings.Contains(a, "SIMPLEBASE_TOKEN") {
+			return "token_in_argv", "argv 不能携带令牌"
+		}
+	}
+	if total > 256<<10 {
+		return "usage", "参数合计过长"
+	}
+	// planv6.0 D3：stdin 上限 256KiB；文件内容一律内联，宿主机文件不可读。
+	if len(stdin) > stdinMaxBytes {
+		return "usage", "stdin 超过 256KiB 上限"
+	}
+	// --file / --init-sql 的值必须是 "-"（stdin）；其他路径一律拒绝。
+	for _, name := range []string{"file", "init-sql"} {
+		if v, ok := argvFlag(argv, name); ok && v != "-" {
+			return "file_not_allowed", "助手模式不能读取宿主机文件，请用 --file - 并把内容放入 stdin"
+		}
+	}
+	return "", ""
+}
+
+// runSkillCLI 执行已通过校验与确认的命令，并把退出码翻成给模型的文本。
+func (r *Runtime) runSkillCLI(ctx context.Context, req RunRequest, argv []string, stdin, token, callID string,
+	emit func(Event), tr tracer, rejected func(code, msg string) (string, error)) (string, error) {
 	if emit != nil {
 		emit(Event{Type: "tool_start", CallID: callID, Name: "simplebase"})
 	}

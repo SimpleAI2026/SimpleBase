@@ -321,3 +321,24 @@ cd ui && yarn test && yarn build && yarn typecheck
 4. 模型质量：小模型可能写出不能通过 `function test` 的代码，阶段失败率需在 B1 用 `scripts/fakellm-server` + 真实模型各跑一轮统计。
 5. 未登录但配置了 API Key 的通道（`canCreateProject` 返回 true）建出的项目归属与权限需确认。
 6. 每次点击都会建新项目：需在弹窗提示，并考虑「复用最近一次未完成的搭建项目」。
+
+## 10. 实施记录（B1 + B2）
+
+**范围**：B1、B2 已落地；**B3 未做**（云函数 `access=enduser|public` 是新增匿名公开面，§6 要求先过安全评审）。因此首页只展示 §4 中数据通道为 C2 的三个模板 `dashboard` / `portfolio` / `notice`；`todo` / `booking` / `survey` 不展示，服务端白名单同样不接受。
+
+**与计划的差异（均有原因）**：
+
+| 项 | 计划 | 实际 | 原因 |
+| --- | --- | --- | --- |
+| `starter_template` 列 | 迁移追加 | 直接写进 `systemTables` 建表语句，并加幂等 `ensureThreadStarterColumn` 兜底补列 | `systemdb/schema.go` 注明项目未发布、不保留版本化迁移；兜底只为防他人 dev 库漏 reset。**不会自动对任何运行库执行 DDL**，已有库需 reset 或在以 `TIMER_NO_RUN=0` 启动时由启动流程补列 |
+| handler 文件 | `agent_thread_handler.go` | 改在现有 `agent_handler.go` | 仓库里没有该文件，`CreateThread` 在 `agent_handler.go` |
+| 技能入口 | `StarterSkills()` | `StarterStage(stage)` 返回 `(skills, readonly, ok)` | 阶段矩阵（§3.3）需要「本阶段只读」的技能，单个技能列表表达不了 |
+| 阶段限权 | 未规定实现 | `RunRequest.ReadOnlySkills` + `skills.AllowWriteArgv`，阶段内只读技能的写命令在确认前返回 `write_not_allowed` | 落实 §3.3 的 `✓(只读)` |
+| 站点路由委托 | 未提及 | `GET/PUT /s3/site`、`PUT /s3/public` 改为 `delegable`；`GET /s3/public` 仍不可委托；委托主体对 `PUT /s3/public` 只能操作 `web/` 文件夹（`delegated_public_prefix_only`） | 助手要经委托令牌调用站点命令，否则 `site enable` 必然 403。planv6.5 原先写明「不做 delegable」，这里是对它的**有限放宽**，需要你确认 |
+| 发布前缀兜底 | CLI 拒绝 | CLI 与服务端双重拒绝 | 模型可绕过 CLI 参数检查，服务端必须自己兜底 |
+| 登录提示 | 无 | 未登录点卡片时不传 `loginReason` | 非空 reason 会渲染成红色「重新登录」警示，这里只是正常引导 |
+
+**验证**：`go build ./internal/... ./cmd/...`；`go test ./internal/{api,sbcli,agentbridge,systemdb,app,auth} ./packages/...`、`(cd gocloudagent && GOWORK=off go test ./...)` 全部通过；前端 `tsc --noEmit` 0 错误、`vite build` 通过、`vitest` 126 个文件 970 个用例通过，覆盖率 statements 98.51% / branches 94.68% / functions 94.25%。对照基线（statements 98.43% / branches 94.92% / functions 94.1%）：**branches 下降了 0.24 个百分点**（新增文件有 16 个未覆盖分支，主要是 `starter-progress.ts`、`starter-delivery.ts` 里的防御性分支，另有 `AgentManager.vue` 新增的搭建分支），statements、functions 略升。branches / functions 本来就低于 95% 阈值，`yarn test` 的实际阈值是 `vite.config.ts` 里的 90%，所以命令仍然通过；要回到基线需要再补这些防御性分支的用例。
+
+**未验证（需要你来做）**：§7 的手工验收（真实模型下跑完整六阶段、站点子域访问）；§9.4 的 fakellm + 真实模型阶段失败率统计；`SIMPLEBASE_SITES_*` 打开后的端到端发布。
+

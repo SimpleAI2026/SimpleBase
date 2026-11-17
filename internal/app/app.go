@@ -1527,7 +1527,7 @@ func sandboxBoxOptions(cfg config.Config, log vm.LogFunc) boxvm.Options {
 	// 出网：默认 none。档位字符串非法时退到 none，让沙盒仍能跑但不联网——
 	// 配置校验已挡掉非法值，这里是第二道防线（别让坏配置变成「意外联网」）。
 	if mode, err := netx.ParseMode(cfg.Sandbox.Network); err == nil {
-		opts.Network = netx.Policy{Mode: mode, Allow: cfg.Sandbox.NetworkAllow}
+		opts.Network = netx.Policy{Mode: mode}
 	}
 	return opts
 }

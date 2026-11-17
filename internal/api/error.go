@@ -156,6 +156,9 @@ var sentinelErrorMappings = []struct {
 	{ErrProjectMissing, http.StatusBadRequest, "invalid_request", ErrProjectMissing.Error()},
 	// planv6.5：项目不可发布网站（sites 未开启 / 系统项目 / ID 不可作 DNS 标签）。
 	{ErrSiteNotPublishable, http.StatusBadRequest, "site_not_publishable", ErrSiteNotPublishable.Error()},
+	// planv6.6 home-starter-prompts：搭建会话创建 / 阶段校验失败。
+	{ErrStarterNotAllowed, http.StatusBadRequest, "starter_not_allowed", ErrStarterNotAllowed.Error()},
+	{ErrStarterStageInvalid, http.StatusBadRequest, "starter_stage_invalid", ErrStarterStageInvalid.Error()},
 	// auth 错误
 	{auth.ErrMissingCredentials, http.StatusUnauthorized, "unauthenticated", "missing or malformed authorization header"},
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_api_key", "invalid api key"},

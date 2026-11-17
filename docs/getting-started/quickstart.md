@@ -70,6 +70,18 @@ curl -sS -X POST "$BASE/v1/projects/$PROJECT/kv" \
 
 第二条请求返回 `world`。详见 [Key-Value](/docs/data/kv)。
 
+## 5. 一句话建应用（可选）
+
+不想手写命令时，可以在首页「试试这样说」里点一张卡片：控制台会新建一个项目，并交给该项目的**通用助手**按阶段搭建——规划、数据库、云函数、定时任务、前端站点、验证，最后给出访问入口与资源清单。
+
+- 每次开始都会新建一个项目，不会改动已有项目；需要账号具备新建项目的权限。
+- 搭建过程在对话里可见，每个阶段的工具调用都可以展开。**开启站点、公开 `web/` 前缀**这类对外公开的操作仍然需要你在对话里确认。
+- 站点只发布对象存储里的 `web/` 前缀，页面是单个 `web/index.html`，不会包含任何 API Key。展示数据时由定时任务把结果写成 `web/data/*.json`，页面只读取它。
+- 站点要求服务端开启 `sites.enabled` 并配置 `sites.base_domain`；未开启时站点阶段会被跳过，只提供后端入口。
+- 某个阶段失败时会停在原处，可以「重试本阶段」「跳过」或「我来接手」；手动发送消息即退出自动搭建。
+
+当前提供的模板：销售数据看板、个人作品集、团队公告板。助手在搭建会话里使用的命令与限制见 [云助手](/docs/workbench/agent)。
+
 ## 下一步
 
 [JavaScript SDK](/docs/sdk/quickstart) 和 [Go SDK](/docs/sdk/go-quickstart) 提供带类型的调用。需要响应文档变更时继续阅读[文档 Realtime](/docs/data/realtime)与[事件触发器](/docs/automation/function-triggers)；线上部署先看[部署与故障处理](/docs/ops/deployment)，并配置[备份与恢复](/docs/ops/backups)。

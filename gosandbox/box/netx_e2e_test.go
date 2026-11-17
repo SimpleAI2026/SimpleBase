@@ -65,7 +65,10 @@ func TestNetworkIsolationKeepsLoopback(t *testing.T) {
 	}
 }
 
-// 参数层断言：none（含零值）必须 --unshare-net，egress 档不能（pasta 要配 netns）。
+// 参数层断言：任何档位都必须 --unshare-net。
+//
+// egress 档的旧实现共享宿主 netns 给 pasta，沙盒因此能直接摸到云元数据与
+// 私网；现在由 pasta 在沙盒自己的 netns 里配网，agent 再叠加黑洞路由。
 func TestBuildArgsUnsharesNet(t *testing.T) {
 	newCfg := func(mode netx.Mode) Config {
 		root := t.TempDir()
@@ -79,7 +82,7 @@ func TestBuildArgsUnsharesNet(t *testing.T) {
 			Policy:    Policy{Mode: "workspace-write", Workspace: "/workspace"},
 		}
 	}
-	for _, mode := range []netx.Mode{"", netx.ModeNone} {
+	for _, mode := range []netx.Mode{"", netx.ModeNone, netx.ModeEgress} {
 		argv, policyPath, err := buildArgs(newCfg(mode))
 		if err != nil {
 			t.Fatalf("mode %q: %v", mode, err)
@@ -91,13 +94,26 @@ func TestBuildArgsUnsharesNet(t *testing.T) {
 			t.Errorf("mode %q must isolate the network namespace: %v", mode, argv)
 		}
 	}
-	argv, _, err := buildArgs(newCfg(netx.ModeEgress))
-	if err != nil {
-		t.Fatal(err)
+	// agent 只在 egress 档装黑洞路由，所以档位必须如实传进去。
+	for mode, want := range map[netx.Mode]string{"": "none", netx.ModeNone: "none", netx.ModeEgress: "egress"} {
+		argv, _, err := buildArgs(newCfg(mode))
+		if err != nil {
+			t.Fatalf("mode %q: %v", mode, err)
+		}
+		if got := flagValue(argv, "--network"); got != want {
+			t.Errorf("mode %q: --network = %q, want %q", mode, got, want)
+		}
 	}
-	if hasFlag(argv, "--unshare-net") {
-		t.Errorf("egress mode must keep the host netns for pasta: %v", argv)
+}
+
+// flagValue 取 argv 里某个 flag 的下一个参数（不存在返回空串）。
+func flagValue(argv []string, flag string) string {
+	for i := range argv {
+		if argv[i] == flag && i+1 < len(argv) {
+			return argv[i+1]
+		}
 	}
+	return ""
 }
 
 // hasFlag 判断 argv 里是否出现过某个参数。

@@ -124,3 +124,39 @@ func (c *Client) PresignObject(ctx context.Context, key string) (*PresignResult,
 	err := c.requestJSON(ctx, http.MethodGet, c.projectPath("/s3/presign"), url.Values{"key": {key}}, nil, &out)
 	return &out, err
 }
+
+// SiteInfo is the project site state returned by GET /s3/site.
+type SiteInfo struct {
+	Enabled     bool   `json:"enabled"`
+	BaseURL     string `json:"baseUrl,omitempty"`
+	Publishable bool   `json:"publishable"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+// PublicPathResult is the acknowledgement of PUT /s3/public.
+type PublicPathResult struct {
+	Public          bool   `json:"public"`
+	PublicURL       string `json:"publicUrl,omitempty"`
+	PublicInherited string `json:"publicInherited,omitempty"`
+}
+
+// GetSite reads the project site state.
+func (c *Client) GetSite(ctx context.Context) (*SiteInfo, error) {
+	var out SiteInfo
+	err := c.requestJSON(ctx, http.MethodGet, c.projectPath("/s3/site"), nil, nil, &out)
+	return &out, err
+}
+
+// SetSite enables or disables the project site.
+func (c *Client) SetSite(ctx context.Context, enabled bool) (*SiteInfo, error) {
+	var out SiteInfo
+	err := c.requestJSON(ctx, http.MethodPut, c.projectPath("/s3/site"), nil, map[string]any{"enabled": enabled}, &out)
+	return &out, err
+}
+
+// SetPublicFolder marks an object folder (key must end with "/") as publicly served.
+func (c *Client) SetPublicFolder(ctx context.Context, key string, public bool) (*PublicPathResult, error) {
+	var out PublicPathResult
+	err := c.requestJSON(ctx, http.MethodPut, c.projectPath("/s3/public"), nil, map[string]any{"key": key, "kind": "folder", "public": public}, &out)
+	return &out, err
+}

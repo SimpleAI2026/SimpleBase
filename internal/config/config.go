@@ -483,18 +483,16 @@ type SandboxConfig struct {
 	ExecTimeout    time.Duration `yaml:"exec_timeout"`
 	MaxOutputBytes int           `yaml:"max_output_bytes"`
 	MaxFileBytes   int           `yaml:"max_file_bytes"`
-	// Network 是出网档位：none（默认）/ egress / egress-allowlist。
+	// Network 是出网档位：none（默认）/ egress。
 	// none 时沙盒 netns 里只有 lo，入站仍可经 agent 中继访问。
-	Network string `yaml:"network"`
-	// NetworkAllow 是白名单域名（仅 egress-allowlist 生效）。
-	// 支持 "example.com" 与 "*.example.com"。
-	NetworkAllow []string `yaml:"network_allow"`
-	// AllowExperimentalNetwork 显式接受实验室特性的网络档位。
 	//
-	// egress-allowlist 现在是半成品：netx.DNSProxy 已实现，但没有任何代码启动它，
-	// 白名单也没有传给 pasta，实际效果与 egress 相同（并不会按域名限制出站）。
-	// 要求显式打开这个开关，是为了让「我确实知道它不完整」这件事留在配置里。
-	AllowExperimentalNetwork bool `yaml:"allow_experimental_network"`
+	// egress 档同样 unshare netns：pasta 在沙盒自己的 netns 里配网并做用户态转发，
+	// 元数据（169.254/16）、私网（10/8、172.16/12、192.168/16）、CGNAT（100.64/10）
+	// 与回环（127/8）由沙盒内的黑洞路由拦住，不做域名级白名单。
+	// pasta 不可用或进不去 netns 时该档没有出网（fail-closed），不会退回共享宿主网络。
+	// 曾有的 egress-allowlist 从未接入生产路径，已于 planv6.6 GSB-10 移除；配置里残留的
+	// network_allow / allow_experimental_network 会被忽略。
+	Network string `yaml:"network"`
 	// Supervise 为真时把沙盒交给独立的 supervisor 进程托管：
 	// 服务进程重启（升级、崩溃）后能重新接管，沙盒与其进程不丢。
 	//
@@ -1117,25 +1115,13 @@ func validateSandbox(s SandboxConfig) error {
 		errs = append(errs, errors.New("sandbox.reap_interval must not be negative"))
 	}
 	switch strings.ToLower(strings.TrimSpace(s.Network)) {
-	case "", "none", "egress", "egress-allowlist", "allowlist":
+	case "", "none", "egress":
+	case "egress-allowlist", "allowlist":
+		// 给出明确的迁移说明：悄悄降级成 egress 会让人以为白名单还在生效。
+		errs = append(errs, fmt.Errorf("sandbox.network=%q has been removed (the domain allowlist was never enforced); "+
+			"use none or egress", s.Network))
 	default:
-		errs = append(errs, fmt.Errorf("sandbox.network must be none, egress or egress-allowlist (got %q)", s.Network))
-	}
-	// 白名单模式必须有规则：空白名单等于「全部拒绝」，配了也跑不通，
-	// 与其让用户对着超时排查，不如启动就报错。
-	if strings.EqualFold(strings.TrimSpace(s.Network), "egress-allowlist") ||
-		strings.EqualFold(strings.TrimSpace(s.Network), "allowlist") {
-		if len(s.NetworkAllow) == 0 {
-			errs = append(errs, errors.New("sandbox.network=egress-allowlist needs sandbox.network_allow"))
-		}
-		// 实验室特性：不报错，但要让配置作者知道它现在不完整。
-		// 错误信息会出现在启动日志里，这比埋在文档里更可能被看到。
-		if !s.AllowExperimentalNetwork {
-			errs = append(errs, errors.New(
-				"sandbox.network=egress-allowlist is experimental: the DNS allowlist proxy is implemented but not started, "+
-					"so network_allow is NOT enforced and outbound access behaves like sandbox.network=egress. "+
-					"Set sandbox.allow_experimental_network=true to accept this"))
-		}
+		errs = append(errs, fmt.Errorf("sandbox.network must be none or egress (got %q)", s.Network))
 	}
 	if s.DiskLimitMiB < 0 {
 		errs = append(errs, fmt.Errorf("sandbox.disk_limit_mib must not be negative (got %d)", s.DiskLimitMiB))
