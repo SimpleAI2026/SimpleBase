@@ -181,6 +181,7 @@ func (s *Session) Listening() ([]uint16, error) {
 func (s *Session) DialPort(port uint16) (net.Conn, error) {
 	id := s.nextSeq()
 	rc := newRelay(s, id)
+	rc.port = port
 	s.mu.Lock()
 	s.relays[id] = rc
 	s.mu.Unlock()
@@ -193,6 +194,12 @@ func (s *Session) DialPort(port uint16) (net.Conn, error) {
 	// 等第一块数据或关闭：能立刻拿到任一即说明连上了。
 	select {
 	case <-rc.ready:
+		// agent 可能刚报「连不上」：这时返回错误而不是一条空连接，
+		// 调用方才能区分「端口没人 listen」与「服务端没回内容」。
+		if rerr := rc.err(); rerr != nil {
+			_ = rc.Close()
+			return nil, rerr
+		}
 		return rc, nil
 	case <-time.After(5 * time.Second):
 		rc.Close()

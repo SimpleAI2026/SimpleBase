@@ -43,8 +43,11 @@ const maxReadChunk = 512 << 10
 const maxListEntries = 5000
 
 // fsOp 处理不需要裸数据的文件请求。
+//
+// 回复里的 Seq 必须原样带回请求里的值：宿主用它找会等待中的调用方，
+// 用 agent 自己的计数器会让每个文件请求都等到超时。
 func (s *Server) fsOp(m proto.Msg) {
-	seq := s.nextSeq()
+	seq := m.Seq
 	switch m.Kind {
 	case proto.KindFsStat:
 		s.fsStat(seq, m)
@@ -68,7 +71,7 @@ func (s *Server) fsOp(m proto.Msg) {
 // fsReply 是「成功即可、无数据」类请求的回复。
 func (s *Server) fsReply(seq uint32, err error) {
 	if err != nil {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(err)})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: seq, Err: errText(err)})
 		return
 	}
 	_ = s.send(&proto.Msg{Kind: proto.KindAck, Seq: seq})
@@ -78,7 +81,7 @@ func (s *Server) fsReply(seq uint32, err error) {
 func (s *Server) fsStat(seq uint32, m proto.Msg) {
 	st, err := os.Lstat(m.Path)
 	if err != nil {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(err)})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: seq, Err: errText(err)})
 		return
 	}
 	reply := protocolEntry(seq, st)
@@ -119,7 +122,7 @@ func fileKindOf(m fs.FileMode) proto.FileKind {
 func (s *Server) fsList(seq uint32, m proto.Msg) {
 	entries, err := os.ReadDir(m.Path)
 	if err != nil {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(err)})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: seq, Err: errText(err)})
 		return
 	}
 	out := make([]proto.Entry, 0, min(len(entries), 256))
@@ -161,7 +164,7 @@ func (s *Server) fsRead(seq uint32, m proto.Msg) {
 	}
 	f, err := os.OpenFile(m.Path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(err)})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: seq, Err: errText(err)})
 		return
 	}
 	defer f.Close()
@@ -169,19 +172,19 @@ func (s *Server) fsRead(seq uint32, m proto.Msg) {
 		if serr == nil {
 			serr = errors.New("not a regular file")
 		}
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(serr)})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: seq, Err: errText(serr)})
 		return
 	}
 	if m.Offset > 0 {
 		if _, serr := f.Seek(int64(m.Offset), io.SeekStart); serr != nil {
-			_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(serr)})
+			_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: seq, Err: errText(serr)})
 			return
 		}
 	}
 	buf := make([]byte, n)
 	read, rerr := io.ReadFull(f, buf)
 	if rerr != nil && !errors.Is(rerr, io.EOF) && !errors.Is(rerr, io.ErrUnexpectedEOF) {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(rerr)})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: seq, Err: errText(rerr)})
 		return
 	}
 	_ = s.send(&proto.Msg{Kind: proto.KindFsReadReply, Seq: seq, Data: buf[:read]})
@@ -193,7 +196,7 @@ func (s *Server) fsRead(seq uint32, m proto.Msg) {
 func (s *Server) fsWrite(m proto.Msg) error {
 	size := int(m.Size)
 	if size < 0 || size > proto.MaxFrame {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: "write size out of range"})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: m.Seq, Err: "write size out of range"})
 		return nil
 	}
 	data := make([]byte, size)
@@ -204,7 +207,7 @@ func (s *Server) fsWrite(m proto.Msg) error {
 		}
 	}
 	if m.Path == "" {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: "empty path"})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: m.Seq, Err: "empty path"})
 		return nil
 	}
 	mode := os.FileMode(m.Mode)
@@ -214,7 +217,7 @@ func (s *Server) fsWrite(m proto.Msg) error {
 	// 父目录不存在时创建：宿主的写文件语义是「按需建父目录」。
 	if dir := filepath.Dir(m.Path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(err)})
+			_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: m.Seq, Err: errText(err)})
 			return nil
 		}
 	}
@@ -224,21 +227,21 @@ func (s *Server) fsWrite(m proto.Msg) error {
 	}
 	f, err := os.OpenFile(m.Path, flags, mode)
 	if err != nil {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(err)})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: m.Seq, Err: errText(err)})
 		return nil
 	}
 	defer f.Close()
 	if m.Offset > 0 {
 		if _, serr := f.Seek(int64(m.Offset), io.SeekStart); serr != nil {
-			_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(serr)})
+			_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: m.Seq, Err: errText(serr)})
 			return nil
 		}
 	}
 	if _, werr := f.Write(data); werr != nil {
-		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(werr)})
+		_ = s.send(&proto.Msg{Kind: proto.KindError, Seq: m.Seq, Err: errText(werr)})
 		return nil
 	}
-	_ = s.send(&proto.Msg{Kind: proto.KindFsWriteAck})
+	_ = s.send(&proto.Msg{Kind: proto.KindFsWriteAck, Seq: m.Seq})
 	return nil
 }
 

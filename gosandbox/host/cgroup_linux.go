@@ -137,7 +137,8 @@ func (g *cgroupGroup) apply(p Policy) error {
 			return err
 		}
 		// 软限取硬限的 90%：留出回收窗口，同时不改变「超限即失败」的语义。
-		if err := write("memory.high", strconv.FormatInt(p.MemoryMaxBytes/10*9, 10)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		// 用 *9/10 而不是 /10*9：后者会先把 10% 截断再乘，结果偏小 1 字节。
+		if err := write("memory.high", strconv.FormatInt(p.MemoryMaxBytes*9/10, 10)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		if err := write("memory.swap.max", "0"); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -202,8 +203,10 @@ func readStat(dir, name string) int64 {
 	return v
 }
 
-// readKeyed 读 "key value" 逐行的 cgroup 文件（memory.stat、cpu.stat、io.stat 等），
-// 返回 key → 值。同一 key 出现多次时累加（io.stat 每个设备一行）。
+// readKeyed 读 "key value" 逐行的 cgroup 文件（memory.stat、cpu.stat、
+// memory.events 等），返回 key → 值。同一 key 出现多次时累加。
+//
+// io.stat 不是这个排版（字段是 "rbytes=4096"），用 readIOStat。
 func readKeyed(dir, name string) map[string]int64 {
 	out := map[string]int64{}
 	b, err := os.ReadFile(filepath.Join(dir, name))
@@ -222,6 +225,40 @@ func readKeyed(dir, name string) map[string]int64 {
 		out[f[0]] += v
 	}
 	return out
+}
+
+// readIOStat 读 io.stat 的读/写字节数。
+//
+// io.stat 的排版是「每设备一行，字段用 = 连接」：
+//
+//	8:0 rbytes=4096 wbytes=8192 rios=1 wios=2
+//
+// 与 cpu.stat 的 "key value" 不同，readKeyed 那种按空白切列取 f[1] 的
+// 解析在这里会全部解析失败（值为 "rbytes=4096"），于是永远报 0。
+func readIOStat(dir string) (readBytes, writeBytes int64) {
+	b, err := os.ReadFile(filepath.Join(dir, "io.stat"))
+	if err != nil {
+		return 0, 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		for _, field := range strings.Fields(line) {
+			k, v, ok := strings.Cut(field, "=")
+			if !ok {
+				continue
+			}
+			n, perr := strconv.ParseInt(v, 10, 64)
+			if perr != nil {
+				continue
+			}
+			switch k {
+			case "rbytes":
+				readBytes += n
+			case "wbytes":
+				writeBytes += n
+			}
+		}
+	}
+	return readBytes, writeBytes
 }
 
 // cgroupUsage 是子组当前的资源用量，字段与 vm.Metrics 一一对应。
@@ -245,9 +282,7 @@ func (g *cgroupGroup) usage() cgroupUsage {
 	}
 	cpu := readKeyed(g.dir, "cpu.stat")
 	u.CPUUsec = cpu["usage_usec"]
-	io := readKeyed(g.dir, "io.stat")
-	u.DiskReadByte = io["rbytes"]
-	u.DiskWriteByt = io["wbytes"]
+	u.DiskReadByte, u.DiskWriteByt = readIOStat(g.dir)
 	events := readKeyed(g.dir, "memory.events")
 	u.OOMKills = events["oom_kill"]
 	return u

@@ -10,9 +10,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/proto"
 )
@@ -324,5 +327,84 @@ func TestAgentUnknownFrame(t *testing.T) {
 	h.send(&proto.Msg{Kind: proto.KindPing, Nonce: 3})
 	if m := h.next(); m.Kind != proto.KindPong {
 		t.Fatalf("connection must stay usable: %+v", m)
+	}
+}
+
+// 文件回复必须带回请求的 Seq：宿主按它找回等待中的调用方。
+//
+// agent 之前用自己的计数器编号，回复的 Seq 与请求对不上，
+// 于是每个文件操作都只能在宿主侧等到超时。
+func TestAgentFileRepliesEchoSeq(t *testing.T) {
+	h := newHarness(t)
+	path := filepath.Join(t.TempDir(), "a.txt")
+	body := []byte("x")
+
+	h.send(&proto.Msg{Kind: proto.KindFsWrite, ID: "fs", Seq: 41, Path: path, Size: int64(len(body)), Mode: 0o644})
+	if _, err := h.host.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if m := h.next(); m.Kind != proto.KindFsWriteAck || m.Seq != 41 {
+		t.Fatalf("write ack = %+v", m)
+	}
+
+	h.send(&proto.Msg{Kind: proto.KindFsStat, ID: "fs", Seq: 42, Path: path})
+	if m := h.until(proto.KindFsStatReply); m.Seq != 42 {
+		t.Fatalf("stat seq = %d", m.Seq)
+	}
+
+	h.send(&proto.Msg{Kind: proto.KindFsRemove, ID: "fs", Seq: 43, Path: path})
+	if m := h.next(); m.Kind != proto.KindAck || m.Seq != 43 {
+		t.Fatalf("remove = %+v", m)
+	}
+
+	// 错误回复同样带 Seq：否则调用方等不到失败通知。
+	h.send(&proto.Msg{Kind: proto.KindFsRead, ID: "fs", Seq: 44, Path: path, Size: 16})
+	if m := h.next(); m.Kind != proto.KindError || m.Seq != 44 {
+		t.Fatalf("read error = %+v", m)
+	}
+}
+
+// io.stat 是 "k=v" 排版（cpu.stat 才是 "key value"）：两种都要能解析。
+func TestAgentReadKeyedIntHandlesIOStat(t *testing.T) {
+	dir := t.TempDir()
+	ioStat := "8:0 rbytes=4096 wbytes=8192 rios=1 wios=2\n8:16 rbytes=1024 wbytes=0 rios=1 wios=0\n"
+	if err := os.WriteFile(filepath.Join(dir, "io.stat"), []byte(ioStat), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readKeyedInt(os.ReadFile, dir, "io.stat", "rbytes"); got != 4096+1024 {
+		t.Errorf("rbytes = %d", got)
+	}
+	if got := readKeyedInt(os.ReadFile, dir, "io.stat", "wbytes"); got != 8192 {
+		t.Errorf("wbytes = %d", got)
+	}
+	cpuStat := "usage_usec 12345\nuser_usec 10000\nsystem_usec 2345\n"
+	if err := os.WriteFile(filepath.Join(dir, "cpu.stat"), []byte(cpuStat), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readKeyedInt(os.ReadFile, dir, "cpu.stat", "usage_usec"); got != 12345 {
+		t.Errorf("usage_usec = %d", got)
+	}
+}
+
+// 控制通道必须 close-on-exec：否则沙盒里的每条命令都能拿到控制面。
+func TestParseAgentArgsMarksCtrlCloseOnExec(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "ctrl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	ctrl, _, perr := parseAgentArgs([]string{"--ctrl", strconv.Itoa(int(f.Fd()))})
+	if perr != nil {
+		t.Fatalf("parse: %v", perr)
+	}
+	_ = ctrl
+
+	flags, ferr := unix.FcntlInt(f.Fd(), unix.F_GETFD, 0)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if flags&unix.FD_CLOEXEC == 0 {
+		t.Fatal("the ctrl fd must be close-on-exec, otherwise sandboxed commands inherit the control plane")
 	}
 }

@@ -257,7 +257,10 @@ func (l *Log) Close() error {
 
 // TailOptions 是回放参数。
 type TailOptions struct {
-	// Lines 是最后多少条记录；0 表示全部。
+	// Lines 是最后的多少行（一条记录一行）；0 表示全部。
+	//
+	// 会话落盘时按行切记录（见 logSink.write），所以这里与
+	// `docker logs --tail N` 同语义：N 是行数。
 	Lines int
 	// Since 是起始时间；零值表示不限。
 	Since time.Time

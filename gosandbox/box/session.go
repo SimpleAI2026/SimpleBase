@@ -322,7 +322,12 @@ func (s *Session) dispatch(m proto.Msg) {
 		}
 	case proto.KindRelayClose:
 		if rc := s.relay(m.ConnID); rc != nil {
-			rc.deliverEOF()
+			if m.Flags&proto.RelayConnectFailed != 0 {
+				// 沙盒内没人 listen：让 DialPort 报错，而不是返回一条「立刻 EOF」的连接。
+				rc.abort(fmt.Errorf("box: nothing is listening on 127.0.0.1:%d in the sandbox", rc.port))
+			} else {
+				rc.deliverEOF()
+			}
 		}
 	case proto.KindWatchEvent:
 		if w := s.watch(m.ID); w != nil {

@@ -112,6 +112,38 @@ func TestRoundTripObservability(t *testing.T) {
 	}
 }
 
+// 回复帧必须带 Seq：宿主按它找回等待中的调用方。
+//
+// 少了这一字段，文件请求的回复会被当成「不属于任何请求」丢掉，
+// 调用方只能等到超时（FsWrite / Ack 全部如此）。
+func TestRoundTripRepliesCarrySeq(t *testing.T) {
+	if got := round(t, Msg{Kind: KindAck, Seq: 7}); got.Seq != 7 {
+		t.Fatalf("ack seq = %d", got.Seq)
+	}
+	if got := round(t, Msg{Kind: KindFsWriteAck, Seq: 8}); got.Seq != 8 {
+		t.Fatalf("write ack seq = %d", got.Seq)
+	}
+	er := round(t, Msg{Kind: KindError, Seq: 9, Err: "boom"})
+	if er.Seq != 9 || er.Err != "boom" {
+		t.Fatalf("error = %+v", er)
+	}
+}
+
+// RelayClose 的 Flags 区分「连不上」与「对端正常关闭」。
+func TestRoundTripRelayCloseFlags(t *testing.T) {
+	rc := round(t, Msg{Kind: KindRelayClose, ConnID: 3, Flags: RelayConnectFailed})
+	if rc.ConnID != 3 || rc.Flags != RelayConnectFailed {
+		t.Fatalf("relay close = %+v", rc)
+	}
+	// 老 agent 只带 ConnID：按「正常关闭」处理，不报错。
+	w := &writer{}
+	w.u32(5)
+	m, err := Decode(KindRelayClose, w.b)
+	if err != nil || m.ConnID != 5 || m.Flags != 0 {
+		t.Fatalf("old relay close = %+v, %v", m, err)
+	}
+}
+
 // 帧头 len 含 kind；ReadFrame 读回时 payload 只剩内容。
 func TestFrameHeader(t *testing.T) {
 	payload := []byte("abc")
@@ -201,6 +233,7 @@ func TestEncodeRejectsLongFields(t *testing.T) {
 // 构造的帧声明了超长字符串：解码按上限拒绝，不按声明分配。
 func TestDecodeRejectsLongString(t *testing.T) {
 	w := &writer{}
+	w.u32(7)       // Seq
 	w.u32(1 << 20) // 声明 1 MiB 的字符串，但只有 3 字节
 	w.raw([]byte("abc"))
 	if _, err := Decode(KindFsStat, w.b); !errors.Is(err, ErrFieldTooLong) {

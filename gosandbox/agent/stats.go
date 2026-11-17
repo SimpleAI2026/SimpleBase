@@ -86,7 +86,10 @@ func readInt(read func(string) ([]byte, error), dir, name string) int64 {
 	return v
 }
 
-// readKeyedInt 读 "key value" 逐行文件里的某个 key，出现多次时累加（io.stat 每设备一行）。
+// readKeyedInt 读逐行文件里的某个 key，出现多次时累加。
+//
+// 兼容两种排版：cpu.stat / memory.events 是 "key value"，io.stat 是
+// "8:0 rbytes=4096 wbytes=8192"（字段名与值用 = 连接，且每设备一行）。
 func readKeyedInt(read func(string) ([]byte, error), dir, name, key string) int64 {
 	b, err := read(dir + "/" + name)
 	if err != nil {
@@ -95,11 +98,21 @@ func readKeyedInt(read func(string) ([]byte, error), dir, name, key string) int6
 	var total int64
 	for _, line := range strings.Split(string(b), "\n") {
 		f := strings.Fields(line)
-		if len(f) < 2 || f[0] != key {
-			continue
+		// "key value" 形式：key 在第 0 列。
+		if len(f) >= 2 && f[0] == key {
+			if v, perr := strconv.ParseInt(f[1], 10, 64); perr == nil {
+				total += v
+			}
 		}
-		if v, perr := strconv.ParseInt(f[1], 10, 64); perr == nil {
-			total += v
+		// "k=v" 形式：任意列都可能。
+		for _, field := range f {
+			k, v, ok := strings.Cut(field, "=")
+			if !ok || k != key {
+				continue
+			}
+			if n, perr := strconv.ParseInt(v, 10, 64); perr == nil {
+				total += n
+			}
 		}
 	}
 	return total
@@ -108,7 +121,6 @@ func readKeyedInt(read func(string) ([]byte, error), dir, name, key string) int6
 // sendTop 列出沙盒内的进程，每行格式与 docker top 一致：
 // uid pid ppid c stime tty time cmd。
 func (s *Server) sendTop(m proto.Msg) {
-	_ = m // 沙盒内就是全部进程，不需要按容器过滤
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		_ = s.send(&proto.Msg{Kind: proto.KindError, Err: errText(err)})
@@ -126,7 +138,7 @@ func (s *Server) sendTop(m proto.Msg) {
 		}
 		lines = append(lines, line)
 	}
-	_ = s.send(&proto.Msg{Kind: proto.KindTop, Lines: lines})
+	_ = s.send(&proto.Msg{Kind: proto.KindTop, Seq: m.Seq, Lines: lines})
 }
 
 // procLine 组装一个进程的信息行；进程在读取过程中消失时返回 false。
@@ -223,12 +235,39 @@ type relayConn struct {
 func (s *Server) openRelay(m proto.Msg) {
 	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(m.Port))))
 	if err != nil {
-		_ = s.send(&proto.Msg{Kind: proto.KindRelayClose, ConnID: m.ConnID})
+		// 连不上必须明确告诉宿主：只说「关掉了」会被当成「连上了但立刻 EOF」，
+		// 上层就无法区分「端口没人 listen」与「服务端空响应」。
+		_ = s.send(&proto.Msg{Kind: proto.KindRelayClose, ConnID: m.ConnID, Flags: proto.RelayConnectFailed})
 		return
 	}
 	rc := &relayConn{conn: conn}
-	s.relays[m.ConnID] = rc
+	s.addRelay(m.ConnID, rc)
+	// 连上就先回一个空的数据帧：宿主据此让 DialPort 立刻返回。
+	// 没有它，请求/响应型服务（客户端先写请求）会让 DialPort 一直等到
+	// 服务端开口，5 秒后误报「relay did not connect」。
+	_ = s.send(&proto.Msg{Kind: proto.KindRelayData, ConnID: m.ConnID})
 	go s.pumpRelay(m.ConnID, rc)
+}
+
+// addRelay 登记一条中继。
+func (s *Server) addRelay(id uint32, rc *relayConn) {
+	s.relayMu.Lock()
+	s.relays[id] = rc
+	s.relayMu.Unlock()
+}
+
+// dropRelay 注销一条中继。
+func (s *Server) dropRelay(id uint32) {
+	s.relayMu.Lock()
+	delete(s.relays, id)
+	s.relayMu.Unlock()
+}
+
+// getRelay 按 id 取中继。
+func (s *Server) getRelay(id uint32) *relayConn {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	return s.relays[id]
 }
 
 // pumpRelay 读沙盒内进程的输出，转成 RelayData 发给宿主。
@@ -236,7 +275,7 @@ func (s *Server) pumpRelay(id uint32, rc *relayConn) {
 	buf := make([]byte, proto.MaxOutputChunk)
 	defer func() {
 		rc.close()
-		delete(s.relays, id)
+		s.dropRelay(id)
 		_ = s.send(&proto.Msg{Kind: proto.KindRelayClose, ConnID: id})
 	}()
 	for {
@@ -256,7 +295,7 @@ func (s *Server) pumpRelay(id uint32, rc *relayConn) {
 
 // relayData 把宿主的字节写进沙盒内的连接。
 func (s *Server) relayData(m proto.Msg) {
-	rc := s.relays[m.ConnID]
+	rc := s.getRelay(m.ConnID)
 	if rc == nil {
 		return
 	}
@@ -275,7 +314,7 @@ func (s *Server) relayData(m proto.Msg) {
 // 这是隧道模式最关键的一步——没有它，HTTP/1.1 的服务端会一直等
 // 请求体结束，keep-alive 也永远等不到下一轮。
 func (s *Server) relayHalfClose(m proto.Msg) {
-	rc := s.relays[m.ConnID]
+	rc := s.getRelay(m.ConnID)
 	if rc == nil {
 		return
 	}
@@ -301,7 +340,7 @@ func (s *Server) relayHalfClose(m proto.Msg) {
 
 // relayClose 关掉一条中继。
 func (s *Server) relayClose(m proto.Msg) {
-	if rc := s.relays[m.ConnID]; rc != nil {
+	if rc := s.getRelay(m.ConnID); rc != nil {
 		rc.close()
 	}
 }

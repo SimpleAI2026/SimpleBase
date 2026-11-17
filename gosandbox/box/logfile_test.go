@@ -77,6 +77,54 @@ func TestLogSplitsLongLines(t *testing.T) {
 	}
 }
 
+// 会话落盘按行切记录：Lines 是行数（docker logs --tail 的语义）。
+//
+// 一个 Output 帧里通常有好几行；整块写成一条记录会让「最后 2 行」
+// 退回成整块，logs --tail 就失效了。
+func TestSinkWritesOneRecordPerLine(t *testing.T) {
+	dir := t.TempDir()
+	sink := newLogSink(dir, Options{}, nil)
+	l := sink.open("p1")
+	if l == nil {
+		t.Fatal("log must open")
+	}
+	sink.write(l, StreamStdout, []byte("1\n2\n3\n4\n"))
+	sink.close("p1")
+
+	recs, err := Tail(dir, "p1", TailOptions{Lines: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("records = %d, want 2 (one per line)", len(recs))
+	}
+	if string(recs[0].Data) != "3\n" || string(recs[1].Data) != "4\n" {
+		t.Fatalf("tail = %q / %q", recs[0].Data, recs[1].Data)
+	}
+}
+
+// 一次写里既有整行又有半行：半行单独一条，后续补上时另起一条。
+func TestSinkSplitsPartialLines(t *testing.T) {
+	dir := t.TempDir()
+	sink := newLogSink(dir, Options{}, nil)
+	l := sink.open("p1")
+	sink.write(l, StreamStdout, []byte("hel"))
+	sink.write(l, StreamStdout, []byte("lo\nworld"))
+	sink.close("p1")
+
+	recs, err := Tail(dir, "p1", TailOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all []byte
+	for _, r := range recs {
+		all = append(all, r.Data...)
+	}
+	if string(all) != "hello\nworld" {
+		t.Fatalf("joined = %q", all)
+	}
+}
+
 // 轮转：超过 MaxSize 后保留 N 份。
 func TestLogRotation(t *testing.T) {
 	dir := t.TempDir()

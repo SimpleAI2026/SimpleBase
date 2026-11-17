@@ -11,7 +11,11 @@ package proto
 // 协议常量。改动其中任何一个都要同时改两侧并升 Version。
 const (
 	// Version 是线协议版本；Hello 里带上，两侧不一致直接拒绝。
-	Version uint16 = 1
+	//
+	// v2：Ack / FsWriteAck / Error 带上 Seq（宿主按 Seq 关联请求，缺了它们
+	// 所有文件操作都会等到超时）；RelayClose 带上 Flags（区分「连不上」与
+	// 「对端正常关闭」）。
+	Version uint16 = 2
 	// MaxFrame 是单帧上限（1 MiB）。超过视为协议错误，避免对端无限申请内存。
 	MaxFrame = 1 << 20
 	// Header 是 payload 之前的字节数：len(4) + kind(2)。
@@ -83,6 +87,9 @@ const (
 
 	// 入站连接中继：Relay{ConnID, Port} → agent 连 127.0.0.1:Port，
 	// 之后该 ConnID 的 Data / Close 双向流动。
+	//
+	// agent 连上后先回一个**没有数据**的 RelayData（宿主据此让 DialPort 立刻
+	// 返回，不必等服务端先开口），连不上则回带 RelayConnectFailed 的 RelayClose。
 	KindRelay
 	KindRelayData
 	// KindRelayHalfClose 表示「我这个方向不再发数据，但仍能收」。
@@ -90,6 +97,13 @@ const (
 	// HTTP/1.1 的半关闭、以及 TLS 的 close_notify 都依赖这个语义。
 	KindRelayHalfClose
 	KindRelayClose
+)
+
+// RelayClose 帧的 Flags 取值。
+const (
+	// RelayConnectFailed 表示 agent 连不上沙盒内的端口（没人 listen）。
+	// 宿主据此把 DialPort 判为失败，而不是「连上了但立刻 EOF」。
+	RelayConnectFailed uint8 = 1
 )
 
 // Stream 区分 stdout 与 stderr；PTY 模式下只有 Stdout。

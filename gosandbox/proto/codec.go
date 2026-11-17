@@ -462,14 +462,19 @@ func (m *Msg) Encode() ([]byte, error) {
 		w.i64(m.BootNS)
 	case KindPing, KindPong:
 		w.u64(m.Nonce)
-	case KindShutdown, KindAck, KindInputConsumed, KindFsWriteAck:
-		if m.Kind == KindInputConsumed {
-			if err := w.str(MaxPathLen, m.ID); err != nil {
-				return nil, err
-			}
-			w.u32(m.Bytes)
+	case KindShutdown:
+		// 无字段。
+	case KindAck, KindFsWriteAck:
+		// 回复必须带回请求的 Seq：宿主按它找回等待的调用方。
+		w.u32(m.Seq)
+	case KindInputConsumed:
+		if err := w.str(MaxPathLen, m.ID); err != nil {
+			return nil, err
 		}
+		w.u32(m.Bytes)
 	case KindError:
+		// Seq 为 0 表示这是不针对某个请求的错误（协议错误、未知帧等）。
+		w.u32(m.Seq)
 		if err := w.str(MaxArgLen, m.Err); err != nil {
 			return nil, err
 		}
@@ -535,6 +540,8 @@ func (m *Msg) Encode() ([]byte, error) {
 			return nil, err
 		}
 	case KindCloseStdin, KindFsStat, KindFsList, KindFsRead, KindFsRemove, KindFsMkdir, KindStatsQuery, KindTopQuery, KindListenQuery:
+		// Seq 是宿主的请求序号：文件与端口查询的回复都要原样带回它。
+		w.u32(m.Seq)
 		if err := w.str(MaxPathLen, m.ID); err != nil {
 			return nil, err
 		}
@@ -551,6 +558,7 @@ func (m *Msg) Encode() ([]byte, error) {
 			w.u32(uint32(m.Size))
 		}
 	case KindFsWrite:
+		w.u32(m.Seq)
 		if err := w.str(MaxPathLen, m.ID); err != nil {
 			return nil, err
 		}
@@ -561,6 +569,7 @@ func (m *Msg) Encode() ([]byte, error) {
 		w.u32(uint32(m.Size))
 		w.u32(m.Mode)
 	case KindFsRename:
+		w.u32(m.Seq)
 		if err := w.str(MaxPathLen, m.ID); err != nil {
 			return nil, err
 		}
@@ -607,6 +616,8 @@ func (m *Msg) Encode() ([]byte, error) {
 			w.i64(v)
 		}
 	case KindTop:
+		// 与 Listening 一致：带上请求的 Seq，宿主才能把回复交回调用方。
+		w.u32(m.Seq)
 		if err := w.strs(MaxArgs, m.Lines); err != nil {
 			return nil, err
 		}
@@ -629,7 +640,9 @@ func (m *Msg) Encode() ([]byte, error) {
 		w.u32(m.ConnID)
 		w.u8(m.Flags)
 	case KindRelayClose:
+		// Flags 区分「连不上」（RelayConnectFailed）与「对端正常关闭」。
 		w.u32(m.ConnID)
+		w.u8(m.Flags)
 	case KindWatch:
 		// ID 是监听句柄；Path 是要看的目录；Recursive 决定是否下探。
 		if err := w.str(MaxPathLen, m.ID); err != nil {
@@ -676,13 +689,18 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 		m.BootNS, err = r.i64()
 	case KindPing, KindPong:
 		m.Nonce, err = r.u64()
-	case KindShutdown, KindAck, KindFsWriteAck:
+	case KindShutdown:
+	case KindAck, KindFsWriteAck:
+		m.Seq, err = r.u32()
 	case KindInputConsumed:
 		if m.ID, err = r.str(MaxPathLen); err != nil {
 			return m, err
 		}
 		m.Bytes, err = r.u32()
 	case KindError:
+		if m.Seq, err = r.u32(); err != nil {
+			return m, err
+		}
 		m.Err, err = r.str(MaxArgLen)
 	case KindStart:
 		if m.ID, err = r.str(MaxPathLen); err != nil {
@@ -756,6 +774,9 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 		}
 		m.Data, err = r.bytes(MaxOutputChunk)
 	case KindCloseStdin, KindFsStat, KindFsList, KindFsRead, KindFsRemove, KindFsMkdir, KindStatsQuery, KindTopQuery, KindListenQuery:
+		if m.Seq, err = r.u32(); err != nil {
+			return m, err
+		}
 		if m.ID, err = r.str(MaxPathLen); err != nil {
 			return m, err
 		}
@@ -778,6 +799,9 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 			m.Size = int64(n)
 		}
 	case KindFsWrite:
+		if m.Seq, err = r.u32(); err != nil {
+			return m, err
+		}
 		if m.ID, err = r.str(MaxPathLen); err != nil {
 			return m, err
 		}
@@ -794,6 +818,9 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 		m.Size = int64(n)
 		m.Mode, err = r.u32()
 	case KindFsRename:
+		if m.Seq, err = r.u32(); err != nil {
+			return m, err
+		}
 		if m.ID, err = r.str(MaxPathLen); err != nil {
 			return m, err
 		}
@@ -863,6 +890,9 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 			}
 		}
 	case KindTop:
+		if m.Seq, err = r.u32(); err != nil {
+			return m, err
+		}
 		m.Lines, err = r.strs(MaxArgs)
 	case KindListening:
 		if m.Seq, err = r.u32(); err != nil {
@@ -899,7 +929,17 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 		}
 		m.Flags, err = r.u8()
 	case KindRelayClose:
-		m.ConnID, err = r.u32()
+		if m.ConnID, err = r.u32(); err != nil {
+			return m, err
+		}
+		// Flags 是后加的字段：读到截断按「正常关闭」处理，老 agent 也能接。
+		if m.Flags, err = r.u8(); err != nil {
+			if errors.Is(err, ErrTruncated) {
+				err = nil
+				m.Flags = 0
+			}
+			return m, err
+		}
 	case KindWatch:
 		if m.ID, err = r.str(MaxPathLen); err != nil {
 			return m, err

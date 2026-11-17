@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -208,3 +209,34 @@ func TestTunnelKeepAliveShape(t *testing.T) {
 }
 
 var _ = sync.Mutex{}
+
+// agent 报「连不上」时，中继必须带错误，而不是静默 EOF。
+//
+// 之前 RelayClose 只有「关掉了」一种写法，DialPort 于是把「端口没人 listen」
+// 返回成一条连上了但立刻 EOF 的连接，调用方无法重试。
+func TestRelayConnectFailed(t *testing.T) {
+	r, s := newRelayForTest(t, 6)
+	r.port = 8080
+	s.dispatch(proto.Msg{Kind: proto.KindRelayClose, ConnID: 6, Flags: proto.RelayConnectFailed})
+	if err := r.err(); err == nil {
+		t.Fatal("connect failure must be recorded on the relay")
+	}
+	if _, err := r.Read(make([]byte, 8)); err == nil {
+		t.Fatal("read must report the connect failure")
+	}
+	if msg := r.err().Error(); !strings.Contains(msg, "8080") {
+		t.Fatalf("error must name the port: %q", msg)
+	}
+}
+
+// 正常的 RelayClose（对端发完就关）仍然是 EOF，不是错误。
+func TestRelayCloseWithoutFlagsIsEOF(t *testing.T) {
+	r, s := newRelayForTest(t, 7)
+	s.dispatch(proto.Msg{Kind: proto.KindRelayClose, ConnID: 7})
+	if err := r.err(); err != nil {
+		t.Fatalf("normal close must not be an error: %v", err)
+	}
+	if _, err := r.Read(make([]byte, 8)); err != io.EOF {
+		t.Fatalf("read = %v, want EOF", err)
+	}
+}

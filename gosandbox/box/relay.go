@@ -64,6 +64,8 @@ const (
 type relay struct {
 	sess *Session
 	id   uint32
+	// port 是沙盒内的目标端口；只用于错误信息（协议里的 RelayClose 不带端口）。
+	port uint16
 
 	// inR/inW 是 agent → 宿主的字节。用管道而不是带缓冲的通道：
 	// 管道天然有背压，读端慢时 agent 的输出泵会等。
@@ -117,6 +119,13 @@ func (r *relay) deliverEOF() {
 	r.mu.Unlock()
 	r.readyOnce.Do(func() { close(r.ready) })
 	_ = r.inW.Close()
+}
+
+// err 返回这条连接上挂着的错误（agent 报告连不上时设）。
+func (r *relay) err() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pending
 }
 
 // abort 以错误结束这条连接（例如 agent 连不上沙盒内的端口）。

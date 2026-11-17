@@ -32,6 +32,7 @@
 package box
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -85,18 +86,30 @@ func (s *logSink) open(name string) *Log {
 }
 
 // write 往日志里写一块输出；失败只警告一次。
+//
+// 按行切开再落盘：一条记录就是一行，`TailOptions.Lines` 才是
+// `docker logs --tail N` 的语义（N 行，而不是 N 次 read 的合并块）。
+// 输出块里通常有好几行，整块写进去会让「最后 2 行」退回成整块。
 func (s *logSink) write(l *Log, stream Stream, data []byte) {
 	if l == nil {
 		return
 	}
-	if err := l.Write(stream, data); err != nil {
-		s.mu.Lock()
-		first := !s.failed
-		s.failed = true
-		s.mu.Unlock()
-		if first {
-			s.warn("sandbox log write failed; output may be incomplete", "error", err.Error())
+	for len(data) > 0 {
+		n := len(data)
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			n = i + 1
 		}
+		if err := l.Write(stream, data[:n]); err != nil {
+			s.mu.Lock()
+			first := !s.failed
+			s.failed = true
+			s.mu.Unlock()
+			if first {
+				s.warn("sandbox log write failed; output may be incomplete", "error", err.Error())
+			}
+			return
+		}
+		data = data[n:]
 	}
 }
 

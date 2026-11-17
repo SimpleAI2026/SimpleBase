@@ -39,6 +39,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"syscall"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/proto"
 )
@@ -58,10 +59,12 @@ type Server struct {
 	// 所以用 mu 保护；单个 proc 内部的字段各自有同步。
 	mu    sync.Mutex
 	procs map[string]*proc
-	// seq 是文件请求的序号，回复时原样带回。
-	seq uint32
 	// relays 是正在中继的连接，按 ConnID 索引。
-	relays map[uint32]*relayConn
+	//
+	// relayMu 只保护这张表：读循环建/删条目，每条连接的输出泵在结束时也删，
+	// 不隔离就是并发 map 读写（Go 运行时会直接 fatal）。
+	relayMu sync.Mutex
+	relays  map[uint32]*relayConn
 	// watches 是进行中的目录监听，按监听 id 索引。
 	// 类型在平台文件里定义（Linux 有 inotify，其它平台没有）。
 	watches map[string]*watcher
@@ -124,6 +127,11 @@ func parseAgentArgs(args []string) (*os.File, *UserMapping, error) {
 	if fd < 0 {
 		return nil, nil, errors.New("usage: gosandbox-inner --agent --ctrl N [--uidmap SPEC]")
 	}
+	// 控制通道不能让沙盒内的任何进程继承：os.NewFile 不会加 FD_CLOEXEC，
+	// 而 ExtraFiles 传进来的 fd 在 fork 时是可继承的。不设它，用户命令
+	// （以及它拉起的每一个子孙进程）都能读写控制面，甚至往里写垃圾字节
+	// 把协议流带偏。
+	syscall.CloseOnExec(fd)
 	// 接管这个 fd：它由宿主通过 ExtraFiles 传入，已经是打开的。
 	return os.NewFile(uintptr(fd), "ctrl"), mapping, nil
 }
@@ -273,10 +281,4 @@ func (s *Server) send(m *proto.Msg) error {
 	case <-s.done:
 		return io.ErrClosedPipe
 	}
-}
-
-// nextSeq 返回下一个文件请求序号。只在读循环里调用，无需加锁。
-func (s *Server) nextSeq() uint32 {
-	s.seq++
-	return s.seq
 }
