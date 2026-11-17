@@ -1,6 +1,6 @@
 # gosandbox 优化与清理计划（v6.6）
 
-> **状态（2026-11-17）：G1 批（GSB-1~6）已在代码中执行，macOS 门禁通过，待 Linux 验证；B1 已按方案 A 解决；G2、G3（仅文案）、G4 已执行；B2/B3/B6 与基线提交未动。** 本文是用 `skills/simplify-code`（R-branch，只读评估）对 `gosandbox/` 做出的结果，对照 `kiri-go-port-analysis.md`（M0~M5 交付）核对「计划写了什么、代码里实际接上了什么」。
+> **状态（2026-11-17）：G1 批（GSB-1~6）已在代码中执行，macOS 与 Linux（`go test -race ./...`）门禁均通过；B1 已按方案 A 解决；G2、G3（仅文案）、G4 已执行；B2/B3/B6/GSB-10 与基线提交未动，等待批准。** 本文是用 `skills/simplify-code`（R-branch，只读评估）对 `gosandbox/` 做出的结果，对照 `kiri-go-port-analysis.md`（M0~M5 交付）核对「计划写了什么、代码里实际接上了什么」。
 >
 > 原则（simplify-code Golden rules）：行为与公共 API 不变；每项单独改、单独验证；有差异输入的改动一律走「需批准」。不改 `go.mod` / `go.sum`。承接 `dead-code-and-optimization-plan.md` §0 的误报口径，不重复其已登记项。
 
@@ -227,3 +227,29 @@ macOS 门禁结果：`gofmt -l` 无输出；`go build`、`go vet`、`GOOS=linux 
 macOS 门禁：`gofmt -l` 无输出；`go build`/`go vet`/`GOOS=linux go vet` 通过；逐包 `GOOS=linux go test -c` 通过；`go test -count=1 ./...` 全 `ok`；测试清单与基线相比只少 `rootfs` 的 7 个用例；`staticcheck` 与 G1 后一致（darwin 8 条、Linux 3 条，均为登记不改项）；宿主 `go build ./internal/... ./cmd/...`、`go vet`、`go test ./internal/{sandbox,app,config}` 通过；`go.mod`/`go.sum` 无变化。
 
 **待你在 Linux 上执行**：`cd gosandbox && go test -race -count=1 -timeout 900s ./...`，重点看 `box`（`writePolicy` 改为直接序列化 `spec.Spec`，真 bwrap 用例）与 `host`。
+
+### Linux 验证（2026-11-17，用户在 node1 上执行）
+
+`go test -race -count=1 -timeout 900s ./...`：**全部 `ok`**（`agent` 1.0s、`box` 126.8s、`host` 1.1s，其余包均通过）。G1 / G2 / G3（仅文案）/ G4 的 Linux 验证完成。
+
+验证前先修了 G1~G4 之外、Linux 上暴露的既有缺陷（不属于清理项，记录在此以便追溯）：
+
+| 现象 | 根因 | 修复 |
+| --- | --- | --- |
+| `TestSessionFiles` 等待 30s 后 `write timed out` | 线协议 `Ack`/`FsWriteAck`/`Error` 与请求帧没有 `Seq`，agent 用自己的计数器回复，宿主 `pending[seq]` 永远对不上 | `proto/codec.go` 请求与回复统一带 `Seq`；`agent/fs.go` 回显请求 `Seq`；`proto.Version` 1→2 |
+| `TestTunnel*: EOF` | 连不上端口被当作「连上后立即 EOF」，`DialPort` 无法区分 | `RelayClose` 增加 `Flags`（`RelayConnectFailed`）；连上后 agent 立刻回空 `RelayData`；`agent` 的 `relays` 表补锁 |
+| `TestSessionLogsTail: records = 1` | 日志按 read 块落盘，`Lines` 不是行数 | `box/log.go` 按 `\n` 切记录 |
+| `TestCgroup*` | `memory.high` 用 `/10*9` 少 1 字节；`io.stat` 是 `k=v` 排版，旧解析恒为 0 | `*9/10`；新增 `readIOStat`，agent 侧 `readKeyedInt` 兼容两种排版 |
+| `TestNetworkIsolationKeepsLoopback` | 测试不套 bwrap，宿主默认路由本来可见 | 改为参数层断言 `--unshare-net`，回环用例改用测试二进制自带的服务 |
+| 沙盒内命令可继承控制 fd | `os.NewFile` 不设 `FD_CLOEXEC` | `agent.parseAgentArgs` 里 `syscall.CloseOnExec(fd)` |
+
+**B2 的新线索（仍需 `-v` 确认）**：`box` 包耗时 126.8s，远高于其它包。`TestSupervisor*` 在「起不来」时 `Skip`，而 `newSessionOn` 等待 Hello 的读超时是 30s；`--ctrl 4` 与 `RunSupervisor` 只传 `ExtraFiles = [agentFile]`（fd 3）对不上，与 B2 的推断吻合。请在 Linux 上执行：
+
+```bash
+cd gosandbox && go test -count=1 -run 'Supervis' -v ./box 2>&1 | grep -E '^(=== RUN|--- |\s+supervise_test|ok|FAIL)'
+go test -count=1 -v ./box 2>&1 | grep -E '^--- (PASS|SKIP|FAIL)' | sort -t'(' -k2 -rn | head -10   # 看哪些用例耗时/被跳过
+```
+
+若 `Supervis` 的结果是 `SKIP`：B2 成立，需要决定修复方案（让 `RunSupervisor` 按 argv 里写的 `--ctrl N` / `--file 3` 把控制通道与策略文件放到约定 fd；或在 `launchSupervised` 里改写 argv）。**这是行为变更，未获批准前不动。**
+
+**仍待批准**：B2 修复方案、B3（`egress` 档缺 `--unshare-net`，安全相关）、B6（镜像根失败静默退回宿主根）、GSB-10（DNS 白名单接线或整体移除）；G0 要求的「先提交基线」也尚未做（`gosandbox/` 仍有未跟踪目录，当前没有可回滚的提交）。
