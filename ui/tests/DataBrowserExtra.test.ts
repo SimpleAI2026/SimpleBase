@@ -162,9 +162,12 @@ describe('DataBrowser refresh keeps the analysis context', () => {
   })
 
   it('the relative time window moves forward with the clock on every refresh round, once per card', async () => {
-    const { wrapper, vm } = await ready()
+    // 假时钟必须在挂载之前装好：Vue 在 patch 事件监听器时用 Date.now() 记下 attached 时刻，
+    // 之后收到的 _vts 小于等于它的合成事件会被直接丢弃（runtime-dom 的重复事件守卫）。
+    // 先挂载再 setSystemTime 把时钟拨回过去，点击就落在 attached 之前，换来的是一次"假失败"。
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-11-18T10:00:00Z'))
+    const { wrapper, vm } = await ready()
     vm.range = 'h1'
     await flushPromises()
     expect(vm.globalFilter).toBe('created_at>="2026-11-18T09:00:00.000Z"')
