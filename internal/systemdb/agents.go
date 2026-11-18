@@ -4,19 +4,18 @@
 //
 //	(s *Store) CreateCloudAgent(ctx context.Context, a CloudAgent) (CloudAgent, error)  // CreateCloudAgent 写入一个 agent
 //	(s *Store) ListCloudAgents(ctx context.Context, projectID string) (out ...  // ListCloudAgents 列出未归档 agent
-//	同包调用：rowScanner → agent_schedules.go, cron_jobs.go 等；AgentRun → agent_schedules.go
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/agents.go
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase/ducklake, internal/utils/limit
-//	[同包] agent_schedules.go, async_flush.go, bootstrap.go, cron_jobs.go, function_triggers.go 等 22 个
-//	[关键引用] rowScanner ← agent_schedules.go, cron_jobs.go, function_triggers.go
+//	[同包] async_flush.go, bootstrap.go, cron_jobs.go, function_triggers.go 等 22 个
+//	[关键引用] rowScanner ← cron_jobs.go, function_triggers.go
 //
 // 主要符号
 //

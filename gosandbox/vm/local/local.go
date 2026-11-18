@@ -160,14 +160,15 @@ func (d *Driver) workdir(t vm.Target) string {
 	return defaultWorkdir
 }
 
-// rel 把逻辑路径映射为相对工作区的路径。
+// rel 把逻辑路径映射为相对工作区的路径。非法路径与越界由 vm.CleanPath 统一拒绝，
+// 与上层（internal/sandbox）用的是同一套规则。
 func rel(workdir, p string) (string, error) {
-	clean := path.Clean(p)
+	clean, err := vm.CleanPath(workdir, p, true)
+	if err != nil {
+		return "", err
+	}
 	if clean == workdir {
 		return ".", nil
-	}
-	if !strings.HasPrefix(clean, workdir+"/") {
-		return "", fmt.Errorf("path %q is outside %s", p, workdir)
 	}
 	return strings.TrimPrefix(clean, workdir+"/"), nil
 }

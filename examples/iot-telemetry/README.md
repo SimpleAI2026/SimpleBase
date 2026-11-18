@@ -46,4 +46,4 @@ node examples/iot-telemetry/scripts/worker.mjs
 - 触发器：三条，`GET /function-triggers` 需 `project:admin`；运行时读 `.simplebase/triggers.json` 快照。
 
 `worker.mjs` 重复执行不会重复处理已消费的 run；积压达到 100 条或截断时停止并告警。
-局限：G1、G2、G6、G8、G11、G12（见 `plan/planv4.0/examples-business-cases-plan.md` §6）。
+局限：G1、G2、G6、G8、G11、G12（见 `plan/planv6.7/legacy-plan-consolidation-plan.md` §3-D1）。

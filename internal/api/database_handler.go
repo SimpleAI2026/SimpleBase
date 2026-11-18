@@ -16,7 +16,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase, godatabase/sqlguard, internal/auth, internal/catalog
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] GetDatabase() ← adapter.go, data_handler.go, db_stats_cache.go
 //
 // 主要符号

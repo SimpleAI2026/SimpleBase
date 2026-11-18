@@ -131,6 +131,7 @@ describe('SandboxDrawer', () => {
     await clickText(wrapper, '下载')
     await flushPromises()
     expect(click).toHaveBeenCalled()
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:x')
     click.mockRestore()
     vi.unstubAllGlobals()

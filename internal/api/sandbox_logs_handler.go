@@ -39,7 +39,6 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
-	"github.com/linkxzhou/SimpleBase/internal/sandbox"
 )
 
 // Logs 对应 GET /sandboxes/{id}/logs。
@@ -75,7 +74,7 @@ func (h *SandboxHandler) Logs(c echo.Context) error {
 		}
 	}
 
-	recs, err := h.svc.Logs(c.Request().Context(), p, id, sandbox.LogOptions{
+	recs, err := h.svc.Logs(c.Request().Context(), p, id, vm.LogQuery{
 		Lines: lines, Since: since, Streams: streams,
 	})
 	if err != nil {
@@ -100,7 +99,7 @@ func (h *SandboxHandler) Logs(c echo.Context) error {
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().WriteHeader(http.StatusOK)
 	flusher, _ := c.Response().Writer.(http.Flusher)
-	writeEvent := func(r sandbox.LogRecord) bool {
+	writeEvent := func(r vm.LogRecord) bool {
 		// SSE 的 data 不能含裸换行：按行拆成多条 data。
 		for _, line := range strings.Split(strings.TrimSuffix(string(r.Data), "\n"), "\n") {
 			if _, werr := fmt.Fprintf(c.Response().Writer, "data: %s\n", line); werr != nil {
@@ -132,7 +131,7 @@ func (h *SandboxHandler) Logs(c echo.Context) error {
 		case <-c.Request().Context().Done():
 			return nil
 		case <-ticker.C:
-			more, lerr := h.svc.Logs(c.Request().Context(), p, id, sandbox.LogOptions{
+			more, lerr := h.svc.Logs(c.Request().Context(), p, id, vm.LogQuery{
 				Since: last.Add(time.Nanosecond), Streams: streams,
 			})
 			if lerr != nil {

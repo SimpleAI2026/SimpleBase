@@ -75,7 +75,7 @@
         <div class="flex min-h-0 flex-1 flex-col gap-2">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-muted-foreground">Body (JSON)</span>
-            <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="validateBody">{{ t('components.goFuncTest.validate') }}</Button>
+            <Button variant="ghost" size="xs" @click="validateBody">{{ t('components.goFuncTest.validate') }}</Button>
           </div>
           <textarea
             v-model="bodyText"

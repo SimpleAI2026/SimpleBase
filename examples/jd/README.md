@@ -93,4 +93,4 @@ BFF 的 CORS 为 `Access-Control-Allow-Origin: *`，方法与请求头全部允�
 - BFF 无 Origin 校验、CORS 全放开，生产需改为白名单并加终端用户登录。
 - 不接真实支付，付款是直接把 `pending` 改成 `paid`。
 - 库存扣减靠条件更新，不加行锁；高并发下超卖由 `stock >= qty` 与事务失败重试兜住。
-- 平台限制编号 G1、G2、G6、G10、G13（详见 `plan/planv4.0/examples-business-cases-plan.md` §6）。
+- 平台限制编号 G1、G2、G6、G10、G13（详见 `plan/planv6.7/legacy-plan-consolidation-plan.md` §3-D1）。

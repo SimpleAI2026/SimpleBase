@@ -93,9 +93,6 @@ func TestSchedulerSingleFlightAndReport(t *testing.T) {
 	if err := s.runOnceGuarded(context.Background()); err != nil {
 		t.Fatalf("single-flight skip must not error, got %v", err)
 	}
-	if s.Skipped() != 1 {
-		t.Fatalf("skipped=%d want 1", s.Skipped())
-	}
 	// Reporter 未被调用（跳过路径不上报）。
 	reporter.mu.Lock()
 	succ, fail := len(reporter.succeeded), len(reporter.failed)

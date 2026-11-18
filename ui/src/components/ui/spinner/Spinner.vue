@@ -9,7 +9,7 @@ const props = defineProps<{
   class?: HTMLAttributes['class']
 }>()
 
-// 无障碍标签会随界面语言变化（plan/planv5.0/ui-optimization-v3-plan.md §3.2）：
+// 无障碍标签会随界面语言变化（plan/planv6.7/legacy-plan-consolidation-plan.md §3.2）：
 // 这是文案而非样式约定，故在 fork 层也接 i18n。
 const { t } = useI18n()
 </script>

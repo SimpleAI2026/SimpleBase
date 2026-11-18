@@ -8,14 +8,14 @@
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/gofuncs.go
 //	         │
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //	[关键引用] v ← cron_jobs.go, latency_histogram.go, llm.go
 //
 // 主要符号
@@ -266,7 +266,7 @@ func (s *Store) AppendGoFuncVersion(ctx context.Context, v GoFuncVersion) (GoFun
 			last.ID, last.FuncID, last.ProjectID, last.Name, last.Version, last.Source,
 			string(exportsJSON), last.Note, last.CreatedBy, now)
 		if err != nil {
-			if isGoFuncDuplicate(err) {
+			if isDuplicate(err) {
 				continue
 			}
 			return GoFuncVersion{}, err
@@ -387,14 +387,4 @@ func scanGoFuncVersion(row rowScanner) (GoFuncVersion, error) {
 		_ = json.Unmarshal([]byte(exportsJSON), &v.Exports)
 	}
 	return v, nil
-}
-
-func isGoFuncDuplicate(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE") ||
-		strings.Contains(msg, "duplicate") ||
-		strings.Contains(msg, "already exists")
 }

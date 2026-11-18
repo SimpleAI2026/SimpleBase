@@ -5,7 +5,7 @@
 //	NewAPIError(status int, code, message, requestID string) *APIError
 //	(e *APIError) Error() string
 //	Error(err error, requestID string) *APIError  // Error 编码已知的领域错误类型到 APIError
-//	同包调用：Error() → agent_handler.go, agent_handler.go 等；WriteError() → agent_handler.go, agent_schedule_handler.go 等；NewAPIError() → agent_handler.go, api_keys_handler.go 等
+//	同包调用：Error() → agent_handler.go, agent_handler.go 等；WriteError() → agent_handler.go 等；NewAPIError() → agent_handler.go, api_keys_handler.go 等
 //
 // 调用架构
 //
@@ -16,8 +16,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] gocloudagent, godatabase, godatabase/kv, godatabase/lease 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] Error() ← agent_handler.go, agent_schedule_handler.go
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Error() ← agent_handler.go
 //
 // 主要符号
 //
@@ -159,6 +159,8 @@ var sentinelErrorMappings = []struct {
 	// planv6.6 home-starter-prompts：搭建会话创建 / 阶段校验失败。
 	{ErrStarterNotAllowed, http.StatusBadRequest, "starter_not_allowed", ErrStarterNotAllowed.Error()},
 	{ErrStarterStageInvalid, http.StatusBadRequest, "starter_stage_invalid", ErrStarterStageInvalid.Error()},
+	// planv6.7 数据看板：Agent 生成图表的数据源上下文校验失败。
+	{ErrBIContextInvalid, http.StatusBadRequest, "bi_context_invalid", ErrBIContextInvalid.Error()},
 	// auth 错误
 	{auth.ErrMissingCredentials, http.StatusUnauthorized, "unauthenticated", "missing or malformed authorization header"},
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_api_key", "invalid api key"},

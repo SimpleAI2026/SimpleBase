@@ -39,7 +39,7 @@ func (h *llmTracesHandler) List(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return echo.NewHTTPError(http.StatusInternalServerError, "project context missing")
+		return WriteError(c, ErrProjectMissing)
 	}
 	q := systemdb.LLMTraceQuery{ProjectID: pc.ID}
 	q.Status = c.QueryParam("status")
@@ -105,7 +105,7 @@ func (h *llmTracesHandler) Groups(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return echo.NewHTTPError(http.StatusInternalServerError, "project context missing")
+		return WriteError(c, ErrProjectMissing)
 	}
 	q := systemdb.LLMTraceGroupQuery{ProjectID: pc.ID}
 	q.Caller = c.QueryParam("caller")
@@ -146,7 +146,7 @@ func (h *llmTracesHandler) Detail(c echo.Context) error {
 	}
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return echo.NewHTTPError(http.StatusInternalServerError, "project context missing")
+		return WriteError(c, ErrProjectMissing)
 	}
 	traceID := c.Param("traceId")
 	if traceID == "" {

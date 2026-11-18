@@ -14,6 +14,9 @@ import type { ApiError, AuthUser, UserRole } from '../services/types'
 /** 「模型」页已迁至 /console/models（planv6.5 model-settings-and-trace-plan §3.5）。 */
 export type SettingsTab = 'connection' | 'storage' | 'backups'
 
+/** 引导账号（后端 bootstrap 创建，受保护：不可在用户页禁用 / 改角色）。 */
+export const BOOTSTRAP_USERNAME = 'simplebase2026'
+
 /** 登录态 + 角色（login-auth-plan）。API Key 设置仍保留在 SettingsModal。 */
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -28,6 +31,11 @@ export const useAuthStore = defineStore('auth', {
     loginReason: '' as string,
     /** 强制改密（must_change_password） */
     mustChangePassword: false,
+    /**
+     * 用户主动打开的「修改密码」弹窗（UserMenu）。与强制改密分开：
+     * 此前借用 mustChangePassword 打开，靠 LoginModal 关闭时还原（planv6.7 ui-simplify-ux-plan B16）。
+     */
+    passwordDialogOpen: false,
     /**
      * 登录返回 423 时的用户名：此时还没有 token，改密要走免认证的
      * `/v1/auth/password/initial`（§8.2.2），需要把账号带到改密表单。
@@ -79,8 +87,16 @@ export const useAuthStore = defineStore('auth', {
       this.loginOpen = false
       this.loginReason = ''
     },
+    /** 已登录用户主动修改密码（可取消，不影响强制改密状态）。 */
+    openPasswordChange() {
+      this.passwordDialogOpen = true
+    },
+    closePasswordChange() {
+      this.passwordDialogOpen = false
+    },
     markUnauthorized() {
       this.lastUnauthorizedAt = Date.now()
+      this.passwordDialogOpen = false
       this.user = null
       clearTokens()
       this.accessToken = ''
@@ -143,6 +159,7 @@ export const useAuthStore = defineStore('auth', {
       this.refreshToken = ''
       clearTokens()
       this.mustChangePassword = false
+      this.passwordDialogOpen = false
       this.pendingUsername = ''
       this.openLogin()
     },
@@ -179,6 +196,7 @@ export const useAuthStore = defineStore('auth', {
     async changePassword(oldPassword: string, newPassword: string) {
       await api.auth.changePassword(oldPassword, newPassword)
       this.mustChangePassword = false
+      this.passwordDialogOpen = false
     },
     /**
      * 未登录的强制改密（登录返回 423 后）：走免认证端点，

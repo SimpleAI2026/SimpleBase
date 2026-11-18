@@ -78,7 +78,8 @@
         <AlertDescription>{{ error }}</AlertDescription>
       </Alert>
       <div class="flex justify-end gap-2">
-        <Button variant="outline" type="button" @click="signOut">{{ t('components.login.signOut') }}</Button>
+        <Button v-if="voluntary" variant="outline" type="button" @click="onOpenChange(false)">{{ t('common.cancel') }}</Button>
+        <Button v-else variant="outline" type="button" @click="signOut">{{ t('components.login.signOut') }}</Button>
         <Button type="submit" :disabled="submitting || !canSubmitPassword">
           <Spinner v-if="submitting" data-icon="inline-start" />
           {{ t('components.login.submitChange') }}
@@ -108,7 +109,11 @@ const props = defineProps<{
   mode?: 'login' | 'password'
 }>()
 
-const mode = computed(() => props.mode || (auth.mustChangePassword ? 'password' : 'login'))
+const mode = computed(() =>
+  props.mode || (auth.mustChangePassword || auth.passwordDialogOpen ? 'password' : 'login')
+)
+/** 用户主动改密（非强制）：可取消，底部给「取消」而不是「退出登录」。 */
+const voluntary = computed(() => auth.passwordDialogOpen && !auth.mustChangePassword)
 
 /**
  * store 里存的是 i18n key（如 `error.codes.unauthorized`），
@@ -148,9 +153,13 @@ watch(
 
 function onOpenChange(open: boolean) {
   if (open || mode.value !== 'password' || auth.user?.mustChangePassword) return
-  auth.mustChangePassword = false
-  auth.pendingUsername = ''
-  auth.closeLogin()
+  if (voluntary.value) {
+    auth.closePasswordChange()
+  } else {
+    auth.mustChangePassword = false
+    auth.pendingUsername = ''
+    auth.closeLogin()
+  }
   error.value = ''
   pwError.value = ''
   oldPassword.value = ''

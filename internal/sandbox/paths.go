@@ -2,36 +2,11 @@ package sandbox
 
 import (
 	"fmt"
-	"path"
 	"regexp"
 	"strings"
 )
 
-// cleanPath 校验 p 落在 workdir 下（§8.2）：
-// 绝对路径、Clean 后前缀匹配；allowRoot=false 时拒绝 workdir 本身。
-func cleanPath(workdir, p string, allowRoot bool) (string, error) {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return "", fmt.Errorf("%w: path is required", ErrInvalidPath)
-	}
-	if strings.ContainsRune(p, 0) {
-		return "", fmt.Errorf("%w: path contains NUL", ErrInvalidPath)
-	}
-	if !strings.HasPrefix(p, "/") {
-		return "", fmt.Errorf("%w: path must be absolute", ErrInvalidPath)
-	}
-	clean := path.Clean(p)
-	if clean == workdir {
-		if allowRoot {
-			return clean, nil
-		}
-		return "", fmt.Errorf("%w: path must be a file under %s", ErrInvalidPath, workdir)
-	}
-	if !strings.HasPrefix(clean, workdir+"/") {
-		return "", fmt.Errorf("%w: path must be under %s", ErrInvalidPath, workdir)
-	}
-	return clean, nil
-}
+// 路径规则（落在 workdir 内）在 gosandbox/vm.CleanPath，业务层不再自己实现一份。
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 

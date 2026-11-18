@@ -199,7 +199,6 @@ function load() {
     if (request !== listRequest || currentProject !== projectId.value) return records.value.length > 0
     records.value = data.approvals || []
     pendingCount.value = data.pending || 0
-    page.value = 1
     return records.value.length > 0
   })
 }
@@ -218,11 +217,15 @@ async function resolve(item: AgentApproval, approve: boolean) {
   }
 }
 
-watch(statusFilter, () => void load())
+watch(statusFilter, () => {
+  page.value = 1
+  void load()
+})
 watch(
   projectId,
   () => {
     statusFilter.value = FILTER_ALL
+    page.value = 1
     void load()
   },
   { immediate: true }

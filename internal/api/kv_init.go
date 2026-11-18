@@ -16,7 +16,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase, godatabase/kv, godatabase/registry, internal/catalog 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] Release() ← adapter.go, collection_meta_handler.go, collection_transfer.go
 //
 // 主要符号

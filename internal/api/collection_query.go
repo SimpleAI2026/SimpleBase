@@ -15,7 +15,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase, godatabase/sqlx, internal/collection
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] fieldNamePattern ← api_key_policy.go, collection_filter.go, collection_meta_handler.go
 //
 // 主要符号

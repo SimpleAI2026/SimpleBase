@@ -4,7 +4,7 @@
 //
 //	(h *SandboxHandler) Health(c echo.Context) error  // Health 对应 envd GET /health：沙盒存在且运行中返回 204，否则 502（SDK 把 502 视为未运行）
 //	(h *SandboxHandler) Envs(c echo.Context) error  // Envs 对应 envd GET /envs：沙盒的默认环境变量（创建时的 envVars）
-//	同包调用：Error() → agent_handler.go, agent_schedule_handler.go 等；Envs() → e2b_process_handler.go, router.go 等；envdScope() → e2b_process_handler.go
+//	同包调用：Error() → agent_handler.go 等；Envs() → e2b_process_handler.go, router.go 等；envdScope() → e2b_process_handler.go
 //
 // 调用架构
 //
@@ -15,8 +15,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] gosandbox/vm, internal/auth, internal/catalog, internal/e2bproto 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] Error() ← agent_handler.go, agent_schedule_handler.go, api_keys_handler.go
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Error() ← agent_handler.go, api_keys_handler.go
 //
 // 主要符号
 //
@@ -39,6 +39,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -103,13 +104,13 @@ func (h *SandboxHandler) bindSandbox(c echo.Context, next echo.HandlerFunc, boun
 func (h *SandboxHandler) envdScope(c echo.Context, write bool) (projectID, sandboxID string, err error) {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return "", "", echo.NewHTTPError(http.StatusBadRequest, "project context missing")
+		return "", "", ErrProjectMissing
 	}
 	sandboxID, _ = c.Get(ctxSandboxID).(string)
 	if tokenAuth, _ := c.Get(ctxTokenAuth).(bool); tokenAuth {
 		if write {
 			if !h.writable {
-				return "", "", echo.NewHTTPError(http.StatusServiceUnavailable, "instance is read-only")
+				return "", "", godatabase.ErrWriterUnavailable
 			}
 			if catalog.IsSystemProject(pc.ID) {
 				return "", "", NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support sandboxes", "")

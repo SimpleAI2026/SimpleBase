@@ -95,3 +95,54 @@ func TestZapLevels(t *testing.T) {
 	assert.Equal(t, zapcore.InfoLevel, Level(0))
 	assert.Equal(t, zapcore.ErrorLevel, Level(2))
 }
+
+// Default / ResetDefault / syncDefault 只服务测试（planv6.6 §1.3 T-5）：
+// 生产代码用 Logger 接口 + Sync(l)，不需要替换包级默认 logger。
+
+func Default() *zapLogger {
+	return std
+}
+
+// ResetDefault 替换包级默认 logger，并重新绑定 Info / Sugar* 等函数变量。
+func ResetDefault(l *zapLogger) {
+	std = l
+	Info = std.l.Info
+	Warn = std.l.Warn
+	Error = std.l.Error
+	DPanic = std.l.DPanic
+	Panic = std.l.Panic
+	Fatal = std.l.Fatal
+	Debug = std.l.Debug
+
+	sugarStd = std.l.Sugar()
+	SugarDebug = sugarStd.Debug
+	SugarInfo = sugarStd.Info
+	SugarWarn = sugarStd.Warn
+	SugarError = sugarStd.Error
+	SugarDPanic = sugarStd.DPanic
+	SugarPanic = sugarStd.Panic
+	SugarFatal = sugarStd.Fatal
+
+	SugarDebugf = sugarStd.Debugf
+	SugarInfof = sugarStd.Infof
+	SugarWarnf = sugarStd.Warnf
+	SugarErrorf = sugarStd.Errorf
+	SugarDPanicf = sugarStd.DPanicf
+	SugarPanicf = sugarStd.Panicf
+	SugarFatalf = sugarStd.Fatalf
+
+	SugarDebugw = sugarStd.Debugw
+	SugarInfow = sugarStd.Infow
+	SugarWarnw = sugarStd.Warnw
+	SugarErrorw = sugarStd.Errorw
+	SugarDPanicw = sugarStd.DPanicw
+	SugarPanicw = sugarStd.Panicw
+	SugarFatalw = sugarStd.Fatalw
+}
+
+func syncDefault() error {
+	if std != nil {
+		return std.Sync()
+	}
+	return nil
+}

@@ -4,7 +4,7 @@
 //
 //	NewKVHandler(svc KVService, writable bool) *KVHandler
 //	(h *KVHandler) Execute(c echo.Context) error  // Execute: POST /v1/projects/:projectID/kv
-//	同包调用：Error() → agent_handler.go, agent_schedule_handler.go 等；Execute() → adapter.go, collection_meta_handler.go 等；KVService → kv_init.go, projects_handler.go 等
+//	同包调用：Error() → agent_handler.go 等；Execute() → adapter.go, collection_meta_handler.go 等；KVService → kv_init.go, projects_handler.go 等
 //
 // 调用架构
 //
@@ -15,8 +15,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase, godatabase/kv, internal/auth, internal/catalog
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] Error() ← agent_handler.go, agent_schedule_handler.go, api_keys_handler.go
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] Error() ← agent_handler.go, api_keys_handler.go
 //
 // 主要符号
 //

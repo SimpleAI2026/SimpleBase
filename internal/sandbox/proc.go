@@ -4,7 +4,7 @@
 //
 //	(h *ProcHandle) Touch()  // Touch 记录一次活动，供空闲超时与续期使用
 //	(h *ProcHandle) Close() error  // Close 终止进程并从进程表移除，可重复调用
-//	同包调用：Close() → manager.go, output_hub.go；procTable → manager.go；newProcTable() → manager.go
+//	同包调用：Close() → manager.go；procTable → manager.go；newProcTable() → manager.go
 //
 // 调用架构
 //
@@ -14,9 +14,9 @@
 //	[本文件] internal/sandbox/proc.go
 //	         │ 依赖
 //	         ▼
-//	[下游] gosandbox/vm
-//	[同包] errors.go, manager.go, output_hub.go, paths.go, pty.go
-//	[关键引用] Close() ← manager.go, output_hub.go
+//	[下游] gosandbox/stream, gosandbox/vm
+//	[同包] errors.go, manager.go, paths.go
+//	[关键引用] Close() ← manager.go
 //
 // 主要符号
 //
@@ -43,6 +43,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/linkxzhou/SimpleBase/gosandbox/stream"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 )
 
@@ -73,8 +74,8 @@ type ProcHandle struct {
 	Started   time.Time
 
 	m *Manager
-	// hub 是进程输出的唯一读取者，向所有订阅者广播（见 output_hub.go）。
-	hub       *outputHub
+	// hub 是进程输出的唯一读取者，向所有订阅者广播（实现在 gosandbox/stream）。
+	hub       *stream.Hub
 	activity  atomic.Int64 // 最近一次输入输出的 unix nano
 	closeOnce sync.Once
 	cancel    context.CancelFunc
@@ -249,7 +250,7 @@ func (m *Manager) StartProc(ctx context.Context, projectID, id string, spec Star
 	if cwd == "" {
 		cwd = m.workdir()
 	}
-	cwd, err := cleanPath(m.workdir(), cwd, true)
+	cwd, err := vm.CleanPath(m.workdir(), cwd, true)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +291,7 @@ func (m *Manager) StartProc(ctx context.Context, projectID, id string, spec Star
 			return fmt.Errorf("%w: start", vm.ErrBackend)
 		}
 		h = &ProcHandle{Proc: p, SandboxID: id, ProjectID: projectID, Tag: spec.Tag, Kind: kind,
-			Started: m.now(), m: m, cancel: cancel, hub: newOutputHub(p.Output())}
+			Started: m.now(), m: m, cancel: cancel, hub: stream.NewHub(p.Output())}
 		h.Touch()
 		m.procs.add(h)
 		if err := m.markActive(ctx, &r, false); err != nil {
@@ -344,7 +345,9 @@ func (m *Manager) KillProc(h *ProcHandle, sig syscall.Signal) error { return h.S
 // Subscribe 订阅进程输出。fromStart 为真时先收到缓冲里的历史输出（Connect 到已运行的进程），
 // 否则只收订阅之后的新数据。进程输出只有 hub 一个读取者，所以多个订阅者互不抢数据。
 // 用完必须 Close。
-func (h *ProcHandle) Subscribe(fromStart bool) *Subscription { return h.hub.Subscribe(fromStart) }
+func (h *ProcHandle) Subscribe(fromStart bool) *stream.Subscription {
+	return h.hub.Subscribe(fromStart)
+}
 
 // CopyOutput 把进程输出（含缓冲里的历史）持续复制到 w，直到进程输出结束；每次读到数据刷新活动时间。
 func (h *ProcHandle) CopyOutput(w io.Writer) error {

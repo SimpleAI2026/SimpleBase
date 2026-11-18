@@ -3,7 +3,6 @@ package dbbridge
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"io"
 	"testing"
 	"time"
@@ -168,18 +167,6 @@ func TestStatusValuesStayInSync(t *testing.T) {
 	}
 }
 
-func TestRoundTripWriteGate(t *testing.T) {
-	var got catalog.Database
-	gate := WriteGate(func(db catalog.Database) error { got = db; return errors.New("lost") })
-	err := gate(godatabase.Spec{ID: "i", ProjectID: "p", Kind: godatabase.KindSystem})
-	if err == nil || got.ID != "i" || got.ProjectID != "p" || got.Kind != catalog.DatabaseKindSystem {
-		t.Fatalf("err=%v got=%+v", err, got)
-	}
-	if WriteGate(nil) != nil {
-		t.Fatal("nil gate must stay nil")
-	}
-}
-
 // typed-nil 陷阱：nil 指针装进接口会得到非 nil 接口，库内 `x != nil` 判断失效。
 func TestNilHostValuesBecomeUntypedNil(t *testing.T) {
 	if LoggerFrom(nil) != nil {
@@ -265,20 +252,12 @@ func TestObserverToleratesNilMetricFields(t *testing.T) {
 	o.CatalogLocalAhead()
 }
 
-func TestLoggerFromPassesThroughAndCatalogOfRoundTrips(t *testing.T) {
+func TestLoggerFromPassesThrough(t *testing.T) {
 	zl := observability.NewLogger("debug", "json", io.Discard)
 	if LoggerFrom(zl) == nil {
 		t.Fatal("non-nil logger must stay non-nil")
 	}
 	LoggerFrom(zl).Info("x") // 不得 panic
-
-	in := godatabase.Spec{ID: "i", TenantID: "t", ProjectID: "p", Kind: godatabase.KindSystem, Status: godatabase.StatusReady, DatabasePath: "p/database.duckdb"}
-	if got := SpecOf(CatalogOf(in)); got != in {
-		t.Fatalf("round trip: %+v != %+v", got, in)
-	}
-	if !IsSystem(in) {
-		t.Fatal("IsSystem")
-	}
 }
 
 // readMetric 读取单个 Counter / Gauge 的当前值（不依赖 prometheus/testutil，避免改 go.mod）。

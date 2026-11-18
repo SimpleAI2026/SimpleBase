@@ -91,7 +91,7 @@ func (h *EndUsersHandler) Signup(c echo.Context) error {
 			return WriteError(c, err)
 		}
 	}
-	h.guard.recordSuccess(c.RealIP(), req.Username)
+	h.guard.recordSuccess(req.Username)
 	if h.audit != nil {
 		_ = h.audit.Record(c.Request().Context(), AuditEvent{ProjectID: projectID, Kind: "enduser.signup", Detail: "enduser:" + u.ID})
 	}
@@ -125,7 +125,7 @@ func (h *EndUsersHandler) Login(c echo.Context) error {
 		}
 		return WriteError(c, err)
 	}
-	h.guard.recordSuccess(c.RealIP(), req.Username)
+	h.guard.recordSuccess(req.Username)
 	if h.audit != nil {
 		_ = h.audit.Record(c.Request().Context(), AuditEvent{ProjectID: projectID, Kind: "enduser.login", Detail: "enduser:" + u.ID})
 	}

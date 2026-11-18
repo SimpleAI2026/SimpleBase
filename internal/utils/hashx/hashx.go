@@ -19,7 +19,6 @@
 //
 //	Sum(data []byte) string
 //	SumString(s string) string
-//	Short(data []byte, n int) string
 
 package hashx
 
@@ -37,17 +36,4 @@ func Sum(data []byte) string {
 // SumString 与 Sum 相同，入参为字符串。
 func SumString(s string) string {
 	return Sum([]byte(s))
-}
-
-// Short 返回 SHA-256 前 n 个字节的十六进制（2n 字符）。
-// n <= 0 返回空串；n 超过 32 时按 32 处理。
-func Short(data []byte, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	sum := sha256.Sum256(data)
-	if n > len(sum) {
-		n = len(sum)
-	}
-	return hex.EncodeToString(sum[:n])
 }

@@ -64,11 +64,6 @@ describe('DefaultLayout', () => {
   })
 
   it('shows the route title, mock badge, and opens settings', async () => {
-    const reload = vi.fn()
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...window.location, reload }
-    })
     const { wrapper, pinia } = await mountWithApp(DefaultLayout, { path: '/' })
     expect(wrapper.text()).toContain('监控大盘')
     expect(wrapper.text()).toContain('使用文档')
@@ -76,8 +71,6 @@ describe('DefaultLayout', () => {
     // 按无障碍标签定位，避免按钮增删（语言下拉）影响位置断言
     await wrapper.get('button[aria-label="设置"]').trigger('click')
     expect(auth.settingsOpen).toBe(true)
-    await wrapper.get('button[aria-label="刷新页面"]').trigger('click')
-    expect(reload).toHaveBeenCalled()
     auth.markUnauthorized()
     await flushPromises()
     expect(auth.settingsTab).toBe('connection')

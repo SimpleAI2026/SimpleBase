@@ -43,6 +43,7 @@ describe('BackupPanel', () => {
     await w.findAll('button').find((b) => b.text() === '下载')!.trigger('click')
     await flushPromises()
     expect(api.backups.download).toHaveBeenCalledWith('p', 'b1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(URL.revokeObjectURL).toHaveBeenCalled()
     await w.findAll('button').find((b) => b.text() === '删除')!.trigger('click')
     await flushPromises()

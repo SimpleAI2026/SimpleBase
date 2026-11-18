@@ -38,10 +38,10 @@ go test ./...                               # 后端全量
 (cd gosandbox && go build ./... && go vet ./... && go test ./...)   # 沙盒执行层（独立模块；真 bwrap 用例无 bwrap 时自动 Skip）
 (cd gocloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...)   # 云 Agent 模块（独立模块，根目录 ./... 不含它；两侧 go.mod 各自声明 gosandbox 的 replace，replace 不传递）
 
-cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.1% / branches 94.92% 未达标，见 planv5.0 §7.2
+cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.1% / branches 94.92% 未达标，见 planv6.7 legacy §3-E1（原 planv5.0 §7.2）
 cd ui && yarn build                         # 前端构建必须通过
 cd ui && yarn typecheck                     # tsc --noEmit；planv6.6 OPT-4 后已清零（含 tests/），须保持 0 错误
-./scripts/test.sh [包...] [-race]           # 云 Agent 相关包一键后端测试（planv4.1 §5.5）+ examples 四站清单离线校验
+./scripts/test.sh [包...] [-race]           # 云 Agent 相关包一键后端测试（planv6.7 legacy §2.1，原 planv4.1 §5.5）+ examples 四站清单离线校验
 ./scripts/smoke.sh                          # 构建 + vet + 云 Agent 全链路 + 前端构建
 cd packages/js-sdk && npm run typecheck && npm test   # SDK
 (cd skills/simplebase && python3 -m unittest discover -s scripts -p 'test_sbdev.py')   # sbdev.py（假 CLI，不连服务）
@@ -112,16 +112,16 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 - 对象形状一律用 `interface` 定义，**不用 `type`**。
 - 不写 `any` 落盘新代码；跨层契约集中在 `ui/src/services/types.ts`，后端 snake_case 经映射函数（`toProjectItem` 风格）转 camelCase，不透传 raw。`services/http-api.ts` 现存 30 处 `any`/`Record<string, any>`，只减不增。
 - 样式写 template 的 Tailwind class，不写自定义 CSS 文件；提示用 `vue-sonner`，确认用 `ConfirmAction`，弹窗用 `SbModal`，空态用 `SbEmptyState`，分页用 `TablePager`；加载/空/错误三态经 `SbAsyncRegion`（错误态只有 `SbErrorState` 一个实现，`variant='inline'` 给表格 `tbody`、`'block'` 给普通区域），多页签面板用 `SbTabsPanel`。
-- **样式钩子必须匹配 reka-ui 真实属性**：本仓库锁定 reka-ui 2.10.5，它输出 `data-state`（`checked`/`unchecked`、`active`/`inactive`、`open`/`closed`）与 `data-disabled`/`data-highlighted`/`data-selected` 等，**不输出裸 `data-checked` / `data-unchecked` / `data-open` / `data-closed`**。写状态样式一律用 `data-[state=checked]:…` 形式。唯一的例外是 `data-active`：reka 的 `RovingFocusItem` 会给选中项渲染空属性 `data-active`，`TabsTrigger` 上写 `data-active:` 本来就能命中（`ui/tests/ui-state-attributes.test.ts` 已断言），新代码仍统一写 `data-[state=active]:` 保持一致性（见 planv5.0 §4.1）。
+- **样式钩子必须匹配 reka-ui 真实属性**：本仓库锁定 reka-ui 2.10.5，它输出 `data-state`（`checked`/`unchecked`、`active`/`inactive`、`open`/`closed`）与 `data-disabled`/`data-highlighted`/`data-selected` 等，**不输出裸 `data-checked` / `data-unchecked` / `data-open` / `data-closed`**。写状态样式一律用 `data-[state=checked]:…` 形式。唯一的例外是 `data-active`：reka 的 `RovingFocusItem` 会给选中项渲染空属性 `data-active`，`TabsTrigger` 上写 `data-active:` 本来就能命中（`ui/tests/ui-state-attributes.test.ts` 已断言），新代码仍统一写 `data-[state=active]:` 保持一致性（见 planv6.7 legacy §4.8，原 planv5.0 §4.1）。
 - **多语言**：文案唯一来源是 `ui/src/locales/`（`zh-CN.ts` 权威树 + `en-US.ts` 同构）；组件内用 `useI18n()`，**组件外**（`services/` / `utils/` / `composables/` / store getter）用 `i18n.global.t`。新增文案必须同时补两棵树，key 集合必须完全一致（`ui/tests/i18n.test.ts` 会卡）。**注意 vue-i18n 把 `@` 当 linked message 起始符**，文案里的裸 `@` 必须写成 `{'@'}`，否则渲染时才抛 `Invalid linked format`。默认中文，不做浏览器语言探测，设置内切换并持久化。
 - `src/components/ui/` 视为本地 fork 的库代码，只增删组件不改风格约定；已删除的零引用组件（checkbox / drawer / dropdown-menu / pagination / radio-group）不得重新引入。
-- 设备无关的组件测试**不要桩掉 `src/components/ui/` 下的交互组件**（尤其 `Switch`）。`src/test/helpers.ts` 里的 `Switch` 桩用的是已废弃的 `checked`/`update:checked` API，会让失效的开关在测试里假通过；需要时用 reka 真实的 `modelValue` 契约（见 planv5.0 §7.3）。
+- 设备无关的组件测试**不要桩掉 `src/components/ui/` 下的交互组件**（尤其 `Switch`）。`src/test/helpers.ts` 里的 `Switch` 桩用的是已废弃的 `checked`/`update:checked` API，会让失效的开关在测试里假通过；需要时用 reka 真实的 `modelValue` 契约（`ui/src/test/helpers.ts` 已改，见 planv6.7 legacy §5）。
 - 路由 redirect 保持现状（`/sql`→`/databases`、`/llm`→`/agents`、`/settings`→`/?settings=1` 等）；新页面必须在 `router/index.ts` 注册并配 `meta.title`。
 - admin（系统）项目的只读判定唯一入口是 `stores/project.ts` 的 `isAdmin`；前端只读只是体验层，后端才是真正保护。
 
 **gofunction**：公共 API 与限制以 `gofunction/README.md` 为准；`Executor.Compile` / `SetProfile` / `Runtime.Cleanup` 等是预留空实现，不要当已实现功能使用或宣传。**解释器实现全部在 `gofunction/internal/interp`**（`internal` 包，禁止外部 import）；模块根的 `gofunction.go` / `jsonrun.go` 只是类型别名与薄转发门面，新增对外 API 要在那里加转发，不要在 `internal/interp` 里直接暴露。实现文件按职责分：`compile.go` 编译期预编译、`eval.go` 运算、`call.go` 调用分发、`layout.go` 槽位布局、`executor.go` 池化。
 
-**设计计划文档的工作目录**：`plan/` 按版本切目录（`planv1.0` … `planv6.6`）。`planv4.1` 不是独立目录——v4.1 云 Agent 优化计划全文放在 `plan/planv4.0/cloud-agent-optimization-plan.md`，代码注释里的 `planv4.1 §X` / `BUG-0X` 均指向该文件，改动前请到那里查。`planv6.4` 的 `examples-skill-verification-{plan,report}.md` 是 examples 与 skill 验证的事实来源（E1–E16、BUG-0~5 编号）；`production-readiness-plan.md` 是下一迭代「小白直接上线」的规划。`planv6.5/object-storage-sites-plan.md` 是对象存储「发布网站」（`<项目ID>.<sites.base_domain>` 泛域名 + 路径级外部访问）的事实来源：站点面在 `e.Pre` 按 Host 改写到 `/__site/*`，控制台源上的 `/s3/objects/content` 与 `/files/:token` 仍强制 HTML `attachment`；**禁止下发 `Domain=<父域>` 的 Cookie**（站点子域与控制台同站时会被共享）。`planv6.6/dead-code-and-optimization-plan.md` 是死代码清理与代码质量（DC-* / OPT-*）的事实来源。
+**设计计划文档的工作目录**：`plan/` 按版本切目录（当前保留 `planv6.5` – `planv6.7`）。**`planv1.0`–`planv6.4` 已删除**（2026-11-17），其仍有效的待办、事实规范与旧编号锚点全部收进 [`planv6.7/legacy-plan-consolidation-plan.md`](plan/planv6.7/legacy-plan-consolidation-plan.md)：代码注释里的 `planv4.1 §X` / `planv4.1 BUG-0X`（v4.1 曾是 `planv4.0/cloud-agent-optimization-plan.md` 的别名）、`planv5.0 §X`、`planv6.0 D1–D6` / `v2 §2.2`（BUG-B1–B5）、`planv6.1 O1–O5`、`planv6.2 §4.x/§5.x/§6-x`（MCP）、`planv6.4 P0b`、`production-readiness-plan §8.x`、`E1–E16`、`BUG-0~5` 一律查该文件 §2 的锚点表。**examples 与 skill 验证的编号（E1–E16、BUG-0~5）与「小白直接上线」的待办现状**（M2/M3 授权/M5 未开工）见该文件 §2.5.5 与 §3-H。`planv6.5/object-storage-sites-plan.md` 是对象存储「发布网站」（`<项目ID>.<sites.base_domain>` 泛域名 + 路径级外部访问）的事实来源：站点面在 `e.Pre` 按 Host 改写到 `/__site/*`，控制台源上的 `/s3/objects/content` 与 `/files/:token` 仍强制 HTML `attachment`；**禁止下发 `Domain=<父域>` 的 Cookie**（站点子域与控制台同站时会被共享）。`planv6.6/dead-code-and-optimization-plan.md` 是死代码清理与代码质量（DC-* / OPT-*）的事实来源。
 
 **examples 与脚本**：
 

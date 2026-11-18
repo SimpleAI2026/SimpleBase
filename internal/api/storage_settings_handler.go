@@ -15,7 +15,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/auth, internal/config, internal/observability
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] snapshot() ← database_handler.go, oai_responses.go
 //
 // 主要符号
@@ -49,7 +49,7 @@ import (
 
 // storageSettings 是持久层配置的读写入口。
 //
-// 语义（plan/planv6.0/storage-local-first-plan.md 阶段 E）：
+// 语义（plan/planv6.7/legacy-plan-consolidation-plan.md §4.13）：
 //   - 存储模式以 config.yaml 为准，UI 只是修改配置的入口；
 //   - 修改后需要「停服 → ./build.sh reset -y → ./build.sh dev」，不迁移数据；
 //   - 只允许 superadminl1 修改，admin 只读。

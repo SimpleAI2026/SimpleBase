@@ -164,11 +164,17 @@ func (r *Runtime) buildInstruction(ctx context.Context, req RunRequest, modelNam
 	if req.StarterStage != "" {
 		moduleTpl += "\n\n" + starterPrompt(req.StarterStage)
 	}
+	if req.BI != nil {
+		moduleTpl += "\n\n" + biPromptFor(req.BI.Source)
+	}
 	parts := PromptParts{
 		ModuleTemplate: moduleTpl,
 		AgentPrompt:    req.Agent.SystemPrompt,
 		ProjectEnv:     fmt.Sprintf("Project env:\n- project_id: %s\n- agent: %s (%s)\n- module: %s", req.ProjectID, req.Agent.Name, req.Agent.ID, req.Agent.Module),
 		Snapshot:       snapshot,
+	}
+	if req.BI != nil {
+		parts.ProjectEnv += biEnv(*req.BI)
 	}
 	if r.SkillsCLI {
 		parts.SkillsCLI = true

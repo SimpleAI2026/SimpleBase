@@ -16,7 +16,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] gocloudagent, internal/auth, internal/catalog, internal/config 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] AuditService ← adapter.go, agent_handler.go, backup_handler.go
 //
 // 主要符号
@@ -44,6 +44,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/gosandbox/image"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -392,10 +393,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	writeGate := func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			if !deps.Config.Instance.Writable {
-				return c.JSON(http.StatusServiceUnavailable, APIErrorBody{Error: APIErrorDetail{
-					Code: "readonly_instance", Message: "instance is read-only",
-					RequestID: RequestIDFromContext(c.Request().Context()),
-				}})
+				return WriteError(c, godatabase.ErrWriterUnavailable)
 			}
 			return next(c)
 		}
@@ -467,6 +465,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		sh := deps.SchemaHandler
 		p.GET("/databases/:databaseID/schema", sh.ListSchema, delegable(auth.DatabaseRead))
 		p.GET("/databases/:databaseID/schema/tables/:table/rows", sh.ListTableRows, delegable(auth.DatabaseRead))
+		p.GET("/databases/:databaseID/schema/tables/:table/aggregate", sh.AggregateTable, require(auth.DatabaseRead))
 		p.POST("/databases/:databaseID/schema/tables", sh.CreateTable, delegable(auth.DatabaseWrite), writeGate)
 		p.POST("/databases/:databaseID/schema/columns", sh.AddColumn, delegable(auth.DatabaseWrite), writeGate)
 	}
@@ -478,6 +477,8 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.POST("/databases/:databaseID/data/collections", dh.CreateCollection, delegable(auth.DatabaseWrite), writeGate)
 		p.GET("/databases/:databaseID/data/collections/:collection", dh.ListDocuments, delegable(auth.DatabaseRead))
 		p.GET("/databases/:databaseID/data/collections/:collection/export", dh.Export, require(auth.DatabaseRead))
+		// 聚合只读：require 而非 delegable，不扩大云助手可委托路由集合（planv6.7 §2.1）。
+		p.GET("/databases/:databaseID/data/collections/:collection/aggregate", dh.Aggregate, require(auth.DatabaseRead))
 		p.POST("/databases/:databaseID/data/collections/:collection/import", dh.Import, delegable(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(deps.Config.Limits.MaxImportBytes)))
 		p.POST("/databases/:databaseID/data/collections/:collection/documents", dh.CreateDocument, delegable(auth.DatabaseWrite), writeGate)
 		p.POST("/databases/:databaseID/data/collections/:collection/documents/batch", dh.BatchDocuments, delegable(auth.DatabaseWrite), writeGate)

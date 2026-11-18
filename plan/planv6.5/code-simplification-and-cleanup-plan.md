@@ -4,7 +4,7 @@
 > **范围：** `internal/`、`gofunction/`、`godatabase/`、`gocloudagent/`、`gosandbox/`、`ui/src/`（排除 `ui/src/components/ui/**`、`internal/web/dist/**`、`ui/src/locales/**` 正文词条）
 > **基线：** `HEAD @ 726621e` + 当前工作区 v6.5 未提交改动（116 项）；实施每张任务卡前须重新核对 `git status` 与源码行号
 > **依据：** `simplify-code`（Golden Rules 1–7、`references/assessment.md`、`references/rules.md`、`references/languages-tier1.md`、`references/behavior-traps.md`），以及根目录 `AGENTS.md`、`internal/AGENTS.md`、`ui/AGENTS.md`、各独立模块 `README.md`
-> **与既有计划的关系：** 承接并避开 [`planv6.0/backend-code-simplification-plan.md`](../planv6.0/backend-code-simplification-plan.md) 与 [`planv6.0/frontend-code-simplification-plan.md`](../planv6.0/frontend-code-simplification-plan.md) 已落地的 A1–B4 批次，重点聚焦 **v6.1–v6.5 演进引入的新复杂度、功能迁移遗留的死代码、四个独立 Go 模块内部重复，以及仓库卫生清理**。
+> **与既有计划的关系：** 承接并避开 [`planv6.7/legacy-plan-consolidation-plan.md`](../planv6.7/legacy-plan-consolidation-plan.md) 与 [`planv6.7/legacy-plan-consolidation-plan.md`](../planv6.7/legacy-plan-consolidation-plan.md) 已落地的 A1–B4 批次，重点聚焦 **v6.1–v6.5 演进引入的新复杂度、功能迁移遗留的死代码、四个独立 Go 模块内部重复，以及仓库卫生清理**。
 
 ---
 

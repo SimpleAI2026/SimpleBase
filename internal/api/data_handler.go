@@ -16,8 +16,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase, godatabase/sqlx, internal/auth, internal/catalog 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] projectID() ← adapter.go, agent_handler.go, agent_schedule_handler.go
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] projectID() ← adapter.go, agent_handler.go
 //
 // 主要符号
 //
@@ -83,6 +83,9 @@ type DataHandler struct {
 	events      recordEventPublisher
 	scanLimit   int
 	importLimit int64
+	// 聚合接口的超时与扫描上限（collection_aggregate.go）；零值取默认。
+	aggregateTimeout time.Duration
+	aggregateScan    int
 }
 
 func NewDataHandler(svc DataService, writable bool) *DataHandler {

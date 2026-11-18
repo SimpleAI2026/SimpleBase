@@ -4,7 +4,7 @@
       <PopoverTrigger as-child>
         <Button
           variant="outline"
-          class="h-9 w-full min-w-0 max-w-full justify-start gap-1 rounded-lg px-2 shadow-xs sm:w-56 sm:gap-2.5 sm:px-3"
+          class="h-8 w-full min-w-0 max-w-full justify-start gap-1 rounded-lg px-2 shadow-xs sm:w-56 sm:gap-2.5 sm:px-3"
           :aria-label="t('components.projectSwitcher.aria', { label: triggerLabel })"
         >
           <FolderIcon class="size-4 shrink-0 text-muted-foreground" />
@@ -59,18 +59,20 @@
             </CommandGroup>
           </CommandList>
         </Command>
-        <Separator />
-        <div class="p-1.5">
-          <Button
-            v-if="auth.canCreateProject"
-            variant="ghost"
-            class="h-9 w-full justify-start gap-2 rounded-lg px-2.5 text-muted-foreground hover:text-foreground"
-            @click="openCreate"
-          >
-            <PlusIcon data-icon="inline-start" />
-            {{ t('components.projectSwitcher.create') }}
-          </Button>
-        </div>
+        <!-- 无建项目权限时整段（含分隔线）都不渲染，避免下拉底部留空白（B13） -->
+        <template v-if="auth.canCreateProject">
+          <Separator />
+          <div class="p-1.5">
+            <Button
+              variant="ghost"
+              class="h-9 w-full justify-start gap-2 rounded-lg px-2.5 text-muted-foreground hover:text-foreground"
+              @click="openCreate"
+            >
+              <PlusIcon data-icon="inline-start" />
+              {{ t('components.projectSwitcher.create') }}
+            </Button>
+          </div>
+        </template>
       </PopoverContent>
     </Popover>
     <CreateProjectModal

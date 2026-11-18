@@ -8,10 +8,10 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 | --- | --- | --- |
 | `src/pages/` | 路由页面（Home / Dashboard / Databases / DataBrowser / ApiPreview / KeyValue / S3Manager / GoFunctions / FunctionTriggers / CronJobs / AgentManager / Logs / Users / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.titleKey`，需角色控制的配 `meta.requiresRole`（如 Users 的 `superadminl1`）。全局设置不是全页，见 `SettingsModal` |
 | `src/components/ui/` | 基础组件库（button / table / dialog / select 等，shadcn 风格） | **视为本地 fork 的库代码**：只增删组件不改风格约定；删除组件前必须全局确认零引用 |
-| `src/components/` | 业务组件：`databases/` `modal/` `ai/` `agent/` `chat/` `cronjob/` `sandbox/` `editor/` `settings/` `docs/` 分域，加顶层通用件（ConfirmAction / NavMenu / PageContainer / TablePager / SettingsModal / GlobalProjectSwitcher / TrendChart / SbAsyncRegion / SbEmptyState / SbErrorState / SbTabsPanel / SbCodeBlock / UserMenu 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖 |
+| `src/components/` | 业务组件：`databases/` `modal/` `ai/` `agent/` `chat/` `cronjob/` `sandbox/` `editor/` `settings/` `docs/` `bi/` 分域，加顶层通用件（ConfirmAction / NavMenu / PageContainer / TablePager / SettingsModal / GlobalProjectSwitcher / TrendChart / SbAsyncRegion / SbEmptyState / SbErrorState / SbTabsPanel / SbCodeBlock / UserMenu 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖。`bi/` 是数据看板（planv6.7）：**只有 `BiChart.vue` 直接使用 echarts**，其余组件只传 option 或渲染描述；图表构造、类型兼容、自动推断、筛选合成、助手块解析全在 `utils/bi-*.ts` 纯函数里 |
 | `src/services/` | API 层：`api.ts`（固定导出 `httpApi`）→ `http-api.ts`（实现）→ `http.ts`（axios 实例、token 存取、401 处理）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
 | `src/stores/` | Pinia store（auth 登录态与角色 / project 项目切换 / settings） | 跨页面状态才进 store；组件内状态用 `ref` |
-| `src/composables/` | 组合函数（usePagination / useAgentConversation / useLoadState / useLocale） | 在组件外取文案用 `@/locales` 导出的 `t()`，不要在 composable 里调 `useI18n()` |
+| `src/composables/` | 组合函数（usePagination / useAgentConversation / useLoadState / useLocale / useBiDashboard / useBiQuery / useBiAgent / useBiTheme） | 在组件外取文案用 `@/locales` 导出的 `t()`，不要在 composable 里调 `useI18n()` |
 | `src/locales/` | i18n 文案源（`zh-CN.ts` 权威树、`en-US.ts` 同构、`index.ts` 实例与 `setI18nLocale`） | 唯一文案来源；不得在别处新建语言包 |
 | `src/layouts/` | DefaultLayout（`/console` 控制台）/ DocsLayout（`/docs` 文档站）；Home 页独立于两布局 | — |
 | `src/docs/` | 文档目录、按需加载 / 搜索、Markdown 安全渲染 | 文档正文来自仓库根 `docs/`；新增文档遵循 `docs/README.md` 并通过 `ui/tests/docs-content.test.ts` 的链接、锚点与 frontmatter 校验；大型上游镜像不要进首页 chunk |
@@ -59,12 +59,14 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - 已定稿的规范不得回退：
   - 侧边栏菜单项 `h-11`（sm 下 `h-9`）、间距 `gap-1.5`；
   - 主内容区铺满全宽（不加 `max-w-*` 限制）；
-  - 右上角顺序：使用文档 → 项目切换器（`w-56`）→ 设置 → 刷新，间距 `gap-4 sm:gap-5`；
+  - 右上角顺序：使用文档 → 项目切换器（`w-56`）→ 设置（planv6.7 R4 已移除顶栏「刷新页面」，刷新只在各列表卡片头 `SbRefreshButton`）；
   - 页面标题只用 PageContainer 的 subtitle 单行（不加 h2 大标题）。
 - **状态样式必须匹配 reka-ui 2.10.5 的真实属性**：它输出 `data-state`（`checked`/`unchecked`、`active`/`inactive`、`open`/`closed`）与 `data-disabled`/`data-highlighted`/`data-selected` 等，**没有**裸 `data-checked`/`data-unchecked`/`data-open`/`data-closed`。写 `data-[state=checked]:…`，不要写 `data-checked:…`；后者编译出的选择器永不命中，开关会「点了没反应」且无报错（`Switch` / `Dialog*` / `PopoverContent` / `SelectContent` / `Sheet*` / `TooltipContent` / `Combobox*` 都在这个坑里，见 planv5.0 §4.1）。
 - **`data-active` 是唯一例外**：reka 的 `RovingFocusItem` 会给选中项渲染**空属性** `data-active`（`node_modules/reka-ui/dist/RovingFocus/RovingFocusItem.js`），所以 `TabsTrigger` 上写 `data-active:` 本来就能命中（`ui/tests/ui-state-attributes.test.ts` 已断言选中项 `data-active === ''`）。新代码仍统一写 `data-[state=active]:` 保持一致性；**不要**据此认为 `data-active:` 失效。
 - 组件测试**不要桩掉 `src/components/ui/` 的交互组件**（尤其 `Switch`）。`src/test/helpers.ts` 的 `Switch` 桩用的是废弃的 `checked`/`update:checked`，会把失效的开关测成通过（planv5.0 §7.3）。
 - 图标用 `@lucide/vue`；按钮内图标加 `data-icon="inline-start"`（或 inline-end）配合样式钩子。
+- **按钮尺寸规范**（planv6.7 `ui-simplify-ux-plan.md` S1）：卡片头 `CardAction` 与筛选栏按钮一律 `size="sm"`（次要 `outline`、主动作 `default`，每卡最多一个主动作）；表格行内操作 `variant="ghost" size="sm"`，删除用 `destructiveGhost`；行内图标按钮 `ghost` + `icon-sm` 并带 `aria-label`；chip / 小标签按钮 `size="xs"`。**不要**在 `<Button>` 上再写 `h-* / px-* / size-*` 覆盖尺寸。列表页「刷新」统一用 `components/SbRefreshButton.vue`，写入口用 `canWrite = !isAdmin && auth.canWrite` 控制。列表卡片骨架统一用 `components/SbListCard.vue`（planv6.7 S5）：`title` / `description` 属性 + `actions` / `toolbar` / 默认插槽，`pager` 属性传入后内嵌 `TablePager`（footer 样式），**不要**再手写 `CardHeader` 换行 class、筛选 `CardContent` 或 `TablePager variant="footer"`。
+- 下载 Blob 用 `utils/download.ts` 的 `downloadBlob`（延迟回收 URL），复制文本用 `utils/clipboard.ts` 的 `copyText`，不要再手写锚点 / clipboard 片段。
 - 提示统一 `vue-sonner` 的 `toast`；确认操作统一 `ConfirmAction` 组件。
 - 弹窗用 `SbModal`；空态用 `SbEmptyState`；分页用 `TablePager`（配合 `usePagination`）。
 - `SbModal` 宽度只有一条通道：`maxWidth`（`width` 是历史别名，二者等价），都换算成 CSS 变量 `--sb-modal-max-w` / `--sb-modal-min-w`，不再走 `sm:max-w-5xl` 之类的分档类。`okButtonProps` 是 `SbModalOkButtonProps`（`variant` / `size` / `class` / `disabled`），会整体透传给确认按钮；`okText` / `cancelText` 缺省走 `common.ok` / `common.cancel`。

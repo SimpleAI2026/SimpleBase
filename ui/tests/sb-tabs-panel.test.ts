@@ -57,6 +57,18 @@ describe('SbTabsPanel', () => {
     w.unmount()
   })
 
+  it('胶囊页签不出现横向滚动条：折行 + 页签按文字撑宽', () => {
+    const w = mount(SbTabsPanel, { props: { items, modelValue: 'a' } })
+    const list = w.get('[data-slot="tabs-list"]').classes()
+    expect(list).toContain('flex-wrap')
+    expect(list).toContain('h-auto')
+    expect(list).not.toContain('overflow-x-auto')
+    const trigger = w.get('[data-slot="tabs-trigger"]').classes()
+    expect(trigger).toContain('px-4')
+    expect(trigger).toContain('flex-none')
+    w.unmount()
+  })
+
   it('line 变体使用下划线样式，contentMaxHeight 落到内容容器', () => {
     const w = mount(SbTabsPanel, {
       props: { items, modelValue: 'a', variant: 'line', contentMaxHeight: '320px' }

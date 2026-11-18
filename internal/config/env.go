@@ -440,61 +440,6 @@ func envStr(key, def string) string {
 	return def
 }
 
-func envBool(key string, def bool) bool {
-	if v, ok := os.LookupEnv(key); ok {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return def
-		}
-		return b
-	}
-	return def
-}
-
-func envInt(key string, def int) int {
-	if v, ok := os.LookupEnv(key); ok {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return def
-		}
-		return n
-	}
-	return def
-}
-
-func envInt64(key string, def int64) int64 {
-	if v, ok := os.LookupEnv(key); ok {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return def
-		}
-		return n
-	}
-	return def
-}
-
-func envDuration(key string, def time.Duration) time.Duration {
-	if v, ok := os.LookupEnv(key); ok {
-		d, err := parseDuration(v)
-		if err != nil {
-			return def
-		}
-		return d
-	}
-	return def
-}
-
-func envFloat64(key string, def float64) float64 {
-	if v, ok := os.LookupEnv(key); ok {
-		n, err := strconv.ParseFloat(v, 64)
-		if err != nil {
-			return def
-		}
-		return n
-	}
-	return def
-}
-
 func parseDuration(v string) (time.Duration, error) {
 	if d, err := time.ParseDuration(v); err == nil {
 		return d, nil
@@ -515,14 +460,4 @@ func envList(key string) []string {
 		return nil
 	}
 	return strutil.SplitCSV(v)
-}
-
-// loadLLMProviders is kept for tests that call it directly; it only reads env.
-func loadLLMProviders() map[string]ProviderConfig {
-	cfg := defaults()
-	applyEnvLLM(&cfg)
-	if len(cfg.LLM.Providers) == 0 {
-		return map[string]ProviderConfig{}
-	}
-	return cfg.LLM.Providers
 }

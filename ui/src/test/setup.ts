@@ -77,8 +77,15 @@ vi.mock('echarts/core', () => {
     default: { init: vi.fn(make), use: vi.fn() }
   }
 })
-vi.mock('echarts/charts', () => ({ BarChart: {}, LineChart: {} }))
-vi.mock('echarts/components', () => ({ GridComponent: {}, TooltipComponent: {} }))
+vi.mock('echarts/charts', () => ({ BarChart: {}, LineChart: {}, PieChart: {}, ScatterChart: {} }))
+vi.mock('echarts/components', () => ({
+  GridComponent: {},
+  TooltipComponent: {},
+  LegendComponent: {},
+  DatasetComponent: {},
+  DataZoomComponent: {},
+  ToolboxComponent: {}
+}))
 vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 vi.mock('echarts', () => {
   const make = () => ({

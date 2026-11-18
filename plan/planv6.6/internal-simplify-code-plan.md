@@ -1,7 +1,7 @@
 # internal/ 代码精简与清理计划（v6.6，simplify-code 评估）
 
 > 方法：`skills/simplify-code`（R-branch 只读评估）。本文是评估结果与分批方案，**本轮没有改动任何源码**，唯一写入是本文件。
-> 承接：`planv6.3/backend-cleanup-simplify-plan.md`（N1–N9 当时标为「需审批、未执行」）与本目录 `dead-code-and-optimization-plan.md`（B1–B4 已完成）。
+> 承接：`plan/planv6.7/legacy-plan-consolidation-plan.md`（N1–N9 当时标为「需审批、未执行」）与本目录 `dead-code-and-optimization-plan.md`（B1–B4 已完成）。
 > 本文只登记**新扫描**到的项，以及对 v6.3 N4–N7 的重新定级；v6.3 §8「明确不做」清单继续有效。
 
 ## 0. Scope 与基线

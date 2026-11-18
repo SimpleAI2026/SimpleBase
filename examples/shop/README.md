@@ -49,4 +49,4 @@ BFF 在下单时同步调用云函数 `pricing.Quote` 算价，同一幂等键�
 
 BFF 的 CORS 为 `Access-Control-Allow-Origin: *`，方法与请求头全部允许，且没有登录与 Origin 校验：**只适合本地与演示，不要绑定到公网地址。**
 
-限制：G1、G2、G6、G10、G13（详见 `plan/planv4.0/examples-business-cases-plan.md` §6）。
+限制：G1、G2、G6、G10、G13（详见 `plan/planv6.7/legacy-plan-consolidation-plan.md` §3-D1）。

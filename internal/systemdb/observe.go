@@ -2,32 +2,27 @@
 //
 // 用法
 //
-//	ConnStats(db *sql.DB) sql.DBStats  // ConnStats 返回连接池水位快照（planv5.0 §4 P0.2）
-//	ObserveConnWait(before, after sql.DBStats) (count int64, duration time.Duration)  // ObserveConnWait 计算两次采样间的新增连接等待（窗口差）
 //	同包调用：observeRead() → agents.go, logs.go 等；observeReadPart() → agents.go, logs.go 等
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/observe.go
 //	         │
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //	[关键引用] observeRead() ← agents.go, logs.go, metrics.go
 //
 // 主要符号
 //
-//	ConnStats(db *sql.DB) sql.DBStats
-//	ObserveConnWait(before, after sql.DBStats) (count int64, duration time.Duration)
 //	... 另有 2 个顶层符号
 
 package systemdb
 
 import (
-	"database/sql"
 	"time"
 
 	"go.uber.org/zap"
@@ -67,22 +62,4 @@ func (s *Store) observeReadPart(operation, part string, d time.Duration, err err
 		fields = append(fields, zap.Bool("error", true))
 	}
 	s.logger.Debug("systemdb read stage", fields...)
-}
-
-// ConnStats 返回连接池水位快照（planv5.0 §4 P0.2）。
-// db 为 nil 时返回零值。
-func ConnStats(db *sql.DB) sql.DBStats {
-	if db == nil {
-		return sql.DBStats{}
-	}
-	return db.Stats()
-}
-
-// ObserveConnWait 计算两次采样间的新增连接等待（窗口差）。
-// 全局累计值不可归因到单个请求，只能用于整池拥塞评估（planv5.0 §4 P0.2）。
-func ObserveConnWait(before, after sql.DBStats) (count int64, duration time.Duration) {
-	if after.WaitCount < before.WaitCount {
-		return 0, 0
-	}
-	return after.WaitCount - before.WaitCount, after.WaitDuration - before.WaitDuration
 }

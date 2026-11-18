@@ -4,7 +4,7 @@ import { t } from '@/locales'
 import { toast } from 'vue-sonner'
 import { errorMessage } from '@/utils/format'
 import { agentErrorText } from '@/utils/agent-errors'
-import type { AgentRunMetrics, AgentStreamHandlers, AgentToolCallCard, ChatMsg, LlmStreamConnection } from '@/services/types'
+import type { AgentRunMetrics, AgentStreamHandlers, AgentToolCallCard, BiAgentContext, ChatMsg, LlmStreamConnection } from '@/services/types'
 
 /** 运行阶段（BUG-01：前端必须追踪流式回调，工具期间不回落）。 */
 export type AgentPhase = 'idle' | 'thinking' | 'streaming' | 'tool' | 'awaiting_confirm' | 'done' | 'error' | 'canceled'
@@ -87,7 +87,7 @@ export function useAgentConversation(opts: ConversationOptions) {
   type Handlers = AgentStreamHandlers & { onReply?: (reply: ChatMsg) => void }
 
   function start(
-    body: { content: string; mentions: { agent_id: string }[]; module?: string; retry_of_run_id?: string; starter_stage?: string },
+    body: { content: string; mentions: { agent_id: string }[]; module?: string; retry_of_run_id?: string; starter_stage?: string; bi_context?: BiAgentContext },
     handlers: Handlers
   ) {
     stop(false)
@@ -280,5 +280,22 @@ export function useAgentConversation(opts: ConversationOptions) {
     cleanup()
   }
 
-  return { phase, statusText, metrics, runId, sending, lastError, failedRunId, elapsedMs, confirmation, start, attach, stop, resolveConfirm }
+  /**
+   * 彻底清空运行状态：断开连接（不取消后端 run）并把 phase / 计时 / 错误 / 待重试 id 归零。
+   * 用于「切换作用域 / 新对话」——stop(false) 只断开连接，保留的失败态会让新作用域继续显示旧错误、
+   * 并提供指向旧 run 的重试按钮。
+   */
+  function clear() {
+    stop(false)
+    phase.value = 'idle'
+    elapsedMs.value = 0
+    toolName.value = ''
+    metrics.value = null
+    runId.value = ''
+    lastError.value = null
+    failedRunId.value = ''
+    confirmation.value = null
+  }
+
+  return { phase, statusText, metrics, runId, sending, lastError, failedRunId, elapsedMs, confirmation, start, attach, stop, clear, resolveConfirm }
 }

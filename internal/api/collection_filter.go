@@ -15,7 +15,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase, internal/collection
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] value() ← api_key_policy.go, collection_meta_handler.go, collection_pick.go
 //
 // 主要符号
@@ -52,9 +52,16 @@ type filterParser struct {
 	schema  *collection.Collection
 	dialect godatabase.Dialect
 	args    []any
+	// resolve 非空时接管字段解析（SQL 表的真实列）；为空走集合 schema + 内置列。
+	resolve func(name string) (collection.Field, string, error)
 }
 
 func compileFilter(raw string, schema *collection.Collection, dialect godatabase.Dialect) (string, []any, error) {
+	return compileFilterWith(raw, schema, dialect, nil)
+}
+
+// compileFilterWith 与 compileFilter 同一套语法与校验；resolve 非空时由它把字段名解析成 SQL 表达式。
+func compileFilterWith(raw string, schema *collection.Collection, dialect godatabase.Dialect, resolve func(name string) (collection.Field, string, error)) (string, []any, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", nil, nil
 	}
@@ -65,7 +72,7 @@ func compileFilter(raw string, schema *collection.Collection, dialect godatabase
 	if err != nil {
 		return "", nil, err
 	}
-	p := &filterParser{tokens: tokens, schema: schema, dialect: dialect}
+	p := &filterParser{tokens: tokens, schema: schema, dialect: dialect, resolve: resolve}
 	sql, err := p.parseOr()
 	if err != nil {
 		return "", nil, err
@@ -232,7 +239,7 @@ func (p *filterParser) parseTerm() (string, error) {
 			if err != nil {
 				return "", err
 			}
-			args[i], placeholders[i] = arg, "?"
+			args[i], placeholders[i] = arg, p.placeholder(f)
 		}
 		p.args = append(p.args, args...)
 		return expr + " IN (" + strings.Join(placeholders, ",") + ")", nil
@@ -273,10 +280,32 @@ func (p *filterParser) parseTerm() (string, error) {
 		}
 		return expr + " " + negate + "LIKE ? ESCAPE '\\'", nil
 	}
-	return expr + " " + op.text + " ?", nil
+	return expr + " " + op.text + " " + p.placeholder(f), nil
+}
+
+// placeholder 返回参数占位符。date 字段的参数要与列侧表达式走同一种时间规整，
+// 否则 SQLite 上会变成 'YYYY-MM-DD HH:MM:SS' 与 RFC3339 文本的逐字符比较。
+func (p *filterParser) placeholder(f collection.Field) string {
+	if f.Type == "date" {
+		return p.dialect.TimestampParam()
+	}
+	return "?"
 }
 
 func (p *filterParser) field(name string) (collection.Field, string, error) {
+	if p.resolve != nil {
+		return p.resolve(name)
+	}
+	// 内置列：时间范围筛选与聚合下钻的前提。不依赖 schema 登记，所以放在 schema==nil 判断之前。
+	switch name {
+	case "id":
+		return collection.Field{Name: name, Type: "text"}, "id", nil
+	case "created_at":
+		return collection.Field{Name: name, Type: "date"}, p.dialect.CastTimestamp("created_at"), nil
+	case "updated_at":
+		// 历史行 updated_at 可能为 NULL，与列表接口的 COALESCE(updated_at, created_at) 同口径。
+		return collection.Field{Name: name, Type: "date"}, p.dialect.CastTimestamp("COALESCE(updated_at, created_at)"), nil
+	}
 	if p.schema == nil {
 		return collection.Field{}, "", &collection.ValidationError{Code: "schema_not_registered", Field: name, Message: "schema required for filter"}
 	}

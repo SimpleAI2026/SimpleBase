@@ -15,6 +15,7 @@
             <span class="truncate">{{ card.label }}</span>
           </div>
           <div class="text-3xl leading-none font-medium text-foreground tabular-nums">{{ card.value }}</div>
+          <div v-if="card.sub" class="truncate text-xs text-muted-foreground">{{ card.sub }}</div>
         </CardContent>
       </Card>
     </div>
@@ -24,22 +25,9 @@
         <CardTitle class="flex items-center gap-2">
           {{ t('pages.dashboard.requestTrend') }}
         </CardTitle>
-        <CardDescription v-if="summary.totalRequests || lastUpdate" class="flex flex-wrap gap-3">
-          <span v-if="summary.totalRequests">
-            {{ t('pages.dashboard.summaryLine', {
-              requests: summary.totalRequests,
-              rate: formatErrorRate(summary.errorRate),
-              latency: Math.round(summary.avgLatencyMs)
-            }) }}
-          </span>
-          <span v-if="lastUpdate">{{ t('pages.dashboard.lastUpdate', { time: lastUpdate }) }}</span>
-        </CardDescription>
+        <CardDescription v-if="lastUpdate">{{ t('pages.dashboard.lastUpdate', { time: lastUpdate }) }}</CardDescription>
         <CardAction>
-          <Button variant="outline" size="sm" :disabled="pending" @click="load">
-            <Spinner v-if="pending" data-icon="inline-start" />
-            <RefreshCwIcon v-else data-icon="inline-start" />
-            {{ t('pages.dashboard.refreshData') }}
-          </Button>
+          <SbRefreshButton :pending="pending" :label="t('pages.dashboard.refreshData')" @click="load" />
         </CardAction>
       </CardHeader>
       <CardContent class="flex flex-col gap-6 pt-6">
@@ -85,8 +73,15 @@
           :title="trendFailed ? t('pages.dashboard.trendFailedTitle') : t('pages.dashboard.trendEmptyTitle')"
           :description="trendFailed ? t('pages.dashboard.trendFailedDesc') : t('pages.dashboard.trendEmptyDesc')"
         />
+      </CardContent>
+    </Card>
 
-        <!-- 资源汇总：只展示各类型数量，不列明细名称 -->
+    <!-- 资源汇总：只展示各类型数量，不列明细名称（planv6.7 ui-simplify-ux-plan X3） -->
+    <Card>
+      <CardHeader class="border-b">
+        <CardTitle>{{ t('pages.dashboard.resourceTitle') }}</CardTitle>
+      </CardHeader>
+      <CardContent class="pt-6">
         <div class="overflow-hidden rounded-lg border border-border">
           <Table>
             <TableHeader>
@@ -138,10 +133,8 @@ import {
   CloudUploadIcon,
   CodeIcon,
   DatabaseIcon,
-  RefreshCwIcon,
   TimerIcon
 } from '@lucide/vue'
-import { Button } from '@/components/ui/button'
 import {
   Card,
   CardAction,
@@ -151,7 +144,6 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
   TableCell,
@@ -166,6 +158,7 @@ import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 import { useLoadState } from '@/composables/useLoadState'
 import { currentBcp47, formatErrorRate } from '@/utils/format'
@@ -210,33 +203,42 @@ const counts = ref({
 })
 const dbStatus = ref({ ready: 0, abnormal: 0 })
 const resourcesLoaded = ref(false)
+const summaryLoaded = ref(false)
 
-const cards = computed(() => [
-  {
-    label: t('pages.dashboard.statDbTotal'),
-    value: resourcesLoaded.value ? counts.value.databases : '-',
-    dot: '',
-  },
-  {
-    label: t('pages.dashboard.statDbReady'),
-    value: resourcesLoaded.value ? dbStatus.value.ready : '-',
-    dot: '',
-  },
-  {
-    label: t('pages.dashboard.statDbAbnormal'),
-    value: resourcesLoaded.value ? dbStatus.value.abnormal : '-',
-    dot: dbStatus.value.abnormal > 0 ? 'bg-destructive' : '',
-  },
-  {
-    label: t('pages.dashboard.statQuota'),
-    value: quota.value
-      ? quota.value.llmAllowed && quota.value.databaseAllowed
-        ? t('pages.dashboard.quotaNormal')
-        : t('pages.dashboard.quotaLimited')
-      : '-',
-    dot: quota.value && !(quota.value.llmAllowed && quota.value.databaseAllowed) ? 'bg-warning' : '',
-  },
-])
+/** 顶部 4 张卡：数据库状态（单库约束下就绪 / 异常合并一张）· 24h 请求 · 错误率 · 配额（planv6.7 ui-simplify-ux-plan X2）。 */
+const cards = computed(() => {
+  const quotaOk = quota.value ? quota.value.llmAllowed && quota.value.databaseAllowed : true
+  return [
+    {
+      label: t('pages.dashboard.statDbState'),
+      value: resourcesLoaded.value ? `${dbStatus.value.ready} / ${counts.value.databases}` : '-',
+      sub: resourcesLoaded.value
+        ? dbStatus.value.abnormal > 0
+          ? t('pages.dashboard.statDbAbnormalSub', { n: dbStatus.value.abnormal })
+          : t('pages.dashboard.statDbReadySub')
+        : '',
+      dot: dbStatus.value.abnormal > 0 ? 'bg-destructive' : '',
+    },
+    {
+      label: t('pages.dashboard.statRequests'),
+      value: summaryLoaded.value ? summary.value.totalRequests : '-',
+      sub: summaryLoaded.value ? t('pages.dashboard.statRequestsSub', { ms: Math.round(summary.value.avgLatencyMs) }) : '',
+      dot: '',
+    },
+    {
+      label: t('pages.dashboard.statErrorRate'),
+      value: summaryLoaded.value ? `${formatErrorRate(summary.value.errorRate)}%` : '-',
+      sub: '',
+      dot: summaryLoaded.value && summary.value.errorRate > 0 ? 'bg-warning' : '',
+    },
+    {
+      label: t('pages.dashboard.statQuota'),
+      value: quota.value ? (quotaOk ? t('pages.dashboard.quotaNormal') : t('pages.dashboard.quotaLimited')) : '-',
+      sub: '',
+      dot: quota.value && !quotaOk ? 'bg-warning' : '',
+    },
+  ]
+})
 
 const resourceRows = computed(() => [
   {
@@ -326,7 +328,10 @@ function load() {
     } else {
       trendFailed.value = true
     }
-    if (summaryRes.status === 'fulfilled') summary.value = summaryRes.value
+    if (summaryRes.status === 'fulfilled') {
+      summary.value = summaryRes.value
+      summaryLoaded.value = true
+    }
 
     const all = [dbRes, s3Res, fnRes, cronRes, agentRes, quotaRes, trendRes, summaryRes]
     const rejected = all.filter((r) => r.status === 'rejected').length

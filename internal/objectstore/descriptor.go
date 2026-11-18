@@ -8,7 +8,7 @@
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	[上游] godatabase/bench, internal/api, internal/app 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/objectstore/descriptor.go
@@ -88,7 +88,8 @@ const (
 )
 
 // Validate 校验 descriptor 的关键字段。
-// 调用时机：PutJSON 前校验；从 S3 读取后再次校验，防止被篡改或格式漂移。
+// 调用时机：目前只有单测直接调用，生产读写路径都不调用它（planv6.6 Bug-1：
+// 接线会把「读到坏 descriptor」的行为从静默接受改为报错，需另行审批）。
 // 存量 Turso（format_version<=1 或缺少 ducklake_storage）一律拒绝——产品决策：丢弃不迁移。
 func (d *Descriptor) Validate() error {
 	if d == nil {

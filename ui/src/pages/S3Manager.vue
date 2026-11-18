@@ -1,27 +1,23 @@
 <template>
   <ProjectScope>
   <PageContainer :subtitle="t('pages.s3.subtitle')">
-    <Card>
-      <CardHeader class="border-b">
-        <CardTitle>{{ t('pages.s3.cardTitle') }}</CardTitle>
-        <CardDescription>{{ t('pages.s3.cardDesc') }}</CardDescription>
-        <CardAction>
-          <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" :disabled="pending" @click="load">
-              <Spinner v-if="pending" data-icon="inline-start" />
-              <RefreshCwIcon v-else data-icon="inline-start" />
-              {{ t('common.refresh') }}
-            </Button>
-            <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
-            <Button size="sm" :disabled="uploading" @click="triggerUpload">
-              <Spinner v-if="uploading" data-icon="inline-start" />
-              <UploadIcon v-else data-icon="inline-start" />
-              {{ t('pages.s3.upload') }}
-            </Button>
-          </div>
-        </CardAction>
-      </CardHeader>
-      <CardContent class="flex flex-col gap-3 border-b py-4">
+    <SbListCard
+      :title="t('pages.s3.cardTitle')"
+      :description="t('pages.s3.cardDesc')"
+      :pager="{ page, pageSize, total, pageCount }"
+      @update:page="page = $event"
+    >
+      <template #actions>
+        <SbRefreshButton :pending="pending" @click="load" />
+        <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
+        <Button size="sm" :disabled="uploading" @click="triggerUpload">
+          <Spinner v-if="uploading" data-icon="inline-start" />
+          <UploadIcon v-else data-icon="inline-start" />
+          {{ t('pages.s3.upload') }}
+        </Button>
+      </template>
+      <template #toolbar>
+        <div class="flex flex-col gap-3">
         <div
           v-if="site && !projectStore.isAdmin"
           class="sb-site-panel flex flex-wrap items-center gap-2.5 rounded-md border bg-muted/30 px-3 py-2"
@@ -65,6 +61,15 @@
           </ConfirmAction>
         </div>
         <div class="flex flex-wrap items-center gap-2.5">
+          <!-- 面包屑：进入子目录后可逐级返回（planv6.7 ui-simplify-ux-plan X4） -->
+          <nav v-if="crumbs.length" :aria-label="t('pages.s3.breadcrumbAria')" class="sb-s3-crumbs flex min-w-0 flex-wrap items-center gap-0.5 text-sm">
+            <Button variant="ghost" size="xs" class="sb-crumb-root" @click="goPrefix('')">{{ t('pages.s3.breadcrumbRoot') }}</Button>
+            <template v-for="(c, i) in crumbs" :key="c.prefix">
+              <ChevronRightIcon aria-hidden="true" class="size-3.5 shrink-0 text-muted-foreground" />
+              <span v-if="i === crumbs.length - 1" class="sb-crumb-current max-w-40 truncate px-1.5 font-medium" aria-current="page">{{ c.label }}</span>
+              <Button v-else variant="ghost" size="xs" class="sb-crumb max-w-40 truncate" @click="goPrefix(c.prefix)">{{ c.label }}</Button>
+            </template>
+          </nav>
           <InputGroup class="min-w-56 flex-1 sm:max-w-80">
             <InputGroupAddon>
               <SearchIcon />
@@ -72,13 +77,14 @@
             <InputGroupInput
               v-model="prefix"
               :placeholder="t('pages.s3.prefixPlaceholder')"
-              @keydown.enter="load"
+              @keydown.enter="loadNow"
             />
           </InputGroup>
         </div>
         <Progress v-if="uploading && uploadPercent > 0" :model-value="uploadPercent" class="w-full" />
-      </CardContent>
-      <div class="p-0">
+        </div>
+      </template>
+      <div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -87,7 +93,7 @@
               <TableHead class="sb-col-md">{{ t('pages.s3.modifiedAt') }}</TableHead>
               <TableHead v-if="showPublicCols" class="w-24">{{ t('pages.s3.colPublic') }}</TableHead>
               <TableHead v-if="showPublicCols" class="max-w-64">{{ t('pages.s3.colPublicUrl') }}</TableHead>
-              <TableHead class="w-32">{{ t('common.actions') }}</TableHead>
+              <TableHead class="sb-col-act">{{ t('common.actions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <SbAsyncRegion
@@ -160,11 +166,9 @@
                   <span v-else class="text-xs text-muted-foreground">—</span>
                 </TableCell>
               </template>
-              <TableCell class="w-32">
-                <div class="flex justify-center gap-1">
+              <TableCell class="sb-col-act">
+                <div class="flex flex-wrap items-center justify-center gap-1">
                   <Button variant="ghost" size="sm" @click="openPreview(record)">{{ t('pages.s3.open') }}</Button>
-                  <Button variant="ghost" size="sm" @click="download(record)">{{ t('pages.s3.download') }}</Button>
-                  <Button variant="ghost" size="sm" @click="copyPrivateLink(record)">{{ t('pages.s3.privateLink') }}</Button>
                   <ConfirmAction :title="t('pages.s3.deleteConfirm')" @confirm="remove(record.key)">
                     <Button variant="destructiveGhost" size="sm">
                       {{ t('common.del') }}
@@ -175,16 +179,8 @@
             </TableRow>
           </SbAsyncRegion>
         </Table>
-        <TablePager
-          variant="footer"
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :page-count="pageCount"
-          @update:page="page = $event"
-        />
       </div>
-    </Card>
+    </SbListCard>
     <S3PreviewModal v-model:open="previewOpen" :project-id="projectStore.id" :record="previewTarget" />
   </PageContainer>
   </ProjectScope>
@@ -192,12 +188,11 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { CopyIcon, FileIcon, FolderIcon, GlobeIcon, RefreshCwIcon, SearchIcon, UploadIcon } from '@lucide/vue'
+import { ChevronRightIcon, CopyIcon, FileIcon, FolderIcon, GlobeIcon, SearchIcon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
@@ -219,9 +214,10 @@ import { formatBytes, formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbAsyncRegion from '../components/SbAsyncRegion.vue'
+import SbRefreshButton from '../components/SbRefreshButton.vue'
+import SbListCard from '../components/SbListCard.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import S3PreviewModal from '../components/modal/S3PreviewModal.vue'
-import TablePager from '../components/TablePager.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -273,24 +269,34 @@ function handleBeforeUpload(file: File) {
     )
     return
   }
-  const err = validateKey(file.name)
+  const key = uploadKey(file.name)
+  const err = validateKey(key)
   if (err) {
     toast.warning(t('pages.s3.keyRuleViolation', { reason: err }))
     return
   }
-  doUpload(file)
+  doUpload(file, key)
 }
 
-function doUpload(file: File) {
+/**
+ * 上传目标键：当前浏览的是目录（前缀以 / 结尾）时落进该目录，
+ * 否则与之前一致落在根下（planv6.7 ui-simplify-ux-plan B7）。
+ */
+function uploadKey(name: string): string {
+  const dir = prefix.value.trim()
+  return dir.endsWith('/') ? dir + name : name
+}
+
+function doUpload(file: File, key: string) {
   const pid = projectStore.id
   uploading.value = true
   uploadPercent.value = 0
   api.s3
-    .upload(pid, file.name, file, (pct) => {
+    .upload(pid, key, file, (pct) => {
       uploadPercent.value = pct
     })
     .then(async () => {
-      toast.success(t('pages.s3.uploadSuccess', { name: file.name }))
+      toast.success(t('pages.s3.uploadSuccess', { name: key }))
       await load()
     })
     .catch((e) => toast.error(errorMessage(e, t('pages.s3.uploadFailed'))))
@@ -303,8 +309,50 @@ function triggerUpload() {
   fileInput.value?.click()
 }
 
+/** 最近一次发起查询时使用的前缀；防抖回调据此跳过重复请求。 */
+let loadedPrefix = ''
+let prefixTimer: ReturnType<typeof setTimeout> | null = null
+const PREFIX_DEBOUNCE_MS = 300
+
+function clearPrefixTimer() {
+  if (prefixTimer != null) {
+    clearTimeout(prefixTimer)
+    prefixTimer = null
+  }
+}
+
+/** 面包屑分段：`a/b/c.txt` 只把以 `/` 结尾的目录部分拆成可点击层级。 */
+const crumbs = computed(() => {
+  const raw = prefix.value.trim()
+  const dirEnd = raw.lastIndexOf('/')
+  if (dirEnd < 0) return []
+  const parts = raw.slice(0, dirEnd).split('/').filter(Boolean)
+  return parts.map((label, i) => ({ label, prefix: parts.slice(0, i + 1).join('/') + '/' }))
+})
+
+function goPrefix(next: string) {
+  prefix.value = next
+  loadNow()
+}
+
+/** 输入后 300ms 自动查询；Enter、点面包屑、打开目录走 loadNow 立即查询。 */
+watch(prefix, () => {
+  clearPrefixTimer()
+  prefixTimer = setTimeout(() => {
+    prefixTimer = null
+    if (prefix.value !== loadedPrefix) void load()
+  }, PREFIX_DEBOUNCE_MS)
+})
+onBeforeUnmount(clearPrefixTimer)
+
+function loadNow() {
+  clearPrefixTimer()
+  return load()
+}
+
 function load() {
   if (!projectStore.id) return Promise.resolve()
+  loadedPrefix = prefix.value
   return run(async () => {
     const data = await api.s3.listDetailed(projectStore.id, prefix.value || undefined)
     objects.value = data.objects
@@ -384,30 +432,7 @@ async function copyUrl(url?: string) {
   }
 }
 function openFolder(folder: string) {
-  prefix.value = folder
-  void load()
-}
-async function download(record: S3Object) {
-  try {
-    const blob = await api.s3.download(projectStore.id, record.key)
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = record.key.split('/').pop() || 'download'
-    anchor.click()
-    URL.revokeObjectURL(url)
-  } catch (e) {
-    toast.error(errorMessage(e, t('pages.s3.downloadFailed')))
-  }
-}
-async function copyPrivateLink(record: S3Object) {
-  try {
-    const link = await api.s3.createLink(projectStore.id, record.key)
-    await navigator.clipboard.writeText(new URL(link.url, window.location.origin).toString())
-    toast.success(t('pages.s3.linkCopied'))
-  } catch (e) {
-    toast.error(errorMessage(e, t('pages.s3.linkFailed')))
-  }
+  goPrefix(folder)
 }
 
 async function remove(key: string) {

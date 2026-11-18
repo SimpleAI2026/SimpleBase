@@ -5,7 +5,7 @@
 //	NewSandboxHandler(svc SandboxService, writable bool, audit AuditService, store ...
 //	(h *SandboxHandler) Create(c echo.Context) error  // Create 对应 POST /v2/sandboxes 与 POST /sandboxes：创建并立即启动
 //	(h *SandboxHandler) List(c echo.Context) error  // List 对应 GET /v2/sandboxes 与 GET /sandboxes
-//	同包调用：project() → agent_handler.go, agent_schedule_handler.go 等；Get() → collection_meta_handler.go, collection_transfer.go 等；List() → api_keys_handler.go, backup_handler.go 等
+//	同包调用：project() → agent_handler.go 等；Get() → collection_meta_handler.go, collection_transfer.go 等；List() → api_keys_handler.go, backup_handler.go 等
 //
 // 调用架构
 //
@@ -16,8 +16,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] gosandbox/vm, internal/auth, internal/sandbox, internal/systemdb 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] project() ← agent_handler.go, agent_schedule_handler.go, api_key_policy.go
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] project() ← agent_handler.go, api_key_policy.go
 //
 // 主要符号
 //
@@ -46,6 +46,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
@@ -70,7 +71,7 @@ type SandboxService interface {
 	// Metrics 读沙盒的资源用量；后端不支持时返回 vm.ErrNotSupported。
 	Metrics(context.Context, string, string) (vm.Metrics, error)
 	// Logs 读沙盒的历史输出；后端不支持时返回 vm.ErrNotSupported。
-	Logs(context.Context, string, string, sandbox.LogOptions) ([]sandbox.LogRecord, error)
+	Logs(context.Context, string, string, vm.LogQuery) ([]vm.LogRecord, error)
 	// DialPort 连到沙盒内 127.0.0.1:port。
 	DialPort(context.Context, string, string, uint16) (io.ReadWriteCloser, error)
 	// Watch 监听沙盒内的目录；后端不支持时返回 vm.ErrNotSupported。
@@ -141,7 +142,7 @@ func NewSandboxHandler(svc SandboxService, writable bool, audit AuditService, st
 func (h *SandboxHandler) project(c echo.Context) (string, error) {
 	pc, ok := ProjectFromContext(c.Request().Context())
 	if !ok {
-		return "", echo.NewHTTPError(http.StatusBadRequest, "project context missing")
+		return "", ErrProjectMissing
 	}
 	return pc.ID, nil
 }
@@ -157,7 +158,7 @@ func (h *SandboxHandler) requireWrite(c echo.Context) (string, error) {
 		return "", auth.ErrForbidden
 	}
 	if !h.writable {
-		return "", echo.NewHTTPError(http.StatusServiceUnavailable, "instance is read-only")
+		return "", godatabase.ErrWriterUnavailable
 	}
 	if systemdb.IsAdminProject(p) {
 		return "", NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support sandboxes", "")

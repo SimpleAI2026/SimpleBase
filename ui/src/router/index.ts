@@ -193,7 +193,23 @@ const routes: RouteRecordRaw[] = [
   }
 ]
 
-export default createRouter({
+export const router = createRouter({
   history: createWebHistory(),
   routes
 })
+
+/** 按路由名取 meta（NavMenu 与 DefaultLayout 共用，避免各自 getRoutes().find）。 */
+export function routeMeta(name: unknown): RouteRecordRaw['meta'] | undefined {
+  if (!name) return undefined
+  return router.getRoutes().find((r) => r.name === name)?.meta
+}
+
+/** 路由标题：优先 i18n key，回退字面量 title。 */
+export function routeTitle(name: unknown, t: (key: string) => string): string | undefined {
+  const meta = routeMeta(name)
+  const key = meta?.titleKey as string | undefined
+  if (key) return t(key)
+  return (meta?.title as string | undefined) || undefined
+}
+
+export default router

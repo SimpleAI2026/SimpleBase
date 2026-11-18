@@ -1,35 +1,19 @@
 <template>
   <ProjectScope>
     <PageContainer :subtitle="t('pages.gofunctions.subtitle')">
-      <Card>
-        <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
-          <CardTitle>{{ t('pages.gofunctions.cardTitle') }}</CardTitle>
-          <CardDescription class="min-w-0 break-words">
-            {{ t('pages.gofunctions.cardDesc', { n: total }) }}
-            <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
-          </CardDescription>
-          <CardAction v-if="!isAdminProject">
-            <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" :disabled="pending" @click="load">
-                <Spinner v-if="pending" data-icon="inline-start" />
-                <RefreshCwIcon v-else data-icon="inline-start" />
-                {{ t('common.refresh') }}
-              </Button>
-              <Button size="sm" @click="openCreate">
-                <PlusIcon data-icon="inline-start" />
-                {{ t('pages.gofunctions.create') }}
-              </Button>
-            </div>
-          </CardAction>
-          <CardAction v-else>
-            <Button variant="outline" size="sm" :disabled="pending" @click="load">
-              <Spinner v-if="pending" data-icon="inline-start" />
-              <RefreshCwIcon v-else data-icon="inline-start" />
-              {{ t('common.refresh') }}
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <div class="p-0">
+      <SbListCard :title="t('pages.gofunctions.cardTitle')" :pager="{ page, pageSize, total, pageCount }" @update:page="page = $event">
+        <template #description>
+          {{ t('pages.gofunctions.cardDesc', { n: total }) }}
+          <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
+        </template>
+        <template #actions>
+          <SbRefreshButton :pending="pending" @click="load" />
+          <Button v-if="canWrite" size="sm" @click="openCreate">
+            <PlusIcon data-icon="inline-start" />
+            {{ t('pages.gofunctions.create') }}
+          </Button>
+        </template>
+        <div>
           <p class="px-4 pt-3 text-xs text-muted-foreground md:hidden">{{ t('pages.gofunctions.scrollHint') }}</p>
           <Table>
             <TableHeader>
@@ -39,7 +23,7 @@
                 <TableHead class="w-18 max-w-18">{{ t('pages.gofunctions.colActiveVersion') }}</TableHead>
                 <TableHead class="w-24 max-w-28">{{ t('pages.gofunctions.colLatestVersion') }}</TableHead>
                 <TableHead class="sb-col-md">{{ t('pages.gofunctions.colUpdatedAt') }}</TableHead>
-                <TableHead class="min-w-72">{{ t('pages.gofunctions.colActions') }}</TableHead>
+                <TableHead class="sb-col-act min-w-40">{{ t('pages.gofunctions.colActions') }}</TableHead>
               </TableRow>
             </TableHeader>
             <SbAsyncRegion
@@ -53,7 +37,7 @@
               :error="error"
               :empty-title="isAdminProject ? t('pages.gofunctions.emptyAdminTitle') : t('pages.gofunctions.emptyTitle')"
               :empty-description="isAdminProject ? t('pages.gofunctions.emptyAdminDesc') : t('pages.gofunctions.emptyDesc')"
-              :empty-action-text="isAdminProject ? undefined : t('pages.gofunctions.create')"
+              :empty-action-text="canWrite ? t('pages.gofunctions.create') : undefined"
               @retry="load"
               @empty-action="openCreate"
             >
@@ -99,36 +83,27 @@
                 <TableCell class="sb-col-md text-xs text-muted-foreground">
                   {{ formatTime(record.updatedAt) }}
                 </TableCell>
-                <TableCell class="min-w-72">
-                  <div class="flex flex-nowrap items-center justify-center gap-1">
-                    <Button v-if="!isAdminProject" variant="outline" size="sm" class="px-2" @click="openTest(record)">
+                <TableCell class="sb-col-act min-w-40">
+                  <div class="flex flex-wrap items-center justify-center gap-1">
+                    <Button v-if="canWrite" variant="ghost" size="sm" @click="openTest(record)">
                       {{ t('pages.gofunctions.test') }}
                     </Button>
-                    <Button variant="ghost" size="sm" class="px-2" @click="openView(record)">{{ t('pages.gofunctions.view') }}</Button>
-                    <Button variant="ghost" size="sm" class="px-2" @click="openVersions(record)">{{ t('pages.gofunctions.versions') }}</Button>
-                    <Button v-if="!isAdminProject" variant="ghost" size="sm" class="px-2" @click="openEdit(record)">{{ t('common.edit') }}</Button>
+                    <Button v-if="canWrite" variant="ghost" size="sm" @click="openEdit(record)">{{ t('common.edit') }}</Button>
+                    <Button variant="ghost" size="sm" @click="openVersions(record)">{{ t('pages.gofunctions.versions') }}</Button>
                     <ConfirmAction
-                      v-if="!isAdminProject"
+                      v-if="canWrite"
                       :title="t('pages.gofunctions.deleteConfirm', { file: record.file })"
                       @confirm="remove(record)"
                     >
-                      <Button variant="destructiveGhost" size="sm" class="px-2">{{ t('common.del') }}</Button>
+                      <Button variant="destructiveGhost" size="sm">{{ t('common.del') }}</Button>
                     </ConfirmAction>
                   </div>
                 </TableCell>
               </TableRow>
-            </SbAsyncRegion>
+          </SbAsyncRegion>
           </Table>
-          <TablePager
-            variant="footer"
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :page-count="pageCount"
-            @update:page="page = $event"
-          />
         </div>
-      </Card>
+      </SbListCard>
 
       <GoFunctionModal v-model:open="modalOpen" :mode="modalMode" :target="modalTarget" @saved="load" />
       <GoFuncTestModal v-model:open="testOpen" :record="testTarget" />
@@ -147,23 +122,13 @@ import { errorMessage } from '@/utils/format'
  * 云函数列表页（ui-gofunction-plan §8.3）。
  * Badge 点击复制完整调用 URL；删除走 ConfirmAction；项目切换重载。
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
-import {
-  CodeIcon,
-  CopyIcon,
-  EyeIcon,
-  PencilIcon,
-  PlusIcon,
-  RefreshCwIcon,
-  Trash2Icon
-} from '@lucide/vue'
+import { CodeIcon, PlusIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
   TableCell,
@@ -171,25 +136,30 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { api } from '../services/api'
 import type { GoFunctionItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { useAuthStore } from '../stores/auth'
 import { useLoadState } from '../composables/useLoadState'
 import SbAsyncRegion from '../components/SbAsyncRegion.vue'
+import SbRefreshButton from '../components/SbRefreshButton.vue'
+import SbListCard from '../components/SbListCard.vue'
 import { usePagination } from '../composables/usePagination'
 import { formatTime } from '../utils/format'
+import { copyText } from '../utils/clipboard'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
-import TablePager from '../components/TablePager.vue'
 import GoFunctionModal from '../components/modal/GoFunctionModal.vue'
 import GoFuncTestModal from '../components/modal/GoFuncTestModal.vue'
 import GoFuncVersionsModal from '../components/modal/GoFuncVersionsModal.vue'
 
 const projectStore = useProjectStore()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
+const auth = useAuthStore()
 const { t } = useI18n()
+/** 写入口：系统项目与只读角色都隐藏（planv6.7 ui-simplify-ux-plan B11）。 */
+const canWrite = computed(() => !isAdminProject.value && auth.canWrite)
 
 const records = ref<GoFunctionItem[]>([])
 
@@ -203,7 +173,7 @@ function load() {
   return run(async () => {
     const data = await api.gofunctions.list(projectId.value)
     records.value = data
-    page.value = 1
+    // 项目切换才回到第 1 页；保存 / 删除后刷新保留当前页（planv6.7 B2）
     return data.length > 0
   })
 }
@@ -260,15 +230,13 @@ function copyInvokePath(record: GoFunctionItem, fn?: string) {
     toast.error(t('pages.gofunctions.noExports'))
     return
   }
-  const path = `POST /go/${projectId.value}/${record.name}/${fn}`
-  navigator.clipboard
-    .writeText(path)
-    .then(() => toast.success(t('pages.gofunctions.copiedPath', { path })))
-    .catch(() => toast.error(t('pages.gofunctions.copyFailed')))
+  const url = `${window.location.origin}/go/${encodeURIComponent(projectId.value)}/${encodeURIComponent(record.name)}/${encodeURIComponent(fn)}`
+  void copyText(url, t('pages.gofunctions.copiedPath', { path: url }), t('pages.gofunctions.copyFailed'))
 }
 
 void load()
 watch(projectId, () => {
+  page.value = 1
   void load()
 })
 </script>

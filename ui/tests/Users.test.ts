@@ -42,6 +42,21 @@ const formStub = {
 describe('Users page', () => {
   beforeEach(() => resetApiMocks())
 
+  it('paginates with cursors and keeps filters per page', async () => {
+    api.users.list
+      .mockResolvedValueOnce({ users: [{ ...rows[0] }], nextCursor: 'c-page2' })
+      .mockResolvedValueOnce({ users: [{ ...rows[1] }], nextCursor: '' })
+    const { wrapper } = await mountWithApp(Users, { stubs: formStub })
+    await flushPromises()
+    expect(api.users.list).toHaveBeenNthCalledWith(1, 20, undefined)
+    expect(wrapper.text()).toContain('root')
+    expect(wrapper.text()).not.toContain('ada')
+    await wrapper.get('.pager-next').trigger('click')
+    await flushPromises()
+    expect(api.users.list).toHaveBeenNthCalledWith(2, 20, 'c-page2')
+    expect(wrapper.text()).toContain('ada')
+  })
+
   it('filters roles and toggles accounts without dropping the list', async () => {
     api.users.list.mockResolvedValue({ users: rows, nextCursor: '' })
     const { wrapper, pinia } = await mountWithApp(Users, { stubs: formStub })
@@ -81,7 +96,11 @@ describe('Users page', () => {
     expect(wrapper.text()).not.toContain('ada')
     vm.keyword = 'nope'
     await flushPromises()
-    expect(wrapper.text()).toContain('暂无用户')
+    // 筛选无结果与「一个用户都没有」区分开，并给出清除筛选（planv6.7 ui-simplify-ux-plan X7）
+    expect(wrapper.text()).toContain('没有符合当前筛选条件的结果')
+    await clickText(wrapper, '清除筛选')
+    expect(vm.keyword).toBe('')
+    expect(wrapper.text()).toContain('ada')
     vm.keyword = ''
     await flushPromises()
 

@@ -8,14 +8,14 @@
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/locator.go
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/utils/atomicfile
-//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //	[关键引用] Locator ← bootstrap.go, store.go
 //
 // 主要符号

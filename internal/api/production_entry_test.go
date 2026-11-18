@@ -235,14 +235,14 @@ func TestLoginGuardDimensions(t *testing.T) {
 		t.Fatalf("username should be soft-locked, got %v", v)
 	}
 
-	// 成功 IP 豁免：锁定后仍可从最近成功 IP 登录（本例豁免在锁定前记录）。
+	// 软锁定没有 IP 豁免：即便该用户名刚在别的 IP 成功登录过，锁定后仍拒绝。
 	g3 := newLoginGuard(defaultLoginGuardOpts()).WithClock(func() time.Time { return base })
-	g3.recordSuccess("5.5.5.5", "boss")
+	g3.recordSuccess("boss")
 	for i := 0; i < 10; i++ {
 		g3.recordFailure("10.0.0."+itoaTest(i), "boss")
 	}
-	if !g3.isExemptIP("5.5.5.5", "boss") {
-		t.Fatal("success IP should be exempt")
+	if v := g3.allow("5.5.5.5", "boss"); v != loginSoftLocked {
+		t.Fatalf("soft-locked username has no IP exemption, got %v", v)
 	}
 
 	// 锁定过期自动解除。
@@ -265,7 +265,7 @@ func TestLoginGuardDimensions(t *testing.T) {
 	for i := 0; i < 9; i++ {
 		g5.recordFailure("10.0.0."+itoaTest(i), "recover")
 	}
-	g5.recordSuccess("7.7.7.7", "recover")
+	g5.recordSuccess("recover")
 	g5.recordFailure("9.9.9.9", "recover")
 	if g5.allow("9.9.9.9", "recover") != loginAllowed {
 		t.Fatal("success must reset failure count")
@@ -331,4 +331,12 @@ func TestInlineSafeMIME(t *testing.T) {
 			t.Fatalf("%s must not be inline-safe", mt)
 		}
 	}
+}
+
+// WithClock 注入时钟；仅在测试里替换 loginGuard 的时间源（planv6.6 §1.3 T-3）。
+func (g *loginGuard) WithClock(now func() time.Time) *loginGuard {
+	g.now = now
+	g.pair.now = now
+	g.ip.now = now
+	return g
 }

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PageContainer from '@/components/PageContainer.vue'
 import SbCodeBlock from '@/components/SbCodeBlock.vue'
 import TablePager from '@/components/TablePager.vue'
+import SbListCard from '@/components/SbListCard.vue'
 import ConfirmAction from '@/components/ConfirmAction.vue'
 import ProjectScope from '@/components/ProjectScope.vue'
 import { useProjectStore, ADMIN_PROJECT_ID } from '@/stores/project'
@@ -156,6 +157,42 @@ describe('router-backed chrome', () => {
     ])
     expect(groups.find((group) => group.key === 'ops')?.items[0].name).toBe('api-preview')
     expect(w.text()).toContain('云沙盒')
+  })
+})
+
+describe('SbListCard (planv6.7 S5)', () => {
+  it('renders header/actions/toolbar/pager and forwards page events', async () => {
+    const wrapper = mount(SbListCard, {
+      props: {
+        title: '列表',
+        description: '共 3 条',
+        pager: { page: 1, pageSize: 20, total: 41, pageCount: 3 }
+      },
+      slots: {
+        actions: '<button class="act">新建</button>',
+        toolbar: '<input class="tool" />',
+        default: '<table><tbody><tr><td>row</td></tr></tbody></table>'
+      },
+      global: { stubs: uiStubs }
+    })
+    expect(wrapper.text()).toContain('列表')
+    expect(wrapper.text()).toContain('共 3 条')
+    expect(wrapper.get('.act').text()).toBe('新建')
+    expect(wrapper.find('.tool').exists()).toBe(true)
+    // uiStubs 的 TablePager 只渲染 next 按钮；总数文案断言留给 TablePager 自身测试
+    await wrapper.get('.pager-next').trigger('click')
+    expect(wrapper.emitted('update:page')?.[0]).toEqual([2])
+  })
+
+  it('hides toolbar and pager when not provided', () => {
+    const wrapper = mount(SbListCard, {
+      props: { title: '仅标题' },
+      slots: { default: '<p>body</p>' },
+      global: { stubs: uiStubs }
+    })
+    expect(wrapper.text()).toContain('仅标题')
+    expect(wrapper.text()).toContain('body')
+    expect(wrapper.find('.pager-next').exists()).toBe(false)
   })
 })
 

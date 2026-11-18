@@ -351,13 +351,15 @@ describe('loading surfaces', () => {
     await flushPromises()
     expect(wrapper.text()).toContain(emptyCopy)
 
+    // 日志页的主按钮是「查询」（planv6.7 ui-simplify-ux-plan X5），其余列表页是「刷新」
+    const refreshText = page === Logs ? '查询' : '刷新'
     apiFn().mockResolvedValueOnce(row)
-    await clickText(wrapper, '刷新')
+    await clickText(wrapper, refreshText)
     await flushPromises()
     expect(wrapper.text()).toContain(needle)
     const kept = hold<unknown>()
     apiFn().mockReturnValue(kept.promise)
-    await clickText(wrapper, '刷新')
+    await clickText(wrapper, refreshText)
     await flushPromises()
     expect(wrapper.text()).toContain(needle)
     expect(wrapper.html()).toContain('aria-busy="true"')

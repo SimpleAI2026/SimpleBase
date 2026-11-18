@@ -17,8 +17,8 @@
     </div>
 
     <Tabs v-model="group">
-      <TabsList>
-        <TabsTrigger v-for="g in KV_COMMAND_GROUPS" :key="g.value" class="px-3" :value="g.value">
+      <TabsList class="h-auto max-w-full flex-wrap justify-start group-data-[orientation=horizontal]/tabs:h-auto">
+        <TabsTrigger v-for="g in KV_COMMAND_GROUPS" :key="g.value" class="min-h-7 flex-none px-4" :value="g.value">
           {{ g.label }}
         </TabsTrigger>
       </TabsList>

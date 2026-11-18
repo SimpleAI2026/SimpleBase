@@ -50,7 +50,7 @@ import {
   SidebarMenuItem
 } from '@/components/ui/sidebar'
 import { sidebarIcons } from './nav-icons'
-import router from '../router'
+import router, { routeTitle } from '../router'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -92,17 +92,14 @@ function isVisible(name: string): boolean {
 }
 
 function toItem(name: string): MenuItem {
-  const r = router.getRoutes().find((rr) => rr.name === name)
-  const key = r?.meta?.titleKey as string | undefined
-  const fallback = r?.meta?.title as string | undefined
   return {
     name,
-    title: key ? t(key) : fallback || name,
+    title: routeTitle(name, t) || name,
     icon: iconMap[name]
   }
 }
 
-/** 扁平列表（兼容既有测试与引用）。 */
+/** 扁平列表：测试观察点（tests/simple-components.test.ts 读取），模板只用 menuGroups。 */
 const menuItems = computed<MenuItem[]>(() => {
   const out: MenuItem[] = []
   for (const g of GROUP_DEFS) {

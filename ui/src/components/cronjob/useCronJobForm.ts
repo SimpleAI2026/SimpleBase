@@ -1,7 +1,7 @@
 /**
  * 定时任务表单状态与校验（从 CronJobModal 拆出）。
  *
- * 沿用 plan/planv5.0/ui-optimization-v3-plan.md §3.6 的拆分：模板职责归组件，
+ * 沿用 plan/planv6.7/legacy-plan-consolidation-plan.md §3.6 的拆分：模板职责归组件，
  * 表单状态/校验/提交归 composable，便于单独测试且让宿主模板只做编排。
  *
  * 注意：`CronJobModal.vue` 会用 `<script setup>` 顶层绑定直接暴露这里的 ref，

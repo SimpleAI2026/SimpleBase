@@ -6,7 +6,7 @@ group: 云助手
 
 # 云助手模型联调与验收
 
-本页用于验证 `plan/planv4.0/cloud-agent-optimization-plan.md` 的前后端能力。默认单元测试不访问外网；真实模型的 key 只放进被 Git 忽略的 `.env` 或 CI secret。
+本页用于验证云 Agent 的前后端能力（原 `planv4.1` 设计，编号见 `plan/planv6.7/legacy-plan-consolidation-plan.md` §2.1）。默认单元测试不访问外网；真实模型的 key 只放进被 Git 忽略的 `.env` 或 CI secret。
 
 ## SiliconFlow 配置
 

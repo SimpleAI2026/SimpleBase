@@ -1,7 +1,7 @@
 <template>
   <Popover v-model:open="open">
     <PopoverTrigger as-child>
-      <Button variant="ghost" size="sm" class="gap-2" :aria-label="t('components.userMenu.aria')">
+      <Button variant="ghost" size="sm" class="h-8 gap-2" :aria-label="t('components.userMenu.aria')">
         <span class="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-medium text-foreground">
           {{ avatarChar }}
         </span>
@@ -56,8 +56,7 @@ const roleLabel = computed(() => {
 
 function openPassword() {
   open.value = false
-  auth.mustChangePassword = true
-  auth.openLogin()
+  auth.openPasswordChange()
 }
 
 async function doLogout() {

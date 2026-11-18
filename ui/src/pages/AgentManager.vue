@@ -1,7 +1,7 @@
 <template>
   <ProjectScope>
     <PageContainer>
-      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[200px_minmax(0,1fr)]">
+      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]">
         <!-- 左列：Agent 条目（拆到 components/agent/AgentListPanel.vue）。 -->
         <AgentListPanel
           :agents="displayedAgents"
@@ -63,13 +63,13 @@
                   <p class="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{{ t('pages.agents.menuAgentGroup') }}</p>
                   <button
                     type="button"
-                    class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                    :class="MENU_ITEM"
                     :disabled="!activeAgent"
                     @click="onMenu('edit')"
                   >{{ t('pages.agents.menuEdit') }}</button>
                   <button
                     type="button"
-                    class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                    :class="MENU_ITEM"
                     :disabled="!activeAgent"
                     @click="onMenu('schedule')"
                   >
@@ -81,14 +81,14 @@
                     :title="t('components.agentCard.deleteConfirm', { name: activeAgent.name })"
                     @confirm="onMenu('remove')"
                   >
-                    <button type="button" class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs text-destructive hover:bg-muted">{{ t('components.agentCard.delete') }}</button>
+                    <button type="button" :class="[MENU_ITEM, 'text-destructive']">{{ t('components.agentCard.delete') }}</button>
                   </ConfirmAction>
 
                   <div class="my-1 h-px bg-border" />
                   <p class="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{{ t('pages.agents.menuThreadGroup') }}</p>
                   <button
                     type="button"
-                    class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                    :class="MENU_ITEM"
                     :disabled="!activeThread"
                     @click="onMenu('renameThread')"
                   >{{ t('pages.agents.menuRenameThread') }}</button>
@@ -97,7 +97,7 @@
                     :title="t('components.threadSwitcher.deleteConfirm')"
                     @confirm="onMenu('removeThread')"
                   >
-                    <button type="button" class="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs text-destructive hover:bg-muted">{{ t('pages.agents.menuDeleteThread') }}</button>
+                    <button type="button" :class="[MENU_ITEM, 'text-destructive']">{{ t('pages.agents.menuDeleteThread') }}</button>
                   </ConfirmAction>
                 </PopoverContent>
               </Popover>
@@ -224,23 +224,13 @@ import { i18n } from '@/locales'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { BotIcon, EllipsisIcon, PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { EllipsisIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Spinner } from '@/components/ui/spinner'
-import { Textarea } from '@/components/ui/textarea'
 import { api } from '../services/api'
 import { agentScheduleFromCronJob } from '../services/http-api'
 import type { AgentModuleInfo, AgentThread, CloudAgent, McpServer } from '../services/api'
@@ -284,7 +274,6 @@ const {
   pending: threadPending,
   hasData: threadHasData,
   showSkeleton: threadShowSkeleton,
-  showEmpty: threadShowEmpty,
   showError: threadShowError,
   refreshing: threadRefreshing,
   error: threadError,
@@ -303,7 +292,6 @@ const form = ref({ name: '', module: 'database', description: '', system_prompt:
 const defaultModel = ref('')
 const modelOptions = ref<string[]>([])
 const threads = ref<AgentThread[]>([])
-const nextCursor = ref('')
 const threadId = ref('')
 const chatMessages = ref<ChatMsg[]>([])
 const draft = ref('')
@@ -312,6 +300,8 @@ const switchTargetId = ref('')
 const scheduleByAgent = ref<Record<string, AgentSchedule>>({})
 /** 头部「⋯」菜单开合（planv6.0 §3.8）。 */
 const menuOpen = ref(false)
+/** 「⋯」菜单项共用样式（planv6.7 ui-simplify-ux-plan §5 X8）。 */
+const MENU_ITEM = 'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50'
 const composer = ref<{ focus?: () => void } | null>(null)
 /** 会话重命名弹窗（原 ThreadSwitcher 无重命名入口，这里补上）。 */
 const renameOpen = ref(false)
@@ -485,7 +475,6 @@ watch(
     activeId.value = ''
     threadId.value = ''
     threads.value = []
-    nextCursor.value = ''
     chatMessages.value = []
     scheduleByAgent.value = {}
     activeRuns.value = []
@@ -827,7 +816,6 @@ async function loadThreads() {
     // 项目或助手可能在取数期间切换；旧响应不得覆盖当前列表。
     if (project.id !== projectId || activeId.value !== agentId) return false
     threads.value = page.threads
-    nextCursor.value = page.next_cursor
     const queryId = typeof route.query.thread === 'string' ? route.query.thread : ''
     if (threads.value.length) {
       const selected = threads.value.find((th) => th.id === queryId)
@@ -1014,7 +1002,6 @@ function refreshThreadsForAgent() {
   void api.agentThreads.page(projectId, agentId).then((page) => {
     if (project.id !== projectId || activeId.value !== agentId) return
     threads.value = page.threads
-    nextCursor.value = page.next_cursor
   }).catch((e) => {
     if (project.id === projectId && activeId.value === agentId) {
       toast.error(errorMessage(e, t('pages.agents.loadThreadsFailed')))

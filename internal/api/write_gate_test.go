@@ -89,7 +89,7 @@ func TestWriteGate_AllWriteRoutesBlockedOnReadOnly(t *testing.T) {
 		req.Header.Set(echo.HeaderAuthorization, "Bearer "+key)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
-		// 门禁先于 handler：预期 503 readonly_instance。
+		// 门禁先于 handler：预期 503 writer_unavailable（统一形态，planv6.6 Bug-2）。
 		// 404 = 路由未挂载（依赖缺失，只读实例无害）；其余非 503 即漏挂。
 		if rec.Code == http.StatusNotFound {
 			continue

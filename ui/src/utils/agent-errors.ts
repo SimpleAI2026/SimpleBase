@@ -1,7 +1,7 @@
 // agent-errors.ts：云助手错误码 → 用户文案（planv4.1 BUG-05）。
 // 后端错误码见 internal/gocloudagent/errors.go；未知码回退原始 message。
 //
-// 文案统一走 i18n（plan/planv5.0/ui-optimization-v3-plan.md §3.2）：
+// 文案统一走 i18n（plan/planv6.7/legacy-plan-consolidation-plan.md §3.2）：
 // 这里只映射 key，不存中文字面量；组件外没有 useI18n 上下文，用 i18n.global.t。
 import { t } from '../locales'
 
@@ -20,6 +20,9 @@ const CODE_KEYS: Record<string, string> = {
   agent_thread_busy: 'error.codes.agent_thread_busy',
   quota_exceeded: 'error.codes.quota_exceeded',
   invalid_retry: 'error.codes.invalid_retry',
+  bi_context_invalid: 'error.codes.bi_context_invalid',
+  // 只读实例：建会话需要写权限（planv6.7 F12 / Q10）。给出直白原因，而不是后端原话。
+  writer_unavailable: 'error.codes.writer_unavailable',
   bad_request: 'error.codes.bad_request',
   unauthorized: 'error.codes.unauthorized',
   forbidden: 'error.codes.forbidden',

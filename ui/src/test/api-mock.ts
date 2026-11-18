@@ -34,6 +34,7 @@ export const api = {
     remove: vi.fn(),
     schema: vi.fn(),
     tableRows: vi.fn(),
+    aggregateTable: vi.fn(),
     createTable: vi.fn(),
     addColumn: vi.fn()
   },
@@ -54,6 +55,7 @@ export const api = {
     importCollection: vi.fn(),
     dryRunView: vi.fn(),
     documents: vi.fn(),
+    aggregate: vi.fn(),
     document: vi.fn(),
     patch: vi.fn(),
     batch: vi.fn(),
@@ -313,6 +315,8 @@ export function applyApiDefaults() {
   api.db.remove.mockResolvedValue(undefined)
   api.db.collectionItems.mockResolvedValue([])
   api.db.documents.mockResolvedValue({ rows: [], items: [] })
+  api.db.aggregate.mockResolvedValue({ columns: ['count'], rows: [[0]], truncated: false, scanned: 0, durationMs: 0, requestId: '' })
+  api.databases.aggregateTable.mockResolvedValue({ columns: ['count'], rows: [[0]], truncated: false, scanned: 0, durationMs: 0, requestId: '' })
   api.db.document.mockResolvedValue({ id: 'row-1', createdAt: '', updatedAt: '', data: {} })
   api.db.patch.mockResolvedValue({ id: 'row-1' })
   api.db.batch.mockResolvedValue([])

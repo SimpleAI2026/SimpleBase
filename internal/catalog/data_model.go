@@ -8,7 +8,7 @@
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/api, internal/app 等
+//	[上游] godatabase/bench, internal/api, internal/app 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/catalog/data_model.go

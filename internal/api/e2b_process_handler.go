@@ -15,7 +15,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] gosandbox/vm, internal/e2bproto, internal/sandbox
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] event() ← agent_handler.go, data_handler.go, event_fanout.go
 //
 // 主要符号
@@ -144,7 +144,7 @@ func (h *SandboxHandler) ProcStart(c echo.Context) error {
 		spec.Tag = *req.Tag
 	}
 	if req.PTY != nil {
-		spec.PTY = &vm.PTYSize{Cols: sandbox.ClampPTYDim(req.PTY.Size.Cols, 80), Rows: sandbox.ClampPTYDim(req.PTY.Size.Rows, 24)}
+		spec.PTY = &vm.PTYSize{Cols: vm.ClampPTYDim(req.PTY.Size.Cols, 80), Rows: vm.ClampPTYDim(req.PTY.Size.Rows, 24)}
 	}
 	// E2B 的 cmd 通常是 /bin/bash 配合 -l -c 'script'：保持 argv 原样交给驱动，不经额外一层 shell。
 	proc, err := h.svc.StartProc(c.Request().Context(), p, id, spec)
@@ -393,7 +393,7 @@ func (h *SandboxHandler) ProcUpdate(c echo.Context) error {
 		return writeConnectErr(c, ferr)
 	}
 	if req.PTY != nil {
-		if rerr := proc.Resize(vm.PTYSize{Cols: sandbox.ClampPTYDim(req.PTY.Size.Cols, 80), Rows: sandbox.ClampPTYDim(req.PTY.Size.Rows, 24)}); rerr != nil {
+		if rerr := proc.Resize(vm.PTYSize{Cols: vm.ClampPTYDim(req.PTY.Size.Cols, 80), Rows: vm.ClampPTYDim(req.PTY.Size.Rows, 24)}); rerr != nil {
 			return writeConnectErr(c, &connectErr{e2bproto.CodeFailedPrecondition, "process has no pty"})
 		}
 	}

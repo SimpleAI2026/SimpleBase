@@ -1,32 +1,20 @@
 <template>
   <ProjectScope>
     <PageContainer :subtitle="t('pages.cronJobs.subtitle')">
-      <Card>
-        <CardHeader class="border-b">
-          <CardTitle>{{ t('pages.cronJobs.cardTitle') }}</CardTitle>
-          <CardDescription>{{ t('pages.cronJobs.cardDesc', { n: total }) }}</CardDescription>
-          <CardAction v-if="!isAdminProject">
-            <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" :disabled="pending" @click="load">
-                <Spinner v-if="pending" data-icon="inline-start" />
-                <RefreshCwIcon v-else data-icon="inline-start" />
-                {{ t('common.refresh') }}
-              </Button>
-              <Button size="sm" @click="openCreate()">
-                <PlusIcon data-icon="inline-start" />
-                {{ t('pages.cronJobs.create') }}
-              </Button>
-            </div>
-          </CardAction>
-          <CardAction v-else>
-            <Button variant="outline" size="sm" :disabled="pending" @click="load">
-              <Spinner v-if="pending" data-icon="inline-start" />
-              <RefreshCwIcon v-else data-icon="inline-start" />
-              {{ t('common.refresh') }}
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <div class="p-0">
+      <SbListCard
+        :title="t('pages.cronJobs.cardTitle')"
+        :description="t('pages.cronJobs.cardDesc', { n: total })"
+        :pager="{ page, pageSize, total, pageCount }"
+        @update:page="page = $event"
+      >
+        <template #actions>
+          <SbRefreshButton :pending="pending" @click="load" />
+          <Button v-if="canWrite" size="sm" @click="openCreate()">
+            <PlusIcon data-icon="inline-start" />
+            {{ t('pages.cronJobs.create') }}
+          </Button>
+        </template>
+        <div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -49,7 +37,7 @@
               :error="error"
               :empty-title="isAdminProject ? t('pages.cronJobs.emptyAdminTitle') : t('pages.cronJobs.emptyTitle')"
               :empty-description="isAdminProject ? t('pages.cronJobs.emptyAdminDesc') : t('pages.cronJobs.emptyDesc')"
-              :empty-action-text="isAdminProject ? undefined : t('pages.cronJobs.create')"
+              :empty-action-text="canWrite ? t('pages.cronJobs.create') : undefined"
               @retry="load"
               @empty-action="openCreate()"
             >
@@ -114,23 +102,23 @@
                 <TableCell>
                   <Switch
                     :model-value="record.enabled"
-                    :disabled="isAdminProject || toggling.has(record.id)"
+                    :disabled="!canWrite || toggling.has(record.id)"
                     @update:model-value="toggleEnabled(record)"
                   />
                 </TableCell>
                 <TableCell>
-                  <div class="flex flex-wrap justify-center gap-1">
+                  <div class="flex flex-wrap items-center justify-center gap-1">
                     <Button variant="ghost" size="sm" @click="openRuns(record, { trigger: true })">
                       {{ t('pages.cronJobs.runNow') }}
                     </Button>
                     <Button variant="ghost" size="sm" @click="openRuns(record)">
                       {{ t('pages.cronJobs.runs') }}
                     </Button>
-                    <Button v-if="!isAdminProject" variant="ghost" size="sm" @click="openEdit(record)">
+                    <Button v-if="canWrite" variant="ghost" size="sm" @click="openEdit(record)">
                       {{ t('pages.cronJobs.edit') }}
                     </Button>
                     <ConfirmAction
-                      v-if="!isAdminProject"
+                      v-if="canWrite"
                       :title="t('pages.cronJobs.deleteConfirm', { name: record.name })"
                       @confirm="remove(record)"
                     >
@@ -143,16 +131,8 @@
               </TableRow>
             </SbAsyncRegion>
           </Table>
-          <TablePager
-            variant="footer"
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :page-count="pageCount"
-            @update:page="page = $event"
-          />
         </div>
-      </Card>
+      </SbListCard>
 
       <CronJobModal
         v-model:open="modalOpen"
@@ -176,20 +156,14 @@ import { errorMessage } from '@/utils/format'
  * 定时任务列表页（ui-cronjob-plan §7.2）。
  * 调度/目标/状态快照/启用 Switch；立即执行触发后刷新；删除走 ConfirmAction。
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
-import {
-  AlertTriangleIcon,
-  PlusIcon,
-  RefreshCwIcon
-} from '@lucide/vue'
+import { AlertTriangleIcon, PlusIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import {
   Table,
@@ -202,6 +176,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { api } from '../services/api'
 import type { CronJobItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { useAuthStore } from '../stores/auth'
 import { useLoadState } from '../composables/useLoadState'
 import { usePagination } from '../composables/usePagination'
 import { cronStatusText, cronStatusVariant } from '@/lib/status'
@@ -209,18 +184,21 @@ import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbAsyncRegion from '../components/SbAsyncRegion.vue'
+import SbRefreshButton from '../components/SbRefreshButton.vue'
+import SbListCard from '../components/SbListCard.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
-import TablePager from '../components/TablePager.vue'
 import CronJobModal from '../components/modal/CronJobModal.vue'
 import CronJobRunsModal from '../components/modal/CronJobRunsModal.vue'
 
 const projectStore = useProjectStore()
 const { t } = useI18n()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
+const auth = useAuthStore()
+/** 写入口：系统项目与只读角色都隐藏（planv6.7 ui-simplify-ux-plan B11）。 */
+const canWrite = computed(() => !isAdminProject.value && auth.canWrite)
 
 const records = ref<CronJobItem[]>([])
 const toggling = ref(new Set<string>())
-const triggering = ref(new Set<string>())
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
@@ -245,7 +223,6 @@ function load() {
   return run(async () => {
     const data = await api.cronjobs.list(projectId.value)
     records.value = data
-    page.value = 1
     return data.length > 0
   })
 }
@@ -293,19 +270,6 @@ async function toggleEnabled(record: CronJobItem) {
   }
 }
 
-async function trigger(record: CronJobItem) {
-  triggering.value.add(record.id)
-  try {
-    await api.cronjobs.trigger(projectId.value, record.id)
-    toast.success(t('pages.cronJobs.triggeredToast', { name: record.name }))
-    openRuns(record)
-  } catch (e) {
-    toast.error(errorMessage(e, t('pages.cronJobs.triggerFailed')))
-  } finally {
-    triggering.value.delete(record.id)
-  }
-}
-
 async function remove(record: CronJobItem) {
   try {
     await api.cronjobs.remove(projectId.value, record.id)
@@ -346,6 +310,7 @@ function openRuns(record: CronJobItem, opts?: { trigger?: boolean }) {
 
 void load()
 watch(projectId, () => {
+  page.value = 1
   void load()
 })
 

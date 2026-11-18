@@ -16,7 +16,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/agentbridge, internal/cronjob, internal/systemdb, internal/utils/crontab
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] Get() ← collection_meta_handler.go, collection_transfer.go, data_handler.go
 //
 // 主要符号
@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -279,7 +280,7 @@ func (h *CronJobHandler) Create(c echo.Context) error {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
 	if !h.writable {
-		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "readonly_mode", "server is in readonly mode", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	var req upsertCronJobBody
@@ -329,7 +330,7 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
 	if !h.writable {
-		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "readonly_mode", "server is in readonly mode", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	j, err := h.store.GetCronJob(c.Request().Context(), pc.ID, c.Param("jobID"))
@@ -415,7 +416,7 @@ func (h *CronJobHandler) Delete(c echo.Context) error {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
 	if !h.writable {
-		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "readonly_mode", "server is in readonly mode", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
 	rid := RequestIDFromContext(c.Request().Context())
 	j, err := h.store.GetCronJob(c.Request().Context(), pc.ID, c.Param("jobID"))

@@ -75,6 +75,26 @@ describe('Home', () => {
     }
   })
 
+  it('X1：已登录显示「继续使用 · 项目名」，未登录保持「进入工作台」', async () => {
+    const { wrapper } = await mountHome()
+    expect(wrapper.find('main a[href="/console/agents"]').text()).toContain('进入工作台')
+    const { useAuthStore } = await import('@/stores/auth')
+    const { useProjectStore } = await import('@/stores/project')
+    const pinia = (wrapper.vm as unknown as { $pinia: import('pinia').Pinia }).$pinia
+    const auth = useAuthStore(pinia)
+    auth.accessToken = 't'
+    auth.user = { id: 'u', username: 'tester' } as never
+    const project = useProjectStore(pinia)
+    project.setProject('p1', '我的项目')
+    await flushPromises()
+    expect(wrapper.find('main a[href="/console/agents"]').text()).toContain('继续使用 · 我的项目')
+    project.projectId = ''
+    project.projectName = ''
+    await flushPromises()
+    expect(wrapper.find('main a[href="/console/agents"]').text()).toContain('继续使用')
+    expect(wrapper.find('main a[href="/console/agents"]').text()).not.toContain('·')
+  })
+
   it('navigates into the workbench', async () => {
     const { wrapper, router } = await mountHome()
     await wrapper.find('main a[href="/console/agents"]').trigger('click')

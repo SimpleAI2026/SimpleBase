@@ -33,8 +33,8 @@
             {{ t('pages.home.heroDescription') }}
           </p>
           <div class="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-5">
-            <router-link :to="{ name: 'agents' }" :class="[primaryBtn, 'inline-flex h-11 px-5']">
-              {{ t('pages.home.enterConsole') }} <ArrowRightIcon aria-hidden="true" class="size-3.5" />
+            <router-link :to="{ name: 'agents' }" :class="primaryBtn">
+              {{ enterLabel }} <ArrowRightIcon aria-hidden="true" class="size-3.5" />
             </router-link>
             <router-link :to="shipGuide" class="inline-flex h-11 items-center gap-1.5 self-start text-sm font-medium text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-foreground sm:self-auto">
               {{ t('pages.home.viewDocs') }} <ArrowUpRightIcon aria-hidden="true" class="size-3.5" />
@@ -156,12 +156,25 @@ import HomeStarterPrompts from '@/components/home/HomeStarterPrompts.vue'
 import StarterLaunchModal from '@/components/home/StarterLaunchModal.vue'
 import LoginModal from '@/components/modal/LoginModal.vue'
 import LocaleSelect from '@/components/LocaleSelect.vue'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useStarterLaunch } from '@/composables/useStarterLaunch'
 import { useAuthStore } from '@/stores/auth'
+import { useProjectStore } from '@/stores/project'
 import { takePendingStarter } from '@/utils/starter-storage'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const projectStore = useProjectStore()
+
+/** 已登录：「继续使用 · 项目名」；未登录：「进入工作台」（planv6.7 ui-simplify-ux-plan X1）。 */
+const enterLabel = computed(() =>
+  auth.isAuthenticated && projectStore.id
+    ? t('pages.home.continueUse', { name: projectStore.displayName })
+    : auth.isAuthenticated
+      ? t('pages.home.continueUseBare')
+      : t('pages.home.enterConsole')
+)
 const { launching, launch, loggedIn } = useStarterLaunch()
 
 /* ---------- 一句话建应用（planv6.6 home-starter-prompts §2.1 / §2.2） ---------- */
@@ -199,9 +212,8 @@ function resumePending() {
 watch(() => auth.isAuthenticated, (v) => { if (v) resumePending() })
 onMounted(resumePending)
 
-/** 首屏主按钮：与控制台同一主色。 */
-const primaryBtn =
-  'shrink-0 items-center justify-center gap-2 self-start rounded-lg bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:self-auto'
+/** 首屏主按钮：复用控制台按钮样式（主色、焦点环一致），只放大高度（planv6.7 ui-simplify-ux-plan S4）。 */
+const primaryBtn = cn(buttonVariants({ size: 'lg' }), 'h-11 self-start px-5 text-sm no-underline sm:self-auto')
 
 /** 「上线指南」指向真实的本地开发 / 云端重放文档。 */
 const shipGuide = '/docs/getting-started/local-cloud-collab'

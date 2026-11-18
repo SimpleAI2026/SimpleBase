@@ -43,10 +43,9 @@ type Scheduler struct {
 	spec crontab.CronSpec
 	opts SchedulerOptions
 
-	// 单飞：cron 触发与手动 trigger 共用；进行中时后续触发直接跳过并计数。
+	// 单飞：cron 触发与手动 trigger 共用；进行中时后续触发直接跳过。
 	mu      sync.Mutex
 	running bool
-	skipped int64
 }
 
 // projectLister 是调度器所需的最小仓库接口。
@@ -124,7 +123,6 @@ func (s *Scheduler) missedWindow(ctx context.Context) bool {
 func (s *Scheduler) runOnceGuarded(ctx context.Context) error {
 	s.mu.Lock()
 	if s.running {
-		s.skipped++
 		s.mu.Unlock()
 		return nil
 	}
@@ -147,13 +145,6 @@ func (s *Scheduler) runOnceGuarded(ctx context.Context) error {
 	}
 	s.opts.Reporter.BackupSucceeded(started, projects)
 	return nil
-}
-
-// Skipped 返回单飞跳过计数（观测用）。
-func (s *Scheduler) Skipped() int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.skipped
 }
 
 // RunOnceDetailed 执行一轮全项目备份，返回成功的项目数。

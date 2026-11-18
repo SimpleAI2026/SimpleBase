@@ -8,7 +8,7 @@
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/auth/role.go

@@ -856,13 +856,6 @@ func defaults() Config {
 	}
 }
 
-// loadFromEnv 仅从默认值 + 环境变量构造配置（测试辅助；不读 YAML、不 Validate）。
-func loadFromEnv() Config {
-	cfg := defaults()
-	applyEnv(&cfg)
-	return cfg
-}
-
 // IsDBRemote 返回数据库持久层是否为 S3。
 func (c Config) IsDBRemote() bool {
 	return strings.EqualFold(strings.TrimSpace(c.Storage.Database), StorageModeS3)

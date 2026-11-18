@@ -64,8 +64,6 @@ describe('GoFunctions (云函数)', () => {
     expect(wrapper.get('.gf-modal').text()).toContain('create')
     await clickText(wrapper, '编辑')
     expect(wrapper.get('.gf-modal').text()).toContain('edit')
-    await clickText(wrapper, '查看')
-    expect(wrapper.get('.gf-modal').text()).toContain('view')
     await wrapper.get('.gf-close').trigger('click')
     await clickText(wrapper, '版本')
     await flushPromises()

@@ -4,7 +4,7 @@
 //
 //	WithRequestID(ctx context.Context, rid string) context.Context  // WithRequestID 把 request ID 注入 context
 //	RequestIDFromContext(ctx context.Context) string  // RequestIDFromContext 取出 request ID
-//	同包调用：RequestIDFromContext() → agent_handler.go, agent_schedule_handler.go 等；PrincipalFromContext() → agent_handler.go, api_keys_handler.go 等；ProjectFromContext() → agent_handler.go, agent_schedule_handler.go 等
+//	同包调用：RequestIDFromContext() → agent_handler.go 等；PrincipalFromContext() → agent_handler.go, api_keys_handler.go 等；ProjectFromContext() → agent_handler.go 等
 //
 // 调用架构
 //
@@ -15,8 +15,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/auth
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] RequestIDFromContext() ← agent_handler.go, agent_schedule_handler.go, api_keys_handler.go
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[关键引用] RequestIDFromContext() ← agent_handler.go, api_keys_handler.go
 //
 // 主要符号
 //

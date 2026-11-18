@@ -11,7 +11,7 @@
         @keydown.enter="emit('reload')"
       />
       <Select :model-value="typeFilter" @update:model-value="(v: string) => emit('update:typeFilter', v)">
-        <SelectTrigger class="w-28 shrink-0 sm:w-32"><SelectValue :placeholder="t('components.kvPanel.typePlaceholder')" /></SelectTrigger>
+        <SelectTrigger class="w-28 shrink-0 sm:w-32" size="sm"><SelectValue :placeholder="t('components.kvPanel.typePlaceholder')" /></SelectTrigger>
         <SelectContent>
           <SelectItem value="all">{{ t('components.kvPanel.typeAll') }}</SelectItem>
           <SelectItem value="string">string</SelectItem>
@@ -63,7 +63,7 @@
             <TableCell class="sb-mono">{{ m.len ?? '—' }}</TableCell>
             <TableCell class="text-muted-foreground">{{ ttlText(m) }}</TableCell>
             <TableCell>
-              <div class="inline-flex gap-1" @click.stop>
+              <div class="flex flex-wrap items-center justify-center gap-1" @click.stop>
                 <Button size="sm" variant="ghost" :disabled="readonly" @click="emit('ttl', m)">TTL</Button>
                 <Button size="sm" variant="ghost" :disabled="readonly" @click="emit('rename', m)">{{ t('components.kvPanel.rename') }}</Button>
                 <ConfirmAction
@@ -93,7 +93,7 @@
 <script setup lang="ts">
 /**
  * KV 键列表（工具条 + 表格 + 加载更多），从 KvPanel 拆出
- * （plan/planv5.0/ui-optimization-v3-plan.md §3.6）。
+ * （plan/planv6.7/legacy-plan-consolidation-plan.md §3.6）。
  *
  * 拆分边界刻意选在「纯展示」：`rows` / `pattern` / `typeFilter` 等状态仍由
  * KvPanel 持有，这里只通过 props 读、通过 emit 写。这样既缩短了宿主模板，

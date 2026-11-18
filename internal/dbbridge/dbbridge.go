@@ -3,7 +3,6 @@
 // 用法
 //
 //	SpecOf(db catalog.Database) godatabase.Spec  // SpecOf 把 catalog.Database 转换为库的 Spec
-//	CatalogOf(s godatabase.Spec) catalog.Database  // CatalogOf 是 SpecOf 的反向，仅用于测试与过渡：缺失的业务字段保持零值
 //
 // 调用架构
 //
@@ -18,8 +17,6 @@
 // 主要符号
 //
 //	SpecOf(db catalog.Database) godatabase.Spec
-//	CatalogOf(s godatabase.Spec) catalog.Database
-//	IsSystem(s godatabase.Spec) bool
 //	ResolverFrom(svc *catalog.Service) godatabase.PathResolver
 //	LoggerFrom(l observability.Logger) godatabase.Logger
 //	ObserverFrom(m *observability.Metrics) godatabase.Observer
@@ -49,21 +46,6 @@ func SpecOf(db catalog.Database) godatabase.Spec {
 		DatabasePath: db.DatabasePath,
 	}
 }
-
-// CatalogOf 是 SpecOf 的反向，仅用于测试与过渡：缺失的业务字段保持零值。
-func CatalogOf(s godatabase.Spec) catalog.Database {
-	return catalog.Database{
-		ID:           s.ID,
-		TenantID:     s.TenantID,
-		ProjectID:    s.ProjectID,
-		Kind:         s.Kind,
-		Status:       catalog.DatabaseStatus(s.Status),
-		DatabasePath: s.DatabasePath,
-	}
-}
-
-// IsSystem 保持与 catalog.IsSystemDatabase 的判定一致。
-func IsSystem(s godatabase.Spec) bool { return s.IsSystem() }
 
 // resolver 用 catalog.Service 补全 DatabasePath；租户归属校验仍由 catalog 完成。
 type resolver struct{ svc *catalog.Service }
@@ -181,12 +163,4 @@ func (r Registry) Acquire(ctx context.Context, db catalog.Database, mode godatab
 // CloseDatabase 透传。
 func (r Registry) CloseDatabase(ctx context.Context, databaseID string) error {
 	return r.R.CloseDatabase(ctx, databaseID)
-}
-
-// WriteGate 把宿主以 catalog.Database 为参数的写门禁适配为库的 Options.WriteGate。
-func WriteGate(f func(db catalog.Database) error) func(godatabase.Spec) error {
-	if f == nil {
-		return nil
-	}
-	return func(s godatabase.Spec) error { return f(CatalogOf(s)) }
 }

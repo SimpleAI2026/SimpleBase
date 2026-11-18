@@ -4,11 +4,11 @@
 //
 //	g := newLoginGuard(opts)
 //	verdict := g.allow(ip, username)   // 认证尝试前调用
-//	g.recordSuccess(ip, username)      // 登录成功后调用（清零失败计数 + 记录豁免 IP）
+//	g.recordSuccess(username)          // 登录成功后调用（清零失败计数）
 //	g.recordFailure(ip, username)      // 登录失败后调用
 //
-//	软锁定：15 分钟内同用户名失败 10 次 → 锁 15 分钟（429 login_locked）；
-//	豁免「该用户最近 5 个登录成功的 IP」，防止攻击者用已知用户名把管理员锁死在外面。
+//	软锁定：15 分钟内同用户名失败 10 次 → 锁 15 分钟（429 login_locked）。
+//	软锁定没有 IP 豁免通道：锁定期间该用户名一律 429，直到窗口过期。
 package api
 
 import (
@@ -69,9 +69,7 @@ type loginGuard struct {
 	ip   *loginLimiter
 	// failures 按用户名（小写）记录失败计数与锁定。
 	failures map[string]*loginFailure
-	// successIPs 按用户名记录最近成功登录的 IP（豁免软锁定）。
-	successIPs map[string][]string
-	now        func() time.Time
+	now      func() time.Time
 }
 
 func newLoginGuard(opts loginGuardOpts) *loginGuard {
@@ -80,20 +78,12 @@ func newLoginGuard(opts loginGuardOpts) *loginGuard {
 		opts = defaultLoginGuardOpts()
 	}
 	return &loginGuard{
-		opts:       opts,
-		pair:       newLoginLimiter(opts.PairMax, opts.PairWindowDur),
-		ip:         newLoginLimiter(opts.IPMax, opts.IPWindowDur),
-		failures:   map[string]*loginFailure{},
-		successIPs: map[string][]string{},
-		now:        time.Now,
+		opts:     opts,
+		pair:     newLoginLimiter(opts.PairMax, opts.PairWindowDur),
+		ip:       newLoginLimiter(opts.IPMax, opts.IPWindowDur),
+		failures: map[string]*loginFailure{},
+		now:      time.Now,
 	}
-}
-
-func (g *loginGuard) WithClock(now func() time.Time) *loginGuard {
-	g.now = now
-	g.pair.now = now
-	g.ip.now = now
-	return g
 }
 
 func normalizeLoginUsername(u string) string { return strings.ToLower(strings.TrimSpace(u)) }
@@ -157,35 +147,10 @@ func (g *loginGuard) recordFailure(ip, username string) {
 	}
 }
 
-// recordSuccess 登录成功后调用：清零失败计数 + 记录豁免 IP（最近 5 个）。
-func (g *loginGuard) recordSuccess(ip, username string) {
+// recordSuccess 登录成功后调用：清零失败计数。
+func (g *loginGuard) recordSuccess(username string) {
 	uname := normalizeLoginUsername(username)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	delete(g.failures, uname)
-	ips := g.successIPs[uname]
-	for _, existing := range ips {
-		if existing == ip {
-			g.successIPs[uname] = ips
-			return
-		}
-	}
-	ips = append(ips, ip)
-	if len(ips) > 5 {
-		ips = ips[len(ips)-5:]
-	}
-	g.successIPs[uname] = ips
-}
-
-// isExemptIP 判定该 IP 是否在用户名的成功 IP 豁免列表内。
-func (g *loginGuard) isExemptIP(ip, username string) bool {
-	uname := normalizeLoginUsername(username)
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	for _, existing := range g.successIPs[uname] {
-		if existing == ip {
-			return true
-		}
-	}
-	return false
 }

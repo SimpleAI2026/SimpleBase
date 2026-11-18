@@ -53,6 +53,10 @@ describe('TrendChart (echarts)', () => {
     const w = mount(TrendChart, { props: { points, mode: 'bar' }, global: { stubs } })
     await flushPromises()
     expect(w.get('[role="img"]').classes()).toContain('h-72')
+    await w.setProps({ dense: true })
+    expect(w.get('[role="img"]').classes()).toContain('h-48')
+    expect(w.get('[role="img"]').classes()).not.toContain('h-72')
+    await w.setProps({ dense: false })
     const bar = lastChart().setOption.mock.calls[0][0] as { series: { barMaxWidth: number }[] }
     expect(bar.series.map((s) => s.barMaxWidth)).toEqual([28, 28])
     await w.setProps({ mode: 'line' })

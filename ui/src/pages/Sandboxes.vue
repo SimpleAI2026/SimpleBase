@@ -1,41 +1,32 @@
 <template>
   <ProjectScope>
     <PageContainer :subtitle="t('pages.sandboxes.subtitle')">
-      <Card>
-        <CardHeader class="border-b">
-          <CardTitle>{{ t('pages.sandboxes.cardTitle') }}</CardTitle>
-          <CardDescription>{{ t('pages.sandboxes.cardDesc', { n: records.length }) }}</CardDescription>
-          <CardAction>
-            <div class="flex gap-2">
-              <Button variant="outline" size="sm" :disabled="pending" @click="load">
-                <Spinner v-if="pending" data-icon="inline-start" />
-                <RefreshCwIcon v-else data-icon="inline-start" />
-                {{ t('common.refresh') }}
-              </Button>
-              <Button v-if="capabilities?.available && !isAdminProject && auth.canWrite" size="sm" @click="createOpen = true">
-                <PlusIcon data-icon="inline-start" />
-                {{ t('pages.sandboxes.create') }}
-              </Button>
-            </div>
-          </CardAction>
-        </CardHeader>
+      <SbListCard
+        :title="t('pages.sandboxes.cardTitle')"
+        :description="t('pages.sandboxes.cardDesc', { n: records.length })"
+      >
+        <template #actions>
+          <SbRefreshButton :pending="pending" @click="load" />
+          <Button v-if="capabilities?.available && !isAdminProject && auth.canWrite" size="sm" @click="createOpen = true">
+            <PlusIcon data-icon="inline-start" />
+            {{ t('pages.sandboxes.create') }}
+          </Button>
+        </template>
+        <!-- 静态提示：直接渲染空态，不再套 SbAsyncRegion（planv6.7 ui-simplify-ux-plan C11） -->
         <div v-if="notice" class="p-6">
-          <SbAsyncRegion :show-empty="true" :pending="false" :show-skeleton="false" :show-error="false">
-            <template #empty>
-              <template v-if="notice === 'unconfigured'">
-                <SbEmptyState :title="t('pages.sandboxes.notConfiguredTitle')" :description="t('pages.sandboxes.notConfiguredDesc')" />
-                <pre class="overflow-auto rounded-md bg-muted p-3 text-xs">sandbox:\n  enabled: true\n  backend: local</pre>
-              </template>
-              <SbEmptyState v-else :title="t('pages.sandboxes.adminUnsupported')" :description="t('pages.sandboxes.adminUnsupportedDesc')" />
-            </template>
-          </SbAsyncRegion>
+          <template v-if="notice === 'unconfigured'">
+            <SbEmptyState :title="t('pages.sandboxes.notConfiguredTitle')" :description="t('pages.sandboxes.notConfiguredDesc')" />
+            <pre class="overflow-auto rounded-md bg-muted p-3 text-xs">{{ SANDBOX_CONFIG_SAMPLE }}</pre>
+          </template>
+          <SbEmptyState v-else :title="t('pages.sandboxes.adminUnsupported')" :description="t('pages.sandboxes.adminUnsupportedDesc')" />
         </div>
-        <div v-else class="p-0">
-          <div class="flex flex-wrap gap-2 border-b p-3 text-sm">
-            <div class="flex items-center gap-2">
-              <span>{{ t('pages.sandboxes.filterStatus') }}</span>
+        <div v-else>
+          <!-- 筛选栏：标签在上、sm 下拉，与 Logs / Users 一致（S7） -->
+          <div class="flex flex-wrap items-end gap-2.5 border-b px-4 py-3">
+            <div class="flex flex-col gap-1">
+              <span class="text-xs text-muted-foreground">{{ t('pages.sandboxes.filterStatus') }}</span>
               <Select :model-value="statusFilter" @update:model-value="(v) => (statusFilter = String(v))">
-                <SelectTrigger class="h-8 w-32" :aria-label="t('pages.sandboxes.filterStatusAria')">
+                <SelectTrigger class="w-32" size="sm" :aria-label="t('pages.sandboxes.filterStatusAria')">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -44,10 +35,10 @@
                 </SelectContent>
               </Select>
             </div>
-            <div class="flex items-center gap-2">
-              <span>{{ t('pages.sandboxes.filterSource') }}</span>
+            <div class="flex flex-col gap-1">
+              <span class="text-xs text-muted-foreground">{{ t('pages.sandboxes.filterSource') }}</span>
               <Select :model-value="sourceFilter" @update:model-value="(v) => (sourceFilter = String(v))">
-                <SelectTrigger class="h-8 w-32" :aria-label="t('pages.sandboxes.filterSourceAria')">
+                <SelectTrigger class="w-32" size="sm" :aria-label="t('pages.sandboxes.filterSourceAria')">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -62,14 +53,14 @@
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{{ t('pages.sandboxes.colName') }}</TableHead>
-                <TableHead>{{ t('pages.sandboxes.colStatus') }}</TableHead>
-                <TableHead>{{ t('pages.sandboxes.colTemplate') }}</TableHead>
-                <TableHead>{{ t('pages.sandboxes.colSpec') }}</TableHead>
-                <TableHead>{{ t('pages.sandboxes.colSource') }}</TableHead>
-                <TableHead>{{ t('pages.sandboxes.colLastActive') }}</TableHead>
-                <TableHead>{{ t('pages.sandboxes.colExpires') }}</TableHead>
-                <TableHead>{{ t('common.actions') }}</TableHead>
+                <TableHead class="sb-col-name">{{ t('pages.sandboxes.colName') }}</TableHead>
+                <TableHead class="sb-col-sm">{{ t('pages.sandboxes.colStatus') }}</TableHead>
+                <TableHead class="sb-col-name">{{ t('pages.sandboxes.colTemplate') }}</TableHead>
+                <TableHead class="sb-col-sm">{{ t('pages.sandboxes.colSpec') }}</TableHead>
+                <TableHead class="sb-col-sm">{{ t('pages.sandboxes.colSource') }}</TableHead>
+                <TableHead class="sb-col-md">{{ t('pages.sandboxes.colLastActive') }}</TableHead>
+                <TableHead class="sb-col-md">{{ t('pages.sandboxes.colExpires') }}</TableHead>
+                <TableHead class="sb-col-act">{{ t('common.actions') }}</TableHead>
               </TableRow>
             </TableHeader>
             <SbAsyncRegion
@@ -88,7 +79,7 @@
               <TableRow v-for="item in filtered" :key="item.id">
                 <TableCell class="sb-mono">{{ item.name }}</TableCell>
                 <TableCell>
-                  <Badge :variant="item.status === 'error' ? 'destructive' : item.state === 'running' ? 'default' : 'secondary'">{{ item.state }}</Badge>
+                  <Badge :variant="stateVariant(item)">{{ item.state }}</Badge>
                 </TableCell>
                 <TableCell class="sb-mono">{{ item.templateId }}</TableCell>
                 <TableCell>{{ item.cpuCount }}C / {{ item.memoryMB }}M</TableCell>
@@ -96,7 +87,7 @@
                 <TableCell>{{ item.lastActiveAt ? formatTime(item.lastActiveAt) : t('common.notStarted') }}</TableCell>
                 <TableCell>{{ item.endAt ? formatTime(item.endAt) : '—' }}</TableCell>
                 <TableCell>
-                  <div class="flex flex-wrap justify-center gap-1">
+                  <div class="flex flex-wrap items-center justify-center gap-1">
                     <Button variant="ghost" size="sm" @click="selected = item">{{ t('pages.sandboxes.open') }}</Button>
                     <Button
                       v-if="auth.canWrite && item.state === 'running'"
@@ -133,12 +124,17 @@
                 </TableCell>
               </TableRow>
               <TableEmpty v-if="filtered.length === 0" :colspan="8">
-                <SbEmptyState :title="t('pages.sandboxes.emptyTitle')" :description="t('pages.sandboxes.emptyDesc')" />
+                <SbEmptyState
+                  :description="t('common.noMatchFilter')"
+                  :action-text="t('common.clearFilter')"
+                  :action-icon="XIcon"
+                  @action="clearFilters"
+                />
               </TableEmpty>
             </SbAsyncRegion>
           </Table>
         </div>
-      </Card>
+      </SbListCard>
       <SandboxCreateModal v-model:open="createOpen" :project-id="projectId" :capabilities="capabilities" @saved="load" />
       <SandboxDrawer :open="!!selected" :project-id="projectId" :sandbox="selected" :capabilities="capabilities" @update:open="!$event && (selected = null)" @changed="load" />
     </PageContainer>
@@ -150,10 +146,9 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
-import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { PlusIcon, XIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
@@ -166,6 +161,8 @@ import { formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
+import SbListCard from '@/components/SbListCard.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import SandboxCreateModal from '../components/modal/SandboxCreateModal.vue'
@@ -192,6 +189,20 @@ const deleting = ref(new Set<string>())
 const { pending, settled, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
   fallback: 'pages.sandboxes.loadFailed'
 })
+
+/** 未配置沙盒时给出的最小配置示例（模板里写 \n 会原样显示，B9）。 */
+const SANDBOX_CONFIG_SAMPLE = 'sandbox:\n  enabled: true\n  backend: local'
+
+/** 状态徽标：error 优先标红，其余按运行态（state）区分。 */
+function stateVariant(item: SandboxItem): 'destructive' | 'default' | 'secondary' {
+  if (item.status === 'error') return 'destructive'
+  return item.state === 'running' ? 'default' : 'secondary'
+}
+
+function clearFilters() {
+  statusFilter.value = FILTER_ALL
+  sourceFilter.value = FILTER_ALL
+}
 
 /** 来源枚举 → 展示文案。 */
 function sourceText(source: string): string {

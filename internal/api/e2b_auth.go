@@ -15,7 +15,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] gosandbox/vm, internal/auth, internal/catalog, internal/e2bproto 等
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] writeE2BErr() ← e2b_envd_handler.go, e2b_terminal.go, router.go
 //
 // 主要符号

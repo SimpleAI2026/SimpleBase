@@ -13,6 +13,8 @@ import type {
   AgentStreamHandlers,
   AgentThread,
   AgentUsageEventWire,
+  AggregateQuery,
+  AggregateResult,
   APIPreviewResult,
   BackupItem,
   CloudAgent,
@@ -849,7 +851,9 @@ export function streamAgentRun(
         mentions: req.mentions,
         stream: true,
         ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {}),
-        ...(req.starter_stage ? { starter_stage: req.starter_stage } : {})
+        ...(req.starter_stage ? { starter_stage: req.starter_stage } : {}),
+        // 数据看板生成图表：必须显式透传，否则被这里的字段白名单静默丢弃，助手拿不到字段清单。
+        ...(req.bi_context ? { bi_context: req.bi_context } : {})
       }),
       signal
     })
@@ -1119,6 +1123,42 @@ export function toDocumentPage(value: unknown): DocumentPage {
   }
 }
 
+/** 聚合请求 → query string 参数。数组与驼峰在这里转成后端的 snake_case；空值整键丢弃。 */
+export function toAggregateParams(query: AggregateQuery): Record<string, string | number> {
+  const params: Record<string, string | number> = {}
+  const put = (key: string, value: string | number | undefined) => {
+    if (value === undefined || value === '') return
+    params[key] = value
+  }
+  put('mode', query.mode)
+  put('metrics', query.metrics && query.metrics.length ? query.metrics.join(',') : undefined)
+  put('group_by', query.groupBy)
+  put('series', query.series)
+  put('x', query.x)
+  put('y', query.y)
+  put('size', query.size)
+  put('filter', query.filter)
+  put('sort', query.sort)
+  put('limit', query.limit)
+  if (query.withTotal) params.with_total = 1
+  return params
+}
+
+export function toAggregateResult(value: unknown): AggregateResult {
+  const raw = collectionWire(value)
+  const total = Number(raw.total)
+  return {
+    columns: Array.isArray(raw.columns) ? raw.columns.map(String) : [],
+    rows: Array.isArray(raw.rows) ? (raw.rows as unknown[][]) : [],
+    // 后端不提供时是 undefined（不是 0）：调用方要区分「总量为 0」与「没有总量」。
+    ...(raw.total === undefined || raw.total === null || !Number.isFinite(total) ? {} : { total }),
+    truncated: raw.truncated === true,
+    scanned: Number(raw.scanned ?? 0),
+    durationMs: Number(raw.duration_ms ?? 0),
+    requestId: String(raw.request_id ?? '')
+  }
+}
+
 export function toSchemaDryRun(value: unknown): SchemaDryRunResult {
   const raw = collectionWire(value)
   const invalid = Array.isArray(raw.invalid) ? raw.invalid : []
@@ -1198,4 +1238,4 @@ export function toUserItem(d: Record<string, any>): UserItem {
   return { ...toAuthUser(d), projectCount: d.project_count ?? 0 }
 }
 
-/** 真实后端实现（路径契约见 plan/planv2.0/proto-http.md） */
+/** 真实后端实现（路径契约以 internal/api/router.go 为准，见 plan/planv6.7/legacy-plan-consolidation-plan.md §4.2） */

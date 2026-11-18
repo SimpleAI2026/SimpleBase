@@ -15,7 +15,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase, godatabase/sqlguard, godatabase/sqlx, internal/catalog
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] ListTableRows() ← router.go
 //
 // 主要符号
@@ -100,11 +100,33 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 		}
 	}
 
+	// 可选 filter：与聚合接口同一套语法与列白名单（真实列、敏感列视为不存在），
+	// 数据看板的明细表据此跟随全局条件。无 filter 时行为与改造前完全一致。
+	var whereSQL string
+	var whereArgs []any
+	if raw := strings.TrimSpace(c.QueryParam("filter")); raw != "" {
+		columns := make([]sqlTableColumn, 0, len(cols))
+		for _, col := range cols {
+			columns = append(columns, sqlTableColumn{Name: col.Name, Kind: sqlColumnKind(col.Type)})
+		}
+		var sensitive func(string) bool
+		if system {
+			sensitive = isSystemSensitiveColumn
+		}
+		whereSQL, whereArgs, err = sqlTableEnv(dialect, columns, sensitive).filter(raw)
+		if err != nil {
+			return validationAPIError(c, err)
+		}
+	}
+
 	countSQL := dialect.CountRowsSQL(tableName)
+	if whereSQL != "" {
+		countSQL += " WHERE " + whereSQL
+	}
 	if err := sqlguard.Validate(countSQL, sqlguard.ReadOnly); err != nil {
 		return WriteError(c, err)
 	}
-	countResult, err := lease.Query(ctx, godatabase.Statement{SQL: countSQL}, 1)
+	countResult, err := lease.Query(ctx, godatabase.Statement{SQL: countSQL, Args: append([]any(nil), whereArgs...)}, 1)
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -113,7 +135,7 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 		total = toInt64(countResult.Rows[0][0])
 	}
 
-	pageSQL, err := schemaRowsSelectSQL(tableName, cols, system)
+	pageSQL, err := schemaRowsSelectSQLWhere(tableName, cols, system, whereSQL)
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -122,7 +144,7 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 	}
 	pageResult, err := lease.Query(ctx, godatabase.Statement{
 		SQL:  pageSQL,
-		Args: []any{limit, offset},
+		Args: append(append([]any(nil), whereArgs...), limit, offset),
 	}, limit)
 	if err != nil {
 		return WriteError(c, err)
@@ -186,10 +208,11 @@ func (h *SchemaHandler) loadTableColumns(ctx context.Context, db catalog.Databas
 	if err != nil {
 		return nil, err
 	}
+	// 元数据查询是方言里的固定模板，表名已由 normalizeSchemaIdent 校验并经 sqlx.Literal 转义，
+	// 不含任何用户 SQL。不能过 sqlguard：SQLite 的模板用 pragma_table_info()，sqlguard 对 PRAGMA
+	// 一律拒绝（防用户提交 PRAGMA 语句），会让 SQLite 库的「查看数据」与聚合永远 sql_not_allowed。
+	// 写保护由 ReadOnly lease 保证。
 	lookup := dialect.TableColumnsSQL(table)
-	if err := sqlguard.Validate(lookup, sqlguard.ReadOnly); err != nil {
-		return nil, err
-	}
 	result, err := lease.Query(ctx, godatabase.Statement{SQL: lookup}, schemaColumnScanLimit)
 	if err != nil {
 		return nil, err
@@ -216,6 +239,11 @@ func (h *SchemaHandler) loadTableColumns(ctx context.Context, db catalog.Databas
 }
 
 func schemaRowsSelectSQL(table string, cols []schemaColumnJSON, system bool) (string, error) {
+	return schemaRowsSelectSQLWhere(table, cols, system, "")
+}
+
+// schemaRowsSelectSQLWhere 在分页查询里插入已编译的 WHERE 片段（占位符参数由调用方按序前置）。
+func schemaRowsSelectSQLWhere(table string, cols []schemaColumnJSON, system bool, where string) (string, error) {
 	if len(cols) == 0 {
 		return "", errNoSchemaColumns
 	}
@@ -229,6 +257,9 @@ func schemaRowsSelectSQL(table string, cols []schemaColumnJSON, system bool) (st
 		proj = append(proj, quoted)
 	}
 	sqlText := "SELECT " + strings.Join(proj, ", ") + " FROM " + sqlx.Ident(table)
+	if where != "" {
+		sqlText += " WHERE " + where
+	}
 	if order := schemaRowsOrder(cols); order != "" {
 		sqlText += " ORDER BY " + order
 	}

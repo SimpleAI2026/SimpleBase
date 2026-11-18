@@ -1,4 +1,4 @@
-/** 统一的后端接口类型定义与 API 抽象（契约对照 plan/planv2.0/proto-http.md） */
+/** 统一的后端接口类型定义与 API 抽象（契约以 internal/api/router.go 与 error.go 为准，见 plan/planv6.7/legacy-plan-consolidation-plan.md §4.2） */
 
 /**
  * 请求失败错误：在 message 之外保留 HTTP status 与后端业务 code。
@@ -168,6 +168,43 @@ export interface DocumentQuery {
   filter?: string
   fields?: string
   count?: boolean
+}
+
+/**
+ * 数据看板聚合请求（planv6.7 §3.1）。聚合模式用 metrics / groupBy / series；
+ * 散点原始点模式用 mode='points' + x / y / size / series，两种模式互斥。
+ */
+export interface AggregateQuery {
+  /** 聚合度量，如 ['count', 'sum:amount']；points 模式不填。 */
+  metrics?: string[]
+  /** 主维度：field / field:day（时间桶）/ field:bin=10（数值分箱）。 */
+  groupBy?: string
+  series?: string
+  mode?: 'points'
+  x?: string
+  y?: string
+  size?: string
+  filter?: string
+  /** 度量别名或 x / series，`-` 前缀降序。 */
+  sort?: string
+  limit?: number
+  /**
+   * 额外返回同一 filter 下的同口径总量（不分组的可累加度量）。
+   * 仅供占比类图表算「其他」与真实分母；后端只在分组 + 单度量 count/sum 时提供。
+   */
+  withTotal?: boolean
+}
+
+/** 聚合响应：columns 与 rows 按下标对齐；主维度列固定叫 x，次维度列固定叫 series。 */
+export interface AggregateResult {
+  columns: string[]
+  rows: unknown[][]
+  /** 同口径总量（仅请求 withTotal 且后端可累加时存在）；用于占比的真实分母。 */
+  total?: number
+  truncated: boolean
+  scanned: number
+  durationMs: number
+  requestId: string
 }
 
 export interface DocumentPage {
@@ -944,10 +981,75 @@ export interface McpTestResult {
   error?: string
 }
 
+/**
+ * 数据看板图表类型（planv6.7 §4.3）。
+ * column 纵向柱状；bar / grouped_bar / stacked_bar 横向；auto 由 bi-auto 推断。
+ */
+export type BiChartType =
+  | 'auto'
+  | 'line'
+  | 'column'
+  | 'bar'
+  | 'pie'
+  | 'table'
+  | 'grouped_bar'
+  | 'stacked_bar'
+  | 'scatter'
+
+/** 栅格宽度档位（md 以上 12 栏）。 */
+export type BiSpan = 4 | 6 | 8 | 12
+
+export interface BiWidget {
+  id: string
+  title: string
+  type: BiChartType
+  /** 聚合度量，如 ['count', 'sum:amount']；散点为空。 */
+  metrics: string[]
+  /** 主维度：field / field:day / field:bin=10。 */
+  groupBy?: string
+  series?: string
+  /** 仅散点。 */
+  x?: string
+  y?: string
+  size?: string
+  filter?: string
+  sort?: string
+  limit?: number
+  /** 折线面积 / 饼图环形。 */
+  area?: boolean
+  donut?: boolean
+  span: BiSpan
+}
+
+/** 看板配置（落 localStorage，按「项目 + 库 + 集合」分键）。 */
+export interface BiDashboardConfig {
+  version: 1
+  widgets: BiWidget[]
+}
+
+/** 数据看板「Agent 生成图表」的数据源上下文（planv6.7 §3.4）；服务端校验，不落库。 */
+export interface BiAgentField {
+  name: string
+  type: CollectionField['type']
+}
+
+export interface BiAgentContext {
+  database_id: string
+  /** 数据源名：集合名或 SQL 表名，由 source 决定是哪一种。 */
+  collection: string
+  /** 缺省为 collection；SQL 表传 'table'（旧客户端不带该键，服务端按集合处理）。 */
+  source?: 'collection' | 'table'
+  /** 缺省或 'auto' 表示不限制类型。 */
+  preferred_type?: string
+  fields: BiAgentField[]
+}
+
 export interface AgentRunRequest {
   content: string
   mentions: AgentMention[]
   stream?: boolean
+  /** 数据看板生成图表：携带数据源与字段清单，服务端强制本轮只读。 */
+  bi_context?: BiAgentContext
   /** 重试指定失败 run（planv4.1 BUG-03）：复用原 user 消息，不重复落库。 */
   retry_of_run_id?: string
   /** 搭建会话的阶段（planv6.6 home-starter-prompts §2.7）：技能由服务端按阶段白名单决定。 */
@@ -1346,8 +1448,11 @@ export interface Api {
       projectId: string,
       databaseId: string,
       table: string,
-      query: { limit: number; offset: number }
+      /** filter 可选：与聚合接口同一套语法；数据看板的明细表据此跟随全局条件。 */
+      query: { limit: number; offset: number; filter?: string }
     ) => Promise<SchemaTableRows>
+    /** 数据看板：SQL 表聚合（GET .../schema/tables/:table/aggregate），只读；与集合聚合同一套参数与响应。 */
+    aggregateTable: (projectId: string, databaseId: string, table: string, query: AggregateQuery) => Promise<AggregateResult>
     createTable: (
       projectId: string,
       databaseId: string,
@@ -1397,6 +1502,8 @@ export interface Api {
       collection: string,
       query?: DocumentQuery
     ) => Promise<DocumentPage>
+    /** 数据看板聚合（planv6.7 §3.1）：GET .../aggregate，只读。 */
+    aggregate: (projectId: string, databaseId: string, collection: string, query: AggregateQuery) => Promise<AggregateResult>
     document: (projectId: string, databaseId: string, collection: string, id: string) => Promise<DocumentItem>
     patch: (
       projectId: string,

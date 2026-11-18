@@ -16,7 +16,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase, godatabase/sqlguard, internal/auth, internal/catalog
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] dialectForDatabase() ← db_stats.go, gocloudagent_access.go, schema_rows.go
 //
 // 主要符号
@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/godatabase"
@@ -48,6 +49,9 @@ type SchemaHandler struct {
 	svc      DataService
 	writable bool
 	limits   SQLLimits
+	// 聚合接口的超时与扫描上限；零值走 collection_aggregate.go 的默认值。
+	aggregateTimeout time.Duration
+	aggregateScan    int
 }
 
 func NewSchemaHandler(svc DataService, writable bool, limits SQLLimits) *SchemaHandler {

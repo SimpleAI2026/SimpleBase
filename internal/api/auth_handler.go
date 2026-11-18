@@ -16,7 +16,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/auth
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] allow() ← middleware_ratelimit.go
 //
 // 主要符号
@@ -166,7 +166,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		}
 		return WriteError(c, err)
 	}
-	h.guard.recordSuccess(c.RealIP(), req.Username)
+	h.guard.recordSuccess(req.Username)
 	return c.JSON(http.StatusOK, toTokenResponse(pair, u))
 }
 
@@ -253,7 +253,7 @@ func (h *AuthHandler) InitialPassword(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	h.guard.recordSuccess(c.RealIP(), req.Username)
+	h.guard.recordSuccess(req.Username)
 	if h.audit != nil {
 		_ = h.audit.Record(ctx, AuditEvent{Kind: "auth.password_initial", Detail: "user:" + u.ID})
 	}

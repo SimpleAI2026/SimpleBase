@@ -72,7 +72,7 @@
         <div v-if="run.responseJson" class="mt-2">
           <div class="mb-1 flex items-center justify-between">
             <span class="text-xs font-medium text-muted-foreground">{{ t('components.cronRuns.returnValue') }}</span>
-            <Button variant="ghost" size="sm" class="h-6 px-2" @click="copy(run.responseJson)">
+            <Button variant="ghost" size="xs" @click="copy(run.responseJson)">
               <CopyIcon class="size-3.5" />
               {{ t('common.copy') }}
             </Button>
@@ -82,7 +82,7 @@
         <div v-if="run.error" class="mt-2">
           <div class="mb-1 flex items-center justify-between">
             <span class="text-xs font-medium text-destructive">{{ t('components.cronRuns.errorLabel') }}</span>
-            <Button variant="ghost" size="sm" class="h-6 px-2 text-destructive" @click="copy(run.error)">
+            <Button variant="destructiveGhost" size="xs" @click="copy(run.error)">
               <CopyIcon class="size-3.5" />
               {{ t('common.copy') }}
             </Button>

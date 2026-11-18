@@ -6,7 +6,7 @@
 //
 // 用法
 //
-//	m.Logs(ctx, projectID, id, sandbox.LogOptions{Lines: 100})
+//	m.Logs(ctx, projectID, id, vm.LogQuery{Lines: 100})
 //	w, err := m.Watch(ctx, projectID, id, "/workspace", true)
 //
 // 调用架构
@@ -18,14 +18,11 @@
 //	         │
 //	         ▼
 //	[下游] gosandbox/vm
-//	[同包] manager.go, errors.go
+//	[同包] manager.go, errors.go, snapshots.go
 //
 // 主要符号
 //
-//	type LogOptions struct {…}
-//	type LogRecord struct {…}
-//	type FileEvent struct {…}
-//	(m *Manager) Logs(ctx, projectID, id string, opt LogOptions) ([]LogRecord, error)
+//	(m *Manager) Logs(ctx, projectID, id string, q vm.LogQuery) ([]vm.LogRecord, error)
 //	(m *Manager) Watch(ctx, projectID, id, path string, recursive bool) (vm.FileWatch, error)
 //	(m *Manager) CanLogs() bool
 //	(m *Manager) CanWatch() bool
@@ -36,36 +33,18 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 )
 
-// LogOptions 是日志回放参数。
-type LogOptions struct {
-	// Lines 是最后多少条记录；0 = 全部。
-	Lines int
-	// Since 是起始时间；零值 = 不限。
-	Since time.Time
-	// Streams 是只保留的流："stdout" / "stderr"；空 = 全部。
-	Streams []string
-}
-
-// LogRecord 是一条日志记录。
-type LogRecord struct {
-	// Stream 是 "stdout" 或 "stderr"。
-	Stream string
-	// Time 是记录时间。
-	Time time.Time
-	// Data 是原始字节（可能不含换行）。
-	Data []byte
-}
+// 日志回放的参数与记录类型就是 vm.LogQuery / vm.LogRecord：格式在驱动侧
+// （gosandbox/box），业务层不再自己复写一份同形类型。
 
 // Logs 读沙盒的历史输出。
 //
 // 驱动不支持时返回 vm.ErrNotSupported，由 API 层映射 501——
 // 而不是返回空列表（那会让调用方以为「没有输出」）。
-func (m *Manager) Logs(ctx context.Context, projectID, id string, opt LogOptions) ([]LogRecord, error) {
+func (m *Manager) Logs(ctx context.Context, projectID, id string, q vm.LogQuery) ([]vm.LogRecord, error) {
 	if !m.Available() {
 		return nil, vm.ErrUnavailable
 	}
@@ -77,17 +56,11 @@ func (m *Manager) Logs(ctx context.Context, projectID, id string, opt LogOptions
 	if !ok {
 		return nil, fmt.Errorf("%w: logs", vm.ErrNotSupported)
 	}
-	recs, err := src.Logs(ctx, r.CloudName, vm.LogQuery{
-		Lines: opt.Lines, Since: opt.Since, Streams: opt.Streams,
-	})
+	recs, err := src.Logs(ctx, r.CloudName, q)
 	if err != nil {
 		return nil, fmt.Errorf("%w: logs", vm.ErrBackend)
 	}
-	out := make([]LogRecord, 0, len(recs))
-	for _, rec := range recs {
-		out = append(out, LogRecord{Stream: rec.Stream, Time: rec.Time, Data: rec.Data})
-	}
-	return out, nil
+	return recs, nil
 }
 
 // Watch 开始监听沙盒内的一个路径。

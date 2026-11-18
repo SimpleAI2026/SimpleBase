@@ -1,14 +1,13 @@
-// 文件说明：middleware.go — Echo 中间件：APIKeyMiddleware 完成认证并注入 Principal，
+// 文件说明：middleware.go — Echo 中间件：AuthMiddlewareWithDelegation 完成 JWT / 委托 / API Key 认证并注入 Principal，
 //
 // 用法
 //
-//	APIKeyMiddleware(svc *Service, inject func(ctx context.Context, p Principal) ...  // APIKeyMiddleware 解析 "Authorization: Bearer <key>"，认证失败返回 401
 //	Require(permission Permission, extract func(ctx context.Context) (Principal, bool)) ...  // Require 构造一个校验 principal 是否拥有指定权限的中间件
 //	同包调用：DelegableContextKey → delegation.go；RequireDelegable() → delegation.go；Require() → principal.go
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/auth/middleware.go
@@ -20,7 +19,6 @@
 //
 // 主要符号
 //
-//	APIKeyMiddleware(svc *Service, inject func(ctx context.Context, p Principal) ...
 //	Require(permission Permission, extract func(ctx context.Context) (Principal, bool)) ...
 //	const DelegableContextKey
 //	RequireDelegable(permission Permission, extract func(ctx context.Context) ...
@@ -37,33 +35,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 )
-
-// APIKeyMiddleware 解析 "Authorization: Bearer <key>"，认证失败返回 401；
-// 成功后通过 inject 把 Principal 写入请求 context。
-//
-// inject 由调用方传入 internal/api.WithPrincipal，避免 auth 包反向依赖 api 包。
-func APIKeyMiddleware(svc *Service, inject func(ctx context.Context, p Principal) context.Context) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			token, err := ExtractBearerToken(c.Request().Header.Get(echo.HeaderAuthorization))
-			if err != nil {
-				return echo.NewHTTPError(http.StatusUnauthorized, "missing or malformed authorization header")
-			}
-			principal, err := svc.Authenticate(c.Request().Context(), token)
-			if err != nil {
-				switch {
-				case errors.Is(err, ErrKeyRevoked):
-					return echo.NewHTTPError(http.StatusUnauthorized, "api key revoked")
-				default:
-					return echo.NewHTTPError(http.StatusUnauthorized, "invalid api key")
-				}
-			}
-			ctx := inject(c.Request().Context(), principal)
-			c.SetRequest(c.Request().WithContext(ctx))
-			return next(c)
-		}
-	}
-}
 
 // Require 构造一个校验 principal 是否拥有指定权限的中间件。
 // 它只检查全局权限位；project 归属校验由业务 handler/service 通过
@@ -124,29 +95,34 @@ func AuthMiddlewareWithDelegation(sessions SessionAuthenticator, keys *Service, 
 			if LooksLikeJWT(raw) {
 				// §8.2.6 密钥域隔离：aud=enduser 的 token 属于终端用户域，
 				// 在平台会话/委托/API Key 链上一律拒绝（防白名单漂移越权）。
+				//
+				// 同一次验签结果复用于 aud 判定与委托识别；判断顺序仍是「先 aud 后委托」。
+				now := time.Now()
+				var platformClaims JWTClaims
+				platformVerified := false
 				if secret != "" {
-					if endUserClaims, err := VerifyJWT(secret, raw, time.Now()); err == nil && endUserClaims.Audience == endUserAudience {
-						return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+					if claims, err := VerifyJWT(secret, raw, now); err == nil {
+						platformClaims, platformVerified = claims, true
 					}
 				}
-				if secret != "" {
-					claims, err := VerifyJWT(secret, raw, time.Now())
-					if err == nil && claims.Type == DelegationType {
-						if registry == nil || registry.Revoked(claims.JWTID, time.Now()) {
-							return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
-						}
-						p, err := PrincipalFromDelegation(claims)
-						if err != nil {
-							return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
-						}
-						// planv6.0 D1：路由级委托边界。这里只注入标记后的 Principal，
-						// 路径判断全部下沉到路由级 RequireDelegable（默认拒绝），
-						// 消除字符串白名单与真实路由的漂移。
-						p.Delegated = true
-						ctx := inject(c.Request().Context(), p)
-						c.SetRequest(c.Request().WithContext(ctx))
-						return next(c)
+				if platformVerified && platformClaims.Audience == endUserAudience {
+					return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+				}
+				if platformVerified && platformClaims.Type == DelegationType {
+					if registry == nil || registry.Revoked(platformClaims.JWTID, now) {
+						return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
 					}
+					p, err := PrincipalFromDelegation(platformClaims)
+					if err != nil {
+						return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")
+					}
+					// planv6.0 D1：路由级委托边界。这里只注入标记后的 Principal，
+					// 路径判断全部下沉到路由级 RequireDelegable（默认拒绝），
+					// 消除字符串白名单与真实路由的漂移。
+					p.Delegated = true
+					ctx := inject(c.Request().Context(), p)
+					c.SetRequest(c.Request().WithContext(ctx))
+					return next(c)
 				}
 				if sessions == nil {
 					return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired token")

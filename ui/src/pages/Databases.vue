@@ -1,34 +1,20 @@
 <template>
   <ProjectScope>
   <PageContainer :subtitle="t('pages.databases.subtitle')">
-    <Card>
-      <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
-        <CardTitle>{{ isAdmin ? t('pages.databases.cardTitleAdmin') : t('pages.databases.cardTitle') }}</CardTitle>
-        <CardDescription>
-          {{ isAdmin ? t('pages.databases.cardDescAdmin') : t('pages.databases.cardDesc', { n: databases.length }) }}
-        </CardDescription>
-        <CardAction v-if="!isAdmin">
-          <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" :disabled="pending" @click="doLoad">
-              <Spinner v-if="pending" data-icon="inline-start" />
-              <RefreshCwIcon v-else data-icon="inline-start" />
-              {{ t('common.refresh') }}
-            </Button>
-            <Button size="sm" @click="openCreate">
-              <PlusIcon data-icon="inline-start" />
-              {{ t('pages.databases.create') }}
-            </Button>
-          </div>
-        </CardAction>
-        <CardAction v-else>
-          <Button variant="outline" size="sm" :disabled="pending" @click="doLoad">
-            <Spinner v-if="pending" data-icon="inline-start" />
-            <RefreshCwIcon v-else data-icon="inline-start" />
-            {{ t('common.refresh') }}
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent class="p-0">
+    <SbListCard
+      :title="isAdmin ? t('pages.databases.cardTitleAdmin') : t('pages.databases.cardTitle')"
+      :description="isAdmin ? t('pages.databases.cardDescAdmin') : t('pages.databases.cardDesc', { n: databases.length })"
+      :pager="{ page, pageSize, total, pageCount }"
+      @update:page="page = $event"
+    >
+      <template #actions>
+        <SbRefreshButton :pending="pending" @click="doLoad" />
+        <Button v-if="canWrite" size="sm" @click="openCreate">
+          <PlusIcon data-icon="inline-start" />
+          {{ t('pages.databases.create') }}
+        </Button>
+      </template>
+      <div class="p-0">
         <SbAsyncRegion
           class="p-4 md:hidden"
           block="cards"
@@ -39,7 +25,7 @@
           :refreshing="refreshing"
           :error="error"
           :empty-description="isAdmin ? t('pages.databases.emptySystem') : t('pages.databases.empty')"
-          :empty-action-text="isAdmin ? undefined : t('pages.databases.create')"
+          :empty-action-text="canWrite ? t('pages.databases.create') : undefined"
           @retry="doLoad"
           @empty-action="openCreate"
         >
@@ -55,16 +41,16 @@
                 <Badge class="mt-2" :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
               </div>
               <Button variant="outline" size="sm" :disabled="!isReady(record)" :aria-expanded="expandedRowKeys.includes(record.id)" :aria-controls="`db-mobile-${record.id}`" @click="toggleExpand(record)">
-                {{ expandedRowKeys.includes(record.id) ? t('pages.databases.expand') : t('pages.databases.viewData') }}
+                {{ expandedRowKeys.includes(record.id) ? t('pages.databases.collapseData') : t('pages.databases.viewData') }}
               </Button>
             </div>
             <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
               <Button variant="outline" size="sm" :disabled="!isReady(record)" @click="openSql(record)">SQL</Button>
-              <Button v-if="!isAdmin && !isSqlDatabase(record)" variant="outline" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">{{ t('pages.databases.createCollection') }}</Button>
-              <ConfirmAction v-if="!isAdmin" :disabled="record.status === 'deleting'" :title="t('pages.databases.deleteTooltip')" @confirm="removeDb(record)">
+              <Button v-if="canWrite && !isSqlDatabase(record)" variant="outline" size="sm" :disabled="!isReady(record)" @click="openCreateCollection(record)">{{ t('pages.databases.createCollection') }}</Button>
+              <ConfirmAction v-if="canWrite" :disabled="record.status === 'deleting'" :title="t('pages.databases.deleteTooltip')" @confirm="removeDb(record)">
                 <Button variant="destructiveGhost" size="sm" :disabled="record.status === 'deleting'">{{ t('common.del') }}</Button>
               </ConfirmAction>
-              <span v-else class="inline-flex items-center gap-1 text-xs text-muted-foreground">{{ t('pages.databases.protected') }}</span>
+              <span v-else-if="isAdmin" class="inline-flex items-center gap-1 text-xs text-muted-foreground">{{ t('pages.databases.protected') }}</span>
             </div>
             <div class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>ID</span><span class="sb-mono min-w-0 break-all">{{ record.id }}</span>
@@ -101,7 +87,7 @@
             :refreshing="refreshing"
             :error="error"
             :empty-description="isAdmin ? t('pages.databases.emptySystem') : t('pages.databases.empty')"
-            :empty-action-text="isAdmin ? undefined : t('pages.databases.create')"
+            :empty-action-text="canWrite ? t('pages.databases.create') : undefined"
             @retry="doLoad"
             @empty-action="openCreate"
           >
@@ -111,17 +97,16 @@
                   <Tooltip>
                     <TooltipTrigger as-child>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="icon-sm"
-                        class="rounded-full"
+                        data-row-expand
                         :disabled="!isReady(record)"
                         :aria-label="t('pages.databases.viewRecordData', { action: expandedRowKeys.includes(record.id) ? t('pages.databases.collapse') : t('pages.databases.viewData'), name: record.name })"
                         :aria-expanded="expandedRowKeys.includes(record.id)"
                         :aria-controls="`db-desktop-${record.id}`"
                         @click="toggleExpand(record)"
                       >
-                        <MinusIcon v-if="expandedRowKeys.includes(record.id)" class="size-3" />
-                        <PlusIcon v-else class="size-3" />
+                        <ChevronRightIcon class="transition-transform" :class="expandedRowKeys.includes(record.id) && 'rotate-90'" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -170,7 +155,7 @@
                       </TooltipTrigger>
                       <TooltipContent>{{ isReady(record) ? (isAdmin ? t('pages.databases.sqlConsole') : t('pages.databases.sqlWorkbench')) : t('pages.databases.dbNotReady') }}</TooltipContent>
                     </Tooltip>
-                    <template v-if="!isAdmin">
+                    <template v-if="canWrite">
                       <Tooltip v-if="!isSqlDatabase(record)">
                         <TooltipTrigger as-child>
                           <span>
@@ -191,7 +176,7 @@
                         </Button>
                       </ConfirmAction>
                     </template>
-                    <Tooltip v-else>
+                    <Tooltip v-else-if="isAdmin">
                       <TooltipTrigger as-child>
                         <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
                           {{ t('pages.databases.protected') }}
@@ -228,17 +213,8 @@
           </SbAsyncRegion>
           </Table>
         </div>
-        <TablePager
-          variant="footer"
-          :page="page"
-          :page-size="pageSize"
-          :total="total"
-          :page-count="pageCount"
-          @update:page="page = $event"
-        />
-      </CardContent>
-    </Card>
-
+        </div>
+    </SbListCard>
     <SbModal
       v-model:open="createVisible"
       :title="t('pages.databases.createTitle')"
@@ -311,19 +287,12 @@ import { errorMessage } from '@/utils/format'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import {
-  DatabaseIcon,
-  MinusIcon,
-  PlusIcon,
-  RefreshCwIcon,
-} from '@lucide/vue'
+import { ChevronRightIcon, DatabaseIcon, PlusIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
   TableCell,
@@ -335,6 +304,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { api } from '../services/api'
 import type { DatabaseItem } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
 import { useLoadState } from '../composables/useLoadState'
 import { usePagination } from '../composables/usePagination'
@@ -343,8 +313,9 @@ import { formatCount, formatTime } from '../utils/format'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbAsyncRegion from '../components/SbAsyncRegion.vue'
+import SbRefreshButton from '../components/SbRefreshButton.vue'
+import SbListCard from '../components/SbListCard.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
-import TablePager from '../components/TablePager.vue'
 import SbModal from '../components/modal/SbModal.vue'
 import SqlWorkModal from '../components/modal/SqlWorkModal.vue'
 import CreateCollectionModal from '../components/modal/CreateCollectionModal.vue'
@@ -355,6 +326,9 @@ import SchemaPanel from '../components/databases/SchemaPanel.vue'
 
 const projectStore = useProjectStore()
 const { isAdmin } = storeToRefs(projectStore)
+const auth = useAuthStore()
+/** 写入口（新建 / 建集合 / 删除）：系统项目与只读角色都隐藏（planv6.7 ui-simplify-ux-plan B11）。 */
+const canWrite = computed(() => !isAdmin.value && auth.canWrite)
 const { t } = useI18n()
 const databases = ref<DatabaseItem[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(databases)

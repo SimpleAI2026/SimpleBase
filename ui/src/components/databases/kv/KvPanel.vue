@@ -1,9 +1,9 @@
 <template>
   <div class="flex flex-col gap-3 py-1">
     <Tabs v-model="tab" class="gap-1">
-      <TabsList>
-        <TabsTrigger class="px-3" value="data">{{ t('components.kvPanel.tabData') }}</TabsTrigger>
-        <TabsTrigger class="px-3" value="api">API</TabsTrigger>
+      <TabsList class="h-auto max-w-full flex-wrap justify-start group-data-[orientation=horizontal]/tabs:h-auto">
+        <TabsTrigger class="min-h-7 flex-none px-4" value="data">{{ t('components.kvPanel.tabData') }}</TabsTrigger>
+        <TabsTrigger class="min-h-7 flex-none px-4" value="api">API</TabsTrigger>
       </TabsList>
       <TabsContent value="data" class="mt-1 flex flex-col gap-3">
         <KvKeyListPanel
@@ -71,10 +71,8 @@ import { errorMessage } from '@/utils/format'
 import { onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useLoadState } from '@/composables/useLoadState'
 import { isEmptyResourceError } from '@/utils/api-errors'
@@ -286,16 +284,17 @@ async function removeKey(m: KvKeyMeta) {
     await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['DEL', m.key] })
     toast.success(t('components.kvPanel.deleted'))
     rows.value = rows.value.filter((r) => r.key !== m.key)
+    // 删光当前页：重新扫描，让空态与「新建」引导出现，而不是留一张空表（planv6.7 ui-simplify-ux-plan B10）
+    if (!rows.value.length) void reload()
   } catch (e) {
     toast.error(errorMessage(e, t('components.kvPanel.deleteFailed')))
   }
 }
 
-function onCreated(key: string) {
+function onCreated() {
   pattern.value = ''
   typeFilter.value = 'all'
   reload()
-  void key
 }
 
 function onDeleted() {

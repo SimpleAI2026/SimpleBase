@@ -5,19 +5,19 @@
 //	NewStoreForTest(db *sql.DB) *Store
 //	IsAdminProject(projectID string) bool  // IsAdminProject 判断 projectID 是否为 admin（系统）项目
 //	(s *Store) DB() *sql.DB// DB 返回底层连接（供仓储使用）
-//	同包调用：Store → agent_schedules.go, agents.go 等；ErrUnavailable → agent_schedules.go, agents.go 等；notifyWrite() → agent_schedules.go, agents.go 等
+//	同包调用：Store → agents.go 等；ErrUnavailable → agents.go 等；notifyWrite() → agents.go 等
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/store.go
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/dbbridge, godatabase/ducklake, internal/auth, internal/catalog 等
-//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
-//	[关键引用] Store ← agent_schedules.go, agents.go, async_flush.go
+//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] Store ← agents.go, async_flush.go
 //
 // 主要符号
 //

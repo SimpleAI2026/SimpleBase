@@ -5,16 +5,38 @@
       <CardHeader class="border-b">
         <CardTitle>{{ t('pages.logs.cardTitle') }}</CardTitle>
         <CardDescription>{{ t('pages.logs.cardDesc') }}</CardDescription>
+        <!-- 保留策略是低频设置：收进卡片头的 Popover（planv6.7 ui-simplify-ux-plan X6） -->
+        <CardAction>
+          <Popover>
+            <PopoverTrigger as-child>
+              <Button variant="outline" size="sm" data-action="retention">
+                <SettingsIcon data-icon="inline-start" />{{ t('pages.logs.retentionTitle') }}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" class="w-72">
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-muted-foreground">{{ t('pages.logs.retentionDays') }}</span>
+                <Input id="keep-days" v-model="keepDaysText" type="number" class="w-full" :min="KEEP_DAYS_MIN" :max="KEEP_DAYS_MAX" />
+              </div>
+              <span v-if="retentionUpdatedAt" class="text-xs text-muted-foreground">{{ t('pages.logs.retentionUpdatedAt', { time: retentionUpdatedAt }) }}</span>
+              <Button size="sm" class="self-end" :disabled="savingRetention" @click="saveRetention">
+                <Spinner v-if="savingRetention" data-icon="inline-start" />
+                {{ t('common.save') }}
+              </Button>
+            </PopoverContent>
+          </Popover>
+        </CardAction>
       </CardHeader>
       <CardContent class="flex flex-wrap items-end gap-2.5 border-b py-4">
         <div class="flex flex-col gap-1">
           <span class="text-xs text-muted-foreground">{{ t('pages.logs.level') }}</span>
-          <Select :model-value="level" @update:model-value="(v: string) => (level = v || undefined)">
+          <Select :model-value="level ?? LEVEL_ALL" @update:model-value="(v: string) => (level = v && v !== LEVEL_ALL ? v : undefined)">
             <SelectTrigger class="w-30" size="sm">
               <SelectValue :placeholder="t('pages.logs.level')" />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
+                <SelectItem :value="LEVEL_ALL">{{ t('common.all') }}</SelectItem>
                 <SelectItem value="info">{{ logLevelText('info') }}</SelectItem>
                 <SelectItem value="warn">{{ logLevelText('warn') }}</SelectItem>
                 <SelectItem value="error">{{ logLevelText('error') }}</SelectItem>
@@ -42,10 +64,11 @@
             <Input v-model="to" type="datetime-local" class="w-full" />
           </div>
         </div>
+        <!-- 主按钮按筛选条件查询（文案「查询」，planv6.7 ui-simplify-ux-plan X5） -->
         <Button size="sm" :disabled="pending" @click="load">
           <Spinner v-if="pending" data-icon="inline-start" />
-          <RefreshCwIcon v-else data-icon="inline-start" />
-          {{ t('common.refresh') }}
+          <SearchIcon v-else data-icon="inline-start" />
+          {{ t('common.query') }}
         </Button>
         <Button size="sm" variant="outline" @click="exportCSV">{{ t('pages.logs.export') }}</Button>
         <div class="flex items-center gap-2 pb-1">
@@ -54,7 +77,11 @@
         </div>
         <span class="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto sm:pb-1">{{ t('pages.logs.loaded', { n: events.length }) }}</span>
       </CardContent>
-      <div class="p-0">
+      <!-- 趋势紧跟筛选栏，无需先滚过日志行 -->
+      <CardContent class="border-b py-3">
+        <TrendChart v-model:mode="trendMode" :points="trendPoints" dense />
+      </CardContent>
+      <div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -86,7 +113,7 @@
               </TableCell>
               <TableCell class="text-muted-foreground">{{ record.logger }}</TableCell>
               <TableCell class="max-w-md truncate text-left font-sans text-xs text-foreground">{{ record.message }}</TableCell>
-              <TableCell class="max-w-48 truncate text-muted-foreground">{{ record.requestId }}</TableCell>
+              <TableCell class="sb-col-id truncate text-muted-foreground">{{ record.requestId }}</TableCell>
             </TableRow>
           </SbAsyncRegion>
         </Table>
@@ -101,27 +128,6 @@
       </div>
     </Card>
 
-    <Card>
-      <CardHeader class="border-b"><CardTitle>{{ t('pages.logs.trendTitle') }}</CardTitle></CardHeader>
-      <CardContent class="py-4"><TrendChart v-model:mode="trendMode" :points="trendPoints" /></CardContent>
-    </Card>
-
-    <Card>
-      <CardHeader class="border-b">
-        <CardTitle>{{ t('pages.logs.retentionTitle') }}</CardTitle>
-      </CardHeader>
-      <CardContent class="flex flex-wrap items-end gap-2.5 py-4">
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-muted-foreground">{{ t('pages.logs.retentionDays') }}</span>
-          <Input id="keep-days" v-model="keepDaysText" type="number" class="w-24" min="1" max="365" />
-        </div>
-        <Button variant="outline" size="sm" :disabled="savingRetention" @click="saveRetention">
-          <Spinner v-if="savingRetention" data-icon="inline-start" />
-          {{ t('common.save') }}
-        </Button>
-        <span v-if="retentionUpdatedAt" class="pb-1 text-xs text-muted-foreground">{{ t('pages.logs.retentionUpdatedAt', { time: retentionUpdatedAt }) }}</span>
-      </CardContent>
-    </Card>
   </PageContainer>
   </ProjectScope>
 </template>
@@ -130,10 +136,11 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { FilterIcon, RefreshCwIcon } from '@lucide/vue'
+import { FilterIcon, SearchIcon, SettingsIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import {
@@ -160,7 +167,8 @@ import { useProjectStore } from '../stores/project'
 import { useLoadState } from '../composables/useLoadState'
 import { usePagination } from '../composables/usePagination'
 import { logLevelText, logLevelVariant } from '@/lib/status'
-import { formatTime } from '../utils/format'
+import { errorMessage, formatTime } from '../utils/format'
+import { downloadBlob } from '../utils/download'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import SbAsyncRegion from '../components/SbAsyncRegion.vue'
@@ -168,6 +176,10 @@ import TablePager from '../components/TablePager.vue'
 
 const POLL_MS = 10000
 const POLL_SEC = POLL_MS / 1000
+/** reka-ui 的 SelectItem 不允许空字符串 value，用哨兵值表示「全部级别」。 */
+const LEVEL_ALL = '__all__'
+const KEEP_DAYS_MIN = 1
+const KEEP_DAYS_MAX = 365
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -186,9 +198,12 @@ const autoRefresh = ref(false)
 const keepDays = ref(14)
 const keepDaysText = computed({
   get: () => String(keepDays.value),
+  // 清空 / 非数字 / 越界不再提交 0 或负数：空与非数字保持原值，越界夹到 [1, 365]（B4）
   set: (v: string | number) => {
-    const n = Number(v)
-    keepDays.value = Number.isFinite(n) ? n : 14
+    if (String(v).trim() === '') return
+    const n = Math.round(Number(v))
+    if (!Number.isFinite(n)) return
+    keepDays.value = Math.min(KEEP_DAYS_MAX, Math.max(KEEP_DAYS_MIN, n))
   },
 })
 const savingRetention = ref(false)
@@ -242,14 +257,9 @@ function clearFilters() {
 async function exportCSV() {
   try {
     const blob = await api.logs.export(projectStore.id, queryParams())
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = 'logs.csv'
-    anchor.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, 'logs.csv')
   } catch (e) {
-    toast.error((e as Error)?.message || t('pages.logs.exportFailed'))
+    toast.error(errorMessage(e, t('pages.logs.exportFailed')))
   }
 }
 
@@ -262,7 +272,7 @@ async function saveRetention() {
     retentionLoadedFor.value = ''
     await load()
   } catch (e) {
-    toast.error((e as Error)?.message || t('pages.logs.saveFailed'))
+    toast.error(errorMessage(e, t('pages.logs.saveFailed')))
   } finally {
     savingRetention.value = false
   }
@@ -278,8 +288,9 @@ function stopPolling() {
 watch(autoRefresh, (on) => {
   stopPolling()
   if (on) {
+    // 页面隐藏时跳过本轮（与数据看板 F12 一致，B6）
     timer = window.setInterval(() => {
-      void load()
+      if (document.visibilityState !== 'hidden') void load()
     }, POLL_MS)
   }
 })

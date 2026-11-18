@@ -13,7 +13,7 @@
 //	         │
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] beginSSE() ← agent_handler.go, e2b_process_handler.go, e2b_terminal.go
 //
 // 主要符号

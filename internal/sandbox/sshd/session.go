@@ -91,7 +91,7 @@ func (s *Server) handleSession(id Identity, ch ssh.Channel, reqs <-chan *ssh.Req
 				reply(req, false)
 				continue
 			}
-			_ = h.Resize(vm.PTYSize{Cols: sandbox.ClampPTYDim(w.Cols, 80), Rows: sandbox.ClampPTYDim(w.Rows, 24)})
+			_ = h.Resize(vm.PTYSize{Cols: vm.ClampPTYDim(w.Cols, 80), Rows: vm.ClampPTYDim(w.Rows, 24)})
 			h.Touch()
 			reply(req, true)
 		case "shell", "exec":
@@ -101,7 +101,7 @@ func (s *Server) handleSession(id Identity, ch ssh.Channel, reqs <-chan *ssh.Req
 			}
 			spec := sandbox.StartSpec{Kind: sandbox.ProcTerminal}
 			if pty != nil {
-				spec.PTY = &vm.PTYSize{Cols: sandbox.ClampPTYDim(pty.Cols, 80), Rows: sandbox.ClampPTYDim(pty.Rows, 24)}
+				spec.PTY = &vm.PTYSize{Cols: vm.ClampPTYDim(pty.Cols, 80), Rows: vm.ClampPTYDim(pty.Rows, 24)}
 				if term != "" && validTerm(term) {
 					spec.Env = map[string]string{"TERM": term}
 				}

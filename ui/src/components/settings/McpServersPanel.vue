@@ -1,23 +1,15 @@
 <template>
-  <Card>
-    <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
-      <CardTitle>{{ t('components.mcpServers.cardTitle') }}</CardTitle>
-      <CardDescription>{{ t('components.mcpServers.cardDesc', { n: records.length }) }}</CardDescription>
-      <CardAction>
-        <div class="flex items-center gap-2">
-          <Button variant="outline" size="sm" :disabled="loading" @click="load">
-            <Spinner v-if="loading" data-icon="inline-start" />
-            <RefreshCwIcon v-else data-icon="inline-start" />
-            {{ t('common.refresh') }}
-          </Button>
-          <Button v-if="auth.canWrite" size="sm" @click="openCreate">
-            <PlusIcon data-icon="inline-start" />
-            {{ t('components.mcpServers.create') }}
-          </Button>
-        </div>
-      </CardAction>
-    </CardHeader>
-
+  <SbListCard
+    :title="t('components.mcpServers.cardTitle')"
+    :description="t('components.mcpServers.cardDesc', { n: records.length })"
+  >
+    <template #actions>
+      <SbRefreshButton :pending="loading" @click="load" />
+      <Button v-if="auth.canWrite" size="sm" @click="openCreate">
+        <PlusIcon data-icon="inline-start" />
+        {{ t('components.mcpServers.create') }}
+      </Button>
+    </template>
     <div class="p-0">
       <Table>
         <TableHeader>
@@ -98,7 +90,7 @@
       :server="editing"
       @saved="load"
     />
-  </Card>
+  </SbListCard>
 </template>
 
 <script setup lang="ts">
@@ -120,11 +112,12 @@ import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/format'
 import { useLoadState } from '@/composables/useLoadState'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
+import SbListCard from '@/components/SbListCard.vue'
 import ConfirmAction from '@/components/ConfirmAction.vue'
 import McpServerModal from '@/components/modal/McpServerModal.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'

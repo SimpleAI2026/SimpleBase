@@ -15,8 +15,6 @@ import S3Manager from '@/pages/S3Manager.vue'
 interface S3ManagerVM {
   load: () => Promise<void>
   remove: (key: string) => Promise<void>
-  download: (o: Pick<S3Object, 'key' | 'size'>) => Promise<void>
-  copyPrivateLink: (o: Pick<S3Object, 'key' | 'size'>) => Promise<void>
 }
 const s3vm = (w: { vm: unknown }) => w.vm as S3ManagerVM
 
@@ -117,6 +115,58 @@ describe('S3Manager (对象存储)', () => {
     expect(toast.warning).toHaveBeenCalled()
   })
 
+  it('uploads into the current folder prefix (B7) but keeps root uploads for plain prefixes', async () => {
+    api.s3.listDetailed.mockResolvedValue(page([], ['docs/']))
+    const { wrapper } = await mountWithApp(S3Manager)
+    await clickText(wrapper, 'docs/')
+    await flushPromises()
+    await changeFile(wrapper, fileNamed('a.txt'))
+    expect(api.s3.upload.mock.calls.at(-1)?.[1]).toBe('docs/a.txt')
+    const prefix = wrapper.get('.ig-input')
+    await prefix.setValue('img')
+    await changeFile(wrapper, fileNamed('b.txt'))
+    expect(api.s3.upload.mock.calls.at(-1)?.[1]).toBe('b.txt')
+  })
+
+  it('X4：进入子目录显示面包屑，点击上级逐级返回', async () => {
+    api.s3.listDetailed.mockResolvedValue(page([], ['a/']))
+    const { wrapper } = await mountWithApp(S3Manager)
+    expect(wrapper.find('.sb-s3-crumbs').exists()).toBe(false)
+    await wrapper.get('.ig-input').setValue('a/b/')
+    await flushPromises()
+    const nav = wrapper.get('.sb-s3-crumbs')
+    expect(nav.text()).toContain('根目录')
+    expect(nav.text()).toContain('a')
+    expect(nav.text()).toContain('b')
+    await nav.findAll('button').find((b) => b.text() === 'a')!.trigger('click')
+    await flushPromises()
+    expect(api.s3.listDetailed).toHaveBeenLastCalledWith(expect.any(String), 'a/')
+    await wrapper.get('.sb-crumb-root').trigger('click')
+    await flushPromises()
+    expect(api.s3.listDetailed).toHaveBeenLastCalledWith(expect.any(String), undefined)
+    expect(wrapper.find('.sb-s3-crumbs').exists()).toBe(false)
+  })
+
+  it('X4：输入前缀 300ms 后自动查询，连续输入只发一次请求', async () => {
+    vi.useFakeTimers()
+    try {
+      const { wrapper } = await mountWithApp(S3Manager)
+      const before = api.s3.listDetailed.mock.calls.length
+      const input = wrapper.get('.ig-input')
+      await input.setValue('im')
+      await input.setValue('img/')
+      await vi.advanceTimersByTimeAsync(299)
+      expect(api.s3.listDetailed.mock.calls.length).toBe(before)
+      await vi.advanceTimersByTimeAsync(2)
+      await flushPromises()
+      expect(api.s3.listDetailed.mock.calls.length).toBe(before + 1)
+      expect(api.s3.listDetailed).toHaveBeenLastCalledWith(expect.any(String), 'img/')
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('reloads when the project changes and ignores empty file picks', async () => {
     const { wrapper, pinia } = await mountWithApp(S3Manager)
     const input = wrapper.get('input[type="file"]')
@@ -139,9 +189,11 @@ describe('S3Manager (对象存储)', () => {
     await prefix.trigger('keydown.enter')
     await flushPromises()
     expect(api.s3.listDetailed).toHaveBeenCalledWith(expect.any(String), 'images/')
-    await clickText(wrapper, '复制私链')
+    // R3：私链复制收进预览弹窗，行内不再出现
+    expect(wrapper.text()).not.toContain('复制私链')
+    await clickText(wrapper, '打开')
     await flushPromises()
-    expect(api.s3.createLink).toHaveBeenCalledWith(expect.any(String), 'images/a.png')
+    expect(api.s3.presign).toHaveBeenCalled()
   })
 
   it('handles non-Error responses and upload errors', async () => {
@@ -155,18 +207,22 @@ describe('S3Manager (对象存储)', () => {
     expect(toast.error).toHaveBeenCalledWith('up')
   })
 
-  it('downloads blobs and reports download/link failures', async () => {
-    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() })
-    const { wrapper } = await mountWithApp(S3Manager)
-    await s3vm(wrapper).download({ key: 'docs/a.txt', size: 1 })
-    expect(api.s3.download).toHaveBeenCalled()
-    expect(URL.revokeObjectURL).toHaveBeenCalled()
-    api.s3.download.mockRejectedValueOnce(new Error('download'))
-    await s3vm(wrapper).download({ key: 'a', size: 1 })
-    api.s3.createLink.mockRejectedValueOnce(new Error('link'))
-    await s3vm(wrapper).copyPrivateLink({ key: 'a', size: 1 })
-    expect(toast.error).toHaveBeenCalledWith('download')
-    expect(toast.error).toHaveBeenCalledWith('link')
+  it('previews and downloads via S3PreviewModal (R3)', async () => {
+    api.s3.listDetailed.mockResolvedValue(page([{ key: 'docs/a.txt', size: 8, lastModified: '2024-01-01T00:00:00Z' }]))
+    const { wrapper } = await mountWithApp(S3Manager, {
+      stubs: {
+        S3PreviewModal: {
+          props: ['open', 'projectId', 'record'],
+          emits: ['update:open'],
+          template: '<div class="preview-stub" v-if="open">{{ record?.key }}</div>'
+        }
+      }
+    })
+    await clickText(wrapper, '打开')
+    await flushPromises()
+    expect(wrapper.get('.preview-stub').text()).toContain('docs/a.txt')
+    expect(wrapper.text()).not.toContain('复制私链')
+    expect(wrapper.text()).not.toContain('下载')
   })
 
   it('validates key variants and previews images', async () => {

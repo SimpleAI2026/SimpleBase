@@ -2,8 +2,8 @@
 //
 // 用法
 //
-//	Default() *zapLogger
-//	ResetDefault(l *zapLogger)
+//	newZapLogger(writer io.Writer, level Level, opts ...Option) *zapLogger
+//	(l *zapLogger) Sync() error
 //	同包调用：Level → logger.go；InfoLevel → logger.go；WarnLevel → logger.go
 //
 // 调用架构
@@ -61,46 +61,6 @@ type zapLogger struct {
 var std = newZapLogger(os.Stderr, InfoLevel)
 var sugarStd = std.l.Sugar()
 
-func Default() *zapLogger {
-	return std
-}
-
-func ResetDefault(l *zapLogger) {
-	std = l
-	Info = std.l.Info
-	Warn = std.l.Warn
-	Error = std.l.Error
-	DPanic = std.l.DPanic
-	Panic = std.l.Panic
-	Fatal = std.l.Fatal
-	Debug = std.l.Debug
-
-	sugarStd = std.l.Sugar()
-	SugarDebug = sugarStd.Debug
-	SugarInfo = sugarStd.Info
-	SugarWarn = sugarStd.Warn
-	SugarError = sugarStd.Error
-	SugarDPanic = sugarStd.DPanic
-	SugarPanic = sugarStd.Panic
-	SugarFatal = sugarStd.Fatal
-
-	SugarDebugf = sugarStd.Debugf
-	SugarInfof = sugarStd.Infof
-	SugarWarnf = sugarStd.Warnf
-	SugarErrorf = sugarStd.Errorf
-	SugarDPanicf = sugarStd.DPanicf
-	SugarPanicf = sugarStd.Panicf
-	SugarFatalf = sugarStd.Fatalf
-
-	SugarDebugw = sugarStd.Debugw
-	SugarInfow = sugarStd.Infow
-	SugarWarnw = sugarStd.Warnw
-	SugarErrorw = sugarStd.Errorw
-	SugarDPanicw = sugarStd.DPanicw
-	SugarPanicw = sugarStd.Panicw
-	SugarFatalw = sugarStd.Fatalw
-}
-
 type Option = zap.Option
 
 var (
@@ -150,13 +110,6 @@ func newLogger(writer io.Writer, level Level, console bool, opts ...Option) *zap
 
 func (l *zapLogger) Sync() error {
 	return l.l.Sync()
-}
-
-func syncDefault() error {
-	if std != nil {
-		return std.Sync()
-	}
-	return nil
 }
 
 func (l *zapLogger) Debug(msg string, field ...Field) {

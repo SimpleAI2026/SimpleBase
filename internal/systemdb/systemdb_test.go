@@ -880,3 +880,6 @@ func TestSeedGlobalRetentionAndFlushTicker(t *testing.T) {
 	}
 	t.Fatal("timed out waiting for log flush ticker")
 }
+
+// SystemTableCount 返回系统表数量；仅测试当断言辅助使用（planv6.6 §1.3 T-4）。
+func SystemTableCount() int { return len(systemTables) }

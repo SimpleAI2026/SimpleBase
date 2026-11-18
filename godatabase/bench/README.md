@@ -66,8 +66,8 @@ GOWORK=off go test -run='^TestReadLatencyPhases$' -v -count=1 ./bench
 ## 已知边界
 
 - 测的是「文件数 → CPU / 元数据开销」这一层，远端 COS 的每文件网络往返无法本地复现，
-  需按 `plan/planv4.0/ducklake-rw-latency-eventual-consistency-plan.md` P0 在真实实例复测。
+  需按 `plan/planv6.7/legacy-plan-consolidation-plan.md` P0 在真实实例复测。
 - `Inlining=0` 是最坏情况，不是生产配置；不注入 bug、不修改产品代码。
 - 历史基线（2026-10-08，原 `benchmarks/dbread`，含 systemdb bootstrap 约 44 个基础文件）见
-  `plan/planv5.0/db-read-performance-and-s3-architecture-plan.md`；
+  `plan/planv6.7/legacy-plan-consolidation-plan.md`；
   `QueryLogs` 对存活文件数近似单文件线性。

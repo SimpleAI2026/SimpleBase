@@ -742,7 +742,7 @@ func (m *Manager) validExec(in ExecInput) (vm.ExecSpec, error) {
 		cwd = m.workdir()
 	}
 	var err error
-	cwd, err = cleanPath(m.workdir(), cwd, true)
+	cwd, err = vm.CleanPath(m.workdir(), cwd, true)
 	if err != nil {
 		return vm.ExecSpec{}, err
 	}
@@ -804,7 +804,7 @@ func (m *Manager) Exec(ctx context.Context, projectID, id string, in ExecInput) 
 
 func (m *Manager) ReadFile(ctx context.Context, projectID, id, p string) (FileContent, error) {
 	var result FileContent
-	clean, err := cleanPath(m.workdir(), p, false)
+	clean, err := vm.CleanPath(m.workdir(), p, false)
 	if err != nil {
 		return result, err
 	}
@@ -839,7 +839,7 @@ func (m *Manager) ReadFile(ctx context.Context, projectID, id, p string) (FileCo
 }
 
 func (m *Manager) WriteFile(ctx context.Context, projectID, id, p string, data []byte) error {
-	clean, err := cleanPath(m.workdir(), p, false)
+	clean, err := vm.CleanPath(m.workdir(), p, false)
 	if err != nil {
 		return err
 	}
@@ -866,7 +866,7 @@ func (m *Manager) WriteFile(ctx context.Context, projectID, id, p string, data [
 }
 
 func (m *Manager) RemoveFile(ctx context.Context, projectID, id, p string) error {
-	clean, err := cleanPath(m.workdir(), p, false)
+	clean, err := vm.CleanPath(m.workdir(), p, false)
 	if err != nil {
 		return err
 	}
@@ -893,7 +893,7 @@ func (m *Manager) ListDir(ctx context.Context, projectID, id, p string) ([]vm.Fi
 	if p == "" {
 		p = m.workdir()
 	}
-	clean, err := cleanPath(m.workdir(), p, true)
+	clean, err := vm.CleanPath(m.workdir(), p, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1004,7 +1004,7 @@ func (m *Manager) WriteFileForThread(ctx context.Context, projectID, threadID, p
 	if err != nil {
 		return err
 	}
-	clean, err := cleanPath(m.workdir(), p, false)
+	clean, err := vm.CleanPath(m.workdir(), p, false)
 	if err != nil {
 		return err
 	}

@@ -63,6 +63,9 @@ type createRunBody struct {
 	// StarterStage 是搭建会话的阶段（home-starter-prompts-plan §2.7）：仅搭建会话接受，
 	// 服务端按阶段白名单换算技能；客户端不能直接传技能 id。
 	StarterStage string `json:"starter_stage"`
+	// BIContext 非空表示数据看板的「Agent 生成图表」运行（planv6.7 §3.4）：
+	// 只用于本轮提示词与 env，不落库、不进 user 消息；运行强制只读。
+	BIContext *biContextBody `json:"bi_context"`
 }
 
 func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
@@ -125,6 +128,11 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 			return WriteError(c, err)
 		}
 		skills, readonlySkills = stageSkills, stageReadonly
+	}
+	// 数据看板 BI 上下文：在建 run / 落库之前校验，非法请求不留任何记录。
+	biCtx, err := resolveBIContext(body.BIContext, starterStage, thread, agent)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	// 重试校验（BUG-03）：目标 run 必须属于本 thread、状态 failed/canceled、且是 thread 最新一次 run。
 	var retryUser systemdb.AgentMessage
@@ -247,6 +255,8 @@ func (h *cloudAgentHandler) CreateRun(c echo.Context) error {
 			req.StarterStage = cloudagent.StarterStagePlan
 		}
 	}
+	// BI 运行强制只读（即使助手被设为可写），放在最后覆盖前面所有对 Writable 的调整。
+	applyBIRunPolicy(&req, biCtx)
 
 	// 二期 trace（planv6.5 §10.2）：run 级 ctx 注入 run_id 作为 trace_id；
 	// completeRun / streamRun 内部继承此 ctx，llmgateway 落 llm span 时携带。

@@ -35,7 +35,7 @@
     <div class="relative w-full">
       <div
         ref="el"
-        class="h-72 w-full sm:h-[22rem]"
+        :class="dense ? 'h-48 w-full sm:h-56' : 'h-72 w-full sm:h-[22rem]'"
         role="img"
         :aria-label="t('components.trendChart.ariaLabel', {
           mode: mode === 'bar' ? t('components.trendChart.bar') : t('components.trendChart.line'),
@@ -68,8 +68,10 @@ const props = withDefaults(
     mode?: ChartMode
     /** 只读展示（如首页预览）时隐藏柱/线切换 */
     hideControls?: boolean
+    /** 紧凑高度（日志页等需要把趋势放在列表上方的场景） */
+    dense?: boolean
   }>(),
-  { mode: 'line', hideControls: false }
+  { mode: 'line', hideControls: false, dense: false }
 )
 
 const emit = defineEmits<{ 'update:mode': [mode: ChartMode] }>()

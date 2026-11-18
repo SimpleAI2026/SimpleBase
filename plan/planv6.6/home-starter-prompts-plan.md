@@ -1,7 +1,7 @@
 # 首页「一句话建应用」引导计划（v6.6）
 
 > 目标：让第一次打开首页的用户马上知道怎么用 SimpleBase：**点一个提示词 → 自动建项目 → 跳到该项目的云助手（通用助手）→ 按提示词把数据库、云函数、定时任务、前端站点全部建好 → 最后给出访问入口与资源清单**。
-> 承接：`planv6.0/cloud-assistant-chat-ux-plan.md`（提示词点击只填不发 §3.5）、`planv6.5/object-storage-sites-plan.md`（`<项目ID>.<base_domain>` 站点面）、`planv6.6/site-deploy-bff-plan.md`（站点面只读、没有 `/api/*`）。
+> 承接：`plan/planv6.7/legacy-plan-consolidation-plan.md`（提示词点击只填不发 §3.5）、`planv6.5/object-storage-sites-plan.md`（`<项目ID>.<base_domain>` 站点面）、`planv6.6/site-deploy-bff-plan.md`（站点面只读、没有 `/api/*`）。
 
 ## 0. 现状与差距
 

@@ -359,12 +359,6 @@ func TestProcessValidationAndNotFound(t *testing.T) {
 	}
 }
 
-func TestClampU16(t *testing.T) {
-	if sandbox.ClampPTYDim(0, 80) != 80 || sandbox.ClampPTYDim(50, 80) != 50 || sandbox.ClampPTYDim(5000, 80) != 1000 {
-		t.Fatal("clampU16")
-	}
-}
-
 // ---- 控制台能力 ----
 
 func TestCapabilitiesReportsTerminalAndSSH(t *testing.T) {

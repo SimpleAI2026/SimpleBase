@@ -1,32 +1,20 @@
 <template>
   <ProjectScope>
     <PageContainer :subtitle="t('pages.functionTriggers.subtitle')">
-      <Card>
-        <CardHeader class="flex-wrap gap-3 border-b max-sm:[&_[data-slot=card-action]]:w-full max-sm:[&_[data-slot=card-action]]:justify-start">
-          <CardTitle>{{ t('pages.functionTriggers.cardTitle') }}</CardTitle>
-          <CardDescription>{{ t('pages.functionTriggers.cardDesc', { n: total }) }}</CardDescription>
-          <CardAction v-if="!isAdmin">
-            <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" :disabled="pending" @click="load">
-                <Spinner v-if="pending" data-icon="inline-start" />
-                <RefreshCwIcon v-else data-icon="inline-start" />
-                {{ t('common.refresh') }}
-              </Button>
-              <Button v-if="auth.canWrite" size="sm" @click="openCreate">
-                <PlusIcon data-icon="inline-start" />
-                {{ t('pages.functionTriggers.create') }}
-              </Button>
-            </div>
-          </CardAction>
-          <CardAction v-else>
-            <Button variant="outline" size="sm" :disabled="pending" @click="load">
-              <Spinner v-if="pending" data-icon="inline-start" />
-              <RefreshCwIcon v-else data-icon="inline-start" />
-              {{ t('common.refresh') }}
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <div class="p-0">
+      <SbListCard
+        :title="t('pages.functionTriggers.cardTitle')"
+        :description="t('pages.functionTriggers.cardDesc', { n: total })"
+        :pager="{ page, pageSize, total, pageCount }"
+        @update:page="page = $event"
+      >
+        <template #actions>
+          <SbRefreshButton :pending="pending" @click="load" />
+          <Button v-if="canWrite" size="sm" @click="openCreate">
+            <PlusIcon data-icon="inline-start" />
+            {{ t('pages.functionTriggers.create') }}
+          </Button>
+        </template>
+        <div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -48,7 +36,7 @@
               :error="error"
               :empty-title="isAdmin ? t('pages.functionTriggers.emptyAdminTitle') : t('pages.functionTriggers.empty')"
               :empty-description="isAdmin ? t('pages.functionTriggers.emptyAdminDesc') : t('pages.functionTriggers.emptyDesc')"
-              :empty-action-text="!isAdmin && auth.canWrite ? t('pages.functionTriggers.create') : undefined"
+              :empty-action-text="canWrite ? t('pages.functionTriggers.create') : undefined"
               @retry="load"
               @empty-action="openCreate"
             >
@@ -95,18 +83,10 @@
                   <span v-else class="text-xs text-muted-foreground">—</span>
                 </TableCell>
               </TableRow>
-            </SbAsyncRegion>
+          </SbAsyncRegion>
           </Table>
-          <TablePager
-            variant="footer"
-            :page="page"
-            :page-size="pageSize"
-            :total="total"
-            :page-count="pageCount"
-            @update:page="page = $event"
-          />
         </div>
-      </Card>
+      </SbListCard>
 
       <FunctionTriggerModal v-model:open="modalOpen" :project-id="projectId" @saved="load" />
     </PageContainer>
@@ -114,11 +94,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
-import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { PlusIcon } from '@lucide/vue'
 import { api } from '@/services/api'
 import type { FunctionTrigger } from '@/services/types'
 import { useProjectStore } from '@/stores/project'
@@ -129,11 +109,11 @@ import { usePagination } from '@/composables/usePagination'
 import PageContainer from '@/components/PageContainer.vue'
 import ProjectScope from '@/components/ProjectScope.vue'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
+import SbListCard from '@/components/SbListCard.vue'
 import ConfirmAction from '@/components/ConfirmAction.vue'
-import TablePager from '@/components/TablePager.vue'
 import FunctionTriggerModal from '@/components/modal/FunctionTriggerModal.vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -142,6 +122,8 @@ const { t } = useI18n()
 const project = useProjectStore()
 const auth = useAuthStore()
 const { projectId, isAdmin } = storeToRefs(project)
+/** 写入口：系统项目与只读角色都隐藏（planv6.7 ui-simplify-ux-plan S2）。 */
+const canWrite = computed(() => !isAdmin.value && auth.canWrite)
 const records = ref<FunctionTrigger[]>([])
 const toggling = ref(new Set<string>())
 const invoking = ref(new Set<string>())
@@ -166,7 +148,6 @@ function load() {
     const data = await api.triggers.list(currentProject)
     if (request !== listRequest || currentProject !== projectId.value) return records.value.length > 0
     records.value = data || []
-    page.value = 1
     return records.value.length > 0
   })
 }
@@ -215,6 +196,7 @@ async function remove(item: FunctionTrigger) {
 
 watch(projectId, () => {
   modalOpen.value = false
+  page.value = 1
   void load()
 }, { immediate: true })
 </script>

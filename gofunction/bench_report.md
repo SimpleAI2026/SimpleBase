@@ -3,8 +3,8 @@
 - 日期：2026-09-19
 - 环境：macOS / Apple M4 Pro（arm64，14 核），go 1.25.0（实测 1.26.1 runtime），golang.org/x/tools v0.41.0
 - 基准代码：`gofunction/internal/interp/bench_test.go`
-- 优化方案：`plan/planv2.0/gofunction-perf-plan.md`（P0/P1/P2）、
-  `plan/planv2.0/gofunction-perf-plan-v3.md`（P3-1/2/3/4/5 全部完成）
+- 优化方案：P0/P1/P2 与 P3-1/2/3/4/5 已全部完成（原 `planv2.0/gofunction-perf-plan*.md` 已删，
+  摘要见 `plan/planv6.7/legacy-plan-consolidation-plan.md` §4.6）
 - 验证：`go build` / `go vet` / `go test -race -count=1 ./...` 四包全绿
 
 ## 1. 优化内容总览
@@ -103,7 +103,7 @@ go tool pprof -top -lines -sample_index=alloc_objects m.prof
 # v6.5 优化报告（A 槽位固化 / B 宿主端到端 / C 清理）
 
 - 日期：2026-11-03
-- 优化方案：`plan/planv6.5/gofunction-optimization-plan.md`（A/B/C/D 全部完成）
+- 优化方案：A/B/C/D 全部完成（原计划文档已删，编号与偏差见 `plan/planv6.7/legacy-plan-consolidation-plan.md` §3-K8）
 - 验证：`go build` / `go vet` / `go test -race -count=1 ./...` 七包全绿
 
 ## v6.5-1 优化内容

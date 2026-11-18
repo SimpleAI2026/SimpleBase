@@ -46,6 +46,17 @@ describe('Logs (日志管理)', () => {
     expect(toast.success).toHaveBeenCalledWith('已保存保留策略')
   })
 
+  it('X6：趋势在日志表格上方，保留策略收进卡片头弹层', async () => {
+    const { wrapper } = await mountWithApp(Logs)
+    const html = wrapper.html()
+    expect(html.indexOf('trend-chart')).toBeGreaterThan(-1)
+    expect(html.indexOf('trend-chart')).toBeLessThan(html.indexOf('<table'))
+    expect(wrapper.findAll('.card')).toHaveLength(1)
+    const trigger = wrapper.get('[data-action="retention"]')
+    expect(trigger.text()).toContain('保留策略')
+    expect(wrapper.get('.card-action').find('input[type="number"]').exists()).toBe(true)
+  })
+
   it('handles load/save errors and skips work without a project', async () => {
     api.logs.list.mockRejectedValueOnce(new Error('log fail'))
     await mountWithApp(Logs)
@@ -61,7 +72,7 @@ describe('Logs (日志管理)', () => {
     const { useProjectStore } = await import('@/stores/project')
     const store = useProjectStore(pinia)
     store.projectId = ''
-    await clickText(wrapper, '刷新')
+    await clickText(wrapper, '查询')
     await clickText(wrapper, '保存')
     await flushPromises()
   })
@@ -85,7 +96,7 @@ describe('Logs (日志管理)', () => {
     const locals = wrapper.findAll('input[type="datetime-local"]')
     await locals[0].setValue('2024-01-01T00:00')
     await locals[1].setValue('2024-01-02T00:00')
-    await clickText(wrapper, '刷新')
+    await clickText(wrapper, '查询')
     await flushPromises()
     const q = api.logs.list.mock.calls.at(-1)?.[1]
     expect(q.q).toBe('err')
@@ -127,6 +138,12 @@ describe('Logs (日志管理)', () => {
     if (logs.wrapper.find('.select-empty').exists()) await logs.wrapper.get('.select-empty').trigger('click')
     lvm.keepDaysText = 'nope'
     expect(lvm.keepDays).toBe(14)
+    lvm.keepDaysText = ''
+    expect(lvm.keepDays).toBe(14)
+    lvm.keepDaysText = '0'
+    expect(lvm.keepDays).toBe(1)
+    lvm.keepDaysText = '999'
+    expect(lvm.keepDays).toBe(365)
     api.logs.list.mockRejectedValueOnce('load-logs')
     await lvm.load()
     logs.wrapper.unmount()
@@ -139,6 +156,7 @@ describe('Logs (日志管理)', () => {
     const vm = wrapper.vm as unknown as { exportCSV: () => Promise<void> }
     await vm.exportCSV()
     expect(api.logs.export).toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(0)
     expect(URL.revokeObjectURL).toHaveBeenCalled()
     api.logs.export.mockRejectedValueOnce(new Error('export'))
     await vm.exportCSV()

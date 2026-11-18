@@ -15,7 +15,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] gocloudagent, godatabase, internal/agentbridge, internal/auth 等
-//	[同包] adapter.go, agent_schedule_handler.go, api_key_policy.go, api_keys_handler.go, auth_handler.go 等 59 个
+//	[同包] adapter.go, api_key_policy.go, api_keys_handler.go, auth_handler.go 等 59 个
 //	[关键引用] cloudAgentHandler ← router.go, run_events.go
 //
 // 主要符号
@@ -867,6 +867,10 @@ var ErrStarterNotAllowed = errors.New("starter session is not allowed")
 
 // ErrStarterStageInvalid 表示 starter_stage 不在白名单，或会话不是搭建会话。
 var ErrStarterStageInvalid = errors.New("starter stage is invalid")
+
+// ErrBIContextInvalid 表示数据看板的 bi_context 不合法（planv6.7 §3.4）：
+// 助手模块不支持、与搭建会话冲突、数据源标识或偏好类型不合规。
+var ErrBIContextInvalid = errors.New("bi context is invalid")
 
 // checkStarterAllowed 校验创建搭建会话的全部前置条件（home-starter-prompts-plan §2.4）：
 // 目标必须是内置通用助手、模板在服务端白名单内、调用方具备 database:admin、

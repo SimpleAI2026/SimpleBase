@@ -77,6 +77,10 @@
           <CopyIcon data-icon="inline-start" />
           {{ t('components.s3Preview.copyContent') }}
         </Button>
+        <Button variant="outline" @click="copyLink">
+          <CopyIcon data-icon="inline-start" />
+          {{ t('components.s3Preview.copyLink') }}
+        </Button>
         <Button variant="outline" @click="emit('update:open', false)">
           {{ t('common.close') }}
         </Button>
@@ -211,6 +215,19 @@ async function download() {
     } else {
       toast.error(t('pages.s3.linkFailed'))
     }
+  }
+}
+
+/** 复制私有访问链接（与旧列表行内「复制私链」一致，planv6.7 R3 收进预览弹窗）。 */
+async function copyLink() {
+  const record = props.record
+  if (!record) return
+  try {
+    const link = await api.s3.createLink(props.projectId, record.key)
+    await navigator.clipboard.writeText(new URL(link.url, window.location.origin).toString())
+    toast.success(t('pages.s3.linkCopied'))
+  } catch (e) {
+    toast.error(errorMessage(e, t('pages.s3.linkFailed')))
   }
 }
 

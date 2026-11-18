@@ -12,6 +12,7 @@ vm/                    云沙盒的执行后端：Driver 接口，以及 local /
   box/                 常驻 agent 后端：每沙盒一个 bwrap + 一个 PID 1 agent（后台进程存活、热 exec）
   fake/                内存假后端（仅测试）
 proto/                 宿主 ↔ 沙盒 agent 的帧协议（len|kind|payload，块数据走裸字节）
+stream/                进程输出的单读者多订阅广播（回放缓冲 + 背压语义）
 agent/                 沙盒内 PID 1：进程表、PTY、信号、rlimits、文件服务、观测、入站中继
 box/                   宿主侧：拉起 agent、单写者帧通道、进程句柄、日志落盘
 image/                 镜像：引用解析、registry 拉取、blob store、层解包（压平成只读根）
@@ -19,7 +20,7 @@ netx/                  出网档位（none / egress）与 pasta 用户态出网
 snapshot/              快照与 fork：文件系统归档（内容寻址）
 ```
 
-依赖方向只有 `vm/* → box → {proto, netx, host}`，`vm/box` 另直接用 `image`、`snapshot`；`host` 不 import 其它新包。`vm/local` 与 `vm/box` 在隔离不可用时都返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK；镜像拉取直接实现 registry 协议，不引入 `go-containerregistry`。
+依赖方向只有 `vm/* → box → {proto, netx, host}`，`vm/box` 另直接用 `image`、`snapshot`；`host` 与 `stream` 不 import 其它新包。`vm/local` 与 `vm/box` 在隔离不可用时都返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK；镜像拉取直接实现 registry 协议，不引入 `go-containerregistry`。
 
 ## vm/box：常驻 agent 后端
 
@@ -47,6 +48,31 @@ res, err := d.Exec(ctx, vm.Target{Name: "sb1", Spec: vm.Spec{Image: "python:3.12
 ```
 
 `image=host`（或空）时不经过镜像，沙盒以宿主根只读运行——与 `vm/local` 的行为一致。
+
+## vm：宿主与驱动共用的规则
+
+这三样以前散在 `internal/sandbox`，现在只有一份实现：
+
+| 符号 | 作用 |
+|---|---|
+| `vm.CleanPath` | 「逻辑路径必须落在 `Spec.Workdir` 之下」的字符串级校验；`vm/local` 把逻辑路径映射到真实工作区时也用它 |
+| `vm.ClampPTYDim` | 终端行列数收敛（0 取默认、上限 1000），E2B 的 process 端点与 SSH 会话共用 |
+| `vm.LogQuery` / `vm.LogRecord` | 日志回放的参数与记录，格式在 `box` 侧，上层直接用这两个类型 |
+
+## stream：进程输出广播
+
+`vm.Proc.Output()` 只有一个读者，而终端、SSH、`process.Connect` 可能同时要看
+同一个进程的输出。`stream.Hub` 持有唯一的读协程，把数据放进固定上限的回放缓冲
+（`stream.ReplayCap`，默认 256 KiB）再推给所有订阅者：新订阅者先拿到断开期间的
+历史，落后太多的订阅者从现存最早的数据继续（丢弃的部分找不回），源结束后
+`Read` 返回 `io.EOF`，订阅被 `Close` 时返回 `io.ErrClosedPipe`。
+
+```go
+h := stream.NewHub(proc.Output())
+sub := h.Subscribe(true) // true = 先回放历史
+defer sub.Close()
+io.Copy(w, sub)
+```
 
 ## image：镜像拉取与解包
 

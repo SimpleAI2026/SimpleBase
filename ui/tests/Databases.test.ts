@@ -103,7 +103,7 @@ const dbStubs = {
 }
 
 function expandButtons(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wrapper']) {
-  return wrapper.findAll('button').filter((b) => (b.attributes('class') || '').includes('rounded-full'))
+  return wrapper.findAll('button').filter((b) => b.attributes('data-row-expand') !== undefined)
 }
 
 describe('Databases (数据管理)', () => {
@@ -435,7 +435,7 @@ describe('Databases desktop table actions', () => {
     await flushPromises()
     if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
 
-    const expand = wrapper.findAll('button').find((b) => b.attributes('class')?.includes('rounded-full'))
+    const expand = wrapper.findAll('button').find((b) => b.attributes('data-row-expand') !== undefined)
     if (expand) await expand.trigger('click')
     await flushPromises()
     if (wrapper.find('.view-data').exists()) {

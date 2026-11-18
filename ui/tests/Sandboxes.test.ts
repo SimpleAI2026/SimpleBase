@@ -132,6 +132,15 @@ describe('Sandboxes interactions', () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain('ci-test')
     expect(wrapper.text()).toContain('idle-one')
+    // 筛选无结果：提示「无匹配」并可一键清除（planv6.7 ui-simplify-ux-plan X7 同款）
+    const fvm = wrapper.vm as unknown as { statusFilter: string; sourceFilter: string }
+    fvm.sourceFilter = 'agent'
+    await flushPromises()
+    expect(wrapper.text()).toContain('没有符合当前筛选条件的结果')
+    await clickText(wrapper, '清除筛选')
+    expect(fvm.statusFilter).toBe('__all__')
+    expect(fvm.sourceFilter).toBe('__all__')
+    expect(wrapper.text()).toContain('ci-test')
     const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-project', 'Other')
     await flushPromises()

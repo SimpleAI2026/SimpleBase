@@ -123,6 +123,8 @@ import {
   toDatabaseSchema,
   toDocumentItem,
   toDocumentPage,
+  toAggregateParams,
+  toAggregateResult,
   toExecuteResult,
   toFunctionTrigger,
   toGoFunctionItem,
@@ -514,9 +516,16 @@ export const httpApi: Api = {
     tableRows: (projectId, databaseId, table, query) =>
       http
         .get(databaseResourcePath(projectId, databaseId, '/schema/tables/' + encodeURIComponent(table) + '/rows'), {
-          params: { limit: query.limit, offset: query.offset }
+          // filter 为空时不带该键，请求与改造前逐字一致。
+          params: { limit: query.limit, offset: query.offset, ...(query.filter ? { filter: query.filter } : {}) }
         })
         .then((r) => toSchemaTableRows(r.data)),
+    aggregateTable: (projectId, databaseId, table, query) =>
+      http
+        .get(databaseResourcePath(projectId, databaseId, '/schema/tables/' + encodeURIComponent(table) + '/aggregate'), {
+          params: toAggregateParams(query)
+        })
+        .then((r) => toAggregateResult(r.data)),
     createTable: (projectId, databaseId, table) =>
       http
         .post(databaseResourcePath(projectId, databaseId, '/schema/tables'), {
@@ -645,6 +654,12 @@ export const httpApi: Api = {
           dataCollectionsPath(projectId, databaseId, collection) + '/documents/' + encodeURIComponent(id)
         )
         .then((r) => toDocumentItem(r.data)),
+    aggregate: (projectId, databaseId, collection, query) =>
+      http
+        .get(dataCollectionsPath(projectId, databaseId, collection) + '/aggregate', {
+          params: toAggregateParams(query)
+        })
+        .then((r) => toAggregateResult(r.data)),
     patch: (projectId, databaseId, collection, id, payload) =>
       http
         .patch(

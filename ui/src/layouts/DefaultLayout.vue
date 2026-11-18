@@ -15,19 +15,16 @@
       <SidebarContent class="gap-0 pt-2">
         <NavMenu />
         <div class="mx-3 mt-3 flex flex-col gap-1 border-t border-sidebar-border pt-3 sm:hidden">
-          <router-link to="/docs" target="_blank" rel="noopener noreferrer" class="inline-flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+          <router-link to="/docs" target="_blank" rel="noopener noreferrer" :class="SIDE_ENTRY">
             <BookOpenIcon aria-hidden="true" class="size-4" />{{ t('layout.docs') }}
           </router-link>
-          <button type="button" class="inline-flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" @click="toggleTheme">
+          <button type="button" :class="SIDE_ENTRY" @click="toggleTheme">
             <SunIcon v-if="settingsStore.effectiveTheme === 'light'" aria-hidden="true" class="size-4" />
             <MoonIcon v-else aria-hidden="true" class="size-4" />{{ t('layout.toggleTheme') }}
           </button>
-          <button type="button" class="inline-flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" @click="authStore.openSettings()">
+          <button type="button" :class="SIDE_ENTRY" @click="authStore.openSettings()">
             <SettingsIcon aria-hidden="true" class="size-4" />{{ t('layout.settings') }}
             <span v-if="authStore.lastUnauthorizedAt > 0" class="size-1.5 rounded-full bg-destructive" :aria-label="t('layout.apiKeyInvalid')" />
-          </button>
-          <button type="button" class="inline-flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" @click="reload">
-            <RefreshCwIcon aria-hidden="true" class="size-4" />{{ t('layout.refreshPage') }}
           </button>
           <div class="flex items-center justify-between gap-2 px-2.5 py-1.5">
             <span class="text-sm text-sidebar-foreground">{{ t('layout.language') }}</span>
@@ -82,7 +79,7 @@
           <div class="hidden items-center gap-1 sm:flex">
             <Tooltip>
               <TooltipTrigger as-child>
-                <Button variant="ghost" size="icon" class="size-8 rounded-lg text-muted-foreground hover:text-foreground" :aria-label="themeToggleLabel" @click="toggleTheme">
+                <Button variant="ghost" size="icon" :class="TOOL_BTN" :aria-label="themeToggleLabel" @click="toggleTheme">
                   <SunIcon v-if="settingsStore.effectiveTheme === 'light'" class="size-4" />
                   <MoonIcon v-else class="size-4" />
                 </Button>
@@ -91,7 +88,7 @@
             </Tooltip>
             <Tooltip>
               <TooltipTrigger as-child>
-                <Button variant="ghost" size="icon" class="size-8 rounded-lg text-muted-foreground hover:text-foreground" :aria-label="settingsLabel" @click="authStore.openSettings()">
+                <Button variant="ghost" size="icon" :class="TOOL_BTN" :aria-label="settingsLabel" @click="authStore.openSettings()">
                   <span class="relative inline-flex">
                     <SettingsIcon class="size-4" />
                     <span
@@ -106,14 +103,6 @@
               </TooltipContent>
             </Tooltip>
             <LocaleSelect class="h-8 rounded-lg border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground dark:bg-transparent dark:hover:bg-muted/50" />
-            <Tooltip>
-              <TooltipTrigger as-child>
-                <Button variant="ghost" size="icon" class="size-8 rounded-lg text-muted-foreground hover:text-foreground" :aria-label="t('layout.refreshPage')" @click="reload">
-                  <RefreshCwIcon class="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{{ t('layout.refreshPage') }}</TooltipContent>
-            </Tooltip>
           </div>
 
           <UserMenu v-if="authStore.isAuthenticated" />
@@ -131,14 +120,14 @@
     </SidebarInset>
 
     <SettingsModal />
-    <LoginModal :open="authStore.loginOpen || authStore.mustChangePassword" />
+    <LoginModal :open="authStore.loginOpen || authStore.mustChangePassword || authStore.passwordDialogOpen" />
   </SidebarProvider>
 </template>
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { BookOpenIcon, MoonIcon, RefreshCwIcon, SettingsIcon, SunIcon } from '@lucide/vue'
+import { BookOpenIcon, MoonIcon, SettingsIcon, SunIcon } from '@lucide/vue'
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
 import {
@@ -160,7 +149,13 @@ import SettingsModal from '../components/SettingsModal.vue'
 import LoginModal from '../components/modal/LoginModal.vue'
 import UserMenu from '../components/UserMenu.vue'
 import GlobalProjectSwitcher from '../components/GlobalProjectSwitcher.vue'
-import router from '../router'
+import { routeMeta, routeTitle } from '../router'
+
+/** 顶栏工具按钮（主题 / 设置）统一 32px 方块，与项目切换器、语言选择同高 h-8（planv6.7 ui-simplify-ux-plan S3）。 */
+const TOOL_BTN = 'size-8 rounded-lg text-muted-foreground hover:text-foreground'
+/** 窄屏侧栏底部入口（文档 / 主题 / 设置）共用样式。 */
+const SIDE_ENTRY =
+  'inline-flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
 
 /** 设置弹窗页签白名单（「模型」已迁至 /console/models，planv6.5）。 */
 const SETTINGS_TABS: SettingsTab[] = ['connection', 'storage', 'backups']
@@ -208,8 +203,7 @@ watch(
 watch(
   () => route.name,
   (name) => {
-    const r = router.getRoutes().find((rr) => rr.name === name)
-    const need = r?.meta?.requiresRole as string | undefined
+    const need = routeMeta(name)?.requiresRole as string | undefined
     if (need === 'superadminl1' && authStore.isAuthenticated && !authStore.isSuper) {
       void vueRouter.replace({ name: 'agents' })
     }
@@ -217,16 +211,6 @@ watch(
   { immediate: true }
 )
 
-const currentTitle = computed(() => {
-  const name = route.name as string
-  if (!name) return 'SimpleBase'
-  const r = router.getRoutes().find((rr) => rr.name === name)
-  const key = r?.meta?.titleKey as string | undefined
-  if (key) return t(key)
-  return (r?.meta?.title as string) || 'SimpleBase'
-})
+const currentTitle = computed(() => routeTitle(route.name, t) || 'SimpleBase')
 
-function reload() {
-  location.reload()
-}
 </script>

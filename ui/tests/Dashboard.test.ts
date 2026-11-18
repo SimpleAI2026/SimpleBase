@@ -90,13 +90,20 @@ describe('Dashboard (监控大盘)', () => {
   it('loads metric cards, request trend, and resource summary counts', async () => {
     const { wrapper } = await mountWithApp(Dashboard)
     expect(wrapper.text()).toContain('系统运行状态与项目资源概览')
-    expect(wrapper.text()).toContain('数据库总数')
-    expect(wrapper.text()).toContain('就绪数据库')
-    expect(wrapper.text()).toContain('异常数据库')
+    // X2：数据库状态一张卡（就绪 / 总数 + 异常提示）· 24h 请求 · 错误率 · 配额
+    expect(wrapper.text()).toContain('数据库状态')
+    expect(wrapper.text()).toContain('1 / 3')
+    expect(wrapper.text()).toContain('1 个异常')
+    expect(wrapper.text()).not.toContain('数据库总数')
+    expect(wrapper.text()).not.toContain('就绪数据库')
+    expect(wrapper.text()).not.toContain('异常数据库')
+    expect(wrapper.text()).toContain('24 小时请求')
+    expect(wrapper.text()).toContain('平均延迟 13ms')
+    expect(wrapper.text()).toContain('错误率')
+    expect(wrapper.text()).toContain('1.5000%')
     expect(wrapper.text()).toContain('配额状态')
     expect(wrapper.text()).toContain('正常')
-    expect(wrapper.text()).toContain('请求 9')
-    expect(wrapper.text()).toContain('错误率 1.5000%')
+    expect(wrapper.text()).toContain('资源汇总')
     // 资源汇总：只展示类型与数量，不列明细名称
     expect(wrapper.text()).toContain('资源类型')
     expect(wrapper.text()).toContain('数据库')
@@ -144,11 +151,11 @@ describe('Dashboard (监控大盘)', () => {
     api.metrics.trend.mockRejectedValueOnce(new Error('trend'))
     api.metrics.summary.mockRejectedValueOnce(new Error('summary'))
     const { wrapper } = await mountWithApp(Dashboard)
-    expect(wrapper.text()).toContain('数据库总数')
+    expect(wrapper.text()).toContain('数据库状态')
     expect(wrapper.text()).toContain('-')
     expect(wrapper.text()).toContain('趋势加载失败')
     expect(wrapper.text()).not.toContain('暂无趋势数据')
-    expect(wrapper.text()).not.toContain('请求 9')
+    expect(wrapper.text()).not.toContain('24 小时请求 9')
     expect(toast.error).toHaveBeenCalledWith('部分数据加载失败')
   })
 
@@ -157,7 +164,7 @@ describe('Dashboard (监控大盘)', () => {
     const { wrapper } = await mountWithApp(Dashboard)
     expect(wrapper.text()).toContain('趋势加载失败')
     // 数据库/函数计数正常展示
-    expect(wrapper.text()).toContain('数据库总数')
+    expect(wrapper.text()).toContain('数据库状态')
     wrapper.unmount()
   })
 
@@ -250,7 +257,7 @@ describe('Dashboard (监控大盘)', () => {
     await router.isReady()
     const w = mount(Dashboard, { global: { plugins: [router, createPinia()], stubs: legacyPageStubs } })
     await flushPromises()
-    expect(w.text()).toContain('请求 9')
+    expect(w.text()).toContain('24 小时请求')
     expect(w.text()).toContain('资源类型')
     expect(w.text()).toContain('数据库')
 

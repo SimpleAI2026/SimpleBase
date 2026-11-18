@@ -1,24 +1,19 @@
 <template>
   <PageContainer :subtitle="t('pages.users.subtitle')">
-    <Card>
-      <CardHeader class="border-b">
-        <CardTitle>{{ t('pages.users.cardTitle') }}</CardTitle>
-        <CardDescription>{{ t('pages.users.cardDesc') }}</CardDescription>
-        <CardAction>
-          <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" :disabled="pending" @click="load">
-              <Spinner v-if="pending" data-icon="inline-start" />
-              <RefreshCwIcon v-else data-icon="inline-start" />
-              {{ t('common.refresh') }}
-            </Button>
-            <Button v-if="auth.canManageUsers" size="sm" @click="openCreate">
-              <PlusIcon data-icon="inline-start" />
-              {{ t('pages.users.create') }}
-            </Button>
-          </div>
-        </CardAction>
-      </CardHeader>
-      <CardContent class="flex flex-wrap items-end gap-2.5 border-b py-4">
+    <SbListCard
+      :title="t('pages.users.cardTitle')"
+      :description="t('pages.users.cardDesc')"
+      :pager="{ page, pageSize, total, pageCount }"
+      @update:page="goToPage"
+    >
+      <template #actions>
+        <SbRefreshButton :pending="pending" @click="load" />
+        <Button v-if="auth.canManageUsers" size="sm" @click="openCreate">
+          <PlusIcon data-icon="inline-start" />
+          {{ t('pages.users.create') }}
+        </Button>
+      </template>
+      <template #toolbar>
         <div class="flex flex-col gap-1">
           <span class="text-xs text-muted-foreground">{{ t('pages.users.filterRole') }}</span>
           <Select v-model="roleFilter">
@@ -50,8 +45,8 @@
           <span class="text-xs text-muted-foreground">{{ t('pages.users.filterSearch') }}</span>
           <Input v-model="keyword" :placeholder="t('pages.users.searchPlaceholder')" />
         </div>
-      </CardContent>
-      <div class="p-0">
+      </template>
+      <div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -60,7 +55,7 @@
               <TableHead class="sb-col-sm">{{ t('pages.users.colStatus') }}</TableHead>
               <TableHead class="w-20">{{ t('pages.users.colProjects') }}</TableHead>
               <TableHead class="sb-col-md">{{ t('pages.users.colLastLogin') }}</TableHead>
-              <TableHead class="w-48">{{ t('pages.users.colActions') }}</TableHead>
+              <TableHead class="sb-col-act">{{ t('pages.users.colActions') }}</TableHead>
             </TableRow>
           </TableHeader>
           <SbAsyncRegion
@@ -78,37 +73,42 @@
             @empty-action="openCreate"
           >
             <TableEmpty v-if="hasData && !filtered.length" :colspan="6">
-              <SbEmptyState :description="t('pages.users.emptyDesc')" />
+              <SbEmptyState
+                :description="t('common.noMatchFilter')"
+                :action-text="t('common.clearFilter')"
+                :action-icon="XIcon"
+                @action="clearFilters"
+              />
             </TableEmpty>
-            <TableRow v-for="u in filtered" :key="u.id">
+            <TableRow v-for="u in filteredPage" :key="u.id">
               <TableCell class="font-medium">
                 {{ u.username }}
                 <span v-if="u.displayName" class="ml-1 text-xs text-muted-foreground">{{ u.displayName }}</span>
               </TableCell>
               <TableCell>{{ roleText(u.role) }}</TableCell>
               <TableCell>
-                <span :class="u.status === 'active' ? 'text-success' : 'text-muted-foreground'">
+                <Badge :variant="u.status === 'active' ? 'success' : 'outline'">
                   {{ u.status === 'active' ? t('pages.users.activeBadge') : t('pages.users.disabledBadge') }}
-                </span>
+                </Badge>
               </TableCell>
               <TableCell>{{ u.projectCount }}</TableCell>
               <TableCell class="text-xs text-muted-foreground">{{ fmtTime(u.lastLoginAt) }}</TableCell>
               <TableCell>
-                <div class="flex justify-center gap-1">
-                  <Button size="sm" variant="outline" @click="openEdit(u)">{{ t('pages.users.view') }}</Button>
-                  <template v-if="auth.canManageUsers && u.id !== auth.user?.id && u.username !== 'simplebase2026'">
-                    <Button size="sm" variant="outline" @click="openEdit(u)">{{ t('pages.users.edit') }}</Button>
-                    <Button size="sm" variant="outline" @click="toggleStatus(u)">
-                      {{ u.status === 'active' ? t('pages.users.disable') : t('pages.users.enable') }}
-                    </Button>
-                  </template>
+                <div class="flex flex-wrap items-center justify-center gap-1">
+                  <!-- 「查看」与「编辑」打开同一个弹窗：可管理时只给「编辑」（planv6.7 ui-simplify-ux-plan R1） -->
+                  <Button size="sm" variant="ghost" @click="openEdit(u)">
+                    {{ canManage(u) ? t('pages.users.edit') : t('pages.users.view') }}
+                  </Button>
+                  <Button v-if="canManage(u)" size="sm" variant="ghost" @click="toggleStatus(u)">
+                    {{ u.status === 'active' ? t('pages.users.disable') : t('pages.users.enable') }}
+                  </Button>
                 </div>
               </TableCell>
             </TableRow>
           </SbAsyncRegion>
         </Table>
       </div>
-    </Card>
+    </SbListCard>
 
     <UserFormModal
       :open="formOpen"
@@ -123,9 +123,9 @@ import { errorMessage } from '@/utils/format'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { PlusIcon, XIcon } from '@lucide/vue'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -142,14 +142,15 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { Spinner } from '@/components/ui/spinner'
 import PageContainer from '../components/PageContainer.vue'
 import SbAsyncRegion from '../components/SbAsyncRegion.vue'
+import SbRefreshButton from '../components/SbRefreshButton.vue'
+import SbListCard from '../components/SbListCard.vue'
 import SbEmptyState from '../components/SbEmptyState.vue'
 import UserFormModal from '../components/modal/UserFormModal.vue'
 import { api } from '../services/api'
 import type { UserItem, UserRole } from '../services/types'
-import { useAuthStore } from '../stores/auth'
+import { BOOTSTRAP_USERNAME, useAuthStore } from '../stores/auth'
 import { useLoadState } from '../composables/useLoadState'
 import { formatTime } from '../utils/format'
 
@@ -157,6 +158,11 @@ const auth = useAuthStore()
 const { t } = useI18n()
 const users = ref<UserItem[]>([])
 const keyword = ref('')
+/** 游标分页（后端 /v1/users 按 cursor 翻页，上限 100/页）。 */
+const page = ref(1)
+const pageSize = 20
+const cursors = ref<string[]>([''])
+const nextCursor = ref('')
 const roleFilter = ref<'all' | UserRole>('all')
 const statusFilter = ref<'all' | UserItem['status']>('all')
 const formOpen = ref(false)
@@ -172,11 +178,32 @@ const filtered = computed(() =>
     return true
   })
 )
+/** 当前页展示的行：筛选项仍作用于整页数据。 */
+const filteredPage = computed(() => filtered.value.slice(0, pageSize))
+const total = computed(() => (page.value - 1) * pageSize + filtered.value.length + (nextCursor.value ? 1 : 0))
+const pageCount = computed(() => (nextCursor.value ? page.value + 1 : page.value))
 
 function roleText(r: UserRole | string) {
   if (r === 'superadminl1') return t('components.userMenu.roleSuper')
   if (r === 'admin') return t('components.userMenu.roleAdmin')
   return t('pages.users.roleUser')
+}
+
+/** 可管理（编辑 / 启停）：有管理权限、不是自己、不是受保护的引导账号。 */
+function canManage(u: UserItem): boolean {
+  return auth.canManageUsers && u.id !== auth.user?.id && u.username !== BOOTSTRAP_USERNAME
+}
+
+function clearFilters() {
+  keyword.value = ''
+  roleFilter.value = 'all'
+  statusFilter.value = 'all'
+}
+
+function goToPage(value: number) {
+  if (value < 1 || value > pageCount.value || value === page.value) return
+  page.value = value
+  void load()
 }
 
 function fmtTime(s?: string) {
@@ -189,9 +216,11 @@ const { pending, hasData, showSkeleton, showEmpty, showError, refreshing, error,
 
 function load() {
   return run(async () => {
-    const data = await api.users.list(100)
+    const data = await api.users.list(pageSize, cursors.value[page.value - 1] || undefined)
     users.value = data.users
-    return users.value.length > 0
+    nextCursor.value = data.nextCursor || ''
+    if (nextCursor.value) cursors.value[page.value] = nextCursor.value
+    return data.users.length > 0
   })
 }
 

@@ -25,6 +25,34 @@ type Dialect interface {
 	JSONExtractBool(path string) string
 	CastTimestamp(expr string) string
 	NullsFirst(expr string, descending bool) string
+	// DateBucket 把时间表达式截断到 unit（hour/day/week/month/year）并输出文本，
+	// 同一 unit 在两个引擎得到相同格式；unit 不在白名单时 ok=false，调用方必须拒绝。
+	DateBucket(expr, unit string) (sql string, ok bool)
+	// Floor 向负无穷取整（返回 DOUBLE / REAL）。SQLite 默认构建没有 FLOOR，需要手写。
+	Floor(expr string) string
+	// TimestampParam 返回与 CastTimestamp 同一口径的「参数侧」时间表达式（形如 CAST(? AS TIMESTAMP)）。
+	// SQLite 的 datetime() 输出 'YYYY-MM-DD HH:MM:SS'，若参数仍是 RFC3339 的 'T' 分隔文本，
+	// 逐字符比较时空格 < 'T'，范围过滤会整体错位，所以两侧必须都经 datetime() 规整。
+	TimestampParam() string
+}
+
+// DateBucketUnits 是 DateBucket 接受的 unit 白名单。
+var DateBucketUnits = []string{"hour", "day", "week", "month", "year"}
+
+// dateBucketFormat 返回 unit 对应的 strftime 输出格式。
+func dateBucketFormat(unit string) (string, bool) {
+	switch unit {
+	case "hour":
+		return "%Y-%m-%d %H:00", true
+	case "day", "week":
+		return "%Y-%m-%d", true
+	case "month":
+		return "%Y-%m", true
+	case "year":
+		return "%Y", true
+	default:
+		return "", false
+	}
 }
 
 const internalTablePrefix = "__sb_"
@@ -89,11 +117,23 @@ func (duckDBDialect) JSONExtractBool(path string) string {
 	return "CAST(json_extract(data, '" + path + "') AS BOOLEAN)"
 }
 func (duckDBDialect) CastTimestamp(expr string) string { return "CAST(" + expr + " AS TIMESTAMP)" }
+func (duckDBDialect) TimestampParam() string           { return "CAST(? AS TIMESTAMP)" }
 func (duckDBDialect) NullsFirst(expr string, descending bool) string {
 	if descending {
 		return expr + " DESC NULLS LAST"
 	}
 	return expr + " ASC NULLS FIRST"
+}
+
+func (duckDBDialect) Floor(expr string) string { return "FLOOR(" + expr + ")" }
+
+// DateBucket：DuckDB 先 date_trunc（week 取周一），再 strftime 成文本。
+func (duckDBDialect) DateBucket(expr, unit string) (string, bool) {
+	format, ok := dateBucketFormat(unit)
+	if !ok {
+		return "", false
+	}
+	return "strftime(date_trunc('" + unit + "', " + expr + "), '" + format + "')", true
 }
 
 type sqliteDialect struct{}
@@ -134,9 +174,29 @@ func (sqliteDialect) JSONExtractBool(path string) string {
 	return "CAST(json_extract(data, '" + path + "') AS BOOLEAN)"
 }
 func (sqliteDialect) CastTimestamp(expr string) string { return "datetime(" + expr + ")" }
+func (sqliteDialect) TimestampParam() string           { return "datetime(?)" }
 func (sqliteDialect) NullsFirst(expr string, descending bool) string {
 	if descending {
 		return expr + " DESC"
 	}
 	return expr + " ASC"
+}
+
+// Floor：CAST AS INTEGER 向零截断，负数非整数时要再减 1 才是向负无穷取整。
+// expr 会出现多次，调用方传入的必须是无副作用的纯表达式。
+func (sqliteDialect) Floor(expr string) string {
+	return "(CAST(" + expr + " AS INTEGER) - (" + expr + " < CAST(" + expr + " AS INTEGER)))"
+}
+
+// DateBucket：SQLite 没有 date_trunc，用 strftime 直接格式化；week 先回退到
+// 本周一（weekday 1 = 周一，与 DuckDB date_trunc('week') 对齐）。
+func (sqliteDialect) DateBucket(expr, unit string) (string, bool) {
+	format, ok := dateBucketFormat(unit)
+	if !ok {
+		return "", false
+	}
+	if unit == "week" {
+		return "strftime('" + format + "', " + expr + ", '-' || ((CAST(strftime('%w', " + expr + ") AS INTEGER) + 6) % 7) || ' days')", true
+	}
+	return "strftime('" + format + "', " + expr + ")", true
 }

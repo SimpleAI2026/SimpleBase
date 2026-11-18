@@ -2,7 +2,7 @@ import type { BadgeVariants } from '@/components/ui/badge'
 import { t } from '../locales'
 
 /**
- * 状态/级别文案统一走 i18n（plan/planv5.0/ui-optimization-v3-plan.md §3.2）。
+ * 状态/级别文案统一走 i18n（见 plan/planv6.7/legacy-plan-consolidation-plan.md §4.8）。
  *
  * 这里是「出口」：返回已翻译文案而不是中文字面量，消费者不用各自翻译。
  * 组件外没有 useI18n 上下文，因此用 i18n.global.t。

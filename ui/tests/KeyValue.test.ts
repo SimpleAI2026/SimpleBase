@@ -17,7 +17,7 @@ vi.mock('@/services/api', async () => {
 
 const stubs = {
   ProjectScope: { template: '<div><slot /></div>' },
-  PageContainer: { template: '<div><slot /></div>' },
+  PageContainer: { props: ['subtitle'], template: '<div><p>{{ subtitle }}</p><slot /></div>' },
   Card: { template: '<div><slot /></div>' },
   CardHeader: { template: '<div><slot /></div>' },
   CardTitle: { template: '<div><slot /></div>' },

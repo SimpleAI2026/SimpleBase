@@ -11,7 +11,7 @@ export interface UseLoadStateOptions {
   fallback?: string
   /**
    * 判定「资源尚未建立」的错误：命中时不报错、不 toast，
-   * 直接落到空态（plan/planv6.0/cloud-assistant-chat-ux-plan.md §2.2）。
+   * 直接落到空态（plan/planv6.7/legacy-plan-consolidation-plan.md §4.8）。
    * 缺省不传，行为与之前一致。
    */
   emptyOn?: (e: unknown) => boolean

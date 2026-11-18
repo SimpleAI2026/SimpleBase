@@ -157,6 +157,45 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     wrapper.unmount()
   })
 
+  it('UserMenu 修改密码走独立弹窗状态，可取消且不影响强制改密（B16）', async () => {
+    setTokens('a', 'r')
+    const { default: UserMenu } = await import('@/components/UserMenu.vue')
+    const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
+    const { useAuthStore } = await import('@/stores/auth')
+    const { wrapper, pinia } = await mountWithApp(UserMenu, { path: '/' })
+    const auth = useAuthStore(pinia)
+    auth.applyTokens({
+      accessToken: 'a',
+      refreshToken: 'r',
+      user: { id: 'u1', username: 'ada', role: 'user', displayName: '', email: '', status: 'active', mustChangePassword: false }
+    })
+    await flushPromises()
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text().includes('修改密码'))!.trigger('click')
+    expect(auth.passwordDialogOpen).toBe(true)
+    expect(auth.mustChangePassword).toBe(false)
+    expect(auth.loginOpen).toBe(false)
+
+    const { mount } = await import('@vue/test-utils')
+    const { uiStubs } = await import('@/test/helpers')
+    const modal = { wrapper: mount(LoginModal, { props: { open: true }, global: { plugins: [pinia], stubs: uiStubs } }) }
+    await flushPromises()
+    expect(modal.wrapper.findAll('input')).toHaveLength(3)
+    const cancel = modal.wrapper.findAll('button').find((b) => b.text() === '取消')
+    expect(cancel).toBeTruthy()
+    expect(modal.wrapper.findAll('button').some((b) => b.text().includes('退出登录'))).toBe(false)
+    await cancel!.trigger('click')
+    expect(auth.passwordDialogOpen).toBe(false)
+    expect(auth.isAuthenticated).toBe(true)
+
+    mockApi.api.auth.changePassword = vi.fn(async () => undefined)
+    auth.openPasswordChange()
+    await auth.changePassword('old12345', 'new123456')
+    expect(auth.passwordDialogOpen).toBe(false)
+    modal.wrapper.unmount()
+  })
+
   it('UserMenu renders and can logout', async () => {
     setTokens('a', 'r')
     const { default: UserMenu } = await import('@/components/UserMenu.vue')

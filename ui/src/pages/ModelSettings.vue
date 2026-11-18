@@ -1,33 +1,19 @@
 <template>
   <ProjectScope>
     <PageContainer :subtitle="t('pages.models.subtitle')">
-      <Tabs :model-value="activeTab" @update:model-value="onTabChange">
-        <TabsList class="h-9 w-full max-w-xl">
-          <TabsTrigger value="models" class="min-w-24 px-4">{{ t('pages.models.tabModels') }}</TabsTrigger>
-          <TabsTrigger value="mcp" class="min-w-24 px-4">{{ t('pages.models.tabMcp') }}</TabsTrigger>
-          <TabsTrigger value="approvals" class="min-w-24 px-4">{{ t('pages.models.tabApprovals') }}</TabsTrigger>
-          <TabsTrigger value="traces" class="min-w-24 px-4">{{ t('pages.models.tabTraces') }}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="models">
-          <ModelDefaultsPanel />
-        </TabsContent>
-        <TabsContent value="mcp">
-          <McpServersPanel />
-        </TabsContent>
-        <TabsContent value="approvals">
-          <ApprovalsPanel />
-        </TabsContent>
-        <TabsContent value="traces">
-          <ModelTraceList @open-detail="openDetail" />
-        </TabsContent>
-      </Tabs>
+      <SbTabsPanel :items="tabItems" :model-value="activeTab" @update:model-value="onTabChange">
+        <template #models><ModelDefaultsPanel /></template>
+        <template #mcp><McpServersPanel /></template>
+        <template #approvals><ApprovalsPanel /></template>
+        <template #traces><ModelTraceList @open-detail="openDetail" /></template>
+      </SbTabsPanel>
       <TraceDetailModal :trace-id="detailTraceId" @close="detailTraceId = undefined" />
     </PageContainer>
   </ProjectScope>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import ProjectScope from '../components/ProjectScope.vue'
@@ -37,7 +23,7 @@ import McpServersPanel from '../components/settings/McpServersPanel.vue'
 import ApprovalsPanel from '../components/settings/ApprovalsPanel.vue'
 import ModelTraceList from '../components/models/ModelTraceList.vue'
 import TraceDetailModal from '../components/models/TraceDetailModal.vue'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import SbTabsPanel from '../components/SbTabsPanel.vue'
 
 /**
  * 模型设置页（planv6.5 二期 §11.1；planv6.6 合并审批队列）：
@@ -50,12 +36,16 @@ const router = useRouter()
 const { t } = useI18n()
 
 type SettingsTab = 'models' | 'mcp' | 'approvals' | 'traces'
-const tabFromQuery = (raw: unknown): SettingsTab => {
-  if (raw === 'mcp') return 'mcp'
-  if (raw === 'approvals') return 'approvals'
-  if (raw === 'traces') return 'traces'
-  return 'models'
-}
+const TABS: SettingsTab[] = ['models', 'mcp', 'approvals', 'traces']
+const tabFromQuery = (raw: unknown): SettingsTab =>
+  TABS.includes(raw as SettingsTab) ? (raw as SettingsTab) : 'models'
+/** 多页签统一走 SbTabsPanel（planv6.7 ui-simplify-ux-plan S8）。 */
+const tabItems = computed(() => [
+  { value: 'models', label: t('pages.models.tabModels') },
+  { value: 'mcp', label: t('pages.models.tabMcp') },
+  { value: 'approvals', label: t('pages.models.tabApprovals') },
+  { value: 'traces', label: t('pages.models.tabTraces') }
+])
 const activeTab = ref<SettingsTab>(tabFromQuery(route.query.tab))
 const detailTraceId = ref<string | undefined>()
 

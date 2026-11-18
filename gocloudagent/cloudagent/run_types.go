@@ -45,6 +45,9 @@ type RunRequest struct {
 	ReadOnlySkills []string
 	// StarterStage 非空表示首页搭建会话的某个阶段（宿主已校验）：追加搭建提示词。
 	StarterStage string
+	// BI 非空表示数据看板的「Agent 生成图表」运行（宿主已经 NormalizeBIContext 校验）：
+	// 追加图表提示词与数据源 env。不落库、不进 user 消息。
+	BI *BIContext
 }
 
 // RunResult is the completed assistant turn.

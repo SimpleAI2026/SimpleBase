@@ -16,10 +16,12 @@
               <span class="w-14 shrink-0 font-mono font-semibold text-primary">{{ endpoint.method }}</span>
               <span class="truncate font-mono text-muted-foreground">{{ endpoint.path }}</span>
             </button>
+            <p v-if="!filteredEndpoints.length" class="px-2 py-6 text-center text-xs text-muted-foreground">{{ t('common.noMatchFilter') }}</p>
           </div>
         </aside>
 
-        <main v-if="selected" class="flex min-w-0 flex-col gap-5">
+        <!-- SidebarInset 已是 <main>：这里用 section，避免地标重复（B15） -->
+        <section v-if="selected" class="flex min-w-0 flex-col gap-5">
           <div class="rounded-xl border bg-card p-4">
             <div class="mb-4 flex flex-wrap items-center gap-3">
               <span class="rounded bg-primary/10 px-2 py-1 font-mono text-xs font-semibold text-primary">{{ selected.method }}</span>
@@ -35,10 +37,10 @@
             </Field>
             <Field v-if="selected.operation.requestBody">
               <FieldLabel>{{ t('pages.apiPreview.body') }}</FieldLabel>
-              <textarea v-model="body" class="min-h-28 w-full rounded-lg border bg-background p-3 font-mono text-sm" spellcheck="false" />
+              <Textarea v-model="body" class="min-h-28 font-mono text-sm" spellcheck="false" />
             </Field>
             <div class="mt-4 flex items-center gap-3">
-              <Button :disabled="!selected.operation['x-tryable'] || running" @click="requestRun">
+              <Button size="sm" :disabled="!selected.operation['x-tryable'] || running" @click="requestRun">
                 {{ running ? t('common.loading') : t('pages.apiPreview.run') }}
               </Button>
               <span v-if="!selected.operation['x-tryable']" class="text-xs text-muted-foreground">{{ t('pages.apiPreview.notTryable') }}</span>
@@ -57,7 +59,7 @@
               <SbCodeBlock max-height="20rem">{{ snippet.code }}</SbCodeBlock>
             </div>
           </section>
-        </main>
+        </section>
       </div>
     </SbAsyncRegion>
     <ConfirmAction
@@ -82,6 +84,7 @@ import SbCodeBlock from '@/components/SbCodeBlock.vue'
 import ConfirmAction from '@/components/ConfirmAction.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Field, FieldLabel } from '@/components/ui/field'
 
 interface PreviewEndpoint {
@@ -94,7 +97,7 @@ interface PreviewEndpoint {
 const { t } = useI18n()
 const loading = ref(false)
 const loadError = ref('')
-const document = ref<OpenAPIDocument | null>(null)
+const openapiDoc = ref<OpenAPIDocument | null>(null)
 const selectedKey = ref('')
 const search = ref('')
 const query = ref('')
@@ -107,7 +110,7 @@ const confirmOpen = ref(false)
 
 const endpoints = computed<PreviewEndpoint[]>(() => {
   const output: PreviewEndpoint[] = []
-  for (const [path, operations] of Object.entries(document.value?.paths || {})) {
+  for (const [path, operations] of Object.entries(openapiDoc.value?.paths || {})) {
     for (const [method, operation] of Object.entries(operations)) {
       output.push({ key: `${method.toUpperCase()} ${path}`, method: method.toUpperCase(), path, operation })
     }
@@ -154,7 +157,7 @@ async function loadDocument() {
   loading.value = true
   loadError.value = ''
   try {
-    document.value = await api.preview.document()
+    openapiDoc.value = await api.preview.document()
     if (!selectedKey.value && endpoints.value.length) selectedKey.value = endpoints.value[0].key
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : t('common.loadFailed')

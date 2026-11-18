@@ -109,7 +109,7 @@
               {{ g.errorCode || '—' }}
             </TableCell>
             <TableCell>
-              <Button variant="ghost" size="sm" class="h-7 px-2 font-sans" @click="emit('openDetail', g.traceId)">
+              <Button variant="ghost" size="xs" class="font-sans" @click="emit('openDetail', g.traceId)">
                 {{ t('pages.traces.viewDetail') }}
                 <ChevronRightIcon data-icon="inline-end" />
               </Button>

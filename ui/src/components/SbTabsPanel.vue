@@ -1,7 +1,7 @@
 <template>
   <Tabs :model-value="modelValue" class="gap-1" @update:model-value="onUpdate">
-    <TabsList :variant="variant" :class="['max-w-full overflow-x-auto', variant === 'line' ? 'w-full justify-start' : undefined]">
-      <TabsTrigger v-for="item in items" :key="item.value" :value="item.value" class="px-3">
+    <TabsList :variant="variant" :class="listClass">
+      <TabsTrigger v-for="item in items" :key="item.value" :value="item.value" :class="triggerClass">
         {{ item.label }}
       </TabsTrigger>
     </TabsList>
@@ -54,6 +54,14 @@ const props = withDefaults(defineProps<SbTabsPanelProps>(), {
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+
+/** 胶囊：flex-wrap + h-auto，宽度随文字撑开，窄屏折行而不是出现滚动条；line：沿用整行横向布局。 */
+const listClass = computed(() =>
+  props.variant === 'line'
+    ? 'max-w-full w-full justify-start overflow-x-auto'
+    : 'h-auto max-w-full flex-wrap justify-start group-data-[orientation=horizontal]/tabs:h-auto'
+)
+const triggerClass = computed(() => (props.variant === 'line' ? 'px-3' : 'min-h-7 flex-none px-4'))
 
 const contentClass = computed(() =>
   [props.contentMaxHeight ? 'overflow-y-auto' : '', props.contentClass || ''].filter(Boolean).join(' ')

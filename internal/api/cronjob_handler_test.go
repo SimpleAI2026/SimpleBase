@@ -202,7 +202,7 @@ func TestCronJob_ReadOnlyMode(t *testing.T) {
 	e, _ := setupCronJobTestRouter(t, false, "proj-1")
 	rec := postJSON(t, e, http.MethodPost, "/v1/projects/proj-1/cron-jobs",
 		`{"name":"ro","schedule_kind":"cron","cron_expr":"0 2 * * *","func_file":"hello","func_export":"Hello"}`)
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "readonly_mode") {
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "writer_unavailable") {
 		t.Fatalf("readonly create: %d %s", rec.Code, rec.Body.String())
 	}
 }

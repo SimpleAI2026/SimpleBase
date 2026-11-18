@@ -14,7 +14,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/auth
-//	[同包] adapter.go, agent_handler.go, agent_schedule_handler.go, api_keys_handler.go, auth_handler.go 等 59 个
+//	[同包] adapter.go, agent_handler.go, api_keys_handler.go, auth_handler.go 等 59 个
 //	[关键引用] policy() ← api_keys_handler.go, realtime_handler.go
 //
 // 主要符号

@@ -67,13 +67,6 @@ func (f *fakeClient) DeletePrefix(ctx context.Context, prefix string) error {
 	return nil
 }
 
-func (f *fakeClient) Check(ctx context.Context) error {
-	if err, ok := f.failOn["check"]; ok {
-		return err
-	}
-	return nil
-}
-
 func TestDescriptorPutGetRoundTrip(t *testing.T) {
 	c := newFakeClient()
 	kb := KeyBuilder{RootPrefix: "simplebase"}
@@ -150,19 +143,6 @@ func TestDeletePrefix(t *testing.T) {
 	}
 	if _, ok := c.store["simplebase/prj67890/databases/44444444-4444-4444-4444-444444444444/descriptor.json"]; !ok {
 		t.Error("b descriptor should remain")
-	}
-}
-
-func TestAssertHealthNil(t *testing.T) {
-	if err := AssertHealth(context.Background(), nil); err == nil {
-		t.Error("expected error for nil client")
-	}
-}
-
-func TestAssertHealthOK(t *testing.T) {
-	c := newFakeClient()
-	if err := AssertHealth(context.Background(), c); err != nil {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

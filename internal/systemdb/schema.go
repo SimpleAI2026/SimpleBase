@@ -1,27 +1,25 @@
-// 文件说明：schema.go — internal/systemdb 中 EnsureSystemSchema、SystemTableCount 等符号的实现
+// 文件说明：schema.go — internal/systemdb 中 EnsureSystemSchema 等符号的实现
 //
 // 用法
 //
 //	EnsureSystemSchema(ctx context.Context, db *sql.DB) error  // EnsureSystemSchema 按最终态建表，幂等（CREATE TABLE IF NOT EXISTS）
-//	SystemTableCount() int// SystemTableCount 返回系统表数量
 //	同包调用：EnsureSystemSchema() → bootstrap.go；systemTables → schema_status.go
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/schema.go
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/catalog
-//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //	[关键引用] EnsureSystemSchema() ← bootstrap.go
 //
 // 主要符号
 //
 //	EnsureSystemSchema(ctx context.Context, db *sql.DB) error
-//	SystemTableCount() int
 //	... 另有 2 个顶层符号
 
 package systemdb
@@ -716,6 +714,3 @@ func missingTraceColumn(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "no such column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "not found") || strings.Contains(msg, "referenced column")
 }
-
-// SystemTableCount 返回系统表数量。
-func SystemTableCount() int { return len(systemTables) }

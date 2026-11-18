@@ -116,6 +116,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { useLoadState } from '@/composables/useLoadState'
 import { errorMessage, formatTime } from '@/utils/format'
+import { basename, downloadBlob } from '@/utils/download'
 import type { SandboxCapabilities, SandboxFileEntry, SandboxItem } from '../../services/types'
 import { api } from '../../services/api'
 import { useAuthStore } from '../../stores/auth'
@@ -252,11 +253,7 @@ async function downloadFile() {
   if (!props.sandbox || !filePath.value) return
   try {
     const blob = await api.sandboxes.files.read(props.projectId, props.sandbox.id, filePath.value)
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = filePath.value.split('/').at(-1) || 'file'
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadBlob(blob, basename(filePath.value, 'file'))
   } catch (e) { toast.error(errorMessage(e, t('components.sandboxDrawer.downloadFailed'))) }
 }
 

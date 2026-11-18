@@ -87,7 +87,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import SbModal from './SbModal.vue'
 import { api } from '../../services/api'
 import type { UserItem, UserRole } from '../../services/types'
-import { useAuthStore } from '../../stores/auth'
+import { BOOTSTRAP_USERNAME, useAuthStore } from '../../stores/auth'
 import { formatTime } from '../../utils/format'
 
 const auth = useAuthStore()
@@ -103,7 +103,7 @@ const emit = defineEmits<{
 }>()
 
 const readonly = computed(() => Boolean(props.user) && !auth.canManageUsers)
-const isProtected = computed(() => props.user?.username === 'simplebase2026')
+const isProtected = computed(() => props.user?.username === BOOTSTRAP_USERNAME)
 
 const title = computed(() => {
   if (!props.user) return t('components.userForm.titleCreate')

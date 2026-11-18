@@ -48,6 +48,7 @@ import { api } from '@/services/api'
 import type { BackupItem } from '@/services/types'
 import { useProjectStore } from '@/stores/project'
 import { errorMessage } from '@/utils/format'
+import { downloadBlob } from '@/utils/download'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -102,12 +103,7 @@ async function remove(id: string) {
 async function download(item: BackupItem) {
   try {
     const blob = await api.backups.download(project.id, item.id)
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${item.id}.${item.engine}`
-    anchor.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `${item.id}.${item.engine}`)
   } catch (e) {
     toast.error(errorMessage(e, t('components.backups.downloadFailed')))
   }

@@ -5,19 +5,19 @@
 //	NewMaintenanceRunner(store *Store, opts ducklake.MaintenanceOptions, writable ...
 //	(r *MaintenanceRunner) Start()  // Start 启动维护循环（幂等
 //	(r *MaintenanceRunner) Close() error  // Close 停止维护循环（io.Closer，供 app 反向释放）
-//	同包调用：Close() → agent_schedules.go, agents.go 等；interval() → bootstrap.go, cron_jobs.go
+//	同包调用：Close() → agents.go 等；interval() → bootstrap.go, cron_jobs.go
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/maintenance.go
 //	         │ 依赖
 //	         ▼
 //	[下游] godatabase/ducklake, internal/observability
-//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
-//	[关键引用] Close() ← agent_schedules.go, agents.go, bootstrap.go
+//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[关键引用] Close() ← agents.go, bootstrap.go
 //
 // 主要符号
 //

@@ -8,14 +8,14 @@
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/bootstrap.go
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/dbbridge, godatabase, godatabase/ducklake, internal/catalog 等
-//	[同包] agent_schedules.go, agents.go, async_flush.go, cron_jobs.go, function_triggers.go 等 22 个
+//	[同包] agents.go, async_flush.go, cron_jobs.go, function_triggers.go 等 22 个
 //	[关键引用] resumeCatalogSync() ← seed.go
 //
 // 主要符号

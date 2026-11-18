@@ -8,14 +8,14 @@
 //
 // 调用架构
 //
-//	[上游] benchmarks/dbread, internal/agentbridge, internal/api 等
+//	[上游] godatabase/bench, internal/agentbridge, internal/api 等
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/systemdb/metrics.go
 //	         │
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] agent_schedules.go, agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
+//	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //	[关键引用] MetricsSummary() ← observe.go, store.go
 //
 // 主要符号
