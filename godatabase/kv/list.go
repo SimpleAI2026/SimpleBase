@@ -1,33 +1,3 @@
-// 文件说明：list.go — godatabase/kv 中 ListRepo、PushBack 等符号的实现
-//
-// 用法
-//
-//	(r *ListRepo) PushBack(ctx context.Context, key string, elems ...[]byte) (int64 ...  // PushBack 尾部插入（RPUSH），返回新长度
-//	(r *ListRepo) PushFront(ctx context.Context, key string, elems ...[]byte) (int64 ...  // PushFront 头部插入（LPUSH
-//	同包调用：Set() → executor.go, hash.go 等；ListRepo → executor.go；pop() → set.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/list.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] core.go, executor.go, hash.go, key.go, schema.go 等 10 个
-//	[关键引用] Set() ← executor.go, hash.go, set.go
-//
-// 主要符号
-//
-//	type ListRepo struct {…}
-//	(r *ListRepo) PushBack(ctx context.Context, key string, elems ...[]byte) (int64 ...
-//	(r *ListRepo) PushFront(ctx context.Context, key string, elems ...[]byte) (int64 ...
-//	(r *ListRepo) PopBack(ctx context.Context, key string) ([]byte, error)
-//	(r *ListRepo) PopFront(ctx context.Context, key string) ([]byte, error)
-//	(r *ListRepo) Range(ctx context.Context, key string, start, stop int64) ([][]byte ...
-//	... 另有 5 个顶层符号
-
 package kv
 
 import (

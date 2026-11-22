@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getApiKey, getAccessToken, getRefreshToken, clearTokens, setTokens } from '@/services/http'
+import { getAccessToken, getRefreshToken, clearTokens, setTokens } from '@/services/http'
 import { useAuthStore } from '@/stores/auth'
 
 vi.mock('@/services/api', async () => {

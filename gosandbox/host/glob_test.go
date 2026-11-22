@@ -94,7 +94,7 @@ func TestValidateDenyEntry(t *testing.T) {
 		{"/home/u/.ssh", false},
 		{"/home/u/**/.env", false},
 		{"/home/u/*/", true},    // glob 以分隔符结尾
-		{"/home/u/dir/", false}, // 字面路径末尾 / 沿用旧行为
+		{"/home/u/dir/", false}, // 字面路径末尾 / 不匹配
 		{"relative/*.pem", true},
 		{"literal:/w/a*b", false},
 		{"literal:rel", true},

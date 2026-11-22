@@ -83,8 +83,8 @@
 // 表格不再关心数据源是什么。
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { toast } from 'vue-sonner'
 import { Columns3Icon, CopyIcon } from '@lucide/vue'
+import { copyText } from '@/utils/clipboard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -205,12 +205,6 @@ function toggleExpand(index: number, column: string, value: unknown) {
 }
 
 async function copy(value: unknown) {
-  const raw = text(value)
-  try {
-    await navigator.clipboard.writeText(raw)
-    toast.success(t('common.copied'))
-  } catch {
-    toast.error(t('common.copyFailed'))
-  }
+  await copyText(text(value), () => t('common.copied'), () => t('common.copyFailed'))
 }
 </script>

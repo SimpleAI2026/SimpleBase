@@ -4,7 +4,7 @@ import { t } from '@/locales'
 import { toast } from 'vue-sonner'
 import { errorMessage } from '@/utils/format'
 import { agentErrorText } from '@/utils/agent-errors'
-import type { AgentRunMetrics, AgentStreamHandlers, AgentToolCallCard, BiAgentContext, ChatMsg, LlmStreamConnection } from '@/services/types'
+import type { AgentRouteKind, AgentRunMetrics, AgentStreamHandlers, AgentToolCallCard, ChatMsg, LlmStreamConnection } from '@/services/types'
 
 /** 运行阶段（BUG-01：前端必须追踪流式回调，工具期间不回落）。 */
 export type AgentPhase = 'idle' | 'thinking' | 'streaming' | 'tool' | 'awaiting_confirm' | 'done' | 'error' | 'canceled'
@@ -14,6 +14,8 @@ export interface ConversationOptions {
   threadId: () => string
   /** 消息数组（外部持有）。 */
   messages: () => ChatMsg[]
+  /** agentId → module，供 route/run 事件到达后补头像；不传时只记 agentId。 */
+  moduleOf?: (agentId: string) => string | undefined
 }
 
 /**
@@ -55,6 +57,8 @@ export function useAgentConversation(opts: ConversationOptions) {
 
   const statusText = computed(() => {
     const secs = Math.floor(elapsedMs.value / 1000)
+    const routingReply = opts.messages().find((m) => m.role === 'assistant' && m.routing)
+    if (phase.value === 'thinking' && routingReply) return t('agentPhase.routing')
     if (phase.value === 'thinking') return t('agentPhase.thinking', { s: secs })
     if (phase.value === 'awaiting_confirm') return t('agentPhase.awaitingConfirm')
     if (phase.value === 'tool') return t('agentPhase.tool', { name: toolName.value })
@@ -87,7 +91,7 @@ export function useAgentConversation(opts: ConversationOptions) {
   type Handlers = AgentStreamHandlers & { onReply?: (reply: ChatMsg) => void }
 
   function start(
-    body: { content: string; mentions: { agent_id: string }[]; module?: string; retry_of_run_id?: string; starter_stage?: string; bi_context?: BiAgentContext },
+    body: { content: string; mentions: { agent_id: string }[]; module?: string; agentId?: string; routing?: boolean; retry_of_run_id?: string },
     handlers: Handlers
   ) {
     stop(false)
@@ -98,7 +102,14 @@ export function useAgentConversation(opts: ConversationOptions) {
     if (!body.retry_of_run_id) {
       messages.push({ role: 'user', content: body.content })
     }
-    const reply = reactive<ChatMsg>({ role: 'assistant', content: '', toolCalls: [], module: body.module })
+    const reply = reactive<ChatMsg>({
+      role: 'assistant',
+      content: '',
+      toolCalls: [],
+      module: body.module,
+      agentId: body.agentId,
+      routing: !!body.routing
+    })
     messages.push(reply)
     handlers.onReply?.(reply)
 
@@ -112,19 +123,41 @@ export function useAgentConversation(opts: ConversationOptions) {
    * 续接后台仍在运行的 run（切换界面后回到会话）：新建 assistant 气泡，
    * 从头回放事件缓存重建正文 / 工具卡，再跟随到 end。
    */
-  function attach(id: string, handlers: Handlers & { module?: string } = {}) {
+  function attach(id: string, handlers: Handlers & { module?: string; agentId?: string } = {}) {
     stop(false)
     begin()
     runId.value = id
-    const reply = reactive<ChatMsg>({ role: 'assistant', content: '', toolCalls: [], module: handlers.module })
+    const reply = reactive<ChatMsg>({ role: 'assistant', content: '', toolCalls: [], module: handlers.module, agentId: handlers.agentId })
     opts.messages().push(reply)
     handlers.onReply?.(reply)
     conn = api.agentThreads.attachRun(opts.projectId(), id, bindHandlers(reply, handlers, true))
   }
 
+  /** planv6.7 AGC-ROUTE：路由/首 run 事件确认实际回答者后回填气泡身份。 */
+  function applySpeaker(reply: ChatMsg, agentId: string, routeKind?: AgentRouteKind) {
+    reply.agentId = agentId
+    reply.routeKind = routeKind
+    reply.routing = false
+    const module = opts.moduleOf?.(agentId)
+    if (module) reply.module = module
+  }
+
   function bindHandlers(reply: ChatMsg, handlers: Handlers, attached: boolean): AgentStreamHandlers {
     return {
-      onRun: (id) => { runId.value = id; handlers.onRun?.(id) },
+      onRun: (id, agentId, routeKind) => {
+        runId.value = id
+        if (agentId) applySpeaker(reply, agentId, routeKind)
+        handlers.onRun?.(id, agentId, routeKind)
+      },
+      onRoute: (ev) => {
+        if (ev.status === 'routing') {
+          reply.routing = true
+          if (phase.value !== 'tool' && phase.value !== 'awaiting_confirm') phase.value = 'thinking'
+        } else if (ev.agentId) {
+          applySpeaker(reply, ev.agentId, ev.routeKind)
+        }
+        handlers.onRoute?.(ev)
+      },
       onThinking: (ms, content) => {
         elapsedMs.value = ms
         // BUG-09：工具执行期间的 thinking 心跳不应把 phase 拉回 thinking。

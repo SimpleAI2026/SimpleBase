@@ -67,9 +67,6 @@ func goldenKeyLines() []string {
 			}
 		}
 	}
-	for _, eng := range []string{"duckdb", "DuckDB", " sqlite ", "", "pg"} {
-		line("CatalogFileExt", eng)(CatalogFileExt(eng))
-	}
 	out = append(out, fmt.Sprintf("SystemPrefix const => %s", SystemPrefix))
 	out = append(out, fmt.Sprintf("ProjectIDLen const => %d", ProjectIDLen))
 	for _, id := range []string{"abcd1234", "ABCD-123", "abcd123", "abcd12345", "abcd..12", "abcd/123", "abcd_123", ""} {

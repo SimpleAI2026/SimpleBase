@@ -3,12 +3,12 @@ package cloudagent
 import (
 	"context"
 	"errors"
-	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 )
 
 func TestRuntimeNilAndCancel(t *testing.T) {
@@ -38,61 +38,13 @@ func TestRuntimeNilAndCancel(t *testing.T) {
 	}
 }
 
-func TestRuntimeBuildSnapshotAndHistory(t *testing.T) {
-	rt := &Runtime{}
-	if !strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleDatabase}}), "unavailable") {
-		t.Fatal("db unavailable")
-	}
-	if !strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleS3}}), "unavailable") {
-		t.Fatal("obj unavailable")
-	}
-	if !strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleLogs}}), "unavailable") {
-		t.Fatal("logs unavailable")
-	}
-	if !strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleGeneral}}), "no module snapshot") {
-		t.Fatal("general snapshot")
-	}
-
-	rt.DB = &errDB{err: errors.New("db-fail")}
-	if !strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleDatabase}}), "db-fail") {
-		t.Fatal("db error")
-	}
-	many := make([]DatabaseInfo, 21)
-	for i := range many {
-		many[i] = DatabaseInfo{ID: "id", Name: "n", Status: "ready"}
-	}
-	rt.DB = &errDB{dbs: many}
-	snap := rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleDatabase}})
-	if !strings.Contains(snap, "…") {
-		t.Fatalf("expected truncation: %s", snap)
-	}
-
-	rt.Obj = &errObj{err: errors.New("obj-fail")}
-	if !strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleS3}}), "obj-fail") {
-		t.Fatal("obj error")
-	}
-	rt.Obj = &errObj{list: []ObjectInfo{{Key: "a/b", Size: 3}}}
-	if !strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleS3}}), "a/b") {
-		t.Fatal("obj list")
-	}
-
-	rt.Logs = &errLogs{err: errors.New("log-fail")}
-	if strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleLogs}}), "error=") {
-		t.Fatal("log stats error is silent")
-	}
-	rt.Logs = &errLogs{stats: []LogLevelCount{{Level: "info", Count: 2}, {Level: "error", Count: 1}}}
-	if !strings.Contains(rt.buildSnapshot(context.Background(), RunRequest{Agent: Agent{Module: ModuleLogs}}), "info=2") {
-		t.Fatal("log stats")
-	}
-
-	hist := historyToSchema([]Message{
-		{Role: "assistant", Content: "a"},
-		{Role: "tool", Content: "t"},
-		{Role: "system", Content: "s"},
-		{Role: "user", Content: "u"},
+func TestHistoryAndAgentName(t *testing.T) {
+	history := historyToSchema([]Message{
+		{Role: "assistant", Content: "a"}, {Role: "tool", Content: "t"},
+		{Role: "system", Content: "s"}, {Role: "user", Content: "u"},
 	})
-	if len(hist) != 4 || hist[0].Role != schema.Assistant || hist[2].Role != schema.System {
-		t.Fatalf("hist=%+v", hist)
+	if len(history) != 4 || history[0].Role != schema.Assistant || history[2].Role != schema.System {
+		t.Fatalf("history=%+v", history)
 	}
 	big := strings.Repeat("x", 3000)
 	var lots []Message
@@ -108,15 +60,15 @@ func TestRuntimeBuildSnapshotAndHistory(t *testing.T) {
 }
 
 func TestConsumeVariantAndAssistant(t *testing.T) {
-	if c, n := agentcore.ConsumeVariant(nil); c != "" || n != "" {
+	if content, name := agentcore.ConsumeVariant(nil); content != "" || name != "" {
 		t.Fatal("nil variant")
 	}
-	c, n := agentcore.ConsumeVariant(&adk.MessageVariant{Message: &schema.Message{Content: "body", ToolName: "tn"}})
-	if c != "body" || n != "tn" {
-		t.Fatalf("non-stream %s %s", c, n)
+	content, name := agentcore.ConsumeVariant(&adk.MessageVariant{Message: &schema.Message{Content: "body", ToolName: "tn"}})
+	if content != "body" || name != "tn" {
+		t.Fatalf("non-stream %s %s", content, name)
 	}
-	if c, n = agentcore.ConsumeVariant(&adk.MessageVariant{ToolName: "only"}); c != "" || n != "only" {
-		t.Fatalf("empty message %s %s", c, n)
+	if content, name = agentcore.ConsumeVariant(&adk.MessageVariant{ToolName: "only"}); content != "" || name != "only" {
+		t.Fatalf("empty message %s %s", content, name)
 	}
 
 	sr, sw := schema.Pipe[*schema.Message](4)
@@ -124,11 +76,10 @@ func TestConsumeVariantAndAssistant(t *testing.T) {
 	sw.Send(nil, nil)
 	sw.Send(&schema.Message{Content: "p2"}, nil)
 	sw.Close()
-	c, n = agentcore.ConsumeVariant(&adk.MessageVariant{IsStreaming: true, MessageStream: sr})
-	if c != "p1p2" || n != "tool-a" {
-		t.Fatalf("stream variant %q %q", c, n)
+	content, name = agentcore.ConsumeVariant(&adk.MessageVariant{IsStreaming: true, MessageStream: sr})
+	if content != "p1p2" || name != "tool-a" {
+		t.Fatalf("stream variant %q %q", content, name)
 	}
-
 	if msg, err := consumeAssistant(nil, nil, nil); msg != nil || err != nil {
 		t.Fatal("nil assistant")
 	}
@@ -137,7 +88,7 @@ func TestConsumeVariantAndAssistant(t *testing.T) {
 	emit := func(e Event) { emitted = append(emitted, e) }
 	msg, err := consumeAssistant(&adk.MessageVariant{Message: schema.AssistantMessage("tok", nil)}, emit, &acc)
 	if err != nil || msg.Content != "tok" || acc.String() != "tok" || len(emitted) != 1 {
-		t.Fatalf("non-stream assistant acc=%q ev=%v err=%v", acc.String(), emitted, err)
+		t.Fatalf("acc=%q events=%v err=%v", acc.String(), emitted, err)
 	}
 	msg, err = consumeAssistant(&adk.MessageVariant{Message: schema.AssistantMessage("", []schema.ToolCall{{Function: schema.FunctionCall{Name: "t"}}})}, emit, &acc)
 	if err != nil || msg == nil || len(msg.ToolCalls) != 1 {
@@ -157,79 +108,12 @@ func TestConsumeVariantAndAssistant(t *testing.T) {
 	acc.Reset()
 	emitted = nil
 	last, err := consumeAssistant(&adk.MessageVariant{IsStreaming: true, MessageStream: sr}, emit, &acc)
-	if err == nil || last == nil {
-		t.Fatalf("want mid-stream error last=%v err=%v", last, err)
+	if err == nil || last == nil || !strings.Contains(acc.String(), "chunk") {
+		t.Fatalf("last=%v acc=%q err=%v", last, acc.String(), err)
 	}
-	if !strings.Contains(acc.String(), "chunk") {
-		t.Fatalf("acc=%q", acc.String())
-	}
-
 	sr, sw = schema.Pipe[*schema.Message](2)
 	sw.Close()
 	if _, err := consumeAssistant(&adk.MessageVariant{IsStreaming: true, MessageStream: sr}, nil, &acc); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRuntimeStartRunSettingsStreamAndHistory(t *testing.T) {
-	rt := &Runtime{
-		LLM:      &scriptedLLM{},
-		DB:       &fakeDB{dbs: []DatabaseInfo{{ID: "d1", Name: "default", Status: "ready"}}},
-		Settings: &fakeSettings{st: LLMSettings{DefaultModel: "from-settings"}},
-	}
-	var evs []Event
-	res, err := rt.StartRun(context.Background(), RunRequest{
-		ProjectID: "p1",
-		Principal: Principal{},
-		Agent: Agent{
-			ID: "a1", Name: "  ", Module: ModuleDatabase, ToolIDs: []string{ToolListDatabases},
-		},
-		RunID:    "run-settings",
-		UserText: "What databases exist?",
-		History: []Message{
-			{Role: "user", Content: "earlier"},
-			{Role: "assistant", Content: "ok"},
-			{Role: "tool", Content: "[]"},
-			{Role: "system", Content: "note"},
-		},
-		Stream: true,
-	}, func(e Event) { evs = append(evs, e) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(res.Content, "default") {
-		t.Fatalf("content=%q", res.Content)
-	}
-	if len(evs) == 0 {
-		t.Fatal("expected stream events")
-	}
-
-	rt.Settings = &fakeSettings{err: errors.New("settings down")}
-	if _, err := rt.StartRun(context.Background(), RunRequest{
-		ProjectID: "p1",
-		Agent:     Agent{ID: "a2", Name: "Gen", Module: ModuleGeneral},
-		RunID:     "run-gen",
-		UserText:  "hi",
-	}, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	rt.Obj = &errObj{list: []ObjectInfo{{Key: "k", Size: 1}}}
-	if _, err := rt.StartRun(context.Background(), RunRequest{
-		ProjectID: "p1",
-		Agent:     Agent{ID: "a3", Name: "S3", Module: ModuleS3, ToolIDs: []string{ToolListObjects}},
-		RunID:     "run-s3",
-		UserText:  "list",
-	}, nil); err != nil {
-		t.Fatal(err)
-	}
-	rt.Logs = &errLogs{stats: []LogLevelCount{{Level: "info", Count: 1}}}
-	if _, err := rt.StartRun(context.Background(), RunRequest{
-		ProjectID: "p1",
-		Agent:     Agent{ID: "a4", Name: "Logs", Module: ModuleLogs, ToolIDs: []string{ToolLogLevelStats}},
-		RunID:     "run-logs",
-		UserText:  "stats",
-	}, nil); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -1,27 +1,3 @@
-// 文件说明：fs.go — agent 的文件服务：在沙盒视角读写、列目录、删除、改名
-//
-// 用法
-//
-//	(s *Server) fsOp(m proto.Msg)  // Stat / List / Read / Remove / Mkdir / Rename
-//	(s *Server) fsWrite(m proto.Msg) error  // 写入；帧后跟 Size 字节裸数据
-//	同包调用：fsOp() → agent.go；fsWrite() → agent.go
-//
-// 调用架构
-//
-//	[上游] gosandbox/agent（读循环）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/fs.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/proto、标准库
-//	[同包] agent.go
-//
-// 主要符号
-//
-//	(s *Server) fsOp(m proto.Msg)
-//	(s *Server) fsWrite(m proto.Msg) error
-
 package agent
 
 import (

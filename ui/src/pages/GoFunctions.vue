@@ -4,7 +4,7 @@
       <SbListCard :title="t('pages.gofunctions.cardTitle')" :pager="{ page, pageSize, total, pageCount }" @update:page="page = $event">
         <template #description>
           {{ t('pages.gofunctions.cardDesc', { n: total }) }}
-          <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
+          <code class="sb-code-view sb-mono text-xs">POST /go/{{ projectId }}/{name}/{FunctionName}</code>
         </template>
         <template #actions>
           <SbRefreshButton :pending="pending" @click="load" />
@@ -57,7 +57,7 @@
                       type="button"
                       variant="secondary"
                       :aria-label="t('pages.gofunctions.copyPathAria', { file: record.file, fn })"
-                      class="sb-code-view sb-mono h-auto min-h-8 max-w-full min-w-0 cursor-pointer whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-left hover:bg-secondary/70"
+                      class="sb-code-view sb-mono h-auto min-h-8 cursor-pointer text-left hover:bg-secondary/70"
                       @click="copyInvokePath(record, fn)"
                     >
                       {{ fn }}

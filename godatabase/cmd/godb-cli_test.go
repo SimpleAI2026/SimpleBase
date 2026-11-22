@@ -1,11 +1,3 @@
-// 文件说明：main_test.go — godb CLI 的端到端回归（批次 E）
-//
-// 覆盖计划 §7.5 用例：
-//   - 只读执行 CTE DELETE 被拒（联动批次 A 的 sqlguard 修复）
-//   - --rw 写入后数据可读
-//   - KV set/get 往返
-//   - 快照文件与源库可各自打开（sha256 一致性由 SnapshotFile 内部保证）
-//   - 项目 ID 非法时的脱敏错误
 package main
 
 import (

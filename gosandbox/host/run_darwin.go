@@ -1,29 +1,5 @@
 //go:build darwin
 
-// 文件说明：run_darwin.go — gosandbox/host 中 Run 等符号的实现
-//
-// 用法
-//
-//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)  // Run 在 Seatbelt 沙盒里执行 cmd
-//	同包调用：probeDarwin() → probe.go, probe_linux.go 等；Run() → run_linux.go, run_other.go 等
-//
-// 调用架构
-//
-//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/run_darwin.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 13 个
-//	[关键引用] probeDarwin() ← probe.go, probe_linux.go, run_other.go
-//
-// 主要符号
-//
-//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)
-//	... 另有 1 个顶层符号
-
 package host
 
 import (
@@ -34,6 +10,8 @@ import (
 	"os/exec"
 	"syscall"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/gosandbox/internal/executil"
 )
 
 func probeDarwin() (Caps, error) {
@@ -74,7 +52,7 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 	}
 	c.Env = cmd.Env
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	out := &cappedBuffer{max: p.MaxOutputBytes}
+	out := executil.NewCappedBuffer(p.MaxOutputBytes)
 	c.Stdout, c.Stderr = out, out
 
 	start := time.Now()
@@ -98,13 +76,11 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 	if limits.Configured {
 		limits.Enforced, limits.Backend = true, limitsMonitor
 	}
-	warnings := Warnings(p)
+	res := Result{Output: out.Bytes(), OutputTruncated: out.Truncated(), TimedOut: timedOut, Duration: time.Since(start),
+		Limits: limits, LimitExceeded: exceeded}
 	if exceeded != "" {
-		// 也放进 Warnings：现有调用方（shell 工具信封）原样上报 warnings，无需改动即可让模型看到原因。
-		warnings = append(warnings, "killed: "+exceeded+" limit exceeded")
+		res.Warnings = []string{"killed: " + exceeded + " limit exceeded"}
 	}
-	res := Result{Output: out.buf.Bytes(), OutputTruncated: out.truncated, TimedOut: timedOut, Duration: time.Since(start),
-		Warnings: warnings, Limits: limits, LimitExceeded: exceeded}
 	if timedOut {
 		res.ExitCode = -1
 		return res, nil

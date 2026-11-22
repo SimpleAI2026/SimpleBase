@@ -25,4 +25,4 @@ GOWORK=off go test ./... -timeout 900s
 cd .. && go build ./internal/... ./cmd/... && go test ./internal/dbbridge ./internal/catalog ./internal/systemdb
 ```
 
-新增 `Spec` 字段、`Observer` 方法或 `PathResolver` 语义时，同步修改 `internal/dbbridge` 并补对应用例；`godatabase` 内的 fake 实现统一用 `RecordingLogger` / `RecordingObserver`。
+新增 `Spec` 字段、`Observer` 方法或 `PathResolver` 语义时，同步修改 `internal/dbbridge` 并补对应用例；测试共用的记录实现统一放在 `godatabase/internal/testutil`，不得加入生产根包 API。

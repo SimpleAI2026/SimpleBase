@@ -20,7 +20,6 @@ const CODE_KEYS: Record<string, string> = {
   agent_thread_busy: 'error.codes.agent_thread_busy',
   quota_exceeded: 'error.codes.quota_exceeded',
   invalid_retry: 'error.codes.invalid_retry',
-  bi_context_invalid: 'error.codes.bi_context_invalid',
   // 只读实例：建会话需要写权限（planv6.7 F12 / Q10）。给出直白原因，而不是后端原话。
   writer_unavailable: 'error.codes.writer_unavailable',
   bad_request: 'error.codes.bad_request',

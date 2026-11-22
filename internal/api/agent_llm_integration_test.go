@@ -11,24 +11,24 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
-	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
 const integrationModel = "deepseek-ai/DeepSeek-V4-Flash"
 
 type integrationDB struct{ calls int }
 
-func (f *integrationDB) ListDatabases(context.Context, cloudagent.Principal, string) ([]cloudagent.DatabaseInfo, error) {
+func (f *integrationDB) ListDatabases(context.Context, auth.Principal, string) ([]agentbridge.DatabaseInfo, error) {
 	f.calls++
-	return []cloudagent.DatabaseInfo{{ID: "d1", Name: "orders", Status: "ready"}, {ID: "d2", Name: "users", Status: "ready"}}, nil
+	return []agentbridge.DatabaseInfo{{ID: "d1", Name: "orders", Status: "ready"}, {ID: "d2", Name: "users", Status: "ready"}}, nil
 }
-func (*integrationDB) ListCollections(context.Context, cloudagent.Principal, string, string) ([]string, error) {
+func (*integrationDB) ListCollections(context.Context, auth.Principal, string, string) ([]string, error) {
 	return nil, nil
 }
-func (*integrationDB) ReadOnlyQuery(context.Context, cloudagent.Principal, string, string, string, int) (cloudagent.SQLResult, error) {
-	return cloudagent.SQLResult{}, nil
+func (*integrationDB) ReadOnlyQuery(context.Context, auth.Principal, string, string, string, int) (agentbridge.SQLResult, error) {
+	return agentbridge.SQLResult{}, nil
 }
 
 func integrationRuntime(t *testing.T, protocol string) (*cloudagent.Runtime, *integrationDB) {
@@ -45,8 +45,9 @@ func integrationRuntime(t *testing.T, protocol string) (*cloudagent.Runtime, *in
 		APIKey: key, BaseURL: base, DefaultModel: integrationModel, AllowedModels: []string{integrationModel},
 	}})
 	db := &integrationDB{}
+	provider := &agentbridge.RuntimeProvider{DB: db, ToolProtocol: protocol}
 	return &cloudagent.Runtime{
-		LLM: NewCloudAgentLLM(NewLLMService(llmgateway.NewService(resolver, nil, nil, nil))), DB: db,
+		LLM: NewCloudAgentLLM(NewLLMService(llmgateway.NewService(resolver, nil, nil, nil))), Provider: provider,
 		ToolProtocol: protocol, RunTimeout: 90 * time.Second,
 	}, db
 }
@@ -60,9 +61,10 @@ func TestLLMRealStreamAndToolRoundtrip(t *testing.T) {
 			started := time.Now()
 			first := time.Duration(0)
 			res, err := rt.StartRun(ctx, cloudagent.RunRequest{
-				ProjectID: "p", ThreadID: "th-" + protocol, RunID: "r-" + protocol, Stream: true,
-				Agent: systemdb.CloudAgent{ID: "a", Name: "Database", Module: cloudagent.ModuleDatabase,
-					ToolIDs: []string{cloudagent.ToolListDatabases}, ModelOverride: integrationModel},
+				ThreadID: "th-" + protocol, RunID: "r-" + protocol, Stream: true,
+				Context: agentbridge.RunContext{ProjectID: "p", Principal: auth.Principal{}},
+				Agent: cloudagent.Agent{ID: "a", Name: "Database", Module: agentbridge.ModuleDatabase,
+					ToolIDs: []string{agentbridge.ToolListDatabases}, ModelOverride: integrationModel},
 				UserText: "请使用 list_databases 工具查询数据库，再告诉我项目中 orders 和 users 是否存在。",
 			}, func(ev cloudagent.Event) {
 				if first == 0 && (ev.Type == "token" || ev.Type == "thinking") {
@@ -86,8 +88,9 @@ func TestLLMRealStreamAndToolRoundtrip(t *testing.T) {
 func TestLLMModelAllowlistRejectsBeforeUpstream(t *testing.T) {
 	rt, _ := integrationRuntime(t, "native")
 	_, err := rt.StartRun(context.Background(), cloudagent.RunRequest{
-		ProjectID: "p", ThreadID: "th-invalid", RunID: "r-invalid", Stream: false,
-		Agent:    systemdb.CloudAgent{ID: "a", Name: "General", Module: cloudagent.ModuleGeneral, ModelOverride: "not-in-allowlist"},
+		ThreadID: "th-invalid", RunID: "r-invalid", Stream: false,
+		Context:  agentbridge.RunContext{ProjectID: "p", Principal: auth.Principal{}},
+		Agent:    cloudagent.Agent{ID: "a", Name: "General", Module: agentbridge.ModuleGeneral, ModelOverride: "not-in-allowlist"},
 		UserText: "hello",
 	}, nil)
 	if err == nil || !errors.Is(err, llmgateway.ErrModelNotAllowed) {

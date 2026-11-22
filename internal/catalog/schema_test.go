@@ -26,11 +26,6 @@ func applyTestSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS sys_operations (
 			id VARCHAR NOT NULL, database_id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, principal_id VARCHAR NOT NULL,
 			kind VARCHAR NOT NULL, request_id VARCHAR NOT NULL, status VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS sys_jobs (
-			id VARCHAR NOT NULL, operation_id VARCHAR NOT NULL, database_id VARCHAR NOT NULL, project_id VARCHAR NOT NULL,
-			type VARCHAR NOT NULL, status VARCHAR NOT NULL, attempt BIGINT NOT NULL, max_attempts BIGINT NOT NULL,
-			run_after TIMESTAMP NOT NULL, payload_json VARCHAR NOT NULL, last_error VARCHAR NOT NULL,
-			created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS sys_project_quotas (
 			project_id VARCHAR NOT NULL, max_databases BIGINT NOT NULL, max_storage_bytes BIGINT NOT NULL,
 			max_llm_requests BIGINT NOT NULL, max_llm_tokens BIGINT NOT NULL, period_seconds BIGINT NOT NULL,

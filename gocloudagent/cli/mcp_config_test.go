@@ -24,7 +24,7 @@ func TestExpandEnvValue(t *testing.T) {
 }
 
 func TestMCPChildEnvDropsInheritedSecrets(t *testing.T) {
-	env := []string{"HOME=/root", "PATH=/usr/bin:/bin", "SIMPLEBASE_TOKEN=leak", "GH_TOKEN=leak"}
+	env := []string{"HOME=/root", "PATH=/usr/bin:/bin", "PLATFORM_TOKEN=leak", "GH_TOKEN=leak"}
 	got := mcpChildEnv(map[string]string{
 		"FOO":       "bar",
 		"MY_SECRET": "should-be-dropped",
@@ -97,9 +97,8 @@ func TestMCPServerConfigReadOnly(t *testing.T) {
 
 func TestConfigValidateRejectsBadMCPServer(t *testing.T) {
 	cfg := Config{
-		Endpoint:  "http://127.0.0.1:8080",
-		Token:     "t",
-		ProjectID: "p",
+		Endpoint: "http://127.0.0.1:8080",
+		Token:    "t",
 		MCPServers: map[string]MCPServerConfig{
 			"broken": {},
 		},

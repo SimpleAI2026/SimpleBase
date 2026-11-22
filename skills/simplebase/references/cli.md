@@ -80,7 +80,7 @@ python3 scripts/sbdev.py site unpublish -C . [--yes]
 
 | code | 处理 |
 | --- | --- |
-| `config_missing` | 缺 URL/token/project（退出码 4；`dev validate` 与 `dev status` 除外）。检查 `.env`；gocloudagent 的 shell 会剥离 `SIMPLEBASE_*`，在那里要用 config.json |
+| `config_missing` | 缺 URL/token/project（退出码 4；`dev validate` 与 `dev status` 除外）。检查 `.env`；gocloudagent 的 shell 会剥离凭据类变量（包括 `SIMPLEBASE_TOKEN`），在那里要用 config.json |
 | `usage` + `unknown command dev ...` | 二进制没有 `dev` 子命令（早于 planv6.4 P0b），改用 `scripts/sbdev.py` |
 | `config_insecure` | `chmod 600 ~/.config/simplebase/config.json` |
 | `project_mismatch` | 委托令牌绑定的项目与 `--project` 不一致 |
@@ -90,7 +90,7 @@ python3 scripts/sbdev.py site unpublish -C . [--yes]
 | `project_not_found` / 访问项目时报 `database_not_found` | 目标实例上还没有这个项目，请用户在控制台用相同 ID 创建，或由管理员执行 `simplebase project create --id <ID> --name <名称>` |
 | `invalid_api_key` 换环境后出现 | `.env` 还是旧实例的 Key；每个实例单独签发，`.env` 与 `.env.cloud` 分开放 |
 | `database_already_exists` | 每个项目只能有一个用户数据库；清单只声明一个库，或在目标项目先确认现有库名 |
-| `site_not_publishable`（400） | 当前项目无法发布子域名站点：调 `GET /v1/projects/<ID>/s3/site` 查看 `reason`（`sites_disabled` 实例未开启 `sites.enabled` / `base_domain`；`project_id_not_dns_safe` 项目 ID 含大写或首尾 `-`；`system_project` 系统项目禁止发布）。见 `sites.md` |
+| `site_not_publishable`（400） | 当前项目无法发布子域名站点：调 `GET /v1/projects/<ID>/s3/site` 查看 `reason`（`site_domain_unconfigured` 实例未配置 `base_domain`；`project_id_not_dns_safe` 项目 ID 含大写或首尾 `-`；`system_project` 系统项目禁止发布）。见 `sites.md` |
 | `mime_mismatch`（415） | 上传声明的 Content-Type 与内容嗅探结果不一致。上传静态站点（`.js`/`.css`/`.html`）用 `simplebase object upload` 或声明 `application/octet-stream`；`.svg` 去掉 `<?xml ...?>` 头；文本类（CSV/JSON/YAML/Markdown）可声明原类型或 `text/plain` |
 | `writer_unavailable` / `readonly_mode` | 实例只读（单写实例约束），换可写实例 |
 | `gofunction_*`、`function_not_found` | 见 `gofunction.md` |

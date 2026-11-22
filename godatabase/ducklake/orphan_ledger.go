@@ -1,33 +1,3 @@
-// 文件说明：orphan_ledger.go — godatabase/ducklake 中 OrphanRecord、OrphanLedger 等符号的实现
-//
-// 用法
-//
-//	(l *OrphanLedger) Record(ctx context.Context, tenantID, databaseID, fileKey, reason ...  // Record 写一条 pending 账目（PutIfAbsent + uuid key，天然幂等）
-//	(g *MaintenanceGate) Check(dbID string) error  // Check 对指定库执行门禁检查
-//	接线：CatalogSyncer.pruneVersions 删除快照前先 Record（expire_snapshots），
-//	并在清理入口用 maintenanceGate 派生门禁（multi-instance-consistency-plan §4.7）。
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/orphan_ledger.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/blob
-//	[同包] catalog_syncer.go, errors.go, extension.go, factory.go, gated_conn.go 等 14 个
-//
-// 主要符号
-//
-//	type OrphanRecord struct {…}
-//	type OrphanLedger struct {…}
-//	(l *OrphanLedger) Record(ctx context.Context, tenantID, databaseID, fileKey, reason ...
-//	type MaintenanceGate struct {…}
-//	var ErrGateBlocked
-//	(g *MaintenanceGate) Check(dbID string) error
-//	... 另有 1 个顶层符号
-
 package ducklake
 
 import (

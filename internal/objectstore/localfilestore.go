@@ -13,7 +13,7 @@
 //	[本文件] internal/objectstore/localfilestore.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/atomicfile
+//	[下游] godatabase/atomicfile
 //	[同包] blob.go, client.go, content.go, content_local.go, content_s3.go 等 10 个
 //
 // 主要符号
@@ -36,7 +36,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
 )
 
 // localFileStore 把对象内容持久化到 root 目录下的相对路径文件。

@@ -8,10 +8,10 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 | --- | --- | --- |
 | `src/pages/` | 路由页面（Home / Dashboard / Databases / DataBrowser / ApiPreview / KeyValue / S3Manager / GoFunctions / FunctionTriggers / CronJobs / AgentManager / Logs / Users / DocsWiki） | 页面只做数据编排与布局；新页面必须在 `router/index.ts` 注册并配 `meta.titleKey`，需角色控制的配 `meta.requiresRole`（如 Users 的 `superadminl1`）。全局设置不是全页，见 `SettingsModal` |
 | `src/components/ui/` | 基础组件库（button / table / dialog / select 等，shadcn 风格） | **视为本地 fork 的库代码**：只增删组件不改风格约定；删除组件前必须全局确认零引用 |
-| `src/components/` | 业务组件：`databases/` `modal/` `ai/` `agent/` `chat/` `cronjob/` `sandbox/` `editor/` `settings/` `docs/` `bi/` 分域，加顶层通用件（ConfirmAction / NavMenu / PageContainer / TablePager / SettingsModal / GlobalProjectSwitcher / TrendChart / SbAsyncRegion / SbEmptyState / SbErrorState / SbTabsPanel / SbCodeBlock / UserMenu 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖。`bi/` 是数据看板（planv6.7）：**只有 `BiChart.vue` 直接使用 echarts**，其余组件只传 option 或渲染描述；图表构造、类型兼容、自动推断、筛选合成、助手块解析全在 `utils/bi-*.ts` 纯函数里 |
+| `src/components/` | 业务组件：`databases/` `modal/` `ai/` `agent/` `chat/` `cronjob/` `sandbox/` `editor/` `settings/` `docs/` `bi/` 分域，加顶层通用件（ConfirmAction / NavMenu / PageContainer / TablePager / SettingsModal / GlobalProjectSwitcher / TrendChart / SbAsyncRegion / SbEmptyState / SbErrorState / SbTabsPanel / SbCodeBlock / UserMenu 等） | 命名 `PascalCase.vue`；业务组件不得反向被 `ui/` 依赖。`bi/` 是数据看板（planv6.7）：**只有 `BiChart.vue` 直接使用 echarts**，其余组件只传 option 或渲染描述；图表构造、类型兼容、自动推断、筛选合成全在 `utils/bi-*.ts` 纯函数里 |
 | `src/services/` | API 层：`api.ts`（固定导出 `httpApi`）→ `http-api.ts`（实现）→ `http.ts`（axios 实例、token 存取、401 处理）→ `types.ts`（契约） | 所有请求只经 `api.*`；页面禁止直接 import axios 或 `http-api` |
 | `src/stores/` | Pinia store（auth 登录态与角色 / project 项目切换 / settings） | 跨页面状态才进 store；组件内状态用 `ref` |
-| `src/composables/` | 组合函数（usePagination / useAgentConversation / useLoadState / useLocale / useBiDashboard / useBiQuery / useBiAgent / useBiTheme） | 在组件外取文案用 `@/locales` 导出的 `t()`，不要在 composable 里调 `useI18n()` |
+| `src/composables/` | 组合函数（usePagination / useAgentConversation / useLoadState / useLocale / useBiDashboard / useBiQuery / useBiTheme） | 在组件外取文案用 `@/locales` 导出的 `t()`，不要在 composable 里调 `useI18n()` |
 | `src/locales/` | i18n 文案源（`zh-CN.ts` 权威树、`en-US.ts` 同构、`index.ts` 实例与 `setI18nLocale`） | 唯一文案来源；不得在别处新建语言包 |
 | `src/layouts/` | DefaultLayout（`/console` 控制台）/ DocsLayout（`/docs` 文档站）；Home 页独立于两布局 | — |
 | `src/docs/` | 文档目录、按需加载 / 搜索、Markdown 安全渲染 | 文档正文来自仓库根 `docs/`；新增文档遵循 `docs/README.md` 并通过 `ui/tests/docs-content.test.ts` 的链接、锚点与 frontmatter 校验；大型上游镜像不要进首页 chunk |
@@ -69,7 +69,7 @@ Vue 3 + TypeScript + Vite 控制台。技术栈固定：Pinia、vue-router、Tai
 - 下载 Blob 用 `utils/download.ts` 的 `downloadBlob`（延迟回收 URL），复制文本用 `utils/clipboard.ts` 的 `copyText`，不要再手写锚点 / clipboard 片段。
 - 提示统一 `vue-sonner` 的 `toast`；确认操作统一 `ConfirmAction` 组件。
 - 弹窗用 `SbModal`；空态用 `SbEmptyState`；分页用 `TablePager`（配合 `usePagination`）。
-- `SbModal` 宽度只有一条通道：`maxWidth`（`width` 是历史别名，二者等价），都换算成 CSS 变量 `--sb-modal-max-w` / `--sb-modal-min-w`，不再走 `sm:max-w-5xl` 之类的分档类。`okButtonProps` 是 `SbModalOkButtonProps`（`variant` / `size` / `class` / `disabled`），会整体透传给确认按钮；`okText` / `cancelText` 缺省走 `common.ok` / `common.cancel`。
+- `SbModal` 宽度只有一条通道：`maxWidth`，与 `minWidth` 分别换算成 CSS 变量 `--sb-modal-max-w` / `--sb-modal-min-w`，不再走 `sm:max-w-5xl` 之类的分档类；历史 `width` 别名已删除，调用方统一使用 `maxWidth`。`okButtonProps` 是 `SbModalOkButtonProps`（`variant` / `size` / `class` / `disabled`），会整体透传给确认按钮；`okText` / `cancelText` 缺省走 `common.ok` / `common.cancel`。
 - `SbModal` 正文容器带 `px-1 -mx-1`：它有 `overflow-x-hidden`，不留这 4px 会把输入框的 `ring-3` 焦点环裁掉；内边距与负外边距相互抵消，视觉位置不变。改正文容器时不要去掉。
 - **弹窗内「输入框 + 其他元素」并排行**：父容器必须 `flex flex-wrap`；主输入框用 `min-w-0 flex-1`（或 `min-w-32 flex-1`）；固定宽度输入只给短输入（数字、分数），并加 `shrink-0`；需要宽屏保持固定宽度而窄屏撑满的，写 `min-w-0 flex-1 sm:w-48 sm:flex-none`。不要在不换行的 `flex` 行里给 `Input` / `SelectTrigger` 写裸 `w-*`——会把输入框撑出弹窗。该约定由 `ui/tests/modal-input-layout.test.ts` 按源码断言守住。
 - 下拉优先用 `ui/select`（可搜索输入用 `ui/combobox`），新代码不写原生 `<select>` / `<option>`。`SandboxCreateModal`、`Sandboxes` 的过滤器已迁移；`databases/SchemaPanel.vue` 的列类型下拉与 `modal/AgentFormModal.vue` 的 `datalist` 模型输入仍是原生写法，属于遗留项，改动这两处时顺手迁移。

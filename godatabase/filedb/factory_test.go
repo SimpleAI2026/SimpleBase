@@ -23,7 +23,7 @@ func TestProjectFileRoundTrip(t *testing.T) {
 				t.Fatal(err)
 			}
 			meta := godatabase.Spec{ID: "db1", ProjectID: "prj00001", DatabasePath: databasePath, Status: godatabase.StatusReady}
-			factory := &Factory{DataRoot: dataRoot, CacheDir: cacheDir, Syncer: NewNopSyncer()}
+			factory := &Factory{DataRoot: dataRoot, CacheDir: cacheDir, Syncer: NewLocalSyncer()}
 			ctx := context.Background()
 			db, err := factory.Open(ctx, meta, godatabase.ReadWrite)
 			if err != nil {
@@ -76,7 +76,7 @@ func TestSQLiteDialectMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	factory := &Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: NewNopSyncer()}
+	factory := &Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: NewLocalSyncer()}
 	db, err := factory.Open(ctx, godatabase.Spec{ID: "db2", ProjectID: "prj00002", DatabasePath: databasePath}, godatabase.ReadWrite)
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestOpenCorruptFileErrorHidesPhysicalPath(t *testing.T) {
 				t.Fatal(err)
 			}
 			meta := godatabase.Spec{ID: "db2", ProjectID: "prj00002", DatabasePath: databasePath, Status: godatabase.StatusReady}
-			factory := &Factory{DataRoot: dataRoot, CacheDir: cacheDir, Syncer: NewNopSyncer()}
+			factory := &Factory{DataRoot: dataRoot, CacheDir: cacheDir, Syncer: NewLocalSyncer()}
 			full, err := factory.filePath(meta)
 			if err != nil {
 				t.Fatal(err)
@@ -160,7 +160,7 @@ func TestDuckDBUserDBRejectsExternalFileRead(t *testing.T) {
 	if err := os.WriteFile(secret, []byte("TOPSECRET"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	factory := &Factory{DataRoot: dataRoot, CacheDir: cacheDir, Syncer: NewNopSyncer()}
+	factory := &Factory{DataRoot: dataRoot, CacheDir: cacheDir, Syncer: NewLocalSyncer()}
 	meta := godatabase.Spec{ID: "db3", ProjectID: "prj00003", DatabasePath: databasePath, Status: godatabase.StatusReady}
 	db, err := factory.Open(ctx, meta, godatabase.ReadWrite)
 	if err != nil {
@@ -209,7 +209,7 @@ func TestSQLiteReadOnlyConnectorForcesQueryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	factory := &Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: NewNopSyncer()}
+	factory := &Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: NewLocalSyncer()}
 	meta := godatabase.Spec{ID: "db4", ProjectID: "prj00004", DatabasePath: databasePath, Status: godatabase.StatusReady}
 
 	rw, err := factory.Open(ctx, meta, godatabase.ReadWrite)

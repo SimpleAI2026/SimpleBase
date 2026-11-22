@@ -109,5 +109,5 @@ func TestPromptTemplateDoesNotGrantSkillPermissions(t *testing.T) {
 	if !strings.Contains(expanded, "database delete") {
 		t.Fatalf("expanded = %q", expanded)
 	}
-	// 「展开模板不授予权限」的断言放在模块根包的 cli_entry_test.go（需要 skills.AllowArgv）。
+	// 模板只展开文本；命令授权由宿主运行策略单独判定。
 }

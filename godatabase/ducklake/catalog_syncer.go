@@ -1,34 +1,3 @@
-// 文件说明：catalog_syncer.go — godatabase/ducklake 中 DurabilityCommittedLocal、DurabilitySyncedS3 等符号…
-//
-// 用法
-//
-//	NewCatalogSyncer(store blob.Store, remote RemoteStorage, cacheDir string, opts ...
-//	(s *CatalogSyncer) SetWriterEpoch(dbID string, epoch int64)  // SetWriterEpoch 由租约管理器调用：获取租约后以租约 epoch 覆盖进程默认值
-//	(s *CatalogSyncer) IsSplitBrain(dbID string) bool  // IsSplitBrain 返回指定库是否已被标记 split-brain
-//	同包调用：sync() → factory.go, gated_conn.go 等；Close() → extension.go, factory.go 等；Sync() → factory.go, orphan_ledger.go 等
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/catalog_syncer.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase, godatabase/blob, godatabase/internal/hashx, godatabase/sqlx
-//	[同包] errors.go, extension.go, factory.go, gated_conn.go, inspect.go 等 14 个
-//	[关键引用] sync() ← factory.go, gated_conn.go, inspect.go
-//
-// 主要符号
-//
-//	const DurabilityCommittedLocal
-//	const DurabilitySyncedS3
-//	type CatalogSyncer struct {…}
-//	NewCatalogSyncer(store blob.Store, remote RemoteStorage, cacheDir string, opts ...
-//	(s *CatalogSyncer) SetWriterEpoch(dbID string, epoch int64)
-//	(s *CatalogSyncer) IsSplitBrain(dbID string) bool
-//	... 另有 40 个顶层符号
-
 package ducklake
 
 import (
@@ -80,8 +49,9 @@ type CatalogSyncer struct {
 	WriterEpoch int64
 
 	mu          sync.Mutex
-	last        map[string]int64     // last_synced_snapshot_id
-	lastSeq     map[string]int64     // last_synced_manifest_seq
+	last        map[string]int64 // last_synced_snapshot_id
+	lastSeq     map[string]int64 // last_synced_manifest_seq
+	epochs      map[string]int64
 	dirty       map[string]int64     // pending max snapshot
 	dirtySince  map[string]time.Time // 最旧尚未由成功 manifest 覆盖的本地提交时间（进程内估计）
 	bound       map[string]*boundDB
@@ -98,21 +68,7 @@ type CatalogSyncer struct {
 // NewCatalogSyncer 构造 Phase 2 同步器。Store 不可为 nil。
 // writerEpoch <= 0 时生成一个进程级随机 epoch（无租约部署的保守值）。
 func NewCatalogSyncer(store blob.Store, remote RemoteStorage, cacheDir string, opts CatalogSyncOptions, engine string, logger godatabase.Logger, observer godatabase.Observer) *CatalogSyncer {
-	if opts.Mode == "" {
-		opts.Mode = "interval"
-	}
-	if opts.Debounce <= 0 {
-		opts.Debounce = 200 * time.Millisecond
-	}
-	if opts.KeepVersions <= 0 {
-		opts.KeepVersions = 10
-	}
-	if opts.Interval <= 0 {
-		opts.Interval = 15 * time.Second
-	}
-	if opts.MaxLag <= 0 {
-		opts.MaxLag = 30 * time.Second
-	}
+	opts = opts.normalized()
 	return &CatalogSyncer{
 		Store:       store,
 		Remote:      remote,
@@ -124,6 +80,7 @@ func NewCatalogSyncer(store blob.Store, remote RemoteStorage, cacheDir string, o
 		WriterEpoch: randomWriterEpoch(),
 		last:        map[string]int64{},
 		lastSeq:     map[string]int64{},
+		epochs:      map[string]int64{},
 		dirty:       map[string]int64{},
 		dirtySince:  map[string]time.Time{},
 		bound:       map[string]*boundDB{},

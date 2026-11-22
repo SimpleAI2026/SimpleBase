@@ -42,7 +42,7 @@ func TestDisplayName(t *testing.T) {
 		t.Fatalf("display=%q", got)
 	}
 	// 非 MCP 工具名原样返回。
-	if got := DisplayName("simplebase"); got != "simplebase" {
+	if got := DisplayName("custom"); got != "custom" {
 		t.Fatalf("display=%q", got)
 	}
 	// 缺分隔符时原样返回，不 panic。
@@ -63,7 +63,7 @@ func TestParseToolID(t *testing.T) {
 		{" mcp:fs/read ", "fs", "read", true},
 		{"mcp:", "", "", false},
 		{"mcp:/tool", "", "", false},
-		{"simplebase", "", "", false},
+		{"custom", "", "", false},
 	}
 	for _, c := range cases {
 		server, tool, ok := ParseToolID(c.id)
@@ -71,7 +71,7 @@ func TestParseToolID(t *testing.T) {
 			t.Fatalf("ParseToolID(%q) = (%q,%q,%v), want (%q,%q,%v)", c.id, server, tool, ok, c.server, c.tool, c.ok)
 		}
 	}
-	if !IsMCPToolID("mcp:x") || IsMCPToolID("simplebase") {
+	if !IsMCPToolID("mcp:x") || IsMCPToolID("custom") {
 		t.Fatal("IsMCPToolID mismatch")
 	}
 }

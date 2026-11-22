@@ -27,7 +27,7 @@ func sqlSeededService(t *testing.T, engine string) realDataService {
 		t.Fatal(err)
 	}
 	db := catalog.Database{ID: "db-sql", ProjectID: "prj00001", DatabasePath: path, DataModel: catalog.DataModelSQL}
-	svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewNopSyncer()}}
+	svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewLocalSyncer()}}
 
 	ddl := map[string][]string{
 		catalog.EngineDuckDB: {

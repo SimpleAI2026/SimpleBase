@@ -7,7 +7,6 @@ import { uiStubs } from '@/test/helpers'
 import { pageVm } from '@/test/page-vm'
 import { useProjectStore } from '@/stores/project'
 import { useAuthStore } from '@/stores/auth'
-import type { CloudAgent } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
   const module = await import('@/test/api-mock')
@@ -28,13 +27,6 @@ const EVENTS = {
   columns: [col('id', 'BIGINT', { nullable: false }), col('kind', 'VARCHAR'), col('amount', 'DOUBLE'), col('happened_at', 'TIMESTAMP'), col('payload', 'JSON')]
 }
 const NO_TIME = { name: 'plain', columns: [col('id', 'BIGINT'), col('label', 'VARCHAR'), col('score', 'DOUBLE')] }
-const dataAgent: CloudAgent = {
-  id: 'ag-db', name: 'Database', module: 'database', description: '', system_prompt: '', tool_ids: [],
-  builtin_key: 'database', team_enabled: false, writable: false, created_at: '', updated_at: ''
-}
-
-interface Handlers { onToken?: (t: string) => void; onEnd?: (r: string) => void }
-
 function setup(opts: { tables?: unknown[]; canWrite?: boolean; admin?: boolean } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -50,19 +42,7 @@ function setup(opts: { tables?: unknown[]; canWrite?: boolean; admin?: boolean }
     columns: q.groupBy ? ['x', 'count'] : ['count'], rows: q.groupBy ? [['click', 3], ['view', 2]] : [[5]],
     truncated: false, scanned: 5, durationMs: 1, requestId: ''
   }))
-  api.agents.list.mockResolvedValue([dataAgent])
-  api.agentThreads.create.mockResolvedValue({ id: 'th1', title: 't', created_at: '', updated_at: '' })
-  api.agentThreads.messages.mockResolvedValue([])
   return mount(DataBrowser, { global: { plugins: [pinia], stubs: uiStubs } })
-}
-
-function captureStream() {
-  const calls: Array<{ req: Record<string, unknown>; handlers: Handlers }> = []
-  api.agentThreads.streamRun.mockImplementation((_p: string, _t: string, req: Record<string, unknown>, handlers: Handlers) => {
-    calls.push({ req, handlers })
-    return { close: vi.fn() }
-  })
-  return calls
 }
 
 beforeEach(() => {
@@ -80,12 +60,6 @@ describe('SQL table as a data source', () => {
       expect(wrapper.text(), gone).not.toContain(gone)
     }
     expect(wrapper.get('[data-testid="table-hint"]').text()).toContain('只读')
-  })
-
-  it('offers all nine chart types for a table that has data', async () => {
-    const wrapper = setup()
-    await flushPromises()
-    expect(wrapper.get('[data-testid="bi-toolbar"]').findAll('option').map((o) => o.attributes('value'))).toEqual(expect.arrayContaining(['auto', 'line', 'column', 'bar', 'pie', 'table', 'grouped_bar', 'stacked_bar', 'scatter']))
   })
 
   it('every aggregate goes to the table endpoint with the table name, never the collection endpoint', async () => {
@@ -239,89 +213,6 @@ describe('SQL table as a data source', () => {
     const detail = wrapper.get('[data-testid="bi-detail"]')
     expect(detail.text()).toContain('fresh')
     expect(detail.text()).not.toContain('STALE')
-  })
-})
-
-describe('Agent on a SQL table', () => {
-  it('sends source=table, the table name and only real columns (no invented created_at)', async () => {
-    const wrapper = setup()
-    await flushPromises()
-    const calls = captureStream()
-    await wrapper.get('[data-testid="bi-agent-input"]').setValue('各类型数量')
-    await wrapper.get('[data-action="send"]').trigger('click')
-    await flushPromises()
-    expect(calls).toHaveLength(1)
-    const ctx = calls[0].req.bi_context as { database_id: string; collection: string; source?: string; fields: Array<{ name: string; type: string }> }
-    expect(ctx).toMatchObject({ database_id: 'sql1', collection: 'events', source: 'table' })
-    expect(ctx.fields).toEqual([
-      { name: 'id', type: 'number' }, { name: 'kind', type: 'text' }, { name: 'amount', type: 'number' },
-      { name: 'happened_at', type: 'date' }, { name: 'payload', type: 'json' }
-    ])
-    expect(ctx.fields.some((f) => f.name === 'created_at' || f.name === 'updated_at')).toBe(false)
-  })
-
-  it('names the conversation after the table', async () => {
-    const wrapper = setup()
-    await flushPromises()
-    captureStream()
-    await wrapper.get('[data-testid="bi-agent-input"]').setValue('画')
-    await wrapper.get('[data-action="send"]').trigger('click')
-    await flushPromises()
-    expect(api.agentThreads.create).toHaveBeenCalledWith('p1', 'BI · 表 events', 'ag-db')
-    expect(window.localStorage.getItem('sb_bi_thread_v1:p1:sql1:table:events')).toBe('th1')
-  })
-
-  it('previews a generated chart through the table endpoint and adds it to the board on confirm', async () => {
-    const wrapper = setup()
-    await flushPromises()
-    const calls = captureStream()
-    await wrapper.get('[data-testid="bi-agent-input"]').setValue('各类型数量')
-    await wrapper.get('[data-action="send"]').trigger('click')
-    await flushPromises()
-    api.databases.aggregateTable.mockClear()
-    calls[0].handlers.onToken?.(`好的\n<!-- sb:chart ${JSON.stringify({ version: 1, title: '类型占比', type: 'pie', metrics: ['count'], group_by: 'kind' })} -->`)
-    calls[0].handlers.onEnd?.('stop')
-    await flushPromises()
-    expect(api.databases.aggregateTable.mock.calls.some(([, , tb, q]) => tb === 'events' && q.groupBy === 'kind')).toBe(true)
-    expect(api.db.aggregate).not.toHaveBeenCalled()
-    await wrapper.get('[data-testid="bi-agent-pending"] [data-action="add"]').trigger('click')
-    await flushPromises()
-    expect(window.localStorage.getItem('sb_bi_v1:p1:sql1:table:events')).toContain('类型占比')
-  })
-
-  it('rejects a generated chart that uses created_at on a table without that column', async () => {
-    const wrapper = setup()
-    await flushPromises()
-    const calls = captureStream()
-    await wrapper.get('[data-testid="bi-agent-input"]').setValue('趋势')
-    await wrapper.get('[data-action="send"]').trigger('click')
-    await flushPromises()
-    calls[0].handlers.onToken?.(`<!-- sb:chart ${JSON.stringify({ version: 1, title: '幽灵趋势', type: 'line', metrics: ['count'], group_by: 'created_at:day' })} -->`)
-    calls[0].handlers.onEnd?.('stop')
-    await flushPromises()
-    expect(wrapper.find('[data-testid="bi-agent-pending"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="bi-agent-rejected"]').text()).toContain('幽灵趋势')
-  })
-
-  it('is disabled for the system project and for read-only roles, like collections', async () => {
-    const admin = setup({ admin: true })
-    await flushPromises()
-    expect(admin.get('[data-testid="bi-agent-disabled"]').text()).toContain('系统项目')
-    admin.unmount()
-    resetApiMocks()
-    const readonly = setup({ canWrite: false })
-    await flushPromises()
-    expect(readonly.get('[data-testid="bi-agent-disabled"]').text()).toContain('没有写权限')
-  })
-
-  it('a table with no usable columns disables the agent with a clear reason', async () => {
-    const wrapper = setup({ tables: [{ name: 'blobs', columns: [col('data', 'BLOB')] }] })
-    await flushPromises()
-    // BLOB 归为 json（不可图表）但仍是真实列；全部敏感列的表才会真正没有列。
-    const sensitiveOnly = setup({ tables: [{ name: 'sec', columns: [col('password_hash', 'VARCHAR', { sensitive: true })] }] })
-    await flushPromises()
-    expect(sensitiveOnly.get('[data-testid="bi-agent-disabled"]').text()).toContain('没有可用于图表的列')
-    expect(wrapper.exists()).toBe(true)
   })
 })
 

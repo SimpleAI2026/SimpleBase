@@ -104,7 +104,9 @@ type yamlConfig struct {
 }
 
 type yamlSites struct {
-	Enabled          *bool   `yaml:"enabled"`
+	Subdomain        *bool   `yaml:"subdomain"`
+	PathPrefix       *string `yaml:"path_prefix"`
+	PublicBaseURL    *string `yaml:"public_base_url"`
 	BaseDomain       *string `yaml:"base_domain"`
 	URLScheme        *string `yaml:"url_scheme"`
 	URLPort          *int    `yaml:"url_port"`
@@ -266,6 +268,7 @@ type yamlAgent struct {
 
 type yamlMCP struct {
 	Enabled              *bool `yaml:"enabled"`
+	Builtin              *bool `yaml:"builtin"`
 	AllowHTTP            *bool `yaml:"allow_http"`
 	MaxServersPerProject *int  `yaml:"max_servers_per_project"`
 }
@@ -463,6 +466,7 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setDur(&cfg.Agent.ConfirmTimeout, yc.Agent.ConfirmTimeout)
 	setBool(&cfg.Agent.TraceLog, yc.Agent.TraceLog)
 	setBool(&cfg.Agent.MCP.Enabled, yc.Agent.MCP.Enabled)
+	setBool(&cfg.Agent.MCP.Builtin, yc.Agent.MCP.Builtin)
 	setBool(&cfg.Agent.MCP.AllowHTTP, yc.Agent.MCP.AllowHTTP)
 	if yc.Agent.MCP.MaxServersPerProject != nil {
 		cfg.Agent.MCP.MaxServersPerProject = *yc.Agent.MCP.MaxServersPerProject
@@ -533,7 +537,9 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setInt(&cfg.Backup.MaxPerProject, yc.Backup.MaxPerProject)
 	setDur(&cfg.Backup.SnapshotTimeout, yc.Backup.SnapshotTimeout)
 	setStr(&cfg.Backup.MissedPolicy, yc.Backup.MissedPolicy)
-	setBool(&cfg.Sites.Enabled, yc.Sites.Enabled)
+	setBool(&cfg.Sites.Subdomain, yc.Sites.Subdomain)
+	setStr(&cfg.Sites.PathPrefix, yc.Sites.PathPrefix)
+	setStr(&cfg.Sites.PublicBaseURL, yc.Sites.PublicBaseURL)
 	setStr(&cfg.Sites.BaseDomain, yc.Sites.BaseDomain)
 	setStr(&cfg.Sites.URLScheme, yc.Sites.URLScheme)
 	setInt(&cfg.Sites.URLPort, yc.Sites.URLPort)

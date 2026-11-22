@@ -78,13 +78,17 @@ describe('capability gap HTTP mappings', () => {
         { key: 'blog/', public: true, publicUrl: 'https://p.x/blog/', publicInherited: undefined },
         { key: '', public: false, publicUrl: undefined, publicInherited: undefined }
       ],
-      site: { enabled: true, baseUrl: 'https://p.x', publishable: true, reason: undefined }
+      site: { baseUrl: 'https://p.x', publishable: true, reason: undefined }
     })
-    http.get.mockResolvedValueOnce(ok({ publishable: false, reason: 'sites_disabled' }))
-    expect(await httpApi.s3.getSite('p')).toEqual({ enabled: false, baseUrl: undefined, publishable: false, reason: 'sites_disabled' })
-    http.put.mockResolvedValueOnce(ok(undefined))
-    expect(await httpApi.s3.setSite('p', true)).toEqual({ enabled: false, baseUrl: undefined, publishable: false, reason: undefined })
-    expect(http.put.mock.calls.at(-1)).toEqual(['/v1/projects/p/s3/site', { enabled: true }])
+    http.get.mockResolvedValueOnce(ok({ publishable: false, reason: 'site_domain_unconfigured' }))
+    expect(await httpApi.s3.getSite('p')).toEqual({ baseUrl: undefined, publishable: false, reason: 'site_domain_unconfigured' })
+    // planv6.7 §1.6：mode 只接受 path / subdomain
+    http.get.mockResolvedValueOnce(ok({ baseUrl: 'https://h/sites/p', publishable: true, mode: 'path' }))
+    expect(await httpApi.s3.getSite('p')).toMatchObject({ mode: 'path' })
+    http.get.mockResolvedValueOnce(ok({ baseUrl: 'https://p.x', publishable: true, mode: 'subdomain' }))
+    expect(await httpApi.s3.getSite('p')).toMatchObject({ mode: 'subdomain' })
+    http.get.mockResolvedValueOnce(ok({ publishable: true, mode: 'weird' }))
+    expect((await httpApi.s3.getSite('p')).mode).toBeUndefined()
     http.put.mockResolvedValueOnce(ok({ public: true, publicUrl: 'https://p.x/a', publicInherited: '' }))
     expect(await httpApi.s3.setPublic('p', 'a', 'file', true)).toEqual({ public: true, publicUrl: 'https://p.x/a', publicInherited: undefined })
     expect(http.put.mock.calls.at(-1)).toEqual(['/v1/projects/p/s3/public', { key: 'a', kind: 'file', public: true }])

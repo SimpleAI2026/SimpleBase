@@ -72,7 +72,7 @@ func TestSnapshotFromFactory(t *testing.T) {
 	if snapshotFromFileFactory(nil, "x") != nil {
 		t.Fatal("nil factory")
 	}
-	s := filedb.NewNopSyncer()
+	s := filedb.NewLocalSyncer()
 	f := &filedb.Factory{Syncer: s}
 	if snapshotFromFileFactory(f, "missing") != nil {
 		t.Fatal("empty watermark")

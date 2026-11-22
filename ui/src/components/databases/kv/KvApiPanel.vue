@@ -73,7 +73,7 @@
     <SbModal
       :open="tryOpen"
       :title="tryTarget ? t('components.kvApi.tryTitle', { name: tryTarget.name }) : ''"
-      :width="560"
+      :max-width="560"
       :confirm-loading="trying"
       :ok-text="t('components.kvApi.execute')"
       @ok="runTry"

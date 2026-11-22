@@ -30,7 +30,7 @@
 <script setup lang="ts">
 // BiChartTypePicker：图表类型选择器（planv6.7 §4.3，F4 / F4a / F4b）。
 // 固定 9 项，顺序与产品原型一致；不兼容当前字段配置的类型置灰并给出原因。
-// 兼容判定来自 bi-compat（与编辑器、Agent 结果校验同一份口径）。
+// 兼容判定来自 bi-compat，与编辑器保存校验共用一份口径。
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'

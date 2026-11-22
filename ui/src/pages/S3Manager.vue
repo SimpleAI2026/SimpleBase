@@ -18,48 +18,6 @@
       </template>
       <template #toolbar>
         <div class="flex flex-col gap-3">
-        <div
-          v-if="site && !projectStore.isAdmin"
-          class="sb-site-panel flex flex-wrap items-center gap-2.5 rounded-md border bg-muted/30 px-3 py-2"
-        >
-          <GlobeIcon class="size-4 shrink-0 text-primary" />
-          <div class="flex min-w-0 flex-1 flex-col">
-            <span class="text-sm font-medium">{{ t('pages.s3.site.title') }}</span>
-            <span v-if="site.enabled && site.baseUrl" class="sb-mono truncate text-xs text-muted-foreground">
-              {{ t('pages.s3.site.url') }}：<a :href="site.baseUrl" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">{{ site.baseUrl }}</a>
-            </span>
-            <span v-else-if="!site.publishable" class="sb-site-reason text-xs text-muted-foreground">{{ siteReasonText }}</span>
-            <span v-else class="text-xs text-muted-foreground">{{ t('pages.s3.site.desc') }}</span>
-          </div>
-          <template v-if="site.enabled">
-            <Button v-if="site.baseUrl" variant="ghost" size="sm" @click="copyUrl(site.baseUrl)">
-              <CopyIcon data-icon="inline-start" />{{ t('pages.s3.copyUrl') }}
-            </Button>
-            <ConfirmAction
-              :title="t('pages.s3.site.confirmUnpublish')"
-              :description="t('pages.s3.site.confirmUnpublishDesc')"
-              :disabled="siteBusy || !canManageSite"
-              @confirm="setSite(false)"
-            >
-              <Button variant="outline" size="sm" class="sb-site-unpublish" :disabled="siteBusy || !canManageSite">
-                {{ t('pages.s3.site.unpublish') }}
-              </Button>
-            </ConfirmAction>
-          </template>
-          <ConfirmAction
-            v-else
-            :title="t('pages.s3.site.confirmPublish')"
-            :description="t('pages.s3.site.confirmPublishDesc')"
-            :disabled="siteBusy || !site.publishable || !canManageSite"
-            @confirm="setSite(true)"
-          >
-            <Button size="sm" class="sb-site-publish" :disabled="siteBusy || !site.publishable || !canManageSite">
-              <Spinner v-if="siteBusy" data-icon="inline-start" />
-              <GlobeIcon v-else data-icon="inline-start" />
-              {{ t('pages.s3.site.publish') }}
-            </Button>
-          </ConfirmAction>
-        </div>
         <div class="flex flex-wrap items-center gap-2.5">
           <!-- 面包屑：进入子目录后可逐级返回（planv6.7 ui-simplify-ux-plan X4） -->
           <nav v-if="crumbs.length" :aria-label="t('pages.s3.breadcrumbAria')" class="sb-s3-crumbs flex min-w-0 flex-wrap items-center gap-0.5 text-sm">
@@ -82,6 +40,9 @@
           </InputGroup>
         </div>
         <Progress v-if="uploading && uploadPercent > 0" :model-value="uploadPercent" class="w-full" />
+        <p v-if="siteModeText" class="sb-site-mode text-xs text-muted-foreground">
+          {{ siteModeText }}<template v-if="site?.mode === 'path'"> · {{ t('pages.s3.site.modePathHint') }}</template>
+        </p>
         </div>
       </template>
       <div>
@@ -188,10 +149,11 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
+import { copyText } from '@/utils/clipboard'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { ChevronRightIcon, CopyIcon, FileIcon, FolderIcon, GlobeIcon, SearchIcon, UploadIcon } from '@lucide/vue'
+import { ChevronRightIcon, CopyIcon, FileIcon, FolderIcon, SearchIcon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
@@ -227,7 +189,6 @@ const objects = ref<S3Object[]>([])
 const folders = ref<string[]>([])
 const folderMeta = ref<S3FolderMeta[]>([])
 const site = ref<S3SiteInfo | null>(null)
-const siteBusy = ref(false)
 const toggling = ref(new Set<string>())
 const { page, pageSize, total, pageCount, items: paged } = usePagination(objects)
 const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
@@ -365,7 +326,7 @@ function load() {
 
 /* ---------- planv6.5：发布网站 / 外部访问 ---------- */
 
-/** 站点功能在实例上开启时才显示两列（sites_disabled 时后端不返回 site）。 */
+/** 站点域名已配置时才显示两列（未配置时后端不返回 site）。 */
 const showPublicCols = computed(() => site.value !== null && !projectStore.isAdmin)
 const columnCount = computed(() => (showPublicCols.value ? 6 : 4))
 const canManageSite = computed(() => authStore.canWrite)
@@ -373,36 +334,25 @@ const folderRows = computed<S3FolderMeta[]>(() => {
   const meta = new Map(folderMeta.value.map((m) => [m.key, m]))
   return folders.value.map((key) => meta.get(key) ?? { key, public: false })
 })
-const siteReasonText = computed(() => {
-  const reason = site.value?.reason
-  if (reason === 'sites_disabled' || reason === 'system_project' || reason === 'project_id_not_dns_safe') {
-    return t(`pages.s3.site.notPublishable.${reason}`)
-  }
-  return reason ?? ''
-})
-
 function switchEnabled(inherited?: string) {
-  return Boolean(site.value?.enabled) && canManageSite.value && !inherited
+  return Boolean(site.value?.publishable) && canManageSite.value && !inherited
 }
+
+/** 站点地址说明：按后端返回的 mode 二选一，前端不读环境变量。 */
+const siteModeText = computed(() => {
+  const s = site.value
+  if (!s || !s.baseUrl || !s.mode || projectStore.isAdmin) return ''
+  return t(s.mode === 'path' ? 'pages.s3.site.modePath' : 'pages.s3.site.modeSubdomain', { url: s.baseUrl })
+})
 
 function publicHint(inherited?: string) {
   if (inherited === '/') return t('pages.s3.inheritedRoot')
   if (inherited) return t('pages.s3.inheritedFrom', { folder: inherited })
-  if (!site.value?.enabled) return t('pages.s3.publicNeedsSite')
-  return ''
-}
-
-async function setSite(enabled: boolean) {
-  siteBusy.value = true
-  try {
-    site.value = await api.s3.setSite(projectStore.id, enabled)
-    toast.success(t(enabled ? 'pages.s3.site.published' : 'pages.s3.site.unpublished'))
-    await load()
-  } catch (e) {
-    toast.error(errorMessage(e, t('pages.s3.site.failed')))
-  } finally {
-    siteBusy.value = false
+  if (!site.value?.publishable) {
+    if (site.value?.reason === 'site_unavailable') return t('pages.s3.site.notPublishable.site_unavailable')
+    return t('pages.s3.publicNeedsSite')
   }
+  return ''
 }
 
 async function togglePublic(key: string, kind: 'file' | 'folder', value: boolean) {
@@ -424,12 +374,11 @@ async function togglePublic(key: string, kind: 'file' | 'folder', value: boolean
 
 async function copyUrl(url?: string) {
   if (!url) return
-  try {
-    await navigator.clipboard.writeText(url)
-    toast.success(t('pages.s3.urlCopied'))
-  } catch (e) {
-    toast.error(errorMessage(e, t('pages.s3.linkFailed')))
-  }
+  await copyText(
+    url,
+    () => t('pages.s3.urlCopied'),
+    (error) => errorMessage(error, t('pages.s3.linkFailed'))
+  )
 }
 function openFolder(folder: string) {
   goPrefix(folder)

@@ -50,7 +50,7 @@
     <SbModal
       :open="renameOpen"
       :title="t('components.kvPanel.renameTitle')"
-      :width="440"
+      :max-width="440"
       :confirm-loading="renaming"
       :ok-button-props="{ disabled: !renameValue.trim() }"
       @ok="submitRename"

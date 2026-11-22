@@ -1,4 +1,19 @@
 import { vi } from 'vitest'
+import type { AgentTurn } from '@/services/types'
+
+/** sampleTurn 是协作轮次的空快照（mock 默认值）。 */
+function sampleTurn(): AgentTurn {
+  return {
+    id: 'turn-1',
+    threadId: 'th-1',
+    status: 'completed',
+    version: 1,
+    createdAt: 't',
+    updatedAt: 't',
+    tasks: [],
+    lastEventSeq: 0
+  }
+}
 
 export const api = {
   preview: {
@@ -73,7 +88,6 @@ export const api = {
     remove: vi.fn(),
     upload: vi.fn(),
     getSite: vi.fn(),
-    setSite: vi.fn(),
     setPublic: vi.fn()
   },
   backups: {
@@ -115,6 +129,7 @@ export const api = {
   agentThreads: {
     list: vi.fn(),
     page: vi.fn(),
+    pageBy: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
     rename: vi.fn(),
@@ -123,9 +138,30 @@ export const api = {
     messages: vi.fn(),
     streamRun: vi.fn(),
     attachRun: vi.fn(),
+    streamTurn: vi.fn(),
+    turns: vi.fn(),
     cancel: vi.fn(),
     active: vi.fn(),
     confirm: vi.fn()
+  },
+  /** 工作台标签（群）CRUD（planv6.7 AGC-NAV / v2）。 */
+  agentTags: {
+    list: vi.fn(),
+    create: vi.fn(),
+    patch: vi.fn(),
+    remove: vi.fn(),
+    get: vi.fn(),
+    addMembers: vi.fn(),
+    removeMember: vi.fn(),
+    submitEvent: vi.fn()
+  },
+  /** v2：协作轮次与人工待办。 */
+  agentTurns: {
+    get: vi.fn(),
+    act: vi.fn(),
+    reply: vi.fn(),
+    humanTasks: vi.fn(),
+    capabilities: vi.fn()
   },
   agentApprovals: {
     list: vi.fn(),
@@ -136,7 +172,9 @@ export const api = {
     create: vi.fn(),
     update: vi.fn(),
     remove: vi.fn(),
-    test: vi.fn()
+    test: vi.fn(),
+    setBuiltinEnabled: vi.fn(),
+    testBuiltin: vi.fn()
   },
   storage: {
     get: vi.fn(),
@@ -331,8 +369,7 @@ export function applyApiDefaults() {
   api.s3.createLink.mockResolvedValue({ url: '/files/token', expiresAt: '2026-01-01T00:00:00Z' })
   api.s3.remove.mockResolvedValue(undefined)
   api.s3.upload.mockResolvedValue({ key: 'a.txt', size: 1 })
-  api.s3.getSite.mockResolvedValue({ enabled: false, publishable: false, reason: 'sites_disabled' })
-  api.s3.setSite.mockResolvedValue({ enabled: true, publishable: true, baseUrl: 'https://proj0001.simplebase.top' })
+  api.s3.getSite.mockResolvedValue({ publishable: false, reason: 'site_domain_unconfigured' })
   api.s3.setPublic.mockResolvedValue({ public: true, publicUrl: 'https://proj0001.simplebase.top/a.html' })
   api.backups.list.mockResolvedValue([])
   api.backups.create.mockResolvedValue({ id: 'b1', projectId: 'p', sizeBytes: 1, sha256: 'x', engine: 'duckdb', formatVersion: 1, status: 'ready', createdAt: '2026-01-01T00:00:00Z' })
@@ -394,6 +431,10 @@ export function applyApiDefaults() {
   })
   api.agents.patch.mockResolvedValue({})
   api.agents.remove.mockResolvedValue(undefined)
+  api.agentTags.list.mockResolvedValue([{
+    id: 'general', builtinKey: 'general', name: '通用', agentIds: [], prompts: [],
+    unavailableAgentIds: [], routingPrompt: '', threadKinds: ['chat', 'alert', 'statistics', 'scheduled'], version: 0
+  }])
   api.agentThreads.list.mockResolvedValue([])
   api.agentThreads.page.mockResolvedValue({ threads: [], next_cursor: '' })
   api.agentThreads.rename.mockResolvedValue({ id: 'th-1', title: '已重命名', created_at: 't', updated_at: 't' })
@@ -401,13 +442,29 @@ export function applyApiDefaults() {
   api.agentThreads.create.mockResolvedValue({ id: 'th-1', title: '云助手', created_at: 't', updated_at: 't' })
   api.agentThreads.messages.mockResolvedValue([])
   api.agentThreads.streamRun.mockReturnValue({ close: vi.fn() })
+  api.agentThreads.streamTurn.mockReturnValue({ close: vi.fn() })
   api.agentThreads.attachRun.mockReturnValue({ close: vi.fn() })
+  api.agentThreads.turns.mockResolvedValue([])
   api.agentThreads.active.mockResolvedValue([])
   api.agentThreads.cancel.mockResolvedValue({ id: 'run-1', thread_id: 'th-1', agent_id: 'ag-1', status: 'canceled' })
   api.agentThreads.confirm.mockResolvedValue(undefined)
+  api.agentTurns.get.mockResolvedValue(sampleTurn())
+  api.agentTurns.act.mockResolvedValue(sampleTurn())
+  api.agentTurns.reply.mockResolvedValue(sampleTurn())
+  api.agentTurns.humanTasks.mockResolvedValue({ tasks: [], pending: 0 })
+  api.agentTurns.capabilities.mockResolvedValue({
+    protocolVersion: 2,
+    collaboration: true,
+    threadKinds: ['chat', 'alert', 'statistics', 'scheduled'],
+    maxTasks: 8,
+    maxDepth: 4,
+    maxInstruction: 2000
+  })
   api.agentApprovals.list.mockResolvedValue({ approvals: [], pending: 0 })
   api.agentApprovals.resolve.mockResolvedValue(undefined)
-  api.mcpServers.list.mockResolvedValue([])
+  api.mcpServers.list.mockResolvedValue({ servers: [], builtin: [] })
+  api.mcpServers.setBuiltinEnabled.mockResolvedValue(undefined)
+  api.mcpServers.testBuiltin.mockResolvedValue({ ok: true, tools: ['sql_query'] })
   api.mcpServers.create.mockResolvedValue({
     id: 'mcp-1',
     name: 'github',

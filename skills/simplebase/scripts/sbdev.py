@@ -1224,9 +1224,9 @@ def site_api(t: Target, method: str, suffix: str, body: dict = None) -> dict:
 
 
 def _site_reason_hint(project_id: str, reason: str) -> str:
-    if reason == "sites_disabled":
-        return ("目标实例未开启站点托管（需配置 sites.enabled=true 与 sites.base_domain；"
-                "本地可用 SIMPLEBASE_SITES_ENABLED=true SIMPLEBASE_SITES_BASE_DOMAIN=localhost "
+    if reason == "site_domain_unconfigured":
+        return ("目标实例未配置站点域名（需配置 sites.base_domain；"
+                "本地可用 SIMPLEBASE_SITES_BASE_DOMAIN=localhost "
                 "SIMPLEBASE_SITES_URL_SCHEME=http SIMPLEBASE_SITES_URL_PORT=8080）。仅上传文件可加 --no-publish")
     if reason == "project_id_not_dns_safe":
         return f"项目 ID {quote(project_id)} 不能作为子域名标签（需 8 位 [a-z0-9-] 小写字符且首尾不为 -）"

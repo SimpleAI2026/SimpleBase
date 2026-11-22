@@ -1,28 +1,5 @@
 //go:build linux
 
-// 文件说明：pty_linux.go — agent 在沙盒自己的 /dev/pts 里开伪终端
-//
-// 用法
-//
-//	openPTY(rows, cols uint16) (*os.File, error)  // 返回主端，从端已设好窗口大小
-//	setWinsize(f *os.File, rows, cols uint16) error
-//
-// 调用架构
-//
-//	[上游] gosandbox/agent/proc.go
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/pty_linux.go
-//	         │
-//	         ▼
-//	[下游] golang.org/x/sys/unix
-//	[同包] pty_other.go
-//
-// 主要符号
-//
-//	openPTY(rows, cols uint16) (*os.File, error)
-//	setWinsize(f *os.File, rows, cols uint16) error
-
 package agent
 
 import (

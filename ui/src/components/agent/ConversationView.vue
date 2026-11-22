@@ -20,6 +20,20 @@
         </span>
       </div>
       <div class="flex min-w-0 max-w-[75%] flex-col gap-1 max-[768px]:max-w-[85%]">
+        <!-- planv6.7 AGC-ROUTE：assistant 气泡上方显示实际回答者与路由原因。 -->
+        <p
+          v-if="m.role === 'assistant' && (m.agentId || m.routing)"
+          data-agent-speaker
+          class="flex items-center gap-1 text-xs text-muted-foreground"
+        >
+          <span v-if="m.routing">{{ t('components.conversation.routing') }}</span>
+          <template v-else>
+            <span class="truncate">{{ agentNames[m.agentId || ''] || t('components.conversation.unknownAgent') }}</span>
+            <span v-if="m.routeKind === 'mention'" class="rounded border border-border px-1">{{ t('components.conversation.routeMention') }}</span>
+            <span v-else-if="m.routeKind === 'fallback'" class="rounded border border-border px-1">{{ t('components.conversation.routeFallback') }}</span>
+            <span v-else-if="m.routeKind === 'retry'" class="rounded border border-border px-1">{{ t('components.conversation.routeRetry') }}</span>
+          </template>
+        </p>
         <div
           :class="cn(
             'rounded-lg border px-3 py-2',
@@ -94,13 +108,16 @@ interface Props {
   /** 历史尚未返回时不要画出空会话文案。 */
   historyLoading?: boolean
   confirmation?: ConfirmationPrompt | null
+  /** planv6.7 AGC-ROUTE：agentId → 显示名（已归档助手不在此表时显示中性占位）。 */
+  agentNames?: Record<string, string>
 }
 
 const props = withDefaults(defineProps<Props>(), {
   sending: false,
   canRetry: false,
   historyLoading: false,
-  confirmation: null
+  confirmation: null,
+  agentNames: () => ({})
 })
 defineEmits<{
   (e: 'retry'): void

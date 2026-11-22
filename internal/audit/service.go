@@ -14,7 +14,7 @@
 //	[本文件] internal/audit/service.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/catalog, internal/observability, internal/utils/limit
+//	[下游] internal/catalog, internal/observability, godatabase/limit
 //
 // 主要符号
 //
@@ -33,9 +33,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/linkxzhou/SimpleBase/godatabase/limit"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
-	"github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // Service 提供审计事件记录与查询。

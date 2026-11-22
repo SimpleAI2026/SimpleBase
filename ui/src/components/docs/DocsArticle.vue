@@ -77,8 +77,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { toast } from 'vue-sonner'
 import { ExternalLinkIcon } from '@lucide/vue'
+import { copyText } from '@/utils/clipboard'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import { useLoadState } from '@/composables/useLoadState'
@@ -163,12 +163,11 @@ async function onContentClick(event: MouseEvent) {
   const button = (event.target as Element).closest<HTMLButtonElement>('[data-copy]')
   if (!button) return
   const code = button.closest('.docs-code')?.querySelector('code')?.textContent || ''
-  try {
-    await navigator.clipboard.writeText(code)
-    toast.success(t('components.docsArticle.codeCopied'))
-  } catch {
-    toast.error(t('components.docsArticle.copyFailed'))
-  }
+  await copyText(
+    code,
+    () => t('components.docsArticle.codeCopied'),
+    () => t('components.docsArticle.copyFailed')
+  )
 }
 
 function linkFor(slug: string) {

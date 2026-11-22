@@ -1,34 +1,3 @@
-// 文件说明：log.go — Session 把进程输出同时写进日志文件与调用方的读流
-//
-// 为什么两边都写：E2B 的 logs 要能回放（进程已经退出、调用方没在读的时候），
-// 而 process.Start 的实时流要能边跑边看。日志落盘是旁路，不能阻塞输出泵：
-// Log 内部有 32 KiB 缓冲，写失败只记一次警告。
-//
-// 用法
-//
-//	s, _ := box.Start(ctx, box.Config{LogDir: "/var/lib/sb/sb1/logs"})
-//	recs, _ := s.Logs("p1", box.TailOptions{Lines: 100})
-//
-// 调用架构
-//
-//	[上游] gosandbox/box（Session.Exec / Handle.deliver）、gosandbox/vm/box
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/log.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] logfile.go, session.go, handle.go
-//
-// 主要符号
-//
-//	type logSink struct {…}
-//	newLogSink(dir string) *logSink
-//	(s *logSink) open(name string) (*Log, error)
-//	(s *logSink) closeAll()
-//	(s *Session) Logs(procs []string, opt TailOptions) ([]Record, error)
-//	(s *Session) ProcIDs() []string
-
 package box
 
 import (

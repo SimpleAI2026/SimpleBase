@@ -14,7 +14,7 @@
 //	[本文件] internal/auth/session_repository.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/sqlval
+//	[下游] godatabase/sqlval
 //	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
 //	[关键引用] s ← api_key_repository.go, cache.go, password.go
 //
@@ -30,7 +30,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 	"time"
 )
 

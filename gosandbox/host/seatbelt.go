@@ -1,30 +1,3 @@
-// 文件说明：seatbelt.go — gosandbox/host 中 SeatbeltExecutable、SeatbeltProfile 等符号的实现
-//
-// 用法
-//
-//	SeatbeltProfile(p Policy) (profile string, params []string, err error)  // SeatbeltProfile 生成 SBPL 与 -D 参数
-//	SeatbeltArgs(p Policy, argv []string) ([]string, error)  // SeatbeltArgs 返回 sandbox-exec 的参数：-p <profile> -D k=v ... -- argv...
-//	同包调用：SeatbeltExecutable → run_darwin.go, start_darwin.go；SeatbeltArgs() → run_darwin.go, start_darwin.go；canonical() → glob.go
-//
-// 调用架构
-//
-//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/seatbelt.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] bwrap_args.go, cgroup.go, glob.go, mandatory.go, policy.go 等 13 个
-//	[关键引用] SeatbeltExecutable ← run_darwin.go, start_darwin.go
-//
-// 主要符号
-//
-//	const SeatbeltExecutable
-//	SeatbeltProfile(p Policy) (profile string, params []string, err error)
-//	SeatbeltArgs(p Policy, argv []string) ([]string, error)
-//	... 另有 3 个顶层符号
-
 package host
 
 import (

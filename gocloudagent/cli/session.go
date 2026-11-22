@@ -89,7 +89,6 @@ type Entry struct {
 	// 以下字段仅 session 行有值。
 	Cwd       string    `json:"cwd,omitempty"`
 	Endpoint  string    `json:"endpoint,omitempty"`
-	ProjectID string    `json:"project,omitempty"`
 	Model     string    `json:"model,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -118,7 +117,7 @@ func NewSession(env []string, cfg Config, cwd string) (*Session, error) {
 	id := time.Now().UTC().Format("20060102T150405") + "-" + uuid.NewString()[:8]
 	meta := Entry{
 		Type: EntrySession, ID: uuid.NewString(), Version: SessionVersion,
-		Cwd: cwd, Endpoint: cfg.Endpoint, ProjectID: cfg.ProjectID, Model: cfg.Model,
+		Cwd: cwd, Endpoint: cfg.Endpoint, Model: cfg.Model,
 		CreatedAt: time.Now().UTC(),
 	}
 	s := &Session{ID: id, Path: filepath.Join(dir, id+".jsonl"), Meta: meta}

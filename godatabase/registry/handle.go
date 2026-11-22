@@ -1,33 +1,3 @@
-// 文件说明：handle.go — 进程内每个 logical database 的唯一 writer/connection
-//
-// 用法
-//
-//	(h *Handle) LastUsed() time.Time  // LastUsed 返回最后一次被访问的时间
-//	(h *Handle) ActiveCount() int64  // ActiveCount 返回当前活跃引用数
-//	同包调用：stateReady → registry.go；Handle → registry.go；newHandle() → registry.go
-//
-// 调用架构
-//
-//	[上游] godatabase/kv, internal/api, internal/app 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/registry/handle.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase
-//	[同包] evictor.go, registry.go
-//	[关键引用] stateReady ← registry.go
-//
-// 主要符号
-//
-//	type Handle struct {…}
-//	(h *Handle) LastUsed() time.Time
-//	(h *Handle) ActiveCount() int64
-//	(h *Handle) Conn() *sql.DB
-//	(h *Handle) NotifyWrite(ctx context.Context)
-//	(h *Handle) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) ...
-//	... 另有 12 个顶层符号
-
 package registry
 
 import (

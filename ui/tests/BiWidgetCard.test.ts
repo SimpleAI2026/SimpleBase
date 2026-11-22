@@ -36,7 +36,8 @@ describe('BiWidgetCard board mode', () => {
     expect(wrapper.text()).toContain('参与统计 1,200 行')
     expect(wrapper.find('.bi-chart-stub').exists()).toBe(true)
     expect(wrapper.get('.bi-chart-stub').attributes('aria-label')).toBe('状态占比，饼图')
-    expect(wrapper.get('[data-mode]').attributes('data-mode')).toBe('board')
+    expect(wrapper.find('[data-action="add"]').exists()).toBe(false)
+    expect(wrapper.find('[data-action="fix"]').exists()).toBe(false)
   })
 
   it('forwards chart clicks', async () => {
@@ -115,33 +116,9 @@ describe('BiWidgetCard board mode', () => {
   })
 })
 
-describe('BiWidgetCard preview mode (agent results)', () => {
-  it('swaps the menu for add / adjust / discard and tags the mode', async () => {
-    const wrapper = mountCard({ preview: true })
-    expect(wrapper.find('[data-action="menu"]').exists()).toBe(false)
-    expect(wrapper.get('[data-mode]').attributes('data-mode')).toBe('preview')
-    for (const action of ['add', 'adjust', 'discard']) await wrapper.get(`[data-action="${action}"]`).trigger('click')
-    expect(wrapper.emitted('add')).toHaveLength(1)
-    expect(wrapper.emitted('edit')).toHaveLength(1)
-    expect(wrapper.emitted('discard')).toHaveLength(1)
-  })
-
-  it('cannot be added while loading or after the preview query failed', () => {
-    expect(mountCard({ preview: true, pending: true }).get('[data-action="add"]').attributes('disabled')).toBeDefined()
-    expect(mountCard({ preview: true, error: 'boom', render: null, result: null }).get('[data-action="add"]').attributes('disabled')).toBeDefined()
-    expect(mountCard({ preview: true }).get('[data-action="add"]').attributes('disabled')).toBeUndefined()
-  })
-
-  it('offers "ask the agent to fix" only for failed previews, passing the error text', async () => {
-    expect(mountCard({ preview: true }).find('[data-action="fix"]').exists()).toBe(false)
-    expect(mountCard({ error: 'boom', render: null, result: null }).find('[data-action="fix"]').exists()).toBe(false)
-    const failed = mountCard({ preview: true, error: 'filter scan limit exceeded', render: null, result: null })
-    await failed.get('[data-action="fix"]').trigger('click')
-    expect(failed.emitted('fix')).toEqual([['filter scan limit exceeded']])
-  })
-
+describe('BiWidgetCard title safety', () => {
   it('renders the title as inert text, never as HTML', () => {
-    const wrapper = mountCard({ preview: true, widget: widget({ title: '<img src=x onerror=alert(1)>' }) })
+    const wrapper = mountCard({ widget: widget({ title: '<img src=x onerror=alert(1)>' }) })
     expect(wrapper.find('img').exists()).toBe(false)
     expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>')
   })

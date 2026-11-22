@@ -70,6 +70,11 @@ type Store struct {
 	seedMu      sync.Mutex
 	seedFlights map[string]chan struct{} // 每项目播种串行，关闭信号通知等待者重查
 
+	// tagMu/tagFlights 与 seedMu/seedFlights 同构（planv6.7 AGC-NAV §7.2）：
+	// 每项目标签写入串行，保证名称查重与版本比较的原子性。
+	tagMu      sync.Mutex
+	tagFlights map[string]chan struct{}
+
 	metricsBuf []MetricSample
 	logBuf     []LogEvent
 	// traceBuf 是 sys_llm_traces 的写缓冲（planv6.5，与 logBuf 同款）。

@@ -14,7 +14,7 @@
 //	[本文件] internal/api/s3_content_handler.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/objectstore
+//	[下游] internal/objectstore, internal/utils/strutil
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] DownloadObject() ← router.go
 //
@@ -44,7 +44,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // plainTextSubtypes 是内容嗅探只能识别为 text/plain 的文本格式：声明这些类型、嗅探结果为
@@ -80,7 +82,7 @@ func sniffUploadMIME(src io.Reader, key, declared string, allowed []string) (io.
 
 func mimeAllowed(value string, allowed []string) bool {
 	for _, item := range allowed {
-		item = strings.ToLower(strings.TrimSpace(item))
+		item = strutil.Normalize(item)
 		if item == value || strings.HasSuffix(item, "/*") && strings.HasPrefix(value, strings.TrimSuffix(item, "*")) {
 			return true
 		}
@@ -108,17 +110,19 @@ type s3ListDecor struct {
 
 // listResponse 为对象补充外部访问字段后输出（站点不可用时与旧版一致，仅追加 site 段）。
 func (h *S3Handler) listResponse(c echo.Context, projectID, prefix string, objects []s3ObjectDTO) error {
-	if h.sites == nil || !h.sitesCfg.Enabled {
+	mode := h.sitesCfg.Mode()
+	available := (mode == config.SiteModePath && h.sites != nil) || (mode == config.SiteModeSubdomain && h.sitesCfg.Configured())
+	if !available {
 		return s3ListResponse(c, prefix, objects)
 	}
-	state, info := h.loadSite(c.Request().Context(), projectID)
+	state, info := h.loadSite(c, projectID)
 	for i := range objects {
-		objects[i].Public, objects[i].PublicURL, objects[i].PublicInherited = h.decoratePublic(projectID, state, info.Enabled, objects[i].Key, false)
+		objects[i].Public, objects[i].PublicURL, objects[i].PublicInherited = h.decoratePublic(c, projectID, state, objects[i].Key, false)
 	}
 	return s3ListResponseWith(c, prefix, objects, &s3ListDecor{
 		site: info,
 		folder: func(key string) s3FolderMetaDTO {
-			public, u, inherited := h.decoratePublic(projectID, state, info.Enabled, key, true)
+			public, u, inherited := h.decoratePublic(c, projectID, state, key, true)
 			return s3FolderMetaDTO{Key: key, Public: public, PublicURL: u, PublicInherited: inherited}
 		},
 	})
@@ -236,7 +240,7 @@ func (h *S3Handler) DownloadLinkedObject(c echo.Context) error {
 // inlineSafeMIME 判定 MIME 是否允许 inline 渲染（§8.1.4 白名单）。
 // image/svg+xml 与 text/html 等一律不在白名单内（可执行脚本）。
 func inlineSafeMIME(contentType string) bool {
-	mt := strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	mt := strutil.Normalize(strings.Split(contentType, ";")[0])
 	switch mt {
 	case "image/png", "image/jpeg", "image/gif", "image/webp",
 		"application/pdf", "text/plain":

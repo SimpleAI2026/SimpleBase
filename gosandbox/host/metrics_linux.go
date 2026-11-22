@@ -1,31 +1,5 @@
 //go:build linux
 
-// 文件说明：metrics_linux.go — MetricsFor / FreezeCgroup / RemoveCgroup 的 Linux 实现
-//
-// 用法
-//
-//	MetricsFor(name string) (Metrics, bool)
-//	FreezeCgroup(name string, frozen bool) error
-//	RemoveCgroup(name string) error
-//	同包调用：MetricsFor() → vm/local；FreezeCgroup() → vm/local
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/local
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/metrics_linux.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] cgroup_linux.go, metrics.go
-//
-// 主要符号
-//
-//	MetricsFor(name string) (Metrics, bool)
-//	FreezeCgroup(name string, frozen bool) error
-//	RemoveCgroup(name string) error
-
 package host
 
 import (

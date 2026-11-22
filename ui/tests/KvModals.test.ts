@@ -490,7 +490,6 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
       global: { stubs: uiStubs }
     })
     await flushPromises()
-    const vm = w.vm as any
     expect(w.text()).toContain('当前剩余约 25 秒')
     mockExec(() => 1)
     await w.find('.sb-ok').trigger('click')

@@ -303,17 +303,6 @@ describe('BiWidgetRunner click-to-filter', () => {
 })
 
 describe('BiWidgetRunner events', () => {
-  it('forwards card actions with the widget identity', async () => {
-    const w = widget({ groupBy: 'status' })
-    const wrapper = await mountRunner(w, 'x', { preview: true })
-    await wrapper.get('[data-action="add"]').trigger('click')
-    await wrapper.get('[data-action="adjust"]').trigger('click')
-    await wrapper.get('[data-action="discard"]').trigger('click')
-    expect(wrapper.emitted('add')).toEqual([[w]])
-    expect(wrapper.emitted('edit')).toEqual([[w]])
-    expect(wrapper.emitted('discard')).toEqual([['w1']])
-  })
-
   it('board mode forwards edit / duplicate / remove', async () => {
     const w = widget({ groupBy: 'status' })
     const wrapper = await mountRunner(w)
@@ -325,11 +314,4 @@ describe('BiWidgetRunner events', () => {
     expect(wrapper.emitted('remove')).toEqual([[w]])
   })
 
-  it('forwards "fix with agent" with the widget title and the error text', async () => {
-    api.db.aggregate.mockRejectedValue(new Error('filter rejected'))
-    const wrapper = await mountRunner(widget({ title: '坏图', groupBy: 'status' }), 'x', { preview: true })
-    await nextTick()
-    await wrapper.get('[data-action="fix"]').trigger('click')
-    expect(wrapper.emitted('fix')).toEqual([['坏图', 'filter rejected']])
-  })
 })

@@ -1,6 +1,3 @@
-// 文件说明：syncer_observe.go — godatabase/ducklake 中 CatalogSyncer 的观测域：recordSyncStage、classifySyncError、recordSync
-// 由 catalog_syncer.go 按职责拆分而来（C6，纯移动，不改逻辑）。
-
 package ducklake
 
 import (

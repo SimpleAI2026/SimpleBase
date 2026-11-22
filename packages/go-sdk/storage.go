@@ -127,7 +127,6 @@ func (c *Client) PresignObject(ctx context.Context, key string) (*PresignResult,
 
 // SiteInfo is the project site state returned by GET /s3/site.
 type SiteInfo struct {
-	Enabled     bool   `json:"enabled"`
 	BaseURL     string `json:"baseUrl,omitempty"`
 	Publishable bool   `json:"publishable"`
 	Reason      string `json:"reason,omitempty"`
@@ -144,13 +143,6 @@ type PublicPathResult struct {
 func (c *Client) GetSite(ctx context.Context) (*SiteInfo, error) {
 	var out SiteInfo
 	err := c.requestJSON(ctx, http.MethodGet, c.projectPath("/s3/site"), nil, nil, &out)
-	return &out, err
-}
-
-// SetSite enables or disables the project site.
-func (c *Client) SetSite(ctx context.Context, enabled bool) (*SiteInfo, error) {
-	var out SiteInfo
-	err := c.requestJSON(ctx, http.MethodPut, c.projectPath("/s3/site"), nil, map[string]any{"enabled": enabled}, &out)
 	return &out, err
 }
 

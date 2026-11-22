@@ -124,10 +124,7 @@ func (w *Workspace) denyReadSkipper() pathSkipper {
 	return func(abs string) bool { return host.DeniesRead(pol, abs) }
 }
 
-// dangerousShellPatterns 是 shell 工具的破坏性命令规则表。
-//
-// 与 simplebase CLI 的 destructiveArgv 是两套规则：命令行空间完全不同，
-// 不能复用（planv6.0 §5.3）。
+// dangerousShellPatterns lists shell commands that require confirmation.
 var dangerousShellPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\brm\s+(-[a-z]*[rf][a-z]*\s+)+`),            // rm -rf / rm -fr
 	regexp.MustCompile(`(?i)\bgit\s+push\b.*(--force|-f)\b`),            // git push --force
@@ -160,7 +157,7 @@ type shellArgs struct {
 
 func (w *Workspace) shellTool() (tool.BaseTool, error) {
 	return utils.InferTool("shell",
-		"Run a shell command on the local machine in the workspace directory. Destructive commands require user confirmation. Prefer read-only inspection commands. The command environment has SIMPLEBASE_*, GOCLOUDAGENT_* and credential-like variables removed, so a config_missing error from the simplebase CLI means its config file is not set up, not that the command is wrong; do not try to read or print credentials to fix it.",
+		"Run a shell command on the local machine in the workspace directory. Destructive commands require user confirmation. Prefer read-only inspection commands. The command environment has GOCLOUDAGENT_* and credential-like variables removed. Never try to read or print credentials to work around a missing configuration.",
 		func(ctx context.Context, in shellArgs) (string, error) {
 			if strings.TrimSpace(in.Command) == "" {
 				return ErrEnvelope("usage", "command is required"), nil
@@ -213,7 +210,7 @@ func (w *Workspace) runShell(ctx context.Context, command, cwd string) string {
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, "/bin/sh", "-c", command)
 	cmd.Dir = cwd
-	// 不注入任何 SimpleBase 凭据到子进程（与云端「不向沙盒注入凭据」同原则）。
+	// Do not inherit agent credentials in child processes.
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
@@ -290,16 +287,12 @@ func exitCode(err error) int {
 // sensitiveEnvPattern 匹配不应传给子进程的环境变量名。
 var sensitiveEnvPattern = regexp.MustCompile(`(?i)(TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|ACCESS_KEY|SESSION)`)
 
-// sanitizedEnv 过滤凭据类环境变量：CLI 跑的是用户自己的命令，
-// 但不应把 SimpleBase 令牌顺手交给任意子进程。
+// sanitizedEnv removes agent configuration and credential-like variables.
 func sanitizedEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "SIMPLEBASE_") || strings.HasPrefix(name, "GOCLOUDAGENT_") {
-			continue
-		}
-		if sensitiveEnvPattern.MatchString(name) {
+		if strings.HasPrefix(name, "GOCLOUDAGENT_") || sensitiveEnvPattern.MatchString(name) {
 			continue
 		}
 		out = append(out, kv)

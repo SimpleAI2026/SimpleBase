@@ -1,29 +1,5 @@
 //go:build linux
 
-// 文件说明：launch_linux.go — 拉起常驻沙盒：构建 bwrap 参数、socketpair、策略文件
-//
-// 用法
-//
-//	conn, err := launch(ctx, cfg)  // 返回控制通道的宿主侧
-//	closeSession(s *Session)  // 收尾：关连接、等进程、清临时文件
-//
-// 调用架构
-//
-//	[上游] gosandbox/box（Start / Close）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/launch_linux.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/{host, host/spec}
-//	[同包] launch_other.go, session.go
-//
-// 主要符号
-//
-//	launch(ctx context.Context, cfg Config) (net.Conn, error)
-//	closeSession(s *Session)
-//	buildArgs(cfg Config) ([]string, string, error)
-
 package box
 
 import (

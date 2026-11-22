@@ -1,58 +1,5 @@
 //go:build linux
 
-// 文件说明：subid_linux.go — 探测 /etc/subuid 与 newuidmap，生成多段映射参数
-//
-// 背景：bwrap 默认做单段映射（外部 uid ↔ 沙盒内 0），于是沙盒里只有
-// uid 0 是「真的」。镜像里以 999 拥有的文件（postgres、mysql 的常见写法）
-// 在沙盒里没有对应的 uid，服务起不来。
-//
-// 要修就得三样东西同时具备：
-//
-//	/etc/subuid 里给当前用户分了一段 id
-//	/usr/bin/newuidmap 存在（部分发行版还要 userns 允许）
-//	内核允许非特权 userns（bwrap 可用即说明满足）
-//
-// 三者缺一，就退回单段映射：这是当前行为，也是「能跑但多用户镜像受限」。
-// 我们不谎报能力：缺哪样、为什么退回去，都写进 SubIDMap.Reason。
-//
-// **映射关系（最容易写错的地方）**
-//
-// bwrap 的 --uidmap 参数是 `sandbox_id:host_id:count`，也就是
-// 「沙盒内的连续 count 个 id，从 sandbox_id 开始，映射到宿主的
-// host_id 开始的连续 count 个 id」。因此：
-//
-//	--uidmap 0:1000:1         沙盒内 0   → 宿主 1000（沙盒里的 root）
-//	--uidmap 1000:100000:1000 沙盒内 1000..1999 → 宿主 100000..100999
-//
-// 沙盒内区间从 1000 起：镜像里的服务用户（999、1000、33）大多落在
-// 这个量级，从 1000 起能覆盖多数；同时避开 0 与 1..999（那里常有
-// nobody、daemon 之类的系统用户，保持未映射可以让越权尝试失败）。
-//
-// 用法
-//
-//	m := ProbeSubIDs()
-//	args := m.IDMapArgs()   // 空表示单段（不可用）
-//
-// 调用架构
-//
-//	[上游] gosandbox/box（launch）、gosandbox/vm/box
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/subid_linux.go
-//	         │
-//	         ▼
-//	[下游] os、os/user、仅标准库
-//	[同包] launch_linux.go
-//
-// 主要符号
-//
-//	type SubID struct { Start, Count uint32 }
-//	type SubIDMap struct {…}
-//	ProbeSubIDs() SubIDMap
-//	(m SubIDMap) IDMapArgs() []string
-//	(m SubIDMap) MultiSegment() bool
-//	(m SubIDMap) MappedRanges() (uids, gids []SubID)
-
 package box
 
 import (

@@ -175,32 +175,16 @@ func TestLinuxForceDenyWorkspaceFiles(t *testing.T) {
 	}
 }
 
-// DisableForceDeny 回到旧行为，并在 Result.Warnings 里如实说明。
-func TestLinuxDisableForceDeny(t *testing.T) {
-	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
-	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	p.DisableForceDeny = true
-	res, err := Run(context.Background(), p, shell("touch "+filepath.Join(ws, ".git", "hooks", "pre-commit")))
-	if err != nil || res.ExitCode != 0 {
-		t.Fatalf("hooks must be writable when the table is disabled: res=%+v err=%v out=%s", res, err, res.Output)
-	}
-	if len(res.Warnings) != 1 {
-		t.Fatalf("Warnings = %v", res.Warnings)
-	}
-}
-
-// 显式配置旧值时，整个 .git 仍然只读（想要旧行为的操作者的出口）。
-func TestLinuxLegacyWholeGitReadOnly(t *testing.T) {
+// 显式配置后整个 .git 只读。
+func TestLinuxWholeGitReadOnly(t *testing.T) {
 	p, ws := linuxPolicy(t, ModeWorkspaceWrite)
 	if err := os.MkdirAll(filepath.Join(ws, ".git", "refs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p.ReadOnlySubpaths = []string{".git", ".gocloudagent"}
+	p.ReadOnlySubpaths = []string{".git"}
 	res, err := Run(context.Background(), p, shell("touch "+filepath.Join(ws, ".git", "refs", "x")))
 	if err != nil || res.ExitCode == 0 {
-		t.Fatalf("legacy config must keep the whole .git read-only: res=%+v err=%v", res, err)
+		t.Fatalf("explicit config must keep the whole .git read-only: res=%+v err=%v", res, err)
 	}
 }
 

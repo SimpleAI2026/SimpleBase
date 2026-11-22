@@ -1,31 +1,3 @@
-// 文件说明：registry.go — OCI / Docker registry 客户端：manifest、blob、token
-//
-// 用法
-//
-//	c := NewClient()
-//	ref, _ := Parse("alpine")
-//	desc, err := c.Resolve(ctx, ref, "arm64")   // 挑目标平台的 manifest
-//	err = c.GetBlob(ctx, ref, desc, w)           // 流式下载并按摘要校验
-//
-// 调用架构
-//
-//	[上游] gosandbox/image（Puller）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/image/registry.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库（net/http、crypto/sha256）
-//	[同包] reference.go, manifest.go, store.go
-//
-// 主要符号
-//
-//	type Client struct {…}
-//	type Credentials struct {…}
-//	NewClient() *Client
-//	(c *Client) Resolve(ctx, ref, arch) (Descriptor, error)
-//	(c *Client) GetBlob(ctx, ref, desc, w io.Writer) error
-
 package image
 
 import (

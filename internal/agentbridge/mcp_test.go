@@ -9,6 +9,7 @@ import (
 	_ "github.com/uglyer/go-sqlite3"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -26,7 +27,12 @@ func newMCPTestStore(t *testing.T) *systemdb.Store {
 	return systemdb.NewStoreForTest(db)
 }
 
-func principalForTest() cloudagent.Principal { return cloudagent.Principal{UserID: "u1"} }
+func mcpRequest(projectID string) cloudagent.RunRequest {
+	return cloudagent.RunRequest{
+		Agent:   cloudagent.Agent{Writable: true},
+		Context: RunContext{ProjectID: projectID, Principal: auth.Principal{UserID: "u1"}},
+	}
+}
 
 // SSRF 防护的核心：这些地址一律拒绝（planv6.2 §4.2-5）。
 func TestIsBlockedIP(t *testing.T) {
@@ -113,7 +119,7 @@ func TestMCPConnectorInjectsHeadersWithoutLeaking(t *testing.T) {
 
 func TestMCPConnectorEmptyStoreReturnsEmptySet(t *testing.T) {
 	c := NewMCPConnector(nil, MCPOptions{})
-	set, err := c.Connect(context.Background(), principalForTest(), "p1", []string{"github"})
+	set, err := c.Connect(context.Background(), mcpRequest("p1"), []string{"github"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,10 +132,10 @@ func TestMCPPolicyFailsClosedOnUnknownServer(t *testing.T) {
 	store := newMCPTestStore(t)
 	p := NewMCPPolicy(store)
 	// 未登记的 Server：策略缺失，必须报错（调用方随后拒绝执行）。
-	if _, err := p.Classify(context.Background(), "p1", "missing", "tool"); err == nil {
+	if _, err := p.Classify(context.Background(), mcpRequest("p1"), "missing", "tool"); err == nil {
 		t.Fatal("unknown server should error")
 	}
-	if _, err := NewMCPPolicy(nil).Classify(context.Background(), "p1", "s", "t"); err == nil {
+	if _, err := NewMCPPolicy(nil).Classify(context.Background(), mcpRequest("p1"), "s", "t"); err == nil {
 		t.Fatal("nil store should error")
 	}
 }
@@ -149,18 +155,18 @@ func TestMCPPolicyUnmarkedToolIsWritable(t *testing.T) {
 	p := NewMCPPolicy(store)
 	ctx := context.Background()
 
-	if d, err := p.Classify(ctx, "p1", "s", "read_me"); err != nil || !d.ReadOnly {
+	if d, err := p.Classify(ctx, mcpRequest("p1"), "s", "read_me"); err != nil || !d.ReadOnly {
 		t.Fatalf("read_me=%#v err=%v", d, err)
 	}
-	if d, err := p.Classify(ctx, "p1", "s", "drop_me"); err != nil || !d.Destructive {
+	if d, err := p.Classify(ctx, mcpRequest("p1"), "s", "drop_me"); err != nil || !d.Destructive {
 		t.Fatalf("drop_me=%#v err=%v", d, err)
 	}
 	// 未标记：非只读、非破坏性 → 走普通写权限校验。
-	if d, err := p.Classify(ctx, "p1", "s", "unknown"); err != nil || d.ReadOnly || d.Destructive {
+	if d, err := p.Classify(ctx, mcpRequest("p1"), "s", "unknown"); err != nil || d.ReadOnly || d.Destructive {
 		t.Fatalf("unknown=%#v err=%v", d, err)
 	}
 	// 项目隔离：别的项目查不到这个 Server。
-	if _, err := p.Classify(ctx, "p2", "s", "read_me"); err == nil {
+	if _, err := p.Classify(ctx, mcpRequest("p2"), "s", "read_me"); err == nil {
 		t.Fatal("cross-project policy lookup should fail")
 	}
 }

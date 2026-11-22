@@ -25,7 +25,6 @@
 //	NormalizeEngine(engine string) (string, error)
 //	DatabasePathForProject(projectID, engine string) (string, error)
 //	DatabaseEngine(databasePath string) (string, error)
-//	ValidateDatabasePath(databasePath string) error
 //	... 另有 3 个顶层符号
 
 package catalog
@@ -72,10 +71,6 @@ func DatabasePathForProject(projectID, engine string) (string, error) {
 func DatabaseEngine(databasePath string) (string, error) {
 	e, err := godatabase.EngineFromPath(databasePath)
 	return e, wrapInvalid(err)
-}
-
-func ValidateDatabasePath(databasePath string) error {
-	return wrapInvalid(godatabase.ValidatePath(databasePath))
 }
 
 func ValidateProjectDatabasePath(projectID, databasePath string) error {

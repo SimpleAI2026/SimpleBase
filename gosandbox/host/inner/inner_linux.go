@@ -1,32 +1,5 @@
 //go:build linux
 
-// 文件说明：inner_linux.go — 在 bwrap 沙盒内、exec 用户命令之前加载 Landlock 与 seccomp
-//
-// 用法
-//
-//	LoadSpec(path string) (spec.Spec, error)  // LoadSpec 读取父进程放入沙盒的策略文件
-//	LandlockRules(s spec.Spec) []landlock.Rule  // LandlockRules 返回文件系统规则：根只读，可写目录读写
-//
-// 调用架构
-//
-//	[上游] （无，本包为入口）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/inner/inner_linux.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gosandbox/host/spec
-//
-// 主要符号
-//
-//	const MinABI
-//	LoadSpec(path string) (spec.Spec, error)
-//	LandlockRules(s spec.Spec) []landlock.Rule
-//	SeccompFilter() seccomp.Filter
-//	Apply(s spec.Spec) error
-//	Main(args []string, env []string) int
-//	... 另有 9 个顶层符号
-
 package inner
 
 import (
@@ -237,7 +210,7 @@ func Main(args []string, env []string) int {
 }
 
 func parseArgs(args []string) (policy string, ctty bool, argv []string, err error) {
-	const usage = "usage: gosandbox-inner --policy FILE [--ctty] -- cmd..."
+	const usage = "usage: gosandbox-inner --policy FILE [--ctty] -- COMMAND [ARG ...]"
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--policy":

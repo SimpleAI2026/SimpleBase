@@ -1,39 +1,5 @@
 //go:build linux
 
-// 文件说明：diskuse_linux.go — 宿主侧的沙盒磁盘用量与限额
-//
-// 为什么在宿主而不是 agent：agent 在沙盒里看到的是 overlay 合并视图，
-// 分不出「镜像本来就有」与「用户写入」。只有宿主知道 <box>/upper 与
-// <box>/ws 分别多大——那才是用户真正占用的部分。
-//
-// du 是 O(文件数) 的 syscall 密集操作，所以：
-//   - 有 10 秒缓存（metrics 端点不该随文件数线性变慢）；
-//   - 只在 Metrics 被调用时才算，不在后台周期扫。
-//
-// 超限动作是冻结（cgroup.freeze=1），不是杀：冻结后用户还能 pause、
-// 看日志、导出文件；杀掉就什么都拿不到了。
-//
-// 用法
-//
-//	used := diskUsed("/var/lib/sb/sb1")   // upper + ws
-//	if used > limit { host.FreezeCgroup(...) }
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box（Metrics）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/vm/box/diskuse_linux.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/host、仅标准库
-//	[同包] driver_linux.go
-//
-// 主要符号
-//
-//	diskUsed(boxDir string) int64
-//	(d *Driver) checkDiskLimit(name string, used int64) bool
-
 package box
 
 import (

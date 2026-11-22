@@ -1,8 +1,10 @@
-// 文件说明：strutil.go — 跨包复用的字符串裁剪与列表切分工具
+// 文件说明：strutil.go — 跨包复用的字符串规范化、截断与列表切分工具
 //
 // 用法
 //
+//	Normalize(s string) string  // Normalize 去掉首尾空白并转小写
 //	Truncate(s string, max int) string  // Truncate 返回 s 的前 max 个字节
+//	TruncateRunes(s string, max int) string  // TruncateRunes 返回 s 的前 max 个 Unicode 字符
 //	TruncateEllipsis(s string, max int) string  // TruncateEllipsis 与 Truncate 相同，但发生截断时追加 "…"（额外 3 字节）
 //
 // 调用架构
@@ -17,22 +19,25 @@
 //
 // 主要符号
 //
+//	Normalize(s string) string
 //	Truncate(s string, max int) string
+//	TruncateRunes(s string, max int) string
 //	TruncateEllipsis(s string, max int) string
-//	TruncateValidUTF8(b []byte, max int) (string, bool)
 //	SplitCSV(csv string) []string
 
 package strutil
 
-import (
-	"strings"
-	"unicode/utf8"
-)
+import "strings"
+
+// Normalize 去掉首尾空白并转小写，用于大小写无关的配置值和标识符。
+func Normalize(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
 
 // Truncate 返回 s 的前 max 个字节。max <= 0 时返回空串。
 //
-// 按字节截断，可能切断多字节字符；面向展示的文本用 TruncateValidUTF8 或
-// TruncateEllipsis。用途是给日志 / 落库字段设上限，不改变短字符串。
+// 按字节截断，可能切断多字节字符；按字符截断用 TruncateRunes，需要省略号时用 TruncateEllipsis。
+// 用途是给日志 / 落库字段设上限，不改变短字符串。
 func Truncate(s string, max int) string {
 	if max <= 0 {
 		return ""
@@ -41,6 +46,18 @@ func Truncate(s string, max int) string {
 		return s
 	}
 	return s[:max]
+}
+
+// TruncateRunes 返回 s 的前 max 个 Unicode 字符。max <= 0 时返回空串。
+func TruncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
 }
 
 // TruncateEllipsis 与 Truncate 相同，但发生截断时追加 "…"（额外 3 字节）。
@@ -54,22 +71,6 @@ func TruncateEllipsis(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
-}
-
-// TruncateValidUTF8 把 b 转成合法 UTF-8 并截到 max 字节以内，不截断半个字符。
-//
-// 返回的 bool 表示是否发生了截断（max <= 0 视为不截断）。非法字节序列经
-// strings.ToValidUTF8 替换为 U+FFFD，因此结果长度可能与输入不同。
-func TruncateValidUTF8(b []byte, max int) (string, bool) {
-	s := strings.ToValidUTF8(string(b), "\uFFFD")
-	if max <= 0 || len(s) <= max {
-		return s, false
-	}
-	cut := max
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut], true
 }
 
 // SplitCSV 按逗号切分并去掉每项首尾空白与空项（空输入返回空切片）。

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DataBrowser from '@/pages/DataBrowser.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
 import { uiStubs } from '@/test/helpers'
-import { pageVm, type PageVm as Vm } from '@/test/page-vm'
+import { pageVm } from '@/test/page-vm'
 import { useProjectStore } from '@/stores/project'
 import { useAuthStore } from '@/stores/auth'
 import type { CollectionField } from '@/services/types'
@@ -63,7 +63,6 @@ function setup(opts: SetupOpts = {}) {
     return { columns: cols, rows, truncated: false, scanned: 3, durationMs: 1, requestId: '' }
   })
   api.db.exportCollection.mockResolvedValue(new Blob(['id']))
-  api.agents.list.mockResolvedValue([])
   const stubs = opts.realSelect
     ? { ...uiStubs, Select: false, SelectTrigger: false, SelectValue: false, SelectContent: false, SelectGroup: false, SelectItem: false, teleport: false }
     : uiStubs
@@ -102,16 +101,15 @@ describe('DataBrowser (BI dashboard)', () => {
     for (const [p, d, c] of calls) expect([p, d, c]).toEqual(['p1', 'db1', 'tasks'])
   })
 
-  it('offers the nine chart types in prototype order from a select on the data-source row', async () => {
+  it('offers the nine chart types in prototype order in the widget editor', async () => {
     const wrapper = setup()
     await flushPromises()
-    const toolbar = wrapper.get('[data-testid="bi-toolbar"]')
-    expect(toolbar.text()).toContain('图表类型')
-    const options = toolbar.findAll('option').map((o) => o.attributes('value'))
-    expect(options.filter((v) => ['auto', 'line', 'column', 'bar', 'pie', 'table', 'grouped_bar', 'stacked_bar', 'scatter'].includes(v as string)))
+    expect(wrapper.get('[data-testid="bi-toolbar"]').text()).not.toContain('图表类型')
+    await wrapper.get('[data-action="add-widget"]').trigger('click')
+    const editor = wrapper.get('[data-testid="bi-editor"]')
+    expect(editor.text()).toContain('图表类型')
+    expect(editor.findAll('[data-type]').map((node) => node.attributes('data-type')))
       .toEqual(['auto', 'line', 'column', 'bar', 'pie', 'table', 'grouped_bar', 'stacked_bar', 'scatter'])
-    // 旧的按钮组不再出现
-    expect(wrapper.findAll('[data-type]')).toHaveLength(0)
   })
 
   it('shows the detail table first, then the chart board', async () => {
@@ -277,24 +275,19 @@ describe('DataBrowser (BI dashboard)', () => {
     expect(readonly.get('[data-action="export-csv"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('the system project is read-only: no write actions and the agent is disabled', async () => {
+  it('the system project is read-only and has no agent controls', async () => {
     const wrapper = setup({ admin: true })
     await flushPromises()
     for (const action of ['schema', 'view', 'import']) expect(wrapper.get(`[data-action="${action}"]`).attributes('disabled'), action).toBeDefined()
-    expect(wrapper.get('[data-testid="bi-agent-disabled"]').text()).toContain('系统项目')
-    expect(wrapper.get('[data-testid="bi-agent-input"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="bi-agent-disabled"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="bi-agent-input"]').exists()).toBe(false)
   })
 
-  it('shows the agent disable reasons for read-only roles and unregistered schemas', async () => {
-    const readonly = setup({ canWrite: false })
+  it('an unregistered schema keeps the registration prompt without agent controls', async () => {
+    const wrapper = setup({ registered: false })
     await flushPromises()
-    expect(readonly.get('[data-testid="bi-agent-disabled"]').text()).toContain('没有写权限')
-    readonly.unmount()
-
-    resetApiMocks()
-    const bare = setup({ registered: false })
-    await flushPromises()
-    expect(bare.get('[data-testid="bi-agent-disabled"]').text()).toContain('Schema')
+    expect(wrapper.get('[data-testid="needs-schema"]').text()).toContain('Schema')
+    expect(wrapper.find('[data-testid^="bi-agent"]').exists()).toBe(false)
   })
 
   it('keeps the newest database selection when an older collection request resolves late', async () => {

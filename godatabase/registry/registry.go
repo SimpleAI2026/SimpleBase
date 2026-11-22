@@ -1,34 +1,3 @@
-// 文件说明：registry.go — godatabase/registry 中 Registry、Options 等符号的实现
-//
-// 用法
-//
-//	New(factory godatabase.Factory, resolver godatabase.PathResolver, opts Options ...
-//	(r *Registry) Acquire(ctx context.Context, db godatabase.Spec, mode ...  // Acquire 获取指定数据库的访问租约
-//	(r *Registry) CloseDatabase(ctx context.Context, databaseID string) error  // CloseDatabase 主动关闭指定数据库的 handle（不删除 S3 数据）
-//	同包调用：Registry → evictor.go, handle.go；CloseIdle() → evictor.go；Acquire() → handle.go
-//
-// 调用架构
-//
-//	[上游] godatabase/kv, internal/api, internal/app 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/registry/registry.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase
-//	[同包] evictor.go, handle.go
-//	[关键引用] Registry ← evictor.go, handle.go
-//
-// 主要符号
-//
-//	type Registry struct {…}
-//	type Options struct {…}
-//	New(factory godatabase.Factory, resolver godatabase.PathResolver, opts Options ...
-//	(r *Registry) Acquire(ctx context.Context, db godatabase.Spec, mode ...
-//	(r *Registry) CloseDatabase(ctx context.Context, databaseID string) error
-//	(r *Registry) Remove(databaseID string)
-//	... 另有 13 个顶层符号
-
 package registry
 
 import (

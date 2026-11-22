@@ -1,34 +1,3 @@
-// 文件说明：runtime.go — 定义 SimpleBase 数据库运行时的核心类型：访问模式、
-//
-// 用法
-//
-//	(m AccessMode) String() string  // String 便于日志与指标输出
-//	type AccessMode（导出类型，同包与上层均可使用）
-//	type Factory（导出类型，同包与上层均可使用）
-//	同包调用：ErrRowLimitExceeded → query.go；String() → serialize.go；ErrUnsupportedValue → serialize.go
-//
-// 调用架构
-//
-//	[上游] godatabase/cache, godatabase/ducklake, godatabase/filedb 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/runtime.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] dialect.go, query.go, serialize.go, snapshot.go, spec.go 等 6 个
-//	[关键引用] ErrRowLimitExceeded ← query.go
-//
-// 主要符号
-//
-//	type AccessMode uint8
-//	const ReadOnly
-//	(m AccessMode) String() string
-//	type Factory interface {…}
-//	type WriteHookFactory interface {…}
-//	var ErrDatabaseDeleting
-//	... 另有 6 个顶层符号
-
 package godatabase
 
 import (

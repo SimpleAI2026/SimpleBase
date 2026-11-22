@@ -1,26 +1,3 @@
-// 文件说明：ttl.go — godatabase/kv 中 DeleteExpired 等符号的实现
-//
-// 用法
-//
-//	(t *Tx) DeleteExpired(ctx context.Context) (int64, error)  // DeleteExpired 批量删除所有已过期 key（后台 TTL 清扫用）
-//	同包调用：DeleteExpired() → sweeper.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/ttl.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] core.go, executor.go, hash.go, key.go, list.go 等 10 个
-//	[关键引用] DeleteExpired() ← sweeper.go
-//
-// 主要符号
-//
-//	(t *Tx) DeleteExpired(ctx context.Context) (int64, error)
-
 package kv
 
 import (

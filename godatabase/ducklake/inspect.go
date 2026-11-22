@@ -1,33 +1,3 @@
-// 文件说明：inspect.go — godatabase/ducklake 中 Snapshot、Setting 等符号的实现
-//
-// 用法
-//
-//	CurrentSnapshot(ctx context.Context, db queryRower, alias string) (int64, error)  // CurrentSnapshot 返回 lake.current_snapshot() 的最新快照 id
-//	ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, error)  // ListSnapshots 返回全部快照（管理面 / 审计流水）
-//	同包调用：CurrentSnapshot() → catalog_syncer.go, factory.go；ListSettings() → factory.go
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/inspect.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/sqlx
-//	[同包] catalog_syncer.go, errors.go, extension.go, factory.go, gated_conn.go 等 14 个
-//	[关键引用] CurrentSnapshot() ← catalog_syncer.go, factory.go
-//
-// 主要符号
-//
-//	type Snapshot struct {…}
-//	type Setting struct {…}
-//	type TableFile struct {…}
-//	CurrentSnapshot(ctx context.Context, db queryRower, alias string) (int64, error)
-//	ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, error)
-//	ListSettings(ctx context.Context, db *sql.DB, alias string) ([]Setting, error)
-//	... 另有 2 个顶层符号
-
 package ducklake
 
 import (

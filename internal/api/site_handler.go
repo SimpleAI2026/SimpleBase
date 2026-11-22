@@ -5,7 +5,7 @@
 //	sh := &SiteHandler{store: fileStore, sites: siteStore, cfg: cfg.Sites}
 //	e.Any("/__site/*", sh.Serve)   // 仅经 siteHostMiddleware 分流的请求会被服务
 //
-// 访问规则：站点开关打开 且 路径被公开（file 精确 / folder 前缀）才返回内容；
+// 访问规则：路径被公开（file 精确 / folder 前缀）才返回内容；
 // 其余情况（含 key 非法、对象不存在、系统项目）统一 404，不暴露对象是否存在。
 // 只读：不写系统库，只读实例同样可服务。
 
@@ -25,7 +25,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-// SiteHandler 提供 <pid>.<base_domain> 的匿名只读访问。
+// SiteHandler 提供站点的匿名只读访问（子域名 <pid>.<base_domain> 或路径 <prefix>/<pid>/ 两种方式共用）。
 type SiteHandler struct {
 	store objectstore.FileStore
 	sites SiteStore
@@ -37,7 +37,8 @@ const siteNotFoundHTML = "<!doctype html><html><head><meta charset=\"utf-8\"><ti
 
 // Serve 处理站点请求。
 func (h *SiteHandler) Serve(c echo.Context) error {
-	pid := siteProjectFrom(c)
+	sr, _ := siteRequestFrom(c)
+	pid := sr.ProjectID
 	if pid == "" || systemdb.IsAdminProject(pid) || h.sites == nil {
 		return siteNotFound(c)
 	}
@@ -51,7 +52,7 @@ func (h *SiteHandler) Serve(c echo.Context) error {
 		return siteNotFound(c)
 	}
 	state, err := h.sites.Lookup(c.Request().Context(), pid)
-	if err != nil || !state.Enabled {
+	if err != nil {
 		return siteNotFound(c)
 	}
 
@@ -78,7 +79,7 @@ func (h *SiteHandler) Serve(c echo.Context) error {
 		dirIndex := rel + "/" + index
 		if objectstore.ValidateFileKey(dirIndex) == nil {
 			if _, public := systemdb.MatchPublicPath(state.Paths, dirIndex); public && h.exists(c, contentStore, pid, dirIndex) {
-				target := "/" + rel + "/"
+				target := sr.Mount + "/" + rel + "/"
 				if q := c.Request().URL.RawQuery; q != "" {
 					target += "?" + q
 				}

@@ -1,30 +1,3 @@
-// 文件说明：validator.go — 定义 sqlguard 的错误类型
-//
-// 用法
-//
-//	同包调用：ErrEmptySQL → classifier.go；ErrMultipleStatements → classifier.go；ErrNulChar → classifier.go
-//
-// 调用架构
-//
-//	[上游] internal/agentbridge, internal/api
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/sqlguard/validator.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] classifier.go
-//	[关键引用] ErrEmptySQL ← classifier.go
-//
-// 主要符号
-//
-//	var ErrEmptySQL
-//	var ErrMultipleStatements
-//	var ErrNulChar
-//	var ErrSQLNotAllowed
-//	var ErrWriteInReadOnly
-//	validator.go 定义 sqlguard 的错误类型。
-
 package sqlguard
 
 import "errors"

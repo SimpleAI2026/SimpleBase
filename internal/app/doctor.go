@@ -18,6 +18,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/internal/alerts"
 	"github.com/linkxzhou/SimpleBase/internal/config"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // DoctorCheck 是单条检查结果。
@@ -132,7 +133,7 @@ func RunDoctor(cfg config.Config) DoctorReport {
 
 	// 4.1 日志级别：部署排查的第一现场，单独一行给出实际生效值。
 	// 空值等价于默认 debug（Load 阶段已归一化；直接构造 Config 的路径按默认处理）。
-	switch level := strings.ToLower(strings.TrimSpace(cfg.Observability.LogLevel)); {
+	switch level := strutil.Normalize(cfg.Observability.LogLevel); {
 	case !config.ValidLogLevel(level) && level != "":
 		add("log-level", DoctorFail, fmt.Sprintf("observability.log_level=%q 非法（debug|info|warn|error），运行时退化为 info", cfg.Observability.LogLevel))
 	case level == "" || level == config.LogLevelDebug:

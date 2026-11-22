@@ -264,11 +264,11 @@
   max-width: 100%;
   min-width: 0;
   white-space: pre-wrap;
-  word-break: break-word;
   overflow-wrap: anywhere;
 }
 
 @utility sb-code {
+  @apply sb-code-view;
   margin: 0;
   padding: 10px 12px;
   background: var(--muted);
@@ -278,13 +278,8 @@
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.7;
-  max-width: 100%;
-  min-width: 0;
   max-height: 240px;
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: anywhere;
 }
 
 @utility sb-terminal {

@@ -4,36 +4,6 @@
 // 与 host 包的区别：host 每条命令新起一个 bwrap，命令结束沙盒就不存在了；
 // box 里 bwrap 常驻、agent 是沙盒的 PID 1，因此后台进程能跨请求存活、
 // exec 与文件操作都在同一个命名空间里、暂停能保留进程状态。
-//
-// 用法
-//
-//	s, err := box.Start(ctx, box.Config{Name: "sb-1", Root: "/var/lib/sb/sb-1", ...})
-//	defer s.Close()
-//	h, err := s.Exec(ctx, box.ExecRequest{Argv: []string{"/bin/sh", "-c", "make"}})
-//	io.Copy(os.Stdout, h.Output())
-//	ex := h.Wait()
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/session.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gosandbox/{proto, host}
-//	[同包] launch_linux.go, launch_other.go
-//
-// 主要符号
-//
-//	type Config struct {…}
-//	type Session struct {…}
-//	Start(ctx context.Context, cfg Config) (*Session, error)
-//	(s *Session) Exec(ctx context.Context, r ExecRequest) (*Handle, error)
-//	(s *Session) ReadFile / WriteFile / ListDir / Stat / Remove / Rename
-//	(s *Session) Stats() (proto.Stats, error)
-//	(s *Session) Close() error
-
 package box
 
 import (

@@ -212,6 +212,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	if w := config.SitesSameSiteWarning(cfg); w != "" {
 		logger.Warn("sites same-site risk", zap.String("detail", w))
 	}
+	logSitesMode(logger, cfg)
 
 	metrics := observability.NewMetrics(reg)
 
@@ -315,6 +316,8 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	// 同时承载云函数与 Agent 两类目标，仅在系统库齐备时创建。Agent 执行器仅在
 	// Cloud Agent 运行时可用时挂接；缺失时 agent 任务触发会落 failed 记录而非静默跳过。
 	var cronScheduler *cronjob.Scheduler
+	// planv6.7 v2：群定时执行器先创建，再交给 cron 执行器；api router 装配后 Attach。
+	var collabRunner *api.GroupCronRunner
 	runtime := a.cloudAgentRuntime()
 	if a.systemStore != nil {
 		cronScheduler = cronjob.NewScheduler(a.systemStore, &systemDBRunner{runner: functionRunner})
@@ -323,7 +326,8 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 			if a.usageSvc != nil {
 				quota = a.usageSvc
 			}
-			cronScheduler.WithAgentRunner(agentbridge.NewCronAgentExecutor(a.systemStore, runtime, quota))
+			collabRunner = api.NewGroupCronRunner()
+			cronScheduler.WithAgentRunner(agentbridge.NewCronAgentExecutor(a.systemStore, runtime, quota).WithGroupRunner(collabRunner))
 		}
 		a.cronScheduler = cronScheduler
 		cronScheduler.Start(a.ensureSchedulerCtx())
@@ -389,6 +393,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		CloudAgent:             runtime,
 		Delegations:            a.delegations,
 		CronScheduler:          cronScheduler,
+		CollabRunner:           collabRunner,
 		Sandbox:                a.sandboxMgr,
 		Images:                 a.imageStore,
 		SandboxUsage:           a.usageSvc,

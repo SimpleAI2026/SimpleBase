@@ -452,6 +452,15 @@ cmd_dev() {
       export SIMPLEBASE_HTTP_ADDRESS=":${DEV_API_PORT}"
     fi
   fi
+  if [[ -z "${SIMPLEBASE_SITES_BASE_DOMAIN:-}" && -z "$(yaml_scalar_under "$cfg" "sites" "base_domain" || true)" ]]; then
+    export SIMPLEBASE_SITES_BASE_DOMAIN=localhost
+    export SIMPLEBASE_SITES_URL_SCHEME="${SIMPLEBASE_SITES_URL_SCHEME:-http}"
+    export SIMPLEBASE_SITES_URL_PORT="${SIMPLEBASE_SITES_URL_PORT:-$DEV_API_PORT}"
+  fi
+  # planv6.7 §1.6：Vite 不代理 /sites，路径方式的访问 URL 直接指向后端端口。
+  if [[ -z "${SIMPLEBASE_SITES_PUBLIC_BASE_URL:-}" && -z "$(yaml_scalar_under "$cfg" "sites" "public_base_url" || true)" ]]; then
+    export SIMPLEBASE_SITES_PUBLIC_BASE_URL="http://localhost:${DEV_API_PORT}"
+  fi
   export SIMPLEBASE_DEV_API_PROXY="http://${DEV_API_HOST}:${DEV_API_PORT}"
   echo "==> storage.database=$(resolve_storage_database 2>/dev/null || echo local) files=$(resolve_storage_files 2>/dev/null || echo local)"
   echo "==> data_dir=$(resolve_data_dir 2>/dev/null || echo '<default>')"

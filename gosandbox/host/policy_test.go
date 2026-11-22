@@ -120,14 +120,15 @@ func mustArgs(t *testing.T, in BwrapInput) []string {
 }
 
 // TestBwrapArgsOrder 固定挂载顺序：只读根 → /tmp → 可写绑定 → 只读路径（含强制 deny 表）→ deny_read → 命名空间 → cap-drop → 命令。
-// bwrap 后挂的更具体路径覆盖先挂的，顺序错了就会让 .gocloudagent 与 .git/hooks 变回可写。
+// bwrap 后挂的更具体路径覆盖先挂的，顺序错了就会让显式只读路径与 .git/hooks 变回可写。
 func TestBwrapArgsOrder(t *testing.T) {
 	p := basePolicy()
+	p.ReadOnlySubpaths = []string{".protected"}
 	p.WritableRoots = []string{"/data/out"}
 	p.DenyRead = []string{"/home/u/.ssh", "/home/u/token"}
 	args := mustArgs(t, BwrapInput{
 		Policy: p, Dir: "/work/ws/sub", Home: "/home/u",
-		Exists: fakeExists("/work/ws/.gocloudagent", "/work/ws/.git/hooks", "/home/u/.ssh", "/home/u/token"),
+		Exists: fakeExists("/work/ws/.protected", "/work/ws/.git/hooks", "/home/u/.ssh", "/home/u/token"),
 		IsDir:  func(s string) bool { return s == "/home/u/.ssh" },
 	})
 
@@ -138,7 +139,7 @@ func TestBwrapArgsOrder(t *testing.T) {
 		{"--tmpfs", "/tmp"},
 		{"--bind", "/work/ws", "/work/ws"},
 		{"--bind", "/data/out", "/data/out"},
-		{"--ro-bind", "/work/ws/.gocloudagent", "/work/ws/.gocloudagent"},
+		{"--ro-bind", "/work/ws/.protected", "/work/ws/.protected"},
 		{"--ro-bind", "/work/ws/.git/hooks", "/work/ws/.git/hooks"},
 		{"--tmpfs", "/home/u/.ssh"},
 		{"--ro-bind", "/dev/null", "/home/u/token"},
@@ -179,11 +180,11 @@ func TestBwrapArgsOrder(t *testing.T) {
 func TestBwrapArgsReadOnlyDoesNotBindWorkspace(t *testing.T) {
 	p := basePolicy()
 	p.Mode = ModeReadOnly
-	args := mustArgs(t, BwrapInput{Policy: p, Exists: fakeExists("/work/ws/.gocloudagent", "/work/ws/.git/hooks"), Home: "/home/u"})
+	args := mustArgs(t, BwrapInput{Policy: p, Exists: fakeExists("/work/ws/.protected", "/work/ws/.git/hooks"), Home: "/home/u"})
 	if idx(args, "--bind", "/work/ws", "/work/ws") >= 0 {
 		t.Fatalf("read-only must not bind the workspace writable: %v", args)
 	}
-	for _, path := range []string{"/work/ws/.gocloudagent", "/work/ws/.git/hooks"} {
+	for _, path := range []string{"/work/ws/.protected", "/work/ws/.git/hooks"} {
 		if idx(args, "--ro-bind", path, path) >= 0 {
 			t.Fatalf("read-only has no writable root to re-protect (%s): %v", path, args)
 		}
@@ -198,19 +199,18 @@ func TestBwrapArgsSkipsMissingPaths(t *testing.T) {
 	p.DenyRead = []string{"/home/u/missing"}
 	args := mustArgs(t, BwrapInput{Policy: p, Exists: fakeExists(), Home: "/home/u"})
 	joined := strings.Join(args, " ")
-	if strings.Contains(joined, ".git") || strings.Contains(joined, ".gocloudagent") || strings.Contains(joined, "/home/u/missing") {
+	if strings.Contains(joined, ".git") || strings.Contains(joined, ".protected") || strings.Contains(joined, "/home/u/missing") {
 		t.Fatalf("missing paths must not be mounted (bwrap would fail): %s", joined)
 	}
 }
 
-func TestBwrapArgsReadOnlySubpathsOverride(t *testing.T) {
+func TestBwrapArgsReadOnlySubpaths(t *testing.T) {
 	p := basePolicy()
-	exists := fakeExists("/work/ws/.git", "/work/ws/.git/hooks", "/work/ws/.gocloudagent")
+	exists := fakeExists("/work/ws/.git", "/work/ws/.git/hooks", "/work/ws/.protected")
 
-	// 默认：.gocloudagent 只读；整个 .git 可写，但 .git/hooks 由强制表盖住。
 	args := mustArgs(t, BwrapInput{Policy: p, Exists: exists, Home: "/home/u"})
-	if idx(args, "--ro-bind", "/work/ws/.gocloudagent", "/work/ws/.gocloudagent") < 0 {
-		t.Fatalf("default must cover .gocloudagent: %v", args)
+	if idx(args, "--ro-bind", "/work/ws/.protected", "/work/ws/.protected") >= 0 {
+		t.Fatalf("generic host must not assume platform-specific defaults: %v", args)
 	}
 	if idx(args, "--ro-bind", "/work/ws/.git", "/work/ws/.git") >= 0 {
 		t.Fatalf("default must leave .git writable so git commit works: %v", args)
@@ -219,21 +219,12 @@ func TestBwrapArgsReadOnlySubpathsOverride(t *testing.T) {
 		t.Fatalf("force-deny must cover .git/hooks: %v", args)
 	}
 
-	// 显式空切片关闭 ReadOnlySubpaths 的默认，但不关强制表。
-	p.ReadOnlySubpaths = []string{}
+	p.ReadOnlySubpaths = []string{".protected", ".git"}
 	args = mustArgs(t, BwrapInput{Policy: p, Exists: exists, Home: "/home/u"})
-	if idx(args, "--ro-bind", "/work/ws/.gocloudagent", "/work/ws/.gocloudagent") >= 0 {
-		t.Fatalf("explicit empty read_only_subpaths must disable the default: %v", args)
-	}
-	if idx(args, "--ro-bind", "/work/ws/.git/hooks", "/work/ws/.git/hooks") < 0 {
-		t.Fatalf("explicit empty read_only_subpaths must not disable the force-deny table: %v", args)
-	}
-
-	// 旧行为可显式取得：整个 .git 只读。
-	p.ReadOnlySubpaths = []string{".git", ".gocloudagent"}
-	args = mustArgs(t, BwrapInput{Policy: p, Exists: exists, Home: "/home/u"})
-	if idx(args, "--ro-bind", "/work/ws/.git", "/work/ws/.git") < 0 {
-		t.Fatalf("explicit legacy config must cover the whole .git: %v", args)
+	for _, path := range []string{"/work/ws/.protected", "/work/ws/.git"} {
+		if idx(args, "--ro-bind", path, path) < 0 {
+			t.Fatalf("explicit read-only path %s missing: %v", path, args)
+		}
 	}
 
 	p.ReadOnlySubpaths = []string{"/abs/protected", "rel"}

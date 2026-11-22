@@ -1,33 +1,3 @@
-// 文件说明：factory.go — godatabase/ducklake 中 Factory、Open 等符号的实现
-//
-// 用法
-//
-//	(f *Factory) Open(ctx context.Context, db godatabase.Spec, mode ...  // Open 打开（或创建）指定 logical database 的 DuckLake 连接
-//	(l Layout) WALFile(engine string) string  // WALFile 返回 duckdb 引擎的 WAL 路径（其他引擎为空）
-//	同包调用：Close() → catalog_syncer.go, extension.go 等；Open() → catalog_syncer.go, inspect.go 等；layoutForEngine() → catalog_syncer.go, local_state.go
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/factory.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase, godatabase/blob, godatabase/sqlx
-//	[同包] catalog_syncer.go, errors.go, extension.go, gated_conn.go, inspect.go 等 14 个
-//	[关键引用] Close() ← catalog_syncer.go, extension.go, gated_conn.go
-//
-// 主要符号
-//
-//	type Factory struct {…}
-//	(f *Factory) Open(ctx context.Context, db godatabase.Spec, mode ...
-//	type Layout struct {…}
-//	(l Layout) WALFile(engine string) string
-//	(f *Factory) AfterWrite(ctx context.Context, db godatabase.Spec, sqlDB *sql.DB) ...
-//	(f *Factory) BeforeClose(ctx context.Context, dbID string, sqlDB *sql.DB) error
-//	... 另有 28 个顶层符号
-
 package ducklake
 
 import (

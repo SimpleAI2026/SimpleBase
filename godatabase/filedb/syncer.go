@@ -1,34 +1,3 @@
-// 文件说明：syncer.go — godatabase/filedb 中 Syncer、NopSyncer 等符号的实现
-//
-// 用法
-//
-//	NewNopSyncer() *NopSyncer
-//	(s *NopSyncer) Restore(context.Context, godatabase.Spec, string) error
-//	(s *NopSyncer) Bind(godatabase.Spec, *sql.DB, string)
-//	同包调用：Restore() → factory.go, remote.go；Bind() → factory.go, remote.go；MarkDirty() → factory.go, remote.go
-//
-// 调用架构
-//
-//	[上游] internal/app, internal/backup
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/filedb/syncer.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase
-//	[同包] factory.go, path.go, remote.go, restore.go, restore_remote.go 等 6 个
-//	[关键引用] Restore() ← factory.go, remote.go
-//
-// 主要符号
-//
-//	type Syncer interface {…}
-//	type NopSyncer struct {…}
-//	NewNopSyncer() *NopSyncer
-//	(s *NopSyncer) Restore(context.Context, godatabase.Spec, string) error
-//	(s *NopSyncer) Bind(godatabase.Spec, *sql.DB, string)
-//	(s *NopSyncer) MarkDirty(projectID string)
-//	... 另有 4 个顶层符号
-
 package filedb
 
 import (
@@ -38,7 +7,7 @@ import (
 	"sync"
 )
 
-// Syncer 管理项目文件的恢复与持久化；本地模式使用 NopSyncer。
+// Syncer 管理项目文件的恢复与持久化；本地模式使用 LocalSyncer。
 type Syncer interface {
 	Restore(ctx context.Context, meta godatabase.Spec, filePath string) error
 	Bind(meta godatabase.Spec, sqlDB *sql.DB, filePath string)
@@ -49,19 +18,19 @@ type Syncer interface {
 	SyncLag(projectID string) int64
 }
 
-// NopSyncer 是本地持久文件模式的同步器。
-type NopSyncer struct {
+// LocalSyncer 是本地持久文件模式的同步器。
+type LocalSyncer struct {
 	mu   sync.Mutex
 	last map[string]int64
 }
 
-func NewNopSyncer() *NopSyncer {
-	return &NopSyncer{last: map[string]int64{}}
+func NewLocalSyncer() *LocalSyncer {
+	return &LocalSyncer{last: map[string]int64{}}
 }
 
-func (s *NopSyncer) Restore(context.Context, godatabase.Spec, string) error { return nil }
-func (s *NopSyncer) Bind(godatabase.Spec, *sql.DB, string)                  {}
-func (s *NopSyncer) MarkDirty(projectID string) {
+func (s *LocalSyncer) Restore(context.Context, godatabase.Spec, string) error { return nil }
+func (s *LocalSyncer) Bind(godatabase.Spec, *sql.DB, string)                  {}
+func (s *LocalSyncer) MarkDirty(projectID string) {
 	if s == nil {
 		return
 	}
@@ -69,10 +38,10 @@ func (s *NopSyncer) MarkDirty(projectID string) {
 	s.last[projectID]++
 	s.mu.Unlock()
 }
-func (s *NopSyncer) Flush(context.Context, string) error  { return nil }
-func (s *NopSyncer) Unbind(context.Context, string) error { return nil }
-func (s *NopSyncer) SyncLag(string) int64                 { return 0 }
-func (s *NopSyncer) LastSynced(projectID string) int64 {
+func (s *LocalSyncer) Flush(context.Context, string) error  { return nil }
+func (s *LocalSyncer) Unbind(context.Context, string) error { return nil }
+func (s *LocalSyncer) SyncLag(string) int64                 { return 0 }
+func (s *LocalSyncer) LastSynced(projectID string) int64 {
 	if s == nil {
 		return 0
 	}

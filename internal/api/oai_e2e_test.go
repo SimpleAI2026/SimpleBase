@@ -319,7 +319,7 @@ func TestOAIE2E_CLIRunsNativeToolCallEndToEnd(t *testing.T) {
 		}},
 	}, fakellm.Script{Steps: []fakellm.Step{{Content: "the echo said ping"}, {FinishReason: "stop"}}})
 
-	client := &cli.HTTPClient{Endpoint: e.srv.URL, Token: e.key, ProjectID: "proj-1"}
+	client := &cli.HTTPClient{Endpoint: e.srv.URL + "/v1/projects/proj-1/v1", Token: e.key}
 	if err := client.Probe(context.Background()); err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestOAIE2E_CLIFallsBackToTextProtocol(t *testing.T) {
 		{Seq: 1, HTTPStatus: http.StatusBadRequest, Body: `{"error":{"message":"tools unsupported"}}`},
 	}, fakellm.Script{Steps: []fakellm.Step{{Content: "plain answer"}, {FinishReason: "stop"}}})
 
-	client := &cli.HTTPClient{Endpoint: e.srv.URL, Token: e.key, ProjectID: "proj-1"}
+	client := &cli.HTTPClient{Endpoint: e.srv.URL + "/v1/projects/proj-1/v1", Token: e.key}
 	var calls int
 	res, _, err := runCLIOnce(t, client, "hello", &calls)
 	if err != nil {
@@ -462,7 +462,7 @@ func TestOAIE2E_StreamSurvivesWriteTimeoutOverRealRouter(t *testing.T) {
 func runCLIOnce(t *testing.T, client *cli.HTTPClient, text string, calls *int) (cli.RunResult, []cli.CLIEvent, error) {
 	t.Helper()
 	env := []string{"GOCLOUDAGENT_HOME=" + t.TempDir()}
-	sess, err := cli.NewSession(env, cli.Config{Endpoint: client.Endpoint, ProjectID: client.ProjectID}, t.TempDir())
+	sess, err := cli.NewSession(env, cli.Config{Endpoint: client.Endpoint}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

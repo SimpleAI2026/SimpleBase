@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/uglyer/go-sqlite3"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 )
 
 func TestStatisticalBuiltinsSeedWithoutOverwritingExisting(t *testing.T) {
@@ -505,34 +505,6 @@ func TestAgentThreadsFilteredByAgent(t *testing.T) {
 	got, err := s.GetAgentThread(ctx, pid, bThreads[0].ID)
 	if err != nil || got.AgentID != "ag-b" {
 		t.Fatalf("get: %+v err=%v", got, err)
-	}
-}
-
-// TestAgentSchedulesTablesArchived：sys_agent_schedules / sys_agent_schedule_runs
-// 已随 planv6.6 DC-5 整体下线读取接口，但建表 DDL 仍保留（存量库不迁移删除），
-// 这里只断言旧表在新建库中仍可 SQL 访问，避免误删 DDL 造成旧库启动失败。
-func TestAgentSchedulesTablesArchived(t *testing.T) {
-	s := newTestStore(t)
-	if _, err := s.db.ExecContext(context.Background(),
-		`INSERT INTO sys_agent_schedules(id, project_id, agent_id, thread_id, prompt, cron_expr, enabled, created_by, created_at, updated_at)
-		 VALUES('s1', 'p', 'a', 't', 'prompt', '* * * * *', 1, 'u', ?, ?)`,
-		time.Now().UTC(), time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(context.Background(),
-		`INSERT INTO sys_agent_schedule_runs(id, schedule_id, project_id, agent_id, thread_id, run_id, trigger, status, error, created_at)
-		 VALUES('r1', 's1', 'p', 'a', 't', 'rn', 'scheduled', 'ok', '', ?)`,
-		time.Now().UTC()); err != nil {
-		t.Fatal(err)
-	}
-	var n int
-	if err := s.db.QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM sys_agent_schedules WHERE id = 's1'`).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("schedules row: n=%d err=%v", n, err)
-	}
-	if err := s.db.QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM sys_agent_schedule_runs WHERE schedule_id = 's1'`).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("schedule_runs row: n=%d err=%v", n, err)
 	}
 }
 

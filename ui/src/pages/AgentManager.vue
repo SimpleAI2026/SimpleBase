@@ -1,110 +1,63 @@
 <template>
   <ProjectScope>
     <PageContainer>
-      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]">
-        <!-- 左列：Agent 条目（拆到 components/agent/AgentListPanel.vue）。 -->
-        <AgentListPanel
-          :agents="displayedAgents"
-          :active-id="activeId"
+      <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[184px_minmax(0,1fr)] xl:grid-cols-[200px_minmax(0,1fr)]">
+        <!-- 左列：工作台导航（planv6.7 v2 §4.1：群列表 + 每群会话 + 群行 +）。 -->
+        <AgentWorkspaceSidebar
+          :tags="tags"
+          :group-pages="groupPages"
+          :section="section"
+          :thread-id="threadId"
+          :running-thread-ids="runningThreadIds"
+          :pending-by-group="pendingByGroup"
           :pending="agentsPending"
-          :show-skeleton="agentsShowSkeleton"
-          :show-empty="agentsShowEmpty"
-          :show-error="agentsShowError"
-          :refreshing="agentsRefreshing"
           :error="agentsError"
-          :schedule-by-agent="scheduleByAgent"
-          :schedule-summary="scheduleSummary"
-          :running-agent-ids="runningAgentIds"
-          @reload="loadAgents"
-          @create="openCreate"
-          @select="selectAgent"
+          @select-section="selectSection"
+          @select-thread="selectThreadInGroup"
+          @create-tag="openTagCreate"
+          @create-thread="createThreadInGroup"
+          @load-more="loadMoreInGroup"
+          @rename-thread="startRenameThread"
+          @remove-thread="removeThread"
+          @edit-tag="openTagEdit"
+          @archive-tag="archiveTag"
+          @add-members="openMembers"
+          @create-member-agent="openMembersCreate"
+          @reload="reloadAgents"
         />
 
-        <!-- 右列：对话区（planv6.0 §3.2/§3.8）。
+        <!-- 右列：对话区（planv6.0 §3.2/§3.8，planv6.7 AGC-NAV 改为分区制）。
              高度 = 视口 - 顶栏 - 上下页面内边距（--page-pad 由 DefaultLayout 施加，
              这里必须引用同一个变量，不能写死数值）。 -->
         <Card class="flex h-[calc(100svh-var(--header-height)-var(--page-pad)-var(--page-pad))] min-h-[420px] min-w-0 flex-col sm:min-h-[520px]">
           <CardHeader class="border-b">
             <CardTitle class="flex w-full flex-wrap items-center gap-2 sm:gap-3">
-              <span class="max-w-40 min-w-0 shrink truncate sm:max-w-56">{{ activeAgent ? '@' + activeAgent.name : t('pages.agents.dialogLabel') }}</span>
+              <span class="max-w-40 min-w-0 shrink truncate sm:max-w-56" data-section-title>{{ headerTitle }}</span>
               <Badge
-                v-if="activeAgent && activeAgent.writable === false"
+                v-if="activeThreadAgent && threadAgentName"
                 variant="outline"
-                class="shrink-0 cursor-pointer text-xs"
-                data-agent-readonly-header
-                role="button"
-                tabindex="0"
-                :title="t('components.agentCard.readonlyHint')"
-                @click="onMenu('edit')"
-                @keydown.enter="onMenu('edit')"
-              >{{ t('components.agentCard.readonly') }}</Badge>
-              <ThreadSwitcher
-                :threads="threads"
-                :active-id="threadId"
-                :busy="sending"
-                :pending="threadPending && !threadHasData"
-                :running-thread-ids="runningThreadIds"
-                @create="resetThread"
-                @select="selectThread"
-              />
-              <Popover v-model:open="menuOpen">
-                <PopoverTrigger as-child>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    class="shrink-0"
-                    :aria-label="t('pages.agents.moreActions')"
-                    :title="t('pages.agents.moreActions')"
-                  >
-                    <EllipsisIcon />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" class="w-52 p-1">
-                  <p class="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{{ t('pages.agents.menuAgentGroup') }}</p>
-                  <button
-                    type="button"
-                    :class="MENU_ITEM"
-                    :disabled="!activeAgent"
-                    @click="onMenu('edit')"
-                  >{{ t('pages.agents.menuEdit') }}</button>
-                  <button
-                    type="button"
-                    :class="MENU_ITEM"
-                    :disabled="!activeAgent"
-                    @click="onMenu('schedule')"
-                  >
-                    {{ t('pages.agents.menuSchedule') }}
-                    <span v-if="activeScheduleSummary" class="ml-auto truncate text-xs text-muted-foreground">{{ activeScheduleSummary }}</span>
-                  </button>
-                  <ConfirmAction
-                    v-if="activeAgent && !activeAgent.builtin_key"
-                    :title="t('components.agentCard.deleteConfirm', { name: activeAgent.name })"
-                    @confirm="onMenu('remove')"
-                  >
-                    <button type="button" :class="[MENU_ITEM, 'text-destructive']">{{ t('components.agentCard.delete') }}</button>
-                  </ConfirmAction>
-
-                  <div class="my-1 h-px bg-border" />
-                  <p class="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{{ t('pages.agents.menuThreadGroup') }}</p>
-                  <button
-                    type="button"
-                    :class="MENU_ITEM"
-                    :disabled="!activeThread"
-                    @click="onMenu('renameThread')"
-                  >{{ t('pages.agents.menuRenameThread') }}</button>
-                  <ConfirmAction
-                    v-if="activeThread"
-                    :title="t('components.threadSwitcher.deleteConfirm')"
-                    @confirm="onMenu('removeThread')"
-                  >
-                    <button type="button" :class="[MENU_ITEM, 'text-destructive']">{{ t('pages.agents.menuDeleteThread') }}</button>
-                  </ConfirmAction>
-                </PopoverContent>
-              </Popover>
+                class="shrink-0 text-xs"
+                data-thread-agent-badge
+              >{{ threadAgentName }}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-4">
+            <!-- 分区无会话：标签总览（助手条 + 提示词 + 最近会话）。 -->
+            <AgentTagOverview
+              v-if="!threadId"
+              :name="sectionDisplayName"
+              :agents="sectionAgents"
+              :prompts="activeTag?.prompts || []"
+              :recent-threads="recentTagThreads"
+              :running-agent-ids="runningAgentIds"
+              :loading="agentsPending"
+              @new-thread="resetThread"
+              @mention-agent="mentionAgentFromTag"
+              @pick-prompt="pickPrompt"
+              @open-thread="selectThread"
+            />
             <SbAsyncRegion
+              v-else
               class="flex min-h-0 flex-1 flex-col overflow-hidden"
               block="lines"
               :pending="threadPending"
@@ -122,45 +75,48 @@
                 :confirmation="confirmation"
                 :can-retry="canRetry"
                 :history-loading="threadPending && !threadHasData"
+                :agent-names="agentNamesById"
                 @retry="retryLast"
                 @confirm="conv.resolveConfirm(true)"
                 @deny="conv.resolveConfirm(false)"
               >
                 <template #empty>
                   <AgentWelcome
-                    :agent-name="activeAgent?.name"
-                    :module="activeAgent?.module"
+                    :agent-name="activeThreadAgentName"
+                    :module="activeThreadAgentModule"
+                    mode="thread-empty"
                     @pick="pickPrompt"
                   />
                 </template>
               </ConversationView>
             </SbAsyncRegion>
-            <StarterProgress
-              v-if="starter.active.value || starter.failure.value || starter.finished.value"
-              :items="starter.progress.value"
-              :failure="starter.failure.value"
-              @retry="starter.retry"
-              @skip="starter.skip"
-              @takeover="starter.abandon"
-            />
-            <StarterDeliveryCard
-              v-if="starterDelivery"
-              :delivery="starterDelivery"
-              :project-id="project.id"
-              :site-base-url="starterSite?.baseUrl"
-              :site-skipped="starterSiteSkipped"
-            />
+            <!-- v2：路由分工卡与人工待办卡（只读展示 + 待办操作）。 -->
+            <div v-if="activeTurnTasks.length" class="flex flex-col gap-2">
+              <AgentDispatchCard
+                :tasks="activeTurnTasks"
+                :names="agentNamesById"
+                @retry-task="retryTask"
+              />
+              <AgentHumanTaskCard
+                v-for="task in humanTasksInTurn"
+                :key="task.id"
+                :task="task"
+                :busy="collab.running.value"
+                @reply="replyHumanTask"
+              />
+            </div>
             <div class="flex min-h-4 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <p v-if="statusText" role="status" class="truncate">{{ statusText }}</p>
               <p v-else class="min-w-0 truncate">{{ toolsHint }}</p>
               <router-link v-if="activeAgentHasSandboxTools" :to="{ name: 'sandboxes' }" class="shrink-0 text-primary hover:underline">{{ t('pages.agents.viewInSandbox') }}</router-link>
             </div>
-            <div v-if="switchTarget" class="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm" role="status">
-              <span>{{ t('pages.agents.switchAgentHint', { name: switchTarget.name }) }}</span>
-              <Button type="button" size="sm" variant="outline" data-agent-switch @click="switchToMentionedAgent">
-                {{ t('pages.agents.switchAgentAction', { name: switchTarget.name }) }}
-              </Button>
-            </div>
+            <!-- 标签分区底部助手条（planv6.7 AGC-UI §4.3）。 -->
+            <AgentRosterBar
+              v-if="sectionAgents.length"
+              :agents="sectionAgents"
+              :running-agent-ids="runningAgentIds"
+              @mention-agent="mentionAgentFromTag"
+            />
             <AgentComposer
               ref="composer"
               v-model="draft"
@@ -168,6 +124,7 @@
               :disabled="!threadId || !!activeCapabilityError"
               :placeholder="composerPlaceholder"
               :mention-agents="mentionAgents"
+              :route-hint="routeHint"
               @send="onSend"
               @stop="onStop"
             />
@@ -175,27 +132,38 @@
         </Card>
       </div>
 
-      <AgentFormModal
-        :open="modalOpen"
-        :editing="!!editing"
-        :saving="saving"
-        :form="form"
-        :module-options="moduleOptions"
-        :tool-options="toolOptions"
-        :model-options="modelOptions"
-        :default-model="defaultModel"
-        @update:open="(v: boolean) => (modalOpen = v)"
-        @save="saveAgent"
-        @module-change="onModuleChange"
-        @toggle-tool="toggleTool"
-        @update:writable="(v: boolean) => (form.writable = v)"
+      <!-- 标签编辑弹窗（planv6.7 AGC-UI §4.4）。 -->
+      <AgentTagModal
+        :open="tagModalOpen"
+        :tag="editingTag"
+        :agents="agentOptionsForTag"
+        :saving="tagSaving"
+        :conflicted="tagConflicted"
+        @update:open="(v: boolean) => (tagModalOpen = v)"
+        @save="saveTag"
+        @reload="reloadEditingTag"
+      />
+
+      <!-- 群成员弹窗（planv6.7 v2 §4.3）：加入已有 / 新建助手并加入。 -->
+      <AgentGroupMembersModal
+        :open="membersOpen"
+        :group-name="membersGroupName"
+        :agents="mentionAgents"
+        :member-ids="membersGroup?.agentIds || []"
+        :modules="modules"
+        :initial-mode="membersMode"
+        :saving="membersSaving"
+        :conflicted="membersConflicted"
+        @update:open="(v: boolean) => (membersOpen = v)"
+        @save="saveMembers"
+        @reload="reloadMembersGroup"
       />
 
       <!-- 会话重命名（planv6.0 §3.6 #7：会话操作收进「⋯」菜单）。 -->
       <SbModal
         :open="renameOpen"
         :title="t('pages.agents.renameThreadTitle')"
-        :width="440"
+        :max-width="440"
         :confirm-loading="renaming"
         :ok-button-props="{ disabled: !renameValue.trim() }"
         @ok="submitRenameThread"
@@ -224,38 +192,39 @@ import { i18n } from '@/locales'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
-import { EllipsisIcon } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { api } from '../services/api'
-import { agentScheduleFromCronJob } from '../services/http-api'
-import type { AgentModuleInfo, AgentThread, CloudAgent, McpServer } from '../services/api'
+import type { AgentModuleInfo, CloudAgent } from '../services/api'
 import { useProjectStore } from '../stores/project'
+import { useAuthStore } from '../stores/auth'
 import PageContainer from '../components/PageContainer.vue'
 import ProjectScope from '../components/ProjectScope.vue'
 import ConfirmAction from '../components/ConfirmAction.vue'
 import SbModal from '../components/modal/SbModal.vue'
 import AgentWelcome from '../components/agent/AgentWelcome.vue'
-import AgentFormModal from '../components/modal/AgentFormModal.vue'
-import type { AgentFormState } from '../components/modal/AgentFormModal.vue'
-import AgentListPanel from '../components/agent/AgentListPanel.vue'
-import ThreadSwitcher from '../components/agent/ThreadSwitcher.vue'
+import AgentTagModal from '../components/modal/AgentTagModal.vue'
+import AgentGroupMembersModal from '../components/modal/AgentGroupMembersModal.vue'
+import AgentWorkspaceSidebar from '../components/agent/AgentWorkspaceSidebar.vue'
+import type { SidebarGroupPage } from '../components/agent/AgentWorkspaceSidebar.vue'
+import AgentTagOverview from '../components/agent/AgentTagOverview.vue'
+import AgentRosterBar from '../components/agent/AgentRosterBar.vue'
 import ConversationView from '../components/agent/ConversationView.vue'
+import AgentDispatchCard from '../components/agent/AgentDispatchCard.vue'
+import AgentHumanTaskCard from '../components/agent/AgentHumanTaskCard.vue'
 import AgentComposer from '../components/agent/AgentComposer.vue'
-import StarterProgress from '../components/agent/StarterProgress.vue'
-import StarterDeliveryCard from '../components/agent/StarterDeliveryCard.vue'
+import type { MentionAgent, MentionSendTarget } from '../components/ai/AiChatComposer.vue'
 import { useAgentConversation } from '../composables/useAgentConversation'
-import { useStarterRun, type StageOutcome } from '../composables/useStarterRun'
-import { findStarterTemplate, type StarterStage } from '../constants/starter-prompts'
+import { useAgentWorkspace } from '../composables/useAgentWorkspace'
+import { useAgentCollaboration } from '../composables/useAgentCollaboration'
+import { findStarterTemplate } from '../constants/starter-prompts'
 import { markStarterSent, starterAlreadySent } from '../utils/starter-storage'
-import { stripDelivery } from '../utils/starter-delivery'
 import { useLoadState } from '@/composables/useLoadState'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
-import type { ActiveAgentRun, AgentMessage, AgentSchedule, ChatMsg } from '../services/types'
+import type { ActiveAgentRun, AgentGroupMembersInput, AgentHumanTask, AgentMentionTarget, AgentMessage, AgentTask, AgentTag, AgentTagInput, AgentThread, AgentThreadCreateOptions, ChatMsg, MentionAgentLike } from '../services/types'
 
 const project = useProjectStore()
 const route = useRoute()
@@ -263,10 +232,6 @@ const { t } = useI18n()
 const router = useRouter()
 const {
   pending: agentsPending,
-  showSkeleton: agentsShowSkeleton,
-  showEmpty: agentsShowEmpty,
-  showError: agentsShowError,
-  refreshing: agentsRefreshing,
   error: agentsError,
   run: runAgents
 } = useLoadState({ fallback: 'pages.agents.loadAgentsFailed' })
@@ -280,42 +245,99 @@ const {
   run: runThread,
   settle: settleThread
 } = useLoadState({ fallback: 'pages.agents.loadThreadFailed' })
-const saving = ref(false)
 const agents = ref<CloudAgent[]>([])
 const modules = ref<AgentModuleInfo[]>([])
-/** 项目已配置的 MCP Server：作为 mcp:<name> 工具选项注入弹窗（planv6.2 §6-7）。 */
-const mcpServers = ref<McpServer[]>([])
-const activeId = ref('')
-const modalOpen = ref(false)
-const editing = ref<CloudAgent | null>(null)
-const form = ref({ name: '', module: 'database', description: '', system_prompt: '', model_override: '', tool_ids: [] as string[], writable: false })
 const defaultModel = ref('')
 const modelOptions = ref<string[]>([])
-const threads = ref<AgentThread[]>([])
-const threadId = ref('')
 const chatMessages = ref<ChatMsg[]>([])
 const draft = ref('')
-const switchTargetId = ref('')
 
-const scheduleByAgent = ref<Record<string, AgentSchedule>>({})
-/** 头部「⋯」菜单开合（planv6.0 §3.8）。 */
-const menuOpen = ref(false)
-/** 「⋯」菜单项共用样式（planv6.7 ui-simplify-ux-plan §5 X8）。 */
-const MENU_ITEM = 'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50'
-const composer = ref<{ focus?: () => void } | null>(null)
+/* ---------- 工作台分区状态（planv6.7 AGC-NAV） ---------- */
+/** 全部标签（含预置 general/alerts/stats/scheduled 与自定义）。 */
+const tags = ref<AgentTag[]>([])
+/** 当前标签 ID，默认是包含全部助手的 #通用。 */
+const section = ref('general')
+/** 当前标签内的会话列表。 */
+const sectionThreads = ref<AgentThread[]>([])
+/** 当前标签的分页游标（空 = 没有下一页）。 */
+const sectionCursor = ref('')
+/** 当前标签会话是否在加载（侧栏据此显示 loading，不再用全局 pending）。 */
+const threadsPending = ref(false)
+/** 我的待办（跨会话聚合，用于群行角标与人工任务卡）。 */
+const humanTasks = ref<AgentHumanTask[]>([])
+
+/** 其他群的分页缓存与展开状态（当前分区仍由 sectionThreads 驱动）。 */
+const ws = useAgentWorkspace({ projectId: () => project.id })
+/** 登录态：只有它有「人」的身份（人工待办需要）。 */
+const authStore = useAuthStore()
+/** 当前会话（分区制后由选中线程直接持有）。 */
+const threadId = ref('')
+/** 标签弹窗状态。 */
+const tagModalOpen = ref(false)
+const editingTag = ref<AgentTag | null>(null)
+const tagSaving = ref(false)
+const tagConflicted = ref(false)
+
+/* ---------- 群成员弹窗（planv6.7 v2 §4.3） ---------- */
+const membersOpen = ref(false)
+const membersGroupId = ref('')
+const membersMode = ref<'existing' | 'create'>('existing')
+const membersSaving = ref(false)
+const membersConflicted = ref(false)
+
+const composer = ref<{
+  focus?: () => void
+  insertMention?: (a: MentionAgentLike) => void
+  clearMentions?: () => void
+} | null>(null)
 /** 会话重命名弹窗（原 ThreadSwitcher 无重命名入口，这里补上）。 */
 const renameOpen = ref(false)
 const renameValue = ref('')
 const renaming = ref(false)
 const renameTarget = ref<AgentThread | null>(null)
 
-/** 会话状态层（planv4.1 BUG-01/03/09/10）。 */
+/** 会话状态层：运行续接与确认事件流。 */
 const conv = useAgentConversation({
   projectId: () => project.id,
   threadId: () => threadId.value,
   messages: () => chatMessages.value
 })
-const sending = conv.sending
+
+/**
+ * 协作轮次层（planv6.7 v2 §6）：群会话走 /turns，一轮多任务。
+ * 与 conv 并存：按会话类型二选一，互不干扰。
+ */
+const collab = useAgentCollaboration({
+  projectId: () => project.id,
+  messages: () => chatMessages.value,
+  onTurnEnd: () => {
+    refreshThreadsForAgent()
+    void loadHumanTasks()
+  },
+  onError: (err) => {
+    const e = err as { code?: string }
+    const code = e?.code
+    if (code === 'agent_not_in_tag' || code === 'group_member_unavailable') {
+      toast.warning(t('components.agentWorkspace.agentNotInTag'))
+      return
+    }
+    if (code === 'group_archived') {
+      toast.warning(t('components.agentWorkspace.groupArchived'))
+      return
+    }
+    if (code === 'turn_busy') {
+      toast.warning(t('components.agentWorkspace.turnBusy'))
+      return
+    }
+    if (code === 'human_assignee_required') {
+      toast.warning(t('components.agentWorkspace.humanRequired'))
+      return
+    }
+    toast.error(errorMessage(e, t('pages.agents.runFailed')))
+  }
+})
+/** 发送中：单助手 run 或协作轮次正在执行。 */
+const sending = computed(() => conv.sending.value || collab.running.value)
 const confirmation = conv.confirmation
 const statusText = conv.statusText
 const failedRunId = conv.failedRunId
@@ -332,7 +354,7 @@ const ACTIVE_POLL_MS = 3000
 
 const runningAgentIds = computed(() => {
   const ids = new Set(activeRuns.value.map((r) => r.agent_id))
-  if (sending.value && activeId.value) ids.add(activeId.value)
+  for (const m of chatMessages.value) if (m.agentId && m.routing) ids.add(m.agentId)
   return ids
 })
 const runningThreadIds = computed(() => {
@@ -357,6 +379,8 @@ async function refreshActiveRuns() {
   } catch {
     // 指示性数据：失败静默，保留上一次结果，下轮再试。
   }
+  // 待办角标与运行指示同一轮轮询：都只读、都失败静默。
+  void loadHumanTasks()
   if (activeDisposed || project.id !== projectId) return
   if (activeRuns.value.length || sending.value) {
     activePollTimer = setTimeout(() => {
@@ -380,6 +404,7 @@ const builtinDefaultNames: Record<string, string> = {
   general: '通用助手', database: 'Database', s3: 'S3', logs: 'Logs',
   kv: '键值助手', gofunction: '云函数助手', cron: '定时任务助手', sandbox: '沙盒助手'
 }
+/** 按当前语言解析内置助手显示名（planv6.7 AGC-NAV 改分区制后仍有多处引用）。 */
 const displayedAgents = computed(() => {
   const locale = i18n.global.locale.value
   return agents.value.map((agent) => {
@@ -388,45 +413,177 @@ const displayedAgents = computed(() => {
     return { ...agent, name: i18n.global.t(`pages.agents.builtinNames.${key}`, 1, { locale }) }
   })
 })
-const activeAgent = computed(() => displayedAgents.value.find((a) => a.id === activeId.value))
-const switchTarget = computed(() => displayedAgents.value.find((a) => {
-  if (a.id !== switchTargetId.value) return false
-  const original = agents.value.find((raw) => raw.id === a.id)
-  if (draft.value.includes(`@${a.name}`) || (!!original && draft.value.includes(`@${original.name}`))) return true
-  if (original?.builtin_key === 'kv' && original.name === builtinDefaultNames.kv && draft.value.includes('@KV助手')) return true
-  if (original?.builtin_key && original.name === builtinDefaultNames[original.builtin_key]) {
-    return (['zh-CN', 'en-US'] as const).some((locale) => draft.value.includes(`@${i18n.global.t(`pages.agents.builtinNames.${original.builtin_key}`, {}, { locale })}`))
+/** agentId → 当前语言显示名（ConversationView 回答者行）。 */
+const agentNamesById = computed(() => {
+  const map: Record<string, string> = {}
+  for (const a of displayedAgents.value) map[a.id] = a.name
+  return map
+})
+const activeAgent = computed(() => displayedAgents.value.find((a) => a.id === activeThreadAgentId.value))
+/** 当前会话固定助手（分区制：线程绑定，不再由左栏选择）。 */
+const activeThreadAgentId = computed(() => sectionThreads.value.find((th) => th.id === threadId.value)?.agent_id || '')
+const activeThreadAgent = computed(() => agents.value.find((a) => a.id === activeThreadAgentId.value))
+const activeThreadAgentName = computed(() => activeThreadAgent.value ? displayedAgents.value.find((a) => a.id === activeThreadAgentId.value)?.name : '')
+const activeThreadAgentModule = computed(() => activeThreadAgent.value?.module)
+const threadAgentName = activeThreadAgentName
+/**
+ * @ 候选（planv6.7 v2 §4.3）：
+ *   - 群分区只列本群成员，避免「点名群外助手 → 服务端拒绝」；
+ *   - 登录态额外提供「当前人」，用于生成人工待办。
+ */
+const mentionAgents = computed<MentionAgent[]>(() => {
+  const memberIds = new Set(sectionAgents.value.map((agent) => agent.id))
+  const base = displayedAgents.value.filter((agent) => memberIds.has(agent.id))
+  const list: MentionAgent[] = base.map((a) => ({
+    id: a.id,
+    name: a.name,
+    module: a.module,
+    legacyName: a.builtin_key ? agents.value.find((raw) => raw.id === a.id)?.name : undefined,
+    builtinKey: a.builtin_key && agents.value.find((raw) => raw.id === a.id)?.name === builtinDefaultNames[a.builtin_key] ? a.builtin_key : undefined
+  }))
+  // 只有登录态才有「人」：API Key 主体不能担任人工接收人。
+  const user = authStore.user
+  if (user && activeTag.value?.humanPolicy !== 'disabled') {
+    list.push({ id: 'me', name: t('components.agentWorkspace.mentionMe'), kind: 'human' })
   }
-  return false
-}))
-const mentionAgents = computed(() => displayedAgents.value.map((a) => ({
-  id: a.id, name: a.name, module: a.module,
-  legacyName: a.builtin_key ? agents.value.find((raw) => raw.id === a.id)?.name : undefined,
-  builtinKey: a.builtin_key && agents.value.find((raw) => raw.id === a.id)?.name === builtinDefaultNames[a.builtin_key] ? a.builtin_key : undefined
-})))
+  return list
+})
 const composerPlaceholder = computed(() =>
   activeAgent.value
     ? t('pages.agents.composerWithAgent', { name: activeAgent.value.name })
     : t('pages.agents.composerIdle')
 )
 
-const moduleOptions = computed(() =>
-  modules.value.map((m) => ({
-    label: `${m.name}（${m.id}）`,
-    value: m.id,
-    disabled: m.id === 'sandbox' && m.sandbox_available !== true
-  }))
+/* ---------- 分区导航计算（planv6.7 AGC-NAV §4.1） ---------- */
+
+const activeTag = computed(() => tags.value.find((tag) => tag.id === section.value) || null)
+/** 当前标签的本地化显示名。 */
+const sectionDisplayName = computed(() => activeTag.value ? tagDisplayName(activeTag.value) : '')
+const headerTitle = computed(() => sectionDisplayName.value || t('pages.agents.dialogLabel'))
+/** 标签内可用助手（已过滤不存在/归档助手）。 */
+const sectionAgents = computed(() => {
+  const tag = activeTag.value
+  if (!tag) return [] as MentionAgentLike[]
+  const byId = new Map(displayedAgents.value.map((a) => [a.id, a]))
+  return tag.agentIds
+    .map((id) => byId.get(id))
+    .filter((a): a is (typeof displayedAgents.value)[number] => !!a)
+    .map((a) => ({ id: a.id, name: a.name, module: a.module }))
+})
+/** 标签最近会话（总览下半屏）。 */
+const recentTagThreads = computed(() => sectionThreads.value.slice(0, 5))
+/** 标签编辑弹窗的助手候选（含已不可用项，便于编辑器提示）。 */
+const agentOptionsForTag = computed(() => {
+  const tag = editingTag.value
+  const used = new Set(tag?.agentIds || [])
+  const out: MentionAgentLike[] = displayedAgents.value.map((a) => ({ id: a.id, name: a.name, module: a.module }))
+  for (const id of tag?.unavailableAgentIds || []) {
+    if (!used.has(id)) continue
+    out.push({ id, name: t('components.agentTagOverview.unavailable') })
+  }
+  return out
+})
+/** composer routeHint：auto 线程显示「自动选择助手」，点名后显示「本轮：@X」（§4.3）。 */
+const routeHint = computed(() => {
+  const th = sectionThreads.value.find((item) => item.id === threadId.value)
+  if (!th || th.dispatch_mode !== 'auto') return ''
+  if (routeAgentName.value) return `@${routeAgentName.value} · ` + t('components.agentWorkspace.mentionThisTurn', { name: routeAgentName.value })
+  return t('components.agentWorkspace.autoRoute')
+})
+/** route.done 记录的助手名（一轮结束后清空）。 */
+const routeAgentName = ref('')
+/** 标签显示名（预置走 i18n）。 */
+function tagDisplayName(tag: AgentTag): string {
+  return tag.builtinKey ? t(`components.agentWorkspace.builtinTags.${tag.builtinKey}`) : tag.name
+}
+/* ---------- 侧栏群树（planv6.7 v2 §4.1） ---------- */
+
+/**
+ * 每个群的会话分页。
+ *
+ * 当前分区直接复用 sectionThreads/sectionCursor（既有状态机不变）；
+ * 其他群用 workspace 的独立分页缓存，展开时懒加载，互不干扰。
+ */
+const groupPages = computed<Record<string, SidebarGroupPage>>(() => {
+  const out: Record<string, SidebarGroupPage> = {}
+  for (const tag of tags.value) {
+    const cached = ws.pages[tag.id]
+    out[tag.id] = {
+      threads: tag.id === section.value ? sectionThreads.value : cached?.threads ?? [],
+      hasMore: tag.id === section.value ? Boolean(sectionCursor.value) : Boolean(cached?.hasMore),
+      loading: tag.id === section.value ? threadsPending.value : Boolean(cached?.loading)
+    }
+  }
+  return out
+})
+
+/** 每个群的待办数（群行角标）：按会话所属群聚合。 */
+const pendingByGroup = computed<Record<string, number>>(() => {
+  const threadToGroup: Record<string, string> = {}
+  for (const [groupId, page] of Object.entries(groupPages.value)) {
+    for (const th of page.threads) threadToGroup[th.id] = groupId
+  }
+  const out: Record<string, number> = {}
+  for (const task of humanTasks.value) {
+    const groupId = task.tagId || threadToGroup[task.threadId] || 'general'
+    out[groupId] = (out[groupId] ?? 0) + 1
+  }
+  return out
+})
+
+/** 当前轮次的任务（路由卡渲染源）：只在协作会话展示。 */
+const activeTurnTasks = computed<AgentTask[]>(() => {
+  if (!isCollaborativeThread.value) return []
+  return collab.tasks.value
+})
+
+/** 当前轮次里等人的任务（人工卡渲染源，保持任务顺序）。 */
+const humanTasksInTurn = computed<AgentTask[]>(() =>
+  activeTurnTasks.value.filter((task) => task.targetKind === 'human')
 )
+
+/**
+ * 当前会话是否为协作会话（群会话）。
+ *
+ * 服务端已把旧 auto 读成 collaborative；这里再做一次兜底判断，
+ * 保证「有 tag_id 但还没有协作行」的旧数据也能走协作路径。
+ */
+const isCollaborativeThread = computed(() => {
+  const thread = sectionThreads.value.find((item) => item.id === threadId.value)
+  if (!thread) return true
+  return thread.dispatch_mode === 'collaborative' || thread.dispatch_mode === 'auto'
+})
+
+/** 侧栏新建会话：按钮带群 ID，先切分区再建。 */
+async function createThreadInGroup(id: string) {
+  if (id !== section.value) await selectSection(id)
+  await resetThread()
+}
+
+/** 侧栏加载更多：按群走各自游标。 */
+async function loadMoreInGroup(id: string) {
+  if (id === section.value) {
+    await loadMoreSectionThreads()
+    return
+  }
+  await ws.loadMore(id)
+}
+
+/** 侧栏点会话：跨群时先切分区，再选中。 */
+async function selectThreadInGroup(id: string, groupId: string) {
+  if (groupId && groupId !== section.value) await selectSection(groupId)
+  await selectThread(id)
+}
 
 // 当前选中 Agent 是否含沙盒工具；决定 composer 旁的提示文案。
 const activeAgentHasSandboxTools = computed(() => {
-  const a = activeAgent.value
+  const a = activeThreadAgent.value
   if (!a) return false
   return (a.tool_ids || []).some((id) => id.startsWith('sandbox_'))
 })
 
 const activeCapabilityError = computed(() => {
-  const agent = activeAgent.value
+  const agent = activeThreadAgent.value
   if (!agent) return ''
   if (agent.module === 'sandbox' && modules.value.find((m) => m.id === 'sandbox')?.sandbox_available !== true) {
     return t('pages.agents.sandboxUnavailable')
@@ -439,28 +596,13 @@ const activeCapabilityError = computed(() => {
 
 const toolsHint = computed(() => {
   if (activeCapabilityError.value) return activeCapabilityError.value
-  const who = activeAgent.value
-    ? t('pages.agents.mentionHint', { name: activeAgent.value.name })
+  const who = activeThreadAgent.value
+    ? t('pages.agents.mentionHint', { name: activeThreadAgentName.value })
     : t('pages.agents.mentionHintGeneric')
   if (activeAgentHasSandboxTools.value) return t('pages.agents.mentionHintSandbox', { who })
-  if (['kv', 'gofunction', 'cron'].includes(activeAgent.value?.module || '')) return t('pages.agents.mentionHintCli', { who })
-  return t('pages.agents.mentionHintReadonly', { who })
+  return t('pages.agents.mentionHintWritable', { who })
 })
-const toolOptions = computed(() => {
-  const m = modules.value.find((x) => x.id === form.value.module)
-  const ids = m ? m.default_tools : ['list_databases', 'list_collections', 'readonly_sql', 'list_objects', 'head_object', 'search_logs', 'log_level_stats']
-  const out = ids.map((id) => ({ label: id, value: id }))
-  // MCP Server 以 mcp:<name> 的形式并列展示（planv6.2 §3.2）。
-  // 已停用的 Server 不提供，但已选中的仍保留在 form.tool_ids 里，
-  // 由保存时的后端校验决定是否放行。
-  for (const srv of mcpServers.value) {
-    if (!srv.enabled) continue
-    out.push({ label: `mcp:${srv.name}`, value: `mcp:${srv.name}` })
-  }
-  return out
-})
-
-/** 最后一条消息失败且记录了失败 run id 时可重试（BUG-03：走后端 retry_of_run_id）。 */
+/** 最后一条消息失败时可重试：复用最近一次失败的 run。 */
 const canRetry = computed(() => {
   if (sending.value || !failedRunId.value) return false
   const last = chatMessages.value[chatMessages.value.length - 1]
@@ -471,12 +613,12 @@ watch(
   () => project.id,
   () => {
     detachRun()
-    switchTargetId.value = ''
-    activeId.value = ''
+    section.value = 'general'
     threadId.value = ''
-    threads.value = []
+    sectionThreads.value = []
+    sectionCursor.value = ''
+    tags.value = []
     chatMessages.value = []
-    scheduleByAgent.value = {}
     activeRuns.value = []
     void bootstrap()
   }
@@ -500,50 +642,19 @@ async function bootstrap() {
   // 首次进入且尚未选定项目时 project.id 为空：此时请求会打到 /v1/projects//… 并弹出多条 404 提示；
   // 等 loadProjects 选中项目后由上面的 watch 再触发。
   if (!project.id) return
-  // loadThreads 依赖 activeId（由 loadAgents 决定），所以两者必须串行；
-  // 调度与模型候选与它们无关，可以和 loadAgents 并行。
-  await Promise.all([loadSchedules(), loadModelOptions(), refreshActiveRuns(), (async () => {
+  // loadThreads 依赖 tags（决定分区），所以两者必须串行；
+  // 模型候选与运行态与它们无关，可以并行。
+  await Promise.all([loadModelOptions(), refreshActiveRuns(), (async () => {
     await loadAgents()
-    await loadThreads()
+    await loadTags()
+    await loadSectionThreads()
   })()])
   await maybeStartStarter()
 }
 
 /* ---------- 首页「一句话建应用」搭建会话（planv6.6 home-starter-prompts §2.3 / §2.7） ---------- */
 
-const starter = useStarterRun({
-  send: (text, stage, done) => sendStarterStage(text, stage, done)
-})
-/** 站点状态：种子提示词上下文与交付卡片的同源校验都用它。 */
 const starterSite = ref<{ baseUrl?: string; publishable: boolean; reason?: string } | null>(null)
-const starterDelivery = computed(() => starter.delivery.value)
-const starterSiteSkipped = computed(() => starter.active.value || starter.finished.value ? !(starter.stages.value.includes('site')) : false)
-
-/** 阶段 run 结束时由 conv.start 的回调拿到结果。 */
-function sendStarterStage(text: string, stage: StarterStage, done: (o: StageOutcome) => void) {
-  const agent = agents.value.find((a) => a.id === activeId.value)
-  if (!agent || !threadId.value) {
-    done({ ok: false, content: '', cards: [] })
-    return
-  }
-  let reply: ChatMsg | undefined
-  conv.start({ content: text, mentions: [{ agent_id: agent.id }], module: agent.module, starter_stage: stage }, {
-    onReply: (r) => { reply = r },
-    onEnd: (reason) => {
-      refreshThreadsForAgent()
-      const content = reply?.content ?? ''
-      done({ ok: reason !== 'canceled', content, cards: reply?.toolCalls ?? [] })
-      // verify 阶段：交付块是机器读的，从展示正文里去掉（交付卡片负责呈现）。
-      if (stage === 'verify' && reply) reply.content = stripDelivery(reply.content)
-    },
-    onError: (e) => {
-      toast.error(errorMessage(e, t('pages.agents.runFailed')))
-      done({ ok: false, content: reply?.content ?? '', cards: reply?.toolCalls ?? [] })
-    }
-  })
-}
-
-/** 种子提示词 = 模板文案 + 项目上下文（项目 ID、站点基址、可发布）。 */
 function buildStarterSeed(templateId: string): string {
   const tpl = findStarterTemplate(templateId)
   if (!tpl) return ''
@@ -570,7 +681,7 @@ function replaceQuery(patch: Record<string, string | undefined>) {
 }
 
 /**
- * 首页来的 `?starter=<id>`：选中内置通用助手 → 新建一条搭建会话 → 自动发送一次种子提示词。
+ * 首页来的 `?starter=<id>`：在 #通用 新建协作会话并自动发送一次种子提示词。
  *
  * 这是对 planv6.0 §3.5「点击只填不发」的显式例外，仅限 starter 入口：用户已经在确认弹窗里点了
  * 「开始搭建」，等价于回车。发送前先去重（sessionStorage）并立即去掉 query，刷新不会重复发。
@@ -579,119 +690,50 @@ async function maybeStartStarter() {
   const raw = route.query.starter
   const templateId = typeof raw === 'string' ? raw : ''
   if (!templateId) return
-  // 只去掉 starter：thread 等其它参数由各自的 replace 维护。replace 是异步的，
-  // 所以下面所有写 query 的地方都经 replaceQuery，基于「最新」的 route.query 合并，
-  // 不会把已去掉的 starter 又写回去。
   const consumeQuery = () => replaceQuery({ starter: undefined })
   const tpl = findStarterTemplate(templateId)
   const projectId = project.id
   if (!tpl || !projectId) { consumeQuery(); return }
   if (starterAlreadySent(projectId, templateId)) { consumeQuery(); return }
-  const general = agents.value.find((a) => a.builtin_key === 'general')
-  if (!general) {
-    consumeQuery()
-    toast.error(t('components.starter.generalMissing'))
-    return
-  }
-  if (activeId.value !== general.id) {
-    activeId.value = general.id
+  if (section.value !== 'general') {
+    section.value = 'general'
     threadId.value = ''
   }
-  // 先占位再发：即使后面失败，刷新也不会重复建会话 / 重复发送。
   markStarterSent(projectId, templateId)
   consumeQuery()
+  let id = ''
   try {
-    // 新建搭建会话（标题 = 模板名），不复用已有会话；starter_template 由服务端校验后登记。
-    const th = await api.agentThreads.create(projectId, t(tpl.titleKey), general.id, tpl.id)
+    const th = await api.agentThreads.create(projectId, {
+      title: t(tpl.titleKey),
+      tagId: 'general',
+      dispatchMode: 'collaborative',
+      threadKind: 'chat',
+      source: 'starter'
+    })
     if (project.id !== projectId) return
-    threads.value.unshift(th)
-    threadId.value = th.id
+    id = th.id
+    sectionThreads.value.unshift(th)
+    threadId.value = id
     chatMessages.value = []
     settleThread(false)
-    replaceQuery({ thread: th.id })
+    replaceQuery({ thread: id })
   } catch (e) {
     toast.error(errorMessage(e, t('components.starter.sessionFailed')))
     return
   }
-  starterSite.value = await api.s3.getSite(projectId).catch(() => null)
-  const siteReady = !!starterSite.value?.publishable
-  starter.start(tpl, siteReady)
+  const site = await api.s3.getSite(projectId).catch(() => null)
+  if (project.id !== projectId || threadId.value !== id) return
+  starterSite.value = site
+  collab.start(id, buildStarterSeed(tpl.id), [], 'chat')
 }
 
-/**
- * planv6.6 DC-5：旧 /agent-schedules 只读兼容层已下线，定时摘要改从
- * /cron-jobs（targetKind=agent）映射；每个助手只展示一条（最新创建的）。
- */
-async function loadSchedules() {
-  try {
-    const jobs = await api.cronjobs.list(project.id)
-    const map: Record<string, AgentSchedule> = {}
-    for (const job of jobs) {
-      if (job.targetKind !== 'agent' || !job.agentId) continue
-      const s = agentScheduleFromCronJob(job)
-      const prev = map[s.agent_id]
-      if (!prev || s.created_at > prev.created_at) map[s.agent_id] = s
-    }
-    scheduleByAgent.value = map
-  } catch (e) {
-    toast.error(errorMessage(e, t('pages.agents.loadSchedulesFailed')))
-  }
-}
-
-/** 预设 cron → i18n key；未命中原样展示表达式。 */
-const CRON_PRESET_KEYS: Record<string, string> = {
-  '*/15 * * * *': 'components.agentSchedule.preset15Min',
-  '0 * * * *': 'components.agentSchedule.presetHourly',
-  '0 8 * * *': 'components.agentSchedule.presetDaily8',
-  '0 8 * * 1': 'components.agentSchedule.presetWeeklyMon8'
-}
-
-function scheduleSummary(s: AgentSchedule): string {
-  const key = CRON_PRESET_KEYS[s.cron_expr]
-  const cron = key ? t(key) : s.cron_expr
-  return t('pages.agents.scheduleSummary', {
-    cron,
-    state: s.enabled ? t('components.agentSchedule.enabled') : t('components.agentSchedule.disabled')
-  })
-}
-
-/** 当前选中 Agent 的定时任务摘要（头部「⋯」菜单里显示一行）。 */
-const activeScheduleSummary = computed(() => {
-  const s = activeAgent.value ? scheduleByAgent.value[activeAgent.value.id] : undefined
-  return s ? scheduleSummary(s) : ''
-})
-
-/** 当前会话（菜单里的会话级动作需要它）。 */
-const activeThread = computed(() => threads.value.find((th) => th.id === threadId.value))
-
-type MenuAction = 'edit' | 'schedule' | 'remove' | 'renameThread' | 'removeThread'
-
-/**
- * 头部「⋯」菜单动作。
- *
- * 「编辑/定时/删除」作用于当前选中 Agent；「重命名/删除」作用于当前会话——
- * 这两项原本挂在 ThreadSwitcher 上，收进菜单后由这里接管（planv6.0 §3.3/§3.6 #7）。
- */
-function onMenu(action: MenuAction) {
-  menuOpen.value = false
-  if (action === 'renameThread') {
-    const th = activeThread.value
-    if (!th) return
-    renameTarget.value = th
-    renameValue.value = th.title
-    renameOpen.value = true
-    return
-  }
-  if (action === 'removeThread') {
-    const th = activeThread.value
-    if (th) void removeThread(th.id)
-    return
-  }
-  const a = agents.value.find((agent) => agent.id === activeId.value)
-  if (!a) return
-  if (action === 'edit') openEdit(a)
-  else if (action === 'schedule') openSchedule(a)
-  else void removeAgent(a)
+/** 侧栏「重命名」入口（分区制后线程 id 直接传入）。 */
+function startRenameThread(id: string) {
+  const th = sectionThreads.value.find((item) => item.id === id)
+  if (!th) return
+  renameTarget.value = th
+  renameValue.value = th.title
+  renameOpen.value = true
 }
 
 /** 会话重命名弹窗出现问题时不留半开状态。 */
@@ -716,21 +758,24 @@ async function submitRenameThread() {
  * 与「少操作」一致——一次点击把话术准备好，回车才执行。
  */
 function pickPrompt(text: string) {
+  if (draft.value.trim() && !window.confirm(t('components.agentWorkspace.replaceDraftConfirm'))) return
   draft.value = text
   composer.value?.focus?.()
 }
 
-/** 定时任务已统一到「定时任务」页：跳转并预选该助手（旧 /agent-schedules 写接口已返回 410）。 */
-function openSchedule(a: CloudAgent) {
-  void router.push({ name: 'cron-jobs', query: { agent: a.id } })
+/** 助手条点名：草稿插入 @名称（planv6.7 §4.3，不发送不切换）。 */
+function mentionAgentFromTag(a: MentionAgentLike) {
+  composer.value?.insertMention?.({ id: a.id, name: a.name, module: a.module })
 }
 
-/** BUG-06：持久化消息 → 聊天气泡。run 状态还原失败/取消态；assistant 按其归属助手补 module。 */
+/** BUG-06：持久化消息 → 聊天气泡。run 状态还原失败/取消态；assistant 按其归属助手补 module 与路由结论。 */
 function toChatMessage(m: AgentMessage, agentModule?: string): ChatMsg {
   return {
     role: m.role === 'assistant' ? 'assistant' : 'user',
     content: m.content,
     module: m.role === 'assistant' ? agentModule : undefined,
+    agentId: m.role === 'assistant' ? m.agent_id : undefined,
+    routeKind: m.route_kind,
     toolCalls: m.tool_calls,
     error: m.error_code ? errorMessage({ code: m.error_code } as Error & { code?: string }, t('pages.agents.runFailed')) : undefined,
     canceled: m.run_status === 'canceled'
@@ -753,14 +798,12 @@ async function resumeActiveRun(id: string) {
   if (sending.value) return
   const runs = await api.agentThreads.runs(project.id, id, 1).catch(() => [])
   const run = runs?.[0]
-  if (!run || threadId.value !== id || sending.value) return
-  if (run.status !== 'running' && run.status !== 'queued') return
+  if (threadId.value !== id || sending.value) return
+  if (!run || (run.status !== "running" && run.status !== "queued")) return
   conv.attach(run.id, {
     module: agents.value.find((a) => a.id === run.agent_id)?.module,
-    onEnd: () => {
-      refreshThreadsForAgent()
-    },
-    // 事件缓存已过期等：不打扰用户，重新拉一次已落库的消息。
+    onEnd: () => refreshThreadsForAgent(),
+    // 事件缓存已过期等：重新拉一次已落库的消息。
     onError: () => {
       void api.agentThreads.messages(project.id, id).then((list) => {
         if (threadId.value !== id || sending.value) return
@@ -771,9 +814,23 @@ async function resumeActiveRun(id: string) {
 }
 
 async function selectThread(id: string) {
-  if (!id || !threads.value.some((thread) => thread.id === id)) return
+  if (!id) return
+  // 深链/总览的线程可能不在当前分区列表：先补齐再选（404 → 会话不存在提示）。
+  if (!sectionThreads.value.some((thread) => thread.id === id)) {
+    const th = await Promise.resolve(api.agentThreads.get(project.id, id)).then((r) => r).catch(() => null)
+    if (!th) {
+      toast.error(t('components.agentWorkspace.threadNotFound'))
+      return
+    }
+    if (!th.tag_id) {
+      toast.error(t('components.agentWorkspace.threadNotFound'))
+      return
+    }
+    if (th.tag_id !== section.value) await selectSection(th.tag_id)
+    if (!sectionThreads.value.some((item) => item.id === id)) sectionThreads.value.unshift(th)
+  }
   detachRun()
-  switchTargetId.value = ''
+  routeAgentName.value = ''
   threadId.value = id
   replaceQuery({ thread: id })
   await runThread(async () => loadThreadMessages(id), { replace: true })
@@ -781,60 +838,86 @@ async function selectThread(id: string) {
 
 function reloadThread() {
   if (threadId.value) void selectThread(threadId.value)
-  else void loadThreads()
+  else void loadSectionThreads()
+}
+
+/** 切换标签：重置会话列表并按 query 或首条恢复选中。 */
+async function selectSection(id: string) {
+  if (!id || id === section.value) return
+  detachRun()
+  section.value = id
+  threadId.value = ''
+  replaceQuery({ thread: undefined, tag: id === 'general' ? undefined : id })
+  await loadSectionThreads()
+}
+
+/* ---------- 分区会话列表（planv6.7 AGC-NAV §8.7） ---------- */
+
+/** 拉当前分区的会话列表（首页 50 条 + 游标）。 */
+async function loadSectionThreads() {
+  const projectId = project.id
+  const sec = section.value
+  threadsPending.value = true
+  await runThread(async () => {
+    const page = await api.agentThreads.pageBy(projectId, { tagId: sec, limit: 50 })
+    // 项目或分区可能在取数期间切换；旧响应不得覆盖当前列表。
+    if (project.id !== projectId || section.value !== sec) return false
+    sectionThreads.value = Array.isArray(page?.threads) ? page.threads : []
+    sectionCursor.value = page.next_cursor
+    const queryId = typeof route.query.thread === 'string' ? route.query.thread : ''
+    const selected = queryId && page.threads.some((th) => th.id === queryId)
+      ? queryId
+      : page.threads[0]?.id || ''
+    if (selected) {
+      threadId.value = selected
+      replaceQuery({ thread: selected })
+      return loadThreadMessages(selected)
+    }
+    // 分区无会话：展示总览空态，不自动建会话（planv6.7 §8.7 AGC-NAV-5）。
+    threadId.value = ''
+    return false
+  }, { replace: true })
+  threadsPending.value = false
 }
 
 /**
- * 选中助手：切到「该助手自己的会话」（planv6.0 §3.7 修订）。
+ * 拉「我的待办」（planv6.7 v2 §7.4）。
  *
- * 会话与助手绑定后，每个助手一份列表；没有会话就为它建一个。
- * 同一次点击里把 activeId 定下来，再由 `threadsForActive` 重新取列表。
+ * 只读列表，不产生副作用；失败静默（角标不该阻断主流程）。
+ * 与 /agent-runs/active 的轮询合并成一轮，避免开两条定时器。
  */
-async function selectAgent(id: string) {
-  if (!id || id === activeId.value) return
-  detachRun()
-  switchTargetId.value = ''
-  activeId.value = id
-  threadId.value = ''
-  await loadThreads()
+async function loadHumanTasks() {
+  if (!project.id) return
+  try {
+    const res = await api.agentTurns.humanTasks(project.id, 'me', 'pending')
+    humanTasks.value = res.tasks
+  } catch {
+    // 未登录态（API Key）或未升级环境：不显示角标。
+    humanTasks.value = []
+  }
 }
 
-async function switchToMentionedAgent() {
-  const target = switchTarget.value
-  if (!target) return
-  await selectAgent(target.id)
-  composer.value?.focus?.()
-}
-
-/** 拉当前助手的会话列表；空则新建一个。 */
-async function loadThreads() {
-  const agentId = activeId.value
+/** 当前标签加载下一页（侧栏「加载更多」）。 */
+async function loadMoreSectionThreads() {
+  if (!sectionCursor.value) return
   const projectId = project.id
-  if (!agentId) return
-  await runThread(async () => {
-    const page = await api.agentThreads.page(projectId, agentId).catch(async () => ({ threads: await api.agentThreads.list(projectId, agentId), next_cursor: '' }))
-    // 项目或助手可能在取数期间切换；旧响应不得覆盖当前列表。
-    if (project.id !== projectId || activeId.value !== agentId) return false
-    threads.value = page.threads
-    const queryId = typeof route.query.thread === 'string' ? route.query.thread : ''
-    if (threads.value.length) {
-      const selected = threads.value.find((th) => th.id === queryId)
-      threadId.value = selected?.id || threads.value[0].id
-    } else {
-      const th = await api.agentThreads.create(projectId, t('nav.agents'), agentId)
-      if (project.id !== projectId || activeId.value !== agentId) return false
-      threads.value = [th]
-      threadId.value = th.id
-    }
-    replaceQuery({ thread: threadId.value })
-    return loadThreadMessages(threadId.value)
-  }, { replace: true })
+  const sec = section.value
+  const cursor = sectionCursor.value
+  try {
+    const page = await api.agentThreads.pageBy(projectId, { tagId: sec, limit: 50, cursor })
+    if (project.id !== projectId || section.value !== sec) return
+    const fresh = (page?.threads || []).filter((th) => !sectionThreads.value.some((old) => old.id === th.id))
+    sectionThreads.value = [...sectionThreads.value, ...fresh]
+    sectionCursor.value = page?.next_cursor || ''
+  } catch (e) {
+    toast.error(errorMessage(e, t('pages.agents.loadThreadsFailed')))
+  }
 }
 
 async function renameThread(id: string, title: string) {
   try {
     const renamed = await api.agentThreads.rename(project.id, id, title)
-    threads.value = threads.value.map((th) => th.id === id ? renamed : th)
+    sectionThreads.value = sectionThreads.value.map((th) => th.id === id ? renamed : th)
   } catch (e) { toast.error(errorMessage(e, t('pages.agents.renameFailed'))) }
 }
 
@@ -842,11 +925,11 @@ async function removeThread(id: string) {
   onStop()
   try {
     await api.agentThreads.remove(project.id, id)
-    threads.value = threads.value.filter((th) => th.id !== id)
+    sectionThreads.value = sectionThreads.value.filter((th) => th.id !== id)
     if (threadId.value === id) {
       threadId.value = ''
-      if (threads.value.length) await selectThread(threads.value[0].id)
-      else await resetThread()
+      // 分区还有会话就切首条；否则回到总览空态（不再自动建会话）。
+      if (sectionThreads.value.length) await selectThread(sectionThreads.value[0].id)
     }
   } catch (e) { toast.error(errorMessage(e, t('pages.agents.deleteThreadFailed'))) }
 }
@@ -857,12 +940,6 @@ async function loadModules() {
   } catch (e) {
     toast.error(errorMessage(e, t('pages.agents.loadModulesFailed')))
   }
-  // MCP Server 列表失败不阻断助手页：没有它只是少一个工具选项。
-  try {
-    mcpServers.value = await api.mcpServers.list(project.id)
-  } catch {
-    mcpServers.value = []
-  }
 }
 
 async function loadAgents() {
@@ -872,120 +949,60 @@ async function loadAgents() {
     const list = await api.agents.list(projectId)
     if (project.id !== projectId) return false
     agents.value = list
-    // BUG-11：通用助手默认选中；切项目后旧助手 ID 不得沿用。
-    if (!agents.value.some((a) => a.id === activeId.value)) {
-      const general = agents.value.find((a) => a.builtin_key === 'general')
-      activeId.value = general?.id || agents.value[0]?.id || ''
-    }
     return agents.value.length > 0
   })
 }
 
-/** 新建表单：取第一个模块的名称/说明/默认工具（无模块回退 database）。 */
-function createAgentForm(first: AgentModuleInfo | undefined): AgentFormState {
-  return {
-    name: first?.name || '',
-    module: first?.id || 'database',
-    description: first?.description || '',
-    system_prompt: '',
-    model_override: '',
-    tool_ids: [...(first?.default_tools || [])],
-    writable: false
-  }
+async function reloadAgents() {
+  await Promise.all([loadAgents(), loadTags()])
 }
 
-/** 编辑表单：回填已有助手；工具数组复制，避免改动原对象。 */
-function editAgentForm(a: CloudAgent): AgentFormState {
-  return {
-    name: a.name,
-    module: a.module,
-    description: a.description,
-    system_prompt: a.system_prompt,
-    model_override: a.model_override || '',
-    tool_ids: [...(a.tool_ids || [])],
-    writable: !!a.writable
-  }
-}
-
-function openCreate() {
-  editing.value = null
-  form.value = createAgentForm(modules.value[0])
-  modalOpen.value = true
-}
-
-function openEdit(a: CloudAgent) {
-  editing.value = a
-  form.value = editAgentForm(a)
-  modalOpen.value = true
-}
-
-function onModuleChange(mod: string) {
-  form.value.module = mod
-  const m = modules.value.find((x) => x.id === mod)
-  if (m && !editing.value) {
-    form.value.tool_ids = [...(m.default_tools || [])]
-    if (!form.value.name) form.value.name = m.name
-  }
-}
-
-function toggleTool(id: string) {
-  const cur = form.value.tool_ids
-  form.value.tool_ids = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
-}
-
-async function saveAgent() {
-  if (!form.value.name.trim()) {
-    toast.warning(t('pages.agents.nameRequired'))
-    return
-  }
-  const mod = modules.value.find((m) => m.id === form.value.module)
-  if (form.value.module === 'sandbox' && mod?.sandbox_available !== true) {
-    toast.warning(t('pages.agents.sandboxUnconfigured'))
-    return
-  }
-  saving.value = true
+/** 拉工作台标签（planv6.7 AGC-NAV）：预置 + 自定义。 */
+async function loadTags() {
   try {
-    if (editing.value) {
-      await api.agents.patch(project.id, editing.value.id, form.value)
-    } else {
-      const created = await api.agents.create(project.id, form.value)
-      activeId.value = created.id
-    }
-    modalOpen.value = false
-    await loadAgents()
+    const list = await api.agentTags.list(project.id)
+    tags.value = Array.isArray(list) ? list : []
   } catch (e) {
-    toast.error(errorMessage(e, t('pages.agents.saveFailed')))
-  } finally {
-    saving.value = false
+    tags.value = []
+    toast.error(errorMessage(e, t('pages.agents.loadThreadsFailed')))
   }
+  await prefetchGroupThreads()
 }
 
-async function removeAgent(a: CloudAgent) {
-  try {
-    await api.agents.remove(project.id, a.id)
-    const wasActive = activeId.value === a.id
-    if (wasActive) {
-      activeId.value = ''
-      threadId.value = ''
-      threads.value = []
-      chatMessages.value = []
-      settleThread(false)
-    }
-    await loadAgents()
-    // 删掉的是当前助手：会话列表也要跟着换到新选中的助手。
-    if (wasActive) await loadThreads()
-  } catch (e) {
-    toast.error(errorMessage(e, t('pages.agents.deleteFailed')))
-  }
+/**
+ * 预取各群的首屏会话（侧栏不折叠，每个群都要直接列出会话）。
+ *
+ * 当前分区由 sectionThreads 驱动（有更完整的游标与选中态），跳过它避免重复请求；
+ * 其余群走 workspace 的独立分页缓存，加载更多仍按群各自进行。
+ */
+async function prefetchGroupThreads() {
+  const current = section.value
+  const others = tags.value.map((tag) => tag.id).filter((id) => id !== current)
+  if (!others.length) return
+  await ws.prefetchAll(others)
 }
 
+/**
+ * 新建会话（planv6.7 v2 §4.2）：
+ *
+ * 所有标签都建协作会话，成员与路由规则由标签配置决定；
+ * 会话类型缺省按标签推断（告警 → alert、统计 → statistics、定时 → scheduled）。
+ */
 async function resetThread() {
   detachRun()
-  switchTargetId.value = ''
-  if (!activeId.value) return
+  const projectId = project.id
+  const sec = section.value
+  if (!tags.value.some((item) => item.id === sec)) return
+  const opts: AgentThreadCreateOptions = {
+    title: t('nav.agents'),
+    tagId: sec,
+    dispatchMode: 'collaborative',
+    source: 'workspace'
+  }
   try {
-    const th = await api.agentThreads.create(project.id, t('nav.agents'), activeId.value)
-    threads.value.unshift(th)
+    const th = await api.agentThreads.create(projectId, opts)
+    if (project.id !== projectId || section.value !== sec) return
+    if (!sectionThreads.value.some((item) => item.id === th.id)) sectionThreads.value.unshift(th)
     threadId.value = th.id
     chatMessages.value = []
     settleThread(false)
@@ -995,60 +1012,220 @@ async function resetThread() {
   }
 }
 
+/** run 结束后刷新当前分区列表（标题/预览可能变化）。 */
 function refreshThreadsForAgent() {
   const projectId = project.id
-  const agentId = activeId.value
-  if (!agentId) return
-  void api.agentThreads.page(projectId, agentId).then((page) => {
-    if (project.id !== projectId || activeId.value !== agentId) return
-    threads.value = page.threads
-  }).catch((e) => {
-    if (project.id === projectId && activeId.value === agentId) {
-      toast.error(errorMessage(e, t('pages.agents.loadThreadsFailed')))
-    }
-  })
+  const sec = section.value
+  void Promise.resolve(api.agentThreads.pageBy(projectId, { tagId: sec, limit: 50 })).then((page) => {
+    if (project.id !== projectId || section.value !== sec) return
+    const fresh = Array.isArray(page?.threads) ? page.threads : []
+    // 保留本地新建、尚未被服务端分页收录的线程（如 auto 会话首条）。
+    sectionThreads.value = fresh.concat(sectionThreads.value.filter((th) => !fresh.some((p) => p.id === th.id)))
+    sectionCursor.value = page?.next_cursor || ''
+  }).catch(() => undefined)
 }
 
-async function onSend(text: string, mentions: { agent_id: string }[]) {
+/* ---------- 标签 CRUD（planv6.7 AGC-UI §4.4） ---------- */
+
+function openTagCreate() {
+  tagConflicted.value = false
+  editingTag.value = null
+  tagModalOpen.value = true
+}
+
+function openTagEdit(id: string) {
+  const tag = tags.value.find((item) => item.id === id)
+  if (!tag) return
+  tagConflicted.value = false
+  editingTag.value = tag
+  tagModalOpen.value = true
+}
+
+async function saveTag(input: AgentTagInput) {
+  const projectId = project.id
+  const editing = editingTag.value
+  tagSaving.value = true
+  try {
+    if (editing) await api.agentTags.patch(projectId, editing.id, input)
+    else await api.agentTags.create(projectId, input)
+    tagModalOpen.value = false
+    tagConflicted.value = false
+    await loadTags()
+  } catch (e) {
+    if ((e as { status?: number })?.status === 409) {
+      tagConflicted.value = true
+    } else {
+      toast.error(errorMessage(e, t('pages.agents.saveFailed')))
+    }
+  } finally {
+    tagSaving.value = false
+  }
+}
+
+/** 版本冲突后「重新加载」：丢弃本地修改，用服务端版本回填。 */
+async function reloadEditingTag() {
+  const editing = editingTag.value
+  if (!editing) return
+  try {
+    const list = await api.agentTags.list(project.id)
+    tags.value = Array.isArray(list) ? list : []
+    editingTag.value = list.find((item) => item.id === editing.id) || null
+    tagConflicted.value = false
+  } catch (e) {
+    toast.error(errorMessage(e, t('pages.agents.loadThreadsFailed')))
+  }
+}
+
+async function archiveTag(id: string) {
+  try {
+    await api.agentTags.remove(project.id, id)
+    await loadTags()
+    if (section.value === id) await selectSection('general')
+  } catch (e) {
+    toast.error(errorMessage(e, t('pages.agents.deleteFailed')))
+  }
+}
+
+/* ---------- 群成员（planv6.7 v2 §4.3） ---------- */
+
+/** 打开成员弹窗（默认「加入已有助手」）。 */
+function openMembers(groupId: string) {
+  membersGroupId.value = groupId
+  membersMode.value = 'existing'
+  membersConflicted.value = false
+  membersOpen.value = true
+}
+
+/** 从群行「新建助手并加入」打开：直接落在新建页签。 */
+function openMembersCreate(groupId: string) {
+  membersGroupId.value = groupId
+  membersMode.value = 'create'
+  membersConflicted.value = false
+  membersOpen.value = true
+}
+
+/** 当前成员弹窗对应的群（渲染标题与成员置灰用）。 */
+const membersGroup = computed(() => tags.value.find((tag) => tag.id === membersGroupId.value) || null)
+const membersGroupName = computed(() => (membersGroup.value ? tagDisplayName(membersGroup.value) : ''))
+
+/** 提交成员变更：加入已有 或 新建并加入（服务端组合事务）。 */
+async function saveMembers(input: AgentGroupMembersInput) {
+  const groupId = membersGroupId.value
+  if (!groupId) return
+  membersSaving.value = true
+  try {
+    const updated = await api.agentTags.addMembers(project.id, groupId, {
+      ...input,
+      expectedVersion: membersGroup.value?.version
+    })
+    membersOpen.value = false
+    membersConflicted.value = false
+    await loadTags()
+    // 新建助手的场景下助手列表也变了：刷新一次，否则 @ 候选里没有它。
+    if (input.newAgent) await loadAgents()
+    // 群变更可能影响候选：刷新当前会话的成员提示。
+    if (section.value === groupId) await refreshGroupMembers()
+    void updated
+  } catch (e) {
+    if ((e as { status?: number })?.status === 409) {
+      membersConflicted.value = true
+    } else {
+      toast.error(errorMessage(e, t('pages.agents.saveFailed')))
+    }
+  } finally {
+    membersSaving.value = false
+  }
+}
+
+/** 版本冲突后重新加载群（丢弃本地选择）。 */
+async function reloadMembersGroup() {
+  await loadTags()
+  membersConflicted.value = false
+}
+
+/** 群成员变化后刷新当前分区助手（候选与身份名都依赖群配置）。 */
+async function refreshGroupMembers() {
+  await loadTags()
+}
+
+/**
+ * 发送（planv6.7 v2 §3.3 / §7.1）。
+ *
+ * v2 的核心变化：一轮可以 @ 多位助手，全部执行（按依赖串行），不再是「多选只跑一个」。
+ * 显式 @ 的目标交给服务端校验成员资格；无 @ 时由群路由提示词决定分工。
+ */
+async function onSend(text: string, mentions: MentionSendTarget[]) {
   const content = text.trim()
   if (!content || sending.value) return
-  if (new Set(mentions.map((m) => m.agent_id)).size > 1) {
-    toast.warning(t('pages.agents.multipleAgentsNotSupported'))
+  // 去重：同一助手被 @ 多次只算一次（服务端也会去重，这里提前收敛避免脏请求）。
+  const agentIds: string[] = []
+  // 人目标：composer 用 agent_id='me' + kind='human' 表达「@当前人」。
+  let wantsHuman = false
+  for (const m of mentions) {
+    if (m.kind === 'human') {
+      wantsHuman = true
+      continue
+    }
+    const id = m.agent_id?.trim()
+    if (id && !agentIds.includes(id)) agentIds.push(id)
+  }
+  if (wantsHuman && !authStore.user) {
+    toast.warning(t('components.agentWorkspace.humanRequired'))
     return
   }
-  const target = mentions.length ? agents.value.find((a) => a.id === mentions[0]?.agent_id) : undefined
-  if (mentions.length && !target) { toast.warning(t('pages.agents.selectAgentFirst')); return }
-  if (target && target.id !== activeId.value) {
-    switchTargetId.value = target.id
+  const mentionedAgents = agentIds
+    .map((id) => agents.value.find((a) => a.id === id))
+    .filter((a): a is CloudAgent => !!a)
+  if (agentIds.length && mentionedAgents.length !== agentIds.length) {
+    toast.warning(t('pages.agents.selectAgentFirst'))
+    return
+  }
+  // 群分区点名了群外助手：提示后保留草稿（服务端也会拒绝，这里提前说清楚）。
+  if (mentionedAgents.some((a) => !sectionAgents.value.some((m) => m.id === a.id))) {
+    toast.warning(t('components.agentWorkspace.agentNotInTag'))
     return
   }
   if (activeCapabilityError.value) {
     toast.warning(activeCapabilityError.value)
     return
   }
-  switchTargetId.value = ''
-  // 用户手动发消息即退出自动搭建模式（planv6.6 §2.7）。
-  if (starter.active.value) starter.abandon()
-  if (!threadId.value) await loadThreads()
+  routeAgentName.value = mentionedAgents.length
+    ? mentionedAgents.map((a) => agentNamesById.value[a.id] || a.name).join('、')
+    : ''
+  if (!threadId.value) await resetThread()
   if (!threadId.value) return
-  let used = mentions
-  if (!used.length && activeAgent.value) used = [{ agent_id: activeAgent.value.id }]
-  if (!used.length) { toast.warning(t('pages.agents.selectAgentFirst')); return }
-  const speaker = agents.value.find((a) => a.id === used[0]?.agent_id)
-  const thread = threads.value.find((item) => item.id === threadId.value)
-  if (thread?.agent_id && thread.agent_id !== speaker?.id) {
-    if (speaker) switchTargetId.value = speaker.id
+  const thread = sectionThreads.value.find((item) => item.id === threadId.value)
+  const threadAgentId = thread?.agent_id
+
+  // 协作会话（含旧 auto）：走 /turns，允许一条消息里多个目标。
+  if (isCollaborativeThread.value) {
+    draft.value = ''
+    const targets: AgentMentionTarget[] = mentionedAgents.map((a) => ({ kind: 'agent', id: a.id }))
+    if (wantsHuman) targets.push({ kind: 'human', id: 'me' })
+    if (!targets.length && threadAgentId) targets.push({ kind: 'agent', id: threadAgentId })
+    collab.start(threadId.value, content, targets, thread?.thread_kind)
+    return
+  }
+  // 固定助手的老会话：/runs 只支持单目标，多目标仍明确拒绝并保留草稿。
+  if (agentIds.length > 1) {
+    toast.warning(t('pages.agents.multipleAgentsNotSupported'))
     return
   }
   draft.value = ''
-  conv.start({ content, mentions: [...used], module: speaker?.module }, {
+  // 无 @ 时回到会话绑定的助手（老语义：每个助手一份会话）。
+  const usedMentions = agentIds.length
+    ? agentIds.map((id) => ({ agent_id: id }))
+    : threadAgentId
+      ? [{ agent_id: threadAgentId }]
+      : []
+  conv.start({ content, mentions: usedMentions, module: (mentionedAgents[0] || activeThreadAgent.value)?.module }, {
     onEnd: () => {
       refreshThreadsForAgent()
     },
     onError: (e) => {
-      if ((e as { code?: string })?.code === 'agent_switch_required' && target) {
+      if ((e as { code?: string })?.code === 'agent_not_in_tag') {
+        toast.warning(t('components.agentWorkspace.agentNotInTag'))
         draft.value = content
-        switchTargetId.value = target.id
         return
       }
       toast.error(errorMessage(e, t('pages.agents.runFailed')))
@@ -1056,10 +1233,12 @@ async function onSend(text: string, mentions: { agent_id: string }[]) {
   })
 }
 
-/** 重试：移除失败气泡后走后端 retry_of_run_id（BUG-03：不重复落 user 消息）。 */
+/** 重试最近一次失败：普通 run 复用原消息。
+ *  原助手已被删除/移出标签时服务端拒绝，提示重新发送（§8.7）。 */
 function retryLast() {
-  if (sending.value || !failedRunId.value) return
+  if (sending.value) return
   if (activeCapabilityError.value) { toast.warning(activeCapabilityError.value); return }
+  if (!failedRunId.value) return
   const retryId = failedRunId.value
   // 移除末尾失败气泡（user 消息保留展示）。
   const last = chatMessages.value[chatMessages.value.length - 1]
@@ -1068,21 +1247,43 @@ function retryLast() {
     onEnd: () => {
       refreshThreadsForAgent()
     },
-    onError: (e) => { toast.error(errorMessage(e, t('pages.agents.runFailed'))) }
+    onError: (e) => {
+      if ((e as { code?: string })?.code === 'agent_unavailable') {
+        toast.warning(t('components.agentWorkspace.retryAgentUnavailable'))
+        return
+      }
+      toast.error(errorMessage(e, t('pages.agents.runFailed')))
+    }
   })
 }
 
-function onStop() {
+/** 停止：协作会话取消整轮（服务端置 canceled），固定助手会话沿用旧 stop。 */
+async function onStop() {
   if (sending.value) {
     const reply = chatMessages.value[chatMessages.value.length - 1]
     if (reply?.role === 'assistant') reply.canceled = true
   }
+  if (isCollaborativeThread.value) {
+    await collab.cancel()
+    return
+  }
   conv.stop()
+}
+
+/** 人工待办：回复并继续 / 无法处理（与工具审批严格分离）。 */
+async function replyHumanTask(taskId: string, outcome: 'continue' | 'unable', text?: string) {
+  await collab.replyHuman(taskId, outcome, text)
+  await loadHumanTasks()
+}
+
+/** 重试某个失败任务（协作会话）。 */
+async function retryTask(taskId: string) {
+  await collab.retryTask(taskId)
 }
 
 /** 切换会话 / 助手：只断开 SSE，后端 run 继续，回到该会话时自动续接。 */
 function detachRun() {
-  conv.stop(false)
+  conv.clear()
 }
 
 // 离开页面（路由切换）：只关闭 SSE，不取消后端 run。

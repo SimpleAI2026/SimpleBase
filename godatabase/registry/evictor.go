@@ -1,29 +1,3 @@
-// 文件说明：evictor.go — godatabase/registry 中 Evictor、NewEvictor 等符号的实现
-//
-// 用法
-//
-//	NewEvictor(registry *Registry, interval time.Duration) *Evictor
-//	(e *Evictor) Run(ctx context.Context)  // Run 阻塞运行直到 Stop 被调用
-//	(e *Evictor) Stop()  // Stop 请求 Evictor 停止并等待其退出
-//
-// 调用架构
-//
-//	[上游] godatabase/kv, internal/api, internal/app 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/registry/evictor.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] handle.go, registry.go
-//
-// 主要符号
-//
-//	type Evictor struct {…}
-//	NewEvictor(registry *Registry, interval time.Duration) *Evictor
-//	(e *Evictor) Run(ctx context.Context)
-//	(e *Evictor) Stop()
-
 package registry
 
 import (

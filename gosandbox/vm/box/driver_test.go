@@ -94,7 +94,6 @@ func TestResolveLowerError(t *testing.T) {
 
 // resolveCwd 只接受工作目录之内的路径。
 func TestResolveCwd(t *testing.T) {
-	d := &Driver{opts: Options{Workdir: "/workspace"}}
 	ok := []struct{ in, want string }{
 		{"", "/workspace"},
 		{"/workspace", "/workspace"},
@@ -102,16 +101,34 @@ func TestResolveCwd(t *testing.T) {
 		{"/workspace/a/../b", "/workspace/b"},
 	}
 	for _, tc := range ok {
-		got, err := d.resolveCwd(tc.in)
+		got, err := resolveCwd("/workspace", tc.in)
 		if err != nil || got != tc.want {
 			t.Errorf("resolveCwd(%q) = %q, %v", tc.in, got, err)
 		}
 	}
 	bad := []string{"/etc", "/", "/workspacex", "../etc"}
 	for _, in := range bad {
-		if _, err := d.resolveCwd(in); err == nil {
+		if _, err := resolveCwd("/workspace", in); err == nil {
 			t.Errorf("resolveCwd(%q) must fail", in)
 		}
+	}
+}
+
+func TestTargetWorkdirOverridesDefault(t *testing.T) {
+	d := &Driver{opts: Options{Workdir: "/default"}}
+	target := vm.Target{Spec: vm.Spec{Workdir: "/custom"}}
+	if got := d.workdir(target); got != "/custom" {
+		t.Fatalf("workdir = %q", got)
+	}
+	env := d.commandEnv(d.workdir(target), nil)
+	found := false
+	for _, entry := range env {
+		if entry == "HOME=/custom" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("target workdir missing from environment: %v", env)
 	}
 }
 
@@ -148,17 +165,5 @@ func TestResolveArgv(t *testing.T) {
 	}
 	if _, ok := resolveArgv("", "", nil); ok {
 		t.Fatal("empty command must fail")
-	}
-}
-
-// cappedBuffer 截断但不让写入失败。
-func TestCappedBuffer(t *testing.T) {
-	c := &cappedBuffer{max: 4}
-	n, err := c.Write([]byte("abcdefgh"))
-	if err != nil || n != 8 {
-		t.Fatalf("write = %d, %v", n, err)
-	}
-	if string(c.buf) != "abcd" || !c.truncated {
-		t.Fatalf("buf = %q truncated = %v", c.buf, c.truncated)
 	}
 }

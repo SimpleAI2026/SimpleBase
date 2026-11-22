@@ -1,33 +1,3 @@
-// 文件说明：sweeper.go — godatabase/kv 中 Sweeper、NewSweeper 等符号的实现
-//
-// 用法
-//
-//	NewSweeper(reg *registry.Registry, interval time.Duration, logger ...
-//	(s *Sweeper) Start(ctx context.Context)  // Start 启动后台循环（幂等
-//	(s *Sweeper) Close() error  // Close 停止后台循环并等待退出
-//	同包调用：Close() → hash.go, key.go 等
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/sweeper.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase, godatabase/registry
-//	[同包] core.go, executor.go, hash.go, key.go, list.go 等 10 个
-//	[关键引用] Close() ← hash.go, key.go, list.go
-//
-// 主要符号
-//
-//	type Sweeper struct {…}
-//	NewSweeper(reg *registry.Registry, interval time.Duration, logger ...
-//	(s *Sweeper) Start(ctx context.Context)
-//	(s *Sweeper) Close() error
-//	(s *Sweeper) SweepOnce(ctx context.Context) map[string]int64
-//	... 另有 2 个顶层符号
-
 package kv
 
 import (

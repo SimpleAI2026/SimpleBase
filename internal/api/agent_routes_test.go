@@ -40,11 +40,33 @@ var agentBlockRoutes = []struct{ method, path string }{
 	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/messages"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/runs"},
 	{http.MethodPost, "/v1/projects/:projectID/agent-threads/:threadID/runs"},
+	// planv6.7 v2：协作轮次（发起一轮与创建 run 同权限口径，均为 read + writeGate）。
+	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/turns"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-threads/:threadID/turns"},
+	{http.MethodGet, "/v1/projects/:projectID/agent-turns/:turnID"},
+	{http.MethodGet, "/v1/projects/:projectID/agent-turns/:turnID/events"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-turns/:turnID/actions"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-tasks/:taskID/replies"},
+	{http.MethodGet, "/v1/projects/:projectID/agent-human-tasks"},
+	{http.MethodGet, "/v1/projects/:projectID/agent-workspace-capabilities"},
+	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/plans"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-threads/:threadID/plans"},
+	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/plans/:planID"},
+	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/plans/:planID/events"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-threads/:threadID/plans/:planID/actions"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-runs/active"},
 	{http.MethodPost, "/v1/projects/:projectID/agent-runs/:runID/cancel"},
 	{http.MethodPost, "/v1/projects/:projectID/agent-runs/:runID/confirmations/:callID"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-runs/:runID/events"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-approvals"},
+	// planv6.7 AGC-NAV / v2：群（标签）与成员、输入入口。
+	{http.MethodGet, "/v1/projects/:projectID/agent-tags"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-tags"},
+	{http.MethodPatch, "/v1/projects/:projectID/agent-tags/:tagID"},
+	{http.MethodDelete, "/v1/projects/:projectID/agent-tags/:tagID"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-tags/:tagID/members"},
+	{http.MethodDelete, "/v1/projects/:projectID/agent-tags/:tagID/members/:agentID"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-tags/:tagID/events"},
 	{http.MethodGet, "/v1/projects/:projectID/mcp/servers"},
 	{http.MethodPost, "/v1/projects/:projectID/mcp/servers"},
 	{http.MethodPatch, "/v1/projects/:projectID/mcp/servers/:serverID"},
@@ -60,8 +82,18 @@ var agentWriteOps = []struct{ method, path string }{
 	{http.MethodPost, "/v1/projects/proj-1/agent-threads"},
 	{http.MethodPatch, "/v1/projects/proj-1/agent-threads/t1"},
 	{http.MethodDelete, "/v1/projects/proj-1/agent-threads/t1"},
+	{http.MethodPost, "/v1/projects/proj-1/agent-threads/t1/plans"},
+	{http.MethodPost, "/v1/projects/proj-1/agent-threads/t1/plans/p1/actions"},
 	{http.MethodPost, "/v1/projects/proj-1/agent-runs/r1/cancel"},
 	{http.MethodPost, "/v1/projects/proj-1/agent-runs/r1/confirmations/c1"},
+	// planv6.7 v2：轮次动作（取消 / 重试任务 / 恢复）是破坏性操作，标 DatabaseWrite。
+	{http.MethodPost, "/v1/projects/proj-1/agent-turns/tn1/actions"},
+	// 群写入（含成员与新建并加入）。
+	{http.MethodPost, "/v1/projects/proj-1/agent-tags"},
+	{http.MethodPatch, "/v1/projects/proj-1/agent-tags/tg1"},
+	{http.MethodDelete, "/v1/projects/proj-1/agent-tags/tg1"},
+	{http.MethodPost, "/v1/projects/proj-1/agent-tags/tg1/members"},
+	{http.MethodDelete, "/v1/projects/proj-1/agent-tags/tg1/members/a1"},
 }
 
 // agentReadOps 是块内 DatabaseRead 只读路由（无 handler 外副作用）。
@@ -74,8 +106,18 @@ var agentReadOps = []struct{ method, path string }{
 	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/messages"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/runs"},
+	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/plans"},
+	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/plans/p1"},
+	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/plans/p1/events"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-runs/active"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-runs/r1/events"},
+	// planv6.7 v2：轮次与待办的只读查询。
+	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/turns"},
+	{http.MethodGet, "/v1/projects/proj-1/agent-turns/tn1"},
+	{http.MethodGet, "/v1/projects/proj-1/agent-turns/tn1/events"},
+	{http.MethodGet, "/v1/projects/proj-1/agent-human-tasks"},
+	{http.MethodGet, "/v1/projects/proj-1/agent-workspace-capabilities"},
+	{http.MethodGet, "/v1/projects/proj-1/agent-tags"},
 }
 
 // TestB3AgentRouteSetLocked：真实 Routes() 中 agent 路由集合
@@ -92,6 +134,9 @@ func TestB3AgentRouteSetLocked(t *testing.T) {
 	for _, r := range e.Routes() {
 		if !strings.Contains(r.Path, "/agents") && !strings.Contains(r.Path, "/agent-threads") &&
 			!strings.Contains(r.Path, "/agent-runs") && !strings.Contains(r.Path, "/agent-approvals") &&
+			!strings.Contains(r.Path, "/agent-tags") && !strings.Contains(r.Path, "/agent-turns") &&
+			!strings.Contains(r.Path, "/agent-tasks") && !strings.Contains(r.Path, "/agent-human-tasks") &&
+			!strings.Contains(r.Path, "/agent-workspace-capabilities") &&
 			!strings.Contains(r.Path, "/mcp/servers") {
 			continue
 		}

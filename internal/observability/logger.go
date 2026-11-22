@@ -15,7 +15,7 @@
 //	[本文件] internal/observability/logger.go
 //	         │
 //	         ▼
-//	[下游] 仅标准库 / 第三方
+//	[下游] internal/utils/strutil
 //	[同包] metrics.go, stage_timing_metrics.go, zaplog.go
 //	[关键引用] Logger ← zaplog.go
 //
@@ -32,9 +32,10 @@ package observability
 import (
 	"io"
 	"os"
-	"strings"
 
 	"go.uber.org/zap/zapcore"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // Logger 是服务层使用的结构化日志类型。禁止调用方直接使用 zap 全局变量。
@@ -42,7 +43,7 @@ type Logger = *zapLogger
 
 // WriterFor 将 observability.log_output 映射到进程 writer。未知值回退 stderr。
 func WriterFor(output string) io.Writer {
-	switch strings.ToLower(strings.TrimSpace(output)) {
+	switch strutil.Normalize(output) {
 	case "stdout":
 		return os.Stdout
 	default:
@@ -63,7 +64,7 @@ func NewLogger(level, format string, w io.Writer) Logger {
 }
 
 func parseLevel(s string) zapcore.Level {
-	switch strings.ToLower(strings.TrimSpace(s)) {
+	switch strutil.Normalize(s) {
 	case "debug":
 		return zapcore.DebugLevel
 	case "info":

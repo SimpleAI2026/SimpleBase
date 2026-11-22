@@ -1,30 +1,3 @@
-// 文件说明：extension.go — godatabase/ducklake 中 MinDuckDBVersion、AssertDuckDBVersion 等符号的实现
-//
-// 用法
-//
-//	AssertDuckDBVersion(ctx context.Context, db *sql.DB) (string, error)  // AssertDuckDBVersion 确认当前连接的 DuckDB ≥ MinDuckDBVersion
-//	AssertExtensionsLoaded(ctx context.Context, db *sql.DB, engine string) error  // AssertExtensionsLoaded 确认当前引擎所需的扩展均已加载
-//	同包调用：extensionBootSQL() → factory.go；AssertDuckDBVersion() → factory.go；AssertExtensionsLoaded() → factory.go
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/extension.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/sqlx
-//	[同包] catalog_syncer.go, errors.go, factory.go, gated_conn.go, inspect.go 等 14 个
-//	[关键引用] extensionBootSQL() ← factory.go
-//
-// 主要符号
-//
-//	const MinDuckDBVersion
-//	AssertDuckDBVersion(ctx context.Context, db *sql.DB) (string, error)
-//	AssertExtensionsLoaded(ctx context.Context, db *sql.DB, engine string) error
-//	... 另有 7 个顶层符号
-
 package ducklake
 
 import (

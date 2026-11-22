@@ -13,7 +13,7 @@
 //	[本文件] internal/systemdb/sandboxes.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/sqlval, internal/utils/limit
+//	[下游] godatabase/sqlval, godatabase/limit
 //	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //
 // 主要符号
@@ -32,12 +32,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 	"time"
 
 	"github.com/google/uuid"
 
-	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	pagelimit "github.com/linkxzhou/SimpleBase/godatabase/limit"
 )
 
 // SandboxRow 是 sys_sandboxes 一行（planv4.0 cloud-sandbox-plan §6）。

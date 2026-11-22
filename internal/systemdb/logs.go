@@ -14,7 +14,7 @@
 //	[本文件] internal/systemdb/logs.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/limit
+//	[下游] godatabase/limit
 //	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //	[关键引用] LogEvent ← async_flush.go, log_stats.go, store.go
 //
@@ -38,7 +38,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	"github.com/linkxzhou/SimpleBase/godatabase/limit"
 )
 
 // LogEvent 是 sys_log_events 一行。

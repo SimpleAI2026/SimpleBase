@@ -32,8 +32,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -421,11 +419,7 @@ func (h *cloudAgentHandler) ReplayEvents(c echo.Context) error {
 	c.Response().WriteHeader(http.StatusOK)
 	flusher, _ := c.Response().Writer.(http.Flusher)
 	write := func(id int64, ev cloudagent.Event) {
-		data, _ := json.Marshal(ev)
-		_, _ = c.Response().Write([]byte(fmt.Sprintf("id: %d\ndata: %s\n\n", id, data)))
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeSSEFrame(c.Response().Writer, flusher, id, ev)
 	}
 	if gap {
 		write(0, cloudagent.Event{Type: "error", Code: "stream_gap", Message: "事件已过期，请刷新消息", RunID: runID})

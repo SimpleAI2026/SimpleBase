@@ -189,7 +189,7 @@ func (h *APIKeysHandler) List(c echo.Context) error {
 		item := apiKeyResponse{
 			ID:          id,
 			ProjectID:   project.ID,
-			Permissions: splitNonEmpty(permsCSV),
+			Permissions: strutil.SplitCSV(permsCSV),
 			CreatedAt:   createdAt.Format(time.RFC3339),
 		}
 		if revokedAt.Valid {
@@ -311,10 +311,6 @@ func permissionStrings(perms []auth.Permission) []string {
 		out = append(out, string(p))
 	}
 	return out
-}
-
-func splitNonEmpty(csv string) []string {
-	return strutil.SplitCSV(csv)
 }
 
 // generateAPIKeySecret 生成 sb_live_<32 hex> 形态的明文 Key（与种子 Key 前缀一致）。

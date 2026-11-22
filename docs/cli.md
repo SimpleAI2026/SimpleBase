@@ -107,4 +107,4 @@ simplebase database create --name shop --init-sql -     ← SQL 放 stdin
 
 ## 本地 gocloudagent 的 shell 环境
 
-本地 `gocloudagent` 二进制的 shell 工具会剥离 `SIMPLEBASE_*`、`GOCLOUDAGENT_*` 以及名字含 `TOKEN` / `SECRET` / `PASSWORD` / `API_KEY` / `ACCESS_KEY` / `SESSION` 的环境变量。shell 里再跑 `simplebase` 时读不到这些变量，会返回 `config_missing`（退出码 4）。要让它操作同一套资源，需事先写好 `$XDG_CONFIG_HOME/simplebase/config.json`（权限 `0600`），并且不要让模型把该文件内容打印出来。服务端助手使用专用 `simplebase` 工具，不受这条限制。
+本地 `gocloudagent` 二进制的 shell 工具会剥离 `GOCLOUDAGENT_*` 以及名字含 `TOKEN` / `SECRET` / `PASSWORD` / `API_KEY` / `ACCESS_KEY` / `SESSION` 的环境变量（包括 `SIMPLEBASE_TOKEN`）。shell 里再跑 `simplebase` 时读不到凭据，会返回 `config_missing`（退出码 4）。要让它操作同一套资源，需事先写好 `$XDG_CONFIG_HOME/simplebase/config.json`（权限 `0600`），并且不要让模型把该文件内容打印出来。服务端助手使用专用 `simplebase` 工具，不受这条限制。

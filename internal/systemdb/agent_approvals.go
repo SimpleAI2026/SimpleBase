@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	pagelimit "github.com/linkxzhou/SimpleBase/godatabase/limit"
 )
 
 const (

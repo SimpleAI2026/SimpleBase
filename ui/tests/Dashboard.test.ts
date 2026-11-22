@@ -212,7 +212,7 @@ describe('Dashboard (监控大盘)', () => {
   })
 
   it('reloads when the project changes', async () => {
-    const { wrapper, pinia } = await mountWithApp(Dashboard)
+    const { pinia } = await mountWithApp(Dashboard)
     await flushPromises()
     const before = api.databases.list.mock.calls.length
     const { useProjectStore } = await import('@/stores/project')

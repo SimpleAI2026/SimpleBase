@@ -57,7 +57,7 @@ describe('KeyValue page (项目级)', () => {
     await flushPromises()
     expect(w.text()).toContain('Key-Value')
     expect(w.find('[data-kv-panel]').exists()).toBe(true)
-    const panel = w.find('[data-kv-panel]')
+
     // KvPanel stub 不接收 props 断言内容，验证页面文案与描述
     expect(w.text()).toContain('Redis 语义的 Key-Value 数据服务')
     await w.findAll('button').find((b) => b.text().includes('刷新'))!.trigger('click')

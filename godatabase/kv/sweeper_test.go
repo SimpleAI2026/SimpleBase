@@ -115,7 +115,7 @@ func TestSweeperSweepOnce(t *testing.T) {
 	factory := &filedb.Factory{
 		DataRoot: t.TempDir(),
 		CacheDir: t.TempDir(),
-		Syncer:   filedb.NewNopSyncer(),
+		Syncer:   filedb.NewLocalSyncer(),
 	}
 	reg := registry.New(factory, fixedResolver{path: databasePath}, registry.Options{Writable: true}, nil, nil)
 	t.Cleanup(func() { _ = reg.Shutdown(context.Background()) })

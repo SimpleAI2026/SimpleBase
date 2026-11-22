@@ -111,7 +111,7 @@ func TestWorkspaceApproveFailsClosed(t *testing.T) {
 // 凭据类环境变量不得传给子进程。
 func TestSanitizedEnvStripsCredentials(t *testing.T) {
 	env := []string{
-		"SIMPLEBASE_TOKEN=secret",
+		"DEMO_TOKEN=secret",
 		"GOCLOUDAGENT_TOKEN=secret",
 		"AWS_SECRET_ACCESS_KEY=x",
 		"MY_API_KEY=y",
@@ -127,7 +127,7 @@ func TestSanitizedEnvStripsCredentials(t *testing.T) {
 			t.Errorf("expected %q to survive", want)
 		}
 	}
-	for _, banned := range []string{"SIMPLEBASE_", "GOCLOUDAGENT_", "SECRET", "API_KEY", "SESSION"} {
+	for _, banned := range []string{"DEMO_TOKEN", "GOCLOUDAGENT_", "SECRET", "API_KEY", "SESSION"} {
 		if strings.Contains(joined, banned) {
 			t.Errorf("credential env %q leaked into child environment", banned)
 		}

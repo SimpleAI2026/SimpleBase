@@ -23,9 +23,9 @@ import (
 	_ "github.com/uglyer/go-sqlite3"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
-	agentskills "github.com/linkxzhou/SimpleBase/gocloudagent/skills"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	agentskills "github.com/linkxzhou/SimpleBase/internal/agentbridge/agentskills"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
@@ -148,12 +148,13 @@ func newSkillRouterEnv(t *testing.T) *skillRouterEnv {
 	t.Cleanup(srv.Close)
 
 	llm := &scriptLLM{}
-	rt := &cloudagent.Runtime{
-		LLM: llm, SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
+	provider := &agentbridge.RuntimeProvider{
+		SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
 		APIBaseURL: srv.URL, Policy: agentbridge.NewCommandPolicy(), Issuer: agentbridge.NewDelegationIssuer("test-secret", delegations),
-		// Confirm 留空：由 NewRouter 注入统一的 confirmHub，
-		// 保证 Runtime.Wait 与 handler.Resolve 用同一个 hub。
-		ConfirmTimeout: 30 * time.Second, DelegationTTL: time.Minute,
+		ConfirmTimeout: 30 * time.Second, DelegationTTL: time.Minute, ToolProtocol: "native",
+	}
+	rt := &cloudagent.Runtime{
+		LLM: llm, Provider: provider, ConfirmTimeout: 30 * time.Second,
 		ToolProtocol: "native", RunTimeout: 2 * time.Minute, MaxIterations: 8,
 	}
 	deps.CloudAgent = rt
@@ -185,14 +186,8 @@ func seedWritableAgents(t *testing.T, e *echo.Echo, store *systemdb.Store, proje
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range list {
-		if !a.Writable {
-			a.Writable = true
-			if _, uerr := store.UpdateCloudAgent(context.Background(), a); uerr != nil {
-				t.Fatal(uerr)
-			}
-		}
-	}
+	// 写能力已不按助手配置（v2 §3.4）：无需逐条开启。
+	_ = list
 }
 
 // countingProxy 记录经过的数据面请求后转发给真实 router。

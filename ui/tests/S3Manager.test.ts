@@ -240,48 +240,41 @@ describe('S3Manager (对象存储)', () => {
 
   describe('发布网站 / 外部访问 (planv6.5)', () => {
     const base = 'https://proj0001.simplebase.top'
-    function sitePage(enabled: boolean, extra: Partial<{ publishable: boolean; reason: string }> = {}) {
+    function sitePage(publishable: boolean, extra: Partial<{ reason: string }> = {}) {
       return {
         folders: ['blog/', 'docs/'],
         folderMeta: [
-          { key: 'blog/', public: enabled, publicUrl: enabled ? base + '/blog/' : undefined },
+          { key: 'blog/', public: publishable, publicUrl: publishable ? base + '/blog/' : undefined },
           { key: 'docs/', public: false }
         ],
         objects: [
-          { key: 'a.html', size: 1, public: true, publicUrl: enabled ? base + '/a.html' : undefined },
+          { key: 'a.html', size: 1, public: true, publicUrl: publishable ? base + '/a.html' : undefined },
           { key: 'b.html', size: 1, public: true, publicInherited: '/' },
           { key: 'c.txt', size: 1 }
         ],
-        site: { enabled, publishable: extra.publishable ?? true, baseUrl: enabled ? base : undefined, reason: extra.reason }
+        site: { publishable, baseUrl: publishable ? base : undefined, reason: extra.reason }
       }
     }
 
-    it('hides the public columns when sites are not enabled on the instance', async () => {
+    it('hides the public columns when the site domain is not configured', async () => {
       const { wrapper } = await mountWithApp(S3Manager)
       expect(wrapper.text()).not.toContain('外部访问')
       expect(wrapper.find('.sb-site-panel').exists()).toBe(false)
     })
 
-    it('publishes the site and shows URLs once published', async () => {
-      api.s3.listDetailed.mockResolvedValueOnce(sitePage(false))
+    it('shows URLs for public paths without a publish step', async () => {
       api.s3.listDetailed.mockResolvedValue(sitePage(true))
       const { wrapper } = await mountWithApp(S3Manager)
       expect(wrapper.text()).toContain('外部访问')
       expect(wrapper.text()).toContain('访问 URL')
-      // 未发布：开关全部禁用
-      const switches = wrapper.findAll('.sb-public-switch')
-      expect(switches.length).toBe(5)
-      expect(switches.every((s) => s.attributes('disabled') !== undefined)).toBe(true)
-      await wrapper.get('.sb-site-publish').trigger('click')
-      await flushPromises()
-      expect(api.s3.setSite).toHaveBeenCalledWith(expect.any(String), true)
-      expect(toast.success).toHaveBeenCalledWith('网站已发布')
       expect(wrapper.text()).toContain(base + '/a.html')
       expect(wrapper.text()).toContain(base + '/blog/')
+      expect(wrapper.find('.sb-site-publish').exists()).toBe(false)
+      expect(wrapper.find('.sb-site-unpublish').exists()).toBe(false)
       // 继承自整个桶的 b.html 禁用；c.txt 可切换
-      const after = wrapper.findAll('.sb-public-switch')
-      expect(after[3].attributes('disabled')).toBeDefined()
-      expect(after[4].attributes('disabled')).toBeUndefined()
+      const switches = wrapper.findAll('.sb-public-switch')
+      expect(switches[3].attributes('disabled')).toBeDefined()
+      expect(switches[4].attributes('disabled')).toBeUndefined()
       expect(wrapper.html()).toContain('继承自整个存储桶')
     })
 
@@ -307,7 +300,7 @@ describe('S3Manager (对象存储)', () => {
       expect(toast.error).toHaveBeenCalledWith('设置外部访问失败')
     })
 
-    it('copies URLs, unpublishes and reports site errors', async () => {
+    it('copies public URLs from the table and reports clipboard errors', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined)
       vi.stubGlobal('navigator', { clipboard: { writeText } })
       api.s3.listDetailed.mockResolvedValue(sitePage(true))
@@ -316,41 +309,49 @@ describe('S3Manager (对象存储)', () => {
       await flushPromises()
       expect(writeText).toHaveBeenCalledWith(base + '/blog/')
       expect(toast.success).toHaveBeenCalledWith('访问 URL 已复制')
-      await clickText(wrapper, '复制 URL')
+      await wrapper.findAll('.sb-copy-url')[1].trigger('click')
       await flushPromises()
-      expect(writeText).toHaveBeenCalledWith(base)
+      expect(writeText).toHaveBeenCalledWith(base + '/a.html')
       writeText.mockRejectedValueOnce(new Error('clip'))
       await (wrapper.vm as any).copyUrl('x')
       expect(toast.error).toHaveBeenCalledWith('clip')
       await (wrapper.vm as any).copyUrl(undefined)
-      api.s3.setSite.mockResolvedValueOnce({ enabled: false, publishable: true })
-      await wrapper.get('.sb-site-unpublish').trigger('click')
-      await flushPromises()
-      expect(api.s3.setSite).toHaveBeenCalledWith(expect.any(String), false)
-      expect(toast.success).toHaveBeenCalledWith('网站已下线')
-      api.s3.setSite.mockRejectedValueOnce('boom')
-      await (wrapper.vm as any).setSite(true)
-      expect(toast.error).toHaveBeenCalledWith('操作失败')
     })
 
-    it('explains why a project cannot publish', async () => {
-      for (const [reason, text] of [
-        ['system_project', '系统项目不支持发布网站'],
-        ['project_id_not_dns_safe', '无法作为域名'],
-        ['sites_disabled', 'sites.enabled'],
-        ['other_reason', 'other_reason']
-      ]) {
-        api.s3.listDetailed.mockResolvedValue(sitePage(false, { publishable: false, reason }))
-        const { wrapper } = await mountWithApp(S3Manager)
-        expect(wrapper.get('.sb-site-reason').text()).toContain(text)
-        expect(wrapper.get('.sb-site-publish').attributes('disabled')).toBeDefined()
-      }
-      api.s3.listDetailed.mockResolvedValue(sitePage(false, { publishable: false }))
+    it('keeps public switches disabled when the project cannot publish', async () => {
+      api.s3.listDetailed.mockResolvedValue(sitePage(false, { reason: 'site_domain_unconfigured' }))
       const { wrapper } = await mountWithApp(S3Manager)
-      expect(wrapper.get('.sb-site-reason').text()).toBe('')
+      expect(wrapper.find('.sb-site-panel').exists()).toBe(false)
+      expect(wrapper.findAll('.sb-public-switch').every((s) => s.attributes('disabled') !== undefined)).toBe(true)
       const vm = wrapper.vm as any
       expect(vm.publicHint('blog/')).toContain('blog/')
-      expect(vm.publicHint('')).toBe('请先发布网站')
+      expect(vm.publicHint('')).toBe('当前项目不可发布站点')
+    })
+
+    it('shows the site address by mode and the site_unavailable hint (planv6.7 §1.6)', async () => {
+      api.s3.listDetailed.mockResolvedValue({
+        ...sitePage(true),
+        site: { publishable: true, baseUrl: 'https://h.test/sites/proj0001', mode: 'path' }
+      })
+      const { wrapper } = await mountWithApp(S3Manager)
+      expect(wrapper.find('.sb-site-mode').text()).toContain('站点地址：https://h.test/sites/proj0001')
+      expect(wrapper.find('.sb-site-mode').text()).toContain('无法访问控制台登录态')
+
+      api.s3.listDetailed.mockResolvedValue({
+        ...sitePage(true),
+        site: { publishable: true, baseUrl: base, mode: 'subdomain' }
+      })
+      const sub = await mountWithApp(S3Manager)
+      expect(sub.wrapper.find('.sb-site-mode').text()).toContain('站点地址：' + base)
+      expect(sub.wrapper.find('.sb-site-mode').text()).not.toContain('控制台登录态')
+
+      api.s3.listDetailed.mockResolvedValue({
+        ...sitePage(false, { reason: 'site_unavailable' }),
+        site: { publishable: false, reason: 'site_unavailable', mode: 'path' }
+      })
+      const off = await mountWithApp(S3Manager)
+      expect(off.wrapper.find('.sb-site-mode').exists()).toBe(false)
+      expect((off.wrapper.vm as any).publicHint('')).toBe('站点功能未配置')
     })
 
     it('falls back when folder meta is missing', async () => {

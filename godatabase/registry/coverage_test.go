@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/internal/testutil"
 )
 
 type hookFactory struct {
@@ -27,7 +28,7 @@ func (h *hookFactory) BeforeClose(ctx context.Context, dbID string, sqlDB *sql.D
 
 func TestHandleQueryExecuteBatchAndHooks(t *testing.T) {
 	hf := &hookFactory{}
-	reg := New(hf, nil, Options{Writable: true}, &godatabase.RecordingLogger{}, &godatabase.RecordingObserver{})
+	reg := New(hf, nil, Options{Writable: true}, &testutil.RecordingLogger{}, &testutil.RecordingObserver{})
 	db := readyDatabase("12121212-1212-1212-1212-121212121212")
 	lease, err := reg.Acquire(context.Background(), db, godatabase.ReadWrite)
 	if err != nil {
@@ -98,7 +99,7 @@ func TestAcquireWaitCanceled(t *testing.T) {
 }
 
 func TestShutdownForceCloseActive(t *testing.T) {
-	reg := New(&fakeFactory{}, nil, Options{Writable: true}, &godatabase.RecordingLogger{}, &godatabase.RecordingObserver{})
+	reg := New(&fakeFactory{}, nil, Options{Writable: true}, &testutil.RecordingLogger{}, &testutil.RecordingObserver{})
 	db := readyDatabase("14141414-1414-1414-1414-141414141414")
 	lease, err := reg.Acquire(context.Background(), db, godatabase.ReadWrite)
 	if err != nil {
@@ -113,7 +114,7 @@ func TestShutdownForceCloseActive(t *testing.T) {
 }
 
 func TestCloseIdleSkipsNotReadyAndRecent(t *testing.T) {
-	reg := New(&fakeFactory{}, nil, Options{Writable: true, IdleTimeout: time.Hour}, nil, &godatabase.RecordingObserver{})
+	reg := New(&fakeFactory{}, nil, Options{Writable: true, IdleTimeout: time.Hour}, nil, &testutil.RecordingObserver{})
 	db := readyDatabase("15151515-1515-1515-1515-151515151515")
 	lease, err := reg.Acquire(context.Background(), db, godatabase.ReadWrite)
 	if err != nil {
@@ -156,7 +157,7 @@ func TestAcquireClosedDuringOpenCleanup(t *testing.T) {
 
 // 打开/关闭句柄必须成对经 Observer 上报，最终归零。
 func TestObserverTracksOpenHandles(t *testing.T) {
-	obs := &godatabase.RecordingObserver{}
+	obs := &testutil.RecordingObserver{}
 	reg := New(&fakeFactory{}, nil, Options{Writable: true}, nil, obs)
 	l1, err := reg.Acquire(context.Background(), readyDatabase("16161616-1616-1616-1616-161616161616"), godatabase.ReadWrite)
 	if err != nil {

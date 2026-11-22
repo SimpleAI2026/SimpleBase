@@ -41,8 +41,8 @@ import (
 
 	gosdk "github.com/linkxzhou/SimpleBase/packages/go-sdk"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
-	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
+	"github.com/linkxzhou/SimpleBase/godatabase/hashx"
 )
 
 // exitConfirm 表示远端 apply 缺少 --yes：计划已输出，未做任何写入。

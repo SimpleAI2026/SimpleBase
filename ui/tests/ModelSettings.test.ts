@@ -1,7 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ModelSettings from '@/pages/ModelSettings.vue'
-import { api, resetApiMocks } from '@/test/api-mock'
+import { resetApiMocks } from '@/test/api-mock'
 import { mountWithApp } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {

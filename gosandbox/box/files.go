@@ -1,33 +1,3 @@
-// 文件说明：files.go — Session 的文件操作、观测与入站中继
-//
-// 用法
-//
-//	(fi FileInfo, err := s.Stat(path)
-//	entries, err := s.ListDir(path)
-//	data, err := s.ReadFile(path, maxBytes)
-//	err = s.WriteFile(path, data, perm)
-//	err = s.Remove(path); s.MkdirAll(path, perm); s.Rename(old, new)
-//	st, err := s.Stats()  // 用量
-//	ports, err := s.Listening()
-//	conn, err := s.DialPort(port)  // 入站连接中继
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/files.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/proto
-//	[同包] session.go, handle.go
-//
-// 主要符号
-//
-//	type FileInfo struct {…}
-//	(s *Session) Stat / ListDir / ReadFile / WriteFile / Remove / MkdirAll / Rename
-//	(s *Session) Stats / Listening / DialPort
-
 package box
 
 import (

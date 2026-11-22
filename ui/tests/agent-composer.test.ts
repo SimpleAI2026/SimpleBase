@@ -17,7 +17,7 @@ describe('AgentComposer passthrough', () => {
     // 真实 AiChatComposer：textarea 输入 + 提交按钮。
     const textarea = wrapper.find('textarea')
     expect(textarea.exists()).toBe(true)
-    const sendBtn = wrapper.findAll('button').find((b) => b.attributes('type') !== 'button' || /发送|send/i.test(b.text()) || b.text() === '')
+
     // 触发 keydown Enter。
     await textarea.setValue('查一下订单')
     await textarea.trigger('keydown', { key: 'Enter', shiftKey: false })
@@ -45,5 +45,17 @@ describe('AgentComposer passthrough', () => {
     await nextTick()
     expect(document.activeElement).toBe(wrapper.get('textarea').element)
     wrapper.unmount()
+  })
+})
+
+
+describe('AgentComposer actions', () => {
+  it('renders chat / plan controls inside the composer', () => {
+    const wrapper = mount(AgentComposer, {
+      props: { modelValue: '' },
+      slots: { actions: '<div data-testid="mode-switch">Chat / Plan</div>' }
+    })
+    const composer = wrapper.get('div.relative.flex.items-center')
+    expect(composer.find('[data-testid="mode-switch"]').exists()).toBe(true)
   })
 })

@@ -1,6 +1,3 @@
-// 文件说明：syncer_prune.go — godatabase/ducklake 中 CatalogSyncer 的版本清理域：schedulePrune、pruneVersions 及进度记账
-// 由 catalog_syncer.go 按职责拆分而来（C6，纯移动，不改逻辑）。
-
 package ducklake
 
 import (

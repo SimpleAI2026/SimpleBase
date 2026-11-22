@@ -17,7 +17,6 @@ vi.mock('@/services/http', () => ({
 
 import { httpApi } from '@/services/http-api'
 import { toAggregateParams, toAggregateResult } from '@/services/http-api-converters'
-import type { BiAgentContext } from '@/services/types'
 
 const pid = 'proj 1'
 
@@ -89,48 +88,6 @@ describe('httpApi.db.aggregate', () => {
   })
 })
 
-describe('streamRun bi_context passthrough', () => {
-  const bi: BiAgentContext = {
-    database_id: '0b6f1c1e-7a3d-4a0e-9a53-2d6a7e2f9c11', collection: 'orders', preferred_type: 'stacked_bar',
-    fields: [{ name: 'amount', type: 'number' }]
-  }
-
-  function captureBody() {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, body: null, json: async () => ({}) })
-    vi.stubGlobal('fetch', fetchMock)
-    return fetchMock
-  }
-
-  it('sends bi_context in the request body (the body is a field allow-list, so it must be explicit)', async () => {
-    const fetchMock = captureBody()
-    httpApi.agentThreads.streamRun(pid, 'th', { content: '画图', mentions: [{ agent_id: 'a1' }], bi_context: bi }, { onError: vi.fn() })
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
-    expect(body.bi_context).toEqual(bi)
-    expect(body).toMatchObject({ content: '画图', mentions: [{ agent_id: 'a1' }], stream: true })
-    vi.unstubAllGlobals()
-  })
-
-  it('omits the key entirely when there is no bi_context', async () => {
-    const fetchMock = captureBody()
-    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, { onError: vi.fn() })
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
-    expect(body).not.toHaveProperty('bi_context')
-    vi.unstubAllGlobals()
-  })
-
-  it('still sends retry and starter fields next to bi_context', async () => {
-    const fetchMock = captureBody()
-    httpApi.agentThreads.streamRun(pid, 'th', { content: '', mentions: [], retry_of_run_id: 'r9', bi_context: bi }, { onError: vi.fn() })
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
-    expect(body).toMatchObject({ retry_of_run_id: 'r9', bi_context: { collection: 'orders' } })
-    expect(body).not.toHaveProperty('starter_stage')
-    vi.unstubAllGlobals()
-  })
-})
-
 describe('httpApi.databases.aggregateTable', () => {
   beforeEach(() => {
     Object.values(http).forEach((fn) => fn.mockReset())
@@ -183,18 +140,6 @@ describe('httpApi.databases.tableRows filter', () => {
     http.get.mockResolvedValueOnce({ data: body })
     await httpApi.databases.tableRows(pid, 'db', 't', { limit: 20, offset: 40, filter: 'kind="click"' })
     expect(http.get.mock.calls[0][1]).toEqual({ params: { limit: 20, offset: 40, filter: 'kind="click"' } })
-  })
-})
-
-describe('streamRun bi_context source passthrough', () => {
-  it('sends source=table inside bi_context untouched', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, body: null, json: async () => ({}) })
-    vi.stubGlobal('fetch', fetchMock)
-    const ctx: BiAgentContext = { database_id: '0b6f1c1e-7a3d-4a0e-9a53-2d6a7e2f9c11', collection: 'events', source: 'table', fields: [{ name: 'id', type: 'number' }] }
-    httpApi.agentThreads.streamRun(pid, 'th', { content: '画图', mentions: [], bi_context: ctx }, { onError: vi.fn() })
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).bi_context).toEqual(ctx)
-    vi.unstubAllGlobals()
   })
 })
 

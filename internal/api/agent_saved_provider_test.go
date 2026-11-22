@@ -57,9 +57,9 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 		llmgateway.NewCatalogResolver(cat, nil),
 	)
 	gw := llmgateway.NewService(resolver, nil, nil, nil)
+	provider := &agentbridge.RuntimeProvider{Settings: agentbridge.NewSettingsAccess(store)}
 	rt := &cloudagent.Runtime{
-		LLM:          NewCloudAgentLLM(NewLLMService(gw)),
-		Settings:     agentbridge.NewSettingsAccess(store),
+		LLM: NewCloudAgentLLM(NewLLMService(gw)), Provider: provider,
 		ToolProtocol: "native",
 		RunTimeout:   30 * time.Second,
 	}

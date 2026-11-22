@@ -14,7 +14,7 @@
 //	[本文件] internal/collection/repository.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/sqlval
+//	[下游] godatabase/sqlval
 //	[同包] fieldtypes.go, model.go
 //
 // 主要符号
@@ -34,7 +34,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 	"strings"
 	"sync"
 	"time"

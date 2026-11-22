@@ -1,35 +1,5 @@
 //go:build linux
 
-// 文件说明：netfilter_linux.go — egress 档在沙盒自己的 netns 里拦掉元数据与私网
-//
-// 为什么需要它：egress 档的出站由 pasta 在宿主侧做透明 NAT，pasta 只转发、
-// 不做目标地址过滤。只 unshare-net 挡不住沙盒访问云元数据（169.254.169.254）
-// 与私网，那是典型的 SSRF 落点。
-//
-// 做法：往沙盒自己 netns 的主路由表加 blackhole 路由。黑洞路由比 pasta 配的
-// default 路由前缀更长，因此优先命中；不依赖 nft / iptables，也不依赖沙盒
-// 镜像里有没有 ip 命令。
-//
-// 用法
-//
-//	err := blockPrivateNetworks()   // Main 在 egress 档调用一次，失败即退出
-//
-// 调用架构
-//
-//	[上游] gosandbox/agent（Main）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/netfilter_linux.go
-//	         │ 依赖
-//	         ▼
-//	[下游] golang.org/x/sys/unix（netlink）
-//	[同包] agent.go, loopback_linux.go
-//
-// 主要符号
-//
-//	blockedPrefixes []string
-//	blockPrivateNetworks() error
-
 package agent
 
 import (

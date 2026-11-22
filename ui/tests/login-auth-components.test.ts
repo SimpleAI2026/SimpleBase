@@ -140,7 +140,6 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
       path: '/',
       props: { open: true, mode: 'password' }
     })
-    const inputs = wrapper.findAll('input')
     const vm = wrapper.vm as any
     // canSubmitPassword 要求新密码 ≥8 位，短密码走不了 submitPassword（按钮 disabled），
     // 直接验证 computed 拦截逻辑

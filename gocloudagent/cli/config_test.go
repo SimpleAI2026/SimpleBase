@@ -18,7 +18,7 @@ func testEnv(t *testing.T) []string {
 // 配置落在 ~/.gocloudagent/config.json，权限必须收敛到 0600。
 func TestSaveConfigEnforcesSecureMode(t *testing.T) {
 	env := testEnv(t)
-	path, err := SaveConfig(env, Config{Endpoint: "http://127.0.0.1:8080", Token: "sk-secret-value", ProjectID: "p1"})
+	path, err := SaveConfig(env, Config{Endpoint: "http://127.0.0.1:8080", Token: "sk-secret-value"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestSaveConfigEnforcesSecureMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Token != "sk-secret-value" || cfg.ProjectID != "p1" {
+	if cfg.Token != "sk-secret-value" || cfg.Endpoint != "http://127.0.0.1:8080" {
 		t.Fatalf("round trip = %+v", cfg)
 	}
 }
@@ -72,12 +72,10 @@ func TestLoadConfigMissingIsNotAnError(t *testing.T) {
 	}
 }
 
-// GOCLOUDAGENT_* 覆盖 SIMPLEBASE_*（命令行可临时切换目标）。
 func TestMergeEnvPrecedence(t *testing.T) {
 	env := []string{
-		"SIMPLEBASE_URL=http://from-simplebase",
-		"SIMPLEBASE_TOKEN=t1",
 		"GOCLOUDAGENT_ENDPOINT=http://from-gocloudagent",
+		"GOCLOUDAGENT_TOKEN=t2",
 		"GOCLOUDAGENT_MODEL=m2",
 		"GOCLOUDAGENT_YOLO=true",
 		"GOCLOUDAGENT_MAX_ITERATIONS=3",
@@ -88,7 +86,7 @@ func TestMergeEnvPrecedence(t *testing.T) {
 	if cfg.Endpoint != "http://from-gocloudagent" {
 		t.Fatalf("endpoint = %q", cfg.Endpoint)
 	}
-	if cfg.Token != "t1" {
+	if cfg.Token != "t2" {
 		t.Fatalf("token = %q", cfg.Token)
 	}
 	if cfg.Model != "m2" || !cfg.Yolo || cfg.MaxIterations != 3 {
@@ -108,10 +106,9 @@ func TestConfigValidate(t *testing.T) {
 		cfg  Config
 		want string
 	}{
-		{"no endpoint", Config{Token: "t", ProjectID: "p"}, "endpoint"},
-		{"no token", Config{Endpoint: "e", ProjectID: "p"}, "token"},
-		{"no project", Config{Endpoint: "e", Token: "t"}, "project_id"},
-		{"ok", Config{Endpoint: "e", Token: "t", ProjectID: "p"}, ""},
+		{"no endpoint", Config{Token: "t"}, "endpoint"},
+		{"no token", Config{Endpoint: "e"}, "token"},
+		{"ok", Config{Endpoint: "e", Token: "t"}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -142,7 +139,7 @@ func TestHomeDirRespectsOverride(t *testing.T) {
 // 不能把文件里已配好的值抹成空（否则纯文件配置的用户永远被判成「未配置」）。
 func TestOverlayConfigKeepsFileValues(t *testing.T) {
 	base := Config{
-		Endpoint: "http://file", Token: "file-token", ProjectID: "file-project",
+		Endpoint: "http://file", Token: "file-token",
 		Model: "file-model", Output: "json", SearchProvider: "brave",
 		SearchAPIKey: "file-key", MaxIterations: 5,
 	}
@@ -155,7 +152,7 @@ func TestOverlayConfigKeepsFileValues(t *testing.T) {
 	if got.Endpoint != "http://flag" {
 		t.Fatalf("endpoint = %q, want the explicit override", got.Endpoint)
 	}
-	if got.Token != base.Token || got.ProjectID != base.ProjectID || got.Model != base.Model || got.MaxIterations != 5 {
+	if got.Token != base.Token || got.Model != base.Model || got.MaxIterations != 5 {
 		t.Fatalf("unset fields should survive: %+v", got)
 	}
 	if !got.Yolo {

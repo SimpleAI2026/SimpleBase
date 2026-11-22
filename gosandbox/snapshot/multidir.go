@@ -1,36 +1,3 @@
-// 文件说明：multidir.go — 把多个目录打进同一个归档，以及按前缀解出来
-//
-// 快照要同时保存 upper/ 与 ws/。分两个归档会让「一次快照」变成
-// 「两个可能不同步的文件」，所以用一个归档、每个目录一个路径前缀：
-//
-//	upper/...   镜像写时复制层
-//	ws/...      工作区
-//
-// 解包时按前缀分派到目标目录，并且只替换归档里出现的前缀——
-// 没有 upper 的沙盒（copy 模式）恢复时不该凭空多出一个 upper 目录。
-//
-// 用法
-//
-//	packAll(ctx, []packEntry{{dir: upper, prefix: "upper"}, {dir: ws, prefix: "ws"}}, w)
-//	unpackAll(ctx, boxDir) // 读 boxDir 下的归档
-//
-// 调用架构
-//
-//	[上游] gosandbox/snapshot（CreateFrom / Restore）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/snapshot/multidir.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/snapshot/archive.go
-//	[同包] snapshot.go
-//
-// 主要符号
-//
-//	type packEntry struct {…}
-//	packAll(ctx context.Context, entries []packEntry, w io.Writer) error
-//	unpackAll(ctx context.Context, archivePath, boxDir string) error
-
 package snapshot
 
 import (

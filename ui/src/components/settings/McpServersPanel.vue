@@ -1,4 +1,11 @@
 <template>
+  <div class="flex flex-col gap-4">
+  <McpBuiltinServers
+    v-if="builtin.length"
+    :project-id="projectId"
+    :servers="builtin"
+    @changed="load"
+  />
   <SbListCard
     :title="t('components.mcpServers.cardTitle')"
     :description="t('components.mcpServers.cardDesc', { n: records.length })"
@@ -91,6 +98,7 @@
       @saved="load"
     />
   </SbListCard>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -106,7 +114,7 @@ import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
 import { api } from '@/services/api'
-import type { McpServer } from '@/services/types'
+import type { McpBuiltinServer, McpServer } from '@/services/types'
 import { useProjectStore } from '@/stores/project'
 import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/format'
@@ -116,6 +124,7 @@ import SbRefreshButton from '@/components/SbRefreshButton.vue'
 import SbListCard from '@/components/SbListCard.vue'
 import ConfirmAction from '@/components/ConfirmAction.vue'
 import McpServerModal from '@/components/modal/McpServerModal.vue'
+import McpBuiltinServers from '@/components/settings/McpBuiltinServers.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -128,6 +137,7 @@ const auth = useAuthStore()
 const { projectId } = storeToRefs(project)
 
 const records = ref<McpServer[]>([])
+const builtin = ref<McpBuiltinServer[]>([])
 const toggling = ref(new Set<string>())
 const testing = ref(new Set<string>())
 const removing = ref(new Set<string>())
@@ -151,9 +161,10 @@ function load() {
       records.value = []
       return false
     }
-    const list = await api.mcpServers.list(current)
+    const res = await api.mcpServers.list(current)
     if (request !== listRequest || current !== projectId.value) return records.value.length > 0
-    records.value = list || []
+    records.value = res?.servers || []
+    builtin.value = res?.builtin || []
     return records.value.length > 0
   })
 }

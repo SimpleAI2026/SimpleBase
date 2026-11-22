@@ -217,7 +217,7 @@ func TestExecBuildsPolicyAndCommand(t *testing.T) {
 	if !strings.Contains(env, "FOO=bar") || !strings.Contains(env, "PATH=") {
 		t.Fatalf("env = %q", env)
 	}
-	t.Setenv("SIMPLEBASE_AUTH_APIKEY_SECRET", "must-not-leak")
+	t.Setenv("SECRET_HOST_TOKEN", "must-not-leak")
 	if _, err := d.Exec(ctx, tg, vm.ExecSpec{Shell: "true"}); err != nil {
 		t.Fatal(err)
 	}
@@ -277,6 +277,15 @@ func TestExecMissingCommand(t *testing.T) {
 	}
 }
 
+func TestRelRootWorkdir(t *testing.T) {
+	for input, want := range map[string]string{"/": ".", "/tmp/a": "tmp/a", "/etc/../var/log": "var/log"} {
+		got, err := rel("/", input)
+		if err != nil || got != want {
+			t.Errorf("rel(%q) = %q, %v; want %q", input, got, err, want)
+		}
+	}
+}
+
 func TestDenyAroundHidesSiblingsButKeepsWorkspace(t *testing.T) {
 	root := t.TempDir()
 	keep := filepath.Join(root, "sandbox", "vmA", "ws")
@@ -331,7 +340,7 @@ func TestPolicyDenyReadCoversProtectedPaths(t *testing.T) {
 	}
 }
 
-// ---- 真隔离（macOS Seatbelt / Linux bwrap）；环境不具备时跳过 ----
+// 真隔离（macOS Seatbelt / Linux bwrap）；环境不具备时跳过。
 
 func realDriver(t *testing.T) *Driver {
 	t.Helper()
@@ -396,7 +405,7 @@ func TestRealIsolationHidesProtectedData(t *testing.T) {
 	}
 }
 
-// 云沙盒继承 host 的新默认：整个 .git 可写所以能 git commit，但 hooks 在 init 之后的命令里只读（planv6.3 D1/D7）。
+// 整个 .git 默认可写，所以能 git commit；hooks 在 init 之后的命令里只读。
 func TestRealIsolationGitCommitButHooksProtected(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")

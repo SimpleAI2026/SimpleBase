@@ -1,29 +1,3 @@
-// 文件说明：manifest.go — OCI / Docker 镜像的 manifest 与 config 结构
-//
-// 用法
-//
-//	DecodeManifest(body []byte) (Manifest, error)  // 兼容 manifest list 与单平台 manifest
-//	(m Manifest) PickPlatform(arch, os string) (Descriptor, bool)  // 多架构选一份
-//
-// 调用架构
-//
-//	[上游] gosandbox/image（registry）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/image/manifest.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] registry.go, store.go
-//
-// 主要符号
-//
-//	type Descriptor struct {…}
-//	type Manifest struct {…}
-//	type Config struct {…}
-//	DecodeManifest(body []byte) (Manifest, error)
-//	(m Manifest) PickPlatform(arch, os string) (Descriptor, bool)
-
 package image
 
 import (

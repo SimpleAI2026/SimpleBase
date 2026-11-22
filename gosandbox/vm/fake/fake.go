@@ -1,34 +1,3 @@
-// 文件说明：fake.go — gosandbox/vm/fake 中 Driver、New 等符号的实现
-//
-// 用法
-//
-//	New() *Driver
-//	(d *Driver) EnsureCount() int  // EnsureCount 返回 Ensure（含隐式接回）被调用的次数
-//	(d *Driver) VMCount() int  // VMCount 返回当前存在的 VM 数（单测断言 run 必删）
-//	同包调用：Driver → interactive.go；fakeVM → interactive.go；ensureLocked() → interactive.go
-//
-// 调用架构
-//
-//	[上游] internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/vm/fake/fake.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gosandbox/vm
-//	[同包] interactive.go
-//	[关键引用] Driver ← interactive.go
-//
-// 主要符号
-//
-//	type Driver struct {…}
-//	New() *Driver
-//	(d *Driver) EnsureCount() int
-//	(d *Driver) VMCount() int
-//	(d *Driver) Ensure(_ context.Context, t sb.Target) error
-//	(d *Driver) Exec(ctx context.Context, t sb.Target, req sb.ExecSpec) (sb.ExecResult ...
-//	... 另有 18 个顶层符号
-
 package fake
 
 import (
@@ -45,7 +14,7 @@ import (
 // fakeEpoch 是 fake 驱动报告的固定修改时间，保证测试结果可复现。
 var fakeEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// Driver 是内存执行后端（仅 e2e / 单测；装配层要求 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）。
+// Driver 是内存执行后端，仅供测试与本地开发；是否允许使用由调用方决定。
 //
 // 它不启动任何进程：Shell 只解释一个极小子集，足以让 e2e 覆盖完整链路——
 //

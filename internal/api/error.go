@@ -154,13 +154,39 @@ var sentinelErrorMappings = []struct {
 	{vm.ErrBackend, http.StatusBadGateway, "sandbox_backend_error", "sandbox backend error"},
 	// handler 前置：拿不到中间件注入的 project 边界（正常不可达，见 context.go）。
 	{ErrProjectMissing, http.StatusBadRequest, "invalid_request", ErrProjectMissing.Error()},
+	{ErrMCPNameReserved, http.StatusBadRequest, "mcp_name_reserved", "mcp server name is reserved"},
 	// planv6.5：项目不可发布网站（sites 未开启 / 系统项目 / ID 不可作 DNS 标签）。
 	{ErrSiteNotPublishable, http.StatusBadRequest, "site_not_publishable", ErrSiteNotPublishable.Error()},
-	// planv6.6 home-starter-prompts：搭建会话创建 / 阶段校验失败。
-	{ErrStarterNotAllowed, http.StatusBadRequest, "starter_not_allowed", ErrStarterNotAllowed.Error()},
-	{ErrStarterStageInvalid, http.StatusBadRequest, "starter_stage_invalid", ErrStarterStageInvalid.Error()},
+	// planv6.7 cloud-agent-plan-mode：计划请求不合法 / 线程已有活动计划。
+	{ErrPlanInvalid, http.StatusBadRequest, "plan_invalid", ErrPlanInvalid.Error()},
+	{ErrPlanBusy, http.StatusConflict, "plan_busy", ErrPlanBusy.Error()},
 	// planv6.7 数据看板：Agent 生成图表的数据源上下文校验失败。
-	{ErrBIContextInvalid, http.StatusBadRequest, "bi_context_invalid", ErrBIContextInvalid.Error()},
+	// planv6.7 AGC-NAV/AGC-ROUTE：标签与自动路由领域错误。
+	{systemdb.ErrAgentTagNotFound, http.StatusNotFound, "agent_tag_not_found", "agent tag not found"},
+	{systemdb.ErrAgentTagConflict, http.StatusConflict, "agent_tag_conflict", "agent tag was modified, reload and retry"},
+	{systemdb.ErrAgentTagDuplicate, http.StatusConflict, "agent_tag_duplicate", "agent tag name already exists"},
+	{systemdb.ErrAgentTagBuiltin, http.StatusBadRequest, "agent_tag_builtin", "builtin agent tag cannot be deleted"},
+	{systemdb.ErrAgentTagLimit, http.StatusTooManyRequests, "agent_tag_limit_exceeded", "too many agent tags"},
+	{ErrNoAvailableAgent, http.StatusConflict, "no_available_agent", "no available agent for this thread"},
+	{ErrAgentNotInTag, http.StatusBadRequest, "agent_not_in_tag", "mentioned agent is not in this tag"},
+	{ErrRetryAgentUnavailable, http.StatusConflict, "retry_agent_unavailable", "the original agent is no longer available"},
+	// planv6.7 v2：协作群领域错误。顺序按 HTTP 语义分组，具体到泛化。
+	{systemdb.ErrCollaborationUnavailable, http.StatusServiceUnavailable, "workspace_upgrade_required", "collaboration schema is not ready; run the schema bootstrap first"},
+	{ErrWorkspaceUpgradeRequired, http.StatusServiceUnavailable, "workspace_upgrade_required", "collaboration schema is not ready; run the schema bootstrap first"},
+	{ErrGroupArchived, http.StatusConflict, "group_archived", "this group has been archived"},
+	{ErrGroupMemberUnavailable, http.StatusBadRequest, "group_member_unavailable", "the target agent is not an available member of this group"},
+	{systemdb.ErrTurnBusy, http.StatusConflict, "turn_busy", "this thread already has an active turn"},
+	{ErrTurnBusy, http.StatusConflict, "turn_busy", "this thread already has an active turn"},
+	{systemdb.ErrTurnConflict, http.StatusConflict, "turn_conflict", "agent turn was modified, reload and retry"},
+	{ErrTurnConflict, http.StatusConflict, "turn_conflict", "agent turn was modified, reload and retry"},
+	{systemdb.ErrTurnNotFound, http.StatusNotFound, "turn_not_found", "agent turn not found"},
+	{systemdb.ErrTaskNotFound, http.StatusNotFound, "task_not_found", "agent task not found"},
+	{ErrRoutingFailed, http.StatusBadGateway, "routing_failed", "routing failed"},
+	{ErrInvalidDispatchGraph, http.StatusBadRequest, "invalid_dispatch_graph", "invalid dispatch graph"},
+	{ErrHumanAssigneeRequired, http.StatusConflict, "human_assignee_required", "a human assignee is required"},
+	{ErrHumanTaskForbidden, http.StatusForbidden, "human_task_forbidden", "only the assignee or a project admin can resolve this task"},
+	{ErrTaskNotRetryable, http.StatusConflict, "task_not_retryable", "this task cannot be retried"},
+	{ErrCollaborationBudgetExceeded, http.StatusTooManyRequests, "collaboration_budget_exceeded", "collaboration budget exceeded"},
 	// auth 错误
 	{auth.ErrMissingCredentials, http.StatusUnauthorized, "unauthenticated", "missing or malformed authorization header"},
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_api_key", "invalid api key"},

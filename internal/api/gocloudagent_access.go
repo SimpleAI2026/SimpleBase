@@ -11,6 +11,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -21,14 +22,14 @@ type cloudAgentDB struct {
 	registry RegistryService
 }
 
-func NewCloudAgentDB(cat CatalogService, reg RegistryService) cloudagent.DatabaseAccess {
+func NewCloudAgentDB(cat CatalogService, reg RegistryService) agentbridge.DatabaseAccess {
 	if cat == nil || reg == nil {
 		return nil
 	}
 	return &cloudAgentDB{catalog: cat, registry: reg}
 }
 
-func NewCloudAgentObj(files objectstore.FileStore, index *systemdb.Store) cloudagent.ObjectAccess {
+func NewCloudAgentObj(files objectstore.FileStore, index *systemdb.Store) agentbridge.ObjectAccess {
 	if files == nil && index == nil {
 		return nil
 	}
@@ -42,21 +43,21 @@ func NewCloudAgentLLM(svc LLMService) cloudagent.ChatClient {
 	return &llmChatClient{svc: svc}
 }
 
-func (a *cloudAgentDB) ListDatabases(ctx context.Context, principal cloudagent.Principal, projectID string) ([]cloudagent.DatabaseInfo, error) {
+func (a *cloudAgentDB) ListDatabases(ctx context.Context, principal auth.Principal, projectID string) ([]agentbridge.DatabaseInfo, error) {
 	// 还原成宿主身份：catalog 的项目授权依赖 Role / TenantID / ProjectIDs。
-	list, _, err := a.catalog.ListDatabases(ctx, agentbridge.ToHostPrincipal(principal), projectID, catalog.Page{Limit: 50})
+	list, _, err := a.catalog.ListDatabases(ctx, principal, projectID, catalog.Page{Limit: 50})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]cloudagent.DatabaseInfo, 0, len(list))
+	out := make([]agentbridge.DatabaseInfo, 0, len(list))
 	for _, d := range list {
-		out = append(out, cloudagent.DatabaseInfo{ID: d.ID, Name: d.Name, Status: string(d.Status)})
+		out = append(out, agentbridge.DatabaseInfo{ID: d.ID, Name: d.Name, Status: string(d.Status)})
 	}
 	return out, nil
 }
 
-func (a *cloudAgentDB) ListCollections(ctx context.Context, principal cloudagent.Principal, projectID, databaseID string) ([]string, error) {
-	db, err := a.catalog.GetDatabase(ctx, agentbridge.ToHostPrincipal(principal), projectID, databaseID)
+func (a *cloudAgentDB) ListCollections(ctx context.Context, principal auth.Principal, projectID, databaseID string) ([]string, error) {
+	db, err := a.catalog.GetDatabase(ctx, principal, projectID, databaseID)
 	if err != nil {
 		return nil, err
 	}
@@ -92,17 +93,17 @@ func (a *cloudAgentDB) ListCollections(ctx context.Context, principal cloudagent
 	return names, nil
 }
 
-func (a *cloudAgentDB) ReadOnlyQuery(ctx context.Context, principal cloudagent.Principal, projectID, databaseID, sqlText string, maxRows int) (cloudagent.SQLResult, error) {
+func (a *cloudAgentDB) ReadOnlyQuery(ctx context.Context, principal auth.Principal, projectID, databaseID, sqlText string, maxRows int) (agentbridge.SQLResult, error) {
 	if err := sqlguard.Validate(sqlText, sqlguard.ReadOnly); err != nil {
-		return cloudagent.SQLResult{}, err
+		return agentbridge.SQLResult{}, err
 	}
-	db, err := a.catalog.GetDatabase(ctx, agentbridge.ToHostPrincipal(principal), projectID, databaseID)
+	db, err := a.catalog.GetDatabase(ctx, principal, projectID, databaseID)
 	if err != nil {
-		return cloudagent.SQLResult{}, err
+		return agentbridge.SQLResult{}, err
 	}
 	lease, err := a.registry.Acquire(ctx, db, godatabase.ReadOnly)
 	if err != nil {
-		return cloudagent.SQLResult{}, err
+		return agentbridge.SQLResult{}, err
 	}
 	defer lease.Release()
 	if maxRows <= 0 || maxRows > 100 {
@@ -110,13 +111,13 @@ func (a *cloudAgentDB) ReadOnlyQuery(ctx context.Context, principal cloudagent.P
 	}
 	result, err := lease.Handle.Query(ctx, godatabase.Statement{SQL: sqlText}, maxRows)
 	if err != nil {
-		return cloudagent.SQLResult{}, err
+		return agentbridge.SQLResult{}, err
 	}
 	rows, err := godatabase.SerializeRows(result.Rows)
 	if err != nil {
-		return cloudagent.SQLResult{}, err
+		return agentbridge.SQLResult{}, err
 	}
-	return cloudagent.SQLResult{Columns: result.Columns, Rows: rows, RowCount: len(rows)}, nil
+	return agentbridge.SQLResult{Columns: result.Columns, Rows: rows, RowCount: len(rows)}, nil
 }
 
 type cloudAgentObj struct {
@@ -124,13 +125,13 @@ type cloudAgentObj struct {
 	index *systemdb.Store
 }
 
-func (a *cloudAgentObj) ListObjects(ctx context.Context, projectID, prefix string, limit int) ([]cloudagent.ObjectInfo, error) {
+func (a *cloudAgentObj) ListObjects(ctx context.Context, projectID, prefix string, limit int) ([]agentbridge.ObjectInfo, error) {
 	if a.index != nil {
 		rows, err := a.index.ListS3Objects(ctx, projectID, prefix, limit)
 		if err != nil {
 			return nil, err
 		}
-		out := make([]cloudagent.ObjectInfo, 0, len(rows))
+		out := make([]agentbridge.ObjectInfo, 0, len(rows))
 		for _, o := range rows {
 			out = append(out, toAgentObjectInfo(o))
 		}
@@ -145,13 +146,13 @@ func (a *cloudAgentObj) ListObjects(ctx context.Context, projectID, prefix strin
 	if err != nil {
 		return nil, err
 	}
-	out := make([]cloudagent.ObjectInfo, 0, len(listed))
+	out := make([]agentbridge.ObjectInfo, 0, len(listed))
 	for _, o := range listed {
 		lm := ""
 		if !o.LastModified.IsZero() {
 			lm = o.LastModified.UTC().Format(time.RFC3339)
 		}
-		out = append(out, cloudagent.ObjectInfo{
+		out = append(out, agentbridge.ObjectInfo{
 			Key:          stripProject(projectID, o.Key),
 			Size:         o.Size,
 			LastModified: lm,
@@ -160,9 +161,9 @@ func (a *cloudAgentObj) ListObjects(ctx context.Context, projectID, prefix strin
 	return out, nil
 }
 
-func (a *cloudAgentObj) HeadObject(ctx context.Context, projectID, key string) (cloudagent.ObjectInfo, error) {
+func (a *cloudAgentObj) HeadObject(ctx context.Context, projectID, key string) (agentbridge.ObjectInfo, error) {
 	if err := objectstore.ValidateFileKey(key); err != nil {
-		return cloudagent.ObjectInfo{}, err
+		return agentbridge.ObjectInfo{}, err
 	}
 	if a.index != nil {
 		o, err := a.index.GetS3Object(ctx, projectID, key)
@@ -170,15 +171,15 @@ func (a *cloudAgentObj) HeadObject(ctx context.Context, projectID, key string) (
 			return toAgentObjectInfo(o), nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			return cloudagent.ObjectInfo{}, err
+			return agentbridge.ObjectInfo{}, err
 		}
 	}
 	if a.files == nil {
-		return cloudagent.ObjectInfo{}, fmt.Errorf("object %s not found", key)
+		return agentbridge.ObjectInfo{}, fmt.Errorf("object %s not found", key)
 	}
 	listed, err := a.files.List(ctx, joinKey(projectID, key), 16)
 	if err != nil {
-		return cloudagent.ObjectInfo{}, err
+		return agentbridge.ObjectInfo{}, err
 	}
 	for _, o := range listed {
 		rel := stripProject(projectID, o.Key)
@@ -187,14 +188,14 @@ func (a *cloudAgentObj) HeadObject(ctx context.Context, projectID, key string) (
 			if !o.LastModified.IsZero() {
 				lm = o.LastModified.UTC().Format(time.RFC3339)
 			}
-			return cloudagent.ObjectInfo{Key: key, Size: o.Size, LastModified: lm}, nil
+			return agentbridge.ObjectInfo{Key: key, Size: o.Size, LastModified: lm}, nil
 		}
 	}
-	return cloudagent.ObjectInfo{}, fmt.Errorf("object %s not found", key)
+	return agentbridge.ObjectInfo{}, fmt.Errorf("object %s not found", key)
 }
 
-func toAgentObjectInfo(o systemdb.S3Object) cloudagent.ObjectInfo {
-	info := cloudagent.ObjectInfo{Key: o.Key, Size: o.Size, ETag: o.ETag, ContentType: o.ContentType}
+func toAgentObjectInfo(o systemdb.S3Object) agentbridge.ObjectInfo {
+	info := agentbridge.ObjectInfo{Key: o.Key, Size: o.Size, ETag: o.ETag, ContentType: o.ContentType}
 	if !o.LastModified.IsZero() {
 		info.LastModified = o.LastModified.UTC().Format(time.RFC3339)
 	}

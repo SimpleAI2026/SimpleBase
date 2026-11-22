@@ -5,30 +5,6 @@ import (
 	"testing"
 )
 
-func TestProjectSiteCRUD(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	site, err := s.GetProjectSite(ctx, "p1234567")
-	if err != nil || site.Enabled {
-		t.Fatalf("default site=%+v err=%v", site, err)
-	}
-	if err := s.SetProjectSite(ctx, "p1234567", true, "user:u1"); err != nil {
-		t.Fatal(err)
-	}
-	if site, _ = s.GetProjectSite(ctx, "p1234567"); !site.Enabled || site.CreatedBy != "user:u1" {
-		t.Fatalf("enabled site=%+v", site)
-	}
-	if err := s.SetProjectSite(ctx, "p1234567", false, "user:u2"); err != nil {
-		t.Fatal(err)
-	}
-	if site, _ = s.GetProjectSite(ctx, "p1234567"); site.Enabled {
-		t.Fatalf("disabled site=%+v", site)
-	}
-	if err := s.DeleteProjectSite(ctx, "p1234567"); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestPublicPathsCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

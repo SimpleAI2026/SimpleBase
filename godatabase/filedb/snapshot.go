@@ -1,26 +1,3 @@
-// 文件说明：snapshot.go — godatabase/filedb 中 SnapshotFile、ValidateSnapshot 等符号的实现
-//
-// 用法
-//
-//	SnapshotFile(ctx context.Context, db *sql.DB, source, engine, dst string) ...
-//	ValidateSnapshot(ctx context.Context, path, engine string) error
-//
-// 调用架构
-//
-//	[上游] internal/app, internal/backup
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/filedb/snapshot.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase, godatabase/sqlx
-//	[同包] factory.go, path.go, remote.go, restore.go, restore_remote.go 等 6 个
-//
-// 主要符号
-//
-//	SnapshotFile(ctx context.Context, db *sql.DB, source, engine, dst string) ...
-//	ValidateSnapshot(ctx context.Context, path, engine string) error
-
 package filedb
 
 import (

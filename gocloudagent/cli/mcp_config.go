@@ -4,7 +4,7 @@
 //   - CLI 没有 Agent.Writable 概念，权限模型是「首次调用需确认」；
 //   - stdio 传输**仅 CLI 支持**，云端一律拒绝（起任意子进程等于任意命令执行）；
 //   - 子进程环境不继承父进程，只传显式 env + 最小 PATH/HOME，
-//     并过滤 SIMPLEBASE_*/GOCLOUDAGENT_*/凭据类变量；
+//     并过滤 GOCLOUDAGENT_* 与凭据类变量；
 //   - 启用 shell_isolation 时 stdio 子进程同样要被隔离，隔离不可用则 fail-closed。
 package cli
 
@@ -80,8 +80,8 @@ func mcpChildEnv(configured map[string]string, env []string) []string {
 	// 排序保证环境数组稳定，便于测试与复现。
 	sort.Strings(keys)
 	for _, k := range keys {
-		if isSensitiveEnvKey(k) || strings.HasPrefix(k, "SIMPLEBASE_") || strings.HasPrefix(k, "GOCLOUDAGENT_") {
-			// 显式写入的凭据类变量仍被过滤：MCP Server 不该拿到 SimpleBase 的令牌。
+		if isSensitiveEnvKey(k) || strings.HasPrefix(k, "GOCLOUDAGENT_") {
+			// 显式写入的凭据类变量仍被过滤：MCP Server 不应继承调用方令牌。
 			continue
 		}
 		out = append(out, k+"="+expandEnvValue(configured[k], env))

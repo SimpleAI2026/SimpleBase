@@ -27,15 +27,6 @@ func TestSiteCommands(t *testing.T) {
 	}
 
 	stub.reset()
-	if code, out, errb = runCLI(t, env, []string{"site", "enable"}, ""); code != 0 {
-		t.Fatalf("enable: %d %s %s", code, out, errb)
-	}
-	hits = stub.all()
-	if len(hits) != 1 || hits[0].Method != http.MethodPut || !strings.Contains(hits[0].Body, `"enabled":true`) {
-		t.Fatalf("enable hits=%+v", hits)
-	}
-
-	stub.reset()
 	if code, out, errb = runCLI(t, env, []string{"site", "publish", "--prefix", "web/"}, ""); code != 0 {
 		t.Fatalf("publish: %d %s %s", code, out, errb)
 	}

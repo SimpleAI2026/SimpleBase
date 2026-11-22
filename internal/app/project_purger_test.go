@@ -31,7 +31,7 @@ func TestProjectPurgerClearsUserDataKeepsKV(t *testing.T) {
 		t.Run(engine, func(t *testing.T) {
 			ctx := context.Background()
 			dir := t.TempDir()
-			factory := &filedb.Factory{DataRoot: dir, CacheDir: t.TempDir(), Syncer: filedb.NewNopSyncer()}
+			factory := &filedb.Factory{DataRoot: dir, CacheDir: t.TempDir(), Syncer: filedb.NewLocalSyncer()}
 			reg := registry.New(factory, nil, registry.Options{Writable: true}, nil, nil)
 			t.Cleanup(func() { _ = reg.Shutdown(context.Background()) })
 			path, err := godatabase.PathForProject("proj0001", engine)
@@ -92,7 +92,7 @@ func TestProjectPurgerClearsUserDataKeepsKV(t *testing.T) {
 
 // 没有 registry 时只能整体删文件（旧行为），不得声称支持清空数据。
 func TestProjectPurgerWithoutRegistryFallsBackToFilePurge(t *testing.T) {
-	factory := &filedb.Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: filedb.NewNopSyncer()}
+	factory := &filedb.Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: filedb.NewLocalSyncer()}
 	purger := newProjectPurger(factory, nil, nil, nil)
 	if _, ok := purger.(catalog.ProjectDataClearer); ok {
 		t.Fatal("purger without registry must not implement ProjectDataClearer")

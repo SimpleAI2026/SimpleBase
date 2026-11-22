@@ -1,22 +1,5 @@
 //go:build darwin
 
-// 文件说明：limits_darwin.go — macOS 上的资源限额：父进程采样监控沙盒进程树
-//
-// 用法
-//
-//	startLimitMonitor(pid int, p Policy) *limitMonitor  // 配置了限额时启动监控；未配置返回 nil
-//	(m *limitMonitor) stop() string                     // 停止监控，返回触发的限额名（"memory" / "pids"）或空串
-//
-// macOS 没有 cgroup，也不提供按进程树生效的 rlimit（RLIMIT_AS 不生效，RLIMIT_NPROC 按用户计）。
-// 这里按固定间隔用 proc_info 枚举「同进程组 ∪ 子孙进程」，并据此执行：
-//
-//   - MemoryMaxBytes：常驻内存（RSS）之和超限 → SIGKILL 整棵树；
-//   - PidsMax：进程数超限 → SIGKILL 整棵树（Linux 是让 fork 失败，macOS 做不到，只能终止）；
-//   - CPUMax：按令牌桶核算 CPU 时间，超额时 SIGSTOP 整棵树，额度恢复后 SIGCONT。
-//
-// 已知精度限制：采样间隔内的瞬时峰值可能漏检；被 launchd 收养且换了进程组的孙进程不在统计内；
-// 已退出进程的 CPU 时间不再计入，所以「每次 fork 一个很快退出的子进程」的负载基本不受 CPU 配额约束。
-
 package host
 
 import (

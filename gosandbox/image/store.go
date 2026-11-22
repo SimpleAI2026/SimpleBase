@@ -1,39 +1,3 @@
-// 文件说明：store.go — 内容寻址的 blob store 与镜像索引
-//
-// 用法
-//
-//	st, err := Open("/var/lib/sb")
-//	st.HasBlob(digest) bool
-//	w, err := st.BlobWriter(digest); io.Copy(w, r); w.Commit()
-//	st.PutImage(img); st.Find("alpine:latest"); st.Remove("alpine:latest")
-//
-// 目录布局
-//
-//	<root>/images/blobs/sha256/<hex>   压缩层、config、manifest，按原样保存
-//	<root>/images/index.json           镜像索引（引用 → manifest → chainID）
-//	<root>/images/tmp/                 下载中；校验后 rename 进 blobs/
-//
-// 调用架构
-//
-//	[上游] gosandbox/image（Puller）、gosandbox/vm/box
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/image/store.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] reference.go, manifest.go, registry.go
-//
-// 主要符号
-//
-//	type Layer struct {…}
-//	type Image struct {…}
-//	type Store struct {…}
-//	Open(root string) (*Store, error)
-//	(s *Store) BlobWriter(digest string) (*BlobWriter, error)
-//	(s *Store) PutImage(img Image) error
-//	(s *Store) Find(ref string) (Image, error)
-
 package image
 
 import (
@@ -42,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -49,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/gosandbox/internal/fsx"
 )
 
 // 错误分类。
@@ -157,12 +124,7 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(s.root, "index.json")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsx.WriteAtomic(filepath.Join(s.root, "index.json"), body, 0o600)
 }
 
 // blobPath 返回一个摘要对应的文件路径。
@@ -224,14 +186,8 @@ type BlobWriter struct {
 	store  *Store
 	digest string
 	tmp    *os.File
-	hash   hashWriter
+	hash   hash.Hash
 	closed bool
-}
-
-// hashWriter 是 sha256 的最小接口，便于测试替换。
-type hashWriter interface {
-	Write([]byte) (int, error)
-	Sum([]byte) []byte
 }
 
 // BlobWriter 打开一个 blob 的写端。

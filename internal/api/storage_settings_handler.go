@@ -14,7 +14,7 @@
 //	[本文件] internal/api/storage_settings_handler.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/auth, internal/config, internal/observability
+//	[下游] internal/auth, internal/config, internal/observability, internal/utils/strutil
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] snapshot() ← database_handler.go, oai_responses.go
 //
@@ -45,6 +45,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // storageSettings 是持久层配置的读写入口。
@@ -213,10 +214,10 @@ func (h *settingsStorageHandler) PutStorage(c echo.Context) error {
 	// 校验目标值本身合法。
 	want := map[string]string{}
 	if body.Database != nil {
-		want["database"] = strings.ToLower(strings.TrimSpace(*body.Database))
+		want["database"] = strutil.Normalize(*body.Database)
 	}
 	if body.Files != nil {
-		want["files"] = strings.ToLower(strings.TrimSpace(*body.Files))
+		want["files"] = strutil.Normalize(*body.Files)
 	}
 	if body.DataDir != nil {
 		want["data_dir"] = strings.TrimSpace(*body.DataDir)

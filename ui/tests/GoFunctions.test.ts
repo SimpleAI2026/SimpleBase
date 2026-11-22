@@ -32,11 +32,7 @@ describe('GoFunctions (云函数)', () => {
     const { wrapper } = await mountWithApp(GoFunctions, { stubs: modalStub })
     expect(wrapper.text()).toContain('hello.go')
     const pathCode = wrapper.get('code')
-    expect(pathCode.classes()).toEqual(
-      expect.arrayContaining(['sb-code-view', 'whitespace-pre-wrap', 'max-w-full', 'min-w-0'])
-    )
-    expect(pathCode.attributes('class') || '').toContain('[overflow-wrap:anywhere]')
-    expect(pathCode.attributes('class') || '').toContain('[word-break:break-word]')
+    expect(pathCode.classes()).toEqual(expect.arrayContaining(['sb-code-view', 'sb-mono', 'text-xs']))
     const copyButton = wrapper.get('button.badge[aria-label="复制 hello.go 的 Hello 完整调用路径"]')
     expect(copyButton.attributes('type')).toBe('button')
     await copyButton.trigger('click')

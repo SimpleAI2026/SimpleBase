@@ -1,27 +1,3 @@
-// 文件说明：sqlx.go — SQL 标识符与字符串字面量的转义构造
-//
-// 用法
-//
-//	Ident(name string) string  // Ident 把 name 写成双引号标识符，内部的 " 双写转义
-//	Literal(s string) string  // Literal 把 s 写成单引号字符串字面量，内部的 ' 双写转义
-//
-// 调用架构
-//
-//	[上游] godatabase/ducklake, godatabase/filedb, godatabase/sqlguard 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/sqlx/sqlx.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//
-// 主要符号
-//
-//	Ident(name string) string
-//	Literal(s string) string
-//	IsIdentByte(c byte) bool
-//	IsSafeIdent(name string) bool
-
 package sqlx
 
 import (

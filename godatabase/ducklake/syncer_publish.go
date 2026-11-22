@@ -1,6 +1,3 @@
-// 文件说明：syncer_publish.go — godatabase/ducklake 中 CatalogSyncer 的发布域：publishSnapshot、manifest seq 推进、split-brain 标记
-// 由 catalog_syncer.go 按职责拆分而来（C6，纯移动，不改逻辑）。
-
 package ducklake
 
 import (
@@ -11,7 +8,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/hashx"
+	"github.com/linkxzhou/SimpleBase/godatabase/hashx"
 	"go.uber.org/zap"
 )
 

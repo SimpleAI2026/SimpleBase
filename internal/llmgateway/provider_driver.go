@@ -12,7 +12,7 @@
 //	[本文件] internal/llmgateway/provider_driver.go
 //	         │
 //	         ▼
-//	[下游] 仅标准库 / 第三方
+//	[下游] internal/utils/strutil
 //	[同包] catalog_resolver.go, fallback_resolver.go, project_cred_resolver.go, service.go, streaming.go
 //	[关键引用] litellmDriver() ← service.go
 //
@@ -22,14 +22,14 @@
 
 package llmgateway
 
-import "strings"
+import "github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 
 // litellmDriver 把设置页的厂商标识映射到 litellm 已注册驱动。
 // 未映射的名字返回 false，调用方保持原名（未知供应商仍创建失败）。
 func litellmDriver(name string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
+	switch strutil.Normalize(name) {
 	case "openai", "anthropic", "gemini", "deepseek", "openrouter", "qwen", "glm", "bedrock":
-		return strings.ToLower(strings.TrimSpace(name)), true
+		return strutil.Normalize(name), true
 	case "google":
 		return "gemini", true
 	case "dashscope":

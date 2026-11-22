@@ -1,40 +1,5 @@
 //go:build linux
 
-// 文件说明：snapshots.go — vm/box 的快照与 fork
-//
-// 三个约束决定了这里的实现方式：
-//
-//  1. 快照只含文件系统。运行中的沙盒拍快照会先「尽量安静」——不 Stop，
-//     因为 Stop 会杀掉用户的后台进程，代价比一点不一致大得多；
-//  2. fork 出来的沙盒需要知道自己的父快照，否则它再拍快照时血缘就断了。
-//     血缘写在 <box>/meta.json 里；
-//  3. 恢复是替换磁盘内容，所以 fork 时必须确保目标名字没有正在运行的会话：
-//     否则进程写回的内容会覆盖刚解出来的快照。
-//
-// 用法
-//
-//	d.Snapshot(ctx, t, "before-upgrade")
-//	d.Fork(ctx, snapID, vm.Target{Name: "sb2", Spec: spec})
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm（Snapshotter）
-//	         │ 实现该接口
-//	         ▼
-//	[本文件] gosandbox/vm/box/snapshots.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/snapshot、gosandbox/box
-//	[同包] driver_linux.go, capabilities.go
-//
-// 主要符号
-//
-//	(d *Driver) Snapshot(ctx, t vm.Target, label string) (vm.SnapshotInfo, error)
-//	(d *Driver) Snapshots(ctx) ([]vm.SnapshotInfo, error)
-//	(d *Driver) RemoveSnapshot(ctx, id string) error
-//	(d *Driver) Fork(ctx, snapshotID string, t vm.Target) (vm.SnapshotInfo, error)
-//	(d *Driver) boxMeta(name string) (boxMeta, error)
-
 package box
 
 import (

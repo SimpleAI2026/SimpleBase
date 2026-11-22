@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/internal/testutil"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 )
 
@@ -282,7 +283,7 @@ func TestCatalogSyncerControlPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cs := NewCatalogSyncer(blob.NewMemory(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, "", &godatabase.RecordingLogger{}, &godatabase.RecordingObserver{})
+	cs := NewCatalogSyncer(blob.NewMemory(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, "", &testutil.RecordingLogger{}, &testutil.RecordingObserver{})
 	if cs.Options.Mode != "interval" || cs.Options.KeepVersions != 10 {
 		t.Fatal(cs.Options)
 	}
@@ -391,7 +392,7 @@ func TestCatalogSyncerLocalAdvanceAndRecord(t *testing.T) {
 	db, _ := openTestLake(t)
 	id := uuid.NewString()
 	meta := godatabase.Spec{ID: id, TenantID: "11111111-1111-1111-1111-111111111111", ProjectID: "prj12345"}
-	cs := NewCatalogSyncer(blob.NewMemory(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{Mode: "sync_on_commit"}, "", &godatabase.RecordingLogger{}, &godatabase.RecordingObserver{})
+	cs := NewCatalogSyncer(blob.NewMemory(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{Mode: "sync_on_commit"}, "", &testutil.RecordingLogger{}, &testutil.RecordingObserver{})
 	cs.Bind(id, db, meta, DefaultLakeAlias)
 	if _, err := db.ExecContext(context.Background(), `CREATE TABLE z (x INTEGER)`); err != nil {
 		t.Fatal(err)
@@ -422,8 +423,8 @@ func TestCatalogSyncerLocalAdvanceAndRecord(t *testing.T) {
 
 // recordSync 必须把结果、耗时与滞后经 Observer 上报，失败时额外写 warn 日志。
 func TestCatalogSyncerRecordSyncReportsToObserver(t *testing.T) {
-	obs := &godatabase.RecordingObserver{}
-	log := &godatabase.RecordingLogger{}
+	obs := &testutil.RecordingObserver{}
+	log := &testutil.RecordingLogger{}
 	cs := NewCatalogSyncer(blob.NewMemory(), RemoteStorage{}, t.TempDir(), CatalogSyncOptions{}, "", log, obs)
 	cs.MarkDirty("db", 5)
 

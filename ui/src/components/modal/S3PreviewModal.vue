@@ -114,6 +114,8 @@ import { renderMarkdown } from '../../docs/render'
 import { api } from '../../services/api'
 import type { S3Object } from '../../services/api'
 import { errorMessage, formatBytes, formatTime } from '../../utils/format'
+import { copyText } from '@/utils/clipboard'
+import { downloadBlob } from '@/utils/download'
 import { MAX_TEXT_PREVIEW_BYTES, getPreviewInfo, isTextLike } from '../../utils/filePreview'
 
 type MdView = 'rendered' | 'source'
@@ -155,15 +157,10 @@ const { pending, showSkeleton, showError, refreshing, error, run, reset } = useL
 
 /** 切换文件 / 关闭弹窗时中止在途请求，避免旧结果覆盖新预览。 */
 let controller: AbortController | null = null
-let objectUrl = ''
 
 function abort() {
   controller?.abort()
   controller = null
-  if (objectUrl) {
-    URL.revokeObjectURL(objectUrl)
-    objectUrl = ''
-  }
 }
 
 function load() {
@@ -195,17 +192,7 @@ async function download() {
     const res = await fetch(signed)
     if (!res.ok) throw new Error('bad response')
     const blob = await res.blob()
-    const href = URL.createObjectURL(blob)
-    objectUrl = href
-    const a = document.createElement('a')
-    a.href = href
-    a.download = name
-    a.rel = 'noopener'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(href)
-    objectUrl = ''
+    downloadBlob(blob, name)
   } catch {
     // 跨域未配置 CORS 时 fetch 会失败，退化回新窗口打开预签名链接
     const signed = url.value || (await api.s3.presign(props.projectId, record.key).then((r) => r.url).catch(() => ''))
@@ -224,20 +211,22 @@ async function copyLink() {
   if (!record) return
   try {
     const link = await api.s3.createLink(props.projectId, record.key)
-    await navigator.clipboard.writeText(new URL(link.url, window.location.origin).toString())
-    toast.success(t('pages.s3.linkCopied'))
+    await copyText(
+      new URL(link.url, window.location.origin).toString(),
+      () => t('pages.s3.linkCopied'),
+      (error) => errorMessage(error, t('pages.s3.linkFailed'))
+    )
   } catch (e) {
     toast.error(errorMessage(e, t('pages.s3.linkFailed')))
   }
 }
 
 async function copyContent() {
-  try {
-    await navigator.clipboard.writeText(content.value)
-    toast.success(t('components.s3Preview.copied'))
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.s3Preview.copyFailed')))
-  }
+  await copyText(
+    content.value,
+    () => t('components.s3Preview.copied'),
+    (error) => errorMessage(error, t('components.s3Preview.copyFailed'))
+  )
 }
 
 watch(

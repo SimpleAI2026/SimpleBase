@@ -2,7 +2,7 @@
   <SbModal
     :open="open"
     :title="t('components.kvTtl.title')"
-    :width="440"
+    :max-width="440"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: mode === 'custom' && !validSeconds }"
     :ok-text="t('common.save')"

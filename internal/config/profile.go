@@ -17,6 +17,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // sessionSecretDerivationLabel 是从 API Key 盐派生会话密钥的域分离标签（§8.2.3）。
@@ -183,5 +185,5 @@ func validateProduction(cfg Config) error {
 
 // isHTTPSURL 判断 URL 是否以 https:// 开头（大小写不敏感、容忍首尾空白）。
 func isHTTPSURL(u string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(u)), "https://")
+	return strings.HasPrefix(strutil.Normalize(u), "https://")
 }

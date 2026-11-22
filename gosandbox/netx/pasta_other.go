@@ -1,29 +1,5 @@
 //go:build !linux
 
-// 文件说明：pasta_other.go — 非 Linux 上出网恒不可用
-//
-// 用法
-//
-//	netx.Available()  // 恒 false
-//	netx.Start(...)   // 恒返回 ErrUnsupported
-//
-// 调用架构
-//
-//	[上游] gosandbox/box（launch）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/netx/pasta_other.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] netx.go
-//
-// 主要符号
-//
-//	Available() bool
-//	PastaPath() string
-//	Start(ctx, opt) (*Runner, error)
-
 package netx
 
 import (

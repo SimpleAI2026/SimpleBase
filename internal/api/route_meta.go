@@ -63,6 +63,65 @@ type operationParameter struct {
 	In       string         `json:"in"`
 	Required bool           `json:"required"`
 	Schema   map[string]any `json:"schema"`
+	Source   *paramSource   `json:"x-sb-source,omitempty"`
+}
+
+// paramSource 描述路径参数的取值来源（API 预览用于默认值与下拉）。
+type paramSource struct {
+	Kind      string   `json:"kind"`
+	DependsOn []string `json:"depends_on,omitempty"`
+}
+
+// paramSourceRule 是 paramSourceFor 的一条匹配规则；pathContains 为空表示任意路径。
+type paramSourceRule struct {
+	param        string
+	pathContains []string // 命中任一即可
+	source       paramSource
+}
+
+// paramSourceRules 有序：前缀越具体越靠前，首个命中者生效。
+var paramSourceRules = []paramSourceRule{
+	{param: "projectID", source: paramSource{Kind: "project"}},
+	{param: "databaseID", source: paramSource{Kind: "databases"}},
+	{param: "collection", pathContains: []string{"/data/collections/"}, source: paramSource{Kind: "collections", DependsOn: []string{"databaseID"}}},
+	{param: "table", pathContains: []string{"/schema/tables/"}, source: paramSource{Kind: "tables", DependsOn: []string{"databaseID"}}},
+	{param: "agentID", source: paramSource{Kind: "agents"}},
+	{param: "threadID", source: paramSource{Kind: "agent-threads"}},
+	{param: "jobID", source: paramSource{Kind: "cron-jobs"}},
+	{param: "name", pathContains: []string{"/gofunctions/", "/go/{projectID}/"}, source: paramSource{Kind: "gofunctions"}},
+	{param: "id", pathContains: []string{"/function-triggers/"}, source: paramSource{Kind: "function-triggers"}},
+	{param: "id", pathContains: []string{"/backups/"}, source: paramSource{Kind: "backups"}},
+	{param: "serverID", source: paramSource{Kind: "mcp-servers"}},
+	{param: "sandboxID", source: paramSource{Kind: "sandboxes"}},
+	{param: "keyID", source: paramSource{Kind: "api-keys"}},
+}
+
+// paramSourceFor 返回路径参数的取值来源；没有来源的参数返回 nil，前端保持自由输入。
+func paramSourceFor(paramName, path string) *paramSource {
+	for _, rule := range paramSourceRules {
+		if rule.param != paramName {
+			continue
+		}
+		if len(rule.pathContains) > 0 {
+			matched := false
+			for _, part := range rule.pathContains {
+				if strings.Contains(path, part) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		source := rule.source
+		source.DependsOn = append([]string(nil), rule.source.DependsOn...)
+		if len(source.DependsOn) == 0 {
+			source.DependsOn = nil
+		}
+		return &source
+	}
+	return nil
 }
 
 type operationBody struct {
@@ -136,7 +195,8 @@ func buildOpenAPI(routes []*echo.Route) openAPIDocument {
 		item := operation{OperationID: metadata.OperationID, Tryable: metadata.Tryable, Responses: map[string]any{"200": map[string]any{"description": "Success"}}, Security: []map[string][]string{{"bearerAuth": {}}}}
 		for _, segment := range strings.Split(metadata.Path, "/") {
 			if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
-				item.Parameters = append(item.Parameters, operationParameter{Name: strings.Trim(segment, "{}"), In: "path", Required: true, Schema: map[string]any{"type": "string"}})
+				name := strings.Trim(segment, "{}")
+				item.Parameters = append(item.Parameters, operationParameter{Name: name, In: "path", Required: true, Schema: map[string]any{"type": "string"}, Source: paramSourceFor(name, metadata.Path)})
 			}
 		}
 		if metadata.Method == http.MethodPost || metadata.Method == http.MethodPut || metadata.Method == http.MethodPatch {

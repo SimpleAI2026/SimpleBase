@@ -1,34 +1,3 @@
-// 文件说明：import.go — 从 docker save / buildx --load 的 tar 导入镜像
-//
-// 格式（docker 的 `manifest.json`）：
-//
-//	manifest.json        [{"Config":"<file>","RepoTags":["alpine:3.19"],"Layers":["<file>",...]}]
-//	<config file>        镜像 config JSON
-//	<layer file>         未压缩或 gzip 的层 tar
-//
-// 与 registry 拉取的差别：这里的层是**文件**而不是摘要，所以要先算摘要再
-// 决定 blob 名；manifest.json 里的 RepoTags 决定索引里写什么引用。
-//
-// 用法
-//
-//	p := NewPuller(store)
-//	imgs, err := p.Import(ctx, f)  // 一个 tar 里可能有多条
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box、CLI 导入命令
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/image/import.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库（archive/tar）
-//	[同包] pull.go, store.go
-//
-// 主要符号
-//
-//	(p *Puller) Import(ctx context.Context, r io.Reader) ([]Image, error)
-
 package image
 
 import (

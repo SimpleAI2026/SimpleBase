@@ -42,28 +42,18 @@ import (
 	"github.com/voocel/litellm/providers"
 )
 
-// HTTPClient 通过 SimpleBase 的 OpenAI 兼容出口调用模型（决策 D-D1）。
-// CLI 不自管供应商密钥，模型出口复用服务端已有的 llmgateway 配置。
-//
-// 端点是 POST {endpoint}/v1/projects/{project}/v1/chat/completions，
-// 请求与响应都是标准 OpenAI Chat Completions 形状（含 tools / tool_calls）。
-// 路径里的两段 v1：前一段是 SimpleBase 的 API 版本，后一段是 OpenAI 资源前缀。
+// HTTPClient calls an OpenAI-compatible Chat Completions endpoint.
+// Endpoint is the complete API base URL, including any version or tenant path.
 type HTTPClient struct {
-	Endpoint  string
-	Token     string
-	ProjectID string
-	HTTP      *http.Client
+	Endpoint string
+	Token    string
+	HTTP     *http.Client
 }
 
 var _ agentcore.ChatClient = (*HTTPClient)(nil)
 
-// clientTimeout 是 CLI 等待一次模型 HTTP 响应的整体上限（含首字节与正文）。
-//
-// 不另设更短的 ResponseHeaderTimeout。SimpleBase 的 SSE 要等上游响应头才写自己的
-// 响应头，所以客户端的「等响应头」量的是上游首字节，不是本地建连。推理模型的首字节
-// 经常超过 30s；30s 会把还在思考的一轮掐掉，agent 只读完文件就退出（HumanEval
-// 158→150、MBPP 352→317 的主因）。建连黑洞由 llmgateway 的 ConnectTimeout 处理，
-// 静默上游由 provider RequestTimeout 和这里的整体上限处理。
+// clientTimeout bounds the entire model response, including streaming. A shorter
+// header timeout can cut off reasoning models before their first token.
 const clientTimeout = 5 * time.Minute
 
 func (c *HTTPClient) httpClient() *http.Client {
@@ -75,9 +65,9 @@ func (c *HTTPClient) httpClient() *http.Client {
 	return &http.Client{Timeout: clientTimeout, Transport: transport}
 }
 
-// url 拼出项目级 OpenAI 兼容路径；path 以 "/" 开头，如 "/chat/completions"。
+// url appends an OpenAI resource path to the configured base URL.
 func (c *HTTPClient) url(path string) string {
-	return strings.TrimRight(c.Endpoint, "/") + "/v1/projects/" + c.ProjectID + "/v1" + path
+	return strings.TrimRight(c.Endpoint, "/") + path
 }
 
 // ---------------------------------------------------------------------------

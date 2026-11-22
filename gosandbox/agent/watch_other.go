@@ -1,30 +1,5 @@
 //go:build !linux
 
-// 文件说明：watch_other.go — 非 Linux 上 agent 不支持目录监听
-//
-// 用法
-//
-//	(s *Server) watch(m proto.Msg)    // 回错误
-//	(s *Server) unwatch(m proto.Msg)  // 空操作
-//	(s *Server) stopWatches()         // 空操作
-//
-// 调用架构
-//
-//	[上游] gosandbox/agent（读循环）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/watch_other.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/proto
-//	[同包] agent.go, watch_linux.go
-//
-// 主要符号
-//
-//	(s *Server) watch(m proto.Msg)
-//	(s *Server) unwatch(m proto.Msg)
-//	(s *Server) stopWatches()
-
 package agent
 
 import "github.com/linkxzhou/SimpleBase/gosandbox/proto"

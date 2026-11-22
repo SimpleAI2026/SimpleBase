@@ -74,9 +74,20 @@ const fileCSP = "sandbox; default-src 'none'"
 const defaultSiteCSP = "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; " +
 	"frame-ancestors 'self'; base-uri 'self'; form-action 'self' https:"
 
-// siteCSPFor 返回站点 CSP；sites.csp=off 返回空串（不发）。
+// sitePathCSP 是路径方式站点的 CSP（planv6.7 §1.4）。
+// 路径方式下用户 HTML 与控制台同源，控制台令牌在 localStorage：必须 sandbox 且不含
+// allow-same-origin（文档得到 opaque origin，读不到控制台的 localStorage / Cookie / IndexedDB）。
+const sitePathCSP = "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals; " +
+	"default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; " +
+	"frame-ancestors 'none'; base-uri 'self'; form-action 'self' https:"
+
+// siteCSPFor 返回站点 CSP；子域名方式下 sites.csp=off 返回空串（不发）。
+// 路径方式下恒带 sandbox：自定义值缺少 sandbox 时自动前置；off 在启动校验中已被拒绝，此处兜底为默认值。
 func siteCSPFor(cfg config.Config) string {
 	v := strings.TrimSpace(cfg.Sites.CSP)
+	if cfg.Sites.Mode() == config.SiteModePath {
+		return pathSiteCSPFor(v)
+	}
 	switch strings.ToLower(v) {
 	case "":
 		return defaultSiteCSP
@@ -84,6 +95,37 @@ func siteCSPFor(cfg config.Config) string {
 		return ""
 	}
 	return v
+}
+
+// pathSiteCSPFor 按自定义值生成路径方式的 CSP：保证含 sandbox 且不含 allow-same-origin。
+func pathSiteCSPFor(custom string) string {
+	if custom == "" || strings.EqualFold(custom, config.CSPOff) {
+		return sitePathCSP
+	}
+	var out []string
+	hasSandbox := false
+	for _, d := range strings.Split(custom, ";") {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		name, rest, _ := strings.Cut(d, " ")
+		if strings.EqualFold(name, "sandbox") {
+			hasSandbox = true
+			var toks []string
+			for _, t := range strings.Fields(rest) {
+				if !strings.EqualFold(t, "allow-same-origin") {
+					toks = append(toks, t)
+				}
+			}
+			d = strings.TrimSpace("sandbox " + strings.Join(toks, " "))
+		}
+		out = append(out, d)
+	}
+	if !hasSandbox {
+		out = append([]string{"sandbox allow-scripts allow-forms allow-popups allow-downloads allow-modals"}, out...)
+	}
+	return strings.Join(out, "; ")
 }
 
 // securityHeadersMiddleware 按路由类别发送安全响应头（§8.1.3）。
@@ -105,7 +147,12 @@ func securityHeadersMiddleware(cfg config.Config) echo.MiddlewareFunc {
 			case "site":
 				// planv6.5 §5.3：用户站点允许同源嵌入，不发 COOP/CORP。
 				csp = siteCSPFor(cfg)
-				h.Set("X-Frame-Options", "SAMEORIGIN")
+				if cfg.Sites.Mode() == config.SiteModePath {
+					// 路径方式与控制台同源：禁止被嵌套（planv6.7 §1.4）。
+					h.Set("X-Frame-Options", "DENY")
+				} else {
+					h.Set("X-Frame-Options", "SAMEORIGIN")
+				}
 			case "file":
 				csp = fileCSP
 				h.Set("Cross-Origin-Resource-Policy", "same-site")

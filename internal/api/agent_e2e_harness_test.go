@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,6 +20,7 @@ import (
 	_ "github.com/uglyer/go-sqlite3"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
@@ -28,17 +28,17 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/testutil/fakellm"
 )
 
-// harnessDB 实现 cloudagent.DatabaseAccess，记录调用。
+// harnessDB implements agentbridge.DatabaseAccess and records calls.
 type harnessDB struct {
 	mu        sync.Mutex
 	listCalls int
 	sqlCalls  int
 	blockFor  time.Duration // list_databases 阻塞时长（测心跳）
-	databases []cloudagent.DatabaseInfo
+	databases []agentbridge.DatabaseInfo
 	sqlError  string // 非空时 ReadOnlyQuery 返回该错误（sqlguard 拒绝模拟）
 }
 
-func (f *harnessDB) ListDatabases(context.Context, cloudagent.Principal, string) ([]cloudagent.DatabaseInfo, error) {
+func (f *harnessDB) ListDatabases(context.Context, auth.Principal, string) ([]agentbridge.DatabaseInfo, error) {
 	f.mu.Lock()
 	f.listCalls++
 	block := f.blockFor
@@ -51,43 +51,43 @@ func (f *harnessDB) ListDatabases(context.Context, cloudagent.Principal, string)
 	if f.databases != nil {
 		return f.databases, nil
 	}
-	return []cloudagent.DatabaseInfo{{ID: "d1", Name: "orders", Status: "ready"}, {ID: "d2", Name: "users", Status: "ready"}}, nil
+	return []agentbridge.DatabaseInfo{{ID: "d1", Name: "orders", Status: "ready"}, {ID: "d2", Name: "users", Status: "ready"}}, nil
 }
 
-func (f *harnessDB) ListCollections(context.Context, cloudagent.Principal, string, string) ([]string, error) {
+func (f *harnessDB) ListCollections(context.Context, auth.Principal, string, string) ([]string, error) {
 	return []string{"t1"}, nil
 }
 
-func (f *harnessDB) ReadOnlyQuery(_ context.Context, _ cloudagent.Principal, _, _, sqlText string, _ int) (cloudagent.SQLResult, error) {
+func (f *harnessDB) ReadOnlyQuery(_ context.Context, _ auth.Principal, _, _, sqlText string, _ int) (agentbridge.SQLResult, error) {
 	f.mu.Lock()
 	f.sqlCalls++
 	errText := f.sqlError
 	f.mu.Unlock()
 	if errText != "" {
-		return cloudagent.SQLResult{}, &sqlguardError{msg: errText}
+		return agentbridge.SQLResult{}, &sqlguardError{msg: errText}
 	}
-	return cloudagent.SQLResult{Columns: []string{"id"}, Rows: [][]any{{1}}, RowCount: 1}, nil
+	return agentbridge.SQLResult{Columns: []string{"id"}, Rows: [][]any{{1}}, RowCount: 1}, nil
 }
 
 type sqlguardError struct{ msg string }
 
 func (e *sqlguardError) Error() string { return e.msg }
 
-// harnessLogs 实现 cloudagent.LogAccess。
+// harnessLogs implements agentbridge.LogReader.
 type harnessLogs struct {
 	mu    sync.Mutex
 	calls int
 }
 
-func (f *harnessLogs) SearchLogs(context.Context, string, string, string, int) ([]cloudagent.LogEvent, error) {
+func (f *harnessLogs) SearchLogs(context.Context, string, string, string, int) ([]agentbridge.LogEvent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
-	return []cloudagent.LogEvent{{Level: "error", Logger: "app", Message: "boom"}}, nil
+	return []agentbridge.LogEvent{{Level: "error", Logger: "app", Message: "boom"}}, nil
 }
 
-func (f *harnessLogs) LevelStats(context.Context, string) ([]cloudagent.LogLevelCount, error) {
-	return []cloudagent.LogLevelCount{{Level: "error", Count: 3}}, nil
+func (f *harnessLogs) LevelStats(context.Context, string) ([]agentbridge.LogLevelCount, error) {
+	return []agentbridge.LogLevelCount{{Level: "error", Count: 3}}, nil
 }
 
 // agentHarness 聚合全链路依赖。
@@ -98,6 +98,12 @@ type agentHarness struct {
 	fake    *fakellm.Server
 	db      *harnessDB
 	logs    *harnessLogs
+	// handler 是挂载路由用的同一实例，便于用例注入 dispatcher。
+	handler *cloudAgentHandler
+	// cron 是定时任务 handler（§11 群绑定用例需要真实写路径）。
+	cron *CronJobHandler
+	// collabRunner 是群定时执行器（§11 用例用）。
+	collabRunner *GroupCronRunner
 }
 
 var memoryDBSeq atomic.Uint64
@@ -146,22 +152,31 @@ func newAgentHarness(t *testing.T, scripts []fakellm.Script, def fakellm.Script)
 
 	hdb := &harnessDB{}
 	hlogs := &harnessLogs{}
+	provider := &agentbridge.RuntimeProvider{DB: hdb, Logs: hlogs}
 	rt := &cloudagent.Runtime{
-		LLM: NewCloudAgentLLM(NewLLMService(gw)),
-		DB:  hdb, Obj: nil, Logs: hlogs,
+		LLM: NewCloudAgentLLM(NewLLMService(gw)), Provider: provider,
 		ToolProtocol: "native",
 		RunTimeout:   30 * time.Second,
 	}
 
 	e := echo.New()
 	e.HideBanner = true
-	h := &cloudAgentHandler{store: store, runtime: rt, llm: NewLLMService(gw)}
-	registerAgentRoutes(e, h)
-	return &agentHarness{store: store, echo: e, runtime: rt, fake: fake, db: hdb, logs: hlogs}
+	h := &cloudAgentHandler{store: store, runtime: rt, llm: NewLLMService(gw), events: newRunEventHub(), confirms: newConfirmHub()}
+	writable := true
+	// 群定时绑定需要 cron handler 的真实写路径（不启动调度器，避免后台并发）。
+	ch := NewCronJobHandler(store, writable, nil, nil)
+	enh := &agentHarness{store: store, echo: e, runtime: rt, fake: fake, db: hdb, logs: hlogs, handler: h, cron: ch}
+	registerAgentRoutesWithHarness(e, h, enh)
+	return enh
 }
 
 // registerAgentRoutes 挂载与生产一致的 agent 路由（免认证，上下文由 hReq 注入）。
 func registerAgentRoutes(e *echo.Echo, h *cloudAgentHandler) {
+	registerAgentRoutesWithHarness(e, h, nil)
+}
+
+// registerAgentRoutesWithHarness 在基础路由上追加依赖 harness 的可选路由块。
+func registerAgentRoutesWithHarness(e *echo.Echo, h *cloudAgentHandler, hs *agentHarness) {
 	e.GET("/agents/modules", h.ListModules)
 	e.GET("/agents", h.ListAgents)
 	e.POST("/agents", h.CreateAgent)
@@ -181,24 +196,44 @@ func registerAgentRoutes(e *echo.Echo, h *cloudAgentHandler) {
 	e.POST("/agent-runs/:runID/confirmations/:callID", h.ConfirmRun)
 	e.GET("/agent-runs/:runID/events", h.ReplayEvents)
 	e.GET("/agents/models", h.ListAgentModels)
+	e.GET("/agent-tags", h.ListAgentTags)
+	e.POST("/agent-tags", h.CreateAgentTag)
+	e.PATCH("/agent-tags/:tagID", h.PatchAgentTag)
+	e.DELETE("/agent-tags/:tagID", h.DeleteAgentTag)
+	// planv6.7 v2：群成员、输入入口、协作轮次与待办。
+	e.POST("/agent-tags/:tagID/members", h.AddGroupMembers)
+	e.DELETE("/agent-tags/:tagID/members/:agentID", h.RemoveGroupMember)
+	e.POST("/agent-tags/:tagID/events", h.GroupEvent)
+	e.GET("/agent-workspace-capabilities", h.WorkspaceCapabilities)
+	e.GET("/agent-threads/:threadID/turns", h.ListThreadTurns)
+	e.POST("/agent-threads/:threadID/turns", h.CreateTurn)
+	e.GET("/agent-turns/:turnID", h.GetTurn)
+	e.GET("/agent-turns/:turnID/events", h.TurnEvents)
+	e.POST("/agent-turns/:turnID/actions", h.TurnAction)
+	e.POST("/agent-tasks/:taskID/replies", h.ReplyHumanTask)
+	e.GET("/agent-human-tasks", h.ListHumanTasks)
+	// 群定时绑定走 cron handler（与生产一致的最小集合）。
+	if hs != nil && hs.cron != nil {
+		e.POST("/cron-jobs", hs.cron.Create)
+		e.PATCH("/cron-jobs/:jobID", hs.cron.Update)
+		e.DELETE("/cron-jobs/:jobID", hs.cron.Delete)
+		e.GET("/cron-jobs", hs.cron.List)
+	}
 }
 
-// hReq 发送带项目/身份上下文的请求。
+// hReq 发送带项目/身份上下文的请求（默认 API Key 主体）。
+// 需要登录态主体时用 agent_harness_sec04_test.go 里的 reqAs。
 func (hs *agentHarness) req(method, path string, body any) *httptest.ResponseRecorder {
-	var r *http.Request
-	if body != nil {
-		b, _ := json.Marshal(body)
-		r = httptest.NewRequest(method, path, strings.NewReader(string(b)))
-		r.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	} else {
-		r = httptest.NewRequest(method, path, nil)
+	return hs.reqAs(method, path, body, auth.Principal{APIKeyID: "k1", TenantID: catalog.ReservedTenantID})
+}
+
+// userPrincipal 返回登录态主体（有 UserID，可担任人工接收人）。
+// RoleUser 才有写权限（admin 在登录态下是只读角色，见 auth.Role.CanWrite）。
+func userPrincipal(userID string) auth.Principal {
+	return auth.Principal{
+		UserID: userID, Username: userID, TenantID: catalog.ReservedTenantID,
+		Role: auth.RoleUser, Permissions: auth.PermissionsForRole(auth.RoleUser),
 	}
-	ctx := WithProject(r.Context(), ProjectContext{ID: "testprj1", TenantID: catalog.ReservedTenantID})
-	ctx = WithPrincipal(ctx, auth.Principal{APIKeyID: "k1", TenantID: catalog.ReservedTenantID})
-	r = r.WithContext(ctx)
-	rec := httptest.NewRecorder()
-	hs.echo.ServeHTTP(rec, r)
-	return rec
 }
 
 // createThread 建会话并返回 id。

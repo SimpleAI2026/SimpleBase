@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -68,9 +69,9 @@ func TestAgentStreamToolPrefixAndLiteral(t *testing.T) {
 		wantTool bool
 		wantText string
 	}{
-		{[]string{"TOOL", `_CALL {"name":"list_databases","arguments":{}}`}, true, ""},
+		{[]string{"TOOL", `_CALL {"name":"echo","arguments":{}}`}, true, ""},
 		{[]string{"示例：", "TOOL_CALL 是关键字"}, false, "示例：TOOL_CALL 是关键字"},
-		{[]string{"\n  TOOL", `_CALL {"name":"list_databases","arguments":{}}`}, true, ""},
+		{[]string{"\n  TOOL", `_CALL {"name":"echo","arguments":{}}`}, true, ""},
 	} {
 		m := agentcore.NewModel(&scriptedChat{streamChunks: tc.chunks}, "p", "m")
 		sr, err := m.Stream(context.Background(), []*schema.Message{schema.UserMessage("q")})
@@ -97,7 +98,7 @@ func TestAgentStreamToolPrefixAndLiteral(t *testing.T) {
 }
 
 func TestAgentHistoryIncludesToolResults(t *testing.T) {
-	msg := Message{Role: "assistant", Content: "Done", ToolCallsJSON: `[{"name":"list_databases","content":"orders, users; sk-abcdefghijklmnopqrstuvwxyz"}]`}
+	msg := Message{Role: "assistant", Content: "Done", ToolCallsJSON: `[{"name":"echo","content":"orders, users; sk-abcdefghijklmnopqrstuvwxyz"}]`}
 	hist := historyToSchema([]Message{msg})
 	if len(hist) != 2 || !strings.Contains(hist[0].Content, "orders, users") || strings.Contains(hist[0].Content, "sk-abcdefghijklmnopqrstuvwxyz") {
 		t.Fatalf("history=%+v", hist)
@@ -105,12 +106,11 @@ func TestAgentHistoryIncludesToolResults(t *testing.T) {
 }
 
 func TestAgentRunToolEventsHaveMatchingCallID(t *testing.T) {
-	rt := &Runtime{LLM: &scriptedLLM{}, DB: &fakeDB{dbs: []DatabaseInfo{{ID: "d1", Name: "default", Status: "ready"}}}}
+	rt := &Runtime{LLM: &scriptedLLM{}, Tools: []einotool.BaseTool{testTool(t, "echo", nil)}}
 	var calls, results []Event
 	res, err := rt.StartRun(context.Background(), RunRequest{
-		ProjectID: "p", Principal: Principal{}, ThreadID: "th", RunID: "r1",
-		Agent:    Agent{ID: "a", Name: "Database", Module: ModuleDatabase, ToolIDs: []string{ToolListDatabases}},
-		UserText: "list databases", Stream: true,
+		ThreadID: "th", RunID: "r1", Agent: Agent{ID: "a", Name: "Agent"},
+		UserText: "run", Stream: true,
 	}, func(e Event) {
 		if e.Type == "tool_call" {
 			calls = append(calls, e)

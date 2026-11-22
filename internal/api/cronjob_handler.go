@@ -188,6 +188,12 @@ type upsertCronJobBody struct {
 	AgentID         string `json:"agent_id"`
 	AgentPrompt     string `json:"agent_prompt"`
 	Enabled         *bool  `json:"enabled"`
+	// planv6.7 v2 §11：群定时绑定（可选）。TagID 非空表示这条任务按「协作群」执行，
+	// AgentID 仍必填（用于群成员失效时的目标存在性校验与旧客户端兼容）。
+	TagID        string `json:"tag_id"`
+	ThreadPolicy string `json:"thread_policy"` // reuse_thread | new_thread_per_fire
+	ThreadKind   string `json:"thread_kind"`
+	OwnerUserID  string `json:"owner_user_id"`
 
 	// enabledValue 是校验后的 resolved 值（缺省 true），供写库使用。
 	enabledValue bool
@@ -316,6 +322,11 @@ func (h *CronJobHandler) Create(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
+	// v2：写入群绑定。失败时回滚任务，避免「任务已建但绑定丢失」的半成品。
+	if err := h.saveGroupBinding(c.Request().Context(), pc.ID, created.ID, req); err != nil {
+		_ = h.store.ArchiveCronJob(c.Request().Context(), pc.ID, created.ID)
+		return WriteError(c, err)
+	}
 	h.recordAudit(c, pc.ID, "create cron job "+req.Name)
 	return c.JSON(http.StatusCreated, toCronJobDTO(created, false))
 }
@@ -402,6 +413,10 @@ func (h *CronJobHandler) Update(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
+	// v2：同步群绑定（TagID 为空表示解除绑定，回到单助手语义）。
+	if err := h.saveGroupBinding(c.Request().Context(), pc.ID, updated.ID, req); err != nil {
+		return WriteError(c, err)
+	}
 	h.recordAudit(c, pc.ID, "update cron job "+j.Name)
 	return c.JSON(http.StatusOK, toCronJobDTO(updated, false))
 }
@@ -428,6 +443,10 @@ func (h *CronJobHandler) Delete(c echo.Context) error {
 	}
 	if err := h.store.ArchiveCronJob(c.Request().Context(), pc.ID, j.ID); err != nil {
 		return WriteError(c, err)
+	}
+	// v2：任务删除后群绑定一并作废（失败只记日志，不阻塞删除）。
+	if err := h.store.ArchiveAgentGroupCron(c.Request().Context(), pc.ID, j.ID); err != nil {
+		c.Logger().Warnf("archive group binding for job %s failed: %v", j.ID, err)
 	}
 	h.recordAudit(c, pc.ID, "delete cron job "+j.Name)
 	return c.NoContent(http.StatusNoContent)
@@ -569,6 +588,28 @@ func validateCronJobBody(req upsertCronJobBody, rid string, create bool) (upsert
 		}
 		req.FuncFile, req.FuncExport = "", ""
 		req.InputJSON = "{}"
+		// v2：可选的群绑定字段。
+		req.TagID = strings.TrimSpace(req.TagID)
+		req.ThreadPolicy = strings.TrimSpace(req.ThreadPolicy)
+		req.ThreadKind = strings.TrimSpace(req.ThreadKind)
+		req.OwnerUserID = strings.TrimSpace(req.OwnerUserID)
+		if req.TagID == "" && (req.ThreadPolicy != "" || req.OwnerUserID != "" || req.ThreadKind != "") {
+			return req, NewAPIError(http.StatusBadRequest, "invalid_request", "tag_id is required for group schedule options", rid)
+		}
+		if req.TagID != "" {
+			switch req.ThreadPolicy {
+			case "", systemdb.GroupCronReuseThread, systemdb.GroupCronNewThreadPerFire:
+			default:
+				return req, NewAPIError(http.StatusBadRequest, "invalid_request",
+					"thread_policy must be reuse_thread or new_thread_per_fire", rid)
+			}
+			switch req.ThreadKind {
+			case "", systemdb.ThreadKindScheduled, systemdb.ThreadKindChat,
+				systemdb.ThreadKindAlert, systemdb.ThreadKindStatistics:
+			default:
+				return req, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid thread_kind", rid)
+			}
+		}
 	default:
 		return req, NewAPIError(http.StatusBadRequest, "invalid_target_kind", "target_kind must be function or agent", rid)
 	}
@@ -613,6 +654,77 @@ func (h *CronJobHandler) validateTargetFor(ctx context.Context, projectID string
 	if errors.Is(err, sql.ErrNoRows) {
 		return NewAPIError(http.StatusBadRequest, "agent_not_found", "agent does not exist in this project", RequestIDFromContext(ctx))
 	}
+	if err != nil {
+		return err
+	}
+	// v2：绑定了群时，群必须存在且包含该助手（否则调度时一定失败）。
+	if req.TagID == "" {
+		return nil
+	}
+	tag, err := h.lookupGroup(ctx, projectID, req.TagID)
+	if err != nil {
+		return err
+	}
+	for _, id := range tag.Config.AgentIDs {
+		if id == req.AgentID {
+			return nil
+		}
+	}
+	return NewAPIError(http.StatusBadRequest, "group_member_unavailable",
+		"agent_id must be a member of the bound group", RequestIDFromContext(ctx))
+}
+
+// lookupGroup 解析群（内置群缺省行也可见）；未找到 → 400。
+func (h *CronJobHandler) lookupGroup(ctx context.Context, projectID, tagID string) (systemdb.AgentTag, error) {
+	tag, err := h.store.GetAgentTagRow(ctx, projectID, tagID)
+	if errors.Is(err, sql.ErrNoRows) {
+		if !systemdb.IsBuiltinAgentTag(tagID) {
+			return systemdb.AgentTag{}, NewAPIError(http.StatusBadRequest, "agent_tag_not_found",
+				"agent tag not found", RequestIDFromContext(ctx))
+		}
+		if tagID == systemdb.AgentTagGeneral {
+			return resolveGeneralAgentTag(ctx, h.store, projectID)
+		}
+		return systemdb.AgentTag{ID: tagID, ProjectID: projectID, BuiltinKey: tagID}, nil
+	}
+	if err != nil {
+		return systemdb.AgentTag{}, err
+	}
+	return tag, nil
+}
+
+// saveGroupBinding 写入/更新群定时绑定；req.TagID 为空时归档既有绑定，
+// 让任务回到「单助手」语义（用户显式解除群绑定）。
+func (h *CronJobHandler) saveGroupBinding(ctx context.Context, projectID, jobID string, req upsertCronJobBody) error {
+	if req.TargetKind != systemdb.CronJobTargetAgent {
+		return nil
+	}
+	if req.TagID == "" {
+		return h.store.ArchiveAgentGroupCron(ctx, projectID, jobID)
+	}
+	policy := req.ThreadPolicy
+	if policy == "" {
+		policy = systemdb.GroupCronReuseThread
+	}
+	kind := req.ThreadKind
+	if kind == "" {
+		kind = systemdb.ThreadKindScheduled
+	}
+	// 保留既有 thread_id：改提示词/换负责人不应把会话重建。
+	existing, err := h.store.GetAgentGroupCron(ctx, projectID, jobID)
+	if err != nil {
+		return err
+	}
+	threadID := existing.ThreadID
+	if existing.TagID != req.TagID {
+		// 换了群：旧会话不再适用。
+		threadID = ""
+	}
+	_, err = h.store.UpsertAgentGroupCron(ctx, systemdb.AgentGroupCron{
+		ProjectID: projectID, JobID: jobID, TagID: req.TagID,
+		ThreadPolicy: policy, ThreadKind: kind, ThreadID: threadID,
+		OwnerUserID: req.OwnerUserID, Prompt: req.AgentPrompt,
+	})
 	return err
 }
 

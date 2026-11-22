@@ -12,7 +12,7 @@
 //	[本文件] internal/api/system_redact.go
 //	         │ 依赖
 //	         ▼
-//	[下游] godatabase/sqlx
+//	[下游] godatabase/sqlx, internal/utils/strutil
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] isSystemSensitiveColumn() ← schema_rows.go
 //
@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // systemSensitiveColumns 是系统库里不能离开服务端的凭证列。
@@ -44,7 +45,7 @@ var systemSensitiveColumns = map[string]struct{}{
 }
 
 func isSystemSensitiveColumn(name string) bool {
-	_, ok := systemSensitiveColumns[strings.ToLower(strings.TrimSpace(name))]
+	_, ok := systemSensitiveColumns[strutil.Normalize(name)]
 	return ok
 }
 

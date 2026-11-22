@@ -50,7 +50,7 @@ func TestLogicalViewRealEngines(t *testing.T) {
 				t.Fatal(err)
 			}
 			db := catalog.Database{ID: "db-1", ProjectID: "prj00001", DatabasePath: path, DataModel: catalog.DataModelCollection}
-			svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewNopSyncer()}}
+			svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewLocalSyncer()}}
 			schemas := mapCollectionSchemas{
 				"tasks":        {Name: "tasks", SchemaMode: "json", Fields: []collection.Field{{Name: "title", Type: "text"}, {Name: "priority", Type: "number"}}},
 				"active_tasks": {Name: "active_tasks", SchemaMode: "view", ViewQuery: "SELECT id, data, created_at, updated_at FROM tasks WHERE json_extract(data, '$.priority') >= 2", Fields: []collection.Field{{Name: "title", Type: "text"}, {Name: "priority", Type: "number"}}},

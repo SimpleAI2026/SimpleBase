@@ -1,34 +1,3 @@
-// 文件说明：blob.go — 定义数据库运行时依赖的对象存储抽象：Store 接口、对象元数据、
-//
-// 用法
-//
-//	NewMemory() *Memory
-//	(m *Memory) PutBytes(_ context.Context, key string, data []byte, _ string) error  // PutBytes 无条件写入
-//	(m *Memory) Head(_ context.Context, key string) (ObjectInfo, error)  // Head 返回对象元数据，不存在返回 ErrNotFound
-//	同包调用：PutIfAbsent() → keys.go
-//
-// 调用架构
-//
-//	[上游] godatabase, godatabase/ducklake, godatabase/filedb 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/blob/blob.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/internal/atomicfile, godatabase/internal/hashx, godatabase/internal/limit
-//	[同包] keys.go
-//	[关键引用] PutIfAbsent() ← keys.go
-//
-// 主要符号
-//
-//	var ErrNotFound
-//	var ErrPreconditionFailed
-//	type ObjectInfo struct {…}
-//	type Store interface {…}
-//	type ListResult struct {…}
-//	type Memory struct {…}
-//	... 另有 10 个顶层符号
-
 package blob
 
 import (
@@ -41,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/atomicfile"
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/hashx"
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/limit"
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
+	"github.com/linkxzhou/SimpleBase/godatabase/hashx"
+	"github.com/linkxzhou/SimpleBase/godatabase/limit"
 )
 
 // ErrNotFound 表示请求的对象不存在。调用方用 errors.Is 判别。
@@ -85,12 +54,6 @@ type Store interface {
 	List(ctx context.Context, prefix, cursor string, limit int) (keys []string, next string, err error)
 	// DeleteMany 批量删除（S3 上限 1000/批）；容忍 key 不存在。
 	DeleteMany(ctx context.Context, keys []string) error
-}
-
-// ListResult 是 List 的单页结果。
-type ListResult struct {
-	Keys []string
-	Next string
 }
 
 /* ---------- 内存实现（单测与单机使用） ---------- */

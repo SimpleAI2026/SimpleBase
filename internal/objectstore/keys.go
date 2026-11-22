@@ -4,8 +4,6 @@
 //
 //	NewProjectID() string
 //	ValidateProjectID(id string) error// ValidateProjectID 见 blob.ValidateProjectID
-//	CatalogFileExt(engine string) (string, error)  // CatalogFileExt 见 blob.CatalogFileExt
-//	同包调用：KeyBuilder → descriptor.go, filestore.go；ValidateProjectID() → descriptor.go；DataPrefix() → descriptor.go
 //
 // 调用架构
 //
@@ -25,14 +23,12 @@
 //	const SystemPrefix
 //	ValidateProjectID(id string) error
 //	NewProjectID() string
-//	CatalogFileExt(engine string) (string, error)
 //	type KeyBuilder struct {…}
 //	... 另有 25 个顶层符号
 
 package objectstore
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
@@ -50,9 +46,6 @@ func ValidateProjectID(id string) error { return blob.ValidateProjectID(id) }
 
 // NewProjectID 见 blob.NewProjectID。
 func NewProjectID() string { return blob.NewProjectID() }
-
-// CatalogFileExt 见 blob.CatalogFileExt。
-func CatalogFileExt(engine string) (string, error) { return blob.CatalogFileExt(engine) }
 
 // KeyBuilder 生成 SimpleBase 的存储对象键。
 //
@@ -121,36 +114,6 @@ func (k KeyBuilder) DuckLakeOrphanLedgerKey(projectID, databaseID, date, fileUUI
 func (k KeyBuilder) DuckLakeDataURI(bucket, projectID, databaseID string) (string, error) {
 	return k.DB().DuckLakeDataURI(bucket, projectID, databaseID)
 }
-
-// validateID 校验 ID 是否为 UUID 形态。拒绝空串、非 UUID、含路径分隔符。
-func validateID(name string, id string) error {
-	if id == "" {
-		return fmt.Errorf("objectstore: %s is empty", name)
-	}
-	if len(id) != uuidPatternLen {
-		return fmt.Errorf("objectstore: %s must be a UUID, got length %d", name, len(id))
-	}
-	// 允许字符：十六进制 + 连字符
-	for i, r := range id {
-		switch i {
-		case 8, 13, 18, 23:
-			if r != '-' {
-				return fmt.Errorf("objectstore: %s has invalid UUID format at pos %d", name, i)
-			}
-		default:
-			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
-				return fmt.Errorf("objectstore: %s contains non-hex char %q", name, r)
-			}
-		}
-	}
-	if strings.Contains(id, "..") || strings.Contains(id, "/") {
-		return fmt.Errorf("objectstore: %s contains path separator or traversal", name)
-	}
-	return nil
-}
-
-// uuidPatternLen 是 UUID 的固定长度（8-4-4-4-12 十六进制）。
-const uuidPatternLen = 36
 
 // joinKey 将若干已校验的分段拼成 key，并保证：
 //   - 不以 "/" 开头（避免 bucket 根路径歧义）

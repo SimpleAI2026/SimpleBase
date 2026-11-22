@@ -1,9 +1,9 @@
 # gosandbox
 
-SimpleBase 的沙盒执行层，独立 Go 模块 `github.com/linkxzhou/SimpleBase/gosandbox`（根 `go.mod` 用 `replace => ./gosandbox` 引用）。**不得 import 根模块任何包**（含 `internal/...`）。
+通用沙盒执行层，独立 Go 模块 `github.com/linkxzhou/SimpleBase/gosandbox`。SimpleBase 是调用方之一，其他平台也可直接导入；模块不 import SimpleBase 根模块任何包（含 `internal/...`），平台鉴权、元数据、配额与配置结构均留在调用方。
 
 ```text
-host/                  本机进程隔离（gocloudagent CLI 的本机 shell 用）
+host/                  本机进程隔离（供任意平台的本机 shell / 命令执行使用）
   inner/               沙盒内加载 Landlock + seccomp（仅 linux）
   spec/                父进程与 helper 之间的协议（策略 JSON、失败退出码）
 cmd/                   沙盒内 helper 二进制（产物名 gosandbox-inner，仅 linux），纯 Go，不链接 DuckDB
@@ -18,9 +18,11 @@ box/                   宿主侧：拉起 agent、单写者帧通道、进程句
 image/                 镜像：引用解析、registry 拉取、blob store、层解包（压平成只读根）
 netx/                  出网档位（none / egress）与 pasta 用户态出网
 snapshot/              快照与 fork：文件系统归档（内容寻址）
+internal/executil/     模块私有的进程输出限额与环境工具
+internal/fsx/          模块私有的原子写与目录树删除
 ```
 
-依赖方向只有 `vm/* → box → {proto, netx, host}`，`vm/box` 另直接用 `image`、`snapshot`；`host` 与 `stream` 不 import 其它新包。`vm/local` 与 `vm/box` 在隔离不可用时都返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK；镜像拉取直接实现 registry 协议，不引入 `go-containerregistry`。
+依赖方向只有 `vm/* → box → {proto, netx, host}`，`vm/box` 另直接用 `image`、`snapshot`；`host` 与 `stream` 不 import 其它新包。驱动与镜像/快照共享的少量内部实现位于 `internal/executil`、`internal/fsx`，它们不是对外 API，也不 import 任何平台包。`vm/local` 与 `vm/box` 在隔离不可用时都返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK；镜像拉取直接实现 registry 协议，不引入 `go-containerregistry`。
 
 ## vm/box：常驻 agent 后端
 
@@ -38,7 +40,7 @@ snapshot/              快照与 fork：文件系统归档（内容寻址）
 
 ```go
 d, err := box.New(ctx, box.Options{
-	Root:   "/var/lib/simplebase/sandboxes",
+	Root:   "/var/lib/gosandbox/sandboxes",
 	Helper: "/usr/libexec/gosandbox-inner",
 	Bwrap:  "/usr/bin/bwrap",
 	Seccomp: "default",          // 沙盒里宿主根不可见，允许本地 socket
@@ -47,17 +49,20 @@ d, err := box.New(ctx, box.Options{
 res, err := d.Exec(ctx, vm.Target{Name: "sb1", Spec: vm.Spec{Image: "python:3.12-slim"}}, vm.ExecSpec{Cmd: "python3", Args: []string{"-V"}})
 ```
 
-`image=host`（或空）时不经过镜像，沙盒以宿主根只读运行——与 `vm/local` 的行为一致。
+`image=host`（或空）时不经过镜像，沙盒以宿主根只读运行——与 `vm/local` 的行为一致。两个后端都优先使用 `Target.Spec.Workdir`，命令、文件与目录监听路径统一经 `vm.CleanPath` 校验。
 
 ## vm：宿主与驱动共用的规则
 
-这三样以前散在 `internal/sandbox`，现在只有一份实现：
+`vm` 定义驱动契约及跨宿主共用的边界规则；SimpleBase 的 `internal/sandbox` 只保留项目、线程和持久元数据业务。
 
 | 符号 | 作用 |
 |---|---|
-| `vm.CleanPath` | 「逻辑路径必须落在 `Spec.Workdir` 之下」的字符串级校验；`vm/local` 把逻辑路径映射到真实工作区时也用它 |
-| `vm.ClampPTYDim` | 终端行列数收敛（0 取默认、上限 1000），E2B 的 process 端点与 SSH 会话共用 |
+| `vm.CleanPath` | 「逻辑路径必须落在 `Spec.Workdir` 之下」的字符串级校验；各后端共用，支持 `/` 作为工作目录 |
+| `vm.ValidateEnv` | 环境变量键、数量、长度与调用方指定的保留前缀校验，不内置任何平台前缀 |
+| `vm.ClampPTYDim` | 终端行列数收敛（0 取默认、上限 1000），供 process 端点与 SSH 会话共用 |
+| `vm.TruncateUTF8` | 命令输出转成合法 UTF-8 并按字节上限截断，不切断多字节字符 |
 | `vm.LogQuery` / `vm.LogRecord` | 日志回放的参数与记录，格式在 `box` 侧，上层直接用这两个类型 |
+| `vm.LogFunc` | 驱动日志回调；各驱动自行记录，不使用会丢失可选能力的通用包装器 |
 
 ## stream：进程输出广播
 
@@ -77,7 +82,7 @@ io.Copy(w, sub)
 ## image：镜像拉取与解包
 
 ```go
-store, _ := image.Open("/var/lib/simplebase")
+store, _ := image.Open("/var/lib/gosandbox")
 p := image.NewPuller(store)
 img, err := p.Pull(ctx, "alpine:3.19", image.PullOptions{Arch: "arm64"})
 chainID, err := p.Unpack(ctx, img)   // 压平成只读根
@@ -123,7 +128,7 @@ for ev := range w.Events() { … }
 ```
 
 监听走 inotify：200ms 成批合并、按路径去重；递归时运行中新建的子目录也会被登记。
-事件通道满时**丢事件并置 `Overflowed()`**——让 agent 阻塞在写帧上会拖住整个沙盒的事件循环。
+事件通道满时**丢事件并置 `Overflowed()`**——让 agent 阻塞在写帧上会拖住整个沙盒的事件循环。经 `vm.Watcher` 使用时，`FileWatch.Err()` 返回 `box.ErrWatchOverflow`，调用方应全量重扫。
 
 ## 快照与 fork
 
@@ -305,7 +310,7 @@ info := proc.Wait() // ExitCode / Signaled
 
 ```go
 d, err := local.New(ctx, local.Options{
-	Root:           "/var/lib/simplebase/sandboxes", // 所有工作区的父目录
+	Root:           "/var/lib/gosandbox/sandboxes", // 所有工作区的父目录
 	MaxOutputBytes: 1 << 20,
 	PidsMax:        128,
 	ProtectDirs:    []string{dataDir, cacheDir},
@@ -329,12 +334,12 @@ d, err := local.New(ctx, local.Options{
 | 模式 | 文件系统 | 网络 |
 |---|---|---|
 | `read-only` | 根只读，`/tmp` 为 tmpfs（macOS 为 `/private/tmp`、`/private/var/folders` 可写） | 无 |
-| `workspace-write` | 根只读；工作区与 `writable_roots` 可写；工作区内的 `.gocloudagent` 和强制 deny 表（见下）再盖成只读 | 无 |
+| `workspace-write` | 根只读；工作区与 `writable_roots` 可写；显式 `read_only_subpaths` 和强制 deny 表（见下）再盖成只读 | 无 |
 | `danger-full-access` | 不启动沙盒（等同关闭隔离） | 不限制 |
 
 网络不支持按域名放行，要放开网络只能用 `danger-full-access`。
 
-### 强制 deny 表（planv6.3）
+### 强制 deny 表
 
 `workspace-write` 下，下面这些路径如果在**生成命令时已存在**，就再盖成只读，即使它们位于可写区内。这些文件会被沙盒之外的程序执行或读取：沙盒内写入不会立刻越界，但用户之后在宿主侧操作该目录时会被触发：
 
@@ -346,9 +351,9 @@ d, err := local.New(ctx, local.Options{
 | `.vscode`、`.idea` | IDE 打开项目即触发的任务与运行配置 |
 | `~/.bashrc` `~/.bash_profile` `~/.zshrc` `~/.zprofile` `~/.profile` `~/.gitconfig` | **仅当某个可写根覆盖了 HOME 时**才追加；否则根本来就只读，不需要 |
 
-- `Policy.DisableForceDeny=true` 可关闭；零值即开启。关闭时 `Result.Warnings` 会如实提示，shell 工具的返回里带 `warnings`。
-- `read_only_subpaths` 与强制表合并后去重。把 `read_only_subpaths` 显式写成空数组只会关掉它自己，不影响强制表。
-- `read_only_subpaths` 默认是 `[".gocloudagent"]`，**不含整个 `.git`**，所以沙盒内 `git init` / `add` / `commit` 可用。需要旧行为（整个 `.git` 只读，`git commit` 会失败）时显式写 `[".git", ".gocloudagent"]`。
+- 强制 deny 表始终启用，不提供关闭开关。
+- `read_only_subpaths` 与强制表合并后去重；默认是空列表，不假设 `.gocloudagent` 等任何平台目录。gocloudagent 在自己的适配层显式设置 `.gocloudagent`。
+- 默认**不含整个 `.git`**，所以沙盒内 `git init` / `add` / `commit` 可用。需要更严格时显式写 `[".git"]`，此时 `git commit` 会失败。
 - **只保护已存在的路径。** 对尚不存在的 `.git/hooks` 加 deny 会让沙盒内 `git init` 直接失败（macOS 真机实测）。因此工作区还没有 `.git` 时不做保护，`git init` 之后的**下一条命令**起才受保护；**同一条命令里「先 `git init`、再写入 hook」的窗口无法关闭**。
 
 ### macOS 专有的收紧
@@ -378,7 +383,7 @@ d, err := local.New(ctx, local.Options{
 - 不存在的路径同样生效（覆盖之后新建的文件）。
 - 工作区或可写根落在某个条目之内时（例如工作区就是 `~/.aws/proj`），跳过该条目。
 - `host.DeniesRead` 同步生效，所以文件工具也读不到这些路径。
-- `Policy.DisableDefaultDenyRead=true` 可关闭。Linux 不使用这张表，行为不变。
+- 默认凭据禁读表始终启用；Linux 不使用这张表。
 
 ### 资源限额
 
@@ -413,7 +418,7 @@ d, err := local.New(ctx, local.Options{
 - 共享内核：不承诺挡住 Dirty Pipe、CVE-2024-1086 等内核提权；多租户、不可信代码不应交给本层；需要 VM 级隔离时应另行实现 `vm.Driver`（macOS 可选 Virtualization.framework，在虚拟机内复用 Linux 路径）。
 - 挡不住工作区**内部**的误删，所以 `rm -rf` 等命令的确认保留；`--yolo` 只跳过确认，不跳过隔离。
 - 文件工具（`read_file` 等）在父进程里运行，不在沙盒里；`deny_read` 通过 `host.DeniesRead` 同时约束它们。
-- 默认 `.git` 里只有 hooks / config / info/attributes 只读，其余可写，所以沙盒内 `git commit` 可用。代价（已接受的残余风险）：`HEAD`、`refs`、`objects` 可写，沙盒内命令能改写分支指向、植入对象。它们不直接导致宿主侧代码执行，但会影响用户之后检出、合并的内容。需要更严时显式配置 `read_only_subpaths: [".git", ".gocloudagent"]`，此时 `git commit` 会失败。
+- 默认 `.git` 里只有 hooks / config / info/attributes 只读，其余可写，所以沙盒内 `git commit` 可用。代价（已接受的残余风险）：`HEAD`、`refs`、`objects` 可写，沙盒内命令能改写分支指向、植入对象。它们不直接导致宿主侧代码执行，但会影响用户之后检出、合并的内容。需要更严时显式配置 `read_only_subpaths: [".git"]`，此时 `git commit` 会失败。
 - 强制 deny 表只覆盖已存在的路径：同一条命令里先 `git init` 再写 `.git/hooks/*` 会成功（见上文）。
 - `deny_read` 支持 glob（`*` 不跨段，`**` 跨段，`?`，`[abc]`；没有转义字符，拼不出集合的方括号如 `[user-id]` 按字面量处理；glob 不得以 `/` 结尾；`literal:` 前缀强制按字面量）。两个平台语义不同：
   - Linux 在生成命令时把 glob 展开成当下已存在的路径（快照语义，之后新建的匹配文件不受遮蔽；单个 glob 最多 1024 条，超限直接报错而不是截断）；

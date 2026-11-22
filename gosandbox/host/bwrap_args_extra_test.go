@@ -26,7 +26,7 @@ func TestBwrapArgsShmSize(t *testing.T) {
 	}
 }
 
-// masked / readonly 路径在存在时才挂；DisableMaskedPaths 关闭时一个都不挂。
+// masked / readonly 路径只在存在时挂载。
 func TestBwrapArgsMaskedPaths(t *testing.T) {
 	p := basePolicy()
 	present := append(append([]string{}, MaskedPaths...), ReadonlyPaths...)
@@ -36,14 +36,6 @@ func TestBwrapArgsMaskedPaths(t *testing.T) {
 	}
 	if idx(args, "--ro-bind", "/proc/sys", "/proc/sys") < 0 {
 		t.Fatalf("missing readonly /proc/sys: %v", args)
-	}
-
-	p.DisableMaskedPaths = true
-	args = mustArgs(t, BwrapInput{Policy: p, Exists: fakeExists(present...)})
-	for _, m := range append(append([]string{}, MaskedPaths...), ReadonlyPaths...) {
-		if idx(args, "--ro-bind", m, m) >= 0 || idx(args, "--ro-bind", "/dev/null", m) >= 0 {
-			t.Fatalf("%s must not be mounted when disabled: %v", m, args)
-		}
 	}
 }
 

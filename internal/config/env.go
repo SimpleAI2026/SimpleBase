@@ -77,8 +77,14 @@ func applyEnv(cfg *Config) {
 	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_SCHEDULE"); ok {
 		cfg.Backup.Schedule = v
 	}
-	// planv6.5：对象存储发布网站。
-	setEnvBool(&cfg.Sites.Enabled, "SIMPLEBASE_SITES_ENABLED")
+	// planv6.5：对象存储发布网站；planv6.7：子域名 / 路径两种方式。
+	setEnvBool(&cfg.Sites.Subdomain, "SIMPLEBASE_SITES_SUBDOMAIN")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_PATH_PREFIX"); ok {
+		cfg.Sites.PathPrefix = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_PUBLIC_BASE_URL"); ok {
+		cfg.Sites.PublicBaseURL = v
+	}
 	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_BASE_DOMAIN"); ok {
 		cfg.Sites.BaseDomain = v
 	}
@@ -279,6 +285,7 @@ func applyEnvAgent(cfg *Config) {
 	setEnvDuration(&cfg.Agent.ConfirmTimeout, "SIMPLEBASE_AGENT_CONFIRM_TIMEOUT")
 	setEnvBool(&cfg.Agent.TraceLog, "SIMPLEBASE_AGENT_TRACE_LOG")
 	setEnvBool(&cfg.Agent.MCP.Enabled, "SIMPLEBASE_AGENT_MCP_ENABLED")
+	setEnvBool(&cfg.Agent.MCP.Builtin, "SIMPLEBASE_AGENT_MCP_BUILTIN")
 	setEnvBool(&cfg.Agent.MCP.AllowHTTP, "SIMPLEBASE_AGENT_MCP_ALLOW_HTTP")
 	if v, ok := os.LookupEnv("SIMPLEBASE_AGENT_MCP_MAX_SERVERS_PER_PROJECT"); ok {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {

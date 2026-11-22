@@ -1,32 +1,3 @@
-// 文件说明：executor.go — godatabase/kv 中 Store、Option 等符号的实现
-//
-// 用法
-//
-//	New(db *sql.DB, opts ...Option) *Store
-//	WithOnWrite(fn func(ctx context.Context)) Option  // WithOnWrite 注入写提交回调（handler 侧接 registry.Handle.NotifyWrite，
-//	同包调用：Key() → core.go, hash.go 等；Tx → hash.go, key.go 等；nowMs() → core.go, key.go 等
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/executor.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] core.go, hash.go, key.go, list.go, schema.go 等 10 个
-//	[关键引用] Key() ← core.go, hash.go, key.go
-//
-// 主要符号
-//
-//	type Store struct {…}
-//	type Option func(*Store)
-//	WithOnWrite(fn func(ctx context.Context)) Option
-//	New(db *sql.DB, opts ...Option) *Store
-//	(s *Store) HasSchema(ctx context.Context) (bool, error)
-//	... 另有 13 个顶层符号
-
 package kv
 
 import (

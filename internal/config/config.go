@@ -14,7 +14,7 @@
 //	[本文件] internal/config/config.go
 //	         │
 //	         ▼
-//	[下游] 仅标准库 / 第三方
+//	[下游] internal/utils/strutil
 //	[同包] backup.go, env.go, http_boundary.go, yaml.go
 //	[关键引用] Config ← env.go, http_boundary.go, yaml.go
 //
@@ -38,6 +38,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // Config 是 SimpleBase 单实例服务的全部运行配置。
@@ -126,7 +128,7 @@ const (
 
 // EffectiveCSP 归一化 CSP 模式；空视为 enforce。
 func (h HTTPSecurityHeaders) EffectiveCSP() string {
-	m := strings.ToLower(strings.TrimSpace(h.CSP))
+	m := strutil.Normalize(h.CSP)
 	if m == "" {
 		return CSPEnforce
 	}
@@ -155,7 +157,7 @@ func (c Config) IsProduction() bool {
 
 // ProfileName 返回归一化后的档位名（空值视为 development），用于启动日志。
 func (c Config) ProfileName() string {
-	p := strings.ToLower(strings.TrimSpace(c.Instance.Profile))
+	p := strutil.Normalize(c.Instance.Profile)
 	if p == "" {
 		return ProfileDevelopment
 	}
@@ -283,7 +285,7 @@ const (
 
 // EffectiveAgentToolProtocol 返回归一后的工具协议，空值视为 auto。
 func (l LLMConfig) EffectiveAgentToolProtocol() string {
-	switch p := strings.ToLower(strings.TrimSpace(l.AgentToolProtocol)); p {
+	switch p := strutil.Normalize(l.AgentToolProtocol); p {
 	case AgentToolProtocolNative, AgentToolProtocolText:
 		return p
 	default:
@@ -309,7 +311,7 @@ func (l LLMConfig) EffectiveAgentRunTimeout() time.Duration {
 
 func validateLLMAgent(l LLMConfig) []error {
 	var errs []error
-	switch strings.ToLower(strings.TrimSpace(l.AgentToolProtocol)) {
+	switch strutil.Normalize(l.AgentToolProtocol) {
 	case "", AgentToolProtocolAuto, AgentToolProtocolNative, AgentToolProtocolText:
 	default:
 		errs = append(errs, fmt.Errorf("llm.agent_tool_protocol must be auto, native or text (got %q)", l.AgentToolProtocol))
@@ -347,6 +349,8 @@ type AgentConfig struct {
 type MCPConfig struct {
 	// Enabled 是总开关。默认 false。
 	Enabled bool `yaml:"enabled"`
+	// Builtin 是项目 API 封装的内置 MCP Server 开关（planv6.7 §3）。默认 true。
+	Builtin bool `yaml:"builtin"`
 	// AllowHTTP 允许 http:// 端点（默认只允许 https）。
 	AllowHTTP bool `yaml:"allow_http"`
 	// MaxServersPerProject 是单项目可配置的 Server 上限。
@@ -577,7 +581,7 @@ const (
 
 // EffectiveBackend 返回归一后的 backend（空 = local）。
 func (s SandboxConfig) EffectiveBackend() string {
-	b := strings.ToLower(strings.TrimSpace(s.Backend))
+	b := strutil.Normalize(s.Backend)
 	if b == "" {
 		return SandboxBackendLocal
 	}
@@ -615,7 +619,7 @@ const (
 
 // ValidLogLevel 判断 level 是否为受支持的日志级别（大小写不敏感）。
 func ValidLogLevel(level string) bool {
-	switch strings.ToLower(strings.TrimSpace(level)) {
+	switch strutil.Normalize(level) {
 	case LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError:
 		return true
 	default:
@@ -626,7 +630,7 @@ func ValidLogLevel(level string) bool {
 // normalizeLogLevel 归一化日志级别：去空白、转小写；空值回落到默认级别。
 // 未知取值保持原样（observability.parseLevel 会退化为 info），由启动日志提示。
 func normalizeLogLevel(level string) string {
-	trimmed := strings.ToLower(strings.TrimSpace(level))
+	trimmed := strutil.Normalize(level)
 	if trimmed == "" {
 		return DefaultLogLevel
 	}
@@ -797,6 +801,7 @@ func defaults() Config {
 			SkillsCLI:      true,
 			DelegationTTL:  15 * time.Minute,
 			ConfirmTimeout: 2 * time.Minute,
+			MCP:            MCPConfig{Builtin: true},
 		},
 		Sandbox: SandboxConfig{
 			Enabled:        false,
@@ -868,7 +873,7 @@ func (c Config) IsFilesRemote() bool {
 
 // effectiveStorage 把空值归一化为默认的本地模式，便于日志与 UI 展示生效值。
 func (c Config) effectiveStorage(mode string) string {
-	m := strings.ToLower(strings.TrimSpace(mode))
+	m := strutil.Normalize(mode)
 	if m == "" {
 		return StorageModeLocal
 	}
@@ -898,7 +903,7 @@ func (c Config) Validate() error {
 	if c.Instance.ID == "" {
 		errs = append(errs, errors.New("instance.id is required"))
 	}
-	switch strings.ToLower(strings.TrimSpace(c.Instance.Profile)) {
+	switch strutil.Normalize(c.Instance.Profile) {
 	case "", ProfileDevelopment, ProfileProduction:
 	default:
 		errs = append(errs, fmt.Errorf("instance.profile must be development or production (got %q)", c.Instance.Profile))
@@ -911,7 +916,7 @@ func (c Config) Validate() error {
 	if c.Instance.Lease.TTL < 0 || c.Instance.Lease.Grace < 0 || c.Instance.Lease.RenewInterval < 0 {
 		errs = append(errs, errors.New("instance.lease durations must be non-negative"))
 	}
-	switch strings.ToLower(strings.TrimSpace(c.Database.Engine)) {
+	switch strutil.Normalize(c.Database.Engine) {
 	case "", EngineDuckDB, EngineSQLite:
 	default:
 		errs = append(errs, fmt.Errorf("database.engine must be duckdb or sqlite (got %q)", c.Database.Engine))
@@ -919,7 +924,7 @@ func (c Config) Validate() error {
 	if c.Database.DuckLake.Threads < 0 {
 		errs = append(errs, errors.New("database.ducklake.threads must be non-negative"))
 	}
-	switch strings.ToLower(strings.TrimSpace(c.Database.DuckLake.CatalogEngine)) {
+	switch strutil.Normalize(c.Database.DuckLake.CatalogEngine) {
 	case "", CatalogEngineDuckDB, CatalogEngineSQLite:
 	default:
 		errs = append(errs, fmt.Errorf("database.ducklake.catalog_engine must be duckdb or sqlite (got %q)", c.Database.DuckLake.CatalogEngine))
@@ -1007,12 +1012,12 @@ func (c Config) Validate() error {
 // cache_dir 会被缓存淘汰整体删除，因此绝不能落在 data_dir 之内（反之亦然）。
 func validateStorage(s StorageConfig, cacheDir string) error {
 	var errs []error
-	switch strings.ToLower(strings.TrimSpace(s.Database)) {
+	switch strutil.Normalize(s.Database) {
 	case "", StorageModeLocal, StorageModeS3:
 	default:
 		errs = append(errs, fmt.Errorf("storage.database must be local or s3 (got %q)", s.Database))
 	}
-	switch strings.ToLower(strings.TrimSpace(s.Files)) {
+	switch strutil.Normalize(s.Files) {
 	case "", StorageModeLocal, StorageModeS3:
 	default:
 		errs = append(errs, fmt.Errorf("storage.files must be local or s3 (got %q)", s.Files))
@@ -1107,7 +1112,7 @@ func validateSandbox(s SandboxConfig) error {
 	if s.ReapInterval < 0 {
 		errs = append(errs, errors.New("sandbox.reap_interval must not be negative"))
 	}
-	switch strings.ToLower(strings.TrimSpace(s.Network)) {
+	switch strutil.Normalize(s.Network) {
 	case "", "none", "egress":
 	case "egress-allowlist", "allowlist":
 		// 给出明确的迁移说明：悄悄降级成 egress 会让人以为白名单还在生效。
@@ -1265,7 +1270,6 @@ func (c Config) Redacted() map[string]any {
 			"files_is_remote":    c.IsFilesRemote(),
 		},
 		"sites": map[string]any{
-			"enabled":     c.Sites.Enabled,
 			"base_domain": c.Sites.BaseDomain,
 			"url_scheme":  c.Sites.URLScheme,
 			"url_port":    c.Sites.URLPort,

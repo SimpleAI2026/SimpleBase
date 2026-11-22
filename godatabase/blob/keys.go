@@ -1,32 +1,3 @@
-// 文件说明：keys.go — godatabase/blob 中 KeyBuilder、ProjectIDLen 等符号的实现
-//
-// 用法
-//
-//	NewProjectID() string
-//	(k KeyBuilder) ProjectPrefix(projectID string) (string, error)  // ProjectPrefix 返回某个项目在存储中的前缀（不含尾部 "/"）
-//	(k KeyBuilder) DatabasePrefix(projectID, databaseID string) (string, error)  // DatabasePrefix 返回某个数据库的完整前缀（不含尾部 "/"）
-//
-// 调用架构
-//
-//	[上游] godatabase, godatabase/ducklake, godatabase/filedb 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/blob/keys.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] blob.go
-//
-// 主要符号
-//
-//	type KeyBuilder struct {…}
-//	const ProjectIDLen
-//	const SystemPrefix
-//	(k KeyBuilder) ProjectPrefix(projectID string) (string, error)
-//	(k KeyBuilder) DatabasePrefix(projectID, databaseID string) (string, error)
-//	(k KeyBuilder) DataPrefix(projectID, databaseID string) (string, error)
-//	... 另有 19 个顶层符号
-
 package blob
 
 import (

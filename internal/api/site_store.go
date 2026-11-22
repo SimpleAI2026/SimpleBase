@@ -4,7 +4,7 @@
 //
 //	store := NewSiteStore(systemStore, ttl)
 //	store.Lookup(ctx, pid) (siteState, error)        // 站点面 / 列表接口读取（TTL 缓存）
-//	store.SetSite / SetPublicPath / DeletePublicFile  // 管理 API 写入，写后本进程立即失效
+//	store.SetPublicPath / DeletePublicFile            // 管理 API 写入，写后本进程立即失效
 //
 // 只读副本的缓存靠 TTL 收敛（默认 30s）。
 
@@ -18,19 +18,17 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-// SiteStore 抽象站点开关与公开路径的读写（handler 不直接依赖 systemdb.Store）。
+// SiteStore 抽象公开路径的读写（handler 不直接依赖 systemdb.Store）。
 type SiteStore interface {
 	Lookup(ctx context.Context, projectID string) (siteState, error)
-	SetSite(ctx context.Context, projectID string, enabled bool, actor string) error
 	SetPublicPath(ctx context.Context, projectID, path, kind string, public bool, actor string) error
 	DeletePublicFile(ctx context.Context, projectID, key string) error
 	Invalidate(projectID string)
 }
 
-// siteState 是单个项目的站点快照。
+// siteState 是单个项目的站点快照。站点没有实例级开关，只有公开路径。
 type siteState struct {
-	Enabled bool
-	Paths   []systemdb.PublicPath
+	Paths []systemdb.PublicPath
 }
 
 type siteCacheEntry struct {
@@ -67,24 +65,15 @@ func (s *systemSiteStore) Lookup(ctx context.Context, projectID string) (siteSta
 		return e.state, nil
 	}
 	s.mu.Unlock()
-	site, err := s.store.GetProjectSite(ctx, projectID)
-	if err != nil {
-		return siteState{}, err
-	}
 	paths, err := s.store.ListPublicPaths(ctx, projectID)
 	if err != nil {
 		return siteState{}, err
 	}
-	state := siteState{Enabled: site.Enabled, Paths: paths}
+	state := siteState{Paths: paths}
 	s.mu.Lock()
 	s.cache[projectID] = siteCacheEntry{state: state, expires: now.Add(s.ttl)}
 	s.mu.Unlock()
 	return state, nil
-}
-
-func (s *systemSiteStore) SetSite(ctx context.Context, projectID string, enabled bool, actor string) error {
-	defer s.Invalidate(projectID)
-	return s.store.SetProjectSite(ctx, projectID, enabled, actor)
 }
 
 func (s *systemSiteStore) SetPublicPath(ctx context.Context, projectID, path, kind string, public bool, actor string) error {

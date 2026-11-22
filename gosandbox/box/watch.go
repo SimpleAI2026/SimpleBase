@@ -1,31 +1,3 @@
-// 文件说明：watch.go — Session 的目录监听客户端
-//
-// 用法
-//
-//	w, err := s.Watch(ctx, "/workspace", box.WatchOptions{Recursive: true})
-//	for ev := range w.Events() { … }   // ev.Path / ev.Kind
-//	w.Close()
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box、internal/api（envd WatchDir）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/watch.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/proto
-//	[同包] session.go
-//
-// 主要符号
-//
-//	type WatchOptions struct {…}
-//	type FileEvent struct {…}
-//	type Watch struct {…}
-//	(s *Session) Watch(ctx context.Context, path string, opt WatchOptions) (*Watch, error)
-//	(w *Watch) Events() <-chan FileEvent
-//	(w *Watch) Close() error
-
 package box
 
 import (

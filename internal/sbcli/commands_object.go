@@ -100,10 +100,6 @@ func cmdSiteStatus(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []str
 	return c.GetSite(ctx)
 }
 
-func cmdSiteEnable(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
-	return c.SetSite(ctx, true)
-}
-
 func cmdSitePublish(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
 	f, _, err := mustFlags(args, "prefix")
 	if err != nil {

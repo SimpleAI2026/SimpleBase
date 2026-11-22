@@ -35,7 +35,7 @@ const extraStubs = {
 describe('McpServersPanel', () => {
   beforeEach(() => {
     resetApiMocks()
-    api.mcpServers.list.mockResolvedValue([server])
+    api.mcpServers.list.mockResolvedValue({ servers: [server], builtin: [] })
   })
 
   it('renders servers without ever showing credential values', async () => {
@@ -66,7 +66,7 @@ describe('McpServersPanel', () => {
   })
 
   it('opens the create modal and surfaces failures', async () => {
-    api.mcpServers.list.mockResolvedValueOnce([])
+    api.mcpServers.list.mockResolvedValueOnce({ servers: [], builtin: [] })
     const { wrapper } = await mountWithApp(McpServersPanel, { projectId: 'p1', stubs: extraStubs })
     expect(wrapper.text()).toContain('暂无 MCP Server')
 
@@ -191,7 +191,7 @@ describe('McpServersPanel', () => {
     await flushPromises()
     api.mcpServers.list.mockClear()
 
-    let releaseOld!: (v: typeof server[]) => void
+    let releaseOld!: (v: { servers: typeof server[]; builtin: never[] }) => void
     api.mcpServers.list.mockImplementationOnce(
       () => new Promise((resolve) => { releaseOld = resolve })
     )
@@ -200,7 +200,7 @@ describe('McpServersPanel', () => {
     const stale = vm.load()
     store.setProject('p2', 'Two')
     await flushPromises()
-    releaseOld([server])
+    releaseOld({ servers: [server], builtin: [] })
     await stale
     // 旧项目的响应不能覆盖新项目列表。
     expect(api.mcpServers.list).toHaveBeenLastCalledWith('p2')
@@ -211,7 +211,7 @@ describe('McpServersPanel', () => {
     const { wrapper } = await mountWithApp(McpServersPanel, { projectId: 'p1', stubs: extraStubs })
     expect(wrapper.text()).toContain('暂无 MCP Server')
 
-    api.mcpServers.list.mockResolvedValueOnce([{ ...server, tools_policy: undefined as never, has_credential: false }])
+    api.mcpServers.list.mockResolvedValueOnce({ servers: [{ ...server, tools_policy: undefined as never, has_credential: false }], builtin: [] })
     const vm = wrapper.vm as unknown as { load: () => Promise<void>; toggle: (i: any, e: boolean) => Promise<void> }
     await vm.load()
     // 没有 tools_policy 时工具数按 0 处理。

@@ -1,31 +1,3 @@
-// 文件说明：stats.go — agent 的观测：用量、进程列表、监听端口、入站中继
-//
-// 用法
-//
-//	(s *Server) sendStats()  // 读 cgroup 与 /proc 的用量
-//	(s *Server) sendTop(m proto.Msg)  // 沙盒内的进程列表
-//	(s *Server) sendListening(m proto.Msg)  // 沙盒内 LISTEN 的 TCP 端口
-//	(s *Server) openRelay(m proto.Msg)  // 把宿主的入站连接中继到 127.0.0.1:Port
-//	同包调用：全部 → agent.go
-//
-// 调用架构
-//
-//	[上游] gosandbox/agent（读循环）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/stats.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/proto、标准库
-//	[同包] agent.go
-//
-// 主要符号
-//
-//	(s *Server) sendStats()
-//	(s *Server) sendTop(m proto.Msg)
-//	(s *Server) sendListening(m proto.Msg)
-//	(s *Server) openRelay(m proto.Msg)
-
 package agent
 
 import (

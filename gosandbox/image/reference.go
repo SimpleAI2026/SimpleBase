@@ -1,31 +1,3 @@
-// 文件说明：reference.go — 镜像引用解析与归一化
-//
-// 用法
-//
-//	Parse("alpine")                      → docker.io/library/alpine:latest
-//	Parse("ghcr.io/o/r:1.2")             → ghcr.io/o/r:1.2
-//	Parse("alpine@sha256:…")             → 按摘要引用
-//	(r Reference) String()               → 归一化后的完整引用
-//	(r Reference) Repo()                 → 不含 tag / digest 的仓库
-//
-// 调用架构
-//
-//	[上游] gosandbox/image（registry、store）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/image/reference.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] registry.go, store.go
-//
-// 主要符号
-//
-//	type Reference struct {…}
-//	Parse(s string) (Reference, error)
-//	(r Reference) String() string
-//	(r Reference) Repo() string
-
 package image
 
 import (

@@ -13,7 +13,7 @@
 //	[本文件] internal/systemdb/s3index.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/objectstore, internal/utils/limit
+//	[下游] internal/objectstore, godatabase/limit
 //	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //
 // 主要符号
@@ -35,8 +35,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	pagelimit "github.com/linkxzhou/SimpleBase/godatabase/limit"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
-	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 )
 
 // S3Object 是 sys_s3_objects 一行。

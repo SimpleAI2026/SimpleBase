@@ -1,43 +1,8 @@
-// 文件说明：descriptor.go — internal/objectstore 中 DescriptorFormatVersion、DuckLakeStorage 等符号的…
-//
-// 用法
-//
-//	(d *Descriptor) Validate() error  // Validate 校验 descriptor 的关键字段
-//	type DuckLakeStorage（导出类型，同包与上层均可使用）
-//	type Descriptor（导出类型，同包与上层均可使用）
-//
-// 调用架构
-//
-//	[上游] godatabase/bench, internal/api, internal/app 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] internal/objectstore/descriptor.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] blob.go, client.go, content.go, content_local.go, content_s3.go 等 10 个
-//
-// 主要符号
-//
-//	const DescriptorFormatVersion
-//	type DuckLakeStorage struct {…}
-//	type Descriptor struct {…}
-//	const StatusCreating
-//	const StatusOpening
-//	const StatusReady
-//	... 另有 7 个顶层符号
-
 package objectstore
 
-import (
-	"errors"
-	"fmt"
-	"time"
-)
+import "time"
 
-// DescriptorFormatVersion 是当前 descriptor 的格式版本。
-// v1 为 Turso 时代（turso_storage）；v2 起为 DuckLake-only（ducklake_storage）。
-// 创建后只允许兼容升级；读取方必须拒绝不兼容的更高版本，并拒绝 v1 存量。
+// DescriptorFormatVersion 是当前 descriptor 的格式版本，存储配置使用 ducklake_storage。
 const DescriptorFormatVersion = 2
 
 // DuckLakeStorage 记录 DuckLake 在 S3 上的存储配置摘要（平面 B）。
@@ -58,8 +23,8 @@ type DuckLakeStorage struct {
 // Descriptor 描述一个 SimpleBase logical database 的平台元数据。
 // 它由 SimpleBase 写入 S3 的 descriptor.json；禁止用用户输入 name 作为 object key。
 //
-// 必填字段（见 Validate）：format_version、tenant_id、project_id、database_id、
-// created_at、ducklake_storage、data_prefix、status。
+// 写入字段包括 format_version、tenant_id、project_id、database_id、created_at、
+// ducklake_storage、data_prefix、status。
 type Descriptor struct {
 	FormatVersion   int             `json:"format_version"`
 	TenantID        string          `json:"tenant_id"`
@@ -68,9 +33,9 @@ type Descriptor struct {
 	Name            string          `json:"name"` // 仅用于展示，不作为 key
 	CreatedAt       time.Time       `json:"created_at"`
 	DuckLakeStorage DuckLakeStorage `json:"ducklake_storage"`
-	DataPrefix      string          `json:"data_prefix"` // 等价于 DuckLakeStorage.Prefix，冗余便于校验
+	DataPrefix      string          `json:"data_prefix"` // 与 DuckLakeStorage.Prefix 保持一致
 	Status          string          `json:"status"`
-	// Engine 固定 ducklake；写入时填充，读取时若非空且非 ducklake 则拒绝。
+	// Engine 固定为 ducklake。
 	Engine string `json:"engine,omitempty"`
 }
 
@@ -86,58 +51,3 @@ const (
 	StatusDeleted    = "deleted"
 	StatusRecovering = "recovering"
 )
-
-// Validate 校验 descriptor 的关键字段。
-// 调用时机：目前只有单测直接调用，生产读写路径都不调用它（planv6.6 Bug-1：
-// 接线会把「读到坏 descriptor」的行为从静默接受改为报错，需另行审批）。
-// 存量 Turso（format_version<=1 或缺少 ducklake_storage）一律拒绝——产品决策：丢弃不迁移。
-func (d *Descriptor) Validate() error {
-	if d == nil {
-		return errors.New("objectstore: descriptor is nil")
-	}
-	if d.FormatVersion <= 0 {
-		return errors.New("objectstore: descriptor.format_version must be positive")
-	}
-	if d.FormatVersion < 2 {
-		return errors.New("objectstore: descriptor format v1 (turso) is no longer supported; recreate the database on DuckLake")
-	}
-	if d.FormatVersion > DescriptorFormatVersion {
-		return fmt.Errorf("objectstore: descriptor.format_version %d is newer than supported %d",
-			d.FormatVersion, DescriptorFormatVersion)
-	}
-	if err := validateID("tenant_id", d.TenantID); err != nil {
-		return err
-	}
-	if err := ValidateProjectID(d.ProjectID); err != nil {
-		return err
-	}
-	if err := validateID("database_id", d.DatabaseID); err != nil {
-		return err
-	}
-	if d.CreatedAt.IsZero() {
-		return errors.New("objectstore: descriptor.created_at is required")
-	}
-	if d.Engine != "" && d.Engine != "ducklake" {
-		return fmt.Errorf("objectstore: descriptor.engine %q is not supported (only ducklake)", d.Engine)
-	}
-	if d.DuckLakeStorage.Bucket == "" {
-		return errors.New("objectstore: descriptor.ducklake_storage.bucket is required")
-	}
-	if d.DuckLakeStorage.Region == "" {
-		return errors.New("objectstore: descriptor.ducklake_storage.region is required")
-	}
-	if d.DuckLakeStorage.Prefix == "" {
-		return errors.New("objectstore: descriptor.ducklake_storage.prefix is required")
-	}
-	if d.DataPrefix == "" {
-		return errors.New("objectstore: descriptor.data_prefix is required")
-	}
-	if d.DataPrefix != d.DuckLakeStorage.Prefix {
-		return fmt.Errorf("objectstore: descriptor.data_prefix %q != ducklake_storage.prefix %q",
-			d.DataPrefix, d.DuckLakeStorage.Prefix)
-	}
-	if d.Status == "" {
-		return errors.New("objectstore: descriptor.status is required")
-	}
-	return nil
-}

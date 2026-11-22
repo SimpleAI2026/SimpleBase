@@ -1,55 +1,8 @@
-// 文件说明：snapshot.go — 沙盒的文件系统快照与 fork
-//
-// 快照 = 一次打包，内容是沙盒的「可写层」+ 工作区：
-//
-//	upper/   镜像的写时复制层（overlay 的 upper；copy 模式下没有）
-//	ws/      工作区（用户数据，永远有）
-//
-// 只保存这两处，是因为其余目录要么是临时文件（work/、logs/），
-// 要么能从镜像重新得到（rootfs/ 在 copy 模式下是镜像的完整拷贝）。
-// 这样快照大小 ≈ 用户实际写入量，而不是镜像大小。
-//
-// fork = 恢复到新名字下。新沙盒的目录里同时写入一个 meta.json，
-// 记录「从哪个快照来」，驱动据此知道要用快照里的 upper。
-//
-// 为什么不做内存快照：共享内核的容器要冻结/复制进程与内存需要 CRIU，
-// 它对内核版本与 glibc 都挑，且与 seccomp 冲突。E2B 的 fork 是
-// 「暂停的 VM 复制」，语义上包含进程；这里明确只保证文件系统，
-// 恢复后进程需要重新启动。上层（API）把这一点写进响应。
-//
-// 用法
-//
-//	st, err := snapshot.Open("/var/lib/sb")
-//	info, err := st.Create(ctx, "/var/lib/sb/sb1", "sb1", "before-upgrade")
-//	info, err := st.CreateFrom(ctx, boxDir, name, label, parentSnapshotID)
-//	id, err := st.Restore(ctx, info.ID, "/var/lib/sb/sb2")
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box（Snapshotter 实现）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/snapshot/snapshot.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] archive.go
-//
-// 主要符号
-//
-//	type Info struct {…}
-//	type Store struct {…}
-//	Open(root string) (*Store, error)
-//	(s *Store) Create(ctx, boxDir, name, label string) (Info, error)
-//	(s *Store) List() []Info
-//	(s *Store) Get(id string) (Info, error)
-//	(s *Store) Remove(id string) error
-//	(s *Store) Restore(ctx, id, boxDir string) error
-
 package snapshot
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -62,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/gosandbox/internal/fsx"
 )
 
 // 错误分类。
@@ -156,11 +111,7 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(s.root, "index.json.tmp")
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(s.root, "index.json"))
+	return fsx.WriteAtomic(filepath.Join(s.root, "index.json"), body, 0o600)
 }
 
 // blobPath 返回摘要对应的归档路径。
@@ -332,12 +283,8 @@ func fileSize(p string) (int64, error) {
 // newID 生成一个短随机 id。
 func newID() string {
 	var b [8]byte
-	f, err := os.Open("/dev/urandom")
-	if err != nil {
-		// 没有 /dev/urandom 的环境（极少）：退回时间戳，仍然唯一。
+	if _, err := rand.Read(b[:]); err != nil {
 		return fmt.Sprintf("s%d", time.Now().UnixNano())
 	}
-	defer f.Close()
-	_, _ = f.Read(b[:])
 	return "snap-" + hex.EncodeToString(b[:])
 }

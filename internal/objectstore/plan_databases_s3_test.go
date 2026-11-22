@@ -6,48 +6,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
 
 // 对齐对象存储边界（见 plan/planv6.7/legacy-plan-consolidation-plan.md §4.3）：descriptor v2、平面 key 隔离、无 turso 用户库路径。
-
-func TestPlan_DescriptorV2RequiresDuckLakeStorage(t *testing.T) {
-	desc := &Descriptor{
-		FormatVersion: DescriptorFormatVersion,
-		TenantID:      "11111111-1111-1111-1111-111111111111",
-		ProjectID:     "pro-test",
-		DatabaseID:    "33333333-3333-3333-3333-333333333333",
-		CreatedAt:     time.Now().UTC(),
-		Engine:        "ducklake",
-		DuckLakeStorage: DuckLakeStorage{
-			Region: "us-east-1", Bucket: "b", Prefix: "p",
-		},
-		DataPrefix: "p",
-		Status:     StatusReady,
-	}
-	if err := desc.Validate(); err != nil {
-		t.Fatalf("valid v2 descriptor: %v", err)
-	}
-}
-
-func TestPlan_DescriptorRejectsNonDuckLakeEngine(t *testing.T) {
-	desc := &Descriptor{
-		FormatVersion: DescriptorFormatVersion,
-		TenantID:      "11111111-1111-1111-1111-111111111111",
-		ProjectID:     "pro-test",
-		DatabaseID:    "33333333-3333-3333-3333-333333333333",
-		CreatedAt:     time.Now().UTC(),
-		Engine:        "turso",
-		DuckLakeStorage: DuckLakeStorage{
-			Region: "us-east-1", Bucket: "b", Prefix: "p",
-		},
-		DataPrefix: "p",
-		Status:     StatusReady,
-	}
-	if err := desc.Validate(); err == nil {
-		t.Fatal("expected reject engine=turso")
-	}
-}
 
 func TestPlan_PlaneAAndPlaneBPrefixesDoNotOverlap(t *testing.T) {
 	kb := KeyBuilder{RootPrefix: "simplebase"}

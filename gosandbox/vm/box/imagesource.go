@@ -1,29 +1,5 @@
 //go:build linux
 
-// 文件说明：imagesource.go — 把 gosandbox/image 接到 vm/box 的 ImageSource 上
-//
-// 用法
-//
-//	src := box.NewImageSource(puller)
-//	d, err := box.New(ctx, box.Options{Images: src, …})
-//
-// 调用架构
-//
-//	[上游] internal/app（装配）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/vm/box/imagesource.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/image
-//	[同包] driver_linux.go
-//
-// 主要符号
-//
-//	type ImageStore struct {…}
-//	NewImageSource(p *image.Puller) *ImageStore
-//	(s *ImageStore) Resolve(ctx, ref string) (Lower, error)
-
 package box
 
 import (

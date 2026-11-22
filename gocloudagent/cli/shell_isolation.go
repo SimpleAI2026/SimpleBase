@@ -112,6 +112,10 @@ func ShellIsolationFromFlag(mode string) (ShellIsolation, error) {
 // Policy 把配置转成 host.Policy。workspace 是 CLI 的工作区根；home 用于展开 "~"。
 // 配置非法（未知模式、相对路径、负数等）直接返回错误，不静默当成关闭。
 func (s ShellIsolation) Policy(workspace, home string) (host.Policy, error) {
+	readOnlySubpaths := s.ReadOnlySubpaths
+	if readOnlySubpaths == nil {
+		readOnlySubpaths = []string{".gocloudagent"}
+	}
 	p := host.Policy{
 		Enabled:          s.Enabled != nil && *s.Enabled,
 		Mode:             host.Mode(s.Mode),
@@ -120,7 +124,7 @@ func (s ShellIsolation) Policy(workspace, home string) (host.Policy, error) {
 		PidsMax:          s.PidsMax,
 		BwrapPath:        s.BwrapPath,
 		HelperPath:       s.HelperPath,
-		ReadOnlySubpaths: s.ReadOnlySubpaths,
+		ReadOnlySubpaths: readOnlySubpaths,
 	}
 	if s.Timeout != "" {
 		d, err := time.ParseDuration(s.Timeout)

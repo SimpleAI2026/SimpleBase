@@ -2,7 +2,7 @@
   <SbModal
     :open="open"
     :title="kvKey?.key || t('components.kvDetail.fallbackTitle')"
-    :width="720"
+    :max-width="720"
     hide-footer
     @update:open="emit('update:open', $event)"
   >

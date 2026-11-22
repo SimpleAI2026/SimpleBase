@@ -15,9 +15,7 @@
             :can-create-view="canCreateView"
             :can-import="canImport"
             @select-database="ds.selectDatabase"
-            :chart-type="showBoard ? preferredType : undefined"
             @select-source="ds.selectSource"
-            @update:chart-type="preferredType = $event"
             @update:refresh="refreshKey = $event"
             @refresh="manualRefresh"
             @action="onAction"
@@ -40,46 +38,6 @@
 
           <template v-if="showBoard">
             <p v-if="isTable" class="text-xs text-muted-foreground" data-testid="table-hint">{{ t('pages.dataBrowser.tableReadonlyHint') }}</p>
-            <BiAgentPanel
-              :sending="agent.sending.value"
-              :status-text="agent.statusText.value"
-              :failure="agent.failure.value"
-              :can-retry="Boolean(agent.failedRunId.value)"
-              :notes="agent.notes.value"
-              :rejected="agent.rejected.value"
-              :no-block="agent.noBlock.value"
-              :last-prompt="agent.lastPrompt.value"
-              :has-pending="agent.pending.value.length > 0"
-              :has-history="agent.messages.value.length > 0"
-              :disabled-reason="agentDisabledReason"
-              @send="(text) => agent.send(text)"
-              @stop="agent.stop"
-              @retry="agent.retry"
-              @new-chat="agent.newChat"
-              @ask-again="agent.send(t('components.bi.agent.askAgainPrompt'))"
-            >
-              <template #pending>
-                <div class="grid grid-cols-1 gap-4 md:grid-cols-12 sm:gap-5">
-                  <div v-for="item in agent.pending.value" :key="item.widget.id" :class="spanClass(item.widget.span)">
-                    <BiWidgetRunner
-                      :widget="item.widget"
-                      :target="target"
-                      :fields="ds.fields.value"
-                      :builtin-time="!isTable"
-                      :global-filter="globalFilter"
-                      :refresh-tick="refreshTick"
-                      preview
-                      @add="addFromAgent"
-                      @edit="openEditor"
-                      @discard="agent.dropPending"
-                      @fix="agent.fixWithAgent"
-                      @outcome="recordOutcome(item.widget.id, $event)"
-                    />
-                  </div>
-                </div>
-              </template>
-            </BiAgentPanel>
-
             <BiFilterBar
               :range="range"
               :time-field="timeField"
@@ -187,20 +145,19 @@
 // DataBrowser：数据看板（planv6.7）。页面只做编排：
 //   - 库 → 数据源（集合 / SQL 表）→ 字段的加载链在 useBiDataSource；
 //   - 明细表的取数在 useBiDetail；
-//   - 看板配置、Agent、全局条件在这里接线；图表、请求、校验都在 components/bi 与 composables。
+//   - 看板配置与全局条件在这里接线；图表、请求、校验都在 components/bi 与 composables。
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
 import { PlusIcon, RotateCcwIcon, TableIcon } from '@lucide/vue'
 import { api } from '@/services/api'
-import type { BiChartType, BiWidget } from '@/services/types'
+import type { BiWidget } from '@/services/types'
 import { useProjectStore } from '@/stores/project'
 import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/format'
 import { downloadBlob } from '@/utils/download'
 import { COLLECTION_TRAITS, MAX_WIDGETS, useBiDashboard } from '@/composables/useBiDashboard'
-import { useBiAgent } from '@/composables/useBiAgent'
 import { useBiDataSource } from '@/composables/useBiDataSource'
 import { useBiDetail } from '@/composables/useBiDetail'
 import { combine, pushHistory, rangeExpr, type FilterChip, type RangeKey } from '@/utils/bi-filter'
@@ -215,7 +172,6 @@ import ViewCollectionModal from '@/components/databases/ViewCollectionModal.vue'
 import CollectionImportModal from '@/components/databases/CollectionImportModal.vue'
 import BiToolbar, { type DataAction, type RefreshKey } from '@/components/bi/BiToolbar.vue'
 import BiFilterBar from '@/components/bi/BiFilterBar.vue'
-import BiAgentPanel from '@/components/bi/BiAgentPanel.vue'
 import BiWidgetRunner, { type BiOutcome } from '@/components/bi/BiWidgetRunner.vue'
 import BiWidgetEditor from '@/components/bi/BiWidgetEditor.vue'
 import BiDetailTable from '@/components/bi/BiDetailTable.vue'
@@ -236,7 +192,6 @@ const history = ref<string[]>([])
 const chips = ref<FilterChip[]>([])
 const refreshKey = ref<RefreshKey>('off')
 const refreshTick = ref(0)
-const preferredType = ref<BiChartType>('auto')
 
 // —— 看板配置 ——
 const defaultLabels: BiDefaultLabels = {
@@ -331,35 +286,10 @@ const detail = useBiDetail({
   filter: () => globalFilter.value
 })
 
-// —— Agent ——
-const agent = useBiAgent({
-  scope: () => ({
-    projectId: projectId.value,
-    databaseId: ds.databaseId.value,
-    collection: ds.source.value?.name ?? '',
-    kind: ds.source.value?.kind ?? 'collection'
-  }),
-  fields: () => ds.fields.value,
-  preferredType: () => preferredType.value
-})
-
-const agentDisabledReason = computed(() => {
-  if (!ds.source.value) return t('components.bi.agent.disabled.noCollection')
-  if (isAdmin.value) return t('components.bi.agent.disabled.admin')
-  // 建会话需要 database:write，只读角色 / 只读实例无法使用（planv6.7 Q10）。
-  if (!auth.canWrite) return t('components.bi.agent.disabled.readonly')
-  if (agent.agentMissing.value) return t('components.bi.agent.disabled.noAgent')
-  if (isTable.value) return ds.fields.value.length === 0 ? t('components.bi.agent.disabled.noColumns') : ''
-  if (!ds.registered.value) return t('components.bi.agent.disabled.noSchema')
-  return ''
-})
-
 // —— 看板编辑 ——
 const editorOpen = ref(false)
 const editing = ref<BiWidget | null>(null)
 const removeTarget = ref<BiWidget | null>(null)
-/** 编辑器的来源：看板内编辑（update）还是 Agent 预览调整（add 后丢掉预览项）。 */
-let editingPendingId = ''
 
 // —— 弹窗 ——
 const schemaOpen = ref(false)
@@ -382,12 +312,11 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 // 条件变化 → 明细表回到第一页重取（widget 自己监听 globalFilter 重取）。时钟前进不触发这里。
 watch(conditionKey, () => { detail.reset(); void detail.load() })
 
-/** 数据源切换（含清空）：看板、Agent、明细与全局条件一并重置。 */
+/** 数据源切换（含清空）：看板、明细与全局条件一并重置。 */
 function clearBelowSource() {
   detail.clear()
   dashboard.clear()
   outcomes.value = {}
-  agent.reset()
   chips.value = []
   appliedFilter.value = ''
   filterDraft.value = ''
@@ -411,8 +340,6 @@ function onSourceLoaded(info: { projectId: string; databaseId: string; source: {
   )
   if (table) dashboard.needsSchema.value = needs
   if (dashboard.dropped.value > 0) toast.warning(t('components.bi.widget.droppedFields', { n: dashboard.dropped.value }))
-  // 回到之前看过的数据源：恢复它的会话现场（待确认图表、历史、仍在跑的 run）。
-  agent.sync()
   void detail.load()
 }
 
@@ -432,7 +359,7 @@ function refreshBoard() {
 }
 
 /**
- * 手动刷新：只刷新数据。不能走「重载数据源」那条链——它会清掉筛选、时间范围、联动 chip、明细页码与 Agent 待确认项，
+ * 手动刷新：只刷新数据。不能走「重载数据源」那条链——它会清掉筛选、时间范围、联动 chip 与明细页码，
  * 用户刚设好的分析上下文就丢了。来源列表（文档数 / 列数）仍会更新；来源消失时才回退并清理。
  */
 async function manualRefresh() {
@@ -472,17 +399,9 @@ function spanClass(span: number): string {
 }
 function openEditor(widget: BiWidget | null) {
   editing.value = widget
-  // 调整 Agent 预览项：保存时作为新图表加入看板，并丢掉预览项。
-  editingPendingId = widget && agent.pending.value.some((p) => p.widget.id === widget.id) ? widget.id : ''
   editorOpen.value = true
 }
 function saveWidget(widget: BiWidget) {
-  if (editingPendingId) {
-    // 调整 Agent 预览项：只更新待确认配置并重新预览，不写看板；加入仍需用户在预览成功后点「加入看板」。
-    agent.updatePending(widget)
-    editingPendingId = ''
-    return
-  }
   if (dashboard.widgets.value.some((w) => w.id === widget.id)) {
     dashboard.update(widget)
     return
@@ -502,16 +421,6 @@ function confirmRemove() {
 function resetBoard() {
   dashboard.reset()
 }
-function addFromAgent(widget: BiWidget) {
-  // 已满时保留预览（用户还能丢弃别的图后再加入），不能显示成功。
-  if (!dashboard.add(widget)) {
-    toast.error(t('components.bi.widget.limitReached', { n: MAX_WIDGETS }))
-    return
-  }
-  agent.dropPending(widget.id)
-  toast.success(t('components.bi.agent.added'))
-}
-
 // —— 数据操作菜单（仅集合有）——
 async function onAction(action: DataAction) {
   if (action === 'schema') schemaOpen.value = true

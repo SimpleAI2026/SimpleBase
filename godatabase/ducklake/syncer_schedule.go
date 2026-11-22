@@ -1,6 +1,3 @@
-// 文件说明：syncer_schedule.go — godatabase/ducklake 中 CatalogSyncer 的调度域：epoch/split-brain 标记、MarkDirty debounce、Pause/Resume、Sync/Flush/Close
-// 由 catalog_syncer.go 按职责拆分而来（C6，纯移动，不改逻辑）。
-
 package ducklake
 
 import (
@@ -31,7 +28,7 @@ func (s *CatalogSyncer) SetWriterEpoch(dbID string, epoch int64) {
 		return
 	}
 	s.mu.Lock()
-	s.lastSeq[dbID+"_epoch"] = epoch // 记录 per-DB epoch（key 加后缀避免与 seq 冲突）
+	s.epochs[dbID] = epoch
 	s.mu.Unlock()
 }
 
@@ -39,8 +36,8 @@ func (s *CatalogSyncer) SetWriterEpoch(dbID string, epoch int64) {
 func (s *CatalogSyncer) writerEpochFor(dbID string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.lastSeq[dbID+"_epoch"]; e > 0 {
-		return e
+	if epoch := s.epochs[dbID]; epoch > 0 {
+		return epoch
 	}
 	return s.WriterEpoch
 }

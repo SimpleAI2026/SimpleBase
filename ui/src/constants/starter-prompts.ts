@@ -38,29 +38,3 @@ export function findStarterTemplate(id: string | null | undefined): StarterTempl
   const key = (id || '').trim()
   return STARTER_TEMPLATES.find((t) => t.id === key)
 }
-
-/** 搭建阶段，顺序即执行顺序（与后端 `cloudagent.StarterStages` 一致）。 */
-export const STARTER_STAGES = ['plan', 'data', 'func', 'cron', 'site', 'verify'] as const
-export type StarterStage = (typeof STARTER_STAGES)[number]
-
-/**
- * 各阶段自动发送的提示（i18n key）。阶段提示很短，约束与上下文已在种子提示词与服务端
- * 的 starterModulePrompt 里，这里只告诉助手「现在做哪一步」。
- */
-export function stageMessageKey(stage: StarterStage): string {
-  return `components.starter.stage.${stage}.message`
-}
-
-/** 进度条展示顺序与标签 key（含 plan / verify）。 */
-export function stageLabelKey(stage: StarterStage): string {
-  return `components.starter.stage.${stage}.label`
-}
-
-/** 模板没有定时任务时 cron 阶段跳过；站点不可发布时 site 阶段跳过（verify 仍执行）。 */
-export function stagesFor(template: StarterTemplate, siteReady: boolean): StarterStage[] {
-  return STARTER_STAGES.filter((s) => {
-    if (s === 'cron') return template.outputs.includes('cron')
-    if (s === 'site') return siteReady
-    return true
-  })
-}

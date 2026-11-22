@@ -13,7 +13,7 @@
 //	[本文件] internal/systemdb/agents.go
 //	         │ 依赖
 //	         ▼
-//	[下游] godatabase/ducklake, internal/utils/limit
+//	[下游] godatabase/ducklake, godatabase/limit, internal/utils/strutil
 //	[同包] async_flush.go, bootstrap.go, cron_jobs.go, function_triggers.go 等 22 个
 //	[关键引用] rowScanner ← cron_jobs.go, function_triggers.go
 //
@@ -39,7 +39,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
-	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	pagelimit "github.com/linkxzhou/SimpleBase/godatabase/limit"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 const (
@@ -51,7 +52,7 @@ const (
 
 	// cloudAgentColumns 是 sys_cloud_agents 未归档行的读取列清单，
 	// 与 scanCloudAgent 的扫描顺序一一对应（planv6.0 §7 A3）。
-	cloudAgentColumns = `id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at, builtin_key, writable`
+	cloudAgentColumns = `id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at, builtin_key`
 	// agentRunColumns 是 sys_agent_runs 的读取列清单，与 scanAgentRun 的顺序一一对应。
 	agentRunColumns = `id, thread_id, project_id, agent_id, status, error, started_at, finished_at, created_at, duration_ms, prompt_tokens, completion_tokens, reasoning_tokens, tool_calls, error_code, COALESCE(initiator_id, '')`
 )
@@ -68,9 +69,8 @@ type CloudAgent struct {
 	ModelOverride string
 	BuiltinKey    string
 	TeamEnabled   bool
-	// Writable 是该助手是否允许执行写操作（planv6.0 v2 §3.2，迁移 v48）。
-	// 默认 false = 只读：不可写助手经 CLI 只能执行只读命令。
-	Writable  bool
+	// 写能力不再按助手配置：所有助手都可写，破坏性命令仍由人工确认拦截
+	// （planv6.7 v2 §3.4）。v48 的 writable 列保留在库里但不再读写。
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -149,14 +149,10 @@ func (s *Store) CreateCloudAgent(ctx context.Context, a CloudAgent) (CloudAgent,
 	if a.TeamEnabled {
 		team = 1
 	}
-	writable := int64(0)
-	if a.Writable {
-		writable = 1
-	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO sys_cloud_agents(id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at, archived_at, builtin_key, writable)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-		a.ID, a.ProjectID, a.Name, a.Module, a.Description, a.SystemPrompt, toolJSON, a.ModelOverride, team, now, now, a.BuiltinKey, writable)
+		`INSERT INTO sys_cloud_agents(id, project_id, name, module, description, system_prompt, tool_ids, model_override, team_enabled, created_at, updated_at, archived_at, builtin_key)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+		a.ID, a.ProjectID, a.Name, a.Module, a.Description, a.SystemPrompt, toolJSON, a.ModelOverride, team, now, now, a.BuiltinKey)
 	if err != nil {
 		return CloudAgent{}, err
 	}
@@ -221,14 +217,10 @@ func (s *Store) UpdateCloudAgent(ctx context.Context, a CloudAgent) (CloudAgent,
 	if a.TeamEnabled {
 		team = 1
 	}
-	writable := int64(0)
-	if a.Writable {
-		writable = 1
-	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE sys_cloud_agents SET name=?, module=?, description=?, system_prompt=?, tool_ids=?, model_override=?, team_enabled=?, writable=?, updated_at=?
+		`UPDATE sys_cloud_agents SET name=?, module=?, description=?, system_prompt=?, tool_ids=?, model_override=?, team_enabled=?, updated_at=?
 		 WHERE id=? AND project_id=? AND archived_at IS NULL`,
-		a.Name, a.Module, a.Description, a.SystemPrompt, toolJSON, a.ModelOverride, team, writable, now, a.ID, a.ProjectID)
+		a.Name, a.Module, a.Description, a.SystemPrompt, toolJSON, a.ModelOverride, team, now, a.ID, a.ProjectID)
 	if err != nil {
 		return CloudAgent{}, err
 	}
@@ -304,29 +296,10 @@ func (s *Store) CountCloudAgents(ctx context.Context, projectID string) (int, er
 	return int(n), err
 }
 
-// CreateAgentThread 创建会话线程。
+// CreateAgentThread 创建会话线程（不写工作台元数据，旧语义保留给
+// 定时任务、旧 SDK 与既有测试；planv6.7 AGC-NAV §7.2）。
 func (s *Store) CreateAgentThread(ctx context.Context, t AgentThread) (AgentThread, error) {
-	if s == nil || s.db == nil {
-		return AgentThread{}, ErrUnavailable
-	}
-	now := time.Now().UTC()
-	if t.ID == "" {
-		t.ID = uuid.NewString()
-	}
-	if t.Title == "" {
-		t.Title = "New thread"
-	}
-	t.CreatedAt = now
-	t.UpdatedAt = now
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sys_agent_threads(id, project_id, title, agent_id, created_by, created_at, updated_at, archived_at, starter_template)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-		t.ID, t.ProjectID, t.Title, t.AgentID, t.CreatedBy, now, now, t.StarterTemplate)
-	if err != nil {
-		return AgentThread{}, err
-	}
-	s.notifyWrite(ctx)
-	return t, nil
+	return s.CreateAgentThreadWithWorkspace(ctx, t, AgentThreadWorkspace{})
 }
 
 // ListAgentThreads 列出未归档线程。agentID 非空时只返回该助手的会话；
@@ -336,7 +309,7 @@ func (s *Store) ListAgentThreads(ctx context.Context, projectID, agentID string,
 		return nil, ErrUnavailable
 	}
 	limit = pagelimit.Normalize(limit, 50, 200)
-	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, COALESCE(starter_template, ''), created_at, updated_at
+	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, created_at, updated_at
 		 FROM sys_agent_threads WHERE project_id = ? AND archived_at IS NULL`
 	args := []any{projectID}
 	if agentID != "" {
@@ -353,7 +326,7 @@ func (s *Store) ListAgentThreads(ctx context.Context, projectID, agentID string,
 	out := make([]AgentThread, 0)
 	for rows.Next() {
 		var t AgentThread
-		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.StarterTemplate, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -368,9 +341,9 @@ func (s *Store) GetAgentThread(ctx context.Context, projectID, id string) (Agent
 	}
 	var t AgentThread
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, COALESCE(starter_template, ''), created_at, updated_at
+		`SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, created_at, updated_at
 		 FROM sys_agent_threads WHERE id = ? AND project_id = ? AND archived_at IS NULL`,
-		id, projectID).Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.StarterTemplate, &t.CreatedAt, &t.UpdatedAt)
+		id, projectID).Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentThread{}, sql.ErrNoRows
 	}
@@ -396,18 +369,53 @@ func (s *Store) RenameAgentThread(ctx context.Context, projectID, id, title stri
 // ErrAgentThreadCursor 表示游标不存在或属于其它项目。
 var ErrAgentThreadCursor = errors.New("systemdb: invalid agent thread cursor")
 
-// PageAgentThreads 按更新时间/id 倒序 keyset 分页。
+// AgentThreadFilter 是会话分页过滤条件（planv6.7 AGC-NAV §7.3）；零值等价于旧行为。
+type AgentThreadFilter struct {
+	AgentID string
+	// TagID 非空时只返回该标签的会话。
+	TagID string
+	// ThreadKind 非空时只返回该类型的会话（chat/alert/statistics/scheduled）。
+	ThreadKind string
+}
+
+// PageAgentThreads 按更新时间/id 倒序 keyset 分页（旧签名，薄包装）。
 // agentID 非空时只返回该助手的会话；空串不过滤。
 func (s *Store) PageAgentThreads(ctx context.Context, projectID, agentID, cursor string, limit int) ([]AgentThread, string, error) {
+	return s.PageAgentThreadsFiltered(ctx, projectID, AgentThreadFilter{AgentID: agentID}, cursor, limit)
+}
+
+// PageAgentThreadsFiltered 在 PageAgentThreads 基础上支持标签与会话类型过滤。
+func (s *Store) PageAgentThreadsFiltered(ctx context.Context, projectID string, f AgentThreadFilter, cursor string, limit int) ([]AgentThread, string, error) {
 	if s == nil || s.db == nil {
 		return nil, "", ErrUnavailable
 	}
 	limit = pagelimit.Normalize(limit, 50, 200)
-	query := `SELECT id, project_id, title, COALESCE(agent_id, ''), created_by, COALESCE(starter_template, ''), created_at, updated_at FROM sys_agent_threads WHERE project_id=? AND archived_at IS NULL`
+	query := `SELECT t.id, t.project_id, t.title, COALESCE(t.agent_id, ''), t.created_by, t.created_at, t.updated_at
+		FROM sys_agent_threads t
+		LEFT JOIN sys_agent_thread_workspace w ON w.project_id = t.project_id AND w.thread_id = t.id
+		WHERE t.project_id=? AND t.archived_at IS NULL`
+	if f.ThreadKind != "" {
+		// 只有按类型过滤时才 join 协作表：旧库（未建协作表）的普通列表必须继续可用，
+		// 未升级环境由 collab_schema 能力探测与写入口返回 workspace_upgrade_required。
+		query = `SELECT t.id, t.project_id, t.title, COALESCE(t.agent_id, ''), t.created_by, t.created_at, t.updated_at
+			FROM sys_agent_threads t
+			LEFT JOIN sys_agent_thread_workspace w ON w.project_id = t.project_id AND w.thread_id = t.id
+			LEFT JOIN sys_agent_thread_collab c ON c.project_id = t.project_id AND c.thread_id = t.id
+			WHERE t.project_id=? AND t.archived_at IS NULL`
+	}
 	args := []any{projectID}
-	if agentID != "" {
-		query += ` AND COALESCE(agent_id, '') = ?`
-		args = append(args, agentID)
+	if f.AgentID != "" {
+		query += ` AND COALESCE(t.agent_id, '') = ?`
+		args = append(args, f.AgentID)
+	}
+	if f.TagID != "" {
+		query += ` AND w.tag_id = ?`
+		args = append(args, f.TagID)
+	}
+	if f.ThreadKind != "" {
+		// 会话类型旁挂表：旧会话无行时按 chat 处理（COALESCE）。
+		query += ` AND COALESCE(c.thread_kind, '` + ThreadKindChat + `') = ?`
+		args = append(args, f.ThreadKind)
 	}
 	if cursor != "" {
 		var n int
@@ -418,10 +426,10 @@ func (s *Store) PageAgentThreads(ctx context.Context, projectID, agentID, cursor
 			return nil, "", ErrAgentThreadCursor
 		}
 		const at = `(SELECT updated_at FROM sys_agent_threads WHERE id=? AND project_id=?)`
-		query += ` AND (updated_at < ` + at + ` OR (updated_at = ` + at + ` AND id < ?))`
+		query += ` AND (t.updated_at < ` + at + ` OR (t.updated_at = ` + at + ` AND t.id < ?))`
 		args = append(args, cursor, projectID, cursor, projectID, cursor)
 	}
-	query += ` ORDER BY updated_at DESC, id DESC LIMIT ?`
+	query += ` ORDER BY t.updated_at DESC, t.id DESC LIMIT ?`
 	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -431,7 +439,7 @@ func (s *Store) PageAgentThreads(ctx context.Context, projectID, agentID, cursor
 	out := make([]AgentThread, 0)
 	for rows.Next() {
 		var t AgentThread
-		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.StarterTemplate, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.AgentID, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, "", err
 		}
 		out = append(out, t)
@@ -460,11 +468,7 @@ func (s *Store) AgentThreadPreview(ctx context.Context, projectID, threadID stri
 	if err != nil {
 		return "", err
 	}
-	runes := []rune(text)
-	if len(runes) > 80 {
-		text = string(runes[:80])
-	}
-	return text, nil
+	return strutil.TruncateRunes(text, 80), nil
 }
 
 // ArchiveAgentThread 软删线程。
@@ -511,9 +515,7 @@ func (s *Store) AppendAgentMessage(ctx context.Context, msg AgentMessage) (Agent
 		return AgentMessage{}, err
 	}
 	title := strings.TrimSpace(msg.Content)
-	if runes := []rune(title); len(runes) > 30 {
-		title = string(runes[:30])
-	}
+	title = strutil.TruncateRunes(title, 30)
 	if msg.Role == "user" && title != "" {
 		_, _ = s.db.ExecContext(ctx,
 			`UPDATE sys_agent_threads SET updated_at = ?, title = CASE WHEN title IN ('New thread', '云 Agent', '云助手') THEN ? ELSE title END WHERE id = ?`,
@@ -724,8 +726,7 @@ func scanCloudAgent(sc rowScanner) (CloudAgent, error) {
 	var a CloudAgent
 	var toolJSON string
 	var team int64
-	var writable int64
-	if err := sc.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Module, &a.Description, &a.SystemPrompt, &toolJSON, &a.ModelOverride, &team, &a.CreatedAt, &a.UpdatedAt, &a.BuiltinKey, &writable); err != nil {
+	if err := sc.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Module, &a.Description, &a.SystemPrompt, &toolJSON, &a.ModelOverride, &team, &a.CreatedAt, &a.UpdatedAt, &a.BuiltinKey); err != nil {
 		return CloudAgent{}, err
 	}
 	ids, err := unmarshalStringSlice(toolJSON)
@@ -734,7 +735,6 @@ func scanCloudAgent(sc rowScanner) (CloudAgent, error) {
 	}
 	a.ToolIDs = ids
 	a.TeamEnabled = team != 0
-	a.Writable = writable != 0
 	return a, nil
 }
 

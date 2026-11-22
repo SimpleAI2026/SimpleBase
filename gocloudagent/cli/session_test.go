@@ -11,7 +11,7 @@ import (
 func newTestSession(t *testing.T) *Session {
 	t.Helper()
 	env := testEnv(t)
-	s, err := NewSession(env, Config{Endpoint: "http://e", ProjectID: "p1"}, "/tmp/work")
+	s, err := NewSession(env, Config{Endpoint: "http://e"}, "/tmp/work")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestSessionReopenRoundTrip(t *testing.T) {
 	if len(msgs) != 2 || msgs[0].Content != "第一条" || msgs[1].Role != "assistant" {
 		t.Fatalf("messages = %+v", msgs)
 	}
-	if reopened.Meta.ProjectID != "p1" || reopened.Meta.Cwd != "/tmp/work" {
+	if reopened.Meta.Endpoint != "http://e" || reopened.Meta.Cwd != "/tmp/work" {
 		t.Fatalf("meta = %+v", reopened.Meta)
 	}
 }

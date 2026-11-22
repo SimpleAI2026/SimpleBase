@@ -1,35 +1,5 @@
 //go:build linux
 
-// 文件说明：capabilities.go — vm/box 实现的三个可选能力：日志、监听、入站端口
-//
-// 这三个能力都建立在 M1 的常驻 agent 之上，所以在这里落地：
-//   Logs      进程输出在 box 层已经落盘（box/session.go 的 sinks），这里只做查询与类型转换
-//   Watch     agent 用 inotify 监听，box 把事件转成 vm.FileEvent
-//   DialPort  agent 在沙盒内连 127.0.0.1:port，box 把中继包成 io.ReadWriteCloser
-//
-// 用法
-//
-//	d.Logs(ctx, name, vm.LogQuery{Lines: 100})
-//	w, err := d.Watch(ctx, t, "/workspace", vm.WatchOptions{Recursive: true})
-//	conn, err := d.DialPort(ctx, name, 8080)
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm（LogSource / Watcher / PortDialer）
-//	         │ 实现这三个接口
-//	         ▼
-//	[本文件] gosandbox/vm/box/capabilities.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/box, gosandbox/proto
-//	[同包] driver_linux.go
-//
-// 主要符号
-//
-//	(d *Driver) Logs(ctx, name string, q vm.LogQuery) ([]vm.LogRecord, error)
-//	(d *Driver) Watch(ctx, t vm.Target, path string, opt vm.WatchOptions) (vm.FileWatch, error)
-//	(d *Driver) DialPort(ctx, name string, port uint16) (io.ReadWriteCloser, error)
-
 package box
 
 import (
@@ -101,6 +71,10 @@ func toVMLogs(recs []gosandboxbox.Record) []vm.LogRecord {
 
 // Watch 实现 vm.Watcher：监听沙盒内的目录。
 func (d *Driver) Watch(ctx context.Context, t vm.Target, path string, opt vm.WatchOptions) (vm.FileWatch, error) {
+	path, err := vm.CleanPath(d.workdir(t), path, true)
+	if err != nil {
+		return nil, err
+	}
 	s, err := d.ensure(ctx, t)
 	if err != nil {
 		return nil, err
@@ -153,8 +127,13 @@ func (f *fileWatch) Events() <-chan vm.FileEvent {
 	return out
 }
 
-// Err 实现 vm.FileWatch：正常关闭返回 nil。
-func (f *fileWatch) Err() error { return nil }
+// Err 实现 vm.FileWatch：正常关闭返回 nil，丢事件时要求调用方重扫。
+func (f *fileWatch) Err() error {
+	if f.w.Overflowed() {
+		return gosandboxbox.ErrWatchOverflow
+	}
+	return nil
+}
 
 // Close 实现 vm.FileWatch。
 func (f *fileWatch) Close() error { return f.w.Close() }

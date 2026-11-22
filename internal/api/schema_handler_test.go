@@ -284,19 +284,19 @@ func TestSchemaTableRowsValidation(t *testing.T) {
 }
 
 func TestSchemaRowsOrderFallback(t *testing.T) {
-	sqlText, err := schemaRowsSelectSQL("events", []schemaColumnJSON{
+	sqlText, err := schemaRowsSelectSQLWhere("events", []schemaColumnJSON{
 		{Name: "name", Type: "VARCHAR"},
 		{Name: "occurred_at", Type: "TIMESTAMP"},
 		{Name: "id", Type: "VARCHAR"},
-	}, false)
+	}, false, "")
 	if err != nil || !strings.Contains(sqlText, `ORDER BY "occurred_at" DESC, "id" ASC`) {
 		t.Fatalf("%s %v", sqlText, err)
 	}
-	sqlText, err = schemaRowsSelectSQL("notes", []schemaColumnJSON{{Name: "body", Type: "VARCHAR"}}, false)
+	sqlText, err = schemaRowsSelectSQLWhere("notes", []schemaColumnJSON{{Name: "body", Type: "VARCHAR"}}, false, "")
 	if err != nil || !strings.Contains(sqlText, `ORDER BY "body" ASC`) {
 		t.Fatalf("%s %v", sqlText, err)
 	}
-	if _, err := schemaRowsSelectSQL("t", nil, false); err == nil {
+	if _, err := schemaRowsSelectSQLWhere("t", nil, false, ""); err == nil {
 		t.Fatal("expected empty columns error")
 	}
 }
@@ -304,9 +304,9 @@ func TestSchemaRowsOrderFallback(t *testing.T) {
 // 列名来自 information_schema，用户可通过 SQL 接口创建含 " 的列；
 // 拼进 SELECT 时必须双写转义，否则能提前闭合标识符。
 func TestSchemaRowsSelectEscapesQuotedColumn(t *testing.T) {
-	sqlText, err := schemaRowsSelectSQL("t", []schemaColumnJSON{
+	sqlText, err := schemaRowsSelectSQLWhere("t", []schemaColumnJSON{
 		{Name: `a" , (SELECT 1) AS "b`, Type: "VARCHAR"},
-	}, false)
+	}, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

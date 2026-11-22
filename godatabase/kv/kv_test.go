@@ -23,7 +23,7 @@ func openTestStoreRaw(t *testing.T) *sql.DB {
 	f := &filedb.Factory{
 		DataRoot: t.TempDir(),
 		CacheDir: t.TempDir(),
-		Syncer:   filedb.NewNopSyncer(),
+		Syncer:   filedb.NewLocalSyncer(),
 	}
 	db, err := f.Open(context.Background(), godatabase.Spec{
 		ID:           uuid.NewString(),

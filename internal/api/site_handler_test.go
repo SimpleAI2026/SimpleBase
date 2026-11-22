@@ -23,7 +23,7 @@ const sitePID = "prj00001"
 func timeZero() time.Time { return time.Time{} }
 
 func siteCfg() config.SitesConfig {
-	return config.SitesConfig{Enabled: true, BaseDomain: "simplebase.top", URLScheme: "https", IndexDocument: "index.html", NotFoundDocument: "404.html"}
+	return config.SitesConfig{Subdomain: true, BaseDomain: "simplebase.top", URLScheme: "https", IndexDocument: "index.html", NotFoundDocument: "404.html"}
 }
 
 // siteRouter 构造带站点分流的完整路由（项目 sitePID 已发布，seed 中的路径已公开）。
@@ -56,7 +56,6 @@ func siteRouter(t *testing.T, mutate func(*Dependencies)) (*echo.Echo, Dependenc
 			t.Fatal(err)
 		}
 	}
-	must(sys.SetProjectSite(ctx, sitePID, true, "user:u1"))
 	must(sys.SetPublicPath(ctx, sitePID, "blog/", systemdb.PublicPathFolder, true, "u"))
 	must(sys.SetPublicPath(ctx, sitePID, "index.html", systemdb.PublicPathFile, true, "u"))
 	must(sys.SetPublicPath(ctx, sitePID, "404.html", systemdb.PublicPathFile, true, "u"))
@@ -168,14 +167,13 @@ func TestSiteHostDispatchBoundaries(t *testing.T) {
 			t.Fatalf("host %q must not serve site", h)
 		}
 	}
-	// 关闭站点 → 404
-	deps.Sites.Invalidate(sitePID)
-	if err := deps.System.SetProjectSite(context.Background(), sitePID, false, ""); err != nil {
+	// 撤销全部公开路径 → 404
+	if err := deps.System.DeletePublicPathsUnder(context.Background(), sitePID, ""); err != nil {
 		t.Fatal(err)
 	}
 	deps.Sites.Invalidate(sitePID)
 	if rec := siteGet(e, http.MethodGet, sitePID+".simplebase.top", "/", nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("disabled site: %d", rec.Code)
+		t.Fatalf("unpublished site: %d", rec.Code)
 	}
 	// 系统项目永不服务
 	if rec := siteGet(e, http.MethodGet, catalog.ReservedSystemProjectID+".simplebase.top", "/", nil); rec.Code != http.StatusNotFound {
@@ -183,11 +181,11 @@ func TestSiteHostDispatchBoundaries(t *testing.T) {
 	}
 }
 
-func TestSiteDisabledByConfig(t *testing.T) {
-	e, _, _ := siteRouter(t, func(d *Dependencies) { d.Config.Sites.Enabled = false })
+func TestSiteWithoutDomainNotServed(t *testing.T) {
+	e, _, _ := siteRouter(t, func(d *Dependencies) { d.Config.Sites.BaseDomain = "" })
 	rec := siteGet(e, http.MethodGet, sitePID+".simplebase.top", "/index.html", nil)
 	if strings.Contains(rec.Body.String(), "root") {
-		t.Fatal("sites.enabled=false must not serve")
+		t.Fatal("unconfigured site domain must not serve")
 	}
 }
 
@@ -207,12 +205,14 @@ func TestSiteContentType(t *testing.T) {
 
 // --- 管理 API ---
 
-func siteAdminRouter(t *testing.T, perms []auth.Permission, writable bool, pid string, sitesEnabled bool) (*echo.Echo, *systemdb.Store) {
+func siteAdminRouter(t *testing.T, perms []auth.Permission, writable bool, pid string, siteDomain bool) (*echo.Echo, *systemdb.Store) {
 	t.Helper()
 	deps, _ := fullRouterDeps(t)
 	store := deps.System
 	cfg := siteCfg()
-	cfg.Enabled = sitesEnabled
+	if !siteDomain {
+		cfg.BaseDomain = ""
+	}
 	w := writable
 	h := &S3Handler{store: objectstore.NewMemoryFileStore(), index: store, writable: &w, sites: NewSiteStore(store, 0), sitesCfg: cfg}
 	e := echo.New()
@@ -230,7 +230,6 @@ func siteAdminRouter(t *testing.T, perms []auth.Permission, writable bool, pid s
 	})
 	req := func(perm auth.Permission) echo.MiddlewareFunc { return auth.Require(perm, PrincipalFromContext) }
 	e.GET("/s3/site", h.GetSite, req(auth.DatabaseRead))
-	e.PUT("/s3/site", h.PutSite, req(auth.DatabaseAdmin))
 	e.GET("/s3/public", h.ListPublic, req(auth.DatabaseRead))
 	e.PUT("/s3/public", h.PutPublic, req(auth.DatabaseAdmin))
 	e.GET("/s3/objects", h.ListObjects, req(auth.DatabaseRead))
@@ -253,13 +252,8 @@ func TestSiteAdminAPI(t *testing.T) {
 	rec := jsonReq(e, http.MethodGet, "/s3/site", "")
 	var info siteInfoDTO
 	_ = json.Unmarshal(rec.Body.Bytes(), &info)
-	if rec.Code != 200 || info.Enabled || !info.Publishable {
+	if rec.Code != 200 || !info.Publishable || info.BaseURL != "https://"+sitePID+".simplebase.top" {
 		t.Fatalf("initial site: %d %+v", rec.Code, info)
-	}
-	rec = jsonReq(e, http.MethodPut, "/s3/site", `{"enabled":true}`)
-	_ = json.Unmarshal(rec.Body.Bytes(), &info)
-	if rec.Code != 200 || !info.Enabled || info.BaseURL != "https://"+sitePID+".simplebase.top" {
-		t.Fatalf("enable: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = jsonReq(e, http.MethodPut, "/s3/public", `{"key":"blog/","kind":"folder","public":true}`)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"publicUrl":"https://`+sitePID+`.simplebase.top/blog/"`) {
@@ -289,7 +283,7 @@ func TestSiteAdminAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	evs, err := store.QueryAudits(context.Background(), systemdb.AuditQuery{ProjectID: sitePID, Limit: 50})
-	if err != nil || len(evs) < 3 {
+	if err != nil || len(evs) < 2 {
 		t.Fatalf("audits=%v err=%v", evs, err)
 	}
 	for _, ev := range evs {
@@ -307,7 +301,7 @@ func TestSiteAdminAPI(t *testing.T) {
 func TestSiteAdminAPIGuards(t *testing.T) {
 	// 写权限不足
 	e, _ := siteAdminRouter(t, []auth.Permission{auth.DatabaseRead, auth.DatabaseWrite}, true, sitePID, true)
-	if rec := jsonReq(e, http.MethodPut, "/s3/site", `{"enabled":true}`); rec.Code != http.StatusForbidden {
+	if rec := jsonReq(e, http.MethodPut, "/s3/public", `{"key":"a","kind":"file","public":true}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("write perm must not publish: %d", rec.Code)
 	}
 	if rec := jsonReq(e, http.MethodGet, "/s3/site", ""); rec.Code != 200 {
@@ -315,15 +309,12 @@ func TestSiteAdminAPIGuards(t *testing.T) {
 	}
 	// 只读实例
 	e, _ = siteAdminRouter(t, []auth.Permission{auth.DatabaseAdmin}, false, sitePID, true)
-	if rec := jsonReq(e, http.MethodPut, "/s3/site", `{"enabled":true}`); rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("readonly site: %d", rec.Code)
-	}
 	if rec := jsonReq(e, http.MethodPut, "/s3/public", `{"key":"a","kind":"file","public":true}`); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("readonly public: %d", rec.Code)
 	}
 	// 系统项目拒绝
 	e, _ = siteAdminRouter(t, []auth.Permission{auth.DatabaseAdmin}, true, catalog.ReservedSystemProjectID, true)
-	if rec := jsonReq(e, http.MethodPut, "/s3/site", `{"enabled":true}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "site_not_publishable") {
+	if rec := jsonReq(e, http.MethodPut, "/s3/public", `{"key":"a","kind":"file","public":true}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "site_not_publishable") {
 		t.Fatalf("system project: %d %s", rec.Code, rec.Body.String())
 	}
 	rec := jsonReq(e, http.MethodGet, "/s3/site", "")
@@ -332,17 +323,17 @@ func TestSiteAdminAPIGuards(t *testing.T) {
 	}
 	// 含大写的项目 ID
 	e, _ = siteAdminRouter(t, []auth.Permission{auth.DatabaseAdmin}, true, "PRJ00001", true)
-	if rec := jsonReq(e, http.MethodPut, "/s3/site", `{"enabled":true}`); rec.Code != http.StatusBadRequest {
+	if rec := jsonReq(e, http.MethodPut, "/s3/public", `{"key":"a","kind":"file","public":true}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("upper id: %d", rec.Code)
 	}
-	// sites.enabled=false
+	// 未配置站点域名
 	e, _ = siteAdminRouter(t, []auth.Permission{auth.DatabaseAdmin}, true, sitePID, false)
 	rec = jsonReq(e, http.MethodGet, "/s3/site", "")
-	if !strings.Contains(rec.Body.String(), `"publishable":false`) || !strings.Contains(rec.Body.String(), siteReasonDisabled) {
-		t.Fatalf("disabled cfg: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"publishable":false`) || !strings.Contains(rec.Body.String(), siteReasonNoDomain) {
+		t.Fatalf("no domain cfg: %s", rec.Body.String())
 	}
 	if rec := jsonReq(e, http.MethodPut, "/s3/public", `{"key":"a","kind":"file","public":true}`); rec.Code != http.StatusBadRequest {
-		t.Fatalf("disabled cfg put: %d", rec.Code)
+		t.Fatalf("no domain cfg put: %d", rec.Code)
 	}
 }
 
@@ -354,15 +345,9 @@ func TestSiteListDecorationAndDeleteCleanup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 未发布：有 public 字段但没有 publicUrl
 	_ = store.SetPublicPath(ctx, sitePID, "blog/", systemdb.PublicPathFolder, true, "")
 	_ = store.SetPublicPath(ctx, sitePID, "top.html", systemdb.PublicPathFile, true, "")
 	rec := jsonReq(e, http.MethodGet, "/s3/objects?delimiter=/", "")
-	if rec.Code != 200 || strings.Contains(rec.Body.String(), "publicUrl") {
-		t.Fatalf("unpublished list: %s", rec.Body.String())
-	}
-	jsonReq(e, http.MethodPut, "/s3/site", `{"enabled":true}`)
-	rec = jsonReq(e, http.MethodGet, "/s3/objects?delimiter=/", "")
 	var out struct {
 		Folders    []string          `json:"folders"`
 		Objects    []s3ObjectDTO     `json:"objects"`
@@ -372,7 +357,7 @@ func TestSiteListDecorationAndDeleteCleanup(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Folders) != 2 || out.Folders[0] != "blog/" || !out.Site.Enabled {
+	if len(out.Folders) != 2 || out.Folders[0] != "blog/" || !out.Site.Publishable {
 		t.Fatalf("folders=%v site=%+v", out.Folders, out.Site)
 	}
 	if !out.FolderMeta[0].Public || out.FolderMeta[0].PublicInherited != "" || out.FolderMeta[1].Public {

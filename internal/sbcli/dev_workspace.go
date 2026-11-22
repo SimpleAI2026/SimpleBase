@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
+	"github.com/linkxzhou/SimpleBase/godatabase/hashx"
 )
 
 const (

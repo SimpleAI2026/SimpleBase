@@ -1,34 +1,3 @@
-// 文件说明：manifest.go — godatabase/ducklake 中 Manifest、ErrManifestChainBroken 等符号的实现
-//
-// 用法
-//
-//	NewManifest(seq, snapshotID int64, snapshotKey, catalogEngine string, writerEpoch ...
-//	IsManifestChainBroken(err error) bool  // IsManifestChainBroken 判定错误是否为 manifest 断链
-//	ReadLatestManifest(ctx context.Context, store blob.Store, remote RemoteStorage ...  // ReadLatestManifest 返回当前最大 seq 的 manifest
-//	同包调用：Manifest → catalog_syncer.go；IsManifestChainBroken() → catalog_syncer.go；ReadLatestManifest() → catalog_syncer.go
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/manifest.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/blob
-//	[同包] catalog_syncer.go, errors.go, extension.go, factory.go, gated_conn.go 等 14 个
-//	[关键引用] Manifest ← catalog_syncer.go
-//
-// 主要符号
-//
-//	type Manifest struct {…}
-//	var ErrManifestChainBroken
-//	IsManifestChainBroken(err error) bool
-//	ReadLatestManifest(ctx context.Context, store blob.Store, remote RemoteStorage ...
-//	WriteManifest(ctx context.Context, store blob.Store, remote RemoteStorage ...
-//	NewManifest(seq, snapshotID int64, snapshotKey, catalogEngine string, writerEpoch ...
-//	... 另有 4 个顶层符号
-
 package ducklake
 
 import (

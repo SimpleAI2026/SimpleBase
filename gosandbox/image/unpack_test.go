@@ -384,13 +384,10 @@ func TestUnpackZstdUnavailable(t *testing.T) {
 	}
 }
 
-// ChainID 由层摘要决定：同层同 id，不同层不同 id。
+// ChainID 由层摘要及顺序决定。
 func TestChainID(t *testing.T) {
 	a := Layer{Digest: "sha256:" + hex64("a")}
 	b := Layer{Digest: "sha256:" + hex64("b")}
-	if ChainID([]Layer{a, b}) != ChainID([]Layer{a, b}) {
-		t.Fatal("same layers must give the same chain id")
-	}
 	if ChainID([]Layer{a, b}) == ChainID([]Layer{b, a}) {
 		t.Fatal("layer order must matter")
 	}

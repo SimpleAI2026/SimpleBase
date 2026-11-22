@@ -17,7 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	"github.com/linkxzhou/SimpleBase/godatabase/limit"
 )
 
 // AuditEvent 是 sys_audit_events 一行。

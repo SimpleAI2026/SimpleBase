@@ -200,8 +200,6 @@ func dispatch(resource, action string) commandFunc {
 		return cmdObjectPresign
 	case "site status":
 		return cmdSiteStatus
-	case "site enable":
-		return cmdSiteEnable
 	case "site publish":
 		return cmdSitePublish
 	case "function list":

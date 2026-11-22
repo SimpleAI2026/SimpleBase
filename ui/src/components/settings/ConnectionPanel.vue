@@ -87,6 +87,7 @@
 
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
+import { copyText as copyTextWithToast } from '@/utils/clipboard'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
@@ -146,18 +147,15 @@ function saveAll() {
 }
 
 function copyText(text: string, label: string) {
-  return navigator.clipboard
-    .writeText(text)
-    .then(() => toast.success(t('components.connection.copied', { label })))
-    .catch(() => toast.error(t('components.connection.copyFailed')))
+  return copyTextWithToast(
+    text,
+    () => t('components.connection.copied', { label }),
+    () => t('components.connection.copyFailed')
+  )
 }
 
-/** 登录态 admin 只读；未登录（Key 通道）或 super/user 可重置 */
-const canReset = computed(() => {
-  if (!projectStore.id) return false
-  if (!authStore.user) return true
-  return authStore.isSuper || authStore.isUser
-})
+/** 必须选择项目，且当前身份具备写权限。 */
+const canReset = computed(() => Boolean(projectStore.id) && authStore.canWrite)
 
 function scopeList(value: string): string[] {
   return value.split(',').map((item) => item.trim()).filter(Boolean)

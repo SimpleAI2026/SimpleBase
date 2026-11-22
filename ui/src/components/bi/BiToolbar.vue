@@ -37,19 +37,6 @@
     </Select>
     </div>
 
-    <!-- 图表类型：Agent 生成时的偏好类型，与数据源同一排（planv6.7 ui-simplify-ux-plan） -->
-    <div v-if="chartType" class="flex min-w-0 flex-wrap items-center gap-2">
-      <span class="text-sm text-muted-foreground">{{ t('pages.dataBrowser.chartType') }}</span>
-      <Select :model-value="chartType" @update:model-value="emit('update:chartType', String($event) as BiChartType)">
-        <SelectTrigger class="w-full sm:w-40" size="sm" :aria-label="t('pages.dataBrowser.chartType')" data-field="chart-type">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem v-for="type in ALL_TYPES" :key="type" :value="type">{{ t(`components.bi.types.${type}`) }}</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-
     <div class="ml-auto flex flex-wrap items-center gap-2">
       <Select :model-value="refreshKey" @update:model-value="emit('update:refresh', String($event) as RefreshKey)">
         <SelectTrigger class="w-32" size="sm" :aria-label="t('components.bi.refresh.label')" data-field="refresh">
@@ -106,8 +93,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import type { BiChartType, CollectionInfo, DatabaseItem, SchemaTable } from '@/services/types'
-import { ALL_TYPES } from '@/utils/bi-compat'
+import type { CollectionInfo, DatabaseItem, SchemaTable } from '@/services/types'
 import { decodeSource, encodeSource, type BiSource, type BiSourceKind } from '@/utils/bi-source'
 
 export type RefreshKey = 'off' | 's30' | 'm1' | 'm5'
@@ -127,15 +113,12 @@ const props = defineProps<{
   canEditSchema: boolean
   canCreateView: boolean
   canImport: boolean
-  /** 页面级「偏好图表类型」；不传则不显示该下拉（没有数据源时）。 */
-  chartType?: BiChartType
 }>()
 
 const emit = defineEmits<{
   'select-database': [id: string]
   'select-source': [source: BiSource]
   'update:refresh': [key: RefreshKey]
-  'update:chartType': [type: BiChartType]
   refresh: []
   action: [action: DataAction]
 }>()

@@ -79,7 +79,7 @@
           </div>
           <textarea
             v-model="bodyText"
-            class="sb-code-view sb-mono min-h-[160px] w-full min-w-0 max-w-full flex-1 resize-y whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] rounded-lg border border-border bg-card p-3 text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="sb-code-view sb-mono min-h-[160px] w-full flex-1 resize-y rounded-lg border border-border bg-card p-3 text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
             spellcheck="false"
           />
           <p v-if="bodyError" class="text-xs text-destructive">{{ bodyError }}</p>
@@ -105,11 +105,11 @@
           </div>
           <Alert v-if="result && !result.ok" variant="destructive">
             <AlertTitle>{{ t('components.goFuncTest.runFailedTitle') }}</AlertTitle>
-            <AlertDescription class="sb-code-view max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">{{ result.error }}</AlertDescription>
+            <AlertDescription class="sb-code-view">{{ result.error }}</AlertDescription>
           </Alert>
           <pre
             v-if="result"
-            class="sb-code-view sb-mono max-h-56 max-w-full min-w-0 overflow-auto whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] rounded-lg border bg-card p-3 text-xs leading-relaxed"
+            class="sb-code-view sb-mono max-h-56 overflow-auto rounded-lg border bg-card p-3 text-xs leading-relaxed"
           >{{ prettyData }}</pre>
           <p v-else class="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
             {{ t('components.goFuncTest.notSent') }}
@@ -121,6 +121,7 @@
 </template>
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
+import { copyText } from '@/utils/clipboard'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
@@ -224,13 +225,11 @@ function validateBody() {
 }
 
 async function copyUrl() {
-  try {
-    await navigator.clipboard.writeText(invokeUrl.value)
-    toast.success(t('components.goFuncTest.copiedPath'))
-  } catch {
-    /* v8 ignore next */
-    toast.error(t('components.goFuncTest.copyFailed'))
-  }
+  await copyText(
+    invokeUrl.value,
+    () => t('components.goFuncTest.copiedPath'),
+    () => t('components.goFuncTest.copyFailed')
+  )
 }
 
 async function send() {

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/gosandbox/image"
 	"github.com/linkxzhou/SimpleBase/gosandbox/netx"
 	"github.com/linkxzhou/SimpleBase/gosandbox/snapshot"
@@ -19,6 +18,7 @@ import (
 	boxvm "github.com/linkxzhou/SimpleBase/gosandbox/vm/box"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm/fake"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm/local"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/config"
@@ -53,7 +53,6 @@ func (a *App) assembleSandbox(ctx context.Context, cfg config.Config, logger obs
 			}
 		}
 		if driver != nil {
-			driver = vm.WithLogging(driver, driverLog)
 			a.sandboxMgr = sandbox.NewManager(cfg.Sandbox, sandboxStoreAdapter{s: a.systemStore}, driver)
 			if logger != nil {
 				a.sandboxMgr.SetLogger(logger)
@@ -112,14 +111,14 @@ func splitHostPortLoose(addr string) (string, string, error) {
 
 func (s *sandboxAdapter) Available() bool { return s.m.Available() }
 
-func (s *sandboxAdapter) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (cloudagent.SandboxOutput, error) {
+func (s *sandboxAdapter) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (agentbridge.SandboxOutput, error) {
 	out, err := s.m.ExecForThread(ctx, projectID, threadID, sandbox.ExecInput{Cmd: cmd, Args: args})
-	return cloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
+	return agentbridge.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
 }
 
-func (s *sandboxAdapter) Shell(ctx context.Context, projectID, threadID, command string) (cloudagent.SandboxOutput, error) {
+func (s *sandboxAdapter) Shell(ctx context.Context, projectID, threadID, command string) (agentbridge.SandboxOutput, error) {
 	out, err := s.m.ExecForThread(ctx, projectID, threadID, sandbox.ExecInput{Command: command})
-	return cloudagent.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
+	return agentbridge.SandboxOutput{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, err
 }
 
 func (s *sandboxAdapter) ReadFile(ctx context.Context, projectID, threadID, path string) (string, error) {

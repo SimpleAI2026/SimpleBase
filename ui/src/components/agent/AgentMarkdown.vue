@@ -9,7 +9,19 @@
 import { computed } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { formatJson } from '@/utils/format'
 
 const props = defineProps<{ content: string }>()
-const html = computed(() => DOMPurify.sanitize(marked.parse(props.content, { async: false, gfm: true, breaks: true }) as string, { USE_PROFILES: { html: true } }))
+
+function formatJSON(content: string): string {
+  const trimmed = content.trim()
+  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return content
+  try {
+    return '```json\n' + formatJson(JSON.parse(trimmed) as unknown) + '\n```'
+  } catch {
+    return content
+  }
+}
+
+const html = computed(() => DOMPurify.sanitize(marked.parse(formatJSON(props.content), { async: false, gfm: true, breaks: true }) as string, { USE_PROFILES: { html: true } }))
 </script>

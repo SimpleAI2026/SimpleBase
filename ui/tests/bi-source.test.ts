@@ -5,8 +5,6 @@ import {
 import { fieldMap } from '@/utils/bi-compat'
 import { buildDefaultWidgets, type BiDefaultLabels } from '@/utils/bi-defaults'
 import { storageKey } from '@/composables/useBiDashboard'
-import { threadKey, buildAgentFields } from '@/composables/useBiAgent'
-import { validateAgentWidget } from '@/utils/bi-agent-block'
 import type { CollectionField, DocumentItem } from '@/services/types'
 
 const labels: BiDefaultLabels = {
@@ -79,8 +77,6 @@ describe('source identity', () => {
     expect(storageKey({ projectId: 'p', databaseId: 'd', collection: 'orders' })).toBe('sb_bi_v1:p:d:orders')
     expect(storageKey({ projectId: 'p', databaseId: 'd', collection: 'orders', kind: 'collection' })).toBe('sb_bi_v1:p:d:orders')
     expect(storageKey({ projectId: 'p', databaseId: 'd', collection: 'orders', kind: 'table' })).toBe('sb_bi_v1:p:d:table:orders')
-    expect(threadKey({ projectId: 'p', databaseId: 'd', collection: 'orders' })).toBe('sb_bi_thread_v1:p:d:orders')
-    expect(threadKey({ projectId: 'p', databaseId: 'd', collection: 'orders', kind: 'table' })).toBe('sb_bi_thread_v1:p:d:table:orders')
   })
 })
 
@@ -90,22 +86,6 @@ describe('built-in time columns belong to collections only', () => {
     expect([...fieldMap([f('a', 'text')], false).keys()]).toEqual(['a'])
   })
 
-  it('agent field list invents no created_at for a SQL table', () => {
-    expect(buildAgentFields([f('a', 'text')]).map((x) => x.name)).toEqual(['a', 'created_at', 'updated_at'])
-    expect(buildAgentFields([f('a', 'text')], false).map((x) => x.name)).toEqual(['a'])
-    // 表自己有 created_at 列时照常传一次，不重复。
-    expect(buildAgentFields([f('created_at', 'date')], false)).toEqual([{ name: 'created_at', type: 'date' }])
-  })
-
-  it('an agent block using created_at is rejected on a table without that column, accepted on a collection', () => {
-    const block = { version: 1, title: '趋势', type: 'line', metrics: ['count'], groupBy: 'created_at:day' }
-    expect(validateAgentWidget(block, [f('a', 'text')], 'w1', true).ok).toBe(true)
-    const r = validateAgentWidget(block, [f('a', 'text')], 'w1', false)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.reason).toBe('field_unknown')
-    // 表里确实有这个列时放行。
-    expect(validateAgentWidget(block, [f('created_at', 'date')], 'w1', false).ok).toBe(true)
-  })
 })
 
 describe('default board for a SQL table', () => {

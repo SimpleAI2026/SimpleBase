@@ -55,7 +55,7 @@ func TestStartBuildsArgvAndEnv(t *testing.T) {
 		t.Fatalf("PTY sessions need a TERM: %v", gotSpec.Command.Env)
 	}
 	for _, e := range gotSpec.Command.Env {
-		if strings.HasPrefix(e, "SIMPLEBASE_") {
+		if strings.HasPrefix(e, "SECRET_HOST_") {
 			t.Fatalf("host env leaked: %s", e)
 		}
 	}

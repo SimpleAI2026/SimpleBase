@@ -32,7 +32,7 @@ func newCaptureServer(t *testing.T, cap *capturedRequest, handler http.HandlerFu
 		handler(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	return &HTTPClient{Endpoint: srv.URL, Token: "sk-test", ProjectID: "proj1"}
+	return &HTTPClient{Endpoint: srv.URL + "/v1", Token: "sk-test"}
 }
 
 func sampleToolRequest() agentcore.ChatRequest {
@@ -50,13 +50,13 @@ func sampleToolRequest() agentcore.ChatRequest {
 	}
 }
 
-// 路径必须是 {endpoint}/v1/projects/{project}/v1/chat/completions（双 v1）。
-func TestClientURLHasDoubleV1(t *testing.T) {
-	c := &HTTPClient{Endpoint: "http://127.0.0.1:8080/", ProjectID: "faayefdq"}
-	if got := c.url("/chat/completions"); got != "http://127.0.0.1:8080/v1/projects/faayefdq/v1/chat/completions" {
+// The client appends resource paths to the caller-provided base URL.
+func TestClientURLUsesConfiguredBase(t *testing.T) {
+	c := &HTTPClient{Endpoint: "http://127.0.0.1:8080/tenant/v1/"}
+	if got := c.url("/chat/completions"); got != "http://127.0.0.1:8080/tenant/v1/chat/completions" {
 		t.Fatalf("url=%s", got)
 	}
-	if got := c.url("/models"); got != "http://127.0.0.1:8080/v1/projects/faayefdq/v1/models" {
+	if got := c.url("/models"); got != "http://127.0.0.1:8080/tenant/v1/models" {
 		t.Fatalf("url=%s", got)
 	}
 }
@@ -71,7 +71,7 @@ func TestChatRequestIsOpenAIShaped(t *testing.T) {
 	if _, err := c.Chat(context.Background(), "", sampleToolRequest()); err != nil {
 		t.Fatal(err)
 	}
-	if cap.Method != http.MethodPost || cap.Path != "/v1/projects/proj1/v1/chat/completions" {
+	if cap.Method != http.MethodPost || cap.Path != "/v1/chat/completions" {
 		t.Fatalf("request = %s %s", cap.Method, cap.Path)
 	}
 	if cap.Auth != "Bearer sk-test" {
@@ -327,7 +327,7 @@ func TestProbeHitsModels(t *testing.T) {
 	if err := c.Probe(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if cap.Method != http.MethodGet || cap.Path != "/v1/projects/proj1/v1/models" {
+	if cap.Method != http.MethodGet || cap.Path != "/v1/models" {
 		t.Fatalf("probe = %s %s", cap.Method, cap.Path)
 	}
 }

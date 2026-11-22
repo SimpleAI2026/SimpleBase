@@ -120,6 +120,6 @@ type DeltaStream interface {
 
 // ChatClient is the LLM gateway surface used by the eino ChatModel adapter.
 type ChatClient interface {
-	Chat(ctx context.Context, projectID string, req ChatRequest) (ChatResponse, error)
-	Stream(ctx context.Context, projectID string, req ChatRequest) (TokenStream, error)
+	Chat(ctx context.Context, scope string, req ChatRequest) (ChatResponse, error)
+	Stream(ctx context.Context, scope string, req ChatRequest) (TokenStream, error)
 }

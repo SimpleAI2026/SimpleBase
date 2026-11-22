@@ -14,7 +14,7 @@
 //	[本文件] internal/systemdb/locator.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/atomicfile
+//	[下游] godatabase/atomicfile
 //	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //	[关键引用] Locator ← bootstrap.go, store.go
 //
@@ -34,7 +34,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
 )
 
 const locatorFileName = "locator.json"

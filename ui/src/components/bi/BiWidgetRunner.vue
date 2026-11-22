@@ -6,23 +6,19 @@
     :resolved="resolved"
     :pending="query.pending.value"
     :error="query.error.value"
-    :preview="preview"
     :readonly="readonly"
     @edit="emit('edit', widget)"
     @duplicate="emit('duplicate', widget.id)"
     @remove="emit('remove', widget)"
     @retry="load"
-    @add="emit('add', widget)"
-    @discard="emit('discard', widget.id)"
-    @fix="(error) => emit('fix', widget.title, error)"
     @select="onSelect"
   />
 </template>
 
 <script setup lang="ts">
 // BiWidgetRunner：一个 widget 的「请求 + 渲染」运行单元（planv6.7 §4.2）。
-// 看板内与 Agent 预览共用：页面只传 widget 与全局条件，这里持有自己的 useBiQuery，
-// 全局条件 / widget 配置 / 刷新信号任何一个变化都会重新请求；旧响应由 useBiQuery 的令牌丢弃。
+// 页面只传 widget 与全局条件，这里持有自己的 useBiQuery；
+// 全局条件 / widget 配置 / 刷新信号任何一个变化都会重新请求，旧响应由 useBiQuery 的令牌丢弃。
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
@@ -44,21 +40,17 @@ const props = withDefaults(
     globalFilter: string
     /** 递增的刷新信号（手动 / 自动刷新）。 */
     refreshTick: number
-    preview?: boolean
     readonly?: boolean
     /** 数据源是否有内置 created_at / updated_at：集合有，SQL 表没有。 */
     builtinTime?: boolean
   }>(),
-  { preview: false, readonly: false, builtinTime: true }
+  { readonly: false, builtinTime: true }
 )
 
 const emit = defineEmits<{
   edit: [widget: BiWidget]
   duplicate: [id: string]
   remove: [widget: BiWidget]
-  add: [widget: BiWidget]
-  discard: [id: string]
-  fix: [title: string, error: string]
   chip: [chip: FilterChip]
   /** 聚合结果就绪：页面用它给「自动」类型回填类目数（不重复请求）。 */
   result: [id: string]
@@ -187,6 +179,6 @@ function onSelect(payload: { name: string; seriesName: string; value: unknown })
   if (chip) emit('chip', chip)
 }
 
-// 暴露给页面：KPI 行需要读结果，预览需要读错误。
+// 暴露给页面：集成测试与看板可读取查询状态和解析后的图表类型。
 defineExpose({ query, reload: load, resolved })
 </script>

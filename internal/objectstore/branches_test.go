@@ -312,46 +312,6 @@ func TestMemoryBlobRemaining(t *testing.T) {
 	}
 }
 
-func TestDescriptorValidateRemaining(t *testing.T) {
-	ok := func() *Descriptor {
-		return &Descriptor{
-			FormatVersion:   2,
-			TenantID:        "11111111-1111-1111-1111-111111111111",
-			ProjectID:       "pro-test",
-			DatabaseID:      "33333333-3333-3333-3333-333333333333",
-			CreatedAt:       time.Now(),
-			DuckLakeStorage: DuckLakeStorage{Bucket: "b", Region: "r", Prefix: "p"},
-			DataPrefix:      "p",
-			Status:          StatusReady,
-			Engine:          "ducklake",
-		}
-	}
-	cases := []struct {
-		name string
-		d    *Descriptor
-		sub  string
-	}{
-		{"nil", nil, "nil"},
-		{"ver0", func() *Descriptor { d := ok(); d.FormatVersion = 0; return d }(), "positive"},
-		{"no created", func() *Descriptor { d := ok(); d.CreatedAt = time.Time{}; return d }(), "created_at"},
-		{"no bucket", func() *Descriptor { d := ok(); d.DuckLakeStorage.Bucket = ""; return d }(), "bucket"},
-		{"no region", func() *Descriptor { d := ok(); d.DuckLakeStorage.Region = ""; return d }(), "region"},
-		{"no prefix", func() *Descriptor { d := ok(); d.DuckLakeStorage.Prefix = ""; return d }(), "prefix"},
-		{"no data prefix", func() *Descriptor { d := ok(); d.DataPrefix = ""; return d }(), "data_prefix"},
-		{"no status", func() *Descriptor { d := ok(); d.Status = ""; return d }(), "status"},
-		{"bad tenant", func() *Descriptor { d := ok(); d.TenantID = "not-uuid"; return d }(), "tenant_id"},
-	}
-	for _, tc := range cases {
-		err := tc.d.Validate()
-		if err == nil || !strings.Contains(err.Error(), tc.sub) {
-			t.Errorf("%s: want %q got %v", tc.name, tc.sub, err)
-		}
-	}
-	if err := ok().Validate(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestKeyBuilderRemaining(t *testing.T) {
 	kb := KeyBuilder{RootPrefix: "/simplebase/"}
 	proj := "prj12345"
@@ -367,13 +327,6 @@ func TestKeyBuilderRemaining(t *testing.T) {
 	}
 	if _, err := kb.DescriptorKey(proj, "short"); err == nil {
 		t.Fatal("invalid db")
-	}
-	// invalid dash positions / non-hex
-	if err := validateID("id", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"); err == nil {
-		t.Fatal("non-hex")
-	}
-	if err := validateID("id", "11111111x1111-1111-1111-111111111111"); err == nil {
-		t.Fatal("missing dash")
 	}
 	if joinKey("", "/a/", "", "b") != "a/b" {
 		t.Fatalf("joinKey: %q", joinKey("", "/a/", "", "b"))

@@ -20,9 +20,6 @@ import { httpApi } from '@/services/http-api'
 const pid = 'proj 1'
 const db = 'db 1'
 
-function ok(data: unknown) {
-  return Promise.resolve({ data })
-}
 
 describe('httpApi', () => {
   beforeEach(() => {
@@ -592,8 +589,28 @@ describe('httpApi', () => {
     expect((await httpApi.agentThreads.page(pid, 'a1', 1)).threads[0].last_message_preview).toBe('预览')
     http.get.mockResolvedValueOnce({ data: {} })
     expect((await httpApi.agentThreads.page(pid)).next_cursor).toBe('')
+    // planv6.7 AGC-NAV：分区分页 pageBy 与新字段映射。
+    http.get.mockResolvedValueOnce({
+      data: { threads: [{ id: 'tw', title: 'w', tag_id: 'tag-1', dispatch_mode: 'auto', created_at: 'c', updated_at: 'u' }], next_cursor: 'tw' }
+    })
+    const wp = await httpApi.agentThreads.pageBy(pid, { tagId: 'general', limit: 20, cursor: 'c1' })
+    expect(wp.threads[0]).toMatchObject({ id: 'tw', tag_id: 'tag-1', dispatch_mode: 'auto' })
+    expect(http.get.mock.calls.at(-1)?.[1].params).toMatchObject({ tag_id: 'general', limit: 20, cursor: 'c1' })
+    http.get.mockResolvedValueOnce({ data: { threads: [{ id: 'tw2', title: 'w2', created_at: 'c', updated_at: 'u' }] } })
+    const wp2 = await httpApi.agentThreads.pageBy(pid, {})
+    expect(wp2.threads[0].tag_id).toBeUndefined()
+    expect(wp2.threads[0].dispatch_mode).toBeUndefined()
     http.post.mockResolvedValueOnce({ data: { id: 't' } })
     await httpApi.agentThreads.create(pid, 'title')
+    // planv6.7 AGC-NAV：create 的 options 形态（tag/dispatch_mode/source 全透传）。
+    http.post.mockResolvedValueOnce({ data: { id: 't2', tag_id: 'tag-1', dispatch_mode: 'auto' } })
+    const created = await httpApi.agentThreads.create(pid, { tagId: 'tag-1', dispatchMode: 'auto', source: 'workspace' })
+    expect(created).toMatchObject({ id: 't2', tag_id: 'tag-1', dispatch_mode: 'auto' })
+    expect(http.post.mock.calls.at(-1)?.[1]).toEqual({ tag_id: 'tag-1', dispatch_mode: 'auto', source: 'workspace' })
+    // planv6.7 AGC-NAV：单会话详情（深链补齐）。
+    http.get.mockResolvedValueOnce({ data: { id: 't3', title: 'x', agent_id: 'a1', created_at: 'c', updated_at: 'u' } })
+    expect((await httpApi.agentThreads.get(pid, 't3')).agent_id).toBe('a1')
+    expect(http.get.mock.calls.at(-1)?.[0]).toContain('/agent-threads/t3')
     http.patch.mockResolvedValueOnce({ data: { id: 't', title: 'new' } })
     expect((await httpApi.agentThreads.rename(pid, 't', 'new')).title).toBe('new')
     http.get.mockResolvedValueOnce({ data: { runs: [{ id: 'r', duration_ms: 20 }] } })
@@ -606,10 +623,45 @@ describe('httpApi', () => {
       data: { messages: [{ id: 'm', role: 'user', content: 'c', mentions: [], tool_calls: [], created_at: 't' }] }
     })
     expect((await httpApi.agentThreads.messages(pid, 't'))[0].role).toBe('user')
+    // planv6.7 AGC-ROUTE：assistant 消息带 route_kind；非法值归一为 undefined。
+    http.get.mockResolvedValueOnce({
+      data: { messages: [{ id: 'm2', role: 'assistant', content: 'c', route_kind: 'fallback', created_at: 't' }] }
+    })
+    expect((await httpApi.agentThreads.messages(pid, 't'))[0].route_kind).toBe('fallback')
+    http.get.mockResolvedValueOnce({
+      data: { messages: [{ id: 'm3', role: 'assistant', content: 'c', route_kind: 'bogus', created_at: 't' }] }
+    })
+    expect((await httpApi.agentThreads.messages(pid, 't'))[0].route_kind).toBeUndefined()
     http.get.mockResolvedValueOnce({ data: {} })
     expect(await httpApi.agentThreads.messages(pid, 't')).toEqual([])
     http.post.mockResolvedValueOnce({ data: { id: 'r', status: 'canceled' } })
     expect((await httpApi.agentThreads.cancel(pid, 'r')).status).toBe('canceled')
+
+    // planv6.7 AGC-NAV：工作台标签 CRUD。
+    http.get.mockResolvedValueOnce({
+      data: { tags: [{ id: 'alerts', builtin_key: 'alerts', name: '告警', agent_ids: ['a1'], prompts: [{ id: 'p1', title: 't', content: 'c' }], version: 1 }] }
+    })
+    const tags = await httpApi.agentTags.list(pid)
+    expect(tags[0]).toMatchObject({ id: 'alerts', builtinKey: 'alerts', name: '告警', agentIds: ['a1'], version: 1 })
+    expect(tags[0].prompts[0]).toEqual({ id: 'p1', title: 't', content: 'c' })
+    expect(http.get.mock.calls.at(-1)?.[0]).toContain('/agent-tags')
+    http.post.mockResolvedValueOnce({ data: { id: 'tag-2', name: '发布检查', version: 1 } })
+    await httpApi.agentTags.create(pid, { name: '发布检查', agentIds: ['a1'], prompts: [] })
+    expect(http.post.mock.calls.at(-1)?.[1]).toEqual({
+      agent_ids: ['a1'],
+      prompts: [],
+      name: '发布检查'
+    })
+    http.patch.mockResolvedValueOnce({ data: { id: 'tag-2', name: '发布检查', version: 2 } })
+    await httpApi.agentTags.patch(pid, 'tag-2', { agentIds: ['a1', 'a2'], prompts: [], expectedVersion: 1 })
+    expect(http.patch.mock.calls.at(-1)?.[1]).toEqual({
+      agent_ids: ['a1', 'a2'],
+      prompts: [],
+      expected_version: 1
+    })
+    http.delete.mockResolvedValueOnce({ data: {} })
+    await httpApi.agentTags.remove(pid, 'tag-2')
+    expect(http.delete.mock.calls.at(-1)?.[0]).toContain('/agent-tags/tag-2')
 
     // planv6.6 DC-5：agentSchedules 整组 API 已删除，审批队列接续其后。
     http.get.mockResolvedValueOnce({
@@ -667,13 +719,45 @@ describe('httpApi', () => {
         ]
       }
     })
-    const servers = await httpApi.mcpServers.list(pid)
+    const { servers, builtin } = await httpApi.mcpServers.list(pid)
     expect(servers[0].name).toBe('github')
     expect(servers[0].tools_policy.search?.read_only).toBe(true)
     expect(servers[0].header_names).toEqual(['Authorization'])
+    expect(builtin).toEqual([])
 
     http.get.mockResolvedValueOnce({ data: {} })
-    expect(await httpApi.mcpServers.list(pid)).toEqual([])
+    expect(await httpApi.mcpServers.list(pid)).toEqual({ servers: [], builtin: [] })
+
+    // 内置 MCP：列表映射、开关与进程内测试。
+    http.get.mockResolvedValueOnce({
+      data: {
+        servers: [{ id: 'm9', name: 'simplebase', name_conflict: true }],
+        builtin: [
+          {
+            name: 'simplebase',
+            enabled: true,
+            url: 'https://a/v1/projects/p/mcp',
+            tools: [{ name: 'sql_query', read_only: true }, {}]
+          },
+          {}
+        ]
+      }
+    })
+    const listed = await httpApi.mcpServers.list(pid)
+    expect(listed.servers[0].name_conflict).toBe(true)
+    expect(listed.builtin[0].tools[0]).toEqual({ name: 'sql_query', read_only: true, destructive: false })
+    expect(listed.builtin[0].tools[1].name).toBe('')
+    expect(listed.builtin[1].transport).toBe('http')
+    expect(listed.builtin[1].tools).toEqual([])
+    http.put.mockResolvedValueOnce({ data: {} })
+    await httpApi.mcpServers.setBuiltinEnabled(pid, 'simplebase', false)
+    expect(http.put).toHaveBeenLastCalledWith(expect.stringContaining('/mcp/builtin/simplebase/state'), {
+      enabled: false
+    })
+    http.post.mockResolvedValueOnce({ data: { ok: true, tools: ['sql_query'] } })
+    expect((await httpApi.mcpServers.testBuiltin(pid, 'simplebase')).tools).toEqual(['sql_query'])
+    http.post.mockResolvedValueOnce({ data: { ok: false, error: 'connect_failed' } })
+    expect((await httpApi.mcpServers.testBuiltin(pid, 'simplebase')).error).toBe('connect_failed')
 
     http.post.mockResolvedValueOnce({ data: { id: 'm2', name: 'fs' } })
     expect((await httpApi.mcpServers.create(pid, { name: 'fs', url: 'https://x/mcp' })).id).toBe('m2')
@@ -690,7 +774,7 @@ describe('httpApi', () => {
 
     // 缺省字段全部走兜底（DTO 转换的分支）。
     http.get.mockResolvedValueOnce({ data: { servers: [{}] } })
-    const blank = (await httpApi.mcpServers.list(pid))[0]
+    const blank = (await httpApi.mcpServers.list(pid)).servers[0]
     expect(blank.transport).toBe('http')
     expect(blank.timeout_s).toBe(60)
     expect(blank.tools_policy).toEqual({})
@@ -810,6 +894,38 @@ describe('httpApi', () => {
     await vi.waitFor(() => expect(ev).toContain('err'))
     expect(ev).not.toContain('end')
     expect(ev).toEqual(expect.arrayContaining(['run:r1', 'tok:hi', 'tok:!', 'call:sql', 'res:sql', 'err']))
+
+    // planv6.7 AGC-ROUTE：run 事件带 agent_id/route_kind；route 帧 routing → done。
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: (name: string) => (name.toLowerCase() === 'x-run-id' ? null : 'text/event-stream') },
+      body: {
+        getReader: () =>
+          makeReader([
+            'data: {"type":"run","run_id":"r2"}\n\n',
+            'data: {"type":"route","status":"routing"}\n\n',
+            'data: {"type":"route","status":"done","agent_id":"a-db","route_kind":"fallback"}\n\n',
+            'data: {"type":"run","run_id":"r3","agent_id":"a-kv","route_kind":"mention"}\n\n',
+            'data: {"type":"route","status":"done","route_kind":"bogus"}\n\n',
+            'data: {"type":"end","reason":"stop"}\n\n'
+          ])
+      }
+    })
+    const routeLog: string[] = []
+    httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, {
+      onRun: (id, agentId, routeKind) => routeLog.push(`run:${id}|${agentId ?? ''}|${routeKind ?? ''}`),
+      onRoute: (e) => routeLog.push(`route:${e.status}|${e.agentId ?? ''}|${e.routeKind ?? ''}`)
+    })
+    await vi.waitFor(() =>
+      expect(routeLog).toContain('run:r3|a-kv|mention')
+    )
+    expect(routeLog).toEqual([
+      'run:r2||',
+      'route:routing||',
+      'route:done|a-db|fallback',
+      'run:r3|a-kv|mention',
+      'route:done||'
+    ])
 
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -956,6 +1072,15 @@ describe('httpApi', () => {
     expect(await httpApi.cronjobs.list(pid)).toEqual([])
     http.get.mockResolvedValueOnce({ data: { nope: true } })
     expect(await httpApi.logs.list(pid)).toEqual([])
+    // planv6.7 AGC-NAV / v2：标签缺字段兜底（数组归 []、version 归 0、路由提示词为空串）。
+    http.get.mockResolvedValueOnce({ data: { tags: [{}] } })
+    expect(await httpApi.agentTags.list(pid)).toEqual([
+      {
+        id: '', builtinKey: undefined, name: '', agentIds: [], prompts: [],
+        unavailableAgentIds: [], routingPrompt: '', fallbackAgentId: undefined,
+        humanPolicy: undefined, threadKinds: [], version: 0, updatedAt: undefined
+      }
+    ])
   })
 
   it('reconnects an agent run and posts confirmation', async () => {
@@ -1353,6 +1478,8 @@ describe('httpApi', () => {
     // attachAgentRun：透传 SSE 事件流（fetch 流式解析）
     const sseChunks = [
       `data: ${JSON.stringify({ type: 'run', run_id: 'r1' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'task', task_id: 't1', status: 'running' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'task', task_id: 't2', status: 'future-status' })}\n\n`,
       `data: ${JSON.stringify({ type: 'token', content: 'hi' })}\n\n`,
       `data: ${JSON.stringify({ type: 'end' })}\n\n`
     ]
@@ -1382,11 +1509,18 @@ describe('httpApi', () => {
       const events: Record<string, unknown>[] = []
       const conn = httpApi.agentThreads.attachRun(pid, 'r1', {
         onRun: (id) => events.push({ type: 'run', id }),
+        onTask: (ev) => events.push({ type: 'task', status: ev.status }),
         onToken: (t) => events.push({ type: 'token', t }),
         onEnd: () => events.push({ type: 'end' })
       })
       await new Promise((r) => setTimeout(r, 20))
-      expect(events).toEqual([{ type: 'run', id: 'r1' }, { type: 'token', t: 'hi' }, { type: 'end' }])
+      expect(events).toEqual([
+        { type: 'run', id: 'r1' },
+        { type: 'task', status: 'running' },
+        { type: 'task', status: 'pending' },
+        { type: 'token', t: 'hi' },
+        { type: 'end' }
+      ])
       conn.close()
     } finally {
       vi.unstubAllGlobals()

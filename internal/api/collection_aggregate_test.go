@@ -33,7 +33,7 @@ func aggFixture(t *testing.T, engine string, scan int) func(query string) (int, 
 		t.Fatal(err)
 	}
 	db := catalog.Database{ID: "db-1", ProjectID: "prj00001", DatabasePath: path, DataModel: catalog.DataModelCollection}
-	svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewNopSyncer()}}
+	svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewLocalSyncer()}}
 	schema := &collection.Collection{Name: "orders", Fields: []collection.Field{
 		{Name: "status", Type: "select", Options: collection.FieldOptions{Values: []string{"paid", "open", "void"}}}, {Name: "amount", Type: "number"},
 		{Name: "paid", Type: "bool"}, {Name: "placed", Type: "date"},
@@ -387,7 +387,7 @@ func TestAggregateUnregisteredSchemaDegrades(t *testing.T) {
 	dir := t.TempDir()
 	path, _ := catalog.DatabasePathForProject("prj00001", catalog.EngineSQLite)
 	db := catalog.Database{ID: "db-1", ProjectID: "prj00001", DatabasePath: path, DataModel: catalog.DataModelCollection}
-	svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewNopSyncer()}}
+	svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewLocalSyncer()}}
 	h := NewDataHandler(svc, true).WithCollections(staticSchemas{nil}, 50000)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {

@@ -4,9 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
-
-	"go.uber.org/zap"
 )
 
 func TestSpecIsSystem(t *testing.T) {
@@ -95,56 +92,4 @@ func TestValidateProjectPath(t *testing.T) {
 	if err := ValidateProjectPath("", "", ""); err == nil {
 		t.Fatal("empty system id must not turn an empty project into a system project")
 	}
-}
-
-func TestRecordingLoggerAndObserver(t *testing.T) {
-	l := &RecordingLogger{}
-	l.Debug("d")
-	l.Info("registry: opened", zap.String("k", "v"))
-	l.Warn("w")
-	l.Error("registry: failed")
-	if len(l.Entries()) != 4 {
-		t.Fatalf("entries = %d", len(l.Entries()))
-	}
-	if l.Count("", "registry:") != 2 || l.Count("error", "registry:") != 1 || l.Count("warn", "registry:") != 0 {
-		t.Fatalf("count mismatch: %+v", l.Entries())
-	}
-
-	o := &RecordingObserver{}
-	o.OpenHandleDelta(1)
-	o.OpenHandleDelta(1)
-	o.OpenHandleDelta(-1)
-	o.CacheBytes(42)
-	o.CacheEvicted()
-	o.CatalogLocalAhead()
-	o.CatalogSync("ok", time.Second, false)
-	o.CatalogSync("error", time.Millisecond, true)
-	o.CatalogSyncLag("db", 3)
-	o.CatalogSyncConflict("db")
-	o.CatalogSize("db", 99)
-	if o.Handles.Load() != 1 || o.Bytes.Load() != 42 || o.Evictions.Load() != 1 || o.LocalAhead.Load() != 1 {
-		t.Fatalf("counters: %+v", o)
-	}
-	if o.SyncOK.Load() != 1 || o.SyncFailed.Load() != 1 || o.LastOutcome() != "error" || o.Conflicts.Load() != 1 {
-		t.Fatalf("sync counters: ok=%d failed=%d outcome=%s", o.SyncOK.Load(), o.SyncFailed.Load(), o.LastOutcome())
-	}
-	if v, ok := o.Lag("db"); !ok || v != 3 {
-		t.Fatalf("lag = %d %v", v, ok)
-	}
-	if v, ok := o.CatalogBytes("db"); !ok || v != 99 {
-		t.Fatalf("catalog bytes = %d %v", v, ok)
-	}
-	if _, ok := o.Lag("none"); ok {
-		t.Fatal("unknown db must report not found")
-	}
-
-	var n NopObserver
-	n.OpenHandleDelta(1)
-	n.CacheBytes(1)
-	n.CacheEvicted()
-	n.CatalogSync("ok", 0, false)
-	n.CatalogSyncLag("d", 0)
-	n.CatalogSyncConflict("d")
-	n.CatalogSize("d", 0)
-	n.CatalogLocalAhead()
 }

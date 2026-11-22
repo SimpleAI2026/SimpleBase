@@ -16,7 +16,7 @@ description: 在本地用 SimpleBase 开发全栈应用（Go 云函数、SQL 迁
    - **站点面只读、没有后端接口**：先看 `references/sites.md` §0 判断案例能否直接发布。`jd`、`shop` 的前端调的是同源 BFF，发布后需把 `web/config.js` 的 `apiBase` 指向另起的 BFF（示例 BFF 已放开 CORS `*`，仅限本地与演示）。
    - **编译 BFF 依赖（`examples`）**：`packages/js-sdk/dist/index.js` 只服务 `shop`、`jd`、`iot-telemetry` 的 `server/main.mjs`，与前端静态产物无关；运行 BFF 前先执行 `cd packages/js-sdk && npm run build`（Go 案例 `community`、`ops-assistant` 执行 `go build ./examples/<case>/...`）。
    - **编译前端静态产物**：执行前端构建（如 `npm run build` 产出 `dist/`，根含 `index.html`；单页应用用 Hash 路由，且严禁把 `SIMPLEBASE_API_KEY` 打入前端产物）。`jd` / `shop` 的 `web/` 本身就是静态目录，无需构建，直接 `--dist web`。
-   - **上传对象存储并通过子域名访问**：本地实例开启 `SIMPLEBASE_SITES_ENABLED=true SIMPLEBASE_SITES_BASE_DOMAIN=localhost SIMPLEBASE_SITES_URL_SCHEME=http SIMPLEBASE_SITES_URL_PORT=8080` 后，执行 `python3 scripts/sbdev.py site deploy -C <dir> --dist <构建目录> [--prefix <目录/>]`（自动扫描密钥、逐文件 `object upload`、开启项目站点开关与路径外部访问开关），即可通过 `http://<project_id>.localhost:8080/`（或 `curl -H "Host: <project_id>.localhost" http://127.0.0.1:8080/`）访问运行站点。**不带 `--prefix` 会公开整个对象根**，项目已有业务对象时用 `--prefix web/`。完整细节见 `references/sites.md`。
+   - **上传对象存储并通过子域名访问**：本地实例配置 `SIMPLEBASE_SITES_BASE_DOMAIN=localhost SIMPLEBASE_SITES_URL_SCHEME=http SIMPLEBASE_SITES_URL_PORT=8080` 后，执行 `python3 scripts/sbdev.py site deploy -C <dir> --dist <构建目录> [--prefix <目录/>]`（自动扫描密钥、逐文件 `object upload`、开启路径外部访问开关），即可通过 `http://<project_id>.localhost:8080/`（或 `curl -H "Host: <project_id>.localhost" http://127.0.0.1:8080/`）访问运行站点。**不带 `--prefix` 会公开整个对象根**，项目已有业务对象时用 `--prefix web/`。完整细节见 `references/sites.md`。
 5. **发布到云端**：
    - 后端：`plan --env-file .env.cloud`，把变更清单给用户看，用户明确同意后才执行 `apply --env-file .env.cloud --yes`（不带 `--yes` 只打印计划并以退出码 3 退出）。plan 里出现 `update function` 或迁移含 DROP/DELETE 警告时，要单独向用户指出。
    - 静态站点：先执行 `site deploy -C <dir> --dist <构建目录> --env-file .env.cloud` 预览上传清单与公开范围（退出码 3），经用户明确同意后再加 `--yes` 上传并开启 `https://<project_id>.<base_domain>/` 子域名访问。
@@ -41,7 +41,7 @@ description: 在本地用 SimpleBase 开发全栈应用（Go 云函数、SQL 迁
 - **破坏性与对外公开操作不自动做**：重放不删除远端资源，不触发 cron。删库、删函数、删任务、删对象、`cron trigger`、`--seed` 写云端、以及在云端开启/下线站点（`site deploy` / `site unpublish`），都要用户明确同意后再执行。
 - **数据不搬**：默认只同步结构和代码。`--seed` 只用于开发夹具，不要对生产执行。
 - **失败处理**：根据 `error.code` 修参数或代码。同一条命令原样重试不会有不同结果；`lease_*`、`too_many_go_runs` 这类错误可以稍后重试一次。错误码速查见 `references/cli.md`。
-- 控制台云助手使用的是另一份内置 skill（`gocloudagent/skills/simplebase`），本 skill 不适用于那里。
+- 控制台云助手使用宿主内置技能；本 skill 不适用于那里。
 
 ## 参考
 

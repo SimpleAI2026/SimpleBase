@@ -1,33 +1,3 @@
-// 文件说明：codec.go — gosandbox/proto 的帧编解码
-//
-// 用法
-//
-//	Frame(kind Kind, payload []byte) []byte  // Frame 补上 len 与 kind
-//	(m *Msg) Encode() ([]byte, error)  // Encode 只生成 payload，不含 len/kind
-//	Decode(kind Kind, payload []byte) (Msg, error)  // Decode 按 kind 解析 payload
-//	ReadFrame(r io.Reader, kind *Kind, payload *[]byte) error  // ReadFrame 从流里读一帧
-//
-// 调用架构
-//
-//	[上游] gosandbox/box（Supervisor）、cmd（agent）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/proto/codec.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] proto.go
-//
-// 主要符号
-//
-//	type Msg struct {…}
-//	type Entry struct {…}
-//	type Stats struct {…}
-//	Frame(kind Kind, payload []byte) []byte
-//	ReadFrame(r io.Reader, kind *Kind, payload *[]byte) error
-//	Decode(kind Kind, payload []byte) (Msg, error)
-//	(m *Msg) Encode() ([]byte, error)
-
 package proto
 
 import (

@@ -15,7 +15,7 @@
 //	[本文件] internal/auth/session.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/hashx
+//	[下游] godatabase/hashx
 //	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
 //	[关键引用] SessionService ← middleware.go, observer.go
 //
@@ -40,7 +40,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
+	"github.com/linkxzhou/SimpleBase/godatabase/hashx"
 )
 
 // 会话错误。

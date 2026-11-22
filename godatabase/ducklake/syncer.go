@@ -1,34 +1,3 @@
-// 文件说明：syncer.go — godatabase/ducklake 中 Syncer、BindingSyncer 等符号的实现
-//
-// 用法
-//
-//	NewLocalSyncer() *LocalSyncer
-//	(s *LocalSyncer) MarkDirty(dbID string, snapshotID int64)
-//	(s *LocalSyncer) LastSynced(dbID string) int64
-//	同包调用：Sync() → catalog_syncer.go, factory.go 等；MarkDirty() → catalog_syncer.go, factory.go；LastSynced() → catalog_syncer.go, factory.go
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/syncer.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase
-//	[同包] catalog_syncer.go, errors.go, extension.go, factory.go, gated_conn.go 等 14 个
-//	[关键引用] Sync() ← catalog_syncer.go, factory.go, orphan_ledger.go
-//
-// 主要符号
-//
-//	type Syncer interface {…}
-//	type BindingSyncer interface {…}
-//	type LocalSyncer struct {…}
-//	NewLocalSyncer() *LocalSyncer
-//	(s *LocalSyncer) MarkDirty(dbID string, snapshotID int64)
-//	(s *LocalSyncer) LastSynced(dbID string) int64
-//	... 另有 2 个顶层符号
-
 package ducklake
 
 import (

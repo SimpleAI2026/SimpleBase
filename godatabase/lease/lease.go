@@ -1,34 +1,3 @@
-// 文件说明：lease.go — per-database 写租约（multi-instance-consistency-plan §4.6）
-//
-// 用法
-//
-//	NewManager(store blob.Store, keys blob.KeyBuilder, cfg Config) *Manager
-//	IsHeld(err error) bool  // IsHeld 判定错误是否为「他人持租」
-//	(m *Manager) EnableProjectScope()  // EnableProjectScope 切换为用户项目级租约（同一项目文件只有一把写租约）
-//	同包调用：ErrLeaseHeld → gate.go；ErrAcquiring → gate.go；Manager → gate.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/lease/lease.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/blob
-//	[同包] gate.go
-//	[关键引用] ErrLeaseHeld ← gate.go
-//
-// 主要符号
-//
-//	type Config struct {…}
-//	type Payload struct {…}
-//	var ErrLeaseHeld
-//	var ErrAcquiring
-//	IsHeld(err error) bool
-//	type Manager struct {…}
-//	... 另有 21 个顶层符号
-
 package lease
 
 import (

@@ -1,33 +1,3 @@
-// 文件说明：driver.go — gosandbox/vm 中 VMRunning、VMStopped 等符号的实现
-//
-// 用法
-//
-//	type Spec（导出类型，同包与上层均可使用）
-//	type Target（导出类型，同包与上层均可使用）
-//	同包调用：Spec → logged.go；Target → logged.go；ExecSpec → logged.go
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/fake, gosandbox/vm/local, internal/api 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/vm/driver.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] errors.go, logged.go
-//	[关键引用] Spec ← logged.go
-//
-// 主要符号
-//
-//	const VMRunning
-//	const VMStopped
-//	const VMAbsent
-//	type Spec struct {…}
-//	type Target struct {…}
-//	type ExecSpec struct {…}
-//	... 另有 8 个顶层符号
-
 package vm
 
 import (
@@ -36,6 +6,10 @@ import (
 	"syscall"
 	"time"
 )
+
+// LogFunc 接收驱动日志，避免模块依赖具体日志库。
+// level 为 debug / info / warn / error；kv 是交替的键与值。
+type LogFunc func(level, msg string, kv ...any)
 
 // 驱动侧 VM 状态。
 const (

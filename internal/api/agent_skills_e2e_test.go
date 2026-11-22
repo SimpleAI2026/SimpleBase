@@ -323,17 +323,6 @@ func mustListAgents(t *testing.T, store *systemdb.Store) []systemdb.CloudAgent {
 	return list
 }
 
-// setAgentsWritable 切换测试项目全部助手的写开关。
-func setAgentsWritable(t *testing.T, store *systemdb.Store, v bool) {
-	t.Helper()
-	for _, a := range mustListAgents(t, store) {
-		a.Writable = v
-		if _, err := store.UpdateCloudAgent(context.Background(), a); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 func TestAgentSkillsE2E(t *testing.T) {
 	secret := "test-secret"
 	reg := auth.NewDelegationRegistry()
@@ -346,29 +335,20 @@ func TestAgentSkillsE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := systemdb.NewStoreForTest(db)
-	// planv6.0 v2 D-C1a：v48 起助手默认只读。本用例集验证的是写流程，
-	// 因此把内置助手显式标为可写；只读拒绝由 14/15 单独覆盖。
+	// 写能力已不按助手配置（v2 §3.4）：播种后即可执行写流程。
 	if err := store.SeedDefaultCloudAgentsWithCapabilities(context.Background(), "testprj1", false, true); err != nil {
 		t.Fatal(err)
-	}
-	for _, a := range mustListAgents(t, store) {
-		if !a.Writable {
-			a.Writable = true
-			if _, err := store.UpdateCloudAgent(context.Background(), a); err != nil {
-				t.Fatal(err)
-			}
-		}
 	}
 	llm := &scriptLLM{}
 	confirms := newConfirmHub()
 	events := newRunEventHub()
-	rt := &cloudagent.Runtime{
-		LLM: llm, SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
+	provider := &agentbridge.RuntimeProvider{
+		SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
 		APIBaseURL: dataSrv.URL, Policy: agentbridge.NewCommandPolicy(), Issuer: agentbridge.NewDelegationIssuer(secret, reg),
-		// 确认窗口必须短于 RunTimeout。CI 上同机并行包会把调度拖过几秒，
-		// 3s 确认或 20s 运行上限都会在批准发出前到期。超时路径由
-		// "confirmation timeout" 子测试把窗口改成 200ms 覆盖。
-		Confirm: confirms, ConfirmTimeout: 30 * time.Second, DelegationTTL: time.Minute,
+		Confirm: confirms, ConfirmTimeout: 30 * time.Second, DelegationTTL: time.Minute, ToolProtocol: "native",
+	}
+	rt := &cloudagent.Runtime{
+		LLM: llm, Provider: provider, Confirm: confirms, ConfirmTimeout: 30 * time.Second,
 		ToolProtocol: "native", RunTimeout: 2 * time.Minute, MaxIterations: 8,
 	}
 	h := &cloudAgentHandler{store: store, runtime: rt, events: events, confirms: confirms}
@@ -692,13 +672,13 @@ func TestAgentSkillsE2E(t *testing.T) {
 		}
 	})
 
-	t.Run("13 skill not loaded", func(t *testing.T) {
-		_, resp := openRun(t, "删掉所有库", "general", "user", [][]cloudagent.StreamDelta{
-			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
-			textDeltas("no"),
+	t.Run("13 general skills loaded", func(t *testing.T) {
+		_, resp := openRun(t, "列出数据库", "general", "user", [][]cloudagent.StreamDelta{
+			toolDeltas("c1", []string{"database", "list"}),
+			textDeltas("ok"),
 		})
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
-		if len(data.hits) != 0 || !resultIsError(evs, "skill_not_loaded") {
+		if data.count(http.MethodGet, "/databases", true) != 1 || resultIsError(evs, "skill_not_loaded") || lastReason(evs) != "stop" {
 			t.Fatalf("hits %+v results %s", data.hits, joinResults(evs))
 		}
 	})
@@ -714,30 +694,22 @@ func TestAgentSkillsE2E(t *testing.T) {
 		}
 	})
 
-	t.Run("14b readonly agent rejects writes", func(t *testing.T) {
-		// planv6.0 v2 §3.8：助手级只读开关对写命令的拒绝，且不进入确认流程。
-		setAgentsWritable(t, store, false)
-		t.Cleanup(func() { setAgentsWritable(t, store, true) })
+	t.Run("14b destructive write requires human confirmation", func(t *testing.T) {
+		// planv6.7 v2 §3.4：写能力不再按助手配置，破坏性命令一律先进入人工确认。
 		_, resp := openRun(t, "删掉 shop 库", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("no"),
 		})
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
-		if !resultIsError(evs, "write_not_allowed") {
-			t.Fatalf("readonly write must be rejected: %s", joinResults(evs))
-		}
-		// 未进入确认：不应有 confirmation_required，也不应有删除请求。
-		if hasType(evs, "confirmation_required") {
-			t.Fatal("readonly rejection must happen before confirmation")
+		if !hasType(evs, "confirmation_required") {
+			t.Fatalf("destructive write must ask for confirmation: %s", joinResults(evs))
 		}
 		if data.count(http.MethodDelete, "/databases/", false) != 0 {
-			t.Fatalf("delete must not run: %+v", data.hits)
+			t.Fatalf("delete must not run before confirmation: %+v", data.hits)
 		}
 	})
 
-	t.Run("14c readonly agent still allows reads", func(t *testing.T) {
-		setAgentsWritable(t, store, false)
-		t.Cleanup(func() { setAgentsWritable(t, store, true) })
+	t.Run("14c reads are never blocked", func(t *testing.T) {
 		_, resp := openRun(t, "查一下", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"sql", "query", "--database", "shop", "--statement", "SELECT 1"}),
 			textDeltas("ok"),
@@ -769,9 +741,8 @@ func TestAgentSkillsE2E(t *testing.T) {
 		}
 	})
 
-	t.Run("client skills are ignored", func(t *testing.T) {
-		// `@` 只点名助手：请求体里的 skills 不再是入口，未知 id 也不再报 unknown_skill，
-		// 真正生效的技能由助手 module 决定（general 不加载子技能）。
+	t.Run("client skills do not replace module skills", func(t *testing.T) {
+		// `@` 只点名助手：请求体里的 skills 不是入口，通用助手仍使用自己的完整技能集。
 		data.reset()
 		llm.reset([][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "list"}),
@@ -785,15 +756,15 @@ func TestAgentSkillsE2E(t *testing.T) {
 			t.Fatalf("%d %s", resp.StatusCode, b)
 		}
 		evs := readSSE(t, resp.Body, func(ev sseEv) bool { return ev.Type == "end" })
-		if !resultIsError(evs, "skill_not_loaded") || len(data.hits) != 0 {
-			t.Fatalf("general must not inherit client skills: hits %+v results %s", data.hits, joinResults(evs))
+		if resultIsError(evs, "skill_not_loaded") || data.count(http.MethodGet, "/databases", true) != 1 {
+			t.Fatalf("general must keep its module skills: hits %+v results %s", data.hits, joinResults(evs))
 		}
 	})
 
 	t.Run("confirmation timeout", func(t *testing.T) {
-		prev := rt.ConfirmTimeout
-		rt.ConfirmTimeout = 200 * time.Millisecond
-		t.Cleanup(func() { rt.ConfirmTimeout = prev })
+		prev, providerPrev := rt.ConfirmTimeout, provider.ConfirmTimeout
+		rt.ConfirmTimeout, provider.ConfirmTimeout = 200*time.Millisecond, 200*time.Millisecond
+		t.Cleanup(func() { rt.ConfirmTimeout, provider.ConfirmTimeout = prev, providerPrev })
 		_, resp := openRun(t, "删掉", "database", "user", [][]cloudagent.StreamDelta{
 			toolDeltas("c1", []string{"database", "delete", "--id", "shop"}),
 			textDeltas("no"),

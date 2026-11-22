@@ -1,34 +1,3 @@
-// 文件说明：factory.go — 每项目一个 DuckDB/SQLite 主文件的用户数据库运行时
-//
-// 用法
-//
-//	(f *Factory) DatabaseFilePath(meta godatabase.Spec) (string, error)
-//	(f *Factory) Open(ctx context.Context, meta godatabase.Spec, mode ...  // Open 打开项目单文件数据库
-//	同包调用：filePath() → path.go, remote.go 等；Close() → remote.go, snapshot.go；Open() → remote.go
-//
-// 调用架构
-//
-//	[上游] internal/app, internal/backup
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/filedb/factory.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase, godatabase/sqlx
-//	[同包] path.go, remote.go, restore.go, restore_remote.go, snapshot.go 等 6 个
-//	[关键引用] filePath() ← path.go, remote.go, restore.go
-//
-// 主要符号
-//
-//	type Options struct {…}
-//	type Factory struct {…}
-//	(f *Factory) DatabaseFilePath(meta godatabase.Spec) (string, error)
-//	(f *Factory) Open(ctx context.Context, meta godatabase.Spec, mode ...
-//	(f *Factory) AfterWrite(_ context.Context, meta godatabase.Spec, _ *sql.DB) error
-//	(f *Factory) BeforeClose(ctx context.Context, projectID string, _ *sql.DB) error
-//	... 另有 19 个顶层符号
-//	Package filedb 实现每项目一个 DuckDB/SQLite 主文件的用户数据库运行时。
-
 package filedb
 
 import (

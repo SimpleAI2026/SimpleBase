@@ -88,15 +88,8 @@ func TestForceDenyWritePathsHomeOnlyWhenCovered(t *testing.T) {
 	}
 }
 
-func TestForceDenyWritePathsDisabledAndModes(t *testing.T) {
+func TestForceDenyWritePathsModes(t *testing.T) {
 	exists := fakeExists("/work/ws/.git/hooks")
-
-	off := mandatoryPolicy()
-	off.DisableForceDeny = true
-	if got := ForceDenyWritePaths(off, "", exists); got != nil {
-		t.Fatalf("DisableForceDeny must yield none: %v", got)
-	}
-	// read-only 档没有可写区，不需要再盖。
 	ro := mandatoryPolicy()
 	ro.Mode = ModeReadOnly
 	if got := ForceDenyWritePaths(ro, "", exists); got != nil {
@@ -111,58 +104,30 @@ func TestForceDenyWritePathsDisabledAndModes(t *testing.T) {
 
 func TestReadOnlyPathsMergesAndDedups(t *testing.T) {
 	p := mandatoryPolicy()
-	// 用户把 .git/hooks 也写进了 ReadOnlySubpaths：合并后只出现一次。
-	p.ReadOnlySubpaths = []string{".gocloudagent", ".git/hooks", "missing"}
-	exists := fakeExists("/work/ws/.gocloudagent", "/work/ws/.git/hooks", "/work/ws/.vscode")
+	p.ReadOnlySubpaths = []string{".protected", ".git/hooks", "missing"}
+	exists := fakeExists("/work/ws/.protected", "/work/ws/.git/hooks", "/work/ws/.vscode")
 	got := readOnlyPaths(p, "", exists)
-	want := []string{"/work/ws/.gocloudagent", "/work/ws/.git/hooks", "/work/ws/.vscode"}
+	want := []string{"/work/ws/.protected", "/work/ws/.git/hooks", "/work/ws/.vscode"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 
-// 显式空切片只关闭 ReadOnlySubpaths，不关闭强制表。
-func TestExplicitEmptyReadOnlySubpathsKeepsForceDeny(t *testing.T) {
+func TestEmptyReadOnlySubpathsKeepsForceDeny(t *testing.T) {
 	p := mandatoryPolicy()
 	p.ReadOnlySubpaths = []string{}
-	exists := fakeExists("/work/ws/.gocloudagent", "/work/ws/.git/hooks")
-	got := readOnlyPaths(p, "", exists)
+	got := readOnlyPaths(p, "", fakeExists("/work/ws/.protected", "/work/ws/.git/hooks"))
 	if !slices.Equal(got, []string{"/work/ws/.git/hooks"}) {
 		t.Fatalf("got %v", got)
 	}
 }
 
-// D1：默认值不再包含整个 .git；想要旧行为必须显式配置。
-func TestDefaultReadOnlySubpathsExcludesWholeGit(t *testing.T) {
-	if slices.Contains(DefaultReadOnlySubpaths, ".git") {
-		t.Fatalf("default must not make the whole .git read-only: %v", DefaultReadOnlySubpaths)
-	}
-	if !slices.Contains(DefaultReadOnlySubpaths, ".gocloudagent") {
-		t.Fatalf("default must keep .gocloudagent: %v", DefaultReadOnlySubpaths)
-	}
-	// 旧行为仍可显式取得。
+func TestReadOnlyPathsCanProtectWholeGit(t *testing.T) {
 	p := mandatoryPolicy()
-	p.ReadOnlySubpaths = []string{".git", ".gocloudagent"}
-	got := readOnlyPaths(p, "", fakeExists("/work/ws/.git", "/work/ws/.git/hooks", "/work/ws/.gocloudagent"))
+	p.ReadOnlySubpaths = []string{".git"}
+	got := readOnlyPaths(p, "", fakeExists("/work/ws/.git", "/work/ws/.git/hooks"))
 	if !slices.Contains(got, "/work/ws/.git") {
-		t.Fatalf("explicit legacy config must still cover .git: %v", got)
-	}
-}
-
-func TestWarnings(t *testing.T) {
-	p := mandatoryPolicy()
-	if w := Warnings(p); len(w) != 0 {
-		t.Fatalf("default must have no warnings: %v", w)
-	}
-	p.DisableForceDeny = true
-	w := Warnings(p)
-	if len(w) != 1 || !strings.Contains(w[0], "force-deny") {
-		t.Fatalf("warnings = %v", w)
-	}
-	// 未隔离时没有意义，不上报。
-	p.Enabled = false
-	if w := Warnings(p); len(w) != 0 {
-		t.Fatalf("not isolated must not warn: %v", w)
+		t.Fatalf("explicit config must cover .git: %v", got)
 	}
 }
 
@@ -193,15 +158,6 @@ func TestBwrapArgsNoGitWhenMissing(t *testing.T) {
 	args := mustArgs(t, BwrapInput{Policy: mandatoryPolicy(), Exists: fakeExists(), Home: "/home/u"})
 	if strings.Contains(strings.Join(args, " "), ".git") {
 		t.Fatalf("no .git path may be mounted when it does not exist: %v", args)
-	}
-}
-
-func TestBwrapArgsDisableForceDeny(t *testing.T) {
-	p := mandatoryPolicy()
-	p.DisableForceDeny = true
-	args := mustArgs(t, BwrapInput{Policy: p, Exists: fakeExists("/work/ws/.git/hooks"), Home: "/home/u"})
-	if idx(args, "--ro-bind", "/work/ws/.git/hooks", "/work/ws/.git/hooks") >= 0 {
-		t.Fatalf("DisableForceDeny must remove the table: %v", args)
 	}
 }
 

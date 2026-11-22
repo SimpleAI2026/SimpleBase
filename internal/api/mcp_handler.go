@@ -26,21 +26,31 @@ type mcpServerHandler struct {
 	limit int
 	// testConnect 做一次临时连通性测试；为 nil 时 test 接口返回 503（MCP 未启用）。
 	testConnect func(ctx context.Context, srv systemdb.MCPServer) ([]string, error)
+	// builtin 为 nil 表示实例级开关关闭（agent.mcp.builtin=false）。
+	builtin *builtinMCPHandler
+	audit   AuditService
+	// publicURL / publicOverride 用于拼内置 MCP 的对外端点（public_base.go 三级回退）。
+	publicURL, publicOverride string
 }
 
+// ErrMCPNameReserved 表示 Server 名占用了内置 MCP 的保留名（simplebase、sb-*）。
+var ErrMCPNameReserved = errors.New("mcp server name is reserved")
+
 type mcpServerDTO struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Transport     string            `json:"transport"`
-	URL           string            `json:"url"`
-	TimeoutS      int               `json:"timeout_s"`
-	Enabled       bool              `json:"enabled"`
-	ToolsPolicy   map[string]any    `json:"tools_policy"`
-	HeaderNames   []string          `json:"header_names"`
-	HasCredential bool              `json:"has_credential"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	Extra         map[string]string `json:"-"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Transport     string         `json:"transport"`
+	URL           string         `json:"url"`
+	TimeoutS      int            `json:"timeout_s"`
+	Enabled       bool           `json:"enabled"`
+	ToolsPolicy   map[string]any `json:"tools_policy"`
+	HeaderNames   []string       `json:"header_names"`
+	HasCredential bool           `json:"has_credential"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	// NameConflict 标记历史配置占用了内置保留名；Agent 引用时内置 Server 优先。
+	NameConflict bool              `json:"name_conflict,omitempty"`
+	Extra        map[string]string `json:"-"`
 }
 
 // toMCPServerDTO 把存储行转成对外 DTO：headers 只暴露名字，不暴露值。
@@ -67,6 +77,7 @@ func toMCPServerDTO(m systemdb.MCPServer) mcpServerDTO {
 		HasCredential: len(headers) > 0,
 		CreatedAt:     m.CreatedAt,
 		UpdatedAt:     m.UpdatedAt,
+		NameConflict:  reservedMCPName(m.Name),
 	}
 }
 
@@ -83,7 +94,7 @@ func (h *mcpServerHandler) List(c echo.Context) error {
 	for _, m := range list {
 		out = append(out, toMCPServerDTO(m))
 	}
-	return c.JSON(http.StatusOK, map[string]any{"servers": out})
+	return c.JSON(http.StatusOK, map[string]any{"servers": out, "builtin": h.builtinList(c, pc)})
 }
 
 type mcpServerBody struct {
@@ -113,6 +124,9 @@ func (h *mcpServerHandler) Create(c echo.Context) error {
 	}
 	if !validMCPName(name) {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "name must match [A-Za-z0-9_-]+"))
+	}
+	if reservedMCPName(name) {
+		return WriteError(c, ErrMCPNameReserved)
 	}
 	url := strings.TrimSpace(body.URL)
 	if url == "" {
@@ -177,6 +191,9 @@ func (h *mcpServerHandler) Update(c echo.Context) error {
 	if v := strings.TrimSpace(body.Name); v != "" {
 		if !validMCPName(v) {
 			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "name must match [A-Za-z0-9_-]+"))
+		}
+		if reservedMCPName(v) && !strings.EqualFold(v, cur.Name) {
+			return WriteError(c, ErrMCPNameReserved)
 		}
 		cur.Name = v
 	}

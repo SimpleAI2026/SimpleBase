@@ -1,32 +1,5 @@
 //go:build linux
 
-// 文件说明：watch_linux.go — agent 里的目录监听（inotify）
-//
-// 每个监听用一个 inotify fd + 一个 goroutine：把内核事件翻成 WatchEvent 帧
-// 推给宿主。事件在 200ms 内合并一次，避免一个大解压任务刷出几万帧。
-//
-// 用法
-//
-//	s.watch(m proto.Msg)    // 注册
-//	s.unwatch(m proto.Msg)  // 取消
-//
-// 调用架构
-//
-//	[上游] gosandbox/agent（读循环）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/watch_linux.go
-//	         │
-//	         ▼
-//	[下游] golang.org/x/sys/unix、gosandbox/proto
-//	[同包] agent.go, watch_other.go
-//
-// 主要符号
-//
-//	(s *Server) watch(m proto.Msg)
-//	(s *Server) unwatch(m proto.Msg)
-//	(s *Server) stopWatches()
-
 package agent
 
 import (

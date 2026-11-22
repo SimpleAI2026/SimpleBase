@@ -296,11 +296,12 @@ export interface S3FolderMeta {
 
 /** planv6.5：项目站点（发布网站）状态 */
 export interface S3SiteInfo {
-  enabled: boolean
   baseUrl?: string
   publishable: boolean
-  /** 不可发布原因：sites_disabled / system_project / project_id_not_dns_safe */
+  /** 不可发布原因：site_unavailable / site_domain_unconfigured / system_project / project_id_not_dns_safe */
   reason?: string
+  /** 访问方式（planv6.7 §1.3）：path 为默认，subdomain 需显式开启；前端不读环境变量，以此为准 */
+  mode?: 'path' | 'subdomain'
 }
 
 /** PUT /s3/public 的结果 */
@@ -787,8 +788,6 @@ export interface CloudAgent {
   /** 内置助手标识（general/database/s3/logs/sandbox）；空为自定义（planv4.1 BUG-11）。 */
   builtin_key?: string
   team_enabled: boolean
-  /** 该助手是否允许写（planv6.0 v2 §3.2）：默认 false，不可写时只能执行只读命令。 */
-  writable: boolean
   created_at: string
   updated_at: string
 }
@@ -798,8 +797,16 @@ export interface AgentThread {
   title: string
   /** 会话归属的助手（planv6.0 §3.7 修订：每个助手一份会话）。空串为未绑定。 */
   agent_id?: string
+  /** 会话所属的工作台标签 ID。 */
+  tag_id?: string
+  /**
+   * 群会话的调度模式（planv6.7 v2 §5.1）。
+   * 服务端的 'auto' 在读时统一映射为 'collaborative'；空表示固定助手会话。
+   */
+  dispatch_mode?: AgentDispatchMode
+  /** 会话类型（v2）：普通 / 告警 / 统计 / 定时；未升级的旧会话为空。 */
+  thread_kind?: AgentThreadKind
   /** 首页「一句话建应用」搭建会话的模板 id（planv6.6 home-starter-prompts §2.4）；普通会话为空。 */
-  starter_template?: string
   created_at: string
   updated_at: string
   last_message_preview?: string
@@ -838,6 +845,12 @@ export interface ChatMsg {
   thinking?: string
   /** 发出该条助手消息的 Agent module，用于头像与侧栏图标对齐。 */
   module?: string
+  /** 实际回答助手 ID（planv6.7 AGC-ROUTE；服务端确认后才填）。 */
+  agentId?: string
+  /** 本轮路由结论（auto/mention/fallback/retry）。 */
+  routeKind?: AgentRouteKind
+  /** 路由中（auto 会话首帧到 route.done 之间）。 */
+  routing?: boolean
 }
 
 export interface AgentMessage {
@@ -851,7 +864,285 @@ export interface AgentMessage {
   /** 所属 run 状态（planv4.1 BUG-06）：刷新后还原「已停止/失败」。 */
   run_status?: string
   error_code?: string
+  /** 本条 assistant 消息的路由结论（planv6.7 AGC-ROUTE）。 */
+  route_kind?: AgentRouteKind
   created_at: string
+}
+
+/** 路由结论字面量联合（planv6.7 AGC-ROUTE）。 */
+export type AgentRouteKind = 'auto' | 'mention' | 'fallback' | 'retry'
+
+/* ---------- 工作台标签（planv6.7 AGC-NAV） ---------- */
+
+export interface AgentTagPrompt {
+  id: string
+  title: string
+  content: string
+}
+
+/** 标签总览助手条的展示项（planv6.7 AGC-UI）：id + 名称 + module 图标即可。 */
+export interface MentionAgentLike {
+  id: string
+  name: string
+  module?: string
+}
+
+/** 群（标签）是协作群：成员助手 + 路由提示词 + 兜底 + 人工策略（planv6.7 v2）。 */
+export interface AgentTag {
+  id: string
+  /** 内置群：通用 / 告警 / 统计 / 定时。 */
+  builtinKey?: AgentBuiltinTagKey
+  name: string
+  agentIds: string[]
+  prompts: AgentTagPrompt[]
+  /** 配置里已归档/不存在的助手，编辑器标「助手已不可用」。 */
+  unavailableAgentIds: string[]
+  /** 群路由提示词：只决定「谁来做、做什么」，不授予任何权限。 */
+  routingPrompt: string
+  /** 兜底助手（必须是成员）；空表示无兜底，路由失败时请人澄清。 */
+  fallbackAgentId?: string
+  /** 人工策略：'disabled' 表示该群不产生人工任务。 */
+  humanPolicy?: 'disabled'
+  /** 该群可创建的会话类型（内置群有默认值）。 */
+  threadKinds: AgentThreadKind[]
+  version: number
+  updatedAt?: string
+}
+
+/** 内置群 key（planv6.7 v2 §4.1）。 */
+export type AgentBuiltinTagKey = 'general' | 'alerts' | 'stats' | 'scheduled'
+
+export interface AgentTagInput {
+  name?: string
+  agentIds: string[]
+  prompts: AgentTagPrompt[]
+  routingPrompt?: string
+  fallbackAgentId?: string
+  humanPolicy?: 'disabled'
+  expectedVersion?: number
+}
+
+/** 会话类型：普通 / 告警 / 统计 / 定时。 */
+export type AgentThreadKind = 'chat' | 'alert' | 'statistics' | 'scheduled'
+
+export interface AgentThreadCreateOptions {
+  title?: string
+  agentId?: string
+  tagId?: string
+  dispatchMode?: AgentDispatchMode
+  threadKind?: AgentThreadKind
+  source?: 'workspace' | 'starter'
+}
+
+/** 会话的调度模式（v2 起 auto 读时统一映射为 collaborative）。 */
+export type AgentDispatchMode = 'auto' | 'collaborative'
+
+export interface AgentThreadPageQuery {
+  agentId?: string
+  tagId?: string
+  limit?: number
+  cursor?: string
+}
+
+/** SSE route 事件（planv6.7 AGC-ROUTE / v2）：routing / done，done 可带分工步骤。 */
+export interface AgentRouteEvent {
+  status: 'routing' | 'done'
+  agentId?: string
+  routeKind?: AgentRouteKind
+  /** v2：本轮分工（路由卡）；旧单助手事件为空。 */
+  steps?: AgentDispatchStep[]
+}
+
+/** 分工步骤：交给某位助手或某个人。 */
+export interface AgentDispatchStep {
+  kind: 'agent' | 'human'
+  agentId?: string
+  instruction: string
+  routeKind?: AgentRouteKind
+  /** 对应任务 ID：前端据此立刻建立任务态，不必等快照。 */
+  taskId?: string
+}
+
+/* ---------- 协作轮次与任务（planv6.7 v2） ---------- */
+
+export type AgentTaskTargetKind = 'agent' | 'human'
+
+/** 任务状态（与后端 systemdb 常量一致）。 */
+export const AGENT_TASK_STATUSES = [
+  'pending',
+  'running',
+  'waiting_human',
+  'completed',
+  'failed',
+  'blocked',
+  'canceled',
+  'interrupted'
+] as const
+export type AgentTaskStatus = (typeof AGENT_TASK_STATUSES)[number]
+
+export interface AgentTask {
+  id: string
+  turnId: string
+  seq: number
+  targetKind: AgentTaskTargetKind
+  targetId: string
+  instruction: string
+  status: AgentTaskStatus
+  attempt: number
+  runId?: string
+  assigneeId?: string
+  replyText?: string
+  replyOutcome?: 'continue' | 'unable'
+  repliedBy?: string
+  dependsOn: string[]
+  errorCode?: string
+  version: number
+  createdAt: string
+}
+
+export type AgentTurnStatus =
+  | 'routing'
+  | 'running'
+  | 'waiting_human'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+  | 'interrupted'
+
+export interface AgentTurn {
+  id: string
+  threadId: string
+  tagId?: string
+  status: AgentTurnStatus
+  errorCode?: string
+  /** 路由卡原始 JSON（字符串，由前端按需解析）。 */
+  route?: string
+  version: number
+  createdAt: string
+  updatedAt: string
+  tasks: AgentTask[]
+  /** 事件表最大序号，供续传。 */
+  lastEventSeq: number
+}
+
+/** 人工待办项（跨会话聚合）。 */
+export interface AgentHumanTask {
+  taskId: string
+  turnId: string
+  threadId: string
+  threadTitle?: string
+  tagId?: string
+  instruction: string
+  status: string
+  assigneeId: string
+  version: number
+  createdAt: string
+}
+
+export interface AgentHumanTaskList {
+  tasks: AgentHumanTask[]
+  pending: number
+}
+
+/** 协作能力探测结果：collaboration=false 时前端不露出协作控件。 */
+export interface AgentWorkspaceCapabilities {
+  protocolVersion: number
+  collaboration: boolean
+  threadKinds: AgentThreadKind[]
+  maxTasks: number
+  maxDepth: number
+  maxInstruction: number
+  missingTables?: string[]
+}
+
+/** 发起一轮的请求体（多目标 @）。 */
+export interface AgentTurnRequest {
+  content: string
+  mentions: AgentMentionTarget[]
+  idempotencyKey?: string
+  stream?: boolean
+  threadKind?: AgentThreadKind
+}
+
+/** 结构化 @ 目标：助手或人（人只能是当前登录用户）。 */
+export interface AgentMentionTarget {
+  kind: AgentTaskTargetKind
+  id: string
+}
+
+/** 轮次动作：取消整轮 / 重试单个任务 / 恢复。 */
+export interface AgentTurnActionRequest {
+  action: 'cancel' | 'retry_task' | 'resume'
+  taskId?: string
+  expectedVersion?: number
+}
+
+/** 群定时绑定参数（v2 §11）。 */
+export interface AgentGroupCronBinding {
+  tagId: string
+  threadPolicy: 'reuse_thread' | 'new_thread_per_fire'
+  threadKind?: AgentThreadKind
+  ownerUserId?: string
+}
+
+/** task 帧：哪个任务、什么状态、总共有几步。 */
+export interface AgentTaskEvent {
+  taskId?: string
+  agentId?: string
+  index: number
+  total: number
+  status: AgentTaskStatus
+  message?: string
+  /** 该任务对应的子 run（后续事件按它分组）。 */
+  runId?: string
+}
+
+/** human 帧：轮次停下等人。 */
+export interface AgentHumanEvent {
+  /** 对应任务 ID。 */
+  taskId?: string
+  humanId?: string
+  humanName?: string
+  index: number
+  message?: string
+}
+
+/** turn 帧：轮次状态与进度。 */
+export interface AgentTurnEvent {
+  status: string
+  index: number
+  total: number
+}
+
+/** 群成员写入：加入已有助手 与 新建助手并加入 二选一。 */
+export interface AgentGroupMembersInput {
+  agentIds?: string[]
+  newAgent?: AgentNewMemberInput
+  expectedVersion?: number
+}
+
+/** 「新建助手并加入」的入参（与 /agents 创建体同构）。 */
+export interface AgentNewMemberInput {
+  name: string
+  module: string
+  description?: string
+  systemPrompt?: string
+  toolIds?: string[]
+}
+
+/** 告警 / 统计输入入口。 */
+export interface AgentGroupEventInput {
+  externalId?: string
+  title?: string
+  prompt: string
+  threadKind?: AgentThreadKind
+}
+
+/** 人工回复：continue（回复并继续）与 unable（无法处理）。 */
+export interface AgentHumanReplyInput {
+  outcome: 'continue' | 'unable'
+  text?: string
+  expectedVersion?: number
 }
 
 export interface AgentRunMetrics {
@@ -961,8 +1252,32 @@ export interface McpServer {
   /** Header 名（不含值）：有名字就说明配了凭据。 */
   header_names: string[]
   has_credential: boolean
+  /** 历史配置占用了内置保留名（planv6.7 §3.5）；Agent 引用时内置 Server 优先。 */
+  name_conflict?: boolean
   created_at: string
   updated_at: string
+}
+
+/** 内置 MCP 的单个工具（事实来源是后端工具表的 ReadOnly / Destructive）。 */
+export interface McpBuiltinTool {
+  name: string
+  read_only: boolean
+  destructive: boolean
+}
+
+/** 项目 API 封装的内置 MCP Server（planv6.7 §3.5）：只读展示，仅可开关与测试。 */
+export interface McpBuiltinServer {
+  name: string
+  enabled: boolean
+  transport: string
+  url: string
+  tools: McpBuiltinTool[]
+}
+
+/** GET /mcp/servers 的响应：用户配置 + 内置。 */
+export interface McpServerList {
+  servers: McpServer[]
+  builtin: McpBuiltinServer[]
 }
 
 export interface McpServerBody {
@@ -1027,37 +1342,32 @@ export interface BiDashboardConfig {
   widgets: BiWidget[]
 }
 
-/** 数据看板「Agent 生成图表」的数据源上下文（planv6.7 §3.4）；服务端校验，不落库。 */
-export interface BiAgentField {
-  name: string
-  type: CollectionField['type']
-}
-
-export interface BiAgentContext {
-  database_id: string
-  /** 数据源名：集合名或 SQL 表名，由 source 决定是哪一种。 */
-  collection: string
-  /** 缺省为 collection；SQL 表传 'table'（旧客户端不带该键，服务端按集合处理）。 */
-  source?: 'collection' | 'table'
-  /** 缺省或 'auto' 表示不限制类型。 */
-  preferred_type?: string
-  fields: BiAgentField[]
-}
-
 export interface AgentRunRequest {
   content: string
   mentions: AgentMention[]
   stream?: boolean
-  /** 数据看板生成图表：携带数据源与字段清单，服务端强制本轮只读。 */
-  bi_context?: BiAgentContext
   /** 重试指定失败 run（planv4.1 BUG-03）：复用原 user 消息，不重复落库。 */
   retry_of_run_id?: string
   /** 搭建会话的阶段（planv6.6 home-starter-prompts §2.7）：技能由服务端按阶段白名单决定。 */
-  starter_stage?: string
 }
 
 export interface AgentStreamHandlers {
-  onRun?: (runId: string) => void
+  onRun?: (runId: string, agentId?: string, routeKind?: AgentRouteKind) => void
+  /** planv6.7 AGC-ROUTE：auto 会话的路由事件（routing → done）。 */
+  onRoute?: (ev: AgentRouteEvent) => void
+  /** v2：任务状态帧（每个任务开始/结束各一次）。 */
+  onTask?: (ev: AgentTaskEvent) => void
+  /** v2：人工待办帧（轮次停下等人）。 */
+  onHuman?: (ev: AgentHumanEvent) => void
+  /** v2：轮次状态帧（完成/失败/等人）。 */
+  onTurn?: (ev: AgentTurnEvent) => void
+  /**
+   * v2：每一帧的归属上下文（run_id / agent_id）。
+   *
+   * 轮次模式下多助手串行，token / 工具 / 审批帧必须知道属于哪个任务；
+   * 单助手路径不使用该回调，行为不变。
+   */
+  onFrameContext?: (ctx: { runId?: string; agentId?: string }) => void
   onThinking?: (elapsedMs: number, content?: string) => void
   onToken?: (text: string) => void
   onToolCall?: (name: string, args: string, callId?: string) => void
@@ -1324,10 +1634,17 @@ export interface SandboxFileEntry {
   modifiedTime?: string
 }
 
+/** API 预览：参数取值来源（后端 route_meta 的 x-sb-source 扩展）。 */
+export interface OpenAPIParamSource {
+  kind: string
+  depends_on?: string[]
+}
+
 export interface OpenAPIParameter {
   name: string
   in: 'path' | 'query'
   required: boolean
+  'x-sb-source'?: OpenAPIParamSource
 }
 
 export interface OpenAPIOperation {
@@ -1551,7 +1868,6 @@ export interface Api {
     ) => Promise<S3Object>
     /** planv6.5：站点（发布网站）状态 */
     getSite: (projectId: string) => Promise<S3SiteInfo>
-    setSite: (projectId: string, enabled: boolean) => Promise<S3SiteInfo>
     /** planv6.5：设置文件 / 文件夹外部访问；folder 的 key 以 "/" 结尾 */
     setPublic: (projectId: string, key: string, kind: 'file' | 'folder', isPublic: boolean) => Promise<S3PublicResult>
   }
@@ -1598,8 +1914,12 @@ export interface Api {
   agentThreads: {
     list: (projectId: string, agentId?: string) => Promise<AgentThread[]>
     page: (projectId: string, agentId?: string, limit?: number, cursor?: string) => Promise<AgentThreadPage>
-    /** starterTemplate 非空时登记搭建会话；仅内置通用助手 + database:admin 被服务端接受。 */
-    create: (projectId: string, title?: string, agentId?: string, starterTemplate?: string) => Promise<AgentThread>
+    /** 按标签分页。 */
+    pageBy: (projectId: string, q?: AgentThreadPageQuery) => Promise<AgentThreadPage>
+    /** create 第二参数兼容 string（旧：title）与 AgentThreadCreateOptions。 */
+    create: (projectId: string, titleOrOpts?: string | AgentThreadCreateOptions, agentId?: string) => Promise<AgentThread>
+    /** 单个会话详情（深链补齐）。 */
+    get: (projectId: string, threadId: string) => Promise<AgentThread>
     rename: (projectId: string, threadId: string, title: string) => Promise<AgentThread>
     remove: (projectId: string, threadId: string) => Promise<void>
     runs: (projectId: string, threadId: string, limit?: number) => Promise<AgentRun[]>
@@ -1610,12 +1930,42 @@ export interface Api {
       req: AgentRunRequest,
       handlers: AgentStreamHandlers
     ) => LlmStreamConnection
+    /** v2：协作轮次（多目标 @）。 */
+    streamTurn: (
+      projectId: string,
+      threadId: string,
+      req: AgentTurnRequest,
+      handlers: AgentStreamHandlers
+    ) => LlmStreamConnection
     /** 续接进行中的 run（回放事件缓存并跟随到 end）。 */
     attachRun: (projectId: string, runId: string, handlers: AgentStreamHandlers) => LlmStreamConnection
+    /** v2：会话的轮次列表（新→旧）。 */
+    turns: (projectId: string, threadId: string) => Promise<AgentTurn[]>
     cancel: (projectId: string, runId: string) => Promise<AgentRun>
     /** 项目内正在执行的 run。 */
     active: (projectId: string) => Promise<ActiveAgentRun[]>
     confirm: (projectId: string, runId: string, callId: string, approve: boolean) => Promise<void>
+  }
+  /** 工作台标签（群）CRUD（planv6.7 AGC-NAV / v2）。 */
+  agentTags: {
+    list: (projectId: string) => Promise<AgentTag[]>
+    create: (projectId: string, input: AgentTagInput) => Promise<AgentTag>
+    patch: (projectId: string, tagId: string, input: AgentTagInput) => Promise<AgentTag>
+    remove: (projectId: string, tagId: string) => Promise<void>
+    /** 加入已有成员，或「新建助手并加入」。 */
+    addMembers: (projectId: string, tagId: string, body: AgentGroupMembersInput) => Promise<AgentTag>
+    /** 移出成员（不删除助手）。 */
+    removeMember: (projectId: string, tagId: string, agentId: string, expectedVersion?: number) => Promise<AgentTag>
+    /** 告警 / 统计输入入口（按 externalId 幂等）。 */
+    submitEvent: (projectId: string, tagId: string, body: AgentGroupEventInput) => Promise<AgentTurn>
+  }
+  /** 协作轮次与人工待办（v2）。 */
+  agentTurns: {
+    get: (projectId: string, turnId: string) => Promise<AgentTurn>
+    act: (projectId: string, turnId: string, body: AgentTurnActionRequest) => Promise<AgentTurn>
+    reply: (projectId: string, taskId: string, body: AgentHumanReplyInput) => Promise<AgentTurn>
+    humanTasks: (projectId: string, assignee?: string, status?: string) => Promise<AgentHumanTaskList>
+    capabilities: (projectId: string) => Promise<AgentWorkspaceCapabilities>
   }
   /** 审批队列：跨 run 的破坏性工具调用待办。 */
   agentApprovals: {
@@ -1625,12 +1975,16 @@ export interface Api {
   }
   /** 项目级 MCP Server 配置（planv6.2 §6-2）。 */
   mcpServers: {
-    list: (projectId: string) => Promise<McpServer[]>
+    list: (projectId: string) => Promise<McpServerList>
     create: (projectId: string, body: McpServerBody) => Promise<McpServer>
     update: (projectId: string, serverId: string, body: McpServerBody) => Promise<McpServer>
     remove: (projectId: string, serverId: string) => Promise<void>
     /** 连通性测试：只回工具名，不回凭据。 */
     test: (projectId: string, serverId: string) => Promise<McpTestResult>
+    /** 内置 MCP 的项目级开关（PUT /mcp/builtin/:name/state）。 */
+    setBuiltinEnabled: (projectId: string, name: string, enabled: boolean) => Promise<void>
+    /** 内置 MCP 进程内连通性测试，不依赖 agent.mcp.enabled。 */
+    testBuiltin: (projectId: string, name: string) => Promise<McpTestResult>
   }
   /** 系统级存储设置（planv6.0 storage-local-first 阶段 E）。 */
   storage: {

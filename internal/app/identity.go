@@ -13,7 +13,7 @@
 //	[本文件] internal/app/identity.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/config, internal/utils/atomicfile
+//	[下游] internal/config, internal/utils/strutil, godatabase/atomicfile
 //	[同包] app.go, catalog_engine.go, cron_runner.go, project_purger.go, reset.go 等 6 个
 //	[关键引用] checkStorageIdentity() ← app.go
 //
@@ -35,8 +35,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
 	"github.com/linkxzhou/SimpleBase/internal/config"
-	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // storageIdentity 记录实例首次启动时的持久层身份。
@@ -111,7 +112,7 @@ func checkStorageIdentity(cfg config.Config) error {
 
 // normalizeMode 归一化存储模式：空值按默认 local 处理。
 func normalizeMode(mode string) string {
-	m := strings.ToLower(strings.TrimSpace(mode))
+	m := strutil.Normalize(mode)
 	if m == "" {
 		return config.StorageModeLocal
 	}

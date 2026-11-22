@@ -67,8 +67,8 @@ func TestConfigSetGetAndPath(t *testing.T) {
 	if code := RunCommand(env, []string{"config", "set", "endpoint", "http://127.0.0.1:9999"}, out, errw); code != exitOK {
 		t.Fatalf("set code = %d", code)
 	}
-	if code := RunCommand(env, []string{"config", "set", "project_id", "p9"}, out, errw); code != exitOK {
-		t.Fatalf("set project code = %d", code)
+	if code := RunCommand(env, []string{"config", "set", "model", "m9"}, out, errw); code != exitOK {
+		t.Fatalf("set model code = %d", code)
 	}
 	if code := RunCommand(env, []string{"config", "path"}, out, errw); code != exitOK {
 		t.Fatalf("path code = %d", code)
@@ -83,7 +83,7 @@ func TestConfigSetGetAndPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Endpoint != "http://127.0.0.1:9999" || cfg.ProjectID != "p9" {
+	if cfg.Endpoint != "http://127.0.0.1:9999" || cfg.Model != "m9" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 
@@ -112,7 +112,7 @@ func TestConfigMasksToken(t *testing.T) {
 	read, out, errw := captureStdio(t)
 	env := testEnv(t)
 	secret := "sk-1234567890abcdef"
-	if _, err := SaveConfig(env, Config{Token: secret, Endpoint: "http://e", ProjectID: "p"}); err != nil {
+	if _, err := SaveConfig(env, Config{Token: secret, Endpoint: "http://e"}); err != nil {
 		t.Fatal(err)
 	}
 	if code := RunCommand(env, []string{"config", "show"}, out, errw); code != exitOK {
@@ -131,7 +131,7 @@ func TestConfigMasksToken(t *testing.T) {
 func TestConfigRejectsInsecureFileOnRead(t *testing.T) {
 	read, out, errw := captureStdio(t)
 	env := testEnv(t)
-	path, err := SaveConfig(env, Config{Token: "sk-x", Endpoint: "http://e", ProjectID: "p"})
+	path, err := SaveConfig(env, Config{Token: "sk-x", Endpoint: "http://e"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestSessionsListShowRemove(t *testing.T) {
 		t.Fatalf("stdout = %q", stdout)
 	}
 
-	s, err := NewSession(env, Config{Endpoint: "http://e", ProjectID: "p"}, "/tmp/w")
+	s, err := NewSession(env, Config{Endpoint: "http://e"}, "/tmp/w")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestParseFlags(t *testing.T) {
 func TestRunReadsConfigFile(t *testing.T) {
 	read, out, errw := captureStdio(t)
 	env := testEnv(t)
-	if _, err := SaveConfig(env, Config{Endpoint: "http://127.0.0.1:1", Token: "t", ProjectID: "p"}); err != nil {
+	if _, err := SaveConfig(env, Config{Endpoint: "http://127.0.0.1:1", Token: "t"}); err != nil {
 		t.Fatal(err)
 	}
 	code := RunCommand(env, []string{"run", "-p", "hi"}, out, errw)
@@ -256,7 +256,7 @@ func TestRunReadsConfigFile(t *testing.T) {
 func TestRunRejectsInsecureConfigFile(t *testing.T) {
 	read, out, errw := captureStdio(t)
 	env := testEnv(t)
-	path, err := SaveConfig(env, Config{Endpoint: "http://127.0.0.1:1", Token: "t", ProjectID: "p"})
+	path, err := SaveConfig(env, Config{Endpoint: "http://127.0.0.1:1", Token: "t"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestRunReadsPromptFromStdin(t *testing.T) {
 	// 并走到了网络阶段（错误码不是 usage/no prompt）。
 	opts := Options{
 		Env: env, Headless: true,
-		Config: Config{Endpoint: "http://127.0.0.1:1", Token: "t", ProjectID: "p"},
+		Config: Config{Endpoint: "http://127.0.0.1:1", Token: "t"},
 		Stdin:  strings.NewReader("piped question"),
 		Stdout: out, Stderr: errw,
 	}

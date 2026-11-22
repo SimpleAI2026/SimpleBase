@@ -1,32 +1,3 @@
-// 文件说明：query.go — godatabase 中 Statement、QueryResult 等符号的实现
-//
-// 用法
-//
-//	Query(ctx context.Context, db *sql.DB, stmt Statement, maxRows int) (QueryResult ...  // Query 在给定 *sql.DB 上执行只读查询，最多扫描 maxRows 行
-//	Execute(ctx context.Context, db *sql.DB, stmt Statement) (QueryResult, error)  // Execute 在给定 *sql.DB 上执行单条写语句
-//	同包调用：Query() → runtime.go
-//
-// 调用架构
-//
-//	[上游] godatabase/cache, godatabase/ducklake, godatabase/filedb 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/query.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] dialect.go, runtime.go, serialize.go, snapshot.go, spec.go 等 6 个
-//	[关键引用] Query() ← runtime.go
-//
-// 主要符号
-//
-//	type Statement struct {…}
-//	type QueryResult struct {…}
-//	Query(ctx context.Context, db *sql.DB, stmt Statement, maxRows int) (QueryResult ...
-//	Execute(ctx context.Context, db *sql.DB, stmt Statement) (QueryResult, error)
-//	Batch(ctx context.Context, db *sql.DB, stmts []Statement, transactional bool) ...
-//	... 另有 4 个顶层符号
-
 package godatabase
 
 import (
@@ -73,10 +44,7 @@ func Query(ctx context.Context, db *sql.DB, stmt Statement, maxRows int) (QueryR
 	// 行切片按 maxRows 预估容量（上限 1024）。
 	capHint := 16
 	if maxRows > 0 {
-		capHint = maxRows
-		if capHint > 1024 {
-			capHint = 1024
-		}
+		capHint = min(maxRows, 1024)
 	}
 	out := make([][]any, 0, capHint)
 	ptrs := make([]any, len(cols))
@@ -136,7 +104,7 @@ func executeOn(ctx context.Context, e execer, stmt Statement) (QueryResult, erro
 
 // Batch 依次执行多条语句。transactional=true 时使用单个事务，
 // 任一失败立即 Rollback；transactional=false 时逐条独立执行，
-// 某条失败不影响后续语句执行，但会在返回的 error 中标明失败位置。
+// 某条失败会停止后续语句，已成功的语句不会回滚。
 //
 // 事务不能跨 HTTP 请求悬挂：Batch 内部完成 BeginTx/Commit，调用方不得
 // 持有跨请求的 *sql.Tx。

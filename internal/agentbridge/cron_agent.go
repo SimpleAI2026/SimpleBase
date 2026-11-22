@@ -68,21 +68,40 @@ type CronAgentStore interface {
 	ListAgentMessages(ctx context.Context, projectID, threadID string, limit int) ([]systemdb.AgentMessage, error)
 	CreateAgentRun(ctx context.Context, r systemdb.AgentRun) (systemdb.AgentRun, error)
 	UpdateAgentRunStatus(ctx context.Context, projectID, id, status, errMsg string, started, finished *time.Time) error
+	UpdateAgentRunMetrics(ctx context.Context, projectID, runID string, m systemdb.AgentRun) error
+	RecordAgentToolSpans(projectID, traceID, toolCardsJSON string) error
+	GetAgentGroupCron(ctx context.Context, projectID, jobID string) (systemdb.AgentGroupCron, error)
 	// 回写任务：thread 被归档后重建，或 agent 不存在时停用任务。
 	GetCronJob(ctx context.Context, projectID, id string) (systemdb.CronJob, error)
 	UpdateCronJob(ctx context.Context, j systemdb.CronJob) (systemdb.CronJob, error)
 	RecordLog(ev systemdb.LogEvent)
 }
 
-// cronAgentMetricsWriter 是 CronAgentStore 的可选扩展：真实 Store 支持时同步记录 run 指标。
-type cronAgentMetricsWriter interface {
-	UpdateAgentRunMetrics(ctx context.Context, projectID, runID string, m systemdb.AgentRun) error
+// loadGroupBinding 读取任务的群绑定；无绑定时返回 ok=false。
+func loadGroupBinding(ctx context.Context, store CronAgentStore, projectID, jobID string) (GroupCronBinding, bool, error) {
+	bind, err := store.GetAgentGroupCron(ctx, projectID, jobID)
+	if err != nil {
+		return GroupCronBinding{}, false, err
+	}
+	if bind.JobID == "" || bind.TagID == "" {
+		return GroupCronBinding{}, false, nil
+	}
+	return GroupCronBinding{
+		TagID: bind.TagID, ThreadPolicy: bind.ThreadPolicy, ThreadKind: bind.ThreadKind,
+		ThreadID: bind.ThreadID, OwnerUserID: bind.OwnerUserID, Prompt: bind.Prompt,
+	}, true, nil
 }
 
-// AgentToolSpanWriter 是 CronAgentStore 的可选扩展（二期 trace §10.3）：
-// 真实 Store 支持时把 run 的工具卡片补写为 tool span。
-type AgentToolSpanWriter interface {
-	RecordAgentToolSpans(projectID, traceID, toolCardsJSON string) error
+// groupCronErr 把群执行错误压成稳定短文本（不含正文/路径），供 cron 记录落库。
+func groupCronErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strutil.Truncate(err.Error(), cronAgentErrorLimit)
+	if strings.TrimSpace(msg) == "" {
+		return "group schedule failed"
+	}
+	return msg
 }
 
 // CronAgentQuota 抽象配额检查；*usage.Service 满足。
@@ -95,11 +114,49 @@ type CronAgentExecutor struct {
 	Store  CronAgentStore
 	Runner CronAgentRunner
 	Quota  CronAgentQuota // 可为 nil
+	// Group 是群定时执行器（planv6.7 v2）；nil 时群绑定任务按普通 agent 任务处理。
+	Group GroupCronRunner
 }
 
 // NewCronAgentExecutor 构造执行器。
 func NewCronAgentExecutor(store CronAgentStore, runner CronAgentRunner, quota CronAgentQuota) *CronAgentExecutor {
 	return &CronAgentExecutor{Store: store, Runner: runner, Quota: quota}
+}
+
+// GroupCronResult 是一次群定时触发的执行结果。
+type GroupCronResult struct {
+	TurnID   string
+	ThreadID string
+	// Response 是给调度器落盘的短摘要（不含 LLM 正文，避免把用户内容写进 cron 记录）。
+	Response string
+}
+
+// GroupCronRunner 是「群定时任务」的窄接口（planv6.7 v2 §11）。
+//
+// 实现放在 internal/api（轮次协调器所在包），由 internal/app 装配注入；
+// agentbridge 只依赖这个接口，不 import api，依赖方向保持不变。
+type GroupCronRunner interface {
+	// RunGroupCron 按群绑定发起一轮；ownerUserID 为空表示没有负责人。
+	RunGroupCron(ctx context.Context, projectID, jobID string, bind GroupCronBinding) (GroupCronResult, error)
+}
+
+// GroupCronBinding 是群定时绑定的执行参数（与 systemdb.AgentGroupCron 同构，
+// 但在 bridge 边界上不暴露存储实体，避免跨层耦合）。
+type GroupCronBinding struct {
+	TagID        string
+	ThreadPolicy string
+	ThreadKind   string
+	ThreadID     string
+	OwnerUserID  string
+	Prompt       string
+}
+
+// WithGroupRunner 注入群定时执行器（nil 安全：无群绑定时不会用到）。
+func (e *CronAgentExecutor) WithGroupRunner(r GroupCronRunner) *CronAgentExecutor {
+	if e != nil {
+		e.Group = r
+	}
+	return e
 }
 
 var _ cronjob.AgentRunner = (*CronAgentExecutor)(nil)
@@ -118,13 +175,26 @@ func (e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, tr
 		}
 	}
 
+	// 绑定了群的任务走协作协调器；未绑定或未配置协调器时执行单助手任务。
+	if e.Group != nil {
+		if bind, ok, err := loadGroupBinding(ctx, e.Store, j.ProjectID, j.ID); err != nil {
+			return cronjob.AgentResult{}, errors.New("group binding unavailable")
+		} else if ok {
+			res, gerr := e.Group.RunGroupCron(ctx, j.ProjectID, j.ID, bind)
+			if gerr != nil {
+				return cronjob.AgentResult{}, errors.New(groupCronErr(gerr))
+			}
+			return cronjob.AgentResult{Response: res.Response}, nil
+		}
+	}
+
 	agent, err := e.Store.GetCloudAgent(ctx, j.ProjectID, j.AgentID)
 	if err != nil {
 		e.disableJob(ctx, j)
 		return cronjob.AgentResult{}, errors.New("agent not found")
 	}
 	// 定时任务同样按助手 module 加载技能：无人值守运行没有 `@` 点名。
-	skills := cloudagent.SkillsForModule(agent.Module)
+	skills := SkillsForModule(agent.Module)
 
 	threadID := j.AgentThreadID
 	thread, err := e.Store.GetAgentThread(ctx, j.ProjectID, threadID)
@@ -174,33 +244,23 @@ func (e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, tr
 	// 二期 trace（planv6.5 §10.2）：cron run 的 trace_id=agentRun.ID、caller=cron。
 	runCtx := llmgateway.WithTraceMeta(ctx, agentRun.ID, "cron")
 	res, runErr := e.Runner.StartRun(runCtx, cloudagent.RunRequest{
-		ProjectID: j.ProjectID, Principal: ToModulePrincipal(principal), Agent: Agent(agent), Skills: skills,
-		ThreadID: thread.ID, RunID: agentRun.ID, UserText: j.AgentPrompt,
-		History: Messages(hist), Stream: false, Headless: true,
+		Agent: Agent(agent), ThreadID: thread.ID, RunID: agentRun.ID, UserText: j.AgentPrompt,
+		History: Messages(hist), Stream: false, Headless: true, Subject: CronAgentPrincipalID,
+		Context: RunContext{ProjectID: j.ProjectID, Principal: principal, Skills: skills},
 	}, nil)
 	fin := time.Now().UTC()
 
-	// 二期 trace（§10.3）：工具卡片补写为 tool span；解析失败静默（不影响 run 收尾）。
-	if toolSpans, ok := e.Store.(AgentToolSpanWriter); ok {
-		_ = toolSpans.RecordAgentToolSpans(j.ProjectID, agentRun.ID, res.ToolCallsJSON)
-	}
+	// 工具卡片补写为 tool span；解析失败不影响 run 收尾。
+	_ = e.Store.RecordAgentToolSpans(j.ProjectID, agentRun.ID, res.ToolCallsJSON)
 
-	// 二期 trace（§10.3）：工具卡片补写为 tool span；解析失败静默（不影响 run 收尾）。
-	if toolSpans, ok := e.Store.(AgentToolSpanWriter); ok {
-		_ = toolSpans.RecordAgentToolSpans(j.ProjectID, agentRun.ID, res.ToolCallsJSON)
+	code := ""
+	if runErr != nil {
+		code = ClassifyError(runErr).Code
 	}
-
-	// 旧 Store fake 无指标写入方法，真实 Store 支持时同步记录。
-	if mw, ok := e.Store.(cronAgentMetricsWriter); ok {
-		code := ""
-		if runErr != nil {
-			code = ClassifyError(runErr).Code
-		}
-		_ = mw.UpdateAgentRunMetrics(ctx, j.ProjectID, agentRun.ID, systemdb.AgentRun{
-			DurationMS: res.DurationMS, PromptTokens: res.PromptTokens, CompletionTokens: res.CompletionTokens,
-			ReasoningTokens: res.ReasoningTokens, ToolCalls: res.ToolCalls, ErrorCode: code,
-		})
-	}
+	_ = e.Store.UpdateAgentRunMetrics(ctx, j.ProjectID, agentRun.ID, systemdb.AgentRun{
+		DurationMS: res.DurationMS, PromptTokens: res.PromptTokens, CompletionTokens: res.CompletionTokens,
+		ReasoningTokens: res.ReasoningTokens, ToolCalls: res.ToolCalls, ErrorCode: code,
+	})
 
 	if runErr != nil {
 		status := systemdb.AgentRunFailed

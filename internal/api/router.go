@@ -46,6 +46,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/gosandbox/image"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
@@ -107,6 +108,9 @@ type Dependencies struct {
 	CloudAgent *cloudagent.Runtime
 	// CronScheduler 是统一定时任务调度器（云函数 + Agent）；nil 时 trigger 返回 503。
 	CronScheduler *cronjob.Scheduler
+	// CollabRunner 是群定时执行器（planv6.7 v2）：app 先创建并注入 cron 调度器，
+	// 路由装配后由 mountAgentRoutes 把 handler Attach 进来。
+	CollabRunner *GroupCronRunner
 	// Sandbox 是项目级云沙盒服务；未配置时仅 capabilities 路由可用。
 	Sandbox      SandboxService
 	SandboxUsage interface {
@@ -258,13 +262,18 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	requestLogger = deps.Logger
 	e.IPExtractor = trustedIPExtractor(deps.Config.HTTP.TrustedProxies)
 
-	// planv6.5 §5.1：对象存储发布网站。<pid>.<base_domain> 的请求在路由前改写到 /__site/*。
+	// planv6.5 §5.1 / planv6.7 §1.2：对象存储发布网站。按模式在路由前改写到 /__site/*。
 	if deps.Sites == nil && deps.System != nil {
 		deps.Sites = NewSiteStore(deps.System, deps.Config.Sites.EffectiveCacheTTL())
 	}
-	sitesOn := deps.Config.Sites.Enabled && deps.Sites != nil && deps.S3FileStore != nil
+	mode := deps.Config.Sites.Mode()
+	sitesOn := deps.Sites != nil && deps.S3FileStore != nil && (mode == config.SiteModePath || deps.Config.Sites.Configured())
 	if sitesOn {
-		e.Pre(siteHostMiddleware(deps.Config.Sites))
+		if mode == config.SiteModeSubdomain {
+			e.Pre(siteHostMiddleware(deps.Config.Sites))
+		} else {
+			e.Pre(sitePathMiddleware(deps.Config.Sites))
+		}
 	}
 
 	e.Use(requestIDMiddleware())
@@ -345,7 +354,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 		return c.JSON(http.StatusOK, buildOpenAPI(e.Routes()))
 	})
 
-	// planv6.5 §5.2：站点面（匿名只读）。handler 内再校验分流标记，控制台域直接访问 /__site 返回 404。
+	// planv6.5 §5.2 / planv6.7 §1.1：站点面（匿名只读）。handler 内再校验分流标记，控制台域直接访问 /__site 返回 404。
 	if sitesOn {
 		site := &SiteHandler{store: deps.S3FileStore, sites: deps.Sites, cfg: deps.Config.Sites}
 		e.Any(sitePathPrefix+"/*", site.Serve)
@@ -367,7 +376,7 @@ func (deps Dependencies) authMW() echo.MiddlewareFunc {
 	if deps.Sessions != nil {
 		sessions = deps.Sessions
 	}
-	return auth.AuthMiddlewareWithDelegation(sessions, deps.Auth, WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations)
+	return withInternalPrincipalAuth(auth.AuthMiddlewareWithDelegation(sessions, deps.Auth, WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations))
 }
 
 // mountV1Routes 挂载 /v1 路由。
@@ -546,7 +555,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 	// S3 用户文件存储路由。deps.S3FileStore 为 nil 时不挂载。
 	if deps.S3FileStore != nil {
-		sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: &deps.Config.Instance.Writable, tokenSecret: deps.Config.Files.TokenSecret, allowedMIME: deps.Config.Files.AllowedMIME, events: deps.TriggerEvents, sites: deps.Sites, sitesCfg: deps.Config.Sites}
+		sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: &deps.Config.Instance.Writable, tokenSecret: deps.Config.Files.TokenSecret, allowedMIME: deps.Config.Files.AllowedMIME, events: deps.TriggerEvents, sites: deps.Sites, sitesCfg: deps.Config.Sites, cfgHTTPPublicURL: deps.Config.HTTP.PublicURL}
 		p.GET("/s3/objects", sh.ListObjects, delegable(auth.DatabaseRead))
 		p.GET("/s3/objects/content", sh.DownloadObject, delegable(auth.DatabaseRead))
 		p.POST("/s3/objects", sh.UploadObject, delegable(auth.DatabaseWrite), writeGate, middleware.BodyLimit(bodyLimit(s3UploadBodyLimit)))
@@ -554,11 +563,10 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/s3/presign", sh.PresignObject, delegable(auth.DatabaseRead))
 		p.POST("/s3/link", sh.CreateLink, delegable(auth.DatabaseRead))
 		// planv6.5 §5.4：发布网站 / 外部访问。写入要求 database:admin。
-		// planv6.6 home-starter-prompts §2.5：搭建会话的 site 命令需要经委托令牌调用
-		// 站点状态/开关与 web/ 前缀公开三条路由；委托主体对 PUT /s3/public 只能操作
-		// web/ 文件夹（见 S3Handler.PutPublic），其余路由（含公开路径列表）仍不可委托。
+		// 站点没有实例级开关：配置了 sites.base_domain 即可发布，对象默认私有。
+		// 委托主体对 PUT /s3/public 只能操作 web/ 文件夹（见 S3Handler.PutPublic），
+		// 其余路由（含公开路径列表）仍不可委托。
 		p.GET("/s3/site", sh.GetSite, delegable(auth.DatabaseRead))
-		p.PUT("/s3/site", sh.PutSite, delegable(auth.DatabaseAdmin), writeGate)
 		p.GET("/s3/public", sh.ListPublic, require(auth.DatabaseRead))
 		p.PUT("/s3/public", sh.PutPublic, delegable(auth.DatabaseAdmin), writeGate)
 		e.GET("/files/:token", sh.DownloadLinkedObject)
@@ -595,7 +603,12 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 		p.GET("/llm/trace-groups/:traceId", lth.Detail, delegable(auth.DatabaseRead))
 
 		// 云 Agent 路由块（B3 提取；含定时执行路由，见 mountAgentRoutes）。
-		mountAgentRoutes(p, deps, require, writeGate)
+		var bm *builtinMCPHandler
+		if deps.Config.Agent.MCP.Builtin {
+			bm = newBuiltinMCPHandler(e, deps)
+			attachBuiltinMCP(deps.CloudAgent, bm)
+		}
+		mountAgentRoutes(p, deps, require, writeGate, bm)
 
 		migrationH := NewMigrationHandler(deps.System)
 		p.GET("/migrations/status", migrationH.Status, require(auth.ProjectAdmin))
@@ -603,6 +616,16 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 
 		// 云函数 + 定时任务管理面（B3 提取，见 mountGoFunctionAndCronRoutes）。
 		mountGoFunctionAndCronRoutes(p, deps, delegable, writeGate)
+
+		// 内置 MCP Server（planv6.7 §3）：对外暴露项目 API。工具调用以调用方自己的
+		// Authorization 头对本路由树发子请求，权限与审计沿用各路由原有逻辑。
+		// 不挂 delegable：委托令牌（云助手）走进程内会话，不经这个 HTTP 面。
+		if bm != nil {
+			p.POST("/mcp", bm.Serve, require(auth.DatabaseRead))
+			p.POST("/mcp/builtin/:name", bm.Serve, require(auth.DatabaseRead))
+			p.GET("/mcp", bm.MethodNotAllowed, require(auth.DatabaseRead))
+			p.DELETE("/mcp", bm.MethodNotAllowed, require(auth.DatabaseRead))
+		}
 	}
 }
 
@@ -650,15 +673,29 @@ func mountGoFunctionAndCronRoutes(p *echo.Group, deps Dependencies, delegable fu
 // POST /agent-threads/:threadID/runs 保持 DatabaseRead + writeGate，
 // 不得改成 DatabaseWrite（创建 run 属于低门槛操作，SEC-04 只收紧
 // cancel/confirm）。调用方保证 deps.System != nil。
-func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permission) echo.MiddlewareFunc, writeGate echo.MiddlewareFunc) {
+func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permission) echo.MiddlewareFunc, writeGate echo.MiddlewareFunc, bm *builtinMCPHandler) {
 	events := newRunEventHub()
 	// LIFE-05：hub 自带惰性清理（append 时节流触发 sweep + 总量上限），
 	// 无 end 事件的 run 不会永久驻留，也不需要独立后台 goroutine。
 	confirms := newConfirmHub()
-	if deps.CloudAgent != nil && deps.CloudAgent.Confirm == nil {
-		deps.CloudAgent.Confirm = confirms
+	if deps.CloudAgent != nil {
+		if deps.CloudAgent.Confirm == nil {
+			deps.CloudAgent.Confirm = confirms
+		}
+		if provider, ok := deps.CloudAgent.Provider.(*agentbridge.RuntimeProvider); ok && provider.Confirm == nil {
+			provider.Confirm = confirms
+		}
 	}
 	ah := &cloudAgentHandler{store: deps.System, runtime: deps.CloudAgent, usage: deps.Usage, audit: deps.Audit, writable: &deps.Config.Instance.Writable, events: events, confirms: confirms}
+	// planv6.7 AGC-ROUTE：LLM 可用时装配路由器；nil 安全（fallback 路径）。
+	if deps.CloudAgent != nil {
+		ah.dispatcher = newLLMDispatcher(deps.CloudAgent.LLM)
+	}
+	// planv6.7 v2：把 handler 交给群定时执行器，并收敛上次进程遗留的轮次。
+	if deps.CollabRunner != nil {
+		deps.CollabRunner.Attach(ah)
+	}
+	ah.convergeCollaboration(context.Background())
 	if deps.LLM != nil {
 		ah.llm = deps.LLM
 	}
@@ -671,12 +708,37 @@ func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permis
 	p.DELETE("/agents/:agentID", ah.DeleteAgent, require(auth.DatabaseWrite), writeGate)
 	p.GET("/agent-threads", ah.ListThreads, require(auth.DatabaseRead))
 	p.POST("/agent-threads", ah.CreateThread, require(auth.DatabaseWrite), writeGate)
+	// planv6.7 AGC-NAV：工作台标签 CRUD。
+	p.GET("/agent-tags", ah.ListAgentTags, require(auth.DatabaseRead))
+	p.POST("/agent-tags", ah.CreateAgentTag, require(auth.DatabaseWrite), writeGate)
+	p.PATCH("/agent-tags/:tagID", ah.PatchAgentTag, require(auth.DatabaseWrite), writeGate)
+	p.DELETE("/agent-tags/:tagID", ah.DeleteAgentTag, require(auth.DatabaseWrite), writeGate)
+	// planv6.7 v2：群成员与告警/统计输入入口。
+	p.POST("/agent-tags/:tagID/members", ah.AddGroupMembers, require(auth.DatabaseWrite), writeGate)
+	p.DELETE("/agent-tags/:tagID/members/:agentID", ah.RemoveGroupMember, require(auth.DatabaseWrite), writeGate)
+	p.POST("/agent-tags/:tagID/events", ah.GroupEvent, require(auth.DatabaseRead), writeGate)
 	p.GET("/agent-threads/:threadID", ah.GetThread, require(auth.DatabaseRead))
 	p.PATCH("/agent-threads/:threadID", ah.PatchThread, require(auth.DatabaseWrite), writeGate)
 	p.DELETE("/agent-threads/:threadID", ah.DeleteThread, require(auth.DatabaseWrite), writeGate)
 	p.GET("/agent-threads/:threadID/messages", ah.ListMessages, require(auth.DatabaseRead))
 	p.GET("/agent-threads/:threadID/runs", ah.ListThreadRuns, require(auth.DatabaseRead))
 	p.POST("/agent-threads/:threadID/runs", ah.CreateRun, require(auth.DatabaseRead), writeGate)
+	// planv6.7 v2：协作轮次。发起一轮与创建 run 同权限口径（低门槛 + writeGate）；
+	// 取消/重试/回复在 handler 内再校验主体（破坏性动作）。
+	p.GET("/agent-threads/:threadID/turns", ah.ListThreadTurns, require(auth.DatabaseRead))
+	p.POST("/agent-threads/:threadID/turns", ah.CreateTurn, require(auth.DatabaseRead), writeGate)
+	p.GET("/agent-turns/:turnID", ah.GetTurn, require(auth.DatabaseRead))
+	p.GET("/agent-turns/:turnID/events", ah.TurnEvents, require(auth.DatabaseRead))
+	p.POST("/agent-turns/:turnID/actions", ah.TurnAction, require(auth.DatabaseWrite), writeGate)
+	p.POST("/agent-tasks/:taskID/replies", ah.ReplyHumanTask, require(auth.DatabaseRead), writeGate)
+	p.GET("/agent-human-tasks", ah.ListHumanTasks, require(auth.DatabaseRead))
+	p.GET("/agent-workspace-capabilities", ah.WorkspaceCapabilities, require(auth.DatabaseRead))
+	// planv6.7 cloud-agent-plan-mode：服务端驱动的六阶段计划。
+	p.GET("/agent-threads/:threadID/plans", ah.ListPlans, require(auth.DatabaseRead))
+	p.POST("/agent-threads/:threadID/plans", ah.CreatePlan, require(auth.DatabaseWrite), writeGate)
+	p.GET("/agent-threads/:threadID/plans/:planID", ah.GetPlan, require(auth.DatabaseRead))
+	p.GET("/agent-threads/:threadID/plans/:planID/events", ah.PlanEvents, require(auth.DatabaseRead))
+	p.POST("/agent-threads/:threadID/plans/:planID/actions", ah.PlanAction, require(auth.DatabaseWrite), writeGate)
 	// SEC-04：取消/确认是破坏性操作（终止他人 run / 放行工具执行），
 	// 权限从 DatabaseRead 收紧为 DatabaseWrite；handler 内再校验主体。
 	p.GET("/agent-runs/active", ah.ListActiveRuns, require(auth.DatabaseRead))
@@ -684,7 +746,11 @@ func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permis
 	p.GET("/agent-approvals", ah.ListApprovals, require(auth.DatabaseRead))
 
 	// MCP Server 配置（planv6.2 §6-2）：凭据只单向写，响应只回 has_credential。
-	mh := &mcpServerHandler{store: deps.System, limit: deps.Config.Agent.MCP.EffectiveMaxServersPerProject()}
+	mh := &mcpServerHandler{
+		store: deps.System, limit: deps.Config.Agent.MCP.EffectiveMaxServersPerProject(),
+		builtin: bm, audit: deps.Audit,
+		publicURL: deps.Config.HTTP.PublicURL, publicOverride: deps.Config.Sites.PublicBaseURL,
+	}
 	if deps.Config.Agent.MCP.Enabled {
 		mh.testConnect = newMCPTestConnect(deps)
 	}
@@ -693,6 +759,10 @@ func mountAgentRoutes(p *echo.Group, deps Dependencies, require func(auth.Permis
 	p.PATCH("/mcp/servers/:serverID", mh.Update, require(auth.DatabaseWrite), writeGate)
 	p.DELETE("/mcp/servers/:serverID", mh.Delete, require(auth.DatabaseWrite), writeGate)
 	p.POST("/mcp/servers/:serverID/test", mh.Test, require(auth.DatabaseWrite))
+	if bm != nil {
+		p.PUT("/mcp/builtin/:name/state", mh.SetState, require(auth.DatabaseWrite), writeGate)
+		p.POST("/mcp/builtin/:name/test", mh.TestBuiltin, require(auth.DatabaseWrite))
+	}
 	p.POST("/agent-runs/:runID/cancel", ah.CancelRun, require(auth.DatabaseWrite), writeGate)
 	p.POST("/agent-runs/:runID/confirmations/:callID", ah.ConfirmRun, require(auth.DatabaseWrite), writeGate)
 	p.GET("/agent-runs/:runID/events", ah.ReplayEvents, require(auth.DatabaseRead))

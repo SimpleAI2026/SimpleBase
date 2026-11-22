@@ -3,14 +3,14 @@ package cache
 import (
 	"context"
 	"errors"
-	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
-type recMetrics = godatabase.RecordingObserver
+type recMetrics = testutil.RecordingObserver
 
 type errCloser struct{ err error }
 
@@ -29,7 +29,7 @@ func TestUsageMissingRootAndFiles(t *testing.T) {
 
 	dir := t.TempDir()
 	met := &recMetrics{}
-	log := &godatabase.RecordingLogger{}
+	log := &testutil.RecordingLogger{}
 	m, err = NewManager(Options{Root: dir, Logger: log, Observer: met, MaxBytes: 100, MaxDatabases: 2})
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestEvictBranches(t *testing.T) {
 
 	dir := t.TempDir()
 	reg := &fakeRegistry{active: map[string]bool{}}
-	log := &godatabase.RecordingLogger{}
+	log := &testutil.RecordingLogger{}
 	met := &recMetrics{}
 	m, _ = NewManager(Options{Root: dir, Registry: reg, Closer: errCloser{err: errors.New("close")}, Logger: log, Observer: met})
 	_ = os.WriteFile(filepath.Join(dir, "file"), []byte("x"), 0o644)

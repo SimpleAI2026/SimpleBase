@@ -176,7 +176,7 @@ func TestSerializeValueRemainingTypes(t *testing.T) {
 		t.Fatal(v)
 	}
 
-	if _, err := serializeSlice([]any{complex(1, 2)}); !errors.Is(err, ErrUnsupportedValue) {
+	if _, err := SerializeValue([]any{complex(1, 2)}); !errors.Is(err, ErrUnsupportedValue) {
 		t.Fatal(err)
 	}
 	if _, err := serializeMap(map[string]any{"x": complex(1, 2)}); !errors.Is(err, ErrUnsupportedValue) {

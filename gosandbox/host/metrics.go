@@ -1,30 +1,3 @@
-// 文件说明：metrics.go — gosandbox/host 中 Metrics、MetricsFor 等符号的实现
-//
-// 用法
-//
-//	MetricsFor(name string) (Metrics, bool)  // MetricsFor 读某个固定 cgroup 子组的用量
-//	FreezeCgroup(name string, frozen bool) error  // FreezeCgroup 冻结 / 解冻子组内全部进程
-//	RemoveCgroup(name string) error  // RemoveCgroup 删除固定子组
-//	同包调用：MetricsFor() → vm/local；FreezeCgroup() → vm/local
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/local
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/metrics.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] cgroup.go, cgroup_linux.go, policy.go
-//
-// 主要符号
-//
-//	type Metrics struct {…}
-//	MetricsFor(name string) (Metrics, bool)
-//	FreezeCgroup(name string, frozen bool) error
-//	RemoveCgroup(name string) error
-
 package host
 
 // Metrics 是一个沙盒当前的资源用量快照。

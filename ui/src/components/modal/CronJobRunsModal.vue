@@ -117,6 +117,7 @@ import { api } from '../../services/api'
 import type { CronJobItem, CronJobRunItem } from '../../services/api'
 import { useProjectStore } from '../../stores/project'
 import { runStatusVariant } from '@/lib/status'
+import { copyText } from '@/utils/clipboard'
 import { formatTime } from '../../utils/format'
 
 const props = defineProps<{
@@ -214,9 +215,6 @@ function prettyJson(s: string) {
 }
 
 function copy(text: string) {
-  navigator.clipboard
-    .writeText(text)
-    .then(() => toast.success(t('components.cronRuns.copied')))
-    .catch(() => toast.error(t('components.cronRuns.copyFailed')))
+  void copyText(text, () => t('components.cronRuns.copied'), () => t('components.cronRuns.copyFailed'))
 }
 </script>

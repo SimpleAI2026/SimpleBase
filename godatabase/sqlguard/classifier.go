@@ -1,30 +1,3 @@
-// 文件说明：classifier.go — 低成本的 SQL 意图分类与策略校验
-//
-// 用法
-//
-//	FirstKeyword(sql string) string  // FirstKeyword 去除前导空白与 SQL 注释后返回首关键字（大写）
-//	Validate(sql string, intent Intent) error  // Validate 按给定意图校验 SQL
-//
-// 调用架构
-//
-//	[上游] internal/agentbridge, internal/api
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/sqlguard/classifier.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/sqlx
-//	[同包] validator.go
-//
-// 主要符号
-//
-//	type Intent uint8
-//	const ReadOnly
-//	FirstKeyword(sql string) string
-//	Validate(sql string, intent Intent) error
-//	SplitStatements(sql string) ([]string, error)
-//	... 另有 11 个顶层符号
-
 package sqlguard
 
 import (

@@ -3,12 +3,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import DataBrowser from '@/pages/DataBrowser.vue'
-import { useBiAgent, threadKey } from '@/composables/useBiAgent'
 import { api, resetApiMocks } from '@/test/api-mock'
 import { uiStubs } from '@/test/helpers'
 import { useProjectStore } from '@/stores/project'
 import { useAuthStore } from '@/stores/auth'
-import type { AgentStreamHandlers, CloudAgent, CollectionField } from '@/services/types'
+import type { CollectionField } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
   const module = await import('@/test/api-mock')
@@ -39,7 +38,6 @@ function page(projectId: string | null = 'p1') {
   api.db.getCollectionSchema.mockResolvedValue({ name: 'tasks', schemaMode: 'json', fields: SCHEMA })
   api.db.documents.mockResolvedValue({ rows: [], total: 1, items: [] })
   api.db.aggregate.mockResolvedValue({ columns: ['count'], rows: [[1]], truncated: false, scanned: 1, durationMs: 1, requestId: '' })
-  api.agents.list.mockResolvedValue([])
   return mount(DataBrowser, { global: { plugins: [pinia], stubs: uiStubs } })
 }
 
@@ -126,40 +124,3 @@ describe('DataBrowser without a project', () => {
   })
 })
 
-describe('useBiAgent storage failures', () => {
-  const agent: CloudAgent = {
-    id: 'ag', name: 'Database', module: 'database', description: '', system_prompt: '', tool_ids: [],
-    builtin_key: 'database', team_enabled: false, writable: false, created_at: '', updated_at: ''
-  }
-  const scope = { projectId: 'p1', databaseId: 'db1', collection: 'orders' }
-  const brokenStorage = (): Storage => ({
-    get length() { return 0 }, clear: () => undefined, key: () => null,
-    getItem: () => null,
-    setItem: () => { throw new Error('quota') },
-    removeItem: () => { throw new Error('denied') }
-  })
-
-  it('still creates the thread and runs when the session id cannot be persisted', async () => {
-    api.agents.list.mockResolvedValue([agent])
-    api.agentThreads.create.mockResolvedValue({ id: 'th', title: 't', created_at: '', updated_at: '' })
-    const calls: Array<Record<string, unknown>> = []
-    api.agentThreads.streamRun.mockImplementation((_p: string, _t: string, req: Record<string, unknown>, _h: AgentStreamHandlers) => {
-      calls.push(req)
-      return { close: vi.fn() }
-    })
-    const bi = useBiAgent({ scope: () => scope, fields: () => [field('amount', 'number')], preferredType: () => 'auto', storage: brokenStorage() })
-    await bi.send('画图')
-    expect(calls).toHaveLength(1)
-    expect(bi.failure.value).toBe('')
-  })
-
-  it('"new chat" survives a storage that refuses to delete', async () => {
-    const bi = useBiAgent({ scope: () => scope, fields: () => [], preferredType: () => 'auto', storage: brokenStorage() })
-    await expect(bi.newChat()).resolves.toBeUndefined()
-    expect(bi.messages.value).toEqual([])
-  })
-
-  it('threadKey is stable per scope', () => {
-    expect(threadKey(scope)).toBe('sb_bi_thread_v1:p1:db1:orders')
-  })
-})

@@ -30,12 +30,12 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 | `systemdb` | 系统库 bootstrap、最终态建表（`schema.go`，无版本化迁移）、常驻连接；`schema_status.go` 提供只读 Status/Plan | 新增版本化迁移或 `ALTER` 补列：改表结构直接改 `schema.go` 并 reset |
 | `functionrun` | `/go`、调试试跑、cron、事件触发器共享的活动版本执行器与全局并发槽位；逐次写调用流水 | 另建并发信号量或绕过活动版本解析 |
 | `trigger` | 记录/文件/HTTP 事件的有界进程内队列、匹配与最多三次重试 | 声称持久化或 exactly-once；覆盖 SQL 直写；把事件正文写日志 |
-| `agentbridge` | 宿主与独立 `gocloudagent` 模块之间的适配：身份 / 助手 / 消息映射、`CommandPolicy`、最终错误分类、委托签发、日志与设置 store 适配、`InProcessCLI`、agent 定时任务执行（`CronAgentExecutor` 实现 `cronjob.AgentRunner`） | import `api` / `app`（它们复用本包，不能反向）；在映射中丢失 Role / TenantID / ProjectIDs；让委托令牌携带比本轮降权后更多的权限 |
-| `gocloudagent`（嵌套模块，目录在仓库根 `gocloudagent/`） | 只读工具，或在 `skills_cli` 打开时经 CLI 调既有 HTTP API；沙盒工具经 `Sandbox` 接口；本机 `shell` 在 `shell_isolation.enabled` 时经 `gosandbox/host` | import 根模块任何包（含 `internal/...`、`skills`）；直接写 DuckLake / S3 / 系统库；向沙盒注入 SimpleBase 凭据；直接 import `sandbox` 或 `gosandbox/vm`（`gosandbox/host` 是唯一例外，仅用于本机 shell）；隔离开启但不可用时退回裸执行；策略缺失时放行命令 |
-| `sandbox` | 云沙盒业务层：Manager（资源、限额、路径、reaper）+ Store 元数据；执行后端（Driver、local、fake）来自独立模块 `gosandbox/vm` | 读写 DuckLake/S3/系统库凭据；向沙盒注入 SimpleBase 凭据；隔离不可用时退回裸执行；向沙盒内命令暴露 `data_dir` / 缓存目录 / `config.yaml` / `.env`；直接 import `gosandbox/host`（经 `gosandbox/vm/local` 间接使用） |
-| `gosandbox`（嵌套模块） | `vm/`：云沙盒执行后端（`local` 复用 `host`，`fake` 仅测试）；`host/`：本机进程隔离（bwrap + Landlock + seccomp / Seatbelt）；`cmd/`：沙盒内 helper（产物名 gosandbox-inner） | import 根模块任何包（含 `internal/...`）；`host` import `vm`（依赖只能 `vm/local → host`，不得反向）；在 `vm/local` 之外为 `host` 新增 `Driver` 实现；让 `local` 在隔离不可用时退回裸执行 |
+| `agentbridge` | SimpleBase 宿主 Agent 业务与 `gocloudagent` 适配：`RuntimeProvider` / 宿主 `RunContext`、助手与消息映射、数据库 / KV / S3 / 日志 / 沙盒工具、模块目录、固定六阶段计划、SimpleBase 技能文档与命令授权、`CommandPolicy`、委托签发、`InProcessCLI`、最终错误分类、日志与设置 store 适配、agent 定时任务 | import `api` / `app`；把宿主身份转成通用模块 DTO（直接传 `auth.Principal`）；让委托令牌携带比本轮降权后更多的权限；把固定业务阶段或 SimpleBase 技能放进通用模块 |
+| `gocloudagent`（嵌套模块，目录在仓库根 `gocloudagent/`） | 通用模型适配、Agent 运行循环、plan / 协作任务图、MCP client/server 与确认闸门、通用技能文档加载、本地 CLI 与本机工具；本机 `shell` 在 `shell_isolation.enabled` 时经 `gosandbox/host` | import 根模块任何包（含 `internal/...`）；内置 SimpleBase 身份、项目资源、模块目录、固定计划、技能文档或命令白名单；直接写 DuckLake / S3 / 系统库；直接 import `sandbox` 或 `gosandbox/vm`（`gosandbox/host` 是唯一例外，仅用于本机 shell）；隔离开启但不可用时退回裸执行；MCP 策略缺失时放行工具 |
+| `sandbox` | 云沙盒业务层：Manager（资源、限额、路径、reaper）+ Store 元数据；执行后端（Driver、local、box、fake）来自独立模块 `gosandbox/vm` | 读写 DuckLake/S3/系统库凭据；向沙盒注入 SimpleBase 凭据；隔离不可用时退回裸执行；向沙盒内命令暴露 `data_dir` / 缓存目录 / `config.yaml` / `.env`；直接 import `gosandbox/host`（经 `gosandbox/vm/local` 间接使用） |
+| `gosandbox`（嵌套模块） | 通用沙盒能力：`vm/` 定义驱动契约及路径 / 环境 / 输出边界规则，执行后端含 `local` / `box` / `fake`；`host/` 是本机进程隔离（bwrap + Landlock + seccomp / Seatbelt）；`cmd/` 是沙盒内 helper（产物名 gosandbox-inner） | import 根模块任何包（含 `internal/...`）；内置 SimpleBase / gocloudagent 专属默认值；`host` import `vm`（依赖只能 `vm/local → host`，不得反向）；在 `vm/local` 之外为 `host` 新增 `Driver` 实现；让 `local` 在隔离不可用时退回裸执行 |
 | `llmgateway` | provider 配置、Chat/Stream、CredentialRef | 密钥从环境变量自动发现 |
-| `utils` | 零业务依赖的纯函数（`crontab` / `strutil` / `limit` / `mask` / `hashx` / `atomicfile`） | import 任何根模块业务包；把绑定驱动/协议或适配层的东西搬进来 |
+| `utils` | 宿主私有的零业务依赖纯函数（`crontab` / `strutil` / `mask`）；数据库与宿主共用的工具位于 `godatabase/{atomicfile,hashx,limit,singleflight,sqlval,sqlx}` | import 任何根模块业务包；把绑定驱动/协议或适配层的东西搬进来；恢复已下沉的重复副本 |
 
 ## 系统库规则（重要）
 

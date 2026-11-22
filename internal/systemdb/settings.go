@@ -97,6 +97,21 @@ func (s *Store) PutGlobalSetting(ctx context.Context, key, valueJSON string) err
 	return nil
 }
 
+// GetProjectSetting 读取单个项目级设置；不存在时返回 Key 已填、ValueJSON 为空的行（与 GetGlobalSetting 同口径）。
+func (s *Store) GetProjectSetting(ctx context.Context, projectID, key string) (SettingKV, error) {
+	if s == nil || s.db == nil {
+		return SettingKV{}, ErrUnavailable
+	}
+	var row SettingKV
+	err := s.db.QueryRowContext(ctx,
+		`SELECT key, value_json, updated_at FROM sys_settings_project WHERE project_id = ? AND key = ?`, projectID, key).
+		Scan(&row.Key, &row.ValueJSON, &row.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SettingKV{Key: key}, nil
+	}
+	return row, err
+}
+
 // ListProjectSettings 列出项目级设置。
 func (s *Store) ListProjectSettings(ctx context.Context, projectID string) ([]SettingKV, error) {
 	if s == nil || s.db == nil {

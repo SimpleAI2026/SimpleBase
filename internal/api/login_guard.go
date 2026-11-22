@@ -12,9 +12,10 @@
 package api
 
 import (
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // loginGuardOpts 三维度参数（§8.1.6 表）。
@@ -86,7 +87,7 @@ func newLoginGuard(opts loginGuardOpts) *loginGuard {
 	}
 }
 
-func normalizeLoginUsername(u string) string { return strings.ToLower(strings.TrimSpace(u)) }
+func normalizeLoginUsername(u string) string { return strutil.Normalize(u) }
 
 // allow 在认证尝试前调用：三维度依次判定。
 func (g *loginGuard) allow(ip, username string) loginVerdict {

@@ -149,56 +149,18 @@ func TestClassifyErrorMatchesHostSentinels(t *testing.T) {
 	}
 }
 
-// 身份往返必须保留全部字段，且修改结果不得污染源对象。
-func TestPrincipalRoundTrip(t *testing.T) {
-	src := auth.Principal{
-		APIKeyID: "k1", UserID: "u1", Username: "alice", Role: auth.RoleAdmin,
-		SessionID: "s1", AccessJTI: "j1", TenantID: "t1", Delegated: true,
-		ProjectIDs:  map[string]struct{}{"p1": {}},
-		Permissions: map[auth.Permission]struct{}{auth.DatabaseRead: {}, auth.DatabaseWrite: {}},
-	}
-	mid := agentbridge.ToModulePrincipal(src)
-	if mid.Role != string(auth.RoleAdmin) || mid.TenantID != "t1" || !mid.Delegated {
-		t.Fatalf("lossy conversion: %+v", mid)
-	}
-	if _, ok := mid.ProjectIDs["p1"]; !ok {
-		t.Fatal("project ids lost")
-	}
-	if !mid.HasPermission(cloudagent.DatabaseWrite) {
-		t.Fatal("permissions lost")
-	}
-	// 修改模块侧权限集合不应影响宿主原对象（委托签发依赖这一点）。
-	delete(mid.Permissions, cloudagent.DatabaseWrite)
-	if _, ok := src.Permissions[auth.DatabaseWrite]; !ok {
-		t.Fatal("source principal was mutated")
-	}
-
-	back := agentbridge.ToHostPrincipal(mid)
-	if back.Role != auth.RoleAdmin || back.UserID != "u1" || back.APIKeyID != "k1" || back.TenantID != "t1" {
-		t.Fatalf("round trip lost fields: %+v", back)
-	}
-	if _, ok := back.ProjectIDs["p1"]; !ok {
-		t.Fatal("round trip lost project ids")
-	}
-
-	// nil 集合保持 nil（不变成空 map），避免授权判定语义漂移。
-	empty := agentbridge.ToHostPrincipal(cloudagent.Principal{UserID: "u2"})
-	if empty.ProjectIDs != nil || empty.Permissions != nil {
-		t.Fatalf("nil maps must stay nil: %+v", empty)
-	}
-}
-
-func TestAgentMappingKeepsWritableAndTools(t *testing.T) {
+// planv6.7 v2 §3.4：写能力不再按助手配置，映射出的 Agent 恒为可写。
+func TestAgentMappingIsAlwaysWritableAndKeepsTools(t *testing.T) {
 	src := systemdb.CloudAgent{
 		ID: "a1", ProjectID: "p1", Name: "Bot", Module: "database", Description: "d",
-		SystemPrompt: "sp", ToolIDs: []string{"list_databases"}, ModelOverride: "m1", Writable: true,
+		SystemPrompt: "sp", ToolIDs: []string{"list_databases"}, ModelOverride: "m1",
 	}
 	got := agentbridge.Agent(src)
-	if got.ID != "a1" || got.Writable != true || got.ModelOverride != "m1" || len(got.ToolIDs) != 1 {
+	if got.ID != "a1" || got.ModelOverride != "m1" || len(got.ToolIDs) != 1 {
 		t.Fatalf("agent mapping lossy: %+v", got)
 	}
 	if !got.Writable {
-		t.Fatal("writable must be preserved")
+		t.Fatal("every agent must be writable; destructive tools still need confirmation")
 	}
 	// 工具列表必须是副本：避免模块侧改动影响宿主实体。
 	got.ToolIDs[0] = "mutated"
@@ -271,10 +233,10 @@ func TestStoreAccessWrappers(t *testing.T) {
 func TestDelegationIssuerUsesGivenPermissions(t *testing.T) {
 	reg := auth.NewDelegationRegistry()
 	issuer := agentbridge.NewDelegationIssuer("test-secret", reg)
-	p := cloudagent.Principal{
-		UserID: "u1", Username: "alice", Role: string(auth.RoleAdmin), TenantID: "t1",
+	p := auth.Principal{
+		UserID: "u1", Username: "alice", Role: auth.RoleAdmin, TenantID: "t1",
 		ProjectIDs:  map[string]struct{}{"p1": {}},
-		Permissions: map[cloudagent.Permission]struct{}{cloudagent.DatabaseRead: {}},
+		Permissions: map[auth.Permission]struct{}{auth.DatabaseRead: {}},
 	}
 	tok, err := issuer.Issue(p, "p1", "run-1", 5*time.Minute)
 	if err != nil {

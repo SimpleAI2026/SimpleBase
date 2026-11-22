@@ -1,9 +1,7 @@
-// 文件说明：sites.go — 对象存储发布网站（planv6.5）：项目站点开关与路径级外部访问开关
+// 文件说明：sites.go — 对象存储发布网站（planv6.5）：路径级外部访问开关
 //
 // 用法
 //
-//	(s *Store) GetProjectSite(ctx, projectID) (ProjectSite, error)       // 无记录返回 enabled=false
-//	(s *Store) SetProjectSite(ctx, projectID, enabled, actor) error
 //	(s *Store) ListPublicPaths(ctx, projectID) ([]PublicPath, error)
 //	(s *Store) SetPublicPath(ctx, projectID, path, kind, public, actor) error
 //	(s *Store) DeletePublicPathsUnder(ctx, projectID, prefix) error
@@ -15,8 +13,6 @@ package systemdb
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"strings"
 	"time"
 
@@ -29,17 +25,7 @@ const (
 	PublicPathFolder = "folder"
 )
 
-// ProjectSite 是 sys_project_sites 一行。
-type ProjectSite struct {
-	ProjectID   string
-	Enabled     bool
-	SPAFallback bool
-	CreatedBy   string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
-
-// PublicPath 是 sys_s3_public_paths 一行。
+// PublicPath 是 sys_site_published_paths 一行。
 type PublicPath struct {
 	ID        string
 	ProjectID string
@@ -49,68 +35,10 @@ type PublicPath struct {
 	CreatedAt time.Time
 }
 
-// GetProjectSite 读取项目站点开关；无记录时返回 Enabled=false 且无错误。
-func (s *Store) GetProjectSite(ctx context.Context, projectID string) (ProjectSite, error) {
-	if s == nil || s.db == nil {
-		return ProjectSite{}, ErrUnavailable
-	}
-	var site ProjectSite
-	var enabled, spa int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT project_id, enabled, spa_fallback, created_by, created_at, updated_at
-		 FROM sys_project_sites WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1`,
-		projectID).Scan(&site.ProjectID, &enabled, &spa, &site.CreatedBy, &site.CreatedAt, &site.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ProjectSite{ProjectID: projectID}, nil
-	}
-	if err != nil {
-		return ProjectSite{}, err
-	}
-	site.Enabled = enabled != 0
-	site.SPAFallback = spa != 0
-	return site, nil
-}
-
-// SetProjectSite 打开或关闭项目站点。
-func (s *Store) SetProjectSite(ctx context.Context, projectID string, enabled bool, actor string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	now := time.Now().UTC()
-	flag := int64(0)
-	if enabled {
-		flag = 1
-	}
-	var n int64
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sys_project_sites WHERE project_id = ?`, projectID).Scan(&n); err != nil {
-		return err
-	}
-	var err error
-	if n > 0 {
-		_, err = s.db.ExecContext(ctx,
-			`UPDATE sys_project_sites SET enabled = ?, updated_at = ? WHERE project_id = ?`,
-			flag, now, projectID)
-	} else {
-		_, err = s.db.ExecContext(ctx,
-			`INSERT INTO sys_project_sites(project_id, enabled, spa_fallback, created_by, created_at, updated_at)
-			 VALUES(?, ?, 0, ?, ?, ?)`,
-			projectID, flag, actor, now, now)
-	}
-	if err != nil {
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
-}
-
-// DeleteProjectSite 删除项目站点与全部公开路径（项目删除时调用）。
+// DeleteProjectSite 删除项目全部公开路径（项目删除时调用）。
 func (s *Store) DeleteProjectSite(ctx context.Context, projectID string) error {
 	if s == nil || s.db == nil {
 		return ErrUnavailable
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM sys_project_sites WHERE project_id = ?`, projectID); err != nil {
-		return err
 	}
 	return s.DeletePublicPathsUnder(ctx, projectID, "")
 }
@@ -122,7 +50,7 @@ func (s *Store) ListPublicPaths(ctx context.Context, projectID string) ([]Public
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, path, kind, created_by, created_at
-		 FROM sys_s3_public_paths WHERE project_id = ? ORDER BY path ASC`, projectID)
+		 FROM sys_site_published_paths WHERE project_id = ? ORDER BY path ASC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +74,7 @@ func (s *Store) SetPublicPath(ctx context.Context, projectID, path, kind string,
 	}
 	if !public {
 		if _, err := s.db.ExecContext(ctx,
-			`DELETE FROM sys_s3_public_paths WHERE project_id = ? AND path = ? AND kind = ?`,
+			`DELETE FROM sys_site_published_paths WHERE project_id = ? AND path = ? AND kind = ?`,
 			projectID, path, kind); err != nil {
 			return err
 		}
@@ -155,7 +83,7 @@ func (s *Store) SetPublicPath(ctx context.Context, projectID, path, kind string,
 	}
 	var n int64
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sys_s3_public_paths WHERE project_id = ? AND path = ? AND kind = ?`,
+		`SELECT COUNT(*) FROM sys_site_published_paths WHERE project_id = ? AND path = ? AND kind = ?`,
 		projectID, path, kind).Scan(&n); err != nil {
 		return err
 	}
@@ -163,7 +91,7 @@ func (s *Store) SetPublicPath(ctx context.Context, projectID, path, kind string,
 		return nil
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO sys_s3_public_paths(id, project_id, path, kind, created_by, created_at)
+		`INSERT INTO sys_site_published_paths(id, project_id, path, kind, created_by, created_at)
 		 VALUES(?, ?, ?, ?, ?, ?)`,
 		uuid.NewString(), projectID, path, kind, actor, time.Now().UTC()); err != nil {
 		return err
@@ -184,10 +112,10 @@ func (s *Store) DeletePublicPathsUnder(ctx context.Context, projectID, prefix st
 	}
 	var err error
 	if prefix == "" {
-		_, err = s.db.ExecContext(ctx, `DELETE FROM sys_s3_public_paths WHERE project_id = ?`, projectID)
+		_, err = s.db.ExecContext(ctx, `DELETE FROM sys_site_published_paths WHERE project_id = ?`, projectID)
 	} else {
 		_, err = s.db.ExecContext(ctx,
-			`DELETE FROM sys_s3_public_paths WHERE project_id = ? AND substr(path, 1, ?) = ?`,
+			`DELETE FROM sys_site_published_paths WHERE project_id = ? AND substr(path, 1, ?) = ?`,
 			projectID, int64(len(prefix)), prefix)
 	}
 	if err != nil {

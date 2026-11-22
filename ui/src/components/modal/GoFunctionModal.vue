@@ -2,7 +2,7 @@
   <SbModal
     :open="open"
     :title="title"
-    :width="960"
+    :max-width="960"
     @update:open="emit('update:open', $event)"
   >
     <div class="flex flex-col gap-4">
@@ -25,7 +25,7 @@
           <p>{{ t('components.goFunctionModal.signatureHint') }}</p>
           <p>
             {{ t('components.goFunctionModal.callHint') }}
-            <code class="sb-code-view sb-mono max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere]">POST /go/{{ projectId }}/{{ nameValue || 'name' }}/{Name}</code>
+            <code class="sb-code-view sb-mono">POST /go/{{ projectId }}/{{ nameValue || 'name' }}/{Name}</code>
           </p>
           <p>{{ t('components.goFunctionModal.uppercaseHint') }}</p>
         </AlertDescription>

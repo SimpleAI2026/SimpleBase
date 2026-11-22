@@ -21,6 +21,19 @@ func TestShellIsolationDefaultsDisabled(t *testing.T) {
 	if p.Isolates() || p.Enabled {
 		t.Fatalf("default must be disabled: %+v", p)
 	}
+	if !reflect.DeepEqual(p.ReadOnlySubpaths, []string{".gocloudagent"}) {
+		t.Fatalf("CLI must own its default protected directory: %v", p.ReadOnlySubpaths)
+	}
+}
+
+func TestShellIsolationExplicitEmptyReadOnlySubpaths(t *testing.T) {
+	p, err := (ShellIsolation{ReadOnlySubpaths: []string{}}).Policy(t.TempDir(), "/home/u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.ReadOnlySubpaths) != 0 {
+		t.Fatalf("explicit empty list must be preserved: %v", p.ReadOnlySubpaths)
+	}
 }
 
 // 命令行只覆盖传了的字段，其余沿用文件配置。
@@ -123,7 +136,7 @@ func TestShellIsolationPolicyExpandsHomeAndSymlinks(t *testing.T) {
 // config.json 里的 shell_isolation 段能落盘并读回。
 func TestShellIsolationConfigRoundTrip(t *testing.T) {
 	env := testEnv(t)
-	cfg := Config{Endpoint: "http://127.0.0.1:8080", Token: "t", ProjectID: "p",
+	cfg := Config{Endpoint: "http://127.0.0.1:8080", Token: "t",
 		ShellIsolation: ShellIsolation{Enabled: boolPtr(true), Mode: "read-only", PidsMax: 32}}
 	if _, err := SaveConfig(env, cfg); err != nil {
 		t.Fatal(err)

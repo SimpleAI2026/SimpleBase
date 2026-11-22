@@ -1,6 +1,3 @@
-// 文件说明：local_catalog.go — godatabase/ducklake 中 EnsureLocalCatalog：系统库本地 catalog 的下载/校验/修复
-// 由 catalog_syncer.go 按职责拆分而来（C6，纯移动，不改逻辑）。
-
 package ducklake
 
 import (
@@ -12,7 +9,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/hashx"
+	"github.com/linkxzhou/SimpleBase/godatabase/hashx"
 )
 
 // EnsureLocalCatalog 冷启动：把远端最新 catalog 拉到本地（multi-instance-consistency-plan §4.3）。

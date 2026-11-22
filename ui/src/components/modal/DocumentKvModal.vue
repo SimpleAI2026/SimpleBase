@@ -2,7 +2,7 @@
   <SbModal
     :open="open"
     :title="t('components.documentKv.title')"
-    :width="480"
+    :max-width="480"
     :confirm-loading="submitting"
     :ok-button-props="{ disabled: !canSubmit }"
     @ok="submit"

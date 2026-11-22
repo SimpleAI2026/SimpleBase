@@ -286,7 +286,7 @@ func TestCompactionAsLeafKeepsPostCutMessages(t *testing.T) {
 // REPL 的 /compact：手动压缩忽略阈值，并在历史不足时明确回话而不是静默失败。
 func TestREPLCompactCommand(t *testing.T) {
 	env := testEnv(t)
-	s, err := NewSession(env, Config{Endpoint: "http://e", ProjectID: "p"}, "/tmp/w")
+	s, err := NewSession(env, Config{Endpoint: "http://e"}, "/tmp/w")
 	if err != nil {
 		t.Fatal(err)
 	}

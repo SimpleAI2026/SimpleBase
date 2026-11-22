@@ -49,11 +49,11 @@ type CommandPolicy struct{}
 func NewCommandPolicy() CommandPolicy { return CommandPolicy{} }
 
 // Classify 给出一条 simplebase 命令的安全分类。
-func (CommandPolicy) Classify(argv []string, stdin string) (cloudagent.CommandDecision, error) {
+func (CommandPolicy) Classify(argv []string, stdin string) (cloudagent.ToolDecision, error) {
 	if len(argv) == 0 {
-		return cloudagent.CommandDecision{}, fmt.Errorf("empty argv")
+		return cloudagent.ToolDecision{}, fmt.Errorf("empty argv")
 	}
-	return cloudagent.CommandDecision{
+	return cloudagent.ToolDecision{
 		ReadOnly:    sbcli.CommandReadOnlyWithArgv(argv),
 		Destructive: DestructiveArgv(argv, stdin),
 	}, nil
@@ -72,8 +72,8 @@ func DestructiveArgv(argv []string, stdin string) bool {
 	case "database delete", "document delete", "object delete", "function delete",
 		"cron delete", "cron trigger", "sandbox delete", "user delete", "user disable",
 		"apikey revoke", "settings set",
-		// 对外公开站点：home-starter-prompts-plan §2.5，每次都需要用户确认。
-		"site enable", "site publish":
+		// 对外公开站点：每次都需要用户确认。
+		"site publish":
 		return true
 	case "log retention":
 		return len(argv) >= 3 && argv[2] == "set"

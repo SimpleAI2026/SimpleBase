@@ -209,7 +209,7 @@ func TestCLIConfigAndEnvelope(t *testing.T) {
 	if code != 4 {
 		t.Fatalf("missing config %d %s", code, errb)
 	}
-	if !strings.Contains(errb, "config_missing") || !strings.Contains(errb, "do not inherit SIMPLEBASE_*") {
+	if !strings.Contains(errb, "config_missing") || !strings.Contains(errb, "do not inherit credential-like variables") {
 		t.Fatalf("config_missing should explain shell env isolation: %s", errb)
 	}
 }

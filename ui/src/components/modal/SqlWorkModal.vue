@@ -2,7 +2,7 @@
   <SbModal
     :open="open"
     :title="modalTitle"
-    :width="880"
+    :max-width="880"
     @update:open="onOpenChange"
   >
     <div class="flex flex-col gap-3">

@@ -1,27 +1,5 @@
 //go:build linux
 
-// 文件说明：rlimit_linux.go — agent 在 fork 前后应用资源上限
-//
-// 用法
-//
-//	restore, err := applyRlimits(rs []proto.Rlimit)  // 先设上限，返回恢复函数
-//	defer restore()  // cmd.Start() 之后调用：子进程已继承，agent 自己不受影响
-//
-// 调用架构
-//
-//	[上游] gosandbox/agent/proc.go（start）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/rlimit_linux.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/proto、golang.org/x/sys/unix
-//	[同包] rlimit_other.go
-//
-// 主要符号
-//
-//	applyRlimits(rs []proto.Rlimit) (func(), error)
-
 package agent
 
 import (

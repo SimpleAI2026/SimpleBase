@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // ErrKeyringFormat 是 keyring 解析失败（配置错误，启动期暴露）。
@@ -58,11 +60,7 @@ func ParseKeyring(spec string) (Keyring, error) {
 	}
 	seen := map[string]bool{}
 	entries := make([]keyringEntry, 0, 4)
-	for _, item := range strings.Split(spec, ",") {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
+	for _, item := range strutil.SplitCSV(spec) {
 		idx := strings.Index(item, ":")
 		if idx <= 0 {
 			return Keyring{}, fmt.Errorf("%w: %q (want vN:secret)", ErrKeyringFormat, item)

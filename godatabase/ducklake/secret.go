@@ -1,27 +1,3 @@
-// 文件说明：secret.go — godatabase/ducklake 的内部实现（buildCreateSecretSQL、buildDataURI 等）
-//
-// 用法
-//
-//	同包调用：sqlPath() → catalog_syncer.go, factory.go；buildCreateSecretSQL() → factory.go；buildDataURI() → factory.go
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/secret.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/sqlx
-//	[同包] catalog_syncer.go, errors.go, extension.go, factory.go, gated_conn.go 等 14 个
-//	[关键引用] sqlPath() ← catalog_syncer.go, factory.go
-//
-// 主要符号
-//
-//	buildCreateSecretSQL(remote RemoteStorage) string
-//	buildDataURI(remote RemoteStorage, projectID, databaseID string) (string, error)
-//	sqlPath(p string) string
-
 package ducklake
 
 import (

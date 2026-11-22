@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/limit"
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
+	"github.com/linkxzhou/SimpleBase/godatabase/limit"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 )
 
 // LLMTrace 是 sys_llm_traces 一行：一次模型调用（Chat 或 Stream）或一次工具执行的观测记录。

@@ -31,7 +31,7 @@ describe('GoMonacoEditor', () => {
   it('bootstraps monaco, syncs values, and disposes', async () => {
     const w = mount(GoMonacoEditor, { props: { modelValue: 'package main', minHeight: 200 } })
     expect(w.get('div').classes()).toEqual(
-      expect.arrayContaining(['sb-code-view', 'max-w-full', 'min-w-0', 'overflow-hidden', 'whitespace-pre-wrap'])
+      expect.arrayContaining(['sb-code-view', 'w-full', 'overflow-hidden'])
     )
     expect(monaco.editor.create).toHaveBeenCalledWith(
       expect.anything(),

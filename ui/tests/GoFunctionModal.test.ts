@@ -32,9 +32,7 @@ describe('GoFunctionModal', () => {
       global: { plugins: [pinia], stubs: { ...uiStubs, GoMonacoEditor: true } }
     })
     const sourceCode = w.get('code')
-    expect(sourceCode.classes()).toContain('sb-code-view')
-    expect(sourceCode.classes()).toContain('whitespace-pre-wrap')
-    expect(sourceCode.attributes('class') || '').toContain('[overflow-wrap:anywhere]')
+    expect(sourceCode.classes()).toEqual(expect.arrayContaining(['sb-code-view', 'sb-mono']))
     expect(w.find('.max-w-full.overflow-hidden').exists()).toBe(true)
     const vm = w.vm as any
     vm.nameValue = 'hello'

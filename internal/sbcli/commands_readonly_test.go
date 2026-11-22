@@ -43,7 +43,6 @@ var commandReadOnlyExpectation = map[string]bool{
 	"object delete":         false,
 	"object presign":        true,
 	"site status":           true,
-	"site enable":           false,
 	"site publish":          false,
 	"function list":         true,
 	"function get":          true,

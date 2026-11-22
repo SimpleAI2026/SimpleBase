@@ -155,32 +155,16 @@ func TestDarwinForceDenyWorkspaceFiles(t *testing.T) {
 	}
 }
 
-// DisableForceDeny 回到旧行为，并在 Result.Warnings 里如实说明。
-func TestDarwinDisableForceDeny(t *testing.T) {
-	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
-	if err := os.MkdirAll(filepath.Join(ws, ".git", "hooks"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	p.DisableForceDeny = true
-	res, err := Run(context.Background(), p, sh("touch "+filepath.Join(ws, ".git", "hooks", "pre-commit")))
-	if err != nil || res.ExitCode != 0 {
-		t.Fatalf("hooks must be writable when the table is disabled: res=%+v err=%v out=%s", res, err, res.Output)
-	}
-	if len(res.Warnings) != 1 {
-		t.Fatalf("Warnings = %v", res.Warnings)
-	}
-}
-
-// 显式配置旧值时，整个 .git 仍然只读（想要旧行为的操作者的出口）。
-func TestDarwinLegacyWholeGitReadOnly(t *testing.T) {
+// 显式配置后整个 .git 只读。
+func TestDarwinWholeGitReadOnly(t *testing.T) {
 	p, ws := darwinPolicy(t, ModeWorkspaceWrite)
 	if err := os.MkdirAll(filepath.Join(ws, ".git", "refs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p.ReadOnlySubpaths = []string{".git", ".gocloudagent"}
+	p.ReadOnlySubpaths = []string{".git"}
 	res, err := Run(context.Background(), p, sh("touch "+filepath.Join(ws, ".git", "refs", "x")))
 	if err != nil || res.ExitCode == 0 {
-		t.Fatalf("legacy config must keep the whole .git read-only: res=%+v err=%v", res, err)
+		t.Fatalf("explicit config must keep the whole .git read-only: res=%+v err=%v", res, err)
 	}
 }
 
@@ -427,10 +411,5 @@ func TestDarwinDefaultDenyReadHome(t *testing.T) {
 	}
 	if !DeniesRead(p, filepath.Join(home, ".aws", "credentials")) {
 		t.Fatal("DeniesRead must match the default table for file tools")
-	}
-	p.DisableDefaultDenyRead = true
-	res, err = Run(context.Background(), p, sh("cat "+filepath.Join(home, ".ssh", "id_rsa")))
-	if err != nil || !strings.Contains(string(res.Output), "SSHKEY") {
-		t.Fatalf("DisableDefaultDenyRead must lift the table: res=%+v err=%v", res, err)
 	}
 }

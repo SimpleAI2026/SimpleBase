@@ -1,6 +1,3 @@
-// 文件说明：syncer_capture.go — godatabase/ducklake 中 CatalogSyncer 的采集域：captureCatalog 快照捕获与 syncOnce 单轮同步
-// 由 catalog_syncer.go 按职责拆分而来（C6，纯移动，不改逻辑）。
-
 package ducklake
 
 import (

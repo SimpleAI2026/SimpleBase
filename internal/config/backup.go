@@ -13,7 +13,7 @@
 //	[本文件] internal/config/backup.go
 //	         │
 //	         ▼
-//	[下游] 仅标准库 / 第三方
+//	[下游] internal/utils/strutil
 //	[同包] config.go, env.go, http_boundary.go, yaml.go
 //	[关键引用] BackupConfig ← config.go
 //
@@ -27,8 +27,9 @@ package config
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // MissedPolicy 取值（backup.missed_policy）：停机错过 cron 窗口后的处理方式。
@@ -54,7 +55,7 @@ type BackupConfig struct {
 
 // EffectiveMissedPolicy 归一化补跑策略；空视为 catchup。
 func (c BackupConfig) EffectiveMissedPolicy() string {
-	switch strings.ToLower(strings.TrimSpace(c.MissedPolicy)) {
+	switch strutil.Normalize(c.MissedPolicy) {
 	case MissedPolicySkip:
 		return MissedPolicySkip
 	default:
@@ -75,7 +76,7 @@ func validateBackup(c BackupConfig) error {
 	if c.KeepDays < 0 || c.SnapshotTimeout <= 0 {
 		return errors.New("backup retention and snapshot_timeout are invalid")
 	}
-	switch strings.ToLower(strings.TrimSpace(c.MissedPolicy)) {
+	switch strutil.Normalize(c.MissedPolicy) {
 	case "", MissedPolicySkip, MissedPolicyCatchup:
 	default:
 		return fmt.Errorf("backup.missed_policy must be miss or catchup (got %q)", c.MissedPolicy)

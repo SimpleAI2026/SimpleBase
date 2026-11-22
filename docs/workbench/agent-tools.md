@@ -22,7 +22,7 @@ group: 云助手
 
 ## 写权限与本地 gocloudagent
 
-内置助手默认不可写：写命令会直接返回 `write_not_allowed`，不会先弹出确认。需要在「编辑助手」里打开「允许写操作」。本地 `gocloudagent` 二进制的 shell 工具会剥离 `SIMPLEBASE_*` 等凭据环境变量，shell 里的 `simplebase` 需要事先配置好配置文件，详见仓库 `docs/cli.md`。
+内置助手默认不可写：写命令会直接返回 `write_not_allowed`，不会先弹出确认。需要在「编辑助手」里打开「允许写操作」。本地 `gocloudagent` 二进制的 shell 工具会剥离凭据类环境变量（包括 `SIMPLEBASE_TOKEN`），shell 里的 `simplebase` 需要事先配置好配置文件，详见仓库 `docs/cli.md`。
 
 ## 安全提醒
 

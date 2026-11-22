@@ -1,42 +1,5 @@
 //go:build linux
 
-// 文件说明：pasta_linux.go — 用 pasta 给 netns 提供用户态出网
-//
-// 为什么是 pasta 而不是 veth + NAT：veth 要 root（或至少 CAP_NET_ADMIN）
-// 与 nftables 规则，而我们的沙盒是 rootless 的。pasta 在用户态把 netns 的
-// 流量接到宿主网络，不需要任何特权，podman 5 也用它作默认网络栈。
-//
-// 生命周期：
-//
-//	pasta --config-net --netns /proc/<pid>/ns/net   // 沙盒起来后把 netns 交给 pasta
-//
-// pasta 自己会 fork 到后台并持有 netns；沙盒退出后 netns 消失，pasta 随之退出。
-// 我们不显式 kill 它：杀掉可能留下半配置的 netns，反而更难清理。
-//
-// 用法
-//
-//	r, err := netx.Start(ctx, netx.StartOptions{NetnsPID: pid, Mode: netx.ModeEgress})
-//	r.Stop()
-//
-// 调用架构
-//
-//	[上游] gosandbox/box（launch）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/netx/pasta_linux.go
-//	         │
-//	         ▼
-//	[下游] os/exec、netx.go
-//	[同包] netx.go
-//
-// 主要符号
-//
-//	type StartOptions struct {…}
-//	type Runner struct {…}
-//	Start(ctx context.Context, opt StartOptions) (*Runner, error)
-//	(r *Runner) Stop() error
-//	Available() bool
-
 package netx
 
 import (

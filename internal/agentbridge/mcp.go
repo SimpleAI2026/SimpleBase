@@ -26,6 +26,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -35,30 +36,75 @@ type MCPOptions struct {
 	AllowHTTP bool
 	// ConnectTimeout 为零时用 mcp.DefaultConnectTimeout。
 	ConnectTimeout time.Duration
+	// DisableExternal 为真时不连接用户配置的外部 Server，只服务内置 Server
+	// （agent.mcp.enabled=false 且 agent.mcp.builtin=true 的场景）。
+	DisableExternal bool
+}
+
+// BuiltinMCP 由宿主 api 层实现：按主体与项目构造进程内内置 Server（planv6.7 §3.6）。
+// 接口定义在这里，agentbridge 因此不需要 import api。
+type BuiltinMCP interface {
+	// Spec 返回 name 对应的内置 Server。名称未注册、实例或项目开关关闭时 ok=false。
+	// 返回的工具会以 p 的身份对宿主路由树发起子请求。
+	Spec(ctx context.Context, p auth.Principal, projectID, name string) (spec *mcp.ServerSpec, ok bool)
+	// Policy 按工具表判定只读/破坏性。ok=false 表示 name 不是内置 Server。
+	// name 是内置 Server 但 tool 未登记时，返回 ok=true 且按写处理（fail-closed）。
+	Policy(name, tool string) (decision cloudagent.ToolDecision, ok bool)
 }
 
 // MCPConnector 从系统库读项目配置并建立会话。
 type MCPConnector struct {
-	store *systemdb.Store
-	opts  MCPOptions
+	store   *systemdb.Store
+	opts    MCPOptions
+	builtin BuiltinMCP
 }
 
-// NewMCPConnector 构造连接器。store 为 nil 时 Connect 返回空集合。
+// NewMCPConnector 构造连接器。store 为 nil 时 Connect 不连外部 Server。
 func NewMCPConnector(store *systemdb.Store, opts MCPOptions) *MCPConnector {
 	return &MCPConnector{store: store, opts: opts}
 }
 
+// SetBuiltin 注入内置 MCP 实现。api 在 app 里晚于 runtime 创建，所以用 setter，
+// 必须在服务开始接收请求之前调用。
+func (c *MCPConnector) SetBuiltin(b BuiltinMCP) {
+	if c != nil {
+		c.builtin = b
+	}
+}
+
 // Connect 按 serverIDs（Server 名称）建立本轮可用的会话。
 //
+// 内置名优先：命中内置注册表时走进程内会话，不经过网络与 SSRF 守卫。
 // 单个 Server 失败不终止 run：跳过它并继续，由调用方把提示交给模型。
 // 全部失败时返回空集合（不是错误），只有配置读取失败才返回 error。
-func (c *MCPConnector) Connect(ctx context.Context, _ cloudagent.Principal, projectID string, serverIDs []string) (mcp.SessionSet, error) {
-	if c == nil || c.store == nil || len(serverIDs) == 0 {
+func (c *MCPConnector) Connect(ctx context.Context, req cloudagent.RunRequest, serverIDs []string) (mcp.SessionSet, error) {
+	if c == nil || len(serverIDs) == 0 {
 		return mcp.NewSessionSet(nil), nil
+	}
+	rc, err := hostContext(req.Context)
+	if err != nil {
+		return mcp.NewSessionSet(nil), err
+	}
+	principal := rc.Principal
+	if !req.Agent.Writable {
+		principal = stripWritePermissions(principal)
 	}
 	sessions := make([]mcp.Session, 0, len(serverIDs))
 	for _, name := range serverIDs {
-		srv, err := c.store.GetMCPServerByName(ctx, projectID, name)
+		if c.builtin != nil {
+			// 进程内子请求必须带委托身份，委托边界（delegable）才会生效。
+			principal.Delegated = true
+			if spec, ok := c.builtin.Spec(ctx, principal, rc.ProjectID, name); ok {
+				if sess, err := mcp.ConnectInMemory(ctx, name, spec); err == nil {
+					sessions = append(sessions, sess)
+				}
+				continue
+			}
+		}
+		if c.store == nil || c.opts.DisableExternal {
+			continue
+		}
+		srv, err := c.store.GetMCPServerByName(ctx, rc.ProjectID, name)
 		if err != nil || !srv.Enabled {
 			// 未配置或已停用：跳过，不阻断 run。
 			continue
@@ -243,7 +289,8 @@ func (l *limitedBody) Close() error { return l.r.Close() }
 // 未标记的工具一律按「写」处理（fail-closed）：Server 自报的
 // annotations 不可信，只有宿主存的标记生效。
 type MCPPolicy struct {
-	store *systemdb.Store
+	store   *systemdb.Store
+	builtin BuiltinMCP
 }
 
 // NewMCPPolicy 构造策略实现。
@@ -251,24 +298,41 @@ func NewMCPPolicy(store *systemdb.Store) *MCPPolicy {
 	return &MCPPolicy{store: store}
 }
 
+// SetBuiltin 注入内置 MCP 实现，用于判定内置工具的读写属性。
+func (p *MCPPolicy) SetBuiltin(b BuiltinMCP) {
+	if p != nil {
+		p.builtin = b
+	}
+}
+
 // Classify 实现 cloudagent.MCPPolicy。
 //
 // 事实来源是 sys_mcp_servers.tools_policy_json：Server 自报的
 // annotations 只作配置向导的默认建议。未标记的工具一律按「写」处理。
-func (p *MCPPolicy) Classify(ctx context.Context, projectID, serverID, tool string) (cloudagent.CommandDecision, error) {
-	if p == nil || p.store == nil {
-		return cloudagent.CommandDecision{}, errors.New("mcp: policy store is not configured")
+func (p *MCPPolicy) Classify(ctx context.Context, req cloudagent.RunRequest, serverID, tool string) (cloudagent.ToolDecision, error) {
+	rc, err := hostContext(req.Context)
+	if err != nil {
+		return cloudagent.ToolDecision{}, err
 	}
-	srv, err := p.store.GetMCPServerByName(ctx, projectID, serverID)
+	// 内置 Server 的事实来源是工具表，不读 tools_policy_json。
+	if p != nil && p.builtin != nil {
+		if d, ok := p.builtin.Policy(serverID, tool); ok {
+			return d, nil
+		}
+	}
+	if p == nil || p.store == nil {
+		return cloudagent.ToolDecision{}, errors.New("mcp: policy store is not configured")
+	}
+	srv, err := p.store.GetMCPServerByName(ctx, rc.ProjectID, serverID)
 	if err != nil {
 		// Server 未登记 = 策略缺失，调用方必须拒绝执行（fail-closed）。
-		return cloudagent.CommandDecision{}, fmt.Errorf("mcp: server %q is not configured", serverID)
+		return cloudagent.ToolDecision{}, fmt.Errorf("mcp: server %q is not configured", serverID)
 	}
 	policies := systemdb.ParseMCPToolPolicies(srv.ToolsPolicyJSON)
 	pol, ok := policies[tool]
 	if !ok {
 		// 未标记：按写处理，且不认定为「破坏性」（走普通写权限校验即可）。
-		return cloudagent.CommandDecision{ReadOnly: false, Destructive: false}, nil
+		return cloudagent.ToolDecision{ReadOnly: false, Destructive: false}, nil
 	}
-	return cloudagent.CommandDecision{ReadOnly: pol.ReadOnly, Destructive: pol.Destructive}, nil
+	return cloudagent.ToolDecision{ReadOnly: pol.ReadOnly, Destructive: pol.Destructive}, nil
 }

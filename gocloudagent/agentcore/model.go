@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	NewModel(client ChatClient, projectID, modelName string) *Model
+//	NewModel(client ChatClient, scope, modelName string) *Model
 //	ResetUnsupportedNativeTools()  // ResetUnsupportedNativeTools 清空 auto 协议降级缓存，仅测试使用：
 //	(m *Model) Generate(ctx context.Context, input []*schema.Message, opts ...
 //
@@ -21,7 +21,7 @@
 //
 //	type Model struct {…}
 //	ResetUnsupportedNativeTools()
-//	NewModel(client ChatClient, projectID, modelName string) *Model
+//	NewModel(client ChatClient, scope, modelName string) *Model
 //	(m *Model) Generate(ctx context.Context, input []*schema.Message, opts ...
 //	(m *Model) Stream(ctx context.Context, input []*schema.Message, opts ...
 //	(m *Model) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error)
@@ -44,10 +44,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// Model adapts the project LLM gateway to eino's ToolCallingChatModel.
+// Model adapts a ChatClient to eino's ToolCallingChatModel.
 type Model struct {
 	client    ChatClient
-	projectID string
+	scope     string
 	modelName string
 	// Protocol 为 text / native / auto；空值按 text 处理。
 	Protocol string
@@ -61,7 +61,7 @@ type Model struct {
 var unsupportedNativeTools sync.Map // provider|model -> bool
 
 // ResetUnsupportedNativeTools 清空 auto 协议降级缓存，仅测试使用：
-// 缓存以 projectID|model 为键全局持久，同一测试二进制内多次运行
+// 缓存以 scope|model 为键全局持久，同一测试二进制内多次运行
 // （-count>1 或跨用例共用项目）会因缓存命中而跳过降级路径，造成剧本错位抖动。
 func ResetUnsupportedNativeTools() {
 	unsupportedNativeTools = sync.Map{}
@@ -74,8 +74,8 @@ func (m *Model) warn(msg string, fields ...zap.Field) {
 }
 
 // NewModel 创建网关适配器，默认文本工具协议。
-func NewModel(client ChatClient, projectID, modelName string) *Model {
-	return &Model{client: client, projectID: projectID, modelName: modelName, Protocol: "text"}
+func NewModel(client ChatClient, scope, modelName string) *Model {
+	return &Model{client: client, scope: scope, modelName: modelName, Protocol: "text"}
 }
 
 func (m *Model) useNative() bool {
@@ -85,7 +85,7 @@ func (m *Model) useNative() bool {
 	if m.Protocol == "native" {
 		return true
 	}
-	_, disabled := unsupportedNativeTools.Load(m.projectID + "|" + m.modelName)
+	_, disabled := unsupportedNativeTools.Load(m.scope + "|" + m.modelName)
 	return !disabled
 }
 
@@ -95,9 +95,9 @@ func (m *Model) fallback(err error) bool {
 		(!strings.Contains(strings.ToLower(err.Error()), "tool") && !strings.Contains(strings.ToLower(err.Error()), "function")) {
 		return false
 	}
-	unsupportedNativeTools.Store(m.projectID+"|"+m.modelName, true)
+	unsupportedNativeTools.Store(m.scope+"|"+m.modelName, true)
 	m.warn("gocloudagent: fall back to text tool protocol",
-		zap.String("project", m.projectID),
+		zap.String("scope", m.scope),
 		zap.String("model", m.modelName),
 		zap.String("err", err.Error()),
 	)
@@ -111,11 +111,11 @@ func (m *Model) Generate(ctx context.Context, input []*schema.Message, opts ...m
 	if err != nil {
 		return nil, err
 	}
-	resp, err := m.client.Chat(ctx, m.projectID, req)
+	resp, err := m.client.Chat(ctx, m.scope, req)
 	if err != nil && len(req.Tools) > 0 && m.fallback(err) {
 		req, err = m.buildRequest(input, tools, options, false)
 		if err == nil {
-			resp, err = m.client.Chat(ctx, m.projectID, req)
+			resp, err = m.client.Chat(ctx, m.scope, req)
 		}
 	}
 	if err != nil {
@@ -146,11 +146,11 @@ func (m *Model) Stream(ctx context.Context, input []*schema.Message, opts ...mod
 	if err != nil {
 		return nil, err
 	}
-	stream, err := m.client.Stream(ctx, m.projectID, req)
+	stream, err := m.client.Stream(ctx, m.scope, req)
 	if err != nil && len(req.Tools) > 0 && m.fallback(err) {
 		req, err = m.buildRequest(input, tools, options, false)
 		if err == nil {
-			stream, err = m.client.Stream(ctx, m.projectID, req)
+			stream, err = m.client.Stream(ctx, m.scope, req)
 		}
 	}
 	if err != nil {
@@ -161,11 +161,11 @@ func (m *Model) Stream(ctx context.Context, input []*schema.Message, opts ...mod
 		}
 		// 退化路径会产出单帧流（无 thinking 间隔），记 warn 便于定位「首帧一次到齐」。
 		m.warn("gocloudagent: stream unavailable, falling back to non-stream Chat",
-			zap.String("project", m.projectID),
+			zap.String("scope", m.scope),
 			zap.String("model", m.modelName),
 			zap.String("err", err.Error()),
 		)
-		resp, cerr := m.client.Chat(ctx, m.projectID, req)
+		resp, cerr := m.client.Chat(ctx, m.scope, req)
 		if cerr != nil {
 			return nil, cerr
 		}

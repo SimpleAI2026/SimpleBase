@@ -32,6 +32,49 @@ func newRemoteFactory(t *testing.T, blobs blob.Store, cacheDir string) (*Factory
 	return &Factory{CacheDir: cacheDir, Remote: true, Syncer: syncer}, syncer
 }
 
+type countingGetBlobs struct {
+	blob.Store
+	reads atomic.Int64
+}
+
+func (b *countingGetBlobs) GetBytes(ctx context.Context, key string) ([]byte, blob.ObjectInfo, error) {
+	b.reads.Add(1)
+	return b.Store.GetBytes(ctx, key)
+}
+
+func TestLatestManifestByListReadsOnlyLatest(t *testing.T) {
+	ctx := context.Background()
+	memory := blob.NewMemory()
+	keys := blob.KeyBuilder{RootPrefix: "sb"}
+	const projectID = "rmt00001"
+	for seq := int64(1); seq <= 5; seq++ {
+		key, err := keys.ProjectDatabaseManifestKey(projectID, seq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf(`{"seq":%d}`, seq)
+		if err := memory.PutBytes(ctx, key, []byte(body), "application/json"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := &countingGetBlobs{Store: memory}
+	syncer := NewFileSyncer(store, keys, t.TempDir(), time.Hour, 3, nil)
+	prefix, err := keys.ProjectDatabasePrefix(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := syncer.latestManifestByList(ctx, prefix+"/manifest/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Seq != 5 {
+		t.Fatalf("latest seq = %d, want 5", manifest.Seq)
+	}
+	if got := store.reads.Load(); got != 1 {
+		t.Fatalf("manifest reads = %d, want 1", got)
+	}
+}
+
 func TestFileSyncerRoundTripColdStart(t *testing.T) {
 	for _, engine := range []string{godatabase.EngineDuckDB, godatabase.EngineSQLite} {
 		t.Run(engine, func(t *testing.T) {

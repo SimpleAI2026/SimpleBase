@@ -42,7 +42,6 @@ func goldenStorageLines() []string {
 	for _, p := range paths {
 		v, err := DatabaseEngine(p)
 		rec("DatabaseEngine", []any{p}, v, err)
-		rec("ValidateDatabasePath", []any{p}, "ok", ValidateDatabasePath(p))
 	}
 	for _, pid := range []string{"abcd1234", "wxyz9876", ReservedSystemProjectID, ""} {
 		for _, p := range paths {

@@ -6,16 +6,27 @@
 import type {
   AgentApproval,
   AgentApprovalStatus,
+  AgentBuiltinTagKey,
+  AgentDispatchMode,
+  AgentHumanTask,
   AgentMessage,
+  AgentRouteKind,
   AgentRunMetrics,
   AgentRunRequest,
   AgentSchedule,
   AgentStreamHandlers,
+  AgentTag,
+  AgentTagInput,
+  AgentTask,
+  AgentTaskStatus,
   AgentThread,
+  AgentThreadKind,
+  AgentTurn,
+  AgentTurnRequest,
   AgentUsageEventWire,
+  AgentWorkspaceCapabilities,
   AggregateQuery,
   AggregateResult,
-  APIPreviewResult,
   BackupItem,
   CloudAgent,
   CollectionInfo,
@@ -30,7 +41,6 @@ import type {
   DocumentItem,
   DocumentPage,
   GoFunctionItem,
-  GoFuncVersionSummary,
   LlmSettings,
   LlmStreamConnection,
   LLMTrace,
@@ -42,6 +52,7 @@ import type {
   LogQuery,
   LogRetention,
   LogRetentionWire,
+  McpBuiltinServer,
   McpServer,
   McpToolPolicy,
   MetricsSummary,
@@ -68,6 +79,7 @@ import type {
   FunctionTrigger,
   FunctionTriggerInput
 } from './types'
+import { AGENT_TASK_STATUSES } from './types'
 import { t } from '@/locales'
 import { http, baseURL, getAccessToken, getApiKey } from './http'
 
@@ -76,10 +88,10 @@ import { http, baseURL, getAccessToken, getApiKey } from './http'
 export function toS3SiteInfo(raw: unknown): S3SiteInfo {
   const r = (raw ?? {}) as Partial<S3SiteInfo>
   return {
-    enabled: r.enabled === true,
     baseUrl: typeof r.baseUrl === 'string' && r.baseUrl ? r.baseUrl : undefined,
     publishable: r.publishable === true,
-    reason: typeof r.reason === 'string' && r.reason ? r.reason : undefined
+    reason: typeof r.reason === 'string' && r.reason ? r.reason : undefined,
+    mode: r.mode === 'path' || r.mode === 'subdomain' ? r.mode : undefined
   }
 }
 
@@ -732,22 +744,51 @@ export function toCloudAgent(raw: Record<string, any>): CloudAgent {
     model_override: raw?.model_override || undefined,
     builtin_key: raw?.builtin_key || undefined,
     team_enabled: !!raw?.team_enabled,
-    writable: !!raw?.writable,
     created_at: String(raw?.created_at ?? ''),
     updated_at: String(raw?.updated_at ?? '')
   }
 }
 
+/** planv6.7 AGC-ROUTE：route_kind 合法值守卫（不用 any）。 */
+export function isRouteKind(v: unknown): v is AgentRouteKind {
+  return v === 'auto' || v === 'mention' || v === 'fallback' || v === 'retry'
+}
+
+function isAgentTaskStatus(value: unknown): value is AgentTaskStatus {
+  return AGENT_TASK_STATUSES.some((status) => status === value)
+}
+
+/**
+ * v2 §5.1：存储里的 auto 在读时统一映射为 collaborative（群会话）。
+ * 旧会话因此获得群路由与多助手能力，界面不再出现「一轮一助手」的旧语义。
+ */
 export function toAgentThread(raw: Record<string, any>): AgentThread {
   return {
     id: String(raw?.id ?? ''),
     title: String(raw?.title ?? ''),
     agent_id: raw?.agent_id ? String(raw.agent_id) : undefined,
-    starter_template: raw?.starter_template ? String(raw.starter_template) : undefined,
+    tag_id: raw?.tag_id ? String(raw.tag_id) : undefined,
+    dispatch_mode: isDispatchMode(raw?.dispatch_mode) ? raw.dispatch_mode : undefined,
+    thread_kind: isThreadKind(raw?.thread_kind) ? raw.thread_kind : undefined,
     created_at: String(raw?.created_at ?? ''),
     updated_at: String(raw?.updated_at ?? ''),
     last_message_preview: raw?.last_message_preview ? String(raw.last_message_preview) : undefined
   }
+}
+
+/** 调度模式守卫：auto 一律折叠为 collaborative（v2 读时统一）。 */
+export function isDispatchMode(v: unknown): v is AgentDispatchMode {
+  return v === 'auto' || v === 'collaborative'
+}
+
+/** 会话类型守卫。 */
+export function isThreadKind(v: unknown): v is AgentThreadKind {
+  return v === 'chat' || v === 'alert' || v === 'statistics' || v === 'scheduled'
+}
+
+/** 内置群 key 守卫。 */
+export function isBuiltinTagKey(v: unknown): v is AgentBuiltinTagKey {
+  return v === 'general' || v === 'alerts' || v === 'stats' || v === 'scheduled'
 }
 
 export function toAgentMessage(raw: Record<string, any>): AgentMessage {
@@ -761,8 +802,51 @@ export function toAgentMessage(raw: Record<string, any>): AgentMessage {
     run_id: raw?.run_id || undefined,
     run_status: raw?.run_status || undefined,
     error_code: raw?.error_code || undefined,
+    route_kind: isRouteKind(raw?.route_kind) ? raw.route_kind : undefined,
     created_at: String(raw?.created_at ?? '')
   }
+}
+
+/** planv6.7 AGC-NAV：工作台标签（snake → camel，数组兜底 []）。 */
+export function toAgentTag(raw: Record<string, any>): AgentTag {
+  const prompts = Array.isArray(raw?.prompts)
+    ? raw.prompts.map((p: Record<string, any>) => ({
+        id: String(p?.id ?? ''),
+        title: String(p?.title ?? ''),
+        content: String(p?.content ?? '')
+      }))
+    : []
+  const threadKinds = Array.isArray(raw?.thread_kinds)
+    ? raw.thread_kinds.filter(isThreadKind)
+    : []
+  return {
+    id: String(raw?.id ?? ''),
+    builtinKey: isBuiltinTagKey(raw?.builtin_key) ? raw.builtin_key : undefined,
+    name: String(raw?.name ?? ''),
+    agentIds: Array.isArray(raw?.agent_ids) ? raw.agent_ids.map(String) : [],
+    prompts,
+    unavailableAgentIds: Array.isArray(raw?.unavailable_agent_ids) ? raw.unavailable_agent_ids.map(String) : [],
+    routingPrompt: String(raw?.routing_prompt ?? ''),
+    fallbackAgentId: raw?.fallback_agent_id ? String(raw.fallback_agent_id) : undefined,
+    humanPolicy: raw?.human_policy === 'disabled' ? 'disabled' : undefined,
+    threadKinds,
+    version: Number(raw?.version ?? 0),
+    updatedAt: raw?.updated_at ? String(raw.updated_at) : undefined
+  }
+}
+
+/** planv6.7 AGC-NAV：标签输入（camel → snake）。 */
+export function fromAgentTagInput(input: AgentTagInput): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    agent_ids: input.agentIds,
+    prompts: input.prompts.map((p) => ({ id: p.id, title: p.title, content: p.content }))
+  }
+  if (input.name !== undefined) body.name = input.name
+  if (input.expectedVersion !== undefined) body.expected_version = input.expectedVersion
+  if (input.routingPrompt !== undefined) body.routing_prompt = input.routingPrompt
+  if (input.fallbackAgentId !== undefined) body.fallback_agent_id = input.fallbackAgentId
+  if (input.humanPolicy !== undefined) body.human_policy = input.humanPolicy
+  return body
 }
 
 export function toAgentApproval(raw: Record<string, any>): AgentApproval {
@@ -796,8 +880,24 @@ export function toMcpServer(raw: Record<string, any>): McpServer {
     tools_policy: policy && typeof policy === 'object' ? (policy as Record<string, McpToolPolicy>) : {},
     header_names: Array.isArray(raw?.header_names) ? raw.header_names.map(String) : [],
     has_credential: Boolean(raw?.has_credential),
+    name_conflict: raw?.name_conflict ? true : undefined,
     created_at: String(raw?.created_at ?? ''),
     updated_at: String(raw?.updated_at ?? '')
+  }
+}
+
+export function toMcpBuiltinServer(raw: Record<string, any>): McpBuiltinServer {
+  const tools = Array.isArray(raw?.tools) ? raw.tools : []
+  return {
+    name: String(raw?.name ?? ''),
+    enabled: Boolean(raw?.enabled),
+    transport: String(raw?.transport ?? 'http'),
+    url: String(raw?.url ?? ''),
+    tools: tools.map((x: Record<string, any>) => ({
+      name: String(x?.name ?? ''),
+      read_only: Boolean(x?.read_only),
+      destructive: Boolean(x?.destructive)
+    }))
   }
 }
 
@@ -833,6 +933,102 @@ export function toAgentRunMetrics(obj: AgentUsageEventWire): AgentRunMetrics {
   }
 }
 
+/** 轮次（v2）：snake → camel；任务数组兜底 []。 */
+export function toAgentTurn(raw: Record<string, any>): AgentTurn {
+  const tasks = Array.isArray(raw?.tasks) ? raw.tasks.map(toAgentTask) : []
+  return {
+    id: String(raw?.id ?? ''),
+    threadId: String(raw?.thread_id ?? ''),
+    tagId: raw?.tag_id ? String(raw.tag_id) : undefined,
+    status: String(raw?.status ?? '') as AgentTurn['status'],
+    errorCode: raw?.error_code ? String(raw.error_code) : undefined,
+    route: raw?.route ? String(raw.route) : undefined,
+    version: Number(raw?.version ?? 0),
+    createdAt: String(raw?.created_at ?? ''),
+    updatedAt: String(raw?.updated_at ?? ''),
+    tasks,
+    lastEventSeq: Number(raw?.last_event_seq ?? 0)
+  }
+}
+
+export function toAgentTask(raw: Record<string, any>): AgentTask {
+  return {
+    id: String(raw?.id ?? ''),
+    turnId: String(raw?.turn_id ?? ''),
+    seq: Number(raw?.seq ?? 0),
+    targetKind: raw?.target_kind === 'human' ? 'human' : 'agent',
+    targetId: String(raw?.target_id ?? ''),
+    instruction: String(raw?.instruction ?? ''),
+    status: String(raw?.status ?? '') as AgentTask['status'],
+    attempt: Number(raw?.attempt ?? 0),
+    runId: raw?.run_id ? String(raw.run_id) : undefined,
+    assigneeId: raw?.assignee_id ? String(raw.assignee_id) : undefined,
+    replyText: raw?.reply_text ? String(raw.reply_text) : undefined,
+    replyOutcome: raw?.reply_outcome === 'unable' ? 'unable' : raw?.reply_outcome === 'continue' ? 'continue' : undefined,
+    repliedBy: raw?.replied_by ? String(raw.replied_by) : undefined,
+    dependsOn: Array.isArray(raw?.depends_on) ? raw.depends_on.map(String) : [],
+    errorCode: raw?.error_code ? String(raw.error_code) : undefined,
+    version: Number(raw?.version ?? 0),
+    createdAt: String(raw?.created_at ?? '')
+  }
+}
+
+/** 人工待办：snake → camel。 */
+export function toAgentHumanTask(raw: Record<string, any>): AgentHumanTask {
+  return {
+    taskId: String(raw?.task_id ?? ''),
+    turnId: String(raw?.turn_id ?? ''),
+    threadId: String(raw?.thread_id ?? ''),
+    threadTitle: raw?.thread_title ? String(raw.thread_title) : undefined,
+    tagId: raw?.tag_id ? String(raw.tag_id) : undefined,
+    instruction: String(raw?.instruction ?? ''),
+    status: String(raw?.status ?? ''),
+    assigneeId: String(raw?.assignee_id ?? ''),
+    version: Number(raw?.version ?? 0),
+    createdAt: String(raw?.created_at ?? '')
+  }
+}
+
+/** 协作能力：未知字段一律取保守默认（不露出协作控件）。 */
+export function toWorkspaceCapabilities(raw: Record<string, any>): AgentWorkspaceCapabilities {
+  const kinds = Array.isArray(raw?.thread_kinds) ? raw.thread_kinds.filter(isThreadKind) : []
+  return {
+    protocolVersion: Number(raw?.protocol_version ?? 0),
+    collaboration: raw?.collaboration === true,
+    threadKinds: kinds,
+    maxTasks: Number(raw?.max_tasks ?? 0),
+    maxDepth: Number(raw?.max_depth ?? 0),
+    maxInstruction: Number(raw?.max_instruction ?? 0),
+    missingTables: Array.isArray(raw?.missing_tables) ? raw.missing_tables.map(String) : undefined
+  }
+}
+
+/** 发起一轮（v2）：走 /turns，支持多目标 @。 */
+export function streamAgentTurn(
+  projectId: string,
+  threadId: string,
+  req: AgentTurnRequest,
+  handlers: AgentStreamHandlers
+): LlmStreamConnection {
+  return openAgentRunStream(projectId, handlers, '', (signal) =>
+    fetch(`${baseURL}${agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/turns')}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAccessToken() || getApiKey()}`
+      },
+      body: JSON.stringify({
+        content: req.content,
+        mentions: req.mentions,
+        stream: true,
+        ...(req.idempotencyKey ? { idempotency_key: req.idempotencyKey } : {}),
+        ...(req.threadKind ? { thread_kind: req.threadKind } : {})
+      }),
+      signal
+    })
+  )
+}
+
 export function streamAgentRun(
   projectId: string,
   threadId: string,
@@ -851,9 +1047,7 @@ export function streamAgentRun(
         mentions: req.mentions,
         stream: true,
         ...(req.retry_of_run_id ? { retry_of_run_id: req.retry_of_run_id } : {}),
-        ...(req.starter_stage ? { starter_stage: req.starter_stage } : {}),
         // 数据看板生成图表：必须显式透传，否则被这里的字段白名单静默丢弃，助手拿不到字段清单。
-        ...(req.bi_context ? { bi_context: req.bi_context } : {})
       }),
       signal
     })
@@ -895,13 +1089,73 @@ export function openAgentRunStream(
   }
   const onEvent = (obj: Record<string, any>) => {
     if (obj?._sse_id != null && String(obj._sse_id) !== '') lastId = String(obj._sse_id)
+    // v2：轮次模式下每帧携带归属（哪个子 run / 哪个助手），供协作状态索引任务。
+    if (obj?.run_id || obj?.agent_id) {
+      handlers.onFrameContext?.({
+        runId: obj?.run_id ? String(obj.run_id) : undefined,
+        agentId: obj?.agent_id ? String(obj.agent_id) : undefined
+      })
+    }
     if (obj?.type === 'end') {
       fireEnd(typeof obj.reason === 'string' ? obj.reason : undefined)
       return
     }
     if (obj?.type === 'run' && obj.run_id) {
       runId = String(obj.run_id)
-      handlers.onRun?.(runId)
+      handlers.onRun?.(
+        runId,
+        obj.agent_id ? String(obj.agent_id) : undefined,
+        isRouteKind(obj.route_kind) ? obj.route_kind : undefined
+      )
+      return
+    }
+    if (obj?.type === 'route') {
+      // planv6.7 AGC-ROUTE：routing（正在选择助手）→ done（agent_id + route_kind）；
+      // v2：done 帧可带分工步骤（多人/多助手）。
+      handlers.onRoute?.({
+        status: obj.status === 'done' ? 'done' : 'routing',
+        agentId: obj.agent_id ? String(obj.agent_id) : undefined,
+        routeKind: isRouteKind(obj.route_kind) ? obj.route_kind : undefined,
+        steps: Array.isArray(obj.steps)
+          ? obj.steps.map((s: Record<string, any>) => ({
+              kind: s?.kind === 'human' ? 'human' : 'agent',
+              agentId: s?.agent_id ? String(s.agent_id) : undefined,
+              instruction: String(s?.instruction ?? ''),
+              routeKind: isRouteKind(s?.route_kind) ? s.route_kind : undefined,
+              taskId: s?.task_id ? String(s.task_id) : undefined
+            }))
+          : undefined
+      })
+      return
+    }
+    if (obj?.type === 'task') {
+      handlers.onTask?.({
+        taskId: obj.task_id ? String(obj.task_id) : undefined,
+        agentId: obj.agent_id ? String(obj.agent_id) : undefined,
+        index: Number(obj.index || 0),
+        total: Number(obj.total || 0),
+        status: isAgentTaskStatus(obj.status) ? obj.status : 'pending',
+        message: obj.message ? String(obj.message) : undefined,
+        runId: obj.run_id ? String(obj.run_id) : undefined
+      })
+      return
+    }
+    if (obj?.type === 'human') {
+      handlers.onHuman?.({
+        taskId: obj.task_id ? String(obj.task_id) : undefined,
+        humanId: obj.human_id ? String(obj.human_id) : undefined,
+        humanName: obj.human_name ? String(obj.human_name) : undefined,
+        index: Number(obj.index || 0),
+        message: obj.message ? String(obj.message) : undefined
+      })
+      return
+    }
+    if (obj?.type === 'turn') {
+      handlers.onTurn?.({
+        status: String(obj.status ?? ''),
+        index: Number(obj.index || 0),
+        total: Number(obj.total || 0)
+      })
       return
     }
     if (obj?.type === 'error') {

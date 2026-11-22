@@ -1,31 +1,3 @@
-// 文件说明：mandatory.go — gosandbox/host 中 ForceDenyWriteSubpaths、ForceDenyWriteHomeFiles 等符号的…
-//
-// 用法
-//
-//	ForceDenyWritePaths(p Policy, home string, exists func(string) bool) []string  // ForceDenyWritePaths 返回应当强制只读的绝对路径，已去重、排序，且只含 exists 判定存在的路径
-//	Warnings(p Policy) []string  // Warnings 返回策略的安全相关提示，供调用方如实上报
-//	同包调用：Warnings() → policy.go, run.go 等；readOnlyPaths() → bwrap_args.go, seatbelt.go；userHome() → bwrap_args.go, seatbelt.go
-//
-// 调用架构
-//
-//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/mandatory.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] bwrap_args.go, cgroup.go, glob.go, policy.go, probe.go 等 13 个
-//	[关键引用] Warnings() ← policy.go, run.go, run_darwin.go
-//
-// 主要符号
-//
-//	var ForceDenyWriteSubpaths
-//	var ForceDenyWriteHomeFiles
-//	ForceDenyWritePaths(p Policy, home string, exists func(string) bool) []string
-//	Warnings(p Policy) []string
-//	... 另有 4 个顶层符号
-
 package host
 
 import (
@@ -43,9 +15,8 @@ import (
 // 子模块（.gitmodules）、MCP 客户端（.mcp.json）、IDE（.vscode、.idea 的任务与运行配置）。
 // 沙盒内写入它们不会立刻造成越界，但会在用户之后于宿主侧操作该目录时被触发。
 //
-// 只保护生成命令时已存在的路径：对不存在的 .git/hooks 加 deny 会让沙盒内 git init 直接失败
-// （见 planv6.3 §3.1，D7）。代价是同一条命令内「git init 后写 hook」的窗口，init 之后的
-// 下一条命令起即受保护。
+// 只保护生成命令时已存在的路径：对不存在的 .git/hooks 加 deny 会让沙盒内 git init 直接失败。
+// 代价是同一条命令内「git init 后写 hook」的窗口，init 之后的下一条命令起即受保护。
 var ForceDenyWriteSubpaths = []string{
 	".git/hooks",
 	".git/config",
@@ -69,11 +40,10 @@ func pathExists(p string) bool {
 }
 
 // ForceDenyWritePaths 返回应当强制只读的绝对路径，已去重、排序，且只含 exists 判定存在的路径。
-// DisableForceDeny 或不在 workspace-write 档时返回 nil：read-only 档没有可写区，无需再盖。
-//
+// 不在 workspace-write 档时返回 nil：read-only 档没有可写区，无需再盖。
 // home 为空表示不处理 HOME 下的文件；exists 为 nil 时取 os.Lstat。
 func ForceDenyWritePaths(p Policy, home string, exists func(string) bool) []string {
-	if p.DisableForceDeny || !p.Isolates() || p.EffectiveMode() != ModeWorkspaceWrite {
+	if !p.Isolates() || p.EffectiveMode() != ModeWorkspaceWrite {
 		return nil
 	}
 	if exists == nil {
@@ -130,7 +100,7 @@ func readOnlyPaths(p Policy, home string, exists func(string) bool) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	if p.EffectiveMode() == ModeWorkspaceWrite {
-		for _, sub := range p.EffectiveReadOnlySubpaths() {
+		for _, sub := range p.ReadOnlySubpaths {
 			abs := resolveSub(p.Workspace, sub)
 			if !exists(abs) {
 				continue
@@ -161,19 +131,11 @@ func userHome() string {
 	return h
 }
 
-// Warnings 返回策略的安全相关提示，供调用方如实上报。目前只有强制 deny 表被关闭这一项。
-func Warnings(p Policy) []string {
-	if p.Isolates() && p.DisableForceDeny {
-		return []string{"force-deny table disabled: .git/hooks, .git/config, .vscode and similar paths are writable"}
-	}
-	return nil
-}
-
 // DefaultDenyReadHomePaths 是 macOS 上默认对沙盒不可读的 HOME 子路径（凭据、令牌、钥匙串、Cookie）。
 //
 // macOS 的 Seatbelt 是「根可读」模型，没有 Linux 那样的挂载命名空间，宿主 HOME 下的凭据默认对命令可见；
 // 这张表把最常见的凭据位置盖掉。不存在的路径同样生效（覆盖之后新建的文件）。
-// Policy.DisableDefaultDenyRead=true 可关闭。Linux 不使用这张表（行为不变）。
+// Linux 不使用这张表。
 var DefaultDenyReadHomePaths = []string{
 	".ssh",
 	".aws",
@@ -195,7 +157,7 @@ var defaultDenyReadOS = runtime.GOOS == "darwin"
 // defaultDenyRead 返回 DefaultDenyReadHomePaths 展开后的条目（带 literal: 前缀，HOME 里的 * ? [ 不被当作 glob）。
 // 工作区或可写根落在某个条目之内时跳过该条目，否则命令连自己的工作区都读不了。
 func defaultDenyRead(p Policy, home string) []string {
-	if p.DisableDefaultDenyRead || !p.Isolates() || home == "" || !filepath.IsAbs(home) {
+	if !p.Isolates() || home == "" || !filepath.IsAbs(home) {
 		return nil
 	}
 	roots := append([]string{p.Workspace}, p.WritableRoots...)

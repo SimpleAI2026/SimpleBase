@@ -64,9 +64,9 @@ func TestSeatbeltProfileHostilePath(t *testing.T) {
 	}
 }
 
-// read-only 不放行工作区写入；workspace-write 默认盖住 .gocloudagent 与强制 deny 表（仅已存在的路径）。
+// read-only 不放行工作区写入；workspace-write 只保护已存在的强制 deny 路径。
 func TestSeatbeltProfileModes(t *testing.T) {
-	exists := fakeExists("/work/ws/.gocloudagent", "/work/ws/.git/hooks")
+	exists := fakeExists("/work/ws/.protected", "/work/ws/.git/hooks")
 
 	ro := seatbeltPolicy()
 	ro.Mode = ModeReadOnly
@@ -82,11 +82,11 @@ func TestSeatbeltProfileModes(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(rwParams, "\n")
-	// 用名称而不是序号断言：强制表会让 R 序号随存在的路径而变。
-	for _, want := range []string{"=/work/ws/.gocloudagent", "=/work/ws/.git/hooks"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("missing read-only path %q: %v", want, rwParams)
-		}
+	if !strings.Contains(joined, "=/work/ws/.git/hooks") {
+		t.Fatalf("missing mandatory read-only path: %v", rwParams)
+	}
+	if strings.Contains(joined, "=/work/ws/.protected") {
+		t.Fatalf("generic host must not assume platform directories: %v", rwParams)
 	}
 	// 整个 .git 不在默认只读里，git commit 才能工作。
 	for _, p := range rwParams {
@@ -112,26 +112,10 @@ func TestSeatbeltProfileSkipsMissingPaths(t *testing.T) {
 	}
 }
 
-func TestSeatbeltProfileForceDenyDisabled(t *testing.T) {
-	p := seatbeltPolicy()
-	p.DisableForceDeny = true
-	_, params, err := seatbeltProfile(p, "/home/u", fakeExists("/work/ws/.git/hooks", "/work/ws/.gocloudagent"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	joined := strings.Join(params, "\n")
-	if strings.Contains(joined, ".git/hooks") {
-		t.Fatalf("DisableForceDeny must drop the table: %v", params)
-	}
-	if !strings.Contains(joined, "=/work/ws/.gocloudagent") {
-		t.Fatalf("ReadOnlySubpaths still applies: %v", params)
-	}
-}
-
 // deny 规则必须排在 allow 之后，才能覆盖前面的放行。
 func TestSeatbeltProfileDenyAfterAllow(t *testing.T) {
 	profile, _, err := seatbeltProfile(seatbeltPolicy(), "/home/u",
-		fakeExists("/work/ws/.gocloudagent", "/work/ws/.git/hooks"))
+		fakeExists("/work/ws/.protected", "/work/ws/.git/hooks"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +168,7 @@ func TestSeatbeltMachLookupAllowlist(t *testing.T) {
 	}
 }
 
-// macOS 默认凭据禁读表：作为 literal 条目追加在用户 DenyRead 之后；覆盖工作区的条目被跳过；可关闭。
+// macOS 默认凭据禁读表：作为 literal 条目追加在用户 DenyRead 之后；覆盖工作区的条目被跳过。
 func TestSeatbeltDefaultDenyRead(t *testing.T) {
 	p := seatbeltPolicy()
 	_, params, err := seatbeltProfile(p, "/home/u", fakeExists())
@@ -203,12 +187,6 @@ func TestSeatbeltDefaultDenyRead(t *testing.T) {
 	_, params, _ = seatbeltProfile(inside, "/home/u", fakeExists())
 	if strings.Contains(strings.Join(params, "\n")+"\n", "=/home/u/.aws\n") {
 		t.Fatalf("entry covering the workspace must be skipped: %v", params)
-	}
-	off := p
-	off.DisableDefaultDenyRead = true
-	_, params, _ = seatbeltProfile(off, "/home/u", fakeExists())
-	if strings.Contains(strings.Join(params, "\n"), "/home/u/.aws") {
-		t.Fatalf("DisableDefaultDenyRead must drop the table: %v", params)
 	}
 }
 

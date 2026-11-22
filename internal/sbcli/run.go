@@ -208,7 +208,7 @@ func parseArgsOpts(args, environ []string, requireCreds bool) (loadedConfig, []s
 	if requireCreds && (strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Token) == "" || strings.TrimSpace(cfg.ProjectID) == "") {
 		return loadedConfig{}, nil, exitConfig, errors.New("endpoint, token, and project are required " +
 			"(set SIMPLEBASE_URL / SIMPLEBASE_TOKEN (or SIMPLEBASE_API_KEY) / SIMPLEBASE_PROJECT_ID or the simplebase config file; " +
-			"shells started by the local gocloudagent do not inherit SIMPLEBASE_* variables, use the config file there)")
+			"shells started by the local gocloudagent do not inherit credential-like variables, use the config file there)")
 	}
 	if !requireCreds && strings.TrimSpace(cfg.Endpoint) == "" {
 		if cfg.Output == "" {

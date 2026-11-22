@@ -1,33 +1,3 @@
-// 文件说明：string.go — godatabase/kv 中 SetOptions、SetResult 等符号的实现
-//
-// 用法
-//
-//	(r *StringRepo) Get(ctx context.Context, key string) ([]byte, error)  // Get 读取 string 值
-//	(r *StringRepo) Set(ctx context.Context, key string, value []byte) error  // Set 写入 string（覆盖写，清除原 TTL，对齐 Redis SET 无选项语义）
-//	同包调用：Set() → executor.go, hash.go 等；Get() → hash.go, key.go；Incr() → hash.go, zset.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/string.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] core.go, executor.go, hash.go, key.go, list.go 等 10 个
-//	[关键引用] Set() ← executor.go, hash.go, list.go
-//
-// 主要符号
-//
-//	type SetOptions struct {…}
-//	type SetResult struct {…}
-//	type StringRepo struct {…}
-//	(r *StringRepo) Get(ctx context.Context, key string) ([]byte, error)
-//	(r *StringRepo) Set(ctx context.Context, key string, value []byte) error
-//	(r *StringRepo) SetWith(ctx context.Context, key string, value []byte, opts ...
-//	... 另有 5 个顶层符号
-
 package kv
 
 import (

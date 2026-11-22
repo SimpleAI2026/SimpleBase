@@ -1,31 +1,3 @@
-// 文件说明：glob.go — gosandbox/host 中 MaxGlobMatches、ErrGlobTooLarge 等符号的实现
-//
-// 用法
-//
-//	ExpandGlob(pattern string) ([]string, error)  // ExpandGlob 展开 glob 为当下存在的路径（Linux 的快照语义）
-//	type globKind（包内使用）
-//	type globToken（包内使用）
-//	同包调用：splitDenyEntry() → bwrap_args.go, policy.go 等；isGlobEntry() → bwrap_args.go, policy.go 等；ExpandGlob() → bwrap_args.go
-//
-// 调用架构
-//
-//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/glob.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] bwrap_args.go, cgroup.go, mandatory.go, policy.go, probe.go 等 13 个
-//	[关键引用] splitDenyEntry() ← bwrap_args.go, policy.go, seatbelt.go
-//
-// 主要符号
-//
-//	const MaxGlobMatches
-//	var ErrGlobTooLarge
-//	ExpandGlob(pattern string) ([]string, error)
-//	... 另有 15 个顶层符号
-
 package host
 
 import (

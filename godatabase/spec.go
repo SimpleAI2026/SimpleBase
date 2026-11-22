@@ -1,33 +1,3 @@
-// 文件说明：spec.go — godatabase 中 Status、StatusCreating 等符号的实现
-//
-// 用法
-//
-//	(s Spec) IsSystem() bool// IsSystem 判断是否为系统库
-//	NormalizeEngine(engine string) (string, error)  // NormalizeEngine 把引擎名规范化为 duckdb / sqlite
-//	同包调用：EngineDuckDB → dialect.go；EngineSQLite → dialect.go；Spec → runtime.go
-//
-// 调用架构
-//
-//	[上游] godatabase/cache, godatabase/ducklake, godatabase/filedb 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/spec.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/blob
-//	[同包] dialect.go, query.go, runtime.go, serialize.go, snapshot.go 等 6 个
-//	[关键引用] EngineDuckDB ← dialect.go
-//
-// 主要符号
-//
-//	type Status string
-//	const StatusCreating
-//	const StatusReady
-//	const StatusDegraded
-//	const StatusDeleting
-//	const StatusDeleted
-//	... 另有 17 个顶层符号
-
 package godatabase
 
 import (
@@ -212,15 +182,3 @@ type Observer interface {
 	// CatalogLocalAhead 在本地 catalog 领先远端、被拦截时调用。
 	CatalogLocalAhead()
 }
-
-// NopObserver 丢弃所有指标。
-type NopObserver struct{}
-
-func (NopObserver) OpenHandleDelta(int)                     {}
-func (NopObserver) CacheBytes(int64)                        {}
-func (NopObserver) CacheEvicted()                           {}
-func (NopObserver) CatalogSync(string, time.Duration, bool) {}
-func (NopObserver) CatalogSyncLag(string, int64)            {}
-func (NopObserver) CatalogSyncConflict(string)              {}
-func (NopObserver) CatalogSize(string, int64)               {}
-func (NopObserver) CatalogLocalAhead()                      {}

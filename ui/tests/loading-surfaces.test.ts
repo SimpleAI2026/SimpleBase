@@ -66,10 +66,6 @@ const fnRecord = {
   id: 'gf-1', name: 'hello', file: 'hello.go', description: '', activeVersion: 1, latestVersion: 1,
   published: true, exports: ['Hello'], createdAt: 't', updatedAt: 't'
 }
-const schedule = {
-  id: 'sch-1', agent_id: 'ag-1', thread_id: 'th-1', prompt: 'check', cron_expr: '0 8 * * *',
-  enabled: true, last_run_at: '', next_run_at: '', created_at: 't', updated_at: 't'
-}
 const sandboxStubs = {
   SandboxCreateModal: { template: '<div />' },
   SandboxDrawer: { template: '<div />' }
@@ -143,32 +139,36 @@ describe('loading surfaces', () => {
     const listed = hold<unknown[]>()
     api.agents.modules.mockResolvedValue([])
     api.agents.list.mockReturnValue(listed.promise)
-    api.agentThreads.page.mockResolvedValue({ threads: [], next_cursor: '' })
+    api.agentThreads.pageBy.mockResolvedValue({ threads: [], next_cursor: '' })
+    api.agentTags.list.mockResolvedValue([])
     api.agentThreads.create.mockResolvedValue({ id: 'th-1', title: '云助手', updated_at: 't' })
     api.agentThreads.messages.mockResolvedValue([])
     const { wrapper } = await mountWithApp(AgentManager, {
       stubs: { ConversationView: true, AgentComposer: true }
     })
-    expect(wrapper.text()).not.toContain('暂无 Agent')
+    // 分区制（planv6.7 AGC-NAV）：骨架期间不显示空态文案。
+    expect(wrapper.text()).not.toContain('当前标签没有可用助手')
     expect(wrapper.html()).toContain('aria-busy="true"')
     await vi.advanceTimersByTimeAsync(LOAD_PLACEHOLDER_DELAY_MS)
     expect(wrapper.find('.skeleton').exists()).toBe(true)
     listed.resolve([])
     await flushPromises()
-    expect(wrapper.text()).toContain('暂无 Agent')
+    // 助手列表为空 → 标签分区显示空态提示。
+    expect(wrapper.text()).toContain('当前标签没有可用助手')
     wrapper.unmount()
   })
 
   it('keeps the conversation placeholder until the next thread history returns', async () => {
     api.agents.modules.mockResolvedValue([])
     api.agents.list.mockResolvedValue([sampleAgent])
-    api.agentThreads.page.mockResolvedValue({
+    api.agentThreads.pageBy.mockResolvedValue({
       threads: [
-        { id: 'th-1', title: '第一句', updated_at: 't' },
-        { id: 'th-2', title: '第二句', updated_at: 't' }
+        { id: 'th-1', title: '第一句', agent_id: sampleAgent.id, updated_at: 't' },
+        { id: 'th-2', title: '第二句', agent_id: sampleAgent.id, updated_at: 't' }
       ],
       next_cursor: ''
     })
+    api.agentTags.list.mockResolvedValue([])
     api.agentThreads.messages.mockResolvedValue([{ id: 'm1', role: 'user', content: '旧消息', created_at: 't' }])
     const { wrapper } = await mountWithApp(AgentManager)
     expect(wrapper.text()).toContain('旧消息')

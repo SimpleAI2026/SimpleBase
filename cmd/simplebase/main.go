@@ -14,10 +14,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/sbcli"
 )
 
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
-}
-
 // run 无参数启动服务，reset 重置实例，doctor 自检，其余命令交给资源 CLI。
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "doctor" {
@@ -132,4 +128,8 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }

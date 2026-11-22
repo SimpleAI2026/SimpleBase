@@ -13,6 +13,7 @@ import (
 	_ "github.com/uglyer/go-sqlite3"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -31,6 +32,7 @@ func openAgentStoreDB(t *testing.T) (*systemdb.Store, *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxOpenConns(1) // SQLite :memory: databases are scoped to a single connection.
 	t.Cleanup(func() { _ = db.Close() })
 	if err := systemdb.EnsureSystemSchema(context.Background(), db); err != nil {
 		t.Fatal(err)
@@ -40,7 +42,7 @@ func openAgentStoreDB(t *testing.T) (*systemdb.Store, *sql.DB) {
 
 func agentEcho(store *systemdb.Store) *echo.Echo {
 	e := echo.New()
-	h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{SkillsCLI: true}}
+	h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{Provider: &agentbridge.RuntimeProvider{SkillsCLI: true}}}
 	e.GET("/agents/modules", h.ListModules)
 	e.GET("/agents", h.ListAgents)
 	e.POST("/agents", h.CreateAgent)
@@ -94,7 +96,7 @@ func TestAgentCRUDAndSeed(t *testing.T) {
 		t.Fatalf("modules status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var directory struct {
-		Modules []cloudagent.ModuleInfo `json:"modules"`
+		Modules []agentbridge.ModuleInfo `json:"modules"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &directory); err != nil {
 		t.Fatal(err)

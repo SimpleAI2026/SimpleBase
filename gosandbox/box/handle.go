@@ -1,37 +1,3 @@
-// 文件说明：handle.go — 一个由 agent 托管的进程：输出、stdin、信号、等待
-//
-// 用法
-//
-//	h, err := sess.Exec(ctx, box.ExecRequest{Argv: []string{"sh", "-c", "make"}})
-//	io.Copy(dst, h.Output())  // 必须持续读：输出走背压，不堆内存
-//	h.Write([]byte("y\n"))  // stdin；超过 InputWindow 会阻塞
-//	h.Signal(15)  // 打到整个进程组
-//	ex := h.Wait()  // ExitCode / Signaled / Reason
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box、gosandbox/box（Session.Exec / Start）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/handle.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/proto
-//	[同包] session.go
-//
-// 主要符号
-//
-//	type ExecRequest struct {…}
-//	type Handle struct {…}
-//	type Exit struct {…}
-//	(s *Session) Exec(ctx context.Context, r ExecRequest) (*Handle, error)
-//	(h *Handle) Output() io.Reader
-//	(h *Handle) Write(p []byte) (int, error)
-//	(h *Handle) Resize(rows, cols uint16) error
-//	(h *Handle) Signal(sig int32) error
-//	(h *Handle) Wait() Exit
-//	(h *Handle) Close() error
-
 package box
 
 import (

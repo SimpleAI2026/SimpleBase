@@ -14,7 +14,7 @@
 //	[本文件] internal/catalog/data_model.go
 //	         │
 //	         ▼
-//	[下游] 仅标准库 / 第三方
+//	[下游] internal/utils/strutil
 //	[同包] cache.go, errors.go, model.go, project_storage.go, repository.go 等 9 个
 //	[关键引用] NormalizeDataModel() ← service.go
 //
@@ -28,13 +28,14 @@ package catalog
 
 import (
 	"fmt"
-	"strings"
+
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // NormalizeDataModel 把创建请求里的 data_model 收成 collection 或 sql。
 // 空字符串表示调用方没传，按集合文档处理，兼容只提交 name 的旧客户端。
 func NormalizeDataModel(raw string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
+	switch strutil.Normalize(raw) {
 	case "", DataModelCollection:
 		return DataModelCollection, nil
 	case DataModelSQL:

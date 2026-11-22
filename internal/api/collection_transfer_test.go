@@ -25,7 +25,7 @@ func TestCollectionTransferRealEngines(t *testing.T) {
 				t.Fatal(err)
 			}
 			db := catalog.Database{ID: "db-1", ProjectID: "prj00001", DatabasePath: path, DataModel: catalog.DataModelCollection}
-			svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewNopSyncer()}}
+			svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewLocalSyncer()}}
 			schema := &collection.Collection{Name: "tasks", Fields: []collection.Field{
 				{Name: "title", Type: "text", Required: true, Unique: true},
 				{Name: "priority", Type: "number"}, {Name: "active", Type: "bool"},

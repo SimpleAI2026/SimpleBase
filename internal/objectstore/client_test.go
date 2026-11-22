@@ -86,10 +86,6 @@ func TestDescriptorPutGetRoundTrip(t *testing.T) {
 		DataPrefix: "simplebase/pro12345/databases/33333333-3333-3333-3333-333333333333/data",
 		Status:     StatusCreating,
 	}
-	if err := desc.Validate(); err != nil {
-		t.Fatalf("validate descriptor: %v", err)
-	}
-
 	key, err := kb.DescriptorKey(desc.ProjectID, desc.DatabaseID)
 	if err != nil {
 		t.Fatalf("descriptor key: %v", err)

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/host/spec"
+	"github.com/linkxzhou/SimpleBase/gosandbox/internal/executil"
 )
 
 // HelperName 是沙盒内 helper 的二进制名。
@@ -130,7 +131,7 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 		defer cancel()
 	}
 
-	out := &cappedBuffer{max: p.MaxOutputBytes}
+	out := executil.NewCappedBuffer(p.MaxOutputBytes)
 	c.Stdout, c.Stderr = out, out
 
 	grp, configured, err := prepareCgroup(p, caps)
@@ -178,8 +179,8 @@ func Run(ctx context.Context, p Policy, cmd Command) (Result, error) {
 		defer grp.remove()
 	}
 
-	res := Result{Output: out.buf.Bytes(), OutputTruncated: out.truncated, TimedOut: timedOut, Limits: limits,
-		Warnings: Warnings(p), Duration: time.Since(start)}
+	res := Result{Output: out.Bytes(), OutputTruncated: out.Truncated(), TimedOut: timedOut, Limits: limits,
+		Duration: time.Since(start)}
 	if timedOut {
 		res.ExitCode = -1
 		return res, nil

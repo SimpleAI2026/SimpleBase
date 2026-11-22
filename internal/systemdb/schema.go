@@ -28,7 +28,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 )
@@ -139,21 +138,6 @@ var systemTables = []systemTable{
 			status VARCHAR NOT NULL,
 			created_at TIMESTAMP NOT NULL
 		)`},
-	{name: "sys_jobs", ddl: `CREATE TABLE IF NOT EXISTS sys_jobs (
-			id VARCHAR NOT NULL,
-			operation_id VARCHAR NOT NULL,
-			database_id VARCHAR NOT NULL,
-			project_id VARCHAR NOT NULL,
-			type VARCHAR NOT NULL,
-			status VARCHAR NOT NULL,
-			attempt BIGINT NOT NULL,
-			max_attempts BIGINT NOT NULL,
-			run_after TIMESTAMP NOT NULL,
-			payload_json VARCHAR NOT NULL,
-			last_error VARCHAR NOT NULL,
-			created_at TIMESTAMP NOT NULL,
-			updated_at TIMESTAMP NOT NULL
-		)`},
 	{name: "sys_project_quotas", ddl: `CREATE TABLE IF NOT EXISTS sys_project_quotas (
 			project_id VARCHAR NOT NULL,
 			max_databases BIGINT NOT NULL,
@@ -191,17 +175,8 @@ var systemTables = []systemTable{
 			created_at TIMESTAMP NOT NULL,
 			deleted_at TIMESTAMP
 		)`},
-	// planv6.5：对象存储发布网站——项目级站点开关（每项目至多一行，应用层保证唯一）。
-	{name: "sys_project_sites", ddl: `CREATE TABLE IF NOT EXISTS sys_project_sites (
-			project_id VARCHAR NOT NULL,
-			enabled BIGINT NOT NULL DEFAULT 0,
-			spa_fallback BIGINT NOT NULL DEFAULT 0,
-			created_by VARCHAR NOT NULL DEFAULT '',
-			created_at TIMESTAMP NOT NULL,
-			updated_at TIMESTAMP NOT NULL
-		)`},
 	// planv6.5：路径级外部访问开关。kind=file 精确匹配；kind=folder 为以 "/" 结尾的前缀，"" 表示整个桶。
-	{name: "sys_s3_public_paths", ddl: `CREATE TABLE IF NOT EXISTS sys_s3_public_paths (
+	{name: "sys_site_published_paths", ddl: `CREATE TABLE IF NOT EXISTS sys_site_published_paths (
 			id VARCHAR NOT NULL,
 			project_id VARCHAR NOT NULL,
 			path VARCHAR NOT NULL,
@@ -330,8 +305,34 @@ var systemTables = []systemTable{
 			created_at TIMESTAMP NOT NULL,
 			updated_at TIMESTAMP NOT NULL,
 			archived_at TIMESTAMP,
-			agent_id VARCHAR,
-			starter_template VARCHAR DEFAULT ''
+			agent_id VARCHAR
+		)`},
+	// planv6.7：云助手计划模式。计划是服务端驱动的六阶段编排，
+	// 阶段状态与 run 分离：run 是执行记录，阶段是编排进度。
+	{name: "sys_agent_plans", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_plans (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			agent_id VARCHAR NOT NULL,
+			goal VARCHAR NOT NULL DEFAULT '',
+			status VARCHAR NOT NULL,
+			current_stage VARCHAR NOT NULL DEFAULT '',
+			version BIGINT NOT NULL DEFAULT 1,
+			idempotency_key VARCHAR NOT NULL DEFAULT '',
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		)`},
+	{name: "sys_agent_plan_stages", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_plan_stages (
+			plan_id VARCHAR NOT NULL,
+			stage VARCHAR NOT NULL,
+			status VARCHAR NOT NULL,
+			attempt BIGINT NOT NULL DEFAULT 0,
+			run_id VARCHAR NOT NULL DEFAULT '',
+			goal VARCHAR NOT NULL DEFAULT '',
+			skip_reason VARCHAR NOT NULL DEFAULT '',
+			detail VARCHAR NOT NULL DEFAULT '',
+			updated_at TIMESTAMP NOT NULL
 		)`},
 	{name: "sys_agent_messages", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_messages (
 			id VARCHAR NOT NULL,
@@ -385,6 +386,41 @@ var systemTables = []systemTable{
 			expires_at TIMESTAMP,
 			resolved_at TIMESTAMP
 		)`},
+	// planv6.7 AGC-NAV：工作台标签（预置 alerts/stats 的覆盖行 + 自定义标签）。
+	// 唯一性由应用层保证：(project_id, id) 至多一行；同项目未归档 name 不重复。
+	{name: "sys_agent_workspace_tags", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_workspace_tags (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			builtin_key VARCHAR NOT NULL DEFAULT '',
+			name VARCHAR NOT NULL,
+			config_json VARCHAR NOT NULL,
+			version BIGINT NOT NULL DEFAULT 1,
+			created_by VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`},
+	// planv6.7 AGC-NAV：会话的工作台元数据。只在建会话事务内插入，(project_id, thread_id) 至多一行。
+	// 归档标签只清空 tag_id，保留 dispatch_mode（AGC-NAV §2.1）。
+	{name: "sys_agent_thread_workspace", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_thread_workspace (
+			project_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			tag_id VARCHAR NOT NULL DEFAULT '',
+			dispatch_mode VARCHAR NOT NULL DEFAULT '',
+			source VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL
+		)`},
+	// planv6.7 AGC-ROUTE：每个 run 的路由结论（auto/mention/fallback/retry），供刷新后恢复回答原因。
+	// 唯一性由应用层保证：(project_id, run_id) 至多一行（先查后插）。
+	{name: "sys_agent_run_routes", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_run_routes (
+			project_id VARCHAR NOT NULL,
+			run_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			agent_id VARCHAR NOT NULL,
+			route_kind VARCHAR NOT NULL,
+			router_ms BIGINT NOT NULL DEFAULT 0,
+			created_at TIMESTAMP NOT NULL
+		)`},
 	// sys_mcp_servers 是项目级外部 MCP Server 配置（planv6.2 §6-1）。
 	// headers_json 存静态 Header（含凭据），与 sys_llm_settings.api_key 同口径：
 	// 只服务端内部使用，对外只回 has_credential，禁止记日志。
@@ -403,35 +439,6 @@ var systemTables = []systemTable{
 			created_at TIMESTAMP NOT NULL,
 			updated_at TIMESTAMP NOT NULL,
 			archived_at TIMESTAMP
-		)`},
-	{name: "sys_agent_schedules", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_schedules (
-			id VARCHAR NOT NULL,
-			project_id VARCHAR NOT NULL,
-			agent_id VARCHAR NOT NULL,
-			thread_id VARCHAR NOT NULL,
-			prompt VARCHAR NOT NULL,
-			cron_expr VARCHAR NOT NULL,
-			enabled BIGINT NOT NULL,
-			last_run_at TIMESTAMP,
-			next_run_at TIMESTAMP,
-			created_by VARCHAR NOT NULL,
-			created_at TIMESTAMP NOT NULL,
-			updated_at TIMESTAMP NOT NULL,
-			archived_at TIMESTAMP
-		)`},
-	{name: "sys_agent_schedule_runs", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_schedule_runs (
-			id VARCHAR NOT NULL,
-			schedule_id VARCHAR NOT NULL,
-			project_id VARCHAR NOT NULL,
-			agent_id VARCHAR NOT NULL,
-			thread_id VARCHAR NOT NULL,
-			run_id VARCHAR NOT NULL,
-			trigger VARCHAR NOT NULL,
-			status VARCHAR NOT NULL,
-			error VARCHAR NOT NULL,
-			started_at TIMESTAMP,
-			finished_at TIMESTAMP,
-			created_at TIMESTAMP NOT NULL
 		)`},
 	{name: "sys_cron_jobs", ddl: `CREATE TABLE IF NOT EXISTS sys_cron_jobs (
 			id VARCHAR NOT NULL,
@@ -639,6 +646,115 @@ var systemTables = []systemTable{
 			updated_at TIMESTAMP NOT NULL,
 			archived_at TIMESTAMP
 		)`},
+	// planv6.7 v2 协作群：会话级协作元数据（类型 + 活动轮次占用）。
+	// (project_id, thread_id) 至多一行，与建会话同事务写入；active_turn_id 用 CAS 抢占。
+	{name: "sys_agent_thread_collab", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_thread_collab (
+			project_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			tag_id VARCHAR NOT NULL DEFAULT '',
+			thread_kind VARCHAR NOT NULL DEFAULT 'chat',
+			protocol_version BIGINT NOT NULL DEFAULT 2,
+			active_turn_id VARCHAR NOT NULL DEFAULT '',
+			version BIGINT NOT NULL DEFAULT 1,
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		)`},
+	// 轮次：一次发送或一次定时触发。(project_id, id) 至多一行；
+	// 同会话同幂等键唯一（先查后插，在项目级互斥内完成）。
+	{name: "sys_agent_turns", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_turns (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			tag_id VARCHAR NOT NULL DEFAULT '',
+			initiator_kind VARCHAR NOT NULL DEFAULT 'user',
+			initiator_id VARCHAR NOT NULL DEFAULT '',
+			idempotency_key VARCHAR NOT NULL DEFAULT '',
+			request_hash VARCHAR NOT NULL DEFAULT '',
+			status VARCHAR NOT NULL,
+			route_json VARCHAR NOT NULL DEFAULT '{}',
+			config_version BIGINT NOT NULL DEFAULT 0,
+			config_snapshot_json VARCHAR NOT NULL DEFAULT '{}',
+			error_code VARCHAR NOT NULL DEFAULT '',
+			version BIGINT NOT NULL DEFAULT 1,
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		)`},
+	// 任务：轮次内交给某个助手或某个人的一项职责。人工回复靠 version 做 CAS。
+	{name: "sys_agent_tasks", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_tasks (
+			id VARCHAR NOT NULL,
+			project_id VARCHAR NOT NULL,
+			turn_id VARCHAR NOT NULL,
+			thread_id VARCHAR NOT NULL,
+			seq BIGINT NOT NULL DEFAULT 0,
+			target_kind VARCHAR NOT NULL,
+			target_id VARCHAR NOT NULL DEFAULT '',
+			instruction VARCHAR NOT NULL DEFAULT '',
+			depends_json VARCHAR NOT NULL DEFAULT '[]',
+			status VARCHAR NOT NULL,
+			attempt BIGINT NOT NULL DEFAULT 0,
+			run_id VARCHAR NOT NULL DEFAULT '',
+			assignee_id VARCHAR NOT NULL DEFAULT '',
+			reply_text VARCHAR NOT NULL DEFAULT '',
+			reply_outcome VARCHAR NOT NULL DEFAULT '',
+			replied_by VARCHAR NOT NULL DEFAULT '',
+			error_code VARCHAR NOT NULL DEFAULT '',
+			version BIGINT NOT NULL DEFAULT 1,
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		)`},
+	// 任务 × run 的重试历史：不覆盖旧 run，便于回溯每次尝试。
+	{name: "sys_agent_task_runs", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_task_runs (
+			project_id VARCHAR NOT NULL,
+			task_id VARCHAR NOT NULL,
+			attempt BIGINT NOT NULL,
+			run_id VARCHAR NOT NULL,
+			status VARCHAR NOT NULL,
+			created_at TIMESTAMP NOT NULL
+		)`},
+	// 消息身份旁挂：不改 sys_agent_messages 列，补齐轮次/任务/发言人。
+	{name: "sys_agent_message_meta", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_message_meta (
+			project_id VARCHAR NOT NULL,
+			message_id VARCHAR NOT NULL,
+			turn_id VARCHAR NOT NULL DEFAULT '',
+			task_id VARCHAR NOT NULL DEFAULT '',
+			speaker_kind VARCHAR NOT NULL DEFAULT 'agent',
+			speaker_id VARCHAR NOT NULL DEFAULT '',
+			kind VARCHAR NOT NULL DEFAULT 'agent',
+			created_at TIMESTAMP NOT NULL
+		)`},
+	// 轮次事件：seq 在轮次内单调递增，供「快照 + 续传」。
+	{name: "sys_agent_turn_events", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_turn_events (
+			project_id VARCHAR NOT NULL,
+			turn_id VARCHAR NOT NULL,
+			seq BIGINT NOT NULL,
+			kind VARCHAR NOT NULL,
+			entity_id VARCHAR NOT NULL DEFAULT '',
+			payload_json VARCHAR NOT NULL DEFAULT '{}',
+			created_at TIMESTAMP NOT NULL
+		)`},
+	// 群定时绑定：复用既有 cron 任务，不改 cron 表。
+	{name: "sys_agent_group_cron", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_group_cron (
+			project_id VARCHAR NOT NULL,
+			job_id VARCHAR NOT NULL,
+			tag_id VARCHAR NOT NULL,
+			thread_policy VARCHAR NOT NULL DEFAULT 'reuse_thread',
+			thread_kind VARCHAR NOT NULL DEFAULT 'scheduled',
+			thread_id VARCHAR NOT NULL DEFAULT '',
+			owner_user_id VARCHAR NOT NULL DEFAULT '',
+			prompt VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL,
+			archived_at TIMESTAMP
+		)`},
+	// 触发去重：(project_id, job_id, fire_key) 至多一行。
+	{name: "sys_agent_cron_fires", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_cron_fires (
+			project_id VARCHAR NOT NULL,
+			job_id VARCHAR NOT NULL,
+			fire_key VARCHAR NOT NULL,
+			turn_id VARCHAR NOT NULL DEFAULT '',
+			thread_id VARCHAR NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL
+		)`},
 }
 
 // systemTable 是一张系统表的建表语句。
@@ -658,59 +774,5 @@ func EnsureSystemSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("%w: create %s: %v", catalog.ErrMigrationFailed, t.name, err)
 		}
 	}
-	if err := ensureTraceColumns(ctx, db); err != nil {
-		return fmt.Errorf("%w: upgrade sys_llm_traces: %v", catalog.ErrMigrationFailed, err)
-	}
-	if err := ensureThreadStarterColumn(ctx, db); err != nil {
-		return fmt.Errorf("%w: upgrade sys_agent_threads: %v", catalog.ErrMigrationFailed, err)
-	}
 	return nil
-}
-
-// ensureThreadStarterColumn 给已存在但缺 starter_template 的 sys_agent_threads 补列
-// （home-starter-prompts-plan §2.4）。新库由建表语句直接带列；这里只兜底他人 dev 库
-// 漏 reset 的情形，幂等：探测列存在则 no-op。
-func ensureThreadStarterColumn(ctx context.Context, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, "SELECT starter_template FROM sys_agent_threads LIMIT 0"); err == nil {
-		return nil
-	} else if !missingTraceColumn(err) {
-		return err
-	}
-	_, err := db.ExecContext(ctx, "ALTER TABLE sys_agent_threads ADD COLUMN starter_template VARCHAR DEFAULT ''")
-	return err
-}
-
-// traceColumnUpgrades 是 sys_llm_traces 二期扩列（planv6.5 §9.1）的升级兜底：
-// 表未随任何版本发布，正常路径是 reset 重建；这里防止他人 dev 库漏 reset 时
-// 缺列导致写入失败。列名 → DEFAULT 值（均为可空语义的空串）。
-var traceColumnUpgrades = []struct{ name, ddlDefault string }{
-	{"trace_id", "''"},
-	{"caller", "''"},
-	{"span_kind", "'llm'"},
-	{"name", "''"},
-	{"input_json", "''"},
-	{"output_json", "''"},
-	{"tools_json", "''"},
-}
-
-// ensureTraceColumns 对已存在但缺二期列的 sys_llm_traces 补列（幂等）。
-// 探测用 SELECT <col> FROM sys_llm_traces LIMIT 0：列缺失报错，存在则 no-op；
-// 报错文本不含 "no such column"/"not found" 等缺失关键词时原样返回。
-func ensureTraceColumns(ctx context.Context, db *sql.DB) error {
-	for _, col := range traceColumnUpgrades {
-		if _, err := db.ExecContext(ctx, "SELECT "+col.name+" FROM sys_llm_traces LIMIT 0"); err == nil {
-			continue
-		} else if !missingTraceColumn(err) {
-			return err
-		}
-		if _, err := db.ExecContext(ctx, "ALTER TABLE sys_llm_traces ADD COLUMN "+col.name+" VARCHAR NOT NULL DEFAULT "+col.ddlDefault); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func missingTraceColumn(err error) bool {
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "no such column") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "not found") || strings.Contains(msg, "referenced column")
 }

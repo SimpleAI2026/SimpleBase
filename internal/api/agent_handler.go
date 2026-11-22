@@ -39,14 +39,17 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 type cloudAgentHandler struct {
@@ -59,37 +62,61 @@ type cloudAgentHandler struct {
 	llm      LLMService
 	events   *runEventHub
 	confirms *confirmHub
+	// dispatcher 是自动路由的分类器（planv6.7 AGC-ROUTE）；nil 表示 LLM 未
+	// 配置，需要路由时直接 fallback。
+	dispatcher agentDispatcher
+	// routeCancels 登记 runID → 路由期 cancel（AGC-ROUTE §3.3）：
+	// CancelRun 同时调用它，保证路由期间按「停止」立即生效。
+	routeCancels sync.Map
 }
 
-// sandboxAvailable 报告云沙盒是否启用（由 Runtime.Sandbox 提供）。
+func (h *cloudAgentHandler) provider() *agentbridge.RuntimeProvider {
+	if h.runtime == nil {
+		return nil
+	}
+	provider, _ := h.runtime.Provider.(*agentbridge.RuntimeProvider)
+	return provider
+}
+
+func (h *cloudAgentHandler) skillsCLI() bool {
+	provider := h.provider()
+	return provider != nil && provider.SkillsCLI
+}
+
 func (h *cloudAgentHandler) sandboxAvailable() bool {
-	return h.runtime != nil && h.runtime.Sandbox != nil && h.runtime.Sandbox.Available()
+	provider := h.provider()
+	return provider != nil && provider.Sandbox != nil && provider.Sandbox.Available()
 }
 
 type agentDTO struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Module        string   `json:"module"`
-	Description   string   `json:"description"`
-	SystemPrompt  string   `json:"system_prompt"`
-	ToolIDs       []string `json:"tool_ids"`
-	ModelOverride string   `json:"model_override,omitempty"`
-	BuiltinKey    string   `json:"builtin_key,omitempty"`
-	TeamEnabled   bool     `json:"team_enabled"`
-	// Writable 是该助手是否允许写（planv6.0 v2 §3.3）。
-	Writable  bool      `json:"writable"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Module        string    `json:"module"`
+	Description   string    `json:"description"`
+	SystemPrompt  string    `json:"system_prompt"`
+	ToolIDs       []string  `json:"tool_ids"`
+	ModelOverride string    `json:"model_override,omitempty"`
+	BuiltinKey    string    `json:"builtin_key,omitempty"`
+	TeamEnabled   bool      `json:"team_enabled"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type threadDTO struct {
 	ID                 string    `json:"id"`
 	Title              string    `json:"title"`
 	AgentID            string    `json:"agent_id,omitempty"`
-	StarterTemplate    string    `json:"starter_template,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	LastMessagePreview string    `json:"last_message_preview,omitempty"`
+	// TagID 是工作台标签归属（planv6.7 AGC-NAV）；#对话 与旧会话为空。
+	TagID string `json:"tag_id,omitempty"`
+	// DispatchMode 为 "auto" 表示一轮一助手的共享会话；空为旧绑定模式。
+	// v2 §5.1：存储里的 auto 在 DTO 读时统一映射为 collaborative（群会话），
+	// 旧客户端不带 workspace_version 时仍看到 "auto"，见 workspaceV2Requested。
+	DispatchMode string `json:"dispatch_mode,omitempty"`
+	// ThreadKind 是会话类型（chat/alert/statistics/scheduled，v2 §5.3）；旧会话为空。
+	ThreadKind string `json:"thread_kind,omitempty"`
 }
 
 type messageDTO struct {
@@ -101,8 +128,11 @@ type messageDTO struct {
 	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
 	RunID     string          `json:"run_id,omitempty"`
 	// RunStatus / ErrorCode 来自所属 run（BUG-06）：刷新后还原「已停止 / 失败」。
-	RunStatus string    `json:"run_status,omitempty"`
-	ErrorCode string    `json:"error_code,omitempty"`
+	RunStatus string `json:"run_status,omitempty"`
+	ErrorCode string `json:"error_code,omitempty"`
+	// RouteKind 是本条 assistant 消息的路由结论（planv6.7 AGC-ROUTE：
+	// auto/mention/fallback/retry，来自 sys_agent_run_routes）。
+	RouteKind string    `json:"route_kind,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -130,13 +160,45 @@ func toAgentDTO(a systemdb.CloudAgent) agentDTO {
 	return agentDTO{
 		ID: a.ID, Name: a.Name, Module: a.Module, Description: a.Description,
 		SystemPrompt: a.SystemPrompt, ToolIDs: ids, ModelOverride: a.ModelOverride,
-		BuiltinKey: a.BuiltinKey, TeamEnabled: a.TeamEnabled, Writable: a.Writable,
+		BuiltinKey: a.BuiltinKey, TeamEnabled: a.TeamEnabled,
 		CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
 	}
 }
 
 func toThreadDTO(t systemdb.AgentThread) threadDTO {
-	return threadDTO{ID: t.ID, Title: t.Title, AgentID: t.AgentID, StarterTemplate: t.StarterTemplate, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
+	return threadDTO{ID: t.ID, Title: t.Title, AgentID: t.AgentID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
+}
+
+// toThreadDTOWithWorkspace 在 threadDTO 基础上补工作台元数据（planv6.7 AGC-NAV）。
+// v2 §5.1：存储里的 auto 是「群会话」的旧写法，DTO 统一按 collaborative 输出；
+// 旧客户端不带 workspace_version=2 时由 workspaceV2Requested 保持 "auto"（见 toThreadDTOResolved）。
+func toThreadDTOWithWorkspace(t systemdb.AgentThread, ws systemdb.AgentThreadWorkspace) threadDTO {
+	dto := toThreadDTO(t)
+	dto.TagID = ws.TagID
+	dto.DispatchMode = ws.DispatchMode
+	if dto.DispatchMode == systemdb.DispatchAuto {
+		dto.DispatchMode = systemdb.DispatchCollaborative
+	}
+	return dto
+}
+
+// toThreadDTOResolved 是带版本兼容的 DTO 转换：v2 客户端看到 collaborative，
+// 旧客户端保持 "auto"，避免旧前端把群会话当成未知模式。
+func toThreadDTOResolved(t systemdb.AgentThread, ws systemdb.AgentThreadWorkspace, collab systemdb.AgentThreadCollab, v2 bool) threadDTO {
+	dto := toThreadDTOWithWorkspace(t, ws)
+	if !v2 && dto.DispatchMode == systemdb.DispatchCollaborative {
+		dto.DispatchMode = systemdb.DispatchAuto
+	}
+	dto.ThreadKind = collab.ThreadKind
+	return dto
+}
+
+// workspaceV2Requested 判断请求是否声明 v2 协议（query 或 header 均可）。
+func workspaceV2Requested(c echo.Context) bool {
+	if strings.TrimSpace(c.QueryParam("workspace_version")) == "2" {
+		return true
+	}
+	return strings.TrimSpace(c.Request().Header.Get("X-Workspace-Version")) == "2"
 }
 
 func toMessageDTO(m systemdb.AgentMessage) messageDTO {
@@ -159,16 +221,16 @@ func (h *cloudAgentHandler) ensureAgents(ctx context.Context, projectID string) 
 	if h.store == nil {
 		return systemdb.ErrUnavailable
 	}
-	return h.store.SeedDefaultCloudAgentsWithCapabilities(ctx, projectID, h.sandboxAvailable(), h.runtime != nil && h.runtime.SkillsCLI)
+	return h.store.SeedDefaultCloudAgentsWithCapabilities(ctx, projectID, h.sandboxAvailable(), h.skillsCLI())
 }
 
 func (h *cloudAgentHandler) ListModules(c echo.Context) error {
-	modules := cloudagent.Modules(h.sandboxAvailable())
-	if h.runtime == nil || !h.runtime.SkillsCLI {
+	modules := agentbridge.Modules(h.sandboxAvailable())
+	if !h.skillsCLI() {
 		available := modules[:0]
 		for _, module := range modules {
 			switch module.ID {
-			case cloudagent.ModuleKV, cloudagent.ModuleGoFunction, cloudagent.ModuleCron:
+			case agentbridge.ModuleKV, agentbridge.ModuleGoFunction, agentbridge.ModuleCron:
 				continue
 			}
 			available = append(available, module)
@@ -207,8 +269,6 @@ type upsertAgentBody struct {
 	ToolIDs       []string `json:"tool_ids"`
 	ModelOverride *string  `json:"model_override"`
 	TeamEnabled   *bool    `json:"team_enabled"`
-	// Writable 开启该助手的写权限（planv6.0 v2 §3.3）。
-	Writable *bool `json:"writable"`
 }
 
 func (h *cloudAgentHandler) denyReadonly(c echo.Context) error {
@@ -315,20 +375,15 @@ func (h *cloudAgentHandler) normalizeAgent(projectID string, body upsertAgentBod
 	if err != nil {
 		return systemdb.CloudAgent{}, err
 	}
-	// planv6.0 v2 §3.3：权限提升防护。只有具备写权限的主体才能把助手设为可写。
-	// 已可写的助手允许保持（避免只读主体无意中关掉别人的设置时被 403 挡住）。
-	if body.Writable != nil && *body.Writable && !h.canWritePrincipal(p) {
-		return systemdb.CloudAgent{}, errors.New("write permission required to enable agent writes")
-	}
-	if (a.Module == cloudagent.ModuleKV || a.Module == cloudagent.ModuleGoFunction || a.Module == cloudagent.ModuleCron) && (h.runtime == nil || !h.runtime.SkillsCLI) {
+	if (a.Module == agentbridge.ModuleKV || a.Module == agentbridge.ModuleGoFunction || a.Module == agentbridge.ModuleCron) && (!h.skillsCLI()) {
 		return systemdb.CloudAgent{}, errors.New("this module requires CLI skills")
 	}
 	if !h.sandboxAvailable() {
-		if strings.EqualFold(a.Module, cloudagent.ModuleSandbox) {
+		if strings.EqualFold(a.Module, agentbridge.ModuleSandbox) {
 			return systemdb.CloudAgent{}, errors.New("sandbox is not enabled; sandbox module is unavailable")
 		}
 		for _, id := range a.ToolIDs {
-			if cloudagent.IsSandboxTool(id) {
+			if agentbridge.IsSandboxTool(id) {
 				return systemdb.CloudAgent{}, errors.New("sandbox is not enabled; sandbox tools are unavailable")
 			}
 		}
@@ -347,7 +402,7 @@ func normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAg
 		a.Name = strings.TrimSpace(body.Name)
 	}
 	if body.Module != "" {
-		a.Module = strings.ToLower(strings.TrimSpace(body.Module))
+		a.Module = strutil.Normalize(body.Module)
 	}
 	if body.Description != "" || cur.ID == "" {
 		a.Description = body.Description
@@ -364,24 +419,21 @@ func normalizeAgent(projectID string, body upsertAgentBody, cur systemdb.CloudAg
 	if body.TeamEnabled != nil {
 		a.TeamEnabled = *body.TeamEnabled
 	}
-	if body.Writable != nil {
-		a.Writable = *body.Writable
-	}
 	if strings.TrimSpace(a.Name) == "" {
 		return systemdb.CloudAgent{}, errors.New("name is required")
 	}
 	if a.Module == "" {
-		a.Module = cloudagent.ModuleGeneral
+		a.Module = agentbridge.ModuleGeneral
 	}
-	if !cloudagent.KnownModule(a.Module) {
+	if !agentbridge.KnownModule(a.Module) {
 		return systemdb.CloudAgent{}, errors.New("unknown module")
 	}
 	if a.ToolIDs == nil {
-		a.ToolIDs = cloudagent.DefaultToolsForModule(a.Module)
+		a.ToolIDs = agentbridge.DefaultToolsForModule(a.Module)
 	}
 	filtered := make([]string, 0, len(a.ToolIDs))
 	for _, id := range a.ToolIDs {
-		if cloudagent.KnownTool(id) {
+		if agentbridge.KnownTool(id) {
 			filtered = append(filtered, id)
 			continue
 		}
@@ -411,18 +463,43 @@ func (h *cloudAgentHandler) ListThreads(c echo.Context) error {
 		}
 		limit = n
 	}
-	// agent_id 可选：指定时只返回该助手的会话（planv6.0 §3.7 修订：每个助手一份）。
+	// agent_id 与 tag_id 同传时取交集；不带时返回全部会话。
 	agentID := strings.TrimSpace(c.QueryParam("agent_id"))
-	list, next, err := h.store.PageAgentThreads(c.Request().Context(), pc.ID, agentID, c.QueryParam("cursor"), limit)
+	tagID := strings.TrimSpace(c.QueryParam("tag_id"))
+	if tagID != "" {
+		if _, err := h.resolveAgentTag(c.Request().Context(), pc.ID, tagID); err != nil {
+			return WriteError(c, err)
+		}
+	}
+	list, next, err := h.store.PageAgentThreadsFiltered(c.Request().Context(), pc.ID, systemdb.AgentThreadFilter{
+		AgentID:    agentID,
+		TagID:      tagID,
+		ThreadKind: strings.TrimSpace(c.QueryParam("thread_kind")),
+	}, c.QueryParam("cursor"), limit)
 	if errors.Is(err, systemdb.ErrAgentThreadCursor) {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid cursor"))
 	}
 	if err != nil {
 		return WriteError(c, err)
 	}
+	// 批量补工作台元数据，避免 N+1（planv6.7 AGC-NAV §7.8）。
+	threadIDs := make([]string, 0, len(list))
+	for _, t := range list {
+		threadIDs = append(threadIDs, t.ID)
+	}
+	workspaces, err := h.store.ListAgentThreadWorkspaces(c.Request().Context(), pc.ID, threadIDs)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	// v2：批量补会话类型（旧会话无行按 chat 处理），同样避免 N+1。
+	collabs, err := h.store.ListAgentThreadCollabs(c.Request().Context(), pc.ID, threadIDs)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	v2 := workspaceV2Requested(c)
 	out := make([]threadDTO, 0, len(list))
 	for _, t := range list {
-		row := toThreadDTO(t)
+		row := toThreadDTOResolved(t, workspaces[t.ID], collabs[t.ID], v2)
 		row.LastMessagePreview, err = h.store.AgentThreadPreview(c.Request().Context(), pc.ID, t.ID)
 		if err != nil {
 			return WriteError(c, err)
@@ -457,7 +534,15 @@ func (h *cloudAgentHandler) PatchThread(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	return c.JSON(http.StatusOK, toThreadDTO(th))
+	ws, err := h.store.GetAgentThreadWorkspace(c.Request().Context(), pc.ID, th.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	collab, err := h.store.GetAgentThreadCollab(c.Request().Context(), pc.ID, th.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	return c.JSON(http.StatusOK, toThreadDTOResolved(th, ws, collab, workspaceV2Requested(c)))
 }
 
 func (h *cloudAgentHandler) ListThreadRuns(c echo.Context) error {
@@ -538,41 +623,115 @@ func (h *cloudAgentHandler) CreateThread(c echo.Context) error {
 	var body struct {
 		Title   string `json:"title"`
 		AgentID string `json:"agent_id"`
-		// StarterTemplate 登记首页「一句话建应用」搭建会话（home-starter-prompts-plan §2.4）。
-		StarterTemplate string `json:"starter_template"`
+		// planv6.7 AGC-NAV：工作台元数据（三者都不传时不写元数据行，旧请求完全不变）。
+		TagID        string `json:"tag_id"`
+		DispatchMode string `json:"dispatch_mode"`
+		Source       string `json:"source"`
+		// planv6.7 v2：会话类型（chat/alert/statistics/scheduled），缺省 chat。
+		ThreadKind string `json:"thread_kind"`
 	}
 	_ = c.Bind(&body)
+	// v2 §5.4：createdBy 与 principalIdentity 统一口径（登录态写 UserID、API Key 写
+	// "apikey:<id>"），不再只写 APIKeyID —— 否则 #对话 分区只能靠「空串」隐式区分。
 	createdBy := ""
 	principal, hasPrincipal := PrincipalFromContext(c.Request().Context())
 	if hasPrincipal {
-		createdBy = principal.APIKeyID
+		createdBy = principalIdentity(principal)
 	}
 	// agent_id 可选：带上即把会话归属到该助手，后续列表按它过滤。
 	agentID := strings.TrimSpace(body.AgentID)
-	var agent systemdb.CloudAgent
 	if agentID != "" {
-		got, err := h.store.GetCloudAgent(c.Request().Context(), pc.ID, agentID)
-		if err != nil {
+		if _, err := h.store.GetCloudAgent(c.Request().Context(), pc.ID, agentID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "agent not found"))
 			}
 			return WriteError(c, err)
 		}
-		agent = got
 	}
-	starter := strings.TrimSpace(body.StarterTemplate)
-	if starter != "" {
-		if err := h.checkStarterAllowed(pc.ID, starter, agent, principal, hasPrincipal); err != nil {
+	// planv6.7 AGC-NAV §2.2 + v2 §5：tag_id / dispatch_mode / source / thread_kind 校验。
+	tagID := strings.TrimSpace(body.TagID)
+	dispatchMode := strings.TrimSpace(body.DispatchMode)
+	source := strings.TrimSpace(body.Source)
+	threadKind := strings.TrimSpace(body.ThreadKind)
+	switch dispatchMode {
+	case "", systemdb.DispatchAuto, systemdb.DispatchCollaborative:
+	default:
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "dispatch_mode must be auto or collaborative"))
+	}
+	switch source {
+	case "", systemdb.ThreadSourceWorkspace, systemdb.ThreadSourceStarter:
+	default:
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid source"))
+	}
+	switch threadKind {
+	case "", systemdb.ThreadKindChat, systemdb.ThreadKindAlert,
+		systemdb.ThreadKindStatistics, systemdb.ThreadKindScheduled:
+	default:
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "invalid thread_kind"))
+	}
+	// v2：群会话（协作/auto）必须带 tag_id 或落在 #对话；两者都支持，故 tag 不再强制 auto。
+	if tagID != "" {
+		if dispatchMode == "" {
+			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "tag_id requires dispatch_mode"))
+		}
+		if _, err := h.resolveAgentTag(c.Request().Context(), pc.ID, tagID); err != nil {
 			return WriteError(c, err)
 		}
 	}
-	th, err := h.store.CreateAgentThread(c.Request().Context(), systemdb.AgentThread{
-		ProjectID: pc.ID, Title: body.Title, AgentID: agentID, CreatedBy: createdBy, StarterTemplate: starter,
-	})
+	// 群会话（auto / collaborative）不允许再绑定单个助手：成员由群配置决定。
+	if (dispatchMode == systemdb.DispatchAuto || dispatchMode == systemdb.DispatchCollaborative) && agentID != "" {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "group thread cannot set agent_id"))
+	}
+	if dispatchMode != "" && source == "" {
+		source = systemdb.ThreadSourceWorkspace
+	}
+	if dispatchMode == "" && threadKind != "" && threadKind != systemdb.ThreadKindChat {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "thread_kind requires a group dispatch mode"))
+	}
+	var ws systemdb.AgentThreadWorkspace
+	if tagID != "" || dispatchMode != "" || source != "" {
+		ws = systemdb.AgentThreadWorkspace{TagID: tagID, DispatchMode: dispatchMode, Source: source}
+	}
+	th, err := h.store.CreateAgentThreadWithWorkspace(c.Request().Context(), systemdb.AgentThread{
+		ProjectID: pc.ID, Title: body.Title, AgentID: agentID, CreatedBy: createdBy,
+	}, ws)
 	if err != nil {
 		return WriteError(c, err)
 	}
-	return c.JSON(http.StatusCreated, toThreadDTO(th))
+	// 协作会话写会话级元数据（类型 + 活动轮次占用位）；失败时回滚会话，避免半成品。
+	var collab systemdb.AgentThreadCollab
+	if dispatchMode != "" {
+		if threadKind == "" {
+			threadKind = threadKindForTag(tagID)
+		}
+		collab, err = h.store.CreateAgentThreadCollab(c.Request().Context(), systemdb.AgentThreadCollab{
+			ProjectID: pc.ID, ThreadID: th.ID, TagID: tagID, ThreadKind: threadKind,
+		})
+		if err != nil {
+			_ = h.store.ArchiveAgentThread(c.Request().Context(), pc.ID, th.ID)
+			return WriteError(c, err)
+		}
+	}
+	dto := toThreadDTOWithWorkspace(th, ws)
+	dto.ThreadKind = collab.ThreadKind
+	return c.JSON(http.StatusCreated, dto)
+}
+
+// threadKindForTag 按群推出默认会话类型：告警群=alert、统计群=statistics、
+// 定时群=scheduled，其余群=chat。
+func threadKindForTag(tagID string) string {
+	switch tagID {
+	case "":
+		return systemdb.ThreadKindChat
+	case systemdb.AgentTagAlerts:
+		return systemdb.ThreadKindAlert
+	case systemdb.AgentTagStats:
+		return systemdb.ThreadKindStatistics
+	case systemdb.AgentTagScheduled:
+		return systemdb.ThreadKindScheduled
+	default:
+		return systemdb.ThreadKindChat
+	}
 }
 
 func (h *cloudAgentHandler) GetThread(c echo.Context) error {
@@ -587,7 +746,15 @@ func (h *cloudAgentHandler) GetThread(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	return c.JSON(http.StatusOK, toThreadDTO(th))
+	ws, err := h.store.GetAgentThreadWorkspace(c.Request().Context(), pc.ID, th.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	collab, err := h.store.GetAgentThreadCollab(c.Request().Context(), pc.ID, th.ID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	return c.JSON(http.StatusOK, toThreadDTOResolved(th, ws, collab, workspaceV2Requested(c)))
 }
 
 func (h *cloudAgentHandler) DeleteThread(c echo.Context) error {
@@ -605,8 +772,8 @@ func (h *cloudAgentHandler) DeleteThread(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	// 释放该 thread 的云沙盒；失败只记日志，不阻塞软删（cloud-agent-sandbox-plan §3.2）。
-	if h.runtime != nil && h.runtime.Sandbox != nil && h.runtime.Sandbox.Available() {
-		if err := h.runtime.Sandbox.ReleaseThread(c.Request().Context(), pc.ID, threadID); err != nil {
+	if provider := h.provider(); provider != nil && provider.Sandbox != nil && provider.Sandbox.Available() {
+		if err := provider.Sandbox.ReleaseThread(c.Request().Context(), pc.ID, threadID); err != nil {
 			c.Logger().Warnf("release sandbox for thread %s failed: %v", threadID, err)
 		}
 	}
@@ -627,9 +794,20 @@ func (h *cloudAgentHandler) ListMessages(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
+	// planv6.7 AGC-ROUTE：assistant 消息按 run 补 route_kind（刷新后恢复回答原因）。
+	routes, err := h.store.ListAgentRunRoutes(c.Request().Context(), pc.ID, c.Param("threadID"))
+	if err != nil {
+		return WriteError(c, err)
+	}
 	out := make([]messageDTO, 0, len(msgs))
 	for _, m := range msgs {
-		out = append(out, toMessageDTO(m))
+		row := toMessageDTO(m)
+		if m.Role == "assistant" && m.RunID != "" {
+			if r, ok := routes[m.RunID]; ok {
+				row.RouteKind = r.RouteKind
+			}
+		}
+		out = append(out, row)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"messages": out})
 }
@@ -730,6 +908,11 @@ func (h *cloudAgentHandler) CancelRun(c echo.Context) error {
 	if hasPrincipal && !canCancelConfirm(p, run.InitiatorID) {
 		return WriteError(c, echo.NewHTTPError(http.StatusForbidden, "only the initiator or a project admin can cancel this run"))
 	}
+	// planv6.7 AGC-ROUTE：路由期取消优先——run 还没交给 runtime 时
+	// CancelRun 只能靠 routeCancels 生效。
+	if f, ok := h.routeCancels.LoadAndDelete(runID); ok {
+		f.(context.CancelFunc)()
+	}
 	if h.runtime != nil {
 		h.runtime.CancelRun(runID)
 	}
@@ -782,7 +965,7 @@ func (h *cloudAgentHandler) resolveMentionedAgent(ctx context.Context, projectID
 		return systemdb.CloudAgent{}, err
 	}
 	for _, agent := range list {
-		if agent.BuiltinKey == cloudagent.ModuleGeneral {
+		if agent.BuiltinKey == agentbridge.ModuleGeneral {
 			return agent, nil
 		}
 	}
@@ -829,8 +1012,8 @@ func (h *cloudAgentHandler) ListAgentModels(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	defaultModel := ""
-	if h.runtime != nil && h.runtime.Settings != nil {
-		if st, serr := h.runtime.Settings.LLMSettings(c.Request().Context(), pc.ID); serr == nil && st.DefaultModel != "" {
+	if provider := h.provider(); provider != nil && provider.Settings != nil {
+		if st, serr := provider.Settings.LLMSettings(c.Request().Context(), pc.ID); serr == nil && st.DefaultModel != "" {
 			defaultModel = st.DefaultModel
 		}
 	}
@@ -862,34 +1045,38 @@ func toRunDTO(r systemdb.AgentRun) runDTO {
 	return dto
 }
 
-// ErrStarterNotAllowed 表示不能创建搭建会话（助手 / 模板 / 权限 / 实例状态不满足）。
-var ErrStarterNotAllowed = errors.New("starter session is not allowed")
+// planv6.7 AGC-ROUTE：自动路由会话的领域错误。
+var (
+	// ErrNoAvailableAgent：auto 会话无可用候选（在 ClaimThread 之前返回，不落记录）。
+	ErrNoAvailableAgent = errors.New("no available agent for this thread")
+	// ErrAgentNotInTag：mention 的助手不在标签候选中。
+	ErrAgentNotInTag = errors.New("mentioned agent is not in this tag")
+	// ErrRetryAgentUnavailable：失败重试时原助手已归档或不在候选中。
+	ErrRetryAgentUnavailable = errors.New("the original agent is no longer available")
+)
 
-// ErrStarterStageInvalid 表示 starter_stage 不在白名单，或会话不是搭建会话。
-var ErrStarterStageInvalid = errors.New("starter stage is invalid")
-
-// ErrBIContextInvalid 表示数据看板的 bi_context 不合法（planv6.7 §3.4）：
-// 助手模块不支持、与搭建会话冲突、数据源标识或偏好类型不合规。
-var ErrBIContextInvalid = errors.New("bi context is invalid")
-
-// checkStarterAllowed 校验创建搭建会话的全部前置条件（home-starter-prompts-plan §2.4）：
-// 目标必须是内置通用助手、模板在服务端白名单内、调用方具备 database:admin、
-// 实例可写、CLI 技能已开启，且不是系统项目。技能只由服务端按会话登记决定，
-// 不由消息内容决定。
-func (h *cloudAgentHandler) checkStarterAllowed(projectID, template string, agent systemdb.CloudAgent, p auth.Principal, hasPrincipal bool) error {
-	switch {
-	case !cloudagent.IsStarterTemplate(template):
-		return ErrStarterNotAllowed
-	case agent.ID == "" || agent.BuiltinKey != "general" || agent.Module != cloudagent.ModuleGeneral:
-		return ErrStarterNotAllowed
-	case systemdb.IsAdminProject(projectID):
-		return ErrStarterNotAllowed
-	case h.runtime == nil || !h.runtime.SkillsCLI:
-		return ErrStarterNotAllowed
-	case h.writable != nil && !*h.writable:
-		return ErrStarterNotAllowed
-	case !hasPrincipal || p.Delegated || !p.HasPermission(auth.DatabaseAdmin):
-		return ErrStarterNotAllowed
-	}
-	return nil
-}
+// planv6.7 v2：协作群的领域错误（统一进 error.go 的 sentinelErrorMappings）。
+var (
+	// ErrWorkspaceUpgradeRequired：协作表尚未建好（未升级环境），需要用户执行建表。
+	ErrWorkspaceUpgradeRequired = errors.New("collaboration schema is not ready")
+	// ErrGroupArchived：群已归档，拒绝新发送与新调度。
+	ErrGroupArchived = errors.New("this group has been archived")
+	// ErrGroupMemberUnavailable：目标助手已归档或不在群成员中。
+	ErrGroupMemberUnavailable = errors.New("the target agent is not an available member of this group")
+	// ErrTurnBusy：同一会话已有活动轮次。
+	ErrTurnBusy = errors.New("this thread already has an active turn")
+	// ErrTurnConflict：轮次/任务版本冲突（并发推进）。
+	ErrTurnConflict = errors.New("agent turn was modified, reload and retry")
+	// ErrRoutingFailed：路由器超时、输出越界或无法给出可用分工。
+	ErrRoutingFailed = errors.New("routing failed")
+	// ErrInvalidDispatchGraph：任务图不合法（越界、环、深度、数量）。
+	ErrInvalidDispatchGraph = errors.New("invalid dispatch graph")
+	// ErrHumanAssigneeRequired：需要人但没有可指派的人（API Key 主体或无人负责人）。
+	ErrHumanAssigneeRequired = errors.New("a human assignee is required")
+	// ErrHumanTaskForbidden：非接收人（且非项目管理员）处理他人待办。
+	ErrHumanTaskForbidden = errors.New("only the assignee or a project admin can resolve this task")
+	// ErrTaskNotRetryable：任务状态不允许重试。
+	ErrTaskNotRetryable = errors.New("this task cannot be retried")
+	// ErrCollaborationBudgetExceeded：超出协作预算（任务/交接次数）。
+	ErrCollaborationBudgetExceeded = errors.New("collaboration budget exceeded")
+)

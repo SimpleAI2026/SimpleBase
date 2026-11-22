@@ -54,7 +54,7 @@ func (a *App) assembleFileStore(ctx context.Context, cfg config.Config, s3cfg ob
 func (a *App) newUserDatabaseFactory(cacheDir string) godatabase.Factory {
 	cfg := a.cfg
 	dbRemote := cfg.IsDBRemote()
-	var syncer filedb.Syncer = filedb.NewNopSyncer()
+	var syncer filedb.Syncer = filedb.NewLocalSyncer()
 	if dbRemote && cfg.S3.Bucket != "" && a.objectStore != nil {
 		if blobs, ok := a.objectStore.(objectstore.BlobStore); ok {
 			fs := filedb.NewFileSyncer(blobs, objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}.DB(), cacheDir,

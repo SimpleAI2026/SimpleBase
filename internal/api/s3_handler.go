@@ -50,8 +50,9 @@ type S3Handler struct {
 	allowedMIME []string
 	events      objectEventPublisher
 	// planv6.5：发布网站。sites 为 nil 时站点相关字段与接口降级（publishable=false）。
-	sites    SiteStore
-	sitesCfg config.SitesConfig
+	sites            SiteStore
+	sitesCfg         config.SitesConfig
+	cfgHTTPPublicURL string // planv6.7 §1.3：public_base_url 回退用
 }
 
 // s3ObjectDTO 是列表/上传返回的对象元数据。

@@ -1,30 +1,3 @@
-// 文件说明：serialize.go — godatabase 中 SerializedValue、BlobValue 等符号的实现
-//
-// 用法
-//
-//	SerializeValue(v any) (any, error)  // SerializeValue 将驱动返回的列值转为 JSON 安全类型
-//	SerializeRow(row []any) ([]any, error)  // SerializeRow 对一行驱动值逐列序列化
-//
-// 调用架构
-//
-//	[上游] godatabase/cache, godatabase/ducklake, godatabase/filedb 等
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/serialize.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] dialect.go, query.go, runtime.go, snapshot.go, spec.go 等 6 个
-//
-// 主要符号
-//
-//	type SerializedValue struct {…}
-//	type BlobValue struct {…}
-//	SerializeValue(v any) (any, error)
-//	SerializeRow(row []any) ([]any, error)
-//	SerializeRows(rows [][]any) ([][]any, error)
-//	... 另有 6 个顶层符号
-
 package godatabase
 
 import (
@@ -37,13 +10,6 @@ import (
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
 )
-
-// SerializedValue 是列值的 JSON 安全表示。
-// 标量类型（nil/int64/float64/bool/string/time.Time）直接放入 Value；
-// []byte 使用 BlobValue 包装，避免被当作 UTF-8 字符串误判。
-type SerializedValue struct {
-	Value any
-}
 
 // BlobValue 表示二进制列值。JSON 编码为 {"type":"blob","base64":"..."}.
 type BlobValue struct {
@@ -97,7 +63,7 @@ func SerializeValue(v any) (any, error) {
 	case json.RawMessage:
 		return decodeJSON(x)
 	case []any:
-		return serializeSlice(x)
+		return SerializeRow(x)
 	case map[string]any:
 		return serializeMap(x)
 	case duckdb.Decimal:
@@ -135,18 +101,6 @@ func decodeJSON(raw json.RawMessage) (any, error) {
 	var out any
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return string(raw), nil
-	}
-	return out, nil
-}
-
-func serializeSlice(in []any) ([]any, error) {
-	out := make([]any, len(in))
-	for i, v := range in {
-		sv, err := SerializeValue(v)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = sv
 	}
 	return out, nil
 }

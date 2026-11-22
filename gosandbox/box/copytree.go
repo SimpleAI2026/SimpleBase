@@ -1,23 +1,4 @@
-// 文件说明：copytree.go — 把只读根拷进沙盒（bwrap 不支持 overlay 时的退路）
-//
-// 用法
-//
-//	copyTree(src, dst string) error
-//
-// 调用架构
-//
-//	[上游] gosandbox/box（launch 的 rootArgs）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/copytree.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] launch_linux.go
-//
-// 主要符号
-//
-//	copyTree(src, dst string) error
+//go:build linux
 
 package box
 

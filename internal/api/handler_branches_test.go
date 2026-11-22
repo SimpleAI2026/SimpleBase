@@ -11,11 +11,11 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/hashx"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
-	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
 )
 
 func setupBareEcho(injectPrincipal, injectProject bool, register func(*echo.Echo)) *echo.Echo {

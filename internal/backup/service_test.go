@@ -32,7 +32,7 @@ func TestBackupRestoreAndIntegrity(t *testing.T) {
 				t.Fatal(err)
 			}
 			meta := catalog.Database{ID: "db1", ProjectID: "prj00001", TenantID: "tenant1", DatabasePath: path, Status: catalog.DatabaseReady}
-			factory := &filedb.Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: filedb.NewNopSyncer()}
+			factory := &filedb.Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: filedb.NewLocalSyncer()}
 			reg := registry.New(factory, nil, registry.Options{Writable: true}, nil, nil)
 			t.Cleanup(func() { _ = reg.Shutdown(context.Background()) })
 			system, err := sql.Open("sqlite3", ":memory:")

@@ -1,15 +1,15 @@
-// 文件说明：ports.go — 数据 / 对象 / 日志 / 沙盒访问端口与 agentcore 类型别名
-
 package cloudagent
 
 import (
 	"context"
+	"time"
+
+	"github.com/cloudwego/eino/components/tool"
+	"go.uber.org/zap"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 )
 
-// 网关类型已迁至 agentcore（云端 Runtime 与本地 CLI 共用）；此处保留别名，
-// 使 api 适配器与既有调用方的符号不变。
 type (
 	ChatMessage   = agentcore.ChatMessage
 	ChatToolCall  = agentcore.ChatToolCall
@@ -22,65 +22,50 @@ type (
 	ChatClient    = agentcore.ChatClient
 )
 
-// DatabaseInfo is a non-secret catalog row for tools/snapshots.
-type DatabaseInfo struct {
-	ID     string
-	Name   string
-	Status string
+// Logger is the structured logging surface used by the runtime.
+type Logger interface {
+	Debug(msg string, fields ...zap.Field)
+	Info(msg string, fields ...zap.Field)
+	Warn(msg string, fields ...zap.Field)
+	Error(msg string, fields ...zap.Field)
 }
 
-// SQLResult is a truncated readonly query result.
-type SQLResult struct {
-	Columns  []string
-	Rows     [][]any
-	RowCount int
+// ToolDecision describes the safety classification of a tool invocation.
+type ToolDecision struct {
+	ReadOnly    bool
+	Destructive bool
 }
 
-// ObjectInfo is a project-relative object (no physical prefix, no credentials).
-type ObjectInfo struct {
-	Key          string
-	Size         int64
-	ETag         string
-	ContentType  string
-	LastModified string
+// ConfirmationWaiter waits for a decision about a destructive tool call.
+type ConfirmationWaiter interface {
+	Wait(ctx context.Context, runID, callID, initiator string, timeout time.Duration) (approved bool, err error)
 }
 
-// DatabaseAccess is the readonly database surface for tools.
-//
-// 实现方是宿主的 api.cloudAgentDB：它把 Principal 还原成 Principal 后
-// 继续走 catalog 的项目授权，模块不参与鉴权。
-type DatabaseAccess interface {
-	ListDatabases(ctx context.Context, principal Principal, projectID string) ([]DatabaseInfo, error)
-	ListCollections(ctx context.Context, principal Principal, projectID, databaseID string) ([]string, error)
-	ReadOnlyQuery(ctx context.Context, principal Principal, projectID, databaseID, sqlText string, maxRows int) (SQLResult, error)
+// ConfirmationPreparer can reserve a confirmation before its event is emitted.
+type ConfirmationPreparer interface {
+	Prepare(runID, callID, initiator string)
 }
 
-// ObjectAccess is the readonly S3 surface for tools.
-type ObjectAccess interface {
-	ListObjects(ctx context.Context, projectID, prefix string, limit int) ([]ObjectInfo, error)
-	HeadObject(ctx context.Context, projectID, key string) (ObjectInfo, error)
+// RunPreparation contains everything needed to execute one agent turn.
+type RunPreparation struct {
+	Model       string
+	ModelScope  string
+	Instruction string
+	Tools       []tool.BaseTool
+	Notes       []string
+	Cleanup     func()
+	OnToolCall  func(callID string)
 }
 
-// LogAccess is the readonly logs surface for tools.
-type LogAccess interface {
-	SearchLogs(ctx context.Context, projectID, level, q string, limit int) ([]LogEvent, error)
-	LevelStats(ctx context.Context, projectID string) ([]LogLevelCount, error)
+// RunProvider resolves model, instruction and host-specific tools for a run.
+// RunRequest.Context is an opaque, provider-owned value.
+type RunProvider interface {
+	Prepare(ctx context.Context, req RunRequest, emit func(Event)) (RunPreparation, error)
 }
 
-// SandboxOutput 是一次沙盒命令的结果（stdout/stderr 已截断）。
-type SandboxOutput struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
-}
+// RunProviderFunc adapts a function to RunProvider.
+type RunProviderFunc func(context.Context, RunRequest, func(Event)) (RunPreparation, error)
 
-// Sandbox 是云沙盒的工具面（cloud-agent-sandbox-plan §4）。
-// 实现方为 app.sandboxAdapter（包装 sandbox.Manager）；本包不 import gosandbox。
-type Sandbox interface {
-	Available() bool
-	Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (SandboxOutput, error)
-	Shell(ctx context.Context, projectID, threadID, command string) (SandboxOutput, error)
-	ReadFile(ctx context.Context, projectID, threadID, path string) (string, error)
-	WriteFile(ctx context.Context, projectID, threadID, path, content string) error
-	ReleaseThread(ctx context.Context, projectID, threadID string) error
+func (f RunProviderFunc) Prepare(ctx context.Context, req RunRequest, emit func(Event)) (RunPreparation, error) {
+	return f(ctx, req, emit)
 }

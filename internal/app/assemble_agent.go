@@ -48,7 +48,7 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		}
 	}
 	if a.cfg.Agent.SkillsCLI && a.logger != nil {
-		if failure := cloudagent.ValidateCLIPath(cliPath); failure != "" {
+		if failure := agentbridge.ValidateCLIPath(cliPath); failure != "" {
 			a.logger.Warn("cloud agent CLI unavailable", zap.String("reason", failure))
 		} else {
 			a.logger.Info("cloud agent CLI ready", zap.String("path", cliPath))
@@ -56,36 +56,40 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 	}
 	reg := auth.NewDelegationRegistry()
 	a.delegations = reg
-	rt := &cloudagent.Runtime{
-		LLM:            api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)),
+	provider := &agentbridge.RuntimeProvider{
 		DB:             api.NewCloudAgentDB(a.catalog, dbbridge.RegistryFrom(a.registry)),
 		Obj:            api.NewCloudAgentObj(a.fileStore, a.systemStore),
 		Logs:           agentbridge.NewLogAccess(a.systemStore),
 		Settings:       agentbridge.NewSettingsAccess(a.systemStore),
-		MaxIterations:  a.cfg.LLM.EffectiveAgentMaxIterations(),
-		RunTimeout:     a.cfg.LLM.EffectiveAgentRunTimeout(),
-		ToolProtocol:   a.cfg.LLM.EffectiveAgentToolProtocol(),
 		SkillsCLI:      a.cfg.Agent.SkillsCLI,
 		CLIPath:        cliPath,
-		CLI:            cloudagent.SubprocessCLI{Path: cliPath},
+		CLI:            agentbridge.SubprocessCLI{Path: cliPath},
 		APIBaseURL:     loopbackBase(a.cfg.HTTP.Address),
 		ConfirmTimeout: a.cfg.Agent.EffectiveConfirmTimeout(),
 		DelegationTTL:  a.cfg.Agent.EffectiveDelegationTTL(),
 		Issuer:         agentbridge.NewDelegationIssuer(a.cfg.Auth.APIKeyHashSecret, reg),
-		// 命令只读/破坏性分类的唯一入口：规则在宿主（sbcli + sqlguard）。
-		Policy: agentbridge.NewCommandPolicy(),
-		// planv6.0 v2 §5：运行日志出口与内容层开关（默认关闭）。
-		Logger:   a.logger,
-		TraceLog: a.cfg.Agent.TraceLog,
+		Policy:         agentbridge.NewCommandPolicy(),
+		ToolProtocol:   a.cfg.LLM.EffectiveAgentToolProtocol(),
+		Logger:         a.logger,
+		TraceLog:       a.cfg.Agent.TraceLog,
 	}
 	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
-		rt.Sandbox = &sandboxAdapter{m: a.sandboxMgr}
+		provider.Sandbox = &sandboxAdapter{m: a.sandboxMgr}
+	}
+	rt := &cloudagent.Runtime{
+		LLM: api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)), Provider: provider,
+		MaxIterations: a.cfg.LLM.EffectiveAgentMaxIterations(), RunTimeout: a.cfg.LLM.EffectiveAgentRunTimeout(),
+		ToolProtocol: a.cfg.LLM.EffectiveAgentToolProtocol(), ConfirmTimeout: a.cfg.Agent.EffectiveConfirmTimeout(),
+		Logger: a.logger, TraceLog: a.cfg.Agent.TraceLog,
 	}
 	// MCP（planv6.2 §6-4）：默认关闭；关闭时不装配连接器，
 	// Agent 保存 mcp: 引用会被 api 层拒绝，run 也不会装配 MCP 工具。
-	if a.cfg.Agent.MCP.Enabled {
+	// 内置 MCP（planv6.7 §3.6）开启时也要装配：云助手经进程内会话使用它。
+	// 此时若外部 MCP 关闭，连接器只服务内置 Server。
+	if a.cfg.Agent.MCP.Enabled || a.cfg.Agent.MCP.Builtin {
 		rt.MCP = agentbridge.NewMCPConnector(a.systemStore, agentbridge.MCPOptions{
-			AllowHTTP: a.cfg.Agent.MCP.AllowHTTP,
+			AllowHTTP:       a.cfg.Agent.MCP.AllowHTTP,
+			DisableExternal: !a.cfg.Agent.MCP.Enabled,
 		})
 		rt.MCPPolicy = agentbridge.NewMCPPolicy(a.systemStore)
 	}

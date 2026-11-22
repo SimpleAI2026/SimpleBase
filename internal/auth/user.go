@@ -15,7 +15,7 @@
 //	[本文件] internal/auth/user.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/limit
+//	[下游] godatabase/limit, internal/utils/strutil
 //	[同包] api_key_repository.go, cache.go, delegation.go, id.go, jwt.go 等 15 个
 //	[关键引用] GetByID() ← observer.go, session.go, session_repository.go
 //
@@ -38,7 +38,8 @@ import (
 	"strings"
 	"time"
 
-	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	pagelimit "github.com/linkxzhou/SimpleBase/godatabase/limit"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // 用户领域错误（api 层映射到 4xx）。
@@ -191,7 +192,7 @@ func (s *UserService) changed(userID string) {
 	}
 }
 
-func normalizeUsername(u string) string { return strings.ToLower(strings.TrimSpace(u)) }
+func normalizeUsername(u string) string { return strutil.Normalize(u) }
 
 // Create 创建账号。role 仅允许 admin|user（禁止建第二个 superadminl1）。
 func (s *UserService) Create(ctx context.Context, in CreateUserInput) (User, error) {

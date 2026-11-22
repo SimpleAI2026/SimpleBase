@@ -258,9 +258,8 @@ func TestMCPListSubcommand(t *testing.T) {
 
 	// 写一份配置：stdio + http，http URL 带 token 必须被掩码。
 	cfg := Config{
-		Endpoint:  "http://127.0.0.1:8080",
-		Token:     "t",
-		ProjectID: "p",
+		Endpoint: "http://127.0.0.1:8080",
+		Token:    "t",
 		MCPServers: map[string]MCPServerConfig{
 			"fs":  {Command: "npx", Args: []string{"-y", "fs"}},
 			"net": {URL: "https://x/mcp?token=secret", Headers: map[string]string{"Authorization": "Bearer s"}},
@@ -289,7 +288,7 @@ func TestMCPListSubcommand(t *testing.T) {
 func TestMCPToolsSubcommandEmptyConfig(t *testing.T) {
 	home := t.TempDir()
 	env := []string{"GOCLOUDAGENT_HOME=" + home}
-	cfg := Config{Endpoint: "http://127.0.0.1:8080", Token: "t", ProjectID: "p"}
+	cfg := Config{Endpoint: "http://127.0.0.1:8080", Token: "t"}
 	if _, err := SaveConfig(env, cfg); err != nil {
 		t.Fatal(err)
 	}

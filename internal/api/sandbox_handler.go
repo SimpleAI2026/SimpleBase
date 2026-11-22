@@ -47,11 +47,12 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/hashx"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
-	"github.com/linkxzhou/SimpleBase/internal/utils/hashx"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // SandboxService 由 app 装配的 Manager 实现；handler 不直接依赖 SDK。
@@ -463,11 +464,7 @@ func (h *SandboxHandler) List(c echo.Context) error {
 	}
 	states := map[string]bool{}
 	for _, s := range q["state"] {
-		for _, part := range strings.Split(s, ",") {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
+		for _, part := range strutil.SplitCSV(s) {
 			if part != "running" && part != "paused" {
 				return writeE2BErr(c, echo.NewHTTPError(http.StatusBadRequest, "state must be running or paused"))
 			}

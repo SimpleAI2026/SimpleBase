@@ -29,6 +29,23 @@ type sseEvent struct {
 	ToolCalls        int    `json:"tool_calls"`
 	IsError          bool   `json:"is_error"`
 	Truncated        bool   `json:"truncated"`
+	// planv6.7 v2：协作轮次事件（route 卡 / task / human / turn）。
+	AgentID   string          `json:"agent_id"`
+	RouteKind string          `json:"route_kind"`
+	Status    string          `json:"status"`
+	Steps     []eventStepWire `json:"steps"`
+	Index     int             `json:"index"`
+	Total     int             `json:"total"`
+	HumanID   string          `json:"human_id"`
+	HumanName string          `json:"human_name"`
+}
+
+// eventStepWire 是 route 事件里的一个分工步骤。
+type eventStepWire struct {
+	Kind        string `json:"kind"`
+	AgentID     string `json:"agent_id"`
+	Instruction string `json:"instruction"`
+	RouteKind   string `json:"route_kind"`
 }
 
 // parseSSE 把 SSE 文本解析为事件列表；忽略注释（: ping）。

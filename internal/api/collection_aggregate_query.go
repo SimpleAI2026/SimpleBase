@@ -16,6 +16,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/collection"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 const (
@@ -327,7 +328,7 @@ func compileAggregate(q aggregateQuery, values url.Values, source, where string,
 
 // wantAggregateTotal 判断调用方是否要「同口径总量」。默认不要：多一次聚合查询，只在画占比时才值得。
 func wantAggregateTotal(values url.Values) bool {
-	switch strings.ToLower(strings.TrimSpace(values.Get("with_total"))) {
+	switch strutil.Normalize(values.Get("with_total")) {
 	case "1", "true":
 		return true
 	default:

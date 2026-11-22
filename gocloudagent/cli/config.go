@@ -46,12 +46,10 @@ var ErrInsecureConfig = errors.New("config_insecure")
 
 // Config 是 ~/.gocloudagent/config.json 的内容。
 type Config struct {
-	// Endpoint 是 SimpleBase 服务地址，例如 http://127.0.0.1:8080。
+	// Endpoint 是 OpenAI 兼容 API 的基础地址，例如 https://api.openai.com/v1。
 	Endpoint string `json:"endpoint"`
-	// Token 是 SimpleBase 的 API Key。CLI 不保存任何供应商密钥（决策 D-D1）。
+	// Token 是对应模型服务的 Bearer Token。
 	Token string `json:"token"`
-	// ProjectID 是默认项目。
-	ProjectID string `json:"project_id"`
 	// Model 是默认模型名；空表示用服务端 llm/settings 的默认模型。
 	Model string `json:"model"`
 	// Output 是默认输出格式："text" 或 "json"。
@@ -201,9 +199,6 @@ func overlayConfig(base, override Config) Config {
 	if strings.TrimSpace(override.Token) != "" {
 		base.Token = override.Token
 	}
-	if strings.TrimSpace(override.ProjectID) != "" {
-		base.ProjectID = override.ProjectID
-	}
 	if strings.TrimSpace(override.Model) != "" {
 		base.Model = override.Model
 	}
@@ -244,28 +239,13 @@ func overlayConfig(base, override Config) Config {
 	return base
 }
 
-// MergeEnv 叠加环境变量覆盖（GOCLOUDAGENT_* 优先于 SIMPLEBASE_*，便于命令行临时切换）。
+// MergeEnv 叠加 GOCLOUDAGENT_* 环境变量覆盖。
 func MergeEnv(cfg Config, env []string) Config {
-	if v, ok := envGet(env, "SIMPLEBASE_URL"); ok {
-		cfg.Endpoint = v
-	}
-	if v, ok := envGet(env, "SIMPLEBASE_TOKEN"); ok {
-		cfg.Token = v
-	}
-	if v, ok := envGet(env, "SIMPLEBASE_PROJECT_ID"); ok {
-		cfg.ProjectID = v
-	}
-	if v, ok := envGet(env, "SIMPLEBASE_OUTPUT"); ok {
-		cfg.Output = v
-	}
 	if v, ok := envGet(env, "GOCLOUDAGENT_ENDPOINT"); ok {
 		cfg.Endpoint = v
 	}
 	if v, ok := envGet(env, "GOCLOUDAGENT_TOKEN"); ok {
 		cfg.Token = v
-	}
-	if v, ok := envGet(env, "GOCLOUDAGENT_PROJECT_ID"); ok {
-		cfg.ProjectID = v
 	}
 	if v, ok := envGet(env, "GOCLOUDAGENT_MODEL"); ok {
 		cfg.Model = v
@@ -315,9 +295,6 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Token) == "" {
 		return errors.New("token is not configured: set $GOCLOUDAGENT_TOKEN or run `gocloudagent config set token <key>`")
-	}
-	if strings.TrimSpace(c.ProjectID) == "" {
-		return errors.New("project_id is not configured: run `gocloudagent config set project_id <id>`")
 	}
 	// MCP 配置非法时不静默跳过该 Server：配置错误必须在启动阶段暴露。
 	for name, srv := range c.MCPServers {

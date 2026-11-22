@@ -1,28 +1,5 @@
 //go:build linux
 
-// 文件说明：logdir.go — 沙盒日志目录的路径与列举
-//
-// 用法
-//
-//	(d *Driver) logDir(name string) string
-//	logNamesIn(dir string) ([]string, error)
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box（capabilities.go 的 Logs）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/vm/box/logdir.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] capabilities.go, driver_linux.go
-//
-// 主要符号
-//
-//	(d *Driver) logDir(name string) string
-//	logNamesIn(dir string) ([]string, error)
-
 package box
 
 import (

@@ -1,33 +1,3 @@
-// 文件说明：core.go — 在 DuckLake 用户库上提供 Redis 语义的 Key-Value 数据服务
-//
-// 用法
-//
-//	(t TypeID) String() string
-//	ParseType(s string) (TypeID, bool)  // ParseType 解析 API/UI 传入的类型名
-//	同包调用：ErrNotFound → executor.go, hash.go 等；ErrArgument → hash.go, list.go 等；TypeID → key.go, schema.go 等
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/kv/core.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] executor.go, hash.go, key.go, list.go, schema.go 等 10 个
-//	[关键引用] ErrNotFound ← executor.go, hash.go, key.go
-//
-// 主要符号
-//
-//	type TypeID int16
-//	const TypeString
-//	const TypeList
-//	const TypeSet
-//	const TypeHash
-//	const TypeZSet
-//	... 另有 11 个顶层符号
-
 package kv
 
 import (

@@ -125,7 +125,7 @@
 | 文档 | 处置 | 说明 |
 | --- | --- | --- |
 | `gocloudagent-smoke-report.md` | **必须抽数字** | 全仓唯一的模型基线：MBPP 348/427（81.5%）、SWE Verified 5/10、TB 0/8、MBPP 13353s / ¥2.78、外推 500 题 ≈25.6h / ¥35、失败分类（断言 60 / 超时 15 / 运行错误 4）、跑法参数 → §4.14 |
-| `gocloudagent-agent-benchmark-plan.md` | 进 §3-G | M1–M3 已落地（`gocloudagent/bench/*.py`），M4 `workflow_dispatch` 与 M5 扩展层未做；**口径更正：计划写 SWE-bench Lite 20，实跑是 Verified 10/50** |
+| `gocloudagent-agent-benchmark-plan.md` | 进 §3-G | M1–M3 已落地（`internal/agentbridge/bench/*.py`），M4 `workflow_dispatch` 与 M5 扩展层未做；**口径更正：计划写 SWE-bench Lite 20，实跑是 Verified 10/50** |
 | `gocloudagent-optimization-plan.md` | 进 §3-G + §4.14 | O1–O5 主体已实施；#5 `max_tokens` 可配、#8 停止判据、#10 L3 钻头用例仍缺；§1.1–1.4 三条修正（`litellm.ProviderConfig.Timeout` 从不被读、4096 隐性兜底、默认值分叉） |
 | `gocloudagent-harness-supervisor-plan.md` | 进 §3-G | **从未实施**（全仓 `supervisor|advisor` 0 命中）；P0 部分被别的 PR 覆盖（`repeat_detector.go`、`budget_test.go`） |
 | `examples-experience-fix-plan.md` | 抽 #8 决策 | #1–#9 已落地；唯一遗留「认证（user/apikey）进 skill」→ §3-J6 |
@@ -430,13 +430,13 @@ BUG 编号（注释里最高频）：
 | **G1** | `gocloudagent/cli/config.go` 只有 `compact_*_tokens`，无输出上限项；上游 4096 是隐性兜底（v6.1 O5） | 加 `max_tokens` 配置 + CLI 参数 | 请求体带上限；超限走 `ErrMaxTokensExceeded` 且工具不执行 |
 | **G2** | 无「无进展即停」判据；`supervisor P0②` 未做 | 定义 no-progress 判据（有写需求但无 diff 拒 stop 等） | 判据表 + 用例；误停率可评估 |
 | **G3** | 云端仍是 `maxHistoryChars = 12000`（`cloudagent/prompt.go:15`、`history.go:76`）；CLI 已有 `compaction.go`，云端没有（v6.0 C3/E3） | 云端改 summarization + 按轮截断 | 长会话不再硬截断；token 预算可配 |
-| **G4** | 全仓无 specialist 代码（仅 `gocloudagent/docs/eino-guide.md` 提及） | L2 specialists，默认关闭 | 开关 + 至少 1 个 specialist + 分流用例 |
+| **G4** | 全仓无 specialist 代码（仅 `internal/agentbridge/docs/eino-guide.md` 提及） | L2 specialists，默认关闭 | 开关 + 至少 1 个 specialist + 分流用例 |
 | **G5** | `tool_execution_update` 全仓仅 docs/plan 提及 | 长工具期间推中间帧 | CLI 与沙盒都能看到增量进度 |
-| **G6** | `gocloudagent/bench/run_smoke.py:354` 的 `verify_l3` 只验哨兵三态，没覆盖「命令发出去被挂载挡住」 | 补用例 | 命令真正执行后被 deny 时判 FAIL |
+| **G6** | `internal/agentbridge/bench/run_smoke.py:354` 的 `verify_l3` 只验哨兵三态，没覆盖「命令发出去被挂载挡住」 | 补用例 | 命令真正执行后被 deny 时判 FAIL |
 | **G7** | `run_smoke.py` 0 处解析 `usage`/`prompt_tokens`（代码侧 `end` 已带 token，harness 未接） | 报表打印 token 与费用；加「20 题费用超预算即停」护栏 | 报表含费用；护栏可触发 |
 | **G8** | `.github/` 无 bench 相关 workflow | `workflow_dispatch` 评测入口 | 可手动触发并上传结果 |
 | **G9** | `gocloudagent` 内 `supervisor|advisor` **0 命中** | P1–P5（Config/Plan/Accept、triggerMonitor、consult_supervisor、model→provider 路由、A/B 四臂） | 默认 `enabled=false`；开启后有 `supervisor_usage` 上限 |
-| **G10** | `eval_test.go` 只存在于 `gofunction/internal/interp`；云端方案已被 `gocloudagent/bench/*.py` 顶替 | 正式废弃 E5 并写进文档，别留两套 | 文档与目录一致，无悬空引用 |
+| **G10** | `eval_test.go` 只存在于 `gofunction/internal/interp`；云端方案已被 `internal/agentbridge/bench/*.py` 顶替 | 正式废弃 E5 并写进文档，别留两套 | 文档与目录一致，无悬空引用 |
 
 ### H. 生产就绪（planv6.4 `production-readiness-plan`）
 
@@ -570,7 +570,7 @@ MBPP sanitized **348/427 = 81.5%**（13353s，prompt 2 083 058 / completion 397 
 | 5 个存量文件 `gofmt` 未通过 | v6.2 utils §6 | 全仓已 clean（`gofmt -l internal cmd` 为空） |
 | `internal/database/*`、`internal/utils/{sqlx,singleflight}` 路径 | v6.2 全部 | 已迁 `godatabase/{sqlx,internal/singleflight}`；`internal/utils/sqlval` 是 v6.3 后新增 |
 | 「SWE-bench Lite 20 题」 | v6.1 benchmark §0 | 实跑为 **Verified 10/50**，引用时必须更正 |
-| `E5 eval_test.go` 表驱动 8 案例 | v6.0 E5 | 已被 `gocloudagent/bench/*.py` 顶替，不要按原计划补 |
+| `E5 eval_test.go` 表驱动 8 案例 | v6.0 E5 | 已被 `internal/agentbridge/bench/*.py` 顶替，不要按原计划补 |
 | `/agent-schedules` 兼容层 | v6.0 阶段 A5 | 已整体删除，仅测试里有字符串残留 |
 | v6.0 chat-ux v1「阶段 A 逐页实测」 | v6.0 | 被代码审计替代，不必补测 |
 
@@ -594,7 +594,7 @@ rg -n 'plan/planv([1-5]|6\.[0-4])\.' --glob '!plan/planv6.7/**' . || echo OK
 | 第二轮删除 | `planv6.0`(11) / `planv6.1`(7) / `planv6.2`(7) / `planv6.3`(5) / `planv6.4`(6) = **36 个文件** |
 | 保留目录 | `planv6.5` / `planv6.6` / `planv6.7`（未动） |
 | 搬运落点 | 待办 → §3（11 组 60 条）；契约 → §4（18 组）；锚点 → §2（含 §2.5 的 v6.0–v6.4 编号） |
-| 外部引用改动 | 第一轮 **19 个文件**（见下）；第二轮新增 **12 个文件**：`AGENTS.md`（计划目录段重写）、`examples/README.md`、`docs/getting-started/openai-compatible.md`、`docs/workbench/agent-e2e.md`、`gocloudagent/bench/README.md`、`gofunction/bench_report.md`（2 处，含修掉指向 `planv6.5/gofunction-optimization-plan.md` 的**历史悬空引用**）、`config.example.yaml`、`internal/api/storage_settings_handler.go`、`ui/src/composables/useLoadState.ts`、`ui/src/constants/agent-prompts.ts` |
+| 外部引用改动 | 第一轮 **19 个文件**（见下）；第二轮新增 **12 个文件**：`AGENTS.md`（计划目录段重写）、`examples/README.md`、`docs/getting-started/openai-compatible.md`、`docs/workbench/agent-e2e.md`、`internal/agentbridge/bench/README.md`、`gofunction/bench_report.md`（2 处，含修掉指向 `planv6.5/gofunction-optimization-plan.md` 的**历史悬空引用**）、`config.example.yaml`、`internal/api/storage_settings_handler.go`、`ui/src/composables/useLoadState.ts`、`ui/src/constants/agent-prompts.ts` |
 | 删后复核 | `rg 'plan/planv([1-5]\|6\.[0-4])\.' --glob '!plan/planv6.7/**' .` → **0 命中**；`go build ./internal/... ./cmd/...` 通过 |
 
 > 未做的事：两轮都不动源码；§3 的 60 条一条都没开工。C 组（多实例）开工前必须先复核 `godatabase` 当前实现——那几条是「未核实」而非「确认未做」。

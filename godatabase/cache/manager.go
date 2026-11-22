@@ -1,34 +1,3 @@
-// 文件说明：manager.go — 本地数据库缓存目录的管理与淘汰（见 plan7.md）
-//
-// 用法
-//
-//	NewManager(opts Options) (*Manager, error)
-//	(m *Manager) Root() string// Root 返回缓存根目录绝对路径
-//	(m *Manager) Path(databaseID string) (string, error)  // Path 返回指定 databaseID 的缓存目录路径
-//	同包调用：Usage() → evict.go, evict.go；Manager → evict.go；ErrCacheCapacityExceeded → evict.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/cache/manager.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase
-//	[同包] evict.go
-//	[关键引用] Usage() ← evict.go
-//
-// 主要符号
-//
-//	type ActiveChecker interface {…}
-//	type Closer interface {…}
-//	type Manager struct {…}
-//	type Usage struct {…}
-//	type Options struct {…}
-//	var ErrCacheCapacityExceeded
-//	... 另有 7 个顶层符号
-
 package cache
 
 import (

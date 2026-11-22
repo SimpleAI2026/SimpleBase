@@ -116,6 +116,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { useLoadState } from '@/composables/useLoadState'
 import { errorMessage, formatTime } from '@/utils/format'
+import { copyText as copyTextWithToast } from '@/utils/clipboard'
 import { basename, downloadBlob } from '@/utils/download'
 import type { SandboxCapabilities, SandboxFileEntry, SandboxItem } from '../../services/types'
 import { api } from '../../services/api'
@@ -280,9 +281,10 @@ const curlExample = computed(
 )
 
 async function copyText(text: string, toastKey: 'sshCopied' | 'e2bCopied' | 'curlCopied') {
-  try {
-    await navigator.clipboard.writeText(text)
-    toast.success(t('components.sandboxDrawer.' + toastKey))
-  } catch { toast.error(t('components.sandboxDrawer.clipboardFailed')) }
+  await copyTextWithToast(
+    text,
+    () => t('components.sandboxDrawer.' + toastKey),
+    () => t('components.sandboxDrawer.clipboardFailed')
+  )
 }
 </script>

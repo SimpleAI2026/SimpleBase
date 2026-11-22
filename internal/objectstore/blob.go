@@ -1,10 +1,9 @@
-// 文件说明：blob.go — internal/objectstore 中 BlobStore、ListResult 等符号的实现
+// 文件说明：blob.go — internal/objectstore 中 BlobStore 等符号的实现
 //
 // 用法
 //
 //	NewMemoryBlobStore() BlobStore
 //	type BlobStore（导出类型，同包与上层均可使用）
-//	type ListResult（导出类型，同包与上层均可使用）
 //	同包调用：Delete() → client.go, filestore.go 等；List() → client.go, filestore.go 等；ErrPreconditionFailed → client.go, probe.go
 //
 // 调用架构
@@ -15,14 +14,13 @@
 //	[本文件] internal/objectstore/blob.go
 //	         │ 依赖
 //	         ▼
-//	[下游] godatabase/blob, internal/utils/atomicfile, internal/utils/limit
+//	[下游] godatabase/blob, godatabase/atomicfile, godatabase/limit
 //	[同包] client.go, content.go, content_local.go, content_s3.go, descriptor.go 等 10 个
 //	[关键引用] Delete() ← client.go, filestore.go, localfilestore.go
 //
 // 主要符号
 //
 //	type BlobStore = blob.Store
-//	type ListResult = blob.ListResult
 //	var ErrPreconditionFailed
 //	NewMemoryBlobStore() BlobStore
 //	... 另有 14 个顶层符号
@@ -47,9 +45,9 @@ import (
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
-	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
-	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	pagelimit "github.com/linkxzhou/SimpleBase/godatabase/limit"
 )
 
 // BlobStore 读写二进制对象（DuckLake catalog.sqlite 等）。
@@ -58,9 +56,6 @@ import (
 // 接口与错误的唯一定义在 godatabase/blob（数据库运行时库）；这里是别名，
 // 使 S3 实现返回的 ErrNotFound / ErrPreconditionFailed 与库内 errors.Is 判断恒等。
 type BlobStore = blob.Store
-
-// ListResult 是 List 的单页结果。
-type ListResult = blob.ListResult
 
 // ErrPreconditionFailed 表示 create-if-absent 写入冲突（对象已存在）。
 // COS 返回 409 ObjectAlreadyExists、S3/R2 返回 412，统一映射到本错误。

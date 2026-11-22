@@ -1,83 +1,24 @@
-import { http, baseURL, getApiKey, getAccessToken, setTokens, clearTokens } from './http'
-import { t } from '@/locales'
+import { http, baseURL, setTokens, clearTokens } from './http'
 import type {
   Api,
   APIPreviewResult,
   OpenAPIDocument,
-  AgentApproval,
-  AgentApprovalStatus,
-  AgentMessage,
   AgentModuleInfo,
   AgentRun,
   ActiveAgentRun,
-  AgentRunMetrics,
-  AgentRunRequest,
-  AgentSchedule,
-  AgentStreamHandlers,
-  AgentUsageEventWire,
-  AgentThread,
   ApiKeyItem,
-  AuthUser,
-  CloudAgent,
   CreateUserRequest,
-  CronJobCreate,
-  CronJobItem,
-  CronJobRunItem,
   CronJobRunWire,
   CronJobWire,
   SandboxCapabilities,
   SandboxItem,
-  SandboxFileEntry,
   StorageSettings,
   StorageUpdateResult,
   CreateDatabaseInput,
-  DatabaseItem,
-  BackupItem,
-  CollectionInfo,
-  CollectionSchema,
-  DocumentItem,
-  DocumentPage,
-  SchemaDryRunResult,
-  DatabaseSchema,
-  SchemaColumn,
-  SchemaTable,
-  SchemaTableRows,
-  GoFunctionItem,
-  GoFuncVersionCreate,
-  GoFuncVersionSummary,
-  LlmSettings,
-  LlmStreamConnection,
-  LLMTrace,
-  LLMTraceGroup,
-  LLMTraceGroupListResult,
-  LlmTraceGroupQuery,
-  LogEvent,
-  LogEventWire,
-  LogRetentionWire,
-  McpServer,
-  McpToolPolicy,
-  MetricsSummaryWire,
-  TrendPointWire,
-  LogQuery,
-  LogRetention,
-  MetricsSummary,
-  SqlBatchRequest,
-  SqlBatchResult,
-  SqlExecuteResult,
-  SqlQueryResult,
-  SqlRequest,
-  TokenPair,
-  TrendPoint,
   UpdateUserRequest,
-  UserItem,
   UserListResult,
   ViewDryRunResult,
-  CollectionImportResult,
-  FunctionTrigger,
-  FunctionTriggerInput,
-  S3FolderMeta,
-  S3PublicResult,
-  S3SiteInfo
+  CollectionImportResult
 } from './types'
 
 /* ---------- 命名转换：UI camelCase ↔ 后端 snake_case（集中在此） ---------- */
@@ -99,16 +40,19 @@ import {
   llmTraceGroupParams,
   logQueryParams,
   num,
-  optionalNumber,
-  readSse,
   SB_META_NAME,
   sandboxPath,
-  schemaText,
   attachAgentRun,
   collectionWire,
   streamAgentRun,
   toApiKeyItem,
   toAgentApproval,
+  toAgentHumanTask,
+  toAgentTag,
+  toAgentTurn,
+  streamAgentTurn,
+  toWorkspaceCapabilities,
+  fromAgentTagInput,
   toAgentMessage,
   toAgentThread,
   toAuthUser,
@@ -118,7 +62,6 @@ import {
   toCollectionSchema,
   toCronJobItem,
   toCronJobRunItem,
-  toCronScheduleKind,
   toDatabaseItem,
   toDatabaseSchema,
   toDocumentItem,
@@ -131,12 +74,11 @@ import {
   toGoFuncVersion,
   toLlmSettings,
   toLLMTrace,
-  toLLMTraceGroup,
   toLLMTraceGroupListResult,
   LLMTraceWire,
-  LLMTraceGroupWire,
   toLogEvent,
   toLogRetention,
+  toMcpBuiltinServer,
   toMcpServer,
   toMetricsSummary,
   toProjectItem,
@@ -155,8 +97,7 @@ import {
   toTriggerWire,
   toUserItem,
   toBatchResult,
-  toSqlPayload,
-  trendPointList
+  toSqlPayload
 } from './http-api-converters'
 
 // 助手定时摘要的映射函数对外可用（AgentManager 直接消费；planv6.6 DC-5）。
@@ -734,8 +675,6 @@ export const httpApi: Api = {
         })),
     getSite: (projectId) =>
       http.get('/v1/projects/' + encodeURIComponent(projectId) + '/s3/site').then((r) => toS3SiteInfo(r.data)),
-    setSite: (projectId, enabled) =>
-      http.put('/v1/projects/' + encodeURIComponent(projectId) + '/s3/site', { enabled }).then((r) => toS3SiteInfo(r.data)),
     setPublic: (projectId, key, kind, isPublic) =>
       http
         .put('/v1/projects/' + encodeURIComponent(projectId) + '/s3/public', { key, kind, public: isPublic })
@@ -911,10 +850,36 @@ export const httpApi: Api = {
         threads: (Array.isArray(r.data?.threads) ? r.data.threads : []).map(toAgentThread),
         next_cursor: String(r.data?.next_cursor || '')
       })),
-    create: (projectId, title, agentId = '', starterTemplate = '') =>
-      http
-        .post(agentPath(projectId, '/agent-threads'), { title, agent_id: agentId, ...(starterTemplate ? { starter_template: starterTemplate } : {}) })
-        .then((r) => toAgentThread(r.data)),
+    /** 按标签分页。 */
+    pageBy: (projectId, q = {}) => {
+      const params: Record<string, unknown> = {}
+      if (q.limit !== undefined) params.limit = q.limit
+      if (q.cursor) params.cursor = q.cursor
+      if (q.agentId) params.agent_id = q.agentId
+      if (q.tagId) params.tag_id = q.tagId
+      return http.get(agentPath(projectId, '/agent-threads'), { params }).then((r) => ({
+        threads: (Array.isArray(r.data?.threads) ? r.data.threads : []).map(toAgentThread),
+        next_cursor: String(r.data?.next_cursor || '')
+      }))
+    },
+    create: (projectId, titleOrOpts, agentId = '') => {
+      // create 第二参数兼容 string（旧：title）与 AgentThreadCreateOptions。
+      const body: Record<string, unknown> =
+        typeof titleOrOpts === 'string'
+          ? { title: titleOrOpts, agent_id: agentId }
+          : {
+              ...(titleOrOpts?.title !== undefined ? { title: titleOrOpts.title } : {}),
+              ...(titleOrOpts?.agentId ? { agent_id: titleOrOpts.agentId } : {}),
+              ...(titleOrOpts?.tagId ? { tag_id: titleOrOpts.tagId } : {}),
+              ...(titleOrOpts?.dispatchMode ? { dispatch_mode: titleOrOpts.dispatchMode } : {}),
+              ...(titleOrOpts?.threadKind ? { thread_kind: titleOrOpts.threadKind } : {}),
+              ...(titleOrOpts?.source ? { source: titleOrOpts.source } : {})
+            }
+      return http.post(agentPath(projectId, '/agent-threads'), body).then((r) => toAgentThread(r.data))
+    },
+    /** 单个会话详情（深链补齐）。 */
+    get: (projectId, threadId) =>
+      http.get(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId))).then((r) => toAgentThread(r.data)),
     rename: (projectId, threadId, title) =>
       http.patch(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId)), { title }).then((r) => toAgentThread(r.data)),
     remove: (projectId, threadId) =>
@@ -932,7 +897,13 @@ export const httpApi: Api = {
           return list.map(toAgentMessage)
         }),
     streamRun: streamAgentRun,
+    /** v2：协作轮次（多目标 @）。 */
+    streamTurn: streamAgentTurn,
     attachRun: attachAgentRun,
+    /** v2：会话的轮次列表（新→旧）。 */
+    turns: (projectId, threadId) =>
+      http.get(agentPath(projectId, '/agent-threads/' + encodeURIComponent(threadId) + '/turns'))
+        .then((r) => (Array.isArray(r.data?.turns) ? r.data.turns : []).map(toAgentTurn)),
     cancel: (projectId, runId) =>
       http
         .post(agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/cancel'))
@@ -945,6 +916,60 @@ export const httpApi: Api = {
       http
         .post(agentPath(projectId, '/agent-runs/' + encodeURIComponent(runId) + '/confirmations/' + encodeURIComponent(callId)), { approve })
         .then(() => undefined)
+  },
+
+  /** 工作台标签 CRUD（planv6.7 AGC-NAV）。 */
+  agentTags: {
+    list: (projectId) =>
+      http.get(agentPath(projectId, '/agent-tags')).then((r) => {
+        const list = Array.isArray(r.data?.tags) ? r.data.tags : []
+        return list.map(toAgentTag)
+      }),
+    create: (projectId, input) =>
+      http.post(agentPath(projectId, '/agent-tags'), fromAgentTagInput(input)).then((r) => toAgentTag(r.data)),
+    patch: (projectId, tagId, input) =>
+      http
+        .patch(agentPath(projectId, '/agent-tags/' + encodeURIComponent(tagId)), fromAgentTagInput(input))
+        .then((r) => toAgentTag(r.data)),
+    remove: (projectId, tagId) =>
+      http.delete(agentPath(projectId, '/agent-tags/' + encodeURIComponent(tagId))).then(() => undefined),
+    /** v2：加入已有成员，或「新建助手并加入」（二者互斥，newAgent 优先）。 */
+    addMembers: (projectId, tagId, body) =>
+      http.post(agentPath(projectId, '/agent-tags/' + encodeURIComponent(tagId) + '/members'), body)
+        .then((r) => toAgentTag(r.data)),
+    /** v2：移出成员（不删除助手）。 */
+    removeMember: (projectId, tagId, agentId, expectedVersion) =>
+      http.delete(agentPath(projectId, '/agent-tags/' + encodeURIComponent(tagId) + '/members/' + encodeURIComponent(agentId)), {
+        params: expectedVersion !== undefined ? { expected_version: expectedVersion } : {}
+      }).then((r) => toAgentTag(r.data)),
+    /** v2：告警/统计输入入口（按 external_id 幂等）。 */
+    submitEvent: (projectId, tagId, body) =>
+      http.post(agentPath(projectId, '/agent-tags/' + encodeURIComponent(tagId) + '/events'), body)
+        .then((r) => toAgentTurn(r.data))
+  },
+
+  /** v2：协作轮次与人工待办。 */
+  agentTurns: {
+    get: (projectId, turnId) =>
+      http.get(agentPath(projectId, '/agent-turns/' + encodeURIComponent(turnId))).then((r) => toAgentTurn(r.data)),
+    /** 取消整轮 / 重试单个任务 / 恢复。 */
+    act: (projectId, turnId, body) =>
+      http.post(agentPath(projectId, '/agent-turns/' + encodeURIComponent(turnId) + '/actions'), body)
+        .then((r) => toAgentTurn(r.data)),
+    /** 人工回复（continue / unable）；与工具审批严格分离。 */
+    reply: (projectId, taskId, body) =>
+      http.post(agentPath(projectId, '/agent-tasks/' + encodeURIComponent(taskId) + '/replies'), body)
+        .then((r) => toAgentTurn(r.data)),
+    /** 待办列表与角标；assignee='me' 表示当前登录用户。 */
+    humanTasks: (projectId, assignee = 'me', status = 'pending') =>
+      http.get(agentPath(projectId, '/agent-human-tasks'), { params: { assignee, status } })
+        .then((r) => ({
+          tasks: (Array.isArray(r.data?.tasks) ? r.data.tasks : []).map(toAgentHumanTask),
+          pending: Number(r.data?.pending || 0)
+        })),
+    /** 能力探测：collaboration=false 时不露出协作控件。 */
+    capabilities: (projectId) =>
+      http.get(agentPath(projectId, '/agent-workspace-capabilities')).then((r) => toWorkspaceCapabilities(r.data))
   },
 
   agentApprovals: {
@@ -972,8 +997,9 @@ export const httpApi: Api = {
   mcpServers: {
     list: (projectId) =>
       http.get(agentPath(projectId, '/mcp/servers')).then((r) => {
-        const list = Array.isArray(r.data?.servers) ? r.data.servers : []
-        return list.map(toMcpServer)
+        const servers = Array.isArray(r.data?.servers) ? r.data.servers : []
+        const builtin = Array.isArray(r.data?.builtin) ? r.data.builtin : []
+        return { servers: servers.map(toMcpServer), builtin: builtin.map(toMcpBuiltinServer) }
       }),
     create: (projectId, body) =>
       http.post(agentPath(projectId, '/mcp/servers'), body).then((r) => toMcpServer(r.data)),
@@ -986,6 +1012,18 @@ export const httpApi: Api = {
     test: (projectId, serverId) =>
       http
         .post(agentPath(projectId, '/mcp/servers/' + encodeURIComponent(serverId) + '/test'))
+        .then((r) => ({
+          ok: Boolean(r.data?.ok),
+          tools: (Array.isArray(r.data?.tools) ? r.data.tools : []).map(String),
+          error: r.data?.error ? String(r.data.error) : undefined
+        })),
+    setBuiltinEnabled: (projectId, name, enabled) =>
+      http
+        .put(agentPath(projectId, '/mcp/builtin/' + encodeURIComponent(name) + '/state'), { enabled })
+        .then(() => undefined),
+    testBuiltin: (projectId, name) =>
+      http
+        .post(agentPath(projectId, '/mcp/builtin/' + encodeURIComponent(name) + '/test'))
         .then((r) => ({
           ok: Boolean(r.data?.ok),
           tools: (Array.isArray(r.data?.tools) ? r.data.tools : []).map(String),

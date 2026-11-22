@@ -13,7 +13,7 @@
 //	[本文件] internal/systemdb/function_triggers.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/sqlval
+//	[下游] godatabase/sqlval
 //	[同包] agents.go, async_flush.go, bootstrap.go, cron_jobs.go 等 22 个
 //
 // 主要符号
@@ -32,7 +32,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 	"time"
 
 	"github.com/google/uuid"

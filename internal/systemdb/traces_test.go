@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	"github.com/linkxzhou/SimpleBase/godatabase/limit"
 	_ "github.com/uglyer/go-sqlite3"
 )
 
@@ -397,54 +397,5 @@ func TestTraceContentTruncation(t *testing.T) {
 	want := `{"truncated":true}`
 	if got[0].InputJSON != want || got[0].OutputJSON != want || got[0].ToolsJSON != want {
 		t.Fatalf("truncation lost: in=%d out=%d tools=%d", len(got[0].InputJSON), len(got[0].OutputJSON), len(got[0].ToolsJSON))
-	}
-}
-
-// 二期扩列兜底：一期形状的旧表（缺新列）经 ensureTraceColumns 补列后可写可查。
-func TestEnsureTraceColumnsUpgrade(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	// 模拟一期旧表：无二期 7 列
-	if _, err := db.Exec(`CREATE TABLE sys_llm_traces (
-		id VARCHAR NOT NULL, project_id VARCHAR NOT NULL, request_id VARCHAR NOT NULL,
-		source VARCHAR NOT NULL, provider VARCHAR NOT NULL, model VARCHAR NOT NULL,
-		status VARCHAR NOT NULL, stream BIGINT NOT NULL, duration_ms BIGINT DEFAULT 0,
-		input_tokens BIGINT DEFAULT 0, output_tokens BIGINT DEFAULT 0,
-		error_code VARCHAR DEFAULT '', error_message VARCHAR DEFAULT '', created_at TIMESTAMP NOT NULL)`); err != nil {
-		t.Fatal(err)
-	}
-	// 预置一行一期数据（时间取相对值，避免查询窗口随时间推移失效）
-	if _, err := db.Exec(`INSERT INTO sys_llm_traces(id, project_id, request_id, source, provider, model, status, stream, created_at)
-		VALUES('old1','p1','r1','llm','openai','gpt','ok',0,?)`, time.Now().UTC().Add(-time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	if err := EnsureSystemSchema(context.Background(), db); err != nil {
-		t.Fatal(err)
-	}
-	store := &Store{db: db}
-	// 旧数据可查（caller 回退 source 空串、span_kind 默认 llm）
-	got, err := store.QueryLLMTraces(context.Background(), LLMTraceQuery{ProjectID: "p1", From: time.Now().UTC().Add(-48 * time.Hour)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].SpanKind != "llm" || got[0].Name != "gpt" {
-		t.Fatalf("legacy row=%+v", got)
-	}
-	// 新数据可写
-	store.RecordLLMTrace(LLMTrace{ProjectID: "p1", RequestID: "r2", TraceID: "r2", Caller: "api",
-		SpanKind: "llm", Model: "m2", Name: "m2", InputJSON: `[{"role":"user","content":"hi"}]`})
-	if err := store.FlushTraces(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	got, err = store.QueryLLMTraces(context.Background(), LLMTraceQuery{ProjectID: "p1", From: time.Now().UTC().Add(-48 * time.Hour)})
-	if err != nil || len(got) != 2 {
-		t.Fatalf("after upgrade=%d err=%v", len(got), err)
-	}
-	// 幂等：重复执行不报错
-	if err := EnsureSystemSchema(context.Background(), db); err != nil {
-		t.Fatal(err)
 	}
 }

@@ -65,6 +65,24 @@ func readBuildInfo() buildInfo {
 	return out
 }
 
+// logSitesMode 输出站点访问方式（planv6.7 §1.1）。
+// base_domain 已配置而 subdomain=false 时给出兼容告警：升级前依赖子域名的部署需显式开启。
+func logSitesMode(logger observability.Logger, cfg config.Config) {
+	if logger == nil {
+		return
+	}
+	s := cfg.Sites
+	if s.Mode() == config.SiteModePath {
+		logger.Info("sites mode=path", zap.String("mode", config.SiteModePath), zap.String("prefix", s.EffectivePathPrefix()))
+		if strings.TrimSpace(s.BaseDomain) != "" {
+			logger.Warn("sites.base_domain is set but SIMPLEBASE_SITES_SUBDOMAIN is not 1; subdomain routing is disabled, using path mode",
+				zap.String("base_domain", s.BaseDomain))
+		}
+		return
+	}
+	logger.Info("sites mode=subdomain", zap.String("mode", config.SiteModeSubdomain), zap.String("domain", s.BaseDomain))
+}
+
 // logStartupBanner 在构造任何依赖之前输出第一行日志。
 // 这一行的作用是让「进程起来了但没日志」可区分：只要有它，就说明配置已加载、
 // 日志级别解析成功。

@@ -1,29 +1,3 @@
-// 文件说明：evict.go — 缓存淘汰策略（plan7.md）
-//
-// 用法
-//
-//	(m *Manager) Evict(ctx context.Context, targetBytes int64) (EvictionResult, error)  // Evict 淘汰缓存直到释放出至少 targetBytes，或无可淘汰项
-//	(m *Manager) EnsureCapacity(ctx context.Context, needBytes int64) error  // EnsureCapacity 确保缓存中有至少 needBytes 可用空间
-//	同包调用：Evict() → manager.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/cache/evict.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] manager.go
-//	[关键引用] Evict() ← manager.go
-//
-// 主要符号
-//
-//	type EvictionResult struct {…}
-//	(m *Manager) Evict(ctx context.Context, targetBytes int64) (EvictionResult, error)
-//	(m *Manager) EnsureCapacity(ctx context.Context, needBytes int64) error
-
 package cache
 
 import (

@@ -10,7 +10,7 @@ import TablePager from '@/components/TablePager.vue'
 import SbListCard from '@/components/SbListCard.vue'
 import ConfirmAction from '@/components/ConfirmAction.vue'
 import ProjectScope from '@/components/ProjectScope.vue'
-import { useProjectStore, ADMIN_PROJECT_ID } from '@/stores/project'
+import { useProjectStore } from '@/stores/project'
 import NavMenu from '@/components/NavMenu.vue'
 import MessageScroller from '@/components/chat/MessageScroller.vue'
 import { uiStubs } from '@/test/helpers'
@@ -31,11 +31,7 @@ describe('simple presentational components', () => {
     const json = mount(SbCodeBlock, { props: { value: { a: 1 }, maxHeight: '80px' } })
     expect(json.text()).toContain('"a"')
     const pre = json.get('pre')
-    expect(pre.classes()).toEqual(
-      expect.arrayContaining(['sb-code', 'sb-code-view', 'whitespace-pre-wrap', 'max-w-full', 'min-w-0'])
-    )
-    expect(pre.attributes('class') || '').toContain('[overflow-wrap:anywhere]')
-    expect(pre.attributes('class') || '').toContain('[word-break:break-word]')
+    expect(pre.classes()).toEqual(['sb-code'])
     const slotted = mount(SbCodeBlock, { slots: { default: 'raw' } })
     expect(slotted.text()).toContain('raw')
   })
@@ -46,12 +42,9 @@ describe('simple presentational components', () => {
     expect(view).toContain('max-width: 100%')
     expect(view).toContain('min-width: 0')
     expect(view).toContain('white-space: pre-wrap')
-    expect(view).toContain('word-break: break-word')
     expect(view).toContain('overflow-wrap: anywhere')
     const block = css.match(/@utility sb-code \{[^}]+\}/)?.[0] ?? ''
-    expect(block).toContain('white-space: pre-wrap')
-    expect(block).toContain('word-break: break-word')
-    expect(block).toContain('overflow-wrap: anywhere')
+    expect(block).toContain('@apply sb-code-view')
     expect(block).not.toContain('break-all')
   })
 

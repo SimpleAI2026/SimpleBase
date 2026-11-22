@@ -86,8 +86,7 @@ func Run(opts Options) int {
 	if opts.Cwd == "" {
 		opts.Cwd, _ = os.Getwd()
 	}
-	// 配置链路（planv6.0 §5.2）：~/.gocloudagent/config.json 是基线，调用方显式传入的
-	// 字段覆盖它，最后叠环境变量（GOCLOUDAGENT_* 优先于 SIMPLEBASE_*）。
+	// 配置链路：配置文件是基线，显式字段其次，GOCLOUDAGENT_* 环境变量最后覆盖。
 	// 之前这里只叠 env，导致 run/resume 完全不读配置文件——配置全写在文件里的用户
 	// 每次都被判成「未配置」。
 	fileCfg, err := LoadConfig(opts.Env)
@@ -228,7 +227,7 @@ func buildRunner(opts Options, cfg Config, session *Session) (*SessionRunner, er
 	} else if st != nil {
 		localTools = append(localTools, st)
 	}
-	client := &HTTPClient{Endpoint: cfg.Endpoint, Token: cfg.Token, ProjectID: cfg.ProjectID}
+	client := &HTTPClient{Endpoint: cfg.Endpoint, Token: cfg.Token}
 	// MCP：连接在 runner 构建时建立，会话结束时关闭（planv6.2 §5.2）。
 	// 单个 Server 失败只 warn，不阻止 CLI 启动。
 	mcpTools, closeMCP, err := connectMCPServers(context.Background(), cfg, mcpServerEnv{
@@ -294,8 +293,8 @@ func runREPL(opts Options, runtime *SessionRunner, session *Session) int {
 			fmt.Fprint(opts.Stdout, replHelp(templates))
 			continue
 		case "/session":
-			fmt.Fprintf(opts.Stdout, "session %s\npath %s\nendpoint %s\nproject %s\n",
-				session.ID, session.Path, session.Meta.Endpoint, session.Meta.ProjectID)
+			fmt.Fprintf(opts.Stdout, "session %s\npath %s\nendpoint %s\n",
+				session.ID, session.Path, session.Meta.Endpoint)
 			continue
 		case "/compact":
 			// 手动压缩：忽略触发阈值，直接按 keep 预算切一刀（§13.5）。

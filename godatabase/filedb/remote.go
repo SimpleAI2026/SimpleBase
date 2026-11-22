@@ -21,8 +21,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/atomicfile"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 )
 
@@ -73,7 +73,6 @@ type FileSyncer struct {
 	blobs     blob.Store
 	keys      blob.KeyBuilder
 	cacheDir  string
-	remote    bool
 	interval  time.Duration
 	keep      int
 	logger    godatabase.Logger
@@ -99,7 +98,6 @@ func NewFileSyncer(blobs blob.Store, keys blob.KeyBuilder, cacheDir string, inte
 		blobs:     blobs,
 		keys:      keys,
 		cacheDir:  cacheDir,
-		remote:    true,
 		interval:  interval,
 		keep:      keep,
 		logger:    logger,
@@ -178,8 +176,9 @@ func (s *FileSyncer) SetWriterEpoch(projectID string, epoch int64) {
 		return
 	}
 	s.mu.Lock()
-	if epoch > s.stateOfLocked(projectID).epoch {
-		s.stateOfLocked(projectID).epoch = epoch
+	state := s.stateOfLocked(projectID)
+	if epoch > state.epoch {
+		state.epoch = epoch
 	}
 	s.mu.Unlock()
 }
@@ -207,8 +206,9 @@ func (s *FileSyncer) Restore(ctx context.Context, meta godatabase.Spec, filePath
 		return nil
 	}
 	s.mu.Lock()
-	if s.stateOfLocked(meta.ProjectID).restored {
-		s.stateOfLocked(meta.ProjectID).restored = false
+	state := s.stateOfLocked(meta.ProjectID)
+	if state.restored {
+		state.restored = false
 		s.mu.Unlock()
 		return nil
 	}
@@ -503,30 +503,22 @@ func fileSHA256(name string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// latestManifest 返回最新 manifest（P2：锚点探测优先，避免全量 LIST）。
-// 策略：
-//  1. 本地 local-state 有锚点时，从 seq+1 起逐个 GET 探测（通常 0–1 次请求）；
-//  2. 缺锚点（冷缓存）时 LIST manifest 前缀，key 为 %020d 零填充字典序即数值序，
-//     用 start-after 只读最后一页。
+// latestManifest 优先从本地序号向后探测；冷缓存时通过列表定位最新序号。
 func (s *FileSyncer) latestManifest(ctx context.Context, projectID string) (*Manifest, error) {
 	prefix, err := s.keys.ProjectDatabasePrefix(projectID)
 	if err != nil {
 		return nil, err
 	}
 	manifestPrefix := prefix + "/manifest/"
-	if local, lerr := s.readLocalState(projectID); lerr == nil && local != nil && local.Seq > 0 {
-		// 锚点探测：从 seq+1 逐个 GET；上限 32 次防御锚点异常陈旧。
+	if local, localErr := s.readLocalState(projectID); localErr == nil && local != nil && local.Seq > 0 {
 		best, err := s.manifestByAnchor(ctx, projectID, local.Seq)
 		if err == nil {
 			return best, nil
 		}
-		// 锚点探测失败（含超限）退回 LIST 尾页。
 	}
-	return s.latestManifestByList(ctx, projectID, manifestPrefix)
+	return s.latestManifestByList(ctx, manifestPrefix)
 }
 
-// manifestByAnchor 从 base+1 起逐个 GET manifest，返回最新者；
-// 连续 miss 即当前已是最新。探测次数上限 32。
 func (s *FileSyncer) manifestByAnchor(ctx context.Context, projectID string, base int64) (*Manifest, error) {
 	var best *Manifest
 	for i := int64(1); i <= 32; i++ {
@@ -534,47 +526,43 @@ func (s *FileSyncer) manifestByAnchor(ctx context.Context, projectID string, bas
 		if err != nil {
 			return nil, err
 		}
-		data, _, err := s.blobs.GetBytes(ctx, key)
+		manifest, err := s.readManifest(ctx, key)
 		if err != nil {
-			if errors.Is(err, blob.ErrNotFound) {
-				break
-			}
 			return nil, err
 		}
-		var m Manifest
-		if err := json.Unmarshal(data, &m); err != nil {
-			return nil, fmt.Errorf("filedb: decode manifest: %w", err)
+		if manifest == nil {
+			break
 		}
-		best = &m
+		best = manifest
 	}
-	if best == nil {
-		// 锚点即最新：读回锚点本身。
-		key, err := s.keys.ProjectDatabaseManifestKey(projectID, base)
-		if err != nil {
-			return nil, err
-		}
-		data, _, err := s.blobs.GetBytes(ctx, key)
-		if err != nil {
-			if errors.Is(err, blob.ErrNotFound) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		var m Manifest
-		if err := json.Unmarshal(data, &m); err != nil {
-			return nil, fmt.Errorf("filedb: decode manifest: %w", err)
-		}
-		return &m, nil
+	if best != nil {
+		return best, nil
 	}
-	return best, nil
+	key, err := s.keys.ProjectDatabaseManifestKey(projectID, base)
+	if err != nil {
+		return nil, err
+	}
+	return s.readManifest(ctx, key)
 }
 
-// latestManifestByList LIST manifest 前缀取最大 seq（P2：start-after 读尾页）。
-// 键零填充保证字典序 = 数值序；先取最后一页，页内不全时向前补页。
-func (s *FileSyncer) latestManifestByList(ctx context.Context, projectID, manifestPrefix string) (*Manifest, error) {
-	var best *Manifest
-	// 先探测尾部：从较大 start-after 起步可命中多数场景；
-	// 无法预知总数时退化为全量分页（与旧行为一致，正确性不变）。
+func (s *FileSyncer) readManifest(ctx context.Context, key string) (*Manifest, error) {
+	data, _, err := s.blobs.GetBytes(ctx, key)
+	if err != nil {
+		if errors.Is(err, blob.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("filedb: decode manifest: %w", err)
+	}
+	return &manifest, nil
+}
+
+func (s *FileSyncer) latestManifestByList(ctx context.Context, manifestPrefix string) (*Manifest, error) {
+	var latestKey string
+	var latestSeq int64
 	cursor := ""
 	for {
 		keys, next, err := s.blobs.List(ctx, manifestPrefix, cursor, 1000)
@@ -583,31 +571,29 @@ func (s *FileSyncer) latestManifestByList(ctx context.Context, projectID, manife
 		}
 		for _, key := range keys {
 			seq, err := manifestSeq(key)
-			if err != nil {
-				continue
+			if err == nil && (latestKey == "" || seq > latestSeq) {
+				latestKey, latestSeq = key, seq
 			}
-			if best != nil && seq <= best.Seq {
-				continue
-			}
-			data, _, err := s.blobs.GetBytes(ctx, key)
-			if err != nil {
-				return nil, fmt.Errorf("filedb: read manifest: %w", err)
-			}
-			var m Manifest
-			if err := json.Unmarshal(data, &m); err != nil {
-				return nil, fmt.Errorf("filedb: decode manifest: %w", err)
-			}
-			if m.Seq != seq {
-				return nil, fmt.Errorf("filedb: manifest seq mismatch")
-			}
-			best = &m
 		}
 		if next == "" {
 			break
 		}
 		cursor = next
 	}
-	return best, nil
+	if latestKey == "" {
+		return nil, nil
+	}
+	manifest, err := s.readManifest(ctx, latestKey)
+	if err != nil {
+		return nil, fmt.Errorf("filedb: read manifest: %w", err)
+	}
+	if manifest == nil {
+		return nil, fmt.Errorf("filedb: read manifest: %w", blob.ErrNotFound)
+	}
+	if manifest.Seq != latestSeq {
+		return nil, fmt.Errorf("filedb: manifest seq mismatch")
+	}
+	return manifest, nil
 }
 
 func manifestSeq(key string) (int64, error) {

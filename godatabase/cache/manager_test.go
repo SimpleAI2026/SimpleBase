@@ -2,7 +2,7 @@ package cache
 
 import (
 	"context"
-	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/godatabase/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -97,7 +97,7 @@ func TestEvictFreesSpace(t *testing.T) {
 		MaxBytes: 10,
 		Registry: reg,
 		Closer:   reg,
-		Logger:   &godatabase.RecordingLogger{},
+		Logger:   &testutil.RecordingLogger{},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)

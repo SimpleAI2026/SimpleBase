@@ -187,4 +187,60 @@ describe('useAgentConversation', () => {
     expect(close).toHaveBeenCalled()
     expect(api.agentThreads.cancel).toHaveBeenCalledWith('p1', 'run-z')
   })
+
+  // planv6.7 AGC-ROUTE：run 事件带 agent_id 时直接定身份。
+  it('fills speaker identity from run event carrying agent_id', () => {
+    const { conv, messages } = makeConv()
+    let handlers: Record<string, (...args: unknown[]) => void> = {}
+    api.agentThreads.streamRun.mockImplementation((_p, _t, _r, h) => {
+      handlers = h as Record<string, (...args: unknown[]) => void>
+      return { close: vi.fn() }
+    })
+    conv.start({ content: '问题', mentions: [{ agent_id: 'a1' }] }, {})
+    handlers.onRun?.('run-1', 'a-db', 'auto')
+    expect(messages[1].agentId).toBe('a-db')
+    expect(messages[1].routeKind).toBe('auto')
+    expect(messages[1].routing).toBeFalsy()
+  })
+
+  // planv6.7 AGC-ROUTE：routing → done 更新 agentId/module/routeKind/routing。
+  it('updates speaker from route routing to done with moduleOf', () => {
+    const messages: ChatMsg[] = []
+    const conv = useAgentConversation({
+      projectId: () => 'p1',
+      threadId: () => 'th-1',
+      messages: () => messages,
+      moduleOf: (id) => (id === 'a-db' ? 'database' : undefined)
+    })
+    let handlers: Record<string, (...args: unknown[]) => void> = {}
+    api.agentThreads.streamRun.mockImplementation((_p, _t, _r, h) => {
+      handlers = h as Record<string, (...args: unknown[]) => void>
+      return { close: vi.fn() }
+    })
+    conv.start({ content: '查表', mentions: [], routing: true }, {})
+    expect(messages[1].routing).toBe(true)
+    expect(conv.statusText.value).toContain('正在选择助手')
+    handlers.onRoute?.({ status: 'routing' })
+    expect(messages[1].routing).toBe(true)
+    handlers.onRoute?.({ status: 'done', agentId: 'a-db', routeKind: 'fallback' })
+    expect(messages[1].agentId).toBe('a-db')
+    expect(messages[1].routeKind).toBe('fallback')
+    expect(messages[1].routing).toBe(false)
+    expect(messages[1].module).toBe('database')
+    handlers.onEnd?.('stop')
+  })
+
+  // planv6.7 AGC-ROUTE：attach 回放同样生效（run 事件带 agent_id）。
+  it('applies speaker identity during attach replay', () => {
+    const { conv, messages } = makeConv()
+    let handlers: Record<string, (...args: unknown[]) => void> = {}
+    api.agentThreads.attachRun.mockImplementation((_p, _r, h) => {
+      handlers = h as Record<string, (...args: unknown[]) => void>
+      return { close: vi.fn() }
+    })
+    conv.attach('run-7', {})
+    handlers.onRun?.('run-7', 'a-s3', 'mention')
+    expect(messages[0].agentId).toBe('a-s3')
+    expect(messages[0].routeKind).toBe('mention')
+  })
 })

@@ -3,8 +3,21 @@ package strutil
 import (
 	"strings"
 	"testing"
-	"unicode/utf8"
 )
+
+func TestNormalize(t *testing.T) {
+	cases := map[string]string{
+		"":               "",
+		"  Foo\t":        "foo",
+		"\u00a0中文\u00a0": "中文",
+		"already":        "already",
+	}
+	for in, want := range cases {
+		if got := Normalize(in); got != want {
+			t.Errorf("Normalize(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
 
 func TestTruncate(t *testing.T) {
 	cases := []struct {
@@ -26,6 +39,30 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+func TestTruncateRunes(t *testing.T) {
+	cases := []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"abc", 10, "abc"},
+		{"abc", 3, "abc"},
+		{"零一二", 2, "零一"},
+		{"abc", 0, ""},
+		{"abc", -1, ""},
+		{"", 5, ""},
+	}
+	for _, c := range cases {
+		if got := TruncateRunes(c.in, c.max); got != c.want {
+			t.Errorf("TruncateRunes(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
+		}
+	}
+	shortInvalid := string([]byte{0xff})
+	if got := TruncateRunes(shortInvalid, 1); got != shortInvalid {
+		t.Fatalf("short invalid UTF-8 changed: %q", got)
+	}
+}
+
 func TestTruncateEllipsis(t *testing.T) {
 	if got := TruncateEllipsis("abc", 10); got != "abc" {
 		t.Errorf("short string changed: %q", got)
@@ -35,26 +72,6 @@ func TestTruncateEllipsis(t *testing.T) {
 	}
 	if got := TruncateEllipsis("abc", 0); got != "…" {
 		t.Errorf("max=0 got %q, want …", got)
-	}
-}
-
-func TestTruncateValidUTF8(t *testing.T) {
-	// 截断点落在多字节字符中间时回退到字符边界。
-	s := []byte("零一二")
-	got, truncated := TruncateValidUTF8(s, 4)
-	if !truncated {
-		t.Fatal("expected truncated=true")
-	}
-	if got != "零" {
-		t.Fatalf("got %q, want %q", got, "零")
-	}
-	if n, _ := TruncateValidUTF8(s, 100); n != "零一二" {
-		t.Fatalf("no-truncation case got %q", n)
-	}
-	// 非法字节被替换为 U+FFFD，仍然是合法 UTF-8。
-	bad, _ := TruncateValidUTF8([]byte{0xff, 0xfe}, 0)
-	if !utf8.ValidString(bad) {
-		t.Fatalf("invalid UTF-8 survived: %q", bad)
 	}
 }
 

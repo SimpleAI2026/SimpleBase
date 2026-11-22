@@ -248,7 +248,7 @@ func kvRealEnv(t *testing.T) (*echo.Echo, *fakeKVService) {
 	f := &filedb.Factory{
 		DataRoot: t.TempDir(),
 		CacheDir: t.TempDir(),
-		Syncer:   filedb.NewNopSyncer(),
+		Syncer:   filedb.NewLocalSyncer(),
 	}
 	databasePath, err := catalog.DatabasePathForProject("kve2e001", catalog.EngineDuckDB)
 	if err != nil {

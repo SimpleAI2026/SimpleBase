@@ -17,7 +17,7 @@
 //	[本文件] internal/api/sandbox_logs_handler.go
 //	         │
 //	         ▼
-//	[下游] internal/sandbox（Logs / DialPort）
+//	[下游] internal/sandbox（Logs / DialPort）, internal/utils/strutil
 //	[同包] sandbox_handler.go, e2b_envd_handler.go
 //
 // 主要符号
@@ -39,6 +39,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // Logs 对应 GET /sandboxes/{id}/logs。
@@ -67,10 +68,10 @@ func (h *SandboxHandler) Logs(c echo.Context) error {
 		}
 	}
 	var streams []string
-	for _, s := range strings.Split(c.QueryParam("stream"), ",") {
-		switch strings.TrimSpace(s) {
+	for _, s := range strutil.SplitCSV(c.QueryParam("stream")) {
+		switch s {
 		case "stdout", "stderr":
-			streams = append(streams, strings.TrimSpace(s))
+			streams = append(streams, s)
 		}
 	}
 

@@ -15,7 +15,7 @@
 //	[本文件] internal/catalog/sql_repository.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/utils/sqlval, internal/utils/limit
+//	[下游] godatabase/sqlval, godatabase/limit
 //	[同包] cache.go, data_model.go, errors.go, model.go, project_storage.go 等 9 个
 //	[关键引用] GetDatabase() ← model.go, repository.go, service.go
 //
@@ -31,11 +31,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 	"strings"
 	"time"
 
-	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
+	pagelimit "github.com/linkxzhou/SimpleBase/godatabase/limit"
 )
 
 // sqlRepository 基于 database/sql 访问系统 DuckLake（sys_* 表）。

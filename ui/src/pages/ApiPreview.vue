@@ -29,7 +29,43 @@
             </div>
             <Field v-for="parameter in selected.operation.parameters || []" :key="parameter.name" class="mb-3">
               <FieldLabel>{{ parameter.name }}</FieldLabel>
-              <Input v-model="parameters[parameter.name]" :placeholder="parameter.name" />
+              <template v-if="parameter['x-sb-source']">
+                <Combobox
+                  :model-value="parameters[parameter.name]"
+                  :disabled="!canPickParam(parameter['x-sb-source'])"
+                  @update:model-value="onParamCommit(parameter.name, String($event ?? ''))"
+                >
+                  <ComboboxAnchor>
+                    <ComboboxInput
+                      :placeholder="parameter.name"
+                      @input="onParamInput(parameter.name, $event)"
+                      @change="onParamCommit(parameter.name, ($event.target as HTMLInputElement).value)"
+                    />
+                  </ComboboxAnchor>
+                  <ComboboxList>
+                    <ComboboxViewport>
+                      <ComboboxEmpty>{{ t('common.noMatchFilter') }}</ComboboxEmpty>
+                      <ComboboxGroup>
+                        <ComboboxItem
+                          v-for="opt in paramOptionState[parameter.name]?.options || []"
+                          :key="opt.value"
+                          :value="opt.value"
+                        >
+                          <span class="flex-1 truncate">{{ opt.label }}</span>
+                          <span v-if="opt.hint" class="ml-2 font-mono text-xs text-muted-foreground">{{ opt.hint }}</span>
+                        </ComboboxItem>
+                      </ComboboxGroup>
+                    </ComboboxViewport>
+                  </ComboboxList>
+                </Combobox>
+                <p v-if="paramOptionState[parameter.name]?.error" class="mt-1 text-xs text-muted-foreground">
+                  {{ t('pages.apiPreview.paramOptionsFailed') }}
+                </p>
+                <p v-else-if="!canPickParam(parameter['x-sb-source'])" class="mt-1 text-xs text-muted-foreground">
+                  {{ t('pages.apiPreview.paramDependsOn', { params: (parameter['x-sb-source']?.depends_on || []).join(', ') }) }}
+                </p>
+              </template>
+              <Input v-else v-model="parameters[parameter.name]" :placeholder="parameter.name" />
             </Field>
             <Field class="mb-3">
               <FieldLabel>{{ t('pages.apiPreview.query') }}</FieldLabel>
@@ -74,10 +110,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/services/api'
-import type { OpenAPIDocument, OpenAPIOperation, APIPreviewResult } from '@/services/types'
+import type { OpenAPIDocument, OpenAPIOperation, OpenAPIParamSource, APIPreviewResult } from '@/services/types'
+import { useApiParamOptions, type ParamOption } from '@/composables/useApiParamOptions'
+import { useProjectStore } from '@/stores/project'
 import PageContainer from '@/components/PageContainer.vue'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import SbCodeBlock from '@/components/SbCodeBlock.vue'
@@ -86,6 +124,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Field, FieldLabel } from '@/components/ui/field'
+import {
+  Combobox,
+  ComboboxAnchor,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxViewport,
+} from '@/components/ui/combobox'
 
 interface PreviewEndpoint {
   key: string
@@ -94,7 +142,16 @@ interface PreviewEndpoint {
   operation: OpenAPIOperation
 }
 
+interface ParamOptionState {
+  options: ParamOption[]
+  error: boolean
+}
+
 const { t } = useI18n()
+const projectStore = useProjectStore()
+const projectIdRef = computed(() => projectStore.id)
+const { options: loadOptions } = useApiParamOptions(projectIdRef)
+const paramOptionState = reactive<Record<string, ParamOptionState>>({})
 const loading = ref(false)
 const loadError = ref('')
 const openapiDoc = ref<OpenAPIDocument | null>(null)
@@ -122,7 +179,7 @@ const selected = computed(() => endpoints.value.find((endpoint) => endpoint.key 
 const resolvedPath = computed(() => {
   let path = selected.value?.path || ''
   for (const [name, value] of Object.entries(parameters.value)) {
-    path = path.replace(`{${name}}`, encodeURIComponent(value))
+    path = path.replaceAll(`{${name}}`, encodeURIComponent(value))
   }
   return path + (query.value.trim() ? `?${query.value.trim()}` : '')
 })
@@ -141,12 +198,122 @@ const snippets = computed(() => {
   ]
 })
 
+const REMEMBER_PREFIX = 'sb.apiPreview.params.'
+
+function rememberKey(): string {
+  return REMEMBER_PREFIX + projectIdRef.value
+}
+
+/** 同一会话内按 kind 记住上次选择的值。 */
+function readRemembered(): Record<string, string> {
+  try {
+    const raw = sessionStorage.getItem(rememberKey())
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function remember(kind: string, value: string) {
+  if (!value) return
+  try {
+    sessionStorage.setItem(rememberKey(), JSON.stringify({ ...readRemembered(), [kind]: value }))
+  } catch {
+    // sessionStorage 不可用时只是不记忆，不影响请求
+  }
+}
+
+/** 依赖参数当前值，键为参数名。 */
+function depValues(source: OpenAPIParamSource): Record<string, string> {
+  return Object.fromEntries((source.depends_on || []).map((name) => [name, parameters.value[name] || '']))
+}
+
+function canPickParam(source?: OpenAPIParamSource): boolean {
+  if (!source) return true
+  return (source.depends_on || []).every((name) => Boolean(parameters.value[name]?.trim()))
+}
+
+/** 拉取某个参数的候选项；失败只标记该参数，下拉退化为自由输入。 */
+async function refreshParamOptions(name: string, source: OpenAPIParamSource): Promise<ParamOption[]> {
+  if (!canPickParam(source)) {
+    paramOptionState[name] = { options: [], error: false }
+    return []
+  }
+  try {
+    const list = await loadOptions(source.kind, depValues(source))
+    paramOptionState[name] = { options: list, error: false }
+    return list
+  } catch {
+    paramOptionState[name] = { options: [], error: true }
+    return []
+  }
+}
+
+/** 为当前端点的所有带来源参数注入默认值并加载候选项；按依赖顺序串行，保证依赖值先就位。 */
+async function injectDefaults() {
+  const params = selected.value?.operation.parameters || []
+  const remembered = readRemembered()
+  const token = selectedKey.value + '|' + projectIdRef.value
+  const ordered = [...params].sort(
+    (a, b) => (a['x-sb-source']?.depends_on?.length || 0) - (b['x-sb-source']?.depends_on?.length || 0)
+  )
+  for (const parameter of ordered) {
+    const source = parameter['x-sb-source']
+    if (!source) continue
+    const list = await refreshParamOptions(parameter.name, source)
+    if (token !== selectedKey.value + '|' + projectIdRef.value) return
+    if (parameters.value[parameter.name]) continue
+    if (source.kind === 'project') {
+      parameters.value[parameter.name] = projectIdRef.value
+      continue
+    }
+    const last = remembered[source.kind]
+    if (last && list.some((opt) => opt.value === last)) {
+      parameters.value[parameter.name] = last
+    } else if (list.length === 1) {
+      parameters.value[parameter.name] = list[0].value
+    }
+    if (parameters.value[parameter.name]) await refreshDependents(parameter.name)
+  }
+}
+
+/** 某参数变化后，清空依赖它的参数并重新拉取选项。 */
+async function refreshDependents(changed: string) {
+  for (const parameter of selected.value?.operation.parameters || []) {
+    const source = parameter['x-sb-source']
+    if (!source?.depends_on?.includes(changed)) continue
+    parameters.value[parameter.name] = ''
+    await refreshParamOptions(parameter.name, source)
+  }
+}
+
+function onParamInput(name: string, event: Event) {
+  parameters.value[name] = (event.target as HTMLInputElement).value
+}
+
+/** 选中或失焦确认后：记忆取值、清空并刷新依赖项。 */
+function onParamCommit(name: string, value: string) {
+  const changed = parameters.value[name] !== value
+  parameters.value[name] = value
+  const source = selected.value?.operation.parameters?.find((p) => p.name === name)?.['x-sb-source']
+  if (source) remember(source.kind, value)
+  if (changed) void refreshDependents(name)
+}
+
 watch(selectedKey, () => {
   parameters.value = Object.fromEntries((selected.value?.operation.parameters || []).map((parameter) => [parameter.name, '']))
+  for (const key of Object.keys(paramOptionState)) delete paramOptionState[key]
   query.value = ''
   body.value = '{}'
   result.value = null
   validationError.value = ''
+  void injectDefaults()
+})
+
+watch(projectIdRef, () => {
+  parameters.value = Object.fromEntries(Object.keys(parameters.value).map((name) => [name, '']))
+  for (const key of Object.keys(paramOptionState)) delete paramOptionState[key]
+  void injectDefaults()
 })
 
 function selectEndpoint(key: string) {

@@ -1,39 +1,9 @@
-// 文件说明：gate.go — godatabase/lease 中 Gate、NewGate 等符号的实现
-//
-// 用法
-//
-//	NewGate() *Gate
-//	(g *Gate) Do(key string, fn func() error) error  // Do 执行 fn：同 key 并发调用只有一个真正执行，其余等待并复用其结果
-//	(g *Gate) TryDo(key string, fn func() error) error  // TryDo 与 Do 类似，但同 key 已有在途调用时**不等待**，直接返回 ErrAcquiring
-//	同包调用：Gate → lease.go；Do() → lease.go
-//
-// 调用架构
-//
-//	[上游] internal/api, internal/app
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/lease/gate.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/internal/singleflight
-//	[同包] lease.go
-//	[关键引用] Gate ← lease.go
-//
-// 主要符号
-//
-//	type Gate struct {…}
-//	NewGate() *Gate
-//	(g *Gate) Do(key string, fn func() error) error
-//	(g *Gate) TryDo(key string, fn func() error) error
-//	(g *Gate) Clear(key string)
-//	... 另有 1 个顶层符号
-
 package lease
 
 import (
 	"errors"
 
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/singleflight"
+	"github.com/linkxzhou/SimpleBase/godatabase/singleflight"
 )
 
 // Gate 按 key 串行化首次租约获取（perf §1.5）。
@@ -44,7 +14,7 @@ import (
 // Gate 保证同一 dbID 同时只有一个 Acquire 在执行，后来的请求
 // 复用第一个的结果（成功后由 ValidFor/Has 快速路径返回）。
 //
-// 单飞机制本身在 internal/utils/singleflight；这里只负责把 ErrInFlight
+// 单飞机制本身在 godatabase/singleflight；这里只负责把 ErrInFlight
 // 翻译成租约领域的 ErrAcquiring。
 type Gate struct {
 	g singleflight.Group[struct{}]

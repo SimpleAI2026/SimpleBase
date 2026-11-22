@@ -20,7 +20,7 @@ func TestReadonlyAndRemovedFieldsRealEngines(t *testing.T) {
 			dir := t.TempDir()
 			path, _ := catalog.DatabasePathForProject("prj00001", engine)
 			db := catalog.Database{ID: "db-1", ProjectID: "prj00001", DatabasePath: path, DataModel: catalog.DataModelCollection}
-			svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewNopSyncer()}}
+			svc := realDataService{db: db, factory: &filedb.Factory{DataRoot: dir, CacheDir: dir, Syncer: filedb.NewLocalSyncer()}}
 			schema := &collection.Collection{Name: "tasks", SchemaMode: "json", Fields: []collection.Field{{Name: "title", Type: "text"}, {Name: "owner", Type: "text"}, {Name: "legacy", Type: "text"}}}
 			schemas := mapCollectionSchemas{"tasks": schema}
 			h := NewDataHandler(svc, true).WithCollections(schemas, 100)

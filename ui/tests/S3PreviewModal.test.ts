@@ -126,7 +126,7 @@ describe('S3PreviewModal', () => {
     await flushPromises()
     expect(URL.createObjectURL).toHaveBeenCalled()
     expect(click).toHaveBeenCalled()
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x')
+    await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x'))
     click.mockRestore()
   })
 
@@ -163,22 +163,14 @@ describe('S3PreviewModal', () => {
     w.unmount()
   })
 
-  it('cleans up the blob object URL when closed after a download', async () => {
+  it('cleans up the downloaded blob URL independently of modal lifetime', async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     const w = mountModal({ key: 'dir/a.txt', size: 3 })
     await flushPromises()
     await w.findAll('button').find((b) => b.text().trim() === '下载')!.trigger('click')
     await flushPromises()
-    vi.mocked(URL.createObjectURL).mockReturnValue('blob:pending')
-    await w.findAll('button').find((b) => b.text().trim() === '下载')!.trigger('click')
-    await flushPromises()
-    // 第二次下载留下未被 revoke 的 objectUrl 时，关闭会补一次清理
-    ;(w.vm as unknown as { $: { setupState: { url: string } } }).$.setupState.url = ''
-    await w.findAll('button').find((b) => b.text().trim() === '下载')!.trigger('click')
-    await flushPromises()
     await w.setProps({ open: false })
-    await flushPromises()
-    expect(URL.revokeObjectURL).toHaveBeenCalled()
+    await vi.waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x'))
     click.mockRestore()
   })
 

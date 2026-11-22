@@ -130,6 +130,13 @@ func Bootstrap(ctx context.Context, in BootstrapInput) (*Store, error) {
 		logger:  in.Logger,
 	}
 
+	// planv6.7 cloud-agent-plan-mode：进程重启后内存中的 run 已不存在，
+	// 把仍在运行的阶段与计划标记为中断，由用户重试，不自动重跑。
+	if _, err := store.InterruptRunningPlans(ctx); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("systemdb: interrupt plans: %w", err)
+	}
+
 	if err := backfillSystemRow(ctx, store, meta); err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("systemdb: backfill sys_databases: %w", err)

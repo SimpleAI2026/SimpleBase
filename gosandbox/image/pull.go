@@ -1,34 +1,3 @@
-// 文件说明：pull.go — 拉取镜像：解析 → 下载 config 与层 → 写索引 → 可选解包
-//
-// 用法
-//
-//	p := NewPuller(store)
-//	img, err := p.Pull(ctx, "python:3.12-slim", PullOptions{Arch: "arm64", Progress: fn})
-//	chainID, err := p.Unpack(ctx, img)
-//
-// 同一引用同一平台的并发拉取会合并：后来者跟随已有进度，不会重复下载。
-//
-// 调用架构
-//
-//	[上游] gosandbox/vm/box、internal/sandbox
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/image/pull.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] registry.go, store.go, unpack.go
-//
-// 主要符号
-//
-//	type PullOptions struct {…}
-//	type Progress struct {…}
-//	type Puller struct {…}
-//	NewPuller(s *Store) *Puller
-//	(p *Puller) Pull(ctx, ref string, opt PullOptions) (Image, error)
-//	(p *Puller) Unpack(ctx, img Image) (string, error)
-//	(p *Puller) Import(ctx, r io.Reader) ([]Image, error)
-
 package image
 
 import (

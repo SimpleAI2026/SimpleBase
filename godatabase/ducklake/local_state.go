@@ -1,30 +1,3 @@
-// 文件说明：local_state.go — godatabase/ducklake 中 LocalState、ReadLocalState 等符号的实现
-//
-// 用法
-//
-//	ReadLocalState(cacheDir, databaseID string) (LocalState, bool)  // ReadLocalState 读取水位文件（catalog 工作副本位于
-//	SaveLocalState(cacheDir, databaseID string, st LocalState) error  // SaveLocalState 原子写入水位文件（catalog 工作副本位于
-//	同包调用：ReadLocalState() → catalog_syncer.go, factory.go；SaveLocalState() → catalog_syncer.go, factory.go；LocalState → catalog_syncer.go
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/local_state.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/internal/atomicfile
-//	[同包] catalog_syncer.go, errors.go, extension.go, factory.go, gated_conn.go 等 14 个
-//	[关键引用] ReadLocalState() ← catalog_syncer.go, factory.go
-//
-// 主要符号
-//
-//	type LocalState struct {…}
-//	ReadLocalState(cacheDir, databaseID string) (LocalState, bool)
-//	SaveLocalState(cacheDir, databaseID string, st LocalState) error
-//	... 另有 3 个顶层符号
-
 package ducklake
 
 import (
@@ -34,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/atomicfile"
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
 )
 
 // LocalState 是本地 catalog 副本的水位文件（multi-instance-consistency-plan §4.3）。

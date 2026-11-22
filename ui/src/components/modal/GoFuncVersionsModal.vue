@@ -27,7 +27,7 @@
           <span class="text-xs text-muted-foreground">{{ formatTime(v.createdAt) }}</span>
           <span v-if="v.note" class="text-xs text-muted-foreground">· {{ v.note }}</span>
         </div>
-        <div class="sb-code-view mt-1 max-w-full min-w-0 whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] text-xs text-muted-foreground">{{ t('components.goFuncVersions.exportsLabel', { list: v.exports.join(', ') || '—' }) }}</div>
+        <div class="sb-code-view mt-1 text-xs text-muted-foreground">{{ t('components.goFuncVersions.exportsLabel', { list: v.exports.join(', ') || '—' }) }}</div>
         <div class="mt-2 flex gap-1">
           <Button
             v-if="!v.active && !projectStore.isAdmin"
@@ -50,6 +50,7 @@
 </template>
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
+import { copyText } from '@/utils/clipboard'
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
@@ -116,8 +117,11 @@ async function viewSource(v: GoFuncVersionSummary) {
     const item = await api.gofunctions.get(projectStore.id, props.record.name)
     const hit = (item.versions || []).find((x) => x.version === v.version)
     const src = hit?.source ?? item.source ?? ''
-    await navigator.clipboard.writeText(src)
-    toast.success(t('components.goFuncVersions.sourceCopied', { n: v.version }))
+    await copyText(
+      src,
+      () => t('components.goFuncVersions.sourceCopied', { n: v.version }),
+      (error) => errorMessage(error, t('components.goFuncVersions.readSourceFailed'))
+    )
   } catch (e) {
     toast.error(errorMessage(e, t('components.goFuncVersions.readSourceFailed')))
   }

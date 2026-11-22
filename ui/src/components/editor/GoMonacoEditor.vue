@@ -2,7 +2,7 @@
   <!-- 显式高度：父容器是 min-height 的 auto 高度，h-full 百分比无法解析会塌成 0 -->
   <div
     ref="containerRef"
-    class="sb-code-view w-full max-w-full min-w-0 overflow-hidden whitespace-pre-wrap [word-break:break-word] [overflow-wrap:anywhere] rounded-md border border-border"
+    class="sb-code-view w-full overflow-hidden rounded-md border border-border"
     :style="{ height: minHeight + 'px' }"
   ></div>
 </template>

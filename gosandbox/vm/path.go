@@ -15,8 +15,13 @@ var ErrInvalidPath = errors.New("sandbox: invalid path")
 //
 // 逻辑路径是 API 层看到的路径（Spec.Workdir 之下），真实目录由驱动映射。
 // 这里只做字符串层面的收敛，不碰文件系统：符号链接与实际可写边界由驱动用
-// os.Root 保证。workdir 必须是已 Clean 的绝对路径。
+// os.Root 保证。
 func CleanPath(workdir, p string, allowRoot bool) (string, error) {
+	workdir = strings.TrimSpace(workdir)
+	if workdir == "" || !strings.HasPrefix(workdir, "/") || strings.ContainsRune(workdir, 0) {
+		return "", fmt.Errorf("%w: workdir must be an absolute path", ErrInvalidPath)
+	}
+	workdir = path.Clean(workdir)
 	p = strings.TrimSpace(p)
 	if p == "" {
 		return "", fmt.Errorf("%w: path is required", ErrInvalidPath)
@@ -34,7 +39,11 @@ func CleanPath(workdir, p string, allowRoot bool) (string, error) {
 		}
 		return "", fmt.Errorf("%w: path must be a file under %s", ErrInvalidPath, workdir)
 	}
-	if !strings.HasPrefix(clean, workdir+"/") {
+	prefix := workdir
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	if !strings.HasPrefix(clean, prefix) {
 		return "", fmt.Errorf("%w: path must be under %s", ErrInvalidPath, workdir)
 	}
 	return clean, nil

@@ -229,6 +229,7 @@ import { LLM_PROVIDER_PRESETS, getProviderPreset } from '../../constants/llmProv
 import { useAuthStore } from '../../stores/auth'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
+import { copyText as copyTextWithToast } from '@/utils/clipboard'
 
 /** OpenAI 兼容接口的使用文档（docs/getting-started/openai-compatible.md） */
 const OPENAI_DOC_PATH = '/docs/getting-started/openai-compatible'
@@ -258,10 +259,11 @@ const maskedKey = computed(() => {
 })
 
 function copyText(text: string, label: string) {
-  return navigator.clipboard
-    .writeText(text)
-    .then(() => toast.success(t('components.settingsPanel.freeCopied', { label })))
-    .catch(() => toast.error(t('components.settingsPanel.freeCopyFailed')))
+  return copyTextWithToast(
+    text,
+    () => t('components.settingsPanel.freeCopied', { label }),
+    () => t('components.settingsPanel.freeCopyFailed')
+  )
 }
 
 const modelSuggests = computed(() => {

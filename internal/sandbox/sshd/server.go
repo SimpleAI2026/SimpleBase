@@ -15,7 +15,7 @@
 //	[本文件] internal/sandbox/sshd/server.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/sandbox, internal/utils/atomicfile
+//	[下游] internal/sandbox, godatabase/atomicfile
 //	[同包] membuf.go, session.go
 //	[关键引用] Close() ← membuf.go, session.go
 //
@@ -48,8 +48,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
 	"github.com/linkxzhou/SimpleBase/internal/sandbox"
-	"github.com/linkxzhou/SimpleBase/internal/utils/atomicfile"
 )
 
 // Identity 是认证通过后确定的访问主体：哪个项目的哪个沙盒。

@@ -1,32 +1,3 @@
-// 文件说明：proc.go — 沙盒 agent 里的进程表：启动、输出泵、stdin 流控、信号
-//
-// 用法
-//
-//	(s *Server) start(m proto.Msg) error  // 启一个新进程，回 Started
-//	(s *Server) signal(m proto.Msg)  // 发信号（任意信号，整个进程组）
-//	(s *Server) resize(m proto.Msg)  // 改 PTY 窗口大小
-//	(s *Server) closeStdin(m proto.Msg)  // 关掉 stdin，进程读到 EOF
-//	同包调用：start() → agent.go；proc.output() → agent.go
-//
-// 调用架构
-//
-//	[上游] gosandbox/agent（读循环）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/proc.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gosandbox/proto
-//	[同包] agent.go, pty_linux.go, pty_other.go
-//
-// 主要符号
-//
-//	type proc struct {…}
-//	(s *Server) start(m proto.Msg) error
-//	(s *Server) signal(m proto.Msg)
-//	(s *Server) resize(m proto.Msg)
-//	(s *Server) closeStdin(m proto.Msg)
-
 package agent
 
 import (

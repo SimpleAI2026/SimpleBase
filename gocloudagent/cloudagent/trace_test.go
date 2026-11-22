@@ -72,15 +72,3 @@ func TestHashSummaryShape(t *testing.T) {
 		t.Fatalf("summary=%q", got)
 	}
 }
-
-func TestArgvSummaryHidesValues(t *testing.T) {
-	if got := argvSummary([]string{"sql", "exec", "--statement", "INSERT INTO t VALUES (1)"}); got != "sql exec" {
-		t.Fatalf("summary=%q", got)
-	}
-	if got := argvSummary(nil); got != "" {
-		t.Fatalf("empty summary=%q", got)
-	}
-	if got := argvSummary([]string{"database"}); got != "database" {
-		t.Fatalf("single summary=%q", got)
-	}
-}

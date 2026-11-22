@@ -1,30 +1,3 @@
-// 文件说明：bwrap_args.go — gosandbox/host 中 InnerPolicyPath、BwrapInput 等符号的实现
-//
-// 用法
-//
-//	BwrapArgs(in BwrapInput) ([]string, error)  // BwrapArgs 生成 bwrap 参数（不含 bwrap 本身）
-//	ScratchDirs(p Policy) []string  // ScratchDirs 返回沙盒内需要 tmpfs 的目录
-//	同包调用：BwrapInput → run_linux.go, start_linux.go；BwrapArgs() → run_linux.go, start_linux.go；ScratchDirs() → run_linux.go
-//
-// 调用架构
-//
-//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/vm/local
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/host/bwrap_args.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] cgroup.go, glob.go, mandatory.go, policy.go, probe.go 等 13 个
-//	[关键引用] BwrapInput ← run_linux.go, start_linux.go
-//
-// 主要符号
-//
-//	const InnerPolicyPath
-//	type BwrapInput struct {…}
-//	BwrapArgs(in BwrapInput) ([]string, error)
-//	ScratchDirs(p Policy) []string
-
 package host
 
 import (
@@ -194,16 +167,14 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 	}
 	// Docker 默认的 masked / readonly 路径：盖成 /dev/null 或再挂一次只读。
 	// 只在路径存在时挂，否则 bwrap 会因目标不存在而启动失败。
-	if !p.DisableMaskedPaths {
-		for _, m := range MaskedPaths {
-			if exists(m) {
-				args = append(args, "--ro-bind", "/dev/null", m)
-			}
+	for _, m := range MaskedPaths {
+		if exists(m) {
+			args = append(args, "--ro-bind", "/dev/null", m)
 		}
-		for _, m := range ReadonlyPaths {
-			if exists(m) {
-				args = append(args, "--ro-bind", m, m)
-			}
+	}
+	for _, m := range ReadonlyPaths {
+		if exists(m) {
+			args = append(args, "--ro-bind", m, m)
 		}
 	}
 	args = append(args,

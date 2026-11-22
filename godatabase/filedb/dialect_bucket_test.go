@@ -33,7 +33,7 @@ func TestDateBucketRealEngines(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			factory := &Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: NewNopSyncer()}
+			factory := &Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: NewLocalSyncer()}
 			db, err := factory.Open(ctx, godatabase.Spec{ID: "db3", ProjectID: "prj00003", DatabasePath: databasePath}, godatabase.ReadWrite)
 			if err != nil {
 				t.Fatal(err)
@@ -104,7 +104,7 @@ func TestFloorAndTimestampParamRealEngines(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			factory := &Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: NewNopSyncer()}
+			factory := &Factory{DataRoot: t.TempDir(), CacheDir: t.TempDir(), Syncer: NewLocalSyncer()}
 			db, err := factory.Open(ctx, godatabase.Spec{ID: "db4", ProjectID: "prj00004", DatabasePath: databasePath}, godatabase.ReadWrite)
 			if err != nil {
 				t.Fatal(err)

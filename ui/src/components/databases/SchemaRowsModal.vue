@@ -3,7 +3,7 @@
     :open="open"
     :title="table || t('components.schemaRows.fallbackTitle')"
     :description="readonly ? t('common.readonly') : undefined"
-    :width="960"
+    :max-width="960"
     hide-footer
     @update:open="emit('update:open', $event)"
   >

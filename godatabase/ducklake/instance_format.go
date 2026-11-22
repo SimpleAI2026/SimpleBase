@@ -1,31 +1,3 @@
-// 文件说明：instance_format.go — godatabase/ducklake 中 InstanceFormatVersion、InstanceFormat 等符号的实现
-//
-// 用法
-//
-//	LocalInstanceFormatPath(dataRoot string) string  // LocalInstanceFormatPath 返回本地标记路径（持久根下，随数据一起搬迁）
-//	EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFormat ...  // EnsureInstanceFormat 启动兼容性校验（§4.2）：
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/instance_format.go
-//	         │ 依赖
-//	         ▼
-//	[下游] godatabase/blob, godatabase/internal/atomicfile
-//	[同包] catalog_syncer.go, errors.go, extension.go, factory.go, gated_conn.go 等 14 个
-//
-// 主要符号
-//
-//	const InstanceFormatVersion
-//	type InstanceFormat struct {…}
-//	type FormatCheckInput struct {…}
-//	LocalInstanceFormatPath(dataRoot string) string
-//	EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFormat ...
-//	DetectLocalData(cacheDir string) (bool, string)
-//	... 另有 11 个顶层符号
-
 package ducklake
 
 import (
@@ -38,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/godatabase/atomicfile"
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
-	"github.com/linkxzhou/SimpleBase/godatabase/internal/atomicfile"
 )
 
 // InstanceFormatVersion 是实例级格式标记的格式版本（ducklake-duckdb-catalog-plan §4.1）。

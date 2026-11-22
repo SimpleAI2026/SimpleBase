@@ -15,7 +15,7 @@
 //	[本文件] internal/api/realtime_handler.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/realtime
+//	[下游] internal/realtime, internal/utils/strutil
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
 //	[关键引用] PublishRecord() ← data_handler.go, event_fanout.go
 //
@@ -40,6 +40,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/realtime"
+	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 type RealtimeHandler struct {
@@ -159,15 +160,7 @@ func splitRealtimeNames(raw string, collection bool) []string {
 		}
 		return []string{"create", "update", "delete"}
 	}
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
+	return strutil.SplitCSV(raw)
 }
 
 func writeRealtimeEvent(c echo.Context, event realtime.Event) error {

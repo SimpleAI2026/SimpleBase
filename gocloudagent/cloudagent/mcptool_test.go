@@ -54,7 +54,7 @@ type fakeConnector struct {
 	gotIDs   []string
 }
 
-func (c *fakeConnector) Connect(_ context.Context, _ Principal, _ string, ids []string) (mcp.SessionSet, error) {
+func (c *fakeConnector) Connect(_ context.Context, _ RunRequest, ids []string) (mcp.SessionSet, error) {
 	c.gotIDs = ids
 	if c.err != nil {
 		return nil, c.err
@@ -63,12 +63,12 @@ func (c *fakeConnector) Connect(_ context.Context, _ Principal, _ string, ids []
 }
 
 type fakePolicy struct {
-	decision CommandDecision
+	decision ToolDecision
 	err      error
 	gotTool  string
 }
 
-func (p *fakePolicy) Classify(_ context.Context, _, _, tool string) (CommandDecision, error) {
+func (p *fakePolicy) Classify(_ context.Context, _ RunRequest, _, tool string) (ToolDecision, error) {
 	p.gotTool = tool
 	return p.decision, p.err
 }
@@ -79,14 +79,13 @@ func objectSchema() []byte {
 
 func mcpTestReq(ids ...string) RunRequest {
 	return RunRequest{
-		ProjectID: "p1",
-		RunID:     "run-1",
-		Agent:     Agent{ID: "ag-1", ToolIDs: ids, Writable: true},
+		RunID: "run-1",
+		Agent: Agent{ID: "ag-1", ToolIDs: ids, Writable: true},
 	}
 }
 
 func TestMCPToolRefsAndServerIDs(t *testing.T) {
-	refs := mcpToolRefs([]string{"mcp:github", "mcp:fs/read", "simplebase", "mcp:github/create_issue", "mcp:"})
+	refs := mcpToolRefs([]string{"mcp:github", "mcp:fs/read", "custom", "mcp:github/create_issue", "mcp:"})
 	if len(refs) != 3 {
 		t.Fatalf("refs=%d want 3: %#v", len(refs), refs)
 	}
@@ -94,7 +93,7 @@ func TestMCPToolRefsAndServerIDs(t *testing.T) {
 	if len(ids) != 2 || ids[0] != "github" || ids[1] != "fs" {
 		t.Fatalf("server ids=%v", ids)
 	}
-	if !HasMCPTools([]string{"mcp:x"}) || HasMCPTools([]string{"simplebase"}) {
+	if !HasMCPTools([]string{"mcp:x"}) || HasMCPTools([]string{"custom"}) {
 		t.Fatal("HasMCPTools mismatch")
 	}
 }
@@ -113,7 +112,7 @@ func TestBuildMCPToolsSkipsFailedServerAndKeepsOthers(t *testing.T) {
 	tools, set, notes, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:bad", "mcp:good"),
 		Connector: conn,
-		Policy:    &fakePolicy{decision: CommandDecision{ReadOnly: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{ReadOnly: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +142,7 @@ func TestBuildMCPToolsFiltersByToolRef(t *testing.T) {
 	tools, set, _, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:fs/read"),
 		Connector: conn,
-		Policy:    &fakePolicy{decision: CommandDecision{ReadOnly: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{ReadOnly: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +165,7 @@ func TestBuildMCPToolsSkipsInvalidSchemaAndClosesUnusedSet(t *testing.T) {
 	tools, set, notes, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:s"),
 		Connector: conn,
-		Policy:    &fakePolicy{decision: CommandDecision{ReadOnly: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{ReadOnly: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +187,7 @@ func TestBuildMCPToolsSkipsInvalidSchemaAndClosesUnusedSet(t *testing.T) {
 
 func TestMCPToolReadOnlyCallSucceeds(t *testing.T) {
 	sess := &fakeSession{id: "s", tools: []mcp.ToolInfo{{Name: "search", InputSchema: objectSchema()}}, result: mcp.CallResult{Text: "ok"}}
-	policy := &fakePolicy{decision: CommandDecision{ReadOnly: true}}
+	policy := &fakePolicy{decision: ToolDecision{ReadOnly: true}}
 	tools, set, _, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:s"),
 		Connector: &fakeConnector{sessions: []mcp.Session{sess}},
@@ -245,7 +244,7 @@ func TestMCPToolWriteNotAllowedBeforeConfirm(t *testing.T) {
 	tools, set, _, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       req,
 		Connector: &fakeConnector{sessions: []mcp.Session{sess}},
-		Policy:    &fakePolicy{decision: CommandDecision{Destructive: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{Destructive: true}},
 		Confirm:   waiter,
 	})
 	if err != nil {
@@ -272,9 +271,9 @@ func TestMCPToolHeadlessDestructiveRejected(t *testing.T) {
 	var events []Event
 	tools, set, _, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       req,
-		RC:        RunContext{ProjectID: "p1", Headless: true, Emit: func(e Event) { events = append(events, e) }},
+		RC:        RunContext{Emit: func(e Event) { events = append(events, e) }},
 		Connector: &fakeConnector{sessions: []mcp.Session{sess}},
-		Policy:    &fakePolicy{decision: CommandDecision{Destructive: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{Destructive: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -301,9 +300,9 @@ func TestMCPToolDestructiveConfirmFlow(t *testing.T) {
 	var events []Event
 	tools, set, _, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:s"),
-		RC:        RunContext{ProjectID: "p1", Emit: func(e Event) { events = append(events, e) }},
+		RC:        RunContext{Emit: func(e Event) { events = append(events, e) }},
 		Connector: &fakeConnector{sessions: []mcp.Session{sess}},
-		Policy:    &fakePolicy{decision: CommandDecision{Destructive: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{Destructive: true}},
 		Confirm:   waiter,
 	})
 	if err != nil {
@@ -340,7 +339,7 @@ func TestMCPToolDeniedReturnsEnvelope(t *testing.T) {
 	tools, set, _, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:s"),
 		Connector: &fakeConnector{sessions: []mcp.Session{sess}},
-		Policy:    &fakePolicy{decision: CommandDecision{Destructive: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{Destructive: true}},
 		Confirm:   waiter,
 	})
 	if err != nil {
@@ -364,7 +363,7 @@ func TestMCPToolErrorAndTimeoutEnvelopes(t *testing.T) {
 	tools, set, _, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:s"),
 		Connector: &fakeConnector{sessions: []mcp.Session{sess}},
-		Policy:    &fakePolicy{decision: CommandDecision{ReadOnly: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{ReadOnly: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -380,7 +379,7 @@ func TestMCPToolErrorAndTimeoutEnvelopes(t *testing.T) {
 	tools, set, _, err = buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:s"),
 		Connector: &fakeConnector{sessions: []mcp.Session{failing}},
-		Policy:    &fakePolicy{decision: CommandDecision{ReadOnly: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{ReadOnly: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -397,7 +396,7 @@ func TestMCPToolTruncatedResultMarked(t *testing.T) {
 	tools, set, _, err := buildMCPTools(context.Background(), mcpBuildParams{
 		Req:       mcpTestReq("mcp:s"),
 		Connector: &fakeConnector{sessions: []mcp.Session{sess}},
-		Policy:    &fakePolicy{decision: CommandDecision{ReadOnly: true}},
+		Policy:    &fakePolicy{decision: ToolDecision{ReadOnly: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -458,10 +457,10 @@ func (w *mcpTestWaiter) Wait(context.Context, string, string, string, time.Durat
 
 func (w *mcpTestWaiter) Prepare(string, string, string) {}
 
-// 确保 skillFail 信封是合法 JSON（前端与模型都按 code 分支）。
+// 确保 toolFailure 信封是合法 JSON（前端与模型都按 code 分支）。
 func TestSkillFailEnvelopeIsJSON(t *testing.T) {
 	var v map[string]any
-	if err := json.Unmarshal([]byte(skillFail(mcp.CodeTimeout, "x")), &v); err != nil {
+	if err := json.Unmarshal([]byte(toolFailure(mcp.CodeTimeout, "x")), &v); err != nil {
 		t.Fatal(err)
 	}
 	if v["ok"] != false {

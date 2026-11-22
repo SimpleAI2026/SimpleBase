@@ -45,6 +45,8 @@
       </PopoverContent>
     </Popover>
 
+    <slot name="actions" />
+
     <Button
       v-if="sending"
       size="icon"
@@ -92,6 +94,17 @@ export interface MentionAgent {
   /** 服务端保存的旧内置名称，语言切换后仍可识别老草稿。 */
   legacyName?: string
   builtinKey?: string
+  /**
+   * 点名目标类型（planv6.7 v2）：'human' 表示「当前人」，发送时转成
+   * {kind:'human', id:'me'}，由服务端解析为登录用户。缺省是助手。
+   */
+  kind?: 'agent' | 'human'
+}
+
+/** 发送时的点名声明的目标（v2 起带 kind，旧消费方只读 agent_id 仍然可用）。 */
+export interface MentionSendTarget {
+  agent_id: string
+  kind?: 'agent' | 'human'
 }
 
 const props = withDefaults(
@@ -112,7 +125,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: string): void
-  (e: 'send', mentions: { agent_id: string }[]): void
+  (e: 'send', mentions: MentionSendTarget[]): void
   (e: 'stop'): void
 }>()
 
@@ -162,6 +175,38 @@ function pickMention(a: MentionAgent) {
   nextTick(() => ta.value?.focus())
 }
 
+/**
+ * planv6.7 AGC-UI：供宿主从助手条注入点名（点击助手 = 在草稿开头插入 @名称 ）。
+ * 无 @ 前缀时在开头插入；已有文本自动补一个空格分隔。
+ */
+function insertMention(a: MentionAgent) {
+  const value = props.modelValue
+  const prefix = value && !value.startsWith(' ') ? value + ' ' : value
+  const at = prefix.length
+  const next = prefix + '@' + a.name + ' '
+  selectedMentions.value = [...selectedMentions.value, { start: at, text: '@' + a.name, agentId: a.id }]
+  emit('update:modelValue', next)
+  nextTick(() => ta.value?.focus())
+}
+
+/** planv6.7 AGC-UI：清空已选 mention 并从文本移除对应 @名称 片段。 */
+function clearMentions() {
+  const value = props.modelValue
+  if (!selectedMentions.value.length) {
+    emit('update:modelValue', value)
+    return
+  }
+  let next = value
+  for (const item of [...selectedMentions.value].sort((a, b) => b.start - a.start)) {
+    if (next.slice(item.start, item.start + item.text.length) === item.text) {
+      next = next.slice(0, item.start) + next.slice(item.start + item.text.length)
+    }
+  }
+  selectedMentions.value = []
+  emit('update:modelValue', next)
+  mentionOpen.value = false
+}
+
 function namesForAgent(agent: MentionAgent): string[] {
   const names = [agent.name]
   if (agent.legacyName && !names.includes(agent.legacyName)) names.push(agent.legacyName)
@@ -204,20 +249,26 @@ function sendMessage() {
   emit('send', mentionsForSend(props.modelValue))
 }
 
-function mentionsForSend(text: string) {
-  const found: { agent_id: string }[] = []
+function mentionsForSend(text: string): MentionSendTarget[] {
+  const found: MentionSendTarget[] = []
+  const push = (agent: MentionAgent) => {
+    if (found.some((entry) => entry.agent_id === agent.id)) return
+    // v2：人目标带 kind='human'，页面据此转成 {kind:'human', id:'me'}。
+    if (agent.kind === 'human') found.push({ agent_id: agent.id, kind: 'human' })
+    else found.push({ agent_id: agent.id })
+  }
   for (const item of selectedMentions.value) {
     if (text.slice(item.start, item.start + item.text.length) !== item.text) continue
     const after = text[item.start + item.text.length]
     if (after && !/\s/.test(after)) continue
     const agent = props.mentionAgents.find((candidate) => candidate.id === item.agentId)
-    if (agent && !found.some((entry) => entry.agent_id === agent.id)) found.push({ agent_id: agent.id })
+    if (agent) push(agent)
   }
   for (const match of text.matchAll(/@([^\s@]+)/g)) {
     if (selectedMentions.value.some((item) => item.start === match.index && text.slice(item.start, item.start + item.text.length) === item.text && (!text[item.start + item.text.length] || /\s/.test(text[item.start + item.text.length])))) continue
     const matches = props.mentionAgents.filter((a) => namesForAgent(a).includes(match[1]))
     const agent = matches.length === 1 ? matches[0] : undefined
-    if (agent && !found.some((entry) => entry.agent_id === agent.id)) found.push({ agent_id: agent.id })
+    if (agent) push(agent)
   }
   return found
 }
@@ -271,5 +322,5 @@ function focus() {
   })
 }
 
-defineExpose({ focus })
+defineExpose({ focus, insertMention, clearMentions })
 </script>

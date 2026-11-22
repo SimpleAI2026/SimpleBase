@@ -8,29 +8,6 @@
 // 原因（thirdparty/kiri/crates/kiri-init/src/linux/agent.rs）。
 //
 // 本文件是服务端骨架：读循环按帧分发、写侧单写者、信号与 PID 1 的收尸。
-//
-// 用法
-//
-//	agent.Main(args []string, env []string) int  // 入口（--agent --ctrl 4）
-//	Serve(ctrl *os.File, log io.Writer) error  // 在已有 fd 上服务
-//
-// 调用架构
-//
-//	[上游] cmd/main_linux.go（--agent 模式）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/agent/agent.go
-//	         │ 依赖
-//	         ▼
-//	[下游] gosandbox/proto、标准库
-//	[同包] proc.go, fs.go, rlimit_*.go, pty_*.go
-//
-// 主要符号
-//
-//	type Server struct {…}
-//	Serve(ctrl *os.File, log io.Writer) error
-//	Main(args []string, env []string) int
-
 package agent
 
 import (

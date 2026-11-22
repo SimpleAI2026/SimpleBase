@@ -185,7 +185,7 @@ func cmdSessions(env []string, args []string, stdout, stderr *os.File) int {
 		for _, e := range s.Lines {
 			switch e.Type {
 			case EntrySession:
-				fmt.Fprintf(stdout, "session %s  cwd=%s  project=%s  model=%s\n", s.ID, e.Cwd, e.ProjectID, e.Model)
+				fmt.Fprintf(stdout, "session %s  cwd=%s  endpoint=%s  model=%s\n", s.ID, e.Cwd, e.Endpoint, e.Model)
 			case EntryCompaction:
 				fmt.Fprintf(stdout, "[compaction] %s\n", firstLine(e.Summary, 120))
 			default:
@@ -223,7 +223,6 @@ var configKeys = []struct {
 }{
 	{"endpoint", func(c Config) string { return c.Endpoint }, func(c *Config, v string) { c.Endpoint = v }},
 	{"token", func(c Config) string { return c.Token }, func(c *Config, v string) { c.Token = v }},
-	{"project_id", func(c Config) string { return c.ProjectID }, func(c *Config, v string) { c.ProjectID = v }},
 	{"model", func(c Config) string { return c.Model }, func(c *Config, v string) { c.Model = v }},
 	{"output", func(c Config) string { return c.Output }, func(c *Config, v string) { c.Output = v }},
 	{"search_provider", func(c Config) string { return c.SearchProvider }, func(c *Config, v string) { c.SearchProvider = v }},
@@ -318,7 +317,7 @@ func cmdConfig(env []string, args []string, stdout, stderr *os.File) int {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return exitConfig
 		}
-		client := &HTTPClient{Endpoint: cfg.Endpoint, Token: cfg.Token, ProjectID: cfg.ProjectID}
+		client := &HTTPClient{Endpoint: cfg.Endpoint, Token: cfg.Token}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		if err := client.Probe(ctx); err != nil {
@@ -395,28 +394,25 @@ Flags:
                          danger-full-access (off). --yolo does NOT disable the sandbox.
 
 Layout:
-  ~/.gocloudagent/config.json      CLI config (mode 0600, contains the SimpleBase token)
+  ~/.gocloudagent/config.json      CLI config (mode 0600, contains the model token)
   ~/.gocloudagent/sessions/*.jsonl append-only session log
   ~/.gocloudagent/prompts/*.md     prompt templates, invoked with /name
 
-Environment (GOCLOUDAGENT_* overrides SIMPLEBASE_*):
-  GOCLOUDAGENT_HOME, GOCLOUDAGENT_ENDPOINT, GOCLOUDAGENT_TOKEN, GOCLOUDAGENT_PROJECT_ID,
+Environment:
+  GOCLOUDAGENT_HOME, GOCLOUDAGENT_ENDPOINT, GOCLOUDAGENT_TOKEN,
   GOCLOUDAGENT_MODEL, GOCLOUDAGENT_OUTPUT, GOCLOUDAGENT_SEARCH_PROVIDER,
   GOCLOUDAGENT_SEARCH_API_KEY, GOCLOUDAGENT_YOLO, GOCLOUDAGENT_MAX_ITERATIONS,
   GOCLOUDAGENT_COMPACT_TRIGGER_TOKENS, GOCLOUDAGENT_COMPACT_KEEP_TOKENS
-  SIMPLEBASE_URL, SIMPLEBASE_TOKEN, SIMPLEBASE_PROJECT_ID
 
 Shell tool environment:
-  Commands run by the shell tool do not inherit SIMPLEBASE_* / GOCLOUDAGENT_* or any
-  variable whose name contains TOKEN, SECRET, PASSWORD, API_KEY, ACCESS_KEY or SESSION.
-  A "simplebase" CLI started from the shell therefore reports config_missing unless
-  its own config file is set up beforehand (never print that file to the model).
+  Commands run by the shell tool do not inherit GOCLOUDAGENT_* or any variable
+  whose name contains TOKEN, SECRET, PASSWORD, API_KEY, ACCESS_KEY or SESSION.
 Context compaction:
   Long histories are summarized automatically (threshold ~32000 estimated tokens
   or 120 messages) and the summary replaces the older turns in the model context.
   Originals stay in the session file. Use /compact in the REPL to compact on
   demand; tune with compact_trigger_tokens / compact_keep_tokens.
 
-The model runs through the SimpleBase server, so an endpoint and token are required.
+The endpoint must be an OpenAI-compatible API base URL; a token is required.
 `)
 }

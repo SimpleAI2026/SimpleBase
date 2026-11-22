@@ -238,10 +238,6 @@ func (h *SchemaHandler) loadTableColumns(ctx context.Context, db catalog.Databas
 	return cols, nil
 }
 
-func schemaRowsSelectSQL(table string, cols []schemaColumnJSON, system bool) (string, error) {
-	return schemaRowsSelectSQLWhere(table, cols, system, "")
-}
-
 // schemaRowsSelectSQLWhere 在分页查询里插入已编译的 WHERE 片段（占位符参数由调用方按序前置）。
 func schemaRowsSelectSQLWhere(table string, cols []schemaColumnJSON, system bool, where string) (string, error) {
 	if len(cols) == 0 {

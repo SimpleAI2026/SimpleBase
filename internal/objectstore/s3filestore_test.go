@@ -219,9 +219,3 @@ func TestDuckLakeKeyErrors(t *testing.T) {
 		t.Fatal("data uri")
 	}
 }
-
-func TestValidateIDUpperHex(t *testing.T) {
-	if err := validateID("id", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"); err != nil {
-		t.Fatal(err)
-	}
-}

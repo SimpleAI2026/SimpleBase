@@ -1,26 +1,5 @@
 //go:build !linux
 
-// 文件说明：imagesource_other.go — 非 Linux 上没有镜像来源
-//
-// 用法
-//
-//	NewImageSource(p)  // 返回一个恒失败的实现
-//
-// 调用架构
-//
-//	[上游] internal/app（装配）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/vm/box/imagesource_other.go
-//	         │
-//	         ▼
-//	[下游] gosandbox/vm
-//	[同包] driver_other.go
-//
-// 主要符号
-//
-//	NewImageSource(p any) *ImageStore
-
 package box
 
 import (

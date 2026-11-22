@@ -34,11 +34,10 @@ package agentbridge
 import (
 	"context"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-// LogAccess 把 systemdb 的日志查询适配成 cloudagent.LogAccess。
+// LogAccess adapts systemdb log queries to the host LogReader port.
 // 保持原有只读语义与 admin 项目不过滤 project 的行为（由 Store 内部处理）。
 type LogAccess struct{ store *systemdb.Store }
 
@@ -52,14 +51,14 @@ func NewLogAccess(store *systemdb.Store) *LogAccess {
 }
 
 // SearchLogs 查询项目日志。
-func (l *LogAccess) SearchLogs(ctx context.Context, projectID, level, q string, limit int) ([]cloudagent.LogEvent, error) {
+func (l *LogAccess) SearchLogs(ctx context.Context, projectID, level, q string, limit int) ([]LogEvent, error) {
 	rows, err := l.store.QueryLogs(ctx, systemdb.LogQuery{ProjectID: projectID, Level: level, Q: q, Limit: limit})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]cloudagent.LogEvent, 0, len(rows))
+	out := make([]LogEvent, 0, len(rows))
 	for _, e := range rows {
-		out = append(out, cloudagent.LogEvent{
+		out = append(out, LogEvent{
 			ID:         e.ID,
 			ProjectID:  e.ProjectID,
 			Level:      e.Level,
@@ -74,19 +73,19 @@ func (l *LogAccess) SearchLogs(ctx context.Context, projectID, level, q string, 
 }
 
 // LevelStats 按 level 统计。
-func (l *LogAccess) LevelStats(ctx context.Context, projectID string) ([]cloudagent.LogLevelCount, error) {
+func (l *LogAccess) LevelStats(ctx context.Context, projectID string) ([]LogLevelCount, error) {
 	stats, err := l.store.LogLevelStats(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]cloudagent.LogLevelCount, 0, len(stats))
+	out := make([]LogLevelCount, 0, len(stats))
 	for _, s := range stats {
-		out = append(out, cloudagent.LogLevelCount{Level: s.Level, Count: s.Count})
+		out = append(out, LogLevelCount{Level: s.Level, Count: s.Count})
 	}
 	return out, nil
 }
 
-// SettingsAccess 把 sys_llm_settings 适配成 cloudagent.SettingsAccess。
+// SettingsAccess adapts sys_llm_settings to the host SettingsReader port.
 // 只转出默认模型，API Key / BaseURL 不出宿主。
 type SettingsAccess struct{ store *systemdb.Store }
 
@@ -99,10 +98,10 @@ func NewSettingsAccess(store *systemdb.Store) *SettingsAccess {
 }
 
 // LLMSettings 返回项目默认模型。
-func (s *SettingsAccess) LLMSettings(ctx context.Context, projectID string) (cloudagent.LLMSettings, error) {
+func (s *SettingsAccess) LLMSettings(ctx context.Context, projectID string) (LLMSettings, error) {
 	st, err := s.store.GetLLMSettings(ctx, projectID)
 	if err != nil {
-		return cloudagent.LLMSettings{}, err
+		return LLMSettings{}, err
 	}
-	return cloudagent.LLMSettings{ProjectID: st.ProjectID, DefaultModel: st.DefaultModel}, nil
+	return LLMSettings{ProjectID: st.ProjectID, DefaultModel: st.DefaultModel}, nil
 }

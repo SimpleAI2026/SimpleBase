@@ -142,7 +142,7 @@ go list -deps ./cloud | grep -c 'SimpleBase/internal'          # 0（不得依�
 go list -deps ./cli   | grep 'gocloudagent/cloud'              # 无输出（cli 不依赖 cloud）
 cd .. && go build ./internal/... ./cmd/... && go test ./internal/api/ ./internal/agentbridge/ ./internal/app/
 ./scripts/test.sh && ./scripts/smoke.sh
-python3 gocloudagent/bench/run_smoke.py --self-check
+python3 internal/agentbridge/bench/run_smoke.py --self-check
 ```
 
 附加：根目录 `.go` 文件 ≤ 3 个（`gocloudagent.go`、`cli_entry.go`、`cli_entry_test.go`）；`cloudagent/` 内单个源文件 ≤ 300 行；`docs/` 内无 `internal/gocloudagent` 字样；`internal/` 的 import 行 `git diff` 为 0。

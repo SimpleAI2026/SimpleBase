@@ -14,9 +14,9 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	pagelimit "github.com/linkxzhou/SimpleBase/godatabase/limit"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/config"
-	pagelimit "github.com/linkxzhou/SimpleBase/internal/utils/limit"
 	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
@@ -218,7 +218,7 @@ func (m *Manager) networkMode() string {
 	if strings.EqualFold(strings.TrimSpace(m.cfg.Network), "") {
 		return "none"
 	}
-	return strings.ToLower(strings.TrimSpace(m.cfg.Network))
+	return strutil.Normalize(m.cfg.Network)
 }
 
 // Interactive 报告后端是否实现了 vm.Interactive，且配置没有关掉终端。
@@ -760,13 +760,41 @@ func (m *Manager) validExec(in ExecInput) (vm.ExecSpec, error) {
 	return vm.ExecSpec{Shell: in.Command, Cmd: in.Cmd, Args: in.Args, Cwd: cwd, Env: in.Env, Timeout: timeout}, nil
 }
 
-// Exec 同步执行；非零退出与超时为成功 HTTP 结果（§7.2）。
-func (m *Manager) Exec(ctx context.Context, projectID, id string, in ExecInput) (ExecOutput, error) {
+func (m *Manager) execSandbox(ctx context.Context, r Sandbox, spec vm.ExecSpec, threadID string) (ExecOutput, error) {
 	var out ExecOutput
-	spec, err := m.validExec(in)
+	start := m.now()
+	result, err := m.driver.Exec(ctx, m.target(r), spec)
 	if err != nil {
+		fields := []zap.Field{zap.String("sandbox_id", r.ID), zap.String("vm_name", r.CloudName), zap.Error(err)}
+		if threadID != "" {
+			fields = append(fields, zap.String("thread_id", threadID))
+		}
+		m.logger.Warn("sandbox driver exec failed", fields...)
+		return out, fmt.Errorf("%w: exec", vm.ErrBackend)
+	}
+	fields := []zap.Field{zap.String("sandbox_id", r.ID), zap.Int("exit_code", result.ExitCode),
+		zap.Bool("timed_out", result.TimedOut), zap.Duration("duration", m.now().Sub(start)),
+		zap.Int("stdout_bytes", len(result.Stdout)), zap.Int("stderr_bytes", len(result.Stderr))}
+	m.logger.Info("sandbox exec done", fields...)
+	if err := m.markActive(ctx, &r, false); err != nil {
 		return out, err
 	}
+	out.Stdout, out.StdoutTruncated = vm.TruncateUTF8(result.Stdout, m.cfg.MaxOutputBytes)
+	out.Stderr, out.StderrTruncated = vm.TruncateUTF8(result.Stderr, m.cfg.MaxOutputBytes)
+	out.ExitCode = result.ExitCode
+	out.TimedOut = result.TimedOut
+	out.DurationMs = m.now().Sub(start).Milliseconds()
+	out.Status = r.Status
+	return out, nil
+}
+
+// Exec 同步执行；非零退出与超时为成功 HTTP 结果（§7.2）。
+func (m *Manager) Exec(ctx context.Context, projectID, id string, in ExecInput) (ExecOutput, error) {
+	spec, err := m.validExec(in)
+	if err != nil {
+		return ExecOutput{}, err
+	}
+	var out ExecOutput
 	err = m.withLock(ctx, id, func() error {
 		r, err := m.Get(ctx, projectID, id, false)
 		if err != nil {
@@ -778,26 +806,8 @@ func (m *Manager) Exec(ctx context.Context, projectID, id string, in ExecInput) 
 		if r.Status == "expired" {
 			return ErrGone
 		}
-		start := m.now()
-		result, err := m.driver.Exec(ctx, m.target(r), spec)
-		if err != nil {
-			m.logger.Warn("sandbox driver exec failed", zap.String("sandbox_id", id),
-				zap.String("vm_name", r.CloudName), zap.Error(err))
-			return fmt.Errorf("%w: exec", vm.ErrBackend)
-		}
-		m.logger.Info("sandbox exec done", zap.String("sandbox_id", id), zap.Int("exit_code", result.ExitCode),
-			zap.Bool("timed_out", result.TimedOut), zap.Duration("duration", m.now().Sub(start)),
-			zap.Int("stdout_bytes", len(result.Stdout)), zap.Int("stderr_bytes", len(result.Stderr)))
-		if err = m.markActive(ctx, &r, false); err != nil {
-			return err
-		}
-		out.Stdout, out.StdoutTruncated = strutil.TruncateValidUTF8(result.Stdout, m.cfg.MaxOutputBytes)
-		out.Stderr, out.StderrTruncated = strutil.TruncateValidUTF8(result.Stderr, m.cfg.MaxOutputBytes)
-		out.ExitCode = result.ExitCode
-		out.TimedOut = result.TimedOut
-		out.DurationMs = m.now().Sub(start).Milliseconds()
-		out.Status = r.Status
-		return nil
+		out, err = m.execSandbox(ctx, r, spec, "")
+		return err
 	})
 	return out, err
 }
@@ -961,33 +971,18 @@ func (m *Manager) ExecForThread(ctx context.Context, projectID, threadID string,
 	if err != nil {
 		return ExecOutput{}, err
 	}
-	var out ExecOutput
 	spec, err := m.validExec(in)
 	if err != nil {
-		return out, err
+		return ExecOutput{}, err
 	}
+	var out ExecOutput
 	err = m.withLock(ctx, r.ID, func() error {
 		r, err = m.Get(ctx, projectID, r.ID, false)
 		if err != nil {
 			return err
 		}
-		start := m.now()
-		result, e := m.driver.Exec(ctx, m.target(r), spec)
-		if e != nil {
-			m.logger.Warn("sandbox driver exec failed", zap.String("sandbox_id", r.ID),
-				zap.String("vm_name", r.CloudName), zap.String("thread_id", threadID), zap.Error(e))
-			return fmt.Errorf("%w: exec", vm.ErrBackend)
-		}
-		if e = m.markActive(ctx, &r, false); e != nil {
-			return e
-		}
-		out.Stdout, out.StdoutTruncated = strutil.TruncateValidUTF8(result.Stdout, m.cfg.MaxOutputBytes)
-		out.Stderr, out.StderrTruncated = strutil.TruncateValidUTF8(result.Stderr, m.cfg.MaxOutputBytes)
-		out.ExitCode = result.ExitCode
-		out.TimedOut = result.TimedOut
-		out.DurationMs = m.now().Sub(start).Milliseconds()
-		out.Status = r.Status
-		return nil
+		out, err = m.execSandbox(ctx, r, spec, threadID)
+		return err
 	})
 	return out, err
 }

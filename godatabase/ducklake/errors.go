@@ -1,26 +1,3 @@
-// 文件说明：errors.go — godatabase/ducklake 中 ErrCatalogEngineMismatch、ErrCatalogEngineUnknown…
-//
-// 用法
-//
-//	同包调用：ErrCatalogEngineMismatch → catalog_syncer.go, factory.go 等；ErrCatalogEngineUnknown → instance_format.go, manifest.go
-//
-// 调用架构
-//
-//	[上游] benchmarks/dbread, internal/app, internal/systemdb
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] godatabase/ducklake/errors.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] catalog_syncer.go, extension.go, factory.go, gated_conn.go, inspect.go 等 14 个
-//	[关键引用] ErrCatalogEngineMismatch ← catalog_syncer.go, factory.go, instance_format.go
-//
-// 主要符号
-//
-//	var ErrCatalogEngineMismatch
-//	var ErrCatalogEngineUnknown
-
 package ducklake
 
 import "errors"

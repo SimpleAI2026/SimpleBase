@@ -65,18 +65,17 @@ npm run build   # 确认输出目录（如 dist/）根下生成 index.html 与�
 ## 2. 前置条件检查
 
 1. **项目 ID 必须兼容 DNS 子域标签**：恰好 **8 位小写字母、数字或 `-`**（`^[a-z0-9-]{8}$`），**首尾不能是 `-`**，且不能是 `sb-admin`（如 `ex-shop1`、`myapp001` 均可；`MyApp001` 或 `-myapp01` 会返回 `project_id_not_dns_safe`，无法发布网站）。
-2. **目标实例已启用 `sites` 配置**：
+2. **目标实例已配置 `sites.base_domain`**（站点没有实例级开关）：
    - 本地开发启动方式（`*.localhost` 现代浏览器自动解析到 `127.0.0.1`，免改 `/etc/hosts`）：
      ```bash
-     SIMPLEBASE_SITES_ENABLED=true \
      SIMPLEBASE_SITES_BASE_DOMAIN=localhost \
      SIMPLEBASE_SITES_URL_SCHEME=http \
      SIMPLEBASE_SITES_URL_PORT=8080 \
      ./build.sh dev
      ```
      若后端监听其它端口（如 `18080`），同步修改 `SIMPLEBASE_SITES_URL_PORT`。
-   - 云端实例：`config.yaml` 配置 `sites.enabled: true` 与 `sites.base_domain: <根域名>`（如 `simplebase.top`），配好泛解析 `*.<base_domain>`、泛域名证书，并确保反向代理**透传原始 `Host` 头**（服务端只读 `Host`，忽略 `X-Forwarded-Host`）。
-3. **Key 权限**：上传对象需要 `database:write`；开启/下线站点（`PUT /s3/site`）与设置公开路径（`PUT /s3/public`）需要 **`database:admin`**（发布 Key 已具备；云助手委托令牌不可调用）。
+   - 云端实例：`config.yaml` 配置 `sites.base_domain: <根域名>`（如 `simplebase.top`），配好泛解析 `*.<base_domain>`、泛域名证书，并确保反向代理**透传原始 `Host` 头**（服务端只读 `Host`，忽略 `X-Forwarded-Host`）。
+3. **Key 权限**：上传对象需要 `database:write`；设置公开路径（`PUT /s3/public`）需要 **`database:admin`**（发布 Key 已具备；云助手委托令牌不可调用）。
 
 ## 3. 上传到对象存储并发布站点
 
@@ -148,8 +147,8 @@ python3 scripts/sbdev.py site unpublish -C <dir> [--env-file .env.cloud --yes]
 | 现象 / 规则 | 说明与处理 |
 | --- | --- |
 | 控制台下载链接打不开网页（直接变成下载附件） | 预期行为：控制台源的 `/s3/objects/content` 与 `/files/:token` 强制 HTML 走 `attachment` 防 XSS；**必须在 `<project_id>.<base_domain>` 子域名上访问**才会内联渲染并执行脚本 |
-| 子域名访问返回 `404` | 逐项核对：① 请求 `Host` 是否精确为 `<8位小写project_id>.<base_domain>`（控制台域名直接请求 `/__site/*` 必返 404）；② `GET /s3/site` 中 `enabled` 是否为 `true`；③ `GET /s3/public` 是否覆盖了实际文件路径（访问 `/` 时实际查找 `index.html`）；④ 只读副本最多有 `sites.cache_ttl`（默认 30s）同步延迟 |
-| `site_not_publishable`（400） | 调 `GET /v1/projects/<id>/s3/site` 看 `reason`：`sites_disabled`（服务端未开 `sites.enabled` / `base_domain`）、`project_id_not_dns_safe`（项目 ID 含大写或首尾 `-`）、`system_project`（`sb-admin` 禁止发布） |
+| 子域名访问返回 `404` | 逐项核对：① 请求 `Host` 是否精确为 `<8位小写project_id>.<base_domain>`（控制台域名直接请求 `/__site/*` 必返 404）；② `GET /s3/site` 中 `publishable` 是否为 `true`；③ `GET /s3/public` 是否覆盖了实际文件路径（访问 `/` 时实际查找 `index.html`）；④ 只读副本最多有 `sites.cache_ttl`（默认 30s）同步延迟 |
+| `site_not_publishable`（400） | 调 `GET /v1/projects/<id>/s3/site` 看 `reason`：`site_domain_unconfigured`（服务端未配置 `base_domain`）、`project_id_not_dns_safe`（项目 ID 含大写或首尾 `-`）、`system_project`（`sb-admin` 禁止发布） |
 | `mime_mismatch`（415） | 手工 `curl -F` 上传 `.js`/`.css`/`.html` 时声明了与嗅探结果冲突的 MIME（改走 `simplebase object upload` 或声明 `application/octet-stream`）；或 `.svg` 含 `<?xml` 头（去掉该头） |
-| `forbidden`（403） | 开启站点或公开路径用了仅有 `database:write` 的运行时 Key；改用具备 `database:admin` 的发布 Key |
+| `forbidden`（403） | 公开路径用了仅有 `database:write` 的运行时 Key；改用具备 `database:admin` 的发布 Key |
 | 目录无斜杠跳转 | 访问 `/app`（无扩展名）且 `app/index.html` 已公开存在时，服务端返回 `301` 重定向到 `/app/` |

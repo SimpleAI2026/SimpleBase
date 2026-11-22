@@ -52,24 +52,24 @@ func (t *mcpTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 
 	decision, err := t.classify(ctx)
 	if err != nil {
-		return skillFail(mcp.CodePolicyUnavailable, "MCP 工具策略不可用"), nil
+		return toolFailure(mcp.CodePolicyUnavailable, "MCP 工具策略不可用"), nil
 	}
-	if !writableFor(t.req, t.rc) && !decision.ReadOnly {
-		return skillFail(mcp.CodeWriteNotAllowed, "该助手未开启写权限，只能调用只读 MCP 工具"), nil
+	if !t.req.Agent.Writable && !decision.ReadOnly {
+		return toolFailure(mcp.CodeWriteNotAllowed, "该助手未开启写权限，只能调用只读 MCP 工具"), nil
 	}
 	if decision.Destructive {
-		if t.req.Headless || t.rc.Headless {
+		if t.req.Headless {
 			if emit != nil {
 				emit(Event{Type: "confirmation_resolved", CallID: callID, Name: name, Approve: boolPtr(false), Message: "定时任务不能确认破坏性操作"})
 			}
-			return skillFail(mcp.CodeConfirmationUnavailable, "定时任务不能确认破坏性操作"), nil
+			return toolFailure(mcp.CodeConfirmationUnavailable, "定时任务不能确认破坏性操作"), nil
 		}
 		approved, err := t.askConfirm(ctx, callID, name, argumentsInJSON)
 		if err != nil {
 			return "", err
 		}
 		if !approved {
-			return skillFail(mcp.CodeConfirmationDenied, "已取消"), nil
+			return toolFailure(mcp.CodeConfirmationDenied, "已取消"), nil
 		}
 	}
 
@@ -82,12 +82,12 @@ func (t *mcpTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 	res, err := t.session.CallTool(callCtx, t.rawName, []byte(argumentsInJSON))
 	if err != nil {
 		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
-			return skillFail(mcp.CodeTimeout, "MCP 工具调用超时"), nil
+			return toolFailure(mcp.CodeTimeout, "MCP 工具调用超时"), nil
 		}
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		return skillFail(mcp.CodeUnavailable, "MCP Server 不可用"), nil
+		return toolFailure(mcp.CodeUnavailable, "MCP Server 不可用"), nil
 	}
 	// 只记元数据：server、工具名、耗时、is_error、结果 hash（§3.4）。
 	if t.trace.enabled() {
@@ -101,7 +101,7 @@ func (t *mcpTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 		)
 	}
 	if res.IsError {
-		return skillFail(mcp.CodeToolError, truncate(res.Text, 2000)), nil
+		return toolFailure(mcp.CodeToolError, truncate(res.Text, 2000)), nil
 	}
 	out := agentcore.RedactSecrets(res.Text)
 	if res.Truncated {
@@ -120,11 +120,11 @@ func (t *mcpTool) callID(ctx context.Context) string {
 }
 
 // classify 取宿主策略；缺失或出错一律 fail-closed。
-func (t *mcpTool) classify(ctx context.Context) (CommandDecision, error) {
+func (t *mcpTool) classify(ctx context.Context) (ToolDecision, error) {
 	if t.policy == nil {
-		return CommandDecision{}, errors.New("mcp policy is not configured")
+		return ToolDecision{}, errors.New("mcp policy is not configured")
 	}
-	return t.policy.Classify(ctx, t.req.ProjectID, t.serverID, t.rawName)
+	return t.policy.Classify(ctx, t.req, t.serverID, t.rawName)
 }
 
 // askConfirm 走与 CLI 相同的确认流程（§4.2-3）。
@@ -133,13 +133,13 @@ func (t *mcpTool) askConfirm(ctx context.Context, callID, name, arguments string
 	argv := mcpConfirmArgv(t.serverID, t.rawName, arguments)
 	if emit != nil {
 		if p, ok := t.confirm.(ConfirmationPreparer); ok && callID != "" {
-			p.Prepare(t.req.RunID, callID, principalKey(t.req.Principal))
+			p.Prepare(t.req.RunID, callID, t.req.Subject)
 		}
 		emit(Event{Type: "confirmation_required", CallID: callID, Name: name, Argv: argv, Message: "将调用破坏性 MCP 工具：" + strings.Join(argv, " ")})
 	}
 	approved := false
 	if t.confirm != nil && callID != "" {
-		ok, err := t.confirm.Wait(ctx, t.req.RunID, callID, principalKey(t.req.Principal), t.confirmTimeout)
+		ok, err := t.confirm.Wait(ctx, t.req.RunID, callID, t.req.Subject, t.confirmTimeout)
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			return false, ctx.Err()
 		}
@@ -170,6 +170,7 @@ type mcpBuildParams struct {
 	ConfirmTimeout time.Duration
 	CallTimeout    time.Duration
 	Trace          tracer
+	Reserved       map[string]bool
 }
 
 // buildMCPTools 按 Agent 的 mcp: 引用装配工具（planv6.2 §4.3）。
@@ -186,7 +187,7 @@ func buildMCPTools(ctx context.Context, p mcpBuildParams) ([]tool.BaseTool, mcp.
 		return nil, nil, nil, errors.New("mcp is not configured; remove mcp: tool ids from this agent")
 	}
 	serverIDs := mcpServerIDs(refs)
-	set, err := p.Connector.Connect(ctx, p.Req.Principal, p.Req.ProjectID, serverIDs)
+	set, err := p.Connector.Connect(ctx, p.Req, serverIDs)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -220,8 +221,7 @@ func buildMCPTools(ctx context.Context, p mcpBuildParams) ([]tool.BaseTool, mcp.
 				break
 			}
 			name := mcp.ToolName(serverID, info.Name)
-			// 内置工具名优先：冲突的 MCP 工具跳过并告警（§3.2）。
-			if KnownTool(name) {
+			if p.Reserved[name] {
 				notes = append(notes, fmt.Sprintf("mcp: %s skipped (name conflicts with a builtin tool)", name))
 				continue
 			}
@@ -250,7 +250,7 @@ func buildMCPTools(ctx context.Context, p mcpBuildParams) ([]tool.BaseTool, mcp.
 		_ = set.Close()
 		return nil, nil, notes, nil
 	}
-	return wrapToolErrors(out), set, notes, nil
+	return out, set, notes, nil
 }
 
 // mcpToolInfo 把自有 ToolInfo 转成 eino 的 schema.ToolInfo（§3.3）。

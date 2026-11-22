@@ -1,24 +1,3 @@
-// 文件说明：deadline.go — 给 net.Conn 设读超时，兼容不支持超时的连接
-//
-// 用法
-//
-//	setReadDeadline(c net.Conn, d time.Duration) error  // d <= 0 表示清除超时
-//
-// 调用架构
-//
-//	[上游] gosandbox/box/session.go
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/deadline.go
-//	         │
-//	         ▼
-//	[下游] net
-//	[同包] session.go
-//
-// 主要符号
-//
-//	setReadDeadline(c net.Conn, d time.Duration) error
-
 package box
 
 import (

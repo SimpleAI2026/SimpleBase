@@ -1,30 +1,3 @@
-// 文件说明：paths.go — 归档条目名的类型判定与安全规范化
-//
-// 这两件事是打包与解包共用的，单独放一处：解包时的路径检查是
-// 快照功能的唯一安全防线，不该跟业务代码混在一起。
-//
-// 用法
-//
-//	typeOf(fi, link)          // 决定 tar 条目类型
-//	safeRel("upper/etc/x")    // 规范化并拒绝越界
-//
-// 调用架构
-//
-//	[上游] gosandbox/snapshot（multidir.go）
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/snapshot/paths.go
-//	         │
-//	         ▼
-//	[下游] 仅标准库
-//	[同包] multidir.go
-//
-// 主要符号
-//
-//	ErrUnsafeArchive
-//	typeOf(fi os.FileInfo, link string) byte
-//	safeRel(name string) (string, error)
-
 package snapshot
 
 import (

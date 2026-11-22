@@ -1,56 +1,5 @@
 //go:build linux
 
-// 文件说明：supervise_linux.go — 一个独立进程托管沙盒，服务重启不丢沙盒
-//
-// 问题：现在控制通道是 socketpair，一端在服务进程里。服务进程一退出
-// （升级、崩溃、被 supervisor 重启），socketpair 就断了，bwrap 与 agent
-// 也随之死掉——所有沙盒消失。
-//
-// 解法：把「持有 socketpair」这件事挪到一个独立进程（supervisor）。
-//
-//	服务进程 ──unix socket──► supervisor ──socketpair──► bwrap + agent
-//
-//   - supervisor 是 `gosandbox-inner --supervisor` 自己，与沙盒共用同一个
-//     二进制，不需要额外的部署产物；
-//   - 服务进程连上是「一条字节流」，协议层完全不变（单写者、帧格式都不动）；
-//   - supervisor 断开后仍持有 agent 侧的连接，新服务进程连上继续收发，
-//     agent 甚至不知道自己被重新接管过；
-//   - 控制面是宿主上的 unix socket，不在沙盒的 netns 里，
-//     沙盒内进程依旧摸不到它（与原来 socketpair 的安全性质一致）。
-//
-// 代价（必须明确的）：
-//
-//   - 服务进程断开那一刻，agent 正在发但还没被读走的帧会丢。协议是帧级的，
-//     丢了就是丢了——调用方看到的是「那条请求没回复」，需要自己重试。
-//     不缓冲是为了不让 supervisor 变成内存黑洞；
-//   - supervisor 自己不重启服务进程：它只负责「不丢沙盒」，
-//     谁拉起服务进程由外部的 init 系统决定（systemd / launchd）。
-//
-// 用法
-//
-//	// supervisor 侧（由 launch 拉起）
-//	gosandbox-inner --supervisor --socket /var/lib/sb/sb1/ctl.sock --policy /var/lib/sb/sb1/run/policy.json -- <bwrap argv>
-//
-//	// 服务进程侧
-//	conn, err := dialSupervisor("/var/lib/sb/sb1/ctl.sock")
-//
-// 调用架构
-//
-//	[上游] gosandbox/box（launch / dialSupervisor）、gosandbox/cmd
-//	         │ 调用本包导出 API
-//	         ▼
-//	[本文件] gosandbox/box/supervise_linux.go
-//	         │
-//	         ▼
-//	[下游] net、os/exec、仅标准库
-//	[同包] launch_linux.go, session.go
-//
-// 主要符号
-//
-//	SuperviseArgs(args []string) (socket, policy string, argv []string, ok bool)
-//	RunSupervisor(socket, policy string, argv []string) int
-//	dialSupervisor(path string) (net.Conn, error)
-
 package box
 
 import (

@@ -1,26 +1,3 @@
-// 文件说明：godb-cli.go — godb：godatabase 本地运维 CLI（批次 E）
-//
-// 用法
-//
-//	godb open --path <dir> --engine duckdb|sqlite --project <id>
-//	godb sql --project <id> [--rw] -- "<sql>"
-//	godb kv --project <id> get|set|del|scan <key> [--value] [--ttl]
-//	godb snapshot --project <id> --out <file>
-//	godb inspect --project <id>
-//	godb bench --project <id> --ops <n>
-//
-// 调用架构
-//
-//	[上游] 命令行（开发者本地排查）
-//	         │
-//	         ▼
-//	[本文件] godatabase/cmd/godb-cli.go
-//	         │ 组装
-//	         ▼
-//	[下游] godatabase/filedb, godatabase/registry, godatabase/kv, godatabase/sqlguard, godatabase/blob
-//
-// 说明：只做本地模式（DataRoot+CacheDir 目录，不连 S3）；输出默认人类可读文本，
-// --json 输出 JSON。错误信息不含数据库路径（AGENTS.md 第 7 条）。
 package main
 
 import (

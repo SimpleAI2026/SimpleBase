@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/utils/sqlval"
+	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 )
 
 func TestIsNotFoundAndAlreadyExists(t *testing.T) {

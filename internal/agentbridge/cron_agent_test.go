@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -116,6 +117,16 @@ func (f *fakeStore) UpdateAgentRunStatus(_ context.Context, _, id, status, errMs
 	r.Error = errMsg
 	f.agentRuns[id] = r
 	return nil
+}
+
+func (f *fakeStore) UpdateAgentRunMetrics(context.Context, string, string, systemdb.AgentRun) error {
+	return nil
+}
+
+func (f *fakeStore) RecordAgentToolSpans(string, string, string) error { return nil }
+
+func (f *fakeStore) GetAgentGroupCron(context.Context, string, string) (systemdb.AgentGroupCron, error) {
+	return systemdb.AgentGroupCron{}, nil
 }
 
 func (f *fakeStore) GetCronJob(_ context.Context, _, id string) (systemdb.CronJob, error) {
@@ -227,14 +238,18 @@ func TestRunAgentSuccess(t *testing.T) {
 	if req.Stream || !req.Headless {
 		t.Fatalf("stream=%v headless=%v, want false/true", req.Stream, req.Headless)
 	}
-	if req.Principal.APIKeyID != CronAgentPrincipalID {
-		t.Fatalf("principal = %q", req.Principal.APIKeyID)
+	rc, err := hostContext(req.Context)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := req.Principal.Permissions[cloudagent.DatabaseRead]; !ok || len(req.Principal.Permissions) != 1 {
-		t.Fatalf("principal must be read-only: %+v", req.Principal.Permissions)
+	if rc.Principal.APIKeyID != CronAgentPrincipalID {
+		t.Fatalf("principal = %q", rc.Principal.APIKeyID)
 	}
-	if len(req.Skills) != 1 || req.Skills[0] != "database" {
-		t.Fatalf("skills = %v", req.Skills)
+	if _, ok := rc.Principal.Permissions[auth.DatabaseRead]; !ok || len(rc.Principal.Permissions) != 1 {
+		t.Fatalf("principal must be read-only: %+v", rc.Principal.Permissions)
+	}
+	if len(rc.Skills) != 1 || rc.Skills[0] != "database" {
+		t.Fatalf("skills = %v", rc.Skills)
 	}
 	if req.UserText != j.AgentPrompt || req.ThreadID != "t1" {
 		t.Fatalf("req = %+v", req)
